@@ -82,7 +82,8 @@ pub(crate) use self::run_support::{
 };
 pub(crate) use self::schema::apply_cipher_key;
 pub(crate) use self::schema::export_archive_database;
-pub use self::schema::{create_schema, open_archive_connection};
+pub(crate) use self::schema::open_archive_connection_reporting;
+pub use self::schema::{assess_archive_upgrade, create_schema, open_archive_connection};
 pub use self::schema::{current_version, max_schema_version, run_migrations};
 pub(crate) use self::search_projection::{
     attach_search_database, rebuild_search_projection, refresh_enrichment_text_for_history,
@@ -128,8 +129,8 @@ pub use self::{
         run_full_archive_snapshot_restore, run_retention_prune, run_snapshot_restore,
     },
     read_models::{
-        archive_status, ensure_archive_initialized, load_audit_run_detail, load_dashboard_snapshot,
-        load_recent_runs,
+        archive_status, ensure_archive_initialized, ensure_archive_initialized_with_progress,
+        load_audit_run_detail, load_dashboard_snapshot, load_recent_runs,
     },
 };
 use crate::{

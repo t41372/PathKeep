@@ -8,12 +8,17 @@ use super::search_lexical::{LexicalDocument, analyze_document};
 use crate::{
     archive::open_archive_connection,
     config::{ProjectPaths, ensure_paths},
-    models::AppConfig,
+    models::{AppConfig, ArchiveUpgradePhase, ArchiveUpgradeProgress},
 };
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashMap;
 use std::time::Duration as StdDuration;
+
+/// Rows reprojected between search-reprojection progress ticks. Coalesces the
+/// per-document loop into a handful of events across the 14.4M tail so the
+/// upgrade screen updates smoothly without flooding the event channel.
+const SEARCH_REPROJECTION_PROGRESS_STRIDE: u64 = 2_048;
 
 // v4 (notes/tags recall): adds `notes_text` + `tags_text` columns to `search_documents` + the term FTS
 // mirror so per-URL NOTES (`url_annotations.notes`) and TAGS (`url_tags.tag`, space-joined) are
@@ -98,10 +103,27 @@ pub(crate) fn attach_search_database(archive: &Connection, paths: &ProjectPaths)
     Ok(())
 }
 
-pub(crate) fn seed_search_projection_if_missing(
+/// Seeds the search projection from the canonical archive when it is empty,
+/// reprojecting with per-batch progress so the first-run upgrade's reprojection
+/// is observable instead of an opaque multi-minute stall.
+///
+/// Guards: skip when the projection already holds documents, or when there are
+/// no canonical URLs. A plain [`open_archive_connection`](crate::archive::open_archive_connection)
+/// passes a no-op reporter, so the no-callback path is byte-for-byte the
+/// original seed (the seed runs during archive open with no enrichment yet;
+/// enrichment text is mirrored in by a later `rebuild_search_projection` once
+/// content has been fetched, so it seeds with an empty map). Reuses the
+/// already-computed `urls` count as the progress total, so no extra COUNT is
+/// paid beyond the guard. Progress is OBSERVATION ONLY — the reprojection SQL
+/// and per-document derivation are unchanged.
+pub(crate) fn seed_search_projection_with_progress<F>(
     archive: &Connection,
     paths: &ProjectPaths,
-) -> Result<()> {
+    report: &mut F,
+) -> Result<()>
+where
+    F: FnMut(ArchiveUpgradeProgress),
+{
     let projected_documents: i64 = archive
         .query_row("SELECT COUNT(*) FROM search.search_documents", [], |row| row.get(0))
         .unwrap_or_default();
@@ -115,9 +137,45 @@ pub(crate) fn seed_search_projection_if_missing(
         return Ok(());
     }
 
-    // The seed runs during archive open (no enrichment available yet); enrichment text is mirrored in
-    // by a later `rebuild_search_projection` once content has been fetched. Seed with an empty map.
-    rebuild_search_projection_from_archive(archive, paths)
+    let total = canonical_urls.max(0) as u64;
+    rebuild_search_projection_core(
+        archive,
+        paths,
+        &HashMap::new(),
+        total,
+        SEARCH_REPROJECTION_PROGRESS_STRIDE,
+        &mut |processed, total| {
+            report(ArchiveUpgradeProgress::phase(
+                ArchiveUpgradePhase::SearchReprojection,
+                processed.min(total),
+                total,
+            ));
+        },
+    )
+}
+
+/// Whether opening the archive will trigger a search-projection reprojection
+/// (a schema drift that drops + rebuilds, or a not-yet-seeded projection).
+///
+/// Used by the cheap upgrade pre-check. Reads only the projection meta version
+/// and an existence probe — never a full COUNT of the document tail. A missing
+/// search DB reports `true` WITHOUT opening (which would create the file).
+pub(crate) fn search_reprojection_pending(paths: &ProjectPaths) -> Result<bool> {
+    if !paths.search_database_path.exists() {
+        return Ok(true);
+    }
+    let connection = open_search_connection(paths)?;
+    if search_schema_version(&connection)? != Some(SEARCH_PROJECTION_SCHEMA_VERSION) {
+        // A version drift resets + rebuilds the whole projection on next open.
+        return Ok(true);
+    }
+    // Version matches: a rebuild still runs only if the projection holds no
+    // documents yet (a fresh seed). Existence probe, not a COUNT of the tail.
+    let has_document = connection
+        .query_row("SELECT 1 FROM search_documents LIMIT 1", [], |_| Ok(()))
+        .optional()?
+        .is_some();
+    Ok(!has_document)
 }
 
 pub(crate) fn rebuild_search_projection(
@@ -669,18 +727,45 @@ pub(crate) fn refresh_search_projection_for_import_batch(
     Ok(())
 }
 
-fn rebuild_search_projection_from_archive(
-    archive: &Connection,
-    paths: &ProjectPaths,
-) -> Result<()> {
-    rebuild_search_projection_from_archive_with_enrichment(archive, paths, &HashMap::new())
-}
-
 fn rebuild_search_projection_from_archive_with_enrichment(
     archive: &Connection,
     paths: &ProjectPaths,
     enrichment_text: &HashMap<i64, String>,
 ) -> Result<()> {
+    // The plain rebuild carries no progress: `total = 0` and a no-op reporter mean
+    // no extra COUNT and no ticks, so this stays byte-for-byte the original path.
+    rebuild_search_projection_core(
+        archive,
+        paths,
+        enrichment_text,
+        0,
+        SEARCH_REPROJECTION_PROGRESS_STRIDE,
+        &mut |_, _| {},
+    )
+}
+
+/// Progress-aware core of the full search-projection rebuild.
+///
+/// Identical DELETE-then-reinsert reprojection as before; `report(processed,
+/// total)` fires an initial `0/total`, one tick every `stride` documents, and a
+/// final `processed/total`. The no-progress callers pass `total = 0` and a no-op
+/// reporter, so they incur no extra work; only
+/// [`seed_search_projection_with_progress`] passes a real total (the
+/// already-counted `urls` total) and reporter. `stride` is a parameter (rather
+/// than the constant directly) so a unit test can drive the mid-loop tick with a
+/// small corpus — the production callers always pass
+/// [`SEARCH_REPROJECTION_PROGRESS_STRIDE`].
+fn rebuild_search_projection_core<R>(
+    archive: &Connection,
+    paths: &ProjectPaths,
+    enrichment_text: &HashMap<i64, String>,
+    total: u64,
+    stride: u64,
+    report: &mut R,
+) -> Result<()>
+where
+    R: FnMut(u64, u64),
+{
     let mut search = open_search_connection(paths)?;
     ensure_search_schema(&search)?;
     let transaction = search.transaction()?;
@@ -693,6 +778,7 @@ fn rebuild_search_projection_from_archive_with_enrichment(
         "INSERT INTO history_search_trigram(history_search_trigram) VALUES('delete-all')",
         [],
     )?;
+    report(0, total);
 
     // Notes/tags are canonical-archive content (NOT intelligence-derived), so load them straight from
     // the SAME archive connection the rebuild reads from — keyed by url STRING (their natural key; the
@@ -737,6 +823,7 @@ fn rebuild_search_projection_from_archive_with_enrichment(
          )
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, datetime('now'))",
     )?;
+    let mut processed: u64 = 0;
     while let Some(row) = rows.next()? {
         let url_id = row.get::<_, i64>(0)?;
         let url = row.get::<_, String>(1)?;
@@ -762,6 +849,10 @@ fn rebuild_search_projection_from_archive_with_enrichment(
             notes,
             tags,
         ])?;
+        processed += 1;
+        if processed % stride == 0 {
+            report(processed, total);
+        }
     }
     drop(insert);
     transaction
@@ -771,6 +862,7 @@ fn rebuild_search_projection_from_archive_with_enrichment(
         [],
     )?;
     transaction.commit()?;
+    report(processed, total);
     Ok(())
 }
 
@@ -1756,6 +1848,62 @@ mod tests {
         assert!(
             !plain_keyword_finds_seeded_url(&paths, &config, "图书馆"),
             "the replaced CJK note's old term must no longer match"
+        );
+    }
+
+    #[test]
+    fn rebuild_core_emits_initial_mid_loop_and_final_progress_ticks() {
+        // The reprojection reports an initial `0/total`, one tick every `stride`
+        // documents, and a final `total/total` — proving the FE gets REAL moving
+        // progress across the tail, not a single 0→100 jump. Driven with a tiny
+        // stride so a 3-doc corpus crosses the mid-loop boundary once.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        archive
+            .execute(
+                "INSERT INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+                 VALUES (1, 'backup', 'test', '2026-01-01', 'UTC', 'success', '[]', '[]', '{}', 0)",
+                [],
+            )
+            .expect("run");
+        archive
+            .execute(
+                "INSERT INTO source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+                 VALUES (1, 'chrome', 'x', 'p', '/p', '2026-01-01', 1, 'chrome:Default', '2026-01-01')",
+                [],
+            )
+            .expect("profile");
+        for id in 1..=3 {
+            archive
+                .execute(
+                    "INSERT INTO urls (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id)
+                     VALUES (?1, ?2, 't', 1, 0, 1, '', 1, '', 1, 1)",
+                    params![id, format!("https://s{id}.example.com/")],
+                )
+                .expect("url");
+        }
+
+        let mut events: Vec<(u64, u64)> = Vec::new();
+        // stride = 2 over 3 docs => initial 0/3, one mid-loop tick at 2/3, final 3/3.
+        rebuild_search_projection_core(
+            &archive,
+            &paths,
+            &HashMap::new(),
+            3,
+            2,
+            &mut |processed, total| events.push((processed, total)),
+        )
+        .expect("rebuild with progress");
+        assert_eq!(
+            events,
+            vec![(0, 3), (2, 3), (3, 3)],
+            "an initial tick, a per-stride mid-loop tick, and a terminal tick"
         );
     }
 }

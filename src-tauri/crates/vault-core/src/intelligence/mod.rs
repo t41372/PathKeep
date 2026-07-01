@@ -104,7 +104,9 @@ pub use self::intelligence_rebuild::{
 pub use self::intelligence_refind::{
     explain_refind, get_refind_page_detail, get_refind_pages, get_top_sites,
 };
-pub use self::intelligence_schema::{clear_derived_intelligence_state, intelligence_status};
+pub use self::intelligence_schema::{
+    clear_derived_intelligence_state, intelligence_status, max_intelligence_schema_version,
+};
 pub use self::intelligence_search_metrics::{
     delete_search_engine_rule_for_settings, get_search_engine_ranking, get_top_search_concepts,
     list_search_engine_rules_for_settings, upsert_search_engine_rule_for_settings,

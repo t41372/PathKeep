@@ -262,6 +262,15 @@ pub(crate) fn apply_intelligence_migrations_through(
     Ok(())
 }
 
+/// Highest intelligence-plane schema version this build knows how to apply.
+///
+/// Exposed for the cheap first-run upgrade pre-check ([`crate::assess_archive_upgrade`])
+/// so it can report whether the derived intelligence plane is version-behind
+/// without opening or migrating it.
+pub fn max_intelligence_schema_version() -> i64 {
+    INTELLIGENCE_MIGRATIONS.last().map(|spec| spec.version).unwrap_or(0)
+}
+
 /// Ensures the intelligence plane is ready for reads and rebuilds before any
 /// route surface or background task opens the derived database.
 pub(crate) fn ensure_core_intelligence_schema(connection: &Connection) -> Result<()> {

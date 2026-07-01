@@ -6,16 +6,34 @@ use vault_worker::RekeyRequest;
 
 use super::worker_result;
 
-/// Initializes the archive and synchronizes the session key with the chosen key.
-pub(crate) fn initialize_archive_impl(
+/// Initializes the archive (forwarding first-run upgrade progress to the UI
+/// callback) and synchronizes the session key with the chosen key.
+///
+/// The command layer wraps `report_progress` around
+/// `AppHandle::emit("pathkeep://archive-upgrade")` so a large first launch drives
+/// the "Upgrading your archive…" screen; the dev bridge and tests pass a no-op
+/// reporter (they cannot deliver Tauri events), and the upgrade work still runs.
+pub(crate) fn initialize_archive_with_progress_impl(
     config: AppConfig,
     database_key: Option<String>,
     state: &SessionState,
+    report_progress: impl FnMut(vault_core::ArchiveUpgradeProgress),
 ) -> Result<vault_core::AppSnapshot, String> {
-    let snapshot =
-        worker_result(vault_worker::initialize_archive_database(&config, database_key.as_deref()))?;
+    let snapshot = worker_result(vault_worker::initialize_archive_database_with_progress(
+        &config,
+        database_key.as_deref(),
+        report_progress,
+    ))?;
     update_session_key(state, database_key)?;
     Ok(snapshot)
+}
+
+/// Runs the cheap first-run upgrade pre-check the shell calls at bootstrap to
+/// decide whether to show the upgrade screen at all.
+pub(crate) fn assess_archive_upgrade_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::ArchiveUpgradeAssessment, String> {
+    worker_result(vault_worker::assess_archive_upgrade(session_database_key))
 }
 
 /// Rekeys the archive and updates the cached session key to the new key.

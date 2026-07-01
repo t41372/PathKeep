@@ -19,9 +19,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use vault_core::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, AppConfig, AppSnapshot, ArchiveMode, ArchiveRecoveryReport,
-    LaunchRecovery, ReconcileReport, RuntimeDiagnostics, archive_status, ensure_app_lock_unlocked,
-    ensure_archive_initialized, hydrate_app_lock_config, load_config, load_import_batches,
-    load_recent_runs, recover_archive_on_launch, rekey_archive, save_config,
+    ArchiveUpgradeAssessment, ArchiveUpgradeProgress, LaunchRecovery, ReconcileReport,
+    RuntimeDiagnostics, archive_status, ensure_app_lock_unlocked,
+    ensure_archive_initialized_with_progress, hydrate_app_lock_config, load_config,
+    load_import_batches, load_recent_runs, recover_archive_on_launch, rekey_archive, save_config,
     validate_app_lock_config_with_biometric,
 };
 use vault_platform::{discover_browser_profiles, keyring_status};
@@ -192,6 +193,38 @@ pub fn initialize_archive_database(
     config: &AppConfig,
     database_key: Option<&str>,
 ) -> Result<AppSnapshot> {
+    initialize_archive_database_with_progress(config, database_key, |_| {})
+}
+
+/// Cheap first-run upgrade pre-check the shell calls at bootstrap to decide
+/// whether to show the "Upgrading your archive…" screen.
+///
+/// Reads the on-disk config (defaulting when absent, e.g. a fresh install) and
+/// delegates to [`vault_core::assess_archive_upgrade`], which only issues COUNTs
+/// and version reads — it never bootstraps or migrates the archive, so calling
+/// it does not consume the upgrade the progress-aware init will perform.
+pub fn assess_archive_upgrade(database_key: Option<&str>) -> Result<ArchiveUpgradeAssessment> {
+    let paths = vault_core::project_paths()?;
+    let config = load_config(&paths).unwrap_or_default();
+    vault_core::assess_archive_upgrade(&paths, &config, database_key)
+}
+
+/// Initializes the archive while streaming first-run upgrade progress, then
+/// returns the hydrated snapshot.
+///
+/// The observable twin of [`initialize_archive_database`], which delegates here
+/// with a no-op callback. The callback is threaded into
+/// [`ensure_archive_initialized_with_progress`] on BOTH launch-recovery arms
+/// (Healthy and Healed) so a large first launch can drive a calm upgrade screen
+/// instead of an opaque multi-minute stall.
+pub fn initialize_archive_database_with_progress<F>(
+    config: &AppConfig,
+    database_key: Option<&str>,
+    mut report_progress: F,
+) -> Result<AppSnapshot>
+where
+    F: FnMut(ArchiveUpgradeProgress),
+{
     let paths = vault_core::project_paths()?;
     let mut next_config = config.clone();
     hydrate_derived_config_state(&mut next_config);
@@ -207,7 +240,12 @@ pub fn initialize_archive_database(
     // the locked unlock-prompt instead of bricking launch.
     match recover_archive_on_launch(&paths, &next_config, database_key)? {
         LaunchRecovery::Healthy => {
-            ensure_archive_initialized(&paths, &next_config, database_key)?;
+            ensure_archive_initialized_with_progress(
+                &paths,
+                &next_config,
+                database_key,
+                &mut report_progress,
+            )?;
         }
         LaunchRecovery::Healed { to_mode, .. } => {
             // config.json was corrected to the canonical file's real at-rest mode; reload it,
@@ -218,7 +256,12 @@ pub fn initialize_archive_database(
             // Healed Plaintext->Encrypted with no key: do NOT force-open (that IS the NOTADB
             // dead-end); app_snapshot surfaces the locked state so the UI prompts for the key.
             if !(matches!(to_mode, ArchiveMode::Encrypted) && database_key.is_none()) {
-                ensure_archive_initialized(&paths, &healed, database_key)?;
+                ensure_archive_initialized_with_progress(
+                    &paths,
+                    &healed,
+                    database_key,
+                    &mut report_progress,
+                )?;
             }
         }
         LaunchRecovery::Unrecoverable(report) => {

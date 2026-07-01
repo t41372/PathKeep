@@ -35,7 +35,8 @@ pub use self::migration::{apply_import, export_app_data, preview_import};
 pub use self::{
     annotations::{get_annotation, list_annotations, replace_tags, search_annotations, set_notes},
     app::{
-        RekeyRequest, app_snapshot, initialize_archive_database, parse_archive_recovery_required,
+        RekeyRequest, app_snapshot, assess_archive_upgrade, initialize_archive_database,
+        initialize_archive_database_with_progress, parse_archive_recovery_required,
         reconcile_archive_encryption, rekey_archive_database, save_user_config,
     },
     archive_flows::{

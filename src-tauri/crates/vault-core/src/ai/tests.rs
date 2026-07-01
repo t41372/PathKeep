@@ -5565,7 +5565,7 @@ fn sort_relevance_and_none_keep_the_hybrid_path() {
 /// Why a bespoke bulk insert: test #1 needs 1001 matchable rows to exceed the date-ordered window cap,
 /// and 1001 individual `seed_visit_on_date` calls (each its own auto-committed statement) is too slow.
 /// A single transaction with prepared statements keeps it well under a second while producing the EXACT
-/// same on-disk shape `seed_visit` does — so `open_archive_connection`'s `seed_search_projection_if_missing`
+/// same on-disk shape `seed_visit` does — so `open_archive_connection`'s `seed_search_projection_with_progress`
 /// rebuilds the FTS projection from these `urls` on the first `list_history` read and the keyword matches.
 /// `history_id` is the visit id AND the url id (as `seed_visit` does), and `visit_time` increases with
 /// `history_id` so the EARLIEST-dated visit is `first_id` and the latest is `first_id + count - 1`.

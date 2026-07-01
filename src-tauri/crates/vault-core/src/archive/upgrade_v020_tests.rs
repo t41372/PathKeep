@@ -31,12 +31,14 @@
 //!   loss-free guarantee is asserted against canonical archive facts.
 
 use crate::archive::{
-    LaunchRecovery, check_config_disk_consistency, current_version, max_schema_version,
-    open_archive_connection, open_intelligence_connection, open_source_evidence_connection,
-    recover_archive_on_launch,
+    LaunchRecovery, assess_archive_upgrade, check_config_disk_consistency, current_version,
+    ensure_archive_initialized_with_progress, max_schema_version, open_archive_connection,
+    open_intelligence_connection, open_source_evidence_connection, recover_archive_on_launch,
 };
 use crate::config::{ProjectPaths, ensure_paths, load_config, project_paths_with_root};
-use crate::models::{AppConfig, ArchiveMode, OgImageFetchMode};
+use crate::models::{
+    AppConfig, ArchiveMode, ArchiveUpgradePhase, ArchiveUpgradeProgress, OgImageFetchMode,
+};
 use crate::utils::{now_rfc3339, sha256_hex};
 use rusqlite::{Connection, OptionalExtension, params};
 use tempfile::tempdir;
@@ -408,6 +410,270 @@ fn upgrade_v020_plaintext_archive_migrates_cleanly() {
 
     // 9. The archive mode is unchanged on disk.
     assert_eq!(load_config(&paths).unwrap().archive_mode, ArchiveMode::Plaintext);
+}
+
+#[test]
+fn assess_archive_upgrade_reports_pending_then_clears_after_upgrade() {
+    let dir = tempdir().expect("create temp root");
+    let paths = project_paths_with_root(dir.path());
+
+    // A brand-new install (no archive file yet) is never an "upgrade".
+    let fresh =
+        assess_archive_upgrade(&paths, &plaintext_v020_config(), None).expect("assess fresh");
+    assert!(!fresh.pending, "a fresh install must not report a pending upgrade");
+    assert!(fresh.phases.is_empty(), "a fresh install has no per-phase breakdown");
+
+    build_v020_archive(&paths);
+    build_v020_search_projection(&paths);
+    build_v6_intelligence_db(&paths);
+    std::fs::write(&paths.config_path, V020_CONFIG_JSON).expect("write v0.2.0 config.json");
+    let cfg = load_config(&paths).expect("v0.2.0 config must load");
+
+    // A real v0.2.0 archive WITH data reports pending + honest per-phase totals,
+    // WITHOUT bootstrapping the schema (the pre-check must not consume the upgrade).
+    let pending = assess_archive_upgrade(&paths, &cfg, None).expect("assess pending");
+    assert!(pending.pending, "a v0.2.0 archive with data must report an upgrade");
+    assert_eq!(pending.current_schema_version, 10, "the archive is still at the v0.2.0 ceiling");
+    assert_eq!(pending.target_schema_version, max_schema_version());
+    // The pre-check MUST NOT have migrated the archive: a plain reopen still reads v10.
+    let raw = Connection::open(&paths.archive_database_path).expect("raw reopen");
+    assert_eq!(
+        current_version(&raw).expect("still v10"),
+        10,
+        "assess must not migrate the archive"
+    );
+    drop(raw);
+
+    let phase_total = |phase: ArchiveUpgradePhase| {
+        pending
+            .phases
+            .iter()
+            .find(|entry| entry.phase == phase)
+            .unwrap_or_else(|| panic!("missing phase {phase:?} in assessment"))
+    };
+    let schema = phase_total(ArchiveUpgradePhase::SchemaMigration);
+    assert!(schema.pending);
+    assert!(schema.streamed, "the schema phase emits live progress");
+    assert_eq!(schema.estimated_total, 5, "migrations 011..=015 are pending from v10");
+    let backfill = phase_total(ArchiveUpgradePhase::RegistrableDomainBackfill);
+    assert!(backfill.pending);
+    assert!(backfill.streamed, "the backfill phase emits live progress");
+    assert_eq!(backfill.estimated_total, 3, "every existing url row backfills (column is new)");
+    let reprojection = phase_total(ArchiveUpgradePhase::SearchReprojection);
+    assert!(reprojection.pending);
+    assert!(reprojection.streamed, "the reprojection phase emits live progress");
+    assert_eq!(reprojection.estimated_total, 3, "the v2→v4 reprojection rebuilds all 3 url docs");
+    // The intelligence phase is reported (v6 < the current ceiling) but never gates
+    // the screen, and is NOT streamed — it forward-applies lazily, not inside
+    // ensure_archive_initialized, so the shell renders it as an informational line.
+    let intelligence = phase_total(ArchiveUpgradePhase::Intelligence);
+    assert!(intelligence.pending);
+    assert!(!intelligence.streamed, "the intelligence phase is informational, never streamed");
+
+    // After the real upgrade, the pre-check clears: nothing left for a screen.
+    crate::ensure_archive_initialized(&paths, &cfg, None).expect("upgrade open");
+    let done = assess_archive_upgrade(&paths, &cfg, None).expect("assess after upgrade");
+    assert!(!done.pending, "an already-migrated archive reports no pending upgrade");
+    assert_eq!(done.current_schema_version, max_schema_version());
+    assert!(!phase_total_for(&done, ArchiveUpgradePhase::SchemaMigration).pending);
+    assert!(!phase_total_for(&done, ArchiveUpgradePhase::RegistrableDomainBackfill).pending);
+    assert!(!phase_total_for(&done, ArchiveUpgradePhase::SearchReprojection).pending);
+}
+
+/// Finds a phase entry in a completed assessment (which always carries the full
+/// four-phase breakdown, unlike the empty not-pending fresh-install case).
+fn phase_total_for(
+    assessment: &crate::models::ArchiveUpgradeAssessment,
+    phase: ArchiveUpgradePhase,
+) -> &crate::models::ArchiveUpgradePhaseAssessment {
+    assessment
+        .phases
+        .iter()
+        .find(|entry| entry.phase == phase)
+        .unwrap_or_else(|| panic!("missing phase {phase:?}"))
+}
+
+#[test]
+fn assess_archive_upgrade_treats_uninitialized_and_empty_archives_as_not_pending() {
+    let dir = tempdir().expect("create temp root");
+    let paths = project_paths_with_root(dir.path());
+    let plaintext = plaintext_v020_config();
+
+    // (a) An existing-but-EMPTY archive file (no tables at all): current version 0,
+    //     no `urls` table → nothing to upgrade.
+    ensure_paths(&paths).expect("ensure project paths");
+    drop(Connection::open(&paths.archive_database_path).expect("create empty archive file"));
+    let empty_file = assess_archive_upgrade(&paths, &plaintext, None).expect("assess empty file");
+    assert!(!empty_file.pending, "an empty archive file has no urls table → no upgrade");
+    assert!(empty_file.phases.is_empty());
+
+    // (b) A fully-bootstrapped but DATA-EMPTY archive (every table exists, 0 urls):
+    //     even at head-minus this migrates instantly, so no screen.
+    drop(open_archive_connection(&paths, &plaintext, None).expect("bootstrap empty archive"));
+    let data_empty = assess_archive_upgrade(&paths, &plaintext, None).expect("assess data-empty");
+    assert!(!data_empty.pending, "a data-empty archive migrates instantly → no screen");
+    assert_eq!(data_empty.current_schema_version, max_schema_version());
+    assert!(data_empty.phases.is_empty());
+}
+
+#[test]
+fn assess_archive_upgrade_reports_pending_without_search_or_intelligence_planes() {
+    // A v0.2.0 archive WITH data but NO search projection and NO intelligence DB
+    // yet: exercises the projection-absent and intelligence-absent code paths.
+    let dir = tempdir().expect("create temp root");
+    let paths = project_paths_with_root(dir.path());
+    build_v020_archive(&paths); // canonical data only; no derived planes built
+
+    let assessment =
+        assess_archive_upgrade(&paths, &plaintext_v020_config(), None).expect("assess");
+    assert!(assessment.pending, "a v0.2.0 archive with data is a pending upgrade");
+    assert!(
+        phase_total_for(&assessment, ArchiveUpgradePhase::SearchReprojection).pending,
+        "a missing search projection is a pending reprojection"
+    );
+    // An absent intelligence plane reads as version 0 (< the ceiling) → reported
+    // pending for completeness (it forward-applies lazily, so it never gates).
+    assert!(phase_total_for(&assessment, ArchiveUpgradePhase::Intelligence).pending);
+}
+
+#[test]
+fn assess_archive_upgrade_is_not_pending_when_the_archive_cannot_be_decoded() {
+    // An Encrypted config with NO key can't open the (plaintext-on-disk) archive:
+    // the cheap pre-check must report not-pending rather than error, so it never
+    // blocks bootstrap — the real init still surfaces any error.
+    let dir = tempdir().expect("create temp root");
+    let paths = project_paths_with_root(dir.path());
+    build_v020_archive(&paths);
+    let encrypted = AppConfig {
+        archive_mode: ArchiveMode::Encrypted,
+        initialized: true,
+        ..AppConfig::default()
+    };
+
+    let assessment = assess_archive_upgrade(&paths, &encrypted, None).expect("assess undecodable");
+    assert!(!assessment.pending, "an un-decodable archive is not a pending upgrade");
+    assert!(assessment.phases.is_empty(), "no breakdown when the archive can't be read");
+}
+
+#[test]
+fn upgrade_v020_with_progress_streams_phases_and_migrates_cleanly() {
+    let dir = tempdir().expect("create temp root");
+    let paths = project_paths_with_root(dir.path());
+
+    build_v020_archive(&paths);
+    build_v020_search_projection(&paths);
+    build_v6_intelligence_db(&paths);
+    std::fs::write(&paths.config_path, V020_CONFIG_JSON).expect("write v0.2.0 config.json");
+    drop(
+        open_source_evidence_connection(&paths, &plaintext_v020_config(), None)
+            .expect("materialize source-evidence"),
+    );
+    let cfg = load_config(&paths).expect("v0.2.0 config must load");
+
+    // Drive the REAL upgrade open path with progress, capturing every event.
+    let mut events: Vec<ArchiveUpgradeProgress> = Vec::new();
+    ensure_archive_initialized_with_progress(&paths, &cfg, None, |event| events.push(event))
+        .expect("upgrade open with progress");
+
+    // Every event carries the stable i18n label key for its phase.
+    for event in &events {
+        assert_eq!(event.phase_label, event.phase.label_key());
+        assert!(event.processed <= event.total, "processed never exceeds total: {event:?}");
+    }
+
+    // Exactly one terminal `done`, and it is the last event.
+    assert!(
+        events.last().map(|event| event.done).unwrap_or(false),
+        "last event is the terminal done"
+    );
+    assert_eq!(
+        events.iter().filter(|event| event.done).count(),
+        1,
+        "exactly one terminal done event"
+    );
+
+    // Schema-migration phase: ordinal step progress climbing to 5/5 (011..=015).
+    let schema: Vec<_> =
+        events.iter().filter(|e| e.phase == ArchiveUpgradePhase::SchemaMigration).collect();
+    assert!(!schema.is_empty(), "the schema-migration phase must emit progress");
+    assert_eq!(schema.first().unwrap().processed, 0, "schema progress starts at 0, not a jump");
+    assert_eq!(schema.last().unwrap().processed, 5, "all 5 pending migrations are applied");
+    assert_eq!(schema.last().unwrap().total, 5);
+    assert!(
+        schema.windows(2).all(|pair| pair[0].processed <= pair[1].processed),
+        "schema step progress is monotonic"
+    );
+
+    // Backfill phase: REAL per-batch counts (initial 0/3 then 3/3), not a single jump.
+    let backfill: Vec<_> = events
+        .iter()
+        .filter(|e| e.phase == ArchiveUpgradePhase::RegistrableDomainBackfill)
+        .collect();
+    assert!(backfill.len() >= 2, "backfill emits an initial 0 then per-batch ticks, not one jump");
+    assert_eq!(backfill.first().unwrap().processed, 0);
+    assert_eq!(backfill.last().unwrap().processed, 3, "backfill completes to the row total");
+    assert_eq!(backfill.last().unwrap().total, 3);
+
+    // Search-reprojection phase: initial 0/3 then 3/3.
+    let reprojection: Vec<_> =
+        events.iter().filter(|e| e.phase == ArchiveUpgradePhase::SearchReprojection).collect();
+    assert!(reprojection.len() >= 2, "reprojection emits real progress, not a single jump");
+    assert_eq!(reprojection.first().unwrap().processed, 0);
+    assert_eq!(
+        reprojection.last().unwrap().processed,
+        3,
+        "reprojection completes to the doc total"
+    );
+    assert_eq!(reprojection.last().unwrap().total, 3);
+
+    // ── And the archive still migrated correctly (mirrors the loss-free regression). ──
+    let conn = open_archive_connection(&paths, &cfg, None).expect("post-upgrade open");
+    assert_eq!(current_version(&conn).expect("post-upgrade version"), 15);
+    assert_eq!(current_version(&conn).expect("version"), max_schema_version());
+    let integrity: String = conn
+        .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+        .expect("integrity check");
+    assert_eq!(integrity, "ok", "the progress path must not brick the archive");
+    let url_count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0)).expect("count urls");
+    assert_eq!(url_count, 3, "no urls lost across the progress upgrade");
+    let visit_count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0)).expect("count visits");
+    assert_eq!(visit_count, 2, "no visits lost across the progress upgrade");
+    let null_domains: i64 = conn
+        .query_row("SELECT COUNT(*) FROM urls WHERE registrable_domain IS NULL", [], |row| {
+            row.get(0)
+        })
+        .expect("count null registrable_domain");
+    assert_eq!(null_domains, 0, "the backfill leaves no NULL registrable_domain");
+    let bbc: String = conn
+        .query_row("SELECT registrable_domain FROM urls WHERE id = 1", [], |row| row.get(0))
+        .expect("read registrable_domain 1");
+    assert_eq!(bbc, "bbc.co.uk");
+    drop(conn);
+
+    // Search projection reprojected to v4 with the 3 real docs; stale doc dropped.
+    let search_conn = Connection::open(&paths.search_database_path).expect("open search db");
+    let search_version: String = search_conn
+        .query_row(
+            "SELECT value FROM search_projection_meta WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read search schema_version");
+    assert_eq!(search_version, "4", "search projection reprojects to current");
+    let search_docs: i64 = search_conn
+        .query_row("SELECT COUNT(*) FROM search_documents", [], |row| row.get(0))
+        .expect("count search documents");
+    assert_eq!(search_docs, 3, "reprojection rebuilds from the 3 urls");
+    let stale_docs: i64 = search_conn
+        .query_row("SELECT COUNT(*) FROM search_documents WHERE url_id = 999", [], |row| row.get(0))
+        .expect("count stale search documents");
+    assert_eq!(stale_docs, 0, "the stale v0.2.0 doc is dropped");
+    drop(search_conn);
+
+    // Phase-E config<->disk consistency still holds after the progress upgrade.
+    check_config_disk_consistency(&paths).expect("Phase-E invariant holds after progress upgrade");
 }
 
 #[test]

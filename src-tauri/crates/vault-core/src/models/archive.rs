@@ -147,6 +147,115 @@ impl BackupProgressEvent {
     }
 }
 
+/// The distinct heavy phases a first-run archive upgrade works through.
+///
+/// A v0.2.0 → v0.3.0 upgrade on a large archive spends minutes inside
+/// `ensure_archive_initialized` (index-build migrations, the `015`
+/// registrable-domain backfill, and a full search-projection reprojection).
+/// This enum names those phases so the shell can render an honest, per-phase
+/// "Upgrading your archive…" screen instead of an opaque busy overlay.
+///
+/// `Intelligence` is surfaced by the cheap pre-check (`assess_archive_upgrade`)
+/// for completeness; the intelligence plane forward-applies lazily on its own
+/// first read, not inside `ensure_archive_initialized`, so the progress stream
+/// does not emit it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ArchiveUpgradePhase {
+    SchemaMigration,
+    RegistrableDomainBackfill,
+    SearchReprojection,
+    Intelligence,
+    Finalizing,
+}
+
+impl ArchiveUpgradePhase {
+    /// Stable i18n key the shell maps to localized phase copy. Kept as a key
+    /// (not English prose) so the copy is a shipping-contract translation, and
+    /// stable so a phase never silently loses its label across renames.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::SchemaMigration => "archiveUpgrade.phase.schemaMigration",
+            Self::RegistrableDomainBackfill => "archiveUpgrade.phase.registrableDomainBackfill",
+            Self::SearchReprojection => "archiveUpgrade.phase.searchReprojection",
+            Self::Intelligence => "archiveUpgrade.phase.intelligence",
+            Self::Finalizing => "archiveUpgrade.phase.finalizing",
+        }
+    }
+}
+
+/// Streamed progress for the first-run "Upgrading your archive…" experience.
+///
+/// `processed`/`total` are honest unit counts for the phases that HAVE a
+/// countable unit (rows backfilled, documents reprojected, discrete migration
+/// steps applied). Opaque single-statement work (an index build, the terminal
+/// finalize) carries `0/0` as an explicit indeterminate marker rather than a
+/// fabricated percentage. `done` marks the single terminal event so the shell
+/// can dismiss the screen without inferring completion from the counters.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveUpgradeProgress {
+    pub phase: ArchiveUpgradePhase,
+    pub phase_label: String,
+    pub processed: u64,
+    pub total: u64,
+    pub done: bool,
+}
+
+impl ArchiveUpgradeProgress {
+    /// Builds a phase progress tick with honest processed/total counts.
+    pub fn phase(phase: ArchiveUpgradePhase, processed: u64, total: u64) -> Self {
+        Self { phase, phase_label: phase.label_key().to_string(), processed, total, done: false }
+    }
+
+    /// The single terminal event: the upgrade finished and the shell may dismiss
+    /// the screen. Counts are `0/0` — finalize is opaque, not a countable unit.
+    pub fn finished() -> Self {
+        Self {
+            phase: ArchiveUpgradePhase::Finalizing,
+            phase_label: ArchiveUpgradePhase::Finalizing.label_key().to_string(),
+            processed: 0,
+            total: 0,
+            done: true,
+        }
+    }
+}
+
+/// One phase entry in the cheap upgrade pre-check breakdown.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveUpgradePhaseAssessment {
+    pub phase: ArchiveUpgradePhase,
+    pub phase_label: String,
+    pub pending: bool,
+    /// Whether the `ensure_archive_initialized_with_progress` stream emits live
+    /// ticks for this phase. `true` for schema/backfill/reprojection; `false` for
+    /// `Intelligence`, which forward-applies lazily outside the upgrade path — so
+    /// the shell renders a non-streamed phase as an informational line, not a
+    /// progress bar that would sit stuck at 0.
+    pub streamed: bool,
+    /// Rough unit total the phase will process (rows/documents/migration steps).
+    /// `0` for a not-pending or opaque phase — never a fabricated estimate.
+    pub estimated_total: u64,
+}
+
+/// Result of the cheap first-run upgrade pre-check (`assess_archive_upgrade`).
+///
+/// The shell calls this at bootstrap to decide whether to show the upgrade
+/// screen at all: a fresh install or an already-migrated archive reports
+/// `pending == false` (no screen), while a genuine version-behind archive with
+/// data reports `pending == true` plus the per-phase breakdown that seeds the
+/// progress UI's estimated totals. It must stay cheap — COUNTs only, never a
+/// scan of blob columns or a schema bootstrap.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveUpgradeAssessment {
+    pub pending: bool,
+    pub current_schema_version: i64,
+    pub target_schema_version: i64,
+    pub phases: Vec<ArchiveUpgradePhaseAssessment>,
+}
+
 /// Disk-usage summary for archive-managed artifacts.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

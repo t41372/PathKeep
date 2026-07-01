@@ -101,6 +101,7 @@ fn run_app() -> Result<()> {
             app_lock_status,
             save_config,
             initialize_archive,
+            assess_archive_upgrade,
             preview_rekey_archive,
             rekey_archive,
             reconcile_archive_encryption,

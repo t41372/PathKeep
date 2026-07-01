@@ -1465,8 +1465,8 @@ fn add_file_to_zip(
 /// wrong.
 ///
 /// Lives in `migration.rs` (not `archive/schema.rs`) because it
-/// intentionally bypasses `ensure_archive_bootstrapped`,
-/// `attach_search_database`, and `seed_search_projection_if_missing` —
+/// intentionally bypasses `ensure_archive_bootstrapped_reporting`,
+/// `attach_search_database`, and `seed_search_projection_with_progress` —
 /// the staged archive is read-only here and we don't want to bootstrap
 /// projections against a database we may yet decide to reject.
 fn verify_archive_key(db_path: &Path, key: &str) -> Result<()> {

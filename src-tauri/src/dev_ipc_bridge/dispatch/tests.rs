@@ -255,6 +255,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         "initialize_archive",
         json!({ "config": test_config(), "databaseKey": null }),
     );
+    dispatch_for_coverage(&state, "assess_archive_upgrade", json!({}));
     dispatch_for_coverage(
         &state,
         "preview_rekey_archive",

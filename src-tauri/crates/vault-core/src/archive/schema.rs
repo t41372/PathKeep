@@ -5,9 +5,14 @@
 //! higher-level archive flows assume these migrations have already run.
 
 use crate::{
-    archive::search_projection::{attach_search_database, seed_search_projection_if_missing},
+    archive::search_projection::{
+        attach_search_database, search_reprojection_pending, seed_search_projection_with_progress,
+    },
     config::{ProjectPaths, ensure_paths},
-    models::{AppConfig, ArchiveMode},
+    models::{
+        AppConfig, ArchiveMode, ArchiveUpgradeAssessment, ArchiveUpgradePhase,
+        ArchiveUpgradePhaseAssessment, ArchiveUpgradeProgress,
+    },
     utils::{now_rfc3339, sha256_hex, url_domain},
     visit_taxonomy::{
         normalize_visit_url, registrable_domain_for_host, registrable_domain_for_url,
@@ -100,6 +105,48 @@ pub fn open_archive_connection(
     config: &AppConfig,
     key: Option<&str>,
 ) -> Result<Connection> {
+    open_archive_connection_reporting(paths, config, key, &mut |_| {})
+}
+
+/// Progress-aware twin of [`open_archive_connection`]: identical open, bootstrap,
+/// attach, and seed, but threads `report` through the two heavy first-run
+/// phases — the schema-migration + registrable-domain backfill inside
+/// [`ensure_archive_bootstrapped_reporting`], and the search reprojection inside
+/// [`seed_search_projection_with_progress`].
+///
+/// [`open_archive_connection`] delegates here with a no-op callback, so the
+/// no-callback path is byte-for-byte the original open — same in-process
+/// bootstrap cache, so a re-open on an already-migrated archive still skips the
+/// heavy phases entirely (no extra scan). Progress is OBSERVATION ONLY: it
+/// changes no migration SQL, no backfill algorithm, and no reprojection logic,
+/// so the keyset-paged backfill stays idempotent and a mid-upgrade quit resumes
+/// cleanly.
+pub(crate) fn open_archive_connection_reporting<F>(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    report: &mut F,
+) -> Result<Connection>
+where
+    F: FnMut(ArchiveUpgradeProgress),
+{
+    let connection = open_archive_connection_base(paths, config, key)?;
+    ensure_archive_bootstrapped_reporting(&connection, &paths.archive_database_path, report)?;
+    attach_search_database(&connection, paths)?;
+    seed_search_projection_with_progress(&connection, paths, report)?;
+    Ok(connection)
+}
+
+/// Opens the archive with the cipher key and performance pragmas applied but
+/// WITHOUT bootstrapping the schema, attaching search, or seeding the search
+/// projection. Extracted so [`open_archive_connection`] and its progress-aware
+/// twin share one pragma setup, keeping a plain open and an upgrade open
+/// byte-for-byte identical.
+fn open_archive_connection_base(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<Connection> {
     ensure_paths(paths)?;
     let connection = Connection::open(&paths.archive_database_path)
         .with_context(|| format!("opening {}", paths.archive_database_path.display()))?;
@@ -112,9 +159,6 @@ pub fn open_archive_connection(
     connection.pragma_update(None, "cache_size", SQLITE_CACHE_SIZE_KIB)?;
     connection.pragma_update(None, "temp_store", "MEMORY")?;
     let _ = connection.pragma_update(None, "mmap_size", SQLITE_MMAP_SIZE_BYTES);
-    ensure_archive_bootstrapped(&connection, &paths.archive_database_path)?;
-    attach_search_database(&connection, paths)?;
-    seed_search_projection_if_missing(&connection, paths)?;
     Ok(connection)
 }
 
@@ -156,14 +200,34 @@ fn remove_existing_export_target(target_path: &Path) -> Result<()> {
 
 /// Creates or upgrades the canonical archive schema in place.
 pub fn create_schema(connection: &Connection) -> Result<()> {
-    run_migrations(connection)?;
+    create_schema_with_progress(connection, &mut |_| {})
+}
+
+/// Progress-aware twin of [`create_schema`]: identical migration/backfill/
+/// bootstrap work, but threads `report` through the two heavy phases (schema
+/// migrations and the registrable-domain backfill) so a first-run upgrade can
+/// surface progress. [`create_schema`] delegates here with a no-op callback, so
+/// the no-callback path is byte-for-byte the original behavior. Progress is
+/// OBSERVATION ONLY — no migration SQL, order, or backfill logic changes.
+pub(crate) fn create_schema_with_progress<F>(connection: &Connection, report: &mut F) -> Result<()>
+where
+    F: FnMut(ArchiveUpgradeProgress),
+{
+    run_migrations_reporting(connection, MIGRATIONS, report)?;
     // One-time, bounded backfill of `urls.registrable_domain` for rows the
     // migration-015 ALTER left NULL (every existing row on upgrade, plus any
     // row a writer left unclassified). It runs OUTSIDE the bootstrap lock below
     // so the (potentially large) one-time UPDATE on first upgrade does not hold
     // the IMMEDIATE write lock longer than the tiny import-batch bootstrap; it is
     // idempotent and a no-op once every row is classified.
-    backfill_url_registrable_domains(connection)?;
+    backfill_url_registrable_domains(connection, report)?;
+    finish_import_batch_bootstrap(connection)
+}
+
+/// Acquires the short IMMEDIATE bootstrap lock, ensures the import-batch schema,
+/// and commits (or rolls back on failure). Shared by the plain and
+/// progress-aware `create_schema` paths so both take the identical tiny lock.
+fn finish_import_batch_bootstrap(connection: &Connection) -> Result<()> {
     connection.execute_batch("BEGIN IMMEDIATE").context("acquiring archive bootstrap lock")?;
 
     let result = (|| -> Result<()> {
@@ -205,16 +269,29 @@ const REGISTRABLE_DOMAIN_BACKFILL_BATCH: usize = 4_096;
 /// re-scanned (it just never matches a real domain star, exactly as
 /// `registrable_domain_for_url` returning `None` means "not on any registrable
 /// domain").
-fn backfill_url_registrable_domains(connection: &Connection) -> Result<()> {
-    backfill_url_registrable_domains_paged(connection, REGISTRABLE_DOMAIN_BACKFILL_BATCH)
+fn backfill_url_registrable_domains<F>(connection: &Connection, report: &mut F) -> Result<()>
+where
+    F: FnMut(ArchiveUpgradeProgress),
+{
+    backfill_url_registrable_domains_paged(connection, REGISTRABLE_DOMAIN_BACKFILL_BATCH, report)
 }
 
 /// Keyset-paged core of [`backfill_url_registrable_domains`], parameterized by
 /// `batch_size` so tests can drive the multi-batch path with a small stride.
-fn backfill_url_registrable_domains_paged(
+///
+/// `report` receives one [`ArchiveUpgradePhase::RegistrableDomainBackfill`] tick
+/// per committed batch (never per row) with the running processed/total counts.
+/// The algorithm itself is UNCHANGED — same keyset cursor, same per-batch
+/// transaction, same empty-string sentinel, same resumability — so a mid-upgrade
+/// quit still resumes from the first still-NULL row.
+fn backfill_url_registrable_domains_paged<F>(
     connection: &Connection,
     batch_size: usize,
-) -> Result<()> {
+    report: &mut F,
+) -> Result<()>
+where
+    F: FnMut(ArchiveUpgradeProgress),
+{
     if !table_exists(connection, "urls")? || !urls_has_registrable_domain_column(connection)? {
         return Ok(());
     }
@@ -224,6 +301,13 @@ fn backfill_url_registrable_domains_paged(
     // are filled in ascending-id order, so once a row's domain is set it leaves
     // the NULL set and `id > :last` advances strictly forward over the remainder.
     let mut last_id: i64 = 0;
+    // The progress total is sized LAZILY on the first non-empty batch: an
+    // already-backfilled archive (the idempotent re-open) hits an empty first
+    // batch and returns before paying the O(n) NULL count, so the common
+    // steady-state open costs nothing extra. The count is only worth taking when
+    // there is genuine backfill work to report.
+    let mut total: u64 = 0;
+    let mut processed: u64 = 0;
     loop {
         let batch: Vec<(i64, String)> = {
             let mut scan = connection
@@ -243,6 +327,16 @@ fn backfill_url_registrable_domains_paged(
         };
         if batch.is_empty() {
             return Ok(());
+        }
+        if processed == 0 {
+            // Every row (including this batch) is still NULL here, so this counts
+            // the whole job; `processed` then walks up to exactly `total`.
+            total = count_null_registrable_domains(connection)?;
+            report(ArchiveUpgradeProgress::phase(
+                ArchiveUpgradePhase::RegistrableDomainBackfill,
+                0,
+                total,
+            ));
         }
 
         let transaction = connection.unchecked_transaction()?;
@@ -266,7 +360,25 @@ fn backfill_url_registrable_domains_paged(
         // even though every row in `batch` just left the NULL set, anchoring on
         // the last id guarantees forward progress (no batch is ever re-read).
         last_id = batch.last().map(|(id, _)| *id).unwrap_or(last_id);
+        processed += batch.len() as u64;
+        report(ArchiveUpgradeProgress::phase(
+            ArchiveUpgradePhase::RegistrableDomainBackfill,
+            processed.min(total),
+            total,
+        ));
     }
+}
+
+/// Counts rows still awaiting a registrable-domain backfill (used to size the
+/// upgrade progress bar). One indexed-free COUNT; taken only when the backfill
+/// has real work, never on the idempotent no-op re-open.
+fn count_null_registrable_domains(connection: &Connection) -> Result<u64> {
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM urls WHERE registrable_domain IS NULL", [], |row| {
+            row.get(0)
+        })
+        .context("counting unbackfilled registrable_domain rows")?;
+    Ok(count.max(0) as u64)
 }
 
 /// Returns whether `urls` already carries the migration-015 `registrable_domain`
@@ -319,6 +431,178 @@ pub fn current_version(connection: &Connection) -> Result<i64> {
     Ok(version)
 }
 
+/// Cheap pre-check for the first-run "Upgrading your archive…" screen.
+///
+/// Decides whether the next [`open_archive_connection`] will do minutes of heavy
+/// upgrade work, and sizes the per-phase progress bars — WITHOUT doing any of
+/// that work. It opens the archive read-side WITHOUT bootstrapping (a plain open
+/// would run the very migrations it is measuring) and only issues COUNTs and
+/// version reads, never a scan of blob columns.
+///
+/// Returns `pending == false` (no screen) for a fresh install, an
+/// un-initialized archive, an empty archive, or an already-migrated one; and
+/// `pending == true` with the per-phase breakdown when a version-behind archive
+/// still holds data. The Intelligence phase is reported for completeness but
+/// does NOT gate `pending`: the intelligence plane forward-applies lazily on its
+/// own first read, not inside `ensure_archive_initialized`.
+pub fn assess_archive_upgrade(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<ArchiveUpgradeAssessment> {
+    ensure_paths(paths)?;
+    let target = max_schema_version();
+
+    // No archive on disk → a fresh install. The schema bootstraps instantly on
+    // first open (no data to migrate), so there is nothing to show a screen for.
+    if !paths.archive_database_path.exists() {
+        return Ok(not_pending_assessment(0, target));
+    }
+
+    // Open WITHOUT bootstrapping. A locked / undecodable archive can't be
+    // assessed → report not-pending so the cheap pre-check never blocks; the real
+    // init still runs and surfaces any error.
+    let connection = match open_archive_connection_base(paths, config, key) {
+        Ok(connection) => connection,
+        Err(_) => return Ok(not_pending_assessment(0, target)),
+    };
+    let current = current_version(&connection).unwrap_or(0);
+
+    // Not yet an initialized archive (no `urls` table), or an empty one: even a
+    // version-behind schema migrates instantly (DDL only) with nothing to
+    // backfill or reproject, so no screen is warranted. `EXISTS` stops at the
+    // first row — an O(1) probe, NOT a `COUNT(*)` scan of the 14.4M tail.
+    if !table_exists(&connection, "urls")? {
+        return Ok(not_pending_assessment(current, target));
+    }
+    let has_data: bool = connection
+        .query_row("SELECT EXISTS(SELECT 1 FROM urls)", [], |row| row.get::<_, i64>(0))?
+        != 0;
+    if !has_data {
+        return Ok(not_pending_assessment(current, target));
+    }
+
+    // Schema migrations still pending in this ledger (discrete steps).
+    let schema_pending_steps =
+        MIGRATIONS.iter().filter(|spec| spec.version > current).count() as u64;
+    let schema_pending = schema_pending_steps > 0;
+
+    // Search reprojection: a projection-schema drift (drops + rebuilds) or an
+    // unseeded projection. Cheap — a version read plus a `LIMIT 1` doc probe.
+    let reprojection_pending = search_reprojection_pending(paths)?;
+
+    // The url document count sizes the backfill/reprojection bars, but it is an
+    // O(corpus) `COUNT` — pay it ONLY when a phase that needs it is actually
+    // pending (a genuine upgrade, where the user is already about to wait), never
+    // on the steady-state at-head launch.
+    let needs_url_total = schema_pending || reprojection_pending;
+    let url_total = if needs_url_total {
+        let count: i64 = connection.query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))?;
+        count.max(0) as u64
+    } else {
+        0
+    };
+
+    // Registrable-domain backfill: sized ONLY on a version-behind schema, where
+    // the `015` column is still to be added and its ALTER leaves EVERY existing
+    // row NULL to backfill (estimate = all urls). At head we report it not-pending
+    // WITHOUT the O(corpus) `WHERE registrable_domain IS NULL` scan — whose
+    // predicate can't use the partial index (015 §) — on every launch; a rare
+    // "quit mid-backfill at head" straggler is still completed, with its own
+    // progress, by the real `ensure_archive_initialized`.
+    let backfill_total = if schema_pending { url_total } else { 0 };
+    let backfill_pending = backfill_total > 0;
+    let reprojection_total = if reprojection_pending { url_total } else { 0 };
+
+    // Intelligence-plane drift — informational only (see the doc note above).
+    // A never-created plane reports version 0, i.e. "will forward-apply".
+    let intelligence_pending = recorded_intelligence_version(paths)
+        < crate::intelligence::max_intelligence_schema_version();
+
+    let pending = schema_pending || backfill_pending || reprojection_pending;
+
+    Ok(ArchiveUpgradeAssessment {
+        pending,
+        current_schema_version: current,
+        target_schema_version: target,
+        phases: vec![
+            phase_assessment(
+                ArchiveUpgradePhase::SchemaMigration,
+                schema_pending,
+                true,
+                schema_pending_steps,
+            ),
+            phase_assessment(
+                ArchiveUpgradePhase::RegistrableDomainBackfill,
+                backfill_pending,
+                true,
+                backfill_total,
+            ),
+            phase_assessment(
+                ArchiveUpgradePhase::SearchReprojection,
+                reprojection_pending,
+                true,
+                reprojection_total,
+            ),
+            // `streamed = false`: the intelligence plane forward-applies lazily on
+            // its own first read, NOT inside `ensure_archive_initialized`, so the
+            // progress stream never emits an Intelligence tick. Reported here for
+            // completeness; the shell renders it as an informational line, never a
+            // progress bar that would sit stuck at 0.
+            phase_assessment(ArchiveUpgradePhase::Intelligence, intelligence_pending, false, 0),
+        ],
+    })
+}
+
+/// The "nothing to upgrade" verdict shared by every early return in
+/// [`assess_archive_upgrade`] (fresh / uninitialized / empty / already-migrated).
+fn not_pending_assessment(current: i64, target: i64) -> ArchiveUpgradeAssessment {
+    ArchiveUpgradeAssessment {
+        pending: false,
+        current_schema_version: current,
+        target_schema_version: target,
+        phases: Vec::new(),
+    }
+}
+
+/// Builds one phase entry for the upgrade assessment breakdown.
+fn phase_assessment(
+    phase: ArchiveUpgradePhase,
+    pending: bool,
+    streamed: bool,
+    estimated_total: u64,
+) -> ArchiveUpgradePhaseAssessment {
+    ArchiveUpgradePhaseAssessment {
+        phase,
+        phase_label: phase.label_key().to_string(),
+        pending,
+        streamed,
+        estimated_total,
+    }
+}
+
+/// Reads the highest recorded intelligence-plane schema version straight from the
+/// derived DB file (plaintext, never migrated here), returning 0 when the file or
+/// its ledger table is absent. Best-effort — the intelligence plane is fully
+/// rebuildable derived state, so an unreadable version just reports 0.
+fn recorded_intelligence_version(paths: &ProjectPaths) -> i64 {
+    if !paths.intelligence_database_path.exists() {
+        return 0;
+    }
+    // One collapsed expression (open → read) so a failure at either step folds to
+    // 0 without a separate hard-to-exercise error-return branch: the plane is
+    // rebuildable derived state, so an unreadable version is simply "0 / absent".
+    Connection::open(&paths.intelligence_database_path)
+        .and_then(|connection| {
+            connection.query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM intelligence_schema_migrations",
+                [],
+                |row| row.get(0),
+            )
+        })
+        .unwrap_or(0)
+}
+
 /// Applies any pending schema migrations and compatibility upgrades.
 pub fn run_migrations(connection: &Connection) -> Result<()> {
     run_migrations_with_specs(connection, MIGRATIONS)
@@ -328,10 +612,41 @@ fn run_migrations_with_specs(
     connection: &Connection,
     migrations: &[MigrationSpec<'_>],
 ) -> Result<()> {
+    run_migrations_reporting(connection, migrations, &mut |_| {})
+}
+
+/// Progress-aware core of [`run_migrations`]: identical migration application +
+/// checksum-tamper guard, but emits an [`ArchiveUpgradePhase::SchemaMigration`]
+/// tick per applied migration. [`run_migrations_with_specs`] delegates here with
+/// a no-op callback, so the no-callback path is unchanged — `pending_total` is
+/// an in-memory count over the already-loaded ledger, not a new DB read.
+///
+/// Progress is reported as "step k of n" over the DISCRETE pending migrations.
+/// That is honest ordinal progress across steps, not a fabricated percentage
+/// inside a single statement — an opaque index build (013/014) is one step that
+/// advances the counter once, never claiming intra-statement progress.
+fn run_migrations_reporting<F>(
+    connection: &Connection,
+    migrations: &[MigrationSpec<'_>],
+    report: &mut F,
+) -> Result<()>
+where
+    F: FnMut(ArchiveUpgradeProgress),
+{
     connection.pragma_update(None, "journal_mode", "WAL")?;
     connection.pragma_update(None, "foreign_keys", true)?;
 
     let applied = load_applied_migrations(connection)?;
+    let pending_total =
+        migrations.iter().filter(|spec| !applied.contains_key(&spec.version)).count() as u64;
+    let mut applied_count: u64 = 0;
+    if pending_total > 0 {
+        report(ArchiveUpgradeProgress::phase(
+            ArchiveUpgradePhase::SchemaMigration,
+            0,
+            pending_total,
+        ));
+    }
     for migration in migrations {
         let checksum = sha256_hex(migration.sql.as_bytes());
         match applied.get(&migration.version) {
@@ -340,7 +655,15 @@ fn run_migrations_with_specs(
                 "migration {} checksum mismatch; the applied migration file was modified",
                 migration.version
             ),
-            None => apply_migration(connection, migration, &checksum)?,
+            None => {
+                apply_migration(connection, migration, &checksum)?;
+                applied_count += 1;
+                report(ArchiveUpgradeProgress::phase(
+                    ArchiveUpgradePhase::SchemaMigration,
+                    applied_count,
+                    pending_total,
+                ));
+            }
         }
     }
 
@@ -372,10 +695,21 @@ fn ensure_import_batch_schema(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn ensure_archive_bootstrapped(
+/// Progress-aware archive bootstrap: identical in-process cache + `create_schema`
+/// on a cache miss, but threads `report` into [`create_schema_with_progress`] so
+/// a first-run upgrade's schema-migration + backfill phases surface progress.
+///
+/// The cache is what preserves the no-regression contract: a re-open on an
+/// already-bootstrapped archive short-circuits here and never re-runs the
+/// (potentially O(n)) backfill scan — exactly as before.
+fn ensure_archive_bootstrapped_reporting<F>(
     connection: &Connection,
     archive_database_path: &Path,
-) -> Result<()> {
+    report: &mut F,
+) -> Result<()>
+where
+    F: FnMut(ArchiveUpgradeProgress),
+{
     let cache_key = archive_database_path.display().to_string();
     let bootstrapped = BOOTSTRAPPED_ARCHIVES.get_or_init(|| Mutex::new(HashSet::new()));
     let mut bootstrapped = bootstrapped.lock().expect("archive bootstrap cache lock");
@@ -383,7 +717,7 @@ fn ensure_archive_bootstrapped(
         return Ok(());
     }
 
-    create_schema(connection)?;
+    create_schema_with_progress(connection, report)?;
     bootstrapped.insert(cache_key);
     Ok(())
 }
@@ -725,7 +1059,7 @@ mod tests {
         );
 
         // Idempotent: a second backfill finds no NULL rows and changes nothing.
-        backfill_url_registrable_domains(&connection).expect("idempotent backfill");
+        backfill_url_registrable_domains(&connection, &mut |_| {}).expect("idempotent backfill");
         let still_null: i64 = connection
             .query_row("SELECT COUNT(*) FROM urls WHERE registrable_domain IS NULL", [], |row| {
                 row.get(0)
@@ -752,7 +1086,8 @@ mod tests {
         );
 
         // The guard short-circuits with Ok and touches nothing.
-        backfill_url_registrable_domains(&connection).expect("backfill is a no-op pre-v15");
+        backfill_url_registrable_domains(&connection, &mut |_| {})
+            .expect("backfill is a no-op pre-v15");
         assert!(
             !urls_has_registrable_domain_column(&connection).expect("pragma"),
             "the no-op backfill must not add the column"
@@ -818,8 +1153,26 @@ mod tests {
             .expect("count null rows");
         assert_eq!(null_before, 8, "every seeded row is NULL before the backfill");
 
-        // Batch size 3 < 8 rows => at least three batches (3 + 3 + 2).
-        backfill_url_registrable_domains_paged(&connection, 3).expect("paged backfill");
+        // Batch size 3 < 8 rows => at least three batches (3 + 3 + 2). Capture the
+        // progress ticks to prove the callback is fed REAL per-batch counts (an
+        // initial 0/total then a monotonic climb to total/total), not a single
+        // 0→100 jump — the whole reason the upgrade screen can move honestly.
+        let mut events: Vec<(u64, u64)> = Vec::new();
+        backfill_url_registrable_domains_paged(&connection, 3, &mut |progress| {
+            assert_eq!(progress.phase, ArchiveUpgradePhase::RegistrableDomainBackfill);
+            assert!(!progress.done, "batch ticks are never the terminal done event");
+            events.push((progress.processed, progress.total));
+        })
+        .expect("paged backfill");
+        assert_eq!(
+            events,
+            vec![(0, 8), (3, 8), (6, 8), (8, 8)],
+            "the callback must see the initial 0/8 then one tick per committed batch"
+        );
+        assert!(
+            events.windows(2).all(|pair| pair[0].0 <= pair[1].0),
+            "processed must climb monotonically, never regress"
+        );
 
         let still_null: i64 = connection
             .query_row("SELECT COUNT(*) FROM urls WHERE registrable_domain IS NULL", [], |row| {
@@ -838,8 +1191,13 @@ mod tests {
             .expect("read sentinel");
         assert_eq!(blank, "", "an unclassifiable row gets the empty-string sentinel");
 
-        // Idempotent across batches: a second paged pass finds no NULL rows.
-        backfill_url_registrable_domains_paged(&connection, 3).expect("idempotent paged backfill");
+        // Idempotent across batches: a second paged pass finds no NULL rows and,
+        // because the first batch is already empty, emits NO progress at all (it
+        // never even pays the total COUNT on the steady-state re-open).
+        let mut rerun_events = 0usize;
+        backfill_url_registrable_domains_paged(&connection, 3, &mut |_| rerun_events += 1)
+            .expect("idempotent paged backfill");
+        assert_eq!(rerun_events, 0, "a no-work backfill emits nothing and skips the total count");
         let after_rerun: i64 = connection
             .query_row("SELECT COUNT(*) FROM urls WHERE registrable_domain IS NULL", [], |row| {
                 row.get(0)

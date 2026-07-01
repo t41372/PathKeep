@@ -11,15 +11,39 @@ use vault_worker::RekeyRequest;
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Initializes the archive and optionally seeds the first session key.
+/// Initializes the archive and optionally seeds the first session key, streaming
+/// first-run upgrade progress on `pathkeep://archive-upgrade`.
 pub(crate) async fn initialize_archive(
+    app: AppHandle,
     config: vault_core::AppConfig,
     database_key: Option<String>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, String> {
     let session = state.inner().clone();
     run_blocking_command("initialize_archive", move || {
-        worker_bridge::initialize_archive_impl(config, database_key, &session)
+        worker_bridge::initialize_archive_with_progress_impl(
+            config,
+            database_key,
+            &session,
+            |event| {
+                let _ = app.emit("pathkeep://archive-upgrade", &event);
+            },
+        )
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Cheap first-run upgrade pre-check: reports whether the next archive open will
+/// do minutes of upgrade work, so the shell can decide whether to show the
+/// "Upgrading your archive…" screen. Runs off the UI thread.
+pub(crate) async fn assess_archive_upgrade(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ArchiveUpgradeAssessment, String> {
+    let session_database_key = state.get_key();
+    run_blocking_command("assess_archive_upgrade", move || {
+        worker_bridge::assess_archive_upgrade_impl(session_database_key.as_deref())
     })
     .await
 }

@@ -257,8 +257,14 @@ mod tests {
         assert_eq!(session_key(&session), None);
 
         let snapshot =
-            initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+            initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
+                .expect("initialize archive");
         assert!(snapshot.archive_status.initialized);
+        // The cheap upgrade pre-check runs off this bridge too: a freshly
+        // initialized (at-head, data-empty) archive reports no pending upgrade.
+        let upgrade = assess_archive_upgrade_impl(session_key(&session).as_deref())
+            .expect("assess archive upgrade");
+        assert!(!upgrade.pending, "a freshly initialized archive has no pending upgrade");
         assert_eq!(
             save_config_impl(config.clone(), session_key(&session).as_deref())
                 .expect("save config")
@@ -805,8 +811,13 @@ mod tests {
 
         let session = SessionState::default();
         let config = initialized_config();
-        initialize_archive_impl(config.clone(), Some("vault-passphrase".to_string()), &session)
-            .expect("initialize archive");
+        initialize_archive_with_progress_impl(
+            config.clone(),
+            Some("vault-passphrase".to_string()),
+            &session,
+            |_| {},
+        )
+        .expect("initialize archive");
         save_config_impl(config, session_key(&session).as_deref()).expect("save config");
         let report = run_backup_now_impl(false, session_key(&session).as_deref(), |_| {})
             .expect("run backup");
@@ -941,7 +952,8 @@ mod tests {
 
         let session = SessionState::default();
         let config = initialized_config();
-        initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+        initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
+            .expect("initialize archive");
         save_config_impl(config, session_key(&session).as_deref()).expect("save config");
         run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
 
@@ -1178,7 +1190,8 @@ mod tests {
 
         let session = SessionState::default();
         let mut config = initialized_config();
-        initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+        initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
+            .expect("initialize archive");
         run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
 
         let passcode_status = set_app_lock_passcode_impl(SetAppLockPasscodeRequest {
@@ -1262,7 +1275,8 @@ mod tests {
 
         let session = SessionState::default();
         let config = initialized_config();
-        initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+        initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
+            .expect("initialize archive");
         save_config_impl(config, session_key(&session).as_deref()).expect("save config");
         run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
 

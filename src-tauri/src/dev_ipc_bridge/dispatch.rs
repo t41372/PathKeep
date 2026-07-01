@@ -76,10 +76,19 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "initialize_archive" => {
             let payload = parse_payload::<InitializeArchivePayload>(payload)?;
-            json_value!(worker_bridge::initialize_archive_impl(
+            // The dev HTTP bridge does NOT deliver Tauri events, so the upgrade
+            // progress reporter is a documented no-op here (mirroring how the dev
+            // backup path drops its emit sink); the upgrade work still runs.
+            json_value!(worker_bridge::initialize_archive_with_progress_impl(
                 payload.config,
                 payload.database_key,
-                &state.session
+                &state.session,
+                |_| {}
+            )?)
+        }
+        "assess_archive_upgrade" => {
+            json_value!(worker_bridge::assess_archive_upgrade_impl(
+                session_key(&state.session).as_deref()
             )?)
         }
         "preview_rekey_archive" => {
