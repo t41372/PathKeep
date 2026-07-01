@@ -69,6 +69,21 @@ pub(crate) fn run_snapshot_restore_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Lists verified full-archive safety snapshots for the recovery GUI (keyless FS scan).
+pub(crate) fn list_recovery_snapshots_impl() -> Result<Vec<vault_core::RecoverySnapshot>, String> {
+    worker_result(vault_worker::list_recovery_snapshots())
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Runs the one-click full-archive restore from a verified safety snapshot.
+pub(crate) fn run_full_archive_restore_impl(
+    request: vault_core::SnapshotRestoreRequest,
+    state: &SessionState,
+) -> Result<vault_core::FullArchiveRestoreReport, String> {
+    worker_result(vault_worker::run_full_archive_restore(session_key(state).as_deref(), &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Previews the current retention-prune plan.
 pub(crate) fn preview_retention_prune_impl(
     state: &SessionState,

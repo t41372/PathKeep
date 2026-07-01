@@ -95,6 +95,30 @@ pub(crate) async fn run_snapshot_restore(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Lists verified full-archive safety snapshots for the recovery GUI, off the UI thread.
+pub(crate) async fn list_recovery_snapshots() -> Result<Vec<vault_core::RecoverySnapshot>, String> {
+    run_blocking_command("list_recovery_snapshots", move || {
+        worker_bridge::list_recovery_snapshots_impl()
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Runs the one-click full-archive restore from a verified snapshot, off the UI thread.
+pub(crate) async fn run_full_archive_restore(
+    request: vault_core::SnapshotRestoreRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::FullArchiveRestoreReport, String> {
+    let session = state.inner().clone();
+    run_blocking_command("run_full_archive_restore", move || {
+        worker_bridge::run_full_archive_restore_impl(request, &session)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Shows what retention pruning would delete or preserve, off the UI thread.
 pub(crate) async fn preview_retention_prune(
     state: State<'_, SessionState>,

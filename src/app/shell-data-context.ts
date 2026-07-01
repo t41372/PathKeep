@@ -23,9 +23,11 @@ import type {
   AppConfig,
   AppLockStatus,
   AppSnapshot,
+  ArchiveRecoveryReport,
   BackupReport,
   BrowserHistoryImportRequest,
   DashboardSnapshot,
+  FullArchiveRestoreReport,
   IntelligenceRuntimeSnapshot,
   SetAppLockPasscodeRequest,
   TakeoutInspection,
@@ -164,6 +166,20 @@ export interface ShellDataContextValue {
   clearAppLockPasscode: () => Promise<AppLockStatus>
   lockAppSession: (reason?: string | null) => Promise<AppLockStatus>
   unlockAppSession: (request: UnlockAppSessionRequest) => Promise<AppLockStatus>
+  /**
+   * The structured recovery report surfaced when `initialize_archive` detects
+   * an unresolvable archive drift or corruption at launch. Set to `null` when
+   * the archive is healthy or after a successful restore.
+   */
+  recovery: ArchiveRecoveryReport | null
+  /**
+   * Replaces the live archive with a verified safety snapshot, quarantining the
+   * broken state (moved, not deleted). Clears `recovery` and re-bootstraps the
+   * shell on success.
+   */
+  runFullArchiveRestore: (
+    snapshotPath: string,
+  ) => Promise<FullArchiveRestoreReport>
   clearNotice: () => void
   clearError: () => void
   markNotificationsRead?: () => void

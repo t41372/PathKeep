@@ -116,7 +116,43 @@ Reorder + harden, each with a kill-at-checkpoint test reproducing the relevant c
   by the REWRITE ops (rekey/reconcile/import). `sourceOp = "periodic"` is reserved, not produced today.
 - **D4 — worker commands + startup surface**: `list_recovery_snapshots`, `run_full_archive_restore`, and
   `parse_archive_recovery_required` (parses the `ARCHIVE_RECOVERY_REQUIRED_PREFIX` wire string the FE reads).
-- **FE-pending (separate block)**: the recovery screen UI + desktop Tauri-bridge command wiring.
+
+### Phase D FRONTEND — DONE (recovery GUI)
+
+- Guided full-screen recovery screen (`src/components/archive-recovery-screen/`) — leads with the newest verified
+  snapshot (one-click restore + a destructive-confirm; the full dated/sized/✓verified list is secondary),
+  reassures "your current state is quarantined (moved, recoverable), not deleted", honest
+  loading/empty/restoring/error states, never a dead end (failure → "Try another snapshot"). Mirrors the
+  `archive-unlock-gate` calm full-screen posture; focus-trap + `aria-live` + `aria-describedby`; reduced-motion.
+- Proactive Settings → "Restore from snapshot" section (`src/pages/settings/snapshot-restore-section.tsx`) reuses
+  the shared restore module (`src/components/snapshot-restore/`). Restore is an explicit destructive action (not
+  auto-save).
+- Startup detection (`shell-data.tsx` + `shell-data-helpers.ts`): `archiveNeedsLaunchRecovery` fires only on
+  `initialized && !unlocked && !encrypted && warning`, then catches the `ARCHIVE_RECOVERY_REQUIRED_PREFIX` error
+  from `initialize_archive_database` and routes to the recovery screen (pre-empts routing in `app/index.tsx`); a
+  malformed payload falls back to the generic error path, never crashes.
+- Desktop Tauri command wiring (`src-tauri/src/commands/archive.rs`, `worker_bridge/archive.rs`, `lib.rs`,
+  `dev_ipc_bridge/dispatch.rs`) mirrors `run_snapshot_restore`. TS types mirror the Rust DTOs (camelCase);
+  frozen `backend.ts` fixture not extended. **Preview button removed** (deliberate): `preview_snapshot_restore`
+  opens the LIVE archive (un-openable in recovery) + needs a snapshots-table row only rekey snapshots have +
+  returns 0 estimates for safety snapshots — the card's date/size/✓verified/sourceOp is the honest summary.
+- Gate: typecheck/lint/`check:i18n` 100% (3319 keys ×3)/`coverage:js` 100% (332 files / 3361 tests)/format +
+  desktop-crate fmt/clippy all green. Independent FE review **SHIP**.
+
+### Phase D — encrypted-user recovery gap (carry-ins from the FE review)
+
+- **[HIGH follow-up]** a genuinely-corrupt ENCRYPTED archive has NO in-GUI recovery path: `archiveNeedsLaunchRecovery`
+  returns `false` for `status.encrypted`, so damaged encrypted files route to the unlock gate, where the correct
+  password still fails to unlock — indistinguishable from a wrong password — and Settings→Restore is unreachable
+  behind the z-9999 overlay. Non-regressing (no recovery GUI existed pre-Phase-D; the headline PLAINTEXT-drift
+  incident IS covered) but it's the one place "never a dead end" can still break for encrypted users. Fix: an
+  "Can't unlock? Recover from snapshot" escape hatch on the unlock gate that routes into the recovery flow.
+- **[MEDIUM follow-up]** the recovery screen can offer an ENCRYPTED snapshot it can't restore keylessly
+  (`verifiedOpenable` is size-only for encrypted → a green "Verified" badge; `run_full_archive_snapshot_restore`
+  bails "unlock with the archive key first"). The failure path is honest, but if ALL available snapshots are
+  encrypted the non-empty panel offers no forward path (no key entry, no "Reveal logs" in the main panel). Fix:
+  annotate/suppress encrypted snapshots when no session key is held, add a key-entry affordance, and always
+  surface "Reveal logs" in the main panel.
 
 ## Phase E — Test infrastructure sweep + methodology (Track 4)
 

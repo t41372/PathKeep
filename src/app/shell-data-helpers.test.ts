@@ -24,16 +24,20 @@ import { defaultExplorerBackgroundPrefetchPages } from '../lib/explorer-preferen
 import { createTranslator } from '../lib/i18n'
 import type {
   AppSnapshot,
+  ArchiveRecoveryReport,
   BackupProgressEvent,
   DashboardSnapshot,
 } from '../lib/types'
 import {
+  ARCHIVE_RECOVERY_REQUIRED_PREFIX,
+  archiveNeedsLaunchRecovery,
   backupStepLabels,
   buildBackupOverlay,
   buildUninitializedDashboardFallback,
   countActiveRuntimeJobs,
   emptyRuntimeStatus,
   isAppLockError,
+  parseArchiveRecoveryRequired,
   runtimeStatusScopeKey,
   shouldAttemptKeyringAutoUnlock,
 } from './shell-data-helpers'
@@ -631,5 +635,121 @@ describe('shell-data helpers', () => {
 
     expect(finalizeOverlay.progressLabel).toBeNull()
     expect(finalizeOverlay.progressValue).toBeNull()
+  })
+})
+
+describe('archive recovery helpers', () => {
+  test('archiveNeedsLaunchRecovery returns true for plaintext+warning+locked', () => {
+    const snap = buildSnapshot({
+      archiveStatus: {
+        initialized: true,
+        encrypted: false,
+        unlocked: false,
+        databasePath: '/tmp/archive.sqlite',
+        warning: 'drift',
+      },
+    })
+    expect(archiveNeedsLaunchRecovery(snap)).toBe(true)
+  })
+
+  test('returns false when archive is unlocked', () => {
+    const snap = buildSnapshot({
+      archiveStatus: {
+        initialized: true,
+        encrypted: false,
+        unlocked: true,
+        databasePath: '/tmp/archive.sqlite',
+        warning: 'drift',
+      },
+    })
+    expect(archiveNeedsLaunchRecovery(snap)).toBe(false)
+  })
+
+  test('returns false when archive is encrypted (normal locked case)', () => {
+    const snap = buildSnapshot({
+      archiveStatus: {
+        initialized: true,
+        encrypted: true,
+        unlocked: false,
+        databasePath: '/tmp/archive.sqlite',
+        warning: 'drift',
+      },
+    })
+    expect(archiveNeedsLaunchRecovery(snap)).toBe(false)
+  })
+
+  test('returns false when archive is not initialized', () => {
+    const snap = buildSnapshot({
+      archiveStatus: {
+        initialized: false,
+        encrypted: false,
+        unlocked: false,
+        databasePath: '/tmp/archive.sqlite',
+        warning: 'drift',
+      },
+    })
+    expect(archiveNeedsLaunchRecovery(snap)).toBe(false)
+  })
+
+  test('returns false when no warning', () => {
+    const snap = buildSnapshot({
+      archiveStatus: {
+        initialized: true,
+        encrypted: false,
+        unlocked: false,
+        databasePath: '/tmp/archive.sqlite',
+        warning: null,
+      },
+    })
+    expect(archiveNeedsLaunchRecovery(snap)).toBe(false)
+  })
+
+  test('ARCHIVE_RECOVERY_REQUIRED_PREFIX has the correct value', () => {
+    expect(ARCHIVE_RECOVERY_REQUIRED_PREFIX).toBe('archive_recovery_required')
+  })
+
+  test('parseArchiveRecoveryRequired parses a valid report from a string', () => {
+    const report: ArchiveRecoveryReport = {
+      kind: 'atRestDriftUnresolved',
+      configMode: 'Plaintext',
+      availableSnapshots: [],
+      recoverySnapshots: [],
+      detail: 'test',
+    }
+    const msg = `${ARCHIVE_RECOVERY_REQUIRED_PREFIX}: ${JSON.stringify(report)}`
+    expect(parseArchiveRecoveryRequired(msg)).toEqual(report)
+  })
+
+  test('parseArchiveRecoveryRequired returns null for a non-matching string', () => {
+    expect(parseArchiveRecoveryRequired('some other error')).toBeNull()
+  })
+
+  test('parseArchiveRecoveryRequired returns null for malformed JSON', () => {
+    expect(
+      parseArchiveRecoveryRequired(
+        `${ARCHIVE_RECOVERY_REQUIRED_PREFIX}: {bad json`,
+      ),
+    ).toBeNull()
+  })
+
+  test('parseArchiveRecoveryRequired handles Error objects', () => {
+    const report: ArchiveRecoveryReport = {
+      kind: 'interruptedRekeyUnresolved',
+      configMode: 'Encrypted',
+      availableSnapshots: ['/snap.sqlite'],
+      recoverySnapshots: [],
+      detail: 'x',
+    }
+    const err = new Error(
+      `prefix: ${ARCHIVE_RECOVERY_REQUIRED_PREFIX}: ${JSON.stringify(report)}`,
+    )
+    expect(parseArchiveRecoveryRequired(err)).toEqual(report)
+  })
+
+  test('parseArchiveRecoveryRequired returns null for non-string non-Error inputs', () => {
+    expect(parseArchiveRecoveryRequired(42)).toBeNull()
+    expect(parseArchiveRecoveryRequired(null)).toBeNull()
+    expect(parseArchiveRecoveryRequired(undefined)).toBeNull()
+    expect(parseArchiveRecoveryRequired({ message: 'foo' })).toBeNull()
   })
 })

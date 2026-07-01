@@ -631,5 +631,7 @@ function createShellDataValue(snapshot: AppSnapshot): ShellDataContextValue {
     clearNotice: vi.fn(),
     errorKind: null,
     clearError: vi.fn(),
+    recovery: null,
+    runFullArchiveRestore: vi.fn().mockResolvedValue({}),
   }
 }

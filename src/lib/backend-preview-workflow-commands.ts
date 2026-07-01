@@ -91,6 +91,10 @@ export function handlePreviewWorkflowCommand<T>(
         state,
         structuredClone(args?.request as RekeyRequest),
       ) as T
+    case 'list_recovery_snapshots':
+      return [] as T
+    case 'run_full_archive_restore':
+      throw new Error('Snapshot restore is not available in browser preview.')
     case 'preview_snapshot_restore':
       return buildMockSnapshotRestorePreview(
         state,

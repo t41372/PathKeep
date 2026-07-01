@@ -47,6 +47,7 @@ import { settingsCoreAndPlatformNamespace } from './settings-core-and-platform'
 import { settingsDerivedAndRuntimeNamespace } from './settings-derived-and-runtime'
 import { settingsRemoteAndOutputsNamespace } from './settings-remote-and-outputs'
 import { settingsUpdatesNamespace } from './settings-updates'
+import { recoveryNamespaceCatalog } from './recovery'
 import { shellNamespaceCatalog } from './shell'
 import {
   supportedLanguages,
@@ -95,6 +96,7 @@ const catalog = {
     jobs: jobsNamespaceCatalog.en,
     platform: platformNamespaceCatalog.en,
     onboarding: onboardingNamespaceCatalog.en,
+    recovery: recoveryNamespaceCatalog.en,
   },
   'zh-CN': {
     common: commonNamespaceCatalog['zh-CN'],
@@ -126,6 +128,7 @@ const catalog = {
     jobs: jobsNamespaceCatalog['zh-CN'],
     platform: platformNamespaceCatalog['zh-CN'],
     onboarding: onboardingNamespaceCatalog['zh-CN'],
+    recovery: recoveryNamespaceCatalog['zh-CN'],
   },
   'zh-TW': {
     common: commonNamespaceCatalog['zh-TW'],
@@ -157,6 +160,7 @@ const catalog = {
     jobs: jobsNamespaceCatalog['zh-TW'],
     platform: platformNamespaceCatalog['zh-TW'],
     onboarding: onboardingNamespaceCatalog['zh-TW'],
+    recovery: recoveryNamespaceCatalog['zh-TW'],
   },
 } as const satisfies TranslationCatalog
 

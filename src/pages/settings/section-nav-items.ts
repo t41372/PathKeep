@@ -39,6 +39,7 @@ export type SettingsSectionKey =
   | 'contentFetch'
   | 'derived'
   | 'migration'
+  | 'restore'
   | 'linkPreviews'
   | 'platform'
 
@@ -109,6 +110,11 @@ const settingsSectionSpecs: Record<SettingsSectionKey, SettingsSectionSpec> = {
     icon: 'download',
     labelKey: 'settings.migrationTitle',
   },
+  restore: {
+    id: 'settings-restore',
+    icon: 'history',
+    labelKey: 'recovery.sectionTitle',
+  },
   linkPreviews: {
     id: 'settings-link-previews',
     icon: 'preview',
@@ -130,6 +136,7 @@ const defaultSettingsSectionOrder: SettingsSectionKey[] = [
   'ai',
   'contentFetch',
   'migration',
+  'restore',
   'linkPreviews',
   'updater',
   'retention',

@@ -282,6 +282,12 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             snapshot_path: dir.path().join("missing-snapshot.sqlite").display().to_string(),
         }),
     );
+    dispatch_for_coverage(&state, "list_recovery_snapshots", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "run_full_archive_restore",
+        wrapped(SnapshotRestoreRequest { snapshot_path: "/nonexistent.sqlite".to_string() }),
+    );
     dispatch_for_coverage(&state, "preview_retention_prune", json!({}));
     dispatch_for_coverage(
         &state,

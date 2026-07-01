@@ -173,6 +173,8 @@ function shellContextValue(
     unlockAppSession: vi.fn().mockResolvedValue({}),
     clearNotice: vi.fn(),
     clearError: vi.fn(),
+    recovery: null,
+    runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     ...overrides,
   } as ShellDataContextValue
 }

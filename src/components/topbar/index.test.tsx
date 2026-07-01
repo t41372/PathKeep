@@ -149,6 +149,8 @@ describe('Topbar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     render(
@@ -218,6 +220,8 @@ describe('Topbar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     render(
@@ -305,6 +309,8 @@ describe('Topbar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     render(
@@ -376,6 +382,8 @@ describe('Topbar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     window.addEventListener('unhandledrejection', unhandledRejection)
@@ -461,6 +469,8 @@ describe('Topbar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
       markNotificationsRead,
       dismissNotification,
     }
@@ -553,6 +563,8 @@ describe('Topbar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     render(
@@ -622,6 +634,8 @@ describe('Topbar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
       markNotificationsRead,
     }
 
@@ -686,6 +700,8 @@ describe('Topbar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     window.location.hash = '#/'

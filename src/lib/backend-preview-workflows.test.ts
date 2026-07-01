@@ -175,4 +175,15 @@ describe('backend preview workflow helpers', () => {
       platform: 'macos',
     })
   })
+
+  test('throws for run_full_archive_restore in browser preview mode', () => {
+    const state = createMockState()
+    expect(() =>
+      handlePreviewWorkflowCommand(
+        'run_full_archive_restore',
+        undefined,
+        state,
+      ),
+    ).toThrow('Snapshot restore is not available in browser preview.')
+  })
 })

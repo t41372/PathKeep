@@ -35,6 +35,7 @@ import type {
   AppBuildInfo,
   AppLockStatus,
   AppSnapshot,
+  ArchiveRecoveryReport,
   BackupProgressEvent,
   BackupReport,
   ImportProgressEvent,
@@ -52,9 +53,11 @@ import {
   isFullDiskAccessIssueMessage,
 } from './shell-data-actions'
 import {
+  archiveNeedsLaunchRecovery,
   buildUninitializedDashboardFallback,
   countActiveRuntimeJobs,
   isAppLockError,
+  parseArchiveRecoveryRequired,
   shouldAttemptKeyringAutoUnlock,
 } from './shell-data-helpers'
 import { useShellRuntimeStatus } from './shell-runtime-status'
@@ -106,6 +109,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     readStoredNotifications(),
   )
   const [refreshKey, setRefreshKey] = useState(0)
+  const [recovery, setRecovery] = useState<ArchiveRecoveryReport | null>(null)
   const idleTimerRef = useRef<number | null>(null)
   const archiveTasksRef = useRef<ShellTask[]>([])
   const attemptedKeyringAutoUnlockRef = useRef(false)
@@ -439,6 +443,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         await waitForNextPaint()
       }
       setError(null)
+      setRecovery(null)
 
       try {
         const [nextLockStatus, nextBuildInfo] = await Promise.all([
@@ -475,6 +480,23 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
             // Auto-unlock is best-effort; keep the locked snapshot and let the
             // user fall back to the explicit unlock controls if keychain access
             // is denied or unavailable for this session.
+          }
+        }
+
+        if (archiveNeedsLaunchRecovery(nextSnapshot)) {
+          try {
+            nextSnapshot = await backend.initializeArchive(nextSnapshot.config)
+          } catch (recoveryError) {
+            const report = parseArchiveRecoveryRequired(recoveryError)
+            if (report) {
+              setRecovery(report)
+              setSnapshot(nextSnapshot)
+              setAppLockStatus(nextSnapshot.appLockStatus)
+              setBuildInfo(nextBuildInfo)
+              setRefreshKey((value) => value + 1)
+              return
+            }
+            throw recoveryError
           }
         }
 
@@ -773,6 +795,19 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     },
   })
 
+  const runFullArchiveRestore = useCallback(
+    async (snapshotPath: string) => {
+      const report = await backend.runFullArchiveRestore({ snapshotPath })
+      // Refresh first so a failure keeps the recovery screen visible (setRecovery
+      // inside refreshAppData also clears it on success, so the explicit call below
+      // is redundant on the happy path but ensures cleanup on a partial failure).
+      await refreshAppData(false)
+      setRecovery(null)
+      return report
+    },
+    [refreshAppData],
+  )
+
   return (
     <ShellDataContext.Provider
       value={{
@@ -805,6 +840,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         clearAppLockPasscode,
         lockAppSession,
         unlockAppSession,
+        recovery,
+        runFullArchiveRestore,
         clearNotice: () => setNotice(null),
         clearError: () => setError(null),
         markNotificationsRead: () =>

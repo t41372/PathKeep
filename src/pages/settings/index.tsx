@@ -32,6 +32,7 @@ import { AiProvidersSection } from './ai-providers-section'
 import { AppearanceSection } from './appearance-section'
 import { ContentFetchSection } from './content-fetch-section'
 import { DataMigrationSection } from './data-migration-section'
+import { SnapshotRestoreSection } from './snapshot-restore-section'
 import { LinkPreviewsSection } from './link-previews-section'
 import { AppLockSection } from './app-lock-section'
 import { GeneralSection } from './general-section'
@@ -103,6 +104,7 @@ export function SettingsPage() {
         'ai',
         'contentFetch',
         'migration',
+        'restore',
         'linkPreviews',
       ]),
     [t],
@@ -222,6 +224,7 @@ export function SettingsPage() {
       <div className="settings-group">
         <div className="settings-group__label">{t('settings.groupData')}</div>
         <DataMigrationSection navItem={settingsSection('migration')} />
+        <SnapshotRestoreSection navItem={settingsSection('restore')} />
       </div>
 
       <div className="settings-group">

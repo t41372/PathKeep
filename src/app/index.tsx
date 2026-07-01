@@ -6,6 +6,7 @@
  * - If startup or provider order feels confusing, this file should let you answer that question in one pass.
  *
  * Main declarations:
+ * - `AppBody`
  * - `App`
  *
  * Source-of-truth notes:
@@ -14,10 +15,12 @@
  */
 
 import { RouterProvider } from 'react-router-dom'
+import { ArchiveRecoveryScreen } from '../components/archive-recovery-screen'
 import { I18nProvider } from '../lib/i18n'
 import { ProfileScopeProvider } from '../lib/profile-scope'
 import { createDesktopRouter, type AppRouter } from './router-factory'
 import { ShellDataProvider } from './shell-data'
+import { useShellData } from './shell-data-context'
 
 /**
  * Describes the props accepted by `App`.
@@ -27,6 +30,18 @@ import { ShellDataProvider } from './shell-data'
  */
 interface AppProps {
   router?: AppRouter
+}
+
+/**
+ * Renders the router or — when the archive cannot open on launch and recovery
+ * snapshots are available — the full-screen `ArchiveRecoveryScreen` in its
+ * place. The provider stack is identical in both cases so shell-data hooks work
+ * inside `ArchiveRecoveryScreen`.
+ */
+export function AppBody({ router }: { router: AppRouter }) {
+  const { recovery } = useShellData()
+  if (recovery) return <ArchiveRecoveryScreen report={recovery} />
+  return <RouterProvider router={router} />
 }
 
 /**
@@ -41,7 +56,7 @@ export default function App({ router = createDesktopRouter() }: AppProps) {
     <I18nProvider>
       <ProfileScopeProvider>
         <ShellDataProvider>
-          <RouterProvider router={router} />
+          <AppBody router={router} />
         </ShellDataProvider>
       </ProfileScopeProvider>
     </I18nProvider>

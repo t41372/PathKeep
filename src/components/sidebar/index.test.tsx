@@ -248,6 +248,8 @@ describe('Sidebar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     render(
@@ -313,6 +315,8 @@ describe('Sidebar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
     const router = createMemoryRouter(
       [
@@ -383,6 +387,8 @@ describe('Sidebar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
     const router = createMemoryRouter(
       [
@@ -463,6 +469,8 @@ describe('Sidebar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     const router = createMemoryRouter(
@@ -597,6 +605,8 @@ describe('Sidebar', () => {
       clearNotice: vi.fn(),
       errorKind: null,
       clearError: vi.fn(),
+      recovery: null,
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     const router = createMemoryRouter(

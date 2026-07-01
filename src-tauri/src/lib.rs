@@ -106,6 +106,8 @@ fn run_app() -> Result<()> {
             reconcile_archive_encryption,
             preview_snapshot_restore,
             run_snapshot_restore,
+            list_recovery_snapshots,
+            run_full_archive_restore,
             preview_retention_prune,
             run_retention_prune,
             set_session_database_key,

@@ -63,6 +63,8 @@ export const backend = {
   previewRekeyArchive: securityClient.previewRekey,
   previewSnapshotRestore: archiveClient.previewSnapshotRestore,
   runSnapshotRestore: archiveClient.runSnapshotRestore,
+  listRecoverySnapshots: archiveClient.listRecoverySnapshots,
+  runFullArchiveRestore: archiveClient.runFullArchiveRestore,
   previewRetentionPrune: archiveClient.previewRetentionPrune,
   runRetentionPrune: archiveClient.runRetentionPrune,
   setSessionDatabaseKey: appClient.setSessionDatabaseKey,

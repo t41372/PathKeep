@@ -238,6 +238,8 @@ export function createShellValue(
     clearNotice: vi.fn(),
     errorKind: null,
     clearError: vi.fn(),
+    recovery: null,
+    runFullArchiveRestore: vi.fn().mockResolvedValue({}),
   }
 }
 

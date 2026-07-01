@@ -488,3 +488,58 @@ export interface ExportResult {
   path: string
   count: number
 }
+
+/**
+ * Enumerates the known reasons an archive may need launch-time recovery.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
+export type ArchiveRecoveryKind =
+  | 'interruptedImportModeDrift'
+  | 'interruptedRekeyUnresolved'
+  | 'interruptedRestoreUnresolved'
+  | 'atRestDriftUnresolved'
+
+/**
+ * Describes one verified full-archive safety snapshot available for restore.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
+export interface RecoverySnapshot {
+  id: string
+  path: string
+  createdAt?: string | null
+  sizeBytes: number
+  verifiedOpenable: boolean
+  sourceOp: string
+  label: string
+}
+
+/**
+ * Represents the outcome of a one-click full-archive restore from a safety snapshot.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
+export interface FullArchiveRestoreReport {
+  runId?: number | null
+  restoredSnapshotPath: string
+  restoredMode: ArchiveMode
+  quarantineDir: string
+  sourceEvidenceRebuilt: boolean
+  warnings: string[]
+}
+
+/**
+ * Describes the structured diagnostic the backend surfaces when the archive cannot be opened on launch.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
+export interface ArchiveRecoveryReport {
+  kind: ArchiveRecoveryKind
+  configMode: ArchiveMode
+  historyVaultMode?: ArchiveMode | null
+  sourceEvidenceMode?: ArchiveMode | null
+  availableSnapshots: string[]
+  recoverySnapshots: RecoverySnapshot[]
+  detail: string
+}
