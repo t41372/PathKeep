@@ -487,3 +487,6 @@ pub(crate) fn visit_event_fingerprint(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod upgrade_v020_tests;

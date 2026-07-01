@@ -240,6 +240,28 @@ fn run_core_intelligence_migrations(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Test-only: applies intelligence-plane migrations up to (and including) `max_version`, so a
+/// test can materialize the schema at a historical version (e.g. v0.2.0's v6) and then exercise
+/// the real forward-apply. Reuses the production apply/record path.
+#[cfg(test)]
+pub(crate) fn apply_intelligence_migrations_through(
+    connection: &Connection,
+    max_version: i64,
+) -> Result<()> {
+    let applied = load_applied_intelligence_migrations(connection)?;
+    for migration in INTELLIGENCE_MIGRATIONS {
+        if migration.version > max_version || applied.contains(&migration.version) {
+            continue;
+        }
+        (migration.apply)(connection)?;
+        connection.execute(
+            "INSERT INTO intelligence_schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
+            params![migration.version, migration.name, now_rfc3339()],
+        )?;
+    }
+    Ok(())
+}
+
 /// Ensures the intelligence plane is ready for reads and rebuilds before any
 /// route surface or background task opens the derived database.
 pub(crate) fn ensure_core_intelligence_schema(connection: &Connection) -> Result<()> {

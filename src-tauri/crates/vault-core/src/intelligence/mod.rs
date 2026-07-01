@@ -55,6 +55,8 @@ use self::intelligence_daily_rollup_state::{build_daily_rollups, merge_rollups};
 use self::intelligence_daily_rollups::{
     ensure_unique_domain_rollup_rows, execute_daily_rollup_stage, load_profile_derived_visit_batch,
 };
+#[cfg(test)]
+pub(crate) use self::intelligence_schema::apply_intelligence_migrations_through;
 pub(crate) use self::intelligence_schema::ensure_core_intelligence_schema;
 use self::intelligence_shared::{
     build_kpi, classify_search_query_kind, collapse_date_key, count_refind_pages_in_range,
