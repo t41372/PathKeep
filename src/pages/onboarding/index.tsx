@@ -65,6 +65,7 @@ export function OnboardingPage() {
     loading,
     saveConfig,
     initializeArchive,
+    refreshAppData,
     runBackup,
     snapshot,
   } = useShellData()
@@ -432,6 +433,7 @@ export function OnboardingPage() {
 
       {step === 1 ? (
         <BrowserDetectionStep
+          browserDiscoveryIssue={snapshot.browserDiscoveryIssue}
           browserProfiles={snapshot.browserProfiles}
           busyAction={busyAction}
           localError={localError}
@@ -441,6 +443,7 @@ export function OnboardingPage() {
           onBack={() => setStep(0)}
           onContinue={handleBrowsersContinue}
           onOpenFullDiskAccessSettings={handleOpenFullDiskAccessSettings}
+          onRecheck={() => refreshAppData(false)}
           onToggleProfile={handleToggleProfile}
         />
       ) : null}

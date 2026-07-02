@@ -15,6 +15,7 @@
 
 import { describe, expect, test } from 'vitest'
 import {
+  browserDiscoveryState,
   hasSafariAccessIssue,
   keyringNeedsReview,
   needsSchedulerReview,
@@ -90,6 +91,28 @@ describe('platform guidance helpers', () => {
     expect(platformSummaryKey('windows')).toBe('platform.windowsSummary')
     expect(platformSummaryKey('linux')).toBe('platform.linuxSummary')
     expect(platformSummaryKey('macos')).toBe('platform.macosSummary')
+  })
+
+  test('classifies browser-discovery outcomes into one UI discriminant', () => {
+    // A Full Disk Access denial wins over the count — even when some browsers
+    // were found (partial denial), the marker still means "permission problem".
+    expect(browserDiscoveryState('macos-full-disk-access', 0)).toBe(
+      'full-disk-access',
+    )
+    expect(browserDiscoveryState('macos-full-disk-access', 3)).toBe(
+      'full-disk-access',
+    )
+    // A non-permission failure is surfaced as its own error, never hidden.
+    expect(browserDiscoveryState('discovery-error', 0)).toBe('discovery-error')
+    // An unrecognized (e.g. newer-backend) marker is still evidence of a
+    // problem — surface it as an error, never disguise it as an empty machine.
+    expect(browserDiscoveryState('future-marker', 0)).toBe('discovery-error')
+    expect(browserDiscoveryState('future-marker', 5)).toBe('discovery-error')
+    // No marker + zero profiles is a calm, neutral empty result (no nag).
+    expect(browserDiscoveryState(null, 0)).toBe('empty')
+    expect(browserDiscoveryState(undefined, 0)).toBe('empty')
+    // No marker + at least one profile is the healthy path.
+    expect(browserDiscoveryState(null, 2)).toBe('ok')
   })
 
   test('surfaces Safari access, scheduler, and keyring review states', () => {

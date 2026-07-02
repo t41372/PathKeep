@@ -54,6 +54,7 @@ export const onboardingNamespaceCatalog = {
       'Could not open System Settings. Go to System Settings → Privacy & Security → Full Disk Access manually.',
     errorSafariNeedsFullDiskAccess:
       'Safari is not readable yet. Grant Full Disk Access to PathKeep or the running development process, then run the backup again.',
+    errorRecheckFailed: "Couldn't re-check for browsers: {detail}. Try again.",
     welcomeTagline1: 'Your browsing history is yours.',
     welcomeTagline2: 'Back it up. Search it. Learn from it.',
     featureBackupTitle: 'AUTOMATIC BACKUP',
@@ -92,6 +93,18 @@ export const onboardingNamespaceCatalog = {
     selectedProfilesNeedAccess:
       'Some selected browsers cannot be read yet. Grant access, then come back and check again.',
     openFullDiskAccessSettings: 'Open Full Disk Access settings',
+    fullDiskAccessEmptyTitle:
+      'PathKeep needs Full Disk Access to see your browsers',
+    fullDiskAccessEmptyBody:
+      "macOS is blocking access to your browser history, so PathKeep found nothing to back up — this isn't an empty machine. Grant Full Disk Access in System Settings, then re-check and your browsers will appear without restarting setup.",
+    discoveryErrorTitle: 'Browser detection ran into a problem',
+    discoveryErrorBody:
+      'PathKeep couldn\'t finish scanning this device for browsers. This is a detection failure, not a genuine "no browsers" result — re-check to try again.',
+    noBrowsersTitle: 'No browsers detected',
+    noBrowsersBody:
+      "PathKeep didn't find any supported browsers on this device. If you just installed one, re-check to scan again.",
+    recheckBrowsers: 'Re-check',
+    recheckingBrowsers: 'Re-checking…',
     cannotReadHint: "Can't read {fileName} yet. Check file permissions.",
     firefoxSafariInfo:
       'Google Chrome, Microsoft Edge, and Firefox are part of the validated setup path today. ChatGPT Atlas and Perplexity Comet remain macOS-only support paths, and Safari joins after Full Disk Access is granted.',
@@ -260,6 +273,7 @@ export const onboardingNamespaceCatalog = {
       '无法打开系统设置。请手动前往“系统设置 → 隐私与安全性 → 完全磁盘访问权限”。',
     errorSafariNeedsFullDiskAccess:
       'Safari 目前还不能读取。请在 macOS“完全磁盘访问权限”中授权 PathKeep 或当前开发进程，然后再执行备份。',
+    errorRecheckFailed: '重新检查浏览器时出错：{detail}。请再试一次。',
     welcomeTagline1: '你的浏览历史属于你。',
     welcomeTagline2: '备份它，搜索它，从中发现规律。',
     featureBackupTitle: '自动备份',
@@ -298,6 +312,17 @@ export const onboardingNamespaceCatalog = {
     selectedProfilesNeedAccess:
       '已选的浏览器中有来源还不能读取。授予权限后再回来重新检查。',
     openFullDiskAccessSettings: '打开完全磁盘访问权限设置',
+    fullDiskAccessEmptyTitle: 'PathKeep 需要完全磁盘访问权限才能看到你的浏览器',
+    fullDiskAccessEmptyBody:
+      'macOS 正在阻止读取你的浏览历史，所以 PathKeep 没有找到可备份的内容 —— 并不是这台设备上没有浏览器。请在系统设置中授予完全磁盘访问权限，然后点一下重新检查，无需重新开始设置，浏览器就会出现。',
+    discoveryErrorTitle: '检测浏览器时出了问题',
+    discoveryErrorBody:
+      'PathKeep 无法在这台设备上完成浏览器扫描。这是检测失败，而不是真的没有浏览器 —— 请重新检查再试一次。',
+    noBrowsersTitle: '未检测到浏览器',
+    noBrowsersBody:
+      'PathKeep 在这台设备上没有找到任何受支持的浏览器。如果你刚安装了一个，请重新检查以再次扫描。',
+    recheckBrowsers: '重新检查',
+    recheckingBrowsers: '重新检查中…',
     cannotReadHint: '暂时无法读取 {fileName}，请检查文件权限。',
     firefoxSafariInfo:
       '当前公开验证的设置路径是 Google Chrome、Microsoft Edge 和 Firefox。ChatGPT Atlas 与 Perplexity Comet 仍只承诺 macOS 路径；在 macOS 上授予完全磁盘访问权限后，Safari 也属于已验证的基础支持。',
@@ -459,6 +484,7 @@ export const onboardingNamespaceCatalog = {
       '無法開啟系統設定。請手動前往「系統設定 → 隱私權與安全性 → 完整磁碟取用權」。',
     errorSafariNeedsFullDiskAccess:
       'Safari 目前還不能讀取。請在 macOS「完整磁碟取用權」中授權 PathKeep 或目前的開發行程，然後再執行備份。',
+    errorRecheckFailed: '重新檢查瀏覽器時發生錯誤：{detail}。請再試一次。',
     welcomeTagline1: '你的瀏覽歷史屬於你。',
     welcomeTagline2: '備份它，搜尋它，從中發現規律。',
     featureBackupTitle: '自動備份',
@@ -497,6 +523,18 @@ export const onboardingNamespaceCatalog = {
     selectedProfilesNeedAccess:
       '已選的瀏覽器中有來源還不能讀取。授予權限後再回來重新檢查。',
     openFullDiskAccessSettings: '開啟完整磁碟取用權設定',
+    fullDiskAccessEmptyTitle:
+      'PathKeep 需要「完整磁碟取用權」才能看到你的瀏覽器',
+    fullDiskAccessEmptyBody:
+      'macOS 目前擋住了讀取瀏覽歷史的權限，所以 PathKeep 找不到任何可備份的內容 —— 並不是這台裝置上沒有瀏覽器。請到系統設定授予「完整磁碟取用權」，再點一下重新檢查，不必重跑設定，瀏覽器就會出現。',
+    discoveryErrorTitle: '偵測瀏覽器時發生問題',
+    discoveryErrorBody:
+      'PathKeep 無法在這台裝置上完成瀏覽器掃描。這是偵測失敗，而不是真的沒有瀏覽器 —— 請重新檢查再試一次。',
+    noBrowsersTitle: '沒有偵測到瀏覽器',
+    noBrowsersBody:
+      'PathKeep 在這台裝置上沒有找到任何支援的瀏覽器。如果你剛安裝了一個，請重新檢查再掃描一次。',
+    recheckBrowsers: '重新檢查',
+    recheckingBrowsers: '重新檢查中…',
     cannotReadHint: '暫時無法讀取 {fileName}，請確認檔案權限。',
     firefoxSafariInfo:
       '目前公開驗證的設定路徑是 Google Chrome、Microsoft Edge 和 Firefox。ChatGPT Atlas 與 Perplexity Comet 仍只承諾 macOS 路徑；在 macOS 上授予完整磁碟取用權限後，Safari 也屬於已驗證的基礎支援。',

@@ -30,12 +30,14 @@ vi.mock('./browser-detection-step', () => ({
     onBack,
     onContinue,
     onOpenFullDiskAccessSettings,
+    onRecheck,
     onToggleProfile,
   }: {
     localError: string | null
     onBack: () => void
     onContinue: () => void
     onOpenFullDiskAccessSettings: () => void
+    onRecheck: () => void | Promise<void>
     onToggleProfile: (profileId: string) => void
   }) => (
     <section>
@@ -48,6 +50,9 @@ vi.mock('./browser-detection-step', () => ({
       </button>
       <button type="button" onClick={onOpenFullDiskAccessSettings}>
         open-full-disk
+      </button>
+      <button type="button" onClick={() => void onRecheck()}>
+        browser-recheck
       </button>
       <button type="button" onClick={() => onToggleProfile('chrome:Default')}>
         toggle-profile
@@ -1041,6 +1046,20 @@ describe('OnboardingPage', () => {
       ),
     )
   })
+
+  test('wires the browser step re-check to a background snapshot refresh', async () => {
+    const user = userEvent.setup()
+    const refreshAppData = vi.fn().mockResolvedValue(undefined)
+    shellData.current = shellDataFixture({ refreshAppData })
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-recheck' }))
+
+    // Re-check re-fetches the snapshot WITHOUT the full-page spinner
+    // (showSpinner === false) so the step never blanks out mid-onboarding.
+    expect(refreshAppData).toHaveBeenCalledWith(false)
+  })
 })
 
 /** Surfaces the current router location so navigation side effects are assertable. */
@@ -1088,6 +1107,7 @@ function shellDataFixture(overrides: Record<string, unknown> = {}) {
     error: null,
     initializeArchive: vi.fn().mockResolvedValue(undefined),
     loading: false,
+    refreshAppData: vi.fn().mockResolvedValue(undefined),
     runBackup: vi.fn().mockResolvedValue(undefined),
     saveConfig: vi.fn((config: AppConfig) =>
       Promise.resolve({
