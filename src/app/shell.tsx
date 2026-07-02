@@ -334,18 +334,6 @@ export function AppShell() {
       data-titlebar-overlay={titlebarOverlay ? 'true' : 'false'}
       data-testid="app-shell"
     >
-      {/* macOS Overlay title bar removes the native title-drag area. The PRIMARY
-          drag affordance is now the topbar header itself (PKTopbar receives
-          titlebarDrag and tags its non-interactive areas with
-          data-tauri-drag-region — see pk-topbar.tsx), so the user drags the
-          window by grabbing the visible top bar, the natural macOS gesture.
-          This thin band is a FALLBACK that covers the reserved strip above the
-          sidebar (inset past the traffic-light cluster), so the whole top edge
-          drags even where the header does not reach. Inert when the overlay is
-          off (height 0, pointer-events none). */}
-      {titlebarOverlay ? (
-        <div className="pk-titlebar-dragstrip" data-tauri-drag-region />
-      ) : null}
       <PKSidebar
         activeId={activeScreen.id}
         collapsed={sidebarCollapsed}

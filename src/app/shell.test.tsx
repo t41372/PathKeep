@@ -151,14 +151,19 @@ describe('AppShell (paper redesign)', () => {
     ).not.toBeInTheDocument()
   })
 
-  test('renders the drag region under the macOS overlay title bar', () => {
+  test('does not render its own drag strip under the overlay (moved to app root)', () => {
+    // The window-drag strip is now a single global element hoisted to the app
+    // root (src/app/index.tsx) so EVERY screen can drag the window — not just
+    // the main shell. The shell must NOT render its own copy (no double strip),
+    // but it still flips data-titlebar-overlay so the sidebar/topbar reserve
+    // clearance for the traffic lights + title strip.
     vi.spyOn(runtime, 'hasMacOverlayTitlebar').mockReturnValue(true)
     renderShell({}, '/')
     const shellRoot = screen.getByTestId('app-shell')
     expect(shellRoot).toHaveAttribute('data-titlebar-overlay', 'true')
-    const dragStrip = shellRoot.querySelector('.pk-titlebar-dragstrip')
-    expect(dragStrip).toBeInTheDocument()
-    expect(dragStrip).toHaveAttribute('data-tauri-drag-region')
+    expect(
+      shellRoot.querySelector('.pk-titlebar-dragstrip'),
+    ).not.toBeInTheDocument()
   })
 
   test('the topbar header becomes the window-drag region under the macOS overlay', () => {
