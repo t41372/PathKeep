@@ -138,13 +138,31 @@ export function JobsPage() {
   // "first read hasn't resolved" signal — no need to re-check `runtime` separately.
   const runtimeLoading = !runtimeStatus.error && aiQueue === null
 
+  // A running import/backup LEDGER run is only genuinely stale/interrupted when there is no LIVE
+  // task of the same kind in the shell store. When a live task exists, the ledger row is that same
+  // in-flight run — surfacing it as "Interrupted" would duplicate a running task into needs-attention.
+  const liveArchiveKinds = useMemo(() => {
+    const kinds = new Set<ShellTask['kind']>()
+    for (const task of archiveTasks) {
+      if (task.state === 'running' || task.state === 'queued')
+        kinds.add(task.kind)
+    }
+    return kinds
+  }, [archiveTasks])
+
   // Stale archive detection (reuse from old code)
   const staleArchiveTasks = useMemo(
     () =>
       (snapshot?.recentRuns ?? [])
         .filter(isStaleArchiveRun)
+        .filter(
+          (run) =>
+            !liveArchiveKinds.has(
+              run.runType === 'import' ? 'import' : 'backup',
+            ),
+        )
         .map((run) => staleArchiveRunTask(run, jobsT)),
-    [jobsT, snapshot?.recentRuns],
+    [jobsT, snapshot?.recentRuns, liveArchiveKinds],
   )
   const allArchiveTasks = useMemo(
     () => [...archiveTasks, ...staleArchiveTasks],

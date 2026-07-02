@@ -12,6 +12,7 @@
  * - Backend wiring details (covered by shell-data tests).
  */
 
+import { useState } from 'react'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
@@ -21,6 +22,7 @@ import {
   ShellDataContext,
   type ShellDataContextValue,
 } from './shell-data-context'
+import type { ShellTask } from './shell-tasks'
 import { AppShell } from './shell'
 import { appScreens } from './router'
 import { I18nProvider } from '@/lib/i18n'
@@ -82,21 +84,22 @@ describe('AppShell (paper redesign)', () => {
     )
   })
 
-  test('renders non-blocking background progress when the busy payload is marked background', () => {
+  test('renders the ambient bar for a running backup (task-store driven), not the blocking overlay', () => {
+    // A backup marks its overlay background:true AND registers a running task in the store. The
+    // unified bottom slot must surface it through the ambient bar, never the blocking BusyOverlay.
     renderShell({
       busyAction: 'Running backup',
-      busyOverlay: {
-        background: true,
-        label: 'Backing up archive',
-        detail: 'Chrome Default',
-        progressLabel: '2 of 4',
-        progressValue: 50,
-        steps: [],
-        logLines: ['Copied 12 pages'],
-      },
+      busyOverlay: { background: true, label: 'Backing up' },
+      archiveTasks: [
+        runningArchiveTask({
+          id: 'archive-backup-1',
+          kind: 'backup',
+          title: 'Manual backup',
+        }),
+      ],
     })
-    expect(screen.getByTestId('background-progress')).toHaveTextContent(
-      'Backing up archive',
+    expect(screen.getByTestId('ambient-task-bar')).toHaveTextContent(
+      'Manual backup',
     )
     expect(screen.queryByTestId('busy-overlay')).not.toBeInTheDocument()
   })
@@ -768,10 +771,17 @@ describe('AppShell (paper redesign)', () => {
         errorKind: 'backup',
         busyAction: 'Running backup',
         busyOverlay: { background: true, label: 'Backing up' },
+        archiveTasks: [
+          runningArchiveTask({
+            id: 'archive-backup-1',
+            kind: 'backup',
+            title: 'Manual backup',
+          }),
+        ],
       },
       '/',
     )
-    expect(screen.getByTestId('background-progress')).toBeInTheDocument()
+    expect(screen.getByTestId('ambient-task-bar')).toBeInTheDocument()
     expect(screen.queryByTestId('backup-failure-toast')).not.toBeInTheDocument()
   })
 
@@ -933,6 +943,201 @@ describe('AppShell (paper redesign)', () => {
     await user.click(manage)
     expect(await screen.findByText('settings body')).toBeInTheDocument()
   })
+
+  // --- Ambient task bar (all-task indicator) ---
+  //
+  // The bottom bar is no longer backup-only: ANY running task (import, backup, AI index build)
+  // must surface it, on EVERY route, driven by the route-independent task store — so navigating
+  // away from the originating page can never hide live progress.
+  describe('Ambient task bar (all-task indicator)', () => {
+    test('HEADLINE — a running import in the task store shows the ambient bar on a non-import route', () => {
+      // On the OLD code an import set no busyAction, so the bottom slot rendered nothing off the
+      // import page — getByTestId throws, proving the regression this change fixes.
+      renderShell(
+        {
+          archiveTasks: [
+            runningArchiveTask({
+              title: 'Importing history',
+              progressValue: 45,
+              progressLabel: '450 / 1000',
+            }),
+          ],
+        },
+        '/',
+      )
+      const bar = screen.getByTestId('ambient-task-bar')
+      expect(bar).toHaveTextContent('Importing history')
+      expect(bar).toHaveTextContent('45%')
+    })
+
+    test('survives navigation — the bar is present regardless of route', () => {
+      renderShell(
+        {
+          archiveTasks: [runningArchiveTask({ title: 'Importing history' })],
+        },
+        '/explorer',
+      )
+      expect(screen.getByTestId('ambient-task-bar')).toBeInTheDocument()
+      // The current route still rendered underneath the ambient bar.
+      expect(screen.getByText('explorer body')).toBeInTheDocument()
+    })
+
+    test('multiple concurrent tasks show a compact summary, not stacked bars', () => {
+      renderShell(
+        {
+          archiveTasks: [
+            runningArchiveTask({
+              id: 'archive-backup-1',
+              kind: 'backup',
+              title: 'Manual backup',
+              progressValue: 20,
+            }),
+          ],
+          runtimeStatus: {
+            aiQueue: {
+              paused: false,
+              concurrency: 1,
+              queued: 0,
+              running: 1,
+              failed: 0,
+              indexQueued: 0,
+              indexRunning: 1,
+              recentJobs: [runningIndexJob()],
+            },
+            intelligence: null,
+            loading: false,
+            error: null,
+          },
+        },
+        '/',
+      )
+      // Exactly one strip — concurrent tasks collapse into a summary, never stack.
+      expect(screen.getAllByTestId('ambient-task-bar')).toHaveLength(1)
+      expect(screen.getByTestId('ambient-task-bar')).toHaveTextContent(
+        '2 tasks running',
+      )
+    })
+
+    test('clicking the bar navigates to the Activity page', async () => {
+      const user = userEvent.setup()
+      renderShell(
+        {
+          archiveTasks: [runningArchiveTask({ title: 'Importing history' })],
+        },
+        '/',
+      )
+      await user.click(screen.getByTestId('ambient-task-bar'))
+      expect(await screen.findByText('jobs body')).toBeInTheDocument()
+    })
+
+    test('the ambient bar and the failure toast are mutually exclusive', () => {
+      // (a) A live task hides a stale failure toast.
+      const { unmount } = renderShell(
+        {
+          error: 'x',
+          errorKind: 'backup',
+          archiveTasks: [
+            runningArchiveTask({ id: 'archive-backup-1', kind: 'backup' }),
+          ],
+        },
+        '/',
+      )
+      expect(screen.getByTestId('ambient-task-bar')).toBeInTheDocument()
+      expect(
+        screen.queryByTestId('backup-failure-toast'),
+      ).not.toBeInTheDocument()
+      unmount()
+
+      // (b) With nothing running, the failure toast owns the slot again.
+      renderShell({ error: 'x', errorKind: 'backup' }, '/')
+      expect(screen.getByTestId('backup-failure-toast')).toBeInTheDocument()
+      expect(screen.queryByTestId('ambient-task-bar')).not.toBeInTheDocument()
+    })
+
+    test('idle → no ambient bar', () => {
+      renderShell({}, '/')
+      expect(screen.queryByTestId('ambient-task-bar')).not.toBeInTheDocument()
+    })
+
+    test('desync fallback — a background overlay with no registered task still shows the ambient bar', () => {
+      // Airtight today (runBackup always registers a task), but a future
+      // `background: true` producer that forgets to register a task would
+      // otherwise make the work invisible — no blocking overlay AND no ambient
+      // bar. The shell falls back to the overlay's own payload so background
+      // work can never silently disappear.
+      renderShell(
+        {
+          busyAction: 'Backing up',
+          busyOverlay: {
+            background: true,
+            label: 'Backing up',
+            progressValue: 30,
+          },
+          archiveTasks: [],
+        },
+        '/',
+      )
+      const bar = screen.getByTestId('ambient-task-bar')
+      expect(bar).toHaveTextContent('Backing up')
+      expect(bar).toHaveTextContent('30%')
+      // The blocking overlay must stay hidden for a background overlay.
+      expect(screen.queryByTestId('busy-overlay')).not.toBeInTheDocument()
+    })
+  })
+
+  // --- Ambient task announcer (a11y presence live region) ---
+  describe('Ambient task announcer', () => {
+    test('mounts a persistent SR region that stays silent on mount and speaks when work appears', async () => {
+      const user = userEvent.setup()
+
+      function Harness() {
+        const [active, setActive] = useState(false)
+        return (
+          <I18nProvider>
+            <ProfileScopeProvider>
+              <ShellDataContext.Provider
+                value={shellValue({
+                  archiveTasks: active
+                    ? [runningArchiveTask({ title: 'Importing history' })]
+                    : [],
+                })}
+              >
+                <AppShell />
+              </ShellDataContext.Provider>
+            </ProfileScopeProvider>
+            <button type="button" onClick={() => setActive(true)}>
+              activate-task
+            </button>
+          </I18nProvider>
+        )
+      }
+
+      const router = createMemoryRouter(
+        [
+          {
+            path: '/',
+            element: <Harness />,
+            children: [{ index: true, element: <p>route body</p> }],
+          },
+        ],
+        { initialEntries: ['/'] },
+      )
+      render(<RouterProvider router={router} />)
+
+      // Always mounted (even while idle) and silent on mount — no announcement.
+      const announcer = screen.getByTestId('ambient-task-announcer')
+      expect(announcer).toBeInTheDocument()
+      expect(announcer).toHaveAttribute('role', 'status')
+      expect(announcer).toHaveAttribute('aria-live', 'polite')
+      expect(announcer).not.toHaveTextContent('Background work started')
+
+      // Background work appears → the region announces the presence transition.
+      await user.click(screen.getByRole('button', { name: 'activate-task' }))
+      expect(screen.getByTestId('ambient-task-announcer')).toHaveTextContent(
+        'Background work started',
+      )
+    })
+  })
 })
 
 function renderShell(
@@ -1019,6 +1224,54 @@ function shellValue(
     clearError: vi.fn(),
     ...overrides,
   } as ShellDataContextValue
+}
+
+function runningArchiveTask(overrides: Partial<ShellTask> = {}): ShellTask {
+  return {
+    id: 'archive-import-1',
+    kind: 'import',
+    state: 'running',
+    title: 'Importing history',
+    detail: '',
+    startedAt: '2026-06-28T00:00:00Z',
+    updatedAt: '2026-06-28T00:00:00Z',
+    finishedAt: null,
+    sourceLabel: null,
+    profileLabel: null,
+    progressLabel: null,
+    progressValue: null,
+    current: null,
+    total: null,
+    processedRecords: null,
+    totalRecords: null,
+    importedRecords: null,
+    duplicateRecords: null,
+    skippedRecords: null,
+    logEntries: [],
+    resultLink: null,
+    error: null,
+    ...overrides,
+  }
+}
+
+function runningIndexJob() {
+  return {
+    id: 55,
+    jobType: 'index-build',
+    state: 'running',
+    priority: 10,
+    attempt: 1,
+    maxAttempts: 3,
+    runId: null,
+    summary: null,
+    queuedAt: '2026-06-28T00:00:00Z',
+    availableAt: '2026-06-28T00:00:00Z',
+    startedAt: '2026-06-28T00:01:00Z',
+    finishedAt: null,
+    heartbeatAt: null,
+    errorCode: null,
+    errorMessage: null,
+  }
 }
 
 function makeDashboardSnapshot(): DashboardSnapshot {

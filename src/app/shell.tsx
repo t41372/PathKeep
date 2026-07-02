@@ -16,7 +16,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Outlet, useMatches, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/cn'
-import { BackgroundProgress } from '@/components/primitives/background-progress'
+import { AmbientTaskBar } from '@/components/primitives/ambient-task-bar'
+import { AmbientTaskAnnouncer } from '@/components/primitives/ambient-task-announcer'
 import { BackupFailureToast } from '@/components/primitives/backup-failure-toast'
 import { BusyOverlay } from '@/components/primitives/busy-overlay'
 import { ArchiveUnlockGate } from '@/components/archive-unlock-gate'
@@ -35,6 +36,10 @@ import {
 } from '@/lib/build-info'
 import { useI18n } from '@/lib/i18n'
 import { useShellData } from './shell-data-context'
+import {
+  ambientModelFromBusyOverlay,
+  selectAmbientTasks,
+} from './shell-ambient-tasks'
 import { appScreens, readRouteHandle } from './router'
 import {
   EPIGRAPH_POOL_SIZE,
@@ -91,7 +96,8 @@ const SOURCE_COLORS: Record<string, string> = {
 export function AppShell() {
   const shell = useShellData()
   const navigate = useNavigate()
-  const { language, t } = useI18n()
+  const { language, t, ns } = useI18n()
+  const jobsTaskLabel = ns('jobs')
 
   const matches = useMatches()
   const activeScreen =
@@ -327,6 +333,33 @@ export function AppShell() {
   const buildRevision = formatBuildRevisionLabel(shell.buildInfo)
   const buildTitle = formatBuildVersionTitle(shell.buildInfo)
 
+  // The ambient bottom bar is the single, route-independent "something is running" indicator. It
+  // folds the archive task store (import + backup, which survive navigation) and the runtime AI
+  // queue into one model so leaving the originating page can no longer hide a live task.
+  const ambientTasks = useMemo(
+    () =>
+      selectAmbientTasks({
+        archiveTasks: shell.archiveTasks ?? [],
+        runtimeStatus: shell.runtimeStatus,
+        runtimeTaskLabel: (key) => jobsTaskLabel(key),
+      }),
+    [shell.archiveTasks, shell.runtimeStatus, jobsTaskLabel],
+  )
+
+  // Defensive desync fallback: if a `background: true` overlay is set but no task
+  // was registered (a future producer bug), the bar would otherwise show nothing.
+  // Fall back to the overlay's own payload so background work can never vanish
+  // silently. When real tasks exist, they win.
+  const ambientModel = useMemo(
+    () =>
+      ambientTasks.count > 0
+        ? ambientTasks
+        : shell.busyOverlay?.background
+          ? ambientModelFromBusyOverlay(shell.busyOverlay)
+          : ambientTasks,
+    [ambientTasks, shell.busyOverlay],
+  )
+
   return (
     <div
       className="bg-page flex h-full min-h-0 w-full text-ink"
@@ -408,29 +441,36 @@ export function AppShell() {
         />
       ) : null}
 
-      {/* Bottom-slot status, in priority order. A running backup shows the progress
-          strip; the instant it settles into a FAILURE, the BackupFailureToast takes
-          that exact slot — so the error materializes where the user's eye already is
-          (attention transfer), instead of a static box appearing off-attention at the
-          top while the progress bar's disappearance steals the gaze (the old
-          misdirection). It is fixed + outside the scroll area, so it is always in view. */}
-      {shell.busyAction ? (
-        shell.busyOverlay?.background ? (
-          <BackgroundProgress
-            state={shell.busyOverlay}
-            fallbackLabel={shell.busyAction}
-          />
-        ) : (
-          <BusyOverlay
-            label={shell.busyOverlay?.label ?? shell.busyAction}
-            detail={shell.busyOverlay?.detail}
-            progressLabel={shell.busyOverlay?.progressLabel}
-            progressValue={shell.busyOverlay?.progressValue}
-            steps={shell.busyOverlay?.steps}
-            activeStep={shell.busyOverlay?.activeStep}
-            logLines={shell.busyOverlay?.logLines}
-          />
-        )
+      {/* Bottom-slot status, in priority order. It is fixed + outside the scroll area so it is
+          always in view.
+          1. A BLOCKING modal action (unlock, irreversible rebuild) owns the whole slot with the
+             busy overlay — nothing else may show while it runs.
+          2. Otherwise, the ambient task bar is the single indicator for ANY running task (import,
+             backup, AI index build, enrichment). It renders only while work is live (count > 0),
+             is clickable through to the Activity page, and never appears when idle (no banner).
+          3. Otherwise, when the last backup FAILED and nothing is running, the BackupFailureToast
+             takes that exact slot — the error materializes where the user's eye already is
+             (attention transfer) instead of a static box appearing off-attention.
+          A running task therefore hides the stale failure toast until it settles. */}
+      {shell.busyAction && !shell.busyOverlay?.background ? (
+        <BusyOverlay
+          label={shell.busyOverlay?.label ?? shell.busyAction}
+          detail={shell.busyOverlay?.detail}
+          progressLabel={shell.busyOverlay?.progressLabel}
+          progressValue={shell.busyOverlay?.progressValue}
+          steps={shell.busyOverlay?.steps}
+          activeStep={shell.busyOverlay?.activeStep}
+          logLines={shell.busyOverlay?.logLines}
+        />
+      ) : ambientModel.count > 0 ? (
+        <AmbientTaskBar
+          model={ambientModel}
+          onOpenActivity={() => void navigate('/jobs')}
+          summaryLabel={t('shell.backgroundTasksRunning', {
+            count: ambientModel.count,
+          })}
+          viewActivityLabel={t('shell.backgroundTaskViewActivity')}
+        />
       ) : shellError &&
         (shell.errorKind === 'backup' ||
           shell.errorKind === 'full-disk-access') ? (
@@ -445,6 +485,16 @@ export function AppShell() {
           onRevealLogs={handleRevealLogs}
         />
       ) : null}
+
+      {/* Persistent SR live region. It stays mounted independently of the ambient
+          bar (which unmounts when idle) so the DISAPPEARANCE of background work is
+          still announced. It reacts only to the boolean presence transition, never
+          per progress tick, so assistive tech is not spammed. */}
+      <AmbientTaskAnnouncer
+        active={ambientModel.count > 0}
+        startedLabel={t('shell.backgroundTaskStarted')}
+        endedLabel={t('shell.backgroundTaskEnded')}
+      />
     </div>
   )
 }

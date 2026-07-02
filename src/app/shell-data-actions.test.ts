@@ -220,9 +220,9 @@ describe('createShellDataActions', () => {
       progressValue: null,
       steps: expect.any(Array),
       activeStep: 0,
-      // Manual backup is now a non-blocking action that renders as a
-      // bottom-bar BackgroundProgress strip; the shell uses this flag to
-      // pick the right surface. The other overlay snapshots inherit the
+      // Manual backup is now a non-blocking action surfaced through the
+      // shell's ambient task bar; the shell uses this flag to keep it OUT
+      // of the blocking overlay. The other overlay snapshots inherit the
       // same flag via buildBackupOverlay / inline payloads.
       background: true,
     })

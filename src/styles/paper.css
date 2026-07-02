@@ -125,7 +125,7 @@
 }
 
 /* Backup-failure alert entrance. The alert mounts in the exact bottom slot the
- * BackgroundProgress strip just vacated, so the failure rises from below the
+ * AmbientTaskBar strip just vacated, so the failure rises from below the
  * bottom edge — a single abrupt onset where the user's attention already rests
  * (attention transfer, not a competing motion elsewhere). transform+opacity
  * only keeps it on the compositor; the small overshoot adds a second luminance

@@ -132,6 +132,10 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const dashboardRefreshTokenRef = useRef(0)
   const activeRuntimeJobsRef = useRef(0)
   const activeArchiveTask = findActiveArchiveTask(archiveTasks) ?? null
+  // A stable boolean, NOT the task object: the object identity changes on every
+  // progress tick, so depending on it would needlessly re-run the idle effect
+  // each tick. The boolean only flips at the running↔idle transition.
+  const archiveTaskActive = activeArchiveTask !== null
   const latestArchiveTask = archiveTasks[0] ?? null
   const unreadNotificationCount = notifications.filter(
     (notification) => !notification.read,
@@ -657,10 +661,18 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   ])
 
   useEffect(() => {
+    // Suppress the idle timer while a blocking busy action runs OR while an
+    // archive task (import/backup) is in flight. `runImport` never sets
+    // busyAction, so without `archiveTaskActive` a long import could hit the
+    // idle timeout and lock the archive out from under an in-flight encrypted
+    // write. This is a DEFER, not a cancel: the effect re-arms once the task
+    // clears (archiveTaskActive is a dependency), so we still lock promptly if
+    // the user stays idle after the write settles.
     if (
       !appLockStatus?.enabled ||
       appLockStatus.locked ||
-      busyAction !== null
+      busyAction !== null ||
+      archiveTaskActive
     ) {
       clearIdleTimer()
       return
@@ -699,6 +711,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     appLockStatus?.idleTimeoutMinutes,
     appLockStatus?.locked,
     busyAction,
+    archiveTaskActive,
     clearIdleTimer,
   ])
 

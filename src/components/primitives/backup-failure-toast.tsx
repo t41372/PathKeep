@@ -3,7 +3,7 @@
  * attempt fails.
  *
  * ## Responsibilities
- * - Mount at the SAME fixed bottom slot the `BackgroundProgress` strip just
+ * - Mount at the SAME fixed bottom slot the `AmbientTaskBar` strip just
  *   vacated, so the failure signal materializes exactly where the user's eye is
  *   already resting. This converts the old misdirection (a big motion at the
  *   bottom hiding a static message at the top) into attention transfer.

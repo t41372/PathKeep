@@ -311,6 +311,101 @@ describe('Activity center (JobsPage)', () => {
     expect(openImportLink).toHaveAttribute('href', '/import')
   })
 
+  // ── 6b. HEADLINE — a live import renders LIVE, not duplicated as stale ─────
+  //
+  // A running import writes BOTH a live shell task (survives navigation) and a "running" ledger
+  // run. The page must show the live task in Running-now and NOT also surface the same run as an
+  // "Interrupted" needs-attention card. On the OLD code the ledger run was always treated as stale,
+  // so the needs-attention region appeared — this asserts it no longer does.
+
+  test('HEADLINE — a running import with a live task renders LIVE in RunningNow, not stale', async () => {
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+
+    const snapshotWithRun = structuredClone(snapshot)
+    snapshotWithRun.recentRuns = [
+      {
+        id: 99,
+        startedAt: '2026-04-07T08:00:00Z',
+        finishedAt: null,
+        status: 'running',
+        runType: 'import',
+        profilesProcessed: 0,
+        newVisits: 0,
+        newUrls: 0,
+        newDownloads: 0,
+      },
+    ]
+
+    const shellValue = createShellValue(snapshotWithRun)
+    shellValue.archiveTasks = [
+      {
+        id: 'archive-import-live',
+        kind: 'import',
+        state: 'running',
+        title: 'Importing history',
+        detail: 'Importing browser history',
+        startedAt: '2026-04-07T08:05:00Z',
+        updatedAt: '2026-04-07T08:06:00Z',
+        finishedAt: null,
+        logEntries: [],
+        processedRecords: 500,
+        totalRecords: 1000,
+      },
+    ]
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot: snapshotWithRun,
+    })
+
+    // The live import shows in Running-now …
+    expect(
+      screen.getByRole('region', { name: jobsT('runningNowTitle') }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(jobsT('taskImportRunning'))).toBeVisible()
+    // … and is NOT duplicated as an "Interrupted" needs-attention card.
+    expect(
+      screen.queryByRole('region', { name: jobsT('needsAttentionTitle') }),
+    ).toBeNull()
+  })
+
+  // ── 6c. A running ledger run with NO live task is still stale (backup) ─────
+  test('a running backup ledger run with no live task still renders as stale', async () => {
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+
+    const snapshotWithStale = structuredClone(snapshot)
+    snapshotWithStale.recentRuns = [
+      {
+        id: 88,
+        startedAt: '2026-04-07T08:00:00Z',
+        finishedAt: null,
+        status: 'running',
+        runType: 'backup',
+        profilesProcessed: 0,
+        newVisits: 0,
+        newUrls: 0,
+        newDownloads: 0,
+      },
+    ]
+
+    const shellValue = createShellValue(snapshotWithStale)
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot: snapshotWithStale,
+    })
+
+    expect(
+      screen.getByRole('region', { name: jobsT('needsAttentionTitle') }),
+    ).toBeInTheDocument()
+  })
+
   // ── 7. Running-now zone with progress bar ─────────────────────────────────
 
   test('running-now zone renders with progress bar for index-build (aria-valuenow set)', async () => {
