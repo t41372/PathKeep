@@ -47,6 +47,7 @@ import {
   type ModelDownloadProgress,
 } from '../../lib/ipc/model-download'
 import { formatBytes } from '../../lib/format'
+import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '../../lib/types'
 import { useI18n, type ResolvedLanguage } from '../../lib/i18n'
 import { SettingsSavedChip } from './settings-saved-feedback'
 import { useSavedFeedback } from './use-saved-feedback'
@@ -163,7 +164,7 @@ export interface AiProvidersSectionProps {
  * Provider ids that are built-in and must never be user-deletable or require an API key.
  * The static-in-app embedding tier is always in this list; external providers are never here.
  */
-const STATIC_EMBEDDING_PROVIDER_IDS = ['static-in-app']
+const STATIC_EMBEDDING_PROVIDER_IDS = [BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID]
 
 /**
  * Renders the optional AI provider management surface from route-owned state.

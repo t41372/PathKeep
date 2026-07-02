@@ -40,7 +40,12 @@ import {
   isBrowserProfileReadable,
   macosFullDiskAccessSettingsUrl,
 } from '../../lib/platform-guidance'
-import type { AppConfig, SchedulePlan, ScheduleStatus } from '../../lib/types'
+import {
+  BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
+  type AppConfig,
+  type SchedulePlan,
+  type ScheduleStatus,
+} from '../../lib/types'
 import { AiStep } from './ai-step'
 import { BrowserDetectionStep } from './browser-detection-step'
 import { ReadyStep } from './ready-step'
@@ -68,6 +73,7 @@ export function OnboardingPage() {
     refreshAppData,
     runBackup,
     snapshot,
+    startLocalSemanticSetup,
   } = useShellData()
   const { t } = useI18n('onboarding')
   const buildRevision = formatBuildRevisionLabel(buildInfo)
@@ -90,11 +96,11 @@ export function OnboardingPage() {
   const [scheduleSetupMode, setScheduleSetupMode] = useState<
     'install' | 'skip' | null
   >(null)
-  // M-10: an IN-FLOW intent — "after this archive is set up, open AI settings". The AI step's CTA
-  // records this and advances to the final review WITHOUT navigating away, so the entered/confirmed
-  // master-password draft + step position are never discarded mid-onboarding. `handleFinish` honors
-  // it as a post-initialize deep-link (AI settings need an initialized archive anyway).
-  const [aiSetupRequested, setAiSetupRequested] = useState(false)
+  // The REAL AI opt-in. `false` by default (AI is off unless the user explicitly enables it, and
+  // nothing is pre-selected). When true, `handleFinish` threads the static on-device semantic-search
+  // config into the persisted config AND fires the background model-download + index-build setup
+  // (fire-and-forget) once the archive is initialized and the first backup ran.
+  const [aiEnabled, setAiEnabled] = useState(false)
 
   useEffect(() => {
     if (step !== 4 || !snapshot) {
@@ -269,21 +275,20 @@ export function OnboardingPage() {
     setStep(5)
   }
 
-  // The AI step is purely optional and never enables AI or writes config; both "Set up AI in
-  // Settings" and "Skip for now" advance to the final review. "Set up AI in Settings" does NOT
-  // navigate away mid-flow (M-10) — that would unmount this page and discard the local `step` +
-  // `securityDraft` (the confirmed master password). Instead it records an intent and advances to
-  // review; `handleFinish` deep-links to AI settings AFTER the archive is initialized (which is the
-  // correct order anyway — configuring an AI provider needs an initialized, unlocked archive).
-  function handleAiSetUp() {
+  // The AI step is a REAL, explicit opt-in. Enabling records the choice and advances to the final
+  // review; `handleFinish` persists the static local-semantic-search config and fires the background
+  // setup AFTER the archive is initialized + the first backup ran (that order is required — the index
+  // build needs an initialized, unlocked archive). Skipping leaves AI off (the default). Neither
+  // navigates away here, so the confirmed master-password draft + step position survive.
+  function handleAiEnable() {
     setLocalError(null)
-    setAiSetupRequested(true)
+    setAiEnabled(true)
     setStep(6)
   }
 
-  function handleAiContinue() {
+  function handleAiSkip() {
     setLocalError(null)
-    setAiSetupRequested(false)
+    setAiEnabled(false)
     setStep(6)
   }
 
@@ -308,10 +313,24 @@ export function OnboardingPage() {
         return
       }
     }
+    // Thread the REAL AI opt-in into the config to persist. Only the static on-device
+    // semantic-search tier is turned on — assistant / mcp / skill / content-fetch stay off because
+    // enabling them needs config the user hasn't provided (turning them on would be another fake).
+    const aiConfig = aiEnabled
+      ? {
+          ...currentConfig,
+          ai: {
+            ...currentConfig.ai,
+            enabled: true,
+            semanticIndexEnabled: true,
+            embeddingProviderId: BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
+          },
+        }
+      : currentConfig
     try {
       if (!currentConfig.initialized) {
         await initializeArchive(
-          currentConfig,
+          aiConfig,
           encrypted ? securityDraft.masterPassword : null,
         )
         if (encrypted && securityDraft.rememberKey) {
@@ -327,6 +346,10 @@ export function OnboardingPage() {
             return
           }
         }
+      } else if (aiEnabled) {
+        // Re-onboarding an already-initialized archive: initializeArchive is skipped, so persist the
+        // AI opt-in explicitly (otherwise the enable choice would be silently dropped).
+        await saveConfig(aiConfig)
       }
       if (scheduleSetupMode === 'install') {
         try {
@@ -338,10 +361,15 @@ export function OnboardingPage() {
         }
       }
       await runBackup()
-      // M-10: honor the in-flow "set up AI" intent now that the archive is initialized + unlocked —
-      // deep-link straight to AI settings instead of the dashboard. The master-password draft was
-      // never discarded because the AI step never navigated away.
-      void navigate(aiSetupRequested ? '/settings#settings-ai' : '/')
+      // Fire the background local-semantic-search setup (model download + index build) AFTER the
+      // archive is initialized + the first backup ran. It MUST NOT be awaited — the heavy work runs
+      // in the background and surfaces in the ambient task bar, so finishing onboarding never blocks.
+      if (aiEnabled) {
+        void startLocalSemanticSetup()
+      }
+      // Always go home. The AI setup is now genuinely running in the background (and visible in the
+      // ambient bar), so landing on the dashboard is more honest than dumping the user in Settings.
+      void navigate('/')
     } catch (nextError) {
       setLocalError(formatOnboardingError(nextError, t))
     }
@@ -494,8 +522,8 @@ export function OnboardingPage() {
       {step === 5 ? (
         <AiStep
           onBack={() => setStep(4)}
-          onSetUpAi={handleAiSetUp}
-          onSkip={handleAiContinue}
+          onEnable={handleAiEnable}
+          onSkip={handleAiSkip}
         />
       ) : null}
 

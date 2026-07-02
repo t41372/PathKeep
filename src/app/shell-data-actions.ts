@@ -23,6 +23,7 @@
 import { backend } from '../lib/backend-client'
 import { describeError } from '../lib/errors'
 import { subscribeToBackupProgress } from '../lib/ipc/backup-progress'
+import { runLocalSemanticSetup } from '../lib/ipc/semantic-setup'
 import { waitForNextPaint } from '../lib/wait-for-next-paint'
 import type {
   AppConfig,
@@ -60,6 +61,13 @@ interface ShellDataActionDeps {
     options?: { surfaceErrors?: boolean },
   ) => Promise<void> | void
   refreshAppData: (showSpinner?: boolean) => Promise<void>
+  /**
+   * Re-reads the shell runtime status (AI queue + intelligence snapshot). The
+   * onboarding local-semantic-search opt-in kicks this right after enqueuing the
+   * index build so the running build job appears in the ambient task bar
+   * immediately instead of waiting up to one idle poll cycle.
+   */
+  refreshRuntimeStatus: () => Promise<unknown>
   clearLoadedState: () => void
   showBusyOverlay: (next: BusyOverlayState) => void
   clearBusyOverlay: () => void
@@ -192,6 +200,7 @@ export function createShellDataActions({
   setLanguagePreference,
   refreshDashboardSnapshot,
   refreshAppData,
+  refreshRuntimeStatus,
   clearLoadedState,
   showBusyOverlay,
   clearBusyOverlay,
@@ -526,6 +535,27 @@ export function createShellDataActions({
         throw nextError
       } finally {
         clearBusyOverlay()
+      }
+    },
+
+    /**
+     * Runs the REAL onboarding "Enable AI" opt-in in the background: downloads the on-device static
+     * embedding model, then enqueues a full index build (which drains via the AI queue). This lives in
+     * the shell-data layer — not inside the onboarding route — so the trigger survives leaving
+     * onboarding (the route unmounts on navigate) and so it can compose with the shell's ambient task
+     * bar (the enqueued index-build job surfaces there via the runtime poller).
+     */
+    startLocalSemanticSetup: async (): Promise<void> => {
+      try {
+        await runLocalSemanticSetup()
+      } catch {
+        // Best-effort + OPTIONAL: onboarding AI setup must never surface a blocking error.
+        // The model-download phase already surfaces in the Activity page; the user can retry
+        // the index build from Settings → AI. Swallow so a flaky download never breaks finish.
+      } finally {
+        // Make the enqueued index-build job appear in the ambient bar immediately instead of
+        // waiting up to one 15s idle poll cycle.
+        void refreshRuntimeStatus()
       }
     },
   }

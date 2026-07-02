@@ -1,17 +1,18 @@
 /**
  * @file ai-step.tsx
- * @description Renders the optional AI-setup onboarding step — a calm, skip-first card that explains
- *              AI is optional, off by default, and local-first, then offers a deep-link to Settings.
+ * @description Renders the optional AI onboarding step as a REAL, explicit opt-in: enabling turns on
+ *              on-device local semantic search (a small model download + index build run in the
+ *              background); skipping keeps AI off. Skip stays the easy, default-friendly path.
  * @module pages/onboarding
  *
  * ## 職責
- * - 用平靜的語氣說明 AI 為選用、預設關閉、本地優先（PathKeep 沒有 AI 也完整可用）。
- * - 提供「在設定中配置 AI」的 deep-link 行為，以及顯眼的「暫時跳過」。
- * - 把「跳過 / 繼續到下一步」都交回 route owner，兩者都前進。
+ * - 誠實說明「啟用」代表什麼：在本機對歷史做語意搜尋，會在背景下載小模型 + 建立索引，沒有資料離開裝置。
+ * - 說明 AI 助手（需外部 LLM）不在這裡啟用，之後可在設定中配置。
+ * - 提供兩個明確動作（啟用 / 暫時不要），兩者都交回 route owner；不預選、不強迫、不 nag。
  *
  * ## 不負責
+ * - 不寫入 config、不啟用 AI，也不直接發起下載或建索引（route owner 在 Finish 後才觸發背景 setup）。
  * - 不在 onboarding 內塞入完整的 provider editor（刻意保持輕量）。
- * - 不寫入 config，不啟用 AI，不發起任何網路或持久化（AI 維持關閉）。
  * - 不管理 onboarding step state。
  *
  * ## 依賴關係
@@ -31,23 +32,20 @@ import { useI18n } from '../../lib/i18n'
 
 export interface AiStepProps {
   /**
-   * Record the in-flow "open AI settings after finishing setup" intent and advance to the final
-   * review (M-10). It does NOT navigate away here — the route owner deep-links to
-   * `/settings#settings-ai` only after the archive is initialized, so the onboarding step + the
-   * confirmed master-password draft are never discarded mid-flow.
+   * Opt IN to local semantic search. The route owner records the choice and, after the archive is
+   * initialized + the first backup runs, fires the background model-download + index-build setup.
    */
-  onSetUpAi: () => void
-  /** Advance past this optional step without enabling AI. */
+  onEnable: () => void
+  /** Advance past this optional step WITHOUT enabling AI (the easy default path; AI stays off). */
   onSkip: () => void
   onBack: () => void
 }
 
-/** One reassurance bullet in the AI-setup card. */
+/** One explanatory bullet in the AI opt-in card. */
 function AiTrustBullet({ title, body }: { title: string; body: string }) {
   return (
     <div className="flex gap-3">
-      {/* The crosshair "+" mark matches the onboarding header's idiom and reads neutrally — the
-          earlier "⊘" (circled slash / no-entry) leaned negative against these positive bullets. */}
+      {/* The crosshair "+" mark matches the onboarding header's idiom and reads neutrally. */}
       <span aria-hidden="true" className="text-accent mt-[1px] font-mono">
         +
       </span>
@@ -59,7 +57,7 @@ function AiTrustBullet({ title, body }: { title: string; body: string }) {
   )
 }
 
-export function AiStep({ onSetUpAi, onSkip, onBack }: AiStepProps) {
+export function AiStep({ onEnable, onSkip, onBack }: AiStepProps) {
   const { t } = useI18n('onboarding')
 
   return (
@@ -78,30 +76,16 @@ export function AiStep({ onSetUpAi, onSkip, onBack }: AiStepProps) {
           />
           <PaperCardBody className="flex flex-col gap-4">
             <AiTrustBullet
-              title={t('aiStepOffByDefaultTitle')}
-              body={t('aiStepOffByDefaultBody')}
+              title={t('aiStepEnableTitle')}
+              body={t('aiStepEnableBody')}
             />
             <AiTrustBullet
-              title={t('aiStepLocalFirstTitle')}
-              body={t('aiStepLocalFirstBody')}
-            />
-            <AiTrustBullet
-              title={t('aiStepCitationsTitle')}
-              body={t('aiStepCitationsBody')}
+              title={t('aiStepAssistantTitle')}
+              body={t('aiStepAssistantBody')}
             />
             <p className="mono-support" data-testid="onboarding-ai-skip-hint">
               {t('aiStepSkipHint')}
             </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                className="btn-secondary"
-                type="button"
-                data-testid="onboarding-ai-setup"
-                onClick={onSetUpAi}
-              >
-                {t('aiStepSetUpAction')}
-              </button>
-            </div>
           </PaperCardBody>
         </PaperCard>
       </div>
@@ -110,14 +94,24 @@ export function AiStep({ onSetUpAi, onSkip, onBack }: AiStepProps) {
         <button className="btn-secondary" type="button" onClick={onBack}>
           {t('backButton')}
         </button>
-        <button
-          className="btn-primary btn-lg"
-          type="button"
-          data-testid="onboarding-ai-skip"
-          onClick={onSkip}
-        >
-          {t('aiStepSkipAction')}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            className="btn-secondary"
+            type="button"
+            data-testid="onboarding-ai-skip"
+            onClick={onSkip}
+          >
+            {t('aiStepSkipAction')}
+          </button>
+          <button
+            className="btn-primary"
+            type="button"
+            data-testid="onboarding-ai-enable"
+            onClick={onEnable}
+          >
+            {t('aiStepEnableAction')}
+          </button>
+        </div>
       </div>
     </div>
   )

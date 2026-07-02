@@ -229,22 +229,19 @@ export const onboardingNamespaceCatalog = {
     initStep3DetailSingular: 'Back up history from {count} profile',
     initStep3DetailPlural: 'Back up history from {count} profiles',
     initButton: 'Create Archive & Back Up →',
-    aiStepTitle: 'Optional: AI features',
+    aiStepTitle: 'Optional: on-device AI search',
     aiStepDesc:
-      'PathKeep is fully usable without AI. This step is entirely optional — you can skip it and set it up anytime later.',
-    aiStepOffByDefaultTitle: 'Off by default',
-    aiStepOffByDefaultBody:
-      'AI is turned off until you explicitly enable it. Keyword search and local Core Intelligence work right now, with no AI.',
-    aiStepLocalFirstTitle: 'Local-first',
-    aiStepLocalFirstBody:
-      'Point PathKeep at a local model (for example LM Studio) or your own provider. Nothing leaves your machine until you enable AI and configure a provider yourself.',
-    aiStepCitationsTitle: 'Always cited',
-    aiStepCitationsBody:
-      'When enabled, the assistant answers from your own history and cites the pages it used — no black box.',
-    aiStepSetUpAction: 'Set up AI in Settings',
-    aiStepSkipAction: "Skip for now — I'll do this later",
+      'PathKeep is fully usable without AI. You can enable local semantic search now, or skip and turn it on later in Settings — nothing is pre-selected.',
+    aiStepEnableTitle: 'Enable local semantic search',
+    aiStepEnableBody:
+      'Search your history by meaning, not just keywords. PathKeep downloads a small on-device model and builds a search index in the background — nothing leaves your device.',
+    aiStepAssistantTitle: 'The AI assistant is separate',
+    aiStepAssistantBody:
+      'The chat assistant needs an external AI provider and is NOT enabled here. You can set it up later in Settings → AI.',
+    aiStepEnableAction: 'Enable',
+    aiStepSkipAction: 'Not now',
     aiStepSkipHint:
-      "Skipping is completely fine. PathKeep works fully without AI, and you can turn it on later in Settings → AI whenever you're ready.",
+      'Skipping is completely fine — AI stays off and PathKeep works fully without it. You can enable this anytime in Settings → AI.',
   },
   'zh-CN': {
     stepWelcome: '欢迎',
@@ -440,22 +437,19 @@ export const onboardingNamespaceCatalog = {
     initStep3DetailSingular: '从 {count} 个浏览器备份历史记录',
     initStep3DetailPlural: '从 {count} 个浏览器备份历史记录',
     initButton: '创建存档并备份 →',
-    aiStepTitle: '可选：AI 功能',
+    aiStepTitle: '可选：本地 AI 搜索',
     aiStepDesc:
-      '没有 AI，PathKeep 也完全可用。这一步完全是可选的 —— 你可以跳过，之后随时再来设置。',
-    aiStepOffByDefaultTitle: '默认关闭',
-    aiStepOffByDefaultBody:
-      '在你明确启用之前，AI 始终处于关闭状态。关键词搜索和本地 Core Intelligence 现在就能用，完全不需要 AI。',
-    aiStepLocalFirstTitle: '本地优先',
-    aiStepLocalFirstBody:
-      '把 PathKeep 指向本地模型（例如 LM Studio）或你自己的提供方。在你亲自启用 AI 并配置好提供方之前，没有任何数据离开你的电脑。',
-    aiStepCitationsTitle: '始终标注引用',
-    aiStepCitationsBody:
-      '启用后，助手会根据你自己的历史记录作答，并标注引用的页面 —— 没有黑盒。',
-    aiStepSetUpAction: '在设置中配置 AI',
-    aiStepSkipAction: '暂时跳过 —— 之后再设置',
+      '没有 AI，PathKeep 也完全可用。你可以现在启用本地语义搜索，或先跳过、之后在设置里开启 —— 没有任何选项被预先勾选。',
+    aiStepEnableTitle: '启用本地语义搜索',
+    aiStepEnableBody:
+      '按含义搜索历史，而不只是关键词。PathKeep 会下载一个小型的本地模型，并在后台建立搜索索引 —— 没有任何数据离开你的设备。',
+    aiStepAssistantTitle: 'AI 助手是另一回事',
+    aiStepAssistantBody:
+      '聊天助手需要外部 AI 提供方，这里不会启用它。你可以之后在「设置 → AI」中配置。',
+    aiStepEnableAction: '启用',
+    aiStepSkipAction: '先不用',
     aiStepSkipHint:
-      '跳过完全没问题。没有 AI，PathKeep 也能完整使用；准备好之后，随时可以在「设置 → AI」中开启。',
+      '跳过完全没问题 —— AI 会保持关闭，没有它 PathKeep 也能完整使用。你随时可以在「设置 → AI」中启用。',
   },
   'zh-TW': {
     stepWelcome: '歡迎',
@@ -652,21 +646,18 @@ export const onboardingNamespaceCatalog = {
     initStep3DetailSingular: '從 {count} 個瀏覽器備份歷史紀錄',
     initStep3DetailPlural: '從 {count} 個瀏覽器備份歷史紀錄',
     initButton: '建立封存並備份 →',
-    aiStepTitle: '選用：AI 功能',
+    aiStepTitle: '選用：本機 AI 搜尋',
     aiStepDesc:
-      '沒有 AI，PathKeep 也完全可用。這一步完全是選用的 —— 你可以略過，之後隨時再來設定。',
-    aiStepOffByDefaultTitle: '預設關閉',
-    aiStepOffByDefaultBody:
-      '在你明確啟用之前，AI 始終處於關閉狀態。關鍵字搜尋和本機 Core Intelligence 現在就能用，完全不需要 AI。',
-    aiStepLocalFirstTitle: '本地優先',
-    aiStepLocalFirstBody:
-      '把 PathKeep 指向本機模型（例如 LM Studio）或你自己的提供方。在你親自啟用 AI 並設定好提供方之前，沒有任何資料離開你的電腦。',
-    aiStepCitationsTitle: '始終標註引用',
-    aiStepCitationsBody:
-      '啟用後，助手會根據你自己的歷史紀錄作答，並標註引用的頁面 —— 沒有黑盒。',
-    aiStepSetUpAction: '在設定中設定 AI',
-    aiStepSkipAction: '暫時略過 —— 之後再設定',
+      '沒有 AI，PathKeep 也完全可用。你可以現在啟用本機語意搜尋，或先略過、之後在設定裡開啟 —— 沒有任何選項被預先勾選。',
+    aiStepEnableTitle: '啟用本機語意搜尋',
+    aiStepEnableBody:
+      '依含義搜尋歷史，而不只是關鍵字。PathKeep 會下載一個小型的本機模型，並在背景建立搜尋索引 —— 沒有任何資料離開你的裝置。',
+    aiStepAssistantTitle: 'AI 助手是另一回事',
+    aiStepAssistantBody:
+      '聊天助手需要外部 AI 提供方，這裡不會啟用它。你可以之後在「設定 → AI」中開啟。',
+    aiStepEnableAction: '啟用',
+    aiStepSkipAction: '先不要',
     aiStepSkipHint:
-      '略過完全沒問題。沒有 AI，PathKeep 也能完整使用；準備好之後，隨時可以在「設定 → AI」中開啟。',
+      '略過完全沒問題 —— AI 會保持關閉，沒有它 PathKeep 也能完整使用。你隨時可以在「設定 → AI」中啟用。',
   },
 } as const

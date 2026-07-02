@@ -32,20 +32,25 @@ import type {
 import { createShellDataActions } from './shell-data-actions'
 import { createShellTask } from './shell-tasks'
 
-const { backendMock, subscribeToBackupProgressMock, waitForNextPaintMock } =
-  vi.hoisted(() => ({
-    backendMock: {
-      saveConfig: vi.fn(),
-      initializeArchive: vi.fn(),
-      runBackupNow: vi.fn(),
-      setAppLockPasscode: vi.fn(),
-      clearAppLockPasscode: vi.fn(),
-      lockAppSession: vi.fn(),
-      unlockAppSession: vi.fn(),
-    },
-    subscribeToBackupProgressMock: vi.fn(),
-    waitForNextPaintMock: vi.fn(),
-  }))
+const {
+  backendMock,
+  subscribeToBackupProgressMock,
+  waitForNextPaintMock,
+  runLocalSemanticSetupMock,
+} = vi.hoisted(() => ({
+  backendMock: {
+    saveConfig: vi.fn(),
+    initializeArchive: vi.fn(),
+    runBackupNow: vi.fn(),
+    setAppLockPasscode: vi.fn(),
+    clearAppLockPasscode: vi.fn(),
+    lockAppSession: vi.fn(),
+    unlockAppSession: vi.fn(),
+  },
+  subscribeToBackupProgressMock: vi.fn(),
+  waitForNextPaintMock: vi.fn(),
+  runLocalSemanticSetupMock: vi.fn(),
+}))
 
 vi.mock('../lib/backend-client', () => ({
   backend: backendMock,
@@ -53,6 +58,10 @@ vi.mock('../lib/backend-client', () => ({
 
 vi.mock('../lib/ipc/backup-progress', () => ({
   subscribeToBackupProgress: subscribeToBackupProgressMock,
+}))
+
+vi.mock('../lib/ipc/semantic-setup', () => ({
+  runLocalSemanticSetup: runLocalSemanticSetupMock,
 }))
 
 vi.mock('../lib/wait-for-next-paint', () => ({
@@ -692,6 +701,36 @@ describe('createShellDataActions', () => {
     expect(harness.setError).toHaveBeenNthCalledWith(10, 'bad passcode payload')
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(5)
   })
+
+  test('starts the local semantic setup and kicks the ambient bar via a runtime refresh', async () => {
+    const harness = createActionHarness()
+    runLocalSemanticSetupMock.mockResolvedValueOnce(undefined)
+
+    await expect(
+      harness.actions.startLocalSemanticSetup(),
+    ).resolves.toBeUndefined()
+
+    expect(runLocalSemanticSetupMock).toHaveBeenCalledTimes(1)
+    // The runtime refresh makes the just-enqueued index-build job appear in the ambient bar
+    // immediately instead of waiting a poll cycle.
+    expect(harness.refreshRuntimeStatus).toHaveBeenCalledTimes(1)
+  })
+
+  test('swallows a local semantic setup failure but still refreshes runtime status', async () => {
+    // Onboarding AI setup is OPTIONAL + best-effort — a flaky model download must never surface a
+    // blocking error or break finishing onboarding. The runtime refresh still runs in the finally.
+    const harness = createActionHarness()
+    runLocalSemanticSetupMock.mockRejectedValueOnce(
+      new Error('download failed'),
+    )
+
+    await expect(
+      harness.actions.startLocalSemanticSetup(),
+    ).resolves.toBeUndefined()
+
+    expect(runLocalSemanticSetupMock).toHaveBeenCalledTimes(1)
+    expect(harness.refreshRuntimeStatus).toHaveBeenCalledTimes(1)
+  })
 })
 
 function createActionHarness(
@@ -707,6 +746,7 @@ function createActionHarness(
     setLanguagePreference: vi.fn(),
     refreshDashboardSnapshot: vi.fn(),
     refreshAppData: vi.fn(),
+    refreshRuntimeStatus: vi.fn(),
     clearLoadedState: vi.fn(),
     showBusyOverlay: vi.fn(),
     clearBusyOverlay: vi.fn(),
@@ -729,6 +769,7 @@ function createActionHarness(
       setLanguagePreference: harness.setLanguagePreference,
       refreshDashboardSnapshot: harness.refreshDashboardSnapshot,
       refreshAppData: harness.refreshAppData,
+      refreshRuntimeStatus: harness.refreshRuntimeStatus,
       clearLoadedState: harness.clearLoadedState,
       showBusyOverlay: harness.showBusyOverlay,
       clearBusyOverlay: harness.clearBusyOverlay,

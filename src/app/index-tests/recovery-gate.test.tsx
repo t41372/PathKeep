@@ -77,6 +77,7 @@ function makeShellValue(
     clearAppLockPasscode: vi.fn(),
     lockAppSession: vi.fn().mockResolvedValue({}),
     unlockAppSession: vi.fn().mockResolvedValue({}),
+    startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
     clearNotice: vi.fn(),
     clearError: vi.fn(),
     runFullArchiveRestore: vi.fn().mockResolvedValue({}),

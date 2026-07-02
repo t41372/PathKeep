@@ -168,6 +168,13 @@ export interface ShellDataContextValue {
   lockAppSession: (reason?: string | null) => Promise<AppLockStatus>
   unlockAppSession: (request: UnlockAppSessionRequest) => Promise<AppLockStatus>
   /**
+   * Fires the REAL onboarding "Enable AI" opt-in in the background: downloads the on-device static
+   * embedding model, then enqueues a full index build. Fire-and-forget (never awaited by the caller)
+   * so finishing onboarding never blocks; it lives here so it survives the onboarding route
+   * unmounting and composes with the ambient task bar. Best-effort — it never throws.
+   */
+  startLocalSemanticSetup: () => Promise<void>
+  /**
    * The structured recovery report surfaced when `initialize_archive` detects
    * an unresolvable archive drift or corruption at launch. Set to `null` when
    * the archive is healthy or after a successful restore.

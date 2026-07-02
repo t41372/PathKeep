@@ -123,6 +123,11 @@ export interface EnrichmentPluginPreference {
 }
 
 /**
+ * Mirrors the Rust `BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID`; the always-on on-device embedding tier.
+ */
+export const BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID = 'static-in-app'
+
+/**
  * Defines the typed shape for ai settings.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
