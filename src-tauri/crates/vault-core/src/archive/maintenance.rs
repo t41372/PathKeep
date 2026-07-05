@@ -3147,6 +3147,86 @@ mod tests {
         assert!(!restore_journal_path(&paths).exists(), "no marker file is created");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn recover_interrupted_restore_is_a_noop_when_the_marker_is_cleared_while_waiting_for_the_lock()
+    {
+        // The re-check-UNDER-THE-LOCK branch: recovery's cheap no-lock probe sees the marker present,
+        // but a CONCURRENT recovery clears it while THIS call is still parked acquiring the
+        // cross-process write lock. On finally winning the lock the re-read finds the marker gone, so
+        // recovery must be a clean no-op (`Ok(false)`) — never act on a journal another pass already
+        // consumed, and never re-drive a restore. Proven with a foreign-held lock so the worker
+        // deterministically parks on `acquire` AFTER its first probe; the marker is cleared and the
+        // lock released only once the worker is CONFIRMED blocked (a real handoff, not a timing guess).
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+
+        // A present restore marker. Its bytes never matter here — it is cleared before it is ever
+        // read (the re-check returns before `read_restore_journal`), so any valid journal will do.
+        let journal = RestoreJournal {
+            version: 1,
+            timestamp: "2026-06-30T00-00-00Z".to_string(),
+            snapshot_ref: paths
+                .raw_snapshots_dir
+                .join("rekey")
+                .join("snap.sqlite")
+                .display()
+                .to_string(),
+            restored_mode: ArchiveMode::Plaintext,
+            quarantine_dir: paths.quarantine_dir.join("2026-06-30T00-00-00Z").display().to_string(),
+            previous_config: None,
+        };
+        write_restore_journal(&paths, &journal).expect("seed the restore marker");
+        assert!(
+            restore_journal_path(&paths).exists(),
+            "the marker is present before recovery starts",
+        );
+
+        // Simulate ANOTHER OS process holding the archive write lock, so this process's recovery
+        // parks in the acquire poll loop right AFTER it has already seen the marker present.
+        let foreign =
+            crate::archive::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
+
+        let worker_paths = paths.clone();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let outcome =
+                recover_interrupted_restore(&worker_paths).map_err(|error| format!("{error:#}"));
+            done_tx.send(outcome).expect("worker signals completion");
+        });
+
+        // Confirm the worker is BLOCKED on the foreign lock: a Timeout proves it has already run its
+        // pre-lock marker probe and cannot advance past `acquire` while `foreign` is alive. This is the
+        // deterministic barrier — the marker is guaranteed observed-present before we clear it below.
+        assert!(
+            matches!(
+                done_rx.recv_timeout(Duration::from_millis(300)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "recovery must BLOCK on the foreign write lock after seeing the marker, before re-reading it",
+        );
+
+        // The "a concurrent recovery already healed it" event: clear the marker, then release the lock.
+        remove_file_durably(&restore_journal_path(&paths))
+            .expect("clear the marker under the foreign lock");
+        drop(foreign);
+
+        let recovered = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("recovery must return once the foreign lock releases")
+            .expect("a marker cleared while waiting for the lock is not an error");
+        assert!(
+            !recovered,
+            "a marker cleared under the lock makes recovery a clean no-op, not a false recovery",
+        );
+        assert!(!restore_journal_path(&paths).exists(), "the marker stays cleared");
+        worker.join().expect("worker thread");
+    }
+
     #[test]
     fn recover_interrupted_restore_fails_closed_on_a_corrupt_marker_when_canonical_is_absent() {
         // The headline invariant: an UNPARSEABLE marker beside an ABSENT canonical must NOT be
