@@ -30,6 +30,7 @@ import { backend } from '@/lib/backend-client'
 import { describeError } from '@/lib/errors'
 import { formatBytes } from '@/lib/format'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
+import { Button } from '@/components/ui/button'
 import type {
   OgImageCleanupMode,
   OgImageCoverageStats,
@@ -592,14 +593,9 @@ export function LinkPreviewsSection({
 
         <Field label={t('settings.linkPreviewsCleanupLabel')}>
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            <Button
               type="button"
-              className={cn(
-                'border-accent text-accent-text bg-paper rounded-paper border px-3 py-1.5 font-sans text-[12px] transition-colors',
-                pendingAction || !fetchEnabled
-                  ? 'opacity-60'
-                  : 'hover:bg-accent-soft',
-              )}
+              variant="accent"
               disabled={pendingAction !== null || !fetchEnabled}
               onClick={() => void onRebuildNow()}
               data-testid="link-previews-rebuild-now"
@@ -611,35 +607,32 @@ export function LinkPreviewsSection({
               {t('settings.linkPreviewsRebuildAction', {
                 budget: String(REBUILD_DEFAULT_BUDGET),
               })}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className={cn(
-                'border-border-default rounded-paper text-ink border px-3 py-1.5 font-sans text-[12px] transition-colors',
-                pendingAction
-                  ? 'opacity-60'
-                  : 'hover:border-ink-muted hover:bg-hover',
-              )}
+              variant="outline"
               disabled={pendingAction !== null}
               onClick={() => void onRunCleanup()}
               data-testid="link-previews-run-cleanup"
             >
               {t('settings.linkPreviewsRunCleanupAction')}
-            </button>
-            <button
+            </Button>
+            {/*
+              Clear-all permanently deletes every cached link preview (confirmed via
+              window.confirm before firing) — a genuine destructive action, so it maps
+              to the primitive's `destructive` (error-token) variant rather than the
+              legacy warning-hover treatment this control used before the primitive
+              existed. Flagged per the pilot's mapping-guidance for review.
+            */}
+            <Button
               type="button"
-              className={cn(
-                'border-border-default text-ink-muted rounded-paper border px-3 py-1.5 font-sans text-[12px] transition-colors',
-                pendingAction
-                  ? 'opacity-60'
-                  : 'hover:border-warning hover:text-warning hover:bg-hover',
-              )}
+              variant="destructive"
               disabled={pendingAction !== null}
               onClick={() => void onClearAll()}
               data-testid="link-previews-clear-all"
             >
               {t('settings.linkPreviewsClearAllAction')}
-            </button>
+            </Button>
             {summary ? (
               <span
                 className="text-ink-faint font-mono text-[10.5px]"

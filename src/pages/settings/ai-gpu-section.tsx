@@ -36,6 +36,7 @@ import { backend } from '../../lib/backend-client'
 import { useI18n } from '../../lib/i18n'
 import type { AiSettings, ReembedEstimate, ReembedScope } from '../../lib/types'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 
 /**
  * Route-owned slice this section binds to.
@@ -377,15 +378,16 @@ function ReembedAction({
           {blockedReason}
         </p>
       ) : (
-        <button
+        <Button
           type="button"
-          className="btn-secondary self-start"
+          variant="outline"
+          className="self-start"
           disabled={actionDisabled}
           onClick={onStart}
           data-testid={`ai-reembed-${scope}-start`}
         >
           {t('settings.aiReembedStart')}
-        </button>
+        </Button>
       )}
     </div>
   )

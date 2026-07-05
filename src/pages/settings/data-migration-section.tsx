@@ -32,6 +32,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
+import { Button } from '@/components/ui/button'
 import { backend } from '@/lib/backend-client'
 import {
   IMPORT_SOURCE_KEY_INVALID_PREFIX,
@@ -350,15 +351,16 @@ function ActionTile({
       <p className="text-ink-secondary font-serif text-[12px] leading-[1.5]">
         {description}
       </p>
-      <button
+      <Button
         type="button"
-        className="btn-secondary mt-auto self-start"
+        variant="outline"
+        className="mt-auto self-start"
         onClick={onClick}
         disabled={disabled}
         data-testid={testId}
       >
         {actionLabel}
-      </button>
+      </Button>
     </div>
   )
 }
@@ -519,9 +521,9 @@ function ImportPreviewPanel({
       ) : null}
 
       <div className="mt-4 flex gap-2">
-        <button
+        <Button
           type="button"
-          className="btn-primary"
+          variant="primary"
           onClick={() => onConfirm(encrypted ? sourceKey.trim() : undefined)}
           disabled={applying || !canConfirm}
           data-testid="settings-migration-confirm"
@@ -529,16 +531,16 @@ function ImportPreviewPanel({
           {applying
             ? t('settings.migrationApplyingLabel')
             : t('settings.migrationConfirmAction')}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn-secondary"
+          variant="outline"
           onClick={onCancel}
           disabled={applying}
           data-testid="settings-migration-cancel"
         >
           {t('settings.migrationCancelAction')}
-        </button>
+        </Button>
       </div>
     </section>
   )

@@ -37,6 +37,7 @@ import { backend } from '@/lib/backend-client'
 import { describeError } from '@/lib/errors'
 import { hasDesktopCommandTransport } from '@/lib/runtime'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
+import { Button } from '@/components/ui/button'
 import { StatusCallout } from '@/components/primitives/status-callout'
 import type { ContentFetchSettings } from '@/lib/types'
 import { cn } from '@/lib/cn'
@@ -351,20 +352,17 @@ export function ContentFetchSection({
           help={t('settings.contentFetchPrimeHelp')}
         >
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            <Button
               type="button"
+              variant="accent"
               onClick={() => void onPrime()}
               disabled={!masterOn || priming}
               data-testid="content-fetch-prime"
-              className={cn(
-                'border-accent text-accent-text bg-paper rounded-paper border px-3 py-1.5 font-sans text-[12px] transition-colors',
-                !masterOn || priming ? 'opacity-60' : 'hover:bg-accent-soft',
-              )}
             >
               {priming
                 ? t('settings.contentFetchPriming')
                 : t('settings.contentFetchPrimeAction')}
-            </button>
+            </Button>
             {primeSummary ? (
               <span
                 className="text-ink-faint font-mono text-[10.5px]"
