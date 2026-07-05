@@ -35,7 +35,8 @@ resolver = "2"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
-anyhow = "1.0.100"
+# Floor 1.0.103 = the fix for RUSTSEC-2026-0190 (unsoundness in `Error::downcast_mut()`).
+anyhow = "1.0.103"
 # candle = the in-app embedding inference engine (D2/§C.1). DEFAULT features only:
 # accelerate/mkl/cuda/metal stay OFF for a reproducible CPU build (§C.1).
 candle-core = "0.10.2"
@@ -87,7 +88,11 @@ walkdir = "2.5.0"
 # `component-model`/`async` features are pulled transitively by `wasmtime-wasi`'s preview1 support
 # (preview1 in wasmtime 45 is implemented atop the preview2/component machinery). NO pooling/gc; the
 # build needs no C toolchain and the `wat` loader stays for the security-test guests.
-wasmtime = { version = "45.0.2", default-features = false, features = ["std", "runtime", "cranelift", "wat", "anyhow", "component-model", "async"] }
+# Floor is 45.0.3, the patched line for RUSTSEC-2026-0188 (WASI hardlink/rename FilePerms bypass);
+# unreachable here anyway since the sandbox grants no fs preopens (see wasmtime-wasi below), but we
+# stay on the fixed release rather than allowlist a fix we can just take. Held at 45.x (not 46) to
+# keep the bump a patch, not a major.
+wasmtime = { version = "45.0.3", default-features = false, features = ["std", "runtime", "cranelift", "wat", "anyhow", "component-model", "async"] }
 # code-mode scoped WASI (W-AI-8, D7 / §G Layer 2). The Javy (QuickJS→WASM) guest reaches the host
 # ONLY through WASI fd I/O, so the sandbox grants a MINIMAL preview1 ctx: an in-memory stdin pipe
 # (the request/reply RPC channel), an in-memory stdout capture, and a stderr sink — NO fs preopens,
@@ -95,7 +100,7 @@ wasmtime = { version = "45.0.2", default-features = false, features = ["std", "r
 # "no dangerous ambient authority" contract (no fs/net/real-clock/env) while letting real JS run.
 # `default-features=false` + only `p1` drops the network/sockets stack; the preview1 sync linker is
 # all we wire. No C toolchain.
-wasmtime-wasi = { version = "45.0.2", default-features = false, features = ["p1"] }
+wasmtime-wasi = { version = "45.0.3", default-features = false, features = ["p1"] }
 # Zero-copy byte buffers named by the WASI stream traits (`InputStream`/`OutputStream`) the code-mode
 # channel implements; already in the graph via wasmtime-wasi, restated so vault-core can name it.
 bytes = "1.10.1"
