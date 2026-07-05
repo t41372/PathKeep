@@ -252,6 +252,7 @@ function buildHeatmapCopy(
     dayFormatter.format(new Date(2025, 11, 28 + index)),
   ) as YearHeatmapCopy['dayLabels']
   return {
+    ariaLabel: t('dashboard.heatmapAriaLabel'),
     legendLess: t('dashboard.heatmapLegendLess'),
     legendMore: t('dashboard.heatmapLegendMore'),
     monthLabels,

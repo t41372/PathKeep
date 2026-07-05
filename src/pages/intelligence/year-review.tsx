@@ -430,6 +430,7 @@ function VolumeSection({
       dayFmt.format(new Date(2025, 11, 28 + i)),
     ) as YearHeatmapCopy['dayLabels']
     return {
+      ariaLabel: text('heatmapAriaLabel'),
       legendLess: text('heatmapLess'),
       legendMore: text('heatmapMore'),
       monthLabels,

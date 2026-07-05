@@ -14,6 +14,7 @@ describe('yearReviewText', () => {
       'statDeepReads',
       'heatmapLess',
       'heatmapMore',
+      'heatmapAriaLabel',
       'volumeHeading',
       'volumeBusiestDay',
       'volumeActiveDays',

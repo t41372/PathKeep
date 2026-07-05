@@ -26,6 +26,7 @@ export type YearReviewTextKey =
   | 'statDeepReads'
   | 'heatmapLess'
   | 'heatmapMore'
+  | 'heatmapAriaLabel'
   | 'volumeHeading'
   | 'volumeBusiestDay'
   | 'volumeActiveDays'
@@ -59,6 +60,7 @@ const copy: Record<ResolvedLanguage, Record<YearReviewTextKey, string>> = {
     statDeepReads: 'Deep reads',
     heatmapLess: 'Less',
     heatmapMore: 'More',
+    heatmapAriaLabel: 'Calendar heatmap of daily page visits',
     volumeHeading: 'Browsing Volume',
     volumeBusiestDay: 'Your busiest day was {date} with {count} pages.',
     volumeActiveDays: 'You were active on {count} of {total} days.',
@@ -92,6 +94,7 @@ const copy: Record<ResolvedLanguage, Record<YearReviewTextKey, string>> = {
     statDeepReads: '深度阅读',
     heatmapLess: '少',
     heatmapMore: '多',
+    heatmapAriaLabel: '每日页面访问量的日历热力图',
     volumeHeading: '浏览量',
     volumeBusiestDay: '最忙的一天是 {date}，浏览了 {count} 个页面。',
     volumeActiveDays: '你在全年 {total} 天中有 {count} 天上网。',
@@ -124,6 +127,7 @@ const copy: Record<ResolvedLanguage, Record<YearReviewTextKey, string>> = {
     statDeepReads: '深度閱讀',
     heatmapLess: '少',
     heatmapMore: '多',
+    heatmapAriaLabel: '每日頁面訪問量的日曆熱力圖',
     volumeHeading: '瀏覽量',
     volumeBusiestDay: '最忙的一天是 {date}，瀏覽了 {count} 個頁面。',
     volumeActiveDays: '你在全年 {total} 天中有 {count} 天上網。',

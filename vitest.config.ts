@@ -35,6 +35,7 @@ export default defineConfig({
         'src/lib/types/**',
         'src/components/assistant-chat/index.ts',
         'src/components/cards/index.ts',
+        'src/components/charts/index.ts',
         'src/components/explorer-paper/index.ts',
         'src/components/intelligence/workbench/index.ts',
         'src/components/intelligence/workbench/review-surface.tsx',

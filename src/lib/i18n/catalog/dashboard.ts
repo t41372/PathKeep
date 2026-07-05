@@ -138,6 +138,8 @@ export const dashboardNamespaceCatalog = {
     heatmapStreakDays: '{count}-day streak',
     heatmapStreakNone: 'No streak yet',
     heatmapCellTooltip: '{date} · {count} pages',
+    heatmapAriaLabel:
+      'Calendar heatmap of daily page visits over the past year',
     yearInPagesError: 'Could not load the year heatmap.',
     yearInPagesEmpty:
       'Run a first backup to start filling in the year heatmap.',
@@ -262,6 +264,7 @@ export const dashboardNamespaceCatalog = {
     heatmapStreakDays: '连续 {count} 天',
     heatmapStreakNone: '暂无连续记录',
     heatmapCellTooltip: '{date} · {count} 页',
+    heatmapAriaLabel: '过去一年每日页面访问量的日历热力图',
     activeThreadsEmpty:
       '过去 30 天没有重复出现的多步路径。Intelligence 页面有更深入的调查视图。',
     activeThreadsError: '无法加载主题线。',
@@ -382,6 +385,7 @@ export const dashboardNamespaceCatalog = {
     heatmapStreakDays: '連續 {count} 天',
     heatmapStreakNone: '暫無連續紀錄',
     heatmapCellTooltip: '{date} · {count} 頁',
+    heatmapAriaLabel: '過去一年每日頁面訪問量的日曆熱力圖',
     activeThreadsEmpty:
       '過去 30 天沒有重複出現的多步路徑。Intelligence 頁面有更深入的調查視圖。',
     activeThreadsError: '無法載入主題線。',
