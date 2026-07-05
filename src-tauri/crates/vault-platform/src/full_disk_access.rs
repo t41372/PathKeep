@@ -24,7 +24,9 @@
 //! measured (coverage) build on every host.
 
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(any(test, target_os = "macos"))]
+use std::path::PathBuf;
 
 /// Outcome of probing macOS Full Disk Access.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
