@@ -28,7 +28,7 @@ use vault_core::{
     AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowseDayInsightsRequest,
     BrowserHistoryImportRequest, ExportRequest, HistoryFaviconLookupEntry,
     HistoryOgImageLookupEntry, HistoryQuery, ReplaceTagsRequest, SchedulePlan, SetNotesRequest,
-    TakeoutRequest,
+    SetStarRequest, StarEntityKind, StarSort, StarStatusRequest, TakeoutRequest,
 };
 
 /// Carries archive bootstrap input across the browser automation mirror without
@@ -46,6 +46,16 @@ pub(super) struct InitializeArchivePayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct WrappedRequest<T> {
     pub(super) request: T,
+}
+
+/// Mirrors `run_full_archive_restore`, which unlike the other snapshot ops takes an explicit
+/// user-entered archive key alongside the request (the recovery/unlock session holds no ambient key).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct FullArchiveRestorePayload {
+    pub(super) request: vault_core::SnapshotRestoreRequest,
+    #[serde(default)]
+    pub(super) key: Option<String>,
 }
 
 /// Accepts the in-memory session key used by dev automation when the native
@@ -188,6 +198,20 @@ pub(super) struct JobIdPayload {
     pub(super) job_id: i64,
 }
 
+/// Selects a live streaming chat run (opaque string id) for cancellation.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RunIdStringPayload {
+    pub(super) run_id: String,
+}
+
+/// Selects a persisted chat conversation (opaque string id) for load or delete.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ConversationIdPayload {
+    pub(super) conversation_id: String,
+}
+
 /// Selects a canonical visit for navigation-path lookups.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -239,6 +263,15 @@ pub(super) struct UrlPayload {
     pub(super) url: String,
 }
 
+/// Bridge envelope for export_conversation_file — the user-chosen target path plus the serialized
+/// Markdown / JSON document body the frontend built off the main thread.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ExportConversationFilePayload {
+    pub(super) target_path: String,
+    pub(super) contents: String,
+}
+
 /// Bridge envelope for the annotation-search command — the desktop signature
 /// takes both a non-optional query string and an optional row cap.
 #[derive(Deserialize)]
@@ -260,6 +293,25 @@ pub(super) struct AnnotationLimitPayload {
 /// commands group their typed input under a `request` field.
 pub(super) type SetNotesPayload = WrappedRequest<SetNotesRequest>;
 pub(super) type ReplaceTagsPayload = WrappedRequest<ReplaceTagsRequest>;
+
+/// Bridge envelopes for the star commands. `set_star` / `unset_star` /
+/// `get_star_status` group their typed input under a `request` field, mirroring
+/// the production command signatures.
+pub(super) type SetStarPayload = WrappedRequest<SetStarRequest>;
+pub(super) type StarStatusPayload = WrappedRequest<StarStatusRequest>;
+
+/// Bridge envelope for list_stars — the desktop command takes an optional kind
+/// filter, a sort, and an optional row cap as top-level fields.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ListStarsPayload {
+    #[serde(default)]
+    pub(super) kind: Option<StarEntityKind>,
+    #[serde(default)]
+    pub(super) sort: StarSort,
+    #[serde(default)]
+    pub(super) limit: Option<usize>,
+}
 
 /// Bridge envelope for get_browse_day_insights — the desktop command
 /// groups its typed input under `request`.
@@ -319,4 +371,32 @@ pub(super) struct AppUpdateInstallPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct WrappedConfigPayload {
     pub(super) config: AppConfig,
+}
+
+/// Selects a canonical visit/history id for the W-ENRICH-1 visit-enrichment list.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct HistoryIdPayload {
+    pub(super) history_id: i64,
+}
+
+/// Carries the content-fetch consent settings the bridge persists (W-ENRICH-1).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ContentFetchSettingsPayload {
+    pub(super) settings: vault_core::ContentFetchSettings,
+}
+
+/// Carries the manual "fetch now" request the bridge enqueues (W-ENRICH-1).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ContentFetchNowPayload {
+    pub(super) request: vault_core::ContentFetchNowRequest,
+}
+
+/// Carries the optional bulk working-set enqueue cap (W-ENRICH-1).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ContentFetchWorkingSetPayload {
+    pub(super) limit: Option<u32>,
 }

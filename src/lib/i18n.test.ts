@@ -183,6 +183,8 @@ describe('i18n helpers', () => {
       'jobs',
       'platform',
       'onboarding',
+      'recovery',
+      'archiveUpgrade',
     ])
   })
 

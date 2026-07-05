@@ -40,6 +40,13 @@ export interface PaperSearchEmptyCopy {
   recentMeta: string
   /** Quiet footer line. */
   footer: string
+  /**
+   * Smart-mode-only invitation that teaches the distinct affordance of Smart
+   * search — asking a natural-language question rather than typing keywords.
+   * Rendered (8c) only when `smartActive` is true; the keyword/regex empty
+   * states never show it.
+   */
+  smartPrompt: string
 }
 
 export interface PaperSearchEmptyProps {
@@ -47,6 +54,12 @@ export interface PaperSearchEmptyProps {
   recent?: readonly PaperSearchRecent[]
   onPickSuggestion?: (suggestion: PaperSearchSuggestion) => void
   onRunRecent?: (recent: PaperSearchRecent) => void
+  /**
+   * When true the active mode is Smart, so we lead with a natural-language
+   * prompt (8c) that teaches what to type differently. The keyword/regex empty
+   * states pass false and stay unchanged.
+   */
+  smartActive?: boolean
   copy: PaperSearchEmptyCopy
   className?: string
   testId?: string
@@ -57,6 +70,7 @@ export function PaperSearchEmpty({
   recent = [],
   onPickSuggestion,
   onRunRecent,
+  smartActive = false,
   copy,
   className,
   testId,
@@ -66,6 +80,15 @@ export function PaperSearchEmpty({
       data-testid={testId}
       className={cn('mx-auto max-w-[720px]', className)}
     >
+      {smartActive ? (
+        <div
+          data-testid="paper-search-empty-smart-prompt"
+          className="rounded-paper border-accent-soft bg-accent-soft/40 text-ink-secondary mb-5 border px-[16px] py-[14px] font-serif text-[14.5px] leading-[1.5] italic"
+        >
+          {copy.smartPrompt}
+        </div>
+      ) : null}
+
       {suggestions.length > 0 ? (
         <>
           <SectionHeading>{copy.tryAskingHeading}</SectionHeading>

@@ -12,6 +12,7 @@
  * - `platformSummaryKey`
  * - `macosFullDiskAccessSettingsUrl`
  * - `hasSafariAccessIssue`
+ * - `browserDiscoveryState`
  * - `needsSchedulerReview`
  * - `keyringNeedsReview`
  *
@@ -87,6 +88,49 @@ export function platformSummaryKey(platform?: string | null): TranslationKey {
   if (normalized === 'windows') return 'platform.windowsSummary'
   if (normalized === 'linux') return 'platform.linuxSummary'
   return 'platform.macosSummary'
+}
+
+/**
+ * The UI-facing discriminant for a browser-discovery outcome.
+ *
+ * This is the reusable policy that lets surfaces (onboarding today, Settings
+ * later) render an honest empty/denied state without each re-deciding what a
+ * missing marker plus a zero count means.
+ */
+export type BrowserDiscoveryState =
+  | 'ok'
+  | 'full-disk-access'
+  | 'discovery-error'
+  | 'empty'
+
+/**
+ * Collapses the backend's optional `browserDiscoveryIssue` marker plus the
+ * discovered profile count into the single discriminant the UI renders.
+ *
+ * Why this exists (and owns no copy): the "is this a permission problem, a real
+ * failure, or a genuinely empty machine?" decision must be identical everywhere
+ * we surface it, so it lives here as one testable rule while each surface keeps
+ * its own localized wording.
+ *
+ * - `"macos-full-disk-access"` ⇒ `'full-disk-access'` regardless of count (the
+ *   headline UI case is still `profileCount === 0`).
+ * - `"discovery-error"` ⇒ `'discovery-error'` — a real failure to surface, never
+ *   disguised as "no browsers".
+ * - ANY other non-null/non-empty marker ⇒ `'discovery-error'` too. An
+ *   unrecognized (e.g. newer-backend) marker is still evidence something went
+ *   wrong, so it must be surfaced — never silently painted as an empty machine.
+ * - no marker (`null`/`undefined`) + `profileCount === 0` ⇒ `'empty'` — a calm,
+ *   neutral no-browsers result with NO permission nag.
+ * - otherwise ⇒ `'ok'`.
+ */
+export function browserDiscoveryState(
+  issue: string | null | undefined,
+  profileCount: number,
+): BrowserDiscoveryState {
+  if (issue === 'macos-full-disk-access') return 'full-disk-access'
+  if (issue != null && issue !== '') return 'discovery-error'
+  if (profileCount === 0) return 'empty'
+  return 'ok'
 }
 
 /**

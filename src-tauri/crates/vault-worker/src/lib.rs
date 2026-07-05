@@ -24,6 +24,7 @@ mod mcp;
 mod migration;
 mod schedule;
 mod security;
+mod stars;
 
 #[cfg(all(test, coverage))]
 pub(crate) use self::intelligence::{
@@ -34,25 +35,30 @@ pub use self::migration::{apply_import, export_app_data, preview_import};
 pub use self::{
     annotations::{get_annotation, list_annotations, replace_tags, search_annotations, set_notes},
     app::{
-        RekeyRequest, app_snapshot, initialize_archive_database, rekey_archive_database,
-        save_user_config,
+        RekeyRequest, app_snapshot, assess_archive_upgrade, initialize_archive_database,
+        initialize_archive_database_with_progress, parse_archive_recovery_required,
+        reconcile_archive_encryption, rekey_archive_database, save_user_config,
     },
     archive_flows::{
         audit_run_detail, browse_day_insights, clear_derived_intelligence, clear_og_image_cache,
         dashboard_snapshot, doctor_report, effective_og_image_fetch_mode, export_query,
         import_browser_history_source, import_browser_history_source_with_progress,
         import_takeout_source, import_takeout_source_with_progress, inspect_browser_history_source,
-        inspect_takeout_source, load_history_favicons, load_history_og_images,
-        mark_og_images_shown, og_image_storage_stats, prefetch_og_images_on_demand,
-        preview_import_batch_detail, preview_retention_plan, preview_snapshot_restore_plan,
-        query_history, refetch_og_images, repair_health, restore_import_batch_detail,
-        revert_import_batch_detail, run_backup_now, run_backup_now_with_progress,
-        run_og_image_cleanup, run_retention_plan, run_snapshot_restore_plan,
+        inspect_takeout_source, list_recovery_snapshots, load_history_favicons,
+        load_history_og_images, mark_og_images_shown, og_image_coverage_stats,
+        og_image_storage_stats, prefetch_og_images_on_demand, preview_import_batch_detail,
+        preview_retention_plan, preview_snapshot_restore_plan, query_history, refetch_og_images,
+        repair_health, restore_import_batch_detail, revert_import_batch_detail, run_backup_now,
+        run_backup_now_with_progress, run_full_archive_restore, run_og_image_cleanup,
+        run_retention_plan, run_snapshot_restore_plan,
     },
     cli::run_worker_cli,
     intelligence::{
-        ask_ai_assistant, build_ai_index_now, build_intelligence_local_host, cancel_ai_job,
-        cancel_intelligence_job_now, delete_search_engine_rule, explain_entity, explain_refind,
+        ai_chat_cancel, ai_chat_send, ask_ai_assistant, build_ai_index_now,
+        build_intelligence_local_host, cancel_ai_job, cancel_intelligence_job_now,
+        cancel_model_download, content_fetch_now, content_fetch_settings, delete_ai_conversation,
+        delete_search_engine_rule, download_ai_embedding_model, download_static_embedding_model,
+        enqueue_content_fetch_working_set, estimate_reembed_now, explain_entity, explain_refind,
         get_activity_mix, get_activity_mix_trend, get_breadth_index, get_browsing_rhythm,
         get_compare_set_detail, get_compare_sets, get_day_insights, get_digest_summary,
         get_discovery_trend, get_domain_deep_dive, get_domain_trend, get_friction_signals,
@@ -65,11 +71,13 @@ pub use self::{
         get_reopened_investigations, get_search_effectiveness, get_search_engine_ranking,
         get_search_queries, get_search_trails, get_session_detail, get_sessions,
         get_stable_sources, get_top_search_concepts, get_top_sites, get_trail_detail,
-        list_search_engine_rules, load_ai_assistant_job, load_ai_queue,
+        list_ai_conversations, list_search_engine_rules, list_visit_enrichment,
+        load_ai_assistant_job, load_ai_conversation, load_ai_queue,
         load_intelligence_runtime_snapshot, preview_ai_integration_files,
-        preview_intelligence_local_host, queue_core_intelligence_rebuild, replay_ai_job,
-        retry_intelligence_job_now, run_ai_queue_jobs, run_core_intelligence_now,
-        search_ai_history, test_ai_provider_connection_report, upsert_search_engine_rule,
+        preview_intelligence_local_host, queue_core_intelligence_rebuild, rename_ai_conversation,
+        replay_ai_job, reset_ai_index_build, retry_intelligence_job_now, run_ai_queue_jobs,
+        run_core_intelligence_now, save_ai_conversation, search_ai_history,
+        set_content_fetch_settings, test_ai_provider_connection_report, upsert_search_engine_rule,
     },
     schedule::{
         apply_schedule_plan, preview_schedule_plan, remove_schedule_plan, repair_schedule_plan,
@@ -82,6 +90,7 @@ pub use self::{
         security_status, store_ai_provider_api_key, unlock_app_ui_session,
         write_database_key_to_keyring,
     },
+    stars::{is_starred_batch, list_stars, set_star, star_counts, unset_star},
 };
 #[cfg(test)]
 pub(crate) use self::{
@@ -91,6 +100,7 @@ pub(crate) use self::{
     },
     mcp::{
         BrowserHistoryMcpServer, McpSearchRequest, mcp_archive_status_result, mcp_search_result,
+        mcp_usage_guide_result,
     },
 };
 

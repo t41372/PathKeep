@@ -32,6 +32,7 @@ export const onboardingNamespaceCatalog = {
     stepStorage: 'Storage',
     stepSecurity: 'Security',
     stepSchedule: 'Schedule',
+    stepAi: 'AI',
     stepReady: 'Ready',
     loadingDecisions: 'Loading setup…',
     errorTitle: 'Setup data unavailable',
@@ -53,6 +54,7 @@ export const onboardingNamespaceCatalog = {
       'Could not open System Settings. Go to System Settings → Privacy & Security → Full Disk Access manually.',
     errorSafariNeedsFullDiskAccess:
       'Safari is not readable yet. Grant Full Disk Access to PathKeep or the running development process, then run the backup again.',
+    errorRecheckFailed: "Couldn't re-check for browsers: {detail}. Try again.",
     welcomeTagline1: 'Your browsing history is yours.',
     welcomeTagline2: 'Back it up. Search it. Learn from it.',
     featureBackupTitle: 'AUTOMATIC BACKUP',
@@ -91,6 +93,18 @@ export const onboardingNamespaceCatalog = {
     selectedProfilesNeedAccess:
       'Some selected browsers cannot be read yet. Grant access, then come back and check again.',
     openFullDiskAccessSettings: 'Open Full Disk Access settings',
+    fullDiskAccessEmptyTitle:
+      'PathKeep needs Full Disk Access to see your browsers',
+    fullDiskAccessEmptyBody:
+      "macOS is blocking access to your browser history, so PathKeep found nothing to back up — this isn't an empty machine. Grant Full Disk Access in System Settings, then re-check and your browsers will appear without restarting setup.",
+    discoveryErrorTitle: 'Browser detection ran into a problem',
+    discoveryErrorBody:
+      'PathKeep couldn\'t finish scanning this device for browsers. This is a detection failure, not a genuine "no browsers" result — re-check to try again.',
+    noBrowsersTitle: 'No browsers detected',
+    noBrowsersBody:
+      "PathKeep didn't find any supported browsers on this device. If you just installed one, re-check to scan again.",
+    recheckBrowsers: 'Re-check',
+    recheckingBrowsers: 'Re-checking…',
     cannotReadHint: "Can't read {fileName} yet. Check file permissions.",
     firefoxSafariInfo:
       'Google Chrome, Microsoft Edge, and Firefox are part of the validated setup path today. ChatGPT Atlas and Perplexity Comet remain macOS-only support paths, and Safari joins after Full Disk Access is granted.',
@@ -215,6 +229,19 @@ export const onboardingNamespaceCatalog = {
     initStep3DetailSingular: 'Back up history from {count} profile',
     initStep3DetailPlural: 'Back up history from {count} profiles',
     initButton: 'Create Archive & Back Up →',
+    aiStepTitle: 'Optional: on-device AI search',
+    aiStepDesc:
+      'PathKeep is fully usable without AI. You can enable local semantic search now, or skip and turn it on later in Settings — nothing is pre-selected.',
+    aiStepEnableTitle: 'Enable local semantic search',
+    aiStepEnableBody:
+      'Search your history by meaning, not just keywords. PathKeep downloads a small on-device model and builds a search index in the background — nothing leaves your device.',
+    aiStepAssistantTitle: 'The AI assistant is separate',
+    aiStepAssistantBody:
+      'The chat assistant needs an external AI provider and is NOT enabled here. You can set it up later in Settings → AI.',
+    aiStepEnableAction: 'Enable',
+    aiStepSkipAction: 'Not now',
+    aiStepSkipHint:
+      'Skipping is completely fine — AI stays off and PathKeep works fully without it. You can enable this anytime in Settings → AI.',
   },
   'zh-CN': {
     stepWelcome: '欢迎',
@@ -222,6 +249,7 @@ export const onboardingNamespaceCatalog = {
     stepStorage: '存储',
     stepSecurity: '加密',
     stepSchedule: '定时',
+    stepAi: 'AI',
     stepReady: '完成',
     loadingDecisions: '加载中…',
     errorTitle: '设置数据不可用',
@@ -242,6 +270,7 @@ export const onboardingNamespaceCatalog = {
       '无法打开系统设置。请手动前往“系统设置 → 隐私与安全性 → 完全磁盘访问权限”。',
     errorSafariNeedsFullDiskAccess:
       'Safari 目前还不能读取。请在 macOS“完全磁盘访问权限”中授权 PathKeep 或当前开发进程，然后再执行备份。',
+    errorRecheckFailed: '重新检查浏览器时出错：{detail}。请再试一次。',
     welcomeTagline1: '你的浏览历史属于你。',
     welcomeTagline2: '备份它，搜索它，从中发现规律。',
     featureBackupTitle: '自动备份',
@@ -280,6 +309,17 @@ export const onboardingNamespaceCatalog = {
     selectedProfilesNeedAccess:
       '已选的浏览器中有来源还不能读取。授予权限后再回来重新检查。',
     openFullDiskAccessSettings: '打开完全磁盘访问权限设置',
+    fullDiskAccessEmptyTitle: 'PathKeep 需要完全磁盘访问权限才能看到你的浏览器',
+    fullDiskAccessEmptyBody:
+      'macOS 正在阻止读取你的浏览历史，所以 PathKeep 没有找到可备份的内容 —— 并不是这台设备上没有浏览器。请在系统设置中授予完全磁盘访问权限，然后点一下重新检查，无需重新开始设置，浏览器就会出现。',
+    discoveryErrorTitle: '检测浏览器时出了问题',
+    discoveryErrorBody:
+      'PathKeep 无法在这台设备上完成浏览器扫描。这是检测失败，而不是真的没有浏览器 —— 请重新检查再试一次。',
+    noBrowsersTitle: '未检测到浏览器',
+    noBrowsersBody:
+      'PathKeep 在这台设备上没有找到任何受支持的浏览器。如果你刚安装了一个，请重新检查以再次扫描。',
+    recheckBrowsers: '重新检查',
+    recheckingBrowsers: '重新检查中…',
     cannotReadHint: '暂时无法读取 {fileName}，请检查文件权限。',
     firefoxSafariInfo:
       '当前公开验证的设置路径是 Google Chrome、Microsoft Edge 和 Firefox。ChatGPT Atlas 与 Perplexity Comet 仍只承诺 macOS 路径；在 macOS 上授予完全磁盘访问权限后，Safari 也属于已验证的基础支持。',
@@ -397,6 +437,19 @@ export const onboardingNamespaceCatalog = {
     initStep3DetailSingular: '从 {count} 个浏览器备份历史记录',
     initStep3DetailPlural: '从 {count} 个浏览器备份历史记录',
     initButton: '创建存档并备份 →',
+    aiStepTitle: '可选：本地 AI 搜索',
+    aiStepDesc:
+      '没有 AI，PathKeep 也完全可用。你可以现在启用本地语义搜索，或先跳过、之后在设置里开启 —— 没有任何选项被预先勾选。',
+    aiStepEnableTitle: '启用本地语义搜索',
+    aiStepEnableBody:
+      '按含义搜索历史，而不只是关键词。PathKeep 会下载一个小型的本地模型，并在后台建立搜索索引 —— 没有任何数据离开你的设备。',
+    aiStepAssistantTitle: 'AI 助手是另一回事',
+    aiStepAssistantBody:
+      '聊天助手需要外部 AI 提供方，这里不会启用它。你可以之后在「设置 → AI」中配置。',
+    aiStepEnableAction: '启用',
+    aiStepSkipAction: '先不用',
+    aiStepSkipHint:
+      '跳过完全没问题 —— AI 会保持关闭，没有它 PathKeep 也能完整使用。你随时可以在「设置 → AI」中启用。',
   },
   'zh-TW': {
     stepWelcome: '歡迎',
@@ -404,6 +457,7 @@ export const onboardingNamespaceCatalog = {
     stepStorage: '儲存',
     stepSecurity: '加密',
     stepSchedule: '定時',
+    stepAi: 'AI',
     stepReady: '完成',
     loadingDecisions: '載入中…',
     errorTitle: '設定資料無法使用',
@@ -424,6 +478,7 @@ export const onboardingNamespaceCatalog = {
       '無法開啟系統設定。請手動前往「系統設定 → 隱私權與安全性 → 完整磁碟取用權」。',
     errorSafariNeedsFullDiskAccess:
       'Safari 目前還不能讀取。請在 macOS「完整磁碟取用權」中授權 PathKeep 或目前的開發行程，然後再執行備份。',
+    errorRecheckFailed: '重新檢查瀏覽器時發生錯誤：{detail}。請再試一次。',
     welcomeTagline1: '你的瀏覽歷史屬於你。',
     welcomeTagline2: '備份它，搜尋它，從中發現規律。',
     featureBackupTitle: '自動備份',
@@ -462,6 +517,18 @@ export const onboardingNamespaceCatalog = {
     selectedProfilesNeedAccess:
       '已選的瀏覽器中有來源還不能讀取。授予權限後再回來重新檢查。',
     openFullDiskAccessSettings: '開啟完整磁碟取用權設定',
+    fullDiskAccessEmptyTitle:
+      'PathKeep 需要「完整磁碟取用權」才能看到你的瀏覽器',
+    fullDiskAccessEmptyBody:
+      'macOS 目前擋住了讀取瀏覽歷史的權限，所以 PathKeep 找不到任何可備份的內容 —— 並不是這台裝置上沒有瀏覽器。請到系統設定授予「完整磁碟取用權」，再點一下重新檢查，不必重跑設定，瀏覽器就會出現。',
+    discoveryErrorTitle: '偵測瀏覽器時發生問題',
+    discoveryErrorBody:
+      'PathKeep 無法在這台裝置上完成瀏覽器掃描。這是偵測失敗，而不是真的沒有瀏覽器 —— 請重新檢查再試一次。',
+    noBrowsersTitle: '沒有偵測到瀏覽器',
+    noBrowsersBody:
+      'PathKeep 在這台裝置上沒有找到任何支援的瀏覽器。如果你剛安裝了一個，請重新檢查再掃描一次。',
+    recheckBrowsers: '重新檢查',
+    recheckingBrowsers: '重新檢查中…',
     cannotReadHint: '暫時無法讀取 {fileName}，請確認檔案權限。',
     firefoxSafariInfo:
       '目前公開驗證的設定路徑是 Google Chrome、Microsoft Edge 和 Firefox。ChatGPT Atlas 與 Perplexity Comet 仍只承諾 macOS 路徑；在 macOS 上授予完整磁碟取用權限後，Safari 也屬於已驗證的基礎支援。',
@@ -579,5 +646,18 @@ export const onboardingNamespaceCatalog = {
     initStep3DetailSingular: '從 {count} 個瀏覽器備份歷史紀錄',
     initStep3DetailPlural: '從 {count} 個瀏覽器備份歷史紀錄',
     initButton: '建立封存並備份 →',
+    aiStepTitle: '選用：本機 AI 搜尋',
+    aiStepDesc:
+      '沒有 AI，PathKeep 也完全可用。你可以現在啟用本機語意搜尋，或先略過、之後在設定裡開啟 —— 沒有任何選項被預先勾選。',
+    aiStepEnableTitle: '啟用本機語意搜尋',
+    aiStepEnableBody:
+      '依含義搜尋歷史，而不只是關鍵字。PathKeep 會下載一個小型的本機模型，並在背景建立搜尋索引 —— 沒有任何資料離開你的裝置。',
+    aiStepAssistantTitle: 'AI 助手是另一回事',
+    aiStepAssistantBody:
+      '聊天助手需要外部 AI 提供方，這裡不會啟用它。你可以之後在「設定 → AI」中開啟。',
+    aiStepEnableAction: '啟用',
+    aiStepSkipAction: '先不要',
+    aiStepSkipHint:
+      '略過完全沒問題 —— AI 會保持關閉，沒有它 PathKeep 也能完整使用。你隨時可以在「設定 → AI」中啟用。',
   },
 } as const

@@ -66,6 +66,7 @@ export { PaperContactSheet } from './paper-contact-sheet'
 export type {
   PaperContactSheetCopy,
   PaperContactSheetDayNav,
+  PaperContactSheetEntryStar,
   PaperContactSheetProps,
   PaperContactSheetTarget,
   PaperViewMode,
@@ -142,6 +143,7 @@ export type {
 export { PaperAssistantMessage } from './paper-assistant-message'
 export type {
   PaperAssistantEvidence,
+  PaperAssistantEvidenceStarCopy,
   PaperAssistantMessageProps,
   PaperAssistantRole,
 } from './paper-assistant-message'
@@ -183,6 +185,7 @@ export { PaperSearchView } from './paper-search-view'
 export type {
   PaperSearchViewCopy,
   PaperSearchViewDayGroup,
+  PaperSearchViewPagination,
   PaperSearchViewProps,
 } from './paper-search-view'
 
@@ -205,3 +208,27 @@ export type {
   PaperAuditViewCopy,
   PaperAuditViewProps,
 } from './paper-audit-view'
+
+export { PaperStarredView } from './paper-starred-view'
+export type {
+  PaperStarredViewCopy,
+  PaperStarredViewProps,
+} from './paper-starred-view'
+
+export { PaperEnrichedContent } from './paper-enriched-content'
+export type {
+  PaperEnrichedContentCopy,
+  PaperEnrichedContentProps,
+  PaperEnrichedContentState,
+} from './paper-enriched-content'
+export {
+  enrichmentSourceKind,
+  enrichmentStatusKind,
+  parseEnrichmentMetadata,
+  pickBestEnrichment,
+  toEnrichmentView,
+} from './paper-enriched-content-helpers'
+export type {
+  EnrichmentSourceKind,
+  EnrichmentView,
+} from './paper-enriched-content-helpers'

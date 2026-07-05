@@ -276,6 +276,12 @@ describe('App shell', () => {
         name: zhTwOnboarding('skipScheduleButton'),
       }),
     )
+    // The optional AI step sits between Schedule and Ready; skip it to reach the final review.
+    await user.click(
+      await screen.findByRole('button', {
+        name: zhTwOnboarding('aiStepSkipAction'),
+      }),
+    )
     await user.click(
       await screen.findByRole('button', { name: zhTwOnboarding('initButton') }),
     )
@@ -398,6 +404,12 @@ describe('App shell', () => {
     await user.click(
       await screen.findByRole('button', {
         name: onboardingT('skipScheduleButton'),
+      }),
+    )
+    // The optional AI step sits between Schedule and Ready; skip it to reach the final review.
+    await user.click(
+      await screen.findByRole('button', {
+        name: onboardingT('aiStepSkipAction'),
       }),
     )
     await user.click(

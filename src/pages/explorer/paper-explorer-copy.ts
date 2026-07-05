@@ -17,8 +17,10 @@
 
 import type {
   PaperDetailPanelCopy,
+  PaperEnrichedContentCopy,
   PaperIntelligenceViewCopy,
   PaperSearchViewCopy,
+  PaperStarredViewCopy,
 } from '@/components/explorer-paper'
 import type { PaperExplorerCopy } from './paper-view'
 
@@ -142,6 +144,11 @@ export function buildPaperDetailPanelCopy(
     copyAction: t('paperBrowse.detailActionCopy'),
     refindAction: t('paperBrowse.detailActionRefind'),
     exportAction: t('paperBrowse.detailActionExport'),
+    starAction: t('star.starPageAria'),
+    unstarAction: t('star.unstarPageAria'),
+    starStatusStarred: t('star.statusStarred'),
+    starStatusUnstarred: t('star.statusUnstarred'),
+    starShortcutHint: t('star.shortcutHint'),
     provenanceHeading: t('paperBrowse.detailProvenanceHeading'),
     notesHeading: t('paperBrowse.detailNotesHeading'),
     tagsHeading: t('paperBrowse.detailTagsHeading'),
@@ -169,6 +176,58 @@ export function buildPaperDetailPanelCopy(
     threadLabel: t('paperBrowse.detailLookThread'),
     sessionLabel: t('paperBrowse.detailLookSession'),
     visitCountSuffix: t('paperBrowse.detailVisitCountSuffix'),
+  }
+}
+
+export function buildPaperEnrichedContentCopy(
+  t: ExplorerTranslator,
+): PaperEnrichedContentCopy {
+  return {
+    heading: t('paperBrowse.detailEnrichedHeading'),
+    loading: t('paperBrowse.detailEnrichedLoading'),
+    empty: t('paperBrowse.detailEnrichedEmpty'),
+    disabled: t('paperBrowse.detailEnrichedDisabled'),
+    error: t('paperBrowse.detailEnrichedError'),
+    fetchedAt: t('paperBrowse.detailEnrichedFetchedAt'),
+    sourceGithub: t('paperBrowse.detailEnrichedSourceGithub'),
+    sourceGeneric: t('paperBrowse.detailEnrichedSourceGeneric'),
+    sourceUnknown: t('paperBrowse.detailEnrichedSourceUnknown'),
+    topicsLabel: t('paperBrowse.detailEnrichedTopicsLabel'),
+    statusEmpty: t('paperBrowse.detailEnrichedStatusEmpty'),
+    statusBlocked: t('paperBrowse.detailEnrichedStatusBlocked'),
+    statusError: t('paperBrowse.detailEnrichedStatusError'),
+    statusLogin: t('paperBrowse.detailEnrichedStatusLogin'),
+    statusUnsupported: t('paperBrowse.detailEnrichedStatusUnsupported'),
+    statusRateLimited: t('paperBrowse.detailEnrichedStatusRateLimited'),
+    fetchNowAction: t('paperBrowse.detailFetchNowAction'),
+    fetchNowFetching: t('paperBrowse.detailFetchNowFetching'),
+    fetchNowQueued: t('paperBrowse.detailFetchNowQueued'),
+    fetchNowDisabledHint: t('paperBrowse.detailFetchNowDisabledHint'),
+    fetchNowError: t('paperBrowse.detailFetchNowError'),
+  }
+}
+
+export function buildPaperStarredViewCopy(
+  t: ExplorerTranslator,
+): PaperStarredViewCopy {
+  return {
+    eyebrow: t('star.hubEyebrow'),
+    title: t('star.hubTitle'),
+    description: t('star.hubDescription'),
+    groupPages: t('star.hubGroupPages'),
+    groupSources: t('star.hubGroupSources'),
+    sortLabel: t('star.hubSortLabel'),
+    sortRecent: t('star.hubSortRecent'),
+    sortRevisited: t('star.hubSortRevisited'),
+    loading: t('star.hubLoading'),
+    emptyTitle: t('star.hubEmptyTitle'),
+    emptyBody: t('star.hubEmptyBody'),
+    emptyCta: t('star.hubEmptyCta'),
+    visitCountTemplate: t('star.hubVisitCount'),
+    starAction: t('star.starAction'),
+    unstarAction: t('star.unstarAction'),
+    statusStarred: t('star.statusStarred'),
+    statusUnstarred: t('star.statusUnstarred'),
   }
 }
 
@@ -212,10 +271,16 @@ export function buildPaperSearchViewCopy(
       filtersLabel: t('paperSearchView.heroFiltersLabel'),
       modeKeyword: t('paperSearchView.heroModeKeyword'),
       modeRegex: t('paperSearchView.heroModeRegex'),
-      modeSemantic: t('paperSearchView.heroModeSemantic'),
+      modeSmart: t('paperSearchView.heroModeSmart'),
       modeHintKeyword: t('paperSearchView.heroModeHintKeyword'),
       modeHintRegex: t('paperSearchView.heroModeHintRegex'),
-      modeHintSemantic: t('paperSearchView.heroModeHintSemantic'),
+      modeHintSmart: t('paperSearchView.heroModeHintSmart'),
+      modeHintSmartUnavailable: t(
+        'paperSearchView.heroModeHintSmartUnavailable',
+      ),
+      modeSmartUnavailableAria: t(
+        'paperSearchView.heroModeSmartUnavailableAria',
+      ),
       addFilterDate: t('paperSearchView.heroAddFilterDate'),
       addFilterSource: t('paperSearchView.heroAddFilterSource'),
       addFilterDomain: t('paperSearchView.heroAddFilterDomain'),
@@ -223,6 +288,17 @@ export function buildPaperSearchViewCopy(
       addFilterTag: t('paperSearchView.heroAddFilterTag'),
       addFilterNote: t('paperSearchView.heroAddFilterNote'),
       removeChipLabel: t('paperSearchView.heroRemoveChipLabel'),
+      searchButton: t('paperSearchView.heroSearchButton'),
+      searchingButton: t('paperSearchView.heroSearchingButton'),
+      searchButtonAria: t('paperSearchView.heroSearchButtonAria'),
+      searchingButtonAria: t('paperSearchView.heroSearchingButtonAria'),
+      submitHint: t('paperSearchView.heroSubmitHint'),
+      staleBanner: t('paperSearchView.heroStaleBanner'),
+      staleModeNames: {
+        keyword: t('paperSearchView.heroStaleModeKeyword'),
+        regex: t('paperSearchView.heroStaleModeRegex'),
+        smart: t('paperSearchView.heroStaleModeSmart'),
+      },
       advancedSyntaxHelp: {
         ariaLabel: t('advancedSearchHelpAria'),
         title: t('advancedSearchHelpTitle'),
@@ -234,6 +310,7 @@ export function buildPaperSearchViewCopy(
         fileDate: t('advancedSearchHelpFileDate'),
         tag: t('advancedSearchHelpTag'),
         note: t('advancedSearchHelpNote'),
+        starred: t('star.facetIsStarred'),
         regexNote: t('advancedSearchHelpRegexNote'),
       },
     },
@@ -242,6 +319,7 @@ export function buildPaperSearchViewCopy(
       recentHeading: t('paperSearchView.emptyRecentHeading'),
       recentMeta: t('paperSearchView.emptyRecentMeta'),
       footer: t('paperSearchView.emptyFooter'),
+      smartPrompt: t('paperSearchView.emptySmartPrompt'),
     },
     resultsCount: t('paperSearchView.resultsCount'),
     resultsRange: t('paperSearchView.resultsRange'),
@@ -251,5 +329,16 @@ export function buildPaperSearchViewCopy(
     noMatchesBody: t('paperSearchView.noMatchesBody'),
     seeInContextLabel: t('paperSearchView.seeInContextLabel'),
     dayCountTemplate: t('paperSearchView.dayCountTemplate'),
+    relevance: {
+      rankedCount: t('paperSearchView.relevanceRankedCount'),
+      askAssistantLabel: t('paperSearchView.relevanceAskAssistant'),
+      loadingLabel: t('paperSearchView.relevanceLoading'),
+      prevPageLabel: t('paperSearchView.relevancePrevPage'),
+      nextPageLabel: t('paperSearchView.relevanceNextPage'),
+      pageSummary: t('paperSearchView.relevancePageSummary'),
+      pageSummaryRanked: t('paperSearchView.relevancePageSummaryRanked'),
+      moreAvailable: t('paperSearchView.relevanceMoreAvailable'),
+      endOfResults: t('paperSearchView.relevanceEndOfResults'),
+    },
   }
 }

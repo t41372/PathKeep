@@ -22,6 +22,7 @@
  * - route shell 只做 gating 和 composition，不再承擔重型 section-local JSX 或 duplicated background loads。
  */
 
+import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -29,10 +30,13 @@ import { LoadingState } from '../../components/primitives/loading-state'
 import { useI18n } from '../../lib/i18n'
 import { AiProvidersSection } from './ai-providers-section'
 import { AppearanceSection } from './appearance-section'
+import { ContentFetchSection } from './content-fetch-section'
 import { DataMigrationSection } from './data-migration-section'
+import { SnapshotRestoreSection } from './snapshot-restore-section'
 import { LinkPreviewsSection } from './link-previews-section'
 import { AppLockSection } from './app-lock-section'
 import { GeneralSection } from './general-section'
+import { SecuritySection } from './security-section'
 import { PaperSettingsHeader } from './paper-settings-header'
 import { ProfileSelectionSection } from './profile-selection-section'
 import {
@@ -82,14 +86,29 @@ export function SettingsPage() {
     setLanguagePreference,
     snapshot,
   })
-  const settingsSectionNavItems = createSettingsSectionNavItems(t, [
-    'general',
-    'profiles',
-    'applock',
-    'ai',
-    'migration',
-    'linkPreviews',
-  ])
+  // Keep a STABLE descriptor-list identity across renders. The list only
+  // depends on the current locale (`t` is recreated when the language changes)
+  // and the fixed key order below, so memoizing on `t` means an AI-draft edit —
+  // or any other re-render at the same language — does not mint a new `items`
+  // array. That stability is load-bearing: the sticky-nav / paper-header
+  // deep-link auto-scroll keyed on the derived section ids must not re-fire on
+  // every render and yank the viewport back to the hashed section.
+  const settingsSectionNavItems = useMemo(
+    () =>
+      createSettingsSectionNavItems(t, [
+        'appearance',
+        'general',
+        'profiles',
+        'applock',
+        'security',
+        'ai',
+        'contentFetch',
+        'migration',
+        'restore',
+        'linkPreviews',
+      ]),
+    [t],
+  )
   const settingsSection = (key: SettingsSectionKey) =>
     getSettingsSectionNavItem(settingsSectionNavItems, key)
 
@@ -151,32 +170,11 @@ export function SettingsPage() {
         />
       )}
 
-      {paperLayout ? null : (
-        <div className="settings-overview" aria-labelledby="settings-overview">
-          <div className="settings-overview__intro">
-            <h2 id="settings-overview">{t('settings.preferencesOverview')}</h2>
-            <p>{t('settings.preferencesOverviewBody')}</p>
-          </div>
-          <div className="settings-advanced-grid">
-            <Link className="settings-workflow-link-card" to="/maintenance">
-              <span className="settings-workflow-link-card__title">
-                {t('settings.openMaintenance')}
-              </span>
-              <span>{t('settings.openMaintenanceBody')}</span>
-            </Link>
-            <Link className="settings-workflow-link-card" to="/integrations">
-              <span className="settings-workflow-link-card__title">
-                {t('settings.openIntegrations')}
-              </span>
-              <span>{t('settings.openIntegrationsBody')}</span>
-            </Link>
-          </div>
-        </div>
-      )}
-
       <div className="settings-group">
-        <div className="settings-group__label">{t('settings.groupCore')}</div>
-        <AppearanceSection />
+        <div className="settings-group__label">
+          {t('settings.groupLookFeel')}
+        </div>
+        <AppearanceSection anchorId={settingsSection('appearance').id} />
         <GeneralSection
           explorerBackgroundPrefetchPages={
             routeState.general.explorerBackgroundPrefetchPages
@@ -189,6 +187,12 @@ export function SettingsPage() {
           saving={routeState.general.saving}
           snapshot={snapshot}
         />
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group__label">
+          {t('settings.groupDataSources')}
+        </div>
         <ProfileSelectionSection
           navItem={settingsSection('profiles')}
           state={routeState.profiles}
@@ -203,6 +207,7 @@ export function SettingsPage() {
           navItem={settingsSection('applock')}
           state={routeState.appLock}
         />
+        <SecuritySection navItem={settingsSection('security')} />
       </div>
 
       <div className="settings-group">
@@ -213,13 +218,19 @@ export function SettingsPage() {
           navItem={settingsSection('ai')}
           state={routeState.ai}
         />
+        <ContentFetchSection anchorId={settingsSection('contentFetch').id} />
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group__label">{t('settings.groupData')}</div>
+        <DataMigrationSection navItem={settingsSection('migration')} />
+        <SnapshotRestoreSection navItem={settingsSection('restore')} />
       </div>
 
       <div className="settings-group">
         <div className="settings-group__label">
-          {t('settings.groupBackupSync')}
+          {t('settings.groupDisplay')}
         </div>
-        <DataMigrationSection navItem={settingsSection('migration')} />
         <LinkPreviewsSection anchorId={settingsSection('linkPreviews').id} />
       </div>
     </section>

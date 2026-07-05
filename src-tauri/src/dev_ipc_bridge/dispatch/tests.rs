@@ -31,19 +31,20 @@ use serde_json::{Value, json};
 use std::future::Future;
 use tempfile::tempdir;
 use vault_core::{
-    AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderPurpose,
-    AiProviderSecretInput, AiSearchRequest, AppConfig, AppUpdateInstallRequest, ArchiveMode,
-    BrowserHistoryImportRequest, CategoryFilteredDateRangeRequest, CompareSetDetailRequest,
-    CoreIntelligenceRebuildRequest, DateRange, DayInsightsRequest, DomainDeepDiveRequest,
-    DomainTrendRequest, EntityExplanationRequest, ExportFormat, ExportRequest,
-    FrontendErrorReportRequest, GeneratedFile, GranularityDateRangeRequest,
-    HistoryFaviconLookupEntry, HistoryQuery, IntelligenceEmbedCardsRequest,
-    IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
-    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, RetentionPruneRequest,
-    SchedulePlan, ScopedDateRangeRequest, SearchEffectivenessRequest, SearchEngineRuleInput,
-    SearchQueryListRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
-    SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest, TopSitesRequest,
-    UnlockAppSessionRequest,
+    AgentMessage, AiAssistantRequest, AiChatMessage, AiChatRole, AiChatSendRequest, AiIndexRequest,
+    AiProviderConnectionTestRequest, AiProviderPurpose, AiProviderSecretInput, AiSearchRequest,
+    AppConfig, AppUpdateInstallRequest, ArchiveMode, BrowserHistoryImportRequest,
+    CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
+    DateRange, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
+    EntityExplanationRequest, ExportFormat, ExportRequest, FrontendErrorReportRequest,
+    GeneratedFile, GranularityDateRangeRequest, HistoryFaviconLookupEntry, HistoryQuery,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, ListAgentConversationsRequest,
+    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest,
+    RefindPageDetailRequest, RefindPagesRequest, RenameAgentConversationRequest,
+    RetentionPruneRequest, SaveAgentConversationRequest, SchedulePlan, ScopedDateRangeRequest,
+    SearchEffectivenessRequest, SearchEngineRuleInput, SearchQueryListRequest,
+    SearchTrailQueryRequest, SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest,
+    TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -254,6 +255,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         "initialize_archive",
         json!({ "config": test_config(), "databaseKey": null }),
     );
+    dispatch_for_coverage(&state, "assess_archive_upgrade", json!({}));
     dispatch_for_coverage(
         &state,
         "preview_rekey_archive",
@@ -281,6 +283,18 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             snapshot_path: dir.path().join("missing-snapshot.sqlite").display().to_string(),
         }),
     );
+    dispatch_for_coverage(&state, "list_recovery_snapshots", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "run_full_archive_restore",
+        wrapped(SnapshotRestoreRequest { snapshot_path: "/nonexistent.sqlite".to_string() }),
+    );
+    // Exercise the explicit-key branch (`key = Some`) of the restore payload / `or_else` fallback.
+    dispatch_for_coverage(
+        &state,
+        "run_full_archive_restore",
+        json!({ "request": { "snapshotPath": "/nonexistent.sqlite" }, "key": "abc" }),
+    );
     dispatch_for_coverage(&state, "preview_retention_prune", json!({}));
     dispatch_for_coverage(
         &state,
@@ -289,6 +303,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     );
     dispatch_for_coverage(&state, "set_session_database_key", json!({ "databaseKey": "key" }));
     dispatch_for_coverage(&state, "clear_session_database_key", json!({}));
+    dispatch_for_coverage(&state, "reconcile_archive_encryption", json!({}));
     dispatch_for_coverage(
         &state,
         "set_app_lock_passcode",
@@ -356,6 +371,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(&state, "mark_og_images_shown", json!({ "urls": [] }));
     dispatch_for_coverage(&state, "trigger_og_image_refetch", json!({ "urls": [] }));
     dispatch_for_coverage(&state, "get_og_image_storage_stats", json!({}));
+    dispatch_for_coverage(&state, "get_og_image_coverage_stats", json!({}));
     dispatch_for_coverage(&state, "clear_og_image_cache", json!({}));
     dispatch_for_coverage(&state, "run_og_image_cleanup", json!({}));
     dispatch_for_coverage(
@@ -389,6 +405,43 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         "search_url_annotations",
         json!({ "query": "dispatch", "limit": 10 }),
     );
+    // Stars dispatch arms.
+    dispatch_for_coverage(
+        &state,
+        "set_star",
+        json!({
+            "request": {
+                "entityKind": "url",
+                "entityKey": "https://example.com/seed"
+            }
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "unset_star",
+        json!({
+            "request": {
+                "entityKind": "url",
+                "entityKey": "https://example.com/seed"
+            }
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_star_status",
+        json!({
+            "request": {
+                "entityKind": "url",
+                "entityKeys": ["https://example.com/seed"]
+            }
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "list_stars",
+        json!({ "kind": "url", "sort": "recently_starred", "limit": 10 }),
+    );
+    dispatch_for_coverage(&state, "get_star_counts", json!({}));
     dispatch_for_coverage(
         &state,
         "export_history",
@@ -445,6 +498,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(&state, "cancel_ai_job", json!({ "jobId": 999 }));
     dispatch_for_coverage(&state, "load_ai_assistant_job", json!({ "jobId": 999 }));
     dispatch_for_coverage(&state, "build_ai_index", wrapped(AiIndexRequest::default()));
+    dispatch_for_coverage(&state, "reset_ai_index_build", wrapped(AiIndexRequest::default()));
     dispatch_for_coverage(
         &state,
         "search_ai_history",
@@ -454,6 +508,10 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             domain: None,
             limit: Some(5),
             cursor: None,
+            sort: None,
+            starred_only: None,
+            start_date: None,
+            end_date: None,
         }),
     );
     dispatch_for_coverage(
@@ -464,6 +522,65 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             profile_id: None,
             domain: None,
         }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "ai_chat_send",
+        wrapped(AiChatSendRequest {
+            provider_id: None,
+            messages: vec![AiChatMessage {
+                role: AiChatRole::User,
+                content: "summarize my history".to_string(),
+            }],
+            temperature: Some(0.6),
+            max_tokens: Some(64),
+            ..Default::default()
+        }),
+    );
+    dispatch_for_coverage(&state, "ai_chat_cancel", json!({ "runId": "chat-missing" }));
+    dispatch_for_coverage(&state, "download_ai_embedding_model", json!({}));
+    dispatch_for_coverage(&state, "download_static_embedding_model", json!({}));
+    dispatch_for_coverage(&state, "cancel_ai_embedding_model_download", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "save_ai_conversation",
+        wrapped(SaveAgentConversationRequest {
+            id: "dispatch-conv".to_string(),
+            title: None,
+            provider_id: Some("llm-local".to_string()),
+            messages: vec![AgentMessage {
+                id: "dispatch-m1".to_string(),
+                role: "user".to_string(),
+                content: "remember this conversation".to_string(),
+                reasoning: None,
+                tool_calls_json: None,
+                status: None,
+                ..Default::default()
+            }],
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "list_ai_conversations",
+        wrapped(ListAgentConversationsRequest { limit: Some(10) }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "load_ai_conversation",
+        json!({ "conversationId": "dispatch-conv" }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "rename_ai_conversation",
+        wrapped(RenameAgentConversationRequest {
+            id: "dispatch-conv".to_string(),
+            title: "renamed dispatch conversation".to_string(),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "delete_ai_conversation",
+        json!({ "conversationId": "dispatch-conv" }),
     );
     dispatch_for_coverage(
         &state,
@@ -730,6 +847,17 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         "open_external_url",
         json!({ "url": "ftp://example.com/pathkeep" }),
     );
+    // No-arg: targets the project logs dir. Under PROJECT_ROOT_OVERRIDE the logs dir does not exist,
+    // so the launcher rejects it gracefully (no real file-manager spawn) — the arm is still covered.
+    dispatch_for_coverage(&state, "reveal_logs", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "export_conversation_file",
+        json!({
+            "targetPath": dir.path().join("conversation.md").display().to_string(),
+            "contents": "# PathKeep conversation\n",
+        }),
+    );
     dispatch_for_coverage(&state, "check_for_app_update", json!({}));
     dispatch_for_coverage(
         &state,
@@ -737,6 +865,39 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         json!({ "request": AppUpdateInstallRequest::default() }),
     );
     dispatch_for_coverage(&state, "relaunch_after_update", json!({}));
+
+    // W-ENRICH-1 content-fetch command surface (covers dispatch.rs routing arms + the 5
+    // worker_bridge `_impl` fns). The archive was initialized above, so these reach real worker code.
+    dispatch_for_coverage(&state, "get_content_fetch_settings", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "set_content_fetch_settings",
+        json!({
+            "settings": {
+                "enabled": true,
+                "extractors": [],
+                "domains": [],
+                "queuedJobs": 0,
+                "runningJobs": 0,
+                "failedJobs": 0,
+                "storedRecords": 0
+            }
+        }),
+    );
+    dispatch_for_coverage(&state, "list_visit_enrichment", json!({ "historyId": 1 }));
+    dispatch_for_coverage(
+        &state,
+        "content_fetch_now",
+        json!({
+            "request": {
+                "historyId": 1,
+                "profileId": "chrome:Default",
+                "url": "https://github.com/o/r",
+                "title": null
+            }
+        }),
+    );
+    dispatch_for_coverage(&state, "enqueue_content_fetch_working_set", json!({ "limit": 10 }));
 
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

@@ -16,9 +16,12 @@
 import type {
   AppSnapshot,
   AppConfig,
+  ArchiveUpgradeAssessment,
   BackupReport,
   ExportRequest,
   ExportResult,
+  FullArchiveRestoreReport,
+  RecoverySnapshot,
   RetentionPreview,
   RetentionPruneRequest,
   RetentionPruneResult,
@@ -38,6 +41,8 @@ export const archiveClient = {
       config,
       databaseKey,
     }),
+  assessArchiveUpgrade: () =>
+    call<ArchiveUpgradeAssessment>('assess_archive_upgrade'),
   runBackupNow: (dueOnly = false) =>
     call<BackupReport>('run_backup_now', { dueOnly }),
   previewSnapshotRestore: (request: SnapshotRestoreRequest) =>
@@ -50,4 +55,14 @@ export const archiveClient = {
     call<RetentionPruneResult>('run_retention_prune', { request }),
   exportHistory: (request: ExportRequest) =>
     call<ExportResult>('export_history', { request }),
+  listRecoverySnapshots: () =>
+    call<RecoverySnapshot[]>('list_recovery_snapshots'),
+  runFullArchiveRestore: (
+    request: SnapshotRestoreRequest,
+    key?: string | null,
+  ) =>
+    call<FullArchiveRestoreReport>('run_full_archive_restore', {
+      request,
+      key,
+    }),
 }

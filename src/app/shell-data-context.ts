@@ -23,9 +23,12 @@ import type {
   AppConfig,
   AppLockStatus,
   AppSnapshot,
+  ArchiveRecoveryReport,
+  ArchiveUpgradeAssessment,
   BackupReport,
   BrowserHistoryImportRequest,
   DashboardSnapshot,
+  FullArchiveRestoreReport,
   IntelligenceRuntimeSnapshot,
   SetAppLockPasscodeRequest,
   TakeoutInspection,
@@ -65,6 +68,21 @@ export interface ShellRuntimeStatus {
 }
 
 /**
+ * Locale-independent classification of the current shell error.
+ *
+ * This exists so the shell can decide whether to render remediation
+ * affordances (e.g. the macOS Full Disk Access deep-link) WITHOUT re-parsing the
+ * already-translated `error` string. The kind is assigned at the point the error
+ * is classified from the RAW backend message, and cleared whenever the error is
+ * cleared or replaced — keeping `error` and `errorKind` from drifting apart.
+ */
+export type ShellErrorKind =
+  | 'full-disk-access'
+  | 'backup'
+  | 'lock-required'
+  | null
+
+/**
  * Describes the shell-owned import request that routes can start without owning progress state.
  *
  * Import execution writes archive records, so it runs through the shell task store instead
@@ -100,6 +118,20 @@ export interface ShellDataContextValue {
   busyAction: string | null
   busyOverlay: BusyOverlayState | null
   error: string | null
+  /**
+   * Locale-independent classification of `error`. The shell gates remediation
+   * affordances (e.g. the Full Disk Access deep-link) on this flag rather than
+   * re-parsing the translated `error` text, so the affordance appears for every
+   * shipped locale. `null` whenever there is no error or the error is unclassified.
+   */
+  errorKind: ShellErrorKind
+  /**
+   * The RAW, untranslated backend error behind `error`, preserved so the
+   * failure surface can offer a copy-able diagnostic report (the displayed
+   * `error` is sometimes a localized message, e.g. the Full Disk Access copy).
+   * `null` whenever there is no error or no raw detail was captured.
+   */
+  rawError?: string | null
   notice: string | null
   archiveTasks?: ShellTask[]
   activeArchiveTask?: ShellTask | null
@@ -107,9 +139,20 @@ export interface ShellDataContextValue {
   notifications?: ShellNotification[]
   unreadNotificationCount?: number
   refreshKey: number
-  refreshAppData: () => Promise<void>
+  /**
+   * Re-reads lock status + the app snapshot. `showSpinner` defaults to `true`
+   * (the full-page loading flash for user-initiated refreshes); pass `false` for
+   * background refreshes that must not freeze the current view — e.g. the
+   * Explorer's one-shot snapshot refresh when a semantic-index build drains, so
+   * the Smart-index callout flips to its honest "N pages indexed" ready state
+   * without a jarring spinner (H-3).
+   */
+  refreshAppData: (showSpinner?: boolean) => Promise<void>
   refreshRuntimeStatus: () => Promise<ShellRuntimeStatus>
-  saveConfig: (config: AppConfig) => Promise<AppSnapshot>
+  saveConfig: (
+    config: AppConfig,
+    options?: { quiet?: boolean },
+  ) => Promise<AppSnapshot>
   initializeArchive: (
     config: AppConfig,
     databaseKey?: string | null,
@@ -124,7 +167,46 @@ export interface ShellDataContextValue {
   clearAppLockPasscode: () => Promise<AppLockStatus>
   lockAppSession: (reason?: string | null) => Promise<AppLockStatus>
   unlockAppSession: (request: UnlockAppSessionRequest) => Promise<AppLockStatus>
+  /**
+   * Fires the REAL onboarding "Enable AI" opt-in in the background: downloads the on-device static
+   * embedding model, then enqueues a full index build. Fire-and-forget (never awaited by the caller)
+   * so finishing onboarding never blocks; it lives here so it survives the onboarding route
+   * unmounting and composes with the ambient task bar. Best-effort — it never throws.
+   */
+  startLocalSemanticSetup: () => Promise<void>
+  /**
+   * The structured recovery report surfaced when `initialize_archive` detects
+   * an unresolvable archive drift or corruption at launch. Set to `null` when
+   * the archive is healthy or after a successful restore.
+   */
+  recovery: ArchiveRecoveryReport | null
+  /**
+   * Set when a healthy archive is version-behind and the one-time upgrade
+   * migration is pending. Null otherwise. Seeds the blocking
+   * `ArchiveUpgradeScreen` with the cheap pre-check breakdown + the config that
+   * drives `initialize_archive`.
+   */
+  archiveUpgrade: {
+    assessment: ArchiveUpgradeAssessment
+    config: AppConfig
+  } | null
+  /**
+   * Runs after the upgrade screen's `initialize_archive` resolves: clears the
+   * gate and re-bootstraps the shell (which re-assesses as not-pending and
+   * drives the normal flow).
+   */
+  finishArchiveUpgrade: () => Promise<void>
+  /**
+   * Replaces the live archive with a verified safety snapshot, quarantining the
+   * broken state (moved, not deleted). Clears `recovery` and re-bootstraps the
+   * shell on success.
+   */
+  runFullArchiveRestore: (
+    snapshotPath: string,
+    key?: string | null,
+  ) => Promise<FullArchiveRestoreReport>
   clearNotice: () => void
+  clearError: () => void
   markNotificationsRead?: () => void
   dismissNotification?: (id: string) => void
 }

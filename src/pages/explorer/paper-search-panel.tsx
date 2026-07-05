@@ -15,17 +15,20 @@
  * - URL parsing — the route hands typed callbacks for each side effect.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { HistoryEntry } from '@/lib/types/archive'
 import {
   PaperSearchView,
   type PaperSearchHeroFilter,
+  type PaperSearchMode,
   type PaperSearchResultEntry,
+  type PaperSearchViewPagination,
 } from '@/components/explorer-paper'
 import { StatusCallout } from '@/components/primitives/status-callout'
 import { buildPaperSearchViewCopy } from './paper-explorer-copy'
 import {
   appendOperator,
+  hasStarredFacet,
   parseActiveSearchFilters,
   removeFilterToken,
 } from './paper-search-filters'
@@ -63,16 +66,62 @@ export interface PaperSearchPanelProps {
    * surface.
    */
   aboveResultsCallout?: PaperSearchPanelAboveResultsCallout | null
+  /**
+   * Smart-search relevance entries — pre-ranked by the route (REACH-B). When
+   * the active mode is Smart the panel renders these via the relevance layout
+   * instead of day-grouping `entries`. Day-grouped keyword behavior is byte-for
+   * -byte unchanged because the relevance path is gated behind the Smart mode.
+   */
+  rankedEntries?: readonly PaperSearchResultEntry[]
+  /** Smart-search loading flag (in-place skeleton). */
+  aiLoading?: boolean
+  /** Smart-search error (suppresses empty/no-match branches while showing). */
+  aiError?: string | null
+  /** Backend notes for the ranked list (e.g. lexical-only fallback). */
+  aiNotes?: readonly string[]
+  /** Prev/next cursor pagination for the relevance list. */
+  pagination?: PaperSearchViewPagination | null
+  /**
+   * I3: pre-formatted scope / freshness micro-line for the ranked header
+   * (index coverage + last-indexed). `null` when there is nothing honest to say.
+   */
+  relevanceScopeLine?: string | null
+  /** Whether the Smart tab is selectable (REACH-A gating). */
+  smartAvailable?: boolean
+  /** Per-row "Ask assistant" handler (relevance rows only). */
+  onAskAssistant?: (entry: PaperSearchResultEntry) => void
+  /** Compact index-status + Build-CTA slot mounted atop the relevance results. */
+  relevanceHeaderSlot?: ReactNode
   /** Apply text input changes to URL + local state. */
   onQueryChange: (next: string) => void
   /** Apply explorer mode + regex flag from the paper hero. */
   onModeChange: (next: { mode: ExplorerMode; regexMode: boolean }) => void
-  /** Submit handler (Enter in the hero). */
+  /** Submit handler (Enter in the hero, or the Search button). */
   onSubmit: (query: string) => void
+  /** True while the last-submitted query is in flight (button spinner). */
+  isSearching?: boolean
+  /**
+   * Disable the Search button — empty draft, or the draft + mode match the last
+   * submission (no redundant identical query). The route owns this gate.
+   */
+  searchSubmitDisabled?: boolean
+  /**
+   * The last-submitted paper mode when it differs from the live mode and there
+   * are visible results — drives the hero's stale-results banner. `null` hides
+   * it.
+   */
+  staleResultsMode?: PaperSearchMode | null
   /** Selected entry id update — number coerced from the paper id. */
   onSelectEntry: (id: number) => void
   /** Jump back to PaperExplorerView centred on the result's day. */
   onSeeInContext: (entry: PaperSearchResultEntry, dayDate: string) => void
+  /** Optional star provider forwarded to each search result row. */
+  entryStar?: {
+    isStarred: (url: string) => boolean
+    onToggle: (url: string) => void
+    starLabel: string
+    unstarLabel: string
+  }
 }
 
 export function PaperSearchPanel({
@@ -84,13 +133,34 @@ export function PaperSearchPanel({
   language,
   explorerT,
   aboveResultsCallout,
+  rankedEntries,
+  aiLoading = false,
+  aiError = null,
+  aiNotes,
+  pagination = null,
+  relevanceScopeLine = null,
+  smartAvailable = true,
+  onAskAssistant,
+  relevanceHeaderSlot,
   onQueryChange,
   onModeChange,
   onSubmit,
+  isSearching = false,
+  searchSubmitDisabled = false,
+  staleResultsMode = null,
   onSelectEntry,
   onSeeInContext,
+  entryStar,
 }: PaperSearchPanelProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
+  // The Smart (relevance) layout is gated behind the active mode so keyword /
+  // regex search renders the exact day-grouped UX it always has. Both AI URL
+  // modes — the real `hybrid` and the legacy `semantic` alias — light up Smart.
+  // An `is:starred` query is the one exception: it always renders the TRUE
+  // starred set through the keyword (day-grouped) layout, never the ranked view,
+  // matching the route's `smartSearchActive` gate.
+  const paperMode = paperSearchModeFromExplorerState(mode, regexMode)
+  const isRelevance = paperMode === 'smart' && !hasStarredFacet(query)
 
   const activeFilters = useMemo<PaperSearchHeroFilter[]>(
     () =>
@@ -179,10 +249,29 @@ export function PaperSearchPanel({
   return (
     <PaperSearchView
       query={query}
-      mode={paperSearchModeFromExplorerState(mode, regexMode)}
+      mode={paperMode}
       activeFilters={activeFilters}
-      groups={buildPaperSearchDayGroups(entries, { language })}
+      groups={
+        isRelevance
+          ? []
+          : buildPaperSearchDayGroups(entries, {
+              language,
+              enrichmentSourceLabel: explorerT(
+                'paperSearchView.enrichmentSourceGeneric',
+              ),
+            })
+      }
       totalResults={totalResults}
+      resultLayout={isRelevance ? 'relevance' : 'day-grouped'}
+      rankedEntries={rankedEntries}
+      aiLoading={aiLoading}
+      aiError={aiError}
+      aiNotes={aiNotes}
+      pagination={isRelevance ? pagination : null}
+      relevanceScopeLine={isRelevance ? relevanceScopeLine : null}
+      smartAvailable={smartAvailable}
+      onAskAssistant={onAskAssistant}
+      relevanceHeaderSlot={relevanceHeaderSlot}
       resolveDomainColor={getDomainColor}
       resolveDomainAbbr={getDomainAbbr}
       inputRef={inputRef}
@@ -194,8 +283,12 @@ export function PaperSearchPanel({
       onAddTagFilter={handleAddTagFilter}
       onAddNoteFilter={handleAddNoteFilter}
       onSubmit={onSubmit}
+      isSearching={isSearching}
+      submitDisabled={searchSubmitDisabled}
+      staleMode={staleResultsMode}
       onSelectEntry={(entry) => onSelectEntry(Number(entry.id))}
       onSeeInContext={onSeeInContext}
+      entryStar={entryStar}
       belowHeroSlot={
         aboveResultsCallout ? (
           <div

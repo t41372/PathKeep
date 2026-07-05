@@ -17,10 +17,13 @@
  * - Fixtures stay bounded to one history row and do not hit IPC.
  */
 
-import { render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import type * as IntelligenceAiPresentation from '../../lib/intelligence-ai-presentation'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { backend } from '../../lib/backend-client'
 import { ExplorerPage } from './index'
 
 const {
@@ -63,10 +66,16 @@ vi.mock('../../lib/i18n', () => ({
   }),
 }))
 
-vi.mock('../../lib/intelligence-ai-presentation', () => ({
-  aiStatusMeta: aiStatusMetaMock,
-  selectedAiProvider: selectedAiProviderMock,
-}))
+vi.mock('../../lib/intelligence-ai-presentation', async (importOriginal) => {
+  const actual = await importOriginal<typeof IntelligenceAiPresentation>()
+  return {
+    // `scoreBand` is pure + cheap, so the ranked-result adapter uses the real
+    // one (honest band labels); only the snapshot-derived helpers are stubbed.
+    scoreBand: actual.scoreBand,
+    aiStatusMeta: aiStatusMetaMock,
+    selectedAiProvider: selectedAiProviderMock,
+  }
+})
 
 vi.mock('../../lib/release-capabilities', () => ({
   get optionalAiFeaturesAvailable() {
@@ -87,6 +96,15 @@ vi.mock('../../lib/backend-client', () => ({
     loadHistoryOgImages: vi.fn().mockResolvedValue([]),
     markOgImagesShown: vi.fn().mockResolvedValue(undefined),
     triggerOgImageRefetch: vi.fn().mockResolvedValue(0),
+    getStarStatus: vi.fn().mockResolvedValue({}),
+    setStar: vi.fn().mockResolvedValue(undefined),
+    unsetStar: vi.fn().mockResolvedValue(undefined),
+    listStars: vi.fn().mockResolvedValue([]),
+    getStarCounts: vi.fn().mockResolvedValue({ urls: 0, domains: 0 }),
+    listVisitEnrichment: vi.fn().mockResolvedValue([]),
+    contentFetchNow: vi
+      .fn()
+      .mockResolvedValue({ jobId: 1, state: 'queued', note: 'queued' }),
   },
 }))
 
@@ -122,10 +140,6 @@ vi.mock('./use-desktop-annotations', () => ({
 
 vi.mock('./panels/runtime-panel', () => ({
   ExplorerRuntimePanel: () => <div data-testid="runtime-panel">runtime</div>,
-}))
-
-vi.mock('./panels/semantic-panel', () => ({
-  ExplorerSemanticPanel: () => <div data-testid="semantic-panel">semantic</div>,
 }))
 
 vi.mock('./panels/session-group', () => ({
@@ -202,6 +216,47 @@ vi.mock('../../components/explorer-paper', () => ({
       </button>
     </div>
   ),
+  PaperStarredView: (props: {
+    items: { entityKind: string; entityKey: string }[]
+    onSelect?: (item: { entityKind: string; entityKey: string }) => void
+    onToggleStar: (item: { entityKind: string; entityKey: string }) => void
+  }) => (
+    <div data-testid="paper-starred-view">
+      <button
+        type="button"
+        data-testid="paper-starred-select-page"
+        onClick={() =>
+          props.onSelect?.({
+            entityKind: 'url',
+            entityKey: 'https://example.com/starred',
+          })
+        }
+      >
+        select-page
+      </button>
+      <button
+        type="button"
+        data-testid="paper-starred-select-source"
+        onClick={() =>
+          props.onSelect?.({ entityKind: 'domain', entityKey: 'example.com' })
+        }
+      >
+        select-source
+      </button>
+      <button
+        type="button"
+        data-testid="paper-starred-toggle"
+        onClick={() =>
+          props.onToggleStar({
+            entityKind: 'url',
+            entityKey: 'https://example.com/starred',
+          })
+        }
+      >
+        toggle
+      </button>
+    </div>
+  ),
 }))
 
 // Mock the paper surfaces so each test can fire their callbacks via
@@ -224,9 +279,29 @@ vi.mock('./paper-view', () => ({
     onSelectEntry: (entry: { id: number }) => void
     onJumpToDate: (iso: string) => void
     onClearTarget: () => void
+    entryStar?: {
+      isStarred: (url: string) => boolean
+      onToggle: (url: string) => void
+      starLabel: string
+      unstarLabel: string
+    }
   }) => (
-    <div data-testid="explorer-paper-view">
+    <div
+      data-testid="explorer-paper-view"
+      data-entry-star-state={
+        props.entryStar
+          ? `${props.entryStar.isStarred('https://example.com/row')}:${props.entryStar.starLabel}`
+          : 'no-star'
+      }
+    >
       {props.filterStripSlot}
+      <button
+        type="button"
+        data-testid="paper-view-toggle-star"
+        onClick={() => props.entryStar?.onToggle('https://example.com/row')}
+      >
+        star
+      </button>
       <span data-testid="paper-view-entry-count">{props.entries.length}</span>
       <span data-testid="paper-view-first-og-image">
         {props.entries[0]?.ogImage ?? 'none'}
@@ -272,10 +347,17 @@ vi.mock('./paper-detail-panel-mount', () => ({
     onClose: () => void
     onOpen: (url: string) => void
     onOpenDomain: (domain: string) => void
+    stars?: {
+      isStarred: (url: string) => boolean
+      onToggleStar: (url: string) => void
+    }
   }) => (
     <div
       data-testid="paper-detail-mount"
       data-annotation-source={props.annotations.notesFor('__source__')}
+      data-detail-star={String(
+        props.stars?.isStarred('https://example.com/open') ?? 'no-star',
+      )}
     >
       <button
         type="button"
@@ -293,6 +375,13 @@ vi.mock('./paper-detail-panel-mount', () => ({
       </button>
       <button
         type="button"
+        data-testid="paper-detail-toggle-star"
+        onClick={() => props.stars?.onToggleStar('https://example.com/open')}
+      >
+        star
+      </button>
+      <button
+        type="button"
         data-testid="paper-detail-open-domain"
         onClick={() => props.onOpenDomain('example.com')}
       >
@@ -304,6 +393,25 @@ vi.mock('./paper-detail-panel-mount', () => ({
 
 vi.mock('./paper-search-panel', () => ({
   PaperSearchPanel: (props: {
+    entries: Array<{ id: number }>
+    totalResults: number
+    rankedEntries?: Array<{ id: number | string; title: string }>
+    aiLoading?: boolean
+    aiError?: string | null
+    aiNotes?: readonly string[]
+    pagination?: {
+      prevDisabled: boolean
+      nextDisabled: boolean
+      onPrev: () => void
+      onNext: () => void
+      page: number
+    } | null
+    smartAvailable?: boolean
+    isSearching?: boolean
+    searchSubmitDisabled?: boolean
+    staleResultsMode?: string | null
+    onAskAssistant?: (entry: { id: number | string; title: string }) => void
+    relevanceHeaderSlot?: ReactNode
     onQueryChange: (next: string) => void
     onModeChange: (next: { mode: string; regexMode: boolean }) => void
     onSubmit: (query: string) => void
@@ -315,8 +423,68 @@ vi.mock('./paper-search-panel', () => ({
       title: string
       body: string
     } | null
+    entryStar?: {
+      isStarred: (url: string) => boolean
+      onToggle: (url: string) => void
+    }
   }) => (
-    <div data-testid="paper-search-panel">
+    <div
+      data-testid="paper-search-panel"
+      data-search-entry-count={props.entries.length}
+      data-search-total={props.totalResults}
+      data-search-ranked-count={props.rankedEntries?.length ?? 0}
+      data-search-ai-loading={String(props.aiLoading ?? false)}
+      data-search-ai-error={props.aiError ?? ''}
+      data-search-ai-notes={(props.aiNotes ?? []).join('|')}
+      data-search-smart-available={String(props.smartAvailable ?? false)}
+      data-search-searching={String(props.isSearching ?? false)}
+      data-search-submit-disabled={String(props.searchSubmitDisabled ?? false)}
+      data-search-stale-mode={props.staleResultsMode ?? ''}
+      data-search-star={String(
+        props.entryStar?.isStarred('https://example.com/result') ?? 'no-star',
+      )}
+    >
+      {/* The route mounts the compact index-status + Build CTA here in Smart
+          mode; render it so its onClick build handler is exercised. */}
+      {props.relevanceHeaderSlot ? (
+        <div data-testid="paper-search-relevance-header-slot">
+          {props.relevanceHeaderSlot}
+        </div>
+      ) : null}
+      {props.rankedEntries?.[0] && props.onAskAssistant ? (
+        <button
+          type="button"
+          data-testid="paper-search-ask-assistant"
+          onClick={() => props.onAskAssistant?.(props.rankedEntries![0])}
+        >
+          ask
+        </button>
+      ) : null}
+      {props.pagination ? (
+        <>
+          <button
+            type="button"
+            data-testid="paper-search-page-next"
+            onClick={() => props.pagination?.onNext()}
+          >
+            next
+          </button>
+          <button
+            type="button"
+            data-testid="paper-search-page-prev"
+            onClick={() => props.pagination?.onPrev()}
+          >
+            prev
+          </button>
+        </>
+      ) : null}
+      <button
+        type="button"
+        data-testid="paper-search-toggle-star"
+        onClick={() => props.entryStar?.onToggle('https://example.com/result')}
+      >
+        star
+      </button>
       {props.aboveResultsCallout ? (
         <div data-testid="paper-search-above-results-callout">
           <span data-testid="paper-search-callout-title">
@@ -340,9 +508,7 @@ vi.mock('./paper-search-panel', () => ({
       <button
         type="button"
         data-testid="paper-search-mode"
-        onClick={() =>
-          props.onModeChange({ mode: 'semantic', regexMode: true })
-        }
+        onClick={() => props.onModeChange({ mode: 'hybrid', regexMode: true })}
       >
         mode
       </button>
@@ -368,6 +534,13 @@ vi.mock('./paper-search-panel', () => ({
         onClick={() => props.onSelectEntry(7)}
       >
         select
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-select-starred"
+        onClick={() => props.onSelectEntry(-1)}
+      >
+        select-starred
       </button>
       <button
         type="button"
@@ -496,6 +669,97 @@ describe('ExplorerPage route shell', () => {
     expect(screen.getByTestId('paper-search-panel')).toBeVisible()
   })
 
+  test('Search button gate: disabled when the draft matches the submitted query + mode', () => {
+    // queryInput === rawQuery (the submitted query) and the mode is unchanged →
+    // re-running would be an identical query, so the Search button is disabled.
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=sqlite'),
+        queryInput: 'sqlite',
+        rawQuery: 'sqlite',
+      }),
+    )
+
+    renderExplorer()
+    expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+      'data-search-submit-disabled',
+      'true',
+    )
+    // No mode drift → no stale banner.
+    expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+      'data-search-stale-mode',
+      '',
+    )
+  })
+
+  test('Search button gate: enabled when the draft differs from the submitted query', () => {
+    // The user has typed past the submitted query → a real new query is
+    // available, so the button re-enables.
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=sqlite'),
+        queryInput: 'sqlite wal',
+        rawQuery: 'sqlite',
+      }),
+    )
+
+    renderExplorer()
+    expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+      'data-search-submit-disabled',
+      'false',
+    )
+  })
+
+  test('Search button gate: disabled when the draft is empty', () => {
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search'),
+        queryInput: '   ',
+        rawQuery: '',
+      }),
+    )
+
+    renderExplorer()
+    expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+      'data-search-submit-disabled',
+      'true',
+    )
+  })
+
+  test('Search button re-enables + stale banner shows when the mode changes without re-submitting', () => {
+    // Initial render: keyword mode, submitted query present → not stale, and
+    // (draft === submitted, mode unchanged) → disabled. Then the mode flips to
+    // Smart while `rawQuery` is unchanged: the submitted-mode baseline stays
+    // keyword, so the button re-enables and the stale banner surfaces the
+    // last-submitted (keyword) mode.
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1', label: 'Local AI' })
+    const baseState = defaultUrlState({
+      searchParams: new URLSearchParams('surface=search&q=sqlite'),
+      queryInput: 'sqlite',
+      rawQuery: 'sqlite',
+      mode: 'keyword',
+    })
+    useExplorerUrlStateMock.mockReturnValue(baseState)
+
+    const { rerender } = renderExplorer()
+    const panelBefore = screen.getByTestId('paper-search-panel')
+    expect(panelBefore).toHaveAttribute('data-search-submit-disabled', 'true')
+    expect(panelBefore).toHaveAttribute('data-search-stale-mode', '')
+
+    // Live mode flips to Smart; the submitted query (rawQuery) is unchanged, so
+    // the route keeps the keyword baseline → stale + re-enabled.
+    useExplorerUrlStateMock.mockReturnValue({
+      ...baseState,
+      mode: 'hybrid',
+    })
+    rerender(<ExplorerWrapper />)
+
+    const panelAfter = screen.getByTestId('paper-search-panel')
+    expect(panelAfter).toHaveAttribute('data-search-submit-disabled', 'false')
+    expect(panelAfter).toHaveAttribute('data-search-stale-mode', 'keyword')
+  })
+
   test('mounts the paper Search panel at /search even without ?surface=search', () => {
     // `/search` should mount the same ExplorerPage component but treat
     // the route pathname as the search-surface signal — without this,
@@ -611,12 +875,15 @@ describe('ExplorerPage route shell', () => {
     renderExplorer()
     expect(screen.getByTestId('paper-search-panel')).toBeVisible()
 
+    // Explicit-submit gate: typing only updates the local draft. It MUST NOT
+    // write the URL `q` — that's the single signal the backend query keys off,
+    // so a keystroke must never reach the backend.
     await user.click(screen.getByTestId('paper-search-change'))
     expect(setQueryInput).toHaveBeenCalledWith('next-query')
-    expect(updateParam).toHaveBeenCalledWith('q', 'next-query')
+    expect(updateParam).not.toHaveBeenCalledWith('q', 'next-query')
 
     await user.click(screen.getByTestId('paper-search-mode'))
-    expect(updateParam).toHaveBeenCalledWith('mode', 'semantic')
+    expect(updateParam).toHaveBeenCalledWith('mode', 'hybrid')
     expect(updateParam).toHaveBeenCalledWith('regex', '1')
 
     await user.click(screen.getByTestId('paper-search-mode-keyword'))
@@ -624,6 +891,7 @@ describe('ExplorerPage route shell', () => {
     expect(updateParam).toHaveBeenCalledWith('mode', null)
     expect(updateParam).toHaveBeenCalledWith('regex', null)
 
+    // Submit is the ONLY thing that writes `q` (the URL = the backend query).
     await user.click(screen.getByTestId('paper-search-submit'))
     expect(setQueryInput).toHaveBeenCalledWith('committed')
     expect(updateParam).toHaveBeenCalledWith('q', 'committed')
@@ -639,6 +907,515 @@ describe('ExplorerPage route shell', () => {
     expect(nextParams.get('q')).toBeNull()
     expect(nextParams.get('surface')).toBeNull()
     expect(setSelectedId).toHaveBeenCalledWith(17)
+  })
+
+  test('Smart search surface feeds ranked AI results, build CTA, pagination, and Ask assistant into PaperSearchPanel', async () => {
+    const user = userEvent.setup()
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1', label: 'Local AI' })
+    aiStatusMetaMock.mockReturnValue({ label: 'Index ready', tone: 'success' })
+    const handleNextSemanticPage = vi.fn()
+    const handlePreviousSemanticPage = vi.fn()
+    const handleIndexAction = vi.fn()
+    const setSelectedId = vi.fn()
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          // A non-empty index → the build CTA renders in its "rebuild" copy
+          // rather than the empty-index prominence path.
+          aiStatus: { state: 'ready', indexedItems: 1280 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async runtime',
+        searchParams: new URLSearchParams('surface=search&q=async%20runtime'),
+        semanticQuery: { query: 'async runtime' },
+        semanticTrail: ['cursor-1'],
+        handleNextSemanticPage,
+        handlePreviousSemanticPage,
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          handleIndexAction,
+          setSelectedId,
+          // Pin the selection to the ranked row's real historyId so the detail
+          // panel resolves it via `aiItemToHistoryEntry` (valid title + visit
+          // time → the non-fallback branches).
+          selectedId: 501,
+          semanticState: {
+            error: null,
+            requestKey: options.semanticRequestKey,
+            results: {
+              total: 2,
+              providerId: 'embed-1',
+              model: 'text-embedding-3-small',
+              // English `notes` are model-facing only; the route localizes the stable `noteCodes`
+              // (review-fix M-6) for the user-facing relevance-notes region.
+              notes: [
+                'No embedding provider is selected, so results use lexical retrieval only.',
+              ],
+              noteCodes: [{ code: 'lexicalFallbackNoProvider' }],
+              nextCursor: 'cursor-2',
+              items: [
+                {
+                  historyId: 501,
+                  profileId: 'chrome:Default',
+                  url: 'https://tokio.rs/internals',
+                  title: 'tokio internals',
+                  domain: 'tokio.rs',
+                  visitedAt: '2026-05-16T10:00:00.000Z',
+                  score: 0.92,
+                  matchReason: 'Lexical + semantic match',
+                },
+              ],
+            },
+          },
+        }),
+    )
+
+    renderExplorer()
+
+    const panel = screen.getByTestId('paper-search-panel')
+    // Ranked AI results, notes, and smart availability all flow into the panel.
+    expect(panel.getAttribute('data-search-ranked-count')).toBe('1')
+    expect(panel.getAttribute('data-search-smart-available')).toBe('true')
+    // The route resolves the stable note CODE through the explorer translator (review-fix M-6), not
+    // the raw English `notes`. The i18n mock echoes the namespaced key, so the relevance-notes region
+    // carries the localized KEY — proving the code path is exercised (real copy is covered in
+    // note-codes.test.ts), never the raw English fallback sentence.
+    expect(panel.getAttribute('data-search-ai-notes')).toContain(
+      'explorer.aiSearchNoteLexicalFallbackNoProvider',
+    )
+    expect(panel.getAttribute('data-search-ai-notes')).not.toContain(
+      'lexical retrieval only',
+    )
+
+    // The compact index-status + Build CTA renders in-surface and builds the index.
+    const buildButton = screen.getByTestId('explorer-smart-build-index')
+    expect(buildButton).toBeVisible()
+    await user.click(buildButton)
+    expect(handleIndexAction).toHaveBeenCalledTimes(1)
+
+    // Prev/next cursor pagination drives the route's semantic-page handlers.
+    await user.click(screen.getByTestId('paper-search-page-next'))
+    expect(handleNextSemanticPage).toHaveBeenCalledWith('cursor-2')
+    await user.click(screen.getByTestId('paper-search-page-prev'))
+    expect(handlePreviousSemanticPage).toHaveBeenCalledTimes(1)
+
+    // Ask assistant on a ranked row navigates to /assistant with the prompt.
+    await user.click(screen.getByTestId('paper-search-ask-assistant'))
+    // (navigation is internal to MemoryRouter; the click must not throw.)
+  })
+
+  test('selecting a ranked Smart row opens the detail panel against the real history id', async () => {
+    const user = userEvent.setup()
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1', label: 'Local AI' })
+    const setSelectedId = vi.fn()
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 0 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          selectedId: 501,
+          setSelectedId,
+          semanticState: {
+            error: null,
+            requestKey: options.semanticRequestKey,
+            results: {
+              total: 1,
+              providerId: 'embed-1',
+              model: 'm',
+              notes: [],
+              nextCursor: null,
+              items: [
+                {
+                  historyId: 501,
+                  profileId: 'chrome:Default',
+                  url: 'https://tokio.rs/x',
+                  // A null title + unparseable visit time exercises both
+                  // `aiItemToHistoryEntry` fallbacks (title → url, NaN → 0).
+                  title: null,
+                  domain: 'tokio.rs',
+                  visitedAt: 'not-a-real-date',
+                  score: 0.5,
+                  matchReason: 'Semantic match',
+                },
+              ],
+            },
+          },
+        }),
+    )
+
+    renderExplorer()
+
+    // Index empty → the build CTA shows its prominent "build the index" title.
+    expect(screen.getByText('explorer.smartIndexBuildTitle')).toBeVisible()
+
+    // Selecting the ranked row (real historyId 501) opens the detail panel:
+    // the route resolves the AI item → a HistoryEntry so the panel binds.
+    await user.click(screen.getByTestId('paper-search-select'))
+    // The mock select fires `onSelectEntry(7)`, but selectedId is pinned to 501
+    // (an AI row) so the detail mount resolves it from the ranked items.
+    expect(setSelectedId).toHaveBeenCalled()
+    expect(screen.getByTestId('paper-detail-mount')).toBeInTheDocument()
+  })
+
+  test('Smart surface shows the building-state CTA label and routes a semantic error through the above-results callout', () => {
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1', label: 'Local AI' })
+    aiStatusMetaMock.mockReturnValue({ label: 'Index ready', tone: 'success' })
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 42 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          // An in-flight index build → the CTA renders its "Building…" label.
+          indexAction: 'Building index',
+          semanticState: {
+            // A Smart-mode backend error must flow through the above-results
+            // callout (so the composer never unmounts mid-error).
+            error: 'embedding provider timed out',
+            requestKey: options.semanticRequestKey,
+            results: null,
+          },
+        }),
+    )
+
+    renderExplorer()
+
+    const panel = screen.getByTestId('paper-search-panel')
+    // REACH-B B1: a just-clicked build (local `indexAction`) with no live queue
+    // counts yet is honestly the QUEUED phase — the CTA must NOT flip back to the
+    // "ready / N indexed" copy on a bare enqueue. The disabled "Building…" label
+    // signals the build is pending, and the queued callout title is shown.
+    expect(screen.getByText('explorer.smartIndexQueuedTitle')).toBeVisible()
+    expect(screen.getByTestId('explorer-smart-build-index')).toHaveTextContent(
+      'explorer.smartIndexBuildingCta',
+    )
+    expect(screen.getByTestId('explorer-smart-build-index')).toBeDisabled()
+    // The semantic error is handed to the panel's above-results callout slot.
+    expect(panel.getAttribute('data-search-ai-error')).toBe(
+      'embedding provider timed out',
+    )
+    expect(screen.getByTestId('paper-search-callout-body')).toHaveTextContent(
+      'embedding provider timed out',
+    )
+  })
+
+  test('B1: a running backfill shows live queue progress and polls on a bounded interval', () => {
+    vi.useFakeTimers()
+    try {
+      optionalAiFeaturesAvailableState.value = true
+      selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+      const refreshRuntimeStatus = vi.fn().mockResolvedValue(undefined)
+      useShellDataMock.mockReturnValue(
+        defaultShellData({
+          refreshRuntimeStatus,
+          // A live queue with a running index job → the in-surface status must
+          // reflect the build, not the (instant) enqueue.
+          runtimeStatus: {
+            aiQueue: {
+              paused: false,
+              concurrency: 1,
+              queued: 4,
+              running: 1,
+              failed: 0,
+              indexQueued: 4,
+              indexRunning: 1,
+              recentJobs: [],
+            },
+            error: null,
+            intelligence: null,
+            loading: false,
+          },
+          snapshot: {
+            ...defaultShellData().snapshot,
+            aiStatus: { state: 'rebuilding', indexedItems: 12 },
+          },
+        }),
+      )
+      useExplorerUrlStateMock.mockReturnValue(
+        defaultUrlState({
+          mode: 'hybrid',
+          queryInput: 'async',
+          searchParams: new URLSearchParams('surface=search&q=async'),
+          semanticQuery: { query: 'async' },
+        }),
+      )
+      useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+      const { unmount } = renderExplorer()
+
+      // Live progress: the building title + the real queued/running counts via
+      // the shared LoadingState progress (no fabricated percent).
+      expect(screen.getByText('explorer.smartIndexBuildingTitle')).toBeVisible()
+      // The route i18n mock drops params, so assert the queue-derived progress
+      // label is wired (the queued/running interpolation is covered by the
+      // SmartIndexStatusCallout component test, which uses an echo translator).
+      const progress = screen.getByTestId('explorer-smart-build-progress')
+      expect(progress).toHaveTextContent('explorer.queueProgressLabel')
+      // The CTA is disabled (no double-enqueue) while building.
+      expect(screen.getByTestId('explorer-smart-build-index')).toBeDisabled()
+
+      // Bounded poll: the interval ticks `refreshRuntimeStatus` while building.
+      refreshRuntimeStatus.mockClear()
+      vi.advanceTimersByTime(4000)
+      expect(refreshRuntimeStatus).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(4000)
+      expect(refreshRuntimeStatus).toHaveBeenCalledTimes(2)
+
+      // Unmount clears the interval — no leaked poll after the route is gone.
+      unmount()
+      refreshRuntimeStatus.mockClear()
+      vi.advanceTimersByTime(12000)
+      expect(refreshRuntimeStatus).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('B1: an idle (non-building) Smart surface does not poll the queue', () => {
+    vi.useFakeTimers()
+    try {
+      optionalAiFeaturesAvailableState.value = true
+      selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+      const refreshRuntimeStatus = vi.fn().mockResolvedValue(undefined)
+      useShellDataMock.mockReturnValue(
+        defaultShellData({
+          refreshRuntimeStatus,
+          snapshot: {
+            ...defaultShellData().snapshot,
+            // Ready index, nothing queued/running → no build in flight.
+            aiStatus: { state: 'ready', indexedItems: 900 },
+          },
+        }),
+      )
+      useExplorerUrlStateMock.mockReturnValue(
+        defaultUrlState({
+          mode: 'hybrid',
+          queryInput: 'async',
+          searchParams: new URLSearchParams('surface=search&q=async'),
+          semanticQuery: { query: 'async' },
+        }),
+      )
+      useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+      renderExplorer()
+
+      // The ready state shows the AI status label + indexed count, not a build.
+      expect(screen.queryByTestId('explorer-smart-build-progress')).toBeNull()
+      // No poll runs when nothing is building.
+      refreshRuntimeStatus.mockClear()
+      vi.advanceTimersByTime(12000)
+      expect(refreshRuntimeStatus).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('B1: a paused queue with an enqueued build points the user to resume', () => {
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        runtimeStatus: {
+          aiQueue: {
+            paused: true,
+            concurrency: 1,
+            queued: 2,
+            running: 0,
+            failed: 0,
+            indexQueued: 2,
+            indexRunning: 0,
+            recentJobs: [],
+          },
+          error: null,
+          intelligence: null,
+          loading: false,
+        },
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 3 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+    renderExplorer()
+
+    expect(screen.getByText('explorer.smartIndexPausedTitle')).toBeVisible()
+    const resume = screen.getByTestId('explorer-smart-resume-index')
+    expect(resume).toHaveAttribute('href', '/settings#settings-ai')
+    // Honest: a paused-but-enqueued build never shows the "building" progress.
+    expect(screen.queryByTestId('explorer-smart-build-progress')).toBeNull()
+  })
+
+  test('H-3: a drained build fires one refreshAppData(false) and shows the honest ready state', () => {
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+    aiStatusMetaMock.mockReturnValue({ label: 'Index ready', tone: 'success' })
+    const refreshAppData = vi.fn().mockResolvedValue(undefined)
+    // Building: a live index job is running and the index is still empty
+    // (indexed-at-enqueue ≈ 0). This is the state the bounded poll watches.
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        refreshAppData,
+        refreshRuntimeStatus: vi.fn().mockResolvedValue(undefined),
+        runtimeStatus: {
+          aiQueue: {
+            paused: false,
+            concurrency: 1,
+            queued: 0,
+            running: 1,
+            failed: 0,
+            indexQueued: 0,
+            indexRunning: 1,
+            recentJobs: [],
+          },
+          error: null,
+          intelligence: null,
+          loading: false,
+        },
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'rebuilding', indexedItems: 0 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+    const { rerender } = renderExplorer()
+
+    // Building: the live progress callout is shown; no app-data refresh yet.
+    expect(screen.getByText('explorer.smartIndexBuildingTitle')).toBeVisible()
+    expect(refreshAppData).not.toHaveBeenCalled()
+
+    // The build DRAINS: the queue clears (no index jobs) and a real refresh
+    // would have repopulated the snapshot's indexed coverage. Model that here by
+    // swapping the shell value the route reads on the next render.
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        refreshAppData,
+        refreshRuntimeStatus: vi.fn().mockResolvedValue(undefined),
+        runtimeStatus: {
+          aiQueue: {
+            paused: false,
+            concurrency: 1,
+            queued: 0,
+            running: 0,
+            failed: 0,
+            indexQueued: 0,
+            indexRunning: 0,
+            recentJobs: [],
+          },
+          error: null,
+          intelligence: null,
+          loading: false,
+        },
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 1280 },
+        },
+      }),
+    )
+    rerender(<ExplorerWrapper initialPath="/" />)
+
+    // H-3: the active→inactive transition fired exactly ONE non-spinner
+    // refresh, so the snapshot's index coverage is re-read without freezing the
+    // view.
+    expect(refreshAppData).toHaveBeenCalledTimes(1)
+    expect(refreshAppData).toHaveBeenCalledWith(false)
+
+    // The callout now reports the honest "N pages indexed" ready state — it must
+    // NOT have flipped back to the empty "nothing to rank yet" build title, as
+    // if the completed build had failed.
+    expect(screen.getByText('Index ready')).toBeVisible()
+    expect(screen.getByText('explorer.smartIndexReadyBody')).toBeVisible()
+    expect(screen.queryByText('explorer.smartIndexBuildTitle')).toBeNull()
+    expect(screen.queryByTestId('explorer-smart-build-progress')).toBeNull()
+  })
+
+  test('H-3: a refreshAppData fires only on the drain edge, never every poll tick', () => {
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+    const refreshAppData = vi.fn().mockResolvedValue(undefined)
+    // Idle from the start: no build has ever been active on this surface.
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        refreshAppData,
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 900 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+    const { rerender } = renderExplorer()
+    rerender(<ExplorerWrapper initialPath="/" />)
+
+    // Never active → never drained → the transition refresh must not fire. (A
+    // bare re-render of an already-idle surface is not a completed build.)
+    expect(refreshAppData).not.toHaveBeenCalled()
   })
 
   test('PaperExplorerView callbacks drive the route selection + url-state setters', async () => {
@@ -678,6 +1455,294 @@ describe('ExplorerPage route shell', () => {
     const cleared = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
     expect(cleared.get('date')).toBeNull()
     expect(cleared.get('source')).toBeNull()
+  })
+
+  test('Browse rows expose a star toggle that writes through set_star', async () => {
+    const user = userEvent.setup()
+    renderExplorer()
+    expect(screen.getByTestId('explorer-paper-view')).toHaveAttribute(
+      'data-entry-star-state',
+      'false:explorer.star.starPageAria',
+    )
+    await user.click(screen.getByTestId('paper-view-toggle-star'))
+    await waitFor(() =>
+      expect(backend.setStar).toHaveBeenCalledWith({
+        entityKind: 'url',
+        entityKey: 'https://example.com/row',
+      }),
+    )
+  })
+
+  test('the detail panel mount receives a star provider', async () => {
+    const user = userEvent.setup()
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, { selectedId: 42 }),
+    )
+    renderExplorer()
+    // Open the panel so the mount renders.
+    await user.click(screen.getByTestId('paper-view-select'))
+    const mount = await screen.findByTestId('paper-detail-mount')
+    expect(mount).toHaveAttribute('data-detail-star', 'false')
+    await user.click(screen.getByTestId('paper-detail-toggle-star'))
+    await waitFor(() =>
+      expect(backend.setStar).toHaveBeenCalledWith({
+        entityKind: 'url',
+        entityKey: 'https://example.com/open',
+      }),
+    )
+  })
+
+  test('the Search panel receives a star provider', async () => {
+    const user = userEvent.setup()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=initial'),
+      }),
+    )
+    renderExplorer()
+    const panel = await screen.findByTestId('paper-search-panel')
+    expect(panel).toHaveAttribute('data-search-star', 'false')
+    await user.click(screen.getByTestId('paper-search-toggle-star'))
+    await waitFor(() =>
+      expect(backend.setStar).toHaveBeenCalledWith({
+        entityKind: 'url',
+        entityKey: 'https://example.com/result',
+      }),
+    )
+  })
+
+  test('is:starred facet renders the TRUE starred set from list_stars with an honest total', async () => {
+    const user = userEvent.setup()
+    // No starred pages → the facet shows an empty, honest result (0 entries,
+    // 0 total), not a misleading slice of the loaded keyword page.
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        queryInput: 'is:starred',
+        searchParams: new URLSearchParams('surface=search&q=is%3Astarred'),
+      }),
+    )
+    const { unmount } = renderExplorer()
+    const panel = await screen.findByTestId('paper-search-panel')
+    expect(panel).toHaveAttribute('data-search-entry-count', '0')
+    expect(panel).toHaveAttribute('data-search-total', '0')
+    unmount()
+
+    // With two starred URL pages in `list_stars`, the facet renders BOTH (even
+    // though neither is in the loaded keyword page) and reports an honest total
+    // of 2 — the count is the size of the starred set, never a wrong page slice.
+    ;(backend.listStars as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        entityKind: 'url',
+        entityKey: 'https://starred.test/one',
+        starredAt: '2026-04-02T00:00:00Z',
+        domain: 'starred.test',
+        title: 'One',
+        visitCount: 3,
+      },
+      // Degenerate item: no title, no domain, unparseable starredAt — the
+      // HistoryEntry adapter must fall back to the key for title/domain and to 0
+      // for visitTime without throwing.
+      {
+        entityKind: 'url',
+        entityKey: 'https://starred.test/two',
+        starredAt: 'not-a-date',
+        domain: '',
+        title: '',
+        visitCount: 9,
+      },
+      // A domain star is excluded from the page facet.
+      {
+        entityKind: 'domain',
+        entityKey: 'starred.test',
+        starredAt: '2026-04-03T00:00:00Z',
+        domain: 'starred.test',
+        title: '',
+        visitCount: 12,
+      },
+    ])
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        queryInput: 'is:starred',
+        searchParams: new URLSearchParams('surface=search&q=is%3Astarred'),
+      }),
+    )
+    renderExplorer()
+    await waitFor(() =>
+      expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+        'data-search-entry-count',
+        '2',
+      ),
+    )
+    expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+      'data-search-total',
+      '2',
+    )
+    // Selecting an id that isn't in the starred set is a safe no-op (no detail
+    // panel binds to a synthetic id, and no visit fires).
+    await user.click(screen.getByTestId('paper-search-select'))
+    expect(screen.queryByTestId('paper-detail-mount')).toBeNull()
+  })
+
+  test('STAR-1: the Starred-hub entry shows an honest bounded count badge', async () => {
+    desktopCommandTransportAvailable.value = true
+    ;(backend.getStarCounts as ReturnType<typeof vi.fn>).mockResolvedValue({
+      urls: 11,
+      domains: 4,
+    })
+
+    renderExplorer()
+
+    const badge = await screen.findByTestId('explorer-starred-count')
+    // Total is the sum of the bounded url + domain counts, sourced from
+    // get_star_counts (a COUNT, not the archive scan).
+    expect(badge).toHaveTextContent('15')
+    // The aria-label comes from the dedicated localized key (vars are stripped
+    // by the i18n test stub).
+    expect(badge).toHaveAttribute('aria-label', 'explorer.star.hubCountAria')
+    // The badge reads from the aggregate count, never list_stars (the hub list
+    // stays unloaded on the Browse surface).
+    expect(backend.listStars).not.toHaveBeenCalled()
+  })
+
+  test('STAR-1: a zero starred count hides the badge (no misleading "0")', async () => {
+    desktopCommandTransportAvailable.value = true
+    ;(backend.getStarCounts as ReturnType<typeof vi.fn>).mockResolvedValue({
+      urls: 0,
+      domains: 0,
+    })
+
+    renderExplorer()
+
+    // The discoverable entry is present...
+    expect(await screen.findByTestId('explorer-open-starred')).toBeVisible()
+    // ...but with nothing starred the count badge never renders.
+    await waitFor(() => expect(backend.getStarCounts).toHaveBeenCalled())
+    expect(screen.queryByTestId('explorer-starred-count')).toBeNull()
+  })
+
+  test('selecting an is:starred row opens it via handleVisit (synthetic ids)', async () => {
+    const user = userEvent.setup()
+    const handleVisit = vi.fn()
+    ;(backend.listStars as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        entityKind: 'url',
+        entityKey: 'https://starred.test/one',
+        starredAt: '2026-04-02T00:00:00Z',
+        domain: 'starred.test',
+        title: 'One',
+        visitCount: 3,
+      },
+    ])
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        queryInput: 'is:starred',
+        searchParams: new URLSearchParams('surface=search&q=is%3Astarred'),
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, { handleVisit }),
+    )
+    renderExplorer()
+    await waitFor(() =>
+      expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+        'data-search-entry-count',
+        '1',
+      ),
+    )
+    // The synthetic starred row's id is -1; selecting it opens the URL via the
+    // visit flow rather than the (impossible) detail-panel id lookup.
+    await user.click(screen.getByTestId('paper-search-select-starred'))
+    expect(handleVisit).toHaveBeenCalledWith('https://starred.test/one')
+  })
+
+  test('the Browse toolbar exposes a visible Starred entry point that opens the hub', async () => {
+    const user = userEvent.setup()
+    const setSearchParams = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({ setSearchParams }),
+    )
+    renderExplorer()
+    // The entry point lives in the Browse filter strip and is reachable by
+    // click — the hub is no longer URL-typing-only.
+    await user.click(screen.getByTestId('explorer-open-starred'))
+    const next = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(next.get('surface')).toBe('starred')
+  })
+
+  test('the Starred hub back button returns to Browse (clears surface)', async () => {
+    const user = userEvent.setup()
+    const setSearchParams = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=starred'),
+        setSearchParams,
+      }),
+    )
+    renderExplorer()
+    await user.click(screen.getByTestId('explorer-starred-back'))
+    const next = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(next.get('surface')).toBeNull()
+  })
+
+  test('the Starred hub surfaces a load error callout instead of a blank hub', async () => {
+    ;(backend.listStars as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('hub read failed'),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=starred'),
+      }),
+    )
+    renderExplorer()
+    expect(
+      await screen.findByText('explorer.star.saveError'),
+    ).toBeInTheDocument()
+  })
+
+  test('a failed star write surfaces a role=alert callout instead of reverting silently', async () => {
+    const user = userEvent.setup()
+    ;(backend.setStar as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('archive locked'),
+    )
+    renderExplorer()
+    await user.click(screen.getByTestId('paper-view-toggle-star'))
+    const alert = await screen.findByTestId('explorer-star-error')
+    expect(alert).toHaveAttribute('role', 'alert')
+  })
+
+  test('the Starred hub surface lists, opens, and un-stars items', async () => {
+    const user = userEvent.setup()
+    const setSearchParams = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=starred'),
+        setSearchParams,
+      }),
+    )
+    renderExplorer()
+    expect(await screen.findByTestId('paper-starred-view')).toBeVisible()
+
+    // Selecting a page opens it via the visit flow (no throw).
+    await user.click(screen.getByTestId('paper-starred-select-page'))
+
+    // Selecting a source rewrites the URL to a domain filter.
+    await user.click(screen.getByTestId('paper-starred-select-source'))
+    const domainParams = setSearchParams.mock.calls.at(
+      -1,
+    )?.[0] as URLSearchParams
+    expect(domainParams.get('domain')).toBe('example.com')
+
+    // Toggling writes through (the optimistic cache starts empty, so the
+    // first toggle stars) and reloads the hub.
+    await user.click(screen.getByTestId('paper-starred-toggle'))
+    await waitFor(() =>
+      expect(backend.setStar).toHaveBeenCalledWith({
+        entityKind: 'url',
+        entityKey: 'https://example.com/starred',
+      }),
+    )
   })
 
   test('paper filter strip trims filled values and deletes empty values from URL state', async () => {
@@ -869,30 +1934,35 @@ describe('ExplorerPage route shell', () => {
     )
   })
 
-  test('shows the deferred semantic callout when optional AI is unavailable', () => {
-    useExplorerUrlStateMock.mockReturnValue(
-      defaultUrlState({
-        mode: 'semantic',
-      }),
-    )
-
-    renderExplorer()
-
-    expect(screen.getByText('explorer.optionalAiDeferredTitle')).toBeVisible()
-    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('semantic-panel')).not.toBeInTheDocument()
-  })
-
-  test('shows fixable optional-AI repair copy for missing, failed, and disabled providers', () => {
+  // A vector/embedding model is OPTIONAL — the unavailable-config callout is the
+  // Smart-tab's legitimate empty/config state, NOT a global nag. It must render
+  // only on the Search surface in Smart mode, and never leak onto the history
+  // Browse surface or the Keyword/Regex search modes (all of which work without a
+  // vector model). The next four tests pin both the positive (Smart shows it) and
+  // the negative (Browse / Keyword / Regex hide it) halves of that contract.
+  test('Smart search surface shows fixable optional-AI repair copy for missing, failed, and disabled providers', () => {
     optionalAiFeaturesAvailableState.value = true
     selectedAiProviderMock.mockReturnValue(null)
+    // Search surface (`surface=search`) + Smart mode (`hybrid`, not regex, not
+    // `is:starred`) is the one place this contextual config hint belongs.
+    const smartSurfaceUrlState = (overrides: Record<string, unknown> = {}) =>
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+        ...overrides,
+      })
+    useExplorerUrlStateMock.mockReturnValue(smartSurfaceUrlState())
 
     const { rerender } = renderExplorer()
 
     expect(screen.getByText('explorer.optionalAiNoProviderTitle')).toBeVisible()
+    // The repair callout deep-links straight to the AI section so the fragment
+    // scroll lands the user on the providers card.
     expect(
       screen.getByRole('link', { name: 'explorer.optionalAiOpenSettings' }),
-    ).toHaveAttribute('href', '/settings')
+    ).toHaveAttribute('href', '/settings#settings-ai')
 
     selectedAiProviderMock.mockReturnValue({
       id: 'provider-1',
@@ -928,6 +1998,113 @@ describe('ExplorerPage route shell', () => {
     )
     rerender(<ExplorerWrapper />)
     expect(screen.getByText('explorer.optionalAiDisabledTitle')).toBeVisible()
+  })
+
+  test('history Browse surface never shows the optional vector-model config prompt', () => {
+    // AI features enabled but NO embedding provider configured — the worst case
+    // for leakage. The Browse surface (default `/` path, no `surface=search`,
+    // keyword mode) must stay 100% free of any vector-model prompt: browsing
+    // history is fully usable without AI and must not be nagged.
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue(null)
+
+    renderExplorer()
+
+    expect(screen.queryByText('explorer.optionalAiNoProviderTitle')).toBeNull()
+    expect(screen.queryByText('explorer.optionalAiDisabledTitle')).toBeNull()
+    expect(
+      screen.queryByText('explorer.optionalAiProviderErrorTitle'),
+    ).toBeNull()
+    expect(
+      screen.queryByRole('link', { name: 'explorer.optionalAiOpenSettings' }),
+    ).toBeNull()
+  })
+
+  test('Keyword search mode never shows the optional vector-model config prompt', () => {
+    // On the Search surface but in Keyword mode — keyword search works without a
+    // vector model, so the config hint must not fire here.
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue(null)
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'keyword',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+      }),
+    )
+
+    renderExplorer()
+
+    expect(screen.queryByText('explorer.optionalAiNoProviderTitle')).toBeNull()
+    expect(
+      screen.queryByRole('link', { name: 'explorer.optionalAiOpenSettings' }),
+    ).toBeNull()
+  })
+
+  test('Regex search mode never shows the optional vector-model config prompt', () => {
+    // Regex takes precedence over Smart in the panel/mapper, so a
+    // `mode=hybrid&regex=1` deep link renders the day-grouped regex layout —
+    // which has nothing to do with vector search. The config hint must not fire.
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue(null)
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        regexMode: true,
+        queryInput: 'as.*nc',
+        searchParams: new URLSearchParams('surface=search&q=as.*nc&regex=1'),
+      }),
+    )
+
+    renderExplorer()
+
+    expect(screen.queryByText('explorer.optionalAiNoProviderTitle')).toBeNull()
+    expect(
+      screen.queryByRole('link', { name: 'explorer.optionalAiOpenSettings' }),
+    ).toBeNull()
+  })
+
+  test('AI-off + ?mode=hybrid deep link surfaces the honest repair callout, not an unexplained empty list', () => {
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+    // AI is switched off entirely while the URL asks for the Smart surface.
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 0 },
+          config: {
+            ...defaultShellData().snapshot.config,
+            ai: {
+              ...defaultShellData().snapshot.config.ai,
+              enabled: false,
+              semanticIndexEnabled: true,
+            },
+          },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+    renderExplorer()
+
+    // The honest "AI off → configure in Settings" callout is surfaced.
+    expect(screen.getByText('explorer.optionalAiDisabledTitle')).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: 'explorer.optionalAiOpenSettings' }),
+    ).toHaveAttribute('href', '/settings#settings-ai')
+    // Smart is unavailable, so the in-surface build/status CTA is NOT shown
+    // (no orphan "build index" affordance dangling under an unexplained list).
+    expect(screen.queryByTestId('explorer-smart-build-index')).toBeNull()
+    expect(screen.queryByTestId('explorer-smart-build-progress')).toBeNull()
   })
 })
 
@@ -1004,6 +2181,9 @@ function defaultUrlState(overrides: Record<string, unknown> = {}) {
     persistRecentSearch: vi.fn(),
     profileId: null,
     queryInput: 'sqlite',
+    // The submitted query (URL `q`). Defaults equal to `queryInput` so the
+    // submit gate treats the route as "already showing the submitted query".
+    rawQuery: 'sqlite',
     recentSearches: [],
     regexMode: false,
     regexValid: true,

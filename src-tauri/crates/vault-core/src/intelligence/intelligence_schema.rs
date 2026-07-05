@@ -87,7 +87,23 @@ const INTELLIGENCE_MIGRATIONS: &[IntelligenceMigrationSpec] = &[
         name: "overview-snapshots",
         apply: apply_overview_snapshot_migration,
     },
+    IntelligenceMigrationSpec {
+        version: 8,
+        name: "content-enrichment-w-enrich",
+        apply: apply_content_enrichment_w_enrich_migration,
+    },
 ];
+
+/// W-ENRICH-1 (migration "015" in the doc-06 naming, applied on the INTELLIGENCE plane where the
+/// `visit_content_enrichments` table actually lives — see the module note below): adds
+/// `extractor_version` + `enrichment_summary` + `refetch_after` + `http_status` to the enrichment
+/// table so the capped summary feeds the dedup content_hash + FTS5 mirror and the negative-cache
+/// cadence is persisted. A no-op on a fresh DB (the baseline schema already includes the columns).
+fn apply_content_enrichment_w_enrich_migration(connection: &Connection) -> Result<()> {
+    // The baseline (v1) created the table; on a DB that already has it, ALTER the new columns in. On a
+    // fresh DB the baseline now creates them, so the ALTERs no-op (guarded inside the helper).
+    crate::enrichment::add_visit_content_enrichment_w_enrich_columns(connection)
+}
 
 /// Installs the baseline intelligence schema on a freshly attached derived
 /// database.
@@ -222,6 +238,37 @@ fn run_core_intelligence_migrations(connection: &Connection) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+/// Test-only: applies intelligence-plane migrations up to (and including) `max_version`, so a
+/// test can materialize the schema at a historical version (e.g. v0.2.0's v6) and then exercise
+/// the real forward-apply. Reuses the production apply/record path.
+#[cfg(test)]
+pub(crate) fn apply_intelligence_migrations_through(
+    connection: &Connection,
+    max_version: i64,
+) -> Result<()> {
+    let applied = load_applied_intelligence_migrations(connection)?;
+    for migration in INTELLIGENCE_MIGRATIONS {
+        if migration.version > max_version || applied.contains(&migration.version) {
+            continue;
+        }
+        (migration.apply)(connection)?;
+        connection.execute(
+            "INSERT INTO intelligence_schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
+            params![migration.version, migration.name, now_rfc3339()],
+        )?;
+    }
+    Ok(())
+}
+
+/// Highest intelligence-plane schema version this build knows how to apply.
+///
+/// Exposed for the cheap first-run upgrade pre-check ([`crate::assess_archive_upgrade`])
+/// so it can report whether the derived intelligence plane is version-behind
+/// without opening or migrating it.
+pub fn max_intelligence_schema_version() -> i64 {
+    INTELLIGENCE_MIGRATIONS.last().map(|spec| spec.version).unwrap_or(0)
 }
 
 /// Ensures the intelligence plane is ready for reads and rebuilds before any

@@ -279,18 +279,17 @@
   background: var(--accent-soft);
 }
 
+/* Reduced-motion static fallback: 30 % partial fill. !important overrides the
+ * inline width that the TSX always applies (summary.width is set for all states). */
 .sidebar-background-status__track--indeterminate
   .sidebar-background-status__fill {
-  width: 45% !important;
-  animation: sidebar-track-move 1.4s linear infinite;
+  width: 30% !important;
 }
 
-@keyframes sidebar-track-move {
-  0% {
-    transform: translateX(-120%);
-  }
-  100% {
-    transform: translateX(240%);
+@media (prefers-reduced-motion: no-preference) {
+  .sidebar-background-status__track--indeterminate
+    .sidebar-background-status__fill {
+    animation: pk-indeterminate-sweep 1.4s linear infinite;
   }
 }
 

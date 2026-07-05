@@ -8,8 +8,10 @@
  * ## Responsibilities
  * - Combine release-flag, embedding-provider, and runtime AI-state signals into a
  *   single `{ available, reason }` value the UI can consume in one read.
- * - Expose the reason alongside an i18n key so disabled buttons and callouts can
- *   tell the user the specific thing to fix instead of a generic "deferred" line.
+ * - Expose the specific reason so disabled buttons and callouts can tell the user
+ *   the exact thing to fix instead of a generic "deferred" line. Each surface
+ *   owns its own reason → copy mapping, because the reachable reason set differs
+ *   per surface (e.g. the explorer renders only user-fixable repair states).
  * - Keep the gate itself release-fact aware without leaking provider config or
  *   queue snapshots into every consumer.
  *
@@ -82,23 +84,4 @@ export function evaluateOptionalAiAvailability(input: {
     return { available: false, reason: 'embedding-provider-error' }
   }
   return { available: true, reason: null }
-}
-
-/**
- * Maps each unavailable reason to a stable i18n key so route-level translators
- * can resolve it without each surface duplicating the switch statement.
- */
-export function optionalAiUnavailableI18nKey(
-  reason: OptionalAiUnavailableReason,
-): string {
-  switch (reason) {
-    case 'release-deferred':
-      return 'optionalAiUnavailableReleaseDeferred'
-    case 'ai-disabled':
-      return 'optionalAiUnavailableAiDisabled'
-    case 'no-embedding-provider':
-      return 'optionalAiUnavailableNoProvider'
-    case 'embedding-provider-error':
-      return 'optionalAiUnavailableProviderError'
-  }
 }

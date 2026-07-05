@@ -254,6 +254,37 @@ describe('AuditRunDetailPanel', () => {
     expect(screen.getByText('audit.noWarnings')).toBeVisible()
   })
 
+  test('renders an error callout for failed runs with an errorMessage', () => {
+    const failedRun = {
+      ...auditRunDetailFixture().run,
+      status: 'failed' as const,
+      errorMessage:
+        'Full Disk Access required — Safari History.db is not readable yet',
+    }
+    renderPanel({
+      detail: auditRunDetailFixture({
+        run: failedRun,
+        errorMessage: failedRun.errorMessage,
+      }),
+      detailSeverity: 'blocked',
+    })
+
+    // The StatusCallout rendered for a failed run must show both the failure
+    // eyebrow/title key and the raw error message from the backend.
+    expect(screen.getByText('shell.backupRunFailed')).toBeVisible()
+    expect(screen.getByText('shell.backupRunErrorReason')).toBeVisible()
+    expect(
+      screen.getByText(
+        'Full Disk Access required — Safari History.db is not readable yet',
+      ),
+    ).toBeVisible()
+  })
+
+  test('does not render a failed-run callout for completed runs', () => {
+    renderPanel({ detail: auditRunDetailFixture(), detailSeverity: 'clear' })
+    expect(screen.queryByText('shell.backupRunFailed')).not.toBeInTheDocument()
+  })
+
   test('renders summary and restore fallback branches for incomplete audit records', () => {
     const detail = auditRunDetailFixture({
       manifestHash: null,

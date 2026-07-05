@@ -38,4 +38,20 @@ describe('settings section nav item helpers', () => {
       'Missing settings section nav item: derived',
     )
   })
+
+  test('ENR-1: exposes the content-fetch consent nav entry with the section anchor id', () => {
+    const items = createSettingsSectionNavItems(
+      (key) => `translated:${key}`,
+      ['contentFetch'],
+    )
+
+    // The id MUST equal the ContentFetchSection container anchor so the sticky
+    // nav scroll lands on the consent card.
+    expect(getSettingsSectionNavItem(items, 'contentFetch')).toEqual({
+      id: 'content-fetch',
+      icon: 'public',
+      key: 'contentFetch',
+      label: 'translated:settings.contentFetchNavLabel',
+    })
+  })
 })

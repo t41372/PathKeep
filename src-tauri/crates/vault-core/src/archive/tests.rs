@@ -19,6 +19,56 @@ fn sample_paths(root: &Path) -> ProjectPaths {
     project_paths_with_root(root)
 }
 
+/// Inserts a uniquely-tagged run row so a rekey test can prove the canonical
+/// rows survived (the export copies it forward, so it is present in BOTH the
+/// original and the rekeyed file). `runs` is a root table, so this needs no FK
+/// scaffolding.
+fn seed_rekey_marker(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) {
+    let connection =
+        open_archive_connection(paths, config, key).expect("open archive to seed rekey marker");
+    connection
+        .execute(
+            "INSERT INTO runs (run_type, trigger, started_at, status)
+             VALUES ('backup', 'rekey-marker', '2026-06-30T00:00:00Z', 'success')",
+            [],
+        )
+        .expect("seed rekey marker run");
+}
+
+/// Counts the seeded marker rows, opening the archive in the given mode/key.
+fn rekey_marker_count(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> i64 {
+    let connection =
+        open_archive_connection(paths, config, key).expect("open archive to count rekey marker");
+    connection
+        .query_row("SELECT COUNT(*) FROM runs WHERE trigger = 'rekey-marker'", [], |row| row.get(0))
+        .expect("count rekey marker rows")
+}
+
+/// Counts the verified before-rekey safety snapshots on disk.
+fn rekey_snapshot_count(paths: &ProjectPaths) -> usize {
+    let rekey_dir = paths.raw_snapshots_dir.join("rekey");
+    fs::read_dir(&rekey_dir)
+        .map(|entries| {
+            entries.filter_map(|entry| entry.ok()).filter(|entry| entry.path().is_file()).count()
+        })
+        .unwrap_or(0)
+}
+
+/// Counts canonical visit rows on an open connection. Reopening the archive from disk
+/// and calling this is how the crash-window tests prove a backup left either the
+/// pre-backup state or the fully-applied state — never a torn half-write.
+fn canonical_visit_count(connection: &Connection) -> i64 {
+    connection.query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0)).expect("count visits")
+}
+
+/// Asserts the archive passes `PRAGMA integrity_check` (structurally consistent on disk).
+fn assert_archive_integrity_ok(connection: &Connection) {
+    let status: String = connection
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .expect("integrity_check");
+    assert_eq!(status, "ok", "the archive must be structurally consistent after a crash");
+}
+
 fn seed_chrome_fixture(root: &Path) -> PathBuf {
     let chrome_root = root.join("chrome-user-data");
     let profile_dir = chrome_root.join("Default");
@@ -343,6 +393,166 @@ fn insert_lexical_history_row(
         )
         .expect("insert visit");
     rebuild_search_projection(paths, config, None).expect("rebuild search projection");
+}
+
+/// Stores one successful GitHub-repo enrichment for `history_id` (intelligence plane) and re-mirrors
+/// it into the search projection so a subsequent `list_history` lexical search can surface the excerpt.
+///
+/// `summary` doubles as the GitHub `description` (the indexer de-dupes the two) and `topics` carries an
+/// extra searchable keyword, mirroring how `enrichment_text_for_index` builds the projected text.
+fn store_lexical_enrichment(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    history_id: i64,
+    summary: &str,
+) {
+    let intelligence =
+        open_intelligence_connection(paths, config, None).expect("open intelligence");
+    crate::enrichment::ensure_visit_content_enrichment_schema(&intelligence)
+        .expect("enrichment schema");
+    intelligence
+        .execute(
+            "INSERT OR REPLACE INTO visit_content_enrichments
+             (history_id, content_source, fetch_status, fetched_at, snippet_json, extraction_json,
+              pipeline_version, extractor_version, enrichment_summary)
+             VALUES (?1, 'github-repo', 'success', '2026-06-21T00:00:00Z', '[]', ?2, 'v1', 1, ?3)",
+            params![
+                history_id,
+                format!(
+                    r#"{{"fullName":"o/r","description":"{summary}","topics":["enrichkw"],"language":"Rust"}}"#
+                ),
+                summary,
+            ],
+        )
+        .expect("insert enrichment");
+    drop(intelligence);
+    // Mirror the just-stored enrichment into the projection's enrichment_text + its FTS column.
+    rebuild_search_projection(paths, config, None).expect("rebuild search projection");
+}
+
+#[test]
+fn lexical_search_surfaces_capped_enrichment_excerpt_only_for_enriched_results() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+    // Enrich ONE of the seeded rows (url/visit id 3 = the GitHub Actions page) with a summary the
+    // search query will hit, and a `topics` keyword ("enrichkw") that only lives in enrichment_text.
+    store_lexical_enrichment(&paths, &config, 3, "Reusable workflow runner for CI pipelines");
+
+    // A keyword that matches the enriched page surfaces a capped excerpt on THAT result.
+    let enriched = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("github".to_string()), limit: Some(10), ..HistoryQuery::default() },
+    )
+    .expect("enriched query");
+    let actions_entry = enriched
+        .items
+        .iter()
+        .find(|entry| entry.title.as_deref() == Some("GitHub Actions manual"))
+        .expect("the enriched GitHub Actions row is recalled");
+    // The excerpt mirrors the projected enrichment_text: the summary plus the searchable metadata
+    // (topics/desc/language) the index carries — NOT just the bare summary.
+    let actions_excerpt =
+        actions_entry.enrichment_excerpt.as_deref().expect("the enriched row carries an excerpt");
+    assert!(
+        actions_excerpt.contains("Reusable workflow runner for CI pipelines"),
+        "an enriched search result must surface its enrichment summary: {actions_excerpt}"
+    );
+    assert!(
+        actions_excerpt.contains("enrichkw"),
+        "the excerpt carries the searchable enrichment metadata too: {actions_excerpt}"
+    );
+    // A different recalled result with NO stored enrichment leaves the excerpt None.
+    let plain_entry = enriched
+        .items
+        .iter()
+        .find(|entry| entry.title.as_deref() == Some("Git Hub spacing guide"))
+        .expect("the non-enriched Git Hub row is recalled");
+    assert_eq!(
+        plain_entry.enrichment_excerpt, None,
+        "a result without stored enrichment must leave the excerpt None"
+    );
+
+    // The enrichment text itself is keyword-searchable, and that match also carries the excerpt.
+    let by_enrichment_keyword = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("enrichkw".to_string()),
+            limit: Some(10),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("enrichment-keyword query");
+    assert_eq!(
+        by_enrichment_keyword.total, 1,
+        "a token that lives only in enrichment_text must recall exactly the enriched page"
+    );
+    assert!(
+        by_enrichment_keyword.items[0]
+            .enrichment_excerpt
+            .as_deref()
+            .is_some_and(|excerpt| excerpt.contains("Reusable workflow runner for CI pipelines")),
+        "the enrichment-keyword match also carries the excerpt"
+    );
+}
+
+#[test]
+fn lexical_search_caps_long_enrichment_excerpt_on_a_cjk_char_boundary() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+    // A long CJK summary (> the 180-char cap) on the GitHub Actions row: the excerpt must be capped on
+    // a CHAR boundary (never panicking by splitting a multi-byte codepoint) and gain a trailing "…".
+    let long_summary = "工作流程".repeat(80); // 320 CJK chars, well over the cap.
+    store_lexical_enrichment(&paths, &config, 3, &long_summary);
+
+    let response = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("github".to_string()), limit: Some(10), ..HistoryQuery::default() },
+    )
+    .expect("capped query");
+    let excerpt = response
+        .items
+        .iter()
+        .find(|entry| entry.title.as_deref() == Some("GitHub Actions manual"))
+        .and_then(|entry| entry.enrichment_excerpt.clone())
+        .expect("the enriched row carries a capped excerpt");
+    // 180 capped chars + the trailing ellipsis = 181 chars; the long input was truncated, not panicked.
+    assert_eq!(excerpt.chars().count(), 181, "the excerpt is capped on a char boundary");
+    assert!(excerpt.ends_with('…'), "a truncated excerpt gains a trailing ellipsis");
+    assert!(excerpt.starts_with("工作流程"), "CJK codepoints survive the char-boundary cap");
+}
+
+#[test]
+fn plain_browse_history_query_leaves_enrichment_excerpt_none() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+    // Enrichment exists for a row, but a non-search browse query must NOT attach any excerpt: the
+    // excerpt is a lexical-search-only affordance, so browse rows stay None regardless.
+    store_lexical_enrichment(&paths, &config, 3, "Reusable workflow runner for CI pipelines");
+
+    let browse = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { limit: Some(50), ..HistoryQuery::default() },
+    )
+    .expect("plain browse query");
+    assert!(browse.total >= 7, "the browse path returns the full seeded set");
+    assert!(
+        browse.items.iter().all(|entry| entry.enrichment_excerpt.is_none()),
+        "browse rows must never carry an enrichment excerpt"
+    );
 }
 
 #[test]
@@ -2161,6 +2371,26 @@ fn retention_helpers_fall_back_to_filesystem_counts_when_archive_is_unreadable()
 }
 
 #[test]
+fn remove_path_except_skips_a_nonexistent_path() {
+    // The `!path.exists()` defensive arm of the D3 last-good-keep recursion: a path that does not
+    // exist removes nothing and counts nothing.
+    assert_eq!(
+        remove_path_except(Path::new("/nonexistent/pathkeep-x"), None).expect("missing path"),
+        (0, 0),
+    );
+}
+
+#[test]
+fn remove_directory_contents_except_skips_a_missing_root() {
+    // The `!root.exists()` guard of the D3 last-good-keep helper: a missing root removes nothing.
+    assert_eq!(
+        remove_directory_contents_except(Path::new("/nonexistent/pathkeep-root"), None)
+            .expect("missing root"),
+        (0, 0),
+    );
+}
+
+#[test]
 fn stats_with_archive_totals_replaces_non_object_inputs_with_totals() {
     let connection = Connection::open_in_memory().expect("sqlite");
     create_schema(&connection).expect("schema");
@@ -2197,7 +2427,48 @@ fn backup_rejects_selected_profiles_that_are_not_readable() {
         .expect_err("unreadable selected profile should fail");
 
     assert!(error.to_string().contains("selected profiles are not readable"));
+
+    // A backup tool must never fail silently: the failure is RECORDED as a `failed` run AND carries
+    // its reason, so it shows in the run history (it used to bail before any run row was written).
+    let recent = load_recent_runs(&paths, &config, None).expect("recent runs");
+    let failed = recent
+        .iter()
+        .find(|run| run.status == "failed")
+        .expect("the failed backup attempt must be recorded as a run");
+    assert_eq!(failed.run_type, "backup");
+    assert!(
+        failed.error_message.as_deref().is_some_and(|reason| reason.contains("not readable")),
+        "the failed run must carry its reason, got {:?}",
+        failed.error_message
+    );
+
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
+}
+
+#[test]
+fn classify_browser_access_error_tags_permission_denial_as_full_disk_access() {
+    use std::io::{Error, ErrorKind};
+
+    // A macOS TCC denial (io PermissionDenied) is rewritten into actionable Full Disk Access guidance.
+    let denied =
+        anyhow::Error::new(Error::new(ErrorKind::PermissionDenied, "Operation not permitted"))
+            .context("reading /Users/me/Library/Application Support/Google/Chrome");
+    let classified = super::backup::classify_browser_access_error(denied);
+    assert!(
+        format!("{classified:#}").contains("Full Disk Access"),
+        "permission-denied must be tagged with Full Disk Access guidance, got: {classified:#}"
+    );
+
+    // A stringified permission error (no downcastable io::Error) is caught by the message fallback.
+    let stringified = anyhow::anyhow!("reading the profile: Operation not permitted (os error 1)");
+    assert!(
+        format!("{:#}", super::backup::classify_browser_access_error(stringified))
+            .contains("Full Disk Access")
+    );
+
+    // An unrelated failure is left exactly as-is (no spurious Full Disk Access advice).
+    let unrelated = super::backup::classify_browser_access_error(anyhow::anyhow!("disk full"));
+    assert_eq!(format!("{unrelated:#}"), "disk full");
 }
 
 #[test]
@@ -2263,6 +2534,63 @@ fn backup_progress_and_warning_helpers_preserve_failure_contracts() {
         super::backup::keyword_recall_rebuild_warning(anyhow::anyhow!("search offline"));
     assert!(source_warning.contains("source-evidence archive"));
     assert!(search_warning.contains("keyword-recall projection"));
+}
+
+#[test]
+fn backup_surfaces_a_degraded_staging_fallback_as_a_run_warning() {
+    // A History captured mid-write (a hot rollback journal) cannot take the online
+    // snapshot, so staging falls back to the raw-copy + recover path. The recovered
+    // copy still parses (the uncommitted write rolls back), so the backup COMPLETES
+    // — but the degraded path must surface as a visible run warning, not be
+    // swallowed (the backup-level degraded-staging emit).
+    let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let history = chrome_root.join("Default").join("History");
+
+    // Freeze a hot rollback journal next to the fixture History (mirrors the
+    // chrome staging test's `capture_hot_journal_pair`): flush an uncommitted
+    // header write into a journal on a scratch copy, then snapshot the (db,
+    // journal) pair over the fixture.
+    {
+        let scratch = dir.path().join("History.hot");
+        fs::copy(&history, &scratch).expect("copy clean history");
+        let writer = Connection::open(&scratch).expect("reopen history");
+        writer
+            .execute_batch("BEGIN IMMEDIATE;\nUPDATE urls SET title = 'in-flight' WHERE id = 1;")
+            .expect("start uncommitted write");
+        writer.cache_flush().expect("flush dirty pages into the rollback journal");
+        let scratch_journal = PathBuf::from(format!("{}-journal", scratch.display()));
+        assert!(scratch_journal.exists(), "an uncommitted flush must leave a rollback journal");
+        fs::copy(&scratch, &history).expect("freeze hot db over fixture");
+        fs::copy(&scratch_journal, PathBuf::from(format!("{}-journal", history.display())))
+            .expect("freeze hot journal over fixture");
+        writer.execute_batch("ROLLBACK").ok();
+    }
+
+    let original_override = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+    unsafe {
+        std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        git_enabled: false,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let report = run_backup(&paths, &config, None, false);
+    restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
+    let report = report.expect("backup completes after recovering the hot-journal history");
+
+    assert!(
+        report.warnings.iter().any(|warning| warning.contains("recovered file copy")),
+        "a recovered hot-journal staging must be reported as a run warning: {:?}",
+        report.warnings
+    );
 }
 
 #[test]
@@ -3260,9 +3588,11 @@ fn maintenance_guards_manual_snapshots_and_retention_edge_cases() {
     )
     .expect("manual safety snapshot preview");
     assert_eq!(preview.snapshot_kind, "archive-safety-snapshot");
-    assert!(!preview.execute_supported);
+    // D1: the full-archive safety snapshot is now one-click restorable (quarantine + install +
+    // reconcile), so the preview advertises execute support and describes the restore.
+    assert!(preview.execute_supported);
     assert_eq!(preview.source_profile_id.as_deref(), Some("profile-a"));
-    assert!(preview.warnings[0].contains("manual recovery"));
+    assert!(preview.warnings[0].contains("One-click restore"));
     let run_error = run_snapshot_restore(
         &paths,
         &config,
@@ -3433,6 +3763,495 @@ fn rekey_archive_records_failed_run_when_config_save_fails_after_swap() {
         .expect("failed rekey run");
     assert_eq!(status, "failed");
     assert!(error_message.as_deref().is_some_and(|message| message.contains("writing")));
+}
+
+// --- Crash-window regression suite (Phase B/E) ---------------------------------------------------
+//
+// The named, legible home for the archive-mutation crash-window tests: each destructive op (rekey,
+// backup; import lives in `migration::fault_tests`, restore + launch recovery in `maintenance`) has a
+// kill-at-EXACT-checkpoint regression that (a) FAILS on the un-hardened code (no crash seam, config
+// written before the swap) and (b) asserts the INJECTED fault propagated via `format!("{err:#}")`,
+// never a bare `is_err()`. Phase E adds the config<->disk invariant post-condition (see
+// `config_disk_invariant_holds_after_a_successful_backup` here, plus the enumerated torture + the
+// `check_config_disk_consistency` checker in `archive::at_rest`) so a crash can never ship a config
+// that lags the installed files.
+
+#[test]
+fn rekey_crash_after_export_before_swap_leaves_the_original_archive_recoverable() {
+    // Window (4): a crash AFTER the new-keyed export but BEFORE the swap must be a
+    // full no-op — the ORIGINAL canonical archive + config are untouched and the
+    // verified backstop already exists. This would FAIL on the old flow, which had
+    // no crash seam at all and swapped before writing config.
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    seed_rekey_marker(&paths, &config, None);
+
+    let _guard =
+        crate::fault_inject::FaultGuard::error_at_must_fire("rekey.after_export_before_swap");
+    let error = rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("new-pass"))
+        .expect_err("a crash before the swap must abort the rekey");
+
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("simulated error at checkpoint")
+            && rendered.contains("rekey.after_export_before_swap"),
+        "the INJECTED fault must propagate, got: {rendered}"
+    );
+
+    // Config never changed and the ORIGINAL archive still opens with the ORIGINAL key
+    // and holds the seeded rows.
+    assert!(matches!(
+        crate::config::load_config(&paths).expect("load config").archive_mode,
+        ArchiveMode::Plaintext
+    ));
+    assert_eq!(rekey_marker_count(&paths, &config, None), 1, "the original rows must survive");
+    assert_eq!(rekey_snapshot_count(&paths), 1, "the verified backstop must exist");
+}
+
+#[test]
+fn rekey_crash_after_swap_before_config_keeps_backstop_and_new_file_openable() {
+    // Window (6) — THE incident window: a crash AFTER the durable swap but BEFORE
+    // config is written. Config still reads the OLD mode (it is written LAST, so this
+    // is the self-healable lag, not a brick), the on-disk file is the converted one
+    // and opens with the NEW key, and the backstop snapshot is still present. The old
+    // flow deleted its rollback copy before config and had no durability barrier here.
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    seed_rekey_marker(&paths, &config, None);
+
+    let _guard =
+        crate::fault_inject::FaultGuard::error_at_must_fire("rekey.after_swap_before_config");
+    let error = rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("new-pass"))
+        .expect_err("a crash in the incident window must abort the rekey");
+
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("simulated error at checkpoint")
+            && rendered.contains("rekey.after_swap_before_config"),
+        "the INJECTED fault must propagate, got: {rendered}"
+    );
+
+    // Config still reflects the OLD mode (config is written LAST).
+    assert!(matches!(
+        crate::config::load_config(&paths).expect("load config").archive_mode,
+        ArchiveMode::Plaintext
+    ));
+
+    // The on-disk archive was durably converted and opens with the NEW key, rows
+    // intact (forward-recoverable once config heals), and the backstop remains.
+    let encrypted = AppConfig { archive_mode: ArchiveMode::Encrypted, ..config.clone() };
+    assert_eq!(
+        rekey_marker_count(&paths, &encrypted, Some("new-pass")),
+        1,
+        "the rekeyed file must open with the new key and preserve rows"
+    );
+    assert_eq!(rekey_snapshot_count(&paths), 1, "the backstop snapshot must remain after the swap");
+}
+
+#[test]
+fn rekey_crash_after_config_has_consistent_new_mode_and_openable_archive() {
+    // Window (9): a crash AFTER config is durably written (before the closeout)
+    // leaves config AND the on-disk file both at the NEW mode — a consistent,
+    // openable state.
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    seed_rekey_marker(&paths, &config, None);
+
+    let _guard = crate::fault_inject::FaultGuard::error_at_must_fire("rekey.after_config");
+    let error = rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("new-pass"))
+        .expect_err("a crash after the config write must abort closeout");
+
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("simulated error at checkpoint")
+            && rendered.contains("rekey.after_config"),
+        "the INJECTED fault must propagate, got: {rendered}"
+    );
+
+    // Config matches the NEW mode and the archive opens with the new key.
+    assert!(matches!(
+        crate::config::load_config(&paths).expect("load config").archive_mode,
+        ArchiveMode::Encrypted
+    ));
+    let encrypted = AppConfig { archive_mode: ArchiveMode::Encrypted, ..config.clone() };
+    assert_eq!(rekey_marker_count(&paths, &encrypted, Some("new-pass")), 1);
+    assert_eq!(rekey_snapshot_count(&paths), 1);
+}
+
+#[test]
+fn backup_crash_before_canonical_commit_rolls_back_to_pre_backup_state() {
+    // Crash window: the process dies AFTER every selected profile's rows are staged into
+    // the open write transaction but BEFORE it commits. SQLite must roll the transaction
+    // back, so the on-disk archive stays at its pre-backup (empty) state — never a torn
+    // half-write. The injected fault stands in for the kill/power-loss at that instant.
+    let _env = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let original_override = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let _fault =
+        crate::fault_inject::FaultGuard::error_at_must_fire("backup.before_canonical_commit");
+    let error = run_backup(&paths, &config, None, false)
+        .expect_err("a crash before the canonical commit must abort the backup");
+
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("simulated error at checkpoint")
+            && rendered.contains("backup.before_canonical_commit"),
+        "the INJECTED fault must propagate, got: {rendered}"
+    );
+
+    // Reopen from disk (a fresh connection = the post-crash view): the staged rows rolled
+    // back, the archive opens cleanly, and integrity_check passes.
+    let connection = open_archive_connection(&paths, &config, None).expect("reopen archive");
+    assert_eq!(
+        canonical_visit_count(&connection),
+        0,
+        "the uncommitted visits must roll back to the pre-backup state"
+    );
+    assert_archive_integrity_ok(&connection);
+    // A backup must never fail silently: the aborted run is recorded as `failed`.
+    let failed_backups: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM runs WHERE run_type = 'backup' AND status = 'failed'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count failed backup runs");
+    assert_eq!(failed_backups, 1, "the aborted backup must record a visible failed run");
+
+    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_override.as_deref());
+}
+
+#[test]
+fn backup_crash_after_canonical_commit_leaves_a_fully_applied_consistent_archive() {
+    // Crash window: the process dies AFTER the canonical history-vault transaction has
+    // committed but BEFORE the source-evidence, manifest, and finalize follow-ups run. The
+    // on-disk archive must be fully consistent at the newly-committed state — the canonical
+    // facts are durable and never torn; only the recoverable follow-ups are deferred.
+    let _env = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let original_override = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let _fault =
+        crate::fault_inject::FaultGuard::error_at_must_fire("backup.after_canonical_commit");
+    let error = run_backup(&paths, &config, None, false)
+        .expect_err("a crash after the canonical commit must abort the backup");
+
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("simulated error at checkpoint")
+            && rendered.contains("backup.after_canonical_commit"),
+        "the INJECTED fault must propagate, got: {rendered}"
+    );
+
+    // Reopen from disk: the canonical visits are present (fully applied) and consistent.
+    let connection = open_archive_connection(&paths, &config, None).expect("reopen archive");
+    assert_eq!(
+        canonical_visit_count(&connection),
+        2,
+        "the committed canonical visits must survive the crash, fully applied"
+    );
+    assert_archive_integrity_ok(&connection);
+
+    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_override.as_deref());
+}
+
+#[test]
+fn config_disk_invariant_holds_after_a_successful_backup() {
+    // E1 post-condition for backup: a full, successful backup (real chrome fixture -> canonical
+    // commit) must leave config.json — read through the REAL load_config — matching the canonical
+    // DBs' actual on-disk at-rest mode. Backup never rewrites the mode, so this pins that it also
+    // never leaves the config lagging the files (the incident shape) for its own reasons.
+    let _env = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let original_override = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    // Persist the config so the invariant check exercises the REAL config-load path (E2), not a
+    // hand-built struct that would mask a load-time drift.
+    crate::config::save_config(&paths, &config).expect("persist config");
+
+    let report = run_backup(&paths, &config, None, false).expect("run backup");
+    assert_eq!(report.run.as_ref().expect("run").new_visits, 2, "the backup applied the fixture");
+
+    check_config_disk_consistency(&paths)
+        .expect("a successful backup must leave config matching the canonical DBs on disk");
+
+    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_override.as_deref());
+}
+
+#[cfg(unix)]
+#[test]
+fn scheduled_backup_defers_when_another_process_holds_the_write_lock() {
+    // CRITICAL-1 / CRITICAL-5: a due (`due_only`) scheduled backup must DEFER — never race —
+    // when another OS process already holds the archive write lock (e.g. a foreground rekey
+    // mid-swap). We simulate the foreign process with a RAW second `flock` so THIS process's
+    // `try_acquire` is genuinely refused (an in-process guard would instead be handed back a
+    // reentrant guard and could not reproduce the defer). The run must step aside with a
+    // visible reason and write NOTHING — no archive open, no run row, no rows.
+    let _env = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let original_override = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    // Hold the lock as if from another OS process (raw fd, NOT the reentrant manager).
+    let foreign = super::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
+
+    let report = run_backup(&paths, &config, None, true)
+        .expect("a contended scheduled backup defers cleanly; it must not error");
+    assert!(report.due_skipped, "the scheduled backup must defer while the lock is held");
+    assert!(
+        report.reason.as_deref().is_some_and(|reason| reason.contains("Another archive operation")),
+        "the deferral reason must be visible, got: {:?}",
+        report.reason
+    );
+    assert!(report.run.is_none(), "a deferred backup must not produce a run");
+
+    drop(foreign);
+
+    // The deferral happened BEFORE opening the archive: nothing was written.
+    let connection = open_archive_connection(&paths, &config, None).expect("reopen archive");
+    let backup_runs: i64 = connection
+        .query_row("SELECT COUNT(*) FROM runs WHERE run_type = 'backup'", [], |row| row.get(0))
+        .expect("count backup runs");
+    assert_eq!(backup_runs, 0, "a deferred scheduled backup must not write any run");
+    assert_eq!(canonical_visit_count(&connection), 0, "a deferred backup must write nothing");
+
+    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_override.as_deref());
+}
+
+#[test]
+fn scheduled_backup_defers_when_a_same_process_top_level_op_holds_the_in_process_gate() {
+    // CRIT-5 (same-process): a due (`due_only`) scheduled backup must DEFER — never race —
+    // when a foreground TOP-LEVEL op in THIS process holds the in-process gate (e.g. a
+    // rekey/import the user just triggered). The cross-process flock alone could not catch
+    // this (it is the same process, so it would hand back a reentrant guard); the gate does.
+    // The run must step aside with a visible reason and write NOTHING.
+    let _env = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let original_override = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    // Hold the in-process top-level gate, as a foreground rekey/import in THIS process would.
+    let gate = super::write_lock::ArchiveOpGate::acquire(&paths);
+
+    let report = run_backup(&paths, &config, None, true)
+        .expect("a contended scheduled backup defers cleanly; it must not error");
+    assert!(
+        report.due_skipped,
+        "the scheduled backup must defer while the in-process gate is held"
+    );
+    assert!(
+        report.reason.as_deref().is_some_and(|reason| reason.contains("Another archive operation")),
+        "the deferral reason must be visible, got: {:?}",
+        report.reason
+    );
+    assert!(report.run.is_none(), "a deferred backup must not produce a run");
+
+    drop(gate);
+
+    let connection = open_archive_connection(&paths, &config, None).expect("reopen archive");
+    let backup_runs: i64 = connection
+        .query_row("SELECT COUNT(*) FROM runs WHERE run_type = 'backup'", [], |row| row.get(0))
+        .expect("count backup runs");
+    assert_eq!(backup_runs, 0, "a gate-deferred scheduled backup must not write any run");
+
+    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_override.as_deref());
+}
+
+#[cfg(unix)]
+#[test]
+fn run_retention_prune_blocks_on_a_foreign_write_lock() {
+    // Lock-completion block: retention-prune is a destructive op that MUST hold the
+    // cross-process write lock for its duration. While another OS process holds it, the
+    // prune cannot proceed. We simulate the foreign holder with a raw second `flock`, run
+    // the prune on a worker, prove it is BLOCKED (it cannot finish), then release the lock
+    // and prove it completes. FAILS on pre-change code, which took no lock here and so ran
+    // to completion despite the foreign holder.
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let foreign = super::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
+
+    let worker_paths = paths.clone();
+    let worker_config = config.clone();
+    let (done_tx, done_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let result = run_retention_prune(
+            &worker_paths,
+            &worker_config,
+            None,
+            &RetentionPruneRequest { bucket_ids: vec!["exports".to_string()] },
+        );
+        done_tx.send(result.is_ok()).ok();
+    });
+
+    assert!(
+        done_rx.recv_timeout(Duration::from_millis(500)).is_err(),
+        "retention prune ran without holding the cross-process write lock",
+    );
+
+    drop(foreign);
+    assert!(
+        done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("retention prune must finish once the foreign lock is released"),
+        "retention prune must succeed after the lock frees",
+    );
+    worker.join().expect("worker thread");
+}
+
+#[cfg(unix)]
+#[test]
+fn run_snapshot_restore_blocks_on_a_foreign_write_lock() {
+    // Lock-completion block: snapshot-restore is a destructive op that MUST hold the
+    // cross-process write lock. While another OS process holds it, it cannot even reach
+    // its snapshot lookup. We prove it is BLOCKED behind the foreign holder, then completes
+    // (here surfacing a benign "snapshot not found" once it can open) after the lock frees.
+    // FAILS on pre-change code, which took no lock and ran straight to the lookup.
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let foreign = super::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
+
+    let worker_paths = paths.clone();
+    let worker_config = config.clone();
+    let (done_tx, done_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        // Errors at the missing snapshot once it can open — but only AFTER the lock frees.
+        let _ = run_snapshot_restore(
+            &worker_paths,
+            &worker_config,
+            None,
+            &SnapshotRestoreRequest { snapshot_path: "does-not-exist".to_string() },
+        );
+        done_tx.send(()).ok();
+    });
+
+    assert!(
+        done_rx.recv_timeout(Duration::from_millis(500)).is_err(),
+        "snapshot restore ran without holding the cross-process write lock",
+    );
+
+    drop(foreign);
+    done_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("snapshot restore must reach its work once the foreign lock is released");
+    worker.join().expect("worker thread");
+}
+
+#[cfg(unix)]
+#[test]
+fn reconcile_archive_encryption_blocks_on_a_foreign_write_lock() {
+    // Lock-completion block: the unlock-path at-rest reconcile is a destructive rewrite
+    // that MUST hold the cross-process write lock so a scheduled backup can never race it
+    // on source-evidence. We prove it is BLOCKED behind a foreign holder, then completes
+    // once the lock frees. FAILS on pre-change code, which opened + reconciled without the
+    // lock and so finished despite the foreign holder (with no interrupted-import marker
+    // present, pre-change recovery was a lock-free no-op too).
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let foreign = super::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
+
+    let worker_paths = paths.clone();
+    let worker_config = config.clone();
+    let (done_tx, done_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let result = reconcile_archive_encryption(&worker_paths, &worker_config, None);
+        done_tx.send(result.is_ok()).ok();
+    });
+
+    assert!(
+        done_rx.recv_timeout(Duration::from_millis(500)).is_err(),
+        "at-rest reconcile ran without holding the cross-process write lock",
+    );
+
+    drop(foreign);
+    assert!(
+        done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("at-rest reconcile must finish once the foreign lock is released"),
+        "at-rest reconcile must succeed after the lock frees",
+    );
+    worker.join().expect("worker thread");
 }
 
 #[test]

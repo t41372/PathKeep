@@ -21,12 +21,11 @@ describe('AppLockSection', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  test('wires draft controls and actions to route-owned handlers', () => {
+  test('auto-saves field edits and keeps passcode/lock-now explicit (no Save button)', async () => {
     const handlers = handlerFixture()
     renderSection({
       ...handlers,
       canEnable: true,
-      configDirty: true,
       currentSettings: configFixture({
         biometricEnabled: false,
         enabled: true,
@@ -43,33 +42,45 @@ describe('AppLockSection', () => {
       usesTouchId: true,
     })
 
+    // The all-auto-save model removes the per-section Save button entirely.
+    expect(
+      screen.queryByRole('button', { name: 'Save app lock settings' }),
+    ).toBeNull()
+
+    // Toggling / selecting a field persists immediately via its save handler.
     fireEvent.click(screen.getByLabelText('Enable App Lock'))
+    expect(handlers.onEnabledChange).toHaveBeenCalledWith(false)
     fireEvent.change(screen.getByLabelText('Idle timeout'), {
       target: { value: '30' },
     })
+    expect(handlers.onIdleTimeoutChange).toHaveBeenCalledWith(30)
     fireEvent.click(
       screen.getByLabelText('Allow Touch ID unlock when available'),
     )
+    expect(handlers.onBiometricChange).toHaveBeenCalledWith(true)
+
+    // Recovery hint edits the draft on change and commits on blur (auto-save).
     fireEvent.change(screen.getByLabelText('Recovery hint'), {
       target: { value: 'new hint' },
     })
+    expect(handlers.onRecoveryHintChange).toHaveBeenCalledWith('new hint')
+    expect(handlers.onRecoveryHintCommit).not.toHaveBeenCalled()
+    fireEvent.blur(screen.getByLabelText('Recovery hint'))
+    expect(handlers.onRecoveryHintCommit).toHaveBeenCalledTimes(1)
+
+    // The quiet "Saved" chip flashes after a successful auto-save.
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+
+    // Passcode set/clear + lock-now stay explicit action buttons.
     fireEvent.change(screen.getByLabelText('Passcode'), {
       target: { value: '5678' },
     })
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Save app lock settings' }),
-    )
+    expect(handlers.onPasscodeChange).toHaveBeenCalledWith('5678')
     fireEvent.click(screen.getByRole('button', { name: 'Update passcode' }))
     fireEvent.click(screen.getByRole('button', { name: 'Clear passcode' }))
     fireEvent.click(screen.getByRole('button', { name: 'Lock now' }))
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
 
-    expect(handlers.onEnabledChange).toHaveBeenCalledWith(false)
-    expect(handlers.onIdleTimeoutChange).toHaveBeenCalledWith(30)
-    expect(handlers.onBiometricChange).toHaveBeenCalledWith(true)
-    expect(handlers.onRecoveryHintChange).toHaveBeenCalledWith('new hint')
-    expect(handlers.onPasscodeChange).toHaveBeenCalledWith('5678')
-    expect(handlers.onSaveConfig).toHaveBeenCalledTimes(1)
     expect(handlers.onSetPasscode).toHaveBeenCalledTimes(1)
     expect(handlers.onClearPasscode).toHaveBeenCalledTimes(1)
     expect(handlers.onLockNow).toHaveBeenCalledTimes(1)
@@ -80,11 +91,53 @@ describe('AppLockSection', () => {
     expect(screen.getByText('Locked')).toBeInTheDocument()
   })
 
+  test('does not flash the Saved chip when an auto-save is a no-op (resolves false)', async () => {
+    const handlers = handlerFixture()
+    handlers.onEnabledChange.mockResolvedValue(false)
+    renderSection({
+      ...handlers,
+      currentSettings: configFixture({ enabled: false }),
+    })
+
+    fireEvent.click(screen.getByLabelText('Enable App Lock'))
+    expect(handlers.onEnabledChange).toHaveBeenCalledTimes(1)
+    await Promise.resolve()
+    expect(
+      screen.getByTestId('settings-saved-chip').getAttribute('data-visible'),
+    ).toBe('false')
+  })
+
+  test('keeps the Saved chip hidden and swallows the rejection when an auto-save fails', async () => {
+    // persistAppLock re-throws on a failed saveConfig (the shell already set the
+    // error banner). flashOnSave must swallow that rejection so there is no
+    // unhandled rejection on every failing toggle, and the chip must stay hidden.
+    const handlers = handlerFixture()
+    handlers.onEnabledChange.mockRejectedValue(new Error('save failed'))
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      renderSection({
+        ...handlers,
+        currentSettings: configFixture({ enabled: false }),
+      })
+
+      fireEvent.click(screen.getByLabelText('Enable App Lock'))
+      expect(handlers.onEnabledChange).toHaveBeenCalledTimes(1)
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(
+        screen.getByTestId('settings-saved-chip').getAttribute('data-visible'),
+      ).toBe('false')
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
   test('shows disabled and degraded states without inventing fallback settings', () => {
     renderSection({
       action: 'Saving...',
       canEnable: false,
-      configDirty: true,
       currentSettings: configFixture({
         enabled: true,
         passcodeConfigured: false,
@@ -105,10 +158,17 @@ describe('AppLockSection', () => {
       usesTouchId: false,
     })
 
+    // There is no per-section Save button in the all-auto-save model.
+    expect(
+      screen.queryByRole('button', { name: 'Save app lock settings' }),
+    ).toBeNull()
+    // An in-flight action freezes the auto-save fields and the explicit actions.
     expect(
       screen.getByLabelText('Allow biometric unlock when available'),
     ).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled()
+    expect(screen.getByLabelText('Enable App Lock')).toBeDisabled()
+    expect(screen.getByLabelText('Idle timeout')).toBeDisabled()
+    expect(screen.getByLabelText('Recovery hint')).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Save passcode' })).toBeDisabled()
     expect(
       screen.getByRole('button', { name: 'Clear passcode' }),
@@ -154,7 +214,6 @@ function renderSection(overrides: Partial<AppLockSectionState> = {}) {
   const state: AppLockSectionState = {
     action: null,
     canEnable: true,
-    configDirty: false,
     copyFeedback: null,
     currentSettings: configFixture(),
     passcode: '',
@@ -174,16 +233,16 @@ function renderSection(overrides: Partial<AppLockSectionState> = {}) {
 
 function handlerFixture() {
   return {
-    onBiometricChange: vi.fn(),
+    onBiometricChange: vi.fn().mockResolvedValue(true),
     onClearPasscode: vi.fn().mockResolvedValue(undefined),
     onCopyPath: vi.fn().mockResolvedValue(undefined),
-    onEnabledChange: vi.fn(),
-    onIdleTimeoutChange: vi.fn(),
+    onEnabledChange: vi.fn().mockResolvedValue(true),
+    onIdleTimeoutChange: vi.fn().mockResolvedValue(true),
     onLockNow: vi.fn().mockResolvedValue(undefined),
     onOpenPath: vi.fn(),
     onPasscodeChange: vi.fn(),
     onRecoveryHintChange: vi.fn(),
-    onSaveConfig: vi.fn().mockResolvedValue(undefined),
+    onRecoveryHintCommit: vi.fn().mockResolvedValue(true),
     onSetPasscode: vi.fn().mockResolvedValue(undefined),
   }
 }

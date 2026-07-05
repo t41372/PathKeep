@@ -20,7 +20,11 @@
 //! - background worker counts stay in shared atomics so the worker never fans out
 //!   unbounded concurrency on a 4-core host
 
+mod agent_store;
 mod ai_queue;
+mod chat;
+mod content_fetch;
+mod model_download;
 mod route_queries;
 mod runtime;
 mod section_queries;
@@ -50,16 +54,28 @@ use vault_core::{
     intelligence,
 };
 
+pub use self::agent_store::{
+    delete_ai_conversation, list_ai_conversations, load_ai_conversation, rename_ai_conversation,
+    save_ai_conversation,
+};
 pub(crate) use self::ai_queue::maybe_spawn_ai_queue_drain;
 pub use self::ai_queue::{
-    ask_ai_assistant, build_ai_index_now, cancel_ai_job, load_ai_assistant_job, load_ai_queue,
-    preview_ai_integration_files, replay_ai_job, run_ai_queue_jobs, search_ai_history,
-    test_ai_provider_connection_report,
+    ask_ai_assistant, build_ai_index_now, cancel_ai_job, estimate_reembed_now,
+    load_ai_assistant_job, load_ai_queue, preview_ai_integration_files, replay_ai_job,
+    reset_ai_index_build, run_ai_queue_jobs, search_ai_history, test_ai_provider_connection_report,
 };
 #[cfg(all(test, coverage))]
 pub(crate) use self::ai_queue::{
     complete_claimed_assistant_job, complete_claimed_index_job, drain_one_ai_queue_job,
     start_ai_job_control,
+};
+pub use self::chat::{ai_chat_cancel, ai_chat_send};
+pub use self::content_fetch::{
+    content_fetch_now, content_fetch_settings, enqueue_content_fetch_working_set,
+    list_visit_enrichment, set_content_fetch_settings,
+};
+pub use self::model_download::{
+    cancel_model_download, download_ai_embedding_model, download_static_embedding_model,
 };
 pub use self::route_queries::{
     delete_search_engine_rule, explain_entity, explain_refind, get_domain_trend, get_hub_pages,

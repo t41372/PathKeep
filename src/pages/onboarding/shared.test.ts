@@ -14,6 +14,7 @@ describe('onboarding shared helpers', () => {
       'stepStorage',
       'stepSecurity',
       'stepSchedule',
+      'stepAi',
       'stepReady',
     ])
     expect(dueAfterOptions).toEqual([6, 12, 24, 72])

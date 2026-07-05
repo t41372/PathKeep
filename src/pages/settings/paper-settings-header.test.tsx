@@ -1,3 +1,4 @@
+import { StrictMode, type ReactNode } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -189,6 +190,86 @@ describe('PaperSettingsHeader', () => {
       </MemoryRouter>,
     )
     expect(scrollSpy).toHaveBeenCalledWith({ block: 'start' })
+    rafSpy.mockRestore()
+  })
+
+  test('auto-scrolls the deep-link hash EXACTLY ONCE, not again on re-render with a new items identity', () => {
+    // BUG A regression (paper header): arriving via /settings#settings-applock
+    // scrolls once; a re-render that hands the header a fresh `items` array
+    // (the prior failure mode — new array → new sectionIds → effect re-fired)
+    // must NOT re-scroll and yank the viewport back to the top of the section.
+    document.body.innerHTML = '<div id="settings-applock"></div>'
+    const target = document.getElementById('settings-applock')
+    if (!(target instanceof HTMLElement)) throw new Error('target missing')
+    const scrollSpy = vi.fn()
+    Object.defineProperty(target, 'scrollIntoView', {
+      value: scrollSpy,
+      configurable: true,
+    })
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0)
+        return 1
+      })
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <MemoryRouter initialEntries={['/settings#settings-applock']}>
+        {children}
+      </MemoryRouter>
+    )
+    const header = (currentItems: SettingsSectionNavItem[]) => (
+      <PaperSettingsHeader
+        eyebrow="Preferences"
+        title="Title"
+        subtitle="Sub"
+        jumpLabel="Jump to"
+        items={currentItems}
+      />
+    )
+
+    const { rerender } = render(header(items), { wrapper })
+    expect(scrollSpy).toHaveBeenCalledTimes(1)
+
+    // Fresh array identity, same hash: must stay at exactly one scroll.
+    rerender(header(items.map((item) => ({ ...item }))))
+    expect(scrollSpy).toHaveBeenCalledTimes(1)
+
+    rafSpy.mockRestore()
+  })
+
+  test('auto-scrolls the deep-link hash ONCE under StrictMode double-invoke (idempotent guard)', () => {
+    // BUG A defense-in-depth (paper header): the app mounts under <StrictMode>,
+    // which runs effects twice on mount. The autoScrolledHashRef guard must
+    // swallow the second invocation so the deep-link scrolls once, not twice.
+    document.body.innerHTML = '<div id="settings-applock"></div>'
+    const target = document.getElementById('settings-applock')
+    if (!(target instanceof HTMLElement)) throw new Error('target missing')
+    const scrollSpy = vi.fn()
+    Object.defineProperty(target, 'scrollIntoView', {
+      value: scrollSpy,
+      configurable: true,
+    })
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0)
+        return 1
+      })
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={['/settings#settings-applock']}>
+          <PaperSettingsHeader
+            eyebrow="Preferences"
+            title="Title"
+            subtitle="Sub"
+            jumpLabel="Jump to"
+            items={items}
+          />
+        </MemoryRouter>
+      </StrictMode>,
+    )
+    expect(scrollSpy).toHaveBeenCalledTimes(1)
     rafSpy.mockRestore()
   })
 

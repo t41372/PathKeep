@@ -210,6 +210,9 @@ describe('ShellDataProvider', () => {
     await waitFor(() =>
       expect(screen.getByTestId('error')).toHaveTextContent('backup failed'),
     )
+    // An ordinary backup failure is classified as 'backup' (not FDA) so the shell
+    // renders the backup-specific toast — never 'full-disk-access'.
+    expect(screen.getByTestId('error-kind')).toHaveTextContent('backup')
 
     await user.click(screen.getByRole('button', { name: 'backup' }))
     await waitFor(() =>
@@ -219,10 +222,23 @@ describe('ShellDataProvider', () => {
     await user.click(screen.getByRole('button', { name: 'backup' }))
     await waitFor(() =>
       expect(screen.getByTestId('error')).toHaveTextContent(
-        translator('shell.safariFullDiskAccessBackupError'),
+        translator('shell.fullDiskAccessBackupError'),
       ),
     )
+    // The FDA failure classifies the error via locale-independent state — proving
+    // the wrapped `setError` reset the kind and the FDA branch re-asserted it.
+    expect(screen.getByTestId('error-kind')).toHaveTextContent(
+      'full-disk-access',
+    )
     expect(screen.getByTestId('busy-label')).toHaveTextContent('none')
+
+    // Dismissing the error must clear BOTH the message and the locale-independent
+    // classification, so a later unrelated error never inherits a stale FDA kind.
+    await user.click(screen.getByRole('button', { name: 'clear-error' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent('none'),
+    )
+    expect(screen.getByTestId('error-kind')).toHaveTextContent('none')
 
     expect(() => render(<ShellProbe />)).toThrow(
       'useShellData must be used inside ShellDataProvider',

@@ -22,6 +22,7 @@
 
 import type {
   AppSnapshot,
+  ArchiveRecoveryReport,
   BackupProgressEvent,
   DashboardSnapshot,
 } from '../lib/types'
@@ -260,6 +261,53 @@ export function buildBackupOverlay(
         background: true,
       }
     }
+  }
+}
+
+/**
+ * The prefix used by `initialize_archive_database` when the archive cannot be opened and recovery is needed.
+ *
+ * Comparing against this prefix lets the shell distinguish a structured recovery report from
+ * any other startup failure without re-parsing all error messages.
+ */
+export const ARCHIVE_RECOVERY_REQUIRED_PREFIX = 'archive_recovery_required'
+
+/**
+ * Returns true when the snapshot indicates the archive is in a plaintext-config-but-won't-open
+ * state that requires launch-time recovery rather than a normal encrypted-locked state.
+ *
+ * The shell calls `initialize_archive` on this state to either self-heal or surface the structured
+ * `ArchiveRecoveryReport`. The encrypted path routes through `ArchiveUnlockGate` instead.
+ */
+export function archiveNeedsLaunchRecovery(snapshot: AppSnapshot): boolean {
+  const status = snapshot.archiveStatus
+  if (!status.initialized || status.unlocked) return false
+  if (status.encrypted) return false // normal encrypted-locked → ArchiveUnlockGate
+  return Boolean(status.warning) // plaintext config but archive won't open → drift/corruption
+}
+
+/**
+ * Parses the structured `ArchiveRecoveryReport` from an error thrown by `initialize_archive`.
+ *
+ * Returns `null` when the error does not carry the known recovery prefix (i.e. it is an
+ * unrelated startup failure that should propagate normally).
+ */
+export function parseArchiveRecoveryRequired(
+  error: unknown,
+): ArchiveRecoveryReport | null {
+  const message =
+    typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : ''
+  const sep = `${ARCHIVE_RECOVERY_REQUIRED_PREFIX}: `
+  const at = message.indexOf(sep) // indexOf, not startsWith (text may be prefixed)
+  if (at < 0) return null
+  try {
+    return JSON.parse(message.slice(at + sep.length)) as ArchiveRecoveryReport
+  } catch {
+    return null
   }
 }
 

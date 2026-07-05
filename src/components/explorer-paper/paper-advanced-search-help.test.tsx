@@ -16,6 +16,7 @@ const COPY: PaperAdvancedSearchHelpCopy = {
   fileDate: 'Filter by file type and date.',
   tag: 'Filter by tags.',
   note: 'Filter by notes.',
+  starred: 'Show only starred pages.',
   regexNote: 'Regex mode is separate.',
 }
 

@@ -190,7 +190,11 @@ describe('buildPaperSearchViewCopy', () => {
     const copy = buildPaperSearchViewCopy(tFor('en'))
     expect(copy.hero.prompt).toBe('What would you like to find again?')
     expect(copy.hero.modeKeyword).toBe('Keyword')
-    expect(copy.hero.modeSemantic).toBe('Semantic')
+    expect(copy.hero.modeSmart).toBe('Smart search')
+    expect(copy.hero.modeHintSmartUnavailable).toContain('Settings')
+    expect(copy.hero.modeSmartUnavailableAria).toBe('(unavailable)')
+    expect(copy.relevance?.askAssistantLabel).toBe('Ask assistant')
+    expect(copy.relevance?.rankedCount).toBe('ranked by relevance')
     expect(copy.hero.removeChipLabel).toContain('{label}')
     expect(copy.hero.advancedSyntaxHelp.title).toBe('Advanced keyword syntax')
     expect(copy.hero.advancedSyntaxHelp.siteExclude).toContain('github.com')
@@ -202,6 +206,17 @@ describe('buildPaperSearchViewCopy', () => {
     // Domain / Visit count ones.
     expect(copy.hero.addFilterTag).toBe('+ Tag')
     expect(copy.hero.addFilterNote).toBe('+ Note')
+    // Explicit-submit search gate copy resolves end-to-end.
+    expect(copy.hero.inputPlaceholder).toBe('Search your archive')
+    expect(copy.hero.searchButton).toBe('Search')
+    expect(copy.hero.searchingButton).toBe('Searching…')
+    expect(copy.hero.searchButtonAria).toBe('Search history')
+    expect(copy.hero.searchingButtonAria).toBe('Searching history…')
+    expect(copy.hero.submitHint).toBe('Press Enter or Search to run')
+    expect(copy.hero.staleBanner).toContain('{mode}')
+    expect(copy.hero.staleModeNames.keyword).toBe('Keyword')
+    expect(copy.hero.staleModeNames.regex).toBe('Regex')
+    expect(copy.hero.staleModeNames.smart).toBe('Smart')
     expect(copy.empty.tryAskingHeading).toBe('Try asking')
     expect(copy.empty.recentMeta).toContain('{mode}')
     expect(copy.resultsCount).toContain('{count}')
@@ -237,14 +252,15 @@ describe('buildPaperSearchViewCopy', () => {
   test('Search view copy has no missing-key leakage across locales', () => {
     for (const language of ['en', 'zh-CN', 'zh-TW'] as const) {
       const copy = buildPaperSearchViewCopy(tFor(language))
-      // Strip the nested `advancedSyntaxHelp` object out before flattening
-      // so the leakage check only walks strings — its members are also
-      // explicitly checked below since they live in a different namespace
-      // (`explorer.advancedSearchHelp*`).
-      const { advancedSyntaxHelp, ...heroStrings } = copy.hero
+      // Strip the nested `advancedSyntaxHelp` + `staleModeNames` objects out
+      // before flattening so the leakage check only walks strings. Their string
+      // members are folded back into `all` below. `advancedSyntaxHelp` lives in
+      // a different namespace (`explorer.advancedSearchHelp*`).
+      const { advancedSyntaxHelp, staleModeNames, ...heroStrings } = copy.hero
       const all: string[] = [
         ...Object.values(heroStrings),
         ...Object.values(advancedSyntaxHelp),
+        ...Object.values(staleModeNames),
         ...Object.values(copy.empty),
         copy.resultsCount,
         copy.resultsRange,

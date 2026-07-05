@@ -210,6 +210,7 @@ mod tests {
             transition: None,
             source_visit_id: 0,
             app_id: None,
+            enrichment_excerpt: None,
         }
     }
 

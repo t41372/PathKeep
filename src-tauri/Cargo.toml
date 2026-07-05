@@ -1,6 +1,6 @@
 [package]
 name = "pathkeep-desktop"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Audit-first desktop archive for browser history"
 license = "GPL-3.0-only"
@@ -8,6 +8,13 @@ license = "GPL-3.0-only"
 [features]
 default = []
 devtools-bridge = ["dep:axum", "dep:tower-http"]
+# Apple-Silicon Metal embedding backend (W-AI-9 Sub-block D): opt-in feature, still OFF in the
+# default/CI build. Forwards through vault-worker → vault-core → candle. The default `cargo build`,
+# CI, and `bun run verify` build default features only, so the metal crates are never COMPILED in the
+# default graph (`cargo tree -e features`). Defining the feature does add the optional metal crates
+# to `Cargo.lock` (same as the off-by-default `devtools-bridge`/`axum` already does). A future Metal
+# CI lane that builds `--features metal` must also re-run `cargo deny check` on that expanded graph.
+metal = ["vault-worker/metal", "vault-core/metal"]
 
 [lib]
 name = "pathkeep_desktop"
@@ -28,8 +35,22 @@ license = "GPL-3.0-only"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
+# candle = the in-app embedding inference engine (D2/§C.1). DEFAULT features only:
+# accelerate/mkl/cuda/metal stay OFF for a reproducible CPU build (§C.1).
+candle-core = "0.10.2"
+candle-nn = "0.10.2"
+candle-transformers = "0.10.2"
 chrono = { version = "0.4.42", features = ["serde"] }
 directories = "6.0.0"
+futures-core = "0.3.32"
+# Stable 0.x hf-hub for consent-gated, SHA-256-verified model download (§C.5); NOT the 1.0.0-rc.
+# Sync `ureq` transport only (ureq v3 bundles rustls) — no native-tls/OpenSSL, no tokio/reqwest pull.
+hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"] }
+# ureq: PROMOTED from a hf-hub transitive dep to a DIRECT dep so the streaming model download
+# (`open_download_stream`) can GET the HF resolve URL with real byte progress. Same version + a SUBSET
+# of the features hf-hub already enables (defaults = rustls + gzip), so feature-unification leaves the
+# dependency graph (and Cargo.lock) unchanged — NO new crate enters the build. ureq v3 bundles rustls.
+ureq = "3.3.0"
 getrandom = "0.3.4"
 hex = "0.4.3"
 icu_normalizer = { version = "2.2.0", default-features = false, features = ["compiled_data"] }
@@ -40,13 +61,43 @@ regex = "1.12.2"
 rig-core = "0.34.0"
 rmcp = { version = "1.3.0", features = ["transport-io"] }
 rusqlite = { version = "0.39.0", features = ["backup", "bundled-sqlcipher-vendored-openssl", "serde_json"] }
+# Same major as rig-core's `schemars` (1.x) so `LlmProvider`'s structured-output schema
+# unifies with rig's `output_schema` type rather than introducing a second instance.
+schemars = "1"
+secrecy = "0.10.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 sha2 = "0.10.9"
 tempfile = "3.23.0"
+# HF tokenizer (Apache-2.0). We request ONLY the pure-Rust `fancy-regex` backend (PathKeep's own
+# code never asks for the C `onig` backend) AND pin the version to 0.22 so it UNIFIES with the
+# `tokenizers` candle-core 0.10.2 pulls transitively — that alignment removed the previous duplicate
+# (0.21 + 0.22) so only ONE copy of tokenizers compiles. NOTE: candle-core 0.10.2 hardcodes
+# `tokenizers { features = ["onig"] }` in its OWN manifest, so Cargo feature-unification still
+# enables `onig` (→ onig_sys, a C/Oniguruma build) on the single shared tokenizers. Fully dropping
+# `onig` would require a `[patch]`/fork of candle-core (off-limits without an ADR); requesting
+# fancy-regex here is the most we can do from PathKeep's manifest, and it keeps OUR contribution
+# pure-Rust + the graph single-version. See the W-AI-4b closeout for the candle-core onig caveat.
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "sync"] }
 walkdir = "2.5.0"
+# code-mode sandbox runtime (W-AI-8, D7 / §G Layer 2). Pure-Rust Cranelift JIT + runtime; the
+# `component-model`/`async` features are pulled transitively by `wasmtime-wasi`'s preview1 support
+# (preview1 in wasmtime 45 is implemented atop the preview2/component machinery). NO pooling/gc; the
+# build needs no C toolchain and the `wat` loader stays for the security-test guests.
+wasmtime = { version = "45.0.2", default-features = false, features = ["std", "runtime", "cranelift", "wat", "anyhow", "component-model", "async"] }
+# code-mode scoped WASI (W-AI-8, D7 / §G Layer 2). The Javy (QuickJS→WASM) guest reaches the host
+# ONLY through WASI fd I/O, so the sandbox grants a MINIMAL preview1 ctx: an in-memory stdin pipe
+# (the request/reply RPC channel), an in-memory stdout capture, and a stderr sink — NO fs preopens,
+# NO env, NO args, NO sockets, with a fixed zero clock + deterministic RNG. That honours the §G
+# "no dangerous ambient authority" contract (no fs/net/real-clock/env) while letting real JS run.
+# `default-features=false` + only `p1` drops the network/sockets stack; the preview1 sync linker is
+# all we wire. No C toolchain.
+wasmtime-wasi = { version = "45.0.2", default-features = false, features = ["p1"] }
+# Zero-copy byte buffers named by the WASI stream traits (`InputStream`/`OutputStream`) the code-mode
+# channel implements; already in the graph via wasmtime-wasi, restated so vault-core can name it.
+bytes = "1.10.1"
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 
 [dependencies]

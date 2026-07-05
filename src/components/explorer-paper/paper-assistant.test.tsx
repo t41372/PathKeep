@@ -90,6 +90,38 @@ describe('PaperAssistantMessage', () => {
     expect(onSelect).toHaveBeenCalledWith(EVIDENCE[1])
   })
 
+  test('bounds a long evidence list in a scroll region so it never crams the turn', () => {
+    // The recent-visits enumeration can cite many rows; the panel must stay a contained sources
+    // block rather than an unbounded flat list that shoves the answer out of view.
+    const many: PaperAssistantEvidence[] = Array.from(
+      { length: 30 },
+      (_, i) => ({
+        id: `e${i}`,
+        date: '2025-04-05',
+        title: `Cited page ${i}`,
+        domain: 'example.com',
+        url: `https://example.com/${i}`,
+      }),
+    )
+    render(
+      <PaperAssistantMessage
+        role="ai"
+        evidence={many}
+        evidenceLabel="Evidence · {count} records"
+        testId="msg-many"
+      >
+        Answer body
+      </PaperAssistantMessage>,
+    )
+    const rows = screen.getByTestId('paper-assistant-evidence-rows')
+    // Rows live inside a bounded, scrollable region (max-height + overflow), not a raw flat list.
+    expect(rows.className).toContain('overflow-y-auto')
+    expect(rows.className).toMatch(/max-h-/)
+    // All rows are still present (nothing is dropped — the region just scrolls).
+    expect(within(rows).getByText('Cited page 0')).toBeInTheDocument()
+    expect(within(rows).getByText('Cited page 29')).toBeInTheDocument()
+  })
+
   test('evidence rows are disabled when no handler is provided', () => {
     render(
       <PaperAssistantMessage
@@ -114,6 +146,114 @@ describe('PaperAssistantMessage', () => {
       </PaperAssistantMessage>,
     )
     expect(screen.queryByTestId('paper-assistant-evidence')).toBeNull()
+  })
+
+  const STAR_COPY = {
+    starLabel: 'Star this source',
+    unstarLabel: 'Unstar this source',
+    status: { starred: 'Source starred', unstarred: 'Source unstarred' },
+  }
+
+  test('renders a star toggle per starrable evidence row and routes toggles by canonicalUrl', () => {
+    const onToggleStar = vi.fn()
+    const starred = new Set(['https://github.com/tauri-apps/tauri'])
+    render(
+      <PaperAssistantMessage
+        role="ai"
+        evidence={[
+          {
+            ...EVIDENCE[0],
+            canonicalUrl: 'https://github.com/tauri-apps/tauri',
+          },
+          { ...EVIDENCE[1], canonicalUrl: 'https://v2.tauri.app/start/' },
+        ]}
+        evidenceLabel="Evidence · {count} records"
+        isEvidenceStarred={(canonicalUrl) => starred.has(canonicalUrl)}
+        onToggleEvidenceStar={onToggleStar}
+        evidenceStarCopy={STAR_COPY}
+        testId="msg-star"
+      >
+        Answer body
+      </PaperAssistantMessage>,
+    )
+    // The already-starred row shows the Unstar action (aria-pressed reflects state).
+    const starredToggle = screen.getByTestId('paper-assistant-evidence-star-e1')
+    expect(starredToggle).toHaveAttribute('aria-pressed', 'true')
+    expect(starredToggle).toHaveAttribute('aria-label', 'Unstar this source')
+    // The unstarred row shows the Star action.
+    const unstarredToggle = screen.getByTestId(
+      'paper-assistant-evidence-star-e2',
+    )
+    expect(unstarredToggle).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(unstarredToggle)
+    expect(onToggleStar).toHaveBeenCalledTimes(1)
+    // The toggle is keyed by the row's canonical url (the W-STAR key).
+    expect(onToggleStar).toHaveBeenCalledWith('https://v2.tauri.app/start/')
+  })
+
+  test('defaults a row to unstarred when no isEvidenceStarred resolver is wired', () => {
+    render(
+      <PaperAssistantMessage
+        role="ai"
+        evidence={[
+          {
+            ...EVIDENCE[0],
+            canonicalUrl: 'https://github.com/tauri-apps/tauri',
+          },
+        ]}
+        evidenceLabel="Evidence · {count}"
+        onToggleEvidenceStar={vi.fn()}
+        evidenceStarCopy={STAR_COPY}
+        testId="msg-nostatus"
+      >
+        Body
+      </PaperAssistantMessage>,
+    )
+    // The toggle still renders (toggle + copy + canonicalUrl present), defaulting to not-starred.
+    expect(
+      screen.getByTestId('paper-assistant-evidence-star-e1'),
+    ).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  test('omits the star toggle when a row has no canonicalUrl', () => {
+    render(
+      <PaperAssistantMessage
+        role="ai"
+        evidence={[{ ...EVIDENCE[0], canonicalUrl: null }]}
+        evidenceLabel="Evidence · {count}"
+        isEvidenceStarred={() => false}
+        onToggleEvidenceStar={vi.fn()}
+        evidenceStarCopy={STAR_COPY}
+        testId="msg-nostar"
+      >
+        Body
+      </PaperAssistantMessage>,
+    )
+    expect(
+      screen.queryByTestId('paper-assistant-evidence-star-e1'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('omits the star toggle when the toggle handler / copy are not wired', () => {
+    render(
+      <PaperAssistantMessage
+        role="ai"
+        evidence={[
+          {
+            ...EVIDENCE[0],
+            canonicalUrl: 'https://github.com/tauri-apps/tauri',
+          },
+        ]}
+        evidenceLabel="Evidence · {count}"
+        testId="msg-nowire"
+      >
+        Body
+      </PaperAssistantMessage>,
+    )
+    // No onToggleEvidenceStar/evidenceStarCopy → not starrable even with a canonicalUrl.
+    expect(
+      screen.queryByTestId('paper-assistant-evidence-star-e1'),
+    ).not.toBeInTheDocument()
   })
 
   test('renders evidence rows without the count strip when evidenceLabel is omitted', () => {

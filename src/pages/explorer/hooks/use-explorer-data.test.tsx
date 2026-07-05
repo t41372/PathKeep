@@ -99,6 +99,89 @@ describe('useExplorerData', () => {
     expect(queryHistory).not.toHaveBeenCalled()
   })
 
+  test('does not re-query the backend while the requestKey is unchanged, only on a new submitted query', async () => {
+    // Explicit-submit gate at the backend boundary: typing only changes the
+    // local draft, so `currentQuery`/`requestKey` stay identical and the
+    // backend must NOT be re-called. The query only fires again when an
+    // explicit submit produces a NEW query (and thus a new requestKey).
+    const currentQuery = historyQueryFixture({ page: 1, q: 'sqlite' })
+    const queryHistory = vi
+      .spyOn(backend, 'queryHistory')
+      .mockResolvedValue(historyResponseFixture({ page: 1, pageCount: 1 }))
+
+    const options = createOptions({
+      currentQuery,
+      requestKey: historyRequestKey(currentQuery, 1),
+    })
+    const { result, rerender } = renderHook(
+      (props: ReturnType<typeof createOptions>) => useExplorerData(props),
+      { initialProps: options },
+    )
+
+    await waitFor(() =>
+      expect(result.current.queryState.results).not.toBeNull(),
+    )
+    expect(queryHistory).toHaveBeenCalledTimes(1)
+
+    // Simulate typing: the draft changes but the submitted query (hence
+    // `currentQuery` + `requestKey`) is identical. Several such re-renders must
+    // not produce a single additional backend call.
+    queryHistory.mockClear()
+    rerender({ ...options })
+    rerender({ ...options })
+    rerender({ ...options })
+    await Promise.resolve()
+    expect(queryHistory).not.toHaveBeenCalled()
+
+    // Simulate submit: a new query → new requestKey → exactly one new call.
+    const submittedQuery = historyQueryFixture({ page: 1, q: 'sqlite wal' })
+    rerender(
+      createOptions({
+        currentQuery: submittedQuery,
+        requestKey: historyRequestKey(submittedQuery, 1),
+      }),
+    )
+    await waitFor(() => expect(queryHistory).toHaveBeenCalledTimes(1))
+    expect(queryHistory).toHaveBeenCalledWith(submittedQuery)
+  })
+
+  test('does not run a semantic query while the semanticRequestKey is unchanged', async () => {
+    // Same gate for Smart search: a stable semanticRequestKey (what a keystroke
+    // now yields, since typing never updates the submitted semantic query) must
+    // not re-hit `searchAiHistory`.
+    const searchAiHistory = vi
+      .spyOn(backend, 'searchAiHistory')
+      .mockResolvedValue({
+        items: [],
+        total: 0,
+        nextCursor: null,
+        noteCodes: [],
+      } as unknown as AiSearchResponse)
+
+    const options = createOptions({
+      mode: 'hybrid',
+      semanticQuery: {
+        query: 'async runtime',
+        profileId: 'chrome:Default',
+        domain: null,
+        limit: 8,
+        cursor: null,
+      },
+      semanticRequestKey: 'semantic-stable',
+    })
+    const { rerender } = renderHook(
+      (props: ReturnType<typeof createOptions>) => useExplorerData(props),
+      { initialProps: options },
+    )
+
+    await waitFor(() => expect(searchAiHistory).toHaveBeenCalledTimes(1))
+    searchAiHistory.mockClear()
+    rerender({ ...options })
+    rerender({ ...options })
+    await Promise.resolve()
+    expect(searchAiHistory).not.toHaveBeenCalled()
+  })
+
   test('prefetches adjacent history pages and reuses an inflight prefetch during navigation', async () => {
     const pageOneQuery = historyQueryFixture({ page: null })
     const pageTwoQuery = historyQueryFixture({ page: 2 })

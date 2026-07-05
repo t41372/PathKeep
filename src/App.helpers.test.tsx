@@ -254,6 +254,10 @@ describe('App helpers', () => {
       saveKey: 'Save key',
       clearKey: 'Clear key',
       remove: 'Remove',
+      testConnection: 'Test connection',
+      testingConnection: 'Testing…',
+      probeReachable: 'Connected',
+      probeUnreachable: 'Connection issue',
       requestFormatLabels: {
         openai: 'OpenAI-compatible',
         anthropic: 'Anthropic-compatible',
@@ -262,11 +266,21 @@ describe('App helpers', () => {
         'lm-studio': 'LM Studio',
       },
     }
+    const presetLabels = {
+      openai: 'OpenAI',
+      anthropic: 'Anthropic',
+      google: 'Google',
+      ollama: 'Ollama',
+      'lm-studio': 'LM Studio',
+    }
 
     const { rerender } = renderWithI18n(
       <AiProviderEditorList
         addLabel="Add provider"
         apiKeys={{ 'llm-preview': 'secret', 'embedding-preview': '' }}
+        formatLabel={(latency, model) => `${model} · ${latency} ms`}
+        presetLabel="Start from a preset"
+        presetLabels={presetLabels}
         onAdd={addSpy}
         onApiKeyChange={apiKeySpy}
         onClearKey={clearSpy}
@@ -282,8 +296,11 @@ describe('App helpers', () => {
       />,
     )
 
-    await user.click(screen.getByRole('button', { name: 'Add provider' }))
-    expect(addSpy).toHaveBeenCalledTimes(1)
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Start from a preset' }),
+      'lm-studio',
+    )
+    expect(addSpy).toHaveBeenCalledWith('lm-studio')
     await user.click(screen.getByRole('button', { name: 'Remove' }))
     expect(removeSpy).toHaveBeenCalledWith('llm-preview')
     await user.type(screen.getByDisplayValue('Preview LLM'), ' updated')
@@ -329,6 +346,9 @@ describe('App helpers', () => {
       <AiProviderEditorList
         addLabel="Add embedding"
         apiKeys={{ 'embedding-preview': '' }}
+        formatLabel={(latency, model) => `${model} · ${latency} ms`}
+        presetLabel="Start from a preset"
+        presetLabels={presetLabels}
         onAdd={addSpy}
         onApiKeyChange={apiKeySpy}
         onClearKey={clearSpy}
@@ -443,6 +463,10 @@ describe('App helpers', () => {
       saveKey: 'Save key',
       clearKey: 'Clear key',
       remove: 'Remove provider',
+      testConnection: 'Test connection',
+      testingConnection: 'Testing…',
+      probeReachable: 'Connected',
+      probeUnreachable: 'Connection issue',
       requestFormatLabels: {
         openai: 'OpenAI-compatible',
         anthropic: 'Anthropic-compatible',
@@ -451,12 +475,24 @@ describe('App helpers', () => {
         'lm-studio': 'LM Studio',
       },
     }
+    const presetLabels = {
+      openai: 'OpenAI',
+      anthropic: 'Anthropic',
+      google: 'Google',
+      ollama: 'Ollama',
+      'lm-studio': 'LM Studio',
+    }
+    const formatLabel = (latency: number, model: string) =>
+      `${model} · ${latency} ms`
 
     renderWithI18n(
       <div>
         <AiProviderEditorList
           addLabel="Add empty LLM"
           apiKeys={{}}
+          formatLabel={formatLabel}
+          presetLabel="Start from a preset"
+          presetLabels={presetLabels}
           onAdd={noop}
           onApiKeyChange={noop}
           onClearKey={noop}
@@ -473,6 +509,9 @@ describe('App helpers', () => {
         <AiProviderEditorList
           addLabel="Add sparse LLM"
           apiKeys={{ 'llm-fallback': '' }}
+          formatLabel={formatLabel}
+          presetLabel="Start from a preset"
+          presetLabels={presetLabels}
           onAdd={noop}
           onApiKeyChange={noop}
           onClearKey={noop}
@@ -489,6 +528,9 @@ describe('App helpers', () => {
         <AiProviderEditorList
           addLabel="Add sparse embedding"
           apiKeys={{ 'embedding-fallback': '' }}
+          formatLabel={formatLabel}
+          presetLabel="Start from a preset"
+          presetLabels={presetLabels}
           onAdd={noop}
           onApiKeyChange={noop}
           onClearKey={noop}

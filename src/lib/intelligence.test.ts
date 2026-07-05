@@ -253,14 +253,19 @@ describe('intelligence helpers', () => {
     })
   })
 
-  test('assigns evidence score bands', () => {
+  test('assigns evidence score bands as an honest relevance ladder (8b)', () => {
+    // Ladder tones: strong → accent (`success`), mid "Relevant" → neutral
+    // (`info`, NOT the caution `warning`), weak/unscored → faint (`blocked`).
     expect(scoreBand(0.91, t)).toEqual({
       label: 'High confidence',
       tone: 'success',
     })
-    expect(scoreBand(0.72, t)).toEqual({ label: 'Relevant', tone: 'warning' })
-    expect(scoreBand(0.4, t)).toEqual({ label: 'Weak match', tone: 'info' })
-    expect(scoreBand(undefined, t)).toEqual({ label: 'No score', tone: 'info' })
+    expect(scoreBand(0.72, t)).toEqual({ label: 'Relevant', tone: 'info' })
+    expect(scoreBand(0.4, t)).toEqual({ label: 'Weak match', tone: 'blocked' })
+    expect(scoreBand(undefined, t)).toEqual({
+      label: 'No score',
+      tone: 'blocked',
+    })
   })
 
   test('treats score thresholds as inclusive', () => {
@@ -270,11 +275,11 @@ describe('intelligence helpers', () => {
     })
     expect(scoreBand(0.65, t)).toEqual({
       label: 'Relevant',
-      tone: 'warning',
+      tone: 'info',
     })
     expect(scoreBand(0.649, t)).toEqual({
       label: 'Weak match',
-      tone: 'info',
+      tone: 'blocked',
     })
   })
 
@@ -293,13 +298,10 @@ describe('intelligence helpers', () => {
     ).toBe(
       '/explorer?profileId=chrome%3ADefault&domain=example.com&start=2026-04-07&end=2026-04-07&q=https%3A%2F%2Fexample.com%2Fdocs',
     )
+    // No profile scope is ever appended: the agent chat path searches the whole archive, so
+    // advertising a `?profileId=` would imply a scope the backend silently drops.
     expect(assistantHref('What did I read about SQLite?')).toBe(
       '/assistant?question=What+did+I+read+about+SQLite%3F',
-    )
-    expect(
-      assistantHref('What did I read about SQLite?', 'chrome:Default'),
-    ).toBe(
-      '/assistant?question=What+did+I+read+about+SQLite%3F&profileId=chrome%3ADefault',
     )
     expect(
       evidenceHref({

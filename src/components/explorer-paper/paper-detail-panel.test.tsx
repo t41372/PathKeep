@@ -23,6 +23,11 @@ const COPY: PaperDetailPanelCopy = {
   copyAction: 'Copy URL',
   refindAction: 'Refind…',
   exportAction: 'Export',
+  starAction: 'Star this page',
+  unstarAction: 'Unstar this page',
+  starStatusStarred: 'Starred',
+  starStatusUnstarred: 'Unstarred',
+  starShortcutHint: 'Press S to star the selected page.',
   provenanceHeading: 'Provenance',
   notesHeading: 'Your notes',
   tagsHeading: 'Tags',
@@ -878,5 +883,80 @@ describe('PaperDetailPanel', () => {
     )
     expect(screen.queryByTestId('paper-detail-favicon')).toBeNull()
     expect(screen.queryByTestId('paper-detail-og-hero')).toBeNull()
+  })
+
+  test('renders a star toggle in the action row and fires onToggleStar', () => {
+    const onToggleStar = vi.fn()
+    render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        isStarred={false}
+        onToggleStar={onToggleStar}
+        copy={COPY}
+        testId="paper-detail"
+      />,
+    )
+    const star = screen.getByTestId('paper-detail-star')
+    expect(star).toHaveAttribute('aria-pressed', 'false')
+    expect(star).toHaveAttribute('aria-label', 'Star this page')
+    fireEvent.click(star)
+    expect(onToggleStar).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 1 }),
+    )
+  })
+
+  test('reflects the starred state and omits the star when no handler is given', () => {
+    const { rerender } = render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        isStarred
+        onToggleStar={() => {}}
+        copy={COPY}
+        testId="paper-detail"
+      />,
+    )
+    expect(screen.getByTestId('paper-detail-star')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    rerender(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        testId="paper-detail"
+      />,
+    )
+    expect(screen.queryByTestId('paper-detail-star')).toBeNull()
+  })
+
+  test('renders the star toggle even without a testId (label-only)', () => {
+    render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        onToggleStar={() => {}}
+        copy={COPY}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Star this page' })).toBeVisible()
   })
 })

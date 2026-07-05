@@ -1,32 +1,28 @@
 /**
- * This module renders the Jobs route, the always-on review surface for background work and recovery.
+ * @file index.tsx
+ * @description Activity center — the redesigned background-tasks page for PathKeep.
+ * @module pages/jobs
  *
- * Why this file exists:
- * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
- * - Heavy queue-backed work should stay visible and interruptible instead of hiding behind Settings-only diagnostics.
+ * ## Responsibilities
+ * - Route entry for /jobs: render the Activity center with needs-attention, running-now,
+ *   background-features, and recent-activity zones.
+ * - Manage queue pause/resume, AI job retry/cancel, and runtime job retry/cancel mutations.
+ * - Pass pre-computed Activity[] and queue counts to child zones; no business logic in zones.
  *
- * Main declarations:
- * - `JobsPage`
+ * ## Not responsible for
+ * - Polling or fetching runtime data (shell data context owns that lifecycle).
+ * - Rendering job details or panel expansions.
  *
- * Source-of-truth notes:
- * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
- * - Stay aligned with `docs/features/intelligence.md` for queue persistence, pause/resume, and recoverability semantics.
+ * ## Source-of-truth notes
+ * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose and navigation.
+ * - Stay aligned with `docs/features/intelligence.md` for queue semantics.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
-import {
-  PaperCard,
-  PaperCardBadge,
-  PaperCardBody,
-  PaperCardHeader,
-} from '../../components/cards'
 import { EmptyState } from '../../components/primitives/empty-state'
-import { ErrorState } from '../../components/primitives/error-state'
-import { LoadingState } from '../../components/primitives/loading-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
-import { TaskProgressCard } from '../../components/progress'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
 import { describeError } from '../../lib/errors'
@@ -35,14 +31,21 @@ import { useI18n } from '../../lib/i18n'
 import {
   aiJobMutationNeedsRefresh,
   runtimeJobMutationNeedsRefresh,
-  summarizeRuntimeJob,
-  summarizeRuntimeJobError,
 } from '../../lib/intelligence-presentation'
-import { readableContentFetchAvailable } from '../../lib/release-capabilities'
+import { useModelDownloadProgress } from '../../lib/ipc/model-download'
 import type { AppConfig, BackupRunOverview } from '../../lib/types'
 import type { ShellTask } from '../../app/shell-tasks'
-import { JobPanel, RuntimeJobPanel } from './job-panels'
-import { JobsRuntimeHealthSection } from './runtime-health-section'
+import {
+  buildActivities,
+  buildNeedsAttention,
+  buildRunningNow,
+  buildRecent,
+} from './activity-adapter'
+import { ActivityHeader } from './activity-header'
+import { NeedsAttentionZone } from './needs-attention-zone'
+import { RunningNowZone } from './running-now-zone'
+import { BackgroundFeaturesZone } from './background-features-zone'
+import { RecentZone } from './recent-zone'
 
 function nextPausedConfig(config: AppConfig, paused: boolean): AppConfig {
   return {
@@ -115,83 +118,212 @@ export function JobsPage() {
   } = useShellData()
   const { language, ns } = useI18n()
   const jobsT = ns('jobs')
-  const settingsT = ns('settings')
   const commonT = ns('common')
   const [pageError, setPageError] = useState<string | null>(null)
   const [action, setAction] = useState<string | null>(null)
+  const [announcement, setAnnouncement] = useState('')
+
   const aiQueue = runtimeStatus.aiQueue
   const runtime = runtimeStatus.intelligence
-  const runtimeLoading =
-    runtimeStatus.loading ||
-    (!runtimeStatus.error && aiQueue === null && runtime === null)
+  // Show the full-page skeleton ONLY on the genuine first load — no runtime data has arrived yet
+  // and there's no error to surface instead. We deliberately do NOT gate on `runtimeStatus.loading`:
+  // the shell re-flips that flag to `true` on every background poll (every 3s while work is active,
+  // see shell-runtime-status.ts). Gating the skeleton on it would unmount the entire page on each
+  // tick — the visible "flash", and the reason every child's local state (Recent toggle, scroll)
+  // reset to its initial value. Once data (or an error) is present we keep the page mounted and let
+  // the zones reconcile in place, so a refresh updates numbers without tearing the page down.
+  //
+  // `aiQueue` and `runtime` are always populated and cleared together (one Promise.all in
+  // shell-runtime-status; both null on reset/error), so a null `aiQueue` is a sufficient
+  // "first read hasn't resolved" signal — no need to re-check `runtime` separately.
+  const runtimeLoading = !runtimeStatus.error && aiQueue === null
 
+  // A running import/backup LEDGER run is only genuinely stale/interrupted when there is no LIVE
+  // task of the same kind in the shell store. When a live task exists, the ledger row is that same
+  // in-flight run — surfacing it as "Interrupted" would duplicate a running task into needs-attention.
+  const liveArchiveKinds = useMemo(() => {
+    const kinds = new Set<ShellTask['kind']>()
+    for (const task of archiveTasks) {
+      if (task.state === 'running' || task.state === 'queued')
+        kinds.add(task.kind)
+    }
+    return kinds
+  }, [archiveTasks])
+
+  // Stale archive detection (reuse from old code)
+  const staleArchiveTasks = useMemo(
+    () =>
+      (snapshot?.recentRuns ?? [])
+        .filter(isStaleArchiveRun)
+        .filter(
+          (run) =>
+            !liveArchiveKinds.has(
+              run.runType === 'import' ? 'import' : 'backup',
+            ),
+        )
+        .map((run) => staleArchiveRunTask(run, jobsT)),
+    [jobsT, snapshot?.recentRuns, liveArchiveKinds],
+  )
+  const allArchiveTasks = useMemo(
+    () => [...archiveTasks, ...staleArchiveTasks],
+    [archiveTasks, staleArchiveTasks],
+  )
+
+  // Model download hook
+  const modelDownload = useModelDownloadProgress(
+    snapshot?.aiStatus?.staticEmbedding?.modelDownloaded ?? false,
+  )
+  const showModelDownload = modelDownload.phase === 'downloading'
+
+  // Build activities
+  // Note: allArchiveTasks already includes stale runs converted to ShellTasks via staleArchiveTasks,
+  // so we pass an empty recentRuns to avoid double-counting stale runs.
+  const activities = useMemo(
+    () =>
+      buildActivities({
+        aiQueue,
+        runtime,
+        archiveTasks: allArchiveTasks,
+        recentRuns: [],
+      }),
+    [aiQueue, runtime, allArchiveTasks],
+  )
+  const needsAttention = useMemo(
+    () => buildNeedsAttention(activities),
+    [activities],
+  )
+  const runningNow = useMemo(() => buildRunningNow(activities), [activities])
+  const recent = useMemo(() => buildRecent(activities, 15), [activities])
+
+  // ── aria-live announcer ────────────────────────────────────────────────────
+  // Announces task completion/error and 25/50/75% progress milestones to
+  // assistive technology without announcing every polling tick.
+  const prevRunningCountRef = useRef<number | null>(null)
+  const prevAttentionCountRef = useRef<number>(0)
+  const milestoneTrackerRef = useRef<Record<string, Set<number>>>({})
+
+  useEffect(() => {
+    const currentRunning = runningNow.length + (showModelDownload ? 1 : 0)
+    const currentAttention = needsAttention.length
+
+    // Skip initial mount — no previous state to compare against.
+    if (prevRunningCountRef.current === null) {
+      prevRunningCountRef.current = currentRunning
+      prevAttentionCountRef.current = currentAttention
+      return
+    }
+
+    let msg = ''
+
+    // Tasks completed (running count dropped)
+    if (currentRunning < prevRunningCountRef.current && currentRunning === 0) {
+      msg = jobsT('headerSummaryNoActivity')
+    }
+
+    // New failures surfaced
+    if (currentAttention > prevAttentionCountRef.current) {
+      msg = jobsT('headerSummaryFailedIdle', { failed: currentAttention })
+    }
+
+    // Progress milestones (25 / 50 / 75%) per running activity
+    const milestones = [0.25, 0.5, 0.75] as const
+    for (const activity of runningNow) {
+      if (activity.progress.value != null) {
+        if (!milestoneTrackerRef.current[activity.id]) {
+          milestoneTrackerRef.current[activity.id] = new Set()
+        }
+        for (const m of milestones) {
+          if (
+            activity.progress.value >= m &&
+            !milestoneTrackerRef.current[activity.id].has(m)
+          ) {
+            milestoneTrackerRef.current[activity.id].add(m)
+            msg = `${jobsT(activity.taskNameKey)}: ${Math.round(m * 100)}%`
+          }
+        }
+      }
+    }
+
+    if (msg) setAnnouncement(msg)
+    prevRunningCountRef.current = currentRunning
+    prevAttentionCountRef.current = currentAttention
+  }, [runningNow, needsAttention, showModelDownload, jobsT])
+
+  // Queue state
+  const queuePaused = snapshot?.config.ai.jobQueuePaused ?? false
   const queueCounts = useMemo(() => {
     const archiveRunning = archiveTasks.filter(
       (task) => task.state === 'running' || task.state === 'queued',
     ).length
     const queued = (aiQueue?.queued ?? 0) + (runtime?.queue.queued ?? 0)
+    // Fold the model download (per-file, NOT resumable) into the running count so the
+    // header summary reflects all interruptible background work, including the download.
     const running =
-      (aiQueue?.running ?? 0) + (runtime?.queue.running ?? 0) + archiveRunning
+      (aiQueue?.running ?? 0) +
+      (runtime?.queue.running ?? 0) +
+      archiveRunning +
+      (showModelDownload ? 1 : 0)
     const failed = (aiQueue?.failed ?? 0) + (runtime?.queue.failed ?? 0)
     return { failed, queued, running }
-  }, [aiQueue, archiveTasks, runtime])
+  }, [aiQueue, archiveTasks, runtime, showModelDownload])
 
-  const statusCallout = useMemo(() => {
-    if (snapshot?.config.ai.jobQueuePaused && queueCounts.queued > 0) {
-      return {
-        body: jobsT('pausedBody'),
-        title: jobsT('pausedTitle'),
-        tone: 'warning' as const,
-      }
-    }
-    if (queueCounts.failed > 0) {
-      return {
-        body: jobsT('failedBody'),
-        title: jobsT('failedTitle'),
-        tone: 'danger' as const,
-      }
-    }
+  // Header summary
+  const headerSummary = useMemo(() => {
+    if (queueCounts.failed > 0 && queueCounts.running > 0)
+      return jobsT('headerSummaryFailed', {
+        failed: queueCounts.failed,
+        running: queueCounts.running,
+      })
+    if (queueCounts.failed > 0)
+      return jobsT('headerSummaryFailedIdle', { failed: queueCounts.failed })
+    if (queuePaused && queueCounts.queued > 0)
+      return jobsT('headerSummaryPausedQueued', { queued: queueCounts.queued })
+    if (queueCounts.running > 0 && queueCounts.queued > 0)
+      return jobsT('headerSummaryRunningWaiting', {
+        running: queueCounts.running,
+        queued: queueCounts.queued,
+      })
     if (queueCounts.running > 0) {
-      return {
-        body: jobsT('runningBody'),
-        title: jobsT('runningTitle'),
-        tone: 'info' as const,
-      }
+      // Only append "safe to close" when EVERY running task is fully resumable. The model download
+      // is per-file (the in-progress file restarts), and a running import/backup is 'restart-whole'
+      // (the task re-runs from the start), so either one present means we must not claim it's safe.
+      const allRunningResumable =
+        !showModelDownload &&
+        runningNow.every((activity) => activity.resumability === 'safe')
+      return allRunningResumable
+        ? jobsT('headerSummaryRunning', { running: queueCounts.running })
+        : jobsT('headerSummaryRunningNotSafe', { running: queueCounts.running })
     }
-    if (queueCounts.queued > 0) {
-      return {
-        body: jobsT('queuedBody'),
-        title: jobsT('queuedTitle'),
-        tone: 'info' as const,
-      }
-    }
-    return {
-      body: jobsT('readyBody'),
-      title: jobsT('readyTitle'),
-      tone: 'success' as const,
-    }
-  }, [jobsT, queueCounts, snapshot?.config.ai.jobQueuePaused])
-  const staleArchiveTasks = useMemo(
-    () =>
-      (snapshot?.recentRuns ?? [])
-        .filter(isStaleArchiveRun)
-        .map((run) => staleArchiveRunTask(run, jobsT)),
-    [jobsT, snapshot?.recentRuns],
-  )
-  const visibleArchiveTasks = useMemo(
-    () => [...archiveTasks, ...staleArchiveTasks],
-    [archiveTasks, staleArchiveTasks],
-  )
+    // Queued but nothing running yet (unpaused) — e.g. retry-backoff or a concurrency-limited job.
+    // Without this branch the summary would read "All caught up" while the Running-now zone shows
+    // the queued rows (a direct contradiction).
+    if (queueCounts.queued > 0)
+      return jobsT('headerSummaryQueued', { queued: queueCounts.queued })
+    // All caught up
+    const lastActivityAt =
+      runtime?.queue.lastActivityAt ??
+      aiQueue?.recentJobs[0]?.finishedAt ??
+      null
+    if (lastActivityAt)
+      return jobsT('headerSummaryAllCaughtUp', {
+        time: formatRelativeTime(lastActivityAt, language),
+      })
+    return jobsT('headerSummaryNoActivity')
+  }, [
+    aiQueue,
+    jobsT,
+    language,
+    queueCounts,
+    queuePaused,
+    runningNow,
+    runtime,
+    showModelDownload,
+  ])
 
-  async function handleRefresh() {
-    setAction(jobsT('refresh'))
-    try {
-      setPageError(null)
-      await Promise.all([refreshAppData(), refreshRuntimeStatus()])
-    } finally {
-      setAction(null)
-    }
-  }
+  const showQueueToggle =
+    queuePaused || queueCounts.queued > 0 || queueCounts.running > 0
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
 
   async function handlePauseChange(paused: boolean) {
     setAction(paused ? jobsT('pauseQueue') : jobsT('resumeQueue'))
@@ -258,6 +390,19 @@ export function JobsPage() {
     }
   }
 
+  async function handleRetryBackup() {
+    setAction(jobsT('actionRetryBackup'))
+    try {
+      await backend.runBackupNow()
+      await Promise.all([refreshAppData(), refreshRuntimeStatus()])
+      setPageError(null)
+    } catch (error) {
+      setPageError(describeError(error, 'retry_backup'))
+    } finally {
+      setAction(null)
+    }
+  }
+
   async function handleCancelRuntimeJob(jobId: number) {
     setAction(jobsT('cancelJob'))
     try {
@@ -276,27 +421,19 @@ export function JobsPage() {
     }
   }
 
+  // ── Gates ──────────────────────────────────────────────────────────────────
+
   if (loading && !snapshot) {
-    return (
-      <div
-        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
-        data-testid="jobs-page"
-      >
-        <LoadingState label={jobsT('loadingPage')} />
-      </div>
-    )
+    return <ActivitySkeleton />
   }
 
   if (!snapshot?.config.initialized) {
     return (
-      <div
-        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
-        data-testid="jobs-page"
-      >
+      <div data-testid="jobs-page">
         <EmptyState
+          title={jobsT('setupTitle')}
           description={jobsT('setupDescription')}
           eyebrow={jobsT('statusEyebrow')}
-          title={jobsT('setupTitle')}
           action={
             <Link className="btn-primary" to="/onboarding">
               {commonT('initializeFirst')}
@@ -309,14 +446,11 @@ export function JobsPage() {
 
   if (!snapshot.archiveStatus.unlocked) {
     return (
-      <div
-        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
-        data-testid="jobs-page"
-      >
+      <div data-testid="jobs-page">
         <PermissionGate
-          detail={jobsT('lockedDetail')}
-          eyebrow={jobsT('lockedEyebrow')}
           title={jobsT('lockedTitle')}
+          eyebrow={jobsT('lockedEyebrow')}
+          detail={jobsT('lockedDetail')}
         >
           <Link className="btn-primary" to="/security">
             {commonT('reviewSecurity')}
@@ -327,439 +461,123 @@ export function JobsPage() {
   }
 
   if (runtimeLoading) {
-    return (
-      <div
-        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
-        data-testid="jobs-page"
-      >
-        <LoadingState label={jobsT('loadingPage')} />
-      </div>
-    )
+    return <ActivitySkeleton />
   }
 
-  if (runtimeStatus.error && !aiQueue && !runtime) {
-    return (
-      <div
-        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
-        data-testid="jobs-page"
-      >
-        <ErrorState
-          title={jobsT('pageUnavailableTitle')}
-          description={runtimeStatus.error}
-          action={
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() => void handleRefresh()}
-            >
-              {jobsT('refresh')}
-            </button>
-          }
-        />
-      </div>
-    )
-  }
+  // ── Main render ────────────────────────────────────────────────────────────
 
-  const lastActivityAt =
-    runtime?.queue.lastActivityAt ??
-    aiQueue?.recentJobs.find((job) => job.finishedAt || job.startedAt)
-      ?.finishedAt ??
-    aiQueue?.recentJobs[0]?.queuedAt ??
-    null
-  const contentPlugin =
-    runtime?.plugins.find(
-      (plugin) => plugin.pluginId === 'readable-content-refetch',
-    ) ?? null
-  const activeRuntimeJob =
-    runtime?.recentJobs.find((job) => job.state === 'running') ??
-    runtime?.recentJobs.find((job) => job.state === 'queued') ??
-    null
-  const reviewRuntimeJob =
-    runtime?.recentJobs.find((job) => job.state === 'failed') ?? null
-  const visibleFailedJobsCount =
-    (aiQueue?.recentJobs.filter((job) => job.state === 'failed').length ?? 0) +
-    (runtime?.recentJobs.filter((job) => job.state === 'failed').length ?? 0)
-  const visibleReadableContentRows = readableContentFetchAvailable
-    ? (contentPlugin?.storedRecords ?? 0)
-    : 0
-  let contentQueueMessage = jobsT('contentFetchDeferredBody')
-  if (readableContentFetchAvailable) {
-    if (!contentPlugin) {
-      contentQueueMessage = jobsT('contentFetchFallbackBody')
-    } else if (contentPlugin.queuedJobs > 0) {
-      contentQueueMessage = jobsT('contentFetchBacklogBody', {
-        queued: contentPlugin.queuedJobs,
-        stored: contentPlugin.storedRecords,
-      })
-    } else if (contentPlugin.runningJobs > 0) {
-      contentQueueMessage = jobsT('contentFetchRunningBody', {
-        stored: contentPlugin.storedRecords,
-      })
-    } else {
-      contentQueueMessage = jobsT('contentFetchReadyBody', {
-        stored: contentPlugin.storedRecords,
-      })
-    }
-  }
-  const focusNowMessage = activeRuntimeJob
-    ? summarizeRuntimeJob(activeRuntimeJob, jobsT)
-    : queueCounts.running > 0
-      ? jobsT('focusNowBacklog')
-      : jobsT('focusNowIdle')
-  const needsReviewMessage = reviewRuntimeJob
-    ? summarizeRuntimeJobError(reviewRuntimeJob, jobsT)
-    : queueCounts.failed > 0
-      ? jobsT('needsReviewBacklog', { count: queueCounts.failed })
-      : jobsT('needsReviewIdle')
-  const showQueueToggle =
-    snapshot.config.ai.jobQueuePaused ||
-    queueCounts.queued > 0 ||
-    queueCounts.running > 0
-  const heroHeadline =
-    queueCounts.failed > 0
-      ? jobsT('overviewHeadlineFailures', { count: queueCounts.failed })
-      : snapshot.config.ai.jobQueuePaused && queueCounts.queued > 0
-        ? jobsT('overviewHeadlinePaused', { count: queueCounts.queued })
-        : queueCounts.running > 0
-          ? jobsT('overviewHeadlineRunning', { count: queueCounts.running })
-          : queueCounts.queued > 0
-            ? jobsT('overviewHeadlineQueued', { count: queueCounts.queued })
-            : jobsT('overviewHeadlineIdle')
   return (
-    <div
+    <main
+      aria-labelledby="activity-page-heading"
       className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
       data-testid="jobs-page"
     >
-      <div className="jobs-grid">
+      {/* Visually-hidden live region: announces task completion/error and
+          25/50/75% progress milestones to screen readers, not every tick. */}
+      <div
+        className="sr-only"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="activity-live-announcer"
+      >
+        {announcement}
+      </div>
+
+      <ActivityHeader
+        summary={headerSummary}
+        queuePaused={queuePaused}
+        showToggle={showQueueToggle}
+        onPauseChange={(paused) => void handlePauseChange(paused)}
+        action={action}
+      />
+
+      {queuePaused && queueCounts.queued > 0 && (
         <StatusCallout
-          tone={statusCallout.tone}
-          eyebrow={jobsT('statusEyebrow')}
-          title={statusCallout.title}
-          body={statusCallout.body}
-          actions={
-            <div className="intelligence-actions">
-              <button
-                className="btn-secondary"
-                type="button"
-                onClick={() => void handleRefresh()}
-                disabled={Boolean(action)}
-              >
-                {jobsT('refresh')}
-              </button>
-              {visibleFailedJobsCount > 0 ? (
-                <a
-                  className="btn-secondary"
-                  href="#jobs-recent-activity"
-                  onClick={(event) => {
-                    const target = document.getElementById(
-                      'jobs-recent-activity',
-                    )
-                    if (!target) return
-                    event.preventDefault()
-                    const reduceMotion =
-                      typeof window.matchMedia === 'function' &&
-                      window.matchMedia('(prefers-reduced-motion: reduce)')
-                        .matches
-                    target.scrollIntoView({
-                      behavior: reduceMotion ? 'auto' : 'smooth',
-                      block: 'start',
-                    })
-                    if (!target.hasAttribute('tabindex')) {
-                      target.setAttribute('tabindex', '-1')
-                    }
-                    target.focus({ preventScroll: true })
-                  }}
-                >
-                  {jobsT('jumpToFailures', { count: visibleFailedJobsCount })}
-                </a>
-              ) : null}
-              {showQueueToggle ? (
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={() =>
-                    void handlePauseChange(!snapshot.config.ai.jobQueuePaused)
-                  }
-                  disabled={Boolean(action)}
-                >
-                  {snapshot.config.ai.jobQueuePaused
-                    ? jobsT('resumeQueue')
-                    : jobsT('pauseQueue')}
-                </button>
-              ) : null}
-              <Link className="btn-secondary" to="/settings">
-                {jobsT('openSettings')}
-              </Link>
-            </div>
-          }
+          tone="warning"
+          title={jobsT('pausedQueueCallout', { count: queueCounts.queued })}
+          body={jobsT('pausedQueueBody')}
         />
+      )}
 
-        {runtimeStatus.error ? (
-          <StatusCallout
-            tone="warning"
-            title={jobsT('pageUnavailableTitle')}
-            body={runtimeStatus.error}
-          />
-        ) : null}
+      {pageError && (
+        <StatusCallout
+          tone="warning"
+          title={jobsT('pageUnavailableTitle')}
+          body={pageError}
+        />
+      )}
 
-        {pageError ? (
-          <StatusCallout
-            tone="warning"
-            title={jobsT('pageUnavailableTitle')}
-            body={pageError}
-          />
-        ) : null}
+      {runtimeStatus.error && !pageError && (
+        <StatusCallout
+          tone="warning"
+          title={jobsT('pageUnavailableTitle')}
+          body={runtimeStatus.error}
+        />
+      )}
 
-        <div className="jobs-overview-grid">
-          <PaperCard
-            className="jobs-hero-card jobs-hero-card--wide"
-            testId="jobs-overview-card"
-          >
-            <PaperCardHeader
-              title={jobsT('overviewTitle')}
-              right={
-                <PaperCardBadge>
-                  {lastActivityAt
-                    ? formatRelativeTime(lastActivityAt, language)
-                    : jobsT('sidebarIdleDetail')}
-                </PaperCardBadge>
-              }
-            />
-            <PaperCardBody>
-              <div className="jobs-state-board">
-                <div className="jobs-hero-copy">
-                  <h2>{heroHeadline}</h2>
-                  <p>{jobsT('overviewBody')}</p>
-                  <p className="mono-support">{contentQueueMessage}</p>
-                </div>
-                <div className="jobs-hero-stats">
-                  <div
-                    className={`jobs-hero-stat ${queueCounts.running > 0 ? 'jobs-hero-stat--active' : ''}`}
-                  >
-                    <span className="dim">{jobsT('runningCount')}</span>
-                    <strong className="mono">
-                      {queueCounts.running.toLocaleString(language)}
-                    </strong>
-                  </div>
-                  <div
-                    className={`jobs-hero-stat ${
-                      snapshot.config.ai.jobQueuePaused &&
-                      queueCounts.queued > 0
-                        ? 'jobs-hero-stat--warning'
-                        : ''
-                    }`}
-                  >
-                    <span className="dim">{jobsT('queuedCount')}</span>
-                    <strong className="mono">
-                      {queueCounts.queued.toLocaleString(language)}
-                    </strong>
-                  </div>
-                  <div
-                    className={`jobs-hero-stat ${queueCounts.failed > 0 ? 'jobs-hero-stat--danger' : ''}`}
-                  >
-                    <span className="dim">{jobsT('failedCount')}</span>
-                    <strong className="mono">
-                      {queueCounts.failed.toLocaleString(language)}
-                    </strong>
-                  </div>
-                  <div className="jobs-hero-stat">
-                    <span className="dim">{jobsT('savedReadableContent')}</span>
-                    <strong className="mono">
-                      {visibleReadableContentRows.toLocaleString(language)}
-                    </strong>
-                  </div>
-                </div>
-                <div className="jobs-callout-strip">
-                  <div className="jobs-mini-callout">
-                    <span className="dim">{jobsT('focusNow')}</span>
-                    <p>{focusNowMessage}</p>
-                  </div>
-                  <div className="jobs-mini-callout">
-                    <span className="dim">{jobsT('needsReviewNow')}</span>
-                    <p>{needsReviewMessage}</p>
-                  </div>
-                </div>
-              </div>
-            </PaperCardBody>
-          </PaperCard>
-
-          <PaperCard
-            className="jobs-overview-card"
-            testId="jobs-queue-summary-card"
-          >
-            <PaperCardHeader
-              title={jobsT('queueSummaryTitle')}
-              right={
-                <PaperCardBadge>
-                  {snapshot.config.ai.jobQueuePaused
-                    ? jobsT('queueStatePaused')
-                    : jobsT('queueStateLive')}
-                </PaperCardBadge>
-              }
-            />
-            <PaperCardBody className="jobs-panel-stack">
-              <p>{jobsT('queueSummaryBody')}</p>
-              <div className="intelligence-stat-row">
-                <div className="summary-stat">
-                  <span className="dim">{jobsT('queuedCount')}</span>
-                  <span className="mono">
-                    {(aiQueue?.queued ?? 0).toLocaleString(language)}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{jobsT('runningCount')}</span>
-                  <span className="mono">
-                    {(aiQueue?.running ?? 0).toLocaleString(language)}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{jobsT('failedCount')}</span>
-                  <span className="mono">
-                    {(aiQueue?.failed ?? 0).toLocaleString(language)}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{jobsT('concurrency')}</span>
-                  <span className="mono">
-                    {(
-                      aiQueue?.concurrency ??
-                      snapshot.config.ai.jobQueueConcurrency
-                    ).toLocaleString(language)}
-                  </span>
-                </div>
-              </div>
-              <p className="mono-support">
-                {jobsT('lastActivity')}:{' '}
-                {lastActivityAt
-                  ? formatRelativeTime(lastActivityAt, language)
-                  : jobsT('sidebarIdleDetail')}
-              </p>
-            </PaperCardBody>
-          </PaperCard>
-
-          <PaperCard
-            className="jobs-overview-card"
-            testId="jobs-runtime-summary-card"
-          >
-            <PaperCardHeader
-              title={jobsT('runtimeSummaryTitle')}
-              right={
-                <PaperCardBadge>
-                  {(runtime?.queue.queued ?? 0).toLocaleString(language)}{' '}
-                  {jobsT('queuedCount').toLowerCase()}
-                </PaperCardBadge>
-              }
-            />
-            <PaperCardBody className="jobs-panel-stack">
-              <p>{jobsT('runtimeSummaryBody')}</p>
-              <div className="intelligence-stat-row">
-                <div className="summary-stat">
-                  <span className="dim">{jobsT('queuedCount')}</span>
-                  <span className="mono">
-                    {(runtime?.queue.queued ?? 0).toLocaleString(language)}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{jobsT('runningCount')}</span>
-                  <span className="mono">
-                    {(runtime?.queue.running ?? 0).toLocaleString(language)}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{jobsT('failedCount')}</span>
-                  <span className="mono">
-                    {(runtime?.queue.failed ?? 0).toLocaleString(language)}
-                  </span>
-                </div>
-                <div className="summary-stat">
-                  <span className="dim">{jobsT('lastActivity')}</span>
-                  <span className="mono">
-                    {runtime?.queue.lastActivityAt
-                      ? formatRelativeTime(
-                          runtime.queue.lastActivityAt,
-                          language,
-                        )
-                      : jobsT('sidebarIdleDetail')}
-                  </span>
-                </div>
-              </div>
-            </PaperCardBody>
-          </PaperCard>
-        </div>
-        <JobsRuntimeHealthSection
-          commonT={commonT}
+      {needsAttention.length > 0 && (
+        <NeedsAttentionZone
+          activities={needsAttention}
+          onRetry={(jobId) => void handleReplayAiJob(jobId)}
+          onRetryRuntimeJob={(jobId) => void handleRetryRuntimeJob(jobId)}
+          onRetryBackup={() => void handleRetryBackup()}
+          action={action}
           jobsT={jobsT}
           language={language}
-          runtime={runtime}
-          settingsT={settingsT}
         />
+      )}
 
-        <div className="jobs-section-heading">
-          <span className="panel-title">{jobsT('archiveTasksTitle')}</span>
-          <p>{jobsT('archiveTasksBody')}</p>
-        </div>
+      {(runningNow.length > 0 || showModelDownload) && (
+        <RunningNowZone
+          activities={runningNow}
+          modelDownload={modelDownload}
+          showModelDownload={showModelDownload}
+          onPauseChange={handlePauseChange}
+          onCancel={(jobId) => void handleCancelAiJob(jobId)}
+          onCancelRuntime={(jobId) => void handleCancelRuntimeJob(jobId)}
+          action={action}
+          jobsT={jobsT}
+          language={language}
+        />
+      )}
 
-        <div className="jobs-archive-task-list">
-          {visibleArchiveTasks.length > 0 ? (
-            visibleArchiveTasks.map((task) => (
-              <TaskProgressCard
-                key={task.id}
-                task={task}
-                language={language}
-                labels={{
-                  started: jobsT('archiveTaskStarted'),
-                  updated: jobsT('archiveTaskUpdated'),
-                  records: jobsT('archiveTaskRecords'),
-                  console: jobsT('archiveTaskConsole'),
-                  noLogs: jobsT('archiveTaskNoLogs'),
-                }}
-                actions={
-                  task.resultLink ? (
-                    <Link className="btn-secondary" to={task.resultLink}>
-                      {jobsT('archiveTaskOpenResult')}
-                    </Link>
-                  ) : null
-                }
-              />
-            ))
-          ) : (
-            <StatusCallout
-              tone="success"
-              title={jobsT('archiveTasksTitle')}
-              body={jobsT('archiveTasksBody')}
-            />
-          )}
-        </div>
+      <BackgroundFeaturesZone
+        aiStatus={snapshot.aiStatus}
+        runtime={runtime}
+        jobsT={jobsT}
+        language={language}
+      />
 
-        <div className="jobs-section-heading" id="jobs-recent-activity">
-          <span className="panel-title">{jobsT('recentActivityTitle')}</span>
-          <p>{jobsT('recentActivityBody')}</p>
-        </div>
+      <RecentZone activities={recent} jobsT={jobsT} language={language} />
+    </main>
+  )
+}
 
-        <div className="jobs-summary-grid">
-          <JobPanel
-            action={action}
-            emptyLabel={jobsT('recentJobsEmpty')}
-            jobs={aiQueue?.recentJobs ?? []}
-            jobsT={jobsT}
-            language={language}
-            noDetailsLabel={jobsT('noErrorDetails')}
-            onCancel={handleCancelAiJob}
-            onRetry={handleReplayAiJob}
-            title={jobsT('recentAiJobs')}
-          />
-          <RuntimeJobPanel
-            action={action}
-            emptyLabel={jobsT('recentJobsEmpty')}
-            jobs={runtime?.recentJobs ?? []}
-            jobsT={jobsT}
-            language={language}
-            onCancel={handleCancelRuntimeJob}
-            onRetry={handleRetryRuntimeJob}
-            settingsT={settingsT}
-            title={jobsT('recentRuntimeJobs')}
-          />
-        </div>
+/**
+ * Loading skeleton shown while the archive snapshot and runtime status are
+ * loading. Matches the first visible section structure so the page does not
+ * produce a jarring flash when data arrives.
+ *
+ * Animation is gated on prefers-reduced-motion: no-preference.
+ */
+function ActivitySkeleton() {
+  return (
+    <div
+      data-testid="activity-page-skeleton"
+      className="activity-skeleton mx-auto w-full max-w-[1080px] pt-7"
+      aria-hidden="true"
+    >
+      <div className="activity-skeleton__header">
+        <div className="activity-skeleton__bar activity-skeleton__bar--title" />
+        <div className="activity-skeleton__bar activity-skeleton__bar--summary" />
+      </div>
+      <div className="activity-skeleton__section">
+        <div className="activity-skeleton__row" />
+      </div>
+      <div className="activity-skeleton__chips">
+        <div className="activity-skeleton__chip" />
+        <div className="activity-skeleton__chip" />
+        <div className="activity-skeleton__chip" />
       </div>
     </div>
   )

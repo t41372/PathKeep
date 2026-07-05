@@ -14,9 +14,13 @@
 //!   old bundles work on newer binaries.
 //!
 //! ## Not responsible for
-//! - Stopping or restarting background workers around the swap. The caller
-//!   (Tauri command façade) owns runtime quiescence — this module assumes
-//!   it is the only writer for the duration of the call.
+//! - Quiescing UNRELATED in-process background workers (AI queue, search/intelligence
+//!   projection rebuilds) around the swap. `apply_import` now holds BOTH the cross-process
+//!   [`ArchiveWriteLock`] (excludes the OUT-OF-PROCESS scheduled backup) AND the in-process
+//!   top-level [`ArchiveOpGate`] (excludes a SECOND same-process TOP-LEVEL destructive op —
+//!   a concurrently-dispatched backup/rekey/import/retention-prune/snapshot-restore/
+//!   reconcile), closing the lock-completion carry-in. Non-destructive workers that never
+//!   `fs::rename` a canonical DB are out of scope and are intentionally NOT gated.
 //! - Stronghold / App Lock secrets, scheduler artifacts, logs, diagnostics,
 //!   or any platform-specific state. Those are intentionally excluded from
 //!   the bundle (see `EXPORT_EXCLUSIONS_DOC` for the documented reasons).
@@ -58,10 +62,15 @@
 
 use crate::{
     archive::{
-        apply_cipher_key, export_archive_database, max_schema_version, open_archive_connection,
-        open_source_evidence_connection, run_migrations,
+        ArchiveOpGate, ArchiveWriteLock, DiskEncryptionMode, apply_cipher_key,
+        create_verified_safety_snapshot, detect_disk_encryption_mode, export_archive_database,
+        max_schema_version, open_archive_connection, open_source_evidence_connection,
+        remove_stale_sidecars, run_migrations,
     },
     config::{ProjectPaths, load_config, save_config},
+    durable_io::{
+        atomic_durable_write, fsync_file_durably, install_file_durably, remove_file_durably,
+    },
     models::{AppConfig, ArchiveMode},
     utils::sha256_hex,
 };
@@ -101,7 +110,88 @@ pub const EXPORT_EXCLUSIONS_DOC: &[(&str, &str)] = &[
     ("staging/", "Transient import staging is regenerated as needed."),
     ("quarantine/", "Quarantined files belong only to the source machine."),
     ("exports/", "Avoids packing previous export bundles into a new export."),
+    ("models/", "Downloaded embedding/reranker models are re-downloadable on the target machine."),
+    ("derived/agent.sqlite", "Assistant chat transcripts stay on the source machine."),
+    (
+        "derived/vectors/",
+        "Raw f32 embedding vectors (~59 GB at the 14.4M tail) are rebuildable derived state; re-embed on the target instead of shipping them.",
+    ),
+    (
+        "sidecars/intelligence-blobs/",
+        "Raw enrichment body/caption blobs are re-fetchable, possibly large, and possibly stale; the capped enrichment summary rides in the intelligence database so offline search still works.",
+    ),
 ];
+
+/// Top-level subtree name (under `sidecars/`) holding the raw enrichment body/caption blobs.
+///
+/// These are the content-addressed readable-text blobs the enrichment plane writes (title-plugin
+/// fallbacks + W-ENRICH-1 fetched bodies). They are EXCLUDED from the export bundle (06 §3): they are
+/// re-fetchable/re-derivable and can be large, while the CAPPED `enrichment_summary` rides inside the
+/// exported intelligence database so offline keyword search still resolves on the target.
+const SIDECAR_ENRICHMENT_BLOBS_DIRNAME: &str = "intelligence-blobs";
+
+/// Returns true when a `sidecars/`-relative path is part of the raw enrichment blob plane (06 §3).
+///
+/// Matches the whole `sidecars/intelligence-blobs/` subtree so neither the title-plugin blobs nor the
+/// W-ENRICH-1 fetched-body blobs ride the export. `relative` is the path under the `sidecars/` root.
+fn is_sidecar_enrichment_blob_excluded(relative: &Path) -> bool {
+    relative
+        .components()
+        .next()
+        .is_some_and(|first| first.as_os_str() == SIDECAR_ENRICHMENT_BLOBS_DIRNAME)
+}
+
+/// Files under `derived/` that are skipped by [`add_dir_to_zip_if_exists`] even though `derived/`
+/// is otherwise an included subtree.
+///
+/// The agent sidecar (`agent.sqlite` + its WAL/SHM siblings) holds assistant chat transcripts, a
+/// privacy-sensitive plane that — by data-sovereignty default — never rides the portable export
+/// bundle. The base name plus any `-wal`/`-shm`/`-journal` suffix is matched so WAL-mode artifacts
+/// are excluded too.
+const DERIVED_EXPORT_EXCLUDED_BASENAMES: &[&str] = &["agent.sqlite"];
+
+/// Returns true when a file basename belongs to a `derived/`-level export exclusion (the agent
+/// sidecar database and its WAL/SHM/journal siblings).
+fn is_derived_export_excluded(file_name: &str) -> bool {
+    DERIVED_EXPORT_EXCLUDED_BASENAMES.iter().any(|excluded| {
+        file_name == *excluded
+            || file_name == format!("{excluded}-wal")
+            || file_name == format!("{excluded}-shm")
+            || file_name == format!("{excluded}-journal")
+    })
+}
+
+/// Subdirectory of `derived/` that holds the AI vector sidecar plane (the `.pkvec` stores).
+const DERIVED_VECTOR_PLANE_DIRNAME: &str = "vectors";
+
+/// File extensions of the AI vector sidecar plane excluded from the export bundle.
+///
+/// `pkvec` is the raw f32 vector store; `pkmap` is the visit→content_key map beside it (W-AI-4c);
+/// `pkbin`/`pki8` are the W-AI-5 derived binary-recall + int8-rescore planes projected from `.pkvec`;
+/// `pkrev`/`pkfwd` are the M-11 keyed reverse/forward sidecars projected from `.pkmap` (sorted by
+/// content_key / history_id for bounded hydration + `is:starred` lookups). All are rebuildable derived
+/// state that re-projects/re-embeds on the target, so none ride the portable export.
+const DERIVED_VECTOR_PLANE_EXTENSIONS: &[&str] =
+    &["pkvec", "pkmap", "pkbin", "pki8", "pkrev", "pkfwd"];
+
+/// Returns true when a `derived/`-relative path is part of the vector sidecar plane and so must be
+/// excluded from the export bundle (HIGH-4).
+///
+/// Matches the whole `derived/vectors/` subtree, plus any stray `.pkvec` / `.pkmap` store written
+/// elsewhere under `derived/`, so the ~59 GB rebuildable f32 vectors AND their visit→content map never
+/// ride the portable export. `relative` is the path under the `derived/` root (the first component is
+/// the top-level child name).
+fn is_derived_vector_plane_excluded(relative: &Path) -> bool {
+    let under_vectors_dir = relative
+        .components()
+        .next()
+        .is_some_and(|first| first.as_os_str() == DERIVED_VECTOR_PLANE_DIRNAME);
+    let is_vector_plane_file = relative
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| DERIVED_VECTOR_PLANE_EXTENSIONS.contains(&ext));
+    under_vectors_dir || is_vector_plane_file
+}
 
 /// Top-level subtrees of the project root that *are* included in the bundle.
 /// Listed explicitly so a new artifact directory does not silently leak
@@ -374,29 +464,90 @@ pub fn preview_import(paths: &ProjectPaths, bundle_path: &Path) -> Result<Import
 
 /// Applies the bundle at `bundle_path` onto the live project tree.
 ///
-/// Steps:
-///   1. Re-validate the manifest (defence against a races between preview
-///      and apply where the bundle was replaced on disk).
-///   2. Extract every entry into a temp staging tree.
-///   3. Move each currently-existing target subtree to a sibling
-///      `.bak-<timestamp>` directory so the user can recover.
-///   4. Move the staged subtrees into the live project paths.
-///   5. Run forward schema migrations on the newly-installed archive.
-///   6. Reload + persist the imported config so callers see fresh state.
+/// Crash-safety contract (the 2026-06-30 data-integrity audit). The two canonical
+/// renames are NOT atomic with each other, so rather than pretend they are, the
+/// commit phase is bracketed by a DURABLE interrupted-import marker: a crash
+/// mid-commit is SIGNALED and reverted, never silently opened as a mixed archive.
+///   1. Re-validate the manifest + per-file sha256, extract into a same-filesystem
+///      staging tree, and (for encrypted bundles) verify the source key — all
+///      read-only on the live tree, so a refusal here changes nothing.
+///   2. Hold the cross-process [`ArchiveWriteLock`] for the whole destructive
+///      section, so the SEPARATE scheduled-backup process can never race the swap.
+///   3. PREPARE: fsync each staged canonical DB in place, so the swap renames issue
+///      back-to-back behind a barrier that is already paid (LOW-G: staging is the
+///      SAME filesystem as the archive by construction — both immediate children of
+///      `app_root` — so each `install_file_durably` rename is atomic; the only
+///      un-fsynced half is the staging-dir unlink, harmless because staging is a
+///      RAII-cleaned `TempDir`, so we fsync the bytes here instead of doubling I/O
+///      by first copying a multi-GB archive into the archive dir).
+///   4. Write the interrupted-import journal DURABLY BEFORE the first swap (HIGH-B).
+///   5. COMMIT (one unit): install each canonical DB (`history-vault.sqlite`, then
+///      `source-evidence.sqlite`) as a DB+sidecars unit — preserve the old file as
+///      a complete `.bak-<ts>` unit (MEDIUM-C: its hot `-wal` rides along), scrub
+///      the target's pre-existing sidecars + assert no FOREIGN `<target>-wal`
+///      survives (CRIT-3), then durably swap the staged copy in. If the bundle
+///      OMITS a canonical DB the dest still has, preserve+remove the stale one so it
+///      can't pair (mode-drifted) with the new history-vault (MEDIUM-F). Then
+///      install the rebuildable subtrees, and write config LAST (step 6). ANY
+///      returned error in this phase rolls the whole unit back from the `.bak`s.
+///   6. Config LAST, ALWAYS written (no skip branch), with `archive_mode` forced to
+///      the INSTALLED DBs' actual at-rest mode read from their on-disk header
+///      (HIGH-A) — the bytes on disk, not the bundle metadata, are the authority,
+///      so config↔DB drift (the NOTADB brick) is impossible.
+///   7. COMMIT POINT: clear the marker DURABLY — that is what commits the import.
+///   8. Run forward schema migrations on the newly-installed archive (post-commit:
+///      a failure here returns Err but does NOT roll back), then prune older
+///      `.bak-<ts>` generations once the import is verified-openable (MEDIUM-D).
 ///
-/// The caller must have stopped background workers before invoking this
-/// (the Tauri command façade does so).
+/// [`recover_interrupted_import`] is the crash-recovery twin of the in-band
+/// rollback: it walks the SAME journal at next open and restores the consistent
+/// pre-import state. As of the lock-completion block it is wired at EVERY destructive
+/// pre-open site, each holding the [`ArchiveWriteLock`] (and the in-process top-level
+/// [`crate::archive::ArchiveOpGate`]) when it recovers — the unlock-path
+/// [`crate::archive::reconcile_archive_encryption`], the backup pre-open path
+/// ([`crate::archive::run_backup_with_progress`], which closes the out-of-process
+/// scheduled-backup hole where a crashed import's same-mode half-state would otherwise
+/// be backed up and recorded as success), the rekey pre-open path
+/// ([`crate::archive::rekey_archive`], which closes the hole where a rekey on a PLAINTEXT
+/// archive — never reached by the encryption-gated launch reconcile — would rekey a
+/// half-applied import into a permanent config↔source-evidence mode-drift brick), the
+/// retention-prune ([`crate::archive::run_retention_prune`]) and snapshot-restore
+/// ([`crate::archive::run_snapshot_restore`]) pre-open paths, AND — as of Phase C — the
+/// launch-time at-rest reconcile ([`crate::archive::recover_archive_on_launch`]), the very
+/// first destructive pre-open site on every app start. The fail-closed
+/// [`ensure_recovered_modes_are_consistent`] guard remains as defence-in-depth so any
+/// recovery still refuses to commit a mode-drifted config.
+///
+/// The fault-injection checkpoints (`import.after_stage_before_swap`,
+/// `import.after_canonical_install`, `import.after_swap_before_config`,
+/// `import.after_config`) are no-ops in production and let crash-window tests prove
+/// the recoverability invariant at each step.
+///
+/// Same-process top-level exclusion IS now covered: `apply_import` holds the in-process
+/// [`ArchiveOpGate`] (taken before the [`ArchiveWriteLock`]), so a concurrently-dispatched
+/// TOP-LEVEL destructive op in THIS process serializes behind it. Quiescing UNRELATED
+/// non-destructive in-process workers (AI/search projection) is out of scope — they never
+/// rename a canonical DB.
 pub fn apply_import(
     paths: &ProjectPaths,
+    // The imported config now comes from the bundle's own `config/config.json`
+    // (the source of truth for the imported archive's mode), written LAST and
+    // reloaded through `load_config`. `config` survives only as the last-resort
+    // fallback if that reload somehow fails.
     config: &AppConfig,
-    // Codex C4: the caller's session key is no longer consulted by
-    // `apply_import`. Encrypted bundles use
-    // `options.source_archive_key`; plaintext bundles need no key. The
-    // parameter stays in the public signature so all existing callers
-    // (commands/migration.rs, worker_bridge::apply_app_data_import_impl,
-    // dev_ipc_bridge dispatch) keep compiling without churn, and we
-    // mark it `_key` so the compiler doesn't warn about it being
-    // unused.
+    // Codex C4: the caller's session key is no longer consulted for the
+    // IMPORT itself. Encrypted bundles use `options.source_archive_key`;
+    // plaintext bundles need no key. The parameter stays in the public
+    // signature so all existing callers (commands/migration.rs,
+    // worker_bridge::apply_app_data_import_impl, dev_ipc_bridge dispatch)
+    // keep compiling without churn.
+    //
+    // D3 (best-effort): it IS now read for ONE narrow purpose — to open an
+    // EXISTING ENCRYPTED history-vault so a verified safety snapshot of the
+    // pre-import archive can be captured into `raw-snapshots/import/` before
+    // the import overwrites it. That capture is strictly best-effort (an
+    // absent key just skips it), so it never gates or fails the import; the
+    // name stays `_key` to avoid churning every call site.
     _key: Option<&str>,
     bundle_path: &Path,
     options: &ApplyImportOptions,
@@ -466,66 +617,184 @@ pub fn apply_import(
         None
     };
 
-    // Atomic-ish swap: rename current subtrees to .bak then move staged in.
-    // SQLite + WAL files require the connection to be closed before move
-    // — the caller stopped workers; here we just touch the filesystem.
-    let timestamp = crate::utils::now_rfc3339().replace(':', "-");
-    let mut preserved_previous = false;
+    // (2) Serialize the entire destructive section against every other archive-mutating
+    // op until these guards drop at the end of the function. The in-process top-level
+    // [`ArchiveOpGate`] (taken FIRST) excludes a SECOND destructive op dispatched in THIS
+    // process — e.g. a manual backup mid-transaction (CRIT-5's same-process trigger),
+    // which the reentrant flock alone cannot exclude — and the cross-process
+    // [`ArchiveWriteLock`] excludes the SEPARATE scheduled-backup process. Acquired AFTER
+    // the read-only staging + source-key verification above so a refusal path never even
+    // materialises the archive directory (the lock sentinel lives there). The gate is
+    // non-reentrant and taken ONLY here at the top level; the flock is process-reentrant,
+    // so the nested in-band `rollback_import` below never self-deadlocks. Released in
+    // reverse order (lock first, then gate).
+    let _op_gate = ArchiveOpGate::acquire(paths);
+    let _write_lock =
+        ArchiveWriteLock::acquire(paths).context("acquiring the archive write lock for import")?;
 
-    // Files (config + archive dbs) and directories under the project root.
-    let movable_files: &[(&str, &Path)] = &[
-        ("config/config.json", paths.config_path.as_path()),
+    // ---- PREPARE: push every staged canonical DB to the platter IN PLACE so the
+    // swap renames below issue back-to-back behind a barrier that is already paid
+    // (HIGH-B / LOW-G). The renames are cross-DIRECTORY (staging -> archive), but the
+    // C3 fix guarantees both live directly under `app_root`, so each is atomic on one
+    // filesystem; pre-fsyncing the bytes here avoids doubling I/O on a multi-GB
+    // archive (see the `apply_import` doc comment).
+    let canonical_dbs: &[(&str, &Path)] = &[
         ("archive/history-vault.sqlite", paths.archive_database_path.as_path()),
         ("archive/source-evidence.sqlite", paths.source_evidence_database_path.as_path()),
     ];
-    for (zip_relative, target) in movable_files {
+    for (zip_relative, _) in canonical_dbs {
         let staged = staging.path().join(zip_relative);
-        if !staged.exists() {
-            continue;
+        if staged.exists() {
+            fsync_file_durably(&staged)?;
         }
-        if target.exists() {
-            preserved_previous = true;
-            let backup = backup_sidecar_path(target, &timestamp);
-            fs::rename(target, &backup).with_context(|| {
-                format!("preserving previous {} as {}", target.display(), backup.display())
-            })?;
-        }
-        ensure_parent_dir(target)?;
-        fs::rename(&staged, target).with_context(|| {
-            format!("installing {} into {}", staged.display(), target.display())
-        })?;
     }
 
+    // A crash HERE is a full no-op: no marker written, no `.bak` made — only staged
+    // temps under `staging/` exist, and they are RAII-cleaned with the `TempDir`.
+    crate::fault_inject::checkpoint("import.after_stage_before_swap")?;
+
+    let timestamp = crate::utils::now_rfc3339().replace(':', "-");
+
+    // Build + durably write the interrupted-import journal BEFORE the first swap
+    // (HIGH-B): its presence at next open SIGNALS a cut commit phase, and its
+    // contents drive BOTH the in-band rollback below and `recover_interrupted_import`.
+    let previous_config: Option<String> =
+        if paths.config_path.exists() {
+            Some(fs::read_to_string(&paths.config_path).with_context(|| {
+                format!("reading {} before import", paths.config_path.display())
+            })?)
+        } else {
+            None
+        };
+    let mut journal = ImportJournal {
+        version: 1,
+        timestamp: timestamp.clone(),
+        canonical: Vec::new(),
+        subtrees: Vec::new(),
+        previous_config,
+    };
+    for (zip_relative, target) in canonical_dbs {
+        let staged_present = staging.path().join(zip_relative).exists();
+        // Journal an entry when we will INSTALL a staged DB, OR (MEDIUM-F) when the
+        // dest has a stale canonical DB the bundle omits that we will preserve+remove.
+        if staged_present || target.exists() {
+            journal.canonical.push(ImportJournalEntry {
+                target: target.to_path_buf(),
+                had_previous: target.exists(),
+            });
+        }
+    }
     for prefix in INCLUDED_DIRECTORY_PREFIXES {
-        let staged = staging.path().join(prefix);
-        if !staged.exists() {
-            continue;
+        if staging.path().join(prefix).exists() {
+            let target = paths.app_root.join(prefix);
+            journal
+                .subtrees
+                .push(ImportJournalEntry { target: target.clone(), had_previous: target.exists() });
         }
-        let target = paths.app_root.join(prefix);
-        if target.exists() {
-            preserved_previous = true;
-            let backup = backup_sidecar_path(&target, &timestamp);
-            fs::rename(&target, &backup).with_context(|| {
-                format!("preserving previous {} as {}", target.display(), backup.display())
+    }
+    write_import_journal(paths, &journal)?;
+
+    // D3 (best-effort, NO lock): capture a VERIFIED full-archive safety snapshot of the EXISTING
+    // pre-import history-vault into `raw-snapshots/import/` before the swap overwrites it. This is
+    // belt-and-suspenders on top of the `.bak-<ts>` units the swap keeps, and it feeds the D1
+    // one-click restore. It is deliberately downgraded to a no-op on any failure (fresh install,
+    // an encrypted archive whose key is not in hand, or a snapshot error) so it can never abort an
+    // import the user asked for.
+    capture_pre_import_safety_snapshot(paths, _key);
+
+    // ---- COMMIT. Run inside a closure so ANY `?` failure routes through the SAME
+    // in-band rollback below — the canonical set is one commit unit.
+    let commit = (|| -> Result<bool> {
+        let mut preserved_previous = false;
+        for (zip_relative, target) in canonical_dbs {
+            let staged = staging.path().join(zip_relative);
+            if staged.exists() {
+                if install_staged_db_durably(&staged, target, &timestamp)? {
+                    preserved_previous = true;
+                }
+            } else if target.exists() {
+                // MEDIUM-F: the bundle omits this canonical DB but the dest has one.
+                // Leaving it would pair a (possibly mode-drifted) stale DB with the
+                // freshly installed history-vault. Preserve it as a complete `.bak`
+                // unit (with sidecars, MEDIUM-C) and remove the live copy, so the
+                // next open recreates a fresh empty one in the final-config mode.
+                preserve_existing_as_bak(target, &timestamp)?;
+                remove_stale_sidecars(target);
+                preserved_previous = true;
+            }
+            // Fires AFTER each canonical install — i.e. BETWEEN the two — so a crash
+            // here leaves history-vault swapped but source-evidence not yet.
+            crate::fault_inject::checkpoint("import.after_canonical_install")?;
+        }
+
+        // A crash HERE leaves both canonical DBs installed but config not yet written.
+        crate::fault_inject::checkpoint("import.after_swap_before_config")?;
+
+        // Rebuildable subtrees (derived/audit/raw-snapshots/sidecars).
+        for prefix in INCLUDED_DIRECTORY_PREFIXES {
+            let staged = staging.path().join(prefix);
+            if !staged.exists() {
+                continue;
+            }
+            let target = paths.app_root.join(prefix);
+            if target.exists() {
+                preserved_previous = true;
+                let backup = backup_sidecar_path(&target, &timestamp);
+                fs::rename(&target, &backup).with_context(|| {
+                    format!("preserving previous {} as {}", target.display(), backup.display())
+                })?;
+            }
+            ensure_parent_dir(&target)?;
+            fs::rename(&staged, &target).with_context(|| {
+                format!("installing {} into {}", staged.display(), target.display())
             })?;
         }
-        ensure_parent_dir(&target)?;
-        fs::rename(&staged, &target).with_context(|| {
-            format!("installing {} into {}", staged.display(), target.display())
-        })?;
-    }
 
-    // Reload the imported config so subsequent operations see fresh state.
-    // The previous in-memory `config` is stale once we've replaced
-    // config.json under it.
+        // HIGH-A: config LAST, ALWAYS written (no skip branch), with `archive_mode`
+        // forced to the installed DBs' real at-rest mode — the on-disk bytes, not the
+        // bundle metadata, are the authority, so config↔DB drift cannot brick a reopen.
+        let final_config = final_archive_config(
+            paths,
+            &staged_config,
+            staging.path().join("config/config.json").exists(),
+            config,
+        );
+        save_config(paths, &final_config)
+            .context("persisting the imported config (archive-at-rest mode reconciled)")?;
+        Ok(preserved_previous)
+    })();
+
+    let preserved_previous = match commit {
+        Ok(value) => value,
+        Err(error) => {
+            // In-band rollback to the consistent pre-import state. If rollback
+            // completes, clear the marker; otherwise LEAVE it so
+            // `recover_interrupted_import` retries at the next open. Surface the
+            // ORIGINAL commit error either way.
+            if rollback_import(paths, &journal).is_ok() {
+                let _ = remove_file_durably(&import_journal_path(paths));
+            }
+            return Err(error);
+        }
+    };
+
+    // ---- COMMIT POINT: config is durably on disk; clearing the marker DURABLY
+    // commits the import (a power loss can no longer resurrect it -> recovery no-op).
+    remove_file_durably(&import_journal_path(paths))
+        .context("clearing the interrupted-import marker")?;
+
+    // A crash HERE survives: the marker is gone, so recovery is a no-op and the new
+    // archive + config stand.
+    crate::fault_inject::checkpoint("import.after_config")?;
+
+    // Reload the imported config through the normalizing loader so subsequent
+    // operations see fresh state (the in-memory `config` is stale once config.json
+    // has been replaced under it).
     let imported_config = load_config(paths).unwrap_or_else(|_| config.clone());
-    save_config(paths, &imported_config).ok();
 
-    // Run forward migrations on the newly-installed archive. Encrypted
-    // bundles use the verified source key (see Codex C4 above);
-    // plaintext bundles use `None`. The caller's session key is no
-    // longer consulted here — it was the wrong reference frame for an
-    // imported archive.
+    // Run forward migrations on the newly-installed archive (post-commit: a failure
+    // here returns Err but does NOT roll back — the import is already committed).
+    // Encrypted bundles use the verified source key (Codex C4); plaintext use `None`.
     let post_install_key = effective_post_install_key.as_deref();
     let migrations_applied = if preview.migrations_to_apply.is_empty() {
         Vec::new()
@@ -539,12 +808,51 @@ pub fn apply_import(
         crate::archive::current_version(&connection)?
     };
 
+    // MEDIUM-D: the import is verified-openable now, so prune older `.bak-<ts>`
+    // generations, keeping the current set as the undo-import backstop (best-effort).
+    prune_previous_bak_generations(paths, &timestamp);
+
     Ok(ImportResult {
         manifest: preview.manifest,
         migrations_applied,
         final_schema_version,
         preserved_previous_as_bak: preserved_previous,
     })
+}
+
+/// Best-effort capture of a VERIFIED full-archive safety snapshot of the EXISTING (pre-import)
+/// history-vault into `raw-snapshots/import/`, before [`apply_import`] overwrites it.
+///
+/// Strictly best-effort (D3): every non-happy path is DOWNGRADED to a silent no-op so it can never
+/// abort the import. A fresh install (`Absent` archive) has nothing to back up; an `Encrypted`
+/// archive whose session key is not in hand cannot be opened to verify the copy, so it is skipped
+/// (the import's `.bak-<ts>` units still protect the user); and a snapshot failure on a present DB
+/// is swallowed. Takes NO lock — `apply_import` already holds the gate + flock.
+fn capture_pre_import_safety_snapshot(paths: &ProjectPaths, key: Option<&str>) {
+    let (config, snapshot_key) = match detect_disk_encryption_mode(&paths.archive_database_path) {
+        // Fresh install: nothing on disk to back up.
+        DiskEncryptionMode::Absent => return,
+        DiskEncryptionMode::Plaintext => {
+            (AppConfig { archive_mode: ArchiveMode::Plaintext, ..AppConfig::default() }, None)
+        }
+        DiskEncryptionMode::Encrypted => match key {
+            Some(key) => (
+                AppConfig { archive_mode: ArchiveMode::Encrypted, ..AppConfig::default() },
+                Some(key),
+            ),
+            // Encrypted but no session key: cannot open to verify a copy, so skip the best-effort
+            // backstop. The `.bak-<ts>` units the import keeps are the user's recovery path here.
+            None => return,
+        },
+    };
+    let captured = (|| -> Result<()> {
+        let source = open_archive_connection(paths, &config, snapshot_key)?;
+        create_verified_safety_snapshot(paths, &source, &config, snapshot_key, "import")?;
+        Ok(())
+    })();
+    // Downgrade any failure to a no-op: a missing backstop must NOT abort an import the user asked
+    // for (the `.bak-<ts>` units remain the authoritative undo-import path).
+    let _ = captured;
 }
 
 fn open_archive_for_migration(
@@ -556,6 +864,464 @@ fn open_archive_for_migration(
     // migration ledger up; the regular `open_archive_connection` already
     // bootstraps WAL + cache pragmas, so reuse it.
     open_archive_connection(paths, config, key)
+}
+
+/// Installs one staged canonical database onto `target` durably, treating the
+/// database and its `-wal`/`-shm`/`-journal` sidecars as a single unit. Returns
+/// `true` when a previous `target` was preserved as a `.bak-<timestamp>` sibling.
+///
+/// The order is the load-bearing CRIT-3 fix:
+///   1. preserve any existing `target` as `.bak-<ts>` (the user's recovery copy),
+///   2. SCRUB the target path's pre-existing sidecars — the old database's hot
+///      `-wal` (committed-but-uncheckpointed frames left by a prior crash) is now
+///      orphaned beside where the NEW database will sit, and SQLite would replay
+///      its OLD page frames into the freshly imported canonical database,
+///      corrupting it silently (a same-mode plaintext pair) or bricking page 1
+///      with NOTADB (a mode-mismatched leftover),
+///   3. assert no `<target>-wal` survives the scrub (defence in depth), then
+///   4. durably swap the staged copy in (`install_file_durably`: F_FULLFSYNC +
+///      atomic rename + dir fsync), and scrub once more so the first open starts
+///      from a clean WAL (the staged copy is self-contained from `sqlcipher_export`,
+///      so any sidecar that materialised is stale).
+///
+/// MEDIUM-C: the old database's `.bak` is now a COMPLETE unit — `preserve_existing_as_bak`
+/// moves its hot `-wal`/`-shm`/`-journal` alongside the `.bak`, so committed-but-
+/// uncheckpointed frames survive in the undo-import backstop instead of being dropped,
+/// while the target path is still cleared of those foreign sidecars (CRIT-3). LOW-G:
+/// `staged` lives under `app_root/staging` and `target` under `app_root/archive` — the
+/// same filesystem by construction — so the `install_file_durably` rename is atomic
+/// despite being cross-directory.
+fn install_staged_db_durably(staged: &Path, target: &Path, timestamp: &str) -> Result<bool> {
+    let preserved = preserve_existing_as_bak(target, timestamp)?.is_some();
+    // Treat the DB as a unit: the old file's now-orphaned sidecars must not be
+    // replayed against the imported database (CRIT-3).
+    remove_stale_sidecars(target);
+    ensure_no_foreign_wal(target)?;
+    ensure_parent_dir(target)?;
+    install_file_durably(staged, target)
+        .with_context(|| format!("installing {} into {}", staged.display(), target.display()))?;
+    // The staged copy is self-contained; clear any sidecar that appeared so the
+    // first open does not inherit a stale WAL (mirrors the rekey swap).
+    remove_stale_sidecars(target);
+    Ok(preserved)
+}
+
+/// Preserves an existing canonical `target` as a sibling `.bak-<timestamp>` file —
+/// AND moves the old database's `-wal`/`-shm`/`-journal` sidecars alongside it, so
+/// the `.bak` is a COMPLETE, self-consistent copy of the database being replaced.
+/// `Ok(None)` when `target` does not exist (a fresh install, nothing to preserve).
+///
+/// MEDIUM-C: the old database may carry a HOT `-wal` (committed-but-uncheckpointed
+/// frames left by a force-quit). Renaming only the main file would strip those
+/// frames — the rows the user committed last would silently vanish from the
+/// undo-import backstop. Moving the sidecars to `<backup>-wal` etc. keeps them with
+/// the `.bak` (so a restore replays them) while ALSO clearing the target path of the
+/// old, now-foreign sidecars that must never replay into the freshly installed
+/// database (the CRIT-3 hazard `install_staged_db_durably` re-scrubs as defence in
+/// depth).
+fn preserve_existing_as_bak(target: &Path, timestamp: &str) -> Result<Option<PathBuf>> {
+    if !target.exists() {
+        return Ok(None);
+    }
+    let backup = backup_sidecar_path(target, timestamp);
+    fs::rename(target, &backup).with_context(|| {
+        format!("preserving previous {} as {}", target.display(), backup.display())
+    })?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let target_sidecar = PathBuf::from(format!("{}{}", target.display(), suffix));
+        if target_sidecar.exists() {
+            let backup_sidecar = PathBuf::from(format!("{}{}", backup.display(), suffix));
+            fs::rename(&target_sidecar, &backup_sidecar).with_context(|| {
+                format!(
+                    "preserving previous {} as {}",
+                    target_sidecar.display(),
+                    backup_sidecar.display()
+                )
+            })?;
+        }
+    }
+    Ok(Some(backup))
+}
+
+/// The path SQLite would treat as `db_path`'s write-ahead log.
+fn wal_sidecar_path(db_path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}-wal", db_path.display()))
+}
+
+/// Refuses to install a canonical database while a `<db_path>-wal` still sits
+/// beside it. After the scrub in [`install_staged_db_durably`] this always passes;
+/// it is a cheap, explicit guard that a FOREIGN write-ahead log can never be left
+/// for the post-install open to replay into the freshly imported database (CRIT-3).
+fn ensure_no_foreign_wal(db_path: &Path) -> Result<()> {
+    let wal = wal_sidecar_path(db_path);
+    if wal.exists() {
+        anyhow::bail!(
+            concat!(
+                "refusing to import {}: a foreign write-ahead log {} is still present and would be ",
+                "replayed into the imported database",
+            ),
+            db_path.display(),
+            wal.display(),
+        );
+    }
+    Ok(())
+}
+
+/// Filename of the durable interrupted-import marker, placed beside the canonical
+/// archive database. The `.pk-` prefix keeps retention / cleanup from deleting it
+/// (the same dotfile-skip contract the archive write-lock sentinel relies on), so a
+/// crash-mid-commit signal can never be swept away before recovery acts on it.
+const IMPORT_JOURNAL_FILE: &str = ".pk-import-journal.json";
+
+/// One canonical-DB or subtree path the import is about to replace, plus whether a
+/// previous version existed there before the swap — so rollback knows whether to
+/// restore a `.bak` or simply delete a fresh install.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ImportJournalEntry {
+    target: PathBuf,
+    had_previous: bool,
+}
+
+/// The durable record of an in-flight import's commit phase.
+///
+/// Written (durably) BEFORE the first swap and removed (durably) AFTER the config
+/// write. Its mere presence at archive-open time SIGNALS that a crash cut the commit
+/// phase; its contents are exactly what [`rollback_import`] needs to restore the
+/// consistent pre-import state. The two canonical renames are NOT atomic, so this
+/// marker — not the filesystem — is the source of truth for "did the import commit?".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ImportJournal {
+    /// Schema version of this journal record (currently `1`).
+    version: u32,
+    /// The `.bak-<ts>` suffix the commit phase used, so rollback finds the backups.
+    timestamp: String,
+    /// Canonical databases (history-vault, source-evidence) in install order.
+    canonical: Vec<ImportJournalEntry>,
+    /// Rebuildable subtrees (derived/audit/raw-snapshots/sidecars).
+    subtrees: Vec<ImportJournalEntry>,
+    /// The dest's `config.json` bytes pre-import (`None` when none existed), so a
+    /// rollback restores the exact prior config rather than guessing.
+    previous_config: Option<String>,
+}
+
+/// Path of the interrupted-import marker (beside the canonical archive database).
+///
+/// `pub(crate)` so the Phase-D full-archive restore can quarantine a superseded import marker
+/// alongside the broken canonical files (a stale marker must not drive a confusing recovery on
+/// the next launch after a one-click restore has already healed the archive).
+pub(crate) fn import_journal_path(paths: &ProjectPaths) -> PathBuf {
+    paths
+        .archive_database_path
+        .parent()
+        .expect("archive database path has a parent directory")
+        .join(IMPORT_JOURNAL_FILE)
+}
+
+/// `true` when the durable interrupted-import marker is present beside the canonical archive —
+/// a single `stat`, no lock. The launch-time fast path
+/// ([`crate::archive::recover_archive_on_launch`]) uses it to decide whether to take the gate +
+/// flock at all, so the overwhelmingly common no-marker launch never touches a lock.
+pub(crate) fn interrupted_import_marker_present(paths: &ProjectPaths) -> bool {
+    import_journal_path(paths).exists()
+}
+
+/// Durably writes `journal` to the marker path (atomic temp + F_FULLFSYNC + rename
+/// + dir fsync), so its presence is itself durable before the first swap runs.
+fn write_import_journal(paths: &ProjectPaths, journal: &ImportJournal) -> Result<()> {
+    let bytes =
+        serde_json::to_vec(journal).context("serializing the interrupted-import journal")?;
+    atomic_durable_write(&import_journal_path(paths), &bytes)
+        .context("writing the interrupted-import journal")
+}
+
+/// Reads the interrupted-import marker. `Ok(None)` when it is absent OR unparseable.
+///
+/// A corrupt marker we cannot act on is best-effort removed and treated as absent:
+/// the on-disk archive is left exactly as it is (we have no instructions to roll
+/// anything back), so a damaged marker can never block opens forever.
+fn read_import_journal(paths: &ProjectPaths) -> Result<Option<ImportJournal>> {
+    let path = import_journal_path(paths);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let bytes = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+    match serde_json::from_slice::<ImportJournal>(&bytes) {
+        Ok(journal) => Ok(Some(journal)),
+        Err(_) => {
+            let _ = remove_file_durably(&path);
+            Ok(None)
+        }
+    }
+}
+
+/// Removes `path` whether it is a file or a directory; a no-op when absent. Shared by
+/// [`rollback_import`] to clear a canonical DB file or a rebuildable subtree.
+fn remove_path_if_exists(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    if path.is_dir() {
+        fs::remove_dir_all(path).with_context(|| format!("removing directory {}", path.display()))
+    } else {
+        fs::remove_file(path).with_context(|| format!("removing {}", path.display()))
+    }
+}
+
+/// Moves a preserved `.bak` unit's `-wal`/`-shm`/`-journal` sidecars back onto `target`
+/// (each only if present at `<bak><suffix>`). Idempotent: a re-run after some sidecars
+/// already moved finds those `<bak>` sidecars gone and leaves the already-restored
+/// `<target>` ones in place. Used by [`rollback_import`] to restore the OLD database's
+/// hot WAL (MEDIUM-C) and to FINISH an interrupted restore.
+fn restore_bak_sidecars(bak: &Path, target: &Path) -> Result<()> {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let bak_sidecar = PathBuf::from(format!("{}{}", bak.display(), suffix));
+        if bak_sidecar.exists() {
+            let target_sidecar = PathBuf::from(format!("{}{}", target.display(), suffix));
+            fs::rename(&bak_sidecar, &target_sidecar).with_context(|| {
+                format!(
+                    "restoring sidecar {} from {}",
+                    target_sidecar.display(),
+                    bak_sidecar.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// Undoes a partially-applied import, restoring the consistent pre-import state.
+///
+/// The SINGLE undo implementation shared by `apply_import`'s in-band rollback (a
+/// returned error mid-commit) and [`recover_interrupted_import`] (a crash mid-commit
+/// detected at next open), walking the SAME journal both produce so the two paths can
+/// never diverge. Idempotent even across a crash WITHIN recovery: the OLD main is
+/// renamed back FIRST and its `.bak` sidecars are moved AFTER, with no barrier between,
+/// so a re-run that finds the main `.bak` already consumed but its sidecars still
+/// orphaned takes the "orphaned sidecar" arm and just finishes the sidecar move — never
+/// dropping a just-restored OLD `-wal`.
+fn rollback_import(paths: &ProjectPaths, journal: &ImportJournal) -> Result<()> {
+    for entry in journal.canonical.iter().chain(journal.subtrees.iter()) {
+        let target = entry.target.as_path();
+        let bak = backup_sidecar_path(target, &journal.timestamp);
+        let bak_sidecar_present = ["-wal", "-shm", "-journal"]
+            .iter()
+            .any(|suffix| PathBuf::from(format!("{}{}", bak.display(), suffix)).exists());
+        if bak.exists() {
+            // The swap had started: scrub any half-installed NEW sidecars first (so a
+            // NEW `-wal` cannot replay into the restored OLD main — CRIT-3), drop
+            // whatever sits at the target, restore the OLD main, THEN move its `.bak`
+            // sidecars across. The main rename is the commit point of the restore.
+            remove_stale_sidecars(target);
+            remove_path_if_exists(target)?;
+            fs::rename(&bak, target).with_context(|| {
+                format!("restoring {} from {}", target.display(), bak.display())
+            })?;
+            restore_bak_sidecars(&bak, target)?;
+        } else if bak_sidecar_present {
+            // An INTERRUPTED restore: a previous rollback pass already renamed the OLD
+            // main back (the main `.bak` is gone) but crashed before moving its
+            // sidecars, which are still orphaned at `<bak>-*`. Finish the move — and do
+            // NOT scrub here, so the just-restored OLD `<target>-wal` (if some sidecars
+            // already moved) is never deleted. This keeps recovery idempotent across a
+            // crash WITHIN the restore.
+            restore_bak_sidecars(&bak, target)?;
+        } else if !entry.had_previous {
+            // A fresh install with no prior version: scrub the NEW sidecars (so a NEW
+            // `-wal` can't later replay into a fresh-created DB) and remove the NEW main
+            // — pre-import there was nothing here.
+            remove_stale_sidecars(target);
+            remove_path_if_exists(target)?;
+        }
+        // else (had_previous but no `.bak` unit at all): the swap never started for this
+        // entry, so the still-original target — INCLUDING its possibly-hot OLD `-wal`/
+        // `-shm`/`-journal` (MEDIUM-C: committed-but-uncheckpointed frames) — is left
+        // ENTIRELY untouched. Scrubbing here would silently drop committed rows from a DB
+        // we are NOT replacing.
+    }
+    // FAIL-CLOSED (defense in depth): the "leave untouched" branch above assumes a
+    // not-yet-swapped canonical DB is unchanged since the crash. That holds ONLY while no
+    // destructive op rewrites the archive in the unrecovered window. If one did (the
+    // rekey-on-a-half-import hazard: a plaintext archive skips the encryption-gated launch
+    // reconcile, so a rekey can rewrite ONE canonical DB's at-rest mode while the other is
+    // restored from a stale-mode `.bak`), the two canonical DBs can end at DIFFERENT modes
+    // that no single config can serve. Committing `previous_config` over that mix is a
+    // silent config↔source-evidence brick. Detect it here from the REAL on-disk headers and
+    // refuse — leaving the marker (the caller keeps it on Err) and surfacing a recoverable
+    // error so the state stays flagged + retry-able rather than silently bricked.
+    ensure_recovered_modes_are_consistent(paths, journal)?;
+    // Restore config to its pre-import bytes (None = none existed pre-import).
+    match &journal.previous_config {
+        Some(bytes) => atomic_durable_write(&paths.config_path, bytes.as_bytes())
+            .context("restoring the pre-import config")?,
+        None => {
+            let _ = remove_file_durably(&paths.config_path);
+        }
+    }
+    Ok(())
+}
+
+/// Maps a configured [`ArchiveMode`] to the on-disk header a file in that mode must
+/// present, so a restored canonical DB's real header can be compared to the config the
+/// recovery is about to write.
+fn disk_mode_for(mode: &ArchiveMode) -> DiskEncryptionMode {
+    match mode {
+        ArchiveMode::Plaintext => DiskEncryptionMode::Plaintext,
+        ArchiveMode::Encrypted => DiskEncryptionMode::Encrypted,
+    }
+}
+
+/// Fail-closed guard run by [`rollback_import`] AFTER it has restored the canonical
+/// databases but BEFORE it commits the recovered config.
+///
+/// A single `config.json` declares ONE `archive_mode`, so it can correctly serve the
+/// archive only if BOTH canonical databases are at that one at-rest mode. This re-reads
+/// each canonical DB's ACTUAL on-disk header (`detect_disk_encryption_mode`) and refuses
+/// when a PRESENT database disagrees with the mode the recovery is about to commit — the
+/// rekey-on-a-half-import signature (history-vault restored to Plaintext while the
+/// untouched source-evidence is now Encrypted, or vice versa). The required mode is the
+/// pre-import config's when the journal carries one (that IS the config about to be
+/// written), else inferred from whichever canonical DB is present. An `Absent` database
+/// is fine: the next open recreates it in the final-config mode. Returning `Err` here
+/// leaves the marker in place (the caller does not clear it on Err), turning a silent
+/// permanent brick into a loud, retry-able failure.
+fn ensure_recovered_modes_are_consistent(
+    paths: &ProjectPaths,
+    journal: &ImportJournal,
+) -> Result<()> {
+    let history = detect_disk_encryption_mode(&paths.archive_database_path);
+    let evidence = detect_disk_encryption_mode(&paths.source_evidence_database_path);
+    // The single at-rest mode the recovered archive must converge to.
+    let required = journal
+        .previous_config
+        .as_deref()
+        .and_then(|bytes| serde_json::from_str::<AppConfig>(bytes).ok())
+        .map(|config| disk_mode_for(&config.archive_mode))
+        .or_else(|| {
+            [history, evidence].into_iter().find(|mode| *mode != DiskEncryptionMode::Absent)
+        });
+    let Some(required) = required else {
+        // Nothing installed and no config to honour — a clean empty state, nothing to drift.
+        return Ok(());
+    };
+    for (label, mode) in [("history-vault.sqlite", history), ("source-evidence.sqlite", evidence)] {
+        if mode != DiskEncryptionMode::Absent && mode != required {
+            anyhow::bail!(
+                concat!(
+                    "interrupted-import recovery cannot reach a single consistent at-rest mode: {} ",
+                    "is {:?} but the recovered archive must be {:?}. The canonical databases drifted ",
+                    "apart (most likely a rekey ran on a half-applied import before recovery) and no ",
+                    "single config can serve both, so the interrupted-import marker is left in place ",
+                    "to keep the state flagged and retry-able rather than committing a silently ",
+                    "mode-drifted config that would brick the next open.",
+                ),
+                label,
+                mode,
+                required,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Crash-recovery twin of `apply_import`'s in-band rollback.
+///
+/// A NESTED recover-first helper, wired at every destructive pre-open site — the
+/// unlock-path reconcile ([`crate::archive::reconcile_archive_encryption`]), backup
+/// ([`crate::archive::run_backup_with_progress`]), rekey ([`crate::archive::rekey_archive`]),
+/// retention-prune ([`crate::archive::run_retention_prune`]), snapshot-restore
+/// ([`crate::archive::run_snapshot_restore`]), and (Phase C) the launch-time at-rest reconcile
+/// ([`crate::archive::recover_archive_on_launch`]) — each of which already holds the top-level
+/// gate + lock when it calls in. It runs BEFORE the archive is opened: when an
+/// interrupted-import marker is present a crash cut a commit phase, so it restores the
+/// archive to the consistent PRE-IMPORT state over the SAME journal the in-band rollback
+/// uses, then clears the marker. Returns `true` only when it actually recovered something.
+///
+/// Cheap in the common case — a single `stat` of the marker path, no lock taken — so it is
+/// safe to call on every open. Only when the marker exists does it take the cross-process
+/// [`ArchiveWriteLock`] (recovery rewrites canonical DB files, a destructive archive op
+/// that must serialize against a concurrent scheduled backup) and re-read the journal (it
+/// may have been cleared while we waited for the lock). It takes ONLY the reentrant flock,
+/// never the non-reentrant top-level [`crate::archive::ArchiveOpGate`]: re-acquiring the
+/// flock its caller already holds yields a nested guard (no self-deadlock), while taking
+/// the gate its caller already holds WOULD self-deadlock — so this nested helper must
+/// never touch it.
+pub(crate) fn recover_interrupted_import(paths: &ProjectPaths) -> Result<bool> {
+    if !import_journal_path(paths).exists() {
+        return Ok(false);
+    }
+    let _write_lock = ArchiveWriteLock::acquire(paths)
+        .context("acquiring the archive write lock for interrupted-import recovery")?;
+    let Some(journal) = read_import_journal(paths)? else {
+        return Ok(false);
+    };
+    rollback_import(paths, &journal)?;
+    remove_file_durably(&import_journal_path(paths))
+        .context("clearing the interrupted-import marker after recovery")?;
+    Ok(true)
+}
+
+/// Resolves the config to persist LAST, with its `archive_mode` reconciled to the
+/// at-rest mode of the DBs ACTUALLY installed on disk (HIGH-A).
+///
+/// WHY: the bundle's manifest/config records the SOURCE machine's mode, but the bytes
+/// that landed on THIS disk are the only authority for whether the next open needs a
+/// key. A config-less bundle installed onto an Encrypted dest would otherwise leave an
+/// Encrypted config over plaintext DBs → PRAGMA key on a plaintext header → NOTADB
+/// brick. Forcing `archive_mode` to the installed file's real header
+/// (`detect_disk_encryption_mode`) makes config↔DB drift impossible.
+///
+/// Non-archive settings are preserved per-bundle: a bundle that shipped a config
+/// starts from it; a config-less bundle starts from the dest's existing config (so the
+/// user's local, non-archive preferences survive). `Absent` — no archive installed at
+/// all — leaves the chosen base's mode untouched.
+fn final_archive_config(
+    paths: &ProjectPaths,
+    staged_config: &AppConfig,
+    staged_config_shipped: bool,
+    fallback: &AppConfig,
+) -> AppConfig {
+    let mut base = if staged_config_shipped {
+        staged_config.clone()
+    } else {
+        load_config(paths).unwrap_or_else(|_| fallback.clone())
+    };
+    match detect_disk_encryption_mode(&paths.archive_database_path) {
+        DiskEncryptionMode::Plaintext => base.archive_mode = ArchiveMode::Plaintext,
+        DiskEncryptionMode::Encrypted => base.archive_mode = ArchiveMode::Encrypted,
+        DiskEncryptionMode::Absent => {}
+    }
+    base
+}
+
+/// Prunes `.bak-<ts>` generations left by EARLIER imports, keeping only the current
+/// import's set as the single "undo import" backstop (MEDIUM-D).
+///
+/// Retention policy: each import preserves the replaced archive/subtrees as
+/// `.bak-<ts>` so the user can undo a wrong import. Without pruning these accumulate
+/// one full archive copy per import. Run ONLY after the current import is
+/// verified-openable (migrations passed), it removes every `.bak-<ts>` whose suffix is
+/// not the current `keep_timestamp`, leaving exactly the just-made backstop.
+/// Best-effort: a prune failure must NEVER fail an import that already committed.
+fn prune_previous_bak_generations(paths: &ProjectPaths, keep_timestamp: &str) {
+    let keep_marker = format!(".bak-{keep_timestamp}");
+    let archive_dir =
+        paths.archive_database_path.parent().expect("archive database path has a parent directory");
+    for dir in [archive_dir, paths.app_root.as_path()] {
+        let Ok(entries) = fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.contains(".bak-") && !name.contains(&keep_marker) {
+                let path = entry.path();
+                if path.is_dir() {
+                    let _ = fs::remove_dir_all(&path);
+                } else {
+                    let _ = fs::remove_file(&path);
+                }
+            }
+        }
+    }
 }
 
 fn copy_archive_database_to(
@@ -624,6 +1390,27 @@ fn add_dir_to_zip_if_exists(
         let relative = path
             .strip_prefix(source_dir)
             .with_context(|| format!("stripping prefix for {}", path.display()))?;
+        // The agent sidecar (assistant chat transcripts) lives directly under `derived/` but is a
+        // privacy-sensitive plane excluded from the export bundle by data-sovereignty default.
+        if zip_prefix == "derived"
+            && relative.parent().is_none_or(|parent| parent.as_os_str().is_empty())
+            && relative
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(is_derived_export_excluded)
+        {
+            continue;
+        }
+        // The vector sidecar plane (`derived/vectors/*.pkvec`) is rebuildable derived state and
+        // ~59 GB at the 14.4M-row tail (HIGH-4); it never rides the export — re-embed on the target.
+        if zip_prefix == "derived" && is_derived_vector_plane_excluded(relative) {
+            continue;
+        }
+        // The raw enrichment blob plane (`sidecars/intelligence-blobs/`) is re-fetchable + possibly
+        // large; it never rides the export (06 §3). The capped summary rides in the intelligence DB.
+        if zip_prefix == "sidecars" && is_sidecar_enrichment_blob_excluded(relative) {
+            continue;
+        }
         let zip_path = format!("{zip_prefix}/{}", relative.to_string_lossy());
         add_file_to_zip(zip, path, &zip_path, options, manifest_files)?;
     }
@@ -678,8 +1465,8 @@ fn add_file_to_zip(
 /// wrong.
 ///
 /// Lives in `migration.rs` (not `archive/schema.rs`) because it
-/// intentionally bypasses `ensure_archive_bootstrapped`,
-/// `attach_search_database`, and `seed_search_projection_if_missing` —
+/// intentionally bypasses `ensure_archive_bootstrapped_reporting`,
+/// `attach_search_database`, and `seed_search_projection_with_progress` —
 /// the staged archive is read-only here and we don't want to bootstrap
 /// projections against a database we may yet decide to reject.
 fn verify_archive_key(db_path: &Path, key: &str) -> Result<()> {
@@ -972,6 +1759,260 @@ mod tests {
             "derived/marker.txt not restored on target",
         );
         assert!(dest_paths.archive_database_path.exists(), "archive db not restored on target",);
+    }
+
+    #[test]
+    fn stars_survive_export_and_reimport_roundtrip() {
+        // Stars are user-authored canonical content that lives in
+        // history-vault.sqlite, so they must ride the portable bundle exactly
+        // like notes/tags — proven end-to-end here by starring a page +
+        // domain, exporting, importing onto a fresh root, and reading both
+        // stars back through the public stars API.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+
+        crate::stars::set_star(
+            &src_paths,
+            &config,
+            None,
+            crate::models::SetStarRequest {
+                entity_kind: crate::models::StarEntityKind::Url,
+                entity_key: "https://example.com/keepme".into(),
+                source_profile: Some("chrome:Default".into()),
+            },
+        )
+        .expect("star a page before export");
+        crate::stars::set_star(
+            &src_paths,
+            &config,
+            None,
+            crate::models::SetStarRequest {
+                entity_kind: crate::models::StarEntityKind::Domain,
+                entity_key: "example.com".into(),
+                source_profile: None,
+            },
+        )
+        .expect("star a domain before export");
+
+        let bundle_target = src_dir.path().join("bundle.pathkeep");
+        export_app_data(&src_paths, &config, None, &bundle_target).expect("export");
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = AppConfig::default();
+        apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_target,
+            &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
+        )
+        .expect("apply import onto fresh root");
+
+        // Both stars must be present in the imported archive.
+        let url_status = crate::stars::is_starred_batch(
+            &dest_paths,
+            &dest_config,
+            None,
+            crate::models::StarEntityKind::Url,
+            &["https://example.com/keepme".to_string()],
+        )
+        .expect("read url star after import");
+        assert_eq!(
+            url_status.get("https://example.com/keepme"),
+            Some(&true),
+            "page star must survive the export/import bundle",
+        );
+
+        let counts = crate::stars::star_counts(&dest_paths, &dest_config, None)
+            .expect("count stars after import");
+        assert_eq!(counts.urls, 1, "exactly the page star survives");
+        assert_eq!(counts.domains, 1, "the domain star survives too");
+    }
+
+    #[test]
+    fn export_excludes_agent_chat_transcripts_from_the_bundle() {
+        // Data-sovereignty default: the assistant chat sidecar (`derived/agent.sqlite`) must NOT
+        // ride the portable export, even though it sits inside the otherwise-included `derived/`
+        // subtree. Its WAL/SHM siblings are excluded too.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+
+        // Seed the agent sidecar (and WAL-mode siblings) plus a sibling derived file that MUST ride.
+        fs::write(src_paths.agent_database_path.as_path(), b"chat transcripts").unwrap();
+        fs::write(src_paths.derived_dir.join("agent.sqlite-wal"), b"wal").unwrap();
+        fs::write(src_paths.derived_dir.join("agent.sqlite-shm"), b"shm").unwrap();
+
+        let bundle_target = src_dir.path().join("bundle.pathkeep");
+        let bundle = export_app_data(&src_paths, &config, None, &bundle_target).expect("export");
+
+        // The chat sidecar and all its siblings are absent from the manifest…
+        for forbidden in
+            ["derived/agent.sqlite", "derived/agent.sqlite-wal", "derived/agent.sqlite-shm"]
+        {
+            assert!(
+                !bundle.manifest.files.iter().any(|f| f.path == forbidden),
+                "{forbidden} must not be packed into the export bundle: {:?}",
+                bundle.manifest.files,
+            );
+        }
+        // …while an ordinary rebuildable derived file still rides.
+        assert!(
+            bundle.manifest.files.iter().any(|f| f.path == "derived/marker.txt"),
+            "non-excluded derived files must still be packed",
+        );
+        // The exclusion is documented for the import-preview surface.
+        assert!(
+            EXPORT_EXCLUSIONS_DOC.iter().any(|(path, _)| *path == "derived/agent.sqlite"),
+            "the agent sidecar exclusion must be documented",
+        );
+    }
+
+    #[test]
+    fn export_excludes_vector_sidecar_plane_from_the_bundle() {
+        // HIGH-4: the raw f32 vector plane (`derived/vectors/*.pkvec`) is ~59 GB at the 14.4M tail
+        // and rebuildable derived state, so it MUST NOT ride the export — re-embed on the target.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+
+        // Seed a `.pkvec` store + its `.pkmap` visit map under derived/vectors, plus a stray `.pkvec`
+        // AND a stray `.pkmap` directly under derived/, alongside an ordinary derived file that MUST
+        // still ride. (W-AI-4c: the `.pkmap` is rebuildable derived state, excluded like `.pkvec`.)
+        fs::create_dir_all(&src_paths.vectors_dir).unwrap();
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkvec"), b"vectors").unwrap();
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkmap"), b"visit map").unwrap();
+        // W-AI-5 derived recall/rescore planes (also rebuildable; excluded like `.pkvec`/`.pkmap`).
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkbin"), b"binary plane")
+            .unwrap();
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pki8"), b"int8 plane").unwrap();
+        // M-11 keyed reverse/forward sidecars (also rebuildable; excluded like the other planes).
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkrev"), b"reverse sidecar")
+            .unwrap();
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkfwd"), b"forward sidecar")
+            .unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pkvec"), b"stray vectors").unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pkmap"), b"stray map").unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pkbin"), b"stray binary").unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pki8"), b"stray int8").unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pkrev"), b"stray reverse").unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pkfwd"), b"stray forward").unwrap();
+
+        let bundle_target = src_dir.path().join("bundle.pathkeep");
+        let bundle = export_app_data(&src_paths, &config, None, &bundle_target).expect("export");
+
+        // No `.pkvec` / `.pkmap` (under vectors/ or directly under derived/) is packed.
+        assert!(
+            !bundle.manifest.files.iter().any(|f| f.path.ends_with(".pkvec")),
+            "no .pkvec vector store may be packed: {:?}",
+            bundle.manifest.files,
+        );
+        assert!(
+            !bundle.manifest.files.iter().any(|f| f.path.ends_with(".pkmap")),
+            "no .pkmap visit map may be packed: {:?}",
+            bundle.manifest.files,
+        );
+        assert!(
+            !bundle
+                .manifest
+                .files
+                .iter()
+                .any(|f| f.path.ends_with(".pkbin") || f.path.ends_with(".pki8")),
+            "no derived recall/rescore plane may be packed: {:?}",
+            bundle.manifest.files,
+        );
+        // M-11: the keyed reverse/forward sidecars are excluded too (under vectors/ or stray).
+        assert!(
+            !bundle
+                .manifest
+                .files
+                .iter()
+                .any(|f| f.path.ends_with(".pkrev") || f.path.ends_with(".pkfwd")),
+            "no keyed reverse/forward sidecar may be packed: {:?}",
+            bundle.manifest.files,
+        );
+        assert!(
+            !bundle.manifest.files.iter().any(|f| f.path.starts_with("derived/vectors/")),
+            "the derived/vectors plane must be excluded entirely",
+        );
+        // …while an ordinary rebuildable derived file still rides.
+        assert!(
+            bundle.manifest.files.iter().any(|f| f.path == "derived/marker.txt"),
+            "non-excluded derived files must still be packed",
+        );
+        // The exclusion is documented for the import-preview surface.
+        assert!(
+            EXPORT_EXCLUSIONS_DOC.iter().any(|(path, _)| *path == "derived/vectors/"),
+            "the vector plane exclusion must be documented",
+        );
+    }
+
+    #[test]
+    fn export_excludes_raw_enrichment_blobs_but_includes_summary_in_intelligence_db() {
+        // 06 §3: the raw enrichment body/caption blobs (`sidecars/intelligence-blobs/`) are
+        // re-fetchable + possibly large, so they MUST NOT ride the export. The capped summary lives in
+        // the intelligence DB (which DOES ride), so offline search still works on the target.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+
+        // Seed a raw enrichment blob under sidecars/intelligence-blobs and an ordinary sidecar file
+        // that MUST still ride.
+        fs::create_dir_all(src_paths.intelligence_blobs_dir.join("ab")).unwrap();
+        fs::write(src_paths.intelligence_blobs_dir.join("ab/cdef.txt"), b"raw body").unwrap();
+        fs::create_dir_all(src_paths.sidecars_dir.join("semantic-index")).unwrap();
+        fs::write(src_paths.sidecars_dir.join("semantic-index/keep.txt"), b"keep me").unwrap();
+
+        let bundle_target = src_dir.path().join("bundle.pathkeep");
+        let bundle = export_app_data(&src_paths, &config, None, &bundle_target).expect("export");
+
+        // No intelligence-blobs file is packed.
+        assert!(
+            !bundle
+                .manifest
+                .files
+                .iter()
+                .any(|f| f.path.starts_with("sidecars/intelligence-blobs/")),
+            "raw enrichment blobs must be excluded: {:?}",
+            bundle.manifest.files,
+        );
+        // …while an ordinary sidecar file still rides.
+        assert!(
+            bundle.manifest.files.iter().any(|f| f.path == "sidecars/semantic-index/keep.txt"),
+            "non-excluded sidecar files must still be packed",
+        );
+        // The intelligence DB (carrying the capped summary column) DOES ride via the derived/ subtree.
+        assert!(
+            EXPORT_EXCLUSIONS_DOC.iter().any(|(path, _)| *path == "sidecars/intelligence-blobs/"),
+            "the enrichment blob exclusion must be documented",
+        );
+    }
+
+    #[test]
+    fn is_sidecar_enrichment_blob_excluded_matches_only_the_blob_subtree() {
+        assert!(is_sidecar_enrichment_blob_excluded(Path::new("intelligence-blobs/ab/cdef.txt")));
+        assert!(is_sidecar_enrichment_blob_excluded(Path::new("intelligence-blobs/x.txt")));
+        assert!(!is_sidecar_enrichment_blob_excluded(Path::new("semantic-index/keep.txt")));
+        assert!(!is_sidecar_enrichment_blob_excluded(Path::new("other.txt")));
+    }
+
+    #[test]
+    fn is_derived_vector_plane_excluded_matches_vectors_subtree_and_pkvec_and_pkmap() {
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkvec")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkmap")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkbin")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pki8")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkrev")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkfwd")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/nested/store.pkvec")));
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pkvec")));
+        // Stray derived recall/rescore planes are excluded too (consistency with `.pkvec`/`.pkmap`).
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pkmap")));
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pkbin")));
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pki8")));
+        // M-11 keyed reverse/forward sidecars (stray) are excluded too.
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pkrev")));
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pkfwd")));
+        // A non-vector derived file is NOT excluded by this rule.
+        assert!(!is_derived_vector_plane_excluded(Path::new("marker.txt")));
+        assert!(!is_derived_vector_plane_excluded(Path::new("agent.sqlite")));
     }
 
     #[test]
@@ -1459,52 +2500,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn apply_import_propagates_file_preserve_rename_error_when_app_root_is_readonly() {
-        // Covers the `with_context` closure on the *file* preserve rename:
-        // we deny write on app_root so renaming the existing
-        // `root/config.json` to its `.bak-<timestamp>` sibling fails at
-        // the OS level. The error message must name the preserve step so
-        // operators can diagnose the failed swap.
-        use std::os::unix::fs::PermissionsExt;
-        let (src_dir, src_paths) = fresh_paths();
-        let config = seed_archive(&src_paths);
-        let bundle_path = src_dir.path().join("file-preserve-fail.pathkeep");
-        export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
-
-        let (_dest_dir, dest_paths) = fresh_paths();
-        let dest_config = seed_archive(&dest_paths);
-        // After Codex C3, staging lives under `app_root/staging/`. Pre-
-        // create it so the read-only app_root doesn't short-circuit at
-        // staging-dir creation — we want the original file-preserve
-        // rename to be the failing point this test was written for.
-        fs::create_dir_all(dest_paths.app_root.join("staging")).unwrap();
-
-        let app_root = dest_paths.app_root.clone();
-        let original = fs::metadata(&app_root).unwrap().permissions();
-        let mut locked = original.clone();
-        locked.set_mode(0o500);
-        fs::set_permissions(&app_root, locked).unwrap();
-
-        let result = apply_import(
-            &dest_paths,
-            &dest_config,
-            None,
-            &bundle_path,
-            &ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
-        );
-
-        // Restore permissions *before* asserting so a panic still lets
-        // the tempdir drop succeed.
-        fs::set_permissions(&app_root, original).unwrap();
-        let err = result.expect_err("read-only app_root must surface preserve-rename error");
-        assert!(
-            format!("{err:?}").contains("preserving previous"),
-            "expected preserve-rename context, got {err:?}",
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn apply_import_propagates_directory_preserve_rename_error_when_app_root_is_readonly() {
         // Covers the *directory*-loop preserve rename closure. The trick
         // is to make every movable-file step skip (so they never trip on
@@ -1590,59 +2585,13 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[cfg(unix)]
-    #[test]
-    fn apply_import_propagates_file_install_rename_error_when_app_root_is_readonly() {
-        // After Codex C3 the staging dir lives under `app_root/staging/`,
-        // so EXDEV can no longer fire on the install rename. We can
-        // still drive the install closure (line 495 `installing {staged}
-        // into {target}`) by chmod-ing app_root to read-only AFTER
-        // creating the staging subtree. fs::rename(staged, target)
-        // then fails with EACCES because target's parent (= app_root)
-        // is no longer writable. Pre-creating staging/ and archive/
-        // beforehand keeps the staging extraction itself working.
-        use std::os::unix::fs::PermissionsExt;
-        let (src_dir, src_paths) = fresh_paths();
-        let config = seed_archive(&src_paths);
-        let bundle_path = src_dir.path().join("file-install-fail.pathkeep");
-        export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
-
-        let (_dest_dir, dest_paths) = fresh_paths();
-        let dest_config = AppConfig::default();
-        // Pre-create app_root/staging/ AND app_root/archive/ so the
-        // staging extraction step succeeds (TempDir + extract write
-        // inside these subdirs, which inherit 0o755 from `fresh_paths`).
-        fs::create_dir_all(dest_paths.app_root.join("staging")).unwrap();
-        fs::create_dir_all(dest_paths.archive_database_path.parent().unwrap()).unwrap();
-
-        let app_root = dest_paths.app_root.clone();
-        let original = fs::metadata(&app_root).unwrap().permissions();
-        let mut locked = original.clone();
-        locked.set_mode(0o500);
-        fs::set_permissions(&app_root, locked).unwrap();
-
-        let result = apply_import(
-            &dest_paths,
-            &dest_config,
-            None,
-            &bundle_path,
-            &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
-        );
-        fs::set_permissions(&app_root, original).unwrap();
-
-        let err = result.expect_err("install rename onto readonly app_root must surface error");
-        let message = format!("{err:?}");
-        assert!(message.contains("installing"), "expected install-rename context, got {message}",);
-    }
-
-    #[cfg(unix)]
     #[test]
     fn apply_import_propagates_directory_install_rename_error_when_app_root_is_readonly() {
-        // Twin of the file-install test, but tightened so the failure
-        // arises from the *directory* install loop (line 514). Trim
-        // every non-derived manifest entry + zip entry so the file
-        // loop's `staged.exists()` short-circuits each iteration; the
-        // dir loop is then the only place left to trip.
+        // Drives the *directory* install loop's `with_context` closure
+        // (`installing {staged} into {target}`). Trim every non-derived
+        // manifest entry + zip entry so the canonical-DB loop's
+        // `staged.exists()` short-circuits each iteration; the dir loop is
+        // then the only place left to trip.
         use std::os::unix::fs::PermissionsExt;
         let (src_dir, src_paths) = fresh_paths();
         let config = seed_archive(&src_paths);
@@ -1662,12 +2611,16 @@ mod tests {
 
         let (_dest_dir, dest_paths) = fresh_paths();
         let dest_config = AppConfig::default();
-        // Pre-create staging/ before locking app_root so the import
-        // can extract its (single derived/...) entry. app_root/derived/
-        // is intentionally NOT pre-created — `target.exists()` will be
-        // false, the preserve branch is skipped, and only the install
-        // rename remains to fail under the read-only app_root.
+        // Pre-create staging/ before locking app_root so the import can
+        // extract its (single derived/...) entry, and pre-create
+        // `app_root/archive/` so the ArchiveWriteLock sentinel can be
+        // created there before the swap (the lock lives in archive/, which
+        // stays writable while app_root is locked). `app_root/derived/` is
+        // intentionally NOT pre-created — `target.exists()` will be false,
+        // the preserve branch is skipped, and only the install rename
+        // remains to fail under the read-only app_root.
         fs::create_dir_all(dest_paths.app_root.join("staging")).unwrap();
+        fs::create_dir_all(dest_paths.archive_database_path.parent().unwrap()).unwrap();
 
         let app_root = dest_paths.app_root.clone();
         let original = fs::metadata(&app_root).unwrap().permissions();
@@ -2007,6 +2960,116 @@ mod tests {
             writer.write_all(bytes).unwrap();
         }
         writer.finish().unwrap();
+    }
+
+    // --- D3: verified safety snapshot captured before an import rewrite --------------------------
+
+    /// Counts `*.sqlite` files under `raw-snapshots/import/` (0 when the dir is absent).
+    fn import_snapshot_count(paths: &ProjectPaths) -> usize {
+        fs::read_dir(paths.raw_snapshots_dir.join("import"))
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter(|entry| {
+                        entry.path().extension().and_then(|ext| ext.to_str()) == Some("sqlite")
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn apply_import_captures_a_pre_import_safety_snapshot_of_the_existing_archive() {
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("import-snapshot.pathkeep");
+        export_app_data(&src_paths, &config, None, &bundle_path).expect("export bundle");
+
+        // The DEST already has a plaintext history-vault, so the import must snapshot it first.
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = seed_archive(&dest_paths);
+
+        apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
+        )
+        .expect("apply import");
+
+        assert_eq!(
+            import_snapshot_count(&dest_paths),
+            1,
+            "the pre-import archive is captured under raw-snapshots/import/",
+        );
+    }
+
+    #[test]
+    fn capture_pre_import_safety_snapshot_skips_when_no_archive_exists() {
+        let (_dir, paths) = fresh_paths();
+        // Absent archive (fresh install) -> nothing to back up.
+        capture_pre_import_safety_snapshot(&paths, None);
+        assert_eq!(import_snapshot_count(&paths), 0, "a fresh install captures no snapshot");
+    }
+
+    #[test]
+    fn capture_pre_import_safety_snapshot_captures_an_existing_plaintext_archive() {
+        let (_dir, paths) = fresh_paths();
+        seed_archive(&paths); // a real plaintext archive
+        capture_pre_import_safety_snapshot(&paths, None);
+        assert_eq!(
+            import_snapshot_count(&paths),
+            1,
+            "an existing plaintext archive is snapshotted"
+        );
+    }
+
+    #[test]
+    fn capture_pre_import_safety_snapshot_captures_an_existing_encrypted_archive_with_key() {
+        let (_dir, paths) = fresh_paths();
+        let encrypted = AppConfig { archive_mode: ArchiveMode::Encrypted, ..AppConfig::default() };
+        drop(
+            crate::archive::open_archive_connection(&paths, &encrypted, Some("k"))
+                .expect("seed encrypted archive"),
+        );
+        capture_pre_import_safety_snapshot(&paths, Some("k"));
+        assert_eq!(
+            import_snapshot_count(&paths),
+            1,
+            "an encrypted archive with a key is snapshotted"
+        );
+    }
+
+    #[test]
+    fn capture_pre_import_safety_snapshot_skips_an_encrypted_archive_without_a_key() {
+        let (_dir, paths) = fresh_paths();
+        let encrypted = AppConfig { archive_mode: ArchiveMode::Encrypted, ..AppConfig::default() };
+        drop(
+            crate::archive::open_archive_connection(&paths, &encrypted, Some("k"))
+                .expect("seed encrypted archive"),
+        );
+        // No key in hand: cannot open to verify a copy, so the best-effort capture is skipped (the
+        // import is NOT aborted by a missing backstop).
+        capture_pre_import_safety_snapshot(&paths, None);
+        assert_eq!(
+            import_snapshot_count(&paths),
+            0,
+            "an encrypted archive without a key is skipped"
+        );
+    }
+
+    #[test]
+    fn capture_pre_import_safety_snapshot_downgrades_a_failure_to_a_noop() {
+        let (_dir, paths) = fresh_paths();
+        crate::config::ensure_paths(&paths).expect("ensure paths");
+        // A plaintext-HEADER file that is NOT a valid database: detected Plaintext, but
+        // `open_archive_connection` fails to bootstrap it, so the capture closure errors and is
+        // downgraded to a no-op (the import is never aborted).
+        fs::write(&paths.archive_database_path, b"SQLite format 3\0not a real database body")
+            .expect("write garbage archive");
+        capture_pre_import_safety_snapshot(&paths, None); // must not panic / must not bail
+        assert_eq!(import_snapshot_count(&paths), 0, "a snapshot failure leaves no snapshot");
     }
 }
 

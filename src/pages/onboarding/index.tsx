@@ -40,7 +40,13 @@ import {
   isBrowserProfileReadable,
   macosFullDiskAccessSettingsUrl,
 } from '../../lib/platform-guidance'
-import type { AppConfig, SchedulePlan, ScheduleStatus } from '../../lib/types'
+import {
+  BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
+  type AppConfig,
+  type SchedulePlan,
+  type ScheduleStatus,
+} from '../../lib/types'
+import { AiStep } from './ai-step'
 import { BrowserDetectionStep } from './browser-detection-step'
 import { ReadyStep } from './ready-step'
 import { ScheduleStep } from './schedule-step'
@@ -64,8 +70,10 @@ export function OnboardingPage() {
     loading,
     saveConfig,
     initializeArchive,
+    refreshAppData,
     runBackup,
     snapshot,
+    startLocalSemanticSetup,
   } = useShellData()
   const { t } = useI18n('onboarding')
   const buildRevision = formatBuildRevisionLabel(buildInfo)
@@ -88,6 +96,11 @@ export function OnboardingPage() {
   const [scheduleSetupMode, setScheduleSetupMode] = useState<
     'install' | 'skip' | null
   >(null)
+  // The REAL AI opt-in. `false` by default (AI is off unless the user explicitly enables it, and
+  // nothing is pre-selected). When true, `handleFinish` threads the static on-device semantic-search
+  // config into the persisted config AND fires the background model-download + index-build setup
+  // (fire-and-forget) once the archive is initialized and the first backup ran.
+  const [aiEnabled, setAiEnabled] = useState(false)
 
   useEffect(() => {
     if (step !== 4 || !snapshot) {
@@ -262,6 +275,23 @@ export function OnboardingPage() {
     setStep(5)
   }
 
+  // The AI step is a REAL, explicit opt-in. Enabling records the choice and advances to the final
+  // review; `handleFinish` persists the static local-semantic-search config and fires the background
+  // setup AFTER the archive is initialized + the first backup ran (that order is required — the index
+  // build needs an initialized, unlocked archive). Skipping leaves AI off (the default). Neither
+  // navigates away here, so the confirmed master-password draft + step position survive.
+  function handleAiEnable() {
+    setLocalError(null)
+    setAiEnabled(true)
+    setStep(6)
+  }
+
+  function handleAiSkip() {
+    setLocalError(null)
+    setAiEnabled(false)
+    setStep(6)
+  }
+
   async function handleFinish() {
     setLocalError(null)
     if (selectedCount === 0) {
@@ -283,10 +313,24 @@ export function OnboardingPage() {
         return
       }
     }
+    // Thread the REAL AI opt-in into the config to persist. Only the static on-device
+    // semantic-search tier is turned on — assistant / mcp / skill / content-fetch stay off because
+    // enabling them needs config the user hasn't provided (turning them on would be another fake).
+    const aiConfig = aiEnabled
+      ? {
+          ...currentConfig,
+          ai: {
+            ...currentConfig.ai,
+            enabled: true,
+            semanticIndexEnabled: true,
+            embeddingProviderId: BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
+          },
+        }
+      : currentConfig
     try {
       if (!currentConfig.initialized) {
         await initializeArchive(
-          currentConfig,
+          aiConfig,
           encrypted ? securityDraft.masterPassword : null,
         )
         if (encrypted && securityDraft.rememberKey) {
@@ -302,6 +346,10 @@ export function OnboardingPage() {
             return
           }
         }
+      } else if (aiEnabled) {
+        // Re-onboarding an already-initialized archive: initializeArchive is skipped, so persist the
+        // AI opt-in explicitly (otherwise the enable choice would be silently dropped).
+        await saveConfig(aiConfig)
       }
       if (scheduleSetupMode === 'install') {
         try {
@@ -313,6 +361,14 @@ export function OnboardingPage() {
         }
       }
       await runBackup()
+      // Fire the background local-semantic-search setup (model download + index build) AFTER the
+      // archive is initialized + the first backup ran. It MUST NOT be awaited — the heavy work runs
+      // in the background and surfaces in the ambient task bar, so finishing onboarding never blocks.
+      if (aiEnabled) {
+        void startLocalSemanticSetup()
+      }
+      // Always go home. The AI setup is now genuinely running in the background (and visible in the
+      // ambient bar), so landing on the dashboard is more honest than dumping the user in Settings.
       void navigate('/')
     } catch (nextError) {
       setLocalError(formatOnboardingError(nextError, t))
@@ -405,6 +461,7 @@ export function OnboardingPage() {
 
       {step === 1 ? (
         <BrowserDetectionStep
+          browserDiscoveryIssue={snapshot.browserDiscoveryIssue}
           browserProfiles={snapshot.browserProfiles}
           busyAction={busyAction}
           localError={localError}
@@ -414,6 +471,7 @@ export function OnboardingPage() {
           onBack={() => setStep(0)}
           onContinue={handleBrowsersContinue}
           onOpenFullDiskAccessSettings={handleOpenFullDiskAccessSettings}
+          onRecheck={() => refreshAppData(false)}
           onToggleProfile={handleToggleProfile}
         />
       ) : null}
@@ -462,6 +520,14 @@ export function OnboardingPage() {
       ) : null}
 
       {step === 5 ? (
+        <AiStep
+          onBack={() => setStep(4)}
+          onEnable={handleAiEnable}
+          onSkip={handleAiSkip}
+        />
+      ) : null}
+
+      {step === 6 ? (
         <ReadyStep
           appRoot={snapshot.directories.appRoot}
           archiveMode={currentConfig.archiveMode}
@@ -471,7 +537,7 @@ export function OnboardingPage() {
           scheduleSetupMode={scheduleSetupMode}
           selectedAccessIssueCount={selectedAccessIssueCount}
           selectedCount={selectedCount}
-          onBack={() => setStep(4)}
+          onBack={() => setStep(5)}
           onFinish={() => {
             void handleFinish()
           }}

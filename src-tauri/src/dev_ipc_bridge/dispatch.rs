@@ -28,16 +28,17 @@ use crate::{file_manager, session::session_key, updater, worker_bridge};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use vault_core::{
-    AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiSearchRequest,
-    CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
-    DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest,
-    ExplainRefindRequest, FrontendErrorReportRequest, GranularityDateRangeRequest,
-    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, PagedDateRangeRequest,
-    PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest, RefindPageDetailRequest,
-    RefindPagesRequest, RetentionPruneRequest, ScopedDateRangeRequest, SearchEffectivenessRequest,
-    SearchEngineRuleInput, SearchQueryListRequest, SearchTrailQueryRequest,
-    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TopSearchConceptsRequest, TopSitesRequest,
-    UnlockAppSessionRequest,
+    AiAssistantRequest, AiChatSendRequest, AiIndexRequest, AiProviderConnectionTestRequest,
+    AiSearchRequest, CategoryFilteredDateRangeRequest, CompareSetDetailRequest,
+    CoreIntelligenceRebuildRequest, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
+    EntityExplanationRequest, ExplainRefindRequest, FrontendErrorReportRequest,
+    GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest,
+    ListAgentConversationsRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
+    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest,
+    RenameAgentConversationRequest, RetentionPruneRequest, SaveAgentConversationRequest,
+    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchEngineRuleInput,
+    SearchQueryListRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
+    SnapshotRestoreRequest, TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -75,10 +76,19 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "initialize_archive" => {
             let payload = parse_payload::<InitializeArchivePayload>(payload)?;
-            json_value!(worker_bridge::initialize_archive_impl(
+            // The dev HTTP bridge does NOT deliver Tauri events, so the upgrade
+            // progress reporter is a documented no-op here (mirroring how the dev
+            // backup path drops its emit sink); the upgrade work still runs.
+            json_value!(worker_bridge::initialize_archive_with_progress_impl(
                 payload.config,
                 payload.database_key,
-                &state.session
+                &state.session,
+                |_| {}
+            )?)
+        }
+        "assess_archive_upgrade" => {
+            json_value!(worker_bridge::assess_archive_upgrade_impl(
+                session_key(&state.session).as_deref()
             )?)
         }
         "preview_rekey_archive" => {
@@ -88,6 +98,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "rekey_archive" => {
             let payload = parse_payload::<WrappedRequest<RekeyRequest>>(payload)?;
             json_value!(worker_bridge::rekey_archive_impl(payload.request, &state.session)?)
+        }
+        "reconcile_archive_encryption" => {
+            json_value!(worker_bridge::reconcile_archive_encryption_impl(&state.session)?)
         }
         "preview_snapshot_restore" => {
             let payload = parse_payload::<WrappedRequest<SnapshotRestoreRequest>>(payload)?;
@@ -99,6 +112,17 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "run_snapshot_restore" => {
             let payload = parse_payload::<WrappedRequest<SnapshotRestoreRequest>>(payload)?;
             json_value!(worker_bridge::run_snapshot_restore_impl(payload.request, &state.session)?)
+        }
+        "list_recovery_snapshots" => {
+            json_value!(worker_bridge::list_recovery_snapshots_impl()?)
+        }
+        "run_full_archive_restore" => {
+            let payload = parse_payload::<FullArchiveRestorePayload>(payload)?;
+            json_value!(worker_bridge::run_full_archive_restore_impl(
+                payload.request,
+                payload.key,
+                &state.session
+            )?)
         }
         "preview_retention_prune" => {
             json_value!(worker_bridge::preview_retention_prune_impl(&state.session)?)
@@ -180,6 +204,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "get_og_image_coverage_stats" => {
+            json_value!(worker_bridge::og_image_coverage_stats_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "clear_og_image_cache" => {
             json_value!(worker_bridge::clear_og_image_cache_impl(
                 session_key(&state.session).as_deref()
@@ -225,6 +254,40 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 &payload.query,
                 payload.limit,
             )?)
+        }
+        "set_star" => {
+            let payload = parse_payload::<SetStarPayload>(payload)?;
+            json_value!(worker_bridge::set_star_impl(
+                session_key(&state.session).as_deref(),
+                payload.request,
+            )?)
+        }
+        "unset_star" => {
+            let payload = parse_payload::<SetStarPayload>(payload)?;
+            json_value!(worker_bridge::unset_star_impl(
+                session_key(&state.session).as_deref(),
+                payload.request,
+            )?)
+        }
+        "get_star_status" => {
+            let payload = parse_payload::<StarStatusPayload>(payload)?;
+            json_value!(worker_bridge::is_starred_batch_impl(
+                session_key(&state.session).as_deref(),
+                payload.request.entity_kind,
+                &payload.request.entity_keys,
+            )?)
+        }
+        "list_stars" => {
+            let payload = parse_payload::<ListStarsPayload>(payload)?;
+            json_value!(worker_bridge::list_stars_impl(
+                session_key(&state.session).as_deref(),
+                payload.kind,
+                payload.sort,
+                payload.limit,
+            )?)
+        }
+        "get_star_counts" => {
+            json_value!(worker_bridge::star_counts_impl(session_key(&state.session).as_deref(),)?)
         }
         "export_app_data" => {
             let payload = parse_payload::<ExportAppDataPayload>(payload)?;
@@ -433,6 +496,15 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "reset_ai_index_build" => {
+            // Clears stuck index jobs then enqueues a clean build via `build_ai_index_now` (which only
+            // SPAWNS the drain — no `block_on` on this thread — so it is safe inline like `build_ai_index`).
+            let payload = parse_payload::<WrappedRequest<AiIndexRequest>>(payload)?;
+            json_value!(worker_bridge::reset_ai_index_build_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "search_ai_history" => {
             // `run_semantic_search` calls `block_on` against the embedding
             // provider; same panic mechanism as the AI arms above.
@@ -449,6 +521,92 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<WrappedRequest<AiAssistantRequest>>(payload)?;
             let key = session_key(&state.session);
             json_value!(ask_ai_assistant_off_thread(payload.request, key).await?)
+        }
+        "ai_chat_send" => {
+            // `ai_chat_send` resolves config + provider SYNCHRONOUSLY on the calling
+            // thread (blocking keyring/file IO), then spawns a background thread that
+            // creates its own scoped `Runtime::new()` and drives the stream there. That
+            // blocking config IO is why this arm must hop off the bridge's async thread.
+            // The dev HTTP bridge does NOT deliver Tauri events, so the emit sink is a
+            // no-op here (documented); streaming chunks only flow under real Tauri. The
+            // returned `{ runId }` is still verifiable.
+            let payload = parse_payload::<WrappedRequest<AiChatSendRequest>>(payload)?;
+            let key = session_key(&state.session);
+            json_value!(ai_chat_send_off_thread(payload.request, key).await?)
+        }
+        "ai_chat_cancel" => {
+            let payload = parse_payload::<RunIdStringPayload>(payload)?;
+            json_value!(worker_bridge::ai_chat_cancel_impl(
+                payload.run_id,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "download_ai_embedding_model" => {
+            // Spawns a background download thread off the worker; the dev HTTP bridge does NOT
+            // deliver Tauri events, so the progress emit sink is a documented no-op here (progress
+            // only flows under real Tauri). The `Ok(())` ack is still verifiable.
+            json_value!(download_ai_embedding_model_off_thread().await?)
+        }
+        "download_static_embedding_model" => {
+            // Same posture as `download_ai_embedding_model`: spawns a background download thread off the
+            // worker; the dev HTTP bridge does NOT deliver Tauri events so the progress sink is a no-op.
+            json_value!(download_static_embedding_model_off_thread().await?)
+        }
+        "cancel_ai_embedding_model_download" => {
+            json_value!(worker_bridge::cancel_model_download_impl()?)
+        }
+        "save_ai_conversation" => {
+            let payload = parse_payload::<WrappedRequest<SaveAgentConversationRequest>>(payload)?;
+            json_value!(worker_bridge::save_ai_conversation_impl(payload.request)?)
+        }
+        "list_ai_conversations" => {
+            let payload = parse_payload::<WrappedRequest<ListAgentConversationsRequest>>(payload)?;
+            json_value!(worker_bridge::list_ai_conversations_impl(payload.request)?)
+        }
+        "load_ai_conversation" => {
+            let payload = parse_payload::<ConversationIdPayload>(payload)?;
+            json_value!(worker_bridge::load_ai_conversation_impl(payload.conversation_id)?)
+        }
+        "delete_ai_conversation" => {
+            let payload = parse_payload::<ConversationIdPayload>(payload)?;
+            json_value!(worker_bridge::delete_ai_conversation_impl(payload.conversation_id)?)
+        }
+        "rename_ai_conversation" => {
+            let payload = parse_payload::<WrappedRequest<RenameAgentConversationRequest>>(payload)?;
+            json_value!(worker_bridge::rename_ai_conversation_impl(payload.request)?)
+        }
+        "get_content_fetch_settings" => {
+            json_value!(worker_bridge::content_fetch_settings_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "set_content_fetch_settings" => {
+            let payload = parse_payload::<ContentFetchSettingsPayload>(payload)?;
+            json_value!(worker_bridge::set_content_fetch_settings_impl(
+                payload.settings,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "list_visit_enrichment" => {
+            let payload = parse_payload::<HistoryIdPayload>(payload)?;
+            json_value!(worker_bridge::list_visit_enrichment_impl(
+                payload.history_id,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "content_fetch_now" => {
+            let payload = parse_payload::<ContentFetchNowPayload>(payload)?;
+            json_value!(worker_bridge::content_fetch_now_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "enqueue_content_fetch_working_set" => {
+            let payload = parse_payload::<ContentFetchWorkingSetPayload>(payload)?;
+            json_value!(worker_bridge::enqueue_content_fetch_working_set_impl(
+                payload.limit,
+                session_key(&state.session).as_deref()
+            )?)
         }
         "run_core_intelligence_now" => {
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;
@@ -835,6 +993,16 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<UrlPayload>(payload)?;
             json_value!(file_manager::open_external_url_impl(payload.url)?)
         }
+        "reveal_logs" => {
+            json_value!(file_manager::reveal_logs_impl()?)
+        }
+        "export_conversation_file" => {
+            let payload = parse_payload::<ExportConversationFilePayload>(payload)?;
+            json_value!(file_manager::export_conversation_file_impl(
+                payload.target_path,
+                payload.contents,
+            )?)
+        }
         "check_for_app_update" => {
             let app = require_app_handle(state)?;
             json_value!(updater::check_for_app_update(app).await)
@@ -958,6 +1126,52 @@ async fn ask_ai_assistant_off_thread(
     })
     .await
     .unwrap_or_else(|error| Err(format!("ask_ai_assistant join failed: {error}")))
+}
+
+/// Hops `ai_chat_send_impl` onto the tokio blocking thread pool. The worker
+/// resolves config + provider synchronously (blocking keyring/file IO) and then
+/// spawns the streaming thread, which creates its own scoped runtime; that
+/// blocking config IO is why this must not run on the bridge's async thread. The
+/// emit sink is dropped because the dev HTTP bridge does not deliver Tauri events.
+async fn ai_chat_send_off_thread(
+    request: vault_core::AiChatSendRequest,
+    key: Option<String>,
+) -> Result<vault_core::AiChatSendAck, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::ai_chat_send_impl(
+            request,
+            key.as_deref(),
+            std::mem::drop::<vault_core::AiChatStreamEvent>,
+        )
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("ai_chat_send join failed: {error}")))
+}
+
+/// Hops `download_ai_embedding_model_impl` onto the tokio blocking thread pool. The worker spawns
+/// the actual download thread; the emit sink is dropped because the dev HTTP bridge does not deliver
+/// Tauri events (progress only flows under real Tauri).
+async fn download_ai_embedding_model_off_thread() -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::download_ai_embedding_model_impl(
+            std::mem::drop::<vault_core::ModelDownloadProgressEvent>,
+        )
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("download_ai_embedding_model join failed: {error}")))
+}
+
+/// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). Same posture
+/// as the heavy-tier download above: the worker spawns the actual download thread and the emit sink is
+/// dropped (the dev HTTP bridge does not deliver Tauri events).
+async fn download_static_embedding_model_off_thread() -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::download_static_embedding_model_impl(
+            std::mem::drop::<vault_core::ModelDownloadProgressEvent>,
+        )
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("download_static_embedding_model join failed: {error}")))
 }
 
 #[cfg(test)]

@@ -14,7 +14,7 @@
  */
 
 import userEvent from '@testing-library/user-event'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ShellDataProvider } from '../../app/shell-data'
@@ -27,7 +27,9 @@ import { backendTestHarness } from '../../lib/backend'
 import { I18nProvider } from '../../lib/i18n'
 import { ProfileScopeProvider } from '../../lib/profile-scope'
 import { ProfileScopeContext } from '../../lib/profile-scope-context'
+import type { AppScreen } from '../../app/router'
 import { Sidebar } from './index'
+import { SidebarNavItem } from './nav-item'
 
 describe('Sidebar', () => {
   beforeEach(() => {
@@ -81,7 +83,7 @@ describe('Sidebar', () => {
     expect(window.localStorage.getItem('pathkeep.theme')).toBe('light')
   })
 
-  test('renders the optional assistant badge', () => {
+  test('renders the assistant nav item without a roadmap badge', () => {
     const router = createMemoryRouter(
       [
         {
@@ -102,7 +104,48 @@ describe('Sidebar', () => {
       </I18nProvider>,
     )
 
-    expect(screen.getByText('v0.3')).toBeVisible()
+    // AI is now a shipped (consent-gated) feature, so the assistant nav entry no
+    // longer advertises a "v0.3" roadmap badge.
+    expect(screen.getByRole('link', { name: 'AI Assistant' })).toBeVisible()
+    expect(screen.queryByText('v0.3')).toBeNull()
+    expect(document.querySelector('.nav-badge')).toBeNull()
+  })
+
+  test('renders a nav badge when a screen still carries a badgeKey', () => {
+    const screenWithBadge: AppScreen = {
+      id: 'assistant',
+      labelKey: 'navigation.assistantLabel',
+      titleKey: 'navigation.assistantTitle',
+      subtitleKey: 'navigation.assistantSubtitle',
+      icon: 'smart_toy',
+      href: '/assistant',
+      badgeKey: 'navigation.assistantLabel',
+      section: 'CORE',
+    }
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: (
+            <SidebarNavItem collapsed={false} screen={screenWithBadge} />
+          ),
+        },
+      ],
+      { initialEntries: ['/'] },
+    )
+
+    render(
+      <I18nProvider>
+        <RouterProvider router={router} />
+      </I18nProvider>,
+    )
+
+    // The badge-rendering branch stays exercised even though no shipped screen
+    // currently uses it: the badge resolves its i18n key and is hidden when
+    // the rail is collapsed.
+    const badge = document.querySelector('.nav-badge')
+    expect(badge).not.toBeNull()
+    expect(badge?.textContent).toBe('AI Assistant')
   })
 
   test('keeps the root link inactive when another route is selected', () => {
@@ -202,7 +245,14 @@ describe('Sidebar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     render(
@@ -265,7 +315,14 @@ describe('Sidebar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
     const router = createMemoryRouter(
       [
@@ -333,7 +390,14 @@ describe('Sidebar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
     const router = createMemoryRouter(
       [
@@ -411,7 +475,14 @@ describe('Sidebar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     const router = createMemoryRouter(
@@ -439,9 +510,11 @@ describe('Sidebar', () => {
     expect(
       screen.getByText('Open Security before reviewing queued work.'),
     ).toBeVisible()
+    // The footer action always links to /jobs; the archive-unlock gate handles
+    // the locked state above all routes without requiring a Settings detour.
     expect(
-      screen.getAllByRole('link', { name: 'Security' })[1],
-    ).toHaveAttribute('href', '/security#unlock-archive')
+      screen.queryByRole('link', { name: 'Security' }),
+    ).not.toHaveAttribute('href', '/security#unlock-archive')
     expect(loadAiQueueStatusSpy).not.toHaveBeenCalled()
     expect(loadIntelligenceRuntimeSpy).not.toHaveBeenCalled()
   })
@@ -471,6 +544,8 @@ describe('Sidebar', () => {
           queued: 2,
           running: 1,
           failed: 0,
+          indexQueued: 2,
+          indexRunning: 1,
           recentJobs: [],
         },
         intelligence: {
@@ -539,7 +614,14 @@ describe('Sidebar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     const router = createMemoryRouter(
@@ -565,9 +647,11 @@ describe('Sidebar', () => {
     expect(await screen.findByText('Background work')).toBeVisible()
     expect(await screen.findByText('2 running · 3 queued')).toBeVisible()
     expect(screen.getByText('24,000 / 64,781 visits')).toBeVisible()
-    expect(screen.getAllByRole('link', { name: 'Jobs' })[1]).toHaveAttribute(
-      'href',
-      '/jobs',
-    )
+    const statusWidget = screen
+      .getByText('Background work')
+      .closest('.sidebar-background-status') as HTMLElement
+    expect(
+      within(statusWidget).getByRole('link', { name: 'Activity' }),
+    ).toHaveAttribute('href', '/jobs')
   })
 })

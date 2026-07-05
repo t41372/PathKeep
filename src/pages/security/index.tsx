@@ -47,11 +47,9 @@ export function SecurityPage() {
   const {
     actionError,
     busy,
-    handleClearKeyring,
     handleExecuteRekey,
     handleLockArchive,
     handlePreviewRekey,
-    handleStoreKeyringKey,
     handleUnlock,
     handleUnlockFromKeyring,
     notice,
@@ -178,9 +176,7 @@ export function SecurityPage() {
 
       <SecurityUnlockPanel
         busy={busy}
-        handleClearKeyring={handleClearKeyring}
         handleLockArchive={handleLockArchive}
-        handleStoreKeyringKey={handleStoreKeyringKey}
         handleUnlock={handleUnlock}
         handleUnlockFromKeyring={handleUnlockFromKeyring}
         sessionKey={sessionKey}

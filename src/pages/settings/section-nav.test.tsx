@@ -18,6 +18,7 @@
  * - This test is DOM-only and does not load Settings backend state.
  */
 
+import { StrictMode, type ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -91,7 +92,11 @@ describe('SettingsSectionNav', () => {
         }),
       )
 
-      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
+      // No reduced-motion preference (jsdom has no matchMedia): smooth scroll.
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        block: 'start',
+      })
       expect(document.getElementById('settings-migration')).toHaveAttribute(
         'tabindex',
         '0',
@@ -101,6 +106,63 @@ describe('SettingsSectionNav', () => {
       Element.prototype.scrollIntoView = originalScrollIntoView
       window.requestAnimationFrame = originalRequestAnimationFrame
       window.cancelAnimationFrame = originalCancelAnimationFrame
+    }
+  })
+
+  test('jumps instantly (no smooth scroll) when the user prefers reduced motion', async () => {
+    const user = userEvent.setup()
+    const originalScrollIntoView = Reflect.get(
+      Element.prototype,
+      'scrollIntoView',
+    )
+    const originalRequestAnimationFrame = window.requestAnimationFrame
+    const originalCancelAnimationFrame = window.cancelAnimationFrame
+    const originalMatchMedia = window.matchMedia
+    const scrollIntoView = vi.fn()
+
+    Element.prototype.scrollIntoView = scrollIntoView
+    window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    window.cancelAnimationFrame = vi.fn()
+    window.matchMedia = vi.fn(
+      (query: string) =>
+        ({
+          matches: query.includes('prefers-reduced-motion'),
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          onchange: null,
+          dispatchEvent: vi.fn(),
+        }) as unknown as MediaQueryList,
+    )
+
+    try {
+      render(
+        <MemoryRouter initialEntries={['/settings']}>
+          <section id="settings-migration" tabIndex={0} />
+          <SettingsSectionNav items={navItems} label="Settings sections" />
+        </MemoryRouter>,
+      )
+
+      await user.click(
+        screen.getByRole('link', {
+          name: 'Data migration',
+        }),
+      )
+
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'auto',
+        block: 'start',
+      })
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+      window.requestAnimationFrame = originalRequestAnimationFrame
+      window.cancelAnimationFrame = originalCancelAnimationFrame
+      window.matchMedia = originalMatchMedia
     }
   })
 
@@ -134,6 +196,112 @@ describe('SettingsSectionNav', () => {
     } finally {
       Element.prototype.scrollIntoView = originalScrollIntoView
       window.requestAnimationFrame = originalRequestAnimationFrame
+    }
+  })
+
+  test('auto-scrolls the deep-link hash EXACTLY ONCE, not again on re-render with a new items identity', () => {
+    // BUG A regression: arriving via /settings#settings-ai must scroll once. A
+    // subsequent re-render (e.g. an AI-draft edit upstream that mints a fresh
+    // `items` array) must NOT re-fire the auto-scroll and yank the viewport.
+    const originalScrollIntoView = Reflect.get(
+      Element.prototype,
+      'scrollIntoView',
+    )
+    const originalRequestAnimationFrame = window.requestAnimationFrame
+    const originalCancelAnimationFrame = window.cancelAnimationFrame
+    const scrollIntoView = vi.fn()
+
+    Element.prototype.scrollIntoView = scrollIntoView
+    window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    window.cancelAnimationFrame = vi.fn()
+
+    const aiNavItems: SettingsSectionNavItem[] = [
+      { icon: 'settings', id: 'settings-general', key: 'general', label: 'G' },
+      { icon: 'smart_toy', id: 'settings-ai', key: 'ai', label: 'AI' },
+    ]
+
+    try {
+      // Stable MemoryRouter wrapper so `rerender` updates `items` in place
+      // (preserving the component instance + its refs) instead of remounting —
+      // a remount would reset autoScrolledHashRef and mask the regression.
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <MemoryRouter initialEntries={['/settings#settings-ai']}>
+          {children}
+        </MemoryRouter>
+      )
+      const { rerender } = render(
+        <>
+          <section id="settings-ai" />
+          <SettingsSectionNav items={aiNavItems} label="Settings sections" />
+        </>,
+        { wrapper },
+      )
+
+      // Scrolled once on hash arrival.
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+
+      // Re-render with a BRAND-NEW items array identity (same hash). This is the
+      // exact failure mode: a fresh `items` recomputed `sectionIds`, which used
+      // to re-trigger the effect every render.
+      rerender(
+        <>
+          <section id="settings-ai" />
+          <SettingsSectionNav
+            items={aiNavItems.map((item) => ({ ...item }))}
+            label="Settings sections"
+          />
+        </>,
+      )
+
+      // Still exactly once — the re-render did NOT re-scroll.
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+      window.requestAnimationFrame = originalRequestAnimationFrame
+      window.cancelAnimationFrame = originalCancelAnimationFrame
+    }
+  })
+
+  test('auto-scrolls the deep-link hash ONCE under StrictMode double-invoke (idempotent guard)', () => {
+    // BUG A defense-in-depth: the real app mounts under <StrictMode>, which
+    // intentionally runs effects twice on mount. The autoScrolledHashRef guard
+    // must swallow the second invocation so a deep-link does not scroll +
+    // re-focus twice. This exercises the `autoScrolledHashRef.current === hash`
+    // early-return branch with the exact mechanism that triggers it in prod.
+    const originalScrollIntoView = Reflect.get(
+      Element.prototype,
+      'scrollIntoView',
+    )
+    const originalRequestAnimationFrame = window.requestAnimationFrame
+    const originalCancelAnimationFrame = window.cancelAnimationFrame
+    const scrollIntoView = vi.fn()
+
+    Element.prototype.scrollIntoView = scrollIntoView
+    window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    window.cancelAnimationFrame = vi.fn()
+
+    try {
+      render(
+        <StrictMode>
+          <MemoryRouter initialEntries={['/settings#settings-migration']}>
+            <section id="settings-migration" />
+            <SettingsSectionNav items={navItems} label="Settings sections" />
+          </MemoryRouter>
+        </StrictMode>,
+      )
+
+      // Exactly once despite StrictMode's mount/cleanup/remount cycle.
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+      window.requestAnimationFrame = originalRequestAnimationFrame
+      window.cancelAnimationFrame = originalCancelAnimationFrame
     }
   })
 

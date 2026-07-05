@@ -190,10 +190,8 @@ export function SidebarBackgroundStatus({
     }
   }, [activeArchiveTask, initialized, jobsT, language, runtimeStatus, unlocked])
 
-  const actionTarget =
-    initialized && !unlocked ? '/security#unlock-archive' : '/jobs'
-  const actionLabel =
-    initialized && !unlocked ? jobsT('sidebarOpenSecurity') : jobsT('openJobs')
+  const actionTarget = '/jobs'
+  const actionLabel = jobsT('openJobs')
 
   return (
     <div className="sidebar-background-status" data-tone={summary.tone}>

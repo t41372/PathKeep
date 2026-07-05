@@ -96,6 +96,11 @@ export interface BackupRunOverview {
   newVisits: number
   newUrls: number
   newDownloads: number
+  /**
+   * Present on `failed` runs — the backend-reported reason the run did not
+   * complete. Null on successful or skipped runs.
+   */
+  errorMessage?: string | null
 }
 
 /**
@@ -317,6 +322,14 @@ export interface HistoryEntry {
   transition?: number | null
   sourceVisitId: number
   appId?: string | null
+  /**
+   * Capped excerpt of the matched URL's enrichment text (W-ENRICH-1, 06 §6).
+   * Present only on lexical-search results whose `search_documents` row carries
+   * enrichment (a content-fetch summary + GitHub topics/desc); absent on plain
+   * browse, regex, fuzzy, and preview-fixture rows. The Search result row
+   * highlights query terms inside it and suppresses the affordance when empty.
+   */
+  enrichmentExcerpt?: string | null
 }
 
 /**
@@ -379,6 +392,20 @@ export interface OgImageStorageStats {
   blobCount: number
   totalBytes: number
   oldestFetchedAt?: string | null
+}
+
+/**
+ * Coverage reported by `get_og_image_coverage_stats`: how many web pages carry a
+ * preview image. Raw counts — the UI derives the percentages so it can show both
+ * coverage (of all eligible pages) and the success rate (of pages checked).
+ */
+export interface OgImageCoverageStats {
+  /** Distinct https pages in the archive (the eligible denominator; http is never fetched). */
+  eligiblePages: number
+  /** Pages an og:image fetch has been attempted for. */
+  attemptedPages: number
+  /** Pages with a successfully fetched og:image. */
+  pagesWithImage: number
 }
 
 /** Outcome of one cleanup pass. */
@@ -460,4 +487,129 @@ export interface ExportResult {
   format: ExportFormat
   path: string
   count: number
+}
+
+/**
+ * Enumerates the known reasons an archive may need launch-time recovery.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
+export type ArchiveRecoveryKind =
+  | 'interruptedImportModeDrift'
+  | 'interruptedRekeyUnresolved'
+  | 'interruptedRestoreUnresolved'
+  | 'atRestDriftUnresolved'
+
+/**
+ * Describes one verified full-archive safety snapshot available for restore.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
+export interface RecoverySnapshot {
+  id: string
+  path: string
+  createdAt?: string | null
+  sizeBytes: number
+  verifiedOpenable: boolean
+  /**
+   * At-rest signal (keyless): the snapshot is SQLCipher-encrypted on disk. When true the recovery UI
+   * must collect the archive key before it can verify/restore — `verifiedOpenable` is size-only here.
+   */
+  encrypted: boolean
+  sourceOp: string
+  label: string
+}
+
+/**
+ * Represents the outcome of a one-click full-archive restore from a safety snapshot.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
+export interface FullArchiveRestoreReport {
+  runId?: number | null
+  restoredSnapshotPath: string
+  restoredMode: ArchiveMode
+  quarantineDir: string
+  sourceEvidenceRebuilt: boolean
+  warnings: string[]
+}
+
+/**
+ * Describes the structured diagnostic the backend surfaces when the archive cannot be opened on launch.
+ *
+ * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
+ */
+export interface ArchiveRecoveryReport {
+  kind: ArchiveRecoveryKind
+  configMode: ArchiveMode
+  historyVaultMode?: ArchiveMode | null
+  sourceEvidenceMode?: ArchiveMode | null
+  availableSnapshots: string[]
+  recoverySnapshots: RecoverySnapshot[]
+  detail: string
+}
+
+/**
+ * Names the distinct heavy phases a first-run v0.2.0 → v0.3.0 archive upgrade
+ * migration walks through inside `initialize_archive`.
+ *
+ * Mirrors `vault_core::ArchiveUpgradePhase` (serde camelCase). The shell maps
+ * each value to a localized `archiveUpgrade.phase.{...}` label so the upgrade
+ * screen can name its current phase honestly instead of showing an opaque
+ * busy overlay. `intelligence` forward-applies lazily outside the upgrade path,
+ * so it is surfaced as an informational line rather than a streamed bar.
+ */
+export type ArchiveUpgradePhase =
+  | 'schemaMigration'
+  | 'registrableDomainBackfill'
+  | 'searchReprojection'
+  | 'intelligence'
+  | 'finalizing'
+
+/**
+ * One streamed progress tick emitted on `pathkeep://archive-upgrade` while the
+ * one-time upgrade migration runs.
+ *
+ * `processed`/`total` are honest unit counts for phases with a countable unit;
+ * opaque single-statement work (index builds / finalize) carries `0/0` as an
+ * explicit indeterminate marker. `done` marks the single terminal event so the
+ * shell can transition without inferring completion from the counters.
+ */
+export interface ArchiveUpgradeProgress {
+  phase: ArchiveUpgradePhase
+  phaseLabel: string
+  processed: number
+  total: number
+  done: boolean
+}
+
+/**
+ * One phase entry in the cheap upgrade pre-check breakdown.
+ *
+ * `streamed` is `true` for phases that emit live ticks (schema/backfill/
+ * reprojection) and `false` for `intelligence`, which the shell renders as an
+ * informational line instead of a bar stuck at zero. `estimatedTotal` seeds the
+ * progress UI before the first live tick arrives.
+ */
+export interface ArchiveUpgradePhaseAssessment {
+  phase: ArchiveUpgradePhase
+  phaseLabel: string
+  pending: boolean
+  streamed: boolean
+  estimatedTotal: number
+}
+
+/**
+ * Result of the cheap first-run upgrade pre-check (`assess_archive_upgrade`).
+ *
+ * The shell reads `pending` at bootstrap to decide whether to show the upgrade
+ * screen at all: a fresh install or already-migrated archive reports
+ * `pending === false` (no screen), while a genuine version-behind archive
+ * reports `pending === true` plus the per-phase breakdown seeding the UI.
+ */
+export interface ArchiveUpgradeAssessment {
+  pending: boolean
+  currentSchemaVersion: number
+  targetSchemaVersion: number
+  phases: ArchiveUpgradePhaseAssessment[]
 }

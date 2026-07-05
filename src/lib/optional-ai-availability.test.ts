@@ -5,7 +5,6 @@
  *
  * ## Responsibilities
  * - Verify each gate condition is checked in priority order.
- * - Verify the i18n key mapping covers every reason value.
  *
  * ## Not responsible for
  * - Re-testing surfaces that consume the gate.
@@ -15,11 +14,7 @@
  */
 
 import { describe, expect, test } from 'vitest'
-import {
-  evaluateOptionalAiAvailability,
-  optionalAiUnavailableI18nKey,
-  type OptionalAiUnavailableReason,
-} from './optional-ai-availability'
+import { evaluateOptionalAiAvailability } from './optional-ai-availability'
 
 describe('evaluateOptionalAiAvailability', () => {
   test('flags release-deferred first when the release flag is off', () => {
@@ -120,18 +115,5 @@ describe('evaluateOptionalAiAvailability', () => {
         aiStatusState: 'rebuilding',
       }),
     ).toEqual({ available: true, reason: null })
-  })
-})
-
-describe('optionalAiUnavailableI18nKey', () => {
-  const cases: Array<[OptionalAiUnavailableReason, string]> = [
-    ['release-deferred', 'optionalAiUnavailableReleaseDeferred'],
-    ['ai-disabled', 'optionalAiUnavailableAiDisabled'],
-    ['no-embedding-provider', 'optionalAiUnavailableNoProvider'],
-    ['embedding-provider-error', 'optionalAiUnavailableProviderError'],
-  ]
-
-  test.each(cases)('maps %s to %s', (reason, expected) => {
-    expect(optionalAiUnavailableI18nKey(reason)).toBe(expected)
   })
 })

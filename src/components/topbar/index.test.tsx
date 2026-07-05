@@ -146,7 +146,14 @@ describe('Topbar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     render(
@@ -213,7 +220,14 @@ describe('Topbar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     render(
@@ -298,7 +312,14 @@ describe('Topbar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession,
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     render(
@@ -367,7 +388,14 @@ describe('Topbar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     window.addEventListener('unhandledrejection', unhandledRejection)
@@ -450,7 +478,14 @@ describe('Topbar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
       markNotificationsRead,
       dismissNotification,
     }
@@ -540,7 +575,14 @@ describe('Topbar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     render(
@@ -607,7 +649,14 @@ describe('Topbar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
       markNotificationsRead,
     }
 
@@ -669,7 +718,14 @@ describe('Topbar', () => {
         .mockRejectedValue(new Error('not implemented')),
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
+      recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+      runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
     window.location.hash = '#/'

@@ -62,12 +62,58 @@ pub struct QueueJobCounts {
     pub failed: u32,
 }
 
+/// Resumable progress for a chunked embedding backfill (02 §C.6 R1).
+///
+/// Persisted INSIDE the index job payload so a worker restart resumes from where it stopped
+/// instead of re-embedding from scratch. `next_history_id` is the lowest canonical `history_id`
+/// the backfill has NOT yet processed; the embed loop scans candidates with
+/// `history_id >= next_history_id` in ascending order and advances the watermark after each chunk
+/// is durably persisted. `embedded_so_far` is a monotone progress counter surfaced to status.
+///
+/// Default (`{ next_history_id: 0, embedded_so_far: 0 }`) means "start from the beginning", so a
+/// legacy payload without this field (serde default) resumes correctly as a fresh backfill.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexBackfillCursor {
+    /// Lowest canonical `history_id` not yet embedded; the next chunk starts here.
+    pub next_history_id: i64,
+    /// Count of vectors durably persisted so far across all chunks of this backfill.
+    pub embedded_so_far: u64,
+    /// The max canonical `history_id` captured at the TRUE start of the build — the honest determinate
+    /// scan denominator, so `next_history_id / scan_target` reaches ~100% as the scan completes.
+    ///
+    /// `#[serde(default)]` (default 0 = unknown) keeps EXISTING persisted payloads back-compatible: a
+    /// cursor written before this field deserializes with `scan_target = 0`. Set ONCE at the build's
+    /// true start; a resume PRESERVES it (see [`persist_index_cursor`]) rather than recomputing against
+    /// a corpus that may have grown, so the bar measures the build's own original scan range.
+    #[serde(default)]
+    pub scan_target: i64,
+    /// The number of candidate pages this build set out to embed, captured ONCE at the build's true
+    /// start (non-reverted visits NOT yet embedded for this provider — so a full rebuild, whose wipe
+    /// already cleared them, counts every candidate, while an incremental pass counts only the new
+    /// pages). `embedded_so_far / embed_target` is the HONEST progress the user reads as "{embedded} of
+    /// {N} pages" — it tracks vectors actually written, not a sparse history-id position. Same
+    /// back-compat + preserve-on-resume contract as [`Self::scan_target`]: `#[serde(default)]`
+    /// (0 = unknown) keeps legacy payloads valid, and a resume keeps the stored value rather than
+    /// recounting a corpus that grew (or got partially embedded) under the build.
+    #[serde(default)]
+    pub embed_target: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 /// Typed payload stored inside one persistent AI queue row.
 pub enum AiJobPayload {
-    Index { request: AiIndexRequest },
-    Assistant { payload: AssistantJobPayload },
+    Index {
+        request: AiIndexRequest,
+        /// Resumable backfill watermark; `default` for jobs enqueued before resumability or for
+        /// a fresh build. Updated in place as chunks are persisted so a restart resumes.
+        #[serde(default)]
+        cursor: IndexBackfillCursor,
+    },
+    Assistant {
+        payload: AssistantJobPayload,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -116,7 +162,7 @@ pub fn enqueue_index_job(
         if request.clear_only { AiQueueJobType::IndexClear } else { AiQueueJobType::IndexBuild },
         priority,
         if request.clear_only || request.full_rebuild { 2 } else { 3 },
-        AiJobPayload::Index { request: request.clone() },
+        AiJobPayload::Index { request: request.clone(), cursor: IndexBackfillCursor::default() },
         paused,
     )
 }
@@ -157,16 +203,27 @@ pub fn load_ai_queue_status(
         connection,
         &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear, AiQueueJobType::Assistant],
     )?;
+    // Index-only narrowing (M-5): the Smart-search build callout must reflect
+    // ONLY semantic-index work. Counting `Assistant` chat jobs here would make
+    // an in-flight chat read as "Building the index", which is dishonest.
+    let index_counts = load_queue_job_counts(
+        connection,
+        &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear],
+    )?;
+    // `payload_json` is selected as the last column so the Activity page gets a determinate index-build
+    // bar: the index payload's resumable cursor (embedded/scanned/scan_target) is parsed per row in
+    // `decode_ai_job_row_with_progress`. Assistant jobs (and any unparseable payload) leave the three
+    // progress fields `None` — a bad row never wedges the read model.
     let mut statement = connection.prepare(
         "SELECT id, job_type, state, priority, attempt, max_attempts, run_id, summary,
                 created_at, available_at, started_at, finished_at, heartbeat_at,
-                error_code, error_message
+                error_code, error_message, payload_json
          FROM ai_jobs
          ORDER BY id DESC
          LIMIT ?1",
     )?;
     let recent_jobs = statement
-        .query_map([limit as i64], decode_ai_job_row)?
+        .query_map([limit as i64], decode_ai_job_row_with_progress)?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(AiQueueStatus {
         paused,
@@ -174,6 +231,8 @@ pub fn load_ai_queue_status(
         queued: counts.queued,
         running: counts.running,
         failed: counts.failed,
+        index_queued: index_counts.queued,
+        index_running: index_counts.running,
         recent_jobs,
     })
 }
@@ -189,6 +248,49 @@ pub fn load_queue_job_counts(
         running: count_jobs_for_types(connection, job_types, &["running"])? as u32,
         failed: count_jobs_for_types(connection, job_types, &["failed"])? as u32,
     })
+}
+
+/// Counts jobs a drain worker could make progress on RIGHT NOW — the signal that decides whether to
+/// spawn the background drain pool.
+///
+/// This is deliberately broader than the read-model `queued` count, which sees only `queued`/`stale`.
+/// The bug it fixes: a job orphaned in `running` (its worker died — stale heartbeat / expired lease)
+/// is invisible to a `queued`-gated kick, so the drain is never spawned, so `claim_next_ai_job` (which
+/// would `mark_stale_jobs` it back to `stale` and re-claim from its cursor) is never called. The job
+/// then sits in `running` forever across every app launch and never resumes. Counting orphaned
+/// `running` jobs here (mirroring EXACTLY the two orphan predicates `mark_stale_jobs` uses, so this
+/// count equals what the next claim will actually recover) lets the periodic status poll kick the
+/// drain and self-heal the wedge.
+///
+/// Read-only: it never mutates. The actual stale-sweep + reclaim still happens only inside the drain's
+/// `claim_next_ai_job`, so this changes WHETHER the drain runs, never the sweep timing.
+pub fn count_recoverable_ai_jobs(connection: &Connection, stale_after_seconds: i64) -> Result<u32> {
+    ensure_ai_queue_schema(connection)?;
+    let now = now_rfc3339();
+    let threshold = (Utc::now() - Duration::seconds(stale_after_seconds)).to_rfc3339();
+    let count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM ai_jobs
+         WHERE
+           -- claimable now: queued or already-stale work that is due
+           (state IN ('queued', 'stale') AND available_at <= ?1)
+           OR
+           -- orphaned running (mark_stale_jobs branch 2 → 'stale' → reclaim from cursor)
+           (state = 'running'
+              AND COALESCE(stop_requested, 0) = 0
+              AND heartbeat_at IS NOT NULL
+              AND heartbeat_at < ?2)
+           OR
+           -- orphaned running with a pending stop (mark_stale_jobs branch 1 → 'cancelled')
+           (state = 'running'
+              AND stop_requested = 1
+              AND (
+                (lease_expires_at IS NOT NULL AND lease_expires_at <= ?2)
+                OR (heartbeat_at IS NOT NULL AND heartbeat_at < ?2)
+              ))",
+        params![now, threshold],
+        |row| row.get(0),
+    )?;
+    Ok(count.max(0) as u32)
 }
 
 /// Claims the next runnable AI job, recovering stale running jobs first.
@@ -231,6 +333,39 @@ pub fn claim_next_ai_job(
         let Some((id, job_type, attempt, max_attempts, payload_json)) = candidate else {
             return Ok(None);
         };
+
+        // RETRY BOUND (the stuck-build fix): a job that has already burned its whole attempt budget
+        // must NOT be re-claimed again. Without this, a job that keeps crashing / going stale before it
+        // can fail gracefully (so `mark_ai_job_failed`'s attempt check never runs) cycles
+        // stale → running → stale forever. Each `claim` increments `attempt`; once `attempt` has reached
+        // `max_attempts` WITHOUT any durable progress in between, the budget is spent: move the job to a
+        // TERMINAL failed state with an honest reason instead of claiming it, then keep scanning for
+        // other runnable work. NOTE: durable progress RESETS `attempt` to 0 (see `persist_index_cursor`),
+        // so only a build that makes NO progress across the whole budget terminates here — an
+        // interrupted-but-progressing build keeps resuming. A reset / replay also grants a fresh budget.
+        if attempt >= max_attempts {
+            connection.execute(
+                "UPDATE ai_jobs
+                 SET state = 'failed',
+                     updated_at = ?1,
+                     heartbeat_at = ?1,
+                     finished_at = ?1,
+                     lease_owner = NULL,
+                     lease_expires_at = NULL,
+                     error_code = 'max-attempts-exhausted',
+                     error_message = ?2
+                 WHERE id = ?3
+                   AND state IN ('queued', 'stale')",
+                params![
+                    now,
+                    format!(
+                        "AI job exhausted its retry budget ({max_attempts} attempt(s)) without completing; reset or replay it to try again."
+                    ),
+                    id,
+                ],
+            )?;
+            continue;
+        }
 
         let payload = match serde_json::from_str::<AiJobPayload>(&payload_json) {
             Ok(payload) => payload,
@@ -356,6 +491,109 @@ pub fn heartbeat_ai_job(connection: &Connection, job_id: i64) -> Result<()> {
         params![now_rfc3339(), lease_expires_at(AI_JOB_LEASE_SECONDS), job_id],
     )?;
     Ok(())
+}
+
+/// Outcome of a [`persist_index_cursor`] write, distinguishing a real lease loss from a benign skip.
+///
+/// The embed loop MUST react differently to "the lease was reclaimed by another worker" (abort —
+/// keeping going would let two workers double-write the vector store, HIGH-3) versus "the job is not
+/// an index job / no longer exists" (a harmless no-op the caller can ignore). A bare row count could
+/// not tell these apart, so the cursor write returns this enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorPersistOutcome {
+    /// The running index job's cursor was updated (the `WHERE … state='running'` UPDATE matched).
+    Persisted,
+    /// The job's lease was reclaimed (it exists as an index job but is no longer `running` under
+    /// this worker), so the UPDATE matched 0 rows. The embed loop treats this as a lease loss.
+    LeaseLost,
+    /// The job vanished or is not an index payload — nothing to persist, and not a lease loss.
+    NotIndexJob,
+}
+
+/// Persists the resumable backfill cursor (and a progress summary) for one running index job.
+///
+/// Called by the embed loop after each chunk's vectors are durably written, so a worker restart
+/// (lease loss, crash, pause) resumes from `cursor.next_history_id` instead of re-embedding from
+/// scratch (02 §C.6 R1). The cursor lives inside the job's `payload_json`; this rewrites only the
+/// `Index` payload and refreshes `heartbeat_at` so the lease stays fresh while a long chunk runs.
+///
+/// Returns a [`CursorPersistOutcome`] so the embed loop can ABORT a de-leased worker (HIGH-3): the
+/// `WHERE … state='running'` guard matches 0 rows once another worker has reclaimed the lease (the
+/// stale-sweep flipped this row out of `running`), and a worker that keeps embedding + appending
+/// while a second worker also runs the job would double-write the vector store. A vanished or
+/// non-index job is reported as [`CursorPersistOutcome::NotIndexJob`] (a benign no-op), distinct
+/// from a true lease loss.
+pub fn persist_index_cursor(
+    connection: &Connection,
+    job_id: i64,
+    cursor: &IndexBackfillCursor,
+    summary: Option<&str>,
+) -> Result<CursorPersistOutcome> {
+    ensure_ai_queue_schema(connection)?;
+    let Some(mut payload) = load_optional_ai_job_payload(connection, job_id)? else {
+        return Ok(CursorPersistOutcome::NotIndexJob);
+    };
+    let AiJobPayload::Index { request, cursor: stored } = &mut payload else {
+        return Ok(CursorPersistOutcome::NotIndexJob);
+    };
+    // PRESERVE the determinate scan denominator across resumes: the backfill captures `scan_target`
+    // ONCE at the build's true start and reports `0` ("unknown") on every resume, so a fresh build
+    // sets it here while a resume keeps the value already stored. Without this, a resumed cursor would
+    // clobber the original target with 0 and the Activity bar would lose its denominator mid-build.
+    let scan_target = if cursor.scan_target > 0 { cursor.scan_target } else { stored.scan_target };
+    // Same preserve-on-resume contract for the embed denominator: a resume reports 0, so keep the
+    // value captured at the build's true start rather than clobbering it.
+    let embed_target =
+        if cursor.embed_target > 0 { cursor.embed_target } else { stored.embed_target };
+    *stored = IndexBackfillCursor { scan_target, embed_target, ..cursor.clone() };
+    // Once the backfill has made durable progress, a `full_rebuild` must NEVER fire its destructive
+    // wipe again: a worker that re-claims this job after a crash would otherwise re-run the clear +
+    // delete and lose every row already embedded below the cursor (CRITICAL-1). Flipping the stored
+    // request to a plain incremental build the moment the cursor leaves the origin is the durable
+    // backstop to the in-process `start_history_id == 0` gate in `build_ai_index_with_control`.
+    if cursor.next_history_id > 0 && request.full_rebuild {
+        request.full_rebuild = false;
+    }
+    let payload_json = serde_json::to_string(&payload)?;
+    let now = now_rfc3339();
+    // DURABLE PROGRESS EARNS BACK THE RETRY BUDGET (review fix): the attempt counter increments on every
+    // CLAIM, so a long build that makes real progress but is INTERRUPTED (app quit → stale → reclaim)
+    // `max_attempts` times would otherwise hit the retry bound and go terminal despite advancing — the
+    // common case for a user who keeps interrupting a slow first fill. Resetting `attempt` to 0 here, at
+    // the durable-progress checkpoint, means only a build that makes NO progress across the whole budget
+    // is judged genuinely wedged; a slow-but-progressing, frequently-interrupted build keeps resuming.
+    let updated = connection.execute(
+        "UPDATE ai_jobs
+         SET payload_json = ?1,
+             summary = COALESCE(?2, summary),
+             updated_at = ?3,
+             heartbeat_at = ?3,
+             lease_expires_at = ?4,
+             attempt = 0
+         WHERE id = ?5 AND state = 'running'",
+        params![payload_json, summary, now, lease_expires_at(AI_JOB_LEASE_SECONDS), job_id],
+    )?;
+    Ok(if updated == 1 {
+        CursorPersistOutcome::Persisted
+    } else {
+        // The row exists as an index job (we loaded its payload) but the running-state guard matched
+        // nothing → the lease was reclaimed (stale-swept) out from under this worker.
+        CursorPersistOutcome::LeaseLost
+    })
+}
+
+/// Loads the typed payload for one job, returning `None` when the job no longer exists.
+fn load_optional_ai_job_payload(
+    connection: &Connection,
+    job_id: i64,
+) -> Result<Option<AiJobPayload>> {
+    connection
+        .query_row("SELECT payload_json FROM ai_jobs WHERE id = ?1", [job_id], |row| {
+            row.get::<_, String>(0)
+        })
+        .optional()?
+        .map(|json| serde_json::from_str::<AiJobPayload>(&json).map_err(anyhow::Error::from))
+        .transpose()
 }
 
 /// Marks a running AI job as succeeded and stores any result metadata.
@@ -528,6 +766,34 @@ pub fn replay_ai_job(connection: &Connection, job_id: i64, paused: bool) -> Resu
         ],
     )?;
     load_ai_job(connection, job_id)
+}
+
+/// Clears every non-terminal semantic-index job, returning how many were cleared (the reset path).
+///
+/// Recovery primitive for a WEDGED index build (F2): it moves ALL `index-build` / `index-clear` jobs
+/// that are still queued / running / stale / paused / failed into a TERMINAL `cancelled` state,
+/// dropping any lease and requesting cooperative stop, so a fresh build can be enqueued cleanly
+/// without colliding with a stuck job. Terminal states (`succeeded`, `cancelled`) are left untouched.
+/// A running job is asked to stop via `stop_requested = 1` AND flipped to `cancelled` here: the reset
+/// is an explicit user action to abandon the current build, and the next `claim_next_ai_job` for that
+/// row would no longer match (it is no longer `running`). Returns the number of rows cleared so the
+/// caller can report it.
+pub fn clear_index_jobs(connection: &Connection) -> Result<usize> {
+    ensure_ai_queue_schema(connection)?;
+    let now = now_rfc3339();
+    Ok(connection.execute(
+        "UPDATE ai_jobs
+         SET state = 'cancelled',
+             updated_at = ?1,
+             finished_at = ?1,
+             heartbeat_at = NULL,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
+             stop_requested = 1
+         WHERE job_type IN ('index-build', 'index-clear')
+           AND state IN ('queued', 'running', 'stale', 'paused', 'failed')",
+        params![now],
+    )?)
 }
 
 /// Cancels one queued/paused AI job immediately or requests cooperative stop for running jobs.
@@ -737,7 +1003,34 @@ fn decode_ai_job_row(row: &Row<'_>) -> rusqlite::Result<AiQueueJob> {
         heartbeat_at: row.get(12)?,
         error_code: row.get(13)?,
         error_message: row.get(14)?,
+        // The row-only decode (no `payload_json`) leaves progress unknown; the status path uses
+        // `decode_ai_job_row_with_progress`, which fills these from the index cursor.
+        progress_embedded: None,
+        progress_scanned: None,
+        progress_scan_target: None,
+        progress_embed_target: None,
     })
+}
+
+/// Decodes one queue row INCLUDING index-build progress parsed from `payload_json` (column index 15).
+///
+/// The Activity page renders a determinate bar for a running index build, so this enriches the base
+/// read model with the resumable cursor's `embedded_so_far` (vectors embedded), `next_history_id`
+/// (scan watermark), and `scan_target` (scan denominator). ONLY an [`AiJobPayload::Index`] carries a
+/// cursor, so an assistant job leaves all three `None`; a payload that fails to parse (schema drift /
+/// corruption) is treated the same way rather than erroring the whole status read on one bad row.
+fn decode_ai_job_row_with_progress(row: &Row<'_>) -> rusqlite::Result<AiQueueJob> {
+    let mut job = decode_ai_job_row(row)?;
+    let payload_json: String = row.get(15)?;
+    if let Ok(AiJobPayload::Index { cursor, .. }) =
+        serde_json::from_str::<AiJobPayload>(&payload_json)
+    {
+        job.progress_embedded = Some(cursor.embedded_so_far);
+        job.progress_scanned = Some(cursor.next_history_id);
+        job.progress_scan_target = Some(cursor.scan_target);
+        job.progress_embed_target = Some(cursor.embed_target);
+    }
+    Ok(job)
 }
 
 fn parse_rfc3339(value: &str) -> Result<DateTime<Utc>> {

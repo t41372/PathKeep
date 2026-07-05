@@ -81,7 +81,7 @@ pub(super) fn discover_chromium_profiles(
             let favicons_path = profile_path.join("Favicons");
             let history_exists = history_path.exists();
             let (history_readable, access_issue) =
-                history_access_state(&history_path, history_exists, definition.family);
+                history_access_state(&history_path, history_exists);
             let favicons_exists = favicons_path.exists();
             let (history_bytes, favicons_bytes, supporting_bytes) = profile_storage_bytes(
                 &history_path,
@@ -165,8 +165,7 @@ pub(super) fn fallback_chromium_profiles(
         let raw_profile_id = entry.file_name().to_string_lossy().to_string();
         let favicons_path = profile_path.join("Favicons");
         let favicons_exists = favicons_path.exists();
-        let (history_readable, access_issue) =
-            history_access_state(&history_path, true, definition.family);
+        let (history_readable, access_issue) = history_access_state(&history_path, true);
         let (history_bytes, favicons_bytes, supporting_bytes) = profile_storage_bytes(
             &history_path,
             favicons_exists.then_some(favicons_path.as_path()),
@@ -209,8 +208,7 @@ pub(super) fn direct_root_chromium_profile(
     let profile_suffix = if definition.key.starts_with("opera") { "default" } else { "root" };
     let favicons_path = root.join("Favicons");
     let favicons_exists = favicons_path.exists();
-    let (history_readable, access_issue) =
-        history_access_state(&history_path, true, definition.family);
+    let (history_readable, access_issue) = history_access_state(&history_path, true);
     let (history_bytes, favicons_bytes, supporting_bytes) =
         profile_storage_bytes(&history_path, favicons_exists.then_some(favicons_path.as_path()));
 
@@ -260,8 +258,7 @@ pub(super) fn discover_firefox_profiles(
             }
 
             let raw_profile_id = entry.file_name().to_string_lossy().to_string();
-            let (history_readable, access_issue) =
-                history_access_state(&history_path, true, "firefox");
+            let (history_readable, access_issue) = history_access_state(&history_path, true);
             let (history_bytes, favicons_bytes, supporting_bytes) =
                 profile_storage_bytes(&history_path, None);
             profiles.push(BrowserProfile {
@@ -340,8 +337,7 @@ pub(super) fn discover_safari_profile() -> Result<Option<BrowserProfile>> {
 
     let history_path = safari_root.join("History.db");
     let history_exists = history_path.exists();
-    let (history_readable, access_issue) =
-        history_access_state(&history_path, history_exists, "safari");
+    let (history_readable, access_issue) = history_access_state(&history_path, history_exists);
     let (history_bytes, favicons_bytes, supporting_bytes) =
         profile_storage_bytes(&history_path, None);
     Ok(Some(BrowserProfile {
@@ -365,10 +361,20 @@ pub(super) fn discover_safari_profile() -> Result<Option<BrowserProfile>> {
     }))
 }
 
+/// Classifies whether one profile's history file is readable, and if not, WHY, as a
+/// stable marker string.
+///
+/// A `PermissionDenied` open is a macOS Full Disk Access problem for EVERY browser
+/// family, not just Safari: on current macOS, third-party browser data under
+/// `~/Library/Application Support/…` is TCC-protected exactly like `~/Library/Safari`,
+/// so a denial on Chrome/Firefox/etc. is the same "grant Full Disk Access" situation.
+/// Off macOS a permission error is a plain unreadable file, and every non-permission
+/// failure stays `history-file-not-readable`. The verdict is delegated to
+/// [`crate::browser_access::classify_history_access_core`] so it is shared with the
+/// snapshot/backup paths and unit-tested without real TCC.
 pub(super) fn history_access_state(
     history_path: &Path,
     history_exists: bool,
-    browser_family: &str,
 ) -> (bool, Option<String>) {
     if !history_exists {
         return (false, None);
@@ -377,13 +383,10 @@ pub(super) fn history_access_state(
     match fs::File::open(history_path) {
         Ok(_) => (true, None),
         Err(error) => {
-            let issue = if browser_family == "safari"
-                && matches!(error.kind(), ErrorKind::PermissionDenied)
-            {
-                "macos-full-disk-access"
-            } else {
-                "history-file-not-readable"
-            };
+            let issue = crate::browser_access::classify_history_access_core(
+                error.kind() == ErrorKind::PermissionDenied,
+                crate::browser_access::full_disk_access_applies(),
+            );
             (false, Some(issue.to_string()))
         }
     }

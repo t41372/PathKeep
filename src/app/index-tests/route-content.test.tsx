@@ -57,7 +57,7 @@ describe('App shell', () => {
     {
       entry: '/assistant',
       pageTestId: null,
-      sentinel: assistantT('deferredTitle'),
+      sentinel: assistantT('disabledTitle'),
     },
     {
       entry: '/intelligence',
@@ -72,7 +72,7 @@ describe('App shell', () => {
     {
       entry: '/settings',
       pageTestId: 'settings-page',
-      sentinel: settingsT('preferencesOverview'),
+      sentinel: settingsT('general'),
     },
     {
       entry: '/maintenance',

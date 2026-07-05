@@ -200,6 +200,11 @@ const GLYPH_PATHS: Record<string, GlyphRenderer> = {
       <path d="M7 4h10v17l-5-4-5 4z" />
     </>
   ),
+  star: () => (
+    <>
+      <path d="M12 3.5l2.6 5.3 5.9.9-4.25 4.15 1 5.85L12 17.9l-5.25 2.65 1-5.85L3.5 9.7l5.9-.9z" />
+    </>
+  ),
   build: () => (
     <>
       <path d="M14.7 6.3a3.7 3.7 0 0 0 5 5L10.2 20.8a2 2 0 0 1-2.8 0L5.2 18.6a2 2 0 0 1 0-2.8z" />
@@ -212,6 +217,12 @@ const GLYPH_PATHS: Record<string, GlyphRenderer> = {
       <path d="m8 7 1 12h6l1-12" />
       <path d="M11 10.5v5" />
       <path d="M13 10.5v5" />
+    </>
+  ),
+  edit: () => (
+    <>
+      <path d="M15.5 5.5 18.5 8.5 9 18l-3.5 1 1-3.5z" />
+      <path d="M14 7 17 10" />
     </>
   ),
   language: () => (
@@ -243,6 +254,11 @@ const GLYPH_PATHS: Record<string, GlyphRenderer> = {
     <>
       <rect x="7" y="5" width="3" height="14" />
       <rect x="14" y="5" width="3" height="14" />
+    </>
+  ),
+  stop: () => (
+    <>
+      <rect x="6.5" y="6.5" width="11" height="11" rx="2" />
     </>
   ),
   close: () => (

@@ -49,6 +49,21 @@ use anyhow::{Context, Result};
 use rusqlite::params;
 use std::collections::BTreeMap;
 
+/// Tags a browser-profile access failure as a Full Disk Access problem when the root cause is an OS
+/// permission denial (macOS TCC / `EACCES`/`EPERM`), so the recorded reason and the UI can guide the
+/// user to grant access instead of surfacing a bare "Operation not permitted". Non-permission errors
+/// pass through unchanged. The "Full Disk Access" marker is the stable signal the front end keys on
+/// to render its localized, actionable guidance.
+pub(super) fn classify_browser_access_error(error: anyhow::Error) -> anyhow::Error {
+    if crate::browser_access::is_permission_denied(&error) {
+        error.context(
+            "PathKeep needs Full Disk Access to read your browser history. Grant it in System Settings \u{2192} Privacy & Security \u{2192} Full Disk Access, then run the backup again.",
+        )
+    } else {
+        error
+    }
+}
+
 /// Runs one backup without exposing the internal progress stream.
 ///
 /// The app uses this wrapper when it only needs the final report and wants the
@@ -68,6 +83,16 @@ pub fn run_backup(
 /// the most recent successful backup is still fresh enough. The callback sees
 /// phase-local progress only; the returned report remains the single source of
 /// truth for persisted run state, warnings, and manifest paths.
+///
+/// D3 — DELIBERATE DEFERRAL of a per-backup whole-DB safety snapshot. Backup does NOT capture a
+/// verified full-archive snapshot, by design. Backup is APPEND-ONLY and already crash-atomic
+/// (Phase B): it appends canonical rows IN PLACE inside one transaction and NEVER REWRITES the
+/// canonical history-vault. Copying + `quick_check`-ing the full 14.4M-row archive before every
+/// (frequent) backup would cost minutes of I/O for ZERO added safety. The restore backstop is kept
+/// fresh instead by the deliberate whole-DB REWRITE ops — rekey / at-rest reconcile / whole-app
+/// import — which DO capture a verified snapshot (D3). The `RecoverySnapshot::source_op == "periodic"`
+/// value is reserved for a future scheduled-snapshot policy and is not produced today (mirroring how
+/// `ArchiveRecoveryKind::AtRestDriftUnresolved` is a reserved-but-unproduced variant).
 pub fn run_backup_with_progress<F>(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -83,7 +108,52 @@ where
         anyhow::bail!("archive has not been initialized");
     }
 
+    // WRITE SERIALIZATION (data-integrity audit CRITICAL-1 / CRITICAL-5): hold BOTH
+    // serialization layers for the WHOLE backup. The in-process top-level
+    // [`ArchiveOpGate`] (taken FIRST) excludes a SECOND destructive op dispatched in THIS
+    // process — e.g. the user toggling encryption (rekey) / triggering an import from
+    // Settings while this run's canonical write transaction is open — which the reentrant
+    // flock alone cannot exclude (CRIT-5's same-process trigger). The cross-process
+    // [`ArchiveWriteLock`] excludes the OUT-OF-PROCESS scheduled backup. Either way a
+    // foreign `fs::rename` of `history-vault.sqlite` out from under the open transaction
+    // (committing into a now-unlinked inode, reporting success, silently losing the rows,
+    // and orphaning a `-wal` that bricks the next open) is prevented. A manual run MUST
+    // complete, so it BLOCKS until both layers free; a scheduled/automatic (`due_only`)
+    // run DEFERS if EITHER layer is held — it steps aside this tick and the next due
+    // window retries, surfaced through the existing `due_skipped` channel (no failure
+    // toast, no banner). The flock is process-reentrant, so a backup that later calls
+    // reconcile never self-deadlocks; the gate is taken ONLY here at the top level. The
+    // guards are held (lock released first, then gate) until this function returns.
+    let _write_lock = match acquire_backup_write_lock(paths, due_only)? {
+        Some(guard) => guard,
+        None => {
+            return Ok(BackupReport {
+                due_skipped: true,
+                reason: Some(BACKUP_DEFERRED_FOR_WRITE_LOCK.to_string()),
+                ..BackupReport::default()
+            });
+        }
+    };
+
+    // Heal a whole-app import whose commit phase was cut by a crash BEFORE this backup
+    // opens the archive (data-integrity audit, HIGH residual). A crashed GUI import
+    // frees its `flock` when the process dies; the SEPARATE scheduled-backup process can
+    // then win the lock and would otherwise open — and record SUCCESS for — a silently
+    // half-applied (e.g. new history-vault + old source-evidence) archive, never hitting
+    // the unlock-path reconcile. Recovering here reverts to the consistent pre-import
+    // state first. The acquire inside is process-reentrant (we already hold the lock) and
+    // gated on a cheap marker `stat`, so this is a no-op when no import was interrupted.
+    // Placed AFTER the lock acquire so a scheduled run still DEFERS (above) rather than
+    // blocking when another process holds the lock mid-import.
+    crate::migration::recover_interrupted_import(paths)?;
+
     let mut connection = super::open_archive_connection(paths, config, key)?;
+    // Self-heal a drifted at-rest mode (e.g. an encrypted config left over a
+    // plaintext source-evidence by an archive-only rekey) BEFORE opening
+    // source-evidence — otherwise `PRAGMA key` on the plaintext file makes
+    // SQLCipher decode the plaintext header as ciphertext and abort with
+    // SQLITE_NOMEM ("out of memory") on every backup. No-op when consistent.
+    super::reconcile_source_evidence_with_archive(&connection, paths, config, key)?;
     let mut source_evidence = super::open_source_evidence_connection(paths, config, key)?;
 
     if due_only && let Some(reason) = backup_due_skip_reason(&connection, config)? {
@@ -94,43 +164,16 @@ where
         });
     }
 
-    let discovered = discover_profiles()?;
-    if config.selected_profile_ids.is_empty() {
-        anyhow::bail!("select at least one readable browser profile before running a backup")
-    }
-    let selected_profiles = select_supported_profiles(&discovered, &config.selected_profile_ids);
-    if selected_profiles.is_empty() {
-        anyhow::bail!(
-            "the selected profiles are not readable yet; choose at least one detected profile with a readable history database"
-        )
-    }
-    let skipped_profiles = collect_skipped_profiles(&discovered, &config.selected_profile_ids);
     let started_at = now_rfc3339();
     let timezone = current_timezone_name();
     let trigger = if due_only { "schedule" } else { "manual" };
-    let total_profiles = selected_profiles.len();
 
-    report_progress(
-        BackupProgressEvent {
-            phase: "prepare".to_string(),
-            label: "Inspect selected browser profiles".to_string(),
-            detail: format!(
-                "Queued {total_profiles} readable profile(s) for the canonical backup run."
-            ),
-            step: 0,
-            total_steps: 3,
-            completed_profiles: 0,
-            total_profiles,
-            profile_id: None,
-            progress_current: Some(0),
-            progress_total: Some(total_profiles),
-            progress_percent: Some(0.0),
-            log_lines: vec![format!("Queued {total_profiles} readable profile(s) for backup.")],
-            ..BackupProgressEvent::default()
-        }
-        .with_log_event("info", "backup.prepare"),
-    );
-
+    // Open the run ledger BEFORE any work that can fail (profile discovery, selection, staging).
+    // A backup tool must never fail silently: if PathKeep can't even read the browser profiles
+    // (e.g. macOS denies Full Disk Access), there must still be a `failed` run on record with the
+    // reason — not a phantom no-op that the user only notices after they've cleared their history.
+    // The scope records the user's *intent* (the selected ids), which is the honest scope for a run
+    // that failed before it could resolve which of them are actually readable.
     connection.execute(
         "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
          VALUES ('backup', ?1, ?2, ?3, 'running', ?4, '[]', '{}', ?5)",
@@ -138,25 +181,59 @@ where
             trigger,
             started_at,
             timezone,
-            serde_json::to_string(
-                &selected_profiles
-                    .iter()
-                    .map(|profile| profile.profile_id.clone())
-                    .collect::<Vec<_>>()
-            )?,
+            serde_json::to_string(&config.selected_profile_ids)?,
             due_only as i64,
         ],
     )?;
     let run_id = connection.last_insert_rowid();
     let parent_manifest = latest_manifest_row(&connection)?;
 
+    // From here, EVERY failure must finalize this run as `failed` with its reason recorded — never
+    // an early return that leaves a phantom `running` row or an invisible no-op. Discovery, profile
+    // selection, AND staging all run inside ONE guard whose single error path finalizes the run, so
+    // "PathKeep couldn't read your browser history" is always a visible failed run, not silence.
     let mut profile_summaries = Vec::new();
     let mut source_hashes = BTreeMap::<String, BTreeMap<String, String>>::new();
     let mut snapshot_artifacts = Vec::<SnapshotArtifact>::new();
     let mut source_evidence_plans = Vec::new();
-    let mut warnings = skipped_profiles;
+    let mut warnings: Vec<String> = Vec::new();
 
-    let backup_result = (|| -> Result<()> {
+    let backup_result = (|| -> Result<Vec<String>> {
+        let discovered = discover_profiles().map_err(classify_browser_access_error)?;
+        if config.selected_profile_ids.is_empty() {
+            anyhow::bail!("select at least one readable browser profile before running a backup");
+        }
+        let selected_profiles =
+            select_supported_profiles(&discovered, &config.selected_profile_ids);
+        if selected_profiles.is_empty() {
+            anyhow::bail!(
+                "the selected profiles are not readable yet; choose at least one detected profile with a readable history database"
+            );
+        }
+        warnings.extend(collect_skipped_profiles(&discovered, &config.selected_profile_ids));
+        let total_profiles = selected_profiles.len();
+
+        report_progress(
+            BackupProgressEvent {
+                phase: "prepare".to_string(),
+                label: "Inspect selected browser profiles".to_string(),
+                detail: format!(
+                    "Queued {total_profiles} readable profile(s) for the canonical backup run."
+                ),
+                step: 0,
+                total_steps: 3,
+                completed_profiles: 0,
+                total_profiles,
+                profile_id: None,
+                progress_current: Some(0),
+                progress_total: Some(total_profiles),
+                progress_percent: Some(0.0),
+                log_lines: vec![format!("Queued {total_profiles} readable profile(s) for backup.")],
+                ..BackupProgressEvent::default()
+            }
+            .with_log_event("info", "backup.prepare"),
+        );
+
         let transaction = connection.transaction()?;
         for (index, profile) in selected_profiles.iter().enumerate() {
             report_progress(
@@ -186,7 +263,39 @@ where
                 .with_log_event("info", "backup.stage-profile"),
             );
             let snapshot = match crate::chrome::stage_profile_snapshot(paths, profile) {
-                Ok(snapshot) => snapshot,
+                Ok(staged) => {
+                    // Record any degraded-staging notes (e.g. an online snapshot
+                    // that fell back to a recovered raw copy because the browser
+                    // was busy) on the run so the reason is visible, not silent.
+                    for warning in &staged.warnings {
+                        warnings.push(warning.clone());
+                        report_progress(
+                            BackupProgressEvent {
+                                phase: "stage-profile".to_string(),
+                                label: "Recovered a busy database".to_string(),
+                                detail: warning.clone(),
+                                step: 1,
+                                total_steps: 3,
+                                completed_profiles: index,
+                                total_profiles,
+                                profile_id: Some(profile.profile_id.clone()),
+                                progress_current: Some(index + 1),
+                                progress_total: Some(total_profiles),
+                                progress_percent: Some(
+                                    (((index + 1) as f32) / total_profiles as f32) * 100.0,
+                                ),
+                                log_lines: vec![warning.clone()],
+                                source_label: Some(format!(
+                                    "{} / {}",
+                                    profile.browser_name, profile.profile_name
+                                )),
+                                ..BackupProgressEvent::default()
+                            }
+                            .with_log_event("warning", "backup.stage-profile.fallback"),
+                        );
+                    }
+                    staged.snapshot
+                }
                 Err(error) if is_skippable_staging_access_error(profile, &error) => {
                     let warning = staging_access_skip_warning(profile);
                     warnings.push(warning.clone());
@@ -295,14 +404,29 @@ where
             }
             .with_log_event("info", "backup.finalize"),
         );
+        // Crash window: every staged profile's rows are in the OPEN transaction but not
+        // yet committed. A kill/power-loss HERE must roll the transaction back so the
+        // on-disk archive stays at its pre-backup state — never a torn half-write. (No-op
+        // in production; armed only by the crash-window regression tests.)
+        crate::fault_inject::checkpoint("backup.before_canonical_commit")?;
         transaction.commit()?;
-        Ok(())
+        Ok(selected_profiles.iter().map(|profile| profile.profile_id.clone()).collect())
     })();
 
-    if let Err(error) = backup_result {
-        finalize_failed_run(&connection, run_id, &profile_summaries, &warnings, &error)?;
-        return Err(error);
-    }
+    let selected_profile_ids: Vec<String> = match backup_result {
+        Ok(selected_profile_ids) => selected_profile_ids,
+        Err(error) => {
+            finalize_failed_run(&connection, run_id, &profile_summaries, &warnings, &error)?;
+            return Err(error);
+        }
+    };
+
+    // Crash window: the canonical history-vault rows are COMMITTED and durable, but
+    // source-evidence, the manifest, and the run finalize have not run yet. A
+    // kill/power-loss HERE must leave the archive fully consistent at the
+    // newly-committed state — the canonical facts are never torn; the follow-up
+    // artifacts are recoverable on a subsequent run. (No-op in production.)
+    crate::fault_inject::checkpoint("backup.after_canonical_commit")?;
 
     warnings.extend(
         persist_source_evidence_plans(&mut source_evidence, &connection, &source_evidence_plans)
@@ -317,7 +441,7 @@ where
         &started_at,
         &finished_at,
         trigger,
-        &selected_profiles.iter().map(|profile| profile.profile_id.clone()).collect::<Vec<_>>(),
+        &selected_profile_ids,
         &profile_summaries,
     );
     let row_counts = archive_row_counts(&connection)?;
@@ -380,6 +504,51 @@ where
         git_commit,
         warnings,
     })
+}
+
+/// Reason recorded when a scheduled (`due_only`) backup steps aside because another
+/// process already holds the archive write lock (e.g. a foreground rekey or import).
+///
+/// Surfaced through the normal `due_skipped` channel so the deferral is visible for PME
+/// transparency without raising a failure toast — a deferred tick is a no-op that the
+/// next due window retries, not a failed run.
+const BACKUP_DEFERRED_FOR_WRITE_LOCK: &str = "Another archive operation is in progress; deferring this scheduled backup until the next due window.";
+
+/// Acquires BOTH write-serialization layers for the duration of a backup run: the
+/// in-process top-level [`super::ArchiveOpGate`] (taken FIRST) and the cross-process
+/// [`super::ArchiveWriteLock`].
+///
+/// A manual run (`due_only == false`) MUST execute, so it BLOCKS until both layers free.
+/// A scheduled run (`due_only == true`) instead tries once and DEFERS (`Ok(None)`) when
+/// EITHER layer is held — a foreground top-level op in THIS process (gate) or a
+/// destructive op in ANOTHER OS process (flock) — so the caller can skip-with-reason
+/// instead of racing the rekey/import swap. The flock is process-reentrant, so this never
+/// self-deadlocks against a nested archive helper running in THIS process; the gate is
+/// non-reentrant and taken ONLY here (no nested backup helper re-takes it).
+///
+/// The guards are returned as `(lock, gate)` so they RELEASE in that order — the reverse
+/// of acquisition — letting a parked same-process waiter wake to a gate it can take with
+/// the flock already free.
+fn acquire_backup_write_lock(
+    paths: &ProjectPaths,
+    due_only: bool,
+) -> Result<Option<(super::ArchiveWriteLock, super::ArchiveOpGate)>> {
+    if due_only {
+        // Probe the in-process gate first; if a foreground top-level op holds it, defer
+        // WITHOUT touching the flock. The gate guard drops on the early return, releasing
+        // it for that in-flight op.
+        let Some(gate) = super::ArchiveOpGate::try_acquire(paths) else {
+            return Ok(None);
+        };
+        match super::ArchiveWriteLock::try_acquire(paths)? {
+            Some(lock) => Ok(Some((lock, gate))),
+            None => Ok(None),
+        }
+    } else {
+        let gate = super::ArchiveOpGate::acquire(paths);
+        let lock = super::ArchiveWriteLock::acquire(paths)?;
+        Ok(Some((lock, gate)))
+    }
 }
 
 fn is_skippable_staging_access_error(profile: &BrowserProfile, error: &anyhow::Error) -> bool {

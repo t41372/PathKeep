@@ -103,6 +103,76 @@ pub(crate) fn enqueue_enrichment_job(
     Ok(())
 }
 
+/// Enqueues one W-ENRICH-1 content-fetch job, deduped by CANONICAL URL (06 §3).
+///
+/// Keying by canonical URL (not history_id) means 5000 gmail visits enqueue ONE fetch that fans out to
+/// every visit's row at store time — "the maximal near-free leverage" (05 §1). A re-enqueue of an
+/// already-queued/running URL is a no-op (the existing row's payload is refreshed to the freshest
+/// history_id so the stored enrichment maps to a live visit). Returns the job id. The caller gates on
+/// consent + the negative cache BEFORE enqueueing; this is the durable handoff to the drain lane.
+pub(crate) fn enqueue_content_fetch_job(
+    connection: &Connection,
+    payload: &EnrichmentJobPayload,
+) -> Result<i64> {
+    ensure_intelligence_runtime_schema(connection)?;
+    let now = now_rfc3339();
+    let canonical = crate::visit_taxonomy::normalize_visit_url(&payload.url)
+        .map(|normalized| normalized.canonical_url)
+        .unwrap_or_else(|| payload.url.trim().to_string());
+    let dedupe_key = format!("{CONTENT_FETCH_PLUGIN_ID}:{canonical}");
+    let payload_json = serde_json::to_string(payload)?;
+
+    let existing = connection
+        .query_row(
+            "SELECT id, state FROM intelligence_jobs WHERE dedupe_key = ?1",
+            [&dedupe_key],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+
+    if let Some((job_id, state)) = existing {
+        if state != "running" {
+            // Refresh the payload to the freshest visit + requeue so a manual "fetch now" re-runs a
+            // previously-finished URL. A running job is left alone (its claim owns the row).
+            connection.execute(
+                "UPDATE intelligence_jobs
+                 SET state = 'queued',
+                     priority = ?1,
+                     payload_json = ?2,
+                     scheduled_at = ?3,
+                     started_at = NULL,
+                     finished_at = NULL,
+                     heartbeat_at = NULL,
+                     lease_owner = NULL,
+                     lease_expires_at = NULL,
+                     updated_at = ?3,
+                     last_error = NULL,
+                     cancellation_reason = NULL,
+                     stop_requested = 0
+                 WHERE id = ?4",
+                params![CONTENT_FETCH_PRIORITY, payload_json, now, job_id],
+            )?;
+        }
+        return Ok(job_id);
+    }
+
+    connection.execute(
+        "INSERT INTO intelligence_jobs
+         (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+          artifact_json, created_at, scheduled_at, updated_at)
+         VALUES (?1, ?2, NULL, 'queued', ?3, 0, ?4, ?5, '{}', ?6, ?6, ?6)",
+        params![
+            CONTENT_FETCH_JOB_TYPE,
+            CONTENT_FETCH_PLUGIN_ID,
+            CONTENT_FETCH_PRIORITY,
+            dedupe_key,
+            payload_json,
+            now,
+        ],
+    )?;
+    Ok(connection.last_insert_rowid())
+}
+
 /// Enqueues one Core Intelligence job for the requested scope and stage.
 pub fn enqueue_core_intelligence_job(
     connection: &Connection,

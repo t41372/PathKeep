@@ -25,6 +25,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
+import type { TakeoutInspection } from '../../lib/types'
 import {
   getDefaultBuildInfo,
   renderShellProbe,
@@ -294,6 +295,104 @@ describe('ShellDataProvider', () => {
     }
   })
 
+  test('does not auto-lock while an archive import is in flight, then re-arms after it settles', async () => {
+    // Data-safety: `runImport` never sets busyAction, so the idle timer must be
+    // suppressed by the running archive task instead — otherwise a long import
+    // could hit the idle timeout and lock the archive out from under an in-flight
+    // encrypted write. This is a DEFER: once the task settles the timer re-arms.
+    const { dashboard, snapshot } = await seedSnapshot()
+    const unlockedStatus = {
+      ...snapshot.appLockStatus,
+      enabled: true,
+      locked: false,
+      passcodeConfigured: true,
+      idleTimeoutMinutes: 1,
+    }
+    let resolveImport: ((value: TakeoutInspection) => void) | null = null
+
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue({
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        appLock: {
+          ...snapshot.config.appLock,
+          enabled: true,
+          idleTimeoutMinutes: 1,
+          passcodeConfigured: true,
+        },
+      },
+      appLockStatus: unlockedStatus,
+    })
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadAppLockStatus').mockResolvedValue(unlockedStatus)
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    const lockSpy = vi.spyOn(backend, 'lockAppSession').mockResolvedValue({
+      ...unlockedStatus,
+      locked: true,
+      lockReason: 'idle-timeout',
+    })
+    vi.spyOn(backend, 'importTakeout').mockImplementation(
+      () =>
+        new Promise<TakeoutInspection>((resolve) => {
+          resolveImport = resolve
+        }),
+    )
+
+    renderShellProbe()
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    // Start the import under real timers so `waitForNextPaint` (real rAF) can
+    // resolve and the pending backend call is actually reached.
+    fireEvent.click(screen.getByRole('button', { name: 'import-takeout' }))
+    await waitFor(() => expect(backend.importTakeout).toHaveBeenCalled())
+    expect(screen.getByTestId('active-archive-task')).not.toHaveTextContent(
+      'none',
+    )
+
+    try {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+      // A running archive task suppresses the idle timer: the idle listeners are
+      // detached while the task is in flight, so even a user-activity event must
+      // NOT (re)arm the deadline, and advancing past the timeout must not lock
+      // the session mid-write. On the old busyAction-only guard the listeners
+      // stayed attached during an import, so this pointerdown would arm a timer
+      // that then fires — that is what makes this assertion actually bite.
+      act(() => {
+        window.dispatchEvent(new Event('pointerdown'))
+        vi.advanceTimersByTime(60_000)
+      })
+      await Promise.resolve()
+      expect(lockSpy).not.toHaveBeenCalled()
+
+      // The import settles → the task leaves the running set → the idle timer
+      // re-arms and CAN fire if the user stays idle.
+      await act(async () => {
+        resolveImport?.(takeoutInspection())
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(60_000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      vi.runOnlyPendingTimers()
+      vi.useRealTimers()
+
+      expect(lockSpy).toHaveBeenCalledWith('idle-timeout')
+    } finally {
+      if (vi.isFakeTimers()) {
+        vi.runOnlyPendingTimers()
+        vi.useRealTimers()
+      }
+    }
+  })
+
   test('arms idle locking only when the document becomes visible', async () => {
     const { dashboard, snapshot } = await seedSnapshot()
     const unlockedStatus = {
@@ -554,3 +653,36 @@ describe('ShellDataProvider', () => {
     )
   })
 })
+
+function takeoutInspection(): TakeoutInspection {
+  return {
+    sourcePath: '/tmp/Takeout',
+    dryRun: false,
+    recognizedFiles: [],
+    quarantinedFiles: [],
+    candidateItems: 6,
+    importedItems: 4,
+    duplicateItems: 2,
+    previewEntries: [],
+    importBatch: {
+      id: 9,
+      sourceKind: 'google-takeout',
+      sourcePath: '/tmp/Takeout',
+      profileId: 'takeout::browser-history',
+      createdAt: '2026-04-27T10:00:00.000Z',
+      importedAt: '2026-04-27T10:02:00.000Z',
+      revertedAt: null,
+      status: 'imported',
+      candidateItems: 6,
+      importedItems: 4,
+      duplicateItems: 2,
+      visibleItems: 4,
+      auditPath: null,
+      gitCommit: null,
+    },
+    notes: [],
+    detectedLocale: null,
+    previewRangeStart: null,
+    previewRangeEnd: null,
+  }
+}

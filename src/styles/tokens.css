@@ -153,6 +153,15 @@
   --topbar-h: 52px;
   --statusbar-h: 32px;
 
+  /* macOS overlay title bar (titleBarStyle: "Overlay").
+     Off by default — the app shell flips --titlebar-overlay-h on at runtime
+     (data-titlebar-overlay="true") only when the native traffic lights float
+     over the webview. Height clears the ~28px title strip vertically; inset
+     reserves the leftmost ~72px so the lights never overlap the sidebar
+     brand mark or the collapsed-rail controls. */
+  --titlebar-overlay-h: 0px;
+  --titlebar-overlay-inset: 72px;
+
   /* Spacing scale (kept compatible with existing --space-* names). */
   --space-1: 4px;
   --space-2: 8px;

@@ -32,20 +32,25 @@ import type {
 import { createShellDataActions } from './shell-data-actions'
 import { createShellTask } from './shell-tasks'
 
-const { backendMock, subscribeToBackupProgressMock, waitForNextPaintMock } =
-  vi.hoisted(() => ({
-    backendMock: {
-      saveConfig: vi.fn(),
-      initializeArchive: vi.fn(),
-      runBackupNow: vi.fn(),
-      setAppLockPasscode: vi.fn(),
-      clearAppLockPasscode: vi.fn(),
-      lockAppSession: vi.fn(),
-      unlockAppSession: vi.fn(),
-    },
-    subscribeToBackupProgressMock: vi.fn(),
-    waitForNextPaintMock: vi.fn(),
-  }))
+const {
+  backendMock,
+  subscribeToBackupProgressMock,
+  waitForNextPaintMock,
+  runLocalSemanticSetupMock,
+} = vi.hoisted(() => ({
+  backendMock: {
+    saveConfig: vi.fn(),
+    initializeArchive: vi.fn(),
+    runBackupNow: vi.fn(),
+    setAppLockPasscode: vi.fn(),
+    clearAppLockPasscode: vi.fn(),
+    lockAppSession: vi.fn(),
+    unlockAppSession: vi.fn(),
+  },
+  subscribeToBackupProgressMock: vi.fn(),
+  waitForNextPaintMock: vi.fn(),
+  runLocalSemanticSetupMock: vi.fn(),
+}))
 
 vi.mock('../lib/backend-client', () => ({
   backend: backendMock,
@@ -53,6 +58,10 @@ vi.mock('../lib/backend-client', () => ({
 
 vi.mock('../lib/ipc/backup-progress', () => ({
   subscribeToBackupProgress: subscribeToBackupProgressMock,
+}))
+
+vi.mock('../lib/ipc/semantic-setup', () => ({
+  runLocalSemanticSetup: runLocalSemanticSetupMock,
 }))
 
 vi.mock('../lib/wait-for-next-paint', () => ({
@@ -95,6 +104,60 @@ describe('createShellDataActions', () => {
     expect(harness.refreshKey).toBe(1)
     expect(harness.refreshDashboardSnapshot).toHaveBeenCalledWith(snapshot)
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(1)
+  })
+
+  test('quiet config save skips the blocking busy overlay but still refreshes shell state', async () => {
+    // The all-auto-save Settings path fires a tiny config write on EVERY individual
+    // toggle / select / blur. Those must NOT throw the full-screen blocking
+    // `BusyOverlay` (which would freeze the main thread on each control), so the
+    // settings hooks pass `{ quiet: true }`. The snapshot / language / app-lock /
+    // dashboard refresh must still run exactly the same — only the overlay is gone.
+    const harness = createActionHarness()
+    const config = buildConfig({ preferredLanguage: 'zh-CN' })
+    const snapshot = buildSnapshot({
+      config,
+      appLockStatus: buildAppLockStatus({ locked: false }),
+    })
+    backendMock.saveConfig.mockResolvedValue(snapshot)
+
+    await expect(
+      harness.actions.saveConfig(config, { quiet: true }),
+    ).resolves.toBe(snapshot)
+
+    // No blocking overlay was ever shown or cleared, and we never blocked on a
+    // pre-paint frame — the write is silent except the section's inline chip.
+    expect(harness.showBusyOverlay).not.toHaveBeenCalled()
+    expect(harness.clearBusyOverlay).not.toHaveBeenCalled()
+    expect(waitForNextPaintMock).not.toHaveBeenCalled()
+
+    // The shell still reconciles every read model so the UI reflects the save and
+    // the hooks' post-save sync works.
+    expect(harness.setNotice).toHaveBeenCalledWith(null)
+    expect(harness.setError).toHaveBeenCalledWith(null)
+    expect(backendMock.saveConfig).toHaveBeenCalledWith(config)
+    expect(harness.setLanguagePreference).toHaveBeenCalledWith('zh-CN')
+    expect(harness.setAppLockStatus).toHaveBeenCalledWith(
+      snapshot.appLockStatus,
+    )
+    expect(harness.setSnapshot).toHaveBeenCalledWith(snapshot)
+    expect(harness.refreshKey).toBe(1)
+    expect(harness.refreshDashboardSnapshot).toHaveBeenCalledWith(snapshot)
+  })
+
+  test('quiet config save surfaces the error banner without an overlay on failure', async () => {
+    // A failing quiet save must still set the error banner (the section/shell
+    // surfaces it) and re-throw, but it must never touch the blocking overlay.
+    const harness = createActionHarness()
+    const config = buildConfig()
+    backendMock.saveConfig.mockRejectedValueOnce(new Error('quiet save failed'))
+
+    await expect(
+      harness.actions.saveConfig(config, { quiet: true }),
+    ).rejects.toThrow('quiet save failed')
+
+    expect(harness.setError).toHaveBeenLastCalledWith('quiet save failed')
+    expect(harness.showBusyOverlay).not.toHaveBeenCalled()
+    expect(harness.clearBusyOverlay).not.toHaveBeenCalled()
   })
 
   test('initializes archives and reports non-Error failures with shipped fallback copy', async () => {
@@ -166,9 +229,9 @@ describe('createShellDataActions', () => {
       progressValue: null,
       steps: expect.any(Array),
       activeStep: 0,
-      // Manual backup is now a non-blocking action that renders as a
-      // bottom-bar BackgroundProgress strip; the shell uses this flag to
-      // pick the right surface. The other overlay snapshots inherit the
+      // Manual backup is now a non-blocking action surfaced through the
+      // shell's ambient task bar; the shell uses this flag to keep it OUT
+      // of the blocking overlay. The other overlay snapshots inherit the
       // same flag via buildBackupOverlay / inline payloads.
       background: true,
     })
@@ -237,11 +300,24 @@ describe('createShellDataActions', () => {
     )
 
     await expect(harness.actions.runBackup()).rejects.toThrow(
-      t('shell.safariFullDiskAccessBackupError'),
+      t('shell.fullDiskAccessBackupError'),
     )
     expect(harness.setError).toHaveBeenLastCalledWith(
-      t('shell.safariFullDiskAccessBackupError'),
+      t('shell.fullDiskAccessBackupError'),
     )
+    // The locale-independent classification is asserted from the RAW error, so
+    // the shell can show the FDA remediation affordance in every locale without
+    // re-parsing the translated message.
+    expect(harness.setErrorKind).toHaveBeenLastCalledWith('full-disk-access')
+    // The RAW, untranslated backend text is preserved for the copy-able diagnostic
+    // report — distinct from the localized FDA `message` shown in the body.
+    expect(harness.setRawError).toHaveBeenLastCalledWith(
+      'Safari History.db is not readable yet',
+    )
+    // A FAILED backup must also refresh so the now-recorded failed run surfaces in the
+    // dashboard/audit (they read the shell snapshot) — never silent there either. Once for the
+    // due-skip success above, once for this failure.
+    expect(harness.refreshAppData).toHaveBeenCalledTimes(2)
     expect(unsubscribe).toHaveBeenCalledTimes(2)
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(2)
   })
@@ -324,11 +400,75 @@ describe('createShellDataActions', () => {
 
     await expect(harness.actions.runBackup()).rejects.toBe(ordinaryError)
     expect(harness.setError).toHaveBeenLastCalledWith('backup exploded')
+    expect(harness.setRawError).toHaveBeenLastCalledWith('backup exploded')
 
     await expect(harness.actions.runBackup()).rejects.toBe('worker payload')
     expect(harness.setError).toHaveBeenLastCalledWith('worker payload')
+    // Non-Error rejections still capture a raw detail for the diagnostic report.
+    expect(harness.setRawError).toHaveBeenLastCalledWith('worker payload')
+    // An ordinary (non-FDA) failure still gets the 'backup' classification so the
+    // shell renders the backup-specific toast — but never 'full-disk-access'.
+    expect(harness.setErrorKind).toHaveBeenLastCalledWith('backup')
+    expect(harness.setErrorKind).not.toHaveBeenCalledWith('full-disk-access')
     expect(unsubscribe).toHaveBeenCalledTimes(2)
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(2)
+  })
+
+  test('lock-required backup failure routes to the gate without a danger toast', async () => {
+    const task = createShellTask({
+      id: 'backup-task',
+      kind: 'backup',
+      title: 'Backup',
+      detail: 'Queued backup',
+      timestamp: '2026-04-27T10:00:00.000Z',
+    })
+    const archiveTasks = {
+      beginBackupTask: vi.fn(() => ({ task })),
+      updateBackupTask: vi.fn(),
+      finishBackupTask: vi.fn(),
+      failBackupTask: vi.fn(),
+    }
+    const harness = createActionHarness({ archiveTasks })
+    subscribeToBackupProgressMock.mockResolvedValueOnce(vi.fn())
+    // A locked encrypted archive surfaces this backend message.
+    backendMock.runBackupNow.mockRejectedValueOnce(
+      new Error('a database key is required to open the encrypted archive'),
+    )
+
+    await expect(harness.actions.runBackup()).rejects.toThrow(
+      'database key is required',
+    )
+
+    // The failed run is recorded in the task ledger, but SILENTLY — the unlock
+    // gate is the remediation surface, so no red danger bell.
+    expect(archiveTasks.failBackupTask).toHaveBeenCalledWith(
+      'backup-task',
+      expect.stringContaining('database key is required'),
+      { silent: true },
+    )
+    // The lock-required kind is set (so the shell shows the gate + retries),
+    // and the error/raw-error text is cleared so no failure toast renders.
+    expect(harness.setErrorKind).toHaveBeenLastCalledWith('lock-required')
+    expect(harness.setError).toHaveBeenLastCalledWith(null)
+    expect(harness.setRawError).toHaveBeenLastCalledWith(null)
+    expect(harness.setErrorKind).not.toHaveBeenCalledWith('backup')
+    expect(harness.setErrorKind).not.toHaveBeenCalledWith('full-disk-access')
+  })
+
+  test('lock-required backup failure works without archive-task hooks', async () => {
+    // No archiveTasks → taskId stays null, exercising the `if (taskId)` guard's
+    // false branch while still routing to the gate without a danger toast.
+    const harness = createActionHarness()
+    subscribeToBackupProgressMock.mockResolvedValueOnce(vi.fn())
+    backendMock.runBackupNow.mockRejectedValueOnce(
+      new Error('no session key for the encrypted archive'),
+    )
+
+    await expect(harness.actions.runBackup()).rejects.toThrow('no session key')
+
+    expect(harness.setErrorKind).toHaveBeenLastCalledWith('lock-required')
+    expect(harness.setError).toHaveBeenLastCalledWith(null)
+    expect(harness.setRawError).toHaveBeenLastCalledWith(null)
   })
 
   test('surfaces backup progress subscription failures before starting the worker', async () => {
@@ -429,6 +569,15 @@ describe('createShellDataActions', () => {
 
     expect(subscribeToBackupProgressMock).not.toHaveBeenCalled()
     expect(backendMock.runBackupNow).not.toHaveBeenCalled()
+    // A concurrency conflict is a benign guard, NOT a data-safety failure: the
+    // blocking task already published a warning notification, so the backup action
+    // must re-throw WITHOUT raising the red failure alert (no crying wolf). The
+    // only `setError` is the preamble reset to null; the raw detail + FDA kind
+    // stay untouched.
+    expect(harness.setError).toHaveBeenCalledTimes(1)
+    expect(harness.setError).toHaveBeenCalledWith(null)
+    expect(harness.setRawError).not.toHaveBeenCalled()
+    expect(harness.setErrorKind).not.toHaveBeenCalled()
   })
 
   test('updates app-lock status actions and keeps refresh side effects scoped', async () => {
@@ -552,6 +701,36 @@ describe('createShellDataActions', () => {
     expect(harness.setError).toHaveBeenNthCalledWith(10, 'bad passcode payload')
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(5)
   })
+
+  test('starts the local semantic setup and kicks the ambient bar via a runtime refresh', async () => {
+    const harness = createActionHarness()
+    runLocalSemanticSetupMock.mockResolvedValueOnce(undefined)
+
+    await expect(
+      harness.actions.startLocalSemanticSetup(),
+    ).resolves.toBeUndefined()
+
+    expect(runLocalSemanticSetupMock).toHaveBeenCalledTimes(1)
+    // The runtime refresh makes the just-enqueued index-build job appear in the ambient bar
+    // immediately instead of waiting a poll cycle.
+    expect(harness.refreshRuntimeStatus).toHaveBeenCalledTimes(1)
+  })
+
+  test('swallows a local semantic setup failure but still refreshes runtime status', async () => {
+    // Onboarding AI setup is OPTIONAL + best-effort — a flaky model download must never surface a
+    // blocking error or break finishing onboarding. The runtime refresh still runs in the finally.
+    const harness = createActionHarness()
+    runLocalSemanticSetupMock.mockRejectedValueOnce(
+      new Error('download failed'),
+    )
+
+    await expect(
+      harness.actions.startLocalSemanticSetup(),
+    ).resolves.toBeUndefined()
+
+    expect(runLocalSemanticSetupMock).toHaveBeenCalledTimes(1)
+    expect(harness.refreshRuntimeStatus).toHaveBeenCalledTimes(1)
+  })
 })
 
 function createActionHarness(
@@ -567,11 +746,14 @@ function createActionHarness(
     setLanguagePreference: vi.fn(),
     refreshDashboardSnapshot: vi.fn(),
     refreshAppData: vi.fn(),
+    refreshRuntimeStatus: vi.fn(),
     clearLoadedState: vi.fn(),
     showBusyOverlay: vi.fn(),
     clearBusyOverlay: vi.fn(),
     setNotice: vi.fn(),
     setError: vi.fn(),
+    setErrorKind: vi.fn(),
+    setRawError: vi.fn(),
     setSnapshot: vi.fn(),
     setAppLockStatus: vi.fn(),
     setRefreshKey,
@@ -587,11 +769,14 @@ function createActionHarness(
       setLanguagePreference: harness.setLanguagePreference,
       refreshDashboardSnapshot: harness.refreshDashboardSnapshot,
       refreshAppData: harness.refreshAppData,
+      refreshRuntimeStatus: harness.refreshRuntimeStatus,
       clearLoadedState: harness.clearLoadedState,
       showBusyOverlay: harness.showBusyOverlay,
       clearBusyOverlay: harness.clearBusyOverlay,
       setNotice: harness.setNotice,
       setError: harness.setError,
+      setErrorKind: harness.setErrorKind,
+      setRawError: harness.setRawError,
       setSnapshot: harness.setSnapshot,
       setAppLockStatus: harness.setAppLockStatus,
       setRefreshKey,

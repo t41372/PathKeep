@@ -12,17 +12,21 @@
 //! - worker orchestration glue that combines multiple subsystems for one UI
 //!   action
 
+pub mod agent_store;
 pub mod ai;
 pub mod ai_queue;
 pub mod ai_sidecar;
 pub mod annotations;
 pub mod app_lock;
 pub mod archive;
+pub mod browser_access;
 mod browser_retention;
 pub mod chrome;
 pub mod config;
 pub mod diagnostics;
+pub mod durable_io;
 mod enrichment;
+pub mod fault_inject;
 pub mod git_audit;
 pub mod intelligence;
 mod intelligence_blobs;
@@ -31,16 +35,52 @@ pub mod intelligence_runtime;
 mod intelligence_sections;
 pub mod migration;
 pub mod models;
+pub mod stars;
 pub mod takeout;
 pub mod utils;
 pub mod visit_taxonomy;
 
+pub use agent_store::{
+    AgentCitationRecord, AgentRunStatus, AgentRunTrace, AgentStepRecord, AppendAgentStep,
+    BeginAgentRun, append_agent_step, begin_agent_run, delete_conversation, ensure_agent_schema,
+    finalize_agent_run, list_conversations, load_agent_run, load_conversation,
+    open_agent_connection, record_agent_citations, rename_conversation, save_conversation,
+};
 pub use ai::{
-    AiIntegrationPreview, AiProviderRuntime, AiRunCancelled, AiRunControl, ai_index_status,
-    ai_queue_status, answer_history_question, answer_history_question_with_control, build_ai_index,
-    build_ai_index_with_control, load_assistant_run_response, preview_ai_integrations,
-    provider_capabilities, provider_connection_failure_report, reconcile_ai_queue_controls,
-    semantic_search_history, test_provider_connection,
+    ALLOWLIST_EXPANSION, AgentJournal, AgentRunOutcome, AgentSystemContext, AgentToolContext,
+    AiIntegrationPreview, AiProviderRuntime, AiRunCancelled, AiRunControl, AnyEmbeddingProvider,
+    BinaryPlane, CANDLE_CPU_DOCS_PER_SEC, CANDLE_INAPP_BASE_URL, CandidateSignals,
+    CandleEmbeddingProvider, CodeOutcome, DEFAULT_CANDLE_MODEL_FILES, DEFAULT_CANDLE_MODEL_REPO,
+    DEFAULT_CANDLE_QUANT, DEFAULT_CANDLE_TOKENIZER_REPO, DEFAULT_MAX_ITERATIONS,
+    DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, DEFAULT_TOKEN_BUDGET,
+    EMBEDDING_FINGERPRINT_VERSION, EmbeddingDescriptor, EmbeddingDtype, EmbeddingFingerprint,
+    EmbeddingPooling, EmbeddingProvider, EmbeddingRole, ExternalEmbeddingProvider, FlatVectorIndex,
+    HostCallRecord, IndexBackfillLedger, IndexBackfillProgress, Int8Plane, Int8PlaneReader,
+    Int8Vector, LimitsHit, LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream,
+    LlmMessage, LlmProvider, LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolCall, LlmToolDef,
+    LlmUsage, MAX_FETCH_IDS, MAX_GUEST_MEMORY_BYTES, MAX_HOST_CALLS, MAX_OUTPUT_BYTES,
+    MAX_ROWS_PER_CALL, MAX_WORKING_SET, METAL_SPEEDUP, ModelDownloadProgress, ModelFile,
+    NarrativeSummary, NoopDownloadProgress, PlaneBuildReport, PlaneHeader, QWEN3_QUERY_TASK,
+    QueryFamilyFacts, RECALL_EXPANSION, RECALL_FLOOR, ReverseMapHeader, ReverseVisitMap,
+    RigLlmProvider, STATIC_INAPP_BASE_URL, STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix,
+    StaticEmbeddingProvider, ToolRegistry, TopicFacts, VectorIndex, VectorStore, VectorStoreHeader,
+    VisitContentMap, WALL_TIME_BUDGET, WorkingSetCandidate, WorkingSetConfig, ai_index_status,
+    ai_queue_status, answer_history_question, answer_history_question_with_control,
+    apply_role_instruction, binarize, binary_bytes_for_dim, build_agent_system_context,
+    build_ai_index, build_ai_index_with_control, build_dedup_content_hash, build_planes_from_store,
+    candle_repo_for_runtime, content_key_from_hash, degrade_candle_to_external,
+    degrade_static_to_external, dequantize_int8, deregister_ai_chat_run, derived_plane_bytes,
+    dot_product, drive_agent_run, drive_ai_chat_stream, ensure_model_downloaded, estimate_reembed,
+    gguf_file_name, hamming_distance, load_assistant_run_response, model_dir_for_repo,
+    model_is_loadable, model_is_present_and_verified, parse_static_config, planes_are_stale,
+    prepare_query, preview_ai_integrations, probe_tool_capability, provider_capabilities,
+    provider_connection_failure_report, quantize_int8, reconcile_ai_queue_controls,
+    recoverable_ai_jobs, reembed_estimate_for, register_ai_chat_run, request_ai_chat_cancel,
+    resolve_agent_system_context, reverse_map_plane_bytes, run_code_in_sandbox,
+    runtime_uses_candle, runtime_uses_static, score_candidate, select_embedding_provider,
+    select_working_set, semantic_search_history, static_embed_ids, static_l2_normalize,
+    static_repo_for_runtime, summarize_query_family, summarize_topic, test_provider_connection,
+    vector_plane_bytes, visit_map_plane_bytes,
 };
 pub use annotations::{
     get_annotation, list_annotations, replace_tags, search_annotations, set_notes,
@@ -52,17 +92,29 @@ pub use app_lock::{
     validate_app_lock_config, validate_app_lock_config_with_biometric,
 };
 pub use archive::{
+    ARCHIVE_RECOVERY_REQUIRED_PREFIX, ArchiveRecoveryKind, ArchiveRecoveryReport,
     BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
-    BrowseDayTopUrl, archive_status, doctor, ensure_archive_initialized, export_history,
-    get_browse_day_insights, list_history, load_audit_run_detail, load_dashboard_snapshot,
-    load_history_favicons, load_recent_runs, og_images, og_images_fetch,
-    open_source_evidence_connection, preview_retention, preview_snapshot_restore, rekey_archive,
-    repair_health_issues, run_backup, run_backup_with_progress, run_retention_prune,
+    BrowseDayTopUrl, LaunchRecovery, ReconcileReport, archive_status, assess_archive_upgrade,
+    doctor, ensure_archive_initialized, ensure_archive_initialized_with_progress, export_history,
+    get_browse_day_insights, list_history, list_recovery_snapshots, load_audit_run_detail,
+    load_dashboard_snapshot, load_history_favicons, load_recent_runs, og_images, og_images_fetch,
+    open_source_evidence_connection, preview_retention, preview_snapshot_restore,
+    reconcile_archive_encryption, recover_archive_on_launch, rekey_archive, repair_health_issues,
+    run_backup, run_backup_with_progress, run_full_archive_snapshot_restore, run_retention_prune,
     run_snapshot_restore,
 };
+pub use browser_access::{
+    DISCOVERY_ISSUE_DISCOVERY_ERROR, DISCOVERY_ISSUE_FULL_DISK_ACCESS,
+    HISTORY_ISSUE_FILE_NOT_READABLE, classify_history_access_core, full_disk_access_applies,
+    is_permission_denied,
+};
 pub use chrome::discover_profiles;
-pub use config::{ProjectPaths, load_config, project_paths, save_config};
+pub use config::{ProjectPaths, load_config, project_paths, project_paths_with_root, save_config};
 pub use diagnostics::{load_runtime_diagnostics, record_frontend_error, record_rust_panic};
+pub use enrichment::content_fetch_api::{
+    content_fetch_schedule_eta_secs, content_fetch_settings, drain_one_content_fetch_job,
+    enqueue_content_fetch_now, enqueue_content_fetch_working_set, list_visit_enrichment,
+};
 pub use enrichment::execute_enrichment_job_by_id;
 pub use intelligence::{
     build_intelligence_local_host, clear_derived_intelligence_state,
@@ -91,8 +143,18 @@ pub use migration::{
     preview_import,
 };
 pub use models::*;
+/// Re-export of the two `secrecy` symbols callers need to construct/expose
+/// [`AiProviderRuntime`] secrets without taking their own direct dependency on the crate.
+pub use secrecy::{ExposeSecret, SecretString};
+pub use stars::{
+    StarredMatcher, is_starred_batch, list_stars, load_starred_matcher, set_star, star_counts,
+    starred_history_ids, unset_star,
+};
 pub use takeout::{
     import_browser_history, import_browser_history_with_progress, import_takeout,
     import_takeout_with_progress, inspect_browser_history, inspect_takeout, load_import_batches,
     preview_import_batch, restore_import_batch, revert_import_batch,
 };
+/// Pure SHA-256 helpers (hex digest of bytes / of a file's contents). Re-exported so the worker's
+/// model-download tests + the candle e2e can pin digests against the same impl the manifest uses.
+pub use utils::{file_sha256_hex, sha256_hex};

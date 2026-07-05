@@ -58,6 +58,7 @@ export function RefindFactorList({
 
 export function RefindSummaryCard({
   actionItems,
+  actionsExtra,
   className = 'refind-card',
   description,
   explainability,
@@ -68,6 +69,12 @@ export function RefindSummaryCard({
   titleHref,
 }: {
   actionItems: InsightEntityActionLink[]
+  /**
+   * Non-link affordance rendered alongside the action links — used to inject a
+   * StarToggle so a refind page row is starrable without bending the link/button
+   * grammar into a toggle. Forwarded to {@link InsightEntityActions}'s `extra`.
+   */
+  actionsExtra?: ReactNode
   className?: string
   description: string
   explainability?: ReactNode
@@ -108,6 +115,7 @@ export function RefindSummaryCard({
       <InsightEntityActions
         className="intelligence-actions"
         items={actionItems}
+        extra={actionsExtra}
       />
       {hasFactors && showFactors ? (
         <div id={factorPanelId}>

@@ -167,6 +167,24 @@ pub(crate) fn claim_enrichment_job_by_id(
     connection: &Connection,
     job_id: i64,
 ) -> Result<Option<ClaimedEnrichmentJob>> {
+    claim_typed_enrichment_job_by_id(connection, job_id, ENRICHMENT_JOB_TYPE)
+}
+
+/// Claims one queued content-fetch job by id (W-ENRICH-1). Mirrors [`claim_enrichment_job_by_id`] but
+/// scoped to the `content-fetch` job type so the two drain lanes never claim each other's rows.
+pub(crate) fn claim_content_fetch_job_by_id(
+    connection: &Connection,
+    job_id: i64,
+) -> Result<Option<ClaimedEnrichmentJob>> {
+    claim_typed_enrichment_job_by_id(connection, job_id, CONTENT_FETCH_JOB_TYPE)
+}
+
+/// Shared claim for the enrichment-shaped queues (offline enrichment + content-fetch), scoped by type.
+fn claim_typed_enrichment_job_by_id(
+    connection: &Connection,
+    job_id: i64,
+    job_type: &str,
+) -> Result<Option<ClaimedEnrichmentJob>> {
     ensure_intelligence_runtime_schema(connection)?;
 
     let snapshot = connection
@@ -176,7 +194,7 @@ pub(crate) fn claim_enrichment_job_by_id(
              WHERE id = ?1
                AND job_type = ?2
                AND state = 'queued'",
-            params![job_id, ENRICHMENT_JOB_TYPE],
+            params![job_id, job_type],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
         )
         .optional()?;
@@ -323,4 +341,143 @@ pub fn next_queued_enrichment_job(connection: &Connection) -> Result<Option<i64>
         )
         .optional()
         .context("loading next queued enrichment job")
+}
+
+/// Returns the next due content-fetch job id, or `None` when none is ready (W-ENRICH-1).
+///
+/// A content-fetch job is "due" when it is queued AND its `scheduled_at` is in the past — the same
+/// row that the negative cache pushes into the future on a transient failure (the requeue stamps a
+/// future `scheduled_at`). Ordered by priority then schedule so the working-set selector's
+/// higher-priority enqueues drain first. LOW concurrency keeps egress polite (06 §5).
+pub fn next_queued_content_fetch_job(connection: &Connection) -> Result<Option<i64>> {
+    ensure_intelligence_runtime_schema(connection)?;
+    super::recovery::recover_expired_intelligence_jobs(connection)?;
+    connection
+        .query_row(
+            "SELECT id
+             FROM intelligence_jobs
+             WHERE job_type = ?1
+               AND state = 'queued'
+               AND scheduled_at <= ?2
+             ORDER BY priority ASC, scheduled_at ASC, id ASC
+             LIMIT 1",
+            params![CONTENT_FETCH_JOB_TYPE, now_rfc3339()],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .context("loading next queued content-fetch job")
+}
+
+/// Seconds until the soonest deferred content-fetch job becomes due, or `None` when none is pending.
+///
+/// Companion to [`next_queued_content_fetch_job`] for the worker drain (SEC-2): when the drain reports
+/// idle but a job was REQUEUED with a future `scheduled_at` (rate-limit back-pressure), the lane should
+/// sleep until that schedule rather than exiting — otherwise the deferred work only completes on a
+/// later user action. Returns the ETA in WHOLE seconds (rounded up, floored at 1 so the lane always
+/// makes progress) to the nearest queued content-fetch row whose `scheduled_at` is in the FUTURE;
+/// `None` when there is no future-scheduled queued row (the lane can exit). The caller caps the sleep.
+pub fn next_content_fetch_schedule_eta_secs(connection: &Connection) -> Result<Option<u64>> {
+    ensure_intelligence_runtime_schema(connection)?;
+    let now = chrono::Utc::now();
+    let soonest: Option<String> = connection
+        .query_row(
+            "SELECT MIN(scheduled_at)
+             FROM intelligence_jobs
+             WHERE job_type = ?1
+               AND state = 'queued'
+               AND scheduled_at > ?2",
+            params![CONTENT_FETCH_JOB_TYPE, now_rfc3339()],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    let Some(soonest) = soonest else {
+        return Ok(None);
+    };
+    let Ok(scheduled) = chrono::DateTime::parse_from_rfc3339(&soonest) else {
+        // An unparseable stamp shouldn't wedge the lane: treat it as due-now (sleep the floor).
+        return Ok(Some(1));
+    };
+    let secs = (scheduled.with_timezone(&chrono::Utc) - now).num_seconds();
+    Ok(Some(secs.max(1) as u64))
+}
+
+/// Whether a URL's content-fetch is DUE (no stored row, OR a stored row whose `refetch_after` has
+/// passed / is absent), gating against the negative cache + extractor version (06 §3/§5).
+///
+/// PURE-ish (one read): returns `false` when a `visit_content_enrichments` row exists for the URL's
+/// resolved extractor whose `extractor_version` matches the current extractor AND whose `refetch_after`
+/// is still in the future — i.e. "fetched recently, do not refetch". Returns `true` otherwise (never
+/// fetched, the negative cache cooled down, or the extractor version bumped → bounded refetch). The
+/// `history_id` identifies the row (the dedup fans the stored row across visits separately).
+pub(crate) fn content_fetch_job_due(
+    connection: &Connection,
+    history_id: i64,
+    content_source: &str,
+    extractor_version: i64,
+) -> Result<bool> {
+    ensure_intelligence_runtime_schema(connection)?;
+    let row = connection
+        .query_row(
+            "SELECT extractor_version, refetch_after
+             FROM visit_content_enrichments
+             WHERE history_id = ?1 AND content_source = ?2",
+            params![history_id, content_source],
+            |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()
+        .context("loading content-fetch due state")?;
+    let Some((stored_version, refetch_after)) = row else {
+        return Ok(true); // Never fetched → due.
+    };
+    if stored_version != Some(extractor_version) {
+        return Ok(true); // Extractor bumped → bounded refetch of this source's rows.
+    }
+    match refetch_after {
+        // A future refetch_after means the negative cache is still cooling down → NOT due. Compare as
+        // INSTANTS, not lexically: `refetch_after` is `...Secs, true` (`...56Z`) while `now_rfc3339`
+        // carries fractional seconds + a numeric offset (`...56.789+00:00`), and `'Z' > '.'` would
+        // mis-rank a row as not-due at the boundary second. An unparseable stamp is treated as due
+        // (fail toward refetching rather than wedging a row forever).
+        Some(when) => match chrono::DateTime::parse_from_rfc3339(&when) {
+            Ok(dt) => Ok(dt <= chrono::Utc::now()),
+            Err(_) => Ok(true),
+        },
+        // No refetch_after on a version-matching row means a successful fetch → NOT due.
+        None => Ok(false),
+    }
+}
+
+/// Requeues a running content-fetch job for a later drain at `scheduled_at` (W-ENRICH-1, SEC-2).
+///
+/// A rate-limited egress is BACK-PRESSURE, not a failure: rather than terminally cancelling the job
+/// (which the queued-only drain selector would never re-pick), we put it back to `queued` with a
+/// FUTURE `scheduled_at` (= the host's token-refill ETA) so [`next_queued_content_fetch_job`] — which
+/// gates on `scheduled_at <= now` — picks it up exactly when the host bucket has a token again. Clears
+/// the lease/error/cancellation fields so the requeued row is a clean queued job. Scoped to `running`
+/// (the claim owns it) so a concurrent transition can't be clobbered. Returns whether a row changed.
+pub(crate) fn requeue_content_fetch_job_after(
+    connection: &Connection,
+    job_id: i64,
+    scheduled_at: &str,
+) -> Result<bool> {
+    let now = now_rfc3339();
+    let updated = connection.execute(
+        "UPDATE intelligence_jobs
+         SET state = 'queued',
+             scheduled_at = ?1,
+             started_at = NULL,
+             finished_at = NULL,
+             heartbeat_at = NULL,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
+             updated_at = ?2,
+             last_error = NULL,
+             cancellation_reason = NULL,
+             stop_requested = 0
+         WHERE id = ?3
+           AND state = 'running'",
+        params![scheduled_at, now, job_id],
+    )?;
+    Ok(updated == 1)
 }

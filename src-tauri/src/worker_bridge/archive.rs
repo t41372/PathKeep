@@ -6,16 +6,34 @@ use vault_worker::RekeyRequest;
 
 use super::worker_result;
 
-/// Initializes the archive and synchronizes the session key with the chosen key.
-pub(crate) fn initialize_archive_impl(
+/// Initializes the archive (forwarding first-run upgrade progress to the UI
+/// callback) and synchronizes the session key with the chosen key.
+///
+/// The command layer wraps `report_progress` around
+/// `AppHandle::emit("pathkeep://archive-upgrade")` so a large first launch drives
+/// the "Upgrading your archive…" screen; the dev bridge and tests pass a no-op
+/// reporter (they cannot deliver Tauri events), and the upgrade work still runs.
+pub(crate) fn initialize_archive_with_progress_impl(
     config: AppConfig,
     database_key: Option<String>,
     state: &SessionState,
+    report_progress: impl FnMut(vault_core::ArchiveUpgradeProgress),
 ) -> Result<vault_core::AppSnapshot, String> {
-    let snapshot =
-        worker_result(vault_worker::initialize_archive_database(&config, database_key.as_deref()))?;
+    let snapshot = worker_result(vault_worker::initialize_archive_database_with_progress(
+        &config,
+        database_key.as_deref(),
+        report_progress,
+    ))?;
     update_session_key(state, database_key)?;
     Ok(snapshot)
+}
+
+/// Runs the cheap first-run upgrade pre-check the shell calls at bootstrap to
+/// decide whether to show the upgrade screen at all.
+pub(crate) fn assess_archive_upgrade_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::ArchiveUpgradeAssessment, String> {
+    worker_result(vault_worker::assess_archive_upgrade(session_database_key))
 }
 
 /// Rekeys the archive and updates the cached session key to the new key.
@@ -28,6 +46,15 @@ pub(crate) fn rekey_archive_impl(
         worker_result(vault_worker::rekey_archive_database(old_key.as_deref(), &request))?;
     update_session_key(state, request.new_key)?;
     Ok(snapshot)
+}
+
+/// Self-heals a drifted encryption-at-rest state (e.g. an encrypted config left
+/// over a plaintext source-evidence by an archive-only rekey) using the unlocked
+/// session key. Safe no-op when already consistent.
+pub(crate) fn reconcile_archive_encryption_impl(
+    state: &SessionState,
+) -> Result<vault_core::ReconcileReport, String> {
+    worker_result(vault_worker::reconcile_archive_encryption(session_key(state).as_deref()))
 }
 
 /// Previews the impact of an archive rekey/mode switch.
@@ -57,6 +84,27 @@ pub(crate) fn run_snapshot_restore_impl(
     state: &SessionState,
 ) -> Result<vault_core::BackupReport, String> {
     worker_result(vault_worker::run_snapshot_restore_plan(session_key(state).as_deref(), &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Lists verified full-archive safety snapshots for the recovery GUI (keyless FS scan).
+pub(crate) fn list_recovery_snapshots_impl() -> Result<Vec<vault_core::RecoverySnapshot>, String> {
+    worker_result(vault_worker::list_recovery_snapshots())
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Runs the one-click full-archive restore from a verified safety snapshot.
+///
+/// Prefers an explicit user-entered archive key (the recovery/unlock escape hatch holds no
+/// ambient session key), falling back to the session key when none is supplied. The key is
+/// never logged or echoed back in the report.
+pub(crate) fn run_full_archive_restore_impl(
+    request: vault_core::SnapshotRestoreRequest,
+    key: Option<String>,
+    state: &SessionState,
+) -> Result<vault_core::FullArchiveRestoreReport, String> {
+    let effective_key = key.or_else(|| session_key(state));
+    worker_result(vault_worker::run_full_archive_restore(effective_key.as_deref(), &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -166,6 +214,14 @@ pub(crate) fn og_image_storage_stats_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::OgImageStorageStats, String> {
     worker_result(vault_worker::og_image_storage_stats(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Reports og:image coverage (share of web pages with a preview) to Settings.
+pub(crate) fn og_image_coverage_stats_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::OgImageCoverageStats, String> {
+    worker_result(vault_worker::og_image_coverage_stats(session_database_key))
 }
 
 #[cfg_attr(test, allow(dead_code))]

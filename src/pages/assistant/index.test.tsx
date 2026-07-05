@@ -1,10 +1,11 @@
 /**
  * @file index.test.tsx
- * @description Guards the Assistant route's paper-shell migration for its v0.2.0-reachable states.
+ * @description Guards the Assistant route's gated (AI-off) states on the paper shell.
  * @module pages/assistant
  *
  * ## Responsibilities
- * - Pin the deferred (v0.3-roadmap) state to the paper outer wrapper + PaperCard so it stops rendering as a v0.2 `page-shell` style island.
+ * - Pin the AI-off gate to an honest, actionable "configure your AI provider" callout that
+ *   deep-links to the AI settings section — never roadmap / "coming in v0.3" copy.
  * - Keep the setup and locked gates on the same paper wrapper while preserving their existing copy and deep links.
  *
  * ## Not responsible for
@@ -13,7 +14,7 @@
  *
  * ## Dependencies
  * - Reuses the Intelligence-surface harness for archive seeding and the shipped provider stack.
- * - Runs against the real `release-capabilities` module so the deferred (`optionalAiFeaturesAvailable === false`) branch is exercised with production values.
+ * - Runs against the real `release-capabilities` module (flag is on); the gate is exercised via the seeded archive's default-OFF `config.ai.enabled`.
  */
 
 import { screen } from '@testing-library/react'
@@ -26,15 +27,16 @@ import {
   seedArchiveState,
 } from '../intelligence-surfaces/test-helpers'
 
-describe('AssistantPage paper-shell migration', () => {
+describe('AssistantPage gated states', () => {
   beforeEach(() => {
     resetIntelligenceSurfaceHarness()
   })
 
-  test('renders the deferred state inside the paper wrapper and PaperCard', async () => {
+  test('shows an actionable "configure your AI provider" gate when AI is off', async () => {
     const { snapshot } = await seedArchiveState()
     const assistantT = createNamespaceTranslator('en', 'assistant')
 
+    // The seeded archive ships AI off by default (consent-gated), so the gate fires.
     renderSurface(<AssistantPage />, {
       route: '/assistant',
       snapshot,
@@ -45,18 +47,30 @@ describe('AssistantPage paper-shell migration', () => {
     // Paper outer wrapper, not the legacy `page-shell` section.
     expect(page.tagName).toBe('DIV')
     expect(page).toHaveClass('max-w-[1080px]')
+    // The shell scopes `<main>` to `overflow-hidden` on /assistant (so the
+    // active-chat gutters can't drag the composer). The gated branches must
+    // therefore own their OWN scroll, or tall gated content (StatusCallout +
+    // PaperCard) would clip with no way to reach it on a short window.
+    expect(page).toHaveClass('h-full', 'overflow-y-auto')
     expect(page.querySelector('.page-shell')).toBeNull()
 
-    // Deferred copy now lives in a PaperCard rather than a `.panel`.
-    const deferredCard = screen.getByTestId('assistant-deferred-panel')
-    expect(deferredCard).toBeVisible()
-    expect(deferredCard.querySelector('.panel')).toBeNull()
-    expect(screen.getByText(assistantT('deferredTitle'))).toBeVisible()
-    expect(screen.getByText(assistantT('deferredPanelEyebrow'))).toBeVisible()
-    expect(screen.getByText(assistantT('deferredBadge'))).toBeVisible()
-    expect(screen.getByText(assistantT('deferredPanelBody'))).toBeVisible()
+    // Honest, actionable copy — no roadmap / "coming in v0.3" framing.
+    expect(screen.getByText(assistantT('disabledTitle'))).toBeVisible()
+    expect(screen.getByText(assistantT('disabledBody'))).toBeVisible()
+    expect(screen.queryByText(/v0\.3/)).toBeNull()
 
-    // The deferred state must not leak the active-AI suggested-question rows.
+    // The callout deep-links straight to the AI settings section.
+    expect(
+      screen.getByRole('link', { name: assistantT('openSettings') }),
+    ).toHaveAttribute('href', '/settings#settings-ai')
+
+    // The setup panel reuses the empty-state copy in a PaperCard, not a `.panel`.
+    const setupCard = screen.getByTestId('assistant-setup-panel')
+    expect(setupCard).toBeVisible()
+    expect(setupCard.querySelector('.panel')).toBeNull()
+    expect(screen.getByText(assistantT('emptyEyebrow'))).toBeVisible()
+
+    // The gated state must not leak the active-AI suggested-question rows.
     expect(
       screen.queryByText(assistantT('examplePromptTimeline')),
     ).not.toBeInTheDocument()
@@ -99,6 +113,9 @@ describe('AssistantPage paper-shell migration', () => {
     const page = await screen.findByTestId('assistant-page')
     expect(page.tagName).toBe('DIV')
     expect(page).toHaveClass('max-w-[1080px]')
+    // Self-scrolling gate (see disabled-state test) — clip-safe under the
+    // route's `overflow-hidden` <main>.
+    expect(page).toHaveClass('h-full', 'overflow-y-auto')
     expect(screen.getByText(assistantT('lockedTitle'))).toBeVisible()
     expect(
       screen.getByRole('link', { name: assistantT('reviewSecurity') }),

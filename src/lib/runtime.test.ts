@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   DEV_IPC_URL_ENV,
   hasDesktopCommandTransport,
+  hasMacOverlayTitlebar,
   hasTauriGuestApi,
   resolveAppRuntime,
   resolveDevIpcBridgeUrl,
@@ -88,5 +89,58 @@ describe('runtime detection', () => {
     expect(resolveDevIpcBridgeUrl()).toBeNull()
     expect(resolveAppRuntime()).toBe('browser-preview')
     expect(hasDesktopCommandTransport()).toBe(false)
+  })
+})
+
+describe('macOS overlay title bar', () => {
+  beforeEach(() => {
+    isTauriMock.mockReturnValue(false)
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  })
+
+  test('is active on a real desktop window hosted on macOS', () => {
+    isTauriMock.mockReturnValue(true)
+    vi.stubGlobal('navigator', { platform: 'MacIntel', userAgent: '' })
+
+    expect(hasMacOverlayTitlebar()).toBe(true)
+  })
+
+  test('detects macOS from the user agent when platform is empty', () => {
+    isTauriMock.mockReturnValue(true)
+    vi.stubGlobal('navigator', {
+      platform: '',
+      userAgent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
+    })
+
+    expect(hasMacOverlayTitlebar()).toBe(true)
+  })
+
+  test('is inactive on a desktop window hosted off macOS (Windows/Linux)', () => {
+    isTauriMock.mockReturnValue(true)
+    vi.stubGlobal('navigator', { platform: 'Win32', userAgent: '' })
+
+    expect(hasMacOverlayTitlebar()).toBe(false)
+  })
+
+  test('is inactive in the browser preview even on macOS', () => {
+    vi.stubEnv(DEV_IPC_URL_ENV, '   ')
+    vi.stubGlobal('navigator', { platform: 'MacIntel', userAgent: '' })
+
+    expect(resolveAppRuntime()).toBe('browser-preview')
+    expect(hasMacOverlayTitlebar()).toBe(false)
+  })
+
+  test('is inactive when navigator is unavailable', () => {
+    isTauriMock.mockReturnValue(true)
+    vi.stubGlobal('navigator', undefined)
+
+    expect(hasMacOverlayTitlebar()).toBe(false)
   })
 })

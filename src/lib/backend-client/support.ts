@@ -24,4 +24,19 @@ export const supportClient = {
   openPathInFileManager: (path: string) =>
     call<string>('open_path_in_file_manager', { path }),
   openExternalUrl: (url: string) => call<string>('open_external_url', { url }),
+  /**
+   * Writes a UTF-8 text document to a user-chosen path and resolves with the number of bytes
+   * written. Used by the AI assistant's "Export conversation" affordance after the native save
+   * dialog returns the target path — the same save-dialog → backend-write shape the Settings →
+   * Data migration export uses, so the export stays transparent and never invents a new transport.
+   */
+  exportConversationFile: (targetPath: string, contents: string) =>
+    call<number>('export_conversation_file', { targetPath, contents }),
+  /**
+   * Opens the app's local log directory in the OS file manager (Finder on
+   * macOS, Explorer on Windows). Resolves with the logs folder path that was
+   * revealed. Used by the "Reveal logs" diagnostics affordance so users can
+   * attach log files to bug reports without hunting for the path manually.
+   */
+  revealLogs: () => call<string>('reveal_logs'),
 }

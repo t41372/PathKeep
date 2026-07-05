@@ -23,7 +23,6 @@
  */
 
 import type { EnrichmentPluginState, EnrichmentSettings } from './types'
-import { readableContentFetchAvailable } from './release-capabilities'
 
 export const TITLE_NORMALIZATION_PLUGIN_ID = 'title-normalization'
 export const READABLE_CONTENT_REFETCH_PLUGIN_ID = 'readable-content-refetch'
@@ -62,7 +61,15 @@ export const enrichmentPluginRegistry: EnrichmentPluginDefinition[] = [
   {
     id: READABLE_CONTENT_REFETCH_PLUGIN_ID,
     version: READABLE_CONTENT_REFETCH_VERSION,
-    defaultEnabled: readableContentFetchAvailable,
+    // HARD-DEFAULT-OFF and DECOUPLED from `readableContentFetchAvailable`.
+    // This is the network-egress enrichment plugin; its default-enabled state is
+    // a consent fact, not a UI-availability fact. The release flag only governs
+    // whether the Jobs/derived surfaces *show* real content-fetch stats vs the
+    // "deferred" placeholder — it must never default network enrichment on. The
+    // real egress switch is the backend `content_fetch_enabled`
+    // (`config.ai.contentFetchEnabled`), surfaced in content-fetch-section.tsx;
+    // a fresh user keeps that off regardless of this registry default.
+    defaultEnabled: false,
     queue: 'intelligence-runtime',
     derivedTables: ['visit_content_enrichments'],
     freshnessDays: 7,

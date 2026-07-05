@@ -23,12 +23,51 @@
  */
 export const settingsAiProvidersNamespace = {
   en: {
-    aiMasterToggle: 'AI features coming in v0.3',
-    aiDeferredBadge: 'Coming in v0.3',
-    aiDeferredTitle: 'Optional AI is coming in v0.3',
-    aiDeferredBody:
-      'Assistant answers, embeddings, semantic search, vector indexes, MCP, and skill artifacts are tracked for v0.3. v0.2.0 ships the local archive and Core Intelligence first.',
-    aiDeferredTooltip: 'This feature is coming in a future update.',
+    aiMasterToggle: 'Enable AI features',
+    aiAssistantToggle: 'AI assistant (chat)',
+    aiAssistantToggleHelp:
+      'Lets you chat with your history on the Assistant page using your configured chat provider.',
+    aiSemanticToggle: 'Smart search',
+    aiSemanticToggleHelp:
+      'Semantic and hybrid search in Explorer. Needs an embedding provider configured and a one-time index build (run it from Explorer → smart search) before results appear.',
+    aiMcpToggle: 'External tool access (MCP)',
+    aiMcpToggleHelp:
+      'Lets external AI tools you connect (such as Claude Code or Cursor) search your history through a localhost-only server PathKeep runs on demand. They get the same bounded, read-only search the in-app assistant uses — nothing more — and nothing is exposed until you turn this on.',
+    aiMcpToggleAudit:
+      'Every external query is recorded as an entry in your archive activity log, and the server refuses to run while PathKeep is locked.',
+    aiMcpToggleAuditLink: 'Review external-query activity',
+    aiMcpToggleConnect:
+      'After enabling, open Integrations for the exact command and config to connect a tool.',
+    aiMcpToggleConnectLink: 'Open Integrations',
+    aiSkillToggle: 'Usage guide for external tools',
+    aiSkillToggleHelp:
+      'Gives the external AI tools you connect a built-in guide on how to query your history well — which level of detail to ask for, how the search mode is chosen, and how to cite the visits behind an answer. It is guidance only: read-only, and it exposes no history beyond what External tool access already allows.',
+    aiSkillToggleDependency:
+      'The guide is only reachable when External tool access (MCP) above is also on, since it is served through that same server.',
+    aiSubToggleDisabledHint: 'Enable AI features above to turn these on.',
+    aiTestConnection: 'Test connection',
+    aiTestingConnection: 'Testing…',
+    aiProbeReachable: 'Connected',
+    aiProbeUnreachable: 'Connection issue',
+    aiProbeLatency: '{model} · {latency} ms',
+    aiAddProviderPresetLabel: 'Start from a preset',
+    aiPresetLmStudio: 'LM Studio',
+    aiPresetOllama: 'Ollama',
+    aiPresetOpenai: 'OpenAI',
+    aiPresetAnthropic: 'Anthropic',
+    aiPresetGoogle: 'Google',
+    aiConsentDisclosureTitle: 'How AI uses your data',
+    aiConsentDisclosureBody:
+      'AI is optional and stays off until you turn it on here. Once enabled, the text of the matching history, your search queries, and your chat messages are sent to whichever LLM and embedding provider you configure below — for example a local LM Studio endpoint or your own cloud provider key.',
+    aiConsentDisclosureNoProvider:
+      'PathKeep ships no AI provider of its own. Nothing leaves your machine until you both enable AI and configure a provider.',
+    aiConsentDisclosureEgress:
+      'A configured provider only receives what a given request needs (matching history snippets and your prompt). It does not get a copy of your whole archive.',
+    aiConsentDisclosureLocal:
+      'Vectors and audit traces are stored locally beside your archive, and chat transcripts are excluded from export.',
+    aiConsentDisclosureCodeMode:
+      'To answer a question, the assistant may write and run a small program over your history to search and combine results. These programs are sandboxed and read-only — they cannot reach the network or your files and run under strict time, memory, and output limits. Every answer shows the exact code and the queries it ran.',
+    aiIntegrationCopyFailed: "Couldn't copy that artifact.",
     aiLlmProviders: 'CHAT PROVIDERS',
     aiEmbeddingProviders: 'EMBEDDING PROVIDERS',
     aiAddLlmProvider: 'Add chat provider',
@@ -36,19 +75,9 @@ export const settingsAiProvidersNamespace = {
     aiActiveLlmProvider: 'Active chat provider',
     aiActiveEmbeddingProvider: 'Active embedding provider',
     aiNoneSelected: 'None',
-    aiSavingConfig: 'Saving…',
-    aiSaveConfig: 'Save',
-    aiResetDraft: 'Discard changes',
-    aiUnsavedChanges: 'You have unsaved changes',
-    aiDraftSaved: 'Settings are up to date',
     aiGettingStartedTitle: 'No AI providers configured yet',
     aiGettingStartedBody:
       'Add a chat provider to use the AI assistant and a embedding provider for smart search. Click "Add chat provider" below to get started with a preset.',
-    aiDraftBoundaryBody:
-      'Changes are saved only when you click Save. API keys are stored separately.',
-    aiArtifactsMovedTitle: 'Generated artifacts live in Integrations',
-    aiArtifactsMovedBody:
-      'Provider settings stay here. MCP commands, skill files, and local-host payload review now live on the Integrations page.',
     aiProviderName: 'Name',
     aiProviderId: 'ID',
     aiRequestFormat: 'API format',
@@ -75,21 +104,70 @@ export const settingsAiProvidersNamespace = {
     aiRequestFormatOllama: 'Ollama',
     aiRequestFormatLmStudio: 'LM Studio',
     aiIndexHealthTitle: 'INDEX HEALTH · {status}',
+    aiIndexBuildCta: 'Build index',
+    aiIndexBuildingCta: 'Building index…',
+    aiIndexBuildQueued:
+      'Index build queued — PathKeep is processing it in the background.',
+    aiIndexBuildError: 'Could not start the index build. Please try again.',
     aiIndexedRows: 'Indexed rows',
     aiSemanticSidecar: 'Semantic sidecar',
     aiSemanticMetadata: 'SQLite metadata',
     aiEstimatedTokens: 'Estimated tokens',
     aiIndexWarning: 'Current index warning',
-    aiIndexWarningEmbeddingMissing:
+    aiIndexWarningArchiveNotInitialized:
+      'Initialize the archive before using AI analysis features.',
+    aiIndexWarningNoEmbeddingProvider:
       'Select an embedding provider in Settings before enabling semantic retrieval.',
+    aiIndexWarningEmbeddingProviderMissing:
+      'Embedding provider {providerId} is no longer available in Settings.',
+    aiIndexWarningEmbeddingProviderDisabled:
+      'Enable provider {providerName} before using semantic retrieval.',
+    aiIndexWarningEmbeddingProviderNoApiKey:
+      'Store an API key for provider {providerName} before using semantic retrieval.',
+    aiIndexWarningEmbeddingProviderNoModel:
+      'Choose a default model for provider {providerName} before using semantic retrieval.',
+    aiIndexWarningIndexNotBuilt:
+      'Run Build index after configuring an embedding provider to enable semantic search.',
+    aiIndexWarningStaleWatermark:
+      'The semantic index no longer matches the current archive. Run Build index so semantic retrieval includes recent imports and reflects reverted rows.',
+    aiIndexWarningStaleEnrichment:
+      'Readable-content enrichment changed after the last semantic build. Run Build index to refresh embeddings with the latest extracted text.',
+    aiIndexWarningBuildFailed: 'The last index build failed: {reason}',
+    aiIndexWarningIndexVectorsMissing:
+      'The index recorded pages but produced 0 vectors — the embedding provider wrote no output. Switch to the built-in Static tier or check your external provider, then rebuild.',
+    aiSemanticVectors: 'Semantic vectors',
+    aiVectorModelSectionTitle: 'Vector model',
+    aiBaseTierLabel: 'BASE TIER — ON-DEVICE',
+    aiUpgradeTierLabel: 'UPGRADE TIER — OPTIONAL EXTERNAL MODELS',
+    aiTierConnectorText:
+      'The built-in model is the recommended starting point. Switch to an external model only if you need higher precision or a larger context window.',
+    aiUpgradeTierBody:
+      'Higher precision for large archives or specialized search. Requires an external server and may involve API costs.',
+    aiBaseTierPanelTitle: 'Built-in · On-device model',
+    aiBaseTierActivePill: 'Active',
+    aiBaseTierDescription:
+      'Runs entirely on your Mac — no server, no API key. Fast and lightweight, but lower precision than large external models. Use as your starting point; switch only when you need higher accuracy.',
+    aiBaseTierSpecs: '{dimensions} dimensions · Multilingual · ≈ {size}',
+    aiBaseTierUseButton: 'Use built-in model',
+    aiBaseTierDownloadButton: 'Download model',
+    aiBaseTierDownloadHint: '≈ {size}, runs in the background.',
+    aiBaseTierDownloadRestartNote:
+      'Restarts the current file if you quit (finished files are kept)',
+    aiBaseTierCancelButton: 'Cancel download',
+    aiBaseTierReadyText: '✓ Ready',
+    aiBaseTierRetryButton: 'Retry download',
+    aiBaseTierDownloadFailed:
+      'Download failed — check your connection and try again.',
+    aiAddExternalEmbeddingProvider: '+ Add external model',
+    aiResetIndexBuildAction: 'Clear stuck build & rebuild',
+    aiResetIndexBuildConfirmPrompt:
+      'Clears the stuck build job and rebuilds the search index from scratch — every page in your archive will be re-embedded. Your browsing history is not affected; the rebuild runs in the background and may take a while.',
+    aiResetIndexBuildConfirmYes: 'Yes, clear and rebuild',
+    aiResetIndexBuildConfirmNo: 'Cancel',
+    aiResetIndexBuildResetting: 'Clearing…',
+    aiResetIndexBuildQueued: 'Cleared — full rebuild queued in the background.',
+    aiResetIndexBuildError: 'Could not reset the build. Please try again.',
     aiIntegrationUnavailable: 'Integration preview unavailable',
-    aiIntegrationDeferredTitle: 'AI integrations are coming later',
-    aiIntegrationDeferredBody:
-      'MCP commands and skill files depend on the same assistant and embedding runtime. They stay visible here for the v0.3 roadmap, but v0.2.0 does not generate or install them.',
-    aiIntegrationDeferredMcpBody:
-      'PathKeep v0.2.0 does not expose an MCP search surface.',
-    aiIntegrationDeferredFilesBody:
-      'Generated assistant skill files will return after the AI runtime is reliable enough to ship.',
     aiIntegrationArtifactsTitle: 'AI integration artifacts',
     aiIntegrationArtifactsSummaryTitle:
       'Review generated files before using them externally',
@@ -120,9 +198,11 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationCapabilityMcpDisabled:
       'MCP server toggle is currently disabled in saved Settings.',
     aiIntegrationCapabilitySkillEnabled:
-      'Skill integration toggle is currently enabled in saved Settings.',
+      'Usage guide is enabled: the MCP server serves a read-only guide teaching connected tools how to query effectively. It exposes no extra data.',
+    aiIntegrationCapabilitySkillUnreachable:
+      'Usage guide is enabled but unreachable: it is only served while the MCP server above is also on. It exposes no extra data when reachable.',
     aiIntegrationCapabilitySkillDisabled:
-      'Skill integration toggle is currently disabled in saved Settings.',
+      'Usage guide is disabled in saved Settings, so connected tools receive only a short disabled notice instead of the querying guide.',
     aiIntegrationCapabilityEmbeddingEnabled:
       'Semantic retrieval can use the configured embedding provider when the semantic index is built.',
     aiIntegrationCapabilityEmbeddingDisabled:
@@ -145,14 +225,104 @@ export const settingsAiProvidersNamespace = {
       'Local MCP client configuration snippet for PathKeep.',
     aiIntegrationGeneratedFileSkillPurpose:
       'Codex skill starter that teaches an external assistant how to query PathKeep through MCP.',
+    aiSearchTuningTitle: 'Advanced search tuning',
+    aiSearchTuningIntro:
+      'Fine-tune how Smart search blends keyword and meaning-based matches when it ranks results. The defaults work well for most people — adjust only if you know what you want, and Save to apply.',
+    aiSearchTuningRrfKLabel: 'Rank smoothing (k)',
+    aiSearchTuningRrfKHelp:
+      'How much a result’s exact position in each list matters when the keyword and meaning lists are merged. A small value rewards the few top hits sharply; a larger value spreads credit more evenly so deeper matches still count. 60 is the standard balance.',
+    aiSearchTuningLexicalLabel: 'Keyword match weight',
+    aiSearchTuningLexicalHelp:
+      'How much exact word matches count toward the final ranking. Raise it to favor pages that literally contain your terms; set it to 0 to rank purely by meaning.',
+    aiSearchTuningSemanticLabel: 'Meaning match weight',
+    aiSearchTuningSemanticHelp:
+      'How much meaning-based (semantic) matches count toward the final ranking. Raise it to favor pages that are about your query even without the exact words; set it to 0 to rank purely by keyword.',
+    aiSearchTuningStarredLabel: 'Starred boost',
+    aiSearchTuningStarredHelp:
+      'A small nudge that lifts pages you’ve starred when they’re relevant. It is deliberately capped at 0.5 so a starred page can rank a bit higher but can never push an unrelated favorite above a strongly matching result — Smart search stays search, not your bookmark list. Set it to 0 to give stars no ranking effect.',
+    aiSearchTuningReset: 'Reset to defaults',
+    aiSearchTuningResetHint: '60 · 1.0 · 1.0 · 0.15',
+    aiGpuTitle: 'GPU acceleration & re-embedding',
+    aiGpuIntro:
+      'PathKeep’s in-app embedding model runs on the CPU by default. On Apple-Silicon Macs with a Metal-enabled build you can opt in to run it on the GPU, then re-embed your working set or whole archive — much faster, entirely on your machine.',
+    aiGpuToggleLabel: 'Use the GPU for in-app embedding',
+    aiGpuToggleHelp:
+      'When on, the in-app embedding model runs on the Apple-Silicon Metal GPU instead of the CPU. It produces the same results, just faster, so turning it on does not invalidate an existing index — re-embedding is always your explicit choice below.',
+    aiGpuUnavailable:
+      'GPU acceleration requires a Metal-enabled build. This build runs on the CPU only; your preference is saved and will apply automatically if you switch to a Metal build.',
+    aiGpuUnavailableBadge: 'CPU-only build',
+    aiGpuAvailableBadge: 'Metal build',
+    aiReembedTitle: 'Re-embed',
+    aiReembedWorkingSetLabel: 'Re-embed working set',
+    aiReembedWorkingSetHelp:
+      'Re-embed only your high-value pages (starred, recent, tagged, and frequently revisited). Bounded in scope, but it runs in the background and can take a while on the CPU — see the estimate.',
+    aiReembedFullLabel: 'Re-embed full archive',
+    aiReembedFullHelp:
+      'Re-embed every unique page in your archive from scratch. This is the expensive option — review the estimate before starting.',
+    aiReembedFullRequiresGpu:
+      'Re-embedding the full archive is available once GPU acceleration is on (and this is a Metal build). On the CPU it would take far too long.',
+    aiReembedRequiresSemanticIndex:
+      'Turn on Smart search (the semantic index) in AI settings to re-embed. Re-embedding builds the search vectors that Smart search uses.',
+    aiReembedEstimateLoading: 'Estimating…',
+    aiReembedEstimatePages: '{count} pages',
+    aiReembedEstimateCpu: '≈ {minutes} min on CPU',
+    aiReembedEstimateGpu: '≈ {minutes} min on GPU',
+    aiReembedEstimateGpuUnavailable: 'GPU estimate needs a Metal build',
+    aiReembedStart: 'Start',
+    aiReembedQueued:
+      'Re-embed queued — PathKeep is processing it in the background.',
+    aiReembedProgress: 'Re-embedding… {queued} queued, {running} running',
+    aiReembedDone: 'Re-embed complete.',
+    aiReembedBackground:
+      'Re-embed is running in the background — check Jobs for progress.',
+    aiReembedError: 'Could not start re-embedding. Please try again.',
+    aiReembedEstimateError: 'Could not load the estimate.',
   },
   'zh-CN': {
-    aiMasterToggle: 'AI 功能将在 v0.3 开放',
-    aiDeferredBadge: 'v0.3 开放',
-    aiDeferredTitle: '可选 AI 将在 v0.3 开放',
-    aiDeferredBody:
-      '助手回答、embedding、智能搜索、向量索引、MCP 和 skill 产物已排入 v0.3。v0.2.0 会先交付本地存档和确定性智能分析。',
-    aiDeferredTooltip: '这个功能会在后续版本开放。',
+    aiMasterToggle: '启用 AI 功能',
+    aiAssistantToggle: 'AI 助手（对话）',
+    aiAssistantToggleHelp: '在助手页面用你配置的对话模型与历史记录对话。',
+    aiSemanticToggle: '智能搜索',
+    aiSemanticToggleHelp:
+      '在浏览器页面使用语义和混合搜索。需要先配置向量模型，并完成一次索引构建（在浏览器 → 智能搜索里运行），结果才会出现。',
+    aiMcpToggle: '外部工具访问（MCP）',
+    aiMcpToggleHelp:
+      '让你连接的外部 AI 工具（如 Claude Code 或 Cursor）通过 PathKeep 按需运行的仅本机服务器搜索你的历史记录。它们获得的是与应用内助手相同的、有界的只读搜索——仅此而已——在你开启之前不会暴露任何内容。',
+    aiMcpToggleAudit:
+      '每次外部查询都会作为一条记录写入你的归档活动日志，并且在 PathKeep 锁定时服务器会拒绝运行。',
+    aiMcpToggleAuditLink: '查看外部查询活动',
+    aiMcpToggleConnect:
+      '启用后，打开“集成”页面获取连接工具所需的确切命令和配置。',
+    aiMcpToggleConnectLink: '打开集成',
+    aiSkillToggle: '外部工具使用指南',
+    aiSkillToggleHelp:
+      '为你连接的外部 AI 工具提供一份内置指南，告诉它们如何更好地查询你的历史记录——该请求哪种粒度、搜索模式如何选定，以及如何引用支撑答案的访问记录。它只是指引：只读，且不会暴露超出“外部工具访问”已允许范围的任何历史记录。',
+    aiSkillToggleDependency:
+      '该指南只有在上方的“外部工具访问（MCP）”同时开启时才可访问，因为它正是通过那个服务器提供的。',
+    aiSubToggleDisabledHint: '请先在上方启用 AI 功能，才能开启这些选项。',
+    aiTestConnection: '测试连接',
+    aiTestingConnection: '测试中…',
+    aiProbeReachable: '连接正常',
+    aiProbeUnreachable: '连接异常',
+    aiProbeLatency: '{model} · {latency} ms',
+    aiAddProviderPresetLabel: '从预设开始',
+    aiPresetLmStudio: 'LM Studio',
+    aiPresetOllama: 'Ollama',
+    aiPresetOpenai: 'OpenAI',
+    aiPresetAnthropic: 'Anthropic',
+    aiPresetGoogle: 'Google',
+    aiConsentDisclosureTitle: 'AI 如何使用你的数据',
+    aiConsentDisclosureBody:
+      'AI 是可选功能，在你于此处开启之前一直保持关闭。开启后，匹配到的历史记录文本、你的搜索查询和聊天消息会发送给你在下方配置的 LLM 与向量模型——例如本地 LM Studio 端点，或你自己的云服务密钥。',
+    aiConsentDisclosureNoProvider:
+      'PathKeep 自身不附带任何 AI 服务。只有当你同时启用 AI 并配置好服务后，数据才会离开你的设备。',
+    aiConsentDisclosureEgress:
+      '已配置的服务只会收到单次请求所需的内容（匹配到的历史片段和你的提问），不会拿到你整个存档的副本。',
+    aiConsentDisclosureLocal:
+      '向量和审计记录保存在存档旁的本地，聊天记录也不会包含在导出里。',
+    aiConsentDisclosureCodeMode:
+      '为了回答问题，助手可能会编写并运行一个小程序，在你的历史记录上搜索并整合结果。这些程序运行在沙箱中且只读——无法访问网络或你的文件，并受到严格的时间、内存和输出限制。每个回答都会展示它实际运行的代码和查询。',
+    aiIntegrationCopyFailed: '复制该产物失败。',
     aiLlmProviders: '对话模型',
     aiEmbeddingProviders: '向量模型',
     aiAddLlmProvider: '添加对话模型',
@@ -160,18 +330,9 @@ export const settingsAiProvidersNamespace = {
     aiActiveLlmProvider: '当前对话模型',
     aiActiveEmbeddingProvider: '当前向量模型',
     aiNoneSelected: '未选择',
-    aiSavingConfig: '保存中…',
-    aiSaveConfig: '保存',
-    aiResetDraft: '放弃更改',
-    aiUnsavedChanges: '有未保存的更改',
-    aiDraftSaved: '设置已是最新',
     aiGettingStartedTitle: '还没有配置 AI 服务',
     aiGettingStartedBody:
       '添加对话模型可以使用 AI 助手，添加向量模型可以使用智能搜索。点击下方「添加对话模型」按钮，选择一个预设开始。',
-    aiDraftBoundaryBody: '更改只在点击保存后生效。API 密钥需要单独保存。',
-    aiArtifactsMovedTitle: '生成产物已移到集成页',
-    aiArtifactsMovedBody:
-      '这里保留服务设置。MCP 命令、skill 文件和本地宿主载荷复核现在由集成页负责。',
     aiProviderName: '名称',
     aiProviderId: 'ID',
     aiRequestFormat: 'API 格式',
@@ -198,20 +359,67 @@ export const settingsAiProvidersNamespace = {
     aiRequestFormatOllama: 'Ollama',
     aiRequestFormatLmStudio: 'LM Studio',
     aiIndexHealthTitle: '索引状态 · {status}',
+    aiIndexBuildCta: '构建索引',
+    aiIndexBuildingCta: '正在构建索引',
+    aiIndexBuildQueued: '索引构建已加入队列——PathKeep 正在后台处理。',
+    aiIndexBuildError: '无法开始构建索引，请重试。',
     aiIndexedRows: '已索引记录',
     aiSemanticSidecar: '语义侧车',
     aiSemanticMetadata: 'SQLite 元数据',
     aiEstimatedTokens: '预估 tokens',
     aiIndexWarning: '当前索引警告',
-    aiIndexWarningEmbeddingMissing:
+    aiIndexWarningArchiveNotInitialized: '请先初始化存档，再使用 AI 分析功能。',
+    aiIndexWarningNoEmbeddingProvider:
       '请先在设置里选择向量模型，再启用语义检索。',
+    aiIndexWarningEmbeddingProviderMissing:
+      '向量模型 {providerId} 已不在设置中可用。',
+    aiIndexWarningEmbeddingProviderDisabled:
+      '请先启用 {providerName}，再使用语义检索。',
+    aiIndexWarningEmbeddingProviderNoApiKey:
+      '请先为 {providerName} 保存 API 密钥，再使用语义检索。',
+    aiIndexWarningEmbeddingProviderNoModel:
+      '请先为 {providerName} 选择默认模型，再使用语义检索。',
+    aiIndexWarningIndexNotBuilt:
+      '配置好向量模型后，运行“构建索引”即可启用语义搜索。',
+    aiIndexWarningStaleWatermark:
+      '语义索引已与当前存档不一致。运行“构建索引”，让语义检索纳入最新导入并反映已撤销的记录。',
+    aiIndexWarningStaleEnrichment:
+      '上次语义构建后，可读正文 enrichment 发生了变化。运行“构建索引”，用最新提取的文本刷新向量。',
+    aiIndexWarningBuildFailed: '上次索引构建失败：{reason}',
+    aiIndexWarningIndexVectorsMissing:
+      '索引记录了页面但生成了 0 个向量——向量模型没有产生任何输出。请切换到内置静态层或检查外部 provider，然后重新构建。',
+    aiSemanticVectors: '语义向量数',
+    aiVectorModelSectionTitle: '向量模型',
+    aiBaseTierLabel: '基础层级 — 本机运行',
+    aiUpgradeTierLabel: '升级层级 — 可选外部模型',
+    aiTierConnectorText:
+      '内置模型是推荐的起点。只有在需要更高精度或更大上下文窗口时，才需要切换到外部模型。',
+    aiUpgradeTierBody:
+      '适合大型存档或专项搜索，精度更高。需要外部服务器，可能涉及 API 费用。',
+    aiBaseTierPanelTitle: '内置 · 本机模型',
+    aiBaseTierActivePill: '使用中',
+    aiBaseTierDescription:
+      '完全在本机运行——无需服务器或 API 密钥。速度快、占用少，但精度低于大型外部模型。推荐作为起点，只有需要更高精度时再切换。',
+    aiBaseTierSpecs: '{dimensions} 维度 · 多语言 · ≈ {size}',
+    aiBaseTierUseButton: '使用内置模型',
+    aiBaseTierDownloadButton: '下载模型',
+    aiBaseTierDownloadHint: '≈ {size}，在后台运行。',
+    aiBaseTierDownloadRestartNote:
+      '关闭后当前文件需重新下载（已完成的文件保留）',
+    aiBaseTierCancelButton: '取消下载',
+    aiBaseTierReadyText: '✓ 已就绪',
+    aiBaseTierRetryButton: '重试下载',
+    aiBaseTierDownloadFailed: '下载失败，请检查网络后重试。',
+    aiAddExternalEmbeddingProvider: '+ 添加外部模型',
+    aiResetIndexBuildAction: '清除卡住的构建并重建',
+    aiResetIndexBuildConfirmPrompt:
+      '将清除卡住的构建任务，并从头重建搜索索引——档案中的每一页都会被重新分析。你的浏览历史不受影响，重建在后台运行，可能需要一段时间。',
+    aiResetIndexBuildConfirmYes: '确认，清除并重建',
+    aiResetIndexBuildConfirmNo: '取消',
+    aiResetIndexBuildResetting: '清除中…',
+    aiResetIndexBuildQueued: '已清除——完整重建已加入后台队列。',
+    aiResetIndexBuildError: '无法重置构建，请重试。',
     aiIntegrationUnavailable: '集成预览不可用',
-    aiIntegrationDeferredTitle: 'AI 集成稍后开放',
-    aiIntegrationDeferredBody:
-      'MCP 命令和 skill 文件依赖同一套助手与 embedding runtime。这里先保留 v0.3 路线图入口，但 v0.2.0 不会生成或安装这些产物。',
-    aiIntegrationDeferredMcpBody: 'PathKeep v0.2.0 不提供 MCP 搜索接口。',
-    aiIntegrationDeferredFilesBody:
-      '等 AI runtime 足够可靠后，助手 skill 文件生成会在后续版本回来。',
     aiIntegrationArtifactsTitle: 'AI 集成产物',
     aiIntegrationArtifactsSummaryTitle: '使用前先检查生成文件',
     aiIntegrationArtifactsSummaryBody:
@@ -240,9 +448,11 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationCapabilityMcpDisabled:
       '已保存的设置里目前关闭了 MCP server toggle。',
     aiIntegrationCapabilitySkillEnabled:
-      '已保存的设置里目前开启了 Skill integration toggle。',
+      '使用指南已开启：MCP 服务器会提供一份只读指南，教已连接的工具如何高效查询。它不会暴露任何额外数据。',
+    aiIntegrationCapabilitySkillUnreachable:
+      '使用指南已开启但无法访问：只有在上方的 MCP 服务器同时开启时才会提供。可访问时它也不会暴露任何额外数据。',
     aiIntegrationCapabilitySkillDisabled:
-      '已保存的设置里目前关闭了 Skill integration toggle。',
+      '已保存的设置里关闭了使用指南，因此已连接的工具只会收到一条简短的停用提示，而不是查询指南。',
     aiIntegrationCapabilityEmbeddingEnabled:
       '建立语义索引后，语义检索会使用当前已配置的 embedding provider。',
     aiIntegrationCapabilityEmbeddingDisabled:
@@ -265,14 +475,102 @@ export const settingsAiProvidersNamespace = {
       '供 PathKeep 使用的本地 MCP client 配置片段。',
     aiIntegrationGeneratedFileSkillPurpose:
       '教外部助手如何通过 MCP 查询 PathKeep 的 Codex skill 起始模板。',
+    aiSearchTuningTitle: '高级搜索调优',
+    aiSearchTuningIntro:
+      '微调智能搜索在排序时如何融合关键词匹配和语义匹配。默认值对大多数人都很合适——只有在你清楚自己想要什么时再调整，并点击保存以生效。',
+    aiSearchTuningRrfKLabel: '排名平滑（k）',
+    aiSearchTuningRrfKHelp:
+      '在合并关键词列表和语义列表时，结果在各自列表中的具体名次有多重要。数值越小，越偏向少数靠前的命中；数值越大，分数分布越平均，让排得更靠后的匹配也能计入。60 是标准的平衡值。',
+    aiSearchTuningLexicalLabel: '关键词匹配权重',
+    aiSearchTuningLexicalHelp:
+      '精确词语匹配在最终排序中所占的比重。调高它会更偏向真正包含你输入词语的页面；设为 0 则完全按语义排序。',
+    aiSearchTuningSemanticLabel: '语义匹配权重',
+    aiSearchTuningSemanticHelp:
+      '基于含义（语义）的匹配在最终排序中所占的比重。调高它会更偏向即使没有完全相同词语、但主题相关的页面；设为 0 则完全按关键词排序。',
+    aiSearchTuningStarredLabel: '收藏加权',
+    aiSearchTuningStarredHelp:
+      '当你收藏的页面与查询相关时，给它一点小幅提升。它被特意限制在 0.5 以内，所以收藏页面可以排得略高，却永远无法把一个不相关的收藏挤到强相关结果之上——智能搜索仍然是搜索，而不是你的书签列表。设为 0 则收藏不影响排序。',
+    aiSearchTuningReset: '恢复默认值',
+    aiSearchTuningResetHint: '60 · 1.0 · 1.0 · 0.15',
+    aiGpuTitle: 'GPU 加速与重嵌入',
+    aiGpuIntro:
+      'PathKeep 的内置嵌入模型默认在 CPU 上运行。在装有 Metal 版本的 Apple 芯片 Mac 上，你可以选择启用 GPU 运行，然后重嵌入工作集或整个存档——更快，且完全在本机进行。',
+    aiGpuToggleLabel: '使用 GPU 进行内置嵌入',
+    aiGpuToggleHelp:
+      '启用后，内置嵌入模型会在 Apple 芯片的 Metal GPU 上运行而非 CPU。结果完全相同，只是更快，因此启用它不会使现有索引失效——重嵌入始终由你在下方明确发起。',
+    aiGpuUnavailable:
+      'GPU 加速需要 Metal 版本。当前版本仅在 CPU 上运行；你的偏好会被保存，切换到 Metal 版本后将自动生效。',
+    aiGpuUnavailableBadge: '仅 CPU 版本',
+    aiGpuAvailableBadge: 'Metal 版本',
+    aiReembedTitle: '重嵌入',
+    aiReembedWorkingSetLabel: '重嵌入工作集',
+    aiReembedWorkingSetHelp:
+      '仅重嵌入你的高价值页面（已加星、近期、带标签以及频繁重访的页面）。范围有界，但会在后台运行，在 CPU 上可能需要一段时间——请参考预估。',
+    aiReembedFullLabel: '重嵌入整个存档',
+    aiReembedFullHelp:
+      '从头重嵌入存档中的每个唯一页面。这是开销较大的选项——开始前请查看预估。',
+    aiReembedFullRequiresGpu:
+      '启用 GPU 加速（且为 Metal 版本）后才能重嵌入整个存档。在 CPU 上耗时过长。',
+    aiReembedRequiresSemanticIndex:
+      '请在 AI 设置中开启智能搜索（语义索引）后再重嵌入。重嵌入会构建智能搜索所用的搜索向量。',
+    aiReembedEstimateLoading: '预估中…',
+    aiReembedEstimatePages: '{count} 个页面',
+    aiReembedEstimateCpu: 'CPU 约 {minutes} 分钟',
+    aiReembedEstimateGpu: 'GPU 约 {minutes} 分钟',
+    aiReembedEstimateGpuUnavailable: 'GPU 预估需要 Metal 版本',
+    aiReembedStart: '开始',
+    aiReembedQueued: '重嵌入已加入队列——PathKeep 正在后台处理。',
+    aiReembedProgress: '重嵌入中…{queued} 个排队，{running} 个进行中',
+    aiReembedDone: '重嵌入完成。',
+    aiReembedBackground: '重嵌入正在后台运行——可在「任务」中查看进度。',
+    aiReembedError: '无法开始重嵌入，请重试。',
+    aiReembedEstimateError: '无法加载预估。',
   },
   'zh-TW': {
-    aiMasterToggle: 'AI 功能會在 v0.3 開放',
-    aiDeferredBadge: 'v0.3 開放',
-    aiDeferredTitle: '可選 AI 將在 v0.3 開放',
-    aiDeferredBody:
-      '助手回答、embedding、智慧搜尋、向量索引、MCP 和 skill 產物已排入 v0.3。v0.2.0 會先交付本機封存和確定性智慧分析。',
-    aiDeferredTooltip: '這個功能會在後續版本開放。',
+    aiMasterToggle: '啟用 AI 功能',
+    aiAssistantToggle: 'AI 助手（對話）',
+    aiAssistantToggleHelp: '在助手頁面用你設定的對話模型與歷史紀錄對話。',
+    aiSemanticToggle: '智慧搜尋',
+    aiSemanticToggleHelp:
+      '在瀏覽器頁面使用語義和混合搜尋。需要先設定向量模型，並完成一次索引建立（在瀏覽器 → 智慧搜尋裡執行），結果才會出現。',
+    aiMcpToggle: '外部工具存取（MCP）',
+    aiMcpToggleHelp:
+      '讓你連接的外部 AI 工具（如 Claude Code 或 Cursor）透過 PathKeep 按需執行的僅本機伺服器搜尋你的歷史紀錄。它們獲得的是與應用內助手相同的、有界的唯讀搜尋——僅此而已——在你開啟之前不會暴露任何內容。',
+    aiMcpToggleAudit:
+      '每次外部查詢都會作為一筆紀錄寫入你的封存活動紀錄，並且在 PathKeep 鎖定時伺服器會拒絕執行。',
+    aiMcpToggleAuditLink: '檢視外部查詢活動',
+    aiMcpToggleConnect:
+      '啟用後，開啟「整合」頁面取得連接工具所需的確切指令和設定。',
+    aiMcpToggleConnectLink: '開啟整合',
+    aiSkillToggle: '外部工具使用指南',
+    aiSkillToggleHelp:
+      '為你連接的外部 AI 工具提供一份內建指南，告訴它們如何更好地查詢你的歷史紀錄——該請求哪種粒度、搜尋模式如何選定，以及如何引用支撐答案的造訪紀錄。它只是指引：唯讀，且不會暴露超出「外部工具存取」已允許範圍的任何歷史紀錄。',
+    aiSkillToggleDependency:
+      '該指南只有在上方的「外部工具存取（MCP）」同時開啟時才可存取，因為它正是透過那個伺服器提供的。',
+    aiSubToggleDisabledHint: '請先在上方啟用 AI 功能，才能開啟這些選項。',
+    aiTestConnection: '測試連線',
+    aiTestingConnection: '測試中…',
+    aiProbeReachable: '連線正常',
+    aiProbeUnreachable: '連線異常',
+    aiProbeLatency: '{model} · {latency} ms',
+    aiAddProviderPresetLabel: '從預設開始',
+    aiPresetLmStudio: 'LM Studio',
+    aiPresetOllama: 'Ollama',
+    aiPresetOpenai: 'OpenAI',
+    aiPresetAnthropic: 'Anthropic',
+    aiPresetGoogle: 'Google',
+    aiConsentDisclosureTitle: 'AI 如何使用你的資料',
+    aiConsentDisclosureBody:
+      'AI 是選用功能，在你於此處開啟之前都保持關閉。開啟後，比對到的歷史紀錄文字、你的搜尋查詢和聊天訊息會傳送給你在下方設定的 LLM 與向量模型——例如本機 LM Studio 端點，或你自己的雲端服務金鑰。',
+    aiConsentDisclosureNoProvider:
+      'PathKeep 本身不附帶任何 AI 服務。只有當你同時啟用 AI 並設定好服務後，資料才會離開你的裝置。',
+    aiConsentDisclosureEgress:
+      '已設定的服務只會收到單次請求所需的內容（比對到的歷史片段和你的提問），不會拿到你整個封存的副本。',
+    aiConsentDisclosureLocal:
+      '向量和稽核記錄保存在封存旁的本機，聊天紀錄也不會包含在匯出裡。',
+    aiConsentDisclosureCodeMode:
+      '為了回答問題，助手可能會撰寫並執行一個小程式，在你的歷史紀錄上搜尋並整合結果。這些程式執行於沙箱中且唯讀——無法存取網路或你的檔案，並受到嚴格的時間、記憶體和輸出限制。每個回答都會顯示它實際執行的程式碼和查詢。',
+    aiIntegrationCopyFailed: '複製該產物失敗。',
     aiLlmProviders: '對話模型',
     aiEmbeddingProviders: '向量模型',
     aiAddLlmProvider: '新增對話模型',
@@ -280,18 +578,9 @@ export const settingsAiProvidersNamespace = {
     aiActiveLlmProvider: '目前對話模型',
     aiActiveEmbeddingProvider: '目前向量模型',
     aiNoneSelected: '未選擇',
-    aiSavingConfig: '儲存中…',
-    aiSaveConfig: '儲存',
-    aiResetDraft: '捨棄變更',
-    aiUnsavedChanges: '有未儲存的變更',
-    aiDraftSaved: '設定已是最新',
     aiGettingStartedTitle: '還沒有設定 AI 服務',
     aiGettingStartedBody:
       '新增對話模型可以使用 AI 助手，新增向量模型可以使用智慧搜尋。點選下方「新增對話模型」按鈕，選擇一個預設開始。',
-    aiDraftBoundaryBody: '變更只在點擊儲存後生效。API 金鑰需要另外儲存。',
-    aiArtifactsMovedTitle: '生成產物已移到整合頁',
-    aiArtifactsMovedBody:
-      '這裡保留服務設定。MCP 命令、skill 檔案和本地宿主載荷複核現在由整合頁負責。',
     aiProviderName: '名稱',
     aiProviderId: 'ID',
     aiRequestFormat: 'API 格式',
@@ -318,20 +607,67 @@ export const settingsAiProvidersNamespace = {
     aiRequestFormatOllama: 'Ollama',
     aiRequestFormatLmStudio: 'LM Studio',
     aiIndexHealthTitle: '索引狀態 · {status}',
+    aiIndexBuildCta: '建立索引',
+    aiIndexBuildingCta: '正在建立索引',
+    aiIndexBuildQueued: '索引建立已加入佇列——PathKeep 正在背景處理。',
+    aiIndexBuildError: '無法開始建立索引，請重試。',
     aiIndexedRows: '已索引記錄',
     aiSemanticSidecar: '語意側車',
     aiSemanticMetadata: 'SQLite 中繼資料',
     aiEstimatedTokens: '預估 tokens',
     aiIndexWarning: '目前索引警告',
-    aiIndexWarningEmbeddingMissing:
+    aiIndexWarningArchiveNotInitialized: '請先初始化封存，再使用 AI 分析功能。',
+    aiIndexWarningNoEmbeddingProvider:
       '請先在設定裡選擇向量模型，再啟用語義檢索。',
+    aiIndexWarningEmbeddingProviderMissing:
+      '向量模型 {providerId} 已不在設定中可用。',
+    aiIndexWarningEmbeddingProviderDisabled:
+      '請先啟用 {providerName}，再使用語義檢索。',
+    aiIndexWarningEmbeddingProviderNoApiKey:
+      '請先為 {providerName} 儲存 API 金鑰，再使用語義檢索。',
+    aiIndexWarningEmbeddingProviderNoModel:
+      '請先為 {providerName} 選擇預設模型，再使用語義檢索。',
+    aiIndexWarningIndexNotBuilt:
+      '設定好向量模型後，執行「建立索引」即可啟用語義搜尋。',
+    aiIndexWarningStaleWatermark:
+      '語義索引已與目前封存不一致。執行「建立索引」，讓語義檢索納入最新匯入並反映已撤銷的紀錄。',
+    aiIndexWarningStaleEnrichment:
+      '上次語義建立後，可讀正文 enrichment 發生了變化。執行「建立索引」，用最新擷取的文字重新整理向量。',
+    aiIndexWarningBuildFailed: '上次索引建立失敗：{reason}',
+    aiIndexWarningIndexVectorsMissing:
+      '索引記錄了頁面但產生了 0 個向量——向量模型沒有產生任何輸出。請切換到內建靜態層或檢查外部 provider，然後重新建立。',
+    aiSemanticVectors: '語意向量數',
+    aiVectorModelSectionTitle: '向量模型',
+    aiBaseTierLabel: '基礎層級 — 本機執行',
+    aiUpgradeTierLabel: '升級層級 — 可選外部模型',
+    aiTierConnectorText:
+      '內建模型是推薦的起點。只有在需要更高精度或更大語境窗口時，才需要切換到外部模型。',
+    aiUpgradeTierBody:
+      '適合大型封存或專項搜尋，精度更高。需要外部伺服器，可能涉及 API 費用。',
+    aiBaseTierPanelTitle: '內建 · 本機模型',
+    aiBaseTierActivePill: '使用中',
+    aiBaseTierDescription:
+      '完全在本機執行——無需伺服器或 API 金鑰。速度快、佔用少，但精度低於大型外部模型。推薦作為起點，只有需要更高精度時再切換。',
+    aiBaseTierSpecs: '{dimensions} 維度 · 多語言 · ≈ {size}',
+    aiBaseTierUseButton: '使用內建模型',
+    aiBaseTierDownloadButton: '下載模型',
+    aiBaseTierDownloadHint: '≈ {size}，在背景執行。',
+    aiBaseTierDownloadRestartNote:
+      '關閉後目前檔案需重新下載（已完成的檔案保留）',
+    aiBaseTierCancelButton: '取消下載',
+    aiBaseTierReadyText: '✓ 已就緒',
+    aiBaseTierRetryButton: '重試下載',
+    aiBaseTierDownloadFailed: '下載失敗，請檢查網路後重試。',
+    aiAddExternalEmbeddingProvider: '+ 新增外部模型',
+    aiResetIndexBuildAction: '清除卡住的建立並重建',
+    aiResetIndexBuildConfirmPrompt:
+      '將清除卡住的建置工作，並從頭重新建立搜尋索引——封存中的每一頁都會重新分析。你的瀏覽紀錄不受影響，整個重建作業在背景執行，可能需要一段時間。',
+    aiResetIndexBuildConfirmYes: '確認，清除並重建',
+    aiResetIndexBuildConfirmNo: '取消',
+    aiResetIndexBuildResetting: '清除中…',
+    aiResetIndexBuildQueued: '已清除——完整重建已加入背景佇列。',
+    aiResetIndexBuildError: '無法重置建立，請重試。',
     aiIntegrationUnavailable: '整合預覽無法使用',
-    aiIntegrationDeferredTitle: 'AI 整合稍後開放',
-    aiIntegrationDeferredBody:
-      'MCP 指令和 skill 檔案依賴同一套助手與 embedding runtime。這裡先保留 v0.3 路線圖入口，但 v0.2.0 不會產生或安裝這些產物。',
-    aiIntegrationDeferredMcpBody: 'PathKeep v0.2.0 不提供 MCP 搜尋介面。',
-    aiIntegrationDeferredFilesBody:
-      '等 AI runtime 足夠可靠後，助手 skill 檔案產生會在後續版本回來。',
     aiIntegrationArtifactsTitle: 'AI 整合產物',
     aiIntegrationArtifactsSummaryTitle: '使用前先檢查生成檔案',
     aiIntegrationArtifactsSummaryBody:
@@ -360,9 +696,11 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationCapabilityMcpDisabled:
       '已儲存的設定目前已關閉 MCP server toggle。',
     aiIntegrationCapabilitySkillEnabled:
-      '已儲存的設定目前已開啟 Skill integration toggle。',
+      '使用指南已開啟：MCP 伺服器會提供一份唯讀指南，教已連接的工具如何高效查詢。它不會暴露任何額外資料。',
+    aiIntegrationCapabilitySkillUnreachable:
+      '使用指南已開啟但無法存取：只有在上方的 MCP 伺服器同時開啟時才會提供。可存取時它也不會暴露任何額外資料。',
     aiIntegrationCapabilitySkillDisabled:
-      '已儲存的設定目前已關閉 Skill integration toggle。',
+      '已儲存的設定關閉了使用指南，因此已連接的工具只會收到一則簡短的停用提示，而不是查詢指南。',
     aiIntegrationCapabilityEmbeddingEnabled:
       '建立語義索引後，語義檢索會使用目前已設定的 embedding provider。',
     aiIntegrationCapabilityEmbeddingDisabled:
@@ -385,5 +723,55 @@ export const settingsAiProvidersNamespace = {
       '供 PathKeep 使用的本機 MCP client 設定片段。',
     aiIntegrationGeneratedFileSkillPurpose:
       '教外部助手如何透過 MCP 查詢 PathKeep 的 Codex skill 起始模板。',
+    aiSearchTuningTitle: '進階搜尋調校',
+    aiSearchTuningIntro:
+      '微調智慧搜尋在排序時如何融合關鍵字比對與語意比對。預設值對大多數人都很合適——只有在你清楚自己想要什麼時再調整，並點擊儲存以生效。',
+    aiSearchTuningRrfKLabel: '排名平滑（k）',
+    aiSearchTuningRrfKHelp:
+      '在合併關鍵字清單與語意清單時，結果在各自清單中的確切名次有多重要。數值越小，越偏向少數靠前的命中；數值越大，分數分布越平均，讓排得更後面的比對也能計入。60 是標準的平衡值。',
+    aiSearchTuningLexicalLabel: '關鍵字比對權重',
+    aiSearchTuningLexicalHelp:
+      '精確詞語比對在最終排序中所占的比重。調高它會更偏向真正含有你輸入詞語的頁面；設為 0 則完全依語意排序。',
+    aiSearchTuningSemanticLabel: '語意比對權重',
+    aiSearchTuningSemanticHelp:
+      '基於含意（語意）的比對在最終排序中所占的比重。調高它會更偏向即使沒有完全相同詞語、但主題相關的頁面；設為 0 則完全依關鍵字排序。',
+    aiSearchTuningStarredLabel: '收藏加權',
+    aiSearchTuningStarredHelp:
+      '當你收藏的頁面與查詢相關時，給它一點小幅提升。它被特意限制在 0.5 以內，所以收藏頁面可以排得略高，卻永遠無法把一個不相關的收藏擠到強相關結果之上——智慧搜尋仍然是搜尋，而不是你的書籤清單。設為 0 則收藏不影響排序。',
+    aiSearchTuningReset: '還原預設值',
+    aiSearchTuningResetHint: '60 · 1.0 · 1.0 · 0.15',
+    aiGpuTitle: 'GPU 加速與重新嵌入',
+    aiGpuIntro:
+      'PathKeep 的內建嵌入模型預設在 CPU 上執行。在裝有 Metal 版本的 Apple 晶片 Mac 上，你可以選擇啟用 GPU 執行，然後重新嵌入工作集或整個封存——更快，且完全在本機進行。',
+    aiGpuToggleLabel: '使用 GPU 進行內建嵌入',
+    aiGpuToggleHelp:
+      '啟用後，內建嵌入模型會在 Apple 晶片的 Metal GPU 上執行而非 CPU。結果完全相同，只是更快，因此啟用它不會使現有索引失效——重新嵌入一律由你在下方明確發起。',
+    aiGpuUnavailable:
+      'GPU 加速需要 Metal 版本。目前版本僅在 CPU 上執行；你的偏好會被儲存，切換到 Metal 版本後將自動生效。',
+    aiGpuUnavailableBadge: '僅 CPU 版本',
+    aiGpuAvailableBadge: 'Metal 版本',
+    aiReembedTitle: '重新嵌入',
+    aiReembedWorkingSetLabel: '重新嵌入工作集',
+    aiReembedWorkingSetHelp:
+      '僅重新嵌入你的高價值頁面（已加星號、近期、帶標籤以及頻繁重訪的頁面）。範圍有界，但會在背景執行，在 CPU 上可能需要一段時間——請參考預估。',
+    aiReembedFullLabel: '重新嵌入整個封存',
+    aiReembedFullHelp:
+      '從頭重新嵌入封存中的每個唯一頁面。這是開銷較大的選項——開始前請查看預估。',
+    aiReembedFullRequiresGpu:
+      '啟用 GPU 加速（且為 Metal 版本）後才能重新嵌入整個封存。在 CPU 上耗時過長。',
+    aiReembedRequiresSemanticIndex:
+      '請在 AI 設定中開啟智慧搜尋（語意索引）後再重新嵌入。重新嵌入會建立智慧搜尋所用的搜尋向量。',
+    aiReembedEstimateLoading: '預估中…',
+    aiReembedEstimatePages: '{count} 個頁面',
+    aiReembedEstimateCpu: 'CPU 約 {minutes} 分鐘',
+    aiReembedEstimateGpu: 'GPU 約 {minutes} 分鐘',
+    aiReembedEstimateGpuUnavailable: 'GPU 預估需要 Metal 版本',
+    aiReembedStart: '開始',
+    aiReembedQueued: '重新嵌入已加入佇列——PathKeep 正在背景處理。',
+    aiReembedProgress: '重新嵌入中…{queued} 個排隊，{running} 個進行中',
+    aiReembedDone: '重新嵌入完成。',
+    aiReembedBackground: '重新嵌入正在背景執行——可在「工作」中查看進度。',
+    aiReembedError: '無法開始重新嵌入，請重試。',
+    aiReembedEstimateError: '無法載入預估。',
   },
 } as const

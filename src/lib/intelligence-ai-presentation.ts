@@ -104,6 +104,17 @@ export function aiStatusMeta(
   }
 }
 
+/**
+ * Map a semantic/hybrid relevance score to a labelled confidence band.
+ *
+ * The tones form an honest relevance LADDER, not a status signal: the stronger
+ * the match the more accent it earns, the weaker the fainter it reads. The mid
+ * tier deliberately does NOT use `warning` — "Relevant" is a positive result,
+ * and a caution tone on a good match misreads as a problem. The three tiers map
+ * to accent (`success`) → neutral (`info`) → faint (`blocked`); an absent score
+ * reads as the faintest "unknown". See `bandToneClass` in `paper-search-result`
+ * for the matching pill palette.
+ */
 export function scoreBand(
   score: number | null | undefined,
   t: Translate,
@@ -111,10 +122,10 @@ export function scoreBand(
   label: string
   tone: IntelligenceTone
 } {
-  if (score == null) return { label: t('noScore'), tone: 'info' }
+  if (score == null) return { label: t('noScore'), tone: 'blocked' }
   if (score >= 0.85) return { label: t('highConfidence'), tone: 'success' }
-  if (score >= 0.65) return { label: t('relevant'), tone: 'warning' }
-  return { label: t('weakMatch'), tone: 'info' }
+  if (score >= 0.65) return { label: t('relevant'), tone: 'info' }
+  return { label: t('weakMatch'), tone: 'blocked' }
 }
 
 export function assistantResponseMeta(

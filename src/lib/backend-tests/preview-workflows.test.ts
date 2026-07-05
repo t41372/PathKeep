@@ -340,6 +340,9 @@ describe('backend facade preview workflows', () => {
       recentJobs: expect.any(Array),
     })
     await expect(backend.resetLocalSecretVault()).resolves.toBeUndefined()
+    // The browser preview can't reveal a real OS folder, so reveal_logs returns
+    // the conventional `<appRoot>/logs` path the desktop command would open.
+    await expect(backend.revealLogs()).resolves.toMatch(/\/logs$/)
     await expect(
       backendTestHarness.call('export_history', {
         request: { query: { q: 'sqlite' } },

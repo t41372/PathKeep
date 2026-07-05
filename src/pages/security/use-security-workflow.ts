@@ -156,26 +156,6 @@ export function useSecurityWorkflow({
     })
   }
 
-  const handleStoreKeyringKey = async () => {
-    const trimmedKey = sessionKey.trim()
-    if (!trimmedKey) {
-      setActionError(t('security.currentDatabaseKeyRequired'))
-      return
-    }
-
-    await withBusy(t('security.storeInKeyring'), async () => {
-      await backend.keyringStoreDatabaseKey(trimmedKey)
-      await reloadAfterAction(t('security.storeInKeyring'))
-    })
-  }
-
-  const handleClearKeyring = async () => {
-    await withBusy(t('security.clearKeyring'), async () => {
-      await backend.keyringClearDatabaseKey()
-      await reloadAfterAction(t('security.clearKeyring'))
-    })
-  }
-
   const handleLockArchive = async () => {
     await withBusy(t('security.lockArchive'), async () => {
       await backend.clearSessionDatabaseKey()
@@ -233,11 +213,9 @@ export function useSecurityWorkflow({
   return {
     actionError,
     busy,
-    handleClearKeyring,
     handleExecuteRekey,
     handleLockArchive,
     handlePreviewRekey,
-    handleStoreKeyringKey,
     handleUnlock,
     handleUnlockFromKeyring,
     loadState,

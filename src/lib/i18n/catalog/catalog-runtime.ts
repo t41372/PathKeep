@@ -23,6 +23,7 @@
  */
 
 import type { LanguagePreference } from '../../types'
+import { archiveUpgradeNamespaceCatalog } from './archive-upgrade'
 import { assistantNamespaceCatalog } from './assistant'
 import { auditNamespaceCatalog } from './audit'
 import { commonNamespaceCatalog } from './common'
@@ -42,10 +43,12 @@ import { platformNamespaceCatalog } from './platform'
 import { scheduleNamespaceCatalog } from './schedule'
 import { securityNamespaceCatalog } from './security'
 import { settingsAiProvidersNamespace } from './settings-ai-providers'
+import { settingsContentFetchNamespace } from './settings-content-fetch'
 import { settingsCoreAndPlatformNamespace } from './settings-core-and-platform'
 import { settingsDerivedAndRuntimeNamespace } from './settings-derived-and-runtime'
 import { settingsRemoteAndOutputsNamespace } from './settings-remote-and-outputs'
 import { settingsUpdatesNamespace } from './settings-updates'
+import { recoveryNamespaceCatalog } from './recovery'
 import { shellNamespaceCatalog } from './shell'
 import {
   supportedLanguages,
@@ -79,6 +82,7 @@ const catalog = {
       ...settingsRemoteAndOutputsNamespace.en,
       ...settingsDerivedAndRuntimeNamespace.en,
       ...settingsAiProvidersNamespace.en,
+      ...settingsContentFetchNamespace.en,
     },
     explorer: explorerNamespaceCatalog.en,
     assistant: assistantNamespaceCatalog.en,
@@ -93,6 +97,8 @@ const catalog = {
     jobs: jobsNamespaceCatalog.en,
     platform: platformNamespaceCatalog.en,
     onboarding: onboardingNamespaceCatalog.en,
+    recovery: recoveryNamespaceCatalog.en,
+    archiveUpgrade: archiveUpgradeNamespaceCatalog.en,
   },
   'zh-CN': {
     common: commonNamespaceCatalog['zh-CN'],
@@ -109,6 +115,7 @@ const catalog = {
       ...settingsRemoteAndOutputsNamespace['zh-CN'],
       ...settingsDerivedAndRuntimeNamespace['zh-CN'],
       ...settingsAiProvidersNamespace['zh-CN'],
+      ...settingsContentFetchNamespace['zh-CN'],
     },
     explorer: explorerNamespaceCatalog['zh-CN'],
     assistant: assistantNamespaceCatalog['zh-CN'],
@@ -123,6 +130,8 @@ const catalog = {
     jobs: jobsNamespaceCatalog['zh-CN'],
     platform: platformNamespaceCatalog['zh-CN'],
     onboarding: onboardingNamespaceCatalog['zh-CN'],
+    recovery: recoveryNamespaceCatalog['zh-CN'],
+    archiveUpgrade: archiveUpgradeNamespaceCatalog['zh-CN'],
   },
   'zh-TW': {
     common: commonNamespaceCatalog['zh-TW'],
@@ -139,6 +148,7 @@ const catalog = {
       ...settingsRemoteAndOutputsNamespace['zh-TW'],
       ...settingsDerivedAndRuntimeNamespace['zh-TW'],
       ...settingsAiProvidersNamespace['zh-TW'],
+      ...settingsContentFetchNamespace['zh-TW'],
     },
     explorer: explorerNamespaceCatalog['zh-TW'],
     assistant: assistantNamespaceCatalog['zh-TW'],
@@ -153,6 +163,8 @@ const catalog = {
     jobs: jobsNamespaceCatalog['zh-TW'],
     platform: platformNamespaceCatalog['zh-TW'],
     onboarding: onboardingNamespaceCatalog['zh-TW'],
+    recovery: recoveryNamespaceCatalog['zh-TW'],
+    archiveUpgrade: archiveUpgradeNamespaceCatalog['zh-TW'],
   },
 } as const satisfies TranslationCatalog
 

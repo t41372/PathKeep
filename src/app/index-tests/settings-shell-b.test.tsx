@@ -74,21 +74,14 @@ describe('App shell', () => {
         message: 'Installed',
       } as Awaited<ReturnType<typeof updateLib.downloadAndInstallAppUpdate>>)
 
+    // The updater panel lives on the Maintenance page; Settings no longer
+    // carries the in-page "Open Maintenance" card (the sidebar owns that
+    // navigation now), so this updater-review flow starts on /maintenance.
     const router = createMemoryRouter(appRoutes, {
-      initialEntries: ['/settings'],
+      initialEntries: ['/maintenance'],
     })
 
     render(<App router={router} />)
-
-    const settingsPage = await screen.findByTestId('settings-page')
-    const maintenanceLink = expectHtmlElement(
-      within(settingsPage)
-        .getAllByRole('link', {
-          name: new RegExp(settingsT('openMaintenance')),
-        })
-        .find((link) => link.getAttribute('href') === '/maintenance') ?? null,
-    )
-    await user.click(maintenanceLink)
 
     await screen.findByTestId('maintenance-page')
     const updatePanel = expectHtmlElement(

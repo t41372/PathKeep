@@ -86,7 +86,7 @@ describe('useSecurityWorkflow', () => {
     expect(refreshAppData).not.toHaveBeenCalled()
   })
 
-  test('executes unlock, keyring, store, clear, and lock workflows', async () => {
+  test('executes unlock, keyring, and lock workflows', async () => {
     const refreshAppData = vi.fn().mockResolvedValue(undefined)
     const securityStatus = vi
       .spyOn(backend, 'securityStatus')
@@ -97,12 +97,6 @@ describe('useSecurityWorkflow', () => {
     const getKeyringKey = vi
       .spyOn(backend, 'keyringGetDatabaseKey')
       .mockResolvedValue('stored-key')
-    const storeKeyringKey = vi
-      .spyOn(backend, 'keyringStoreDatabaseKey')
-      .mockResolvedValue(keyringStatusFixture({ storedSecret: true }))
-    const clearKeyringKey = vi
-      .spyOn(backend, 'keyringClearDatabaseKey')
-      .mockResolvedValue(keyringStatusFixture({ storedSecret: false }))
     const clearSessionKey = vi
       .spyOn(backend, 'clearSessionDatabaseKey')
       .mockResolvedValue(undefined)
@@ -134,33 +128,11 @@ describe('useSecurityWorkflow', () => {
     expect(setSessionKey).toHaveBeenLastCalledWith('stored-key')
 
     await act(async () => {
-      await result.current.handleStoreKeyringKey()
-    })
-    expect(result.current.actionError).toBe(
-      'security.currentDatabaseKeyRequired',
-    )
-
-    act(() => {
-      result.current.setSessionKey(' fresh-key ')
-    })
-    await act(async () => {
-      await result.current.handleStoreKeyringKey()
-    })
-    expect(storeKeyringKey).toHaveBeenCalledWith('fresh-key')
-    expect(result.current.notice).toBe('security.storeInKeyring')
-
-    await act(async () => {
-      await result.current.handleClearKeyring()
-    })
-    expect(clearKeyringKey).toHaveBeenCalledTimes(1)
-    expect(result.current.notice).toBe('security.clearKeyring')
-
-    await act(async () => {
       await result.current.handleLockArchive()
     })
     expect(clearSessionKey).toHaveBeenCalledTimes(1)
     expect(result.current.notice).toBe('security.sessionLocked')
-    expect(refreshAppData).toHaveBeenCalledTimes(5)
+    expect(refreshAppData).toHaveBeenCalledTimes(3)
     expect(securityStatus).toHaveBeenCalled()
   })
 
@@ -325,9 +297,12 @@ describe('useSecurityWorkflow', () => {
       .mockResolvedValueOnce(
         securityStatusFixture({ encrypted: false, mode: 'Plaintext' }),
       )
-    vi.spyOn(backend, 'keyringStoreDatabaseKey').mockRejectedValueOnce(
-      'store failed',
-    )
+    // A non-Error rejection (a bare string) exercises the describeError
+    // fallback inside withBusy; the success path then drives reloadAfterAction's
+    // rekey-mode selection from the freshly-loaded plaintext status.
+    const clearSessionKey = vi
+      .spyOn(backend, 'clearSessionDatabaseKey')
+      .mockRejectedValueOnce('lock failed')
 
     const { result, rerender } = renderHook(
       ({ refreshKey }: { refreshKey: number }) =>
@@ -347,27 +322,19 @@ describe('useSecurityWorkflow', () => {
 
     rerender({ refreshKey: 2 })
     await waitFor(() => expect(result.current.status?.encrypted).toBe(true))
-    act(() => {
-      result.current.setSessionKey(' current-key ')
-    })
     await act(async () => {
-      await result.current.handleStoreKeyringKey()
+      await result.current.handleLockArchive()
     })
-    expect(result.current.actionError).toBe('store failed')
+    expect(result.current.actionError).toBe('lock failed')
 
-    vi.spyOn(backend, 'keyringStoreDatabaseKey').mockResolvedValueOnce(
-      keyringStatusFixture({ storedSecret: true }),
-    )
-    act(() => {
-      result.current.setSessionKey(' current-key ')
-    })
+    clearSessionKey.mockResolvedValueOnce(undefined)
     await act(async () => {
-      await result.current.handleStoreKeyringKey()
+      await result.current.handleLockArchive()
     })
 
     expect(securityStatus).toHaveBeenCalledTimes(3)
     expect(result.current.rekeyMode).toBe('Encrypted')
-    expect(result.current.notice).toBe('security.storeInKeyring')
+    expect(result.current.notice).toBe('security.sessionLocked')
   })
 })
 

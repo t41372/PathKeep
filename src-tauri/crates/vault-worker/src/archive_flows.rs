@@ -59,6 +59,27 @@ pub fn run_snapshot_restore_plan(
     vault_core::run_snapshot_restore(&paths, &config, session_database_key, request)
 }
 
+/// Lists the verified full-archive safety snapshots the Phase-D recovery GUI offers for a one-click
+/// restore (a keyless filesystem scan — no archive open, no key, no full-DB walk).
+pub fn list_recovery_snapshots() -> Result<Vec<vault_core::RecoverySnapshot>> {
+    let paths = vault_core::project_paths()?;
+    Ok(vault_core::list_recovery_snapshots(&paths))
+}
+
+/// Runs the one-click full-archive restore (D1): quarantine the broken canonical files, install +
+/// verify the chosen snapshot, reconcile config, rebuild an empty source-evidence.
+///
+/// The canonical archive may be un-openable (that is the whole point of this recovery), so the
+/// config falls back to default rather than failing the restore on a `load_unlocked_config` error.
+pub fn run_full_archive_restore(
+    session_database_key: Option<&str>,
+    request: &vault_core::SnapshotRestoreRequest,
+) -> Result<vault_core::FullArchiveRestoreReport> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths).unwrap_or_default();
+    vault_core::run_full_archive_snapshot_restore(&paths, &config, session_database_key, request)
+}
+
 /// Builds the manual-first retention preview for local rebuildable artifacts.
 pub fn preview_retention_plan(
     session_database_key: Option<&str>,
@@ -429,6 +450,19 @@ pub fn og_image_storage_stats(
     let connection =
         vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
     vault_core::og_images::storage_stats(&connection)
+}
+
+/// Reports og:image coverage (share of web pages with a preview image) for
+/// Settings → Link previews. On-demand only — the eligible-page count scans the
+/// `urls` table, so this never runs on a hot path.
+pub fn og_image_coverage_stats(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::OgImageCoverageStats> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    let connection =
+        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
+    vault_core::og_images::coverage_stats(&connection)
 }
 
 /// Drops every og:image cache row and its blob bytes. Behind the

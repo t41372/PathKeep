@@ -39,6 +39,25 @@ import type {
 } from '../../lib/types'
 import { buildRetentionSelection, type SupportState } from './helpers'
 
+/**
+ * Structural equality for two App Lock configs that have BOTH already been run
+ * through `normalizeAppLock` (so `recoveryHint` is a canonical `string | null`).
+ * Used to short-circuit a redundant auto-save (and a misleading "Saved" chip)
+ * when an App Lock edit normalizes back to the persisted value — e.g. re-selecting
+ * the same idle timeout, or toggling biometric on a machine without biometric
+ * hardware.
+ */
+function appLockConfigEquals(a: AppLockConfig, b: AppLockConfig): boolean {
+  return (
+    a.enabled === b.enabled &&
+    a.idleTimeoutMinutes === b.idleTimeoutMinutes &&
+    a.biometricEnabled === b.biometricEnabled &&
+    a.passcodeEnabled === b.passcodeEnabled &&
+    a.passcodeConfigured === b.passcodeConfigured &&
+    a.recoveryHint === b.recoveryHint
+  )
+}
+
 interface UseSettingsSupportStateArgs {
   appLockStatus: AppLockStatus | null
   clearAppLockPasscode: () => Promise<AppLockStatus>
@@ -115,10 +134,6 @@ export function useSettingsSupportState({
     enableRetentionPreview &&
     supportState.securityStatus?.encrypted === true &&
     supportState.securityStatus.unlocked === false
-  const appLockConfigDirty =
-    currentAppLockSettings !== null &&
-    JSON.stringify(currentAppLockSettings) !==
-      JSON.stringify(snapshot?.config.appLock ?? null)
   const appLockCanEnable =
     Boolean(currentAppLockSettings?.passcodeConfigured) ||
     Boolean(appLockStatus?.passcodeConfigured)
@@ -209,6 +224,10 @@ export function useSettingsSupportState({
 
   function handleSupportPathOpen(path: string) {
     void backend.openPathInFileManager(path)
+  }
+
+  function handleRevealLogs() {
+    void backend.revealLogs()
   }
 
   async function handleLanguageChange(nextLanguage: string) {
@@ -324,55 +343,120 @@ export function useSettingsSupportState({
     }
   }
 
-  function handleAppLockEnabledChange(enabled: boolean) {
-    setAppLockDraft((current) => (current ? { ...current, enabled } : current))
+  // Normalize an App Lock draft the same way the backend persists it: biometric is
+  // gated on real availability, passcode flags are forced, and the recovery hint is
+  // trimmed (empty → null). Crucially this normalizes the hint that is ALREADY on
+  // `next` — NOT the live editing buffer — so toggling a non-hint field never
+  // flushes an in-progress recovery-hint edit to disk before its own blur. The
+  // hint's own commit-on-blur handler is the one place that copies the buffer onto
+  // `next`, so the buffer only persists when the user actually leaves the field.
+  function normalizeAppLock(next: AppLockConfig): AppLockConfig {
+    return {
+      ...next,
+      biometricEnabled:
+        next.biometricEnabled && Boolean(appLockStatus?.biometricAvailable),
+      passcodeEnabled: true,
+      passcodeConfigured:
+        appLockStatus?.passcodeConfigured ?? next.passcodeConfigured,
+      recoveryHint: (next.recoveryHint ?? '').trim() || null,
+    }
   }
 
-  function handleAppLockIdleTimeoutChange(idleTimeoutMinutes: number) {
-    setAppLockDraft((current) =>
-      current ? { ...current, idleTimeoutMinutes } : current,
-    )
+  // Persist the App Lock config immediately (the page is all-auto-save). Returns
+  // true only when the write actually landed, so the section flashes the quiet
+  // "Saved" chip on success and stays silent on a no-op or failure. No-ops (return
+  // false, no write, no chip) when the normalized config already matches the
+  // persisted draft — so re-selecting the same idle timeout, or a biometric toggle
+  // that normalizes back to the saved value, never fires a redundant write or a
+  // misleading "Saved", mirroring the AI path's guard.
+  async function persistAppLock(next: AppLockConfig): Promise<boolean> {
+    if (!snapshot) {
+      return false
+    }
+
+    // `currentAppLockSettings` is `appLockDraft ?? snapshot.config.appLock`, so with
+    // a snapshot present (checked above) it is always the committed config — every
+    // caller also guards on it before reaching here. Compare the normalized next
+    // config against it to short-circuit a redundant write (and a misleading
+    // "Saved"). The non-null assertion just expresses what the snapshot check
+    // guarantees without an unreachable runtime branch.
+    const normalized = normalizeAppLock(next)
+    const persisted = normalizeAppLock(currentAppLockSettings!)
+    if (appLockConfigEquals(normalized, persisted)) {
+      return false
+    }
+
+    const nextSnapshot = await saveConfig({
+      ...snapshot.config,
+      appLock: normalized,
+    })
+    // Update the committed-config mirror so a back-to-back auto-save (or the no-op
+    // guard above) computes from the freshest persisted value. Intentionally does
+    // NOT touch `appLockRecoveryHint`: toggling a non-hint field must leave the
+    // in-progress hint editing buffer alone — only the hint's own commit-on-blur
+    // reconciles the buffer (below), and an external snapshot change reconciles it
+    // via the sync effect.
+    setAppLockDraft(nextSnapshot.config.appLock)
+    return true
   }
 
-  function handleAppLockBiometricChange(biometricEnabled: boolean) {
-    setAppLockDraft((current) =>
-      current ? { ...current, biometricEnabled } : current,
-    )
+  async function handleAppLockEnabledChange(
+    enabled: boolean,
+  ): Promise<boolean> {
+    if (!currentAppLockSettings) {
+      return false
+    }
+    return persistAppLock({ ...currentAppLockSettings, enabled })
   }
 
+  async function handleAppLockIdleTimeoutChange(
+    idleTimeoutMinutes: number,
+  ): Promise<boolean> {
+    if (!currentAppLockSettings) {
+      return false
+    }
+    return persistAppLock({ ...currentAppLockSettings, idleTimeoutMinutes })
+  }
+
+  async function handleAppLockBiometricChange(
+    biometricEnabled: boolean,
+  ): Promise<boolean> {
+    if (!currentAppLockSettings) {
+      return false
+    }
+    return persistAppLock({ ...currentAppLockSettings, biometricEnabled })
+  }
+
+  // Recovery hint is free text, so it edits ONLY the editing buffer on every
+  // keystroke (off the persistence path) and writes on blur. The committed-config
+  // mirror (`currentAppLockSettings.recoveryHint`) keeps the last-persisted value —
+  // unchanged by non-hint toggles — so commit-on-blur can tell a real edit from a
+  // no-op blur, and toggling another field never flushes the in-progress buffer.
   function handleAppLockRecoveryHintChange(recoveryHint: string) {
     setAppLockRecoveryHint(recoveryHint)
-    setAppLockDraft((current) =>
-      current ? { ...current, recoveryHint } : current,
-    )
   }
 
-  async function handleSaveAppLockConfig() {
-    if (!snapshot || !appLockDraft) {
-      return
+  async function handleAppLockRecoveryHintCommit(): Promise<boolean> {
+    if (!currentAppLockSettings) {
+      return false
     }
-
-    setAppLockAction(t('settings.appLockSaving'))
-    try {
-      const nextSnapshot = await saveConfig({
-        ...snapshot.config,
-        appLock: {
-          ...appLockDraft,
-          biometricEnabled:
-            appLockDraft.biometricEnabled &&
-            Boolean(appLockStatus?.biometricAvailable),
-          passcodeEnabled: true,
-          passcodeConfigured:
-            appLockStatus?.passcodeConfigured ??
-            appLockDraft.passcodeConfigured,
-          recoveryHint: appLockRecoveryHint.trim() || null,
-        },
-      })
-      setAppLockDraft(nextSnapshot.config.appLock)
-      setAppLockRecoveryHint(nextSnapshot.config.appLock.recoveryHint ?? '')
-    } finally {
-      setAppLockAction(null)
+    // No-op when the trimmed hint already matches what's persisted (the draft
+    // mirrors the backend after every write), so a blur without an edit never
+    // fires a redundant write or a misleading "Saved".
+    const nextHint = appLockRecoveryHint.trim() || null
+    if (nextHint === (currentAppLockSettings.recoveryHint ?? null)) {
+      return false
     }
+    const saved = await persistAppLock({
+      ...currentAppLockSettings,
+      recoveryHint: appLockRecoveryHint,
+    })
+    // This is the ONE place the editing buffer is reconciled to the persisted
+    // (trimmed) hint, so a typed-then-blurred value with surrounding whitespace
+    // settles to exactly what was stored. `persistAppLock` deliberately leaves the
+    // buffer untouched so unrelated field toggles never wipe an in-progress edit.
+    setAppLockRecoveryHint(nextHint ?? '')
+    return saved
   }
 
   async function handleSetAppLockPasscode() {
@@ -422,6 +506,7 @@ export function useSettingsSupportState({
         handleExplorerBackgroundPrefetchPagesChange,
       onLanguageChange: handleLanguageChange,
       onOpenPath: handleSupportPathOpen,
+      onRevealLogs: handleRevealLogs,
     },
     retention: {
       action: retentionAction,
@@ -438,7 +523,6 @@ export function useSettingsSupportState({
     appLock: {
       action: appLockAction,
       canEnable: appLockCanEnable,
-      configDirty: appLockConfigDirty,
       copyFeedback: supportCopyFeedback,
       currentSettings: currentAppLockSettings,
       passcode: appLockPasscode,
@@ -454,7 +538,7 @@ export function useSettingsSupportState({
       onOpenPath: handleSupportPathOpen,
       onPasscodeChange: setAppLockPasscodeDraft,
       onRecoveryHintChange: handleAppLockRecoveryHintChange,
-      onSaveConfig: handleSaveAppLockConfig,
+      onRecoveryHintCommit: handleAppLockRecoveryHintCommit,
       onSetPasscode: handleSetAppLockPasscode,
     },
     profiles: {

@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
 import { mockBuildInfo, mockSnapshot } from '../../lib/backend-preview-fixtures'
@@ -30,12 +30,14 @@ vi.mock('./browser-detection-step', () => ({
     onBack,
     onContinue,
     onOpenFullDiskAccessSettings,
+    onRecheck,
     onToggleProfile,
   }: {
     localError: string | null
     onBack: () => void
     onContinue: () => void
     onOpenFullDiskAccessSettings: () => void
+    onRecheck: () => void | Promise<void>
     onToggleProfile: (profileId: string) => void
   }) => (
     <section>
@@ -48,6 +50,9 @@ vi.mock('./browser-detection-step', () => ({
       </button>
       <button type="button" onClick={onOpenFullDiskAccessSettings}>
         open-full-disk
+      </button>
+      <button type="button" onClick={() => void onRecheck()}>
+        browser-recheck
       </button>
       <button type="button" onClick={() => onToggleProfile('chrome:Default')}>
         toggle-profile
@@ -207,6 +212,30 @@ vi.mock('./schedule-step', () => ({
       </button>
       <button type="button" onClick={() => onSelectDueAfterHours(12)}>
         select-12-hours
+      </button>
+    </section>
+  ),
+}))
+
+vi.mock('./ai-step', () => ({
+  AiStep: ({
+    onBack,
+    onEnable,
+    onSkip,
+  }: {
+    onBack: () => void
+    onEnable: () => void
+    onSkip: () => void
+  }) => (
+    <section>
+      <button type="button" onClick={onBack}>
+        ai-back
+      </button>
+      <button type="button" onClick={onEnable}>
+        ai-enable
+      </button>
+      <button type="button" onClick={onSkip}>
+        ai-skip
       </button>
     </section>
   ),
@@ -381,12 +410,12 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
 
+    // Ready → Back lands on the optional AI step (the route owner wires ReadyStep.onBack to it).
     await user.click(screen.getByRole('button', { name: 'ready-back' }))
-    expect(
-      screen.getByRole('button', { name: 'schedule-install' }),
-    ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    expect(screen.getByRole('button', { name: 'ai-skip' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
 
     shellData.current = shellDataFixture({
       snapshot: snapshotFixture({
@@ -442,6 +471,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
 
     shellData.current = shellDataFixture({
       snapshot: snapshotFixture({ archiveMode: 'Encrypted' }),
@@ -615,6 +645,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-skip' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
     await user.click(screen.getByRole('button', { name: 'finish' }))
 
     expect(backend.applySchedule).not.toHaveBeenCalled()
@@ -660,6 +691,7 @@ describe('OnboardingPage', () => {
     )
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
     await user.click(screen.getByRole('button', { name: 'finish' }))
 
     expect(backend.previewSchedule).toHaveBeenCalledTimes(2)
@@ -711,6 +743,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
     await user.click(screen.getByRole('button', { name: 'finish' }))
 
     expect(initializeArchive).not.toHaveBeenCalled()
@@ -858,6 +891,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
     await user.click(screen.getByRole('button', { name: 'finish' }))
 
     expect(initializeArchive).toHaveBeenCalledWith(
@@ -896,6 +930,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
     await user.click(screen.getByRole('button', { name: 'finish' }))
 
     expect(initializeArchive).toHaveBeenCalledWith(
@@ -927,7 +962,225 @@ describe('OnboardingPage', () => {
       screen.getByRole('button', { name: 'security-continue' }),
     ).toBeInTheDocument()
   })
+
+  test('inserts the optional AI step between Schedule and Ready; Skip advances to the final review', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+    await user.click(
+      screen.getByRole('button', { name: 'security-password-match' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'security-continue' }))
+    await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+
+    // Schedule advances to the AI step (not straight to Ready).
+    expect(screen.getByRole('button', { name: 'ai-skip' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'finish' }),
+    ).not.toBeInTheDocument()
+
+    // AI back returns to the schedule step.
+    await user.click(screen.getByRole('button', { name: 'ai-back' }))
+    expect(
+      screen.getByRole('button', { name: 'schedule-install' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
+    // Skip advances to the Ready step.
+    expect(screen.getByRole('button', { name: 'finish' })).toBeInTheDocument()
+  })
+
+  test('enabling AI writes the static local-search opt-in into the config initializeArchive persists', async () => {
+    // Before the fix the AI step was cosmetic — Finish always passed the untouched config (ai.enabled
+    // false), so this assertion FAILS on the pre-change code and PASSES once Enable threads the static
+    // semantic-search opt-in through handleFinish.
+    const user = userEvent.setup()
+    const initializeArchive = vi.fn().mockResolvedValue(undefined)
+    const runBackup = vi.fn().mockResolvedValue(undefined)
+    shellData.current = shellDataFixture({ initializeArchive, runBackup })
+    renderPage()
+
+    await advanceToReadyEnablingAi(user)
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+
+    expect(initializeArchive).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ai: expect.objectContaining({
+          enabled: true,
+          semanticIndexEnabled: true,
+          embeddingProviderId: 'static-in-app',
+        }),
+      }),
+      'secret',
+    )
+  })
+
+  test('skipping AI leaves config.ai default (enabled false) and enables nothing', async () => {
+    const user = userEvent.setup()
+    const initializeArchive = vi.fn().mockResolvedValue(undefined)
+    const runBackup = vi.fn().mockResolvedValue(undefined)
+    const startLocalSemanticSetup = vi.fn().mockResolvedValue(undefined)
+    shellData.current = shellDataFixture({
+      initializeArchive,
+      runBackup,
+      startLocalSemanticSetup,
+    })
+    renderPage()
+
+    await advanceToReady(user) // advanceToReady skips the AI step (clicks ai-skip)
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+
+    expect(initializeArchive).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ai: expect.objectContaining({
+          enabled: false,
+          semanticIndexEnabled: false,
+        }),
+      }),
+      'secret',
+    )
+    // Skip must never kick the background setup — AI stays fully off.
+    expect(startLocalSemanticSetup).not.toHaveBeenCalled()
+  })
+
+  test('enabling AI fires the background setup once, AFTER the backup, without blocking finish', async () => {
+    const user = userEvent.setup()
+    const callOrder: string[] = []
+    const initializeArchive = vi.fn().mockResolvedValue(undefined)
+    const runBackup = vi.fn(() => {
+      callOrder.push('backup')
+      return Promise.resolve(undefined)
+    })
+    // A DEFERRED promise that stays pending through the assertions: if handleFinish accidentally
+    // `await`ed the background setup, navigation would never happen and the location assertion would
+    // time out. Proving `/` is reached WHILE this is still pending proves finish did not await it.
+    const setupSettled = deferred<undefined>()
+    const startLocalSemanticSetup = vi.fn(() => {
+      callOrder.push('semantic')
+      return setupSettled.promise
+    })
+    shellData.current = shellDataFixture({
+      initializeArchive,
+      runBackup,
+      startLocalSemanticSetup,
+    })
+    render(
+      <MemoryRouter initialEntries={['/onboarding']}>
+        <I18nProvider>
+          <OnboardingPage />
+          <LocationProbe />
+        </I18nProvider>
+      </MemoryRouter>,
+    )
+
+    await advanceToReadyEnablingAi(user)
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+
+    // Fired exactly once, strictly after the backup (fire-and-forget, so the order is deterministic).
+    expect(startLocalSemanticSetup).toHaveBeenCalledTimes(1)
+    expect(callOrder).toEqual(['backup', 'semantic'])
+    // Finish still completes and navigates home even though the background setup is STILL pending —
+    // this only passes because handleFinish never awaits `startLocalSemanticSetup`. Assert the EXACT
+    // location ('/'), not a substring — the initial '/onboarding' route also contains '/', so a
+    // substring match would pass even if navigation never happened.
+    await waitFor(() =>
+      expect(screen.getByTestId('location-probe').textContent).toBe('/'),
+    )
+
+    // Settle the deferred so the fire-and-forget promise doesn't leak past the test.
+    setupSettled.resolve(undefined)
+    await setupSettled.promise
+  })
+
+  test('the enable path does NOT enable the assistant, mcp, skill, or content fetch', async () => {
+    const user = userEvent.setup()
+    const initializeArchive = vi.fn().mockResolvedValue(undefined)
+    const runBackup = vi.fn().mockResolvedValue(undefined)
+    shellData.current = shellDataFixture({ initializeArchive, runBackup })
+    renderPage()
+
+    await advanceToReadyEnablingAi(user)
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+
+    const persistedConfig = initializeArchive.mock.calls[0][0] as AppConfig
+    expect(persistedConfig.ai.assistantEnabled).toBe(false)
+    expect(persistedConfig.ai.mcpEnabled).toBe(false)
+    expect(persistedConfig.ai.skillEnabled).toBe(false)
+    expect(persistedConfig.ai.contentFetchEnabled).toBeFalsy()
+  })
+
+  test('re-onboarding an already-initialized archive + enabling AI persists the opt-in via saveConfig', async () => {
+    const user = userEvent.setup()
+    const initializeArchive = vi.fn()
+    const runBackup = vi.fn().mockResolvedValue(undefined)
+    const saveConfig = vi.fn((config: AppConfig) =>
+      Promise.resolve({
+        ...snapshotFixture(),
+        config,
+      }),
+    )
+    shellData.current = shellDataFixture({
+      initializeArchive,
+      runBackup,
+      saveConfig,
+      snapshot: snapshotFixture({
+        archiveMode: 'Plaintext',
+        initialized: true,
+      }),
+    })
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+    await user.click(screen.getByRole('button', { name: 'security-continue' }))
+    await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-enable' }))
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+
+    // Already initialized → no re-init, but the opt-in is still persisted through saveConfig.
+    expect(initializeArchive).not.toHaveBeenCalled()
+    expect(saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ai: expect.objectContaining({
+          enabled: true,
+          semanticIndexEnabled: true,
+          embeddingProviderId: 'static-in-app',
+        }),
+      }),
+    )
+  })
+
+  test('wires the browser step re-check to a background snapshot refresh', async () => {
+    const user = userEvent.setup()
+    const refreshAppData = vi.fn().mockResolvedValue(undefined)
+    shellData.current = shellDataFixture({ refreshAppData })
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-recheck' }))
+
+    // Re-check re-fetches the snapshot WITHOUT the full-page spinner
+    // (showSpinner === false) so the step never blanks out mid-onboarding.
+    expect(refreshAppData).toHaveBeenCalledWith(false)
+  })
 })
+
+/** Surfaces the current router location so navigation side effects are assertable. */
+function LocationProbe() {
+  const location = useLocation()
+  return (
+    <span data-testid="location-probe">
+      {`${location.pathname}${location.hash}`}
+    </span>
+  )
+}
 
 async function advanceToReady(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'begin' }))
@@ -939,6 +1192,24 @@ async function advanceToReady(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'security-continue' }))
   await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
   await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+  // The optional AI step sits between Schedule and Ready; skip it to reach the final review.
+  await user.click(screen.getByRole('button', { name: 'ai-skip' }))
+}
+
+async function advanceToReadyEnablingAi(
+  user: ReturnType<typeof userEvent.setup>,
+) {
+  await user.click(screen.getByRole('button', { name: 'begin' }))
+  await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+  await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+  await user.click(
+    screen.getByRole('button', { name: 'security-password-match' }),
+  )
+  await user.click(screen.getByRole('button', { name: 'security-continue' }))
+  await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
+  await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+  // Opt IN to AI on the optional step before reaching the final review.
+  await user.click(screen.getByRole('button', { name: 'ai-enable' }))
 }
 
 function renderPage() {
@@ -962,6 +1233,7 @@ function shellDataFixture(overrides: Record<string, unknown> = {}) {
     error: null,
     initializeArchive: vi.fn().mockResolvedValue(undefined),
     loading: false,
+    refreshAppData: vi.fn().mockResolvedValue(undefined),
     runBackup: vi.fn().mockResolvedValue(undefined),
     saveConfig: vi.fn((config: AppConfig) =>
       Promise.resolve({
@@ -969,6 +1241,7 @@ function shellDataFixture(overrides: Record<string, unknown> = {}) {
         config,
       }),
     ),
+    startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
     snapshot: snapshotFixture(),
     ...overrides,
   }

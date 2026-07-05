@@ -110,11 +110,28 @@
   - 包含 versioned FTS5 Explorer keyword recall projection、Dashboard / deterministic baseline 的統計 projection
   - M14 keyword projection 包含 raw / normalized URL、title、search term、compact text、CJK grams、unicode61 prefix table 與 trigram table
 - `derived/history-intelligence.sqlite`
-  - 只保存 queue、assistant trace、enrichment metadata、deterministic read model 與 runtime state
-- `sidecars/semantic-index/`
-  - v0.2.0 只保留 future vector sidecar 目錄；不寫入 LanceDB vectors / ANN index
+  - 只保存 queue、enrichment metadata、deterministic read model、runtime state 與 compact semantic metadata / rebuild accounting
+- `derived/agent.sqlite`
+  - assistant chat 持久化面（W-AI-3/7）：`conversations`、`messages`，以及 `agent_runs`、`agent_steps`、`agent_citations` 的 run/step/citation trace
+  - 隱私敏感衍生面，**排除出 portable export**（chat transcript 留在來源機）；可刪可重開新對話，不屬 canonical fact
+- `derived/vectors/`
+  - 自製 `FlatVectorIndex` 的 on-disk plane：`.pkvec`（raw f32 source）、`.pkmap`（visit→content_key dedup map，W-AI-4c）、`.pkbin`（binary-recall plane）、`.pki8`（int8-rescore plane）
+  - 全屬可重建衍生狀態（14.4M 尾端的 f32 約 59 GB），**排除出 export bundle**，在 target 重嵌而非搬運
+- `models/`
+  - in-app candle embedding 下載的模型權重（SHA-256 pin）；可重新下載，**排除出 export bundle**
 - `sidecars/intelligence-blobs/`
-  - v0.2.0 不抓取網頁正文；目錄只作 future readable-content blob boundary
+  - W-ENRICH content-fetch 抓回的 readable body / caption blob（content-addressed）；可重抓、可能大，**排除出 export bundle**（capped `enrichment_summary` 改由 intelligence DB 攜帶，讓 target 仍能離線搜尋）
+
+### Encryption at rest（2026-06-28）
+
+當 `AppConfig.archive_mode == Encrypted` 時，**只有 canonical encrypted-tier 的兩個 DB 加密**（SQLCipher，`rusqlite` bundled-sqlcipher，每連線 `PRAGMA key`）：
+
+- **加密**：`archive/history-vault.sqlite` 與 `archive/source-evidence.sqlite`。兩者都是 archive contract、必須一起打包，因此必須一起以相同金鑰加密。
+- **明文（by design）**：`derived/` 下的 sidecar——`history-search.sqlite`（明文開啟，再由加密 archive 以 `ATTACH … KEY ''` 掛載）、`history-intelligence.sqlite`（明文開啟，attach 加密 archive）、`agent.sqlite`，以及 `derived/vectors/` 的 flat plane。它們是可丟棄/可重建的衍生狀態。**注意這是不完整的 at-rest 保護**：FTS / intelligence / chat 仍以明文存 URL / title / enrichment 摘要 / 對話。評估「全量加密」（性能 + 實作 + 威脅模型）見 [[WORK-ENCRYPT-AT-REST-ALL backlog]]。
+
+**Rekey 必須 lockstep 遷移兩個 encrypted-tier DB。** `archive::maintenance::rekey_archive` 透過 `archive::at_rest::migrate_source_evidence_for_rekey` 在切換模式/輪換金鑰時同時重寫 `source-evidence.sqlite`（偵測檔案實際 on-disk 模式以選開啟金鑰，再以新模式/金鑰 export+atomic swap）。歷史 bug：舊 rekey 只重寫 archive，留下明文 `source-evidence`，而 `open_source_evidence_connection` 在 Encrypted 模式對它套 `PRAGMA key` → SQLCipher 把明文檔頭當密文 → page size 亂掉 → 每次備份 `SQLITE_NOMEM`。
+
+**Auto-repair（self-heal drift）。** `archive::at_rest::reconcile_source_evidence_with_archive` 用 16-byte 檔頭（`SQLite format 3\0` = 明文，無需金鑰）偵測 `source-evidence` 的 at-rest 模式是否與 config 漂移，漂移就原地重新加密/解密（`sqlcipher_export`→atomic swap，`recover_interrupted_rewrite` 保證崩潰可復原且不留明文 backstop），並記一筆 `run_type='rekey'` / `trigger='repair'` run（PME 透明）。它**防禦性地**在 `run_backup_with_progress` 開 source-evidence 前先跑（修好 manual + scheduled 備份），並由 `reconcile_archive_encryption` 命令在解鎖後**主動**跑一次。**範圍限制**：只處理 MODE drift（明文↔加密），不處理 KEY drift（用舊密碼加密的檔，檔頭與正確金鑰檔無從區分）→ [[WORK-ENCRYPT-KEYDRIFT-A backlog]]。
 
 ### Run ledger 與 rollback visibility
 
@@ -142,11 +159,10 @@
 
 - AI queue、assistant trace、semantic metadata、deterministic runtime state 都不再由 canonical archive bootstrap 建表；它們透過 `derived/history-intelligence.sqlite` 持久化。
 - `ai_index_ledger` 以 `(provider_id, model)` 為 key，記錄 `sidecar_table`、`index_version`、`state`、`source_watermark`、`last_run_id`、build started / finished、clear time 與 failure reason。
-- semantic metadata、assistant trace、AI queue 與 deterministic read model 都落在 `derived/history-intelligence.sqlite`。SQLite 僅保留 compact metadata / runtime accounting；向量 payload 不進 SQLite。v0.2.0 也不 shipping vector sidecar payload。
-- `ai_assistant_runs` 保存 run-linked assistant trace：`run_id`、question / answer、LLM provider、retrieval provider、citations JSON 與 notes JSON。queued assistant job 完成後要能回到同一筆 trace，而不是只剩暫時性的 UI state。
-- sidecar 可以整個刪除後再依 `ai_index_ledger` / canonical archive facts 重建；刪 sidecar 不應修改任何 canonical facts。
-- 2026-04-29 v0.1.0 release amendment：AI Assistant、embedding、semantic / hybrid search、vector sidecar sync、MCP / skill artifacts 都暫時 disabled；`ai_sidecar` 只保留 no-vector API stub，避免 UI 或 backend 假裝這些 runtime 已可用。
-- 2026-05-10 v0.2.0 planning repair：上述 optional AI / vector blocker 未在 v0.2.0 完成，全部移到 v0.3.0；default build 仍不得寫入 vector sidecar payload。
+- semantic metadata、AI queue 與 deterministic read model 落在 `derived/history-intelligence.sqlite`。SQLite 僅保留 compact metadata / runtime accounting；**向量 payload 不進 SQLite**，而是寫到 `derived/vectors/` 的 `.pkvec/.pkmap/.pkbin/.pki8` sidecar plane（W-AI-4/5）。
+- assistant chat / agent run trace 落在獨立的 `derived/agent.sqlite`（W-AI-3/7）：`conversations` / `messages` 加上 `agent_runs` / `agent_steps`（append-only journal，支援崩潰續跑）/ `agent_citations`（釘住 evidence 的 `history_id` / `canonical_url`）。它是隱私敏感面，**排除出 portable export**。
+- vector sidecar 與 agent.sqlite 都可以整個刪除後再依 `ai_index_ledger` / canonical archive facts 重建（agent chat 刪除即重開新對話）；刪這些衍生面不應修改任何 canonical facts。
+- 2026-06 AI redesign closeout：上面 2026-04/05 寫下的「optional AI / vector / MCP 全部 disabled、移到 v0.3」結論已被 AI redesign 2026 program（W-AI-1..9）取代並落地——streaming chat、in-app + external embedding、`FlatVectorIndex` 語義/混合檢索、agent harness、code-mode、MCP 對外面都已交付且 reachable。整個 AI 面 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag），boundary 與 threat model 見 [ai-security-posture.md](ai-security-posture.md)。
 
 ### Source-native evidence boundary
 
@@ -182,12 +198,12 @@
 - `bundle.json` 是 trusted local host 的 typed machine contract：至少包含 `bundleVersion`、`hostId`、`generatedAt`、`locale`、`dateRange`、`profileId`、`embedCards`、`widgetSnapshot`、`publicSnapshot`、`trustedOnlyCardIds`、`trustedOnlyCardCount` 與 `boundaryNotes`；`index.html` 直接內嵌同一份 bundle data 靜態渲染，不再從 `file://` 另行 fetch JSON。
 - `deterministic_module_runtime` 是 module-registry trace table，不是 canonical truth。它只保存 module version、status、dependencies、derived tables、last run / built / invalidated time、stale reason 與 notes，供 Settings / Insights 誠實顯示 rebuild-required state。
 - derived clear / rebuild 絕不能修改 canonical `visits`、`downloads`、`search_terms`、`runs`、`manifests` 或 rollback visibility 欄位。任何 derived maintenance 都只能留下 trace，不可改寫 source facts。2026-04-12 起，deterministic rebuild 的 live snapshot 也不得先清空再等待後續 commit；同 scope 的 derived rows、snapshot payload 與 module runtime 必須在同一個 intelligence transaction 內替換完成，避免留下半清空狀態。
-- refetch freshness / fetch status / snippet / readable text 都屬 future derived evidence，而不是 source of truth。v0.2.0 不抓取網頁正文；後續版本若啟用，這些資料可因 plugin disable、full rebuild、clear derived state 或 pipeline version 升級而被重新計算或刪除。
+- refetch freshness / fetch status / snippet / readable text 都屬 derived evidence，而不是 source of truth。W-ENRICH content-fetch 已交付但 **egress hard-default-OFF**（`content_fetch_enabled`，預設關），且 SSRF-guarded（見 [ai-security-posture.md](ai-security-posture.md) §4）；這些資料可因 plugin disable、full rebuild、clear derived state 或 pipeline version 升級而被重新計算或刪除。
 
 ### Data migration bundle contract (`.pathkeep-bundle`)
 
-- 整機 Export / Import 的 artifact 是 `.pathkeep-bundle` zip，由 `vault-core::migration` 寫入 / 讀回。zip 至少包含 `pathkeep-export-manifest.json`、`pathkeep-export-manifest.sha256` sidecar、`config/config.json`、`archive/history-vault.sqlite`（透過 `sqlcipher_export` 保留來源加密 key）以及 `archive/source-evidence.sqlite`；如果本機有 `derived/`、`audit/`、`raw-snapshots/`、`sidecars/intelligence-blobs/`、`sidecars/semantic-index/`，也一併打包。derived projections 屬 rebuildable，但 bundle 仍然會帶上以加速目標機 first-paint。
-- 明確排除：`vault.hold` / `stronghold-salt.txt`（App Lock secrets 留在來源機）、`logs/`、`diagnostics/`、`schedule/`（platform-specific scheduler artifacts）、`staging/`、`quarantine/`、`exports/`（避免遞迴打包）。`EXPORT_EXCLUSIONS_DOC` 把這份清單透傳到 UI，使用者匯入前能看到什麼東西不會跟過來。
+- 整機 Export / Import 的 artifact 是 `.pathkeep-bundle` zip，由 `vault-core::migration` 寫入 / 讀回。zip 至少包含 `pathkeep-export-manifest.json`、`pathkeep-export-manifest.sha256` sidecar、`config/config.json`、`archive/history-vault.sqlite`（透過 `sqlcipher_export` 保留來源加密 key）以及 `archive/source-evidence.sqlite`；如果本機有 `derived/`、`audit/`、`raw-snapshots/`、`sidecars/` 子樹，也一併打包（含 `derived/history-intelligence.sqlite` 等 rebuildable projection，bundle 帶上以加速目標機 first-paint）。
+- 明確排除（`EXPORT_EXCLUSIONS_DOC`，透傳到 UI 讓使用者匯入前看到什麼不會跟過來）：`vault.hold` / `stronghold-salt.txt`（App Lock secrets 留在來源機）、`logs/`、`diagnostics/`、`schedule/`（platform-specific scheduler artifacts）、`staging/`、`quarantine/`、`exports/`（避免遞迴打包）、`models/`（下載的 embedding/reranker 模型可在目標機重新下載）、`derived/agent.sqlite`（assistant chat transcript 留在來源機）、`derived/vectors/`（raw f32 向量盤約 59 GB，rebuildable，目標機重嵌）、`sidecars/intelligence-blobs/`（content-fetch 抓回的 raw body blob 可重抓，capped `enrichment_summary` 改由 intelligence DB 攜帶）。
 - `pathkeep-export-manifest.json` 是 import 的 restore contract：記錄 `formatVersion`、`appVersion`、`archiveSchemaVersion`、`archiveMode`、`exportedAt`、`exporterHostname`，以及每個 entry 的 `path` / `sha256` / `sizeBytes`。獨立的 `pathkeep-export-manifest.sha256` sidecar 提供 manifest 反竄改 hash。
 - Apply 路徑：先 re-validate manifest sha256；對每個 entry extract 到 staging 並重算 sha256；確認 `archiveSchemaVersion ≤ max_schema_version()`（refuse 來自更新 PathKeep 版本的 bundle）；rename 既有 target subtree 為 `*.bak-<timestamp>` sibling 保留；atomic-move staged 進 live tree；對 imported archive 跑 forward schema migrations。
 - 這條 contract 取代了 2026-05-25 移除的 S3-based remote backup bundle（`pathkeep.remote-backup.v1`）。PathKeep 不再做 cloud upload；跨機器搬遷只走使用者主動發起、寫到使用者選的本地 `.pathkeep` 檔的 Export / Import bundle。
@@ -198,9 +214,9 @@
 
 重度瀏覽器使用者（每天 ~2,500 visits）在 20 年間可能累積近 2000 萬筆記錄。核心 archive 本身不會是瓶頸（預估僅 40-80 GB），但 AI 相關資產如果設計不當會急速膨脹。
 
-- **AI 資產（embedding、向量索引、enrichment 文本、insight 衍生表）是可重建的衍生狀態**，不是核心數據。清空重跑不會丟失任何原始歷史紀錄。
-- **向量 payload 不進 SQLite**。v0.2.0 不 shipping semantic retrieval；future vector sidecar 仍需保留 replaceable sidecar boundary 與 compact SQLite metadata / rebuild accounting。
-- **語義搜尋不能做全表掃描**。如果 v0.3 重新啟用 embedding / vector search，必須先落地 ANN（近似最近鄰）索引與 release-size / runtime evidence；不得退回 SQLite 全庫 cosine 掃描。
+- **AI 資產（embedding、向量索引、chat transcript、enrichment 文本、insight 衍生表）是可重建的衍生狀態**，不是核心數據。清空重跑不會丟失任何原始歷史紀錄。
+- **向量 payload 不進 SQLite**，而是寫到 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane；SQLite 只保留 compact metadata / rebuild accounting。
+- **語義搜尋不做全表掃描**。`FlatVectorIndex` 走 binary-recall（resident Hamming popcount）→ int8-rescore（disk-backed）兩階段，不退回 SQLite 全庫 cosine 掃描；14.4M 尾端的 RAM / 延遲信封仍建議補 profiling artifact（見 [ai-security-posture.md](ai-security-posture.md) §7 follow-ups）。
 - **AI 資產不能拖慢核心 archive**。FTS、intelligence runtime、embedding / 向量索引、正文 blob 都和 canonical archive 隔離。
 - **設定頁面應顯示各類資產的磁碟佔用**：core archive、search projection、intelligence projection、semantic / blob sidecars、快照等，讓用戶清楚知道空間花在哪裡，以及最近的增長趨勢。
 - 產品層的 storage analytics summary 現在先分成兩個 top-level bucket：`core history`（`history-vault.sqlite` + `source-evidence.sqlite`）與 `other data`（search / intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files）。這是給 Dashboard / Intelligence / Settings 共用的使用者心智，不改變底層 storage planes。

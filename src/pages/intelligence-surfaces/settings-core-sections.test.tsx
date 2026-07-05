@@ -102,17 +102,19 @@ describe('intelligence surfaces settings core sections', () => {
       snapshot,
     })
 
-    expect(await screen.findByText(settingsT('groupCore'))).toBeVisible()
+    expect(await screen.findByText(settingsT('groupLookFeel'))).toBeVisible()
+    expect(screen.getByText(settingsT('groupDataSources'))).toBeVisible()
     expect(screen.getByText(settingsT('groupPrivacyAccess'))).toBeVisible()
     expect(screen.getByText(settingsT('groupIntelligence'))).toBeVisible()
-    expect(screen.getByText(settingsT('groupBackupSync'))).toBeVisible()
-    expect(screen.queryByText(/^CORE$/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/^DATA & UPDATES$/)).not.toBeInTheDocument()
+    expect(screen.getByText(settingsT('groupData'))).toBeVisible()
+    expect(screen.getByText(settingsT('groupDisplay'))).toBeVisible()
+    // The localized dividers render, never the raw English fallbacks.
+    expect(screen.queryByText(/^LOOK & FEEL$/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^DATA SOURCES$/)).not.toBeInTheDocument()
   })
 
-  test('keeps settings preference-only and links advanced workflows out to their owners', async () => {
+  test('keeps settings preference-only — advanced workflows stay on their owner pages', async () => {
     const { snapshot, dashboard } = await seedArchiveState()
-    const settingsT = createNamespaceTranslator('en', 'settings')
 
     renderSurface(<SettingsPage />, {
       dashboard,
@@ -140,20 +142,17 @@ describe('intelligence surfaces settings core sections', () => {
     expect(
       within(migrationPanel).getByTestId('settings-migration-import'),
     ).toBeVisible()
+    // The intro blurb + the two in-page "Open Maintenance / Open Integrations"
+    // workflow cards were removed: they duplicated the sidebar and wasted the
+    // first screen. The legacy overview block is gone, and no /maintenance
+    // workflow link is rendered inline. (The AI section keeps its own deep MCP
+    // /integrations link — that is a section affordance, not the removed card.)
+    expect(document.getElementById('settings-overview')).not.toBeInTheDocument()
     expect(
       screen
-        .getAllByRole('link', {
-          name: new RegExp(settingsT('openMaintenance')),
-        })
+        .queryAllByRole('link')
         .some((link) => link.getAttribute('href') === '/maintenance'),
-    ).toBe(true)
-    expect(
-      screen
-        .getAllByRole('link', {
-          name: new RegExp(settingsT('openIntegrations')),
-        })
-        .some((link) => link.getAttribute('href') === '/integrations'),
-    ).toBe(true)
+    ).toBe(false)
   })
 
   test('renders settings nav anchors and keeps extracted general section actions wired to the route owner', async () => {
@@ -217,6 +216,7 @@ describe('intelligence surfaces settings core sections', () => {
       await user.click(migrationNavLink)
       await waitFor(() =>
         expect(scrollDoubles.scrollIntoView).toHaveBeenCalledWith({
+          behavior: 'smooth',
           block: 'start',
         }),
       )
@@ -249,11 +249,15 @@ describe('intelligence surfaces settings core sections', () => {
       }),
       '0',
     )
+    // The Settings auto-save path persists `quiet` so a tiny config write never
+    // throws the blocking full-screen overlay (fluidity constraint) — only the
+    // inline "Saved" chip confirms it.
     await waitFor(() =>
       expect(shellValue.saveConfig).toHaveBeenCalledWith(
         expect.objectContaining({
           explorerBackgroundPrefetchPages: 0,
         }),
+        { quiet: true },
       ),
     )
   })
@@ -273,6 +277,7 @@ describe('intelligence surfaces settings core sections', () => {
       await screen.findByTestId('settings-page')
       await waitFor(() =>
         expect(scrollDoubles.scrollIntoView).toHaveBeenCalledWith({
+          behavior: 'smooth',
           block: 'start',
         }),
       )

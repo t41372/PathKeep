@@ -19,7 +19,10 @@ use super::*;
 pub mod day_insights;
 mod export;
 mod favicons;
-mod net_guard;
+// `net_guard` is the SSRF guard reused by W-ENRICH-1's content-fetch egress (06 §2b: every page URL
+// AND every API sub-resource is checked). Promoted to `pub(crate)` so the enrichment plane can reach
+// `url_target_is_blocked` through the same chokepoint og:image fetching uses.
+pub(crate) mod net_guard;
 pub mod og_images;
 pub mod og_images_fetch;
 pub mod og_images_synth;
@@ -53,7 +56,7 @@ const LIST_HISTORY_LEXICAL_SQL: &str = r#"
 WITH search_matches AS (
   SELECT
     rowid AS url_id,
-    bm25(history_search_terms, 6.0, 12.0, 4.0, 5.0, 10.0, 4.0, 2.0) AS score
+    bm25(history_search_terms, 6.0, 12.0, 4.0, 5.0, 10.0, 4.0, 2.0, 7.0, 9.0, 6.0) AS score
   FROM search.history_search_terms
   WHERE :termsFtsQuery IS NOT NULL
     AND history_search_terms MATCH :termsFtsQuery
@@ -80,6 +83,10 @@ SELECT
   visits.transition_type,
   visits.source_visit_id,
   visits.app_id,
+  -- The matched URL's capped enrichment summary + metadata (06 §6). A LEFT JOIN keeps the row even
+  -- when the projection has no doc (NULL → no excerpt); this is the SAME row the recall already
+  -- scored, so surfacing it costs ONE extra projection-keyed lookup per result, never an N+1.
+  search_documents.enrichment_text,
   ranked_urls.score
 FROM visits
 JOIN urls
@@ -88,6 +95,8 @@ JOIN source_profiles
   ON source_profiles.id = visits.source_profile_id
 JOIN ranked_urls
   ON ranked_urls.url_id = urls.id
+LEFT JOIN search.search_documents
+  ON search_documents.url_id = urls.id
 WHERE visits.reverted_at IS NULL
   AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
   AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
@@ -959,11 +968,46 @@ pub(super) fn history_entry_from_row(row: &Row<'_>) -> rusqlite::Result<HistoryE
         transition: row.get(6)?,
         source_visit_id,
         app_id: row.get(8)?,
+        // The shared hydration carries NO enrichment excerpt: browse / regex / fuzzy rows leave it
+        // `None`. Only the lexical-search reader attaches one (see `history_entry_with_score_from_row`),
+        // so the Explorer affordance stays suppressed outside keyword search.
+        enrichment_excerpt: None,
     })
 }
 
+/// Maximum characters surfaced in a lexical-search enrichment excerpt (06 §6).
+///
+/// A single-line teaser, not the full summary: the FE clamps to two lines and highlights query terms,
+/// so a tight char cap keeps the search response payload bounded at the 14.4M tail (one capped string
+/// per RESULT, not per visit) without an extra scan. 180 sits inside the prompt's ~160-200 guidance.
+const ENRICHMENT_EXCERPT_MAX_CHARS: usize = 180;
+
+/// Caps one enrichment summary into a search-result excerpt on a CHAR boundary (CJK-safe).
+///
+/// PURE → unit-tested. Empty/whitespace text yields `None` (the FE suppresses a blank affordance).
+/// Text already within budget is returned verbatim; longer text is sliced by CHARACTER count — never
+/// by byte index, so a multi-byte CJK or emoji codepoint can never be split — and gets a trailing
+/// ellipsis. Mirrors the char-count cap pattern used by `enrichment::truncate_text` /
+/// `agent_store` auto-titles rather than inventing a new truncation idiom.
+pub(crate) fn cap_enrichment_excerpt(enrichment_text: &str) -> Option<String> {
+    let trimmed = enrichment_text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.chars().count() <= ENRICHMENT_EXCERPT_MAX_CHARS {
+        return Some(trimmed.to_string());
+    }
+    let capped: String = trimmed.chars().take(ENRICHMENT_EXCERPT_MAX_CHARS).collect();
+    Some(format!("{}…", capped.trim_end()))
+}
+
+/// Hydrates one lexical-search row: the shared entry plus its relevance score, and — uniquely on this
+/// path — a capped excerpt of the matched URL's enrichment text (column 9; the score is column 10).
 fn history_entry_with_score_from_row(row: &Row<'_>) -> rusqlite::Result<(HistoryEntry, f64)> {
-    Ok((history_entry_from_row(row)?, row.get(9)?))
+    let mut entry = history_entry_from_row(row)?;
+    entry.enrichment_excerpt =
+        row.get::<_, Option<String>>(9)?.as_deref().and_then(cap_enrichment_excerpt);
+    Ok((entry, row.get(10)?))
 }
 
 struct FuzzyCandidate {
@@ -993,4 +1037,38 @@ fn fuzzy_candidate_from_row(row: &Row<'_>) -> rusqlite::Result<FuzzyCandidate> {
         normalized_search_terms: row.get(12)?,
         compact_text: row.get(13)?,
     })
+}
+
+#[cfg(test)]
+mod excerpt_tests {
+    use super::{ENRICHMENT_EXCERPT_MAX_CHARS, cap_enrichment_excerpt};
+
+    #[test]
+    fn cap_enrichment_excerpt_suppresses_blank_and_keeps_short_text_verbatim() {
+        // Empty / whitespace-only text yields None so the FE suppresses an empty affordance.
+        assert_eq!(cap_enrichment_excerpt(""), None);
+        assert_eq!(cap_enrichment_excerpt("   \t\n "), None);
+        // Surrounding whitespace is trimmed, but in-budget text is otherwise returned verbatim.
+        assert_eq!(
+            cap_enrichment_excerpt("  Reusable workflow runner  "),
+            Some("Reusable workflow runner".to_string())
+        );
+        // Text sitting exactly on the budget is returned without an ellipsis.
+        let at_budget = "x".repeat(ENRICHMENT_EXCERPT_MAX_CHARS);
+        assert_eq!(cap_enrichment_excerpt(&at_budget), Some(at_budget));
+    }
+
+    #[test]
+    fn cap_enrichment_excerpt_truncates_over_budget_and_trims_before_ellipsis() {
+        // One char over budget triggers truncation; the trailing space left at the cut is trimmed
+        // before the ellipsis so the excerpt never reads "word …".
+        let mut over_budget = "a".repeat(ENRICHMENT_EXCERPT_MAX_CHARS - 1);
+        over_budget.push(' '); // char #180 (the cut point) is a space → trimmed off.
+        over_budget.push('b'); // pushes the input over the cap so truncation engages.
+        let capped = cap_enrichment_excerpt(&over_budget).expect("truncated excerpt");
+        // (180 chars taken − 1 trailing space trimmed) + the ellipsis = 180 chars.
+        assert_eq!(capped.chars().count(), ENRICHMENT_EXCERPT_MAX_CHARS);
+        assert!(capped.ends_with('…'));
+        assert!(!capped.ends_with(" …"), "the trailing space must be trimmed before the ellipsis");
+    }
 }

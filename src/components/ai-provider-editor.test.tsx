@@ -47,6 +47,10 @@ const translations = {
   saveKey: 'Save key',
   clearKey: 'Clear key',
   remove: 'Remove provider',
+  testConnection: 'Test connection',
+  testingConnection: 'Testing…',
+  probeReachable: 'Connected',
+  probeUnreachable: 'Connection issue',
   requestFormatLabels: {
     openai: 'OpenAI-compatible',
     anthropic: 'Anthropic-compatible',
@@ -55,6 +59,14 @@ const translations = {
     'lm-studio': 'LM Studio',
   } satisfies Record<AiRequestFormat, string>,
 }
+
+const presetLabels = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  google: 'Google',
+  ollama: 'Ollama',
+  'lm-studio': 'LM Studio',
+} satisfies Record<AiRequestFormat, string>
 
 function providerFixture(
   patch: Partial<AiProviderConfig> = {},
@@ -80,18 +92,26 @@ function providerFixture(
 function renderEditor({
   apiKeys = {},
   disabled,
+  formatLabel = (latency: number, model: string) => `${model} · ${latency} ms`,
   onAdd = vi.fn(),
   onApiKeyChange = vi.fn(),
   onClearKey = vi.fn(),
   onClearKeyDisabled,
+  onCommit,
+  onProbe,
+  onProbeDisabled,
+  onProbeDisabledHint,
   onRemove = vi.fn(),
   onSaveKey = vi.fn(),
   onSaveKeyDisabled,
+  onSaveKeyDisabledHint,
   onSelect = vi.fn(),
   onUpdate = vi.fn(),
+  providerProbes,
   providers = [providerFixture()],
   purpose = 'llm',
   selectedProviderId = 'llm-primary',
+  testingProviderId,
   title = 'LLM providers',
 }: Partial<Parameters<typeof AiProviderEditorList>[0]> = {}) {
   render(
@@ -99,18 +119,28 @@ function renderEditor({
       addLabel="Add provider"
       apiKeys={apiKeys}
       {...(disabled === undefined ? {} : { disabled })}
+      formatLabel={formatLabel}
+      presetLabel="Start from a preset"
+      presetLabels={presetLabels}
       onAdd={onAdd}
       onApiKeyChange={onApiKeyChange}
       onClearKey={onClearKey}
       onClearKeyDisabled={onClearKeyDisabled}
+      onCommit={onCommit}
+      onProbe={onProbe}
+      onProbeDisabled={onProbeDisabled}
+      onProbeDisabledHint={onProbeDisabledHint}
       onRemove={onRemove}
       onSaveKey={onSaveKey}
       onSaveKeyDisabled={onSaveKeyDisabled}
+      onSaveKeyDisabledHint={onSaveKeyDisabledHint}
       onSelect={onSelect}
       onUpdate={onUpdate}
+      providerProbes={providerProbes}
       providers={providers}
       purpose={purpose}
       selectedProviderId={selectedProviderId}
+      testingProviderId={testingProviderId}
       title={title}
       translations={translations}
     />,
@@ -120,6 +150,7 @@ function renderEditor({
     onAdd,
     onApiKeyChange,
     onClearKey,
+    onProbe,
     onRemove,
     onSaveKey,
     onSelect,
@@ -132,6 +163,23 @@ function changeField(label: string, value: string) {
 }
 
 describe('AiProviderEditorList', () => {
+  test('commits on blur only when focus leaves the provider card', () => {
+    const onCommit = vi.fn()
+    renderEditor({ onCommit })
+
+    const name = screen.getByLabelText('Provider name')
+    const baseUrl = screen.getByLabelText('Base URL')
+
+    // Blur that moves focus to another field of the SAME card must NOT commit.
+    fireEvent.blur(name, { relatedTarget: baseUrl })
+    expect(onCommit).not.toHaveBeenCalled()
+
+    // Blur that leaves the card entirely commits once (auto-save on blur).
+    fireEvent.blur(name, { relatedTarget: document.body })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(onCommit).toHaveBeenCalledWith('llm-primary')
+  })
+
   test('renders LLM provider controls and emits exact field patches', () => {
     const callbacks = renderEditor({
       apiKeys: { 'llm-primary': 'pending-secret' },
@@ -148,25 +196,39 @@ describe('AiProviderEditorList', () => {
       'name',
       'llm-provider',
     )
-    expect(screen.getByRole('button', { name: 'Add provider' })).toBeEnabled()
+    expect(
+      screen.getByRole('combobox', { name: 'Start from a preset' }),
+    ).toBeEnabled()
     expect(
       screen.getByRole('button', { name: 'Remove provider' }),
     ).toBeEnabled()
     expect(screen.getByText('API key · Saved')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('sk-...')).toHaveValue('pending-secret')
-    expect(screen.getAllByRole('option')).toHaveLength(5)
+    // The request-format select has 5 options; the preset chooser adds 5 more
+    // plus its disabled placeholder.
     expect(
       within(screen.getByLabelText('Request format')).getAllByRole('option'),
     ).toHaveLength(5)
-    expect(screen.getByRole('option', { name: 'LM Studio' })).toHaveValue(
-      'lm-studio',
-    )
+    expect(
+      within(
+        screen.getByRole('combobox', { name: 'Start from a preset' }),
+      ).getAllByRole('option'),
+    ).toHaveLength(6)
+    expect(
+      within(screen.getByLabelText('Request format')).getByRole('option', {
+        name: 'LM Studio',
+      }),
+    ).toHaveValue('lm-studio')
     expect(screen.getByLabelText('Model catalog')).toHaveValue(
       'gpt-4.1-mini, gpt-4.1',
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add provider' }))
-    expect(callbacks.onAdd).toHaveBeenCalledTimes(1)
+    // Picking a preset routes onAdd with the chosen format.
+    fireEvent.change(
+      screen.getByRole('combobox', { name: 'Start from a preset' }),
+      { target: { value: 'ollama' } },
+    )
+    expect(callbacks.onAdd).toHaveBeenCalledWith('ollama')
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove provider' }))
     expect(callbacks.onRemove).toHaveBeenCalledWith('llm-primary')
@@ -282,7 +344,9 @@ describe('AiProviderEditorList', () => {
     expect(screen.queryByLabelText('Temperature')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Max tokens')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Dimensions')).toHaveValue(1536)
-    expect(screen.getByRole('button', { name: 'Add provider' })).toBeDisabled()
+    expect(
+      screen.getByRole('combobox', { name: 'Start from a preset' }),
+    ).toBeDisabled()
     expect(
       screen.getByRole('button', { name: 'Remove provider' }),
     ).toBeDisabled()
@@ -337,4 +401,311 @@ describe('AiProviderEditorList', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear key' }))
     expect(callbacks.onClearKey).toHaveBeenCalledWith('embedding-live')
   })
+
+  test('omits the Test-connection probe button when no probe handler is wired', () => {
+    renderEditor()
+    expect(
+      screen.queryByRole('button', { name: 'Test connection' }),
+    ).not.toBeInTheDocument()
+  })
+
+  test('routes the probe, reflects in-flight state, and renders reachable + error results', () => {
+    const onProbe = vi.fn()
+    const { rerender } = renderEditorWith({
+      onProbe,
+      onProbeDisabled: () => false,
+    })
+
+    const probeButton = screen.getByRole('button', { name: 'Test connection' })
+    fireEvent.click(probeButton)
+    expect(onProbe).toHaveBeenCalledWith('llm-primary')
+
+    // In-flight: the label flips to the testing copy for the active provider.
+    rerender(
+      <AiProviderEditorList
+        addLabel="Add provider"
+        apiKeys={{}}
+        formatLabel={(latency, model) => `${model} · ${latency} ms`}
+        presetLabel="Start from a preset"
+        presetLabels={presetLabels}
+        onAdd={vi.fn()}
+        onApiKeyChange={vi.fn()}
+        onClearKey={vi.fn()}
+        onProbe={onProbe}
+        onProbeDisabled={() => false}
+        onRemove={vi.fn()}
+        onSaveKey={vi.fn()}
+        onSelect={vi.fn()}
+        onUpdate={vi.fn()}
+        providers={[providerFixture()]}
+        purpose="llm"
+        selectedProviderId="llm-primary"
+        testingProviderId="llm-primary"
+        title="LLM providers"
+        translations={translations}
+      />,
+    )
+    expect(screen.getByText('Testing…')).toBeVisible()
+    // The probe shows an immediate loading affordance: the button reports
+    // aria-busy while the off-main-thread connection test runs.
+    expect(screen.getByRole('button', { name: 'Testing…' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    )
+
+    // Reachable result shows the latency line built by formatLabel.
+    rerender(
+      <AiProviderEditorList
+        addLabel="Add provider"
+        apiKeys={{}}
+        formatLabel={(latency, model) => `${model} · ${latency} ms`}
+        presetLabel="Start from a preset"
+        presetLabels={presetLabels}
+        onAdd={vi.fn()}
+        onApiKeyChange={vi.fn()}
+        onClearKey={vi.fn()}
+        onProbe={onProbe}
+        onProbeDisabled={() => false}
+        onRemove={vi.fn()}
+        onSaveKey={vi.fn()}
+        onSelect={vi.fn()}
+        onUpdate={vi.fn()}
+        providerProbes={{
+          'llm-primary': {
+            providerId: 'llm-primary',
+            purpose: 'llm',
+            model: 'gpt-4.1-mini',
+            ok: true,
+            latencyMs: 17,
+            capabilities: {
+              supportsChat: true,
+              supportsEmbeddings: false,
+              supportsStreaming: true,
+              supportsToolUse: true,
+              supportsStructuredOutput: true,
+            },
+            llmCapabilities: null,
+            errorCode: null,
+            actionHint: null,
+            retryHint: null,
+            warnings: [],
+            message: 'Reachable',
+          },
+        }}
+        providers={[providerFixture()]}
+        purpose="llm"
+        selectedProviderId="llm-primary"
+        title="LLM providers"
+        translations={translations}
+      />,
+    )
+    expect(screen.getByText('Connected')).toBeVisible()
+    expect(screen.getByText('gpt-4.1-mini · 17 ms')).toBeVisible()
+
+    // Error result shows the failure copy + action hint, and no latency line.
+    rerender(
+      <AiProviderEditorList
+        addLabel="Add provider"
+        apiKeys={{}}
+        formatLabel={(latency, model) => `${model} · ${latency} ms`}
+        presetLabel="Start from a preset"
+        presetLabels={presetLabels}
+        onAdd={vi.fn()}
+        onApiKeyChange={vi.fn()}
+        onClearKey={vi.fn()}
+        onProbe={onProbe}
+        onProbeDisabled={() => false}
+        onRemove={vi.fn()}
+        onSaveKey={vi.fn()}
+        onSelect={vi.fn()}
+        onUpdate={vi.fn()}
+        providerProbes={{
+          'llm-primary': {
+            providerId: 'llm-primary',
+            purpose: 'llm',
+            model: '',
+            ok: false,
+            latencyMs: 0,
+            capabilities: {
+              supportsChat: false,
+              supportsEmbeddings: false,
+              supportsStreaming: false,
+              supportsToolUse: false,
+              supportsStructuredOutput: false,
+            },
+            llmCapabilities: null,
+            errorCode: 'connection_refused',
+            actionHint: 'Start LM Studio and load a model.',
+            retryHint: null,
+            warnings: [],
+            message: 'Connection refused',
+          },
+        }}
+        providers={[providerFixture()]}
+        purpose="llm"
+        selectedProviderId="llm-primary"
+        title="LLM providers"
+        translations={translations}
+      />,
+    )
+    expect(screen.getByText('Connection issue')).toBeVisible()
+    expect(screen.getByText('Connection refused')).toBeVisible()
+    expect(screen.getByText('Start LM Studio and load a model.')).toBeVisible()
+    expect(screen.queryByText(/ ms$/)).not.toBeInTheDocument()
+  })
+
+  test('disables the probe button via onProbeDisabled', () => {
+    renderEditorWith({ onProbe: vi.fn(), onProbeDisabled: () => true })
+    expect(
+      screen.getByRole('button', { name: 'Test connection' }),
+    ).toBeDisabled()
+  })
+
+  test('renders the probe button enabled when no onProbeDisabled predicate is wired', () => {
+    const onProbe = vi.fn()
+    // onProbe is wired but onProbeDisabled is omitted: the disabled attribute
+    // must fall back to false so the button stays clickable.
+    renderEditorWith({ onProbe })
+    const probeButton = screen.getByRole('button', { name: 'Test connection' })
+    expect(probeButton).toBeEnabled()
+    fireEvent.click(probeButton)
+    expect(onProbe).toHaveBeenCalledWith('llm-primary')
+  })
+
+  test('renders the inline probe-disabled hint when a reason is provided', () => {
+    // A disabled probe explains itself: when onProbeDisabledHint returns copy,
+    // the editor surfaces it near the button so it is never a silent dead end.
+    renderEditorWith({
+      onProbe: vi.fn(),
+      onProbeDisabled: () => true,
+      onProbeDisabledHint: () => 'Save this provider first to test it.',
+    })
+    const hint = screen.getByTestId('probe-hint-llm-primary')
+    expect(hint).toBeVisible()
+    expect(hint).toHaveTextContent('Save this provider first to test it.')
+  })
+
+  test('omits the probe-disabled hint when the predicate returns null', () => {
+    // No actionable reason (e.g. transient gate): the hint must not render so we
+    // never mislead the user about an enabled-or-self-resolving button.
+    renderEditorWith({
+      onProbe: vi.fn(),
+      onProbeDisabledHint: () => null,
+    })
+    expect(screen.queryByTestId('probe-hint-llm-primary')).toBeNull()
+  })
+
+  test('renders the inline save-key-disabled hint when a reason is provided', () => {
+    // The "I typed a key but it never saved" dead end: when Save key is disabled
+    // because the provider isn't persisted yet, the editor surfaces the next step
+    // (save settings first) instead of leaving a silently dead button.
+    renderEditorWith({
+      onSaveKeyDisabled: () => true,
+      onSaveKeyDisabledHint: () =>
+        'Save settings first, then store the key (the API key is optional — local servers like LM Studio need none).',
+    })
+    const hint = screen.getByTestId('save-key-hint-llm-primary')
+    expect(hint).toBeVisible()
+    expect(hint).toHaveTextContent(
+      'Save settings first, then store the key (the API key is optional — local servers like LM Studio need none).',
+    )
+  })
+
+  test('omits the save-key-disabled hint when the predicate returns null', () => {
+    // No actionable reason (e.g. empty field, or the provider is already saved):
+    // the hint must not render so the surface stays quiet when nothing is wrong.
+    renderEditorWith({
+      onSaveKeyDisabledHint: () => null,
+    })
+    expect(screen.queryByTestId('save-key-hint-llm-primary')).toBeNull()
+  })
+
+  test('omits the probe-disabled hint entirely when no probe handler is wired', () => {
+    // Without onProbe there is no Test-connection button, so a hint would be
+    // orphaned copy — it must not render even if a hint predicate is passed.
+    renderEditorWith({
+      onProbeDisabledHint: () => 'Save this provider first to test it.',
+    })
+    expect(screen.queryByTestId('probe-hint-llm-primary')).toBeNull()
+  })
+
+  test('built-in provider with badge label shows badge and hides Remove + API key row', () => {
+    // When builtInProviderIds is set and builtInBadgeLabel is provided, the provider
+    // shows the badge instead of a Remove button and never shows the API key section.
+    renderEditorWith({
+      builtInProviderIds: ['llm-primary'],
+      builtInBadgeLabel: 'Built-in',
+    })
+    expect(
+      screen.getByTestId('provider-builtin-badge-llm-primary'),
+    ).toHaveTextContent('Built-in')
+    expect(
+      screen.queryByRole('button', { name: translations.remove }),
+    ).toBeNull()
+    expect(screen.queryByLabelText(translations.apiKey)).toBeNull()
+  })
+
+  test('built-in provider without builtInBadgeLabel shows neither badge nor Remove button', () => {
+    // Coverage for the `builtInBadgeLabel ? <badge> : null` branch.
+    // When the provider is listed as built-in but no badge label is supplied,
+    // the slot renders null — no badge, no remove button.
+    renderEditorWith({
+      builtInProviderIds: ['llm-primary'],
+      // intentionally omitting builtInBadgeLabel
+    })
+    expect(
+      screen.queryByTestId('provider-builtin-badge-llm-primary'),
+    ).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: translations.remove }),
+    ).toBeNull()
+  })
+
+  test('built-in provider locks its identity fields but keeps selection interactive', () => {
+    // The backend re-asserts a built-in provider's canonical identity on reload, so editing its
+    // config fields would silently revert. They render visible-but-disabled for transparency,
+    // while the selection radio stays interactive so the user can still pick the provider.
+    renderEditorWith({
+      builtInProviderIds: ['llm-primary'],
+      builtInBadgeLabel: 'Built-in',
+    })
+
+    expect(screen.getByDisplayValue('Primary LLM')).toBeDisabled() // name
+    expect(screen.getByDisplayValue('OpenAI-compatible')).toBeDisabled() // request format
+    expect(
+      screen.getByDisplayValue('https://api.example.com/v1'),
+    ).toBeDisabled() // base URL
+    expect(screen.getByDisplayValue('gpt-4.1-mini')).toBeDisabled() // default model
+    expect(screen.getByRole('checkbox', { name: 'Enabled' })).toBeDisabled() // enabled toggle
+
+    // Selection must remain available so a user can still switch to the built-in tier.
+    expect(screen.getByRole('radio')).toBeEnabled()
+  })
 })
+
+function renderEditorWith(
+  overrides: Partial<Parameters<typeof AiProviderEditorList>[0]>,
+) {
+  return render(
+    <AiProviderEditorList
+      addLabel="Add provider"
+      apiKeys={{}}
+      formatLabel={(latency, model) => `${model} · ${latency} ms`}
+      presetLabel="Start from a preset"
+      presetLabels={presetLabels}
+      onAdd={vi.fn()}
+      onApiKeyChange={vi.fn()}
+      onClearKey={vi.fn()}
+      onRemove={vi.fn()}
+      onSaveKey={vi.fn()}
+      onSelect={vi.fn()}
+      onUpdate={vi.fn()}
+      providers={[providerFixture()]}
+      purpose="llm"
+      selectedProviderId="llm-primary"
+      title="LLM providers"
+      translations={translations}
+      {...overrides}
+    />,
+  )
+}

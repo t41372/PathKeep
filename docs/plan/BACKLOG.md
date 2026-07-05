@@ -251,7 +251,8 @@
     orchestrator/test owners so `cargo test -p vault-core --lib` and
     `bun run check` stay green.
 
-- [!] **WORK-AI-V03-A** — Optional AI Runtime Re-Enablement [!blocked: v0.3 scope decision, real provider acceptance, release-size evidence]
+- [~] **WORK-AI-V03-A** — Optional AI Runtime Re-Enablement [UNBLOCKED 2026-06-20 → 已重做為 AI-redesign-2026 並提升到 `STATUS.md`]
+  - 2026-06-20 unblock note：v0.3 scope decision 已鎖定（見 `docs/plan/program/ai-redesign-2026/02-architecture-decisions.md` D1-D8），real provider acceptance 由本機 LM Studio（`http://localhost:1234/v1`，gemma-4-26b + qwen3-embedding-0.6b）提供。此 block 已被乾淨重做的 AI-redesign-2026 取代，拆成 `STATUS.md` 的 `WORK-AI-0-FOUNDATIONS` … 等執行序（見 `04-current-state-and-execution.md`）。原 LanceDB-禁用契約仍有效（向量層改用 `VectorIndex` trait + Turbovec/flat-scan，從不恢復 LanceDB）。
   - 讀先：
     `docs/architecture/decisions/009-default-desktop-optional-intelligence-shipping.md`
     `docs/architecture/tech-stack.md`
@@ -600,6 +601,83 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - **Frontend lib（中等）**：`readRequestCache` / `overviewCache` 無界增長（建議 LRU）；`invokeCachedRead` 的 `force` 在有非 forced in-flight 時被忽略；`flattenDictionary` bare-alias 跨 namespace 葉鍵碰撞（目前無 live hit，建議加 catalog 測試斷言無碰撞，或移除 bare alias）。
   - **Build/tooling（低）**：desktop-bridge truth gate 用 `Math.random` 端口偏移 + `retries:2`，跨 run / 殘留進程可能撞埠造成偽紅（建議 OS ephemeral port）；native-deps cache 的 broad `restore-keys` 可能在 baseline bump 後重用舊樹；rusqlite `bundled-sqlcipher-vendored-openssl` 的 vendored C compile 與 native-dependency ADR 措辭需補一句一致性說明。
   - 契約：每一項落地時都要先確認屬於哪個 owner / slice、>1000 行檔案先走兩階段、保持 100% JS/Rust coverage 與 mutation gate；Accepted-doc 項目（visit_duration 單位、KDF/snapshot 安全模型）必須先產出 trade-off 文檔並徵得使用者同意。
+
+- [ ] **WORK-AI-MAPREDUCE-A** — Sub-agent time-chunk map-reduce for whole-history analysis（需先做設計階段）
+  - 來源：2026-06-24 使用者驗收。使用者要「讓 agent 在知道 what's ahead 的狀況下拿到完整數據」。當輪已做 **option A**（`run_code` 在沙箱內分頁聚合完整數據——rows 不進 context，只回 distilled 結果；見 CHANGELOG 的 sandbox-完整聚合 commit）。本 block 是 **option C**：當單一 context 裝不下、或需要「逐塊的 LLM 質性分析」（不只是 JS 統計聚合）時，用 sub-agent map-reduce 跨時間塊分析整段歷史。
+  - 目標（先設計，再實作）：
+    - 一個確定性 orchestrator（worker 端，非讓弱模型自己 spawn）把時間軸切成塊（依時間窗或資料量），每塊派一個**全新 context 的 sub-agent**，給它該塊的完整數據存取（search/run_code/intelligence_report 限定該塊範圍），各自回一個**結構化摘要**，主 agent 再 synthesize 成最終答案。對應「分析我這一年/整段歷史」這種單一 context 裝不下的質性問題。
+    - 形狀參考 Claude 的 workflow/sub-agent map-reduce，但落在 PathKeep 的 local-first worker 上：要能 spawn 多個 `drive_agent_run`（或一個 map-reduce harness）、chunk 規劃、結果 schema + 聚合、跨 N 個 agent 的 token budget / 取消 / journaling、以及進度可觀測（使用者看得到 fan-out，呼應 [[WORK-AI-INDEX-OBS-A]] 的 observability 精神）。
+    - 與 option A 的邊界要寫清楚：純統計聚合 → A（一個 run_code 沙箱內搞定，便宜）；需要每塊 LLM 質性判讀或資料超過單 context → C。
+  - 讀先：
+    `docs/architecture/ai-security-posture.md`
+    `docs/features/intelligence-and-ai.md`（AI/assistant 規格）
+    `src-tauri/crates/vault-core/src/ai/agent_harness.rs`（`drive_agent_run` 迴圈 / budget / journal / cancel）
+    `src-tauri/crates/vault-worker/src/intelligence/chat.rs`（`run_agent_stream` / `ai_chat_send` 的 thread + runtime）
+    `src-tauri/crates/vault-core/src/ai/agent_tools.rs`（工具表面，sub-agent 也要用）
+  - 契約：本機跑 N×LLM 呼叫成本高，要 bound + 進度回報 + 可取消；前端流暢度硬指標（不阻塞主線程）；AI 可選、無 provider 安靜不出現；i18n×3；100% JS/Rust coverage + lethal tests；誠實態（部分失敗的塊要誠實標示，不靜默吞）；UI/UX 與文案交給 Opus 4.6。先產出 design 文檔（chunk 策略、result schema、budget 模型、failure/部分結果語義、UI）再動代碼。
+  - 驗收：對「總結我這一整年的瀏覽」這類問題，orchestrator 正確切塊、各 sub-agent 跑完回結構化結果、主 agent 合成出涵蓋全段、誠實標示任何缺漏的答案；全程進度可見、可取消；`bun run check`；更新 `docs/features/` 與 `docs/architecture/`。
+
+- [ ] **WORK-AI-CTX-BUDGET-A** — Context-budget hardening for the agent loop（從 ai-redesign 審查 defer）
+  - 來源：2026-06-24 移除 8-step cap + 強制 final-synthesis turn 後的對抗式審查（H2 / M2 / M3 / L1）。當輪已修：64-step backstop、live-context gate（量「最後一輪 prompt」而非 cumulative）、無 usage 時 fallback 估算（`estimate_context_tokens`）、ceiling → 強制 tool-free synthesis turn。以下是已知殘留邊界，本 block 把它們做成長期最優解：
+    - **H2 — synthesis turn 自身可能 overflow**：gate 量的是「剛跑完那輪」的 prompt（`last_prompt_tokens`），但 synthesis turn 還會把「該輪新 threaded 的 tool results」+ directive 再送一次。若最後一輪 `run_code` 回了接近 256KB 的結果且 context 已逼近 budget，這個「救援回合」反而可能撞 context-length（→ 誠實的 provider error / Failed，note 已先發，不是靜默）。要：gate 改用「含本輪新結果的投影大小」，或組 synthesis request 時丟掉/截斷最肥的那筆剛 threaded 的結果（模型本就被要求「用已收集到的證據」作答）。
+    - **M3 — budget 是寫死的 110k，不知道 provider 真實 window**：`capabilities().max_context_tokens` 目前是 `None`。小 context 模型（如 32k）會在 budget gate 觸發前就被 provider 報 context-length 錯。要把 provider 回報的真實 window 接進來推導 budget（無回報時 fallback 110k），並把 `estimate_context_tokens` 換成真 tokenizer 估算（CJK 比例 char/token 與英文差很多，現在的 bytes/4 只是粗估）。
+    - **M2 — synthesis turn 回空字串無 fallback**：模型若硬是在 tool-free turn 只吐一個（無效的）tool call、不吐 text，使用者會拿到 note + 證據 chips 但沒有 prose——等於那個 case 又「靜默」了。要：偵測 `accumulated.text` 為空時，串一條 deterministic 的最小摘要（localized），讓「never silent」契約對不聽話的模型也成立。
+    - **L1 — synthesis directive 未進 journal**：trace replay 重建得到一段沒有可見成因的 assistant 答案。要把 directive（或一個「final-synthesis」marker）寫進 journal payload，維持「trace = 忠實重放」。
+  - 讀先：
+    `src-tauri/crates/vault-core/src/ai/agent_harness.rs`（`drive_agent_run` 迴圈、`run_final_synthesis_turn`、`estimate_context_tokens`、`DEFAULT_TOKEN_BUDGET` / `DEFAULT_MAX_ITERATIONS`）
+    `src-tauri/crates/vault-core/src/ai/llm.rs`（`capabilities()` / `to_llm_usage` / streaming usage）
+    `src-tauri/crates/vault-core/src/ai/traits.rs`（`LlmCapabilities::max_context_tokens`）
+    `docs/architecture/ai-security-posture.md`
+  - 契約：誠實態（寧可誠實 provider error 也不靜默吞；部分結果要標示）；前端流暢度不受影響；AI 可選；i18n×3（若加任何 user-facing 文案，交給 Opus 4.6）；100% JS/Rust coverage + lethal tests（含 no-usage、小 window、超大最後一筆結果、空答 fallback 的案例）；`bun run check`。
+  - 驗收：構造「context 逼近 budget 時最後一輪回超大結果」的測試，synthesis turn 不再 overflow（或誠實降級且有測試證明）；小 window provider 走 graceful 路徑；no-usage provider 用真 tokenizer 估算；空答有 fallback 摘要；更新 `docs/architecture/`。
+
+- [ ] **WORK-AI-INDEX-OBS-A** — Semantic Index Build Observability & Controllability（需先做設計階段）
+  - 來源：2026-06-24 使用者驗收 v0.3.0。`93a80ff6` 已在 Settings → AI 服務 的 index-health box 加了「構建索引」按鈕，但使用者回報「這方面的 observability 和 controlability 似乎有些不足」。按鈕目前只 enqueue 一個背景 job、顯示一次性「已排入背景」確認，之後使用者**看不到**進度、**控制不了**正在跑的 build。本 block 要設計並實作這套觀測 + 控制面。
+  - 讀先：
+    `docs/features/intelligence-and-ai.md`（或對應的 AI/intelligence feature 規格）
+    `docs/design/{ux-principles,screens-and-nav,ui-review-guardrails,design-tokens}.md`
+    `docs/architecture/ai-security-posture.md`
+    `src/pages/settings/ai-providers-section.tsx`（index-health box + 新的 `IndexBuildButton`）
+    `src/pages/settings/ai-gpu-section.tsx`（既有 re-embed flow + 進度輪詢樣式）
+    `src-tauri/crates/vault-worker/src/intelligence/ai_queue.rs`（`load_ai_queue` / `run_ai_queue_jobs` / `cancel_ai_job` / `replay_ai_job` / `build_ai_index_now` / `estimate_reembed_now`）
+    `src-tauri/crates/vault-worker/src/intelligence/runtime.rs`（`load_intelligence_runtime_snapshot` / `retry_intelligence_job_now` / `cancel_intelligence_job_now`）
+  - 目標（先設計，再實作）：
+    - **Observability**：build 進行中要有即時、誠實的進度——目前階段（embedding / indexing / rollup…）、已處理 / 總數、吞吐（items/s）、估計剩餘時間、佇列深度（queued / running / failed），以及每個 job 的最後錯誤訊息。狀態要區分 idle / queued / running / paused / done / failed / stale，never 謊稱「已建好」當它還在排隊。資料來自既有 `load_ai_queue` + `load_intelligence_runtime_snapshot`；若粒度不足，補 per-job 進度回報（目前是 global-queue，見 ai-redesign review defer-set）。
+    - **Controllability**：pause / resume / cancel 正在跑的 build；重試失敗的 job（`replay_ai_job`）；選擇 rebuild 範圍（incremental vs full vs clear-only，沿用 `buildAiIndex({fullRebuild, clearOnly, scope})`）。
+    - **介面設計**：決定觀測面放哪——延伸 index-health box、強化 GPU section 的進度卡、或開一個專屬「索引狀態 / 構建」面板（傾向後者，因為這是長時間、可觀測、可控制的後台工作）。要有 skeleton / 漸進式載入、~100ms 內視覺回饋、動畫順、60fps；輪詢或事件流不得阻塞主線程。
+  - 契約：i18n×3（en / zh-CN / zh-TW，含所有狀態 / 錯誤 / 空態 / aria-label）；AI/embedding 為**可選**，無 provider 時整個面安靜地不出現、不 nag；build 是顯式 action（按鈕），觀測是唯讀即時態，遵守 settings 全 auto-save 規則；100% JS/Rust coverage + lethal tests；前端流暢度硬指標；誠實態（queued≠built）。UI/UX 與文案交給 Opus 4.6 subagent。
+  - 驗收：實機跑一次真實 build，全程看得到進度且數字誠實；pause/resume/cancel 與 retry 都實際生效；錯誤有可重試的呈現；`bun run check`；更新對應 `docs/features/` 與（若改了 schema/runtime）`docs/architecture/`。
+
+- [ ] **WORK-ENCRYPT-AT-REST-ALL** — 評估並（評估後）實作「全量加密」衍生資料庫（需先做設計/性能評估階段）
+  - 來源：2026-06-28 使用者指示。修 backup OOM 時確認：開啟加密只加密 canonical encrypted-tier（`history-vault.sqlite` + `source-evidence.sqlite`）；衍生 sidecar（`derived/history-search.sqlite` FTS、`derived/history-intelligence.sqlite`、`derived/agent.sqlite` 對話）目前**明文**落盤，內含 URL / 標題 / enrichment 摘要 / 聊天內容。使用者選擇本輪先只修 source-evidence，並要求把「encrypt EVERYTHING 的性能與實現設計評估」記成待辦，評估後再決定是否實作。
+  - 讀先：`docs/architecture/`（at-rest posture，本輪新增/更新）；`src-tauri/crates/vault-core/src/archive/at_rest.rs`（本輪的 reconcile/rewrite 原語，可推廣到 sidecar）；`schema.rs`（`open_archive_connection` 的 `ATTACH … KEY ''` 慣例）、`search_projection.rs`（`open_search_connection` 明文開啟）、`intelligence_projection.rs`（明文 + attach archive）；W-AI-3 `agent.sqlite` migration；`scripts/verify-rust-coverage.mjs`。
+  - 設計問題（先評估再下結論，量測為準）：(1) **性能**——SQLCipher 對 14.4M 級 FTS5 / 向量 sidecar 的查詢/重建吞吐與 RAM 影響（目標機 4 核 / 8GB）；semantic plane（`.pkbin`/`.pki8`/`.pkvec`/`.pkmap` flat sidecar）本身不是 SQLite，是否一併加密、怎麼加密（檔案層 vs 應用層）。(2) **實現模型**——衍生資料可丟棄/可重建，加密它們 vs「鎖時不可讀、解鎖才解密」的取捨；rekey 時是否要連 sidecar 一起 lockstep（推廣 `migrate_*_for_rekey`）；明文→加密的遷移/重建路徑與 blast radius。(3) **威脅模型**——衍生明文到底洩漏多少（URL/標題/摘要/對話），是否值得這個性能與複雜度成本。
+  - 契約：先交 trade-off 設計文檔 + 性能量測（env-gated bench），使用者確認後才動代碼；不破壞非加密路徑；100% JS/Rust coverage；前端流暢度硬指標。
+  - 驗收：設計+量測文檔成立並獲使用者批准 → 若實作：開啟加密後 sidecar 不再明文落盤、查詢/備份/重建在目標機仍流暢、rekey lockstep、`bun run check` 綠。
+
+- [ ] **WORK-ENCRYPT-KEYDRIFT-A** — 回收以「舊密碼」加密的 source-evidence（passphrase 輪換殘留）
+  - 來源：2026-06-28 backup-OOM 修復的獨立審查 finding #4。本輪的 at-rest reconcile 只處理 **mode drift**（明文↔加密，靠檔頭偵測，無需金鑰）。它無法偵測/修復 **key drift**：在舊版「只 rekey archive」的時代做過 Encrypted→Encrypted 密碼輪換的安裝，其 `source-evidence.sqlite` 會以**舊密碼**加密、而 config/archive 用新密碼——檔頭看起來與正確金鑰的檔案完全相同，reconcile 視為一致而 no-op，之後 `open_source_evidence_connection` 用新金鑰開舊金鑰檔 → 仍 OOM；且後續 rekey 會因開不了該檔而 finalize 成 failed。
+  - 範圍/稀有度：只影響「舊代碼下輪換過密碼」的安裝（本次確診的使用者是 mode-drift，已修）。自動修復不可能無中生有舊密碼。
+  - 目標（設計優先）：偵測 key-drift（嘗試用目前金鑰開 source-evidence，失敗即 drift）→ 給誠實、可行動的 UX（提示輸入舊密碼以重新加密，或在確認資料可由 archive 重建時安全重建 source-evidence），而非靜默 OOM 或讓 rekey 失敗。
+  - 契約：絕不破壞既有資料；i18n×3；100% coverage；走 review pipeline。
+  - 驗收：對人工製造的 key-drift 安裝，app 給出清楚路徑回到可備份狀態，不再 OOM、不再讓 rekey 卡死。
+
+- [ ] **WORK-TEST-REAL-IO-A** — 真實 I/O 測試化：embedding transport seam + fake-HTTP 整合測試 + dispatch 契約斷言（承 2026-06-28 behavioral-assertion 鐵律）
+  - 來源：2026-06-28，note 搜尋與 embedding 一碰就炸但「100% coverage」沒擋。根因＝真實 I/O 引擎被 `#[cfg(not(any(test,coverage)))]` 整段換 stub、行為從不被斷言（見 `quality-matrix.md`「覆蓋率 ≠ 行為」鐵律）。本輪已把 static engine 的真實 compute 放回 coverage binary（F4）+ 補 note/embedding 行為斷言；剩兩塊較大的 reform 延後：
+  - **(1) external/candle embedding transport 可注入 seam**：把 `ai/embedding_external.rs`（與檢視 `embedding_candle.rs`）的真實 `reqwest` send/decode/timeout 從「整段 cfg-out 換 stub」改成把 HTTP **endpoint** 抽成可注入（本地 fake server / injected client），讓真實 decode / timeout / 空 `data[]` / mid-batch 500 的邏輯留在被量測 build。加 fake-HTTP `/v1/embeddings` 整合測試斷言「誠實失敗，絕不成功但 0 向量」。
+  - **(2) `dispatch_for_coverage` → 契約斷言**：`dev_ipc_bridge/dispatch/tests.rs` 的 fire-and-forget walk（吞 panic、丟結果）改成 per-command 斷言回傳 JSON shape，讓 IPC surface 證明契約而非只執行求覆蓋率。
+  - 驗收：external/candle 真實失敗模式有測試覆蓋；dispatch 測試斷言契約；`quality-matrix.md` 鐵律全達成；gate 全綠。
+
+- [!] **WORK-RELEASE-SIGNING-A** — macOS Developer ID signing + notarization in CI（需使用者決定 Apple Developer 帳號）[!blocked: 需 Apple Developer Program 帳號（$99/yr）+ 使用者授權]
+  - 來源：2026-06-25 備份失效調查。Root cause 不是代碼，而是 **macOS TCC / Full Disk Access**：備份要讀 `~/Library/Application Support/Google/Chrome`，OS 拒絕 → `Operation not permitted` → 備份失敗。FDA 授權綁在 app 的**簽章身份**上；目前 debug/release 都是 **ad-hoc 簽章（無穩定身份）**，所以每次 rebuild / 每次發版更新，macOS 都視為「新 app」→ FDA 授權失效 → 使用者更新後備份再次靜默失效。這是發版的硬阻斷：不能讓使用者每次更新都重新授權 FDA。
+  - 目標（release 工程）：
+    - 取得 **Apple Developer ID Application** 憑證，存成 GitHub Actions 加密 secrets，在 CI 對每個 release 做 **codesign（hardened runtime）+ notarize + staple**。所有 release 共用同一個穩定身份 → app 的 TCC designated requirement（team + bundle id）跨版本不變 → 使用者授一次 FDA 後**跨更新持續有效**。
+    - 設計 CI 簽章流程（憑證/私鑰注入、`tauri build` 的 signing identity、notarytool、更新器 artifact 簽章與 `TAURI_SIGNING_PRIVATE_KEY`）。
+    - 文檔化 first-run FDA 授權引導（即使簽章穩定，第一次仍需使用者授權；配合 in-app FDA 引導，見備份透明度修復）。
+  - 開發期 interim（已/將做，非本 block）：本機用 **自簽憑證**（stable self-signed）簽 debug build，讓開發測試時 FDA 不會每次 rebuild 失效；自簽 ≠ release（自簽會被 Gatekeeper 擋、無法 notarize），只用於本機 dev。
+  - 讀先：`src-tauri/tauri.conf.json`（bundle / identifier / updater）；`.github/workflows/`（CI）；Tauri v2 macOS code-signing + updater 文檔。
+  - 契約：憑證/私鑰只進加密 secrets，永不入 repo；reproducible build 原則不破；release rehearsal（`bun run verify`）通過。
+  - 驗收：CI 產出 signed + notarized + stapled 的 `.app`/`.dmg`；裝在乾淨機器上 Gatekeeper 不擋；授一次 FDA 後，安裝下一個版本仍保有 FDA（備份不再靜默失效）。
 
 ---
 

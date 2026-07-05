@@ -13,6 +13,34 @@ pub(crate) fn open_external_url_impl(url: String) -> Result<String, String> {
     vault_platform::open_external_url(url)
 }
 
+/// Reveals the local log directory through the platform file manager, returning the revealed path.
+///
+/// Resolves the log directory from the project paths so the user (and any bug report) can reach
+/// `logs/rust.log` in one click — diagnostics must never be a hidden, hand-typed path.
+pub(crate) fn reveal_logs_impl() -> Result<String, String> {
+    let paths = vault_core::project_paths().map_err(|error| error.to_string())?;
+    open_path_in_file_manager_impl(paths.logs_dir.display().to_string())
+}
+
+/// Writes a UTF-8 text document to a user-chosen path and returns the byte count written.
+///
+/// Backs the AI assistant's "Export conversation" affordance: the frontend builds the Markdown /
+/// JSON string off the main thread, the native save dialog returns the target path, and this
+/// helper performs the actual disk write off the WebView thread (the command runs it on the
+/// blocking pool). It refuses an empty path so a cancelled / malformed dialog never writes to the
+/// process working directory, and surfaces the OS error verbatim so the UI can show it.
+pub(crate) fn export_conversation_file_impl(
+    target_path: String,
+    contents: String,
+) -> Result<u64, String> {
+    if target_path.trim().is_empty() {
+        return Err("Export path is empty".to_string());
+    }
+    std::fs::write(&target_path, contents.as_bytes())
+        .map_err(|error| format!("Failed to write {target_path}: {error}"))?;
+    Ok(contents.len() as u64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -68,6 +96,22 @@ mod tests {
         let error = open_external_url_impl("ftp://example.com/pathkeep".to_string())
             .expect_err("ftp urls should fail");
         assert!(error.contains("macOS Full Disk Access settings URL"));
+    }
+
+    #[test]
+    fn reveal_logs_resolves_the_project_log_directory() {
+        let _env_lock = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let original = std::env::var_os("CHB_PROJECT_ROOT");
+        unsafe {
+            std::env::set_var("CHB_PROJECT_ROOT", dir.path());
+        }
+        // `project_paths` only computes paths (it does not create `logs/`), so the launcher rejects
+        // the missing directory gracefully — no real file-manager spawn — which is enough to exercise
+        // reveal_logs_impl's path resolution.
+        let error = reveal_logs_impl().expect_err("a missing logs dir should fail, not spawn");
+        restore_env_var("CHB_PROJECT_ROOT", original.as_deref());
+        assert!(error.contains("Path does not exist"));
     }
 
     #[cfg(unix)]
@@ -126,6 +170,38 @@ mod tests {
         assert_eq!(opened_url, "https://example.com/pathkeep");
         assert!(captured.contains(&target_dir.display().to_string()));
         assert!(captured.contains("https://example.com/pathkeep"));
+    }
+
+    #[test]
+    fn export_conversation_file_writes_contents_and_returns_byte_count() {
+        let dir = tempdir().expect("tempdir");
+        let target = dir.path().join("conversation.md");
+        let body = "# PathKeep conversation\n\nhello world\n";
+
+        let written = export_conversation_file_impl(target.display().to_string(), body.to_string())
+            .expect("write should succeed");
+
+        assert_eq!(written, body.len() as u64);
+        let read_back = fs::read_to_string(&target).expect("read back");
+        assert_eq!(read_back, body);
+    }
+
+    #[test]
+    fn export_conversation_file_rejects_empty_path() {
+        let error = export_conversation_file_impl("   ".to_string(), "x".to_string())
+            .expect_err("empty path should fail");
+        assert!(error.contains("Export path is empty"));
+    }
+
+    #[test]
+    fn export_conversation_file_surfaces_write_errors() {
+        let dir = tempdir().expect("tempdir");
+        // A path whose parent directory does not exist forces std::fs::write to fail, exercising
+        // the error-mapping branch.
+        let target = dir.path().join("missing-subdir").join("conversation.json");
+        let error = export_conversation_file_impl(target.display().to_string(), "{}".to_string())
+            .expect_err("write into a missing directory should fail");
+        assert!(error.contains("Failed to write"));
     }
 
     #[test]

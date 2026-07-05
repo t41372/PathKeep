@@ -99,6 +99,10 @@ pub fn set_notes(
             )
             .context("writing url_annotations row")?;
     }
+    // Mirror the new note into the keyword search projection so it is findable by a PLAIN keyword search
+    // immediately, not only after the next full rebuild. Best-effort: the search plane is rebuildable
+    // derived state, so a refresh failure must never fail the authoritative annotation write.
+    let _ = crate::archive::refresh_notes_tags_text_for_url(paths, &connection, &request.url);
     Ok(read_annotation(&connection, &request.url)?
         .unwrap_or_else(|| UrlAnnotation { url: request.url.clone(), ..UrlAnnotation::default() }))
 }
@@ -139,6 +143,10 @@ pub fn replace_tags(
         }
         tx.commit().context("committing replace_tags transaction")?;
     }
+    // Mirror the new tag set into the keyword search projection so the tags are findable by a PLAIN
+    // keyword search immediately, not only after the next full rebuild. Best-effort: the search plane is
+    // rebuildable derived state, so a refresh failure must never fail the authoritative tag write.
+    let _ = crate::archive::refresh_notes_tags_text_for_url(paths, &connection, &request.url);
     Ok(read_annotation(&connection, &request.url)?
         .unwrap_or_else(|| UrlAnnotation { url: request.url.clone(), ..UrlAnnotation::default() }))
 }

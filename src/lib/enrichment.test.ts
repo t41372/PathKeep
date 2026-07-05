@@ -21,9 +21,11 @@ import {
   TITLE_NORMALIZATION_VERSION,
   defaultEnrichmentSettings,
   enrichmentPluginEnabled,
+  enrichmentPluginRegistry,
   enrichmentPluginState,
   resolveEnrichmentSettings,
 } from './enrichment'
+import { readableContentFetchAvailable } from './release-capabilities'
 
 describe('enrichment helpers', () => {
   test('returns the built-in plugin defaults', () => {
@@ -41,6 +43,24 @@ describe('enrichment helpers', () => {
         },
       ],
     })
+  })
+
+  test('keeps the network refetch plugin default OFF and decoupled from the release-availability flag (ENR-2)', () => {
+    // The release flag is live in this build, yet the network-egress enrichment
+    // plugin must still default OFF. Availability (may surfaces SHOW stats) is
+    // not consent (is fetching ON). A fresh user keeps network enrichment off
+    // regardless of this flag.
+    expect(readableContentFetchAvailable).toBe(true)
+    const registryEntry = enrichmentPluginRegistry.find(
+      (plugin) => plugin.id === READABLE_CONTENT_REFETCH_PLUGIN_ID,
+    )
+    expect(registryEntry?.defaultEnabled).toBe(false)
+    expect(
+      enrichmentPluginEnabled(
+        defaultEnrichmentSettings(),
+        READABLE_CONTENT_REFETCH_PLUGIN_ID,
+      ),
+    ).toBe(false)
   })
 
   test('merges saved settings onto the built-in registry', () => {

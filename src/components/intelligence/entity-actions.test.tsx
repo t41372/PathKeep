@@ -125,4 +125,15 @@ describe('InsightEntityActions', () => {
       screen.getByRole('link', { name: 'Open local evidence' }),
     ).toHaveAttribute('href', '/explorer?domain=google.com')
   })
+
+  test('renders the extra slot alongside the action links', () => {
+    render(
+      <InsightEntityActions
+        items={[{ href: '/explorer', label: 'Open' }]}
+        extra={<button type="button">★ Star</button>}
+      />,
+    )
+    expect(screen.getByRole('button', { name: '★ Star' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Open' })).toBeVisible()
+  })
 })

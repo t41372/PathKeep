@@ -316,11 +316,12 @@ export function buildExplorerActiveFilters(args: {
     args.mode !== 'keyword'
       ? {
           id: 'mode',
+          // REACH-B L-2: the unified tab is "Smart search", so the active-filter
+          // chip must say "Smart" for BOTH the real `hybrid` URL mode and the
+          // legacy `semantic` alias — never the retired "Semantic"/"Hybrid"
+          // vocabulary that diverged from the tab the user actually sees.
           label: args.explorerT('activeFilterMode'),
-          value:
-            args.mode === 'semantic'
-              ? args.explorerT('modeSemantic')
-              : args.explorerT('modeHybrid'),
+          value: args.explorerT('modeSmart'),
         }
       : null,
     args.view !== 'time'
@@ -396,11 +397,12 @@ export function buildExplorerRecentSearchLabel(args: {
 }) {
   const { explorerT, formatRecentDate, params } = args
   return [
-    params.mode === 'semantic'
-      ? explorerT('modeSemantic')
-      : params.mode === 'hybrid'
-        ? explorerT('modeHybrid')
-        : null,
+    // REACH-B L-2: recent-search chips share the unified "Smart" vocabulary with
+    // the tab + active-filter chip — both the real `hybrid` mode and the legacy
+    // `semantic` alias surface as "Smart", never the retired split labels.
+    params.mode === 'semantic' || params.mode === 'hybrid'
+      ? explorerT('modeSmart')
+      : null,
     params.view === 'session'
       ? explorerT('viewModeSession')
       : params.view === 'trail'

@@ -314,13 +314,17 @@ export function makeDefaultAiProviderDraft(
   > = {
     ollama: {
       name: 'Ollama',
-      baseUrl: 'http://localhost:11434',
+      // 127.0.0.1, not localhost: reqwest on macOS resolves `localhost` to a dual-stack set and
+      // returns a spurious 503 against an IPv4-only local server, while 127.0.0.1 connects cleanly
+      // (see vault-core `normalize_local_base_url`).
+      baseUrl: 'http://127.0.0.1:11434',
       model: 'llama3.2:8b',
       embModel: 'nomic-embed-text',
     },
     'lm-studio': {
       name: 'LM Studio',
-      baseUrl: 'http://localhost:1234/v1',
+      // 127.0.0.1, not localhost: see the Ollama note above — LM Studio binds IPv4-only by default.
+      baseUrl: 'http://127.0.0.1:1234/v1',
       model: 'local-model',
       embModel: 'local-embed',
     },
@@ -388,9 +392,11 @@ function localizeAiIntegrationLine(
       return t('aiIntegrationCapabilityMcpEnabled')
     case 'MCP server toggle is currently disabled in saved Settings.':
       return t('aiIntegrationCapabilityMcpDisabled')
-    case 'Skill integration toggle is currently enabled in saved Settings.':
+    case 'Usage guide is enabled: the MCP server serves a read-only guide teaching connected tools how to query effectively. It exposes no extra data.':
       return t('aiIntegrationCapabilitySkillEnabled')
-    case 'Skill integration toggle is currently disabled in saved Settings.':
+    case 'Usage guide is enabled but unreachable: it is only served while the MCP server above is also on. It exposes no extra data when reachable.':
+      return t('aiIntegrationCapabilitySkillUnreachable')
+    case 'Usage guide is disabled in saved Settings, so connected tools receive only a short disabled notice instead of the querying guide.':
       return t('aiIntegrationCapabilitySkillDisabled')
     case 'Semantic retrieval can use the configured embedding provider when the semantic index is built.':
       return t('aiIntegrationCapabilityEmbeddingEnabled')

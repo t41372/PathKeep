@@ -26,6 +26,14 @@ interface StatusCalloutProps {
   body?: string
   eyebrow?: string
   actions?: ReactNode
+  /**
+   * Optional ARIA live-region role. Omit (default) for static callouts so
+   * existing call sites are unchanged. Pass `"status"` (polite) or `"alert"`
+   * (assertive) when the callout appears/updates in response to a user action
+   * and assistive tech must announce it — e.g. an empty/denied state revealed
+   * after a re-check.
+   */
+  role?: 'status' | 'alert'
 }
 
 /**
@@ -39,9 +47,10 @@ export function StatusCallout({
   body,
   eyebrow,
   actions,
+  role,
 }: StatusCalloutProps) {
   return (
-    <section className={`status-callout status-callout--${tone}`}>
+    <section className={`status-callout status-callout--${tone}`} role={role}>
       {eyebrow ? <p className="mono-kicker">{eyebrow}</p> : null}
       <h3>{title}</h3>
       {body ? <p>{body}</p> : null}

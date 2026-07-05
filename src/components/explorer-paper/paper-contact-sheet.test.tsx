@@ -196,6 +196,50 @@ describe('PaperContactSheet', () => {
     expect(screen.getByText('Attention Is All You Need')).toBeVisible()
   })
 
+  test('threads the entryStar provider into card + list rows', () => {
+    const onToggle = vi.fn()
+    const isStarred = vi.fn((url: string) => url === 'g1')
+    const { rerender } = render(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        entryStar={{
+          isStarred,
+          onToggle,
+          starLabel: 'Star',
+          unstarLabel: 'Unstar',
+        }}
+        copy={COPY}
+        testId="cs-star"
+      />,
+    )
+    // The g1 card's star reads as pressed (starred); clicking g2's star fires
+    // the toggle with that row's URL.
+    expect(isStarred).toHaveBeenCalledWith('g1')
+
+    rerender(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="list"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        entryStar={{
+          isStarred,
+          onToggle,
+          starLabel: 'Star',
+          unstarLabel: 'Unstar',
+        }}
+        copy={COPY}
+        testId="cs-star-list"
+      />,
+    )
+    const stars = screen.getAllByRole('button', { name: /star/i })
+    fireEvent.click(stars[0])
+    expect(onToggle).toHaveBeenCalled()
+  })
+
   test('list view flattens all blocks into PaperListRow entries', () => {
     render(
       <PaperContactSheet

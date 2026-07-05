@@ -12,6 +12,7 @@
  * - Backend wiring details (covered by shell-data tests).
  */
 
+import { useState } from 'react'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
@@ -21,12 +22,14 @@ import {
   ShellDataContext,
   type ShellDataContextValue,
 } from './shell-data-context'
+import type { ShellTask } from './shell-tasks'
 import { AppShell } from './shell'
 import { appScreens } from './router'
 import { I18nProvider } from '@/lib/i18n'
 import { ProfileScopeProvider } from '@/lib/profile-scope'
 import type { DashboardSnapshot } from '@/lib/types'
 import { PAPER_PREFERENCES_EVENT } from '@/lib/paper-preferences'
+import * as runtime from '@/lib/runtime'
 
 vi.mock('@/components/primitives/busy-overlay', () => ({
   BusyOverlay: ({ label }: { label: string }) => (
@@ -49,6 +52,8 @@ vi.mock('@/lib/backend-client', async (importOriginal) => {
         hasPrevious: false,
         hasNext: false,
       }),
+      openExternalUrl: vi.fn().mockResolvedValue(undefined),
+      revealLogs: vi.fn().mockResolvedValue('/path/to/logs'),
     },
   }
 })
@@ -79,21 +84,22 @@ describe('AppShell (paper redesign)', () => {
     )
   })
 
-  test('renders non-blocking background progress when the busy payload is marked background', () => {
+  test('renders the ambient bar for a running backup (task-store driven), not the blocking overlay', () => {
+    // A backup marks its overlay background:true AND registers a running task in the store. The
+    // unified bottom slot must surface it through the ambient bar, never the blocking BusyOverlay.
     renderShell({
       busyAction: 'Running backup',
-      busyOverlay: {
-        background: true,
-        label: 'Backing up archive',
-        detail: 'Chrome Default',
-        progressLabel: '2 of 4',
-        progressValue: 50,
-        steps: [],
-        logLines: ['Copied 12 pages'],
-      },
+      busyOverlay: { background: true, label: 'Backing up' },
+      archiveTasks: [
+        runningArchiveTask({
+          id: 'archive-backup-1',
+          kind: 'backup',
+          title: 'Manual backup',
+        }),
+      ],
     })
-    expect(screen.getByTestId('background-progress')).toHaveTextContent(
-      'Backing up archive',
+    expect(screen.getByTestId('ambient-task-bar')).toHaveTextContent(
+      'Manual backup',
     )
     expect(screen.queryByTestId('busy-overlay')).not.toBeInTheDocument()
   })
@@ -101,6 +107,110 @@ describe('AppShell (paper redesign)', () => {
   test('uses the deepest matched route handle as the active screen', () => {
     renderShell({}, '/jobs')
     expect(screen.getByTestId('pk-topbar')).toBeInTheDocument()
+  })
+
+  // LAYOUT (re-review): `<main>` is the shared route scroll owner on EVERY route EXCEPT the
+  // fixed-height Assistant chat surface, which owns its own inner scroll (the messages list) and
+  // pins the composer. On `/assistant`, `<main>` must NOT scroll — otherwise the empty gutters of
+  // the centered chat column drag the conversation, composer included, off-screen. This pins the
+  // route-scoped overflow so the shared shell contract cannot regress in either direction.
+  test('scopes the main scroll: <main> clips on the Assistant route and scrolls elsewhere', () => {
+    renderShell({}, '/assistant')
+    const main = screen.getByTestId('app-scroll')
+    // The Assistant route is fixed-height: <main> clips (no scroll) and adds no bottom padding.
+    expect(main).toHaveAttribute('data-fixed-height', 'true')
+    expect(main).toHaveClass('overflow-hidden', 'pb-0')
+    expect(main).not.toHaveClass('overflow-y-auto')
+  })
+
+  test('keeps <main> as the vertical scroll owner on non-Assistant routes', () => {
+    renderShell({}, '/jobs')
+    const main = screen.getByTestId('app-scroll')
+    // Every other route flows its content and lets <main> scroll vertically as before.
+    expect(main).toHaveAttribute('data-fixed-height', 'false')
+    expect(main).toHaveClass('overflow-y-auto', 'pb-7')
+    expect(main).not.toHaveClass('overflow-hidden')
+  })
+
+  test('omits the macOS titlebar drag region off the overlay platform', () => {
+    // jsdom is not a macOS Tauri window, so the overlay is inactive.
+    renderShell({}, '/')
+    const shellRoot = screen.getByTestId('app-shell')
+    expect(shellRoot).toHaveAttribute('data-titlebar-overlay', 'false')
+    expect(
+      shellRoot.querySelector('.pk-titlebar-dragstrip'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('the topbar header is NOT a drag region off the overlay platform', () => {
+    // Windows/Linux/browser keep native decorations; the header must stay inert
+    // (no data-tauri-drag-region) so it cannot interfere with native dragging.
+    renderShell({}, '/')
+    const topbar = screen.getByTestId('pk-topbar')
+    expect(topbar).not.toHaveAttribute('data-tauri-drag-region')
+    // None of its descendants carry the attribute either.
+    expect(
+      topbar.querySelector('[data-tauri-drag-region]'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('does not render its own drag strip under the overlay (moved to app root)', () => {
+    // The window-drag strip is now a single global element hoisted to the app
+    // root (src/app/index.tsx) so EVERY screen can drag the window — not just
+    // the main shell. The shell must NOT render its own copy (no double strip),
+    // but it still flips data-titlebar-overlay so the sidebar/topbar reserve
+    // clearance for the traffic lights + title strip.
+    vi.spyOn(runtime, 'hasMacOverlayTitlebar').mockReturnValue(true)
+    renderShell({}, '/')
+    const shellRoot = screen.getByTestId('app-shell')
+    expect(shellRoot).toHaveAttribute('data-titlebar-overlay', 'true')
+    expect(
+      shellRoot.querySelector('.pk-titlebar-dragstrip'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('the topbar header becomes the window-drag region under the macOS overlay', () => {
+    // Primary affordance: grabbing the visible top bar drags the window. The
+    // header itself carries data-tauri-drag-region so its empty areas + the
+    // page title drag, restoring the natural macOS gesture.
+    vi.spyOn(runtime, 'hasMacOverlayTitlebar').mockReturnValue(true)
+    renderShell({}, '/')
+    const topbar = screen.getByTestId('pk-topbar')
+    expect(topbar).toHaveAttribute('data-tauri-drag-region')
+  })
+
+  test('topbar interactive controls are NOT drag regions under the overlay', () => {
+    // Tauri v2 never starts a drag from a mousedown on a child that lacks the
+    // attribute, so the nav buttons, search trigger, and Backup CTA stay
+    // clickable. Assert structurally that none of them carries it.
+    vi.spyOn(runtime, 'hasMacOverlayTitlebar').mockReturnValue(true)
+    renderShell(
+      {
+        snapshot: {
+          archiveStatus: { initialized: true, warning: null },
+          browserProfiles: [],
+        } as never,
+      },
+      '/',
+    )
+    const topbar = screen.getByTestId('pk-topbar')
+    // Every <button> in the topbar must be free of the drag attribute.
+    const buttons = topbar.querySelectorAll('button')
+    expect(buttons.length).toBeGreaterThan(0)
+    buttons.forEach((button) => {
+      expect(button).not.toHaveAttribute('data-tauri-drag-region')
+    })
+    // The search trigger specifically (a button) stays clickable.
+    expect(
+      topbar.querySelector('[data-testid="pk-topbar-palette"]'),
+    ).not.toHaveAttribute('data-tauri-drag-region')
+    // The back/forward nav buttons stay clickable.
+    expect(
+      topbar.querySelector('[data-testid="pk-topbar-back"]'),
+    ).not.toHaveAttribute('data-tauri-drag-region')
+    expect(
+      topbar.querySelector('[data-testid="pk-topbar-forward"]'),
+    ).not.toHaveAttribute('data-tauri-drag-region')
   })
 
   test('persists sidebar collapsed state to localStorage on toggle', async () => {
@@ -584,6 +694,225 @@ describe('AppShell (paper redesign)', () => {
     )
   })
 
+  test('Cmd+K is inert while the unlock gate owns the screen', async () => {
+    const user = userEvent.setup()
+    renderShell(
+      {
+        snapshot: {
+          archiveStatus: {
+            initialized: true,
+            encrypted: true,
+            unlocked: false,
+            warning: null,
+          },
+          keyringStatus: { available: false, backend: '', storedSecret: false },
+          browserProfiles: [],
+        } as never,
+      },
+      '/',
+    )
+    // The blocking gate is mounted because the archive is encrypted + locked.
+    expect(screen.getByTestId('archive-unlock-gate')).toBeInTheDocument()
+    await user.keyboard('{Meta>}k{/Meta}')
+    // ⌘K must NOT open the search palette over a locked archive.
+    expect(
+      screen.queryByPlaceholderText(/Find a page/i),
+    ).not.toBeInTheDocument()
+  })
+
+  // --- Backup failure toast ---
+
+  test('renders the backup-failure toast (role=alert) when the shell advertises a backup error', () => {
+    renderShell(
+      { error: 'Backup failed: permission denied', errorKind: 'backup' },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
+    expect(toast).toBeInTheDocument()
+    expect(toast).toHaveAttribute('role', 'alert')
+    expect(toast).toHaveTextContent('Backup failed: permission denied')
+  })
+
+  test('non-backup errors (config save, lock, etc.) do NOT show the backup toast', () => {
+    // The toast is scoped to backup failures: "Backup didn't finish", a reassurance
+    // about archive safety, and a "Try again → runBackup" button are all wrong for
+    // a config-save or lock/unlock error. Those stay quiet in the shell (the failing
+    // action surfaces its own feedback).
+    renderShell({ error: 'Could not save config', errorKind: null }, '/')
+    expect(screen.queryByTestId('backup-failure-toast')).not.toBeInTheDocument()
+  })
+
+  test('the failure toast always reassures that the existing archive is safe', () => {
+    renderShell({ error: 'disk full', errorKind: 'backup' }, '/')
+    expect(screen.getByTestId('backup-failure-toast')).toHaveTextContent(
+      /nothing was lost/i,
+    )
+  })
+
+  test('the failure toast lives OUTSIDE the scroll area so it is always in view', () => {
+    renderShell(
+      { error: 'Backup failed: permission denied', errorKind: 'backup' },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
+    const scrollArea = screen.getByTestId('app-scroll')
+    expect(scrollArea.contains(toast)).toBe(false)
+  })
+
+  test('does not render the failure toast when error is null', () => {
+    renderShell({ error: null }, '/')
+    expect(screen.queryByTestId('backup-failure-toast')).not.toBeInTheDocument()
+  })
+
+  test('a running backup owns the bottom slot — the failure toast never shows mid-run', () => {
+    renderShell(
+      {
+        error: 'stale error from a previous attempt',
+        errorKind: 'backup',
+        busyAction: 'Running backup',
+        busyOverlay: { background: true, label: 'Backing up' },
+        archiveTasks: [
+          runningArchiveTask({
+            id: 'archive-backup-1',
+            kind: 'backup',
+            title: 'Manual backup',
+          }),
+        ],
+      },
+      '/',
+    )
+    expect(screen.getByTestId('ambient-task-bar')).toBeInTheDocument()
+    expect(screen.queryByTestId('backup-failure-toast')).not.toBeInTheDocument()
+  })
+
+  test('dismissing the failure toast calls clearError', async () => {
+    const user = userEvent.setup()
+    const clearError = vi.fn()
+    renderShell(
+      { error: 'Something went wrong', errorKind: 'backup', clearError },
+      '/',
+    )
+    const dismissButton = screen.getByRole('button', { name: /dismiss/i })
+    await user.click(dismissButton)
+    expect(clearError).toHaveBeenCalled()
+  })
+
+  test('Try again fires the shell runBackup action', async () => {
+    const user = userEvent.setup()
+    const runBackup = vi.fn().mockResolvedValue({})
+    renderShell({ error: 'Backup failed', errorKind: 'backup', runBackup }, '/')
+    const toast = screen.getByTestId('backup-failure-toast')
+    await user.click(within(toast).getByRole('button', { name: /try again/i }))
+    expect(runBackup).toHaveBeenCalled()
+  })
+
+  test('FDA failure shows the "Open Full Disk Access settings" button — gated on errorKind, not the error text', () => {
+    // Drive the gate via the locale-independent classification, NOT an English
+    // substring. The displayed error is deliberately non-English (a translated
+    // FDA message) to prove the button appears for zh-CN / zh-TW users too.
+    renderShell(
+      {
+        error: 'PathKeep 需要“完全磁盘访问权限”才能读取浏览器历史。',
+        errorKind: 'full-disk-access',
+      },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
+    expect(
+      within(toast).getByRole('button', { name: /full disk access/i }),
+    ).toBeInTheDocument()
+  })
+
+  test('error whose English text mentions "Full Disk Access" but is classified as generic backup hides the FDA button', () => {
+    // The OLD bug was the inverse: gating on the string showed/hid the button by
+    // re-parsing translated copy. Now a backup error that happens to contain the
+    // English marker never shows the FDA button unless the kind is 'full-disk-access'.
+    renderShell(
+      {
+        error: 'Network error mentioning Full Disk Access',
+        errorKind: 'backup',
+      },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
+    expect(
+      within(toast).queryByRole('button', { name: /full disk access/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  test('non-FDA backup failure does not show the "Open Full Disk Access settings" button', () => {
+    renderShell(
+      { error: 'Network timeout during backup', errorKind: 'backup' },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
+    expect(
+      within(toast).queryByRole('button', { name: /full disk access/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  test('FDA settings button opens the macOS privacy deep-link', async () => {
+    const user = userEvent.setup()
+    const { backend } = await import('@/lib/backend-client')
+    renderShell(
+      {
+        error: 'PathKeep 需要“完全磁盘访问权限”才能读取浏览器历史。',
+        errorKind: 'full-disk-access',
+      },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
+    await user.click(
+      within(toast).getByRole('button', { name: /full disk access/i }),
+    )
+    await vi.waitFor(() => {
+      expect(backend.openExternalUrl).toHaveBeenCalledWith(
+        expect.stringContaining('Privacy_AllFiles'),
+      )
+    })
+  })
+
+  test('Reveal logs is demoted into the technical-details disclosure and calls backend.revealLogs', async () => {
+    const user = userEvent.setup()
+    const { backend } = await import('@/lib/backend-client')
+    renderShell(
+      { error: 'Backup failed: something unexpected', errorKind: 'backup' },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
+    // No longer a first-line affordance: open "Technical details" first.
+    await user.click(within(toast).getByText(/technical details/i))
+    const revealButton = within(toast).getByRole('button', {
+      name: /logs folder/i,
+    })
+    await user.click(revealButton)
+    await vi.waitFor(() => {
+      expect(backend.revealLogs).toHaveBeenCalled()
+    })
+  })
+
+  test('Copy diagnostics writes a report containing the failure detail and confirms', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+    renderShell({ error: 'sqlite error: disk I/O', errorKind: 'backup' }, '/')
+    const toast = screen.getByTestId('backup-failure-toast')
+    await user.click(
+      within(toast).getByRole('button', { name: /copy diagnostics/i }),
+    )
+    await vi.waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining('sqlite error: disk I/O'),
+      )
+    })
+    expect(
+      await within(toast).findByRole('button', { name: /^Copied$/ }),
+    ).toBeInTheDocument()
+  })
+
   test('selecting "Manage sources" navigates to settings#sources', async () => {
     const user = userEvent.setup()
     renderShell(
@@ -613,6 +942,201 @@ describe('AppShell (paper redesign)', () => {
     const manage = await screen.findByText(/Manage sources/i)
     await user.click(manage)
     expect(await screen.findByText('settings body')).toBeInTheDocument()
+  })
+
+  // --- Ambient task bar (all-task indicator) ---
+  //
+  // The bottom bar is no longer backup-only: ANY running task (import, backup, AI index build)
+  // must surface it, on EVERY route, driven by the route-independent task store — so navigating
+  // away from the originating page can never hide live progress.
+  describe('Ambient task bar (all-task indicator)', () => {
+    test('HEADLINE — a running import in the task store shows the ambient bar on a non-import route', () => {
+      // On the OLD code an import set no busyAction, so the bottom slot rendered nothing off the
+      // import page — getByTestId throws, proving the regression this change fixes.
+      renderShell(
+        {
+          archiveTasks: [
+            runningArchiveTask({
+              title: 'Importing history',
+              progressValue: 45,
+              progressLabel: '450 / 1000',
+            }),
+          ],
+        },
+        '/',
+      )
+      const bar = screen.getByTestId('ambient-task-bar')
+      expect(bar).toHaveTextContent('Importing history')
+      expect(bar).toHaveTextContent('45%')
+    })
+
+    test('survives navigation — the bar is present regardless of route', () => {
+      renderShell(
+        {
+          archiveTasks: [runningArchiveTask({ title: 'Importing history' })],
+        },
+        '/explorer',
+      )
+      expect(screen.getByTestId('ambient-task-bar')).toBeInTheDocument()
+      // The current route still rendered underneath the ambient bar.
+      expect(screen.getByText('explorer body')).toBeInTheDocument()
+    })
+
+    test('multiple concurrent tasks show a compact summary, not stacked bars', () => {
+      renderShell(
+        {
+          archiveTasks: [
+            runningArchiveTask({
+              id: 'archive-backup-1',
+              kind: 'backup',
+              title: 'Manual backup',
+              progressValue: 20,
+            }),
+          ],
+          runtimeStatus: {
+            aiQueue: {
+              paused: false,
+              concurrency: 1,
+              queued: 0,
+              running: 1,
+              failed: 0,
+              indexQueued: 0,
+              indexRunning: 1,
+              recentJobs: [runningIndexJob()],
+            },
+            intelligence: null,
+            loading: false,
+            error: null,
+          },
+        },
+        '/',
+      )
+      // Exactly one strip — concurrent tasks collapse into a summary, never stack.
+      expect(screen.getAllByTestId('ambient-task-bar')).toHaveLength(1)
+      expect(screen.getByTestId('ambient-task-bar')).toHaveTextContent(
+        '2 tasks running',
+      )
+    })
+
+    test('clicking the bar navigates to the Activity page', async () => {
+      const user = userEvent.setup()
+      renderShell(
+        {
+          archiveTasks: [runningArchiveTask({ title: 'Importing history' })],
+        },
+        '/',
+      )
+      await user.click(screen.getByTestId('ambient-task-bar'))
+      expect(await screen.findByText('jobs body')).toBeInTheDocument()
+    })
+
+    test('the ambient bar and the failure toast are mutually exclusive', () => {
+      // (a) A live task hides a stale failure toast.
+      const { unmount } = renderShell(
+        {
+          error: 'x',
+          errorKind: 'backup',
+          archiveTasks: [
+            runningArchiveTask({ id: 'archive-backup-1', kind: 'backup' }),
+          ],
+        },
+        '/',
+      )
+      expect(screen.getByTestId('ambient-task-bar')).toBeInTheDocument()
+      expect(
+        screen.queryByTestId('backup-failure-toast'),
+      ).not.toBeInTheDocument()
+      unmount()
+
+      // (b) With nothing running, the failure toast owns the slot again.
+      renderShell({ error: 'x', errorKind: 'backup' }, '/')
+      expect(screen.getByTestId('backup-failure-toast')).toBeInTheDocument()
+      expect(screen.queryByTestId('ambient-task-bar')).not.toBeInTheDocument()
+    })
+
+    test('idle → no ambient bar', () => {
+      renderShell({}, '/')
+      expect(screen.queryByTestId('ambient-task-bar')).not.toBeInTheDocument()
+    })
+
+    test('desync fallback — a background overlay with no registered task still shows the ambient bar', () => {
+      // Airtight today (runBackup always registers a task), but a future
+      // `background: true` producer that forgets to register a task would
+      // otherwise make the work invisible — no blocking overlay AND no ambient
+      // bar. The shell falls back to the overlay's own payload so background
+      // work can never silently disappear.
+      renderShell(
+        {
+          busyAction: 'Backing up',
+          busyOverlay: {
+            background: true,
+            label: 'Backing up',
+            progressValue: 30,
+          },
+          archiveTasks: [],
+        },
+        '/',
+      )
+      const bar = screen.getByTestId('ambient-task-bar')
+      expect(bar).toHaveTextContent('Backing up')
+      expect(bar).toHaveTextContent('30%')
+      // The blocking overlay must stay hidden for a background overlay.
+      expect(screen.queryByTestId('busy-overlay')).not.toBeInTheDocument()
+    })
+  })
+
+  // --- Ambient task announcer (a11y presence live region) ---
+  describe('Ambient task announcer', () => {
+    test('mounts a persistent SR region that stays silent on mount and speaks when work appears', async () => {
+      const user = userEvent.setup()
+
+      function Harness() {
+        const [active, setActive] = useState(false)
+        return (
+          <I18nProvider>
+            <ProfileScopeProvider>
+              <ShellDataContext.Provider
+                value={shellValue({
+                  archiveTasks: active
+                    ? [runningArchiveTask({ title: 'Importing history' })]
+                    : [],
+                })}
+              >
+                <AppShell />
+              </ShellDataContext.Provider>
+            </ProfileScopeProvider>
+            <button type="button" onClick={() => setActive(true)}>
+              activate-task
+            </button>
+          </I18nProvider>
+        )
+      }
+
+      const router = createMemoryRouter(
+        [
+          {
+            path: '/',
+            element: <Harness />,
+            children: [{ index: true, element: <p>route body</p> }],
+          },
+        ],
+        { initialEntries: ['/'] },
+      )
+      render(<RouterProvider router={router} />)
+
+      // Always mounted (even while idle) and silent on mount — no announcement.
+      const announcer = screen.getByTestId('ambient-task-announcer')
+      expect(announcer).toBeInTheDocument()
+      expect(announcer).toHaveAttribute('role', 'status')
+      expect(announcer).toHaveAttribute('aria-live', 'polite')
+      expect(announcer).not.toHaveTextContent('Background work started')
+
+      // Background work appears → the region announces the presence transition.
+      await user.click(screen.getByRole('button', { name: 'activate-task' }))
+      expect(screen.getByTestId('ambient-task-announcer')).toHaveTextContent(
+        'Background work started',
+      )
+    })
   })
 })
 
@@ -653,6 +1177,13 @@ function renderShell(
             path: 'settings',
             element: <p>settings body</p>,
           },
+          {
+            path: 'assistant',
+            element: <p>assistant body</p>,
+            handle: {
+              screen: appScreens.find((screen) => screen.id === 'assistant'),
+            },
+          },
         ],
       },
     ],
@@ -676,6 +1207,7 @@ function shellValue(
     busyAction: null,
     busyOverlay: null,
     error: null,
+    rawError: null,
     notice: null,
     refreshKey: 0,
     refreshAppData: vi.fn().mockResolvedValue(undefined),
@@ -688,8 +1220,58 @@ function shellValue(
     lockAppSession: vi.fn().mockResolvedValue({}),
     unlockAppSession: vi.fn(),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
     ...overrides,
   } as ShellDataContextValue
+}
+
+function runningArchiveTask(overrides: Partial<ShellTask> = {}): ShellTask {
+  return {
+    id: 'archive-import-1',
+    kind: 'import',
+    state: 'running',
+    title: 'Importing history',
+    detail: '',
+    startedAt: '2026-06-28T00:00:00Z',
+    updatedAt: '2026-06-28T00:00:00Z',
+    finishedAt: null,
+    sourceLabel: null,
+    profileLabel: null,
+    progressLabel: null,
+    progressValue: null,
+    current: null,
+    total: null,
+    processedRecords: null,
+    totalRecords: null,
+    importedRecords: null,
+    duplicateRecords: null,
+    skippedRecords: null,
+    logEntries: [],
+    resultLink: null,
+    error: null,
+    ...overrides,
+  }
+}
+
+function runningIndexJob() {
+  return {
+    id: 55,
+    jobType: 'index-build',
+    state: 'running',
+    priority: 10,
+    attempt: 1,
+    maxAttempts: 3,
+    runId: null,
+    summary: null,
+    queuedAt: '2026-06-28T00:00:00Z',
+    availableAt: '2026-06-28T00:00:00Z',
+    startedAt: '2026-06-28T00:01:00Z',
+    finishedAt: null,
+    heartbeatAt: null,
+    errorCode: null,
+    errorMessage: null,
+  }
 }
 
 function makeDashboardSnapshot(): DashboardSnapshot {

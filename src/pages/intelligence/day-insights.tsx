@@ -8,12 +8,15 @@
  *   stay navigation-first instead of rebuilding inline detail everywhere.
  */
 
+import { useEffect, useMemo } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
   RhythmActivityProportionBar,
   RhythmHourStrip,
 } from '../../components/intelligence/browsing-rhythm-detail'
 import { InsightEntityActions } from '../../components/intelligence/entity-actions'
+import { StarToggle } from '../../components/shell/star-toggle'
+import { useDesktopStars } from '../explorer/use-desktop-stars'
 import { Glyph } from '../../components/ui'
 import { InsightEntityHero } from '../../components/intelligence/entity-hero'
 import { IntelligenceMetricGrid } from '../../components/intelligence/metric-grid'
@@ -164,6 +167,36 @@ export function DayInsightsPage({
         dateRange: singleDayDateRange(date),
       })
 
+  // Stars are an "everywhere" affordance — intelligence entities are starrable
+  // too. Hydrate exactly the domains + refind pages this view renders (bounded
+  // by the contact-sheet's top-N lists, never the archive), then expose a star
+  // on each top-site domain row and each refind page row.
+  const stars = useDesktopStars()
+  const visibleDomains = useMemo(
+    () => detail?.topSites.map((site) => site.registrableDomain) ?? [],
+    [detail],
+  )
+  const visibleRefindUrls = useMemo(
+    () => detail?.refindPages.map((page) => page.canonicalUrl) ?? [],
+    [detail],
+  )
+  const domainsKey = visibleDomains.join('\n')
+  const refindUrlsKey = visibleRefindUrls.join('\n')
+  useEffect(() => {
+    if (visibleDomains.length > 0) stars.hydrate('domain', visibleDomains)
+    // domainsKey collapses the array identity so the effect re-runs only when
+    // the actual domain set changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [domainsKey, stars])
+  useEffect(() => {
+    if (visibleRefindUrls.length > 0) stars.hydrate('url', visibleRefindUrls)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refindUrlsKey, stars])
+  const starStatusLabel = {
+    starred: t('entityStarStatusStarred'),
+    unstarred: t('entityStarStatusUnstarred'),
+  }
+
   if (loading) {
     return (
       <div className="intelligence-page day-insights">
@@ -293,33 +326,47 @@ export function DayInsightsPage({
           ) : (
             <IntelligenceSectionBody className="top-sites-list">
               {detail.topSites.map((site, index) => (
-                <Link
+                <div
                   key={site.registrableDomain}
-                  className="top-site-row top-site-row--interactive"
-                  to={domainDayInsightsHref(
-                    site.registrableDomain,
-                    detail.date,
-                    profileId,
-                  )}
+                  className="top-site-row top-site-row--interactive group flex items-center gap-2"
                 >
-                  <span className="top-site-row__rank">{index + 1}.</span>
-                  <span className="top-site-row__domain">
-                    {site.displayName ?? site.registrableDomain}
-                  </span>
-                  <span className="top-site-row__bar">
-                    <span
-                      className="top-site-row__bar-fill"
-                      style={{
-                        width: `${Math.round(
-                          (site.visitCount / topSiteMaxVisits) * 100,
-                        )}%`,
-                      }}
-                    />
-                  </span>
-                  <span className="top-site-row__count">
-                    {formatNumber(site.visitCount)} {t('visits')}
-                  </span>
-                </Link>
+                  <Link
+                    className="flex min-w-0 flex-1 items-center gap-2"
+                    to={domainDayInsightsHref(
+                      site.registrableDomain,
+                      detail.date,
+                      profileId,
+                    )}
+                  >
+                    <span className="top-site-row__rank">{index + 1}.</span>
+                    <span className="top-site-row__domain">
+                      {site.displayName ?? site.registrableDomain}
+                    </span>
+                    <span className="top-site-row__bar">
+                      <span
+                        className="top-site-row__bar-fill"
+                        style={{
+                          width: `${Math.round(
+                            (site.visitCount / topSiteMaxVisits) * 100,
+                          )}%`,
+                        }}
+                      />
+                    </span>
+                    <span className="top-site-row__count">
+                      {formatNumber(site.visitCount)} {t('visits')}
+                    </span>
+                  </Link>
+                  <StarToggle
+                    starred={stars.isStarred('domain', site.registrableDomain)}
+                    onToggle={() =>
+                      stars.toggle('domain', site.registrableDomain)
+                    }
+                    starLabel={t('entityStarSourceAria')}
+                    unstarLabel={t('entityUnstarSourceAria')}
+                    statusLabel={starStatusLabel}
+                    testId={`day-insights-star-domain-${site.registrableDomain}`}
+                  />
+                </div>
               ))}
             </IntelligenceSectionBody>
           )}
@@ -370,6 +417,17 @@ export function DayInsightsPage({
               {detail.refindPages.map((page) => (
                 <RefindSummaryCard
                   key={page.canonicalUrl}
+                  actionsExtra={
+                    <StarToggle
+                      starred={stars.isStarred('url', page.canonicalUrl)}
+                      onToggle={() => stars.toggle('url', page.canonicalUrl)}
+                      starLabel={t('entityStarPageAria')}
+                      unstarLabel={t('entityUnstarPageAria')}
+                      statusLabel={starStatusLabel}
+                      alwaysVisible
+                      testId={`day-insights-star-page-${page.canonicalUrl}`}
+                    />
+                  }
                   actionItems={[
                     {
                       href: domainDayInsightsHref(

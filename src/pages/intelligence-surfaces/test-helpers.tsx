@@ -193,6 +193,8 @@ export function createShellValue(
         queued: 0,
         running: 0,
         failed: 0,
+        indexQueued: 0,
+        indexRunning: 0,
         recentJobs: [],
       },
       intelligence: createEmptyRuntimeSnapshot(),
@@ -213,6 +215,8 @@ export function createShellValue(
         queued: 0,
         running: 0,
         failed: 0,
+        indexQueued: 0,
+        indexRunning: 0,
         recentJobs: [],
       },
       intelligence: createEmptyRuntimeSnapshot(),
@@ -231,7 +235,14 @@ export function createShellValue(
     clearAppLockPasscode: vi.fn().mockResolvedValue(snapshot.appLockStatus),
     lockAppSession: vi.fn().mockResolvedValue(snapshot.appLockStatus),
     unlockAppSession: vi.fn().mockResolvedValue(snapshot.appLockStatus),
+    startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
+    recovery: null,
+    archiveUpgrade: null,
+    finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+    runFullArchiveRestore: vi.fn().mockResolvedValue({}),
   }
 }
 

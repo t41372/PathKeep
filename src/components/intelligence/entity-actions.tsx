@@ -8,6 +8,7 @@
  *   same entity-first CTA styling with only small variant changes.
  */
 
+import type { ReactNode } from 'react'
 import { Link, useInRouterContext } from 'react-router-dom'
 
 export interface InsightEntityActionLink {
@@ -32,14 +33,22 @@ function isInternalRouteHref(href: string) {
 export function InsightEntityActions({
   className = 'intelligence-actions',
   items,
+  extra,
 }: {
   className?: string
   items: InsightEntityActionLink[]
+  /**
+   * Optional non-link affordance rendered alongside the action links — used to
+   * inject a {@link StarToggle} for an intelligence entity row without bending
+   * the link/button grammar into a toggle.
+   */
+  extra?: ReactNode
 }) {
   const inRouterContext = useInRouterContext()
 
   return (
     <div className={className}>
+      {extra}
       {items.map((item) => {
         const key =
           item.key ?? `${item.style ?? 'button'}:${item.href}:${item.label}`

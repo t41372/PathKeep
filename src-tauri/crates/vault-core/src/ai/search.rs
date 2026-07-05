@@ -1,27 +1,82 @@
 //! Semantic search and assistant orchestration.
 //!
 //! ## Responsibilities
-//! - execute semantic + lexical history search with explicit fallback behavior
+//! - execute hybrid lexical + semantic history search with explicit fallback behavior
+//! - fuse the two ranked recall sets with Reciprocal Rank Fusion (RRF, W-AI-6) on a PAGE-STABLE key
+//!   (canonical url, M-12) so a multi-visit page fuses into one dual-list row, and apply a BOUNDED,
+//!   tunable starred boost so favorites rank higher without becoming a bookmark list (05 §10)
+//! - constrain BOTH recall planes to starred pages for the `is:starred` facet (lexical post-filter +
+//!   the semantic content_key allowlist seam)
 //! - compose the assistant prompt, retrieval seed set, and `search_history` tool
 //! - persist assistant run traces and citations
-//! - keep semantic result ranking and lexical merge rules in one owner module
+//! - keep semantic result ranking and the lexical↔semantic fusion rules in one owner module
 //!
 //! ## Not responsible for
 //! - provider validation/client wiring beyond calling shared helpers
 //! - semantic index ledger bookkeeping or sidecar build orchestration
 //! - Settings-facing AI status/read-model assembly
+//! - resolving the starred SET or its canonicalization (delegated to `crate::stars`)
 //!
 //! ## Dependencies
 //! - `super::control` for cooperative cancellation while retrieval or generation runs
 //! - `super::provider` for embedding queries and LLM dispatch
 //! - `super::indexing` for semantic staleness/readiness helper lookups
+//! - `crate::stars` for the starred matcher / starred-visit resolution behind the boost + facet
 //!
 //! ## Performance notes
-//! - semantic recall reads at most the requested top-k and merges with bounded lexical
-//!   results, so the assistant never materializes unbounded search candidate sets
+//! - RRF fusion + the starred boost operate on the BOUNDED recall pools (top-k lexical + top-k'
+//!   semantic), never the corpus, so the merge stays O(pool) at 14.4M — no full scan, no N+1
+//! - the starred matcher is loaded once from the tiny `star` table and checked in-memory per result
+//! - the `is:starred` facet's starred-VISIT resolution is bounded by the tiny star set (a forward
+//!   `urls.id` seek + chunked `visits` IN-query in `crate::stars::starred_history_ids`), NOT a
+//!   visits⋈urls scan; the lexical plane over-fetches a bounded pool so the starred post-filter still
+//!   yields a full page (see [`lexical_history_results`])
+//! - BOTH visit↔content joins are now BOUNDED by keyed binary-search sidecars (M-11, `.pkrev`/`.pkfwd`
+//!   built alongside the planes): the ALWAYS-ON semantic hydration (result content_key → visits) is
+//!   O(k'·log n) seeks ([`resolve_history_ids_for_content_keys`]), and the `is:starred` forward
+//!   resolution (starred history_id → content_key) is O(starred·log n) seeks
+//!   ([`resolve_content_keys_for_history_ids`], closing the prior XA-PERF-4 O(n) `.pkmap` stride). Both
+//!   degrade to the authoritative `.pkmap` full scan only when the keyed sidecar is missing/stale (an
+//!   older index, or a torn pair); the next index build re-projects it. No O(n) `.pkmap` stride is paid
+//!   on the steady-state query path — see doc 05 §10
 //! - lexical fallback remains explicit instead of scanning stale SQLite semantic metadata
 
 use super::*;
+use crate::visit_taxonomy::normalize_visit_url;
+
+/// Lexical recall-pool expansion factor for the `is:starred` facet (Bug 2 / W-AI-6).
+///
+/// The caller post-filters lexical rows to the starred set, so fetching only the newest `limit` text
+/// matches would drop older starred matches. We over-fetch by this factor (the same `× 8` precedent the
+/// semantic plane's `recall_k` uses) so the post-filter still surfaces a full page. See
+/// [`lexical_history_results`] for the bound + documented residual.
+const LEXICAL_FACET_EXPANSION: u32 = 8;
+
+/// Hard cap on the expanded lexical facet pool, matching `list_history`'s own `[1, 1000]` limit clamp so
+/// the over-fetch never asks for more rows than `list_history` will return.
+const LEXICAL_FACET_POOL_CAP: u32 = 1_000;
+
+/// Ceiling for a single [`search_history_internal`] page, matching `list_history`'s own `[1, 1000]`
+/// fetch window (so a request never asks for more rows than the bounded read model returns — no
+/// corpus scan even at 14.4M).
+///
+/// This is the RETRIEVAL ceiling, deliberately ABOVE the model-facing tools' own 50-row cap. The
+/// distinction: rows a tool returns to the LLM cost the model's context, so the MODEL-FACING
+/// `search_history` tools clamp their own `limit` to 50 BEFORE calling here (context protection). The
+/// `run_code` sandbox is different — rows fetched by `query_history` INSIDE the wasm sandbox NEVER
+/// enter the model's context (only the script's small `return` value does), so the per-call context
+/// cap is pointless there. The sandbox therefore clamps to `code_mode::MAX_ROWS_PER_CALL` (the same
+/// 1000), letting a script paginate + aggregate the FULL result set efficiently. This ceiling is the
+/// shared upper bound both paths resolve against; the 50-row context cap lives at the model-facing
+/// call sites, not here.
+pub(super) const MAX_SEARCH_ROWS: u32 = 1_000;
+
+/// The 50-row CONTEXT cap the MODEL-FACING `search_history` tools apply to their own `limit` BEFORE
+/// calling [`search_history_internal`]. Every row a tool returns enters the model's context, so the
+/// page stays a bounded evidence sample (02 §F). Distinct from [`MAX_SEARCH_ROWS`] (the retrieval
+/// ceiling the sandbox uses); see that doc for why the two paths differ. Mirrors
+/// `agent_tools::MAX_TOOL_ROWS` for the legacy rig tool path here.
+const MODEL_FACING_ROW_CAP: u32 = 50;
 
 /// One semantic search hit ready to merge with lexical recall.
 ///
@@ -39,13 +94,30 @@ pub(super) struct StoredEmbedding {
     pub score: f32,
 }
 
-/// One semantic-sidecar lookup result together with any degradation notes.
+/// One semantic-index lookup result together with any degradation notes.
 ///
 /// Semantic search can legitimately fall back to lexical-only results. Keeping the notes
-/// attached here prevents that honesty metadata from getting lost during score merging.
+/// attached here prevents that honesty metadata from getting lost during score merging. `hits`
+/// carries the hydrated semantic matches (one per unique page, most-recent visit) ready to merge
+/// with lexical recall; it is empty when the index is absent/stale/empty (with a matching note).
+///
+/// Each note is carried as a stable [`AiSearchNote`] CODE (review-fix M-6), NOT English prose, so the
+/// front end can localize it; the English sentence is derived from the code only on the MODEL-facing
+/// path ([`ai_search_note_text`]).
 #[derive(Debug, Default)]
 pub(super) struct SemanticMatchReport {
-    pub notes: Vec<String>,
+    pub hits: Vec<AiSearchEntry>,
+    pub notes: Vec<AiSearchNote>,
+}
+
+/// One hydrated semantic hit: a result content_key resolved to its representative visit + score.
+///
+/// The two-stage index returns `(content_key, score)`; hydration (the `.pkmap` fan-out + an archive
+/// lookup) resolves each unique page to its MOST-RECENT visible visit so the UI shows one row per
+/// page, not one per repeat visit. `score` is the int8-rescore cosine carried through verbatim.
+struct SemanticHit {
+    visit: HistoryEntry,
+    score: f32,
 }
 
 /// Shared context captured by the assistant's `search_history` tool.
@@ -140,8 +212,16 @@ impl Tool for SearchHistoryTool {
             query: args.query,
             profile_id: args.profile_id.or_else(|| self.context.default_profile_id.clone()),
             domain: args.domain.or_else(|| self.context.default_domain.clone()),
-            limit: args.limit.or(Some(self.context.default_limit)),
+            // CONTEXT CAP (legacy rig tool): clamp to the 50-row model-facing limit BEFORE retrieval —
+            // these rows enter the model's context, so the tool stays a bounded evidence sample even
+            // though `search_history_internal`'s ceiling ([`MAX_SEARCH_ROWS`]) is the larger retrieval
+            // bound (used only by the `run_code` sandbox, whose rows never reach the model).
+            limit: Some(args.limit.unwrap_or(self.context.default_limit).min(MODEL_FACING_ROW_CAP)),
             cursor: None,
+            sort: None,
+            starred_only: None,
+            start_date: None,
+            end_date: None,
         };
         let response = search_history_internal(
             &self.context.paths,
@@ -167,6 +247,7 @@ impl Tool for SearchHistoryTool {
                 title: item.title.clone(),
                 visited_at: item.visited_at.clone(),
                 score: Some(item.score),
+                canonical_url: None,
             })
             .collect::<Vec<_>>();
         self.context.citations.lock().await.extend(citations);
@@ -175,6 +256,12 @@ impl Tool for SearchHistoryTool {
 }
 
 /// Runs the semantic/keyword history search pipeline with explicit fallback behavior.
+///
+/// This is the FE / worker entry (`search_ai_history`). It caps `limit` at [`MODEL_FACING_ROW_CAP`]:
+/// the shared `search_history_internal` ceiling was raised to [`MAX_SEARCH_ROWS`] so the `run_code`
+/// SANDBOX (which calls `search_history_internal` DIRECTLY, bypassing this wrapper) can fetch large
+/// pages and aggregate them in-sandbox — but a model/UI-facing caller must NOT inherit that. Pre-change
+/// this path was hard-capped at 50, and a search UI never needs a 1000-row page; it paginates instead.
 pub async fn semantic_search_history(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -182,7 +269,11 @@ pub async fn semantic_search_history(
     provider: Option<&AiProviderRuntime>,
     request: &AiSearchRequest,
 ) -> Result<AiSearchResponse> {
-    search_history_internal(paths, config, key, provider, request).await
+    let mut bounded = request.clone();
+    if let Some(limit) = bounded.limit {
+        bounded.limit = Some(limit.min(MODEL_FACING_ROW_CAP));
+    }
+    search_history_internal(paths, config, key, provider, &bounded).await
 }
 
 /// Answers one user question against archive history with evidence-backed citations.
@@ -241,8 +332,15 @@ pub async fn answer_history_question_with_control(
             query: request.question.clone(),
             profile_id: request.profile_id.clone(),
             domain: request.domain.clone(),
-            limit: Some(config.ai.retrieval_top_k.max(1)),
+            // CONTEXT CAP: the seeded evidence is rendered into the model's preamble, so cap the page
+            // at the model-facing row limit (the retrieval ceiling [`MAX_SEARCH_ROWS`] is for the
+            // sandbox, whose rows never reach the model). Preserves the prior `clamp(1, 50)` behavior.
+            limit: Some(config.ai.retrieval_top_k.clamp(1, MODEL_FACING_ROW_CAP)),
             cursor: None,
+            sort: None,
+            starred_only: None,
+            start_date: None,
+            end_date: None,
         };
         let run_control = run_control.as_ref();
         let search_response = await_with_ai_cancellation(
@@ -261,6 +359,7 @@ pub async fn answer_history_question_with_control(
                 title: item.title.clone(),
                 visited_at: item.visited_at.clone(),
                 score: Some(item.score),
+                canonical_url: None,
             })
             .collect::<Vec<_>>();
         let citations = Arc::new(Mutex::new(seeded_citations.clone()));
@@ -391,7 +490,19 @@ pub(super) fn build_assistant_preamble(
     )
 }
 
-/// Runs the lexical + semantic merge pipeline used by search and assistant retrieval.
+/// Runs the hybrid lexical + semantic search pipeline used by search and assistant retrieval (W-AI-6).
+///
+/// Reciprocal Rank Fusion (RRF, 05 §9.4): the lexical and semantic recall sets are each a RANKED list;
+/// a result's fused score is `Σ_list weight_list / (rrf_k + rank_in_list)` (0-based rank). Fusion dedups
+/// on a PAGE-STABLE key (the canonical url, M-12), not the per-visit id, so a frequently-visited page
+/// whose several matching visits land in the lexical window fuses into ONE row (its most-recent visit)
+/// rather than duplicating — the page in BOTH lists sums both contributions and reads "Lexical + semantic
+/// match"; lexical-only reads "Lexical match"; semantic-only reads "Semantic match". RRF is deterministic,
+/// model-free, and operates on the BOUNDED recall pools (never the corpus), so it is fast at 14.4M. After
+/// fusion a BOUNDED, tunable
+/// starred boost (05 §10) promotes favorites without letting them dominate. The `is:starred` facet
+/// (W-AI-6) restricts BOTH recall sets to starred pages via the lexical post-filter + the semantic
+/// allowlist seam. AI-off / no provider degrades to lexical-only (RRF over one list = the lexical order).
 pub(super) async fn search_history_internal(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -400,45 +511,127 @@ pub(super) async fn search_history_internal(
     request: &AiSearchRequest,
 ) -> Result<AiSearchResponse> {
     let query = request.query.trim();
-    if query.is_empty() {
-        anyhow::bail!("Enter a question or search query first.")
-    }
 
     fn parse_search_cursor(cursor: Option<&str>) -> usize {
         cursor.and_then(|value| value.parse::<usize>().ok()).unwrap_or(0)
     }
 
-    let lexical = lexical_history_results(paths, config, key, request, query)?;
-    let mut merged = HashMap::<i64, AiSearchEntry>::new();
-    let limit = request.limit.unwrap_or(8).clamp(1, 50) as usize;
+    // Clamp the page to the RETRIEVAL ceiling ([`MAX_SEARCH_ROWS`] = `list_history`'s [1, 1000]
+    // window), NOT to 50. The 50-row context cap belongs to the MODEL-FACING tools (which clamp their
+    // own `limit` before calling here) — see [`MAX_SEARCH_ROWS`]. The `run_code` sandbox needs the
+    // larger page so a script can paginate + aggregate the full set; its rows never reach the model's
+    // context, so capping here would only throttle the sandbox for no context benefit.
+    let limit = request.limit.unwrap_or(8).clamp(1, MAX_SEARCH_ROWS) as usize;
+    let applied_limit = limit as u32;
+    let facet_starred = request.starred_only.unwrap_or(false);
 
-    for (index, item) in lexical.items.iter().take(limit).enumerate() {
-        merged.insert(
-            item.id,
-            history_entry_to_search_entry(item, lexical_score(index, limit), "Lexical match"),
+    // BROWSE-BY-RECENCY (date/recency questions): an empty/blank query means "the most recent
+    // visits", not an error. The model has no other way to ENUMERATE history (semantic recall is
+    // keyword-driven), so refusing the empty query left date-range questions ("last Friday") with no
+    // entry point — the agent could only keyword-search and would loop. We reuse PathKeep's own
+    // browse-by-recency read model (`list_history` with no `q`, sorted newest — the exact data the
+    // Browse page lists), respecting the limit/domain/profile/starred filters, and skip the semantic
+    // plane entirely (embedding an empty string is meaningless and wasteful). The pipeline stays
+    // bounded: `lexical_history_results` clamps the fetch to `list_history`'s `[1, 1000]` cap.
+    if query.is_empty() {
+        return recent_visits_response(
+            paths,
+            config,
+            key,
+            request,
+            limit,
+            facet_starred,
+            applied_limit,
         );
     }
 
-    let mut notes = Vec::new();
+    // DATE-ORDERED ENUMERATION (`sort: "oldest" | "newest"`): the agent asks for the FIRST/earliest or
+    // latest occurrence of a term across ALL history, not the most-relevant sample. The hybrid path
+    // below returns a recency-ranked top-K and then re-sorts by SCORE, so an older match that exists in
+    // the index is never returned — the exact bug behind "when did I first browse mlx?" wrongly
+    // answering "June" when 2025 records exist. We bypass the semantic plane entirely (a meaning re-rank
+    // would destroy the chronological order the caller asked for) and enumerate the lexical matches in
+    // pure date order via `list_history`, paginating with the request cursor so the agent can walk the
+    // whole timeline. Bounded exactly like every other path (`list_history`'s `[1, 1000]` fetch cap).
+    let sort = AiSearchSort::parse(request.sort.as_deref());
+    if sort.is_date_ordered() {
+        return date_ordered_response(
+            paths,
+            config,
+            key,
+            request,
+            query,
+            limit,
+            facet_starred,
+            sort,
+        );
+    }
+
+    // Load the starred set once (tiny by design). It powers BOTH the bounded boost (always, when any
+    // page is starred) and the `is:starred` facet's lexical post-filter + semantic allowlist (when on).
+    let starred = crate::stars::load_starred_matcher(paths, config, key)?;
+
+    // The `is:starred` facet resolves starred VISITS → deduped content_keys so semantic recall can be
+    // restricted to favorites (the allowlist seam). Resolved once, reused for the lexical post-filter.
+    let starred_content_keys = if facet_starred {
+        resolve_starred_content_keys(paths, config, key, provider, &starred)?
+    } else {
+        None
+    };
+
+    // LEXICAL ranked list. When the facet is on, drop non-starred rows so the lexical plane is
+    // constrained too (today the lexical browse facet is FE-only; here it is enforced backend-side).
+    // The facet also EXPANDS the lexical recall pool (mirroring the semantic plane's `recall_k`) so the
+    // post-filter still yields a full page of starred matches rather than only the newest `limit` text
+    // matches — see `lexical_history_results` for the boundedness + residual.
+    // Over-fetch ONE probe row beyond `limit` (M1) so a `has_more` can be reported truthfully: without
+    // it the lexical pool was hard-capped at `limit`, so the fused `total` could never exceed `limit` and
+    // `has_more` was always false even when more matches existed. We fuse `limit + 1` lexical rows (a
+    // valid RRF over one extra rank) and paginate to `limit` AFTER fusion, so the probe both feeds an
+    // honest `has_more` and lets a strong older match legitimately enter the page.
+    // The relevance/hybrid path always pulls the lexical recall pool newest-first (the historical
+    // order it then RRF-fuses + re-ranks by score); the date-ordered `sort` values never reach here.
+    let lexical =
+        lexical_history_results(paths, config, key, request, query, facet_starred, true, "newest")?;
+    let lexical_ranked: Vec<&HistoryEntry> = lexical
+        .items
+        .iter()
+        .filter(|item| !facet_starred || starred.is_starred(&item.url))
+        .take(limit + 1)
+        .collect();
+
+    // Degradation notes are carried as stable CODES (review-fix M-6) so the FE can localize them; the
+    // English `notes` strings on the response are derived from these codes for the MODEL-facing
+    // agent-tool path + the persisted run trace, never rendered raw to the user.
+    let mut note_codes: Vec<AiSearchNote> = Vec::new();
     let mut provider_id = "lexical-fallback".to_string();
     let mut model = "none".to_string();
+    let mut semantic_hits: Vec<AiSearchEntry> = Vec::new();
 
     if let Some(provider) = provider {
         validate_provider(provider, AiProviderPurpose::Embedding)?;
         provider_id = provider.config.id.clone();
         model = provider.config.default_model.clone();
-        let semantic = semantic_matches(paths, config, key, provider, request).await?;
-        notes.extend(semantic.notes.clone());
-        notes.push(
-            "No indexed semantic matches were found; showing lexical results only.".to_string(),
-        );
+        // The facet pushes the starred allowlist into the vector index (content_key post-filter).
+        let semantic = semantic_matches(
+            paths,
+            config,
+            key,
+            provider,
+            request,
+            starred_content_keys.as_deref(),
+        )
+        .await?;
+        note_codes.extend(semantic.notes);
+        semantic_hits = semantic.hits;
     } else {
-        notes.push(
-            "No embedding provider is selected, so results use lexical retrieval only.".to_string(),
-        );
+        note_codes.push(AiSearchNote::LexicalFallbackNoProvider);
     }
 
-    let mut items = merged.into_values().collect::<Vec<_>>();
+    // FUSE the two ranked lists with RRF, then apply the bounded starred boost.
+    let fused = fuse_ranked_lists(&lexical_ranked, &semantic_hits, &config.ai);
+    let mut items = apply_starred_boost(fused, &starred, config.ai.starred_boost);
+
     items.sort_by(|left, right| {
         right
             .score
@@ -447,25 +640,515 @@ pub(super) async fn search_history_internal(
             .then(left.visited_at.cmp(&right.visited_at))
     });
     let total = items.len();
+    let has_more = total > limit;
     let offset = parse_search_cursor(request.cursor.as_deref()).min(total);
     let next_offset = (offset + limit).min(total);
     let next_cursor = (next_offset < total).then(|| next_offset.to_string());
     let items = items.into_iter().skip(offset).take(limit).collect();
 
-    Ok(AiSearchResponse { total, provider_id, model, items, notes, next_cursor })
+    // Derive the English prose (model-facing + persisted trace) from the codes, in code order. The
+    // single owner of the English rendering is [`AiSearchNote::model_facing_text`] (review-fix M-6),
+    // so the wire codes and the prose can never drift per call site.
+    let notes = note_codes.iter().map(AiSearchNote::model_facing_text).collect();
+    Ok(AiSearchResponse {
+        total,
+        provider_id,
+        model,
+        items,
+        notes,
+        note_codes,
+        next_cursor,
+        applied_limit: Some(applied_limit),
+        has_more,
+    })
 }
 
-/// Queries the semantic sidecar and returns visible semantic matches plus staleness notes.
+/// The model-facing match reason carried on every browse-by-recency row (empty-query path).
+///
+/// Free-form per-entry `match_reason` text (not a wire-localized [`AiSearchNote`] code): the
+/// empty-query response is reached only from the MODEL-facing agent/run_code path (the Explorer FE
+/// guards empty queries before calling), so this never needs FE i18n. It tells the model these rows
+/// are the newest visits — the entry point for date-range questions ("last Friday").
+const RECENT_VISITS_MATCH_REASON: &str = "Most recent visit";
+
+/// Returns the most recent visits as the [`AiSearchResponse`] for a blank query (browse-by-recency).
+///
+/// Reuses PathKeep's browse-by-recency read model verbatim: [`lexical_history_results`] with no
+/// keyword text routes through `list_history` → `list_history_with_sql` sorted `newest`, the exact
+/// rows the Browse page lists, already honoring the profile/domain filters threaded on the request.
+/// The semantic plane is intentionally skipped (an empty embedding query is meaningless). The
+/// starred facet is enforced the same way the keyword path does (post-filter on the over-fetched
+/// pool), and the starred boost still applies so favorites surface, keeping behavior consistent with
+/// the keyword path. Bounded: `lexical_history_results` clamps to `list_history`'s `[1, 1000]` cap,
+/// so this never scans the corpus even at 14.4M visits.
+fn recent_visits_response(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &AiSearchRequest,
+    limit: usize,
+    facet_starred: bool,
+    applied_limit: u32,
+) -> Result<AiSearchResponse> {
+    let starred = crate::stars::load_starred_matcher(paths, config, key)?;
+    // No keyword text: `list_history` filters the empty `q` to `None` and returns recent-by-newest.
+    // H3 — over-fetch ONE probe row beyond `limit` from the recency source: the previous call fetched
+    // only `base_limit == limit` rows, so the `.take(limit + 1)` below was a NO-OP and `has_more` was
+    // ALWAYS false on the common agent "list recent" path. The probe makes `has_more` honest.
+    let recent =
+        lexical_history_results(paths, config, key, request, "", facet_starred, true, "newest")?;
+    // Collect one more than `limit` to detect `has_more`.
+    let ranked: Vec<AiSearchEntry> = recent
+        .items
+        .iter()
+        .filter(|item| !facet_starred || starred.is_starred(&item.url))
+        // Descending rank score so the newest row sorts first after the (additive) starred boost,
+        // matching the keyword path's "higher score = better" ordering without inventing relevance.
+        .enumerate()
+        .map(|(rank, item)| {
+            let score = 1.0 - (rank as f32) / (limit.max(1) as f32);
+            history_entry_to_search_entry(item, score.max(0.0), RECENT_VISITS_MATCH_REASON)
+        })
+        .take(limit + 1)
+        .collect();
+
+    // M2 — `total` is the BEST-KNOWN total BEFORE pagination (the pre-truncation count, including the
+    // probe row), consistent with the keyword path's pre-pagination fused `total`. So a consumer reading
+    // `total` / `has_more` / `applied_limit` sees the same semantics on both paths (the probe makes
+    // `total == limit + 1` when more exist, matching `has_more == true`).
+    let total = ranked.len();
+    let has_more = total > limit;
+    let ranked: Vec<AiSearchEntry> = ranked.into_iter().take(limit).collect();
+
+    let mut items = apply_starred_boost(ranked, &starred, config.ai.starred_boost);
+    items.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(Ordering::Equal)
+            // Tie-break newest-first so equal-score rows stay in recency order (visited_at desc).
+            .then(right.visited_at.cmp(&left.visited_at))
+    });
+
+    Ok(AiSearchResponse {
+        total,
+        provider_id: "recent-visits".to_string(),
+        model: "none".to_string(),
+        items,
+        notes: Vec::new(),
+        note_codes: Vec::new(),
+        next_cursor: None,
+        applied_limit: Some(applied_limit),
+        has_more,
+    })
+}
+
+/// The model-facing match reason carried on every date-ordered row (`sort:"oldest"|"newest"` path).
+///
+/// Like [`RECENT_VISITS_MATCH_REASON`], a free-form per-entry reason (not a localized
+/// [`AiSearchNote`]) because this path is reached only from the MODEL-facing agent/run_code surface.
+/// It tells the model these rows are an EARLIEST-/latest-first enumeration of the keyword's matches —
+/// the entry point for "when did I first browse X?" — so it doesn't mistake them for relevance ranking.
+const DATE_ORDERED_MATCH_REASON: &str = "Lexical match (date-ordered)";
+
+/// Returns the keyword's matches in pure VISIT-DATE order for a `sort: "oldest" | "newest"` request.
+///
+/// THE FIX for "when did I first browse mlx?" wrongly answering June when 2025 records exist: the
+/// hybrid path returns a recency-ranked top-K and then re-sorts by SCORE, so an older match that lives
+/// in the index is never surfaced. This path enumerates the lexical matches in pure chronological order
+/// instead. It bypasses the semantic plane entirely — a meaning re-rank would scramble the order the
+/// caller explicitly asked for — and threads the requested `sort` straight into `list_history`, so the
+/// EARLIEST (oldest) or latest (newest) occurrence survives verbatim to the response. The list-history
+/// date order is PRESERVED end-to-end: rows are NOT re-sorted by score (unlike the relevance path), so
+/// `items[0]` is genuinely the first/last occurrence.
+///
+/// Pagination composes with the date sort: the request `cursor` is an integer OFFSET into the
+/// date-ordered match list. We fetch a bounded pool covering `offset + limit + 1` (one probe row, all
+/// clamped to `list_history`'s `[1, 1000]` cap via [`lexical_history_results`]) and slice the page.
+/// `total` is the TRUE (uncapped) match count from `list_history`'s COUNT, so `has_more` is honest even
+/// past the fetched pool. CRITICAL: the cursor only advances WITHIN the 1000-row retrievable window — at
+/// the window edge `next_cursor` is `None` (re-fetching past it returns nothing, which would loop the
+/// agent forever on empty pages). When the timeline continues beyond the window, `has_more` stays true
+/// with NO `next_cursor` AND a model-facing note tells the agent to narrow (date range / filters) rather
+/// than believe it saw everything. Bounded exactly like every other path: no full scan even at 14.4M.
+#[allow(clippy::too_many_arguments)]
+fn date_ordered_response(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &AiSearchRequest,
+    query: &str,
+    limit: usize,
+    facet_starred: bool,
+    sort: AiSearchSort,
+) -> Result<AiSearchResponse> {
+    let applied_limit = limit as u32;
+    let offset =
+        request.cursor.as_deref().and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
+
+    // Starred matcher: needed both for the `is:starred` post-filter and so favorites still STAR on the
+    // FE evidence rows; the bounded starred boost is intentionally NOT applied here — re-scoring would
+    // be meaningless on a date-ordered list and could only tempt a future re-sort that breaks the order.
+    let starred = crate::stars::load_starred_matcher(paths, config, key)?;
+
+    // Over-fetch the pool to cover `offset + limit + 1` (the +1 probe feeds an honest `has_more`). We
+    // clone the request and widen its `limit` so `lexical_history_results` (which derives its fetch from
+    // `request.limit`) pulls a deep-enough pool; the actual fetch is still clamped to `[1, 1000]` inside
+    // `list_history`. The requested date `sort` is threaded straight through to `list_history`.
+    let fetch_target = offset.saturating_add(limit).saturating_add(1);
+    let mut pool_request = request.clone();
+    pool_request.limit = Some(u32::try_from(fetch_target).unwrap_or(u32::MAX));
+    let lexical = lexical_history_results(
+        paths,
+        config,
+        key,
+        &pool_request,
+        query,
+        facet_starred,
+        false,
+        sort.list_history_sort(),
+    )?;
+
+    // Apply the `is:starred` post-filter (the date order is preserved by the filter), then map to search
+    // entries WITHOUT re-sorting — `list_history` already returned them oldest-/newest-first.
+    let ordered: Vec<&HistoryEntry> = lexical
+        .items
+        .iter()
+        .filter(|item| !facet_starred || starred.is_starred(&item.url))
+        .collect();
+
+    // The retrievable window is `list_history`'s [1,1000] fetch clamp; `lexical.total` is the TRUE
+    // (uncapped) match count from its COUNT query. For the `is:starred` facet the in-Rust post-filter
+    // shrinks the pool and `lexical.total` counts pre-filter (overstating it), so fall back to the
+    // in-pool count there; the non-starred path uses the true count for an honest `has_more`/`total`.
+    const DATE_ORDERED_WINDOW_CAP: usize = 1000;
+    let pool_capped = lexical.items.len() >= DATE_ORDERED_WINDOW_CAP;
+    let total = if facet_starred { ordered.len() } else { lexical.total as usize };
+    let page: Vec<AiSearchEntry> = ordered
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .map(|item| {
+            // Constant score as a stable, non-reordering tag (it never re-sorts the page); the
+            // chronological order from `list_history` is what carries the meaning here.
+            history_entry_to_search_entry(item, 0.0, DATE_ORDERED_MATCH_REASON)
+        })
+        .collect();
+    let next_offset = offset.saturating_add(page.len());
+    // Advance the cursor ONLY while the next page stays inside the fetched window AND the pool actually
+    // holds a row past this page (the +1 probe). At the window edge the cursor stops (None) so the agent
+    // never loops on empty pages beyond the 1000-row clamp.
+    let more_in_pool = next_offset < ordered.len();
+    let can_page = more_in_pool && next_offset < DATE_ORDERED_WINDOW_CAP;
+    let next_cursor = can_page.then(|| next_offset.to_string());
+    // More matches may exist than offset-paging can reach when the pool hit the cap: keep `has_more` true
+    // (with NO next_cursor) and leave a note so the agent narrows instead of trusting an incomplete walk.
+    let beyond_window = pool_capped && !can_page;
+    let has_more = can_page || beyond_window;
+    // Model-facing note (this path is model-only, like the match reason) when the timeline continues past
+    // the retrievable window — tells the agent to narrow rather than believe the page is the whole set.
+    let notes = if beyond_window {
+        vec![format!(
+            "Reached the {DATE_ORDERED_WINDOW_CAP}-row retrieval cap for this query; more matches exist beyond it — narrow the date range or add filters to see the rest."
+        )]
+    } else {
+        Vec::new()
+    };
+
+    Ok(AiSearchResponse {
+        total,
+        provider_id: "date-ordered".to_string(),
+        model: "none".to_string(),
+        items: page,
+        notes,
+        note_codes: Vec::new(),
+        next_cursor,
+        applied_limit: Some(applied_limit),
+        has_more,
+    })
+}
+
+/// One fused result mid-pipeline: the chosen entry plus its rank in each recall list (W-AI-6 RRF).
+///
+/// `lexical_rank` / `semantic_rank` are the 0-based positions in their respective ranked lists, or
+/// `None` when the result was absent from that list. The RRF score and final `match_reason` are derived
+/// from these before the starred boost runs.
+struct FusedResult {
+    entry: AiSearchEntry,
+    lexical_rank: Option<usize>,
+    semantic_rank: Option<usize>,
+}
+
+/// Returns the PAGE-STABLE fusion key for a result URL (M-12).
+///
+/// Fusion must dedup on PAGE identity, not the per-visit id, or a frequently-visited page whose two
+/// newest matching visits both land in the lexical window produces TWO rows (one fused, one lexical-only)
+/// and only the newest-visit row earns the RRF dual-list boost — defeating the "page in BOTH lists beats
+/// single-list" guarantee. We key on the CANONICAL url (the same page-identity `crate::stars` keys by):
+/// `normalize_visit_url` collapses tracking-param + host-casing variants, so every visit of one page maps
+/// to one key, and a lexical visit fuses with the semantic representative of the same page even when their
+/// raw urls differ. Unparseable urls fall back to the raw string (still stable per row, just not collapsed
+/// — the honest "can't canonicalize" outcome).
+fn fusion_page_key(url: &str) -> String {
+    normalize_visit_url(url)
+        .map(|normalized| normalized.canonical_url)
+        .unwrap_or_else(|| url.to_string())
+}
+
+/// Fuses the lexical + semantic ranked lists into scored entries via Reciprocal Rank Fusion (W-AI-6).
+///
+/// Each result's score is `Σ_list weight_list / (rrf_k + rank)` over the lists it appears in (0-based
+/// rank), so a page ranked high in BOTH lists beats one ranked high in only one — the core hybrid win,
+/// deterministic and model-free. The entry shape prefers the SEMANTIC hydration (its representative
+/// most-recent visit) when a page is in both, falling back to the lexical row; the `match_reason`
+/// reflects which list(s) matched. Both lists are already bounded by `limit`, so this is O(pool), never
+/// the corpus. The weights + `rrf_k` come from [`AiSettings`] (already clamped on config load).
+///
+/// Dedup is PAGE-STABLE (M-12): both lists key on [`fusion_page_key`] (canonical url), NOT the per-visit
+/// id. So a page's multiple lexical visits collapse to ONE entry that takes the page's BEST lexical rank
+/// (the lexical list is `sort=newest`, so the first occurrence is both the best-ranked AND the most-recent
+/// visit — the surviving lexical-only shape), and that same entry fuses with the semantic representative
+/// of the page, earning the dual-list boost in ONE row instead of duplicating the page.
+fn fuse_ranked_lists(
+    lexical_ranked: &[&HistoryEntry],
+    semantic_hits: &[AiSearchEntry],
+    settings: &crate::models::AiSettings,
+) -> Vec<AiSearchEntry> {
+    let rrf_k = settings.hybrid_rrf_k.max(1) as f32;
+    let mut fused: HashMap<String, FusedResult> = HashMap::new();
+
+    // Lexical contributions: seed each PAGE from its most-recent matching visit (the lexical list is
+    // `sort=newest`, so the first row seen for a page is its newest visit AND its best rank).
+    for (rank, item) in lexical_ranked.iter().enumerate() {
+        let key = fusion_page_key(&item.url);
+        let result = fused.entry(key).or_insert_with(|| FusedResult {
+            entry: history_entry_to_search_entry(item, 0.0, "Lexical match"),
+            lexical_rank: None,
+            semantic_rank: None,
+        });
+        // First occurrence wins the rank: a page's later (older) visits never overwrite the best rank or
+        // the most-recent-visit entry shape, so a frequently-visited page contributes ONE lexical row.
+        result.lexical_rank.get_or_insert(rank);
+    }
+
+    // Semantic contributions: a page already present (dual match) ADOPTS the semantic hydration (its
+    // representative visit + snippet-bearing entry); a semantic-only page joins fresh. Keying on the same
+    // page-stable url is what lets a lexical visit and the semantic representative of the same page fuse.
+    for (rank, hit) in semantic_hits.iter().enumerate() {
+        let key = fusion_page_key(&hit.url);
+        match fused.get_mut(&key) {
+            Some(result) => {
+                result.entry = hit.clone();
+                result.semantic_rank.get_or_insert(rank);
+            }
+            None => {
+                fused.insert(
+                    key,
+                    FusedResult {
+                        entry: hit.clone(),
+                        lexical_rank: None,
+                        semantic_rank: Some(rank),
+                    },
+                );
+            }
+        }
+    }
+
+    // Score + label each fused result from its ranks.
+    fused
+        .into_values()
+        .map(|mut result| {
+            let mut score = 0.0f32;
+            if let Some(rank) = result.lexical_rank {
+                score += settings.lexical_weight / (rrf_k + rank as f32);
+            }
+            if let Some(rank) = result.semantic_rank {
+                score += settings.semantic_weight / (rrf_k + rank as f32);
+            }
+            result.entry.score = score;
+            result.entry.match_reason =
+                fusion_reason(result.lexical_rank.is_some(), result.semantic_rank.is_some())
+                    .to_string();
+            result.entry
+        })
+        .collect()
+}
+
+/// Returns the honest match-reason label for a fused result given which lists matched (W-AI-6).
+///
+/// A page in both lists is the strongest signal ("Lexical + semantic match"); otherwise it names the
+/// single list it came from. The all-false case is unreachable in `fuse_ranked_lists` (every fused id
+/// has at least one rank), but is mapped to the lexical label as a total, panic-free default.
+fn fusion_reason(has_lexical: bool, has_semantic: bool) -> &'static str {
+    match (has_lexical, has_semantic) {
+        (true, true) => "Lexical + semantic match",
+        (false, true) => "Semantic match",
+        _ => "Lexical match",
+    }
+}
+
+/// Applies the BOUNDED, tunable starred boost to fused results, marking promoted favorites (W-AI-6).
+///
+/// 05 §10 boundedness: an UNbounded starred bias turns semantic search into a bookmark list. So the
+/// boost is a CAPPED additive delta on the `[0, 1]`-normalized fusion score — `normalized + boost`,
+/// where `boost <= MAX_STARRED_BOOST = 0.5` and the normalized top is `1.0`. A *relevant* starred page
+/// (already near the top) is promoted; an *irrelevant* starred page (low normalized score) gains at most
+/// `boost` and so can never leapfrog a strongly-relevant unstarred page near `1.0`. The boost is added
+/// to the SAME normalized scale the un-boosted results are renormalized onto, so the ordering stays a
+/// single comparable space. `boost == 0` (or nothing starred) is a no-op pass-through. Starred results
+/// get a "(Starred)" suffix on their reason so the FE can show the favorite affordance without a new
+/// field. Operates on the bounded fused pool — never the corpus.
+fn apply_starred_boost(
+    fused: Vec<AiSearchEntry>,
+    starred: &crate::stars::StarredMatcher,
+    boost: f32,
+) -> Vec<AiSearchEntry> {
+    // Normalize fusion scores onto [0, 1] so the additive boost has a stable, bounded meaning. An
+    // empty pool or all-zero scores leave the (zero) scores untouched.
+    let max_score = fused
+        .iter()
+        .map(|entry| entry.score)
+        .fold(0.0f32, |acc, value| if value > acc { value } else { acc });
+    let scale = if max_score > 0.0 { 1.0 / max_score } else { 1.0 };
+
+    fused
+        .into_iter()
+        .map(|mut entry| {
+            entry.score *= scale;
+            // Skip the per-result canonicalization work when the boost is disabled or nothing is
+            // starred — the common case stays free.
+            if boost > 0.0 && !starred.is_empty() && starred.is_starred(&entry.url) {
+                entry.score += boost;
+                entry.match_reason = format!("{} (Starred)", entry.match_reason);
+            }
+            entry
+        })
+        .collect()
+}
+
+/// Whether the keyed reverse/forward sidecars are trustworthy for this provider's CURRENT planes.
+///
+/// The read-path staleness guard (M-11): the sidecars are stamped with the `.pkvec` fingerprint hash,
+/// so they are usable iff both are present AND stamped for the live store's hash. A missing store
+/// (nothing embedded) or a missing/stale/torn sidecar (an older index built before the sidecar
+/// existed, or a half-written pair) makes the keyed path UNTRUSTED, and the caller falls back to the
+/// authoritative `.pkmap` scan so results stay correct. `Ok(false)` whenever anything is off — the
+/// keyed path is a pure optimization layered over the always-correct `.pkmap`.
+fn reverse_sidecars_usable(paths: &ProjectPaths, provider: &AiProviderRuntime) -> Result<bool> {
+    let store =
+        VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    let Some(header) = store.read_header()? else {
+        return Ok(false); // No `.pkvec` source ⇒ no trustworthy sidecar to key off.
+    };
+    let sidecars =
+        ReverseVisitMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    Ok(!sidecars.is_stale_against(&header.fingerprint_hash)?)
+}
+
+/// Resolves result content_keys → their visits via the keyed `.pkrev` sidecar, falling back to scan.
+///
+/// The bounded hydration join (M-11): when the keyed sidecars are usable this is O(k'·log n)
+/// binary-search seeks over the few result content_keys; otherwise it degrades to the authoritative
+/// `.pkmap` full scan (correct, just the old O(n) cost) so an older/torn index still serves the EXACT
+/// same history_ids. Both paths return identical results — the sidecar is the SAME
+/// `(content_key, history_id)` multiset as the `.pkmap`.
+fn resolve_history_ids_for_content_keys(
+    paths: &ProjectPaths,
+    provider: &AiProviderRuntime,
+    wanted: &std::collections::HashSet<u64>,
+) -> Result<HashMap<u64, Vec<i64>>> {
+    if reverse_sidecars_usable(paths, provider)? {
+        let sidecars = ReverseVisitMap::for_provider(
+            paths,
+            &provider.config.id,
+            &provider.config.default_model,
+        );
+        return sidecars.history_ids_for_content_keys(wanted);
+    }
+    let visit_map =
+        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    visit_map.history_ids_for_content_keys(wanted)
+}
+
+/// Resolves a bounded starred history_id set → content_keys via the keyed `.pkfwd` sidecar, else scan.
+///
+/// The bounded `is:starred` forward join (XA-PERF-4, M-11): when the keyed sidecars are usable this is
+/// O(starred·log n) binary-search seeks; otherwise it degrades to the authoritative `.pkmap` full scan
+/// so an older/torn index still serves the EXACT same content_key set.
+fn resolve_content_keys_for_history_ids(
+    paths: &ProjectPaths,
+    provider: &AiProviderRuntime,
+    wanted: &std::collections::HashSet<i64>,
+) -> Result<std::collections::HashSet<u64>> {
+    if reverse_sidecars_usable(paths, provider)? {
+        let sidecars = ReverseVisitMap::for_provider(
+            paths,
+            &provider.config.id,
+            &provider.config.default_model,
+        );
+        return sidecars.content_keys_for_history_ids(wanted);
+    }
+    let visit_map =
+        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    visit_map.content_keys_for_history_ids(wanted)
+}
+
+/// Resolves the starred content_key allowlist for the `is:starred` semantic facet (W-AI-6).
+///
+/// Maps starred URLs/domains → starred archive `visits.id`s (the bounded join, [`starred_history_ids`])
+/// → deduped `content_key`s through the provider's `.pkmap` (the authoritative visit→content adjacency).
+/// Returns `Some(keys)` — possibly EMPTY when nothing starred maps to a built vector — so the caller
+/// passes an allowlist (an empty allowlist correctly yields no semantic hits, the honest "facet matched
+/// nothing" outcome). Returns `None` only when there is no embedding provider (semantic recall is off
+/// anyway, so the facet has nothing to constrain). The content_key is `hash(canonical_url + title +
+/// enrichment)`, NOT derivable from the URL alone, so the `.pkmap` is the source of truth, not a re-hash.
+fn resolve_starred_content_keys(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    provider: Option<&AiProviderRuntime>,
+    starred: &crate::stars::StarredMatcher,
+) -> Result<Option<Vec<u64>>> {
+    let Some(provider) = provider else {
+        return Ok(None);
+    };
+    let history_ids = crate::stars::starred_history_ids(paths, config, key, starred)?;
+    // XA-PERF-4 (closed, M-11): resolve the BOUNDED starred history_id set → content_keys through the
+    // keyed forward sidecar (`.pkfwd`, O(starred·log n) binary-search seeks) when present + fresh,
+    // falling back to the authoritative `.pkmap` full scan only when the sidecar is missing/stale (an
+    // older index, or a torn sidecar). The forward stride is no longer the always-paid O(n) pass; the
+    // next index build re-projects the sidecar.
+    let keys = resolve_content_keys_for_history_ids(paths, provider, &history_ids)?;
+    Ok(Some(keys.into_iter().collect()))
+}
+
+/// Embeds the query, runs the flat two-stage vector index, and hydrates hits to representative visits.
+///
+/// The real semantic-retrieval path (W-AI-5, 05 §3): embed the query (f32, Query role) → the
+/// [`FlatVectorIndex`] does binary Hamming recall → int8 rescore over the derived planes → returns
+/// `(content_key, score)` → hydrate each unique page to its MOST-RECENT visible visit through the
+/// `.pkmap` fan-out + one batched archive lookup (no N+1). Profile/domain facets are applied as a
+/// post-hydration filter over an EXPANDED top-k so a tight facet still surfaces enough true matches.
+///
+/// `starred_content_keys` is the `is:starred` facet's allowlist (W-AI-6): when `Some`, semantic recall
+/// is restricted to those deduped content vectors via the index's content_key post-filter (the seam
+/// W-AI-5 left). `None` is unconstrained; an empty allowlist honestly returns no hits (nothing starred
+/// is indexed) rather than ignoring the facet.
+///
+/// Honest degradation, never a panic: a missing/empty index yields no hits with a clear note; a stale
+/// ledger adds the staleness reason so the user knows to rebuild. The vectors live ONLY on the derived
+/// planes — this never reads a vector from SQLite.
 pub(super) async fn semantic_matches(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
     provider: &AiProviderRuntime,
-    _request: &AiSearchRequest,
+    request: &AiSearchRequest,
+    starred_content_keys: Option<&[u64]>,
 ) -> Result<SemanticMatchReport> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
-    let mut notes = Vec::new();
+    let mut notes: Vec<AiSearchNote> = Vec::new();
     let ledger =
         load_index_ledger(&connection, &provider.config.id, &provider.config.default_model)?;
     if let Some(reason) = semantic_index_staleness_reason(
@@ -475,23 +1158,313 @@ pub(super) async fn semantic_matches(
         ledger.source_watermark,
         ledger.last_indexed_at.as_deref(),
     )? {
-        notes.push(reason);
+        notes.push(AiSearchNote::Stale { reason });
     }
 
-    let sqlite_embedding_count =
-        provider_embedding_count(&connection, &provider.config.id, &provider.config.default_model)?;
-    if sqlite_embedding_count > 0 {
-        notes.push(
-            "The optional semantic sidecar is tracked for PathKeep v0.3.0, so PathKeep returned lexical matches only instead of relying on stale SQLite semantic metadata."
-                .to_string(),
-        );
-    } else {
-        notes.push(
-            "Semantic search is tracked for PathKeep v0.3.0; showing lexical results only."
-                .to_string(),
-        );
+    // Load the flat index over the derived planes. A never-built / empty index loads cleanly to zero
+    // vectors (no panic); we report an honest note and return lexical-only.
+    let index = FlatVectorIndex::open(paths, &provider.config.id, &provider.config.default_model)?;
+    if index.is_empty() {
+        notes.push(AiSearchNote::EmptySemanticIndex);
+        return Ok(SemanticMatchReport { hits: Vec::new(), notes });
     }
-    Ok(SemanticMatchReport { notes })
+
+    // Embed the query under the Query role (asymmetric models encode queries differently).
+    let query_vector = embed_query(provider, request.query.trim(), EmbeddingRole::Query).await?;
+
+    // CONFIG-DRIFT GUARD (D1, 05 §10): the planes were binarized/int8-quantized at a STAMPED dim +
+    // fingerprint. If the live embedding config changed, comparing a differently-shaped query against
+    // them would silently score garbage (binary widths differ → prefix-only Hamming; or same width but
+    // a different model/pooling/dtype → wrong geometry). Reject BOTH cases here, BEFORE searching, and
+    // degrade to lexical-only with an honest note so no meaningless score reaches the result merge.
+    if let Some(reason) = semantic_config_drift_reason(paths, provider, &index, query_vector.len())?
+    {
+        notes.push(reason);
+        return Ok(SemanticMatchReport { hits: Vec::new(), notes });
+    }
+
+    // Profile/domain facets are post-hydration (per-visit, not per-content); the `is:starred` facet is
+    // a CONTENT-key allowlist pushed INTO the index (W-AI-6 — the seam W-AI-5 left). Recall an expanded
+    // top-k when EITHER kind of facet is present so the post-filter / allowlist still yields the limit.
+    // Clamp to the shared retrieval ceiling ([`MAX_SEARCH_ROWS`]); the semantic recall is a BOUNDED
+    // top-k over the flat vector index (never a corpus scan), so a larger page (sandbox path) stays
+    // bounded. The 50-row context cap is applied by the model-facing tools, not here.
+    let limit = request.limit.unwrap_or(8).clamp(1, MAX_SEARCH_ROWS) as usize;
+    let has_visit_facet = request.profile_id.is_some() || request.domain.is_some();
+    let recall_k = if has_visit_facet || starred_content_keys.is_some() {
+        limit.saturating_mul(8).max(limit)
+    } else {
+        limit
+    };
+    // The `is:starred` facet restricts SEMANTIC recall to starred pages via the index's content_key
+    // allowlist post-filter (the seam from W-AI-5). An EMPTY allowlist correctly returns no semantic
+    // hits — the honest "nothing starred is indexed" outcome — rather than silently ignoring the facet.
+    // Without the facet the allowlist is `None` (unconstrained). The empty index is handled above.
+    let matches = index.search(&query_vector, recall_k, starred_content_keys)?;
+    let hits = hydrate_semantic_hits(&connection, paths, provider, &matches, request, limit)?;
+    if hits.is_empty() {
+        notes.push(AiSearchNote::SemanticMatchesFilteredOut);
+    }
+    Ok(SemanticMatchReport {
+        hits: hits.into_iter().map(semantic_hit_to_search_entry).collect(),
+        notes,
+    })
+}
+
+/// Returns an honest degradation note when the live embedding config no longer matches the planes.
+///
+/// The query-path counterpart to the build-time fingerprint stamp (D1, 05 §10). Two distinct drifts
+/// would otherwise let a meaningless score reach the result merge:
+/// - **dim change** (user-mutable `provider.config.dimensions`, MRL truncation): the query binarizes to
+///   a DIFFERENT byte width than the stored bits, so `hamming_distance` would compare only the shared
+///   prefix and the int8 rescore would dot mismatched lengths — pure noise. We detect it directly by
+///   comparing the embedded query length to the loaded plane `dim`.
+/// - **same-dim fingerprint drift** (pooling / normalization / instruction / dtype changed but the dim
+///   held): the bytes line up but the GEOMETRY is different, so scores are still meaningless. We build
+///   the LIVE fingerprint from the selected engine's descriptor (stamped exactly as the build path does
+///   in `vector_store_for_chunk`: the engine's real dtype/pooling/instruction, keyed by the provider
+///   config id/model, with the observed query dim) and ask [`planes_are_stale`] whether it matches the
+///   plane's stamp.
+///
+/// Returns `Some(note)` (caller degrades to lexical-only) on either drift, `None` when the planes are
+/// usable. An empty index is handled by the caller before this is reached, so a `None` here means a
+/// real, dimension- and fingerprint-matched index ready to search.
+fn semantic_config_drift_reason(
+    paths: &ProjectPaths,
+    provider: &AiProviderRuntime,
+    index: &FlatVectorIndex,
+    query_dim: usize,
+) -> Result<Option<AiSearchNote>> {
+    // Dim mismatch: the binarized query byte width differs from the plane's, so a search would
+    // prefix-compare and score garbage. Reject loudly with a rebuild note.
+    if query_dim != index.dim() {
+        return Ok(Some(AiSearchNote::ConfigDriftDimension));
+    }
+
+    // Same-dim fingerprint drift: build the live fingerprint exactly as the build path stamps it and
+    // ask whether the planes are stale against it. The selected engine carries the real
+    // dtype/normalized/pooling/instruction (the build path uses these via `vector_store_for_chunk`);
+    // we override the provider id/model + observed dim so the comparison keys match the stored stamp.
+    // `false`: this path only needs the engine DESCRIPTOR for the fingerprint-drift comparison, and
+    // the forward-pass device (CPU vs Metal) does not affect the descriptor/fingerprint (W-AI-9-D).
+    let engine = super::embedding_candle::select_embedding_provider(paths, provider, false)?;
+    let live = EmbeddingFingerprint::from_descriptor(&EmbeddingDescriptor {
+        provider_id: provider.config.id.clone(),
+        model_id: provider.config.default_model.clone(),
+        effective_dim: Some(query_dim),
+        ..engine.descriptor()
+    })
+    // `from_descriptor` only returns None when no dim is known; we just supplied the observed query
+    // dim, so this is infallible — an unwrap rather than a dead else-branch keeps the invariant honest.
+    .expect("live fingerprint always has the observed query dim");
+    if planes_are_stale(paths, &provider.config.id, &provider.config.default_model, &live)? {
+        return Ok(Some(AiSearchNote::ConfigDriftFingerprint));
+    }
+    Ok(None)
+}
+
+/// Hydrates `(content_key, score)` index hits to one representative (most-recent) visit per page.
+///
+/// The dedup join (05 §1): a result content_key fans out to its visits via the `.pkmap`, and we pick
+/// the most-recent VISIBLE visit so the UI shows one row per page. ONE batched archive lookup over the
+/// fanned-out history_ids (chunked) keeps this O(candidates), never N+1 at 14.4M. Profile/domain facets
+/// drop non-matching visits here (the post-hydration filter); the surviving pages are truncated to
+/// `limit`, ranked by the carried semantic score (the index already ordered them).
+fn hydrate_semantic_hits(
+    connection: &Connection,
+    paths: &ProjectPaths,
+    provider: &AiProviderRuntime,
+    matches: &[(u64, f32)],
+    request: &AiSearchRequest,
+    limit: usize,
+) -> Result<Vec<SemanticHit>> {
+    // content_key → score, preserving the index's ranking order.
+    let mut score_by_key: HashMap<u64, f32> = HashMap::with_capacity(matches.len());
+    let wanted: std::collections::HashSet<u64> = matches
+        .iter()
+        .map(|(key, score)| {
+            score_by_key.insert(*key, *score);
+            *key
+        })
+        .collect();
+
+    // M-11: resolve each result content_key to its visits through the keyed reverse sidecar (`.pkrev`,
+    // O(k'·log n) binary-search seeks) when it is present + fresh; otherwise fall back to the
+    // authoritative `.pkmap` full scan so an older index (built before the sidecar existed) or a torn
+    // sidecar still serves CORRECT results — the next index build re-projects the sidecar. The query
+    // thread never triggers a heavy rebuild (Principle 3: no main-thread freeze); it just degrades to
+    // the correct-but-slower scan for that one query.
+    let inverse = resolve_history_ids_for_content_keys(paths, provider, &wanted)?;
+    // Flatten to the candidate history_ids and remember which content_key each came from. `inverse`
+    // only contains keys that have at least one mapped visit, so every history_id below has a key.
+    let mut key_by_history: HashMap<i64, u64> = HashMap::new();
+    for (content_key, history_ids) in &inverse {
+        for history_id in history_ids {
+            key_by_history.insert(*history_id, *content_key);
+        }
+    }
+    let candidate_ids: Vec<i64> = key_by_history.keys().copied().collect();
+
+    // Attach the derived `search` plane so the hydration JOIN can read each page's enrichment excerpt
+    // (REACH-C3). The intelligence connection attaches only `archive` by default; the lexical path gets
+    // `search` for free because `open_archive_connection` attaches it, so we mirror that ATTACH here for
+    // the AI-search connection. Idempotent for this code path: `hydrate_semantic_hits` runs once per
+    // freshly-opened connection, so `search` is never already attached.
+    attach_search_database(connection, paths)?;
+
+    // Batch-load the candidate visit rows (skips reverted), then per content_key keep the most-recent
+    // VISIBLE visit that passes the facet filter. Every returned row.id is in `key_by_history` (the
+    // SQL only queried those ids), so the lookup is total.
+    //
+    // H1 — the DATE filter is enforced HERE, SQL-side on `visit_time_ms` (Unix-ms), the SAME predicate
+    // the lexical path threads into `list_history`. Without it the semantic/hybrid plane (and code_mode's
+    // hybrid/vector planes, which share this path) would LEAK out-of-range semantic hits when the caller
+    // supplied `start_date`/`end_date`. Resolving on `visit_time_ms` keeps it consistent with the lexical
+    // path and avoids the Chrome-micros conversion a `visit_passes_facets`-side filter would need.
+    let date_range_ms = resolve_date_filter_ms(request);
+    let rows = load_visit_rows(connection, &candidate_ids, date_range_ms)?;
+    let mut best: HashMap<u64, HistoryEntry> = HashMap::new();
+    for row in rows {
+        if !visit_passes_facets(&row, request) {
+            continue;
+        }
+        let content_key = key_by_history[&row.id];
+        match best.get(&content_key) {
+            Some(existing) if existing.visit_time >= row.visit_time => {}
+            _ => {
+                best.insert(content_key, row);
+            }
+        }
+    }
+
+    // Order the surviving pages by their semantic score (desc), then content_key (asc) for a stable
+    // tie-break, and cap at the caller's limit.
+    let mut hits: Vec<(u64, SemanticHit)> = best
+        .into_iter()
+        .map(|(content_key, visit)| {
+            let score = score_by_key.get(&content_key).copied().unwrap_or(0.0);
+            (content_key, SemanticHit { visit, score })
+        })
+        .collect();
+    hits.sort_by(|left, right| {
+        right
+            .1
+            .score
+            .partial_cmp(&left.1.score)
+            .unwrap_or(Ordering::Equal)
+            .then(left.0.cmp(&right.0))
+    });
+    hits.truncate(limit);
+    Ok(hits.into_iter().map(|(_, hit)| hit).collect())
+}
+
+/// Loads visit detail rows for a bounded set of history_ids, chunked, skipping reverted visits.
+///
+/// One statement per `SQLITE_BATCH_SIZE` chunk so the predicate list stays bounded at 14.4M — the
+/// batched hydration that replaces a per-result N+1. Reverted visits are excluded so a result never
+/// resolves to a row the user reverted.
+///
+/// `date_range_ms` is the optional `(start_ms, end_ms)` Unix-millisecond window (H1): the SQL always
+/// compares `visits.visit_time_ms` against a lower + upper bound so the semantic/hybrid plane honors the
+/// caller's `start_date`/`end_date` exactly as the lexical path does. An unbounded side (`None`) binds an
+/// `i64` sentinel (`MIN`/`MAX`) so its comparison is always true. The bounds are passed as trailing
+/// positional params after the IN-list.
+fn load_visit_rows(
+    connection: &Connection,
+    history_ids: &[i64],
+    date_range_ms: (Option<i64>, Option<i64>),
+) -> Result<Vec<HistoryEntry>> {
+    let (start_ms, end_ms) = date_range_ms;
+    let mut rows = Vec::new();
+    for chunk in history_ids.chunks(SQLITE_BATCH_SIZE) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        // The LEFT JOIN onto `search.search_documents` (keyed on the indexed `url_id` PK, for the
+        // already-bounded candidate set — no N+1, no scan) hydrates each row's enrichment summary so the
+        // semantic/hybrid path can show the SAME honest excerpt the lexical reader does (REACH-C3).
+        // Non-enriched pages have an empty/absent `enrichment_text`, which `cap_enrichment_excerpt`
+        // collapses to `None`, so the FE affordance stays suppressed for the vast majority of rows.
+        // Requires `search` to be ATTACHed on this connection — `hydrate_semantic_hits` attaches it
+        // before calling here (the intelligence connection attaches only `archive` by default).
+        let sql = format!(
+            "SELECT visits.id,
+                    source_profiles.profile_key,
+                    urls.url,
+                    urls.title,
+                    visits.visit_time_ms,
+                    (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time,
+                    search_documents.enrichment_text
+             FROM archive.visits AS visits
+             JOIN archive.urls AS urls ON urls.id = visits.url_id
+             JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
+             LEFT JOIN search.search_documents AS search_documents ON search_documents.url_id = urls.id
+             WHERE visits.reverted_at IS NULL
+               AND visits.id IN ({placeholders})
+               AND visits.visit_time_ms >= ?{start_idx}
+               AND visits.visit_time_ms <= ?{end_idx}",
+            // The date bounds are bound positionally AFTER the IN-list placeholders. `params_from_iter`
+            // numbers them 1..=chunk.len(); the two trailing bounds take the next two indices. An
+            // unbounded side uses an i64 sentinel (`MIN`/`MAX`) so the comparison is always true, which
+            // is simpler than a NULL-guard and binds a single concrete type.
+            start_idx = chunk.len() + 1,
+            end_idx = chunk.len() + 2,
+        );
+        let mut statement = connection.prepare(&sql)?;
+        // Chain the chunk ids with the two trailing date bounds (an unbounded side → MIN/MAX sentinel).
+        let params = rusqlite::params_from_iter(
+            chunk.iter().copied().chain([start_ms.unwrap_or(i64::MIN), end_ms.unwrap_or(i64::MAX)]),
+        );
+        let mapped = statement.query_map(params, |row: &Row<'_>| {
+            let url: String = row.get(2)?;
+            Ok(HistoryEntry {
+                id: row.get(0)?,
+                profile_id: row.get(1)?,
+                url: url.clone(),
+                title: row.get(3)?,
+                domain: url_domain(&url),
+                favicon: None,
+                visited_at: crate::utils::chrome_time_to_rfc3339(row.get::<_, i64>(5)?),
+                visit_time: row.get(5)?,
+                duration_ms: None,
+                transition: None,
+                source_visit_id: row.get(0)?,
+                app_id: None,
+                // ONE cap implementation, reused from the lexical reader (CJK-safe, ≤180 chars):
+                // empty/whitespace text yields `None`.
+                enrichment_excerpt: row
+                    .get::<_, Option<String>>(6)?
+                    .as_deref()
+                    .and_then(cap_enrichment_excerpt),
+            })
+        })?;
+        for entry in mapped {
+            rows.push(entry?);
+        }
+    }
+    Ok(rows)
+}
+
+/// Returns whether one hydrated visit passes the request's profile/domain facet filters.
+///
+/// Pure so the post-hydration facet predicate is unit-tested directly. An absent facet matches
+/// everything; a present facet matches exactly (profile by id, domain by host) so the semantic
+/// allowlist intent is honored even though it is applied at hydration rather than in the index.
+fn visit_passes_facets(visit: &HistoryEntry, request: &AiSearchRequest) -> bool {
+    if let Some(profile_id) = request.profile_id.as_deref() {
+        if visit.profile_id != profile_id {
+            return false;
+        }
+    }
+    if let Some(domain) = request.domain.as_deref() {
+        if visit.domain != domain {
+            return false;
+        }
+    }
+    true
+}
+
+/// Converts one hydrated semantic hit into the public AI search entry shape with an honest reason.
+fn semantic_hit_to_search_entry(hit: SemanticHit) -> AiSearchEntry {
+    history_entry_to_search_entry(&hit.visit, hit.score, "Semantic match")
 }
 
 /// Persists one assistant run trace after the final answer is known.
@@ -523,13 +1496,48 @@ pub(super) fn record_assistant_run(
 }
 
 /// Executes the lexical history query used as the fallback and merge baseline.
+///
+/// `starred_only` is the `is:starred` facet flag. The caller post-filters the lexical rows to the
+/// starred set, so fetching only the newest `limit` text matches would under-recall: a starred page that
+/// matches the query text but was visited OLDER than the newest ~`limit` matches would be silently
+/// dropped before the filter ever saw it. To fix that we EXPAND the lexical recall pool when the facet is
+/// on (mirroring the semantic plane's `recall_k = limit * 8`), so the post-filter has enough query-
+/// matching candidates to surface a full page of starred results. The pool is clamped to `list_history`'s
+/// `[1, 1000]` bound. RESIDUAL (documented, accepted for now): a starred match older than the newest
+/// `limit * 8` text matches can still be missed — pushing a `url_id IN (...)` predicate INTO
+/// `list_history` (its frozen multi-path FTS/regex/SQL contract) is too invasive for this fix; the
+/// expanded pool covers the realistic case (a handful of starred pages within a generous recency window)
+/// and degrades honestly rather than hard-truncating to the newest `limit`.
 pub(super) fn lexical_history_results(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
     request: &AiSearchRequest,
     query: &str,
+    starred_only: bool,
+    over_fetch_for_has_more: bool,
+    sort: &str,
 ) -> Result<crate::models::HistoryQueryResponse> {
+    let base_limit = request.limit.unwrap_or(12).max(1);
+    // The desired page size (`base_limit`) plus, when the caller will compute `has_more` from this pool,
+    // ONE probe row beyond it (M1/H3). The probe lets a `total > limit` (more matches exist) be detected
+    // truthfully instead of always reporting `has_more == false` because the pool was hard-capped at the
+    // page size.
+    // One line (not a multi-line `let =`): the coverage gate's brace-counting line-masking
+    // mis-attributes a `let x =\n  <expr>;` split, so keep the assignment + expression together.
+    let with_probe =
+        if over_fetch_for_has_more { base_limit.saturating_add(1) } else { base_limit };
+    // Facet on → fetch an expanded pool so the caller's starred post-filter still yields a full page (the
+    // expansion already over-fetches, so the probe is subsumed); facet off → the desired page size plus
+    // the optional `has_more` probe row.
+    let fetch_limit = if starred_only {
+        (base_limit.saturating_mul(LEXICAL_FACET_EXPANSION)).min(LEXICAL_FACET_POOL_CAP)
+    } else {
+        with_probe
+    };
+    // W-PKG-A: thread the date filter into the lexical query. `list_history` already supports
+    // `start_time_ms` / `end_time_ms` as Unix ms; we convert the "YYYY-MM-DD" strings here.
+    let (start_time_ms, end_time_ms) = resolve_date_filter_ms(request);
     list_history(
         paths,
         config,
@@ -539,15 +1547,35 @@ pub(super) fn lexical_history_results(
             profile_id: request.profile_id.clone(),
             browser_kind: None,
             domain: request.domain.clone(),
-            start_time_ms: None,
-            end_time_ms: None,
-            sort: Some("newest".to_string()),
-            limit: Some(request.limit.unwrap_or(12).max(1)),
+            start_time_ms,
+            end_time_ms,
+            // The caller picks the date ordering: the hybrid/relevance path keeps `"newest"` (the
+            // historical lexical recall order it then re-ranks), while the date-ordered `sort:"oldest"`
+            // / `sort:"newest"` agent path threads its requested order straight through so the FIRST /
+            // latest occurrence survives to the response without a relevance re-sort.
+            sort: Some(sort.to_string()),
+            limit: Some(fetch_limit),
             page: None,
             cursor: None,
             regex_mode: Some(false),
         },
     )
+}
+
+/// Resolves optional `"YYYY-MM-DD"` date filters on the request to the Unix-millisecond range
+/// `list_history` expects. Unparseable dates are silently ignored (the user-typed a bad date).
+fn resolve_date_filter_ms(request: &AiSearchRequest) -> (Option<i64>, Option<i64>) {
+    let start_ms = request
+        .start_date
+        .as_deref()
+        .and_then(crate::utils::date_str_to_unix_ms_range)
+        .map(|(start, _)| start);
+    let end_ms = request
+        .end_date
+        .as_deref()
+        .and_then(crate::utils::date_str_to_unix_ms_range)
+        .map(|(_, end)| end);
+    (start_ms, end_ms)
 }
 
 /// Orders semantic matches from strongest to weakest score.
@@ -574,18 +1602,12 @@ pub(super) fn history_entry_to_search_entry(
         visited_at: item.visited_at.clone(),
         score,
         match_reason: reason.to_string(),
+        // The honest snippet (REACH-C3): carry whatever capped excerpt the hydration attached. The
+        // lexical reader sets this for keyword hits; `load_visit_rows` sets it for semantic/hybrid hits;
+        // every other hydration leaves it `None`, so non-enriched pages get no snippet (the band +
+        // reason carry the "why").
+        enrichment_excerpt: item.enrichment_excerpt.clone(),
     }
-}
-
-/// Computes the bounded lexical baseline score for one ranked lexical hit.
-pub(super) fn lexical_score(index: usize, limit: usize) -> f32 {
-    0.42 + ((limit.saturating_sub(index)) as f32 / limit.max(1) as f32) * 0.18
-}
-
-/// Computes the bounded lexical boost added to semantic hits during result merging.
-#[cfg(test)]
-pub(super) fn lexical_boost(index: usize, limit: usize) -> f32 {
-    ((limit.saturating_sub(index)) as f32 / limit.max(1) as f32) * 0.08
 }
 
 /// Computes cosine similarity for deterministic embedding test helpers.
@@ -621,23 +1643,24 @@ pub(super) fn sqlite_table_exists(connection: &Connection, table_name: &str) -> 
 }
 
 /// Explains why the semantic index should be considered stale for the selected provider/model.
+///
+/// Returns a stable [`AiSemanticStaleness`] reason CODE (review-fix M-6/M-7), shared by the AI-search
+/// degradation notes and the Settings index-health warning so both surfaces localize the same
+/// vocabulary; the English rendering lives in [`semantic_staleness_text`].
 pub(super) fn semantic_index_staleness_reason(
     connection: &Connection,
     provider_id: &str,
     model: &str,
     source_watermark: i64,
     last_indexed_at: Option<&str>,
-) -> Result<Option<String>> {
+) -> Result<Option<AiSemanticStaleness>> {
     if provider_embedding_count(connection, provider_id, model)? == 0 {
         return Ok(None);
     }
 
     let visible_watermark = current_source_watermark(connection)?;
     if source_watermark != 0 && visible_watermark != source_watermark {
-        return Ok(Some(
-            "The semantic index no longer matches the current archive visibility or import watermark. Run Build index so semantic retrieval includes recent imports and reflects reverted rows."
-                .to_string(),
-        ));
+        return Ok(Some(AiSemanticStaleness::Watermark));
     }
 
     if let Some(last_indexed_at) = last_indexed_at {
@@ -654,10 +1677,7 @@ pub(super) fn semantic_index_staleness_reason(
                 )
                 .optional()?;
             if latest_enrichment.as_deref().is_some_and(|value| value > last_indexed_at) {
-                return Ok(Some(
-                    "Readable-content enrichment changed after the last semantic build. Run Build index to refresh embeddings with the latest extracted text."
-                        .to_string(),
-                ));
+                return Ok(Some(AiSemanticStaleness::Enrichment));
             }
         }
     }

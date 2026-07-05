@@ -8,8 +8,9 @@ use super::{
 };
 use super::{AiSettings, DeterministicSettings, EnrichmentSettings};
 use super::{
-    merge_deterministic_module_states, merge_enrichment_plugin_preferences,
-    merge_enrichment_plugin_states,
+    ensure_embedding_provider_default, merge_content_fetch_extractor_preferences,
+    merge_deterministic_module_states, merge_embedding_providers,
+    merge_enrichment_plugin_preferences, merge_enrichment_plugin_states,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,9 +22,20 @@ pub fn normalize_app_config(config: &mut AppConfig) {
     config.enrichment.plugins = merge_enrichment_plugin_states(&config.enrichment.plugins);
     config.ai.enrichment_plugins =
         merge_enrichment_plugin_preferences(&config.ai.enrichment_plugins);
+    config.ai.content_fetch_extractors =
+        merge_content_fetch_extractor_preferences(&config.ai.content_fetch_extractors);
     config.deterministic.modules = merge_deterministic_module_states(&config.deterministic.modules);
+    // Re-materialize the always-present built-in static embedding provider (F1) and default the
+    // selection to it when none is validly selected, so the fast local Tier-0 engine is the honest
+    // out-of-the-box default and can never be deleted out of the list. An explicit valid selection
+    // (e.g. an external provider) is preserved.
+    config.ai.embedding_providers = merge_embedding_providers(&config.ai.embedding_providers);
+    ensure_embedding_provider_default(&mut config.ai);
     config.explorer_background_prefetch_pages =
         config.explorer_background_prefetch_pages.min(MAX_EXPLORER_BACKGROUND_PREFETCH_PAGES);
+    // Clamp the hybrid-search tuning knobs (W-AI-6) so a hand-edited/older config can never feed an
+    // out-of-range RRF k, fusion weight, or starred boost into the search merge.
+    config.ai.normalize_search_knobs();
 }
 
 /// User language selection persisted in config.
@@ -376,6 +388,17 @@ pub struct AppSnapshot {
     pub intelligence_status: IntelligenceStatus,
     #[serde(alias = "chromeProfiles")]
     pub browser_profiles: Vec<BrowserProfile>,
+    /// Why `browser_profiles` is what it is, so the front end can tell a genuine "no
+    /// browsers installed" apart from a permission wall. `None` means discovery
+    /// succeeded (even with zero browsers); a marker string means it did not. Marker
+    /// values: `"macos-full-disk-access"` (a Full Disk Access denial was detected) and
+    /// `"discovery-error"` (discovery failed for some other, surfaced reason). See
+    /// `vault_worker::app::resolve_browser_discovery_issue_core` for the precedence.
+    ///
+    /// `#[serde(default)]` so older persisted snapshots and the frozen browser-preview
+    /// fixture keep deserializing without carrying this field.
+    #[serde(default)]
+    pub browser_discovery_issue: Option<String>,
     pub recent_runs: Vec<BackupRunOverview>,
     pub recent_import_batches: Vec<ImportBatchOverview>,
 }

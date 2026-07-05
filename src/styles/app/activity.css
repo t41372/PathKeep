@@ -1,0 +1,615 @@
+/**
+ * @file activity.css
+ * @description Activity center page styles — zones, cards, progress bars, chips, and outcome pills.
+ * @module app-styles
+ *
+ * ## Responsibilities
+ * - Style every semantic class emitted by the Activity center page and its zone components:
+ *   activity-zone, activity-card (danger/warning rail), activity-row, activity-dot (pulsing),
+ *   activity-progress (determinate + indeterminate shimmer), feature-chip, outcome-pill,
+ *   state-dot, recent-row, activity-header, activity-skeleton.
+ * - Gate all looping animations on `@media (prefers-reduced-motion: no-preference)` so users
+ *   who request reduced motion see a static fallback instead.
+ *
+ * ## Not responsible for
+ * - Global shell chrome (sidebar, topbar, page layout).
+ * - Settings or security page styles.
+ *
+ * ## Dependencies
+ * - Relies on design tokens: `--ink`, `--ink-muted`, `--ink-faint`, `--ink-ghost`,
+ *   `--accent`, `--accent-soft`, `--accent-medium`, `--accent-text`,
+ *   `--error`, `--error-soft`, `--warning`, `--warning-soft`,
+ *   `--success`, `--success-soft`,
+ *   `--bg-paper`, `--bg-card`, `--bg-hover`, `--border`, `--border-light`,
+ *   `--font-serif`, `--font-sans`, `--font-mono`,
+ *   `--radius`, `--radius-pill`,
+ *   `--space-1` … `--space-8`.
+ *
+ * ## Performance notes
+ * - No layout-triggering properties in animation keyframes (transform + opacity only).
+ * - Reduced-motion guard wraps every @keyframes call-site.
+ */
+
+/* ═══ KEYFRAMES ═══ */
+
+@keyframes activity-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.78);
+  }
+}
+
+@keyframes activity-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.42;
+  }
+}
+
+/* ═══ PAGE HEADER STRIP ═══ */
+
+.activity-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-bottom: var(--space-6);
+}
+
+.activity-header__main {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.activity-header__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.activity-header__summary {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+.activity-header__actions {
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+/* ═══ ZONE LAYOUT ═══ */
+
+.activity-zone {
+  display: grid;
+  gap: var(--space-4);
+  padding-bottom: var(--space-6);
+}
+
+.activity-zone__heading {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.activity-zone__list {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.activity-zone__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* ═══ NEEDS-ATTENTION CARDS ═══ */
+
+.activity-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: start;
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  /* The left rail is drawn via border-left; we override it per tone below. */
+  border-left-width: 3px;
+  border-left-color: var(--border);
+}
+
+.activity-card--danger-rail {
+  border-left-color: var(--error);
+  background: color-mix(in srgb, var(--error-soft) 60%, var(--bg-card));
+}
+
+.activity-card--warning-rail {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning-soft) 60%, var(--bg-card));
+}
+
+.activity-card__body {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.activity-card__name {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.activity-card__cause {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.activity-card__time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.activity-card__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* ═══ RUNNING-NOW ROWS ═══ */
+
+.activity-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+.activity-row__lead {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.activity-row__body {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.activity-row__name {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.activity-row__count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.activity-row__badge {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}
+
+/* Tone-code the resume signal: a fully-resumable ("safe to close") task reads calm/muted, while a
+   task that restarts on quit (model download per-file, or a running import/backup) reads as a
+   warning — so the honest interruption signal is visible at a glance, not just in the text. */
+.activity-row__badge--safe {
+  color: var(--ink-muted);
+}
+
+.activity-row__badge--warning {
+  color: var(--tone-warning);
+}
+
+.activity-row__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+/* ═══ PULSING ACCENT DOT ═══ */
+
+.activity-dot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--ink-ghost);
+  flex-shrink: 0;
+}
+
+.activity-dot--running {
+  background: var(--accent);
+}
+
+/* Pulse animation only when the user hasn't asked for reduced motion */
+@media (prefers-reduced-motion: no-preference) {
+  .activity-dot--running {
+    animation: activity-dot-pulse 1.8s ease-in-out infinite;
+  }
+}
+
+/* ═══ PROGRESS BAR ═══ */
+
+.activity-progress {
+  position: relative;
+  height: 5px;
+  background: var(--ink-ghost);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.activity-progress__bar {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  background: var(--accent);
+  border-radius: var(--radius);
+  min-width: 4px;
+  transition: width 300ms ease;
+}
+
+/* Indeterminate: reduced-motion static fallback is a calm 30 % partial fill —
+ * never empty (looks broken), never full (looks complete). */
+.activity-progress--indeterminate .activity-progress__bar--indeterminate {
+  width: 30%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .activity-progress--indeterminate .activity-progress__bar--indeterminate {
+    animation: pk-indeterminate-sweep 1.4s linear infinite;
+  }
+}
+
+/* ═══ SMALL SECONDARY BUTTON VARIANT ═══ */
+
+.btn-secondary--sm {
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  font-size: 11px;
+}
+
+/* ═══ BACKGROUND FEATURES GRID (3 chips) ═══ */
+
+.activity-features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+@media (max-width: 680px) {
+  .activity-features-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ═══ FEATURE CHIP ═══ */
+
+.feature-chip {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+.feature-chip__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.feature-chip__label {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* State pill inside the chip header */
+.feature-chip__state {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* Default (off/idle) */
+  background: color-mix(in srgb, var(--ink-ghost) 50%, transparent);
+  color: var(--ink-muted);
+}
+
+.feature-chip--ready .feature-chip__state {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.feature-chip--building .feature-chip__state {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.feature-chip--degraded .feature-chip__state {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.feature-chip--failed .feature-chip__state {
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.feature-chip__detail {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+.feature-chip__settings {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.feature-chip__settings:hover {
+  text-decoration: underline;
+}
+
+/* ═══ RECENT ACTIVITY ZONE ═══ */
+
+.activity-recent-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--accent-text);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.activity-recent-toggle:hover {
+  color: var(--ink);
+}
+
+/* ═══ RECENT ROW ═══ */
+
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-light);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.recent-row:last-child {
+  border-bottom: none;
+}
+
+.recent-row__name {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-row__time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+
+.recent-row__result-link {
+  font-size: 11px;
+  color: var(--accent-text);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.recent-row__result-link:hover {
+  text-decoration: underline;
+}
+
+/* ═══ OUTCOME PILLS ═══ */
+
+.outcome-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+  /* Default (neutral) */
+  background: color-mix(in srgb, var(--ink-ghost) 50%, transparent);
+  color: var(--ink-muted);
+}
+
+.outcome-pill--success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.outcome-pill--failed {
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.outcome-pill--cancelled {
+  background: color-mix(in srgb, var(--ink-ghost) 50%, transparent);
+  color: var(--ink-muted);
+}
+
+.outcome-pill--interrupted {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+/* ═══ STATE DOTS (recent zone) ═══ */
+
+.state-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  background: var(--ink-ghost);
+}
+
+.state-dot--success {
+  background: var(--success);
+}
+
+.state-dot--failed {
+  background: var(--error);
+}
+
+.state-dot--neutral {
+  background: var(--ink-faint);
+}
+
+/* ═══ LOADING SKELETON ═══ */
+
+.activity-skeleton {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.activity-skeleton__header {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.activity-skeleton__bar {
+  border-radius: var(--radius);
+  background: var(--border);
+}
+
+.activity-skeleton__bar--title {
+  height: 22px;
+  width: 120px;
+}
+
+.activity-skeleton__bar--summary {
+  height: 14px;
+  width: 220px;
+}
+
+.activity-skeleton__section {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.activity-skeleton__row {
+  height: 64px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+.activity-skeleton__chips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.activity-skeleton__chip {
+  height: 96px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+/* Pulse animation for skeleton placeholders */
+@media (prefers-reduced-motion: no-preference) {
+  .activity-skeleton__bar,
+  .activity-skeleton__row,
+  .activity-skeleton__chip {
+    animation: activity-skeleton-pulse 1.5s ease-in-out infinite;
+  }
+
+  .activity-skeleton__bar--summary {
+    animation-delay: 150ms;
+  }
+
+  .activity-skeleton__row {
+    animation-delay: 80ms;
+  }
+
+  .activity-skeleton__chip:nth-child(2) {
+    animation-delay: 100ms;
+  }
+
+  .activity-skeleton__chip:nth-child(3) {
+    animation-delay: 200ms;
+  }
+}

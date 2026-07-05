@@ -72,6 +72,10 @@ pub struct BackupRunOverview {
     pub new_visits: usize,
     pub new_urls: usize,
     pub new_downloads: usize,
+    /// Why a `failed` run failed (the full error chain). `None` for success/running rows. Surfaced so
+    /// the Audit ledger never shows a failure without its reason — a silent failed backup is the one
+    /// thing a backup tool must never do.
+    pub error_message: Option<String>,
 }
 
 /// Per-profile backup summary returned by one run.
@@ -143,6 +147,115 @@ impl BackupProgressEvent {
     }
 }
 
+/// The distinct heavy phases a first-run archive upgrade works through.
+///
+/// A v0.2.0 → v0.3.0 upgrade on a large archive spends minutes inside
+/// `ensure_archive_initialized` (index-build migrations, the `015`
+/// registrable-domain backfill, and a full search-projection reprojection).
+/// This enum names those phases so the shell can render an honest, per-phase
+/// "Upgrading your archive…" screen instead of an opaque busy overlay.
+///
+/// `Intelligence` is surfaced by the cheap pre-check (`assess_archive_upgrade`)
+/// for completeness; the intelligence plane forward-applies lazily on its own
+/// first read, not inside `ensure_archive_initialized`, so the progress stream
+/// does not emit it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ArchiveUpgradePhase {
+    SchemaMigration,
+    RegistrableDomainBackfill,
+    SearchReprojection,
+    Intelligence,
+    Finalizing,
+}
+
+impl ArchiveUpgradePhase {
+    /// Stable i18n key the shell maps to localized phase copy. Kept as a key
+    /// (not English prose) so the copy is a shipping-contract translation, and
+    /// stable so a phase never silently loses its label across renames.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::SchemaMigration => "archiveUpgrade.phase.schemaMigration",
+            Self::RegistrableDomainBackfill => "archiveUpgrade.phase.registrableDomainBackfill",
+            Self::SearchReprojection => "archiveUpgrade.phase.searchReprojection",
+            Self::Intelligence => "archiveUpgrade.phase.intelligence",
+            Self::Finalizing => "archiveUpgrade.phase.finalizing",
+        }
+    }
+}
+
+/// Streamed progress for the first-run "Upgrading your archive…" experience.
+///
+/// `processed`/`total` are honest unit counts for the phases that HAVE a
+/// countable unit (rows backfilled, documents reprojected, discrete migration
+/// steps applied). Opaque single-statement work (an index build, the terminal
+/// finalize) carries `0/0` as an explicit indeterminate marker rather than a
+/// fabricated percentage. `done` marks the single terminal event so the shell
+/// can dismiss the screen without inferring completion from the counters.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveUpgradeProgress {
+    pub phase: ArchiveUpgradePhase,
+    pub phase_label: String,
+    pub processed: u64,
+    pub total: u64,
+    pub done: bool,
+}
+
+impl ArchiveUpgradeProgress {
+    /// Builds a phase progress tick with honest processed/total counts.
+    pub fn phase(phase: ArchiveUpgradePhase, processed: u64, total: u64) -> Self {
+        Self { phase, phase_label: phase.label_key().to_string(), processed, total, done: false }
+    }
+
+    /// The single terminal event: the upgrade finished and the shell may dismiss
+    /// the screen. Counts are `0/0` — finalize is opaque, not a countable unit.
+    pub fn finished() -> Self {
+        Self {
+            phase: ArchiveUpgradePhase::Finalizing,
+            phase_label: ArchiveUpgradePhase::Finalizing.label_key().to_string(),
+            processed: 0,
+            total: 0,
+            done: true,
+        }
+    }
+}
+
+/// One phase entry in the cheap upgrade pre-check breakdown.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveUpgradePhaseAssessment {
+    pub phase: ArchiveUpgradePhase,
+    pub phase_label: String,
+    pub pending: bool,
+    /// Whether the `ensure_archive_initialized_with_progress` stream emits live
+    /// ticks for this phase. `true` for schema/backfill/reprojection; `false` for
+    /// `Intelligence`, which forward-applies lazily outside the upgrade path — so
+    /// the shell renders a non-streamed phase as an informational line, not a
+    /// progress bar that would sit stuck at 0.
+    pub streamed: bool,
+    /// Rough unit total the phase will process (rows/documents/migration steps).
+    /// `0` for a not-pending or opaque phase — never a fabricated estimate.
+    pub estimated_total: u64,
+}
+
+/// Result of the cheap first-run upgrade pre-check (`assess_archive_upgrade`).
+///
+/// The shell calls this at bootstrap to decide whether to show the upgrade
+/// screen at all: a fresh install or an already-migrated archive reports
+/// `pending == false` (no screen), while a genuine version-behind archive with
+/// data reports `pending == true` plus the per-phase breakdown that seeds the
+/// progress UI's estimated totals. It must stay cheap — COUNTs only, never a
+/// scan of blob columns or a schema bootstrap.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveUpgradeAssessment {
+    pub pending: bool,
+    pub current_schema_version: i64,
+    pub target_schema_version: i64,
+    pub phases: Vec<ArchiveUpgradePhaseAssessment>,
+}
+
 /// Disk-usage summary for archive-managed artifacts.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -188,6 +301,65 @@ pub struct DashboardSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotRestoreRequest {
     pub snapshot_path: String,
+}
+
+/// Result of a one-click full-archive restore from a verified safety snapshot.
+///
+/// Exists so the Phase-D recovery GUI can report, in one transparent payload, exactly what the
+/// headline restore did: which snapshot it reinstalled (and in which at-rest mode), where it
+/// quarantined the broken canonical files it superseded, whether it had to rebuild an empty
+/// source-evidence, and any non-fatal warnings — never a black-box "fixed it".
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FullArchiveRestoreReport {
+    /// The `archive_restore` run-ledger row id recorded in the restored archive. `None` when the
+    /// archive was already restored + reconciled + verified-healthy but the audit-run bookkeeping
+    /// (ledger INSERT/UPDATE or manifest write) failed — that is downgraded to a `warnings` entry
+    /// rather than failing an already-healed restore, so a `None` here always carries a matching
+    /// warning.
+    pub run_id: Option<i64>,
+    /// The safety snapshot the canonical archive was restored from.
+    pub restored_snapshot_path: String,
+    /// The at-rest mode the restored canonical archive really opens in (config reconciled to match).
+    pub restored_mode: ArchiveMode,
+    /// The dated `quarantine/<ts>/` directory the superseded broken canonical files were moved into.
+    pub quarantine_dir: String,
+    /// True when a previous source-evidence database was quarantined and replaced with a fresh
+    /// empty one consistent with the restored history-vault + config.
+    pub source_evidence_rebuilt: bool,
+    /// Non-fatal notes for the recovery screen (the FE localizes around them).
+    pub warnings: Vec<String>,
+}
+
+/// One verified full-archive safety snapshot the Phase-D recovery GUI can offer as a restore source.
+///
+/// Exists to give the recovery screen rich, keyless metadata (date / size / which op produced it /
+/// whether it even opens) WITHOUT a full-DB scan, so the user picks a restore point from honest
+/// information. `verified_openable` is a cheap header-only check; the authoritative keyed
+/// `quick_check` runs at restore time.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoverySnapshot {
+    /// Stable identity for the FE list — the snapshot's display path.
+    pub id: String,
+    /// The snapshot file's path (the value a restore request echoes back).
+    pub path: String,
+    /// RFC 3339 creation time from the file mtime (`None` when the mtime is unreadable).
+    pub created_at: Option<String>,
+    /// On-disk size in bytes.
+    pub size_bytes: u64,
+    /// KEYLESS header-only openability signal (never a b-tree walk). For an encrypted snapshot
+    /// this is structural-only (size); the authoritative keyed `quick_check` runs at restore.
+    pub verified_openable: bool,
+    /// KEYLESS at-rest signal: the snapshot file is SQLCipher-encrypted on disk (header is a random
+    /// salt, not the SQLite plaintext magic). When true the recovery UI must ask for the archive key
+    /// before it can verify + restore — `verified_openable` is only a size heuristic for these.
+    pub encrypted: bool,
+    /// Which whole-archive rewrite produced it: `"rekey"`, `"reconcile"`, `"import"`, `"periodic"`,
+    /// or `"unknown"` for an unexpected bucket.
+    pub source_op: String,
+    /// Short English fallback descriptor; the FE localizes it.
+    pub label: String,
 }
 
 /// Preview payload for a checkpoint restore before execution.
@@ -344,6 +516,23 @@ pub struct OgImageStorageStats {
     pub oldest_fetched_at: Option<String>,
 }
 
+/// Coverage of og:image fetching across the archive's web pages, surfaced in
+/// Settings → Link previews. Raw counts only — the UI derives the percentages so
+/// it can present both coverage (of all eligible pages) and the success rate (of
+/// pages actually checked) honestly.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OgImageCoverageStats {
+    /// Distinct HTTPS pages in the archive — the eligible denominator. Only
+    /// https is counted: the fetcher never fetches http:// (it short-circuits to
+    /// `parse_error`), so http pages can never carry a preview.
+    pub eligible_pages: i64,
+    /// Distinct HTTPS pages an og:image fetch has been attempted for.
+    pub attempted_pages: i64,
+    /// Pages with a successfully fetched og:image (`fetch_status = 'ok'`).
+    pub pages_with_image: i64,
+}
+
 /// Cleanup mode chosen by the user. Default is `Off` — cache grows unbounded
 /// and only manual "Clear cache" clears it.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -385,6 +574,16 @@ pub struct HistoryEntry {
     pub transition: Option<i64>,
     pub source_visit_id: i64,
     pub app_id: Option<String>,
+    /// Capped excerpt of the matched URL's enrichment text (W-ENRICH-1, 06 §6).
+    ///
+    /// Populated ONLY by the lexical-search recall path, and only when the
+    /// matched `search_documents` row carries non-empty enrichment text (a
+    /// content-fetch summary + GitHub topics/desc). Plain browse, regex, and
+    /// fuzzy-fallback rows leave this `None` so the Explorer affordance stays
+    /// suppressed outside keyword search. `#[serde(default)]` keeps older
+    /// payloads (and preview fixtures) that omit it deserializable.
+    #[serde(default)]
+    pub enrichment_excerpt: Option<String>,
 }
 
 /// Paginated history-query response.

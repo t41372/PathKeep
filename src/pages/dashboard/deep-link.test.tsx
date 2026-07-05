@@ -172,7 +172,14 @@ function makeShellValue(): ShellDataContextValue {
     clearAppLockPasscode: vi.fn(),
     lockAppSession: vi.fn().mockResolvedValue({}),
     unlockAppSession: vi.fn(),
+    startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
+    recovery: null,
+    archiveUpgrade: null,
+    finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+    runFullArchiveRestore: vi.fn().mockResolvedValue({}),
   } as ShellDataContextValue
 }
 

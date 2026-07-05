@@ -317,6 +317,19 @@ export interface AppSnapshot {
   aiStatus: AiIndexStatus
   intelligenceStatus: IntelligenceStatus
   browserProfiles: BrowserProfile[]
+  /**
+   * Optional discovery-outcome marker set by the backend when browser discovery
+   * could not honestly report the machine's browsers. Absent/`null` means
+   * discovery succeeded (a genuine empty machine is still a `null` here, NOT a
+   * permission problem). Known markers:
+   * - `"macos-full-disk-access"` — a Full Disk Access denial was detected, so the
+   *   real cause of "no browsers" is a missing OS permission, not the machine.
+   * - `"discovery-error"` — discovery failed for some other reason; surface it as
+   *   an error instead of disguising it as "no browsers".
+   * Additive/optional so older snapshots and the frozen preview fixture keep
+   * working. Consume via `browserDiscoveryState` in `platform-guidance`.
+   */
+  browserDiscoveryIssue?: string | null
   recentRuns: BackupRunOverview[]
   recentImportBatches: ImportBatchOverview[]
 }

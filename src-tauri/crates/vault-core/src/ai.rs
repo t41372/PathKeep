@@ -8,29 +8,50 @@
 //! - vector/assistant state is rebuildable derived state, not canonical truth
 //! - lexical fallback must stay explicit whenever semantic readiness is missing
 
+mod agent_harness;
+mod agent_tools;
+mod chat_stream;
+mod code_mode;
 mod control;
+mod dedup;
+mod embedding_candle;
+mod embedding_external;
+mod embedding_static;
+mod fingerprint;
 mod indexing;
 mod ledger;
+mod llm;
+mod narrative;
 mod provider;
 mod read_model;
+mod reverse_visit_map;
 mod search;
+mod traits;
+mod vector_index;
+mod vector_planes;
+mod vector_store;
+mod visit_content_map;
+mod working_set;
 
 #[cfg(test)]
 use crate::archive::create_schema;
 use crate::{
     ai_queue::{self},
     ai_sidecar::{self},
-    archive::{list_history, open_archive_connection, open_intelligence_connection},
+    archive::{
+        attach_search_database, cap_enrichment_excerpt, list_history, open_archive_connection,
+        open_intelligence_connection,
+    },
     config::ProjectPaths,
     enrichment::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
     models::{
         AiAssistantRequest, AiAssistantResponse, AiCitation, AiIndexReport, AiIndexRequest,
-        AiIndexStatus, AiProviderCapabilityReport, AiProviderConfig,
+        AiIndexStatus, AiIndexWarning, AiProviderCapabilityReport, AiProviderConfig,
         AiProviderConnectionTestReport, AiProviderPurpose, AiQueueJobType, AiQueueStatus,
-        AiRequestFormat, AiSearchEntry, AiSearchRequest, AiSearchResponse, AppConfig, HistoryEntry,
-        HistoryQuery,
+        AiRequestFormat, AiSearchEntry, AiSearchNote, AiSearchRequest, AiSearchResponse,
+        AiSearchSort, AiSemanticStaleness, AppConfig, HistoryEntry, HistoryQuery,
     },
-    utils::{now_rfc3339, sha256_hex, url_domain},
+    utils::{now_rfc3339, url_domain},
 };
 use anyhow::{Context, Result};
 use iana_time_zone::get_timezone;
@@ -46,6 +67,7 @@ use rig::{
     tool::{Tool, ToolDyn},
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -63,10 +85,69 @@ pub use self::provider::test_provider_connection;
 pub use self::read_model::{
     ai_index_status, ai_queue_status, ensure_ai_schema, load_assistant_run_response,
     preview_ai_integrations, provider_capabilities, provider_connection_failure_report,
-    reconcile_ai_queue_controls,
+    reconcile_ai_queue_controls, recoverable_ai_jobs,
 };
 pub use self::search::{
     answer_history_question, answer_history_question_with_control, semantic_search_history,
+};
+
+pub use self::agent_harness::{
+    AgentJournal, AgentRunOutcome, AgentRunSink, AgentSystemContext, DEFAULT_MAX_ITERATIONS,
+    DEFAULT_TOKEN_BUDGET, build_agent_system_context, drive_agent_run,
+    resolve_agent_system_context,
+};
+pub use self::agent_tools::{
+    AgentTool, AgentToolContext, HistorySearchTool, ToolOutcome, ToolRegistry,
+};
+pub use self::chat_stream::{
+    deregister_run as deregister_ai_chat_run, drive_chat_stream as drive_ai_chat_stream,
+    register_run as register_ai_chat_run, request_cancel as request_ai_chat_cancel,
+};
+pub use self::code_mode::{
+    CodeOutcome, HostCallRecord, LimitsHit, MAX_FETCH_IDS, MAX_GUEST_MEMORY_BYTES, MAX_HOST_CALLS,
+    MAX_OUTPUT_BYTES, MAX_ROWS_PER_CALL, WALL_TIME_BUDGET, run_code_in_sandbox,
+};
+pub use self::dedup::{build_dedup_content_hash, content_key_from_hash};
+pub use self::embedding_candle::{
+    CANDLE_INAPP_BASE_URL, CANDLE_MAX_INPUT_TOKENS, CandleEmbeddingProvider,
+    DEFAULT_CANDLE_MODEL_FILES, DEFAULT_CANDLE_MODEL_REPO, DEFAULT_CANDLE_QUANT,
+    DEFAULT_CANDLE_TOKENIZER_REPO, ModelDownloadProgress, ModelFile, NoopDownloadProgress,
+    QWEN3_QUERY_TASK, apply_role_instruction, candle_repo_for_runtime, degrade_candle_to_external,
+    ensure_model_downloaded, gguf_file_name, last_token_pool, model_dir_for_repo,
+    model_is_loadable, model_is_present_and_verified, query_instruction_template,
+    runtime_uses_candle, select_embedding_provider,
+};
+pub use self::embedding_external::{AnyEmbeddingProvider, ExternalEmbeddingProvider};
+pub use self::embedding_static::{
+    DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, STATIC_EMBEDDING_DIM,
+    STATIC_INAPP_BASE_URL, STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix, StaticEmbeddingProvider,
+    degrade_static_to_external, parse_static_config, runtime_uses_static, static_embed_ids,
+    static_l2_normalize, static_repo_for_runtime,
+};
+pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint};
+pub use self::llm::{RigLlmProvider, probe_tool_capability};
+pub use self::narrative::{
+    NarrativeSummary, QueryFamilyFacts, TopicFacts, summarize_query_family, summarize_topic,
+};
+pub use self::reverse_visit_map::{ReverseMapHeader, ReverseVisitMap, reverse_map_plane_bytes};
+pub use self::traits::{
+    EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
+    LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
+    LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolCall, LlmToolDef, LlmUsage, VectorIndex,
+};
+pub use self::vector_index::{
+    ALLOWLIST_EXPANSION, FlatVectorIndex, RECALL_EXPANSION, RECALL_FLOOR, prepare_query,
+};
+pub use self::vector_planes::{
+    BinaryPlane, Int8Plane, Int8PlaneReader, Int8Vector, PlaneBuildReport, PlaneHeader, binarize,
+    binary_bytes_for_dim, build_planes_from_store, dequantize_int8, derived_plane_bytes,
+    dot_product, hamming_distance, planes_are_stale, quantize_int8,
+};
+pub use self::vector_store::{VectorStore, VectorStoreHeader, vector_plane_bytes};
+pub use self::visit_content_map::{VisitContentMap, visit_map_plane_bytes};
+pub use self::working_set::{
+    CANDLE_CPU_DOCS_PER_SEC, CandidateSignals, MAX_WORKING_SET, METAL_SPEEDUP, WorkingSetCandidate,
+    WorkingSetConfig, estimate_reembed, reembed_estimate_for, score_candidate, select_working_set,
 };
 
 use self::control::{await_with_ai_cancellation, checkpoint_ai_run};
@@ -79,26 +160,52 @@ use self::ledger::{
     record_index_ledger_failure, record_index_ledger_start, record_index_ledger_success,
 };
 use self::provider::{
-    classify_provider_error, embedding_provider_readiness, run_llm_agent, validate_provider,
+    classify_provider_error, embed_query, embedding_provider_readiness, run_llm_agent,
+    validate_provider,
 };
 #[cfg(test)]
 use self::provider::{
-    embed_batch_with_retry, embed_query, embed_single_with_retry, embedding_error_is_rate_limited,
+    embed_batch_with_retry, embed_single_with_retry, embedding_error_is_rate_limited,
     provider_connection_report_from_probe,
 };
 use self::search::semantic_index_staleness_reason;
 #[cfg(test)]
 use self::search::{
     SearchContext, SearchHistoryArgs, SearchHistoryTool, StoredEmbedding, build_assistant_preamble,
-    cosine_similarity, lexical_boost, lexical_score, search_history_internal, semantic_matches,
-    sort_stored_embeddings_desc,
+    cosine_similarity, search_history_internal, semantic_matches, sort_stored_embeddings_desc,
 };
 
-/// Resolved provider configuration plus the usable secret for one AI operation.
+/// Resolved provider configuration plus the OPTIONAL secret for one AI operation.
+///
+/// `api_key` is `Option<SecretString>` because a key is a per-provider OPTION, not a
+/// precondition: a local/LAN self-hosted server (LM Studio, Ollama, llama-server, …) needs no
+/// key, so PathKeep must never block a provider call on a missing key of its own accord. `None`
+/// means "the user stored no key" — the transport then sends NO `Authorization` header rather
+/// than a hollow `Bearer ` a key-enforcing cloud server would (rightly) reject. When present, the
+/// [`SecretString`] is zeroized on drop, redacted in `Debug`/logs, and never serialized into a
+/// trace or sidecar; the plaintext is only exposed at the transport `Authorization`/rig
+/// `.api_key(...)` boundary via [`ExposeSecret`]. Only an error the PROVIDER itself returns (a real
+/// 401/403, …) may surface as a failure — we never assume "can't be done" before trying.
 #[derive(Debug, Clone)]
 pub struct AiProviderRuntime {
     pub config: AiProviderConfig,
-    pub api_key: String,
+    pub api_key: Option<SecretString>,
+}
+
+impl AiProviderRuntime {
+    /// Borrows the plaintext key for the transport boundary, treating a blank key as absent.
+    ///
+    /// Returns `Some(key)` only for a NON-EMPTY stored secret; `None` (no key OR a whitespace-only
+    /// key) tells the transport to omit the `Authorization` header entirely. Centralizing the
+    /// "blank == absent" rule here means every transport site agrees, and a user who clears a key
+    /// down to whitespace is treated exactly like one who never set it.
+    pub fn api_key_for_transport(&self) -> Option<&str> {
+        use secrecy::ExposeSecret;
+        self.api_key
+            .as_ref()
+            .map(|secret| secret.expose_secret())
+            .filter(|key| !key.trim().is_empty())
+    }
 }
 
 /// Cooperative cancellation/progress hook for long-running AI work.
@@ -110,6 +217,45 @@ pub trait AiRunControl: Send + Sync {
     fn cancelled(&self) -> bool {
         false
     }
+}
+
+/// Resumable backfill watermark reported by the embed loop after each durable chunk (02 §C.6 R1).
+///
+/// Carries the lowest canonical `history_id` not yet embedded (`next_history_id`) and a monotone
+/// count of vectors persisted so far (`embedded_so_far`). The worker persists these into the
+/// index job's payload via an [`IndexBackfillLedger`], so a restart resumes from the watermark
+/// instead of re-embedding 14.4M rows from scratch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct IndexBackfillProgress {
+    /// Lowest canonical `history_id` not yet embedded; the next chunk starts here.
+    pub next_history_id: i64,
+    /// Vectors durably persisted so far across all chunks of this backfill.
+    pub embedded_so_far: u64,
+    /// The determinate scan denominator: the max candidate `history_id` captured at the build's TRUE
+    /// start, so `next_history_id / scan_target` is honest scan progress that reaches ~100%. Reported
+    /// as the captured value on a fresh build and as `0` ("unknown — keep the stored target") on a
+    /// resume, so [`crate::ai_queue::persist_index_cursor`] preserves the original denominator rather
+    /// than chasing a corpus that grew under the build.
+    pub scan_target: i64,
+    /// The total candidate pages this build set out to embed, captured at the build's TRUE start
+    /// (`COUNT(visits WHERE reverted_at IS NULL)`). Drives the user-facing `embedded_so_far /
+    /// embed_target` progress. Same fresh-capture / resume-preserve contract as `scan_target` (0 on a
+    /// resume so the stored value is kept).
+    pub embed_target: u64,
+}
+
+/// Sink the embed loop calls to persist the resumable backfill watermark after each chunk.
+///
+/// Implemented by the worker (which writes the cursor into the `ai_jobs` payload). vault-core
+/// stays free of queue-row mechanics: it only knows it must announce durable progress at each
+/// safe boundary so a later restart can resume. A `None` ledger (e.g. the foreground
+/// `build_ai_index` convenience path) simply runs to completion without resumption.
+pub trait IndexBackfillLedger: Send + Sync {
+    /// Records that all vectors up to (but excluding) `progress.next_history_id` are durable.
+    ///
+    /// Called only AFTER the chunk's vectors are flushed to the vector store, so the watermark
+    /// can never claim progress that is not on disk.
+    fn record(&self, progress: IndexBackfillProgress) -> Result<()>;
 }
 
 /// Error raised when a cooperative AI run stop request is observed.
@@ -192,11 +338,27 @@ const AI_SCHEMA_SQL: &str = r#"
 const CLEAR_PROVIDER_EMBEDDINGS_SQL: &str =
     "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2";
 const DELETE_STALE_EMBEDDINGS_SQL: &str = "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2 AND history_id NOT IN (SELECT id FROM archive.visits WHERE reverted_at IS NULL)";
-#[cfg(test)]
 const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
 const INSERT_ASSISTANT_RUN_SQL: &str = "INSERT INTO ai_assistant_runs (run_id, question, answer, provider_id, embedding_provider_id, citations_json, notes_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
 const AI_QUEUE_RECENT_LIMIT: usize = 8;
 const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
+/// Canonical rows embedded + persisted per resumable backfill chunk.
+///
+/// Sized to amortize embed-request overhead while keeping each durable checkpoint small enough
+/// that a crash loses at most one chunk of progress and the watermark advances frequently. Kept
+/// modest so the 4-core host stays responsive (the embed loop yields between chunks and the
+/// vector store append is O(chunk), never O(store)).
+///
+/// LEASE SAFETY (HIGH-3): bounded to ONE `EMBEDDING_HTTP_BATCH` so a single chunk issues at most
+/// one HTTP embed call (≤ `EMBEDDING_HTTP_TIMEOUT` = 120s), comfortably under the 300s queue lease
+/// even if the 30s heartbeat thread stalls. The earlier 256-row chunk fanned out to 4 HTTP calls
+/// (4 × 120s = 480s) which could outlive the lease and let a reclaimed worker keep writing — the
+/// lease-loss abort plus this smaller chunk together close that double-write window.
+#[cfg(not(coverage))]
+const EMBEDDING_BACKFILL_CHUNK: usize = embedding_external::EMBEDDING_HTTP_BATCH;
+/// Tiny chunk under coverage so multi-chunk + cursor-advance paths run on small fixtures.
+#[cfg(coverage)]
+const EMBEDDING_BACKFILL_CHUNK: usize = 2;
 #[cfg(test)]
 const EMBEDDING_RETRY_ATTEMPTS: usize = 2;
 const SQLITE_BATCH_SIZE: usize = 400;

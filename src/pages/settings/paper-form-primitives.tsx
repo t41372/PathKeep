@@ -56,6 +56,13 @@ export interface ToggleProps {
   onLabel: string
   offLabel: string
   testId?: string
+  /**
+   * Renders the switch as inert (visibly dimmed, `aria-disabled`, no click).
+   * Additive and defaulted to false so existing call sites are unaffected.
+   * Used when a hard precondition is missing (e.g. no system keychain) so the
+   * control reads honestly instead of accepting a click that snaps back.
+   */
+  disabled?: boolean
 }
 
 export function Toggle({
@@ -64,19 +71,28 @@ export function Toggle({
   onLabel,
   offLabel,
   testId,
+  disabled = false,
 }: ToggleProps) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={value}
+      // `aria-disabled` (not the native `disabled` attribute) keeps the switch
+      // focusable/announced as disabled to AT while leaving the click to the
+      // consumer's handler — the owning section decides the honest no-op (e.g.
+      // SecuritySection bails when no keychain is present). Mirrors the common
+      // "disabled but still discoverable" a11y pattern.
+      aria-disabled={disabled || undefined}
       onClick={() => onChange(!value)}
       data-testid={testId}
       className={cn(
         'border-border-default rounded-paper inline-flex items-center gap-3 border px-3 py-1.5 text-[12px] transition-colors',
-        value
-          ? 'border-accent bg-accent-soft text-accent-text'
-          : 'text-ink-muted hover:border-ink-muted hover:bg-hover',
+        disabled
+          ? 'text-ink-faint cursor-not-allowed opacity-60'
+          : value
+            ? 'border-accent bg-accent-soft text-accent-text'
+            : 'text-ink-muted hover:border-ink-muted hover:bg-hover',
       )}
     >
       <span

@@ -10,6 +10,7 @@
 
 mod biometric;
 mod discovery;
+mod full_disk_access;
 mod host_capability;
 mod keyring;
 mod launcher;
@@ -20,6 +21,10 @@ pub mod test_support;
 pub use biometric::{app_lock_biometric_state, authenticate_app_lock_biometric};
 /// Discovers browser profiles through the host-facing platform adapter.
 pub use discovery::discover_browser_profiles;
+/// Probes whether macOS Full Disk Access is denied, independent of browser discovery.
+pub use full_disk_access::{
+    FullDiskAccessProbe, probe_full_disk_access, probe_full_disk_access_at,
+};
 /// Returns the normalized platform name used in schedule and diagnostics UIs.
 pub use host_capability::current_platform_name;
 /// Native keyring operations used for database keys and AI provider secrets.

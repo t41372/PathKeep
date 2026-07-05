@@ -6,6 +6,15 @@
 
 use super::*;
 use rusqlite::{Connection, MAIN_DB, OpenFlags};
+use std::{io::Read, time::Duration};
+
+/// How long staging operations wait on a lock held by a live browser before
+/// giving up. Long enough to outlast a browser's brief write transactions,
+/// short enough to keep a backup from stalling on a wedged writer.
+const STAGING_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The 16-byte magic every SQLite database file begins with.
+const SQLITE_FILE_HEADER: &[u8; 16] = b"SQLite format 3\0";
 
 /// Returns the on-disk size for one file, treating missing files as zero.
 fn file_size(path: &Path) -> u64 {
@@ -36,7 +45,7 @@ pub(super) fn profile_storage_bytes(
 pub fn stage_profile_snapshot(
     paths: &ProjectPaths,
     profile: &BrowserProfile,
-) -> Result<ProfileSnapshot> {
+) -> Result<StagedProfile> {
     let temp_prefix = format!(
         "{}-{}",
         filesystem_safe_path_segment(&profile.profile_id),
@@ -47,13 +56,26 @@ pub fn stage_profile_snapshot(
         .tempdir_in(&paths.staging_dir)
         .with_context(|| format!("creating temp dir in {}", paths.staging_dir.display()))?;
     let source_dir = PathBuf::from(&profile.profile_path);
-    let history_path =
+
+    let mut warnings = Vec::new();
+    let staged_history =
         copy_database_with_sidecars(&source_dir, &profile.history_file_name, temp_dir.path())
             .with_context(|| staging_access_hint(profile))?;
-    let favicons_path = profile
+    if let Some(reason) = &staged_history.fallback_reason {
+        warnings.push(staging_fallback_warning(profile, &profile.history_file_name, reason));
+    }
+    let history_path = staged_history.path;
+
+    let staged_favicons = profile
         .favicons_path
         .as_ref()
         .and_then(|_| copy_database_with_sidecars(&source_dir, "Favicons", temp_dir.path()).ok());
+    if let Some(reason) =
+        staged_favicons.as_ref().and_then(|staged| staged.fallback_reason.as_ref())
+    {
+        warnings.push(staging_fallback_warning(profile, "Favicons", reason));
+    }
+    let favicons_path = staged_favicons.map(|staged| staged.path);
 
     let mut source_hashes = Vec::new();
     for path in [Some(history_path.clone()), favicons_path.clone()].into_iter().flatten() {
@@ -63,13 +85,35 @@ pub fn stage_profile_snapshot(
         });
     }
 
-    Ok(ProfileSnapshot {
-        profile: profile.clone(),
-        temp_dir,
-        history_path,
-        favicons_path,
-        source_hashes,
+    Ok(StagedProfile {
+        snapshot: ProfileSnapshot {
+            profile: profile.clone(),
+            temp_dir,
+            history_path,
+            favicons_path,
+            source_hashes,
+        },
+        warnings,
     })
+}
+
+/// Builds the non-fatal note recorded when a profile's database had to be staged
+/// through the raw-copy + recovery fallback instead of an online snapshot.
+fn staging_fallback_warning(profile: &BrowserProfile, source_label: &str, reason: &str) -> String {
+    format!(
+        "{} ({source_label}): the live database was busy, so the backup used a recovered file copy instead of an online snapshot — {reason}",
+        profile.profile_id
+    )
+}
+
+/// A staged database file plus how it got there.
+pub(super) struct StagedDatabase {
+    /// The staged copy the parser will read.
+    pub path: PathBuf,
+    /// Set when the preferred online snapshot failed and we used the slower
+    /// raw-copy + recovery fallback. Carries the snapshot failure reason so the
+    /// backup run can record why staging was degraded; `None` on the clean path.
+    pub fallback_reason: Option<String>,
 }
 
 /// Copies one SQLite database plus its known sidecars into the staging directory.
@@ -77,13 +121,23 @@ pub(super) fn copy_database_with_sidecars(
     source_dir: &Path,
     base_name: &str,
     destination_dir: &Path,
-) -> Result<PathBuf> {
+) -> Result<StagedDatabase> {
     let source = source_dir.join(base_name);
     let destination = destination_dir.join(base_name);
-    if snapshot_sqlite_database(&source, &destination).is_ok() {
-        return Ok(destination);
-    }
 
+    // Preferred path: an online backup yields a single, transactionally
+    // consistent, journal-free file even while the browser keeps writing. Its
+    // failure is not terminal — we fall back to the raw copy below — but we keep
+    // the reason so the run can surface why staging was degraded.
+    let fallback_reason = match snapshot_sqlite_database(&source, &destination) {
+        Ok(()) => return Ok(StagedDatabase { path: destination, fallback_reason: None }),
+        Err(error) => format!("{error:#}"),
+    };
+
+    // Fallback: a plain file copy. This can capture the live browser's hot
+    // rollback journal or WAL, so we copy those sidecars too — they hold the
+    // pages needed to reach a consistent state. Without them the main file is a
+    // torn copy.
     copy_with_context(&source, &destination)?;
 
     for suffix in ["-wal", "-shm", "-journal"] {
@@ -94,7 +148,16 @@ pub(super) fn copy_database_with_sidecars(
         }
     }
 
-    Ok(destination)
+    // The read-only parser cannot replay a hot journal or WAL itself
+    // (SQLITE_READONLY_ROLLBACK / _RECOVERY). Fold them into the main file now,
+    // on our private throwaway copy where writing is safe — never the live
+    // browser file. Non-SQLite sources (the usual reason the online backup
+    // failed) have nothing to recover; let the parser report their real problem.
+    if is_sqlite_database(&destination) {
+        recover_staged_database(&destination)?;
+    }
+
+    Ok(StagedDatabase { path: destination, fallback_reason: Some(fallback_reason) })
 }
 
 fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {
@@ -103,6 +166,12 @@ fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .with_context(|| format!("opening source database {}", source.display()))?;
+    // The browser is still writing while we copy. Wait out its short write locks
+    // instead of dropping into the slower, torn-copy-prone raw fallback on the
+    // first `SQLITE_BUSY`.
+    source_connection
+        .busy_timeout(STAGING_BUSY_TIMEOUT)
+        .context("configuring snapshot busy timeout")?;
     source_connection.backup(MAIN_DB, destination, None).with_context(|| {
         format!(
             "creating online SQLite snapshot from {} to {}",
@@ -111,6 +180,47 @@ fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {
         )
     })?;
     Ok(())
+}
+
+/// Folds a captured hot rollback journal or live WAL back into the main database
+/// file so the read-only parser can open the staged copy.
+///
+/// Opening read-write is safe here and only here: `path` is always a throwaway
+/// file inside the worker-owned staging directory, never a live browser file.
+/// SQLite replays a hot rollback journal on the first access from a read-write
+/// connection; switching to a DELETE journal additionally checkpoints any WAL
+/// into the main file, leaving one self-contained database with no sidecar the
+/// read-only parser would have to replay.
+pub(super) fn recover_staged_database(path: &Path) -> Result<()> {
+    let connection = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .with_context(|| format!("opening staged database for recovery {}", path.display()))?;
+    connection
+        .busy_timeout(STAGING_BUSY_TIMEOUT)
+        .context("configuring staged recovery busy timeout")?;
+    connection
+        .query_row("PRAGMA journal_mode=DELETE", [], |row| row.get::<_, String>(0))
+        .with_context(|| {
+            format!("normalizing journal mode for staged database {}", path.display())
+        })?;
+    // Touching the schema forces the hot-journal rollback to run and confirms the
+    // recovered file is actually readable before the parser depends on it.
+    connection
+        .query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get::<_, i64>(0))
+        .with_context(|| format!("verifying recovered staged database {}", path.display()))?;
+    Ok(())
+}
+
+/// Cheap check for the SQLite file header, used to skip recovery on the
+/// non-database files that send the staging copy down the raw-copy fallback.
+fn is_sqlite_database(path: &Path) -> bool {
+    let mut header = [0u8; 16];
+    fs::File::open(path)
+        .and_then(|mut file| file.read_exact(&mut header))
+        .map(|()| &header == SQLITE_FILE_HEADER)
+        .unwrap_or(false)
 }
 
 /// Copies one file while preserving the source/destination context in errors.

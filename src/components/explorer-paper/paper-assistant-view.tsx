@@ -31,6 +31,7 @@ import {
 import {
   PaperAssistantMessage,
   type PaperAssistantEvidence,
+  type PaperAssistantEvidenceStarCopy,
   type PaperAssistantRole,
 } from './paper-assistant-message'
 
@@ -48,6 +49,8 @@ export interface PaperAssistantViewCopy {
   composer: PaperAssistantComposerCopy
   /** Mono evidence-panel label with `{count}` placeholder. */
   evidenceLabel: string
+  /** Evidence-row star toggle copy (W-AI-7); optional so callers without stars stay unaffected. */
+  evidenceStar?: PaperAssistantEvidenceStarCopy
 }
 
 export interface PaperAssistantViewProps {
@@ -59,6 +62,10 @@ export interface PaperAssistantViewProps {
   onSubmit: (value: string) => void
   onPickPrompt?: (prompt: PaperAssistantGreetingPrompt) => void
   onSelectEvidence?: (evidence: PaperAssistantEvidence) => void
+  /** Whether a cited source is starred, keyed by its `canonicalUrl` (the W-STAR key). */
+  isEvidenceStarred?: (canonicalUrl: string) => boolean
+  /** Toggle the star for a cited source by its canonical url (optimistic; caller writes through). */
+  onToggleEvidenceStar?: (canonicalUrl: string) => void
   copy: PaperAssistantViewCopy
   className?: string
   testId?: string
@@ -73,6 +80,8 @@ export function PaperAssistantView({
   onSubmit,
   onPickPrompt,
   onSelectEvidence,
+  isEvidenceStarred,
+  onToggleEvidenceStar,
   copy,
   className,
   testId,
@@ -114,6 +123,9 @@ export function PaperAssistantView({
               evidence={message.evidence}
               evidenceLabel={copy.evidenceLabel}
               onSelectEvidence={onSelectEvidence}
+              isEvidenceStarred={isEvidenceStarred}
+              onToggleEvidenceStar={onToggleEvidenceStar}
+              evidenceStarCopy={copy.evidenceStar}
               testId={`paper-assistant-message-${message.id}`}
             >
               {message.content}

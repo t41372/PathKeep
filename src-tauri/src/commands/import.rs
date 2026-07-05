@@ -69,30 +69,42 @@ pub(crate) async fn import_browser_history(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Loads the detailed preview for one previously recorded import batch.
-pub(crate) fn preview_import_batch(
+/// Loads the detailed preview for one previously recorded import batch, off the UI thread.
+pub(crate) async fn preview_import_batch(
     batch_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ImportBatchDetail, String> {
-    worker_bridge::preview_import_batch_impl(batch_id, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("preview_import_batch", move || {
+        worker_bridge::preview_import_batch_impl(batch_id, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Hides one import batch from the visible archive surface.
-pub(crate) fn revert_import_batch(
+/// Hides one import batch from the visible archive surface, off the UI thread.
+pub(crate) async fn revert_import_batch(
     batch_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ImportBatchDetail, String> {
-    worker_bridge::revert_import_batch_impl(batch_id, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("revert_import_batch", move || {
+        worker_bridge::revert_import_batch_impl(batch_id, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Restores a previously reverted import batch to the visible archive surface.
-pub(crate) fn restore_import_batch(
+/// Restores a previously reverted import batch to the visible archive surface, off the UI thread.
+pub(crate) async fn restore_import_batch(
     batch_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ImportBatchDetail, String> {
-    worker_bridge::restore_import_batch_impl(batch_id, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("restore_import_batch", move || {
+        worker_bridge::restore_import_batch_impl(batch_id, key.as_deref())
+    })
+    .await
 }

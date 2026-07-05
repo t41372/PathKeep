@@ -27,14 +27,20 @@
  * - Auto-focus on first mount — caller controls via `autoFocus` prop.
  */
 
-import { forwardRef, useCallback, type KeyboardEvent, type Ref } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useState,
+  type KeyboardEvent,
+  type Ref,
+} from 'react'
 import { cn } from '@/lib/cn'
 import {
   PaperAdvancedSearchHelp,
   type PaperAdvancedSearchHelpCopy,
 } from './paper-advanced-search-help'
 
-export type PaperSearchMode = 'keyword' | 'regex' | 'semantic'
+export type PaperSearchMode = 'keyword' | 'regex' | 'smart'
 
 export interface PaperSearchHeroCopy {
   prompt: string
@@ -43,11 +49,20 @@ export interface PaperSearchHeroCopy {
   filtersLabel: string
   modeKeyword: string
   modeRegex: string
-  modeSemantic: string
+  /** "Smart search" — the single AI mode (REACH-B; maps to ?mode=hybrid). */
+  modeSmart: string
   /** Mode-specific tail hints, e.g. "Match the exact words…" */
   modeHintKeyword: string
   modeHintRegex: string
-  modeHintSemantic: string
+  modeHintSmart: string
+  /**
+   * Hint shown on the Smart tab when AI is off / unavailable, replacing
+   * `modeHintSmart`. REACH-A's honest "available to turn on" vocabulary — the
+   * tab stays visible but disabled so Smart search is discoverable, not hidden.
+   */
+  modeHintSmartUnavailable: string
+  /** Aria suffix appended to the disabled Smart tab, e.g. "(unavailable)". */
+  modeSmartUnavailableAria: string
   /**
    * Add-chip prefixes: "+ Date", "+ Source", "+ Domain", "+ Visit
    * count" plus the §3.3 A annotations chips "+ Tag" / "+ Note".
@@ -72,6 +87,27 @@ export interface PaperSearchHeroCopy {
    * paper redesign, see feedback-2026-05-25 §3.3 B.
    */
   advancedSyntaxHelp: PaperAdvancedSearchHelpCopy
+  /** Primary submit-gate button label (idle). */
+  searchButton: string
+  /** Submit-gate button label while the submitted query is in flight. */
+  searchingButton: string
+  /** aria-label on the idle submit button. */
+  searchButtonAria: string
+  /** aria-label on the in-flight submit button. */
+  searchingButtonAria: string
+  /** Subtle hint shown below the input while it has focus. */
+  submitHint: string
+  /**
+   * Stale-results banner template, e.g. "Showing {mode} results — press
+   * Search to update". `{mode}` is filled from `staleModeNames`.
+   */
+  staleBanner: string
+  /** Display names for the stale-banner `{mode}` slot (NOT the tab labels). */
+  staleModeNames: {
+    keyword: string
+    regex: string
+    smart: string
+  }
 }
 
 export interface PaperSearchHeroFilter {
@@ -96,8 +132,34 @@ export interface PaperSearchHeroProps {
   onAddNoteFilter?: () => void
   /** Optional Enter handler; defaults to swallowing the event so the form doesn't submit. */
   onSubmit?: (query: string) => void
+  /**
+   * True while the last-submitted query is running. Swaps the button label to
+   * "Searching…" + a spinner, but never locks it — the user may re-submit.
+   */
+  isSearching?: boolean
+  /**
+   * Disables the Search button. The route computes this: empty draft, or the
+   * draft + mode are identical to the last submission (no redundant query).
+   */
+  submitDisabled?: boolean
+  /**
+   * When set, the on-screen results reflect this (last-submitted) mode while the
+   * live mode differs — renders the subtle stale-results banner under the input.
+   * `null`/omitted hides it.
+   */
+  staleMode?: PaperSearchMode | null
   /** True when this hero owns first-paint focus (Search route default). */
   autoFocus?: boolean
+  /**
+   * Whether the Smart tab is selectable. When false (AI off / no embedding
+   * provider / index empty per REACH-A's `optionalAiAvailability`) the tab still
+   * renders — discoverable, REACH-A pattern — but is disabled and shows the
+   * `modeHintSmartUnavailable` hint. Defaults to true so non-AI callers (and the
+   * preview fixtures) keep the tab live. The route never lets Smart be the
+   * *active* mode while unavailable, so the disabled tab is only ever reached
+   * from another mode.
+   */
+  smartAvailable?: boolean
   copy: PaperSearchHeroCopy
   className?: string
   testId?: string
@@ -118,7 +180,11 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
     onAddTagFilter,
     onAddNoteFilter,
     onSubmit,
+    isSearching = false,
+    submitDisabled = false,
+    staleMode = null,
     autoFocus = false,
+    smartAvailable = true,
     copy,
     className,
     testId,
@@ -130,20 +196,39 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
       if (event.key === 'Enter') {
         event.preventDefault()
         onSubmit?.(query)
-      } else if (event.key === 'Escape' && query.length > 0) {
+      } else if (event.key === 'Escape') {
+        // Esc clears a non-empty draft (→ idle). When the draft is already
+        // empty, Esc blurs the input so a second press releases focus rather
+        // than being a dead no-op.
         event.preventDefault()
-        onQueryChange('')
+        if (query.length > 0) {
+          onQueryChange('')
+        } else {
+          event.currentTarget.blur()
+        }
       }
     },
     [onSubmit, onQueryChange, query],
   )
+
+  // The submit hint is only meaningful while the input has focus. Local state
+  // keeps the toggle inside the hero — it never reaches the route or touches the
+  // result region, so there is no cross-tree re-render.
+  const [inputFocused, setInputFocused] = useState(false)
+
+  const staleBannerText =
+    staleMode != null
+      ? copy.staleBanner.replace('{mode}', copy.staleModeNames[staleMode])
+      : null
 
   const modeHint =
     mode === 'keyword'
       ? copy.modeHintKeyword
       : mode === 'regex'
         ? copy.modeHintRegex
-        : copy.modeHintSemantic
+        : smartAvailable
+          ? copy.modeHintSmart
+          : copy.modeHintSmartUnavailable
 
   return (
     <section
@@ -154,7 +239,7 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
         {copy.prompt}
       </div>
 
-      <div className="border-ink-muted border-b px-0 pb-3 pt-1">
+      <div className="border-ink-muted flex items-end gap-3 border-b px-0 pb-3 pt-1">
         <input
           ref={ref}
           data-testid="paper-search-input"
@@ -164,14 +249,75 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
           placeholder={copy.inputPlaceholder}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
           className={cn(
-            'text-ink w-full border-0 bg-transparent px-0 py-[6px]',
+            'text-ink min-w-0 flex-1 border-0 bg-transparent px-0 py-[6px]',
             'font-serif text-[28px] font-normal leading-[1.2] tracking-[-0.01em]',
             'placeholder:text-ink-faint placeholder:italic',
             'outline-none',
           )}
         />
+        <button
+          type="button"
+          data-testid="paper-search-submit"
+          // Don't lock the button while searching — the user may refine and
+          // re-submit. Only the route's redundant-query / empty-draft gate
+          // disables it.
+          disabled={submitDisabled}
+          aria-label={
+            isSearching ? copy.searchingButtonAria : copy.searchButtonAria
+          }
+          aria-busy={isSearching}
+          onClick={() => onSubmit?.(query)}
+          className={cn(
+            'bg-accent text-paper rounded-paper shrink-0 self-center',
+            // Fixed width so the label never reflows between
+            // "Search" / "Searching…".
+            'inline-flex w-[116px] items-center justify-center gap-[6px]',
+            'px-[14px] py-[7px] font-mono text-[11px] tracking-[0.02em]',
+            'transition-opacity duration-150',
+            'enabled:hover:opacity-90 enabled:cursor-pointer',
+            'disabled:cursor-not-allowed disabled:opacity-40',
+          )}
+        >
+          {isSearching ? (
+            <span
+              data-testid="paper-search-submit-spinner"
+              aria-hidden="true"
+              className={cn(
+                'border-paper/40 border-t-paper h-[11px] w-[11px]',
+                'rounded-full border-[1.5px] motion-safe:animate-spin',
+              )}
+            />
+          ) : null}
+          <span>{isSearching ? copy.searchingButton : copy.searchButton}</span>
+        </button>
       </div>
+
+      {staleBannerText ? (
+        <div
+          data-testid="paper-search-stale-banner"
+          role="status"
+          className="text-ink-faint mt-2 font-serif text-[12.5px] italic"
+        >
+          {staleBannerText}
+        </div>
+      ) : (
+        <div
+          data-testid="paper-search-submit-hint"
+          aria-hidden={!inputFocused}
+          className={cn(
+            'text-ink-faint mt-2 font-mono text-[9.5px] tracking-[0.04em]',
+            // Only meaningful while the input is focused — fade without
+            // stealing layout from the result region.
+            'transition-opacity duration-150',
+            inputFocused ? 'opacity-100' : 'opacity-0',
+          )}
+        >
+          {copy.submitHint}
+        </div>
+      )}
 
       <div className="mt-[14px] flex items-center gap-4">
         <span className="text-ink-faint font-mono text-[9.5px] uppercase tracking-[0.08em]">
@@ -183,9 +329,13 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
         >
           {(
             [
-              { value: 'keyword', label: copy.modeKeyword },
-              { value: 'regex', label: copy.modeRegex },
-              { value: 'semantic', label: copy.modeSemantic },
+              { value: 'keyword', label: copy.modeKeyword, disabled: false },
+              { value: 'regex', label: copy.modeRegex, disabled: false },
+              {
+                value: 'smart',
+                label: copy.modeSmart,
+                disabled: !smartAvailable,
+              },
             ] as const
           ).map((item, index) => (
             <button
@@ -193,14 +343,22 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
               type="button"
               role="tab"
               aria-selected={mode === item.value}
+              aria-label={
+                item.disabled
+                  ? `${item.label} ${copy.modeSmartUnavailableAria}`
+                  : undefined
+              }
+              disabled={item.disabled}
+              data-testid={`paper-search-mode-${item.value}`}
               onClick={() => onModeChange(item.value)}
               className={cn(
                 'border-border-default font-mono text-[11px] tracking-[0.02em] px-[11px] py-[4px]',
                 'transition-colors duration-150',
                 index < 2 && 'border-r',
+                item.disabled && 'cursor-not-allowed opacity-40',
                 mode === item.value
                   ? 'bg-accent text-paper'
-                  : 'text-ink-muted bg-transparent hover:bg-hover hover:text-ink',
+                  : 'text-ink-muted bg-transparent enabled:hover:bg-hover enabled:hover:text-ink',
               )}
             >
               {item.label}

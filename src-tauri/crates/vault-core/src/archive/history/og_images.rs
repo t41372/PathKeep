@@ -41,7 +41,7 @@ use crate::{
     config::ProjectPaths,
     models::{
         AppConfig, HistoryOgImage, HistoryOgImageLookupEntry, HistoryOgImageLookupResult,
-        OgImageCleanupMode, OgImageCleanupReport, OgImageStorageStats,
+        OgImageCleanupMode, OgImageCleanupReport, OgImageCoverageStats, OgImageStorageStats,
     },
     utils::{image_data_to_data_url, now_rfc3339, sha256_hex},
 };
@@ -98,6 +98,28 @@ SELECT
   (SELECT COUNT(*) FROM og_image_blobs),
   (SELECT COALESCE(SUM(byte_size), 0) FROM og_image_blobs),
   (SELECT MIN(fetched_at) FROM og_images)
+"#;
+
+// Coverage denominator = distinct HTTPS pages.
+//   - https-only: the fetcher short-circuits http:// to `parse_error` without ever
+//     hitting the wire (see the prefetch query below + `og_images_fetch`), so http
+//     pages can NEVER carry a preview and must not inflate the denominator.
+//   - COUNT(DISTINCT url): `urls` has no unique constraint on `url` (its dedup key
+//     is per-profile), so the same page under two profiles is two rows — but a
+//     preview is keyed per distinct `page_url`. Distinct keeps numerator and
+//     denominator in the same units.
+//   - byte-range (not `LIKE`): default `LIKE` is case-insensitive and cannot seek,
+//     so a prefix range lets the BINARY `idx_urls_url` / the `og_images` UNIQUE
+//     index range-seek instead of full-scanning. `'https:/0'` is the prefix
+//     `'https://'` with its last byte incremented (exclusive upper bound).
+// On-demand for Settings only — never on a hot path.
+const COVERAGE_STATS_SQL: &str = r#"
+SELECT
+  (SELECT COUNT(DISTINCT url) FROM urls
+     WHERE url >= 'https://' AND url < 'https:/0'),
+  (SELECT COUNT(*) FROM og_images
+     WHERE page_url >= 'https://' AND page_url < 'https:/0'),
+  (SELECT COUNT(*) FROM og_images WHERE fetch_status = 'ok')
 "#;
 
 /// Inserts (or replaces by `page_url`) one og:image fetch outcome plus its
@@ -354,6 +376,23 @@ pub fn storage_stats(connection: &Connection) -> Result<OgImageStorageStats> {
             })
         })
         .context("loading og:image storage stats")?;
+    Ok(stats)
+}
+
+/// Reports og:image coverage: how many of the archive's web pages carry a
+/// preview image. Returns raw counts (eligible / attempted / with-image) so the
+/// UI can present coverage and success-rate honestly. On-demand only — see
+/// `COVERAGE_STATS_SQL` for the O(n) note.
+pub fn coverage_stats(connection: &Connection) -> Result<OgImageCoverageStats> {
+    let stats = connection
+        .query_row(COVERAGE_STATS_SQL, [], |row| {
+            Ok(OgImageCoverageStats {
+                eligible_pages: row.get(0)?,
+                attempted_pages: row.get(1)?,
+                pages_with_image: row.get(2)?,
+            })
+        })
+        .context("loading og:image coverage stats")?;
     Ok(stats)
 }
 
@@ -634,6 +673,37 @@ mod tests {
         .unwrap();
         let none = list_urls_due_for_refetch(&connection, 0).unwrap();
         assert!(none.is_empty());
+    }
+
+    #[test]
+    fn coverage_stats_counts_eligible_attempted_and_with_image() {
+        let connection = open_test_archive();
+        seed_url(&connection, 1, "https://example.com/a", 1_000);
+        seed_url(&connection, 2, "https://example.com/b", 2_000);
+        // The SAME https page seen under a second profile is a second `urls` row
+        // but must count ONCE (the denominator is distinct pages).
+        seed_url(&connection, 4, "https://example.com/a", 4_000);
+        // http:// is never fetched (short-circuits to parse_error) → excluded.
+        seed_url(&connection, 5, "http://legacy.example.com/x", 5_000);
+        // A non-web scheme can never carry an og:image → excluded.
+        seed_url(&connection, 3, "chrome://settings", 3_000);
+        upsert_og_image(&connection, &ok_insert("https://example.com/a", b"\x89PNGdata")).unwrap();
+        upsert_og_image(&connection, &miss_insert("https://example.com/b")).unwrap();
+
+        let coverage = coverage_stats(&connection).expect("coverage stats");
+        assert_eq!(
+            coverage.eligible_pages, 2,
+            "only DISTINCT https pages are eligible (dup counted once; http + chrome excluded)"
+        );
+        assert_eq!(coverage.attempted_pages, 2);
+        assert_eq!(coverage.pages_with_image, 1);
+
+        // Empty archive reports zeros, never a divide-by-zero upstream.
+        let empty = open_test_archive();
+        let none = coverage_stats(&empty).expect("empty coverage");
+        assert_eq!(none.eligible_pages, 0);
+        assert_eq!(none.attempted_pages, 0);
+        assert_eq!(none.pages_with_image, 0);
     }
 
     /// Seeds a single `urls` row with `last_visit_ms` and a synthetic

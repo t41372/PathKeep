@@ -16,6 +16,7 @@ const COPY: PaperSearchEmptyCopy = {
   recentHeading: 'Recent',
   recentMeta: '{mode} · {count} results · {when}',
   footer: 'Search is local. Nothing leaves your machine.',
+  smartPrompt: 'Ask in plain language — that article about Rust async.',
 }
 
 const SUGGESTIONS: PaperSearchSuggestion[] = [
@@ -67,6 +68,32 @@ describe('PaperSearchEmpty', () => {
       screen.getByText('What was that paper about transformer architecture?'),
     ).toBeVisible()
     expect(screen.getByText('tokio scheduler')).toBeVisible()
+  })
+
+  test('8c: shows the Smart natural-language prompt only when smartActive', () => {
+    const { rerender } = render(
+      <PaperSearchEmpty
+        suggestions={SUGGESTIONS}
+        smartActive
+        copy={COPY}
+        testId="empty"
+      />,
+    )
+
+    const prompt = screen.getByTestId('paper-search-empty-smart-prompt')
+    expect(prompt).toBeVisible()
+    expect(prompt).toHaveTextContent(COPY.smartPrompt)
+
+    // Keyword/regex empty states never surface the Smart prompt.
+    rerender(
+      <PaperSearchEmpty
+        suggestions={SUGGESTIONS}
+        smartActive={false}
+        copy={COPY}
+        testId="empty"
+      />,
+    )
+    expect(screen.queryByTestId('paper-search-empty-smart-prompt')).toBeNull()
   })
 
   test('clicking a suggestion fires onPickSuggestion with the entry', () => {

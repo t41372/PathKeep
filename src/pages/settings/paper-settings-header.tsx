@@ -15,7 +15,7 @@
  *   pass; a deeper sweep follows).
  */
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import type { SettingsSectionNavItem } from './section-nav-items'
 
@@ -72,15 +72,34 @@ export function PaperSettingsHeader({
 }: PaperSettingsHeaderProps) {
   const location = useLocation()
   const sectionIds = useMemo(() => items.map((item) => item.id), [items])
+  // Mirror section-id membership into a ref so the auto-scroll effect can
+  // depend ONLY on the hash. A parent that mints a fresh `items` array each
+  // render would otherwise change `sectionIds` identity and re-fire the
+  // deep-link scroll on every render, yanking the viewport back up. Declared
+  // before the scroll effect so the ref is fresh on the same commit.
+  const sectionIdsRef = useRef(sectionIds)
+  useEffect(() => {
+    sectionIdsRef.current = sectionIds
+  }, [sectionIds])
   const handleSectionClick = useCallback((sectionId: string) => {
     scheduleSectionScroll(sectionId)
   }, [])
 
+  // Auto-scroll fires ONCE per actual hash arrival; explicit jump-pill clicks
+  // still scroll via scheduleSectionScroll, but a re-render at the same hash
+  // must never re-scroll.
+  const autoScrolledHashRef = useRef<string | null>(null)
   useEffect(() => {
-    const sectionId = sectionIdFromLocationHash(location.hash, sectionIds)
+    if (autoScrolledHashRef.current === location.hash) return
+    autoScrolledHashRef.current = location.hash
+
+    const sectionId = sectionIdFromLocationHash(
+      location.hash,
+      sectionIdsRef.current,
+    )
     if (!sectionId) return
     return scheduleSectionScroll(sectionId)
-  }, [location.hash, sectionIds])
+  }, [location.hash])
 
   return (
     <header

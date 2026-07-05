@@ -61,6 +61,18 @@ export interface SecurityStatus {
 }
 
 /**
+ * Reports the outcome of a proactive archive-encryption reconcile pass.
+ *
+ * The reconcile command self-heals a drifted encryption state right after unlock —
+ * so a user's next backup does not fail on a stale mode mismatch.
+ */
+export interface ReconcileReport {
+  repaired: boolean
+  fromMode: 'Plaintext' | 'Encrypted' | null
+  toMode: 'Plaintext' | 'Encrypted'
+}
+
+/**
  * Represents the preview payload shown before a write or high-risk action happens.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.

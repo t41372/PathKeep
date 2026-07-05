@@ -148,18 +148,10 @@ describe('Security route panels', () => {
       screen.getByRole('button', { name: 'security.unlockArchive' }),
     )
     fireEvent.click(screen.getByRole('button', { name: 'security.useKeyring' }))
-    fireEvent.click(
-      screen.getByRole('button', { name: 'security.storeInKeyring' }),
-    )
-    fireEvent.click(
-      screen.getByRole('button', { name: 'security.clearKeyring' }),
-    )
 
     expect(lockedHandlers.setSessionKey).toHaveBeenCalledWith('new-secret')
     expect(lockedHandlers.handleUnlock).toHaveBeenCalledTimes(1)
     expect(lockedHandlers.handleUnlockFromKeyring).toHaveBeenCalledTimes(1)
-    expect(lockedHandlers.handleStoreKeyringKey).toHaveBeenCalledTimes(1)
-    expect(lockedHandlers.handleClearKeyring).toHaveBeenCalledTimes(1)
 
     const unlockedHandlers = unlockHandlers()
     rerender(
@@ -194,14 +186,11 @@ describe('Security route panels', () => {
     expect(
       screen.queryByRole('button', { name: 'security.lockArchive' }),
     ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'security.storeInKeyring' }),
-    ).toBeInTheDocument()
   })
 
-  test('keeps busy labels on each keyring action branch', () => {
+  test('keeps busy label on the use-keyring action branch', () => {
     const unlockInputRef = createRef<HTMLInputElement>()
-    const { rerender } = render(
+    render(
       <SecurityUnlockPanel
         {...unlockHandlers()}
         busy="security.useKeyring"
@@ -214,34 +203,6 @@ describe('Security route panels', () => {
 
     expect(
       screen.getByRole('button', { name: 'security.useKeyring' }),
-    ).toBeInTheDocument()
-
-    rerender(
-      <SecurityUnlockPanel
-        {...unlockHandlers()}
-        busy="security.storeInKeyring"
-        sessionKey=""
-        status={securityStatusFixture({ unlocked: false })}
-        t={testT}
-        unlockInputRef={unlockInputRef}
-      />,
-    )
-    expect(
-      screen.getByRole('button', { name: 'security.storeInKeyring' }),
-    ).toBeInTheDocument()
-
-    rerender(
-      <SecurityUnlockPanel
-        {...unlockHandlers()}
-        busy="security.clearKeyring"
-        sessionKey=""
-        status={securityStatusFixture({ unlocked: false })}
-        t={testT}
-        unlockInputRef={unlockInputRef}
-      />,
-    )
-    expect(
-      screen.getByRole('button', { name: 'security.clearKeyring' }),
     ).toBeInTheDocument()
   })
 
@@ -351,9 +312,7 @@ function testT(key: string, vars?: Record<string, string | number>) {
 
 function unlockHandlers() {
   return {
-    handleClearKeyring: vi.fn().mockResolvedValue(undefined),
     handleLockArchive: vi.fn().mockResolvedValue(undefined),
-    handleStoreKeyringKey: vi.fn().mockResolvedValue(undefined),
     handleUnlock: vi.fn().mockResolvedValue(undefined),
     handleUnlockFromKeyring: vi.fn().mockResolvedValue(undefined),
     setSessionKey: vi.fn(),

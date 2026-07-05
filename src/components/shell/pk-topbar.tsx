@@ -31,6 +31,19 @@ export interface PKTopbarProps {
   backupRunning: boolean
   archiveInitialized: boolean
   className?: string
+  /**
+   * macOS Overlay title bar only: when true the topbar header doubles as the
+   * window-drag region (`data-tauri-drag-region`), so dragging the empty areas
+   * of the bar moves the window — the native macOS affordance the Overlay
+   * style otherwise removes. Off everywhere else (Windows/Linux/browser keep
+   * native decorations), so the attribute is absent and the header is inert.
+   *
+   * Tauri v2 only starts a drag from a mousedown on an element that itself
+   * carries the attribute; it never starts one from interactive children
+   * (the back/forward buttons, the search trigger, the Backup CTA). Those
+   * children deliberately do NOT carry the attribute, so they stay clickable.
+   */
+  titlebarDrag?: boolean
 }
 
 export function PKTopbar({
@@ -40,12 +53,21 @@ export function PKTopbar({
   backupRunning,
   archiveInitialized,
   className,
+  titlebarDrag = false,
 }: PKTopbarProps) {
   const { t } = useI18n()
   const { canGoBack, canGoForward, goBack, goForward, modifierLabel } =
     useRouteHistoryNav()
   const title = t(screen.titleKey)
   const subtitle = t(screen.subtitleKey)
+
+  // Tauri v2 starts a window drag only from a mousedown on an element that
+  // itself carries `data-tauri-drag-region`. We tag the header and its
+  // non-interactive layout/text nodes so dragging the empty bar (and the page
+  // title) moves the window, while every interactive leaf (nav buttons, search
+  // trigger, Backup CTA) is left untagged and stays clickable. `undefined`
+  // omits the attribute entirely off the macOS overlay platform.
+  const drag = titlebarDrag ? '' : undefined
 
   return (
     <header
@@ -54,8 +76,12 @@ export function PKTopbar({
         className,
       )}
       data-testid="pk-topbar"
+      data-tauri-drag-region={drag}
     >
-      <div className="flex min-w-0 items-center gap-3">
+      <div
+        className="flex min-w-0 items-center gap-3"
+        data-tauri-drag-region={drag}
+      >
         <div
           aria-label={t('navigation.routeHistory')}
           role="group"
@@ -93,14 +119,23 @@ export function PKTopbar({
             →
           </button>
         </div>
-        <h1 className="font-serif text-[18px] leading-none font-medium tracking-[-0.01em] text-ink">
+        <h1
+          className="font-serif text-[18px] leading-none font-medium tracking-[-0.01em] text-ink"
+          data-tauri-drag-region={drag}
+        >
           {title}
         </h1>
-        <span className="hidden truncate font-sans text-[12px] text-ink-faint sm:inline">
+        <span
+          className="hidden truncate font-sans text-[12px] text-ink-faint sm:inline"
+          data-tauri-drag-region={drag}
+        >
           {subtitle}
         </span>
       </div>
-      <div className="flex items-center gap-[10px]">
+      <div
+        className="flex items-center gap-[10px]"
+        data-tauri-drag-region={drag}
+      >
         <button
           type="button"
           onClick={onOpenPalette}

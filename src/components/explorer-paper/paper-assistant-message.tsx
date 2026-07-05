@@ -22,6 +22,8 @@
 
 import { type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { PKGlyph } from '@/components/shell/pk-glyph'
+import { StarToggle } from '@/components/shell/star-toggle'
 
 export type PaperAssistantRole = 'user' | 'ai'
 
@@ -32,6 +34,21 @@ export interface PaperAssistantEvidence {
   title: string
   domain: string
   url: string
+  /**
+   * W-STAR star key (canonicalized URL) for this cited page (W-AI-7). When present alongside the
+   * star handlers, the row shows a star toggle; absent → no star (e.g. legacy evidence).
+   */
+  canonicalUrl?: string | null
+}
+
+/** i18n copy for the evidence-row star toggle (mirrors `StarToggle`'s a11y contract). */
+export interface PaperAssistantEvidenceStarCopy {
+  /** aria-label when NOT starred, e.g. "Star this source". */
+  starLabel: string
+  /** aria-label when starred, e.g. "Unstar this source". */
+  unstarLabel: string
+  /** Live-region state words announced after a toggle. */
+  status: { starred: string; unstarred: string }
 }
 
 export interface PaperAssistantMessageProps {
@@ -43,6 +60,16 @@ export interface PaperAssistantMessageProps {
   evidence?: readonly PaperAssistantEvidence[]
   evidenceLabel?: string
   onSelectEvidence?: (item: PaperAssistantEvidence) => void
+  /**
+   * Whether a cited source is starred, keyed by its `canonicalUrl` (the W-STAR key, W-AI-7). Only
+   * called for rows that HAVE a canonical url, so the caller receives a guaranteed string. When
+   * supplied with `onToggleEvidenceStar` + `evidenceStarCopy`, each starrable row renders a toggle.
+   */
+  isEvidenceStarred?: (canonicalUrl: string) => boolean
+  /** Toggle the star for a cited source by its canonical url (optimistic; caller writes through). */
+  onToggleEvidenceStar?: (canonicalUrl: string) => void
+  /** i18n copy for the evidence-row star toggle. */
+  evidenceStarCopy?: PaperAssistantEvidenceStarCopy
   className?: string
   testId?: string
 }
@@ -54,6 +81,9 @@ export function PaperAssistantMessage({
   evidence,
   evidenceLabel,
   onSelectEvidence,
+  isEvidenceStarred,
+  onToggleEvidenceStar,
+  evidenceStarCopy,
   className,
   testId,
 }: PaperAssistantMessageProps) {
@@ -66,7 +96,7 @@ export function PaperAssistantMessage({
     >
       {!isUser && byline ? (
         <div className="text-ink-faint flex items-center gap-[6px] font-mono text-[9.5px] uppercase tracking-[0.08em]">
-          <span aria-hidden="true">◌</span>
+          <PKGlyph icon="smart_toy" size={11} strokeWidth={1.6} />
           <span>{byline}</span>
         </div>
       ) : null}
@@ -77,6 +107,8 @@ export function PaperAssistantMessage({
                 'self-end max-w-[75%] bg-accent-soft border-accent-medium border',
                 'rounded-[14px_14px_4px_14px] px-4 py-3',
                 'font-serif text-[15px] tracking-[-0.005em] text-ink leading-[1.4]',
+                // A pasted URL / long token must wrap inside the bubble, not blow past its max-width.
+                'break-words whitespace-pre-wrap',
               )
             : cn(
                 'self-start max-w-full text-ink',
@@ -101,33 +133,82 @@ export function PaperAssistantMessage({
               {evidenceLabel.replace('{count}', String(evidence.length))}
             </div>
           ) : null}
-          {evidence.map((item) => (
-            <button
-              type="button"
-              key={item.id}
-              onClick={() => onSelectEvidence?.(item)}
-              disabled={!onSelectEvidence}
-              data-testid={`paper-assistant-evidence-${item.id}`}
-              className={cn(
-                'border-border-light grid w-full grid-cols-[80px_1fr] items-center gap-[10px]',
-                'border-b py-[6px] last:border-b-0 text-left',
-                'enabled:cursor-pointer enabled:hover:text-accent transition-colors duration-150',
-                'disabled:cursor-default',
-              )}
-            >
-              <span className="text-ink-faint font-mono text-[10.5px]">
-                {item.date}
-              </span>
-              <span className="text-ink-secondary font-serif text-[13px] leading-[1.3] tracking-[-0.005em]">
-                {item.title}{' '}
-                <span className="text-ink-faint font-mono text-[10.5px]">
-                  · {item.domain}
-                </span>
-              </span>
-            </button>
-          ))}
+          {/* A turn can now cite many rows (the recent-visits enumeration returns dozens). An
+              unbounded flat list crams the whole panel and shoves the answer out of view, so the
+              rows scroll within a bounded region (~5 rows tall) — the panel stays a contained,
+              on-aesthetic "sources" block instead of an endless enumeration. Short lists never reach
+              the cap, so the common case is unchanged. */}
+          <div
+            data-testid="paper-assistant-evidence-rows"
+            className="pk-scrollbar max-h-[210px] overflow-y-auto"
+          >
+            {evidence.map((item) => (
+              <div
+                key={item.id}
+                className="group border-border-light flex items-center gap-[8px] border-b py-[6px] last:border-b-0"
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelectEvidence?.(item)}
+                  disabled={!onSelectEvidence}
+                  data-testid={`paper-assistant-evidence-${item.id}`}
+                  className={cn(
+                    'grid min-w-0 flex-1 grid-cols-[80px_1fr] items-center gap-[10px] text-left',
+                    'enabled:cursor-pointer enabled:hover:text-accent transition-colors duration-150',
+                    'disabled:cursor-default',
+                  )}
+                >
+                  <span className="text-ink-faint font-mono text-[10.5px]">
+                    {item.date}
+                  </span>
+                  <span className="text-ink-secondary font-serif text-[13px] leading-[1.3] tracking-[-0.005em]">
+                    {item.title}{' '}
+                    <span className="text-ink-faint font-mono text-[10.5px]">
+                      · {item.domain}
+                    </span>
+                  </span>
+                </button>
+                <EvidenceStar
+                  item={item}
+                  isStarred={isEvidenceStarred}
+                  onToggle={onToggleEvidenceStar}
+                  copy={evidenceStarCopy}
+                />
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * The per-evidence-row star toggle. Renders nothing unless the caller wired BOTH handlers' copy AND
+ * the row carries a `canonicalUrl` (the W-STAR key) — a single gate, so the toggle below works on
+ * guaranteed-present values (no optional-chaining at the call site). Mirrors `StarToggle`'s a11y.
+ */
+function EvidenceStar({
+  item,
+  isStarred,
+  onToggle,
+  copy,
+}: {
+  item: PaperAssistantEvidence
+  isStarred?: (canonicalUrl: string) => boolean
+  onToggle?: (canonicalUrl: string) => void
+  copy?: PaperAssistantEvidenceStarCopy
+}) {
+  const canonicalUrl = item.canonicalUrl
+  if (!onToggle || !copy || !canonicalUrl) return null
+  return (
+    <StarToggle
+      starred={isStarred ? isStarred(canonicalUrl) : false}
+      onToggle={() => onToggle(canonicalUrl)}
+      starLabel={copy.starLabel}
+      unstarLabel={copy.unstarLabel}
+      statusLabel={copy.status}
+      testId={`paper-assistant-evidence-star-${item.id}`}
+    />
   )
 }

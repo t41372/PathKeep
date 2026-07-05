@@ -41,6 +41,12 @@ pub struct ProjectPaths {
     pub sidecars_dir: PathBuf,
     pub semantic_index_dir: PathBuf,
     pub intelligence_blobs_dir: PathBuf,
+    /// AI vector sidecar plane (`derived/vectors/`); rebuildable, rides export via `derived/`.
+    pub vectors_dir: PathBuf,
+    /// AI agent sidecar database (`derived/agent.sqlite`); rebuildable agent trace store.
+    pub agent_database_path: PathBuf,
+    /// Downloaded embedding/reranker models (`<root>/models/`); re-downloadable, NOT exported.
+    pub models_dir: PathBuf,
     pub logs_dir: PathBuf,
     pub rust_log_path: PathBuf,
     pub frontend_log_path: PathBuf,
@@ -81,6 +87,9 @@ pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
         sidecars_dir: sidecars_dir.clone(),
         semantic_index_dir: sidecars_dir.join("semantic-index"),
         intelligence_blobs_dir: sidecars_dir.join("intelligence-blobs"),
+        vectors_dir: derived_dir.join("vectors"),
+        agent_database_path: derived_dir.join("agent.sqlite"),
+        models_dir: root.join("models"),
         logs_dir: logs_dir.clone(),
         rust_log_path: logs_dir.join("rust.log"),
         frontend_log_path: logs_dir.join("frontend.log"),
@@ -121,6 +130,8 @@ pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
         &paths.sidecars_dir,
         &paths.semantic_index_dir,
         &paths.intelligence_blobs_dir,
+        &paths.vectors_dir,
+        &paths.models_dir,
         &paths.logs_dir,
         &paths.crash_reports_dir,
     ] {
@@ -150,10 +161,17 @@ pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
 }
 
 /// Saves the app config to disk after normalizing runtime defaults.
+///
+/// Persists through [`crate::durable_io::atomic_durable_write`] (temp -> F_FULLFSYNC
+/// -> rename -> dir fsync) rather than a bare `fs::write`, so a crash mid-save leaves
+/// `config.json` as EITHER the complete old config OR the complete new one — never the
+/// truncated/empty file that silently dropped a mode change in the 2026-06-30 incident.
+/// `ensure_paths` first guarantees the parent directory exists (the durable write
+/// renames a sibling temp onto the destination and does not create parents).
 pub fn save_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
     ensure_paths(paths)?;
     let content = serde_json::to_string_pretty(config)?;
-    fs::write(&paths.config_path, content)
+    crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes())
         .with_context(|| format!("writing {}", paths.config_path.display()))?;
     Ok(())
 }
@@ -190,6 +208,9 @@ mod tests {
             paths.intelligence_database_path,
             dir.path().join("derived/history-intelligence.sqlite")
         );
+        assert_eq!(paths.vectors_dir, dir.path().join("derived/vectors"));
+        assert_eq!(paths.agent_database_path, dir.path().join("derived/agent.sqlite"));
+        assert_eq!(paths.models_dir, dir.path().join("models"));
     }
 
     #[test]
@@ -203,6 +224,11 @@ mod tests {
         assert!(paths.derived_dir.exists());
         assert!(paths.semantic_index_dir.exists());
         assert!(paths.intelligence_blobs_dir.exists());
+        assert!(paths.vectors_dir.exists());
+        assert!(paths.models_dir.exists());
+        // agent.sqlite is a file, not a directory; its parent `derived/` is created above so the
+        // database can be opened on demand without ensure_paths pre-touching the file.
+        assert!(paths.agent_database_path.parent().expect("agent db parent").exists());
 
         let config = AppConfig {
             initialized: true,
@@ -218,6 +244,47 @@ mod tests {
         assert!(matches!(loaded.archive_mode, ArchiveMode::Encrypted));
         let saved_content = fs::read_to_string(&paths.config_path).expect("read saved config");
         assert!(saved_content.contains(r#""archiveMode": "Encrypted""#));
+    }
+
+    #[test]
+    fn save_config_overwrite_round_trips_through_the_durable_path() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+
+        let first = AppConfig {
+            initialized: false,
+            selected_profile_ids: vec!["chrome:First".to_string()],
+            ..AppConfig::default()
+        };
+        save_config(&paths, &first).expect("first save");
+        assert_eq!(
+            load_config(&paths).expect("load first").selected_profile_ids,
+            vec!["chrome:First".to_string()]
+        );
+
+        // A second save replaces the first via the atomic durable swap: load_config sees
+        // ONLY the new content, never a torn old+new mix.
+        let second = AppConfig {
+            initialized: true,
+            selected_profile_ids: vec!["chrome:Second".to_string(), "edge:Work".to_string()],
+            ..AppConfig::default()
+        };
+        save_config(&paths, &second).expect("second save");
+        let loaded = load_config(&paths).expect("load second");
+        assert!(loaded.initialized);
+        assert_eq!(
+            loaded.selected_profile_ids,
+            vec!["chrome:Second".to_string(), "edge:Work".to_string()]
+        );
+
+        // Routed through atomic_durable_write: its sibling temp is renamed onto
+        // config.json and never left behind in the project root.
+        let leftovers: Vec<_> = fs::read_dir(dir.path())
+            .expect("read_dir")
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".pk-durable-"))
+            .collect();
+        assert!(leftovers.is_empty(), "save_config leaked a durable temp: {leftovers:?}");
     }
 
     #[test]

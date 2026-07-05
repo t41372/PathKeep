@@ -248,6 +248,7 @@ pub(crate) fn backup_run_summary(
         new_visits: profile_summaries.iter().map(|item| item.new_visits).sum(),
         new_urls: profile_summaries.iter().map(|item| item.new_urls).sum(),
         new_downloads: profile_summaries.iter().map(|item| item.new_downloads).sum(),
+        error_message: None,
     }
 }
 

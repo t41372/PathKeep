@@ -181,13 +181,81 @@ fn ensure_core_intelligence_schema_records_versioned_migrations() {
     let migration_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
         .expect("migration count");
-    assert_eq!(migration_count, 7);
+    assert_eq!(migration_count, 8);
     assert!(has_index(&connection, "idx_vdf_profile_visit_id"));
     assert!(has_index(&connection, "idx_search_trails_profile_time_trail"));
     assert!(has_index(&connection, "idx_search_events_profile_visit"));
     assert!(has_index(&connection, "idx_search_events_profile_kind"));
     assert!(has_table(&connection, "intelligence_overview_snapshots"));
     assert!(!has_table(&connection, "insight_cards"));
+    // W-ENRICH-1 (intelligence migration v8): the content-enrichment columns are present.
+    let enrichment_columns: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('visit_content_enrichments')
+             WHERE name IN ('extractor_version', 'enrichment_summary', 'refetch_after', 'http_status')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("enrichment columns");
+    assert_eq!(enrichment_columns, 4, "W-ENRICH-1 columns must be added by migration v8");
+}
+
+/// Forward test for the W-ENRICH-1 (migration "015"/intelligence-v8) column add on a DB that already
+/// created the baseline enrichment table WITHOUT the new columns (an upgrade-in-place path).
+#[test]
+fn intelligence_v8_adds_w_enrich_columns_to_a_legacy_enrichment_table() {
+    let connection = Connection::open_in_memory().expect("in memory sqlite");
+    // Stand up the pre-W-ENRICH-1 enrichment table shape (no extractor_version / enrichment_summary /
+    // refetch_after / http_status), then run the migration helper directly to add them.
+    connection
+        .execute_batch(
+            "CREATE TABLE visit_content_enrichments (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               history_id INTEGER NOT NULL,
+               content_source TEXT NOT NULL,
+               fetch_status TEXT NOT NULL,
+               fetched_at TEXT NOT NULL,
+               final_url TEXT,
+               language TEXT,
+               readable_title TEXT,
+               readable_text_blob_path TEXT,
+               readable_text_bytes INTEGER NOT NULL DEFAULT 0,
+               text_hash TEXT,
+               snippet_json TEXT NOT NULL,
+               extraction_json TEXT NOT NULL,
+               pipeline_version TEXT NOT NULL,
+               UNIQUE(history_id, content_source)
+             );",
+        )
+        .expect("legacy enrichment table");
+
+    crate::enrichment::add_visit_content_enrichment_w_enrich_columns(&connection)
+        .expect("add w-enrich columns");
+    // Idempotent: a second run is a no-op (duplicate column name is swallowed).
+    crate::enrichment::add_visit_content_enrichment_w_enrich_columns(&connection)
+        .expect("add w-enrich columns again");
+
+    let count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('visit_content_enrichments')
+             WHERE name IN ('extractor_version', 'enrichment_summary', 'refetch_after', 'http_status')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("column count");
+    assert_eq!(count, 4);
+}
+
+/// The W-ENRICH-1 column-add helper surfaces non-"duplicate column" errors instead of swallowing them
+/// (e.g. the table is missing entirely), so a genuine schema fault is loud rather than silent.
+#[test]
+fn intelligence_v8_column_add_propagates_a_genuine_alter_error() {
+    let connection = Connection::open_in_memory().expect("in memory sqlite");
+    // No `visit_content_enrichments` table at all → ALTER fails with "no such table", which is NOT a
+    // "duplicate column name" no-op, so the helper must return an error.
+    let error = crate::enrichment::add_visit_content_enrichment_w_enrich_columns(&connection)
+        .expect_err("ALTER on a missing table must error");
+    assert!(error.to_string().contains("no such table"), "got: {error}");
 }
 
 /// Regression coverage for legacy search event tables receiving query-kind metadata.
@@ -455,10 +523,7 @@ fn all_time_secondary_overview_serves_persisted_snapshot() {
         .expect("full rebuild");
 
     let all_time = ScopedDateRangeRequest {
-        date_range: DateRange {
-            start: "1900-01-01".to_string(),
-            end: "2026-12-31".to_string(),
-        },
+        date_range: DateRange { start: "1900-01-01".to_string(), end: "2026-12-31".to_string() },
         profile_id: None,
     };
 
@@ -499,10 +564,7 @@ fn all_time_secondary_overview_serves_persisted_snapshot() {
     );
 
     let scoped = ScopedDateRangeRequest {
-        date_range: DateRange {
-            start: "2024-04-01".to_string(),
-            end: "2024-04-30".to_string(),
-        },
+        date_range: DateRange { start: "2024-04-01".to_string(), end: "2024-04-30".to_string() },
         profile_id: None,
     };
     let scoped_overview = get_intelligence_secondary_overview(&paths, &config, None, &scoped)

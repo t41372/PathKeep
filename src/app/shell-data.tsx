@@ -33,8 +33,11 @@ import { useProfileScope } from '../lib/profile-scope-context'
 import { waitForNextPaint } from '../lib/wait-for-next-paint'
 import type {
   AppBuildInfo,
+  AppConfig,
   AppLockStatus,
   AppSnapshot,
+  ArchiveRecoveryReport,
+  ArchiveUpgradeAssessment,
   BackupProgressEvent,
   BackupReport,
   ImportProgressEvent,
@@ -43,14 +46,20 @@ import type {
 } from '../lib/types'
 import {
   type BusyOverlayState,
+  type ShellErrorKind,
   type ShellImportTaskRequest,
   ShellDataContext,
 } from './shell-data-context'
-import { createShellDataActions } from './shell-data-actions'
 import {
+  createShellDataActions,
+  isFullDiskAccessIssueMessage,
+} from './shell-data-actions'
+import {
+  archiveNeedsLaunchRecovery,
   buildUninitializedDashboardFallback,
   countActiveRuntimeJobs,
   isAppLockError,
+  parseArchiveRecoveryRequired,
   shouldAttemptKeyringAutoUnlock,
 } from './shell-data-helpers'
 import { useShellRuntimeStatus } from './shell-runtime-status'
@@ -92,13 +101,24 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [busyOverlay, setBusyOverlay] = useState<BusyOverlayState | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setErrorMessage] = useState<string | null>(null)
+  const [errorKind, setErrorKind] = useState<ShellErrorKind>(null)
+  const errorKindRef = useRef<ShellErrorKind>(null)
+  const [rawError, setRawError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [archiveTasks, setArchiveTasks] = useState<ShellTask[]>([])
   const [notifications, setNotifications] = useState<ShellNotification[]>(() =>
     readStoredNotifications(),
   )
   const [refreshKey, setRefreshKey] = useState(0)
+  const [recovery, setRecovery] = useState<ArchiveRecoveryReport | null>(null)
+  const [archiveUpgrade, setArchiveUpgrade] = useState<{
+    assessment: ArchiveUpgradeAssessment
+    config: AppConfig
+  } | null>(null)
+  // Latches once the cheap upgrade pre-check has confirmed the archive is at the
+  // target schema, so a healthy shell never re-assesses on every refresh.
+  const upgradeResolvedRef = useRef(false)
   const idleTimerRef = useRef<number | null>(null)
   const archiveTasksRef = useRef<ShellTask[]>([])
   const attemptedKeyringAutoUnlockRef = useRef(false)
@@ -112,6 +132,10 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const dashboardRefreshTokenRef = useRef(0)
   const activeRuntimeJobsRef = useRef(0)
   const activeArchiveTask = findActiveArchiveTask(archiveTasks) ?? null
+  // A stable boolean, NOT the task object: the object identity changes on every
+  // progress tick, so depending on it would needlessly re-run the idle effect
+  // each tick. The boolean only flips at the running↔idle transition.
+  const archiveTaskActive = activeArchiveTask !== null
   const latestArchiveTask = archiveTasks[0] ?? null
   const unreadNotificationCount = notifications.filter(
     (notification) => !notification.read,
@@ -122,6 +146,29 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       refreshKey,
       t,
     })
+
+  /**
+   * Sets the shell error message and ALWAYS resets the locale-independent
+   * `errorKind` classification back to `null`. Centralizing it here means every
+   * `setError` call site — including the action factory — can never leave a
+   * stale Full Disk Access classification attached to an unrelated error. The
+   * FDA path re-asserts the kind via `setErrorKind` immediately after calling
+   * this, so `error` and `errorKind` stay consistent. Stable identity (empty
+   * deps) keeps the action factory memo honest.
+   */
+  const setError = useCallback(
+    (value: string | null | ((current: string | null) => string | null)) => {
+      setErrorMessage(value)
+      setErrorKind(null)
+      errorKindRef.current = null
+      // Drop any stale raw-error detail attached to a previous failure. The
+      // backup action re-sets `rawError` immediately after this call (batched
+      // in the same tick), so the failure surface always shows the detail that
+      // matches the message it is displaying — and unrelated errors carry none.
+      setRawError(null)
+    },
+    [],
+  )
 
   /**
    * Shows the shell-wide busy overlay for a long-running action.
@@ -287,11 +334,18 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     })
   }
 
-  function failArchiveTask(taskId: string, message: string) {
+  function failArchiveTask(
+    taskId: string,
+    message: string,
+    options?: { silent?: boolean },
+  ) {
     const task = readArchiveTask(taskId)
     /* v8 ignore next -- failure is only called for task ids created by beginArchiveTask. */
     if (!task) return
     setArchiveTask(failShellTask(task, nextShellTimestamp(), message))
+    // `silent` records the failure in the ledger without a danger bell — the
+    // lock-required backup case relies on the unlock gate to remediate instead.
+    if (options?.silent) return
     publishNotification({
       title: t('jobs.archiveTaskFailedTitle'),
       body: message,
@@ -306,7 +360,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       return report.reason ?? t('shell.manualBackupDueWindow')
     }
     if (report.run) {
-      return report.warnings.some(isSafariAccessIssueMessage)
+      return report.warnings.some(isFullDiskAccessIssueMessage)
         ? t('shell.safariFullDiskAccessBackupWarning', {
             runId: report.run.id,
           })
@@ -366,7 +420,21 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
           return
         }
 
-        if (nextSnapshot.config.initialized && surfaceErrors) {
+        // Only surface a dashboard error when no backup failure is in flight.
+        // A fire-and-forget dashboard refresh can resolve after the backup
+        // action's finally block re-asserted setError/setRawError — clobbering
+        // the backup failure with an unrelated dashboard error. The ref
+        // captures the latest errorKind without adding a dependency that would
+        // change the callback identity (and thus re-create refreshAppData)
+        // on every error state change.
+        const backupErrorInFlight =
+          errorKindRef.current === 'backup' ||
+          errorKindRef.current === 'full-disk-access'
+        if (
+          nextSnapshot.config.initialized &&
+          surfaceErrors &&
+          !backupErrorInFlight
+        ) {
           setError(describeError(dashboardError, 'load_dashboard_snapshot'))
           return
         }
@@ -378,7 +446,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [],
+    [setError],
   )
 
   const refreshAppData = useCallback(
@@ -388,6 +456,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         await waitForNextPaint()
       }
       setError(null)
+      setRecovery(null)
+      setArchiveUpgrade(null)
 
       try {
         const [nextLockStatus, nextBuildInfo] = await Promise.all([
@@ -414,6 +484,10 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
             const key = await backend.keyringGetDatabaseKey()
             if (key) {
               await backend.setSessionDatabaseKey(key)
+              // Best-effort reconcile: self-heals any drifted encryption state
+              // right after auto-unlock so the next backup doesn't fail on a
+              // stale mode mismatch. Fire-and-forget; swallow all errors.
+              void backend.reconcileArchiveEncryption().catch(() => undefined)
               nextSnapshot = await backend.getAppSnapshot()
             }
           } catch {
@@ -421,6 +495,56 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
             // user fall back to the explicit unlock controls if keychain access
             // is denied or unavailable for this session.
           }
+        }
+
+        if (archiveNeedsLaunchRecovery(nextSnapshot)) {
+          try {
+            nextSnapshot = await backend.initializeArchive(nextSnapshot.config)
+          } catch (recoveryError) {
+            const report = parseArchiveRecoveryRequired(recoveryError)
+            if (report) {
+              setRecovery(report)
+              setSnapshot(nextSnapshot)
+              setAppLockStatus(nextSnapshot.appLockStatus)
+              setBuildInfo(nextBuildInfo)
+              setRefreshKey((value) => value + 1)
+              return
+            }
+            throw recoveryError
+          }
+        }
+
+        // Best-effort one-time upgrade gate. `assess_archive_upgrade` is cheap
+        // (COUNTs only); when it reports a pending v0.2.0 → v0.3.0 migration we
+        // hand off to the blocking `ArchiveUpgradeScreen` (which drives
+        // `initialize_archive` with live progress) instead of freezing behind an
+        // opaque busy overlay. Latched via `upgradeResolvedRef` so a healthy
+        // shell never re-assesses on every refresh.
+        if (
+          !upgradeResolvedRef.current &&
+          nextSnapshot.config.initialized &&
+          nextSnapshot.archiveStatus.unlocked
+        ) {
+          let assessment: ArchiveUpgradeAssessment | null = null
+          try {
+            assessment = await backend.assessArchiveUpgrade()
+          } catch {
+            // Best-effort: an assess failure (e.g. the browser-preview fixture,
+            // which throws on unknown commands) must never block launch — treat
+            // as not-pending and continue the normal flow.
+          }
+          if (assessment && assessment.pending) {
+            setLanguagePreference(nextSnapshot.config.preferredLanguage, {
+              persist: false,
+            })
+            setArchiveUpgrade({ assessment, config: nextSnapshot.config })
+            setBuildInfo(nextBuildInfo)
+            setAppLockStatus(nextSnapshot.appLockStatus)
+            setSnapshot(nextSnapshot)
+            setRefreshKey((value) => value + 1)
+            return
+          }
+          upgradeResolvedRef.current = true
         }
 
         setLanguagePreference(nextSnapshot.config.preferredLanguage, {
@@ -454,7 +578,12 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [clearLoadedState, refreshDashboardSnapshot, setLanguagePreference],
+    [
+      clearLoadedState,
+      refreshDashboardSnapshot,
+      setLanguagePreference,
+      setError,
+    ],
   )
 
   const armIdleDeadline = useEffectEvent((idleTimeoutMinutes: number) => {
@@ -532,10 +661,18 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   ])
 
   useEffect(() => {
+    // Suppress the idle timer while a blocking busy action runs OR while an
+    // archive task (import/backup) is in flight. `runImport` never sets
+    // busyAction, so without `archiveTaskActive` a long import could hit the
+    // idle timeout and lock the archive out from under an in-flight encrypted
+    // write. This is a DEFER, not a cancel: the effect re-arms once the task
+    // clears (archiveTaskActive is a dependency), so we still lock promptly if
+    // the user stays idle after the write settles.
     if (
       !appLockStatus?.enabled ||
       appLockStatus.locked ||
-      busyAction !== null
+      busyAction !== null ||
+      archiveTaskActive
     ) {
       clearIdleTimer()
       return
@@ -574,6 +711,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     appLockStatus?.idleTimeoutMinutes,
     appLockStatus?.locked,
     busyAction,
+    archiveTaskActive,
     clearIdleTimer,
   ])
 
@@ -682,16 +820,23 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     clearAppLockPasscode,
     lockAppSession,
     unlockAppSession,
+    startLocalSemanticSetup,
   } = createShellDataActions({
     t,
     setLanguagePreference,
     refreshDashboardSnapshot,
     refreshAppData,
+    refreshRuntimeStatus,
     clearLoadedState,
     showBusyOverlay,
     clearBusyOverlay,
     setNotice,
     setError,
+    setErrorKind: (value: ShellErrorKind) => {
+      setErrorKind(value)
+      errorKindRef.current = value
+    },
+    setRawError,
     setSnapshot,
     setAppLockStatus,
     setRefreshKey,
@@ -708,6 +853,28 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     },
   })
 
+  const finishArchiveUpgrade = useCallback(async () => {
+    // refreshAppData clears archiveUpgrade at its start, re-assesses (now not
+    // pending → migration done), and drives the normal shell.
+    await refreshAppData(false)
+  }, [refreshAppData])
+
+  const runFullArchiveRestore = useCallback(
+    async (snapshotPath: string, key?: string | null) => {
+      const report = await backend.runFullArchiveRestore(
+        { snapshotPath },
+        key ?? null,
+      )
+      // Refresh first so a failure keeps the recovery screen visible (setRecovery
+      // inside refreshAppData also clears it on success, so the explicit call below
+      // is redundant on the happy path but ensures cleanup on a partial failure).
+      await refreshAppData(false)
+      setRecovery(null)
+      return report
+    },
+    [refreshAppData],
+  )
+
   return (
     <ShellDataContext.Provider
       value={{
@@ -721,6 +888,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         busyAction,
         busyOverlay,
         error,
+        errorKind,
+        rawError,
         notice,
         archiveTasks,
         activeArchiveTask,
@@ -728,7 +897,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         notifications,
         unreadNotificationCount,
         refreshKey,
-        refreshAppData: () => refreshAppData(),
+        refreshAppData: (showSpinner) => refreshAppData(showSpinner),
         refreshRuntimeStatus: () => refreshRuntimeStatus(),
         saveConfig,
         initializeArchive,
@@ -738,7 +907,13 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         clearAppLockPasscode,
         lockAppSession,
         unlockAppSession,
+        startLocalSemanticSetup,
+        recovery,
+        archiveUpgrade,
+        finishArchiveUpgrade,
+        runFullArchiveRestore,
         clearNotice: () => setNotice(null),
+        clearError: () => setError(null),
         markNotificationsRead: () =>
           setNotifications((current) => markShellNotificationsRead(current)),
         dismissNotification: (id: string) =>
@@ -799,13 +974,6 @@ function isShellNotification(value: unknown): value is ShellNotification {
     typeof candidate.body === 'string' &&
     typeof candidate.tone === 'string' &&
     typeof candidate.read === 'boolean'
-  )
-}
-
-function isSafariAccessIssueMessage(message: string) {
-  return (
-    message.includes('Safari History.db is not readable yet') ||
-    message.includes('Full Disk Access')
   )
 }
 

@@ -64,10 +64,15 @@ use std::{
 pub(crate) use self::claims::claim_enrichment_job_by_id;
 #[cfg(test)]
 pub(crate) use self::claims::claim_enrichment_jobs;
+pub(crate) use self::claims::{
+    claim_content_fetch_job_by_id, content_fetch_job_due, requeue_content_fetch_job_after,
+};
 pub use self::claims::{
     claim_core_intelligence_job, claim_deterministic_rebuild_job, intelligence_job_stop_requested,
+    next_content_fetch_schedule_eta_secs, next_queued_content_fetch_job,
     next_queued_enrichment_job, next_queued_intelligence_job,
 };
+pub(crate) use self::enqueue::enqueue_content_fetch_job;
 #[cfg(test)]
 pub(crate) use self::enqueue::enqueue_enrichment_job;
 pub use self::enqueue::mark_all_deterministic_modules_stale;
@@ -141,6 +146,17 @@ CREATE TABLE IF NOT EXISTS deterministic_module_runtime (
 
 /// Queue job type identifier used for enrichment plugin jobs.
 pub(crate) const ENRICHMENT_JOB_TYPE: &str = "enrichment-plugin";
+/// Queue job type identifier used for W-ENRICH-1 site content-fetch jobs (06 §5).
+///
+/// A SEPARATE job type from the offline enrichment plugins so the content-fetch drain lane can be
+/// kept low-concurrency + off the backup/import critical path, and so its negative-cache `scheduled_at`
+/// gating is independent of the title-normalization queue.
+pub(crate) const CONTENT_FETCH_JOB_TYPE: &str = "content-fetch";
+/// Stored `plugin_id` for content-fetch jobs (the concrete extractor id is the stored `content_source`
+/// on the resulting `visit_content_enrichments` row, not the job's plugin_id).
+pub(crate) const CONTENT_FETCH_PLUGIN_ID: &str = "content-fetch";
+/// Default priority for content-fetch jobs (lower = sooner; the working-set selector feeds the order).
+pub(crate) const CONTENT_FETCH_PRIORITY: i64 = 60;
 /// Queue job type identifier used for visit-derived-facts rebuild work.
 pub const VISIT_DERIVE_JOB_TYPE: &str = "visit-derive";
 /// Queue job type identifier used for daily-rollup work.

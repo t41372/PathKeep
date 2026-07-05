@@ -5,8 +5,8 @@
  *
  * ## Responsibilities
  * - Verify the snapshot-less loading / locked-archive / unavailable gates.
- * - Verify that `?layout=paper` swaps the legacy section nav + overview block
- *   for the paper-redesign header.
+ * - Verify that `?layout=paper` swaps the legacy section nav for the
+ *   paper-redesign header, and that the removed overview block stays gone.
  * - Keep the assertion small enough that the existing live-shell suites can
  *   continue to own the non-paper section composition baseline.
  *
@@ -27,7 +27,7 @@
 import type { ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, test, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '../../lib/i18n'
 import type { AppSnapshot, SecurityStatus } from '../../lib/types'
 import { SettingsPage } from './index'
@@ -79,10 +79,16 @@ vi.mock('./paper-settings-header', () => ({
   ),
 }))
 
+// Capture the `items` identity the nav receives on every render so the suite
+// can prove BUG A's root fix: the descriptor list is memoized, so an unrelated
+// re-render at the same language hands the nav the SAME array reference (which
+// is what keeps the deep-link auto-scroll from re-firing on every render).
+const navItemsRenders: unknown[] = []
 vi.mock('./section-nav', () => ({
-  SettingsSectionNav: ({ label }: { label: string }) => (
-    <nav data-testid="mock-section-nav" aria-label={label} />
-  ),
+  SettingsSectionNav: ({ items, label }: { items: unknown; label: string }) => {
+    navItemsRenders.push(items)
+    return <nav data-testid="mock-section-nav" aria-label={label} />
+  },
 }))
 
 interface ShellOverrides {
@@ -133,6 +139,43 @@ function renderPage(
 }
 
 describe('SettingsPage', () => {
+  beforeEach(() => {
+    navItemsRenders.length = 0
+  })
+
+  describe('section nav items stability', () => {
+    test('hands the nav the SAME items array identity across an unrelated re-render at the same language', () => {
+      // BUG A root fix: createSettingsSectionNavItems is memoized on `t`, so a
+      // re-render that does not change the language (the AI-draft-edit case)
+      // reuses the SAME array reference. Stable identity here is exactly what
+      // stops the deep-link auto-scroll from re-firing every render.
+      shellDataMock.mockReturnValue(populatedShellData())
+      routeStateMock.mockReturnValue(routeStateFixture())
+
+      // A fresh element each time forces SettingsPage to actually re-render
+      // (React would bail on an identical element reference).
+      const tree = () => (
+        <MemoryRouter initialEntries={['/settings#settings-ai']}>
+          <I18nProvider>
+            <SettingsPage />
+          </I18nProvider>
+        </MemoryRouter>
+      )
+      const { rerender } = render(tree())
+
+      expect(navItemsRenders.length).toBe(1)
+
+      // Force an unrelated re-render at the same language (the mocked hooks hand
+      // back fresh objects each call, exactly like an AI-draft edit would).
+      rerender(tree())
+
+      expect(navItemsRenders.length).toBe(2)
+      // Same reference across both renders — the useMemo on `t` held, so the nav
+      // never sees a new `items` identity that would re-fire the deep-link scroll.
+      expect(navItemsRenders[1]).toBe(navItemsRenders[0])
+    })
+  })
+
   describe('snapshot-less gates', () => {
     test('renders the loading gate when shell snapshot is still loading', () => {
       renderPage(
@@ -192,34 +235,47 @@ describe('SettingsPage', () => {
   })
 
   describe('paperLayout branches', () => {
-    test('renders the paper header and omits the legacy overview when layout=paper', () => {
+    test('renders the paper header instead of the legacy section nav when layout=paper', () => {
       renderPage('/settings?layout=paper')
 
       expect(screen.getByTestId('settings-paper-header')).toBeInTheDocument()
       expect(screen.queryByTestId('mock-section-nav')).toBeNull()
-      // The legacy `.settings-overview` block (h2#settings-overview + workflow
-      // links) must NOT render in paper mode.
-      expect(document.getElementById('settings-overview')).toBeNull()
       // The settings groups themselves are still composed in paper mode.
       expect(screen.getByTestId('mock-appearance')).toBeInTheDocument()
       expect(screen.getByTestId('mock-ai')).toBeInTheDocument()
     })
 
-    test('renders the legacy section nav and overview block when layout query is absent', () => {
+    test('renders the legacy section nav when the layout query is absent', () => {
       renderPage('/settings')
 
       expect(screen.getByTestId('mock-section-nav')).toBeInTheDocument()
       expect(screen.queryByTestId('settings-paper-header')).toBeNull()
-      expect(document.getElementById('settings-overview')).not.toBeNull()
-      // The two workflow links — Maintenance and Integrations — are rendered.
-      const links = screen
-        .getAllByRole('link')
-        .map((link) => link.getAttribute('href'))
-      expect(links).toContain('/maintenance')
-      expect(links).toContain('/integrations')
+      // The removed intro/overview block must NOT render in either layout: it
+      // duplicated the sidebar and wasted the first screen.
+      expect(document.getElementById('settings-overview')).toBeNull()
+      // The two in-page workflow cards (Open Maintenance / Open Integrations)
+      // are gone — the section composition renders directly under the nav.
+      expect(screen.getByTestId('mock-appearance')).toBeInTheDocument()
+      expect(screen.getByTestId('mock-migration')).toBeInTheDocument()
     })
   })
 })
+
+function populatedShellData() {
+  return {
+    appLockStatus: null,
+    buildInfo: null,
+    clearAppLockPasscode: vi.fn(),
+    dashboard: null,
+    loading: false,
+    lockAppSession: vi.fn(),
+    refreshAppData: vi.fn().mockResolvedValue(undefined),
+    refreshKey: 1,
+    saveConfig: vi.fn(),
+    setAppLockPasscode: vi.fn(),
+    snapshot: snapshotFixture(),
+  }
+}
 
 function snapshotFixture(): AppSnapshot {
   // We only need a truthy snapshot — the SettingsPage forwards it to

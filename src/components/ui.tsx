@@ -432,11 +432,18 @@ export function FieldBlock({
  */
 export function ToggleRow({
   checked,
+  describedById,
   disabled = false,
   label,
   onChange,
 }: {
   checked: boolean
+  /**
+   * Optional id of an element describing this toggle, wired to the control via
+   * `aria-describedby` so a screen reader hears the consequence of flipping it
+   * (e.g. a consent disclosure) at the control itself, not just nearby on screen.
+   */
+  describedById?: string
   disabled?: boolean
   label: string
   onChange: (checked: boolean) => void
@@ -445,6 +452,7 @@ export function ToggleRow({
     <label className="toggleRow">
       <span>{label}</span>
       <input
+        aria-describedby={describedById}
         checked={checked}
         disabled={disabled}
         type="checkbox"

@@ -342,6 +342,71 @@ describe('DerivedRuntimeReview', () => {
       }),
     ).toBeVisible()
   })
+
+  test('shows the deferred placeholder when readable content is not release-available', () => {
+    render(
+      <MemoryRouter>
+        <I18nProvider>
+          <DerivedRuntimeReview
+            action={null}
+            clearReport={null}
+            dashboardRecentRun={null}
+            intelligenceRuntime={{
+              ...runtimeFixture(),
+              plugins: [
+                {
+                  pluginId: 'readable-content-refetch',
+                  sourceKind: 'network',
+                  enabled: true,
+                  storedRecords: 3,
+                  queuedJobs: 0,
+                  runningJobs: 0,
+                  failedJobs: 0,
+                  lastCompletedAt: null,
+                  lastError: null,
+                },
+              ],
+            }}
+            intelligenceRuntimeError={null}
+            readableContentAvailable={false}
+            rebuildQueueReport={null}
+            snapshot={snapshotFixture({
+              enrichmentPlugins: [
+                {
+                  id: 'readable-content-refetch',
+                  enabled: false,
+                  version: 'ci-v1',
+                },
+              ],
+            })}
+            onCancelRuntimeJob={vi.fn()}
+            onDeterministicModuleToggle={vi.fn()}
+            onEnrichmentPluginToggle={vi.fn()}
+            onRetryRuntimeJob={vi.fn()}
+          />
+        </I18nProvider>
+      </MemoryRouter>,
+    )
+
+    const deferredRow = screen
+      .getByText('Readable content fetcher')
+      .closest('.result-row')
+    expect(deferredRow).toBeInstanceOf(HTMLElement)
+    if (!(deferredRow instanceof HTMLElement)) {
+      throw new Error('expected deferred readable content row')
+    }
+    // Deferred branch: placeholder badge + a disabled enable button.
+    expect(
+      within(deferredRow).getAllByText(
+        settingsT('readableContentDeferredBadge'),
+      ).length,
+    ).toBeGreaterThan(0)
+    expect(
+      within(deferredRow).getByRole('button', {
+        name: settingsT('enablePlugin'),
+      }),
+    ).toBeDisabled()
+  })
 })
 
 function snapshotFixture({

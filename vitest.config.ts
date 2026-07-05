@@ -33,6 +33,7 @@ export default defineConfig({
         'src/**/test-helpers.ts',
         'src/**/test-helpers.tsx',
         'src/lib/types/**',
+        'src/components/assistant-chat/index.ts',
         'src/components/cards/index.ts',
         'src/components/explorer-paper/index.ts',
         'src/components/intelligence/workbench/index.ts',
@@ -57,6 +58,8 @@ export default defineConfig({
         'src/lib/i18n.ts',
         'src/lib/i18n/catalog.ts',
         'src/lib/intelligence.ts',
+        // Pure TypeScript type-only file (no runtime code — only interfaces and type aliases).
+        'src/pages/jobs/activity-types.ts',
         'src/pages/explorer/types.ts',
         'src/pages/intelligence/promoted-entity-routes.tsx',
         'src/pages/intelligence/sections/secondary-sections.tsx',

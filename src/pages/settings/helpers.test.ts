@@ -112,7 +112,7 @@ const aiIntegrationPreviewFixture: AiIntegrationPreview = {
   ],
   capabilityNotes: [
     'MCP server toggle is currently disabled in saved Settings.',
-    'Skill integration toggle is currently disabled in saved Settings.',
+    'Usage guide is disabled in saved Settings, so connected tools receive only a short disabled notice instead of the querying guide.',
     'No embedding provider is selected right now, so MCP and external assistants fall back to lexical recall only. They still respect archive visibility and App Lock.',
   ],
   scopeBoundary: [
@@ -332,11 +332,17 @@ describe('settings helpers', () => {
   })
 
   it('seeds AI provider drafts from every supported request format', () => {
+    // Local presets pin 127.0.0.1 (not localhost): reqwest on macOS returns a spurious 503 against
+    // an IPv4-only local server when it resolves `localhost` to the dual-stack set.
     expect(makeDefaultAiProviderDraft('llm', 'ollama')).toMatchObject({
-      baseUrl: 'http://localhost:11434',
+      baseUrl: 'http://127.0.0.1:11434',
       defaultModel: 'llama3.2:8b',
       maxTokens: 1200,
       temperature: 0.7,
+    })
+    expect(makeDefaultAiProviderDraft('llm', 'lm-studio')).toMatchObject({
+      baseUrl: 'http://127.0.0.1:1234/v1',
+      defaultModel: 'local-model',
     })
     expect(makeDefaultAiProviderDraft('llm', 'openai')).toMatchObject({
       baseUrl: 'https://api.openai.com/v1',
@@ -365,7 +371,8 @@ describe('settings helpers', () => {
         capabilityNotes: [
           ...aiIntegrationPreviewFixture.capabilityNotes,
           'MCP server toggle is currently enabled in saved Settings.',
-          'Skill integration toggle is currently enabled in saved Settings.',
+          'Usage guide is enabled: the MCP server serves a read-only guide teaching connected tools how to query effectively. It exposes no extra data.',
+          'Usage guide is enabled but unreachable: it is only served while the MCP server above is also on. It exposes no extra data when reachable.',
           'Semantic retrieval can use the configured embedding provider when the semantic index is built.',
         ],
         scopeBoundary: [
@@ -418,6 +425,9 @@ describe('settings helpers', () => {
     )
     expect(localized.capabilityNotes).toContain(
       settingsT('aiIntegrationCapabilitySkillEnabled'),
+    )
+    expect(localized.capabilityNotes).toContain(
+      settingsT('aiIntegrationCapabilitySkillUnreachable'),
     )
     expect(localized.capabilityNotes).toContain(
       settingsT('aiIntegrationCapabilityEmbeddingEnabled'),

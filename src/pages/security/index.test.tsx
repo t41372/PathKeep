@@ -281,11 +281,9 @@ function workflowBase() {
   return {
     actionError: null,
     busy: null as string | null,
-    handleClearKeyring: vi.fn(),
     handleExecuteRekey: vi.fn(),
     handleLockArchive: vi.fn(),
     handlePreviewRekey: vi.fn(),
-    handleStoreKeyringKey: vi.fn(),
     handleUnlock: vi.fn(),
     handleUnlockFromKeyring: vi.fn(),
     notice: null,

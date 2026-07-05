@@ -15,8 +15,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Outlet, useMatches, useNavigate } from 'react-router-dom'
-import { BackgroundProgress } from '@/components/primitives/background-progress'
+import { cn } from '@/lib/cn'
+import { AmbientTaskBar } from '@/components/primitives/ambient-task-bar'
+import { AmbientTaskAnnouncer } from '@/components/primitives/ambient-task-announcer'
+import { BackupFailureToast } from '@/components/primitives/backup-failure-toast'
 import { BusyOverlay } from '@/components/primitives/busy-overlay'
+import { ArchiveUnlockGate } from '@/components/archive-unlock-gate'
 import {
   PKSearchPalette,
   PKSidebar,
@@ -32,6 +36,10 @@ import {
 } from '@/lib/build-info'
 import { useI18n } from '@/lib/i18n'
 import { useShellData } from './shell-data-context'
+import {
+  ambientModelFromBusyOverlay,
+  selectAmbientTasks,
+} from './shell-ambient-tasks'
 import { appScreens, readRouteHandle } from './router'
 import {
   EPIGRAPH_POOL_SIZE,
@@ -50,6 +58,10 @@ import {
   type PaperPreferencesEventDetail,
 } from '@/lib/paper-preferences'
 import { useProfileScope } from '@/lib/profile-scope-context'
+import { hasMacOverlayTitlebar } from '@/lib/runtime'
+
+const FDA_DEEP_LINK =
+  'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'
 
 const SIDEBAR_KEY = 'pathkeep.sidebar.collapsed'
 const EPIGRAPH_KEY = 'pathkeep.epigraph'
@@ -84,12 +96,23 @@ const SOURCE_COLORS: Record<string, string> = {
 export function AppShell() {
   const shell = useShellData()
   const navigate = useNavigate()
-  const { language, t } = useI18n()
+  const { language, t, ns } = useI18n()
+  const jobsTaskLabel = ns('jobs')
 
   const matches = useMatches()
   const activeScreen =
     [...matches].map((match) => readRouteHandle(match.handle)).find(Boolean)
       ?.screen ?? appScreens[0]
+
+  // The Assistant route is a FIXED-HEIGHT chat surface: it fills the content area
+  // exactly and owns its OWN inner scroll (the messages list), with the composer
+  // pinned at the bottom. The shared `<main>` must therefore NOT scroll on this
+  // route — otherwise the empty left/right gutters of the centered (max-width)
+  // page capture a page-scroll that drags the whole conversation, composer
+  // included, off-screen. Every OTHER route keeps `<main>` as the scroll owner
+  // (their content flows and `<main>` scrolls vertically as before). Scoping the
+  // override to this single route keeps the shared shell contract intact.
+  const isFixedHeightRoute = activeScreen.id === 'assistant'
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
     readBoolean(SIDEBAR_KEY, false, shellStorage()),
@@ -113,6 +136,12 @@ export function AppShell() {
   const [epigraphIndex] = useState<number>(() =>
     readEpigraphIndex(EPIGRAPH_KEY, EPIGRAPH_POOL_SIZE, shellStorage()),
   )
+  // macOS-only: with titleBarStyle "Overlay" the native traffic lights float
+  // over the top-left of the webview and the content extends under the title
+  // strip, so the app background paints through instead of an opaque bar.
+  // Resolved once at mount — runtime + OS do not change within a session — so
+  // the shell can reserve clearance (CSS keys off data-titlebar-overlay).
+  const [titlebarOverlay] = useState<boolean>(() => hasMacOverlayTitlebar())
 
   // Mount-pass: push the read preferences into the document so
   // <html data-theme>, fonts, density, paper-texture line up with persisted
@@ -148,8 +177,20 @@ export function AppShell() {
     }
   }, [sidebarCollapsed])
 
+  // Gate: show the blocking unlock overlay when the archive is encrypted and the
+  // current session has no key (auto-unlock either was not configured or failed).
+  // Computed here (not just before the JSX) so the global ⌘K listener below can
+  // stay inert while the gate owns the screen.
+  const showUnlockGate =
+    !shell.loading &&
+    Boolean(shell.snapshot?.archiveStatus?.encrypted) &&
+    !shell.snapshot?.archiveStatus?.unlocked
+
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
+      // While the unlock gate owns the screen, ⌘K must not open the search
+      // palette over a locked archive (its results would be unusable anyway).
+      if (showUnlockGate) return
       const meta = event.metaKey || event.ctrlKey
       if (meta && event.key.toLowerCase() === 'k') {
         event.preventDefault()
@@ -160,7 +201,7 @@ export function AppShell() {
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [paletteOpen])
+  }, [paletteOpen, showUnlockGate])
 
   const handleToggleTheme = useCallback(() => {
     // Route the toggle through applyPaperPreferences so the document
@@ -264,17 +305,66 @@ export function AppShell() {
     : null
   const archiving = Boolean(shell.busyAction)
   const initialized = shell.snapshot?.archiveStatus?.initialized ?? false
+  const shellError = shell.error
+
+  const handleClearError = useCallback(() => {
+    shell.clearError()
+  }, [shell])
+
+  // Fire-and-forget OS handoffs (open Settings deep-link / reveal the logs
+  // folder). These mirror the sibling `handleSupportPathOpen` pattern —
+  // `void` the promise without a `.catch`; a failed OS handoff is not worth
+  // surfacing and there is nothing to recover.
+  const handleOpenFdaSettings = useCallback(() => {
+    void backend.openExternalUrl(FDA_DEEP_LINK)
+  }, [])
+
+  const handleRevealLogs = useCallback(() => {
+    void backend.revealLogs()
+  }, [])
   const archiveHealthy = initialized && !shell.snapshot?.archiveStatus?.warning
+
+  // When the most recent backup failed due to a missing session key, the gate
+  // should retry the backup immediately after a successful unlock.
+  const backupLockedError = shell.errorKind === 'lock-required'
   const buildVersion = shell.buildInfo?.version
     ? `v${shell.buildInfo.version}`
     : null
   const buildRevision = formatBuildRevisionLabel(shell.buildInfo)
   const buildTitle = formatBuildVersionTitle(shell.buildInfo)
 
+  // The ambient bottom bar is the single, route-independent "something is running" indicator. It
+  // folds the archive task store (import + backup, which survive navigation) and the runtime AI
+  // queue into one model so leaving the originating page can no longer hide a live task.
+  const ambientTasks = useMemo(
+    () =>
+      selectAmbientTasks({
+        archiveTasks: shell.archiveTasks ?? [],
+        runtimeStatus: shell.runtimeStatus,
+        runtimeTaskLabel: (key) => jobsTaskLabel(key),
+      }),
+    [shell.archiveTasks, shell.runtimeStatus, jobsTaskLabel],
+  )
+
+  // Defensive desync fallback: if a `background: true` overlay is set but no task
+  // was registered (a future producer bug), the bar would otherwise show nothing.
+  // Fall back to the overlay's own payload so background work can never vanish
+  // silently. When real tasks exist, they win.
+  const ambientModel = useMemo(
+    () =>
+      ambientTasks.count > 0
+        ? ambientTasks
+        : shell.busyOverlay?.background
+          ? ambientModelFromBusyOverlay(shell.busyOverlay)
+          : ambientTasks,
+    [ambientTasks, shell.busyOverlay],
+  )
+
   return (
     <div
       className="bg-page flex h-full min-h-0 w-full text-ink"
       data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}
+      data-titlebar-overlay={titlebarOverlay ? 'true' : 'false'}
       data-testid="app-shell"
     >
       <PKSidebar
@@ -296,9 +386,20 @@ export function AppShell() {
           onBackupNow={handleBackupNow}
           backupRunning={archiving}
           archiveInitialized={initialized}
+          titlebarDrag={titlebarOverlay}
         />
         <main
-          className="pk-scrollbar flex-1 min-h-0 overflow-y-auto px-7 pb-7"
+          className={cn(
+            'pk-scrollbar flex-1 min-h-0 px-7',
+            // Fixed-height routes (Assistant) own their own inner scroll, so
+            // `<main>` clips instead of scrolling and adds no bottom padding that
+            // would push the page past the viewport. All other routes keep the
+            // shared vertical scroll + bottom breathing room.
+            isFixedHeightRoute
+              ? 'overflow-hidden pb-0'
+              : 'overflow-y-auto pb-7',
+          )}
+          data-fixed-height={isFixedHeightRoute ? 'true' : 'false'}
           data-testid="app-scroll"
         >
           <Outlet />
@@ -325,24 +426,75 @@ export function AppShell() {
         onSelect={handlePaletteSelect}
       />
 
-      {shell.busyAction ? (
-        shell.busyOverlay?.background ? (
-          <BackgroundProgress
-            state={shell.busyOverlay}
-            fallbackLabel={shell.busyAction}
-          />
-        ) : (
-          <BusyOverlay
-            label={shell.busyOverlay?.label ?? shell.busyAction}
-            detail={shell.busyOverlay?.detail}
-            progressLabel={shell.busyOverlay?.progressLabel}
-            progressValue={shell.busyOverlay?.progressValue}
-            steps={shell.busyOverlay?.steps}
-            activeStep={shell.busyOverlay?.activeStep}
-            logLines={shell.busyOverlay?.logLines}
-          />
-        )
+      {/* Archive unlock gate — rendered above ALL other shell chrome when the
+          archive is encrypted and the session has no key. The gate is a fixed
+          full-screen overlay (z-index: 9999) so it floats above the sidebar,
+          topbar, and any in-progress background tasks. Escape does not dismiss
+          it: the app is unusable while locked. When the most recent backup
+          failed because the archive was locked, the gate retries the backup
+          automatically after a successful unlock. */}
+      {showUnlockGate && shell.snapshot ? (
+        <ArchiveUnlockGate
+          snapshot={shell.snapshot}
+          retryBackupOnUnlock={backupLockedError}
+          onRetryBackup={handleBackupNow}
+        />
       ) : null}
+
+      {/* Bottom-slot status, in priority order. It is fixed + outside the scroll area so it is
+          always in view.
+          1. A BLOCKING modal action (unlock, irreversible rebuild) owns the whole slot with the
+             busy overlay — nothing else may show while it runs.
+          2. Otherwise, the ambient task bar is the single indicator for ANY running task (import,
+             backup, AI index build, enrichment). It renders only while work is live (count > 0),
+             is clickable through to the Activity page, and never appears when idle (no banner).
+          3. Otherwise, when the last backup FAILED and nothing is running, the BackupFailureToast
+             takes that exact slot — the error materializes where the user's eye already is
+             (attention transfer) instead of a static box appearing off-attention.
+          A running task therefore hides the stale failure toast until it settles. */}
+      {shell.busyAction && !shell.busyOverlay?.background ? (
+        <BusyOverlay
+          label={shell.busyOverlay?.label ?? shell.busyAction}
+          detail={shell.busyOverlay?.detail}
+          progressLabel={shell.busyOverlay?.progressLabel}
+          progressValue={shell.busyOverlay?.progressValue}
+          steps={shell.busyOverlay?.steps}
+          activeStep={shell.busyOverlay?.activeStep}
+          logLines={shell.busyOverlay?.logLines}
+        />
+      ) : ambientModel.count > 0 ? (
+        <AmbientTaskBar
+          model={ambientModel}
+          onOpenActivity={() => void navigate('/jobs')}
+          summaryLabel={t('shell.backgroundTasksRunning', {
+            count: ambientModel.count,
+          })}
+          viewActivityLabel={t('shell.backgroundTaskViewActivity')}
+        />
+      ) : shellError &&
+        (shell.errorKind === 'backup' ||
+          shell.errorKind === 'full-disk-access') ? (
+        <BackupFailureToast
+          message={shellError}
+          rawError={shell.rawError ?? null}
+          errorKind={shell.errorKind}
+          buildInfo={shell.buildInfo}
+          onRetry={handleBackupNow}
+          onDismiss={handleClearError}
+          onOpenFdaSettings={handleOpenFdaSettings}
+          onRevealLogs={handleRevealLogs}
+        />
+      ) : null}
+
+      {/* Persistent SR live region. It stays mounted independently of the ambient
+          bar (which unmounts when idle) so the DISAPPEARANCE of background work is
+          still announced. It reacts only to the boolean presence transition, never
+          per progress tick, so assistive tech is not spammed. */}
+      <AmbientTaskAnnouncer
+        active={ambientModel.count > 0}
+        startedLabel={t('shell.backgroundTaskStarted')}
+        endedLabel={t('shell.backgroundTaskEnded')}
+      />
     </div>
   )
 }

@@ -133,7 +133,7 @@ fn discover_safari_profile_marks_missing_history_without_hiding_the_profile() {
 
 #[cfg(unix)]
 #[test]
-fn discover_safari_profile_marks_unreadable_history_as_full_disk_access_issue() {
+fn discover_safari_profile_classifies_unreadable_history_by_host() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let history_path = dir.path().join("History.db");
@@ -155,14 +155,21 @@ fn discover_safari_profile_marks_unreadable_history_as_full_disk_access_issue() 
     restore_permissions.set_mode(0o600);
     fs::set_permissions(&history_path, restore_permissions).expect("restore read");
 
+    // A permission-denied Safari history is a Full Disk Access problem where TCC applies
+    // (macOS); off a TCC host the same denial is a plain unreadable file.
+    let expected = if crate::browser_access::full_disk_access_applies() {
+        "macos-full-disk-access"
+    } else {
+        "history-file-not-readable"
+    };
     assert!(profile.history_exists);
     assert!(!profile.history_readable);
-    assert_eq!(profile.access_issue.as_deref(), Some("macos-full-disk-access"));
+    assert_eq!(profile.access_issue.as_deref(), Some(expected));
 }
 
 #[cfg(unix)]
 #[test]
-fn history_access_state_reports_generic_unreadable_browser_files() {
+fn history_access_state_classifies_unreadable_history_by_host() {
     let dir = tempdir().expect("tempdir");
     let history_path = dir.path().join("History");
     fs::write(&history_path, b"history").expect("write history");
@@ -170,15 +177,23 @@ fn history_access_state_reports_generic_unreadable_browser_files() {
     permissions.set_mode(0o000);
     fs::set_permissions(&history_path, permissions).expect("deny read");
 
-    let (readable, issue) = history_access_state(&history_path, true, "chromium");
+    let (readable, issue) = history_access_state(&history_path, true);
 
     let mut restore_permissions =
         fs::metadata(&history_path).expect("metadata for restore").permissions();
     restore_permissions.set_mode(0o600);
     fs::set_permissions(&history_path, restore_permissions).expect("restore read");
 
+    // The stale classifier only flagged Safari; the fix flags EVERY family's
+    // permission denial as Full Disk Access on macOS (this file is a plain "History",
+    // i.e. a Chromium-style database, not Safari). Off a TCC host it stays unreadable.
+    let expected = if crate::browser_access::full_disk_access_applies() {
+        "macos-full-disk-access"
+    } else {
+        "history-file-not-readable"
+    };
     assert!(!readable);
-    assert_eq!(issue.as_deref(), Some("history-file-not-readable"));
+    assert_eq!(issue.as_deref(), Some(expected));
 }
 
 #[test]
@@ -249,7 +264,7 @@ fn stage_profile_snapshot_copies_database_and_sidecars() {
         retention_boundary: retention_boundary_for_browser("firefox"),
     };
 
-    let snapshot = stage_profile_snapshot(&paths, &profile).expect("snapshot");
+    let snapshot = stage_profile_snapshot(&paths, &profile).expect("snapshot").snapshot;
     let temp_name =
         snapshot.temp_dir.path().file_name().and_then(|name| name.to_str()).expect("temp dir name");
     assert!(temp_name.starts_with("firefox%3AProfile%201-"));
@@ -272,7 +287,7 @@ fn copy_database_with_sidecars_copies_known_sidecars_only() {
     let copied =
         copy_database_with_sidecars(source.path(), "History", destination.path()).expect("copy");
 
-    assert_eq!(copied, destination.path().join("History"));
+    assert_eq!(copied.path, destination.path().join("History"));
     assert!(destination.path().join("History").exists());
     assert!(destination.path().join("History-wal").exists());
     assert!(destination.path().join("History-shm").exists());
@@ -666,4 +681,375 @@ fn restore_env_var_sets_and_clears_values() {
 
 fn dir_path_os_string(path: &Path) -> std::ffi::OsString {
     path.as_os_str().to_os_string()
+}
+
+/// Reopens a cleanly written SQLite database, starts an uncommitted write, and
+/// flushes its dirty pages to disk so a populated rollback journal lands beside
+/// it, then copies that hot `(database, journal)` pair into `dest_dir` under
+/// `base_name`.
+///
+/// The result reproduces a browser caught mid-write whose writer then vanished —
+/// the exact state that fails a read-only open with `SQLITE_READONLY_ROLLBACK`,
+/// which is what broke backups when the staging fallback handed it to the parser.
+fn capture_hot_journal_pair(clean_db: &Path, dest_dir: &Path, base_name: &str, dirty_sql: &str) {
+    use rusqlite::Connection;
+
+    let source_journal = PathBuf::from(format!("{}-journal", clean_db.display()));
+    let writer = Connection::open(clean_db).expect("reopen clean database");
+    writer
+        .execute_batch(&format!("BEGIN IMMEDIATE;\n{dirty_sql}"))
+        .expect("start uncommitted write");
+    writer.cache_flush().expect("flush dirty pages into the rollback journal");
+    assert!(source_journal.exists(), "an uncommitted flush must leave a rollback journal");
+
+    fs::copy(clean_db, dest_dir.join(base_name)).expect("copy database into staging source");
+    fs::copy(&source_journal, dest_dir.join(format!("{base_name}-journal")))
+        .expect("copy hot journal into staging source");
+
+    writer.execute_batch("ROLLBACK").ok();
+}
+
+#[test]
+fn staging_recovers_a_hot_rollback_journal_that_blocks_the_read_only_parser() {
+    use rusqlite::{Connection, ErrorCode, OpenFlags};
+
+    // A cleanly written baseline with one committed row; the connection is
+    // dropped so no journal lingers next to it.
+    let clean = tempdir().expect("clean db dir");
+    let clean_db = clean.path().join("History");
+    {
+        let seed = Connection::open(&clean_db).expect("open seed db");
+        seed.execute_batch(
+            "PRAGMA journal_mode=DELETE;\n\
+             CREATE TABLE t (id INTEGER PRIMARY KEY, payload TEXT);\n\
+             INSERT INTO t (id, payload) VALUES (1, 'committed');",
+        )
+        .expect("seed committed row");
+    }
+
+    // Capture it mid-write: a hot journal whose writer has gone, exactly like a
+    // browser interrupted while saving history.
+    let source = tempdir().expect("staging source");
+    capture_hot_journal_pair(
+        &clean_db,
+        source.path(),
+        "History",
+        "UPDATE t SET payload = 'in-flight' WHERE id = 1;",
+    );
+
+    let read_payload = |database: &Path| -> rusqlite::Result<String> {
+        Connection::open_with_flags(
+            database,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .and_then(|connection| {
+            connection.query_row("SELECT payload FROM t WHERE id = 1", [], |row| row.get(0))
+        })
+    };
+
+    // The hazard is real: opening the un-recovered copy read-only — exactly what
+    // the parser does — fails with SQLITE_READONLY_ROLLBACK (extended code 776).
+    let hazard = read_payload(&source.path().join("History")).expect_err("hot journal must block");
+    match hazard {
+        rusqlite::Error::SqliteFailure(error, _) => {
+            assert_eq!(error.code, ErrorCode::ReadOnly);
+            assert_eq!(error.extended_code, 776, "want SQLITE_READONLY_ROLLBACK");
+        }
+        other => panic!("expected a readonly-rollback failure, got {other:?}"),
+    }
+
+    // Staging recovers the copy: the read-only parser now opens it and sees the
+    // last committed state, with the in-flight write rolled back.
+    let staged_dir = tempdir().expect("staged dir");
+    let staged = copy_database_with_sidecars(source.path(), "History", staged_dir.path())
+        .expect("stage hot-journal copy");
+    assert_eq!(read_payload(&staged.path).expect("recovered copy opens read-only"), "committed");
+    // The fallback ran (the online snapshot could not read the hot-journal
+    // source), and it recorded a reason for the run to surface.
+    assert!(staged.fallback_reason.is_some(), "fallback must report why it was taken");
+}
+
+#[test]
+fn copy_database_with_sidecars_prefers_a_journal_free_online_snapshot() {
+    use rusqlite::{Connection, OpenFlags};
+
+    let source = tempdir().expect("source");
+    {
+        let db = Connection::open(source.path().join("History")).expect("open source db");
+        db.execute_batch(
+            "CREATE TABLE t (id INTEGER PRIMARY KEY);\nINSERT INTO t (id) VALUES (1), (2), (3);",
+        )
+        .expect("seed rows");
+    }
+    // A harmless leftover sidecar the online snapshot should make irrelevant.
+    fs::write(source.path().join("History-journal"), b"").expect("write empty journal");
+
+    let dest = tempdir().expect("dest");
+    let staged =
+        copy_database_with_sidecars(source.path(), "History", dest.path()).expect("stage clean db");
+
+    // The online backup produced one self-contained file: it is the clean path,
+    // no sidecar followed it into staging, and the read-only parser opens it.
+    assert!(staged.fallback_reason.is_none(), "a clean db must take the online snapshot path");
+    assert!(!dest.path().join("History-journal").exists(), "online snapshot copies no journal");
+    assert!(!dest.path().join("History-wal").exists());
+    let reader = Connection::open_with_flags(
+        &staged.path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .expect("read-only open");
+    let count: i64 =
+        reader.query_row("SELECT count(*) FROM t", [], |row| row.get(0)).expect("count rows");
+    assert_eq!(count, 3);
+}
+
+#[test]
+fn stage_profile_snapshot_recovers_a_hot_journal_for_the_chromium_parser() {
+    use browser_history_fixtures::chromium::{
+        ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow,
+    };
+    use browser_history_parser::{
+        chromium,
+        types::{ChromiumReadCursor, HistoryDatabaseSet},
+    };
+
+    let visit_time = 1_777_000_000_000_i64;
+
+    // A real-format Chrome History database, written cleanly...
+    let clean = tempdir().expect("clean db dir");
+    let clean_db = clean.path().join("History");
+    ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/a".to_string(),
+            title: Some("Committed Title".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: visit_time,
+            hidden: false,
+        })
+        .add_visit(ChromiumVisitRow {
+            id: 10,
+            url_id: 1,
+            visit_time_unix_ms: visit_time,
+            from_visit: None,
+            transition: Some(0),
+            visit_duration_micros: None,
+            is_known_to_sync: false,
+            visited_link_id: None,
+            external_referrer_url: None,
+            app_id: None,
+        })
+        .write(&clean_db)
+        .expect("write chrome fixture");
+
+    // ...then captured mid-write with a hot rollback journal in the profile dir.
+    let profile_dir = tempdir().expect("profile dir");
+    capture_hot_journal_pair(
+        &clean_db,
+        profile_dir.path(),
+        "History",
+        "UPDATE urls SET title = 'in-flight' WHERE id = 1;",
+    );
+
+    let staging_root = tempdir().expect("staging root");
+    let paths = sample_paths(staging_root.path());
+    fs::create_dir_all(&paths.staging_dir).expect("create staging dir");
+
+    let profile = BrowserProfile {
+        profile_id: "chrome:Default".to_string(),
+        profile_name: "Default".to_string(),
+        browser_family: "chromium".to_string(),
+        browser_name: "Google Chrome".to_string(),
+        user_name: None,
+        profile_path: profile_dir.path().display().to_string(),
+        history_path: Some(profile_dir.path().join("History").display().to_string()),
+        favicons_path: None,
+        history_exists: true,
+        history_readable: true,
+        access_issue: None,
+        browser_version: None,
+        history_file_name: "History".to_string(),
+        history_bytes: 0,
+        favicons_bytes: 0,
+        supporting_bytes: 0,
+        retention_boundary: retention_boundary_for_browser("chromium"),
+    };
+
+    let staged = stage_profile_snapshot(&paths, &profile).expect("stage hot-journal profile");
+
+    // The degraded staging path was recorded as a run warning, not swallowed.
+    assert_eq!(staged.warnings.len(), 1, "the recovered-copy fallback must be reported");
+    assert!(staged.warnings[0].contains("chrome:Default"), "the warning names the profile");
+
+    // The production read path opens the recovered copy and parses the last
+    // committed state — no SQLITE_READONLY_ROLLBACK, in-flight write rolled back.
+    let parsed = chromium::parse_history(
+        &HistoryDatabaseSet {
+            history_path: staged.snapshot.history_path.clone(),
+            favicons_path: None,
+        },
+        ChromiumReadCursor::default(),
+    )
+    .expect("parse recovered chrome copy");
+    assert_eq!(parsed.urls.len(), 1, "the committed url survives recovery");
+    assert_eq!(parsed.visits.len(), 1, "the committed visit survives recovery");
+}
+
+#[test]
+fn stage_profile_snapshot_reports_a_favicons_fallback_as_a_warning() {
+    use rusqlite::Connection;
+
+    let profile_dir = tempdir().expect("profile dir");
+    // A clean History takes the online-snapshot path (no warning)...
+    {
+        let db = Connection::open(profile_dir.path().join("History")).expect("open history");
+        db.execute_batch("CREATE TABLE meta (id INTEGER PRIMARY KEY);").expect("seed history");
+    }
+    // ...while a non-SQLite Favicons forces the raw-copy fallback, which must be
+    // surfaced as a per-source warning (the previously-uncovered favicons arm).
+    fs::write(profile_dir.path().join("Favicons"), b"this is not a favicons database")
+        .expect("write garbage favicons");
+
+    let staging_root = tempdir().expect("staging root");
+    let paths = sample_paths(staging_root.path());
+    fs::create_dir_all(&paths.staging_dir).expect("create staging dir");
+
+    let profile = BrowserProfile {
+        profile_id: "chrome:Default".to_string(),
+        profile_name: "Default".to_string(),
+        browser_family: "chromium".to_string(),
+        browser_name: "Google Chrome".to_string(),
+        user_name: None,
+        profile_path: profile_dir.path().display().to_string(),
+        history_path: Some(profile_dir.path().join("History").display().to_string()),
+        favicons_path: Some(profile_dir.path().join("Favicons").display().to_string()),
+        history_exists: true,
+        history_readable: true,
+        access_issue: None,
+        browser_version: None,
+        history_file_name: "History".to_string(),
+        history_bytes: 0,
+        favicons_bytes: 0,
+        supporting_bytes: 0,
+        retention_boundary: retention_boundary_for_browser("chromium"),
+    };
+
+    let staged = stage_profile_snapshot(&paths, &profile).expect("stage profile");
+    assert_eq!(staged.warnings.len(), 1, "the favicons fallback must be the only warning");
+    assert!(
+        staged.warnings[0].contains("Favicons"),
+        "the warning must name the Favicons source: {}",
+        staged.warnings[0]
+    );
+}
+
+#[test]
+fn recover_staged_database_errors_on_a_non_database_file() {
+    // recover_staged_database is normally guarded by an is_sqlite_database header
+    // check, but the journal-mode error context must still be exercised: a file
+    // that opens but is not a real database fails the PRAGMA journal_mode pass.
+    let dir = tempdir().expect("dir");
+    let path = dir.path().join("History");
+    fs::write(&path, b"definitely not a sqlite database file").expect("write garbage");
+    let error = recover_staged_database(&path).expect_err("a non-database must error");
+    let chain = format!("{error:#}");
+    assert!(
+        chain.contains("normalizing journal mode") || chain.contains("verifying recovered"),
+        "unexpected error chain: {chain}"
+    );
+}
+
+#[test]
+fn recover_staged_database_folds_a_captured_wal_into_the_main_file() {
+    use rusqlite::{Connection, OpenFlags};
+
+    // A WAL database whose committed rows live only in the -wal: autocheckpoint
+    // is off and the writer is kept open so nothing checkpoints them into the
+    // main file. Copy the whole WAL set out, the way the raw fallback would.
+    let live = tempdir().expect("live");
+    let live_db = live.path().join("History");
+    let writer = Connection::open(&live_db).expect("open wal db");
+    writer
+        .execute_batch(
+            "PRAGMA journal_mode=WAL;\n\
+             PRAGMA wal_autocheckpoint=0;\n\
+             CREATE TABLE t (id INTEGER PRIMARY KEY);\n\
+             INSERT INTO t (id) VALUES (1), (2), (3), (4);",
+        )
+        .expect("seed wal rows");
+    assert!(live.path().join("History-wal").exists(), "writer must leave a WAL");
+
+    let staged = tempdir().expect("staged");
+    let staged_db = staged.path().join("History");
+    for suffix in ["", "-wal", "-shm"] {
+        let from = PathBuf::from(format!("{}{suffix}", live_db.display()));
+        if from.exists() {
+            fs::copy(&from, staged.path().join(format!("History{suffix}")))
+                .expect("copy wal member");
+        }
+    }
+    drop(writer);
+
+    recover_staged_database(&staged_db).expect("recover captured wal");
+
+    // The WAL is checkpointed away: a read-only open with no sidecar present sees
+    // every committed row.
+    assert!(!staged.path().join("History-wal").exists(), "recovery clears the WAL");
+    let reader = Connection::open_with_flags(
+        &staged_db,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .expect("read-only open of recovered wal copy");
+    let count: i64 =
+        reader.query_row("SELECT count(*) FROM t", [], |row| row.get(0)).expect("count rows");
+    assert_eq!(count, 4, "all committed WAL rows survive recovery");
+}
+
+#[test]
+fn staging_backs_up_a_live_wal_source_to_a_complete_journal_free_copy() {
+    use rusqlite::{Connection, OpenFlags};
+
+    // A WAL database with committed rows still living in the -wal (autocheckpoint
+    // off, writer kept open), captured the way a live Firefox `places.sqlite`
+    // would be. Whichever path staging takes — the online snapshot reads WAL
+    // frames directly, the fallback recovers them — the result must be complete.
+    let live = tempdir().expect("live");
+    let live_db = live.path().join("History");
+    let writer = Connection::open(&live_db).expect("open wal db");
+    writer
+        .execute_batch(
+            "PRAGMA journal_mode=WAL;\n\
+             PRAGMA wal_autocheckpoint=0;\n\
+             CREATE TABLE t (id INTEGER PRIMARY KEY, payload TEXT);\n\
+             INSERT INTO t (id, payload) VALUES (1, 'a'), (2, 'b'), (3, 'c');",
+        )
+        .expect("seed wal rows");
+    assert!(live.path().join("History-wal").exists(), "writer must leave a WAL");
+
+    let source = tempdir().expect("source");
+    for suffix in ["", "-wal", "-shm"] {
+        let from = PathBuf::from(format!("{}{suffix}", live_db.display()));
+        if from.exists() {
+            fs::copy(&from, source.path().join(format!("History{suffix}")))
+                .expect("copy wal member");
+        }
+    }
+    drop(writer);
+
+    let dest = tempdir().expect("dest");
+    let staged =
+        copy_database_with_sidecars(source.path(), "History", dest.path()).expect("stage wal copy");
+
+    // The copy the parser receives is self-contained: every committed row is
+    // present and a read-only open needs no WAL sidecar.
+    assert!(!dest.path().join("History-wal").exists(), "staged copy carries no live WAL");
+    let reader = Connection::open_with_flags(
+        &staged.path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .expect("read-only open of staged wal copy");
+    let count: i64 =
+        reader.query_row("SELECT count(*) FROM t", [], |row| row.get(0)).expect("count rows");
+    assert_eq!(count, 3, "all committed WAL rows survive staging");
 }

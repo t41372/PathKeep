@@ -29,6 +29,13 @@ import { clampNumber, parseBlocklist } from './link-previews-helpers'
 describe('LinkPreviewsSection', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    // Default: an empty archive so coverage renders its "nothing to measure"
+    // state and never throws an unmocked IPC call in the existing cases.
+    vi.spyOn(backend, 'getOgImageCoverageStats').mockResolvedValue({
+      eligiblePages: 0,
+      attemptedPages: 0,
+      pagesWithImage: 0,
+    })
   })
 
   test('renders title + intro and reflects fetch_enabled from the snapshot', async () => {
@@ -48,6 +55,94 @@ describe('LinkPreviewsSection', () => {
     await waitFor(() =>
       expect(screen.getByTestId('link-previews-stats')).toHaveTextContent(
         'No previews cached yet.',
+      ),
+    )
+  })
+
+  test('shows preview coverage percentage, counts, and success rate', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 50,
+      blobCount: 34,
+      totalBytes: 2048,
+      oldestFetchedAt: null,
+    })
+    vi.spyOn(backend, 'getOgImageCoverageStats').mockResolvedValue({
+      eligiblePages: 100,
+      attemptedPages: 50,
+      pagesWithImage: 34,
+    })
+    render(withShell({ ogImageFetchEnabled: true }))
+    await waitFor(() =>
+      expect(screen.getByTestId('link-previews-coverage')).toHaveTextContent(
+        '34.0% of pages have a preview image (34 of 100)',
+      ),
+    )
+    expect(screen.getByTestId('link-previews-coverage-rate')).toHaveTextContent(
+      'Of 50 pages checked, 68.0% had one.',
+    )
+  })
+
+  test('coverage shows a "not fetched yet" state instead of a misleading 0%', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    vi.spyOn(backend, 'getOgImageCoverageStats').mockResolvedValue({
+      eligiblePages: 100,
+      attemptedPages: 0,
+      pagesWithImage: 0,
+    })
+    render(withShell({ ogImageFetchEnabled: true }))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('link-previews-coverage'),
+      ).not.toHaveTextContent('Measuring coverage…'),
+    )
+    // No misleading "0.0%" headline and no success-rate line when nothing was checked.
+    expect(screen.getByTestId('link-previews-coverage')).not.toHaveTextContent(
+      '%',
+    )
+    expect(
+      screen.queryByTestId('link-previews-coverage-rate'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('coverage shows an error state instead of spinning forever on failure', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    vi.spyOn(backend, 'getOgImageCoverageStats').mockRejectedValue(
+      new Error('ipc unavailable'),
+    )
+    render(withShell({ ogImageFetchEnabled: true }))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('link-previews-coverage'),
+      ).not.toHaveTextContent('Measuring coverage…'),
+    )
+    // Failure must not render as a percentage or a perpetual spinner.
+    expect(screen.getByTestId('link-previews-coverage')).not.toHaveTextContent(
+      '%',
+    )
+  })
+
+  test('coverage shows the empty state when there are no eligible pages', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    // beforeEach already mocks coverage with all-zero counts.
+    render(withShell({ ogImageFetchEnabled: true }))
+    await waitFor(() =>
+      expect(screen.getByTestId('link-previews-coverage')).toHaveTextContent(
+        'No pages to measure yet.',
       ),
     )
   })
@@ -104,7 +199,7 @@ describe('LinkPreviewsSection', () => {
     )
   })
 
-  test('blocklist input parses + saves blockedHosts (canonicalized + de-duped)', async () => {
+  test('blocklist input auto-saves blockedHosts on blur (canonicalized + de-duped, no Save/Reset)', async () => {
     vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
       rowCount: 0,
       blobCount: 0,
@@ -114,38 +209,50 @@ describe('LinkPreviewsSection', () => {
     const saveConfig = vi.fn().mockResolvedValue(undefined)
     render(withShell({ ogImageFetchEnabled: true, saveConfig }))
     const textarea = screen.getByTestId('link-previews-blocklist-input')
+    // The per-section Save / Reset controls are gone in the all-auto-save model.
+    expect(screen.queryByTestId('link-previews-blocklist-save')).toBeNull()
+    expect(screen.queryByTestId('link-previews-blocklist-reset')).toBeNull()
+
     await userEvent.type(
       textarea,
       'Example.com{Enter}# inline comment{Enter}example.com{Enter}other.example.org',
     )
-    await userEvent.click(screen.getByTestId('link-previews-blocklist-save'))
+    // Persists on blur, off the keystroke hot path.
+    fireEvent.blur(textarea)
     expect(saveConfig).toHaveBeenCalledTimes(1)
     expect(saveConfig.mock.calls[0][0].ogImage.blockedHosts).toEqual([
       'example.com',
       'other.example.org',
     ])
+    // The quiet "Saved" chip flashes after a landed write.
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
   })
 
-  test('blocklist reset reverts the draft to the persisted snapshot', async () => {
+  test('a blur with no blocklist change does not re-save (no-op auto-save)', async () => {
     vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
       rowCount: 0,
       blobCount: 0,
       totalBytes: 0,
       oldestFetchedAt: null,
     })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
     render(
       withShell({
         ogImageFetchEnabled: true,
         blockedHosts: ['initial.example.test'],
+        saveConfig,
       }),
     )
     const textarea = screen.getByTestId<HTMLTextAreaElement>(
       'link-previews-blocklist-input',
     )
-    await userEvent.type(textarea, '{Enter}draft.example.test')
-    expect(textarea.value).toContain('draft.example.test')
-    await userEvent.click(screen.getByTestId('link-previews-blocklist-reset'))
-    expect(textarea.value).toBe('initial.example.test')
+    // Let the on-mount stats load settle so the assertion isn't racing an update.
+    await waitFor(() => expect(textarea.value).toBe('initial.example.test'))
+    // Focus + blur without editing — the canonicalized hosts are unchanged, so
+    // there is no redundant write.
+    fireEvent.focus(textarea)
+    fireEvent.blur(textarea)
+    expect(saveConfig).not.toHaveBeenCalled()
   })
 
   test('switching cleanup mode persists the default per-mode arg', async () => {
@@ -919,7 +1026,14 @@ function withShell(overrides: {
     clearAppLockPasscode: vi.fn(),
     lockAppSession: vi.fn().mockResolvedValue({}),
     unlockAppSession: vi.fn(),
+    startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
+    recovery: null,
+    archiveUpgrade: null,
+    finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+    runFullArchiveRestore: vi.fn().mockResolvedValue({}),
   } as ShellDataContextValue
 
   return (
@@ -954,7 +1068,14 @@ function withNullSnapshotShell(overrides: {
     clearAppLockPasscode: vi.fn(),
     lockAppSession: vi.fn().mockResolvedValue({}),
     unlockAppSession: vi.fn(),
+    startLocalSemanticSetup: vi.fn().mockResolvedValue(undefined),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
+    recovery: null,
+    archiveUpgrade: null,
+    finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
+    runFullArchiveRestore: vi.fn().mockResolvedValue({}),
   } as ShellDataContextValue
 
   return (

@@ -186,8 +186,12 @@ fn panic_payload(panic_info: &std::panic::PanicHookInfo<'_>) -> String {
 mod tests {
     use super::*;
     use std::{
-        panic::{AssertUnwindSafe, UnwindSafe},
-        sync::{Arc, Mutex, OnceLock},
+        cell::Cell,
+        panic::{AssertUnwindSafe, PanicHookInfo, UnwindSafe},
+        sync::{
+            Arc, Mutex, OnceLock,
+            atomic::{AtomicBool, Ordering},
+        },
     };
     use tempfile::tempdir;
 
@@ -210,6 +214,9 @@ mod tests {
             sidecars_dir: root.join("sidecars"),
             semantic_index_dir: root.join("sidecars/semantic-index"),
             intelligence_blobs_dir: root.join("sidecars/intelligence-blobs"),
+            vectors_dir: root.join("derived/vectors"),
+            agent_database_path: root.join("derived/agent.sqlite"),
+            models_dir: root.join("models"),
             logs_dir: root.join("logs"),
             rust_log_path: root.join("logs/rust.log"),
             frontend_log_path: root.join("logs/frontend.log"),
@@ -243,9 +250,79 @@ mod tests {
         }
     }
 
+    /// Process-wide serialization for the diagnostics tests that install a GLOBAL panic hook.
+    ///
+    /// The panic hook is a single process-global slot: only one custom hook can be installed at a
+    /// time. This mutex keeps the two hook-installing helpers below from clobbering each other's
+    /// install/restore. It does NOT — and cannot — stop the rest of the suite (fault_inject /
+    /// migration / restore crash tests) from PANICKING on their own threads while a hook is
+    /// installed; that cross-test contamination is fenced off by [`PANIC_CAPTURE_ACTIVE`] instead.
     fn panic_hook_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    thread_local! {
+        /// Opt-in flag: `true` ONLY on the thread whose panic a `capture_*` helper intends to
+        /// record. The installed hook consults it (see [`install_selective_panic_hook`]) so a
+        /// CONCURRENT panic raised by any OTHER test thread — the `arm_panic_at` migration/restore
+        /// crash tests, the `fault_inject` panic tests — is FORWARDED to the previous hook instead of
+        /// being mis-captured into this helper's slot/file. That mis-capture was the root cause of the
+        /// historical `rust_panic_payloads_keep_owned_strings_and_fallback_text` flake (~3/8 full-suite
+        /// runs): a foreign panic overwrote the captured summary/report before the helper read it back.
+        static PANIC_CAPTURE_ACTIVE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Marks the current thread as the intended capturer for the duration of a scope, clearing the
+    /// flag on drop even if the guarded body panics/unwinds — so a leaked `true` can never make a
+    /// LATER test's panic on this reused worker thread get captured.
+    struct CaptureScope;
+
+    impl CaptureScope {
+        fn enter() -> Self {
+            PANIC_CAPTURE_ACTIVE.with(|active| active.set(true));
+            CaptureScope
+        }
+    }
+
+    impl Drop for CaptureScope {
+        fn drop(&mut self) {
+            PANIC_CAPTURE_ACTIVE.with(|active| active.set(false));
+        }
+    }
+
+    /// Installs a GLOBAL panic hook that records ONLY panics raised on a thread that opted in via
+    /// [`PANIC_CAPTURE_ACTIVE`]; every other thread's panic is forwarded to the `previous` hook. The
+    /// caller holds [`panic_hook_lock`] for the whole install→panic→restore window, so at most one
+    /// such hook is ever installed. Returns the shared slot the intended panic is recorded into.
+    ///
+    /// Restore with [`restore_default_panic_hook`]: because the lock guarantees no OTHER custom hook
+    /// coexists, the hook this replaces is always the std default, so `take_hook` restores it exactly.
+    fn install_selective_panic_hook(
+        hook_paths: ProjectPaths,
+    ) -> Arc<Mutex<Option<CrashReportSummary>>> {
+        let captured = Arc::new(Mutex::new(None));
+        let captured_for_hook = Arc::clone(&captured);
+        let previous: Arc<dyn Fn(&PanicHookInfo<'_>) + Sync + Send> =
+            Arc::from(std::panic::take_hook());
+        std::panic::set_hook(Box::new(move |info| {
+            if PANIC_CAPTURE_ACTIVE.with(Cell::get) {
+                let summary = record_rust_panic(&hook_paths, info).expect("record rust panic");
+                *captured_for_hook.lock().expect("captured panic summary") = Some(summary);
+            } else {
+                // A foreign test's panic: forward to the previous hook (normal reporting) — never
+                // touch this helper's capture slot / report file. This is the isolation that kills
+                // the cross-test flake.
+                previous(info);
+            }
+        }));
+        captured
+    }
+
+    /// Drops the currently-installed custom hook and resets to the std default. Correct because the
+    /// [`panic_hook_lock`] guarantees the replaced hook was always the std default.
+    fn restore_default_panic_hook() {
+        let _ = std::panic::take_hook();
     }
 
     fn capture_panic_summary<F>(paths: &ProjectPaths, panic_fn: F) -> CrashReportSummary
@@ -253,17 +330,15 @@ mod tests {
         F: FnOnce() + UnwindSafe,
     {
         let _guard = panic_hook_lock().lock().expect("panic hook lock");
-        let captured = Arc::new(Mutex::new(None));
-        let hook_paths = paths.clone();
-        let captured_for_hook = Arc::clone(&captured);
-        let default_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            let summary = record_rust_panic(&hook_paths, info).expect("record rust panic");
-            *captured_for_hook.lock().expect("captured panic summary") = Some(summary);
-        }));
+        let captured = install_selective_panic_hook(paths.clone());
 
-        let panic_result = std::panic::catch_unwind(panic_fn);
-        std::panic::set_hook(default_hook);
+        // `panic_fn` runs on THIS thread; opt this thread in so the hook captures its panic while
+        // forwarding any concurrent foreign panic. The scope guard clears the flag on the way out.
+        let panic_result = {
+            let _capture = CaptureScope::enter();
+            std::panic::catch_unwind(panic_fn)
+        };
+        restore_default_panic_hook();
 
         assert!(panic_result.is_err());
         captured
@@ -275,26 +350,23 @@ mod tests {
 
     fn capture_unnamed_thread_panic_report(paths: &ProjectPaths) -> StoredCrashReport {
         let _guard = panic_hook_lock().lock().expect("panic hook lock");
-        let captured = Arc::new(Mutex::new(None));
-        let hook_paths = paths.clone();
-        let captured_for_hook = Arc::clone(&captured);
-        let default_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            record_rust_panic(&hook_paths, info).expect("record rust panic");
-            let report = read_report(&hook_paths.rust_panic_report_path)
-                .expect("read rust panic report")
-                .expect("stored rust panic report");
-            *captured_for_hook.lock().expect("captured panic report") = Some(report);
-        }));
+        let _captured = install_selective_panic_hook(paths.clone());
 
+        // The panic happens on a SPAWNED thread, so that thread (not this one) must opt in before it
+        // panics. The hook runs on the panicking thread, sees its flag, and records to `hook_paths`.
         let panic_result = std::thread::spawn(|| {
+            let _capture = CaptureScope::enter();
             panic!("unnamed thread panic fixture");
         })
         .join();
-        std::panic::set_hook(default_hook);
+        restore_default_panic_hook();
 
         assert!(panic_result.is_err());
-        captured.lock().expect("captured panic report").take().expect("panic hook recorded report")
+        // Read the on-disk report the (flagged) hook wrote for THIS panic; foreign panics were
+        // forwarded and never wrote here, so the read is race-free.
+        read_report(&paths.rust_panic_report_path)
+            .expect("read rust panic report")
+            .expect("stored rust panic report")
     }
 
     #[test]
@@ -466,6 +538,53 @@ mod tests {
 
         assert_eq!(report.message, "unnamed thread panic fixture");
         assert_eq!(report.thread.as_deref(), Some("unnamed"));
+    }
+
+    #[test]
+    fn selective_panic_hook_forwards_untagged_thread_panics_to_the_previous_hook() {
+        // The isolation contract that KILLS the historical flake: while a `capture_*` helper's hook is
+        // installed, a panic on a thread that did NOT opt in (every OTHER test's panic-injecting
+        // thread) must be FORWARDED to the previous hook and must NOT be recorded into this helper's
+        // slot. Proven deterministically with a sentinel "previous" hook + an un-opted-in panicking
+        // thread — no reliance on the real concurrent tests actually racing.
+        let _guard = panic_hook_lock().lock().expect("panic hook lock");
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+
+        // A sentinel "previous" hook whose invocation we can observe.
+        let original = std::panic::take_hook();
+        let forwarded = Arc::new(AtomicBool::new(false));
+        let forwarded_for_hook = Arc::clone(&forwarded);
+        std::panic::set_hook(Box::new(move |_info| {
+            forwarded_for_hook.store(true, Ordering::SeqCst);
+        }));
+
+        // Install the selective hook ON TOP; it captures the sentinel as its `previous`.
+        let captured = install_selective_panic_hook(paths.clone());
+
+        // A panic on a thread that never opts in (PANIC_CAPTURE_ACTIVE stays false there).
+        let outcome = std::thread::spawn(|| {
+            panic!("untagged foreign-thread panic");
+        })
+        .join();
+        assert!(outcome.is_err(), "the spawned thread must have panicked");
+
+        restore_default_panic_hook();
+        std::panic::set_hook(original);
+
+        assert!(
+            forwarded.load(Ordering::SeqCst),
+            "an untagged thread's panic must be forwarded to the previous hook",
+        );
+        assert!(
+            captured.lock().expect("captured slot").is_none(),
+            "an untagged thread's panic must NOT be captured into this helper's slot",
+        );
+        // The forwarded panic must never have written this helper's report file.
+        assert!(
+            !paths.rust_panic_report_path.exists(),
+            "a forwarded foreign panic must not write the capturing helper's report file",
+        );
     }
 
     #[test]

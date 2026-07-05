@@ -37,6 +37,7 @@ import {
   PaperContactSheet,
   type PaperContactSheetCopy,
   type PaperContactSheetDayNav,
+  type PaperContactSheetEntryStar,
   type PaperContactSheetTarget,
   type PaperViewMode,
 } from '@/components/explorer-paper'
@@ -223,6 +224,8 @@ export interface PaperExplorerViewProps {
   targetEntryId?: number | string | null
   selectedEntryId?: number | string | null
   onSelectEntry?: (entry: HistoryEntry) => void
+  /** Optional star provider forwarded to every contact-sheet row. */
+  entryStar?: PaperContactSheetEntryStar
   onJumpToDate?: (iso: string) => void
   onClearTarget?: () => void
   pagination?: PaperExplorerPagination
@@ -270,6 +273,7 @@ export function PaperExplorerView({
   targetEntryId = null,
   selectedEntryId = null,
   onSelectEntry,
+  entryStar,
   onJumpToDate,
   onClearTarget,
   pagination,
@@ -486,6 +490,7 @@ export function PaperExplorerView({
       onClearTarget={onClearTarget}
       selectedEntryId={selectedEntryId}
       onSelectEntry={onSelectEntry}
+      entryStar={entryStar}
       loading={loading}
       pagination={
         pagination

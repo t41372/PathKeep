@@ -102,8 +102,27 @@ describe('shared shell UI primitives', () => {
       <ToggleRow checked={false} label="Enable sync" onChange={onChange} />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Enable sync' }))
+    const checkbox = screen.getByRole('checkbox', { name: 'Enable sync' })
+    // No describedById passed: the control omits aria-describedby entirely.
+    expect(checkbox).not.toHaveAttribute('aria-describedby')
+
+    fireEvent.click(checkbox)
 
     expect(onChange).toHaveBeenCalledWith(true)
+  })
+
+  test('wires aria-describedby when a describedById is provided', () => {
+    render(
+      <ToggleRow
+        checked
+        describedById="disclosure-id"
+        label="Enable AI features"
+        onChange={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByRole('checkbox', { name: 'Enable AI features' }),
+    ).toHaveAttribute('aria-describedby', 'disclosure-id')
   })
 })

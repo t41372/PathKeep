@@ -47,6 +47,78 @@ describe('PaperSearchPanel', () => {
     expect(screen.getByTestId('paper-search-results')).toBeInTheDocument()
   })
 
+  test('clicking the Search button submits the current query', () => {
+    const onSubmit = vi.fn()
+    render(
+      <PaperSearchPanel
+        query="rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={onSubmit}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('paper-search-submit'))
+    expect(onSubmit).toHaveBeenCalledWith('rust')
+  })
+
+  test('forwards isSearching / searchSubmitDisabled to the Search button', () => {
+    render(
+      <PaperSearchPanel
+        query="rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        isSearching
+        searchSubmitDisabled
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    const button = screen.getByTestId<HTMLButtonElement>('paper-search-submit')
+    expect(button.disabled).toBe(true)
+    expect(button).toHaveAttribute('aria-busy', 'true')
+    expect(
+      screen.getByTestId('paper-search-submit-spinner'),
+    ).toBeInTheDocument()
+  })
+
+  test('forwards staleResultsMode so the hero renders the stale banner', () => {
+    render(
+      <PaperSearchPanel
+        query="rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[makeEntry({ id: 1, title: 'rust' })]}
+        totalResults={1}
+        language="en"
+        explorerT={explorerT}
+        staleResultsMode="smart"
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    // The banner copy comes from the explorerT stub key — its presence proves
+    // the panel threaded staleResultsMode → hero → banner.
+    expect(screen.getByTestId('paper-search-stale-banner')).toBeInTheDocument()
+  })
+
   test('switching to regex mode forwards { mode: keyword, regexMode: true }', () => {
     const onModeChange = vi.fn()
     render(
@@ -77,7 +149,7 @@ describe('PaperSearchPanel', () => {
     })
   })
 
-  test('switching to semantic mode forwards { mode: semantic, regexMode: false }', () => {
+  test('switching to Smart mode forwards { mode: hybrid, regexMode: false }', () => {
     const onModeChange = vi.fn()
     render(
       <PaperSearchPanel
@@ -95,16 +167,159 @@ describe('PaperSearchPanel', () => {
         onSeeInContext={() => {}}
       />,
     )
-    const semanticTab = screen
-      .getByText('paperSearchView.heroModeSemantic')
+    const smartTab = screen
+      .getByText('paperSearchView.heroModeSmart')
       .closest('[role="tab"]')
-    if (!(semanticTab instanceof HTMLElement))
-      throw new Error('semantic tab missing')
-    fireEvent.click(semanticTab)
+    if (!(smartTab instanceof HTMLElement)) throw new Error('smart tab missing')
+    fireEvent.click(smartTab)
+    // REACH-B: the single Smart tab maps to the honest `hybrid` URL mode.
     expect(onModeChange).toHaveBeenCalledWith({
-      mode: 'semantic',
+      mode: 'hybrid',
       regexMode: false,
     })
+  })
+
+  test('renders the relevance layout for the legacy ?mode=semantic alias', () => {
+    render(
+      <PaperSearchPanel
+        query="async runtime"
+        mode="semantic"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        rankedEntries={[
+          {
+            id: 7,
+            title: 'tokio internals',
+            url: 'https://tokio.rs/x',
+            domain: 'tokio.rs',
+            time: '10:00',
+            matchReason: 'Semantic match',
+            relevanceBand: { label: 'High confidence', tone: 'success' },
+            dayKey: '2026-05-17',
+          },
+        ]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    // The legacy semantic alias still resolves to the Smart relevance layout.
+    expect(screen.getByTestId('paper-search-relevance')).toBeInTheDocument()
+    expect(screen.getByText('tokio internals')).toBeVisible()
+  })
+
+  test('Smart mode renders ranked entries + pagination and forwards Ask assistant', () => {
+    const onAskAssistant = vi.fn()
+    const onPrev = vi.fn()
+    const onNext = vi.fn()
+    const ranked = [
+      {
+        id: 11,
+        title: 'rust async book',
+        url: 'https://rust-lang.github.io/async-book',
+        domain: 'rust-lang.github.io',
+        time: '09:00',
+        matchReason: 'Lexical + semantic match',
+        relevanceBand: { label: 'Relevant', tone: 'warning' as const },
+        dayKey: '2026-05-16',
+      },
+    ]
+    render(
+      <PaperSearchPanel
+        query="scheduler"
+        mode="hybrid"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        rankedEntries={ranked}
+        aiNotes={['Lexical-only fallback while AI warms up.']}
+        pagination={{
+          prevDisabled: false,
+          nextDisabled: false,
+          onPrev,
+          onNext,
+          page: 2,
+        }}
+        onAskAssistant={onAskAssistant}
+        relevanceHeaderSlot={<div data-testid="panel-build-cta">build</div>}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    // Ranked row + its caption + band render through the shared row component.
+    // (Query "scheduler" does not appear in the title, so the <mark> highlighter
+    // leaves the heading text intact and `getByText` matches it whole.)
+    expect(screen.getByText('rust async book')).toBeVisible()
+    expect(screen.getByText('Lexical + semantic match')).toBeVisible()
+    // Backend notes, build CTA slot, and pagination all show.
+    expect(
+      screen.getByText('Lexical-only fallback while AI warms up.'),
+    ).toBeVisible()
+    expect(screen.getByTestId('panel-build-cta')).toBeVisible()
+    expect(
+      screen.getByTestId('paper-search-relevance-pagination'),
+    ).toBeVisible()
+    fireEvent.click(screen.getByTestId('paper-search-relevance-next'))
+    expect(onNext).toHaveBeenCalledTimes(1)
+    // Ask assistant on the ranked row forwards the entry.
+    fireEvent.click(screen.getByTestId('paper-search-result-ask-assistant'))
+    expect(onAskAssistant).toHaveBeenCalledWith(ranked[0])
+  })
+
+  test('Smart loading flag renders the in-place skeleton, not the day-grouped list', () => {
+    render(
+      <PaperSearchPanel
+        query="async"
+        mode="hybrid"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        rankedEntries={[]}
+        aiLoading
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    expect(screen.getByTestId('paper-search-relevance-loading')).toBeVisible()
+    expect(screen.queryByTestId('paper-search-results')).toBeNull()
+  })
+
+  test('an is:starred query stays on the keyword day-grouped layout even in Smart mode', () => {
+    render(
+      <PaperSearchPanel
+        query="is:starred"
+        mode="hybrid"
+        regexMode={false}
+        entries={[makeEntry({ id: 1, title: 'starred page' })]}
+        totalResults={1}
+        language="en"
+        explorerT={explorerT}
+        rankedEntries={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    // `is:starred` forces the keyword layout (day-grouped), never the ranked view.
+    expect(screen.getByTestId('paper-search-results')).toBeInTheDocument()
+    expect(screen.queryByTestId('paper-search-relevance')).toBeNull()
   })
 
   test('aboveResultsCallout renders a StatusCallout below the hero', () => {

@@ -18,9 +18,12 @@
 | 數據存儲         | SQLite storage planes（可選 SQLCipher 加密 canonical archive） | 本地優先、20 年持久性                                                                                                |
 | Secret storage   | `keyring-core` + platform-native stores                        | 保持 native keyring truth，避免把多餘的 fallback runtime 打進桌面 binary                                             |
 | 全文搜尋         | SQLite FTS5 + ICU4X / OpenCC-asset lexical analyzer            | 核心召回能力，不依賴外部服務；CJK gram / substring / bounded typo 召回不上 embedding                                 |
-| 向量 / 語義檢索  | Deferred from v0.2.0                                           | Optional AI / vector search 未達發佈標準，移到 v0.3 blocker，先不進 default build                                    |
-| AI 框架          | rig.rs                                                         | Rust 原生的 LLM + Embedding 框架                                                                                     |
-| AI 推理          | 本地推理（Ollama / LM Studio）或雲端 API                       | 可選、可配置                                                                                                         |
+| 向量 / 語義檢索  | 自製 `FlatVectorIndex`（binary-recall → int8-rescore）         | hand-rolled flat 向量盤（`derived/vectors/`），不引入 LanceDB；optional、consent-gated（AI redesign 2026 交付）      |
+| Embedding 引擎   | model2vec static base + candle Qwen3 quality tier              | in-app 純 Rust 推理；content-hash dedup；opt-in Apple-Silicon Metal GPU tier（off-by-default `metal` cargo feature） |
+| AI 框架          | rig.rs（external transport）+ 自有 trait 邊界                  | rig 藏進 `LlmProvider`/`EmbeddingProvider` adapter；in-app embedding / vector / agent harness / code-mode 為自有實作 |
+| 對外 AI 介面     | rmcp（localhost stdio MCP server）                             | opt-in、hard-default-OFF、read-only、audited；對外暴露同一條 bounded search                                          |
+| 沙箱             | Wasmtime + Javy（code-mode）                                   | LLM 生成 JS 在零 ambient 權限沙箱跑只讀查詢；default-enabled，沙箱本身即安全邊界                                     |
+| AI 推理          | 本地推理（Ollama / LM Studio / in-app candle）或雲端 API       | 可選、可配置；in-app candle embedding 不依賴外部 server                                                              |
 | 審計             | 本地 audit artifacts + optional Git history                    | 審計檔案不依賴使用者電腦安裝 Git；Git 可用時才提供額外可追溯性                                                       |
 
 ## 數據庫分層架構
@@ -29,20 +32,23 @@
 
 - **Canonical archive：`archive/history-vault.sqlite` / SQLCipher** — 唯一的 source of truth。
 - **全文召回：`derived/history-search.sqlite` + SQLite FTS5** — 核心功能，不是 AI 附件。M14 使用 ICU4X NFKC、官方 OpenCC 字典資產的繁簡 folding、lowercase / compact lexical normalization、unicode61 prefix FTS、CJK grams、trigram FTS、固定短別名 query expansion 與 bounded Rust-side typo fallback；OpenCC C++ library linking 仍只作 future toolchain-proof path，且必須先經過 [native-dependency-management.md](native-dependency-management.md) 的 vcpkg manifest contract。
-- **Intelligence runtime：`derived/history-intelligence.sqlite`** — queue、assistant trace、deterministic read model、enrichment metadata 與 compact semantic metadata / rebuild accounting。向量 payload 不進 SQLite。
-- **向量 / 語義檢索：v0.2.0 deferred** — 可替換的衍生狀態保留目錄與 metadata contract，但 default build 不再連結 LanceDB / vector runtime。
+- **Intelligence runtime：`derived/history-intelligence.sqlite`** — queue、deterministic read model、enrichment metadata 與 compact semantic metadata / rebuild accounting。向量 payload 不進 SQLite。
+- **Agent / chat runtime：`derived/agent.sqlite`** — assistant conversations / messages 與 W-AI-7 agent run/step/citation trace。屬隱私敏感衍生面，**排除出 portable export**（chat transcript 留在來源機）。
+- **向量 / 語義檢索：`derived/vectors/` sidecar plane** — 自製 `FlatVectorIndex`：`.pkvec`（raw f32 source）+ `.pkmap`（visit→content_key dedup map）+ `.pkbin`（binary-recall plane）+ `.pki8`（int8-rescore plane）。全屬可重建衍生狀態，**排除出 export bundle**；不連結 LanceDB / DataFusion，retrieval 走 binary-recall → int8-rescore，不做全庫 cosine 掃描。
 - **重型分析：DuckDB（延後引入）** — 只在 SQLite 被證明不夠用時才加入，作為可重建的 analytics mart。
 
-> **鐵律**：Canonical source of truth 永遠只在 `archive/history-vault.sqlite` 中。FTS、assistant trace、deterministic projections、embedding、向量索引、topic cluster、生成摘要等都屬可刪除、可重建的衍生狀態。
+> **鐵律**：Canonical source of truth 永遠只在 `archive/history-vault.sqlite` 中。FTS、agent trace、chat transcript、deterministic projections、embedding、向量索引、topic cluster、生成摘要等都屬可刪除、可重建的衍生狀態，**永遠不寫進 canonical SQLCipher**。詳細的安全邊界與 threat model 見 [ai-security-posture.md](ai-security-posture.md)。
 
-## AI 框架決策：rig.rs
+## AI 框架決策：rig.rs（external transport）+ 自有 trait 邊界
 
-| 維度          | 說明                                                                                     |
-| ------------- | ---------------------------------------------------------------------------------------- |
-| 為什麼 rig.rs | Rust 原生 LLM/Embedding 框架，與我們的 Rust workspace 自然整合                           |
-| Embedding     | 通過 rig.rs 統一的 provider abstraction 調用，支援 Ollama / OpenAI-compatible / 雲端 API |
-| LLM           | 同上，用於摘要生成、topic 命名、問答等 Intelligence 功能                                 |
-| 向量存儲      | v0.2.0 暫不 shipping；future sidecar 需重新立項驗證                                      |
+> **2026-06 AI redesign 落地 note：** AI redesign 2026 program（W-AI-1..9）已交付並 reachable。rig 不再是「整個 AI 棧」，而是被藏進 `LlmProvider` / `EmbeddingProvider` adapter 的 external transport；in-app embedding（candle）、向量盤（自製 `FlatVectorIndex`）、agent harness、code-mode 沙箱、MCP 對外面都是自有實作。下方的 supply-chain / packaging amendment 仍準確（記錄當時為何先移除 LanceDB），保留作歷史脈絡——但「optional AI deferred / no vector payload」這個 v0.1.0/v0.2.0 結論已被本 program 取代。
+
+| 維度          | 說明                                                                                                    |
+| ------------- | ------------------------------------------------------------------------------------------------------- |
+| 為什麼 rig.rs | Rust 原生 LLM/Embedding 框架，作 external chat / embedding transport，藏在自有 trait 後面               |
+| Embedding     | 雙 `EmbeddingProvider`：external（OpenAI-compatible `/v1/embeddings`）+ in-app candle Qwen3（純 Rust）  |
+| LLM           | external streaming chat（OpenAI-compatible / Anthropic / Google / Ollama / LM Studio）；驅動 agent 問答 |
+| 向量存儲      | 自製 `FlatVectorIndex`（`derived/vectors/` 的 `.pkvec/.pkbin/.pki8/.pkmap` sidecar plane），非 LanceDB  |
 
 2026-04-07 implementation note：
 

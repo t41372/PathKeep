@@ -69,6 +69,25 @@ describe('task progress components', () => {
     expect(screen.getByRole('log')).toHaveClass('task-console--compact')
     expect(screen.getByText('success')).toBeVisible()
     expect(screen.getByText('[Chrome Default] Import complete')).toBeVisible()
+
+    // Cover the falsy-sourceLabel branch (no prefix rendered)
+    render(
+      <TaskConsole
+        language="en"
+        emptyLabel="No logs"
+        entries={[
+          {
+            id: 'entry-2',
+            timestamp: '2026-04-27T10:01:00.000Z',
+            level: 'info',
+            code: 'import.start',
+            sourceLabel: null,
+            message: 'Starting import',
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText('Starting import')).toBeVisible()
   })
 
   test('renders full task cards with metadata, records, console, and actions', () => {

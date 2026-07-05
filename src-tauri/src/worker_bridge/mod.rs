@@ -13,6 +13,7 @@ mod intelligence;
 mod migration;
 mod schedule;
 mod security;
+mod stars;
 
 // `annotations::*` is exercised only via the production command facade
 // (#[cfg(not(test))]); the worker_bridge test block doesn't drive notes/tags
@@ -28,6 +29,12 @@ pub(crate) use self::annotations::*;
 // and the glob is only loaded for production builds.
 #[cfg_attr(test, allow(unused_imports))]
 pub(crate) use self::migration::*;
+// `stars::*` follows the same cfg-cleanliness pattern as annotations: the
+// worker_bridge test block drives the star impls (see the stars coverage test),
+// but each `_impl` still carries its own #[cfg_attr(test, allow(dead_code))] so
+// the glob stays quiet in any build configuration.
+#[cfg_attr(test, allow(unused_imports))]
+pub(crate) use self::stars::*;
 pub(crate) use self::{app::*, archive::*, import::*, intelligence::*, schedule::*, security::*};
 
 /// Normalizes worker/core errors into the string transport contract used by Tauri commands.
@@ -93,12 +100,18 @@ mod tests {
         config.ai.skill_enabled = true;
         config.ai.llm_provider_id = Some("llm-primary".to_string());
         config.ai.embedding_provider_id = Some("embed-primary".to_string());
+        // Point at a loopback discard port so that when this crate links the REAL (non-stub)
+        // vault-core under plain `cargo test`, a keyless run fails FAST and DETERMINISTICALLY with
+        // a connection error instead of reaching out to a real cloud endpoint (api.openai.com). The
+        // coverage gate links the stub and never opens a socket. The OPTIONAL-key assertions below
+        // are written to accept either outcome, asserting only that we never pre-empt on a key.
         config.ai.llm_providers = vec![AiProviderConfig {
             id: "llm-primary".to_string(),
             name: "Primary LLM".to_string(),
             purpose: AiProviderPurpose::Llm,
             request_format: AiRequestFormat::OpenAi,
             enabled: true,
+            base_url: Some("http://127.0.0.1:9/v1".to_string()),
             default_model: "gpt-4.1-mini".to_string(),
             ..AiProviderConfig::default()
         }];
@@ -108,6 +121,7 @@ mod tests {
             purpose: AiProviderPurpose::Embedding,
             request_format: AiRequestFormat::OpenAi,
             enabled: true,
+            base_url: Some("http://127.0.0.1:9/v1".to_string()),
             default_model: "text-embedding-3-large".to_string(),
             dimensions: Some(1536),
             ..AiProviderConfig::default()
@@ -243,8 +257,14 @@ mod tests {
         assert_eq!(session_key(&session), None);
 
         let snapshot =
-            initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+            initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
+                .expect("initialize archive");
         assert!(snapshot.archive_status.initialized);
+        // The cheap upgrade pre-check runs off this bridge too: a freshly
+        // initialized (at-head, data-empty) archive reports no pending upgrade.
+        let upgrade = assess_archive_upgrade_impl(session_key(&session).as_deref())
+            .expect("assess archive upgrade");
+        assert!(!upgrade.pending, "a freshly initialized archive has no pending upgrade");
         assert_eq!(
             save_config_impl(config.clone(), session_key(&session).as_deref())
                 .expect("save config")
@@ -360,12 +380,7 @@ mod tests {
         .expect("clear provider key");
         assert!(!cleared_provider_snapshot.config.ai.llm_providers[0].api_key_saved);
         let ai_index_report = build_ai_index_impl(
-            AiIndexRequest {
-                provider_id: None,
-                full_rebuild: false,
-                clear_only: false,
-                limit: Some(5),
-            },
+            AiIndexRequest { limit: Some(5), ..AiIndexRequest::default() },
             session_key(&session).as_deref(),
         )
         .expect("index build should queue a background job report");
@@ -377,6 +392,15 @@ mod tests {
                 .iter()
                 .any(|note| note.contains("processing it in the background"))
         );
+
+        // W-AI-9-D: the read-only re-embed estimator returns a sized, honest report (no model load,
+        // no embedding) — `gpu_available` tracks the `metal` feature, so it is false in the default
+        // CPU-only build and true under `--all-features` (the authoritative coverage gate).
+        let estimate = estimate_reembed_impl(ReembedScope::Full, session_key(&session).as_deref())
+            .expect("estimate should compute over the seeded archive");
+        assert_eq!(estimate.scope, ReembedScope::Full);
+        assert!(estimate.est_minutes_gpu <= estimate.est_minutes_cpu);
+        assert_eq!(estimate.gpu_available, cfg!(feature = "metal"));
         let _ = run_ai_queue_jobs_impl(Some(1), session_key(&session).as_deref())
             .expect("drain queued index job before immediate assistant claim");
 
@@ -387,22 +411,45 @@ mod tests {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
+                starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             session_key(&session).as_deref(),
         )
         .expect("ai search");
         assert_eq!(ai_search.total, 2);
 
-        let assistant_error = ask_ai_assistant_impl(
+        // OPTIONAL key: even with NO stored provider key (the key was cleared above), the
+        // assistant must NOT bail on PathKeep's own "store an API key" precondition — a key is not
+        // a prerequisite. This crate links the REAL (non-stub) vault-core, so the outcome is
+        // mode-dependent: under the coverage stub the run completes; against the real default
+        // OpenAI endpoint the PROVIDER answers with its own 401. Either way is acceptable; the ONLY
+        // forbidden outcome is our removed synthetic precondition. (Before the fix this bailed with
+        // "store an API key" before any provider was even contacted.)
+        match ask_ai_assistant_impl(
             AiAssistantRequest {
                 question: "What did I visit?".to_string(),
                 profile_id: None,
                 domain: None,
             },
             session_key(&session).as_deref(),
-        )
-        .expect_err("assistant should require saved provider key");
-        assert!(assistant_error.contains("API key"), "assistant error: {assistant_error}");
+        ) {
+            Ok(response) => {
+                // Stub path: the keyless run proceeds to a completed answer end to end.
+                assert_eq!(response.state, "completed");
+                assert!(!response.answer.is_empty(), "keyless assistant answers: {response:?}");
+            }
+            Err(error) => {
+                // Real-network path: only a PROVIDER-returned error may block — never PathKeep's
+                // own missing-key precondition.
+                assert!(
+                    !error.contains("store an API key"),
+                    "must not pre-empt on a missing key; got: {error}"
+                );
+            }
+        }
 
         let preview = preview_ai_integrations_impl().expect("preview ai integrations");
         assert!(preview.mcp_command.contains("mcp-server"));
@@ -764,8 +811,13 @@ mod tests {
 
         let session = SessionState::default();
         let config = initialized_config();
-        initialize_archive_impl(config.clone(), Some("vault-passphrase".to_string()), &session)
-            .expect("initialize archive");
+        initialize_archive_with_progress_impl(
+            config.clone(),
+            Some("vault-passphrase".to_string()),
+            &session,
+            |_| {},
+        )
+        .expect("initialize archive");
         save_config_impl(config, session_key(&session).as_deref()).expect("save config");
         let report = run_backup_now_impl(false, session_key(&session).as_deref(), |_| {})
             .expect("run backup");
@@ -784,6 +836,19 @@ mod tests {
             repair_health_impl(session_key(&session).as_deref()).expect("repair health report");
         assert!(repair.run_id.is_none() || repair.run_id > Some(run_id));
 
+        // Unlock-time encryption reconcile: a consistent archive needs no repair.
+        // Exercises the full glue chain (bridge → worker → vault-core).
+        let reconcile =
+            reconcile_archive_encryption_impl(&session).expect("reconcile archive encryption");
+        assert!(!reconcile.repaired, "a consistent archive needs no at-rest repair");
+
+        // OPTIONAL key: Test-connection against a provider with NO stored key must PROBE it, not
+        // pre-fail on PathKeep's own missing-key precondition. This crate links the REAL vault-core,
+        // so the verdict is mode-dependent: under the coverage stub the keyless probe reports `ok`;
+        // against the real default OpenAI endpoint it reports `!ok` carrying the PROVIDER's own
+        // error. Either is acceptable — the invariant is that the probe RAN (returned a report) and
+        // never surfaced our removed "store an API key" precondition. (Before the fix this reported
+        // `secret-missing` purely from our assumption, without contacting the provider at all.)
         let connection_probe = test_ai_provider_connection_impl(
             AiProviderConnectionTestRequest {
                 provider_id: "embed-primary".to_string(),
@@ -791,9 +856,12 @@ mod tests {
             },
             session_key(&session).as_deref(),
         )
-        .expect("missing provider key should surface in the report");
-        assert!(!connection_probe.ok);
-        assert_eq!(connection_probe.error_code.as_deref(), Some("secret-missing"));
+        .expect("a keyless provider probe must run, not bail on a missing key");
+        assert_eq!(connection_probe.provider_id, "embed-primary");
+        assert!(
+            !connection_probe.message.contains("store an API key"),
+            "the probe must contact the provider, not pre-empt on a missing key: {connection_probe:?}"
+        );
 
         let queue = load_ai_queue_status_impl(session_key(&session).as_deref())
             .expect("load ai queue status");
@@ -884,7 +952,8 @@ mod tests {
 
         let session = SessionState::default();
         let config = initialized_config();
-        initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+        initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
+            .expect("initialize archive");
         save_config_impl(config, session_key(&session).as_deref()).expect("save config");
         run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
 
@@ -932,6 +1001,63 @@ mod tests {
                 .expect("search annotations");
         assert!(searched.iter().any(|record| record.url == url));
 
+        // Stars PME loop — toggle, batched status, list, and counts across
+        // both the worker_bridge `_impl` surface AND the vault-worker fns it
+        // delegates to (cross-crate coverage runs under `--workspace`).
+        super::set_star_impl(
+            session_key(&session).as_deref(),
+            vault_core::SetStarRequest {
+                entity_kind: vault_core::StarEntityKind::Url,
+                entity_key: url.to_string(),
+                source_profile: Some("chrome:Default".to_string()),
+            },
+        )
+        .expect("set url star");
+        super::set_star_impl(
+            session_key(&session).as_deref(),
+            vault_core::SetStarRequest {
+                entity_kind: vault_core::StarEntityKind::Domain,
+                entity_key: "example.com".to_string(),
+                source_profile: None,
+            },
+        )
+        .expect("set domain star");
+
+        let status = super::is_starred_batch_impl(
+            session_key(&session).as_deref(),
+            vault_core::StarEntityKind::Url,
+            &[url.to_string()],
+        )
+        .expect("read star status");
+        assert_eq!(status.get(url), Some(&true));
+
+        let listed_stars = super::list_stars_impl(
+            session_key(&session).as_deref(),
+            None,
+            vault_core::StarSort::MostRevisited,
+            Some(50),
+        )
+        .expect("list stars");
+        assert!(listed_stars.iter().any(|item| item.entity_key == url));
+
+        let counts =
+            super::star_counts_impl(session_key(&session).as_deref()).expect("star counts");
+        assert_eq!(counts.urls, 1);
+        assert_eq!(counts.domains, 1);
+
+        super::unset_star_impl(
+            session_key(&session).as_deref(),
+            vault_core::SetStarRequest {
+                entity_kind: vault_core::StarEntityKind::Url,
+                entity_key: url.to_string(),
+                source_profile: None,
+            },
+        )
+        .expect("unset url star");
+        let after_unstar = super::star_counts_impl(session_key(&session).as_deref())
+            .expect("star counts after unstar");
+        assert_eq!(after_unstar.urls, 0);
+
         // Og:image impls — every PME boundary except the network refetch
         // (covered by og_images_fetch unit tests). Empty + no-blob inputs
         // exercise the bulk path; stats / cleanup / clear close the loop.
@@ -945,6 +1071,10 @@ mod tests {
 
         let _initial_stats = super::og_image_storage_stats_impl(session_key(&session).as_deref())
             .expect("og:image storage stats");
+
+        let coverage = super::og_image_coverage_stats_impl(session_key(&session).as_deref())
+            .expect("og:image coverage stats");
+        assert!(coverage.eligible_pages >= coverage.pages_with_image);
 
         let _cleanup = super::run_og_image_cleanup_impl(session_key(&session).as_deref())
             .expect("og:image cleanup pass");
@@ -1060,7 +1190,8 @@ mod tests {
 
         let session = SessionState::default();
         let mut config = initialized_config();
-        initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+        initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
+            .expect("initialize archive");
         run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
 
         let passcode_status = set_app_lock_passcode_impl(SetAppLockPasscodeRequest {
@@ -1144,7 +1275,8 @@ mod tests {
 
         let session = SessionState::default();
         let config = initialized_config();
-        initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+        initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
+            .expect("initialize archive");
         save_config_impl(config, session_key(&session).as_deref()).expect("save config");
         run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
 

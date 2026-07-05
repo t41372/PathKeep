@@ -366,6 +366,57 @@ describe('backend client', () => {
         args: { query: 'keyword', limit: 10 },
       },
       {
+        run: () =>
+          backend.setStar({
+            entityKind: 'url',
+            entityKey: 'https://example.test/',
+          }),
+        command: 'set_star',
+        args: {
+          request: { entityKind: 'url', entityKey: 'https://example.test/' },
+        },
+      },
+      {
+        run: () =>
+          backend.unsetStar({
+            entityKind: 'domain',
+            entityKey: 'example.test',
+          }),
+        command: 'unset_star',
+        args: {
+          request: { entityKind: 'domain', entityKey: 'example.test' },
+        },
+      },
+      {
+        run: () =>
+          backend.getStarStatus({
+            entityKind: 'url',
+            entityKeys: ['https://example.test/'],
+          }),
+        command: 'get_star_status',
+        args: {
+          request: {
+            entityKind: 'url',
+            entityKeys: ['https://example.test/'],
+          },
+        },
+      },
+      {
+        run: () => backend.listStars(null, 'recently_starred'),
+        command: 'list_stars',
+        args: { kind: null, sort: 'recently_starred', limit: null },
+      },
+      {
+        run: () => backend.listStars('url', 'most_revisited', 50),
+        command: 'list_stars',
+        args: { kind: 'url', sort: 'most_revisited', limit: 50 },
+      },
+      {
+        run: () => backend.getStarCounts(),
+        command: 'get_star_counts',
+        args: {},
+      },
+      {
         run: () => backend.loadDashboardSnapshot(),
         command: 'load_dashboard_snapshot',
       },
@@ -517,6 +568,11 @@ describe('backend client', () => {
         args: { request },
       },
       {
+        run: () => backend.estimateReembed('working-set'),
+        command: 'estimate_reembed',
+        args: { scope: 'working-set' },
+      },
+      {
         run: () => backend.searchAiHistory(request),
         command: 'search_ai_history',
         args: { request },
@@ -544,6 +600,19 @@ describe('backend client', () => {
         run: () => backend.deleteSearchEngineRule('rule'),
         command: 'delete_search_engine_rule',
         args: { ruleId: 'rule' },
+      },
+      {
+        run: () => backend.downloadStaticEmbeddingModel(),
+        command: 'download_static_embedding_model',
+      },
+      {
+        run: () => backend.cancelStaticEmbeddingModelDownload(),
+        command: 'cancel_ai_embedding_model_download',
+      },
+      {
+        run: () => backend.resetAiIndexBuild(),
+        command: 'reset_ai_index_build',
+        args: { request: { fullRebuild: true, clearOnly: false } },
       },
       {
         run: () => backend.clearDerivedIntelligence(),
@@ -580,6 +649,16 @@ describe('backend client', () => {
         run: () => backend.openExternalUrl('https://example.test'),
         command: 'open_external_url',
         args: { url: 'https://example.test' },
+      },
+      {
+        run: () =>
+          backend.exportConversationFile('/tmp/chat.md', '# transcript\n'),
+        command: 'export_conversation_file',
+        args: { targetPath: '/tmp/chat.md', contents: '# transcript\n' },
+      },
+      {
+        run: () => backend.revealLogs(),
+        command: 'reveal_logs',
       },
       {
         run: () => backend.checkForAppUpdate(),
@@ -654,6 +733,67 @@ describe('backend client', () => {
           }),
         command: 'get_day_insights',
         args: { request: { date: '2026-04-25', profileId: null } },
+      },
+      {
+        run: () =>
+          intelligenceClient.sendChat({
+            messages: [{ role: 'user', content: 'hi' }],
+          }),
+        command: 'ai_chat_send',
+        args: { request: { messages: [{ role: 'user', content: 'hi' }] } },
+      },
+      {
+        run: () => intelligenceClient.cancelChat('run-1'),
+        command: 'ai_chat_cancel',
+        args: { runId: 'run-1' },
+      },
+      {
+        run: () =>
+          intelligenceClient.saveConversation({
+            id: 'conv-1',
+            title: null,
+            providerId: 'llm-local',
+            messages: [],
+          }),
+        command: 'save_ai_conversation',
+        args: {
+          request: {
+            id: 'conv-1',
+            title: null,
+            providerId: 'llm-local',
+            messages: [],
+          },
+        },
+      },
+      {
+        run: () => intelligenceClient.listConversations({ limit: 25 }),
+        command: 'list_ai_conversations',
+        args: { request: { limit: 25 } },
+      },
+      {
+        // The default-arg path: no request object passed.
+        run: () => intelligenceClient.listConversations(),
+        command: 'list_ai_conversations',
+        args: { request: {} },
+      },
+      {
+        run: () => intelligenceClient.loadConversation('conv-1'),
+        command: 'load_ai_conversation',
+        args: { conversationId: 'conv-1' },
+      },
+      {
+        run: () => intelligenceClient.deleteConversation('conv-1'),
+        command: 'delete_ai_conversation',
+        args: { conversationId: 'conv-1' },
+      },
+      {
+        run: () =>
+          intelligenceClient.renameConversation({
+            id: 'conv-1',
+            title: 'Renamed',
+          }),
+        command: 'rename_ai_conversation',
+        args: { request: { id: 'conv-1', title: 'Renamed' } },
       },
     ]
 

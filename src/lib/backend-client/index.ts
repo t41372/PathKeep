@@ -17,6 +17,7 @@ export * from './annotations'
 export * from './app'
 export * from './archive'
 export * from './audit'
+export * from './content-enrichment'
 export * from './dashboard'
 export * from './explorer'
 export * from './import'
@@ -25,6 +26,7 @@ export * from './migration'
 export * from './schedule'
 export * from './security'
 export * from './shared'
+export * from './stars'
 export * from './support'
 export * from './update'
 
@@ -32,6 +34,7 @@ import { annotationsClient } from './annotations'
 import { appClient } from './app'
 import { archiveClient } from './archive'
 import { auditClient } from './audit'
+import { contentEnrichmentClient } from './content-enrichment'
 import { dashboardClient } from './dashboard'
 import { explorerClient } from './explorer'
 import { importClient } from './import'
@@ -39,6 +42,7 @@ import { intelligenceClient } from './intelligence'
 import { migrationClient } from './migration'
 import { scheduleClient } from './schedule'
 import { securityClient } from './security'
+import { starsClient } from './stars'
 import { supportClient } from './support'
 import { updateClient } from './update'
 
@@ -55,14 +59,18 @@ export const backend = {
   getAppSnapshot: appClient.getSnapshot,
   saveConfig: appClient.saveConfig,
   initializeArchive: archiveClient.initializeArchive,
+  assessArchiveUpgrade: archiveClient.assessArchiveUpgrade,
   rekeyArchive: securityClient.executeRekey,
   previewRekeyArchive: securityClient.previewRekey,
   previewSnapshotRestore: archiveClient.previewSnapshotRestore,
   runSnapshotRestore: archiveClient.runSnapshotRestore,
+  listRecoverySnapshots: archiveClient.listRecoverySnapshots,
+  runFullArchiveRestore: archiveClient.runFullArchiveRestore,
   previewRetentionPrune: archiveClient.previewRetentionPrune,
   runRetentionPrune: archiveClient.runRetentionPrune,
   setSessionDatabaseKey: appClient.setSessionDatabaseKey,
   clearSessionDatabaseKey: appClient.clearSessionDatabaseKey,
+  reconcileArchiveEncryption: appClient.reconcileArchiveEncryption,
   setAppLockPasscode: appClient.setAppLockPasscode,
   clearAppLockPasscode: appClient.clearAppLockPasscode,
   lockAppSession: appClient.lockAppSession,
@@ -75,6 +83,7 @@ export const backend = {
   triggerOgImageRefetch: explorerClient.triggerOgImageRefetch,
   prefetchOgImages: explorerClient.prefetchOgImages,
   getOgImageStorageStats: explorerClient.getOgImageStorageStats,
+  getOgImageCoverageStats: explorerClient.getOgImageCoverageStats,
   clearOgImageCache: explorerClient.clearOgImageCache,
   runOgImageCleanup: explorerClient.runOgImageCleanup,
   getBrowseDayInsights: explorerClient.getBrowseDayInsights,
@@ -83,6 +92,17 @@ export const backend = {
   replaceUrlTags: annotationsClient.replaceUrlTags,
   listUrlAnnotations: annotationsClient.listUrlAnnotations,
   searchUrlAnnotations: annotationsClient.searchUrlAnnotations,
+  setStar: starsClient.setStar,
+  unsetStar: starsClient.unsetStar,
+  getStarStatus: starsClient.getStarStatus,
+  listStars: starsClient.listStars,
+  getStarCounts: starsClient.getStarCounts,
+  getContentFetchSettings: contentEnrichmentClient.getContentFetchSettings,
+  setContentFetchSettings: contentEnrichmentClient.setContentFetchSettings,
+  listVisitEnrichment: contentEnrichmentClient.listVisitEnrichment,
+  contentFetchNow: contentEnrichmentClient.contentFetchNow,
+  enqueueContentFetchWorkingSet:
+    contentEnrichmentClient.enqueueContentFetchWorkingSet,
   exportAppData: migrationClient.exportAppData,
   previewAppDataImport: migrationClient.previewAppDataImport,
   applyAppDataImport: migrationClient.applyAppDataImport,
@@ -116,9 +136,17 @@ export const backend = {
   replayAiJob: intelligenceClient.replayJob,
   cancelAiJob: intelligenceClient.cancelJob,
   buildAiIndex: intelligenceClient.buildIndex,
+  estimateReembed: intelligenceClient.estimateReembed,
   searchAiHistory: intelligenceClient.searchHistory,
   askAiAssistant: intelligenceClient.askAssistant,
   loadAiAssistantJob: intelligenceClient.getAssistantJob,
+  sendAiChat: intelligenceClient.sendChat,
+  cancelAiChat: intelligenceClient.cancelChat,
+  saveAiConversation: intelligenceClient.saveConversation,
+  listAiConversations: intelligenceClient.listConversations,
+  loadAiConversation: intelligenceClient.loadConversation,
+  deleteAiConversation: intelligenceClient.deleteConversation,
+  renameAiConversation: intelligenceClient.renameConversation,
   listSearchEngineRules: intelligenceClient.listSearchEngineRules,
   upsertSearchEngineRule: intelligenceClient.upsertSearchEngineRule,
   deleteSearchEngineRule: intelligenceClient.deleteSearchEngineRule,
@@ -127,9 +155,15 @@ export const backend = {
   retryIntelligenceJob: intelligenceClient.retryRuntimeJob,
   cancelIntelligenceJob: intelligenceClient.cancelRuntimeJob,
   previewAiIntegrations: intelligenceClient.previewIntegrations,
+  downloadStaticEmbeddingModel: intelligenceClient.downloadStaticEmbeddingModel,
+  cancelStaticEmbeddingModelDownload:
+    intelligenceClient.cancelStaticEmbeddingModelDownload,
+  resetAiIndexBuild: intelligenceClient.resetAiIndexBuild,
   resetLocalSecretVault: securityClient.resetLocalSecretVault,
   openPathInFileManager: supportClient.openPathInFileManager,
   openExternalUrl: supportClient.openExternalUrl,
+  exportConversationFile: supportClient.exportConversationFile,
+  revealLogs: supportClient.revealLogs,
   checkForAppUpdate: updateClient.checkForAppUpdate,
   downloadAndInstallAppUpdate: updateClient.downloadAndInstallAppUpdate,
   relaunchAfterUpdate: updateClient.relaunchAfterUpdate,

@@ -32,12 +32,15 @@ import { formatBytes } from '@/lib/format'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import type {
   OgImageCleanupMode,
+  OgImageCoverageStats,
   OgImageSettings,
   OgImageStorageStats,
 } from '@/lib/types'
 import { cn } from '@/lib/cn'
 import { Field, SegmentedControl, Toggle } from './paper-form-primitives'
 import { clampNumber, parseBlocklist } from './link-previews-helpers'
+import { SettingsSavedChip } from './settings-saved-feedback'
+import { useSavedFeedback } from './use-saved-feedback'
 
 export interface LinkPreviewsSectionProps {
   anchorId?: string
@@ -93,7 +96,10 @@ export function LinkPreviewsSection({
 }: LinkPreviewsSectionProps) {
   const { language, t } = useI18n()
   const { snapshot, saveConfig } = useShellData()
+  const { visible: savedVisible, flash } = useSavedFeedback()
   const [stats, setStats] = useState<OgImageStorageStats | null>(null)
+  const [coverage, setCoverage] = useState<OgImageCoverageStats | null>(null)
+  const [coverageFailed, setCoverageFailed] = useState(false)
   const [pendingAction, setPendingAction] = useState<
     'cleanup' | 'clear' | 'rebuild' | null
   >(null)
@@ -118,12 +124,20 @@ export function LinkPreviewsSection({
   const persistSettings = useCallback(
     async (next: OgImageSettings) => {
       if (!snapshot) return
-      await saveConfig({
-        ...snapshot.config,
-        ogImage: next,
-      })
+      // `quiet` so this all-auto-save write never throws the blocking full-screen
+      // overlay on every toggle/select/blur — the inline "Saved" chip is the only
+      // confirmation. The shell still refreshes the snapshot exactly the same.
+      await saveConfig(
+        {
+          ...snapshot.config,
+          ogImage: next,
+        },
+        { quiet: true },
+      )
+      // Quiet "Saved" confirmation on a landed write — the page is all-auto-save.
+      flash()
     },
-    [snapshot, saveConfig],
+    [snapshot, saveConfig, flash],
   )
 
   const refreshStats = useCallback(async () => {
@@ -136,9 +150,24 @@ export function LinkPreviewsSection({
     }
   }, [])
 
+  // Coverage is fetched separately: its eligible-page count scans the `urls`
+  // table, so a slow query must never delay the cheap storage footprint above.
+  const refreshCoverage = useCallback(async () => {
+    try {
+      const next = await backend.getOgImageCoverageStats()
+      setCoverage(next)
+      setCoverageFailed(false)
+    } catch {
+      // Diagnostic only — flag the failure so the row shows "couldn't measure"
+      // instead of sitting on the loading text forever. Keep any prior value.
+      setCoverageFailed(true)
+    }
+  }, [])
+
   useEffect(() => {
     void refreshStats()
-  }, [refreshStats])
+    void refreshCoverage()
+  }, [refreshStats, refreshCoverage])
 
   const onToggleFetch = (next: boolean) =>
     persistSettings({ ...settings, fetchEnabled: next })
@@ -183,6 +212,7 @@ export function LinkPreviewsSection({
         }),
       )
       await refreshStats()
+      void refreshCoverage()
     } catch (error) {
       // Swallow the worker error and surface a short summary instead of
       // letting an unhandled rejection escape the click handler. The
@@ -200,8 +230,14 @@ export function LinkPreviewsSection({
     }
   }
 
-  const onBlocklistSave = async () => {
-    await persistSettings({
+  // The per-host blocklist auto-saves on blur (the page is all-auto-save). It is a
+  // free-text textarea so it edits a local draft while typing — keeping saveConfig
+  // off the keystroke hot path — and only persists when focus leaves and the
+  // canonicalized hosts differ from what's saved, so a blur with no edit never
+  // fires a redundant write or a misleading "Saved".
+  const onCommitBlocklist = () => {
+    if (!blocklistChanged) return
+    void persistSettings({
       ...settings,
       blockedHosts: parseBlocklist(blocklistDraft),
     })
@@ -266,6 +302,7 @@ export function LinkPreviewsSection({
         }),
       )
       await refreshStats()
+      void refreshCoverage()
     } finally {
       setPendingAction(null)
     }
@@ -284,12 +321,32 @@ export function LinkPreviewsSection({
         }),
       )
       await refreshStats()
+      void refreshCoverage()
     } finally {
       setPendingAction(null)
     }
   }
 
   const hasRows = (stats?.rowCount ?? 0) > 0
+
+  // Honest coverage view: the headline is "% of web pages that have a preview",
+  // shown only once it has loaded so we never flash a misleading 0%. The
+  // success rate (of pages actually checked) is secondary context, because
+  // fetching is opportunistic so the headline is naturally low.
+  const coverageView = useMemo(() => {
+    if (!coverage || coverage.eligiblePages <= 0) return null
+    const pct = (value: number, total: number) =>
+      total > 0 ? ((value / total) * 100).toFixed(1) : '0.0'
+    const count = (value: number) => value.toLocaleString(language)
+    return {
+      percent: pct(coverage.pagesWithImage, coverage.eligiblePages),
+      withImage: count(coverage.pagesWithImage),
+      eligible: count(coverage.eligiblePages),
+      hasAttempts: coverage.attemptedPages > 0,
+      successRate: pct(coverage.pagesWithImage, coverage.attemptedPages),
+      checked: count(coverage.attemptedPages),
+    }
+  }, [coverage, language])
 
   const modeOptions: Array<{
     id: CleanupModeId
@@ -320,7 +377,10 @@ export function LinkPreviewsSection({
 
   return (
     <PaperCard testId="settings-link-previews-section" id={anchorId}>
-      <PaperCardHeader title={t('settings.linkPreviewsTitle')} />
+      <PaperCardHeader
+        title={t('settings.linkPreviewsTitle')}
+        right={<SettingsSavedChip visible={savedVisible} />}
+      />
       <PaperCardBody>
         <p className="text-ink-muted m-0 mb-4 font-serif text-[13.5px] leading-[1.55] italic">
           {t('settings.linkPreviewsIntro')}
@@ -418,6 +478,7 @@ export function LinkPreviewsSection({
           <textarea
             value={blocklistDraft}
             onChange={(event) => setBlocklistDraft(event.target.value)}
+            onBlur={onCommitBlocklist}
             rows={4}
             placeholder={t('settings.linkPreviewsBlocklistPlaceholder')}
             data-testid="link-previews-blocklist-input"
@@ -426,28 +487,6 @@ export function LinkPreviewsSection({
               'focus:border-accent focus:outline-none',
             )}
           />
-          {blocklistChanged ? (
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void onBlocklistSave()}
-                data-testid="link-previews-blocklist-save"
-                className="border-accent text-accent-text hover:bg-accent-soft rounded-paper border px-3 py-1 font-sans text-[12px]"
-              >
-                {t('settings.linkPreviewsBlocklistSave')}
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setBlocklistDraft(settings.blockedHosts.join('\n'))
-                }
-                data-testid="link-previews-blocklist-reset"
-                className="border-border-default text-ink-muted hover:bg-hover rounded-paper border px-3 py-1 font-sans text-[12px]"
-              >
-                {t('settings.linkPreviewsBlocklistReset')}
-              </button>
-            </div>
-          ) : null}
         </Field>
 
         <Field
@@ -517,6 +556,38 @@ export function LinkPreviewsSection({
                 })
               : t('settings.linkPreviewsStatsEmpty')}
           </p>
+        </Field>
+
+        <Field label={t('settings.linkPreviewsCoverageLabel')}>
+          <p
+            className="text-ink-muted m-0 font-mono text-[11.5px]"
+            data-testid="link-previews-coverage"
+          >
+            {coverage === null
+              ? coverageFailed
+                ? t('settings.linkPreviewsCoverageError')
+                : t('settings.linkPreviewsCoverageLoading')
+              : !coverageView
+                ? t('settings.linkPreviewsCoverageEmpty')
+                : coverageView.hasAttempts
+                  ? t('settings.linkPreviewsCoverageValue', {
+                      percent: coverageView.percent,
+                      withImage: coverageView.withImage,
+                      eligible: coverageView.eligible,
+                    })
+                  : t('settings.linkPreviewsCoverageNotFetched')}
+          </p>
+          {coverageView?.hasAttempts ? (
+            <p
+              className="text-ink-faint m-0 mt-0.5 font-mono text-[11px]"
+              data-testid="link-previews-coverage-rate"
+            >
+              {t('settings.linkPreviewsCoverageRate', {
+                rate: coverageView.successRate,
+                checked: coverageView.checked,
+              })}
+            </p>
+          ) : null}
         </Field>
 
         <Field label={t('settings.linkPreviewsCleanupLabel')}>

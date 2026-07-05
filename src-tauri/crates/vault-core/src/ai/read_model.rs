@@ -9,6 +9,7 @@
 
 use super::provider::ProviderReadiness;
 use super::*;
+use crate::models::{BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID, StaticEmbeddingStatus};
 
 /// Ensures the AI compatibility tables exist in the rebuildable intelligence plane.
 pub fn ensure_ai_schema(connection: &Connection) -> Result<()> {
@@ -36,13 +37,17 @@ pub fn ai_index_status(
             state: if config.ai.enabled { "blocked".to_string() } else { "disabled".to_string() },
             llm_provider_id: config.ai.llm_provider_id.clone(),
             embedding_provider_id: config.ai.embedding_provider_id.clone(),
+            // The static tier surface does not need the archive — surface it even before init so the
+            // Settings selector can render the download/ready state (F1).
+            static_embedding: static_embedding_status(paths, config),
             queue_paused: default_queue_status.paused,
             queue_concurrency: default_queue_status.concurrency,
             warning: if config.ai.enabled {
-                Some("Initialize the archive before using AI analysis features.".to_string())
+                Some(ai_index_warning_text(&AiIndexWarning::ArchiveNotInitialized))
             } else {
                 None
             },
+            warning_code: config.ai.enabled.then_some(AiIndexWarning::ArchiveNotInitialized),
             ..AiIndexStatus::default()
         });
     }
@@ -79,6 +84,22 @@ pub fn ai_index_status(
     } else {
         0
     };
+    // F3 (0-byte honesty): the REAL vector count on the `.pkvec` plane, read O(1) from the store
+    // header + file length — NOT the SQLite metadata-row count above. A build that wrote metadata rows
+    // but zero vectors leaves `indexed_items > 0` while this stays `0`, the exact dishonest case the
+    // index health must surface. `count()` errors on a torn store; degrade to 0 (treated as "no
+    // vectors") rather than failing the whole status read.
+    let semantic_vector_count = provider_id
+        .as_deref()
+        .zip(provider_readiness.selected_model.as_deref())
+        .map(|(provider_id, model)| {
+            VectorStore::for_provider(paths, provider_id, model).count().unwrap_or(0)
+        })
+        .unwrap_or(0);
+    // The dishonest "indexed N with an empty sidecar" case: metadata rows exist but the vector plane is
+    // empty/absent, AND the provider is otherwise usable (an unusable provider is reported as degraded).
+    let vectors_missing =
+        provider_readiness.available && indexed_items > 0 && semantic_vector_count == 0;
     let semantic_sidecar_bytes = ai_sidecar::sidecar_storage_bytes(paths);
     let semantic_metadata_bytes = ai_embeddings_storage_bytes(&connection)?;
     let estimated_embedding_tokens = ai_embedding_token_estimate(&connection)?;
@@ -116,8 +137,10 @@ pub fn ai_index_status(
             },
         )
     });
-    let ready = indexed_items > 0 && provider_readiness.available;
-    let (state, warning) = ai_index_state_and_warning(
+    // F3: readiness keys off the REAL vector count, not the SQLite metadata-row count — "ready" must
+    // mean "there are vectors semantic search can actually match", never "we recorded N rows".
+    let ready = semantic_vector_count > 0 && provider_readiness.available;
+    let (state, warning, warning_code) = ai_index_state_and_warning(
         config,
         &provider_readiness,
         &queue_status,
@@ -125,6 +148,7 @@ pub fn ai_index_status(
         &ledger,
         staleness_reason,
         ready,
+        vectors_missing,
     );
     Ok(AiIndexStatus {
         enabled: config.ai.enabled,
@@ -134,6 +158,8 @@ pub fn ai_index_status(
         state,
         ready,
         indexed_items: indexed_items as usize,
+        semantic_vector_count,
+        static_embedding: static_embedding_status(paths, config),
         last_indexed_at,
         llm_provider_id: config.ai.llm_provider_id.clone(),
         embedding_provider_id: config.ai.embedding_provider_id.clone(),
@@ -147,18 +173,65 @@ pub fn ai_index_status(
         semantic_metadata_bytes,
         estimated_embedding_tokens,
         warning,
+        warning_code,
     })
 }
 
+/// Renders the English MODEL-facing / legacy text for an index-health warning CODE (review-fix M-7).
+///
+/// The wire now carries the stable [`AiIndexWarning`] CODE so the FE localizes it; this keeps the
+/// legacy `AiIndexStatus.warning` string populated (for backward compatibility and any non-localizing
+/// consumer) from the SAME code, so the code and its English rendering can never drift. Interpolated
+/// variants compose the same sentence shape the prior `format!` calls produced.
+pub(super) fn ai_index_warning_text(code: &AiIndexWarning) -> String {
+    match code {
+        AiIndexWarning::ArchiveNotInitialized => {
+            "Initialize the archive before using AI analysis features.".to_string()
+        }
+        AiIndexWarning::NoEmbeddingProvider => {
+            "Select an embedding provider in Settings before enabling semantic retrieval."
+                .to_string()
+        }
+        AiIndexWarning::EmbeddingProviderMissing { provider_id } => {
+            format!("Embedding provider {provider_id} is no longer available in Settings.")
+        }
+        AiIndexWarning::EmbeddingProviderDisabled { provider_name } => {
+            format!("Enable provider {provider_name} before using semantic retrieval.")
+        }
+        AiIndexWarning::EmbeddingProviderNoApiKey { provider_name } => {
+            format!(
+                "Store an API key for provider {provider_name} before using semantic retrieval."
+            )
+        }
+        AiIndexWarning::EmbeddingProviderNoModel { provider_name } => {
+            format!(
+                "Choose a default model for provider {provider_name} before using semantic retrieval."
+            )
+        }
+        AiIndexWarning::IndexNotBuilt => {
+            "Run Build index after configuring an embedding provider to enable semantic search."
+                .to_string()
+        }
+        AiIndexWarning::IndexVectorsMissing => {
+            "The semantic index has metadata rows but no vectors were written. Rebuild the index."
+                .to_string()
+        }
+        AiIndexWarning::IndexStale { reason } => reason.model_facing_text().to_string(),
+        AiIndexWarning::BuildFailed { reason } => reason.clone(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn ai_index_state_and_warning(
     config: &AppConfig,
     provider_readiness: &ProviderReadiness,
     queue_status: &AiQueueStatus,
     index_queue_counts: &ai_queue::QueueJobCounts,
     ledger: &AiIndexLedgerRow,
-    staleness_reason: Option<String>,
+    staleness_reason: Option<AiSemanticStaleness>,
     ready: bool,
-) -> (String, Option<String>) {
+    vectors_missing: bool,
+) -> (String, Option<String>, Option<AiIndexWarning>) {
     let state = if !config.ai.enabled {
         "disabled".to_string()
     } else if !provider_readiness.available {
@@ -169,6 +242,9 @@ fn ai_index_state_and_warning(
         "paused".to_string()
     } else if ledger.state == "failed" {
         "failed".to_string()
+    } else if vectors_missing {
+        // Metadata rows but no vectors (F3): the index is present-but-unusable → degraded, not ready.
+        "degraded".to_string()
     } else if staleness_reason.is_some() {
         "stale".to_string()
     } else if ready {
@@ -178,21 +254,86 @@ fn ai_index_state_and_warning(
     } else {
         "empty".to_string()
     };
-    let warning = if ledger.state == "failed" {
-        ledger.failure_reason.clone().or_else(|| ledger.last_failure_at.clone())
+    // Resolve the legacy English STRING and the stable CODE together so the FE always has a code to
+    // localize and the legacy string stays populated for any non-localizing consumer. A failed build
+    // carries its opaque transport reason (no fixed vocabulary, so the code wraps the same text);
+    // when it has no failure_reason it falls back to the last-failure timestamp (uncoded). The
+    // unavailable-provider branch reuses the readiness's own pre-rendered string + code so the exact
+    // missing prerequisite is preserved on both surfaces.
+    let (warning, warning_code) = if ledger.state == "failed" {
+        match ledger.failure_reason.clone() {
+            Some(reason) => (Some(reason.clone()), Some(AiIndexWarning::BuildFailed { reason })),
+            None => (ledger.last_failure_at.clone(), None),
+        }
     } else if !provider_readiness.available {
-        provider_readiness.warning.clone()
-    } else if staleness_reason.is_some() {
-        staleness_reason
+        (provider_readiness.warning.clone(), provider_readiness.warning_code.clone())
+    } else if vectors_missing {
+        let code = AiIndexWarning::IndexVectorsMissing;
+        (Some(ai_index_warning_text(&code)), Some(code))
+    } else if let Some(reason) = staleness_reason {
+        let code = AiIndexWarning::IndexStale { reason };
+        (Some(ai_index_warning_text(&code)), Some(code))
     } else if config.ai.enabled && !ready {
-        Some(
-            "Run Build index after configuring an embedding provider to enable semantic search."
-                .to_string(),
-        )
+        let code = AiIndexWarning::IndexNotBuilt;
+        (Some(ai_index_warning_text(&code)), Some(code))
     } else {
-        None
+        (None, None)
     };
-    (state, warning)
+    (state, warning, warning_code)
+}
+
+/// Resolves the built-in static embedding provider's readiness + download state for the UI (F1).
+///
+/// Returns `None` only when the merged config somehow lacks the built-in static provider (it is
+/// normally always present via [`crate::models::merge_embedding_providers`]). `model_downloaded`
+/// checks the consent-gated download target on disk (files present + SHA-verified); `selected` mirrors
+/// the active embedding selection. Pure over the config + filesystem — no network, no archive — so it
+/// can be surfaced even before the archive is initialized.
+fn static_embedding_status(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+) -> Option<StaticEmbeddingStatus> {
+    let provider = config
+        .ai
+        .embedding_providers
+        .iter()
+        .find(|provider| provider.id == BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID)?;
+    let repo = if provider.default_model.trim().is_empty() {
+        DEFAULT_STATIC_MODEL_REPO
+    } else {
+        provider.default_model.as_str()
+    };
+    let model_dir = model_dir_for_repo(paths, repo);
+    let model_downloaded = model_is_present_and_verified(&model_dir, DEFAULT_STATIC_MODEL_FILES);
+    // On-disk size only AFTER the files are present + verified; 0 before download (the FE shows a
+    // static pre-download estimate). Summed from the real files so the Settings card states the honest
+    // footprint instead of a guess.
+    let model_size_bytes = if model_downloaded { static_model_size_bytes(&model_dir) } else { 0 };
+    Some(StaticEmbeddingStatus {
+        provider_id: provider.id.clone(),
+        model_repo: repo.to_string(),
+        model_downloaded,
+        selected: config.ai.embedding_provider_id.as_deref() == Some(provider.id.as_str()),
+        is_default: true,
+        // The honest pooled width (D4: read from the safetensors at load, never the 1536 the FE would
+        // otherwise infer from an absent provider-config dimension).
+        dimensions: STATIC_EMBEDDING_DIM,
+        model_size_bytes,
+    })
+}
+
+/// Sums the on-disk byte size of the static model's manifest files under `model_dir`.
+///
+/// A missing/unreadable file contributes 0 (defensive — the caller only calls this once the model is
+/// present + verified, so every file should exist; a transient stat failure must not panic the status
+/// read). One `stat` per file (3 files), so this is cheap.
+fn static_model_size_bytes(model_dir: &std::path::Path) -> u64 {
+    DEFAULT_STATIC_MODEL_FILES
+        .iter()
+        .map(|file| {
+            std::fs::metadata(model_dir.join(file.name)).map(|meta| meta.len()).unwrap_or(0)
+        })
+        .sum()
 }
 
 /// Loads the persisted AI queue read model.
@@ -217,6 +358,32 @@ pub fn ai_queue_status(
         config.ai.job_queue_concurrency,
         AI_QUEUE_RECENT_LIMIT,
     )
+}
+
+/// How long after its last heartbeat a running AI job is considered orphaned + recoverable.
+/// Mirrors the drain's `claim_next_ai_job(&conn, 300)` stale window so the kick signal and the
+/// eventual stale-sweep + reclaim agree on which running jobs are dead.
+const AI_QUEUE_RECOVERY_STALE_SECONDS: i64 = 300;
+
+/// Counts AI queue jobs a background drain could make progress on right now — queued/stale work AND
+/// jobs orphaned in `running` by a worker that died (app quit/crash).
+///
+/// This exists because the drain pool is spawned only when there is recoverable work; gating that on
+/// the read-model `queued` count (which never sees an orphaned `running` job) let an interrupted index
+/// build sit wedged across every launch and never resume. Polling this lets the next status tick kick
+/// the drain, which reclaims the orphaned job from its persisted cursor.
+pub fn recoverable_ai_jobs(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<u32> {
+    if !config.initialized || !paths.archive_database_path.exists() {
+        return Ok(0);
+    }
+
+    let connection = open_intelligence_connection(paths, config, key)?;
+    ensure_ai_schema(&connection)?;
+    ai_queue::count_recoverable_ai_jobs(&connection, AI_QUEUE_RECOVERY_STALE_SECONDS)
 }
 
 /// Synchronizes persisted queue pause/resume controls with updated Settings.
@@ -295,6 +462,8 @@ pub fn provider_connection_failure_report(
         ok: false,
         latency_ms: 0,
         capabilities: provider_capabilities(config),
+        // Resolution failed before a runtime existed, so there is no probed LLM detail to add.
+        llm_capabilities: None,
         error_code,
         action_hint,
         retry_hint,
@@ -398,9 +567,13 @@ pub fn preview_ai_integrations(
                 "MCP server toggle is currently disabled in saved Settings.".to_string()
             },
             if config.ai.skill_enabled {
-                "Skill integration toggle is currently enabled in saved Settings.".to_string()
+                if config.ai.mcp_enabled {
+                    "Usage guide is enabled: the MCP server serves a read-only guide teaching connected tools how to query effectively. It exposes no extra data.".to_string()
+                } else {
+                    "Usage guide is enabled but unreachable: it is only served while the MCP server above is also on. It exposes no extra data when reachable.".to_string()
+                }
             } else {
-                "Skill integration toggle is currently disabled in saved Settings.".to_string()
+                "Usage guide is disabled in saved Settings, so connected tools receive only a short disabled notice instead of the querying guide.".to_string()
             },
             providerless_note,
         ],
@@ -467,11 +640,13 @@ mod tests {
         let ready_provider = ProviderReadiness {
             available: true,
             warning: None,
+            warning_code: None,
             selected_model: Some("model".to_string()),
         };
         let unavailable_provider = ProviderReadiness {
             available: false,
             warning: Some("provider warning".to_string()),
+            warning_code: Some(AiIndexWarning::NoEmbeddingProvider),
             selected_model: None,
         };
         let queue = AiQueueStatus::default();
@@ -494,6 +669,7 @@ mod tests {
                 &AiIndexLedgerRow::default(),
                 None,
                 false,
+                false,
             )
             .0,
             "disabled"
@@ -508,8 +684,16 @@ mod tests {
             &AiIndexLedgerRow::default(),
             None,
             false,
+            false,
         );
-        assert_eq!(degraded, ("degraded".to_string(), Some("provider warning".to_string())));
+        assert_eq!(
+            degraded,
+            (
+                "degraded".to_string(),
+                Some("provider warning".to_string()),
+                Some(AiIndexWarning::NoEmbeddingProvider),
+            )
+        );
         assert_eq!(
             ai_index_state_and_warning(
                 &config,
@@ -518,6 +702,7 @@ mod tests {
                 &running_counts,
                 &AiIndexLedgerRow::default(),
                 None,
+                false,
                 false,
             )
             .0,
@@ -532,6 +717,7 @@ mod tests {
                 &AiIndexLedgerRow::default(),
                 None,
                 false,
+                false,
             )
             .0,
             "paused"
@@ -545,21 +731,67 @@ mod tests {
                 &failed_ledger,
                 None,
                 false,
+                false,
             ),
-            ("failed".to_string(), Some("embedding run failed".to_string()))
+            (
+                "failed".to_string(),
+                Some("embedding run failed".to_string()),
+                Some(AiIndexWarning::BuildFailed { reason: "embedding run failed".to_string() }),
+            )
         );
+        // A failed ledger with NO failure_reason falls back to the (uncoded) last-failure timestamp.
+        let failed_no_reason = AiIndexLedgerRow {
+            state: "failed".to_string(),
+            failure_reason: None,
+            last_failure_at: Some("2026-06-23T00:00:00Z".to_string()),
+            ..AiIndexLedgerRow::default()
+        };
         assert_eq!(
             ai_index_state_and_warning(
                 &config,
                 &ready_provider,
                 &queue,
                 &empty_counts,
-                &AiIndexLedgerRow::default(),
-                Some("source watermark moved".to_string()),
-                true,
+                &failed_no_reason,
+                None,
+                false,
+                false,
             ),
-            ("stale".to_string(), Some("source watermark moved".to_string()))
+            ("failed".to_string(), Some("2026-06-23T00:00:00Z".to_string()), None)
         );
+        // F3: an available provider with metadata rows but ZERO vectors → degraded + IndexVectorsMissing
+        // (the honest "indexed N with an empty sidecar" surface), and it OUTRANKS the stale/not-built
+        // warnings below it.
+        let vectors_missing = ai_index_state_and_warning(
+            &config,
+            &ready_provider,
+            &queue,
+            &empty_counts,
+            &AiIndexLedgerRow::default(),
+            Some(AiSemanticStaleness::Watermark),
+            false,
+            true,
+        );
+        assert_eq!(vectors_missing.0, "degraded");
+        assert_eq!(vectors_missing.2, Some(AiIndexWarning::IndexVectorsMissing));
+        assert!(vectors_missing.1.expect("missing warning").contains("no vectors"));
+        let stale = ai_index_state_and_warning(
+            &config,
+            &ready_provider,
+            &queue,
+            &empty_counts,
+            &AiIndexLedgerRow::default(),
+            Some(AiSemanticStaleness::Watermark),
+            true,
+            false,
+        );
+        assert_eq!(stale.0, "stale");
+        assert_eq!(
+            stale.2,
+            Some(AiIndexWarning::IndexStale { reason: AiSemanticStaleness::Watermark })
+        );
+        // The legacy string is the watermark sentence derived from the same code.
+        assert!(stale.1.expect("stale warning").contains("import watermark"));
         assert_eq!(
             ai_index_state_and_warning(
                 &config,
@@ -569,6 +801,7 @@ mod tests {
                 &AiIndexLedgerRow::default(),
                 None,
                 true,
+                false,
             )
             .0,
             "ready"
@@ -582,6 +815,7 @@ mod tests {
                 &AiIndexLedgerRow::default(),
                 None,
                 false,
+                false,
             )
             .0,
             "queued"
@@ -594,8 +828,40 @@ mod tests {
             &AiIndexLedgerRow::default(),
             None,
             false,
+            false,
         );
         assert_eq!(empty.0, "empty");
         assert!(empty.1.expect("empty warning").contains("Build index"));
+    }
+
+    #[test]
+    fn static_embedding_status_reports_dimension_and_on_disk_size() {
+        // Change 2: the static tier status carries the HONEST dim (256) and a real on-disk size.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(dir.path());
+        let mut config = enabled_config();
+        config.ai.embedding_providers =
+            crate::models::merge_embedding_providers(&config.ai.embedding_providers);
+
+        // Before any download: dimension is the real 256, size is 0 (no files verified on disk).
+        let pre = static_embedding_status(&paths, &config).expect("static status present");
+        assert_eq!(pre.dimensions, STATIC_EMBEDDING_DIM);
+        assert_eq!(pre.dimensions, 256);
+        assert!(!pre.model_downloaded);
+        assert_eq!(pre.model_size_bytes, 0, "no verified files on disk yet → 0 bytes");
+
+        // The summing helper reflects the real on-disk byte total once files are present (the
+        // verified-gated wrapper takes the `0` branch above because the pinned digests can't be
+        // fabricated in a unit test; this proves the size math the wrapper delegates to).
+        let model_dir = model_dir_for_repo(&paths, DEFAULT_STATIC_MODEL_REPO);
+        std::fs::create_dir_all(&model_dir).expect("mkdir");
+        let mut expected_total: u64 = 0;
+        for file in DEFAULT_STATIC_MODEL_FILES {
+            let bytes = format!("on-disk::{}", file.name).into_bytes();
+            std::fs::write(model_dir.join(file.name), &bytes).expect("seed file");
+            expected_total += bytes.len() as u64;
+        }
+        assert!(expected_total > 0);
+        assert_eq!(static_model_size_bytes(&model_dir), expected_total);
     }
 }

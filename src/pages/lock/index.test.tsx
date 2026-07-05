@@ -224,6 +224,8 @@ function shellValue({
     busyOverlay: null,
     clearAppLockPasscode: vi.fn(),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
     dashboard: null,
     error,
     initializeArchive: vi.fn(),

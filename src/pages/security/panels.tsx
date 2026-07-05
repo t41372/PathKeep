@@ -202,9 +202,7 @@ export function SecurityStatusPanel({
 
 interface SecurityUnlockPanelProps {
   busy: string | null
-  handleClearKeyring: () => Promise<void>
   handleLockArchive: () => Promise<void>
-  handleStoreKeyringKey: () => Promise<void>
   handleUnlock: () => Promise<void>
   handleUnlockFromKeyring: () => Promise<void>
   sessionKey: string
@@ -219,9 +217,7 @@ interface SecurityUnlockPanelProps {
  */
 export function SecurityUnlockPanel({
   busy,
-  handleClearKeyring,
   handleLockArchive,
-  handleStoreKeyringKey,
   handleUnlock,
   handleUnlockFromKeyring,
   sessionKey,
@@ -293,26 +289,7 @@ export function SecurityUnlockPanel({
                 : t('security.lockArchive')}
             </button>
           ) : null}
-          <button
-            className="btn-secondary"
-            type="button"
-            onClick={() => void handleStoreKeyringKey()}
-          >
-            {busy === t('security.storeInKeyring')
-              ? busy
-              : t('security.storeInKeyring')}
-          </button>
-          <button
-            className="btn-secondary"
-            type="button"
-            onClick={() => void handleClearKeyring()}
-          >
-            {busy === t('security.clearKeyring')
-              ? busy
-              : t('security.clearKeyring')}
-          </button>
         </div>
-        <p className="mono-support">{t('security.keyringConvenience')}</p>
       </PaperCardBody>
     </PaperCard>
   )

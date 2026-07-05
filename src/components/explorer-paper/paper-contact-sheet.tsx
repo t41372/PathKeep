@@ -175,6 +175,44 @@ export interface PaperContactSheetInfiniteScroll {
   }
 }
 
+/**
+ * Star provider threaded to every contact-sheet row. `isStarred` reads the
+ * route's optimistic cache for a URL; `onToggle` flips it; the labels are the
+ * localised aria copy. Kept as a single object so the deep render chain only
+ * carries one optional prop.
+ */
+export interface PaperContactSheetEntryStar {
+  isStarred: (url: string) => boolean
+  onToggle: (url: string) => void
+  starLabel: string
+  unstarLabel: string
+}
+
+/**
+ * Builds the per-row star descriptor for one entry, or `undefined` when no
+ * provider is supplied or the entry has no URL to key by.
+ */
+function rowStar(
+  entry: HistoryEntry,
+  provider: PaperContactSheetEntryStar | undefined,
+):
+  | {
+      starred: boolean
+      onToggle: () => void
+      starLabel: string
+      unstarLabel: string
+    }
+  | undefined {
+  if (!provider || !entry.url) return undefined
+  const url = entry.url
+  return {
+    starred: provider.isStarred(url),
+    onToggle: () => provider.onToggle(url),
+    starLabel: provider.starLabel,
+    unstarLabel: provider.unstarLabel,
+  }
+}
+
 export interface PaperContactSheetProps {
   /** Pre-grouped days, newest → oldest. */
   days: PaperDay[]
@@ -186,6 +224,13 @@ export interface PaperContactSheetProps {
   onClearTarget?: () => void
   selectedEntryId?: number | string | null
   onSelectEntry?: (entry: HistoryEntry) => void
+  /**
+   * Optional star affordance provider. When supplied, every card/list row
+   * grows a star keyed by the entry's URL. The route owns the optimistic
+   * state (`isStarred`) and the toggle (`onToggle`); rows with no URL get no
+   * star. Omit entirely to keep the surface star-free (e.g. tests).
+   */
+  entryStar?: PaperContactSheetEntryStar
   /**
    * `true` while the route's history query is in flight with no usable rows
    * yet — used to swap the "Memory is patient" empty copy for a placeholder
@@ -254,6 +299,7 @@ export function PaperContactSheet({
   onClearTarget,
   selectedEntryId = null,
   onSelectEntry,
+  entryStar,
   loading = false,
   pagination,
   infiniteScroll,
@@ -411,6 +457,7 @@ export function PaperContactSheet({
             target={target ?? null}
             selectedEntryId={selectedEntryId}
             onSelectEntry={onSelectEntry}
+            entryStar={entryStar}
             dayInsightsCopy={dayInsightsCopy}
             resolveDayInsights={resolveDayInsights}
             language={language}
@@ -443,6 +490,7 @@ interface PaperDayBlockProps {
   target: PaperContactSheetTarget | null
   selectedEntryId: number | string | null
   onSelectEntry?: (entry: HistoryEntry) => void
+  entryStar?: PaperContactSheetEntryStar
   dayInsightsCopy?: PaperDayInsightsCopy
   resolveDayInsights?: (date: string) => DayInsights | null
   language: string
@@ -477,6 +525,7 @@ function PaperDayBlock({
   target,
   selectedEntryId,
   onSelectEntry,
+  entryStar,
   dayInsightsCopy,
   resolveDayInsights,
   language,
@@ -514,6 +563,7 @@ function PaperDayBlock({
           target={target}
           selectedEntryId={selectedEntryId}
           onSelectEntry={onSelectEntry}
+          entryStar={entryStar}
           dayInsightsCopy={dayInsightsCopy}
           resolveDayInsights={resolveDayInsights}
           language={language}
@@ -534,6 +584,7 @@ function PaperDayBlockContent({
   target,
   selectedEntryId,
   onSelectEntry,
+  entryStar,
   dayInsightsCopy,
   resolveDayInsights,
   language,
@@ -615,6 +666,7 @@ function PaperDayBlockContent({
                     hour12,
                     selectedEntryId,
                     onSelectEntry,
+                    entryStar,
                   }),
                 )}
               </div>
@@ -628,6 +680,7 @@ function PaperDayBlockContent({
                     domainAbbr={getDomainAbbr(entry.domain)}
                     selected={selectedEntryId === entry.id}
                     onClick={() => onSelectEntry?.(entry)}
+                    star={rowStar(entry, entryStar)}
                   />
                 ))}
               </div>
@@ -849,6 +902,7 @@ interface CardBlockArgs {
   hour12: boolean
   selectedEntryId: number | string | null
   onSelectEntry?: (entry: HistoryEntry) => void
+  entryStar?: PaperContactSheetEntryStar
 }
 
 function renderCardBlock({
@@ -858,6 +912,7 @@ function renderCardBlock({
   hour12,
   selectedEntryId,
   onSelectEntry,
+  entryStar,
 }: CardBlockArgs) {
   const idx = baseIndex
   const entry = block.entry
@@ -878,6 +933,7 @@ function renderCardBlock({
       index={idx}
       selected={selectedEntryId === entry.id}
       onClick={() => onSelectEntry?.(entry)}
+      star={rowStar(entry, entryStar)}
     />
   )
 }

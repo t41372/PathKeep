@@ -135,7 +135,9 @@ export function runTypeKey(runType: string): TranslationKey {
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 export function runTriggerKey(trigger: string): TranslationKey {
-  return trigger === 'schedule' ? 'audit.scheduledBackup' : 'audit.manualBackup'
+  if (trigger === 'schedule') return 'audit.scheduledBackup'
+  if (trigger === 'repair') return 'audit.automaticRepair'
+  return 'audit.manualBackup'
 }
 
 /**
