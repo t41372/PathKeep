@@ -23,6 +23,7 @@ path = "src/lib.rs"
 [workspace]
 members = [
   "crates/vault-core",
+  "crates/vault-metal-backend",
   "crates/vault-platform",
   "crates/vault-worker",
   "crates/browser-history-parser",

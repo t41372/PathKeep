@@ -1,0 +1,29 @@
+# Thin, macOS-only Metal-backend shim (W-AI-9 Sub-block D / Linux `--all-features` fix).
+#
+# Responsibilities: exist ONLY to carry candle's `metal` feature. vault-core attaches this crate as a
+# `cfg(target_os = "macos")`, `optional` dependency behind its own opt-in `metal` feature; Cargo then
+# unifies `candle-*/metal` onto vault-core's (all-target) candle deps on Apple targets, giving the
+# real GPU backend, while leaving Linux/Windows untouched (the shim is never in their build graph, so
+# candle-metal-kernels → objc2-metal → objc2, `compile_error!`-guarded to Apple, is never reached).
+#
+# Not responsible for: any runtime logic. This crate has no code beyond an empty lib — routing the
+# feature through a distinct crate is what avoids the "same package, two names" error that aliasing
+# candle-core directly inside vault-core would cause. Keep it code-free.
+[package]
+name = "vault-metal-backend"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+# macOS-ONLY candle-metal deps. Gating them to Apple is what keeps this crate objc2-free everywhere
+# else: as a workspace member, `cargo clippy --workspace` on Linux/Windows still compiles this crate,
+# but with no deps it is an empty leaf — so candle-metal-kernels → objc2-metal → objc2 (compile_error!
+# off Apple) never enters a non-Apple build graph. On macOS these carry candle's `metal` feature,
+# which Cargo unifies onto vault-core's own candle deps (same packages/version → one compiled copy).
+[target.'cfg(target_os = "macos")'.dependencies]
+candle-core = { workspace = true, features = ["metal"] }
+candle-nn = { workspace = true, features = ["metal"] }
+candle-transformers = { workspace = true, features = ["metal"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }

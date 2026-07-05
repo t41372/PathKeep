@@ -26,7 +26,19 @@ default = []
 # covered; only the `Device::new_metal(0)` call site is compiled out (see `ai/embedding_candle.rs`
 # `select_device`). A future Metal CI lane that builds `--features metal` MUST re-run
 # `cargo deny check`, since the metal crates only enter the dependency graph there.
-metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+#
+# TARGET-GATED (fix for the Linux `--all-features` clippy break): candle's `metal` feature pulls
+# `candle-metal-kernels → objc2-metal → objc2`, and `objc2` is `compile_error!`-guarded to Apple
+# platforms, so `--all-features` on the CI Linux runner used to fail to compile. Activating candle's
+# Metal backend is therefore routed through the macOS-only `vault-metal-backend` shim dep (see
+# `[target.'cfg(target_os = "macos")'.dependencies]`), NOT through `candle-core/metal` directly: on a
+# non-Apple target the shim doesn't exist, so enabling this feature (via `--all-features` /
+# `--features metal`) is INERT for candle and never reaches objc2. The feature itself still gates
+# vault-core's own Metal code (`cfg(feature = "metal")` in `ai/embedding_candle.rs` etc.), which
+# compiles fine without candle's backend because candle exposes a `dummy_metal_backend`
+# (`Device::new_metal` resolves in both builds). Metal stays opt-in even on macOS — the shim is
+# `optional`, so the default (CPU) build compiles none of it.
+metal = ["dep:vault-metal-backend"]
 
 [dependencies]
 anyhow.workspace = true
@@ -75,6 +87,16 @@ wasmtime.workspace = true
 wasmtime-wasi.workspace = true
 bytes.workspace = true
 zip.workspace = true
+
+# macOS-only, opt-in Metal-backend shim. `vault-metal-backend` is a leaf crate whose ONLY job is to
+# re-declare the candle trio with candle's `metal` feature; attaching it here as a target-gated
+# `optional` dep unifies that feature onto vault-core's own (all-target) candle deps on Apple targets
+# WITHOUT aliasing candle-core inside this crate (which would be a "same package, two names" error).
+# On Linux/Windows the shim doesn't exist, so `--features metal` / `--all-features` never reaches it —
+# and candle's Metal path (candle-metal-kernels → objc2-metal → objc2, `compile_error!` off Apple) is
+# absent from every non-Apple build graph. `optional` keeps it out of the default (CPU) build.
+[target.'cfg(target_os = "macos")'.dependencies]
+vault-metal-backend = { version = "0.1.0", path = "../vault-metal-backend", optional = true }
 
 [dev-dependencies]
 browser-history-fixtures = { version = "0.1.0", path = "../browser-history-fixtures" }
