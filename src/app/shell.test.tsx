@@ -720,6 +720,57 @@ describe('AppShell (paper redesign)', () => {
     ).not.toBeInTheDocument()
   })
 
+  // --- Unlock gate visibility (initialized clause) ---
+  //
+  // The gate must protect a REAL locked archive but never cover onboarding. A
+  // fresh / not-yet-created archive legitimately reports encrypted:true,
+  // unlocked:false (the browser-preview onboarding state) — gating on that would
+  // wrongly float a "can't unlock" modal over an archive that does not exist
+  // yet. `showUnlockGate` therefore requires `archiveStatus.initialized`.
+
+  test('shows the unlock gate for a genuinely initialized, encrypted, locked archive', () => {
+    renderShell(
+      {
+        snapshot: {
+          archiveStatus: {
+            initialized: true,
+            encrypted: true,
+            unlocked: false,
+            warning: null,
+          },
+          keyringStatus: { available: false, backend: '', storedSecret: false },
+          browserProfiles: [],
+        } as never,
+      },
+      '/',
+    )
+    expect(screen.getByTestId('archive-unlock-gate')).toBeInTheDocument()
+  })
+
+  test('does NOT show the unlock gate for an uninitialized (onboarding) encrypted-locked snapshot', () => {
+    // Same encrypted:true + unlocked:false as above, but the archive is not yet
+    // initialized. There is nothing to unlock, so the blocking gate must stay
+    // hidden and let onboarding render underneath.
+    renderShell(
+      {
+        snapshot: {
+          archiveStatus: {
+            initialized: false,
+            encrypted: true,
+            unlocked: false,
+            warning: null,
+          },
+          keyringStatus: { available: false, backend: '', storedSecret: false },
+          browserProfiles: [],
+        } as never,
+      },
+      '/',
+    )
+    expect(screen.queryByTestId('archive-unlock-gate')).not.toBeInTheDocument()
+    // The route content still renders in place of the gate.
+    expect(screen.getByText('route body')).toBeInTheDocument()
+  })
+
   // --- Backup failure toast ---
 
   test('renders the backup-failure toast (role=alert) when the shell advertises a backup error', () => {

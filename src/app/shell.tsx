@@ -177,12 +177,19 @@ export function AppShell() {
     }
   }, [sidebarCollapsed])
 
-  // Gate: show the blocking unlock overlay when the archive is encrypted and the
-  // current session has no key (auto-unlock either was not configured or failed).
+  // Gate: show the blocking unlock overlay when the archive is INITIALIZED,
+  // encrypted, and the current session has no key (auto-unlock either was not
+  // configured or failed). The `initialized` clause is load-bearing: a fresh /
+  // not-yet-created archive can legitimately report `encrypted:true,
+  // unlocked:false` (the onboarding state), and there is nothing to unlock yet —
+  // gating on it would wrongly cover onboarding with a modal for an archive that
+  // does not exist. A real, initialized, encrypted, locked archive still shows
+  // the gate, so this does not weaken at-rest protection.
   // Computed here (not just before the JSX) so the global ⌘K listener below can
   // stay inert while the gate owns the screen.
   const showUnlockGate =
     !shell.loading &&
+    Boolean(shell.snapshot?.archiveStatus?.initialized) &&
     Boolean(shell.snapshot?.archiveStatus?.encrypted) &&
     !shell.snapshot?.archiveStatus?.unlocked
 
