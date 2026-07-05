@@ -29,6 +29,7 @@ import {
   PaperCardBody,
   PaperCardHeader,
 } from '@/components/cards'
+import { Skeleton } from '@/components/primitives/skeleton'
 import * as coreIntelligenceApi from '@/lib/core-intelligence/api'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
@@ -191,11 +192,12 @@ export function DashboardYearHeatmapCard({
           </p>
         ) : loading ? (
           <div
-            className="border-border-light h-[100px] animate-pulse rounded-paper border bg-hover"
             data-testid="dashboard-year-loading"
             aria-busy="true"
             aria-label={t('common.loading')}
-          />
+          >
+            <Skeleton className="h-[100px] w-full" />
+          </div>
         ) : error ? (
           <p
             className="m-0 font-serif text-[13.5px] italic leading-[1.55] text-danger"

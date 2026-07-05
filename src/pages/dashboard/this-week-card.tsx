@@ -37,6 +37,7 @@ import {
   PaperCardBody,
   PaperCardHeader,
 } from '@/components/cards'
+import { Skeleton } from '@/components/primitives/skeleton'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import * as coreIntelligenceApi from '@/lib/core-intelligence/api'
@@ -133,11 +134,18 @@ export function DashboardThisWeek({
 
         {loading ? (
           <div
-            className="border-border-light mt-[14px] h-[42px] animate-pulse rounded-paper border bg-hover"
+            className="border-border-light mt-[14px] flex gap-0 border-t border-dashed pt-3"
             data-testid="dashboard-this-week-loading"
             aria-busy="true"
             aria-label={t('common.loading')}
-          />
+          >
+            {[0, 1, 2].map((index) => (
+              <div key={index} className="flex-1">
+                <Skeleton className="h-[20px] w-10" />
+                <Skeleton className="mt-1 h-[8.5px] w-14" />
+              </div>
+            ))}
+          </div>
         ) : error ? (
           <p
             className="border-border-light mt-[14px] m-0 border-t border-dashed pt-3 font-serif text-[13px] italic leading-[1.55] text-danger"

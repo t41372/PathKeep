@@ -202,15 +202,6 @@
   }
 }
 
-@keyframes pk-skeleton-shimmer {
-  from {
-    background-position: -800px 0;
-  }
-  to {
-    background-position: 800px 0;
-  }
-}
-
 @keyframes pk-highlight-pulse {
   0% {
     box-shadow: 0 0 0 0 var(--accent);
@@ -272,19 +263,6 @@
   .pk-stream-caret {
     opacity: 0.7;
   }
-}
-
-/* ── Skeleton block for loading shells. ── */
-.pk-skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--bg-hover) 0%,
-    var(--bg-active) 50%,
-    var(--bg-hover) 100%
-  );
-  background-size: 1600px 100%;
-  animation: pk-skeleton-shimmer 1.6s linear infinite;
-  border-radius: var(--radius);
 }
 
 /* ── Assistant streaming markdown (streamdown) — paper skin. ──

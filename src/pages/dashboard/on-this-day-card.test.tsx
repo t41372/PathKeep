@@ -63,7 +63,7 @@ describe('DashboardOnThisDay', () => {
 
   test('renders the loading skeleton when loading', () => {
     const { container } = renderCard({ loading: true })
-    expect(container.querySelector('.pk-skeleton')).not.toBeNull()
+    expect(container.querySelector('[aria-hidden="true"]')).not.toBeNull()
   })
 
   test('renders the error fallback when error is set', () => {

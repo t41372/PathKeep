@@ -37,6 +37,7 @@ import {
   PaperCardBody,
   PaperCardHeader,
 } from '@/components/cards'
+import { Skeleton } from '@/components/primitives/skeleton'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import * as coreIntelligenceApi from '@/lib/core-intelligence/api'
@@ -127,10 +128,9 @@ export function DashboardActiveThreads({
             aria-label={t('common.loading')}
           >
             {[0, 1, 2].map((index) => (
-              <li
-                key={index}
-                className="border-border-light h-[34px] animate-pulse rounded-paper border bg-hover"
-              />
+              <li key={index}>
+                <Skeleton className="h-[56px] w-full" />
+              </li>
             ))}
           </ul>
         ) : error ? (

@@ -9,6 +9,7 @@
 
 import { useMemo } from 'react'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
+import { Skeleton } from '@/components/primitives/skeleton'
 import { useI18n } from '@/lib/i18n'
 import type { OnThisDayEntry } from '@/lib/core-intelligence/types'
 
@@ -66,7 +67,7 @@ export function DashboardOnThisDay({
       />
       <PaperCardBody className="px-[18px] py-[14px]">
         {loading ? (
-          <div className="pk-skeleton h-[160px] w-full" />
+          <Skeleton className="h-[160px] w-full" />
         ) : error ? (
           <div className="font-serif text-[13px] italic text-ink-faint">
             {t('dashboard.onThisDayError')}
