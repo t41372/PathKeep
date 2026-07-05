@@ -5,7 +5,9 @@
  *
  * ## Responsibilities
  * - Verify loading, empty, ready, and sparkline rendering states.
- * - Unit-test the exported `buildSparklinePath` coordinate builder.
+ * - Verify the sparkline renders through the shared `Sparkline` primitive
+ *   with its mean reference line + description, and that the percent bar
+ *   is `aria-hidden` (its data is read from sibling text).
  * - Keep the discovery-trend card covered without mounting the full route.
  *
  * ## Not responsible for
@@ -27,7 +29,6 @@ import type {
 } from '../../../../lib/core-intelligence'
 import type { DiscoveryTrendPoint } from '../../../../lib/core-intelligence/types-analysis'
 import { DiscoveryTrendSection } from './discovery-trend-section'
-import { buildSparklinePath } from './discovery-trend-helpers'
 
 const { useAsyncDataMock } = vi.hoisted(() => ({
   useAsyncDataMock: vi.fn(),
@@ -155,7 +156,7 @@ describe('DiscoveryTrendSection', () => {
     expect(screen.getByText('week:2026-W10')).toBeInTheDocument()
   })
 
-  test('renders sparkline SVG when 2+ points are available', () => {
+  test('renders sparkline SVG through the shared Sparkline primitive when 2+ points are available', () => {
     useAsyncDataMock.mockReturnValue({
       data: trendResult({ points: makePoints(4), availableYears: [2026] }),
       loading: false,
@@ -166,19 +167,33 @@ describe('DiscoveryTrendSection', () => {
     expect(sparkline).toBeInTheDocument()
     expect(sparkline.tagName.toLowerCase()).toBe('svg')
     expect(sparkline.getAttribute('viewBox')).toBe('0 0 200 48')
+    expect(
+      screen.getByRole('img', {
+        name: 'discoveryTrendSparklineLabel',
+      }),
+    ).toBe(sparkline)
 
     const polyline = sparkline.querySelector('polyline')
     expect(polyline).not.toBeNull()
-    expect(polyline!.getAttribute('fill')).toBe('none')
+    expect(polyline!.getAttribute('class')).toContain('stroke-accent')
     expect(polyline!.getAttribute('stroke-width')).toBe('1.5')
 
     const areaPath = sparkline.querySelector('path')
     expect(areaPath).not.toBeNull()
-    expect(areaPath!.getAttribute('opacity')).toBe('0.08')
+    expect(areaPath!.getAttribute('class')).toContain('opacity-10')
 
+    // The dashed mean-rate reference line + its <title> description drive
+    // through the same shared adornment props every Sparkline consumer uses.
     const meanLine = sparkline.querySelector('line')
     expect(meanLine).not.toBeNull()
     expect(meanLine!.getAttribute('stroke-dasharray')).toBe('4 3')
+    // The test double `t()` doesn't interpolate `{percent}` into the raw
+    // key (only real catalog templates do), so this simply confirms the
+    // mean-rate `<title>` is wired to the same translator as the rest of
+    // the card's copy.
+    expect(sparkline.querySelector('title')?.textContent).toBe(
+      'discoveryTrendMeanLabel',
+    )
   })
 
   test('renders correct weekly rows alongside sparkline', () => {
@@ -192,38 +207,18 @@ describe('DiscoveryTrendSection', () => {
     expect(screen.getByText('week:2026-W11')).toBeInTheDocument()
     expect(screen.getByText('week:2026-W10')).toBeInTheDocument()
   })
-})
 
-describe('buildSparklinePath', () => {
-  test('returns empty string for fewer than 2 points', () => {
-    expect(buildSparklinePath([], 200, 48, 4)).toBe('')
-    expect(buildSparklinePath(makePoints(1), 200, 48, 4)).toBe('')
-  })
+  test('marks the decorative discovery-rate percent bar aria-hidden', () => {
+    useAsyncDataMock.mockReturnValue({
+      data: trendResult({ points: makePoints(3), availableYears: [2026] }),
+      loading: false,
+    })
+    const { container } = renderSection()
 
-  test('produces correct coordinate count for multiple points', () => {
-    const result = buildSparklinePath(makePoints(4), 200, 48, 4)
-    const coords = result.split(' ')
-    expect(coords).toHaveLength(4)
-  })
-
-  test('first point maps to left padding, last to right padding', () => {
-    const result = buildSparklinePath(makePoints(3), 200, 48, 4)
-    const coords = result.split(' ')
-    const firstX = parseFloat(coords[0].split(',')[0])
-    const lastX = parseFloat(coords[2].split(',')[0])
-    expect(firstX).toBeCloseTo(4, 0)
-    expect(lastX).toBeCloseTo(196, 0)
-  })
-
-  test('highest rate maps to top padding', () => {
-    const points: DiscoveryTrendPoint[] = [
-      { dateKey: 'a', discoveryRate: 0.1, newDomainCount: 1, totalVisits: 10 },
-      { dateKey: 'b', discoveryRate: 0.5, newDomainCount: 5, totalVisits: 50 },
-      { dateKey: 'c', discoveryRate: 0.3, newDomainCount: 3, totalVisits: 30 },
-    ]
-    const result = buildSparklinePath(points, 200, 48, 4)
-    const coords = result.split(' ')
-    const secondY = parseFloat(coords[1].split(',')[1])
-    expect(secondY).toBeCloseTo(4, 0)
+    const bars = container.querySelectorAll('.discovery-trend__bar')
+    expect(bars.length).toBeGreaterThan(0)
+    for (const bar of bars) {
+      expect(bar).toHaveAttribute('aria-hidden', 'true')
+    }
   })
 })

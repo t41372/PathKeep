@@ -35,6 +35,7 @@
  */
 
 import { cn } from '@/lib/cn'
+import { Sparkline } from '@/components/charts'
 import { formatDuration, type DayInsights } from './paper-day-insights-helpers'
 
 export interface PaperDayInsightsCopy {
@@ -349,81 +350,36 @@ function DayInsightsColumn({
   )
 }
 
+/** Hours a gridline is drawn under; 23 gets a tick label but no gridline (matches the original hand-rolled layout). */
+const HOURLY_GRIDLINE_HOURS = [0, 6, 12, 18]
+const HOURLY_TICK_HOURS = [0, 6, 12, 18, 23]
+
 /**
- * Inline-SVG 24-hour sparkline. Renders a filled polygon under the line,
- * highlights buckets with > 0 visits as accent dots, and labels the 0 / 6 /
- * 12 / 18 / 23 hour ticks along the bottom. Skips bucket dots that would
- * crowd a tiny chart — only non-empty hours light up.
+ * 24-hour sparkline built on the shared `Sparkline` primitive. Renders a
+ * filled area under the line, highlights buckets with > 0 visits as accent
+ * dot markers, four gridlines at the 0/6/12/18 hour marks, and labels the
+ * 0/6/12/18/23 hour ticks along the bottom. Skips dots that would crowd a
+ * tiny chart — only non-empty hours light up.
  */
 function HourlySparkline({ insights }: { insights: DayInsights }) {
-  const { hourBuckets, hourPeak } = insights
-  const W = 220
-  const H = 36
-  const pL = 10
-  const pR = 10
-  const pY = 4
-  const iW = W - pL - pR
-  const points: string[] = []
-  for (let hour = 0; hour < 24; hour += 1) {
-    const x = pL + (hour / 23) * iW
-    const y = pY + (1 - hourBuckets[hour] / hourPeak) * (H - pY * 2)
-    points.push(`${x.toFixed(1)},${y.toFixed(1)}`)
-  }
-  const fill = [`${pL},${H}`, ...points, `${pL + iW},${H}`].join(' ')
+  const { hourBuckets } = insights
+  const markers = hourBuckets
+    .map((count, hour) => ({ count, hour }))
+    .filter(({ count }) => count > 0)
+    .map(({ hour }) => ({ index: hour }))
   return (
-    <svg
-      role="img"
-      aria-label="24-hour activity"
-      width="100%"
-      viewBox={`0 0 ${W} ${H + 12}`}
-      style={{ display: 'block', overflow: 'visible' }}
-    >
-      {[0, 6, 12, 18].map((hour) => (
-        <line
-          key={hour}
-          x1={pL + (hour / 23) * iW}
-          y1={0}
-          x2={pL + (hour / 23) * iW}
-          y2={H}
-          stroke="var(--border-light)"
-          strokeWidth="0.5"
-        />
-      ))}
-      <polygon points={fill} fill="var(--accent)" opacity="0.1" />
-      <polyline
-        points={points.join(' ')}
-        fill="none"
-        stroke="var(--accent)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {hourBuckets.map((count, hour) =>
-        count > 0 ? (
-          <circle
-            key={hour}
-            cx={pL + (hour / 23) * iW}
-            cy={pY + (1 - count / hourPeak) * (H - pY * 2)}
-            r="2"
-            fill="var(--accent)"
-          />
-        ) : null,
-      )}
-      {[0, 6, 12, 18, 23].map((hour) => (
-        <text
-          key={hour}
-          x={pL + (hour / 23) * iW}
-          y={H + 10}
-          textAnchor="middle"
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 7.5,
-            fill: 'var(--ink-faint)',
-          }}
-        >
-          {hour}
-        </text>
-      ))}
-    </svg>
+    <Sparkline
+      values={hourBuckets}
+      ariaLabel="24-hour activity"
+      width={220}
+      height={36}
+      paddingX={10}
+      gridlines={HOURLY_GRIDLINE_HOURS.map((hour) => ({ index: hour }))}
+      markers={markers}
+      ticks={HOURLY_TICK_HOURS.map((hour) => ({
+        index: hour,
+        label: String(hour),
+      }))}
+    />
   )
 }

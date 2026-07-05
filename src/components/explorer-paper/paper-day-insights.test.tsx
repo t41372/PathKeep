@@ -80,10 +80,16 @@ describe('PaperDayInsights', () => {
     expect(pagesRow.textContent).toContain('12')
     expect(screen.getByText('3 sessions')).toBeVisible()
     expect(screen.getByText('4 domains')).toBeVisible()
-    // svg renders with role=img
-    expect(
-      screen.getByRole('img', { name: '24-hour activity' }),
-    ).toBeInTheDocument()
+    // svg renders with role=img, through the shared Sparkline primitive
+    const sparkline = screen.getByRole('img', { name: '24-hour activity' })
+    expect(sparkline).toBeInTheDocument()
+    // Only hour 10 (the one non-zero bucket) gets a marker dot; the other
+    // 23 zero-visit hours stay bare.
+    expect(sparkline.querySelectorAll('circle')).toHaveLength(1)
+    // Four gridlines at the 0/6/12/18 hour marks.
+    expect(sparkline.querySelectorAll('line')).toHaveLength(4)
+    // Five hour-tick labels: 0/6/12/18/23.
+    expect(sparkline.textContent).toBe('06121823')
   })
 
   test('renders an em-dash when no top domains are available', () => {

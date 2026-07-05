@@ -5,7 +5,13 @@ export type {
   CalendarHeatmapProps,
 } from './calendar-heatmap'
 export { Sparkline } from './sparkline'
-export type { SparklineProps, SparklineTick } from './sparkline'
+export type {
+  SparklineGridline,
+  SparklineMarker,
+  SparklineProps,
+  SparklineRenderArgs,
+  SparklineTick,
+} from './sparkline'
 export {
   buildAreaPath,
   buildLinePath,
@@ -13,11 +19,13 @@ export {
   createLinearScale,
   indexScale,
   scaleSeriesToPoints,
+  seriesValueScale,
 } from './chart-geometry'
 export type {
   LinearScaleConfig,
   Point,
   SeriesLayoutOptions,
+  SeriesValueScaleOptions,
 } from './chart-geometry'
 export {
   buildCalendarHeatmapLayout,

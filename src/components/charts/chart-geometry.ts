@@ -10,6 +10,9 @@
  * - Map an ordered numeric series onto `{x,y}` points inside a width/height/
  *   padding box (`scaleSeriesToPoints`), and a standalone index→x scale
  *   (`indexScale`) for tick placement that doesn't need a value.
+ * - Expose the series' own value→y scale (`seriesValueScale`) so callers can
+ *   plot one more value (a reference/mean line, a custom marker) in the
+ *   exact same coordinate space as `scaleSeriesToPoints` output.
  * - Turn `{x,y}` points into SVG `path`/`polyline` strings (`buildLinePath`,
  *   `buildPolylinePoints`, `buildAreaPath`).
  *
@@ -71,8 +74,14 @@ export function createLinearScale({
 export interface SeriesLayoutOptions {
   width: number
   height: number
-  /** Inset applied on all four sides. Defaults to 0. */
+  /** Inset applied on all four sides. Defaults to 0. Overridden per-axis by `paddingX`/`paddingY`. */
   padding?: number
+  /** Inset applied on the left/right sides only. Defaults to `padding`. */
+  paddingX?: number
+  /** Inset applied on the top/bottom sides only. Defaults to `padding`. */
+  paddingY?: number
+  /** Forwarded to {@link seriesValueScale}'s domain-max floor. Opt-in; defaults to 0 (no extra floor). */
+  minDomainMax?: number
 }
 
 /**
@@ -98,30 +107,83 @@ export function indexScale(
   })
 }
 
+export interface SeriesValueScaleOptions {
+  height: number
+  /** Inset applied on top and bottom. Defaults to 0. */
+  padding?: number
+  /**
+   * Additionally floors the effective domain max at this value, even if
+   * every value in the series is smaller (and even if the series is all
+   * positive, unlike the plain zero/NaN guard below). Opt-in only — omitted
+   * or 0 leaves the plain zero/NaN-guarded behavior untouched. Lets a
+   * caller keep a low-magnitude series (e.g. a percentage that rarely rises
+   * above a point or two) visually flat near the baseline instead of
+   * auto-scaling its tiny peak to full height.
+   */
+  minDomainMax?: number
+}
+
+/**
+ * Builds a value→y scale mapping `[0, max(values, 0)]` onto
+ * `[height - padding, padding]` (inverted, since SVG y grows downward).
+ *
+ * Shared by {@link scaleSeriesToPoints} (so a series' points land on this
+ * exact domain) and available directly to callers that need to plot one
+ * more value in the same coordinate space as an already-scaled series —
+ * e.g. a mean/threshold reference line — without re-deriving the domain
+ * themselves.
+ *
+ * An all-zero or empty `values` floors the domain max to 1 so every output
+ * stays finite instead of producing NaN. A caller-supplied `minDomainMax`
+ * floors it further still, preventing a series whose real (positive) peak
+ * is smaller from being auto-scaled to full height — e.g. a percentage
+ * series that never rises above 1% would otherwise look identical to one
+ * that spikes to 100%.
+ */
+export function seriesValueScale(
+  values: number[],
+  { height, padding = 0, minDomainMax = 0 }: SeriesValueScaleOptions,
+): (value: number) => number {
+  const maxValue = Math.max(...values, 0)
+  const guardedMax = maxValue > 0 ? maxValue : 1
+  return createLinearScale({
+    domainMin: 0,
+    domainMax: Math.max(guardedMax, minDomainMax),
+    rangeMin: height - padding,
+    rangeMax: padding,
+  })
+}
+
 /**
  * Maps an ordered numeric series onto `{x,y}` points inside a
  * width/height box.
  *
  * - x follows point index via {@link indexScale}.
- * - y follows value via a scale from `[0, max(values)]` to
- *   `[height - padding, padding]` (inverted, since SVG y grows downward).
- *   An all-zero or empty series floors the domain max to 1 so every point
- *   renders at the baseline instead of producing NaN.
+ * - y follows value via {@link seriesValueScale}.
+ *
+ * `paddingX`/`paddingY` let a caller inset one axis more than the other
+ * (e.g. a wider left/right margin to leave room for edge tick labels);
+ * both default to `padding` when omitted.
  *
  * Returns `[]` for an empty series.
  */
 export function scaleSeriesToPoints(
   values: number[],
-  { width, height, padding = 0 }: SeriesLayoutOptions,
+  {
+    width,
+    height,
+    padding = 0,
+    paddingX = padding,
+    paddingY = padding,
+    minDomainMax,
+  }: SeriesLayoutOptions,
 ): Point[] {
   if (values.length === 0) return []
-  const xScale = indexScale(values.length, width, padding)
-  const maxValue = Math.max(...values, 0)
-  const yScale = createLinearScale({
-    domainMin: 0,
-    domainMax: maxValue > 0 ? maxValue : 1,
-    rangeMin: height - padding,
-    rangeMax: padding,
+  const xScale = indexScale(values.length, width, paddingX)
+  const yScale = seriesValueScale(values, {
+    height,
+    padding: paddingY,
+    minDomainMax,
   })
   return values.map((value, index) => ({ x: xScale(index), y: yScale(value) }))
 }
