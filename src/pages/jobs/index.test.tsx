@@ -14,7 +14,7 @@
  * - Testing gate gates handled by jobs-runtime.test.tsx (kept for compatibility).
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -3550,11 +3550,8 @@ describe('Activity center (JobsPage)', () => {
     })
     expect(zone).toBeInTheDocument()
     // …but no Retry button or action link (renderPrimaryAction → return null)
-    expect(
-      zone.querySelector(
-        'button[class="btn-secondary"], a[class="btn-secondary"]',
-      ),
-    ).toBeNull()
+    expect(within(zone).queryAllByRole('button')).toHaveLength(0)
+    expect(within(zone).queryAllByRole('link')).toHaveLength(0)
   })
 
   // ── 43. handleRetryBackup error path (line 364) ───────────────────────────

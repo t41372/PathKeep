@@ -13,6 +13,7 @@
  */
 
 import { Link } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
 import { formatRelativeTime } from '../../lib/format'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import type { Activity } from './activity-types'
@@ -105,15 +106,15 @@ function renderPrimaryAction(
     activity.aiJobId != null
   ) {
     return (
-      <button
-        className="btn-secondary"
+      <Button
+        variant="outline"
         type="button"
         onClick={() => onRetry(activity.aiJobId!)}
         disabled={Boolean(action)}
         aria-label={`${jobsT('actionRetry')} ${jobsT(activity.taskNameKey)}`}
       >
         {jobsT('actionRetry')}
-      </button>
+      </Button>
     )
   }
 
@@ -125,41 +126,42 @@ function renderPrimaryAction(
     activity.runtimeJobId != null
   ) {
     return (
-      <button
-        className="btn-secondary"
+      <Button
+        variant="outline"
         type="button"
         onClick={() => onRetryRuntimeJob(activity.runtimeJobId!)}
         disabled={Boolean(action)}
         aria-label={`${jobsT('actionRetry')} ${jobsT(activity.taskNameKey)}`}
       >
         {jobsT('actionRetry')}
-      </button>
+      </Button>
     )
   }
 
   if (kind === 'import' && (state === 'stale' || state === 'failed')) {
     return (
-      <Link
-        className="btn-secondary"
-        to="/import"
-        aria-label={`${jobsT('actionOpenImport')} ${jobsT(activity.taskNameKey)}`}
-      >
-        {jobsT('actionOpenImport')}
-      </Link>
+      <Button variant="outline" asChild>
+        <Link
+          to="/import"
+          aria-label={`${jobsT('actionOpenImport')} ${jobsT(activity.taskNameKey)}`}
+        >
+          {jobsT('actionOpenImport')}
+        </Link>
+      </Button>
     )
   }
 
   if (kind === 'backup' && (state === 'stale' || state === 'failed')) {
     return (
-      <button
-        className="btn-secondary"
+      <Button
+        variant="outline"
         type="button"
         onClick={onRetryBackup}
         disabled={Boolean(action)}
         aria-label={`${jobsT('actionRetryBackup')} ${jobsT(activity.taskNameKey)}`}
       >
         {jobsT('actionRetryBackup')}
-      </button>
+      </Button>
     )
   }
 

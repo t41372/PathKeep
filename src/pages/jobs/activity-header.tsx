@@ -13,6 +13,7 @@
  * - Fetching or polling data.
  */
 
+import { Button } from '@/components/ui/button'
 import { useI18n } from '../../lib/i18n'
 
 interface ActivityHeaderProps {
@@ -49,14 +50,14 @@ export function ActivityHeader({
       </div>
       {showToggle && (
         <div className="activity-header__actions">
-          <button
-            className="btn-secondary"
+          <Button
+            variant="outline"
             type="button"
             onClick={() => onPauseChange(!queuePaused)}
             disabled={Boolean(action)}
           >
             {queuePaused ? jobsT('actionResume') : jobsT('actionPause')}
-          </button>
+          </Button>
         </div>
       )}
     </div>

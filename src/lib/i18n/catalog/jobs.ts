@@ -235,6 +235,7 @@ export const jobsNamespaceCatalog = {
     recentTitle: 'Recent activity',
     showRecentToggle: 'Show recent activity ({count})',
     hideRecentToggle: 'Hide recent activity',
+    viewResultLink: 'View result →',
 
     // Outcome pills
     outcomeSuccess: 'Completed',
@@ -437,6 +438,7 @@ export const jobsNamespaceCatalog = {
     recentTitle: '最近活动',
     showRecentToggle: '显示最近活动（{count} 项）',
     hideRecentToggle: '隐藏最近活动',
+    viewResultLink: '查看结果 →',
 
     outcomeSuccess: '已完成',
     outcomeFailed: '失败',
@@ -637,6 +639,7 @@ export const jobsNamespaceCatalog = {
     recentTitle: '最近活動',
     showRecentToggle: '顯示最近活動（{count} 項）',
     hideRecentToggle: '隱藏最近活動',
+    viewResultLink: '查看結果 →',
 
     outcomeSuccess: '已完成',
     outcomeFailed: '失敗',

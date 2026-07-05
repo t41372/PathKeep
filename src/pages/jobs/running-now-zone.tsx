@@ -14,6 +14,7 @@
  * - Starting or cancelling the model download.
  */
 
+import { Button } from '@/components/ui/button'
 import type { ModelDownloadProgress } from '../../lib/ipc/model-download'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import type { Activity } from './activity-types'
@@ -183,29 +184,31 @@ function ActivityRunningRow({
 
       {activity.aiJobId != null && (
         <div className="activity-row__actions">
-          <button
-            className="btn-secondary btn-secondary--sm"
+          <Button
+            variant="outline"
+            size="sm"
             type="button"
             onClick={() => onCancel(activity.aiJobId!)}
             disabled={Boolean(action)}
             aria-label={`${jobsT('actionCancel')} ${jobsT(activity.taskNameKey)}`}
           >
             {jobsT('actionCancel')}
-          </button>
+          </Button>
         </div>
       )}
 
       {activity.runtimeJobId != null && activity.cancellable && (
         <div className="activity-row__actions">
-          <button
-            className="btn-secondary btn-secondary--sm"
+          <Button
+            variant="outline"
+            size="sm"
             type="button"
             onClick={() => onCancelRuntime(activity.runtimeJobId!)}
             disabled={Boolean(action)}
             aria-label={`${jobsT('actionCancel')} ${jobsT(activity.taskNameKey)}`}
           >
             {jobsT('actionCancel')}
-          </button>
+          </Button>
         </div>
       )}
     </div>
