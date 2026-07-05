@@ -12,6 +12,7 @@ src-tauri/gen/schemas
 src-tauri/mutants.out
 src-tauri/mutants.out.old
 src-tauri/target
+target-llvmcov
 test-results
 
 # Handoff design package — source-of-truth, not authored by us

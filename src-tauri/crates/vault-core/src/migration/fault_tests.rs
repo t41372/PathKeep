@@ -1931,3 +1931,133 @@ fn apply_import_crash_at_every_checkpoint_recovers_consistent_or_fail_closed() {
         assert_recovered_archive_opens(&dest_paths, source_key);
     }
 }
+
+// --- journal / rollback error + no-op arms -------------------------------------------------------
+
+#[test]
+fn read_import_journal_treats_a_missing_marker_as_absent() {
+    // The no-marker fast arm: with no interrupted-import journal on disk, the reader reports `None`
+    // (nothing to roll back) WITHOUT touching the archive, so a normal open — the overwhelmingly
+    // common case — never mistakes "no crash" for one and never runs a spurious recovery.
+    let (_dir, paths) = fresh_paths();
+    assert!(!import_journal_path(&paths).exists(), "precondition: no marker on a fresh root");
+    assert!(
+        read_import_journal(&paths).expect("a missing marker must not error").is_none(),
+        "a missing interrupted-import marker must read back as absent",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_bak_sidecars_surfaces_a_rename_failure() {
+    // The error-context arm of the sidecar move: a `<bak>-wal` exists to restore, but a DIRECTORY
+    // squats on the `<target>-wal` destination, so `fs::rename` fails (a file cannot be renamed onto
+    // a directory). The failure must be SURFACED (naming which sidecar) rather than swallowed —
+    // silently dropping the OLD database's committed-but-uncheckpointed WAL frames would corrupt the
+    // undo backstop.
+    let dir = TempDir::new().expect("tempdir");
+    let target = dir.path().join("history-vault.sqlite");
+    let bak = backup_sidecar_path(&target, "2026-06-30T00-00-00Z");
+    // The `.bak` unit's hot WAL to restore back onto the target.
+    fs::write(PathBuf::from(format!("{}-wal", bak.display())), b"old hot wal")
+        .expect("seed bak wal");
+    // A non-empty directory squatting on the destination makes the rename fail (EISDIR/ENOTEMPTY).
+    let target_wal = PathBuf::from(format!("{}-wal", target.display()));
+    fs::create_dir(&target_wal).expect("seed blocking dir at the target wal path");
+    fs::write(target_wal.join("inner"), b"x").expect("seed blocking child");
+
+    let error = restore_bak_sidecars(&bak, &target)
+        .expect_err("a blocked sidecar destination must surface a rename error");
+    assert!(
+        format!("{error:#}").contains("restoring sidecar"),
+        "the error must name the sidecar-restore step, got: {error:#}",
+    );
+    // The source sidecar is left in place (never lost) when the move could not complete.
+    assert!(
+        PathBuf::from(format!("{}-wal", bak.display())).exists(),
+        "a failed move must not lose the OLD database's hot WAL",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn rollback_import_surfaces_a_main_restore_rename_failure() {
+    // The error-context arm of the OLD-main restore inside `rollback_import`: the swap had started
+    // (a `.bak` unit exists), so rollback takes the restore-from-bak arm and tries to rename the
+    // `.bak` back onto the target — but the archive directory is read-only, so the rename fails. The
+    // failure must be surfaced (naming the restore) so a half-rolled-back archive is never mistaken
+    // for a completed rollback that then clears the crash marker.
+    use std::os::unix::fs::PermissionsExt;
+    let (_dir, paths) = fresh_paths();
+    let archive_dir = paths.archive_database_path.parent().expect("archive parent").to_path_buf();
+    fs::create_dir_all(&archive_dir).expect("archive dir");
+    let target = paths.archive_database_path.clone();
+    let timestamp = "2026-06-30T00-00-00Z";
+    // A `.bak` unit present => rollback takes the `bak.exists()` restore arm; the target itself is
+    // absent (nothing installed yet), so the only step that can fail is the `.bak -> target` rename.
+    let bak = backup_sidecar_path(&target, timestamp);
+    fs::write(&bak, b"pre-import history-vault").expect("seed the .bak unit");
+
+    let journal = ImportJournal {
+        version: 1,
+        timestamp: timestamp.to_string(),
+        canonical: vec![ImportJournalEntry { target: target.clone(), had_previous: true }],
+        subtrees: Vec::new(),
+        previous_config: None,
+    };
+
+    // Read-only archive dir: the `.bak -> target` rename cannot create the restored file there.
+    let original = fs::metadata(&archive_dir).expect("archive dir meta").permissions();
+    let mut locked = original.clone();
+    locked.set_mode(0o500);
+    fs::set_permissions(&archive_dir, locked).expect("lock the archive dir read-only");
+
+    let result = rollback_import(&paths, &journal);
+
+    fs::set_permissions(&archive_dir, original).expect("restore archive dir perms");
+    let error =
+        result.expect_err("a read-only archive dir must surface the OLD-main restore rename error");
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("restoring") && rendered.contains("history-vault"),
+        "the error must name the OLD-main restore from the .bak, got: {rendered}",
+    );
+}
+
+#[test]
+fn apply_import_surfaces_a_failure_reading_the_pre_import_config() {
+    // The error-context arm of capturing `previous_config` before the swap: a DIRECTORY squats where
+    // `config.json` must be, so `config_path.exists()` is true but `read_to_string` fails (EISDIR).
+    // apply_import must surface that read error and abort BEFORE it writes the crash journal or
+    // renames any live file — a rollback that could not faithfully restore the prior config must
+    // never be entered.
+    let (src_dir, src_paths) = fresh_paths();
+    let src_config = seed_plain_archive(&src_paths, b"src marker");
+    let bundle_path = src_dir.path().join("preconfig-read-fail.pathkeep");
+    export_app_data(&src_paths, &src_config, None, &bundle_path).expect("export");
+
+    let (_dest_dir, dest_paths) = fresh_paths();
+    // A fresh dest whose config path is an (unreadable-as-a-string) DIRECTORY: exists() is true, but
+    // reading it as the pre-import config fails.
+    fs::create_dir_all(&dest_paths.config_path).expect("squat a directory on the dest config path");
+
+    let error = apply_import(
+        &dest_paths,
+        &AppConfig::default(),
+        None,
+        &bundle_path,
+        &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
+    )
+    .expect_err("reading the pre-import config as a directory must fail the import");
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("before import"),
+        "the error must name the pre-import config read, got: {rendered}",
+    );
+    // Fail-fast contract: no crash marker was written and no live file was renamed to `.bak-*`.
+    assert!(
+        !import_journal_path(&dest_paths).exists(),
+        "a pre-swap read failure must not leave an interrupted-import marker",
+    );
+    assert_no_backup_sidecars(&dest_paths.app_root);
+}
