@@ -68,6 +68,10 @@ where
 /// Aggregates a probe across an ordered sentinel list: the FIRST conclusive verdict
 /// (`Granted` or `Denied`) wins; if every sentinel is inconclusive the result is
 /// `Inconclusive`. Measured on every host via the seam tests.
+///
+/// The only non-test caller lives in the macOS arm of [`probe_full_disk_access`], so the
+/// non-macOS lib build must not compile this (dead_code under `-D warnings` on Linux CI).
+#[cfg(any(test, target_os = "macos"))]
 fn probe_sentinels<F>(sentinels: &[PathBuf], mut access_check: F) -> FullDiskAccessProbe
 where
     F: FnMut(&Path) -> std::io::Result<()>,
