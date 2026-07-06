@@ -27,6 +27,9 @@ async function completePreviewOnboarding(page: Page) {
     .fill('vault-passphrase')
   await page.getByRole('button', { name: /Continue/ }).click()
   await page.getByRole('button', { name: 'Skip for now' }).click()
+  // The optional AI opt-in step (added by f943be8a) sits between Schedule and
+  // Ready. Skip it — AI stays off (the default) — to reach the final review.
+  await page.getByTestId('onboarding-ai-skip').click()
   await page.getByRole('button', { name: 'Create Archive & Back Up →' }).click()
 
   // The v0.3 paper dashboard replaces the v0.2 "RECENT RUNS" panel +
