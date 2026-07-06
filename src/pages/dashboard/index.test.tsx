@@ -466,7 +466,7 @@ describe('DashboardPage (paper redesign)', () => {
       dashboard: makeDashboard(),
     })
     const user = userEvent.setup()
-    const cell = await screen.findByRole('button', {
+    const cell = await screen.findByRole('gridcell', {
       name: /2026-04-20/,
     })
     await user.click(cell)

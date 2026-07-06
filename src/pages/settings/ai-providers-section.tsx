@@ -35,6 +35,7 @@ import {
   PaperCardBody,
   PaperCardHeader,
 } from '@/components/cards'
+import { Button } from '@/components/ui/button'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { ToggleRow } from '../../components/ui'
 import { localizeAiIndexWarning } from '../../lib/ai/note-codes'
@@ -822,15 +823,16 @@ function IndexBuildButton({
 
   return (
     <div className="flex flex-col items-start gap-1.5">
-      <button
+      <Button
         type="button"
-        className="btn-secondary self-start"
+        variant="outline"
+        className="self-start"
         disabled={building}
         onClick={onBuild}
         data-testid="ai-index-build"
       >
         {label}
-      </button>
+      </Button>
       {state === 'done' ? (
         <p
           aria-live="polite"
@@ -896,14 +898,15 @@ function IndexResetButton({
   if (state === 'idle') {
     return (
       <div className="flex flex-col items-start gap-1.5">
-        <button
+        <Button
           type="button"
-          className="btn-secondary self-start"
+          variant="outline"
+          className="self-start"
           data-testid="ai-index-reset"
           onClick={() => setState('confirming')}
         >
           {idleLabel}
-        </button>
+        </Button>
       </div>
     )
   }
@@ -918,22 +921,24 @@ function IndexResetButton({
           {confirmPrompt}
         </p>
         <div className="flex gap-2">
-          <button
+          <Button
             type="button"
-            className="btn-secondary self-start"
+            variant="outline"
+            className="self-start"
             data-testid="ai-index-reset-confirm-yes"
             onClick={onConfirm}
           >
             {confirmYesLabel}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn-ghost self-start"
+            variant="ghost"
+            className="self-start"
             data-testid="ai-index-reset-confirm-no"
             onClick={() => setState('idle')}
           >
             {confirmNoLabel}
-          </button>
+          </Button>
         </div>
       </div>
     )
@@ -942,14 +947,15 @@ function IndexResetButton({
   if (state === 'resetting') {
     return (
       <div className="flex flex-col items-start gap-1.5">
-        <button
+        <Button
           type="button"
-          className="btn-secondary self-start"
+          variant="outline"
+          className="self-start"
           data-testid="ai-index-reset"
           disabled
         >
           {resettingLabel}
-        </button>
+        </Button>
       </div>
     )
   }
@@ -969,14 +975,15 @@ function IndexResetButton({
   // error state
   return (
     <div className="flex flex-col items-start gap-1.5">
-      <button
+      <Button
         type="button"
-        className="btn-secondary self-start"
+        variant="outline"
+        className="self-start"
         data-testid="ai-index-reset"
         onClick={() => setState('confirming')}
       >
         {idleLabel}
-      </button>
+      </Button>
       <p
         aria-live="polite"
         className="text-ink-faint m-0 font-sans text-[12px] leading-[1.5] italic"
@@ -1129,15 +1136,16 @@ function BaseTierPanel({
       {/* Download state machine ─────────────────────────────────────────── */}
       {phase === 'idle' ? (
         <div className="flex flex-col gap-1.5">
-          <button
+          <Button
             type="button"
-            className="btn-secondary self-start"
+            variant="outline"
+            className="self-start"
             disabled={disabled}
             data-testid="ai-static-model-download"
             onClick={onDownload}
           >
             {t('settings.aiBaseTierDownloadButton')}
-          </button>
+          </Button>
           <p className="text-ink-muted m-0 font-sans text-[11px] leading-[1.4]">
             {t('settings.aiBaseTierDownloadHint', { size: sizeLabel })}
           </p>
@@ -1204,14 +1212,15 @@ function BaseTierPanel({
             {'⚠ '}
             {t('settings.aiBaseTierDownloadRestartNote')}
           </p>
-          <button
+          <Button
             type="button"
-            className="btn-ghost self-start"
+            variant="ghost"
+            className="self-start"
             data-testid="ai-static-model-cancel"
             onClick={onCancelDownload}
           >
             {t('settings.aiBaseTierCancelButton')}
-          </button>
+          </Button>
         </div>
       ) : phase === 'ready' ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -1222,15 +1231,15 @@ function BaseTierPanel({
             {t('settings.aiBaseTierReadyText')}
           </span>
           {!staticEmbedding.selected ? (
-            <button
+            <Button
               type="button"
-              className="btn-secondary"
+              variant="outline"
               disabled={disabled}
               data-testid="ai-static-model-select"
               onClick={() => onSelect(staticEmbedding.providerId)}
             >
               {t('settings.aiBaseTierUseButton')}
-            </button>
+            </Button>
           ) : null}
         </div>
       ) : (
@@ -1243,15 +1252,16 @@ function BaseTierPanel({
           >
             {t('settings.aiBaseTierDownloadFailed')}
           </p>
-          <button
+          <Button
             type="button"
-            className="btn-secondary self-start"
+            variant="outline"
+            className="self-start"
             disabled={disabled}
             data-testid="ai-static-model-download"
             onClick={onDownload}
           >
             {t('settings.aiBaseTierRetryButton')}
-          </button>
+          </Button>
         </div>
       )}
     </div>

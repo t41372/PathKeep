@@ -100,10 +100,13 @@ describe('DashboardYearHeatmapCard', () => {
     const onSelectDate = vi.fn()
     renderCard({ onSelectDate })
     const grid = await screen.findByTestId('dashboard-year-heatmap-grid')
-    const cells = grid.querySelectorAll('button:not(:disabled)')
+    // Roving tabindex: exactly one clickable (non-zero-visit) cell carries
+    // tabindex="0" at a time (the rest are -1) — zero-visit cells are plain,
+    // non-focusable data cells (no tabindex, no aria-disabled) either way.
+    const cells = grid.querySelectorAll('[role="gridcell"][tabindex="0"]')
     expect(cells.length).toBeGreaterThan(0)
     const user = userEvent.setup()
-    await user.click(cells[0] as HTMLButtonElement)
+    await user.click(cells[0] as SVGRectElement)
     expect(onSelectDate).toHaveBeenCalled()
   })
 

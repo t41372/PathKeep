@@ -60,6 +60,27 @@
   - 契約：每項獨立、行為保留；動到 user-visible copy 要補三語；維持 100% coverage gate。
   - 驗收：所選項目修復 + 測試；`bun run check` 綠（或於 Linux CI gate 綠）。
 
+- [ ] **WORK-UI-SHADCN-SWEEP** — finish the shadcn adoption sweep (follow-up to `WORK-UI-SHADCN-ADOPTION`)
+  - 讀先：
+    `docs/plan/DISCUSSION-ui-craft-shadcn-gap.md`（已 ACTIONED 的三線 + 未做清單）
+    CHANGELOG `WORK-UI-SHADCN-ADOPTION`（含各 cluster 分析與哪些控件**不是** Button）
+    `src/components/ui/button.tsx`、`src/components/primitives/skeleton.tsx`、`src/components/charts/`（三個已就位的 primitive）
+    `src/styles/app/loading-and-search.css`（legacy `.skeleton*`，34 檔仍用）、`src/pages/intelligence/styles/page-shell.css`（`.intelligence-skeleton` dialect，17 檔）
+  - 目標：把三個 primitive 推到全 app、收掉試點沒覆蓋的 style islands。primitive 已就位且過 review；這是機械性的擴大採用，逐檔可獨立、逐檔過 gate、一次一小批可 review。
+  - 範圍（逐項可獨立）：
+    - **Button**：其餘 ~400 個手寫 `<button>` / legacy `.btn-*` / 每檔重複的 `BUTTON_*` const → `<Button>`。**排除** role=switch/radio/selectable-row/tab/chip/whole-row-card 這些非 Button 語意控件（見 CHANGELOG cluster 分析）。試點 Activity + Settings 已證可行。
+    - **Skeleton**：legacy `.skeleton*`（34 檔）、`.intelligence-skeleton`（17 檔）、`.activity-skeleton`、explorer-paper 散落的 `animate-pulse` → `<Skeleton>` matched-layout 版，每個對齊真實佈局（no layout shift）。收完可刪 legacy skeleton keyframes。
+    - **charts**：Top Concepts / 其他 aggregate 落 horizontal bar（screens-and-nav 硬性）用 charts primitive 加一個 Bar；剩餘 div-based viz 逐一遷過去。
+  - 契約：paper token via Tailwind utilities；§9 animation 紅線（不新增 keyframe、transform/opacity-only、reduced-motion gated）；match final layout；i18n 三語；100% coverage；走 implement → 獨立 review(Opus) → fix loop（[[feedback_subagent_implement_review_loop]]）；不動 `main.tsx` / `ipc/bridge.ts` / `backend.ts`。
+  - 驗收：目標檔 legacy class 清零；`bun run check` 綠（或 Linux CI gate 綠）；CHANGELOG 記錄每批邊界。
+
+- [ ] **WORK-CI-DESKTOP-BRIDGE-REENABLE** — re-enable the quarantined desktop-bridge:truth gate [!blocked: needs a reliable webkit2gtk/xvfb + seeded-chrome Linux CI environment]
+  - 讀先：`tests/e2e/desktop-bridge.spec.ts`（兩個 live test 現為 `test.fixme`，含完整 quarantine rationale）、CHANGELOG `WORK-UI-SHADCN-ADOPTION`（診斷 + `82c35408`）、`.github/workflows/ci.yml`、`src-tauri/src/dev_ipc_bridge/router.rs`（`/health` 硬編 `browser-desktop-bridge`）
+  - 目標：讓 `test:e2e:desktop-bridge:truth` 的兩個 live test 在 Linux CI 可靠跑綠，再從 `test.fixme` flip 回 `test`。目前 quarantine 是誠實 skip（沒放寬任何 assertion）。
+  - 根因（已診斷，ENVIRONMENTAL 非 code regression）：真實 webkit2gtk Tauri app 在 ubuntu-latest xvfb 下啟動/bridge readiness 不穩，且 seeded-chrome import 在 Linux runner 匯入 0 visits；macOS 同碼會過；這 gate 自 2026-04-27 起就長期 red，先於 merge。
+  - 範圍：讓 Linux runner 能可靠啟動 desktop app + 提供真實 seeded chrome profile（或改成不依賴真實桌面 app 的等價驗證）；修穩後 flip 回 live。
+  - 驗收：兩個 live test 在 Linux CI 綠、恢復成 `test`；strict-check 仍全綠。
+
 - [ ] **WORK-MAINT-PARSER-CHROMIUM-A** — Split oversized Chromium parser owner
   - 讀先：
     `src-tauri/crates/browser-history-parser/src/chromium/mod.rs`

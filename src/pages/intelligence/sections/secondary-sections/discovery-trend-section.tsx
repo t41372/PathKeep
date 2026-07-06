@@ -24,10 +24,10 @@
  */
 
 import { useMemo } from 'react'
+import { Sparkline } from '../../../../components/charts'
 import { IntelligenceSectionMeta } from '../../../../components/intelligence/section-meta'
 import { useAsyncData, type DateRange } from '../../../../lib/core-intelligence'
 import type { DiscoveryTrendPoint } from '../../../../lib/core-intelligence/types-analysis'
-import { buildSparklinePath } from './discovery-trend-helpers'
 import * as api from '../../../../lib/core-intelligence/api'
 import { IntelligenceSectionBody } from '../section-body'
 import type { T } from '../shared'
@@ -119,7 +119,7 @@ export function DiscoveryTrendSection({
                     })}
                   </span>
                 </div>
-                <span className="discovery-trend__bar">
+                <span className="discovery-trend__bar" aria-hidden="true">
                   <span
                     className="discovery-trend__bar-fill"
                     style={{ width: `${Math.max(ratePercent, 2)}%` }}
@@ -151,77 +151,27 @@ function DiscoverySparkline({
   points: DiscoveryTrendPoint[]
   t: T
 }) {
-  const viewWidth = 200
-  const viewHeight = 48
-  const pad = 4
-
-  const polylinePoints = useMemo(
-    () => buildSparklinePath(points, viewWidth, viewHeight, pad),
-    [points],
-  )
+  const rates = useMemo(() => points.map((p) => p.discoveryRate), [points])
 
   const meanRate = useMemo(() => {
-    const sum = points.reduce((acc, p) => acc + p.discoveryRate, 0)
-    return sum / points.length
-  }, [points])
-
-  const maxRate = useMemo(
-    () => Math.max(...points.map((p) => p.discoveryRate), 0.01),
-    [points],
-  )
-
-  const meanY =
-    pad + (viewHeight - pad * 2) - (meanRate / maxRate) * (viewHeight - pad * 2)
-
-  const areaPath = useMemo(() => {
-    /* v8 ignore next -- DiscoverySparkline only mounts when chronologicalPoints.length >= 2; this mirrors buildSparklinePath's guard for direct/defensive use. */
-    if (points.length < 2) return ''
-    const innerWidth = viewWidth - pad * 2
-    const innerHeight = viewHeight - pad * 2
-    const coords = points.map((point, index) => {
-      const x = pad + (index / (points.length - 1)) * innerWidth
-      const y =
-        pad + innerHeight - (point.discoveryRate / maxRate) * innerHeight
-      return `${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    const bottomRight = `${(pad + innerWidth).toFixed(1)},${(pad + innerHeight).toFixed(1)}`
-    const bottomLeft = `${pad.toFixed(1)},${(pad + innerHeight).toFixed(1)}`
-    return `M${coords[0]} L${coords.join(' L')} L${bottomRight} L${bottomLeft} Z`
-  }, [points, maxRate])
+    const sum = rates.reduce((acc, rate) => acc + rate, 0)
+    return sum / rates.length
+  }, [rates])
 
   return (
-    <svg
-      className="discovery-trend__sparkline"
-      viewBox={`0 0 ${viewWidth} ${viewHeight}`}
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={t('discoveryTrendSparklineLabel')}
-      data-testid="discovery-sparkline"
-    >
-      <title>
-        {t('discoveryTrendMeanLabel', {
-          percent: Math.round(meanRate * 100),
-        })}
-      </title>
-      <path d={areaPath} fill="var(--accent)" opacity="0.08" />
-      <polyline
-        points={polylinePoints}
-        fill="none"
-        stroke="var(--accent)"
-        strokeWidth="1.5"
-        vectorEffect="non-scaling-stroke"
-      />
-      <line
-        x1={pad}
-        y1={meanY}
-        x2={viewWidth - pad}
-        y2={meanY}
-        stroke="var(--accent)"
-        strokeWidth="0.75"
-        strokeDasharray="4 3"
-        opacity="0.5"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
+    // minDomainMax=0.01 floors the domain max at 1% so a window where every
+    // discovery rate is near zero renders as a flat, near-baseline line
+    // instead of auto-scaling its tiny peak to full chart height.
+    <Sparkline
+      values={rates}
+      minDomainMax={0.01}
+      ariaLabel={t('discoveryTrendSparklineLabel')}
+      description={t('discoveryTrendMeanLabel', {
+        percent: Math.round(meanRate * 100),
+      })}
+      referenceValue={meanRate}
+      testId="discovery-sparkline"
+      className="h-12"
+    />
   )
 }

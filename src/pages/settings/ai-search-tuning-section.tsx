@@ -27,6 +27,7 @@
 
 import { useI18n } from '../../lib/i18n'
 import { cn } from '@/lib/cn'
+import { Button } from '@/components/ui/button'
 import type { AiSettings } from '../../lib/types'
 import {
   SEARCH_TUNING_BOUNDS,
@@ -140,15 +141,15 @@ export function AiSearchTuningSection({
         ))}
 
         <div className="flex items-center gap-2">
-          <button
+          <Button
             type="button"
-            className="btn-secondary"
+            variant="outline"
             disabled={!canReset}
             onClick={onReset}
             data-testid="ai-search-tuning-reset"
           >
             {t('settings.aiSearchTuningReset')}
-          </button>
+          </Button>
           <span className="text-ink-faint font-mono text-[10px]">
             {t('settings.aiSearchTuningResetHint')}
           </span>

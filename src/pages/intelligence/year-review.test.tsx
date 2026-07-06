@@ -697,12 +697,12 @@ describe('YearReviewPage', () => {
     })
     // 2025-01-15 has 50 visits in the discovery trend stub => clickable cell.
     const heatmap = screen.getByTestId('year-review-heatmap')
-    const cell = heatmap.querySelector<HTMLButtonElement>(
-      'button[data-date="2025-01-15"]',
-    )
+    const cell = heatmap.querySelector<SVGElement>('[data-date="2025-01-15"]')
     expect(cell).not.toBeNull()
-    expect(cell).not.toBeDisabled()
-    fireEvent.click(cell as HTMLButtonElement)
+    // The roving tab stop: a clickable cell carries tabindex="0", proving
+    // it's the real activatable roving stop, not just "not disabled".
+    expect(cell).toHaveAttribute('tabindex', '0')
+    fireEvent.click(cell as SVGElement)
     expect(router.state.location.pathname).toBe('/intelligence/day/2025-01-15')
     cleanup()
   })

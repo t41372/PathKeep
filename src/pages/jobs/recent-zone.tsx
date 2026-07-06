@@ -15,6 +15,7 @@
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
 import { formatRelativeTime } from '../../lib/format'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import type { Activity } from './activity-types'
@@ -42,16 +43,18 @@ export function RecentZone({ activities, jobsT, language }: RecentZoneProps) {
       aria-label={jobsT('recentTitle')}
     >
       <div className="activity-zone__header">
-        <button
-          className="activity-recent-toggle"
+        <Button
+          variant="link"
+          size="sm"
           type="button"
           onClick={() => setExpanded((prev) => !prev)}
           aria-expanded={expanded}
+          className="h-auto p-0 underline"
         >
           {expanded
             ? jobsT('hideRecentToggle')
             : jobsT('showRecentToggle', { count: activities.length })}
-        </button>
+        </Button>
       </div>
 
       {expanded && (
@@ -112,7 +115,7 @@ function RecentActivityRow({
       </span>
       {activity.resultLink && (
         <Link className="recent-row__result-link" to={activity.resultLink}>
-          View result →
+          {jobsT('viewResultLink')}
         </Link>
       )}
     </div>

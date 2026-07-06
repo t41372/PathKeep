@@ -5,6 +5,7 @@ import { YearHeatmap, type YearHeatmapCopy } from './year-heatmap'
 import { buildYearHeatmapCells } from './year-heatmap-helpers'
 
 const COPY: YearHeatmapCopy = {
+  ariaLabel: 'Calendar heatmap of daily page visits',
   legendLess: 'Less',
   legendMore: 'More',
   cellTooltip: (date, count) => `${date} · ${count}`,
@@ -26,7 +27,7 @@ const COPY: YearHeatmapCopy = {
 }
 
 describe('YearHeatmap', () => {
-  test('renders a button per cell with tooltip + level dataset', () => {
+  test('renders a grid cell per day with an accessible name carrying date + level dataset', () => {
     const cells = buildYearHeatmapCells(
       [
         { dateKey: '2026-05-19', totalVisits: 4 },
@@ -36,24 +37,36 @@ describe('YearHeatmap', () => {
       3,
     )
     render(<YearHeatmap cells={cells} copy={COPY} testId="heatmap" />)
-    const buttons = screen.getAllByRole('button')
+    const buttons = screen.getAllByRole('gridcell')
     expect(buttons.length).toBe(3)
-    expect(buttons[0]).toHaveAttribute('title', '2026-05-19 · 4')
+    expect(buttons[0]).toHaveAccessibleName('2026-05-19 · 4')
     expect(buttons[0]).toHaveAttribute('data-level', '1')
     expect(buttons[2]).toHaveAttribute('data-level', '4')
   })
 
-  test('disables zero-count cells so users cannot drill into empty days', () => {
+  test('renders the grid with role=grid and the chart aria-label', () => {
+    render(<YearHeatmap cells={[]} copy={COPY} testId="heatmap" />)
+    expect(
+      screen.getByRole('grid', {
+        name: 'Calendar heatmap of daily page visits',
+      }),
+    ).toBeInTheDocument()
+  })
+
+  test('makes zero-count cells non-focusable without flagging them aria-disabled', () => {
     const cells = buildYearHeatmapCells(
       [{ dateKey: '2026-05-19', totalVisits: 4 }],
       new Date(2026, 4, 19),
       3,
     )
     render(<YearHeatmap cells={cells} copy={COPY} onSelectDate={vi.fn()} />)
-    const buttons = screen.getAllByRole('button')
-    expect(buttons[0]).not.toBeDisabled() // 2026-05-19, count=4
-    expect(buttons[1]).toBeDisabled() // empty
-    expect(buttons[2]).toBeDisabled() // empty
+    const buttons = screen.getAllByRole('gridcell')
+    expect(buttons[0]).not.toHaveAttribute('aria-disabled') // 2026-05-19, count=4
+    expect(buttons[0]).toHaveAttribute('tabindex', '0')
+    expect(buttons[1]).not.toHaveAttribute('aria-disabled') // empty
+    expect(buttons[1]).not.toHaveAttribute('tabindex')
+    expect(buttons[2]).not.toHaveAttribute('aria-disabled') // empty
+    expect(buttons[2]).not.toHaveAttribute('tabindex')
   })
 
   test('clicking a non-zero cell forwards the date and count', async () => {
@@ -67,7 +80,24 @@ describe('YearHeatmap', () => {
       <YearHeatmap cells={cells} copy={COPY} onSelectDate={onSelectDate} />,
     )
     const user = userEvent.setup()
-    await user.click(screen.getAllByRole('button')[0])
+    await user.click(screen.getAllByRole('gridcell')[0])
+    expect(onSelectDate).toHaveBeenCalledWith('2026-05-19', 4)
+  })
+
+  test('activating a non-zero cell via keyboard forwards the date and count', async () => {
+    const onSelectDate = vi.fn()
+    const cells = buildYearHeatmapCells(
+      [{ dateKey: '2026-05-19', totalVisits: 4 }],
+      new Date(2026, 4, 19),
+      1,
+    )
+    render(
+      <YearHeatmap cells={cells} copy={COPY} onSelectDate={onSelectDate} />,
+    )
+    const user = userEvent.setup()
+    const button = screen.getAllByRole('gridcell')[0]
+    button.focus()
+    await user.keyboard('{Enter}')
     expect(onSelectDate).toHaveBeenCalledWith('2026-05-19', 4)
   })
 

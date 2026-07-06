@@ -35,6 +35,7 @@ export default defineConfig({
         'src/lib/types/**',
         'src/components/assistant-chat/index.ts',
         'src/components/cards/index.ts',
+        'src/components/charts/index.ts',
         'src/components/explorer-paper/index.ts',
         'src/components/intelligence/workbench/index.ts',
         'src/components/intelligence/workbench/review-surface.tsx',
@@ -46,7 +47,11 @@ export default defineConfig({
         // tests; the rest is upstream variant logic we don't ship. Treat as
         // third-party shim surface, same precedent as
         // intelligence/workbench/review-surface.tsx.
-        'src/components/ui/button.tsx',
+        //
+        // button.tsx is EXCLUDED from this list on purpose: it now carries
+        // real paper-token variant/size logic plus the `loading` affordance,
+        // so it has its own direct button.test.tsx instead of relying on
+        // incidental coverage from a wrapper.
         'src/components/ui/command.tsx',
         'src/components/ui/dialog.tsx',
         'src/components/ui/popover.tsx',

@@ -29,6 +29,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
+import { Button } from '@/components/ui/button'
 import { backend } from '@/lib/backend-client'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
@@ -130,14 +131,14 @@ export function SnapshotRestoreSection({
           <div role="alert" aria-label={t('loadErrorAria')}>
             <p>{t('loadError')}</p>
             <p>{loadError}</p>
-            <button
+            <Button
               type="button"
-              className="btn-secondary"
+              variant="outline"
               onClick={() => void reload()}
               aria-label={t('loadRetryAria')}
             >
               {t('loadRetry')}
-            </button>
+            </Button>
           </div>
         ) : null}
 
@@ -151,14 +152,14 @@ export function SnapshotRestoreSection({
                 restore.restoreError,
               )}
             </p>
-            <button
+            <Button
               type="button"
-              className="btn-secondary"
+              variant="outline"
               onClick={restore.resetError}
               aria-label={t('retryAria')}
             >
               {t('retry')}
-            </button>
+            </Button>
           </div>
         ) : null}
 
@@ -207,18 +208,18 @@ export function SnapshotRestoreSection({
               />
             ) : null}
             <div className="archive-recovery-screen__actions">
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="outline"
                 onClick={restore.cancelRestore}
                 aria-label={t('cancelRestoreAria')}
                 disabled={restore.restoring}
               >
                 {t('cancelRestore')}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="btn-primary"
+                variant="primary"
                 onClick={() => void restore.confirmRestore(restore.confirming!)}
                 aria-label={t('restoreNowAria')}
                 aria-describedby="settings-confirm-body"
@@ -226,7 +227,7 @@ export function SnapshotRestoreSection({
                 aria-busy={restore.restoring}
               >
                 {restore.restoring ? t('restoring') : t('restoreNow')}
-              </button>
+              </Button>
             </div>
           </div>
         ) : null}

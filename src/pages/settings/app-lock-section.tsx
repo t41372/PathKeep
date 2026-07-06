@@ -28,6 +28,7 @@ import {
   PaperCardBody,
   PaperCardHeader,
 } from '@/components/cards'
+import { Button } from '@/components/ui/button'
 import {
   ReviewPathActionRow,
   type ReviewCopyFeedback,
@@ -45,8 +46,6 @@ const SELECT_CLASS =
   'border-border-default rounded-paper bg-paper text-ink font-sans text-[12.5px] px-2 py-1 focus:border-accent focus:outline-none disabled:opacity-60'
 const INPUT_CLASS =
   'border-border-default rounded-paper bg-paper text-ink w-full font-sans text-[12.5px] px-2 py-1.5 focus:border-accent focus:outline-none disabled:opacity-60'
-const BUTTON_SECONDARY =
-  'border-border-default text-ink-muted hover:border-ink-muted hover:bg-hover rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60'
 
 /**
  * Defines the route-owned App Lock state consumed by the extracted section.
@@ -263,8 +262,8 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
         </Field>
 
         <div className="flex flex-wrap items-center gap-2 pt-3">
-          <button
-            className={BUTTON_SECONDARY}
+          <Button
+            variant="outline"
             type="button"
             disabled={Boolean(action) || passcode.trim().length < 4}
             onClick={() => {
@@ -274,9 +273,9 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
             {status?.passcodeConfigured
               ? t('settings.appLockUpdatePasscode')
               : t('settings.appLockSetPasscode')}
-          </button>
-          <button
-            className={BUTTON_SECONDARY}
+          </Button>
+          <Button
+            variant="outline"
             type="button"
             disabled={Boolean(action) || !status?.passcodeConfigured}
             onClick={() => {
@@ -284,9 +283,9 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
             }}
           >
             {t('settings.appLockClearPasscode')}
-          </button>
-          <button
-            className={BUTTON_SECONDARY}
+          </Button>
+          <Button
+            variant="outline"
             type="button"
             disabled={Boolean(action) || !status?.enabled}
             onClick={() => {
@@ -294,7 +293,7 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
             }}
           >
             {t('settings.appLockLockNow')}
-          </button>
+          </Button>
         </div>
 
         {!canEnable ? (
