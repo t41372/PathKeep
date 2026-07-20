@@ -4,6 +4,7 @@
   "checkers": ["typescript"],
   "reporters": ["clear-text", "progress"],
   "ignorePatterns": [
+    ".claude/**",
     "src-tauri/target/**",
     "coverage/**",
     "dist/**",
