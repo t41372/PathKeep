@@ -2,7 +2,8 @@
 
 # PathKeep - Keep the path you've walked
 
-<img alt="demo" src="https://github.com/user-attachments/assets/6118f6f4-80ee-4cd2-bf44-3989d26eb5e5" />
+<img alt="Screenshot 2026-07-19 at 5 16 16 PM" src="https://github.com/user-attachments/assets/e587cee0-a68b-4c9b-97c7-acc31b27d4d0" />
+
 
 **Stop losing your browsing history**
 
