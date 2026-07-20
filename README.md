@@ -4,7 +4,6 @@
 
 <img alt="Screenshot 2026-07-19 at 5 16 16 PM" src="https://github.com/user-attachments/assets/e587cee0-a68b-4c9b-97c7-acc31b27d4d0" />
 
-
 **Stop losing your browsing history**
 
 <a href="https://github.com/t41372/PathKeep/actions/workflows/ci.yml">
