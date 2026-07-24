@@ -63,7 +63,7 @@ pub fn run_snapshot_restore_plan(
 /// restore (a keyless filesystem scan — no archive open, no key, no full-DB walk).
 pub fn list_recovery_snapshots() -> Result<Vec<vault_core::RecoverySnapshot>> {
     let paths = vault_core::project_paths()?;
-    Ok(vault_core::list_recovery_snapshots(&paths))
+    vault_core::list_recovery_snapshots(&paths)
 }
 
 /// Runs the one-click full-archive restore (D1): quarantine the broken canonical files, install +
@@ -116,15 +116,39 @@ pub fn run_backup_now(
 pub fn run_backup_now_with_progress<F>(
     session_database_key: Option<&str>,
     due_only: bool,
-    mut report_progress: F,
+    report_progress: F,
 ) -> Result<vault_core::BackupReport>
 where
     F: FnMut(BackupProgressEvent),
 {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
+    run_backup_with_loaded_config(&paths, &config, session_database_key, due_only, report_progress)
+}
+
+/// Runs the OS-scheduled background backup without consulting the desktop App
+/// Lock session. This exception is intentionally limited to backup execution;
+/// MCP/read/query callers still use the locked-session path.
+pub(crate) fn run_scheduled_backup(
+    paths: &vault_core::ProjectPaths,
+    config: &vault_core::AppConfig,
+    database_key: Option<&str>,
+) -> Result<vault_core::BackupReport> {
+    run_backup_with_loaded_config(paths, config, database_key, true, |_| {})
+}
+
+fn run_backup_with_loaded_config<F>(
+    paths: &vault_core::ProjectPaths,
+    config: &vault_core::AppConfig,
+    session_database_key: Option<&str>,
+    due_only: bool,
+    mut report_progress: F,
+) -> Result<vault_core::BackupReport>
+where
+    F: FnMut(BackupProgressEvent),
+{
     let mut report =
-        run_backup_with_progress(&paths, &config, session_database_key, due_only, |event| {
+        run_backup_with_progress(paths, config, session_database_key, due_only, |event| {
             report_progress(event);
         })?;
     if !report.due_skipped
@@ -132,7 +156,7 @@ where
         && config.ai.semantic_index_enabled
         && config.ai.auto_index_after_backup
     {
-        match selected_embedding_provider_runtime(&config, None) {
+        match selected_embedding_provider_runtime(config, None) {
             Ok(provider) => {
                 let auto_index_request = AiIndexRequest {
                     provider_id: Some(provider.config.id),
@@ -140,11 +164,11 @@ where
                 };
                 if append_ai_auto_index_archive_result(
                     &mut report.warnings,
-                    ai_archive_connection(&paths, &config, session_database_key),
+                    ai_archive_connection(paths, config, session_database_key),
                     &auto_index_request,
                     config.ai.job_queue_paused,
                 ) {
-                    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, 1);
+                    maybe_spawn_ai_queue_drain(paths, config, session_database_key, 1);
                 }
             }
             Err(error) => append_ai_auto_index_provider_warning(&mut report.warnings, error),
@@ -162,8 +186,8 @@ where
         append_core_refresh_backup_result(
             &mut report.warnings,
             enqueue_and_spawn_deterministic_refresh(
-                &paths,
-                &config,
+                paths,
+                config,
                 session_database_key,
                 &dirty_profiles,
             ),

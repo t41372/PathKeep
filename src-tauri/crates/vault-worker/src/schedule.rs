@@ -7,7 +7,9 @@
 use crate::context::load_unlocked_config;
 use anyhow::{Context, Result};
 use std::path::PathBuf;
-use vault_core::{SchedulePlan, ScheduleStatus, load_config};
+use vault_core::{
+    ScheduleIssue, SchedulePlan, ScheduleStatus, load_config, load_schedule_attempt_ledger,
+};
 use vault_platform::{
     ScheduleParameters, apply_schedule, preview_schedule, remove_schedule, repair_schedule,
     schedule_status as detect_schedule_status,
@@ -75,7 +77,41 @@ pub fn schedule_status(
     status.last_successful_backup_at =
         vault_core::archive_status(&paths, &config, session_database_key)?
             .last_successful_backup_at;
+    let ledger = load_schedule_attempt_ledger(&paths, native_schedule_interval_hours(&config))?;
+    status.last_scheduled_success_at = ledger.last_success_at;
+    status.recent_attempts = ledger.attempts;
+    status.issues.extend(ledger.health_issues.into_iter().map(schedule_attempt_issue));
     Ok(status)
+}
+
+fn schedule_attempt_issue(issue: vault_core::ScheduledBackupHealthIssue) -> ScheduleIssue {
+    let (title_key, detail_key, consequence_key) = match issue.code.as_str() {
+        "latest-attempt-failed" => (
+            "schedule.issueScheduleAttemptFailedTitle",
+            "schedule.issueScheduleAttemptFailedDetail",
+            "schedule.issueScheduleAttemptFailedConsequence",
+        ),
+        "worker-interrupted" => (
+            "schedule.issueScheduleAttemptInterruptedTitle",
+            "schedule.issueScheduleAttemptInterruptedDetail",
+            "schedule.issueScheduleAttemptInterruptedConsequence",
+        ),
+        _ => (
+            "schedule.issueScheduleAttemptLedgerUnreadableTitle",
+            "schedule.issueScheduleAttemptLedgerUnreadableDetail",
+            "schedule.issueScheduleAttemptLedgerUnreadableConsequence",
+        ),
+    };
+    ScheduleIssue {
+        code: issue.code,
+        severity: issue.severity,
+        title_key: title_key.to_string(),
+        detail_key: detail_key.to_string(),
+        consequence_key: consequence_key.to_string(),
+        evidence: issue.evidence,
+        repair_action: None,
+        dismissible: false,
+    }
 }
 
 fn native_schedule_interval_hours(config: &vault_core::AppConfig) -> f64 {
@@ -89,7 +125,7 @@ fn native_schedule_interval_hours(config: &vault_core::AppConfig) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::native_schedule_interval_hours;
+    use super::{native_schedule_interval_hours, schedule_attempt_issue};
     use vault_core::AppConfig;
 
     #[test]
@@ -101,5 +137,51 @@ mod tests {
         assert_eq!(native_schedule_interval_hours(&custom_minutes), 1.5);
         assert_eq!(native_schedule_interval_hours(&longer_due), 6.0);
         assert_eq!(native_schedule_interval_hours(&invalid_due), 6.0);
+    }
+
+    #[test]
+    fn schedule_attempt_health_uses_stable_existing_issue_contract() {
+        let issue = schedule_attempt_issue(vault_core::ScheduledBackupHealthIssue {
+            code: "latest-attempt-failed".to_string(),
+            severity: "error".to_string(),
+            detected_at: "2026-07-23T00:00:00Z".to_string(),
+            related_attempt_id: Some("attempt-1".to_string()),
+            evidence: vec!["keyring unavailable".to_string()],
+        });
+        assert_eq!(issue.code, "latest-attempt-failed");
+        assert_eq!(issue.title_key, "schedule.issueScheduleAttemptFailedTitle");
+        assert_eq!(issue.evidence, vec!["keyring unavailable"]);
+        assert!(!issue.dismissible);
+    }
+
+    #[test]
+    fn schedule_attempt_health_maps_interruption_and_ledger_failures() {
+        let interrupted = schedule_attempt_issue(vault_core::ScheduledBackupHealthIssue {
+            code: "worker-interrupted".to_string(),
+            severity: "error".to_string(),
+            detected_at: "2026-07-23T00:00:00Z".to_string(),
+            related_attempt_id: Some("attempt-2".to_string()),
+            evidence: vec!["worker stopped during backup".to_string()],
+        });
+        assert_eq!(interrupted.title_key, "schedule.issueScheduleAttemptInterruptedTitle");
+        assert_eq!(interrupted.detail_key, "schedule.issueScheduleAttemptInterruptedDetail");
+        assert_eq!(
+            interrupted.consequence_key,
+            "schedule.issueScheduleAttemptInterruptedConsequence"
+        );
+
+        let unreadable = schedule_attempt_issue(vault_core::ScheduledBackupHealthIssue {
+            code: "attempt-ledger-unreadable".to_string(),
+            severity: "error".to_string(),
+            detected_at: "2026-07-23T00:00:00Z".to_string(),
+            related_attempt_id: None,
+            evidence: vec!["invalid attempt json".to_string()],
+        });
+        assert_eq!(unreadable.title_key, "schedule.issueScheduleAttemptLedgerUnreadableTitle");
+        assert_eq!(unreadable.detail_key, "schedule.issueScheduleAttemptLedgerUnreadableDetail");
+        assert_eq!(
+            unreadable.consequence_key,
+            "schedule.issueScheduleAttemptLedgerUnreadableConsequence"
+        );
     }
 }

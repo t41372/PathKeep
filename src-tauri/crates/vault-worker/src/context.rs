@@ -71,6 +71,19 @@ pub(crate) fn load_unlocked_config(paths: &vault_core::ProjectPaths) -> Result<A
     Ok(config)
 }
 
+/// Loads only the state required by the native scheduled-backup executor.
+///
+/// App Lock is a desktop UI session boundary, so an OS-scheduled backup must
+/// not depend on a GUI session having been unlocked. This deliberately does
+/// not read or enforce App Lock session/passcode files. Read/query/MCP paths
+/// continue to use [`load_unlocked_config`].
+pub(crate) fn load_background_backup_config(paths: &vault_core::ProjectPaths) -> Result<AppConfig> {
+    let mut config = load_config(paths)?;
+    hydrate_provider_collection(&mut config.ai.llm_providers);
+    hydrate_provider_collection(&mut config.ai.embedding_providers);
+    Ok(config)
+}
+
 /// Reads the current host biometric capability snapshot.
 pub(crate) fn current_app_lock_biometric_state() -> vault_core::AppLockBiometricState {
     app_lock_biometric_state()

@@ -41,6 +41,7 @@ App Lock 在目前產品中是 **desktop UI session lock**，不是 archive encr
 - `unlock_app_session`
 - `open_path_in_file_manager`
 - build / diagnostics 類的非 archive data status
+- trusted native scheduled-backup worker：只做本機 browser → canonical archive 寫入，不渲染、不回傳、不透過 IPC 暴露 archive data；它繞過的是 UI session lock，不是 archive encryption / keyring。
 
 ### 3. 解鎖與恢復模型
 
@@ -73,6 +74,7 @@ shared profile scope 仍然是 **viewer / filter contract**，不是新的安全
 
 - Dashboard / Explorer / Insights / Assistant 的 profile scope 繼續作為 UI read-model 篩選
 - App Lock 不會把單一 archive 切成多個安全 partition
+- App Lock 不會暫停已安裝的背景備份；需要停止自動備份時必須由 Scheduled Backup Settings 明確移除/停用 native schedule，而不是靠鎖住 UI 產生隱性副作用。
 - 若未來真的要做 per-profile partition，必須另開新的架構 / migration 決策，不可偷偷混進 App Lock
 
 ## 理由

@@ -95,6 +95,8 @@ pub struct BackupProfileSummary {
 #[serde(rename_all = "camelCase")]
 pub struct BackupReport {
     pub due_skipped: bool,
+    /// Stable machine-readable reason for a scheduled no-op/defer.
+    pub reason_code: Option<String>,
     pub reason: Option<String>,
     pub run: Option<BackupRunOverview>,
     pub profiles: Vec<BackupProfileSummary>,

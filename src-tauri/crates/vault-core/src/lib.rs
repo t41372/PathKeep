@@ -35,6 +35,7 @@ pub mod intelligence_runtime;
 mod intelligence_sections;
 pub mod migration;
 pub mod models;
+pub mod schedule_attempts;
 pub mod stars;
 pub mod takeout;
 pub mod utils;
@@ -143,6 +144,9 @@ pub use migration::{
     preview_import,
 };
 pub use models::*;
+pub use schedule_attempts::{
+    ScheduleAttemptLedgerSnapshot, ScheduleAttemptRecorder, load_schedule_attempt_ledger,
+};
 /// Re-export of the two `secrecy` symbols callers need to construct/expose
 /// [`AiProviderRuntime`] secrets without taking their own direct dependency on the crate.
 pub use secrecy::{ExposeSecret, SecretString};

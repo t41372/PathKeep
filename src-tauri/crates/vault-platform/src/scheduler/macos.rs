@@ -75,12 +75,9 @@ pub(super) fn macos_schedule_plan(
             "StartInterval".to_string(),
             plist::Value::Integer(interval_seconds_from_hours(params.check_interval_hours).into()),
         ),
-        // launchd's own StandardOutPath/StandardErrorPath captures the
-        // bootstrap process's output (which is `/usr/bin/open` when the
-        // binary lives in a .app bundle — see `macos_program_arguments`).
-        // The actual worker logs are redirected by `open --stdout/--stderr`
-        // to the same files so neither path ends up empty regardless of
-        // which launch shape is in use.
+        // launchd captures the dedicated worker's output directly. Legacy GUI
+        // worker-mode previews still route through `open` and redirect the
+        // launched app to the same paths.
         ("StandardOutPath".to_string(), plist::Value::String(stdout_log.clone())),
         ("StandardErrorPath".to_string(), plist::Value::String(stderr_log.clone())),
     ]));
@@ -160,9 +157,11 @@ pub(super) fn macos_schedule_plan(
     })
 }
 
-/// Builds the LaunchAgent's `ProgramArguments` array, routing through
-/// `/usr/bin/open` when the worker binary lives inside a `.app` bundle.
+/// Builds the LaunchAgent's `ProgramArguments` array.
 ///
+/// The shipped `pathkeep-worker` sidecar is a signed non-GUI executable, so
+/// launchd executes it directly and observes its true exit status. Legacy
+/// desktop worker-mode builds still route through `/usr/bin/open` because
 /// macOS 14+ enforces launch constraints on app-bundled GUI binaries:
 /// `launchd` directly `execve`-ing `<App>.app/Contents/MacOS/<binary>`
 /// is rejected with `SIGKILL (Code Signature Invalid)` /
@@ -188,10 +187,6 @@ pub(super) fn macos_schedule_plan(
 /// to the direct-exec shape — they don't trip the constraint and benefit
 /// from the simpler launchd contract.
 ///
-/// The proper long-term architecture is a dedicated `pathkeep-worker`
-/// CLI binary shipped as a Tauri `externalBin` sidecar inside the
-/// bundle's `Contents/MacOS/` (no GUI deps, no launch constraint, full
-/// launchd lifecycle), tracked under WORK-V03-WORKER-BIN-SIDECAR.
 pub(super) fn macos_program_arguments(
     executable_path: &Path,
     worker_args: &[String],
@@ -208,6 +203,13 @@ pub(super) fn macos_program_arguments(
         worker_args
     };
     match enclosing_app_bundle(executable_path) {
+        _ if executable_path.file_stem().and_then(|value| value.to_str())
+            == Some("pathkeep-worker") =>
+        {
+            let mut argv = vec![executable_path.display().to_string()];
+            argv.extend(worker_tail.iter().cloned());
+            argv
+        }
         Some(bundle) => {
             let mut argv = vec![
                 "/usr/bin/open".to_string(),
@@ -834,6 +836,25 @@ mod program_arguments_tests {
             vec![
                 "/home/dev/pathkeep/target/debug/pathkeep-desktop",
                 "--worker",
+                "backup",
+                "--due-only",
+            ]
+        );
+    }
+
+    #[test]
+    fn bundled_worker_sidecar_is_execed_directly_with_real_exit_status() {
+        let exe = Path::new("/Applications/PathKeep.app/Contents/MacOS/pathkeep-worker");
+        let argv = macos_program_arguments(
+            exe,
+            &[exe.display().to_string(), "backup".to_string(), "--due-only".to_string()],
+            "/tmp/out.log",
+            "/tmp/err.log",
+        );
+        assert_eq!(
+            argv,
+            vec![
+                "/Applications/PathKeep.app/Contents/MacOS/pathkeep-worker",
                 "backup",
                 "--due-only",
             ]

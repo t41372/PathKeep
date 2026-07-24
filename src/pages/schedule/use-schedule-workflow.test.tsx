@@ -87,6 +87,7 @@ describe('useScheduleWorkflow', () => {
       statusFixture({
         checkedAt: null,
         dueAfterHours: 72,
+        lastScheduledSuccessAt: null,
         lastSuccessfulBackupAt: null,
       }),
     )
@@ -115,6 +116,31 @@ describe('useScheduleWorkflow', () => {
       kind: 'detect',
       status: 'success',
     })
+  })
+
+  test('does not let a manual backup success disguise a schedule that has never succeeded', async () => {
+    backendMock.scheduleStatus.mockResolvedValueOnce(
+      statusFixture({
+        lastScheduledSuccessAt: null,
+        lastSuccessfulBackupAt: '2026-04-25T12:00:00.000Z',
+      }),
+    )
+    useShellDataMock.mockReturnValue({
+      refreshAppData: refreshAppDataMock,
+      refreshKey: 1,
+      saveConfig: saveConfigMock,
+      snapshot: snapshotFixture({
+        archiveStatus: {
+          lastSuccessfulBackupAt: '2026-04-25T12:00:00.000Z',
+        },
+      }),
+    })
+
+    const { result } = renderWorkflow()
+    await waitForLoaded(result)
+
+    expect(result.current.hasNeverRun).toBe(true)
+    expect(result.current.uiState).toBe('INSTALLED_WARN')
   })
 
   test('surfaces non-Error detection failures as an unavailable schedule read model', async () => {
@@ -423,6 +449,7 @@ function statusFixture(
     installState: 'installed',
     issues: [],
     label: 'PathKeep Backup',
+    lastScheduledSuccessAt: '2026-04-25T12:00:00.000Z',
     lastSuccessfulBackupAt: '2026-04-25T12:00:00.000Z',
     manualStepDetails: [],
     manualSteps: [],

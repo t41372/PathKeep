@@ -168,30 +168,36 @@ pub(crate) fn complete_claimed_index_job(
     claimed: ai_queue::StoredAiJob,
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
-    let provider = selected_embedding_provider_runtime(config, request.provider_id.as_deref())?;
-    // Resume from the persisted backfill watermark so a restart never re-embeds from scratch, and seed
-    // the cumulative embedded count so the progress bar keeps climbing across the reclaim.
-    let start_history_id = index_start_history_id(&claimed.payload);
-    let start_embedded = index_start_embedded(&claimed.payload);
-    let run_control = start_ai_job_control(paths, config, session_database_key, claimed.id);
-    let ledger: Arc<dyn vault_core::IndexBackfillLedger> = Arc::new(IndexCursorLedger {
-        paths: paths.clone(),
-        config: config.clone(),
-        session_database_key: session_database_key.map(ToOwned::to_owned),
-        job_id: claimed.id,
-    });
-    let result = tokio_runtime()?.block_on(build_ai_index_with_control(
-        paths,
-        config,
-        session_database_key,
-        &provider,
-        request,
-        Some(run_control.clone()),
-        start_history_id,
-        start_embedded,
-        Some(ledger),
-    ));
-    run_control.shutdown();
+    // Provider selection and Tokio startup are part of the claimed job execution. Keep them inside
+    // the persisted outcome boundary: a preflight failure must not strand the row in `running`.
+    let result = (|| {
+        let provider = selected_embedding_provider_runtime(config, request.provider_id.as_deref())?;
+        let runtime = tokio_runtime()?;
+        // Resume from the persisted backfill watermark so a restart never re-embeds from scratch, and
+        // seed the cumulative embedded count so the progress bar keeps climbing across the reclaim.
+        let start_history_id = index_start_history_id(&claimed.payload);
+        let start_embedded = index_start_embedded(&claimed.payload);
+        let run_control = start_ai_job_control(paths, config, session_database_key, claimed.id);
+        let ledger: Arc<dyn vault_core::IndexBackfillLedger> = Arc::new(IndexCursorLedger {
+            paths: paths.clone(),
+            config: config.clone(),
+            session_database_key: session_database_key.map(ToOwned::to_owned),
+            job_id: claimed.id,
+        });
+        let result = runtime.block_on(build_ai_index_with_control(
+            paths,
+            config,
+            session_database_key,
+            &provider,
+            request,
+            Some(run_control.clone()),
+            start_history_id,
+            start_embedded,
+            Some(ledger),
+        ));
+        run_control.shutdown();
+        result
+    })();
 
     match result {
         Ok(mut report) => {
@@ -247,23 +253,29 @@ pub(crate) fn complete_claimed_assistant_job(
     let ai_queue::AiJobPayload::Assistant { payload } = claimed.payload.clone() else {
         anyhow::bail!("AI job {} did not contain an assistant payload.", claimed.id);
     };
-    let llm_provider = selected_llm_provider_runtime(config, Some(&payload.llm_provider_id))?;
-    let embedding_provider = payload
-        .embedding_provider_id
-        .as_deref()
-        .map(|provider_id| selected_embedding_provider_runtime(config, Some(provider_id)))
-        .transpose()?;
-    let run_control = start_ai_job_control(paths, config, session_database_key, claimed.id);
-    let result = tokio_runtime()?.block_on(answer_history_question_with_control(
-        paths,
-        config,
-        session_database_key,
-        &llm_provider,
-        embedding_provider.as_ref(),
-        &payload.request,
-        Some(run_control.clone()),
-    ));
-    run_control.shutdown();
+    // Resolve every frozen provider snapshot and the async runtime inside the persisted outcome
+    // boundary. These preflight errors are user-actionable queue outcomes, not transient worker logs.
+    let result = (|| {
+        let llm_provider = selected_llm_provider_runtime(config, Some(&payload.llm_provider_id))?;
+        let embedding_provider = payload
+            .embedding_provider_id
+            .as_deref()
+            .map(|provider_id| selected_embedding_provider_runtime(config, Some(provider_id)))
+            .transpose()?;
+        let runtime = tokio_runtime()?;
+        let run_control = start_ai_job_control(paths, config, session_database_key, claimed.id);
+        let result = runtime.block_on(answer_history_question_with_control(
+            paths,
+            config,
+            session_database_key,
+            &llm_provider,
+            embedding_provider.as_ref(),
+            &payload.request,
+            Some(run_control.clone()),
+        ));
+        run_control.shutdown();
+        result
+    })();
 
     match result {
         Ok(mut response) => {
@@ -821,6 +833,65 @@ mod tests {
         connection
             .query_row("SELECT state FROM ai_jobs WHERE id = ?1", [job_id], |row| row.get(0))
             .expect("job state")
+    }
+
+    fn job_error(connection: &Connection, job_id: i64) -> String {
+        connection
+            .query_row("SELECT error_message FROM ai_jobs WHERE id = ?1", [job_id], |row| {
+                row.get(0)
+            })
+            .expect("job error")
+    }
+
+    #[test]
+    fn index_provider_preflight_failure_is_persisted() {
+        let connection = Connection::open_in_memory().expect("memory queue");
+        let request = AiIndexRequest {
+            provider_id: Some("deleted-embedding".to_string()),
+            ..Default::default()
+        };
+        let queued = ai_queue::enqueue_index_job(&connection, &request, false).expect("enqueue");
+        let claimed = ai_queue::claim_ai_job_by_id(&connection, queued.id, 300)
+            .expect("claim")
+            .expect("claimed");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = vault_core::config::project_paths_with_root(dir.path());
+        let config = AppConfig::default();
+
+        let error =
+            complete_claimed_index_job(&connection, &paths, &config, None, claimed, &request)
+                .expect_err("missing frozen provider must fail");
+
+        assert!(error.to_string().contains("deleted-embedding"));
+        assert_eq!(job_state(&connection, queued.id), "failed");
+        assert_eq!(job_error(&connection, queued.id), error.to_string());
+    }
+
+    #[test]
+    fn assistant_provider_preflight_failure_is_persisted() {
+        let connection = Connection::open_in_memory().expect("memory queue");
+        let request = AiAssistantRequest {
+            question: "What did I visit?".to_string(),
+            profile_id: None,
+            domain: None,
+        };
+        let queued =
+            ai_queue::enqueue_assistant_job(&connection, &request, "deleted-llm", None, false)
+                .expect("enqueue");
+        let claimed = ai_queue::claim_ai_job_by_id(&connection, queued.id, 300)
+            .expect("claim")
+            .expect("claimed");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = vault_core::config::project_paths_with_root(dir.path());
+        let config = AppConfig::default();
+
+        let error =
+            complete_claimed_assistant_job(&connection, &paths, &config, None, claimed, &request)
+                .expect_err("missing frozen provider must fail");
+
+        assert!(error.to_string().contains("deleted-llm"));
+        assert_eq!(job_state(&connection, queued.id), "failed");
+        assert_eq!(job_error(&connection, queued.id), error.to_string());
     }
 
     /// A plaintext archive + config whose embedding provider is the built-in in-app static tier (F1),

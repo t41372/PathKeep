@@ -27,6 +27,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { BackupIntervalSelector } from '../../components/schedule/backup-interval-selector'
+import { ScheduleAttemptHistory } from '../../components/schedule/schedule-attempt-history'
 import { BrowserIcon } from '../../lib/browser-icons'
 import { backend } from '../../lib/backend-client'
 import { formatRelativeTime } from '../../lib/format'
@@ -80,10 +81,7 @@ export function SchedulePage() {
     snapshot?.browserProfiles ?? [],
     snapshot?.config.selectedProfileIds ?? [],
   )
-  const lastBackup =
-    status?.lastSuccessfulBackupAt ??
-    snapshot?.archiveStatus.lastSuccessfulBackupAt ??
-    null
+  const lastBackup = status?.lastScheduledSuccessAt ?? null
 
   if (loading || uiState === 'CHECKING') {
     return (
@@ -271,6 +269,12 @@ export function SchedulePage() {
           t={t}
         />
       ) : null}
+
+      <ScheduleAttemptHistory
+        attempts={status.recentAttempts ?? []}
+        language={language}
+        t={t}
+      />
     </div>
   )
 }
@@ -892,8 +896,14 @@ function ScheduleSummary({
     ],
     [t('schedule.mechanism'), plan.platform],
     [
-      t('schedule.lastTriggered'),
+      t('schedule.lastScheduledSuccess'),
       lastBackupLabel({ hasNeverRun, language, lastBackup, t }),
+    ],
+    [
+      t('schedule.latestNativeWake'),
+      status.recentAttempts?.[0]
+        ? formatAttemptSummaryTime(status.recentAttempts[0].startedAt, language)
+        : t('schedule.notCheckedYet'),
     ],
     [t('schedule.label'), status.label],
     [
@@ -915,6 +925,18 @@ function ScheduleSummary({
       ))}
     </div>
   )
+}
+
+function formatAttemptSummaryTime(
+  value: string,
+  language: ResolvedLanguage,
+): string {
+  const timestamp = new Date(value)
+  if (Number.isNaN(timestamp.getTime())) return value
+  return new Intl.DateTimeFormat(language, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(timestamp)
 }
 
 function IssueList({

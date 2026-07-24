@@ -54,6 +54,8 @@ export const scheduleNamespaceCatalog = {
       'Save this interval, then install or update the native schedule so the background task uses it.',
     mechanism: 'Method',
     lastTriggered: 'Last run',
+    lastScheduledSuccess: 'Last scheduled success',
+    latestNativeWake: 'Latest native wake',
     label: 'Name',
     profiles: 'Profiles',
     pmeTitle: 'MANAGE SCHEDULE',
@@ -178,6 +180,36 @@ export const scheduleNamespaceCatalog = {
     issueNeverRunTitle: 'No successful scheduled backup yet',
     issueNeverRunDetail:
       'The schedule is installed, but PathKeep has not recorded a successful scheduled run.',
+    issueScheduleAttemptFailedTitle: 'The scheduled backup worker failed',
+    issueScheduleAttemptFailedDetail:
+      'The native scheduler woke PathKeep, but the worker could not finish this attempt.',
+    issueScheduleAttemptFailedConsequence:
+      'Automatic backup is not healthy until a later scheduled attempt succeeds.',
+    issueScheduleAttemptInterruptedTitle: 'A scheduled backup was interrupted',
+    issueScheduleAttemptInterruptedDetail:
+      'PathKeep found an attempt that started but never recorded a clean finish.',
+    issueScheduleAttemptInterruptedConsequence:
+      'Review the attempt evidence and verify that the next scheduled backup completes.',
+    issueScheduleAttemptLedgerUnreadableTitle:
+      'PathKeep cannot read the schedule attempt ledger',
+    issueScheduleAttemptLedgerUnreadableDetail:
+      'The native schedule may still wake, but PathKeep cannot verify its recent outcomes.',
+    issueScheduleAttemptLedgerUnreadableConsequence:
+      'Do not rely on automatic backup until the ledger error is repaired and verification succeeds.',
+    attemptHistoryTitle: 'RECENT SCHEDULE ATTEMPTS',
+    attemptHistoryBody:
+      'Every native scheduler wake is recorded here, including skips and failures before the archive opens.',
+    attemptHistoryCount: '{count} attempts',
+    attemptHistoryEmpty: 'No native scheduler wake has been recorded yet.',
+    attemptRunId: 'Run #{id}',
+    attemptOutcome: {
+      running: 'Running',
+      success: 'Backed up',
+      skipped: 'Not due',
+      deferred: 'Deferred',
+      failed: 'Failed',
+      interrupted: 'Interrupted',
+    },
     issueNeedsReviewTitle: 'Schedule needs review',
     issueNeedsReviewDetail:
       'Review the scheduler details and run verification before relying on automatic backup.',
@@ -330,6 +362,8 @@ export const scheduleNamespaceCatalog = {
       '请先保存这个间隔，再安装或更新系统定时任务，让后台任务使用新的设置。',
     mechanism: '方式',
     lastTriggered: '上次运行',
+    lastScheduledSuccess: '上次定时备份成功',
+    latestNativeWake: '最近一次系统唤醒',
     label: '名称',
     profiles: '浏览器',
     pmeTitle: '管理定时备份',
@@ -436,6 +470,35 @@ export const scheduleNamespaceCatalog = {
     diagnosticsClipboardUnavailable: '当前环境无法访问剪贴板。',
     issueNeverRunTitle: '尚未成功运行过定时备份',
     issueNeverRunDetail: '定时任务已安装，但 PathKeep 还没有记录到成功运行。',
+    issueScheduleAttemptFailedTitle: '定时备份工作进程失败',
+    issueScheduleAttemptFailedDetail:
+      '系统定时任务已唤醒 PathKeep，但工作进程未能完成本次尝试。',
+    issueScheduleAttemptFailedConsequence:
+      '在后续定时尝试成功前，不能认为自动备份处于健康状态。',
+    issueScheduleAttemptInterruptedTitle: '一次定时备份被中断',
+    issueScheduleAttemptInterruptedDetail:
+      'PathKeep 发现一次已开始、但没有记录正常结束的尝试。',
+    issueScheduleAttemptInterruptedConsequence:
+      '请检查尝试证据，并确认下一次定时备份能完成。',
+    issueScheduleAttemptLedgerUnreadableTitle: 'PathKeep 无法读取定时尝试记录',
+    issueScheduleAttemptLedgerUnreadableDetail:
+      '系统定时任务可能仍会唤醒，但 PathKeep 无法验证最近的执行结果。',
+    issueScheduleAttemptLedgerUnreadableConsequence:
+      '在修复记录错误并成功验证前，请勿依赖自动备份。',
+    attemptHistoryTitle: '最近的定时备份尝试',
+    attemptHistoryBody:
+      '每次系统定时任务唤醒都会记录在这里，包括未到期跳过和打开归档前的失败。',
+    attemptHistoryCount: '{count} 次尝试',
+    attemptHistoryEmpty: '尚未记录到系统定时任务唤醒。',
+    attemptRunId: '运行 #{id}',
+    attemptOutcome: {
+      running: '正在运行',
+      success: '已备份',
+      skipped: '尚未到期',
+      deferred: '已延后',
+      failed: '失败',
+      interrupted: '已中断',
+    },
     issueNeedsReviewTitle: '定时备份需要检查',
     issueNeedsReviewDetail: '依赖自动备份前，请先查看细节并重新验证。',
     issueLegacyAgentTitle: '仍存在旧版 LaunchAgent',
@@ -564,6 +627,8 @@ export const scheduleNamespaceCatalog = {
       '請先儲存這個間隔，再安裝或更新系統排程，讓背景任務使用新的設定。',
     mechanism: '方式',
     lastTriggered: '上次執行',
+    lastScheduledSuccess: '上次排程備份成功',
+    latestNativeWake: '最近一次系統喚醒',
     label: '名稱',
     profiles: '瀏覽器',
     pmeTitle: '管理定時備份',
@@ -670,6 +735,35 @@ export const scheduleNamespaceCatalog = {
     diagnosticsClipboardUnavailable: '目前環境無法存取剪貼簿。',
     issueNeverRunTitle: '尚未成功執行過定時備份',
     issueNeverRunDetail: '排程已安裝，但 PathKeep 還沒有記錄到成功執行。',
+    issueScheduleAttemptFailedTitle: '排程備份工作程序失敗',
+    issueScheduleAttemptFailedDetail:
+      '系統排程已喚醒 PathKeep，但工作程序未能完成本次嘗試。',
+    issueScheduleAttemptFailedConsequence:
+      '在後續排程嘗試成功前，不能將自動備份視為健康。',
+    issueScheduleAttemptInterruptedTitle: '一次排程備份被中斷',
+    issueScheduleAttemptInterruptedDetail:
+      'PathKeep 發現一次已開始、但沒有記錄正常結束的嘗試。',
+    issueScheduleAttemptInterruptedConsequence:
+      '請檢查嘗試證據，並確認下一次排程備份能完成。',
+    issueScheduleAttemptLedgerUnreadableTitle: 'PathKeep 無法讀取排程嘗試記錄',
+    issueScheduleAttemptLedgerUnreadableDetail:
+      '系統排程可能仍會喚醒，但 PathKeep 無法驗證最近的執行結果。',
+    issueScheduleAttemptLedgerUnreadableConsequence:
+      '在修復記錄錯誤並成功驗證前，請勿依賴自動備份。',
+    attemptHistoryTitle: '最近的排程備份嘗試',
+    attemptHistoryBody:
+      '每次系統排程喚醒都會記錄在這裡，包括尚未到期與開啟封存前的失敗。',
+    attemptHistoryCount: '{count} 次嘗試',
+    attemptHistoryEmpty: '尚未記錄到系統排程喚醒。',
+    attemptRunId: '執行 #{id}',
+    attemptOutcome: {
+      running: '正在執行',
+      success: '已備份',
+      skipped: '尚未到期',
+      deferred: '已延後',
+      failed: '失敗',
+      interrupted: '已中斷',
+    },
     issueNeedsReviewTitle: '定時備份需要檢查',
     issueNeedsReviewDetail: '依賴自動備份前，請先查看細節並重新驗證。',
     issueLegacyAgentTitle: '仍存在舊版 LaunchAgent',

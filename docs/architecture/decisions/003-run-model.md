@@ -20,6 +20,8 @@ PathKeep 採用 **unified run ledger**：
 
 - `backup`、`import`、`revert`、`doctor`、`snapshot_restore` 共用同一張 `runs` 表。
 - `runs.run_type` 表示操作類型；`runs.trigger` 表示觸發來源（如 `manual`、`schedule`、`cli`）。
+- Native scheduler invocation 在能開啟 canonical archive 前，先寫入 archive-independent 的 bounded attempt ledger；一旦 archive 可用，再用 `backup_run_id` 關聯 canonical `runs`。這不是第二套業務 run source of truth，而是 canonical plane 本身不可用時仍能證明「系統曾嘗試、為何沒有進入 run」的 delivery envelope。
+- `skipped-not-due`、`deferred-lock`、pre-archive `failed` 與 crash-recovered `interrupted` 都是可稽核 outcome；不能以 `run = null` + stdout 當作已 surfaced。
 - 所有 manifest、snapshot、preview artifact、warning/error 摘要都透過 `run_id` 關聯，而不是各類操作再各建一張專屬 run 表。
 - Tauri / worker / frontend 的 command surface 也以這個 unified run model 為前提，區分 read model、preview、execute、artifact fetch 與 job progress，而不是以舊 UI 的頁面名稱命名命令。
 
@@ -40,6 +42,7 @@ PathKeep 採用 **unified run ledger**：
 - 舊 `backup_runs` 只作為 legacy runtime bridge，不能再被視為 canonical archive 的正式 run 模型。
 - 之後新增的高風險操作若沒有 `run_id`、`run_type`、`trigger`、`status` 與 artifact 關聯，就算設計未完成。
 - worker bridge 需要逐步把「返回一段 ad-hoc JSON」的接口收斂到 run-oriented envelope。
+- Manual backup success 不得作為 scheduled-backup health 的替代證據；Schedule read model 必須分開 last attempt、last scheduled success 與 last manual success。
 
 ## Related
 

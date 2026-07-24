@@ -411,6 +411,7 @@ function scheduleStatusFixture(overrides: Partial<ScheduleStatus> = {}) {
     auditPath: '/Users/test/AppData/schedule-audit.json',
     checkedAt: '2026-04-29T12:00:00.000Z',
     issues: [],
+    lastScheduledSuccessAt: '2026-04-10T12:00:00Z',
     lastSuccessfulBackupAt: '2026-04-10T12:00:00Z',
     verificationChecks: [],
     warnings: [],

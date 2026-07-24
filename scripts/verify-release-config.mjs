@@ -38,6 +38,7 @@ function excludes(text, needle, label) {
 }
 
 const tauriConfig = readJson('src-tauri/tauri.conf.json')
+const packageConfig = readJson('package.json')
 const releaseWorkflow = readText('.github/workflows/release.yml')
 const workflowSources = Object.fromEntries(
   readdirSync('.github/workflows')
@@ -71,6 +72,25 @@ assert(
   tauriConfig.bundle?.windows?.wix?.upgradeCode ===
     '818daeb2-ee49-5696-a1db-bee51050939c',
   'Windows WiX upgrade code must stay pinned',
+)
+assert(
+  tauriConfig.bundle?.externalBin?.includes('binaries/pathkeep-worker'),
+  'Tauri bundle must ship the dedicated pathkeep-worker external binary',
+)
+includes(
+  tauriConfig.build?.beforeDevCommand ?? '',
+  'prepare:worker-sidecar',
+  'Tauri beforeDevCommand',
+)
+includes(
+  tauriConfig.build?.beforeBuildCommand ?? '',
+  'prepare:worker-sidecar',
+  'Tauri beforeBuildCommand',
+)
+assert(
+  packageConfig.scripts?.['prepare:worker-sidecar'] ===
+    'node scripts/prepare-worker-sidecar.mjs',
+  'package scripts must expose the reproducible worker-sidecar preparation command',
 )
 
 includes(

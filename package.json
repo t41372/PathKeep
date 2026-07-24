@@ -10,6 +10,7 @@
     "build": "tsc -b && vite build",
     "desktop:build": "tauri build",
     "desktop:build:debug": "tauri build --debug --no-bundle",
+    "prepare:worker-sidecar": "node scripts/prepare-worker-sidecar.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",

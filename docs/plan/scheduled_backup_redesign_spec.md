@@ -48,6 +48,9 @@ The frontend must consume typed read-model fields instead of parsing raw English
 - `ScheduleStatus.verificationChecks`: typed check rows for canonical artifact presence, load/query status, mismatch, legacy evidence, and permission failures.
 - `ScheduleStatus.checkedAt`: timestamp for the latest detection pass.
 - `ScheduleStatus.lastAction`: optional durable action result when a native operation can report one.
+- `ScheduleStatus.recentAttempts`: bounded schedule-attempt history with typed outcome / reason code, timestamps, optional canonical run id, and sanitized detail. It remains readable when the encrypted archive cannot be opened.
+- `ScheduleStatus.lastScheduledSuccessAt`: only a `trigger='schedule'` success may populate this field. Manual success never satisfies schedule health.
+- Generated native artifacts execute the bundled `pathkeep-worker` directly with `backup --due-only`; they must not launch the desktop GUI or treat a launcher process exit as the worker result.
 - `ApplyResult.stepResults`: action-level verification rows for install/remove/repair progress.
 - `warnings` remains for compatibility and diagnostics, but route copy must prefer typed `issues` / `verificationChecks`.
 
@@ -86,6 +89,7 @@ Every async action must show inline progress with the current step count and a l
 
 - Success: show concrete outcome, audit path when present, and follow-up status.
 - Failure: show the error plus an actionable recovery path.
+- The current state must also show the latest native wake outcome (`backed up`, `not due`, `deferred`, `failed`, or `interrupted`) and its timestamp. A failed/interrupted latest attempt is an attention issue even when the native artifact is installed and loaded.
 - No modal progress is allowed for schedule actions.
 
 ## State-Local UI Requirements

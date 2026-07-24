@@ -141,8 +141,8 @@ use crate::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
         BackupReport, BackupRunOverview, DashboardSnapshot, FullArchiveRestoreReport, HealthCheck,
         HealthRepairReport, HealthReport, HistoryEntry, HistoryQuery, HistoryQueryResponse,
-        RetentionBucket, RetentionPreview, RetentionPruneRequest, RetentionPruneResult,
-        SnapshotRestorePreview, SnapshotRestoreRequest, StorageSummary,
+        RecoverySnapshot, RetentionBucket, RetentionPreview, RetentionPruneRequest,
+        RetentionPruneResult, SnapshotRestorePreview, SnapshotRestoreRequest, StorageSummary,
     },
     utils::{
         file_sha256_hex, filesystem_safe_path_segment, identifier_from_filesystem_segment,
@@ -398,17 +398,21 @@ fn remove_path(path: &Path) -> Result<(u64, usize)> {
 /// recent verified-openable backstop — otherwise a routine prune could strand a user with a broken
 /// archive and no way back. [`list_recovery_snapshots`] is newest-first, so the first
 /// verified-openable entry is the freshest backstop to protect; its ledger row is kept too.
-fn prune_snapshot_bucket(connection: &Connection, paths: &ProjectPaths) -> Result<(u64, usize)> {
+fn prune_snapshot_bucket(
+    connection: &Connection,
+    paths: &ProjectPaths,
+    inventory: &[RecoverySnapshot],
+) -> Result<(u64, usize)> {
     // SPEC-ACCEPTED limitation: `verified_openable` is an authoritative keyed check only for a
     // PLAINTEXT snapshot. For an ENCRYPTED snapshot it is structural-only (size >= 512) because
     // retention holds no key — the authoritative keyed `quick_check` runs only at restore time (D1).
     // So a corrupt newest encrypted snapshot could be "protected" here while a genuinely-good older
     // one is pruned. This is accepted for now (see the remediation-plan backlog note: a keyed verify
     // or keep-N-newest for encrypted mode is a follow-up).
-    let protected = at_rest::list_recovery_snapshots(paths)
-        .into_iter()
+    let protected = inventory
+        .iter()
         .find(|snapshot| snapshot.verified_openable)
-        .map(|snapshot| PathBuf::from(snapshot.path));
+        .map(|snapshot| PathBuf::from(&snapshot.path));
     let deleted = remove_directory_contents_except(&paths.raw_snapshots_dir, protected.as_deref())?;
     match &protected {
         Some(path) => connection.execute(

@@ -377,6 +377,60 @@ fn app_snapshot_and_worker_cli_cover_main_local_flows() {
 }
 
 #[test]
+fn scheduled_worker_records_keyring_config_and_archive_open_failures_before_archive_ledger() {
+    let _guard = lock_env();
+    let root = tempdir().expect("tempdir");
+    let keyring_root = root.path().join("keyring");
+    let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let original_keyring_root = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    fs::create_dir_all(&keyring_root).expect("keyring root");
+    let secret_path = keyring_root
+        .join(format!("{}-database-key.secret", vault_platform::test_support::keyring_service()));
+    fs::create_dir(&secret_path).expect("directory blocks secret read");
+    let keyring_error = run_worker_cli(&["backup".to_string(), "--due-only".to_string()])
+        .expect_err("keyring read must fail");
+    assert!(keyring_error.to_string().contains("reading"));
+    let paths = project_paths().expect("paths");
+    let keyring_ledger =
+        vault_core::load_schedule_attempt_ledger(&paths, 1.0).expect("keyring ledger");
+    assert_eq!(keyring_ledger.attempts[0].reason_code.as_deref(), Some("keyring"));
+    fs::remove_dir(&secret_path).expect("remove blocking secret");
+
+    fs::create_dir_all(root.path()).expect("root");
+    fs::write(&paths.config_path, b"{broken-json").expect("corrupt config");
+    let config_error = run_worker_cli(&["backup".to_string(), "--due-only".to_string()])
+        .expect_err("config parse must fail");
+    assert!(config_error.to_string().contains("parsing config json"));
+    let config_ledger =
+        vault_core::load_schedule_attempt_ledger(&paths, 1.0).expect("config ledger");
+    assert_eq!(config_ledger.attempts[0].reason_code.as_deref(), Some("config"));
+
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    vault_core::save_config(&paths, &config).expect("valid config");
+    fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
+        .expect("archive parent");
+    fs::write(&paths.archive_database_path, b"not sqlite").expect("invalid archive");
+    let archive_error = run_worker_cli(&["backup".to_string(), "--due-only".to_string()])
+        .expect_err("archive open must fail");
+    assert!(!archive_error.to_string().is_empty());
+    let archive_ledger =
+        vault_core::load_schedule_attempt_ledger(&paths, 1.0).expect("archive ledger");
+    assert_eq!(archive_ledger.attempts[0].reason_code.as_deref(), Some("archive-open"));
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring_root.as_deref());
+}
+
+#[test]
 fn app_snapshot_degrades_when_browser_discovery_fails() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
@@ -452,6 +506,48 @@ fn app_snapshot_stays_usable_when_archive_is_initialized_but_locked() {
         std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
         std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
     }
+}
+
+#[test]
+fn app_snapshot_surfaces_recent_run_ledger_decode_failures() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = chrome_user_data_fixture(dir.path());
+    let keyring_root = dir.path().join("test-keyring");
+    let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let original_chrome_root = std::env::var_os(CHROME_USER_DATA_OVERRIDE_ENV);
+    let original_keyring_root = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    let config = initialized_config();
+    initialize_archive_database(&config, None).expect("initialize archive");
+    run_backup_now(None, false).expect("seed a visible run");
+    let paths = project_paths().expect("project paths");
+    let connection =
+        Connection::open(&paths.archive_database_path).expect("open archive for corruption");
+    connection
+        .execute(
+            "UPDATE runs
+             SET status = CAST(X'80' AS TEXT)
+             WHERE id = (SELECT MAX(id) FROM runs)",
+            [],
+        )
+        .expect("corrupt recent run payload");
+
+    let error = app_snapshot(None).expect_err("ledger decode failure must not look like no runs");
+    assert!(
+        format!("{error:#}").contains("loading the recent run ledger for the app snapshot"),
+        "unexpected error: {error:#}"
+    );
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+    restore_env_var(CHROME_USER_DATA_OVERRIDE_ENV, original_chrome_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring_root.as_deref());
 }
 
 #[test]
@@ -651,6 +747,26 @@ fn mcp_surface_respects_visibility_and_locked_app_sessions() {
     let cli_error =
         run_worker_cli(&["mcp-server".to_string()]).expect_err("locked mcp server should fail");
     assert!(cli_error.to_string().contains("Unlock PathKeep"));
+
+    let scheduled_json = run_worker_cli(&["backup".to_string(), "--due-only".to_string()])
+        .expect("App Lock must not block the OS-scheduled backup executor");
+    let scheduled: vault_core::BackupReport =
+        serde_json::from_str(&scheduled_json).expect("scheduled backup report");
+    assert!(
+        scheduled.due_skipped || scheduled.run.is_some(),
+        "scheduled executor must reach a real skip or canonical run"
+    );
+    let paths = project_paths().expect("project paths");
+    let ledger = vault_core::load_schedule_attempt_ledger(&paths, 1.0).expect("attempt ledger");
+    assert!(
+        matches!(
+            ledger.attempts[0].outcome,
+            vault_core::ScheduledBackupAttemptOutcome::Success
+                | vault_core::ScheduledBackupAttemptOutcome::Skipped
+        ),
+        "App Lock must not turn a scheduled backup into a failure: {:?}",
+        ledger.attempts[0]
+    );
 
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
@@ -2260,10 +2376,18 @@ fn coverage_runtime_direct_execution_covers_claim_mismatch_and_success() {
         )
         .expect("enqueue mismatch job")
     };
-    let mismatched =
+    let mismatch_error =
         execute_core_intelligence_job(&paths, &config, None, mismatch_id, VISIT_DERIVE_JOB_TYPE)
-            .expect("mismatched job type is a no-op");
-    assert!(!mismatched);
+            .expect_err("mismatched job type must be persisted and surfaced");
+    assert!(mismatch_error.to_string().contains("did not match queued type"));
+    let mismatch_state: String =
+        vault_core::archive::open_intelligence_connection(&paths, &config, None)
+            .expect("intelligence")
+            .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [mismatch_id], |row| {
+                row.get(0)
+            })
+            .expect("mismatch state");
+    assert_eq!(mismatch_state, "failed");
 
     let success_id = {
         let connection = vault_core::archive::open_intelligence_connection(&paths, &config, None)

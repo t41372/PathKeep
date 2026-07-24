@@ -217,10 +217,9 @@ export function useScheduleWorkflow() {
     () => visibleScheduleIssues(status?.issues ?? [], dismissedIssues),
     [dismissedIssues, status?.issues],
   )
-  const hasNeverRun = !(
-    status?.lastSuccessfulBackupAt ??
-    snapshot?.archiveStatus.lastSuccessfulBackupAt
-  )
+  // Schedule health is about native scheduled execution. A manual backup may
+  // prove the archive works, but it must never disguise a broken scheduler.
+  const hasNeverRun = !status?.lastScheduledSuccessAt
   const uiState: ScheduleUiState = deriveScheduleUiState({
     hasNeverRun,
     loading,

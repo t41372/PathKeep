@@ -50,6 +50,8 @@ fn discover_profiles_reads_local_state_from_override() {
 fn discover_profiles_supports_firefox_and_safari_overrides() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
+    let chrome_root = dir.path().join("empty-chrome");
+    fs::create_dir_all(&chrome_root).expect("create empty chrome root");
     let firefox_profiles = dir.path().join("firefox");
     let firefox_profile = firefox_profiles.join("abcd.default-release");
     fs::create_dir_all(&firefox_profile).expect("create firefox profile");
@@ -65,11 +67,13 @@ fn discover_profiles_supports_firefox_and_safari_overrides() {
     fs::write(safari_root.join("History.db"), b"safari").expect("write safari db");
 
     unsafe {
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(FIREFOX_PROFILES_OVERRIDE_ENV, &firefox_profiles);
         std::env::set_var(SAFARI_ROOT_OVERRIDE_ENV, &safari_root);
     }
     let profiles = discover_profiles().expect("discover all");
     unsafe {
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
         std::env::remove_var(FIREFOX_PROFILES_OVERRIDE_ENV);
         std::env::remove_var(SAFARI_ROOT_OVERRIDE_ENV);
     }

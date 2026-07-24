@@ -103,6 +103,8 @@ whole-workspace mutation 是 deep/release investigation gate；若成本或 surv
 - `bun run test:e2e:desktop-bridge` 證明 Chrome / Playwright 能透過 dev-only localhost bridge 打到真實 desktop command façade，現在也能覆蓋 updater install / relaunch 的 mirrored command transport；但它仍不是完整的 Tauri WebView / plugin guest API signoff，progress events 等 event-driven plugin surface 仍需 Tauri 實機驗證。
 - `bun run check:platform` 才是目前對 macOS / Linux host-native scheduler、keyring、launcher 與 updater desktop slice 的 blocking signoff；preview e2e 不能拿來替這些能力背書。
 - schedule / security / import / intelligence 這些高風險 surface 的 desktop truth，仍要靠 Rust tests、worker bridge tests、Tauri command tests 與對應的 PME / product docs 對齊。
+- Scheduled-backup blocking contract：每次 native wake 必須在 keyring/config/archive 之前建立 durable attempt，所有普通錯誤、due skip、lock defer 與 crash-recovered stale run 都有 typed terminal outcome；App Lock locked 不阻擋 trusted scheduled worker；manual success 不能滿足 schedule health；attempt ledger corruption/read failure 必須顯式報錯，不能降級成空歷史。macOS launcher 的 `0` 不可用來替代 worker outcome。
+- Background queue blocking contract：任何 claimed/selected deterministic、enrichment 或 AI job 每次 drain 都必須持久化 success/cancel/fail/retry outcome；malformed payload 或 executor/preflight error 不得 tight-loop、等 lease 才模糊重試、或丟失原始錯誤。Recovery snapshot inventory 只有在完整掃描成功時才可驅動 retention；任何非 `NotFound` I/O 錯誤一律 fail closed、零刪除。
 - `coverage:js` 現在覆蓋 active frontend runtime source；若某個 runtime owner 尚未被測試保護，這是 checker failure，不是文檔例外。
 - `coverage:rust` 已恢復 full `src-tauri/**/src/*.rs` 100% gate；如果實際命令失敗，失敗本身就是 release blocker，不能再降回 quality slice 後宣稱全後端達標。
 

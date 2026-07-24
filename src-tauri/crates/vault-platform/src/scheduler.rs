@@ -13,7 +13,10 @@ use crate::{host_capability::current_platform_name, test_support::schedule_label
 use anyhow::Result;
 use chrono::Utc;
 use serde::Serialize;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use vault_core::{
     ProjectPaths,
     models::{ApplyResult, SchedulePlan, ScheduleStatus},
@@ -43,22 +46,79 @@ pub fn preview_schedule(
 ) -> Result<SchedulePlan> {
     let platform = platform.map(ToOwned::to_owned).unwrap_or_else(current_platform_name);
     let label = schedule_label();
-    let worker_args = vec![
-        executable_path.display().to_string(),
-        "--worker".to_string(),
-        "backup".to_string(),
-        "--due-only".to_string(),
-    ];
+    let worker_executable = scheduled_worker_executable(executable_path)?;
+    let dedicated_worker = is_dedicated_worker(&worker_executable);
+    let mut worker_args = vec![worker_executable.display().to_string()];
+    if !dedicated_worker {
+        worker_args.push("--worker".to_string());
+    }
+    worker_args.extend(["backup".to_string(), "--due-only".to_string()]);
     let log_dir = paths.schedule_dir.join("logs");
     let _ = fs::create_dir_all(&log_dir);
 
     match platform.as_str() {
         "macos" => {
-            macos::macos_schedule_plan(&label, executable_path, &worker_args, &log_dir, params)
+            macos::macos_schedule_plan(&label, &worker_executable, &worker_args, &log_dir, params)
         }
-        "windows" => windows::windows_schedule_plan(&label, executable_path, &worker_args, params),
-        _ => linux::linux_schedule_plan(&label, executable_path, &worker_args, params),
+        "windows" => {
+            windows::windows_schedule_plan(&label, &worker_executable, &worker_args, params)
+        }
+        _ => linux::linux_schedule_plan(&label, &worker_executable, &worker_args, params),
     }
+}
+
+fn scheduled_worker_executable(desktop_executable: &Path) -> Result<PathBuf> {
+    scheduled_worker_executable_with_policy(desktop_executable, !cfg!(debug_assertions))
+}
+
+fn scheduled_worker_executable_with_policy(
+    desktop_executable: &Path,
+    require_sidecar_for_installed_binary: bool,
+) -> Result<PathBuf> {
+    if is_dedicated_worker(desktop_executable) {
+        return Ok(desktop_executable.to_path_buf());
+    }
+    let extension = desktop_executable.extension().and_then(|value| value.to_str());
+    let candidate_name = if extension.is_some_and(|value| value.eq_ignore_ascii_case("exe")) {
+        "pathkeep-worker.exe"
+    } else {
+        "pathkeep-worker"
+    };
+    let candidate = desktop_executable.with_file_name(candidate_name);
+    if candidate.is_file() {
+        return Ok(candidate);
+    }
+    if enclosing_app_bundle(desktop_executable).is_some() {
+        if desktop_executable.is_file() {
+            anyhow::bail!(
+                "the installed PathKeep bundle is missing its scheduled-backup worker sidecar: {}",
+                candidate.display()
+            );
+        }
+        // Pure preview tests may model a bundle path that is not present on
+        // the current host. Preserve the production path shape for review.
+        return Ok(candidate);
+    }
+    if require_sidecar_for_installed_binary && desktop_executable.is_file() {
+        anyhow::bail!(
+            "the installed PathKeep application is missing its scheduled-backup worker sidecar: {}",
+            candidate.display()
+        );
+    }
+    // Developer and legacy CLI builds do not necessarily stage the sidecar
+    // beside the desktop executable. Keep their explicit worker mode while
+    // production packages fail closed above.
+    Ok(desktop_executable.to_path_buf())
+}
+
+fn is_dedicated_worker(path: &Path) -> bool {
+    path.file_stem().and_then(|value| value.to_str()) == Some("pathkeep-worker")
+}
+
+fn enclosing_app_bundle(path: &Path) -> Option<&Path> {
+    path.ancestors()
+        .skip(1)
+        .find(|ancestor| ancestor.extension().and_then(|value| value.to_str()) == Some("app"))
 }
 
 /// Applies a previously previewed native schedule plan when the platform supports it.
@@ -224,6 +284,73 @@ mod tests {
         assert!(linux.generated_files[1].contents.contains("Persistent=true"));
         assert!(linux.generated_files[1].contents.contains("OnCalendar=*-*-* 00/6:00:00"));
         assert!(!linux.generated_files[1].contents.contains("OnUnitActiveSec"));
+    }
+
+    #[test]
+    fn bundled_desktop_schedule_targets_the_dedicated_worker_sidecar() {
+        let _guard = env_lock().lock().expect("env lock");
+        let original_schedule_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+        unsafe {
+            std::env::set_var(TEST_SCHEDULE_LABEL_ENV, "com.yi-ting.pathkeep.tests");
+        }
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
+        let desktop_executable =
+            dir.path().join("PathKeep-Test.app/Contents/MacOS/pathkeep-desktop");
+        let expected_worker = dir.path().join("PathKeep-Test.app/Contents/MacOS/pathkeep-worker");
+        let plan = preview_schedule(Some("macos"), &desktop_executable, &paths, &params)
+            .expect("bundled schedule");
+
+        restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
+
+        assert_eq!(plan.executable_path, expected_worker.display().to_string());
+        let plist = &plan.generated_files[0].contents;
+        assert!(plist.contains(&expected_worker.display().to_string()));
+        assert!(!plist.contains("/usr/bin/open"));
+        assert!(!plist.contains("--worker"));
+        assert!(plist.contains("<string>backup</string>"));
+        assert!(plist.contains("<string>--due-only</string>"));
+    }
+
+    #[test]
+    fn worker_resolution_covers_dedicated_staged_and_incomplete_bundle_paths() {
+        let dir = tempdir().expect("tempdir");
+        let dedicated_worker = dir.path().join("pathkeep-worker");
+        assert_eq!(
+            scheduled_worker_executable(&dedicated_worker).expect("dedicated worker"),
+            dedicated_worker
+        );
+
+        let desktop_executable = dir.path().join("pathkeep-desktop");
+        let staged_worker = dir.path().join("pathkeep-worker");
+        fs::write(&staged_worker, b"worker").expect("stage worker");
+        assert_eq!(
+            scheduled_worker_executable(&desktop_executable).expect("staged worker"),
+            staged_worker
+        );
+
+        let bundled_desktop = dir.path().join("Incomplete.app/Contents/MacOS/pathkeep-desktop");
+        fs::create_dir_all(bundled_desktop.parent().expect("bundle parent"))
+            .expect("create bundle");
+        fs::write(&bundled_desktop, b"desktop").expect("stage desktop");
+        let error = scheduled_worker_executable(&bundled_desktop)
+            .expect_err("installed bundle without sidecar must fail closed");
+        assert!(error.to_string().contains("bundle is missing"));
+        assert!(error.to_string().contains("pathkeep-worker"));
+    }
+
+    #[test]
+    fn installed_non_bundle_desktop_without_sidecar_fails_closed() {
+        let dir = tempdir().expect("tempdir");
+        let desktop_executable = dir.path().join("pathkeep-desktop");
+        fs::write(&desktop_executable, b"desktop").expect("stage desktop");
+
+        let error = scheduled_worker_executable_with_policy(&desktop_executable, true)
+            .expect_err("installed production desktop without sidecar must fail closed");
+
+        assert!(error.to_string().contains("application is missing"));
+        assert!(error.to_string().contains("pathkeep-worker"));
     }
 
     #[test]

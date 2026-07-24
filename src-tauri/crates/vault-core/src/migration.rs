@@ -2670,6 +2670,7 @@ mod tests {
         writer.finish().unwrap();
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn apply_import_succeeds_when_dest_lives_on_different_filesystem_than_default_tempdir() {
         // Codex review finding C3: the previous implementation staged

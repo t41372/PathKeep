@@ -234,6 +234,7 @@ fn run_snapshot_restore_locked(
 
     Ok(BackupReport {
         due_skipped: false,
+        reason_code: None,
         reason: None,
         run: Some(BackupRunOverview { manifest_hash: Some(manifest_hash), ..summary }),
         profiles: vec![profile_summary],
@@ -684,6 +685,19 @@ fn run_retention_prune_locked(
         });
     }
 
+    // Fail closed BEFORE the first archive or filesystem mutation. An I/O error must never be
+    // mistaken for an empty inventory, because that would bypass last-good protection and delete
+    // every snapshot plus its ledger rows. Holding the top-level locks keeps PathKeep writers from
+    // changing this inventory between the scan and prune.
+    let snapshot_inventory = if selected.iter().any(|bucket| bucket.id == "snapshots") {
+        Some(
+            super::at_rest::list_recovery_snapshots(paths)
+                .context("inventorying recovery snapshots before retention prune")?,
+        )
+    } else {
+        None
+    };
+
     let connection = open_archive_connection(paths, config, key)?;
     let started_at = now_rfc3339();
     let timezone = current_timezone_name();
@@ -698,7 +712,10 @@ fn run_retention_prune_locked(
     let mut deleted_files = 0usize;
     for bucket in &selected {
         if bucket.id == "snapshots" {
-            let (bytes, files) = prune_snapshot_bucket(&connection, paths)?;
+            let inventory = snapshot_inventory
+                .as_deref()
+                .expect("selected snapshots have a preflight inventory");
+            let (bytes, files) = prune_snapshot_bucket(&connection, paths, inventory)?;
             deleted_bytes += bytes;
             deleted_files += files;
         } else if bucket.id == "exports" {
@@ -2395,7 +2412,8 @@ mod tests {
         )
         .expect("record disposable");
 
-        crate::archive::prune_snapshot_bucket(&connection, &paths).expect("prune");
+        let inventory = super::at_rest::list_recovery_snapshots(&paths).expect("inventory");
+        crate::archive::prune_snapshot_bucket(&connection, &paths, &inventory).expect("prune");
 
         assert!(protected.exists(), "the last-good verified snapshot survives the prune");
         assert!(!disposable.exists(), "a non-verified snapshot is pruned");
@@ -2433,13 +2451,82 @@ mod tests {
         )
         .expect("record corrupt");
 
-        crate::archive::prune_snapshot_bucket(&connection, &paths).expect("prune");
+        let inventory = super::at_rest::list_recovery_snapshots(&paths).expect("inventory");
+        crate::archive::prune_snapshot_bucket(&connection, &paths, &inventory).expect("prune");
 
         assert!(!corrupt.exists(), "a non-verified-only bucket is fully pruned");
         let surviving: i64 = connection
             .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get(0))
             .expect("count snapshots");
         assert_eq!(surviving, 0, "with no protected backstop, all ledger rows are cleared");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retention_prune_fails_closed_before_any_mutation_when_snapshot_inventory_is_incomplete() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let config = plaintext_archive_config();
+        let connection =
+            open_archive_connection(&paths, &config, None).expect("open archive connection");
+
+        let rekey_dir = paths.raw_snapshots_dir.join("rekey");
+        fs::create_dir_all(&rekey_dir).expect("rekey dir");
+        let protected = rekey_dir.join("archive-before-rekey-good.sqlite");
+        {
+            let snapshot = Connection::open(&protected).expect("open snapshot db");
+            snapshot.execute_batch("CREATE TABLE t(a)").expect("seed snapshot db");
+        }
+        let loop_path = rekey_dir.join("unreadable-metadata.sqlite");
+        std::os::unix::fs::symlink("unreadable-metadata.sqlite", &loop_path)
+            .expect("create self-referential symlink");
+
+        let run_id = seed_runs_row(&connection);
+        record_snapshot_reference(
+            &connection,
+            run_id,
+            &protected,
+            "before-rekey",
+            "2026-06-30T00:00:00Z",
+        )
+        .expect("record protected snapshot");
+        let runs_before: i64 =
+            connection.query_row("SELECT COUNT(*) FROM runs", [], |row| row.get(0)).expect("runs");
+        let snapshots_before: i64 = connection
+            .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get(0))
+            .expect("snapshots");
+        drop(connection);
+
+        let error = run_retention_prune(
+            &paths,
+            &config,
+            None,
+            &RetentionPruneRequest { bucket_ids: vec!["snapshots".to_string()] },
+        )
+        .expect_err("an incomplete inventory must abort retention");
+        assert!(
+            format!("{error:#}").contains("inventorying recovery snapshots before retention prune"),
+            "the failure must explain the fail-closed preflight: {error:#}"
+        );
+
+        let connection =
+            open_archive_connection(&paths, &config, None).expect("reopen archive connection");
+        let runs_after: i64 =
+            connection.query_row("SELECT COUNT(*) FROM runs", [], |row| row.get(0)).expect("runs");
+        let snapshots_after: i64 = connection
+            .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get(0))
+            .expect("snapshots");
+        assert_eq!(runs_after, runs_before, "preflight failure records no partial prune run");
+        assert_eq!(
+            snapshots_after, snapshots_before,
+            "preflight failure never mutates the snapshot ledger"
+        );
+        assert!(protected.exists(), "the last-good snapshot is untouched");
+        assert!(
+            fs::symlink_metadata(&loop_path).is_ok(),
+            "the unreadable inventory entry is untouched"
+        );
     }
 
     #[test]
@@ -2731,7 +2818,7 @@ mod tests {
                 .expect("restore");
 
         // The path D1 recorded must equal what list_recovery_snapshots reports for the same file.
-        let listed = super::at_rest::list_recovery_snapshots(&paths);
+        let listed = super::at_rest::list_recovery_snapshots(&paths).expect("list snapshots");
         let listed_path =
             listed.iter().find(|s| s.verified_openable).expect("a verified snapshot").path.clone();
         assert_eq!(
@@ -2742,7 +2829,7 @@ mod tests {
         // Retention prune keeps the restored snapshot's FILE and its ledger row.
         let connection =
             open_archive_connection(&paths, &config, Some(RESTORE_KEY)).expect("open restored");
-        crate::archive::prune_snapshot_bucket(&connection, &paths).expect("prune");
+        crate::archive::prune_snapshot_bucket(&connection, &paths, &listed).expect("prune");
         assert!(snapshot_path.exists(), "the restored snapshot file survives retention prune");
         let kept: i64 = connection
             .query_row(

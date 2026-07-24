@@ -128,6 +128,7 @@ describe('SchedulePage', () => {
     backendMock.scheduleStatus.mockResolvedValue(
       statusFixture({
         installState: 'not-installed',
+        lastScheduledSuccessAt: null,
         lastSuccessfulBackupAt: null,
       }),
     )
@@ -185,8 +186,49 @@ describe('SchedulePage', () => {
     })
   })
 
+  test('keeps malformed native wake timestamps visible for diagnosis', async () => {
+    backendMock.scheduleStatus.mockResolvedValue(
+      statusFixture({
+        recentAttempts: [
+          {
+            detail: null,
+            finishedAt: null,
+            id: 'schedule-attempt-malformed-time',
+            outcome: 'interrupted',
+            phase: 'worker-start',
+            reasonCode: 'interrupted',
+            runId: null,
+            startedAt: 'invalid-native-wake-timestamp',
+          },
+        ],
+      }),
+    )
+
+    renderSchedule()
+
+    expect(
+      await screen.findAllByText('invalid-native-wake-timestamp'),
+    ).toHaveLength(2)
+  })
+
   test('renders installed-ok summary, verification, details, update, and removal actions', async () => {
     const user = userEvent.setup()
+    backendMock.scheduleStatus.mockResolvedValue(
+      statusFixture({
+        recentAttempts: [
+          {
+            detail: null,
+            finishedAt: '2026-04-25T12:00:00.000Z',
+            id: 'schedule-attempt-1',
+            outcome: 'skipped',
+            phase: 'due-check',
+            reasonCode: 'not-due',
+            runId: null,
+            startedAt: '2026-04-25T12:00:00.000Z',
+          },
+        ],
+      }),
+    )
 
     renderSchedule()
 
@@ -209,6 +251,9 @@ describe('SchedulePage', () => {
     expect(
       screen.getByText('~/Library/LaunchAgents/pathkeep.plist'),
     ).toBeInTheDocument()
+    expect(screen.getByText('schedule.attemptHistoryTitle')).toBeVisible()
+    expect(screen.getByText('schedule.attemptOutcome.skipped')).toBeVisible()
+    expect(screen.getByText('not-due')).toBeVisible()
 
     await user.click(
       screen.getByRole('button', { name: 'schedule.verifyInstallation' }),
@@ -322,6 +367,7 @@ describe('SchedulePage', () => {
     backendMock.scheduleStatus.mockResolvedValueOnce(
       statusFixture({
         installState: 'not-installed',
+        lastScheduledSuccessAt: null,
         lastSuccessfulBackupAt: null,
       }),
     )
@@ -376,6 +422,7 @@ describe('SchedulePage', () => {
     backendMock.scheduleStatus.mockResolvedValueOnce(
       statusFixture({
         installState: 'not-installed',
+        lastScheduledSuccessAt: null,
         lastSuccessfulBackupAt: null,
       }),
     )
@@ -474,6 +521,7 @@ describe('SchedulePage', () => {
     })
     backendMock.scheduleStatus.mockResolvedValueOnce(
       statusFixture({
+        lastScheduledSuccessAt: null,
         lastSuccessfulBackupAt: null,
       }),
     )
@@ -671,6 +719,7 @@ describe('SchedulePage', () => {
     backendMock.scheduleStatus.mockResolvedValueOnce(
       statusFixture({
         installState: 'not-installed',
+        lastScheduledSuccessAt: null,
         lastSuccessfulBackupAt: null,
       }),
     )
@@ -713,6 +762,7 @@ describe('SchedulePage', () => {
     backendMock.scheduleStatus.mockResolvedValueOnce(
       statusFixture({
         installState: 'not-installed',
+        lastScheduledSuccessAt: null,
         lastSuccessfulBackupAt: null,
       }),
     )
@@ -837,6 +887,7 @@ function statusFixture(overrides: Record<string, unknown> = {}) {
     installState: 'installed',
     issues: [],
     label: 'PathKeep Backup',
+    lastScheduledSuccessAt: '2026-04-25T12:00:00.000Z',
     lastSuccessfulBackupAt: '2026-04-25T12:00:00.000Z',
     manualStepDetails: [],
     manualSteps: [],

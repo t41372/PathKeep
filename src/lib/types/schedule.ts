@@ -110,6 +110,29 @@ export interface ScheduleLastAction {
 }
 
 /**
+ * One durable invocation of the native scheduled-backup worker.
+ *
+ * This plane stays readable even when the encrypted archive cannot be opened,
+ * so failures before a canonical run exists are never mistaken for inactivity.
+ */
+export interface ScheduledBackupAttempt {
+  id: string
+  startedAt: string
+  finishedAt?: string | null
+  outcome:
+    | 'running'
+    | 'success'
+    | 'skipped'
+    | 'deferred'
+    | 'failed'
+    | 'interrupted'
+  phase: string
+  reasonCode?: string | null
+  detail?: string | null
+  runId?: number | null
+}
+
+/**
  * Defines the typed shape for apply result.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
@@ -140,6 +163,10 @@ export interface ScheduleStatus {
   manualStepDetails?: ScheduleManualStep[]
   auditPath?: string | null
   lastSuccessfulBackupAt?: string | null
+  /** Last successful native scheduled run; manual backups never populate it. */
+  lastScheduledSuccessAt?: string | null
+  /** Bounded newest-first native worker attempt history. */
+  recentAttempts?: ScheduledBackupAttempt[]
   warnings: string[]
   issues?: ScheduleIssue[]
   verificationChecks?: ScheduleVerificationCheck[]

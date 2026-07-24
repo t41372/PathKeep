@@ -129,6 +129,7 @@ where
         None => {
             return Ok(BackupReport {
                 due_skipped: true,
+                reason_code: Some("write-lock".to_string()),
                 reason: Some(BACKUP_DEFERRED_FOR_WRITE_LOCK.to_string()),
                 ..BackupReport::default()
             });
@@ -157,9 +158,12 @@ where
     let mut source_evidence = super::open_source_evidence_connection(paths, config, key)?;
 
     if due_only && let Some(reason) = backup_due_skip_reason(&connection, config)? {
+        let skipped = persist_scheduled_skip_run(&connection, config, &reason)?;
         return Ok(BackupReport {
             due_skipped: true,
+            reason_code: Some("not-due".to_string()),
             reason: Some(reason),
+            run: Some(skipped),
             ..BackupReport::default()
         });
     }
@@ -199,10 +203,10 @@ where
     let mut warnings: Vec<String> = Vec::new();
 
     let backup_result = (|| -> Result<Vec<String>> {
-        let discovered = discover_profiles().map_err(classify_browser_access_error)?;
         if config.selected_profile_ids.is_empty() {
             anyhow::bail!("select at least one readable browser profile before running a backup");
         }
+        let discovered = discover_profiles().map_err(classify_browser_access_error)?;
         let selected_profiles =
             select_supported_profiles(&discovered, &config.selected_profile_ids);
         if selected_profiles.is_empty() {
@@ -497,12 +501,59 @@ where
 
     Ok(BackupReport {
         due_skipped: false,
+        reason_code: None,
         reason: None,
         run: Some(BackupRunOverview { manifest_hash: Some(manifest_hash), ..summary }),
         profiles: profile_summaries,
         manifest_path: Some(manifest_path.display().to_string()),
         git_commit,
         warnings,
+    })
+}
+
+/// Leaves canonical unified-ledger evidence for a schedule tick that safely
+/// opened the archive and determined no backup was due.
+///
+/// A write-lock deferral cannot use this helper because writing the archive
+/// while another destructive operation owns the lock would violate the
+/// durability contract. That case remains fully represented by the
+/// archive-independent attempt ledger.
+fn persist_scheduled_skip_run(
+    connection: &rusqlite::Connection,
+    config: &AppConfig,
+    reason: &str,
+) -> Result<BackupRunOverview> {
+    let at = now_rfc3339();
+    let timezone = current_timezone_name();
+    connection.execute(
+        "INSERT INTO runs (
+           run_type, trigger, started_at, finished_at, timezone, status,
+           profile_scope_json, warnings_json, stats_json, error_message, due_only
+         )
+         VALUES ('backup', 'schedule', ?1, ?1, ?2, 'skipped', ?3, '[]', ?4, NULL, 1)",
+        params![
+            at,
+            timezone,
+            serde_json::to_string(&config.selected_profile_ids)?,
+            serde_json::to_string(&serde_json::json!({
+                "reasonCode": "not-due",
+                "reason": reason,
+                "profilesProcessed": 0,
+                "newVisits": 0,
+                "newUrls": 0,
+                "newDownloads": 0,
+            }))?,
+        ],
+    )?;
+    Ok(BackupRunOverview {
+        id: connection.last_insert_rowid(),
+        started_at: at.clone(),
+        finished_at: Some(at),
+        status: "skipped".to_string(),
+        run_type: "backup".to_string(),
+        trigger: "schedule".to_string(),
+        profile_scope: config.selected_profile_ids.clone(),
+        ..BackupRunOverview::default()
     })
 }
 

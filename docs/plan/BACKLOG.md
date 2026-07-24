@@ -43,6 +43,13 @@
 
 > 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全流程跑完，confirmed findings 已全部修復並各自過獨立 review（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`、報告 `docs/review/2026-06-14/`）。剩下的是 verifier 標為 non-blocking 的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / trade-off 的 findings 不重開。
 
+- [ ] **WORK-RUN-LIFECYCLE-GUARDS** — P1 follow-up from 2026-07-23 silent-failure audit
+  - 讀先：`docs/architecture/decisions/003-run-model.md`；`docs/plan/program/quality-matrix.md`；`archive/maintenance.rs` retention/snapshot restore；Takeout / Browser Direct import run creation/finalization；Audit read models。
+  - 目標：建立 reusable run-attempt finalizer/guard，讓 canonical run row 一旦建立，任何 transaction 前置、commit 後 follow-up、manifest/stats/batch finalization 錯誤都留下 terminal、帶原始錯誤與 partial-commit phase 的結果，不再永久 `running`。
+  - 已確認範圍：retention prune；checkpoint snapshot restore；Takeout import；Browser Direct import；backup commit 後 manifest/search-projection/finalize tails。另修 Audit「Last 30 days」實際只取 12 筆、paper chain 再截 6 筆的 truth mismatch，以及 native worker stdout/stderr bounded rotation。
+  - 契約：每條舊碼 failure window 都先有 failing regression；若資料 transaction 已 commit，狀態必須誠實區分 committed-with-followup-failure，不得假裝完全失敗或成功；finalizer 自身錯誤不得覆蓋原始錯誤。
+  - 驗收：上述 owners 無非測試用途的裸 `running` leak；Audit copy/query一致且大列表 bounded/virtualized；worker logs有上限；`bun run check` 綠。
+
 - [ ] **WORK-REVIEW-0614-FOLLOWUPS-A** — 2026-06-14 review non-blocking follow-ups
   - 讀先：
     `docs/review/2026-06-14/phase-4/final-report.md`

@@ -166,12 +166,14 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let intelligence_status = derive_intelligence_status(&paths, &config, session_database_key);
     let can_read_archive_ledger = archive_status.initialized && archive_status.unlocked;
     let recent_runs = if can_read_archive_ledger {
-        load_recent_runs(&paths, &config, session_database_key).unwrap_or_default()
+        load_recent_runs(&paths, &config, session_database_key)
+            .context("loading the recent run ledger for the app snapshot")?
     } else {
         Vec::new()
     };
     let recent_import_batches = if can_read_archive_ledger {
-        load_import_batches(&paths, &config, session_database_key).unwrap_or_default()
+        load_import_batches(&paths, &config, session_database_key)
+            .context("loading the recent import ledger for the app snapshot")?
     } else {
         Vec::new()
     };

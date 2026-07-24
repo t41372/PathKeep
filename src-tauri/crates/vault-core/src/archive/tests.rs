@@ -2304,7 +2304,10 @@ fn backup_guards_initialization_selection_and_due_skip_before_profile_work() {
     ensure_archive_initialized(&paths, &initialized, None).expect("init archive");
     let no_selection = run_backup(&paths, &initialized, None, false)
         .expect_err("empty selected profiles should fail");
-    assert!(no_selection.to_string().contains("select at least one readable browser profile"));
+    assert!(
+        format!("{no_selection:#}").contains("select at least one readable browser profile"),
+        "{no_selection:#}"
+    );
 
     let connection = Connection::open(&paths.archive_database_path).expect("open archive");
     create_schema(&connection).expect("schema");
@@ -2319,7 +2322,19 @@ fn backup_guards_initialization_selection_and_due_skip_before_profile_work() {
 
     let skipped = run_backup(&paths, &initialized, None, true).expect("due-only backup skip");
     assert!(skipped.due_skipped);
+    assert_eq!(skipped.reason_code.as_deref(), Some("not-due"));
     assert!(skipped.reason.as_deref().is_some_and(|reason| reason.contains("minutes old")));
+    let skipped_run = skipped.run.expect("due skip must have unified runs evidence");
+    assert_eq!(skipped_run.status, "skipped");
+    assert_eq!(skipped_run.trigger, "schedule");
+    let persisted: (String, String) = connection
+        .query_row(
+            "SELECT status, json_extract(stats_json, '$.reasonCode') FROM runs WHERE id = ?1",
+            [skipped_run.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("persisted skip row");
+    assert_eq!(persisted, ("skipped".to_string(), "not-due".to_string()));
 }
 
 #[test]
@@ -2679,11 +2694,15 @@ fn backup_skips_unreadable_selected_profile_when_another_profile_is_readable() {
 fn multi_browser_backup_ingests_firefox_and_safari_history() {
     let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempdir().expect("tempdir");
+    let empty_chrome_root = dir.path().join("empty-chrome");
+    fs::create_dir_all(&empty_chrome_root).expect("empty chrome root");
     let firefox_profiles = seed_firefox_fixture(dir.path());
     let safari_root = seed_safari_fixture(dir.path());
+    let original_chrome = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
     let original_firefox = std::env::var_os("CHB_FIREFOX_PROFILES_DIR");
     let original_safari = std::env::var_os("CHB_SAFARI_ROOT");
     unsafe {
+        std::env::set_var("CHB_CHROME_USER_DATA_DIR", &empty_chrome_root);
         std::env::set_var("CHB_FIREFOX_PROFILES_DIR", &firefox_profiles);
         std::env::set_var("CHB_SAFARI_ROOT", &safari_root);
     }
@@ -2717,6 +2736,7 @@ fn multi_browser_backup_ingests_firefox_and_safari_history() {
     assert_eq!(rerun.run.as_ref().expect("rerun").new_visits, 0);
     assert_eq!(rerun.run.as_ref().expect("rerun").new_urls, 0);
 
+    restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
     restore_test_env_var("CHB_FIREFOX_PROFILES_DIR", original_firefox.as_deref());
     restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
 }
@@ -3440,11 +3460,15 @@ fn source_evidence_spools_large_deferred_payloads_and_cleans_up_tempfiles() {
 fn snapshot_restore_preview_sizes_firefox_and_safari_checkpoints() {
     let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempdir().expect("tempdir");
+    let empty_chrome_root = dir.path().join("empty-chrome");
+    fs::create_dir_all(&empty_chrome_root).expect("empty chrome root");
     let firefox_profiles = seed_firefox_fixture(dir.path());
     let safari_root = seed_safari_fixture(dir.path());
+    let original_chrome = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
     let original_firefox = std::env::var_os("CHB_FIREFOX_PROFILES_DIR");
     let original_safari = std::env::var_os("CHB_SAFARI_ROOT");
     unsafe {
+        std::env::set_var("CHB_CHROME_USER_DATA_DIR", &empty_chrome_root);
         std::env::set_var("CHB_FIREFOX_PROFILES_DIR", &firefox_profiles);
         std::env::set_var("CHB_SAFARI_ROOT", &safari_root);
     }
@@ -3500,6 +3524,7 @@ fn snapshot_restore_preview_sizes_firefox_and_safari_checkpoints() {
             && preview.estimated_urls == 1
     }));
 
+    restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
     restore_test_env_var("CHB_FIREFOX_PROFILES_DIR", original_firefox.as_deref());
     restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
 }
@@ -4051,6 +4076,7 @@ fn scheduled_backup_defers_when_another_process_holds_the_write_lock() {
     let report = run_backup(&paths, &config, None, true)
         .expect("a contended scheduled backup defers cleanly; it must not error");
     assert!(report.due_skipped, "the scheduled backup must defer while the lock is held");
+    assert_eq!(report.reason_code.as_deref(), Some("write-lock"));
     assert!(
         report.reason.as_deref().is_some_and(|reason| reason.contains("Another archive operation")),
         "the deferral reason must be visible, got: {:?}",

@@ -72,10 +72,19 @@ fn host_denied(error: &str) -> bool {
 
 #[test]
 fn discovery_smoke_does_not_crash() {
-    let result = discover_browser_profiles().expect("discover profiles");
-    for profile in result {
-        assert!(!profile.profile_id.is_empty());
-        assert!(!profile.browser_name.is_empty());
+    match discover_browser_profiles() {
+        Ok(result) => {
+            for profile in result {
+                assert!(!profile.profile_id.is_empty());
+                assert!(!profile.browser_name.is_empty());
+            }
+        }
+        Err(error) if host_denied(&format!("{error:#}")) => {
+            // A host-native smoke test runs under the invoking shell's TCC /
+            // secret-store authority. Denial is a valid capability result;
+            // an unrelated discovery error is still a failure below.
+        }
+        Err(error) => panic!("discover profiles: {error:#}"),
     }
 }
 

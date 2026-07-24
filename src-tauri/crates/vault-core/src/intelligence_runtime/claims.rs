@@ -84,7 +84,7 @@ pub fn claim_core_intelligence_job(
     if updated == 0 {
         return Ok(None);
     }
-    connection
+    let payload_json = connection
         .query_row(
             "SELECT payload_json
              FROM intelligence_jobs
@@ -92,10 +92,19 @@ pub fn claim_core_intelligence_job(
             [job_id],
             |row| row.get::<_, String>(0),
         )
-        .optional()?
-        .map(|payload_json| serde_json::from_str::<DeterministicRebuildJobPayload>(&payload_json))
-        .transpose()
-        .map_err(Into::into)
+        .optional()?;
+    let Some(payload_json) = payload_json else {
+        return Ok(None);
+    };
+    match serde_json::from_str::<DeterministicRebuildJobPayload>(&payload_json) {
+        Ok(payload) => Ok(Some(payload)),
+        Err(error) => {
+            let message = format!("parsing Core Intelligence payload for job {job_id}: {error}");
+            mark_intelligence_job_failed(connection, job_id, &message)?;
+            Err(error)
+                .with_context(|| format!("parsing Core Intelligence payload for job {job_id}"))
+        }
+    }
 }
 
 /// Claims one full rebuild job by id and returns its request payload when the row matches.
@@ -201,8 +210,18 @@ fn claim_typed_enrichment_job_by_id(
     let Some((plugin_id, attempt, payload_json)) = snapshot else {
         return Ok(None);
     };
-    let payload = serde_json::from_str::<EnrichmentJobPayload>(&payload_json)
-        .with_context(|| format!("parsing enrichment payload for job {job_id}"))?;
+    let payload = match serde_json::from_str::<EnrichmentJobPayload>(&payload_json) {
+        Ok(payload) => payload,
+        Err(error) => {
+            quarantine_queued_intelligence_job(
+                connection,
+                job_id,
+                &format!("parsing enrichment payload for job {job_id}: {error}"),
+            )?;
+            return Err(error)
+                .with_context(|| format!("parsing enrichment payload for job {job_id}"));
+        }
+    };
     let claimed_at = now_rfc3339();
     if !try_claim_enrichment_job(connection, job_id, &claimed_at)? {
         return Ok(None);
@@ -214,6 +233,32 @@ fn claim_typed_enrichment_job_by_id(
         attempt: attempt.max(0) as usize + 1,
         payload,
     }))
+}
+
+/// Moves an unclaimable queued row to a terminal, reviewable state.
+///
+/// Payload decoding happens before the enrichment compare-and-set claim. Without this transition,
+/// one malformed head row remains `queued` and every bounded worker immediately selects it again.
+fn quarantine_queued_intelligence_job(
+    connection: &Connection,
+    job_id: i64,
+    error: &str,
+) -> Result<bool> {
+    let now = now_rfc3339();
+    let updated = connection.execute(
+        "UPDATE intelligence_jobs
+         SET state = 'failed',
+             finished_at = ?1,
+             heartbeat_at = ?1,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
+             updated_at = ?1,
+             last_error = ?2
+         WHERE id = ?3
+           AND state = 'queued'",
+        params![now, error, job_id],
+    )?;
+    Ok(updated == 1)
 }
 
 #[cfg(test)]

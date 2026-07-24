@@ -129,8 +129,8 @@ pub(crate) fn drain_one_priority_intelligence_job(
     else {
         return Ok(false);
     };
-    let _ =
-        execute_core_intelligence_job(paths, &config, session_database_key, job.id, &job.job_type);
+    execute_core_intelligence_job(paths, &config, session_database_key, job.id, &job.job_type)
+        .with_context(|| format!("execute intelligence queue job {}", job.id))?;
     Ok(true)
 }
 
@@ -149,7 +149,12 @@ pub(crate) fn drain_one_enrichment_intelligence_job(
     else {
         return Ok(false);
     };
-    let _ = execute_enrichment_job_by_id(paths, &connection, job_id);
+    if let Err(error) = execute_enrichment_job_by_id(paths, &connection, job_id) {
+        let message = format!("{error:#}");
+        mark_intelligence_job_failed(&connection, job_id, &message)
+            .with_context(|| format!("persist enrichment queue failure for job {job_id}"))?;
+        return Err(error).with_context(|| format!("execute enrichment queue job {job_id}"));
+    }
     Ok(true)
 }
 
@@ -219,7 +224,11 @@ pub(crate) fn execute_core_intelligence_job(
         return Ok(false);
     };
     if payload.job_type != job_type {
-        return Ok(false);
+        let error = anyhow::anyhow!(
+            "Core Intelligence job {job_id} payload type '{}' did not match queued type '{job_type}'.",
+            payload.job_type
+        );
+        return record_core_intelligence_job_error(&connection, job_id, error);
     }
     let initial_profile =
         payload.request.profile_id.as_deref().unwrap_or("all profiles").to_string();
@@ -457,6 +466,68 @@ mod tests {
             )
             .expect("insert runtime job");
         connection.last_insert_rowid()
+    }
+
+    #[test]
+    fn drains_surface_and_quarantine_malformed_payloads() {
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("initialize archive");
+        vault_core::config::save_config(&paths, &config).expect("save config");
+        let connection =
+            open_intelligence_connection(&paths, &config, None).expect("runtime connection");
+        let now = chrono::Utc::now().to_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs (
+                    job_type, state, priority, attempt, dedupe_key, payload_json, artifact_json,
+                    created_at, scheduled_at, updated_at
+                 ) VALUES (?1, 'queued', 1, 0, 'malformed-drain-core', '{', '{}', ?2, ?2, ?2)",
+                rusqlite::params![VISIT_DERIVE_JOB_TYPE, now],
+            )
+            .expect("insert malformed core job");
+        let core_id = connection.last_insert_rowid();
+
+        let core_error = drain_one_priority_intelligence_job(&paths, None)
+            .expect_err("core drain must surface executor failure");
+        assert!(core_error.to_string().contains("execute intelligence queue job"));
+
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs (
+                    job_type, plugin_id, state, priority, attempt, dedupe_key, payload_json,
+                    artifact_json, created_at, scheduled_at, updated_at
+                 ) VALUES ('enrichment-plugin', ?1, 'queued', 1, 0,
+                    'malformed-drain-enrichment', '{', '{}', ?2, ?2, ?2)",
+                rusqlite::params![vault_core::TITLE_NORMALIZATION_PLUGIN_ID, now],
+            )
+            .expect("insert malformed enrichment job");
+        let enrichment_id = connection.last_insert_rowid();
+
+        let enrichment_error = drain_one_enrichment_intelligence_job(&paths, None)
+            .expect_err("enrichment drain must surface executor failure");
+        assert!(enrichment_error.to_string().contains("execute enrichment queue job"));
+        for job_id in [core_id, enrichment_id] {
+            let (state, last_error): (String, String) = connection
+                .query_row(
+                    "SELECT state, last_error FROM intelligence_jobs WHERE id = ?1",
+                    [job_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .expect("failed queue row");
+            assert_eq!(state, "failed");
+            assert!(!last_error.is_empty());
+        }
+        assert!(
+            !drain_one_enrichment_intelligence_job(&paths, None)
+                .expect("malformed row is no longer runnable"),
+            "a quarantined malformed row must not tight-loop"
+        );
     }
 
     #[test]

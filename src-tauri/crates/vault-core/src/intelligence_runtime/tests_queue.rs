@@ -94,6 +94,98 @@ fn deterministic_rebuild_jobs_are_traced_in_runtime_queue() {
 }
 
 #[test]
+fn core_claim_returns_none_when_the_claimed_row_disappears_before_payload_read() {
+    let connection = Connection::open_in_memory().expect("memory db");
+    ensure_intelligence_runtime_schema(&connection).expect("queue schema");
+    let job_id = enqueue_deterministic_rebuild_job(
+        &connection,
+        &CoreIntelligenceRebuildRequest::default(),
+        "Trigger a claim/delete race.",
+    )
+    .expect("enqueue deterministic rebuild");
+    connection
+        .execute_batch(
+            "CREATE TRIGGER delete_claimed_core_job
+             AFTER UPDATE OF state ON intelligence_jobs
+             WHEN NEW.state = 'running'
+             BEGIN
+               DELETE FROM intelligence_jobs WHERE id = NEW.id;
+             END;",
+        )
+        .expect("install deterministic delete-after-claim trigger");
+
+    assert!(
+        claim_core_intelligence_job(&connection, job_id)
+            .expect("a disappeared claimed row is not an error")
+            .is_none()
+    );
+}
+
+#[test]
+fn malformed_core_payload_is_quarantined_after_claim() {
+    let connection = Connection::open_in_memory().expect("memory db");
+    ensure_intelligence_runtime_schema(&connection).expect("queue schema");
+    let now = crate::utils::now_rfc3339();
+    connection
+        .execute(
+            "INSERT INTO intelligence_jobs (
+                job_type, state, priority, dedupe_key, payload_json, created_at, scheduled_at,
+                updated_at
+             ) VALUES (?1, 'queued', 10, 'malformed-core', '{', ?2, ?2, ?2)",
+            params![FULL_REBUILD_JOB_TYPE, now],
+        )
+        .expect("insert malformed core job");
+    let job_id = connection.last_insert_rowid();
+
+    let error = claim_core_intelligence_job(&connection, job_id)
+        .expect_err("malformed core payload must fail");
+
+    let (state, last_error): (String, String) = connection
+        .query_row(
+            "SELECT state, last_error FROM intelligence_jobs WHERE id = ?1",
+            [job_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("quarantined core row");
+    assert_eq!(state, "failed");
+    assert!(last_error.contains(&error.to_string()));
+}
+
+#[test]
+fn malformed_enrichment_payload_is_quarantined_before_claim() {
+    let connection = Connection::open_in_memory().expect("memory db");
+    ensure_intelligence_runtime_schema(&connection).expect("queue schema");
+    let now = crate::utils::now_rfc3339();
+    connection
+        .execute(
+            "INSERT INTO intelligence_jobs (
+                job_type, plugin_id, state, priority, dedupe_key, payload_json, created_at,
+                scheduled_at, updated_at
+             ) VALUES (?1, ?2, 'queued', 10, 'malformed-enrichment', '{', ?3, ?3, ?3)",
+            params![ENRICHMENT_JOB_TYPE, TITLE_NORMALIZATION_PLUGIN_ID, now],
+        )
+        .expect("insert malformed enrichment job");
+    let job_id = connection.last_insert_rowid();
+
+    let error = claim_enrichment_job_by_id(&connection, job_id)
+        .expect_err("malformed enrichment payload must fail");
+
+    let (state, last_error): (String, String) = connection
+        .query_row(
+            "SELECT state, last_error FROM intelligence_jobs WHERE id = ?1",
+            [job_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("quarantined enrichment row");
+    assert_eq!(state, "failed");
+    assert!(last_error.contains(&error.to_string()));
+    assert!(
+        next_queued_enrichment_job(&connection).expect("load next enrichment").is_none(),
+        "the malformed queue head must not be selected forever"
+    );
+}
+
+#[test]
 fn enqueue_runtime_helpers_dedupe_refresh_and_mark_stale_contracts() {
     let connection = Connection::open_in_memory().expect("memory db");
     ensure_intelligence_runtime_schema(&connection).expect("queue schema");

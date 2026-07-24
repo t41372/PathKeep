@@ -56,6 +56,79 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{fs, io::Read, path::Path, time::Duration as StdDuration};
 
+/// Identifies one fallible filesystem operation in the recovery-snapshot inventory.
+///
+/// The value is only observed by the test-only fault seam below. Keeping the seam at the I/O
+/// boundary lets tests reproduce iterator errors and delete races deterministically while release
+/// builds call `std::fs` directly.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SnapshotInventoryFaultSite {
+    LegacyBucketReadDir,
+    RootEntry,
+    BucketMetadata,
+    BucketReadDir,
+    SnapshotEntry,
+}
+
+#[cfg(test)]
+thread_local! {
+    static SNAPSHOT_INVENTORY_FAULT:
+        std::cell::Cell<Option<(SnapshotInventoryFaultSite, std::io::ErrorKind)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn inject_snapshot_inventory_fault(site: SnapshotInventoryFaultSite, kind: std::io::ErrorKind) {
+    SNAPSHOT_INVENTORY_FAULT.with(|fault| fault.set(Some((site, kind))));
+}
+
+#[cfg(test)]
+fn take_snapshot_inventory_fault(site: SnapshotInventoryFaultSite) -> Option<std::io::Error> {
+    SNAPSHOT_INVENTORY_FAULT.with(|fault| {
+        let armed = fault.get();
+        if armed.is_some_and(|(armed_site, _)| armed_site == site) {
+            fault.set(None);
+            armed.map(|(_, kind)| std::io::Error::new(kind, "injected snapshot inventory fault"))
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(test)]
+fn snapshot_read_dir(
+    path: &Path,
+    site: SnapshotInventoryFaultSite,
+) -> std::io::Result<fs::ReadDir> {
+    if let Some(error) = take_snapshot_inventory_fault(site) {
+        return Err(error);
+    }
+    fs::read_dir(path)
+}
+
+#[cfg(test)]
+fn snapshot_metadata(
+    path: &Path,
+    site: SnapshotInventoryFaultSite,
+) -> std::io::Result<fs::Metadata> {
+    if let Some(error) = take_snapshot_inventory_fault(site) {
+        return Err(error);
+    }
+    fs::metadata(path)
+}
+
+#[cfg(test)]
+fn next_snapshot_entry(
+    entries: &mut fs::ReadDir,
+    site: SnapshotInventoryFaultSite,
+) -> Option<std::io::Result<fs::DirEntry>> {
+    if let Some(error) = take_snapshot_inventory_fault(site) {
+        return Some(Err(error));
+    }
+    entries.next()
+}
+
 /// The 16-byte magic every plaintext SQLite database file begins with. An
 /// encrypted SQLCipher file starts with a random salt instead, so the presence
 /// of this header is a cheap, key-free signal that a file is plaintext.
@@ -224,21 +297,34 @@ pub(crate) fn check_config_disk_consistency(paths: &ProjectPaths) -> Result<()> 
 }
 
 /// Lists the verified rekey safety-snapshot files (`raw-snapshots/rekey/*.sqlite`) a Phase-D
-/// restore could offer. Best-effort + cheap: a directory listing, never a DB open. Sorted for
-/// a stable, newest-last presentation.
-fn available_verified_snapshots(paths: &ProjectPaths) -> Vec<String> {
+/// restore could offer. Cheap: a directory listing, never a DB open. Sorted for a stable,
+/// newest-last presentation. Missing is empty; an incomplete listing is an error.
+fn available_verified_snapshots(paths: &ProjectPaths) -> Result<Vec<String>> {
     let rekey_dir = paths.raw_snapshots_dir.join("rekey");
-    let Ok(entries) = fs::read_dir(&rekey_dir) else {
-        return Vec::new();
+    #[cfg(test)]
+    let entries = snapshot_read_dir(&rekey_dir, SnapshotInventoryFaultSite::LegacyBucketReadDir);
+    #[cfg(not(test))]
+    let entries = fs::read_dir(&rekey_dir);
+    let entries = match entries {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!("reading recovery snapshot bucket {}", rekey_dir.display())
+            });
+        }
     };
-    let mut snapshots: Vec<String> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("sqlite"))
-        .map(|path| path.display().to_string())
-        .collect();
+    let mut snapshots = Vec::new();
+    for entry in entries {
+        let entry =
+            entry.with_context(|| format!("reading an entry in {}", rekey_dir.display()))?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some("sqlite") {
+            snapshots.push(path.display().to_string());
+        }
+    }
     snapshots.sort();
-    snapshots
+    Ok(snapshots)
 }
 
 /// Lists every verified full-archive safety snapshot the Phase-D recovery GUI can offer, with
@@ -254,19 +340,55 @@ fn available_verified_snapshots(paths: &ProjectPaths) -> Vec<String> {
 /// for plaintext files ONLY — a page-1 `PRAGMA schema_version` (NEVER a 14.4M-row b-tree walk).
 /// Encrypted snapshots get a structural size-only check because we hold no key here; the
 /// authoritative keyed `quick_check` runs at restore time (D1). Sorted NEWEST FIRST so the
-/// recovery screen defaults to the freshest backstop. A missing/empty `raw-snapshots/` yields an
-/// empty list rather than an error.
-pub fn list_recovery_snapshots(paths: &ProjectPaths) -> Vec<RecoverySnapshot> {
+/// recovery screen defaults to the freshest backstop. A genuinely missing/empty
+/// `raw-snapshots/` yields an empty list. Every other directory-entry or metadata I/O failure is
+/// returned: callers must never confuse an incomplete inventory with "no snapshots", because
+/// retention uses this inventory to protect the last-good restore backstop.
+pub fn list_recovery_snapshots(paths: &ProjectPaths) -> Result<Vec<RecoverySnapshot>> {
     /// Bucket subdirectory names mapped to a known `source_op`; anything else is `"unknown"`.
     const KNOWN_OPS: [&str; 4] = ["rekey", "reconcile", "import", "periodic"];
 
     let mut snapshots: Vec<RecoverySnapshot> = Vec::new();
-    let Ok(buckets) = fs::read_dir(&paths.raw_snapshots_dir) else {
-        return snapshots;
+    let buckets = fs::read_dir(&paths.raw_snapshots_dir);
+    let mut buckets = match buckets {
+        Ok(buckets) => buckets,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(snapshots),
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!("reading recovery snapshot inventory {}", paths.raw_snapshots_dir.display())
+            });
+        }
     };
-    for bucket in buckets.flatten() {
+    loop {
+        #[cfg(test)]
+        let bucket = next_snapshot_entry(&mut buckets, SnapshotInventoryFaultSite::RootEntry);
+        #[cfg(not(test))]
+        let bucket = buckets.next();
+        let Some(bucket) = bucket else {
+            break;
+        };
+        let bucket = bucket.with_context(|| {
+            format!(
+                "reading a recovery snapshot bucket entry in {}",
+                paths.raw_snapshots_dir.display()
+            )
+        })?;
         let bucket_path = bucket.path();
-        if !bucket_path.is_dir() {
+        #[cfg(test)]
+        let bucket_metadata =
+            snapshot_metadata(&bucket_path, SnapshotInventoryFaultSite::BucketMetadata);
+        #[cfg(not(test))]
+        let bucket_metadata = fs::metadata(&bucket_path);
+        let bucket_metadata = match bucket_metadata {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("reading recovery snapshot bucket metadata {}", bucket_path.display())
+                });
+            }
+        };
+        if !bucket_metadata.is_dir() {
             continue;
         }
         let source_op = bucket_path
@@ -275,17 +397,45 @@ pub fn list_recovery_snapshots(paths: &ProjectPaths) -> Vec<RecoverySnapshot> {
             .filter(|name| KNOWN_OPS.contains(name))
             .map(str::to_string)
             .unwrap_or_else(|| "unknown".to_string());
-        // `Result::into_iter().flatten().flatten()` skips an unreadable bucket dir AND any
-        // per-entry read error without an extra branch (both are vanishingly rare here).
-        for entry in fs::read_dir(&bucket_path).into_iter().flatten().flatten() {
+        #[cfg(test)]
+        let entries = snapshot_read_dir(&bucket_path, SnapshotInventoryFaultSite::BucketReadDir);
+        #[cfg(not(test))]
+        let entries = fs::read_dir(&bucket_path);
+        let mut entries = match entries {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("reading recovery snapshot bucket {}", bucket_path.display())
+                });
+            }
+        };
+        loop {
+            #[cfg(test)]
+            let entry =
+                next_snapshot_entry(&mut entries, SnapshotInventoryFaultSite::SnapshotEntry);
+            #[cfg(not(test))]
+            let entry = entries.next();
+            let Some(entry) = entry else {
+                break;
+            };
+            let entry = entry.with_context(|| {
+                format!("reading an entry in recovery snapshot bucket {}", bucket_path.display())
+            })?;
             let path = entry.path();
             if path.extension().and_then(|ext| ext.to_str()) != Some("sqlite") {
                 continue;
             }
             // `fs::metadata` follows symlinks, so a dangling snapshot symlink errors here and is
             // skipped (rather than surfacing a bogus zero-size entry).
-            let Ok(metadata) = fs::metadata(&path) else {
-                continue;
+            let metadata = match fs::metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("reading recovery snapshot metadata {}", path.display())
+                    });
+                }
             };
             let size_bytes = metadata.len();
             let created_at = metadata
@@ -310,7 +460,7 @@ pub fn list_recovery_snapshots(paths: &ProjectPaths) -> Vec<RecoverySnapshot> {
     // Newest first (created_at desc), path desc as a stable tiebreak so equal mtimes still order
     // deterministically. `None` mtimes sort last under the descending compare.
     snapshots.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| b.path.cmp(&a.path)));
-    snapshots
+    Ok(snapshots)
 }
 
 /// KEYLESS "does this snapshot open?" probe. Plaintext: a page-1 `PRAGMA schema_version` (header
@@ -347,8 +497,8 @@ fn build_recovery_report(
     config: &AppConfig,
     kind: ArchiveRecoveryKind,
     error: &anyhow::Error,
-) -> ArchiveRecoveryReport {
-    ArchiveRecoveryReport {
+) -> Result<ArchiveRecoveryReport> {
+    Ok(ArchiveRecoveryReport {
         kind,
         config_mode: config.archive_mode.clone(),
         history_vault_mode: disk_mode_to_archive_mode(detect_disk_encryption_mode(
@@ -357,10 +507,10 @@ fn build_recovery_report(
         source_evidence_mode: disk_mode_to_archive_mode(detect_disk_encryption_mode(
             &paths.source_evidence_database_path,
         )),
-        available_snapshots: available_verified_snapshots(paths),
-        recovery_snapshots: list_recovery_snapshots(paths),
+        available_snapshots: available_verified_snapshots(paths)?,
+        recovery_snapshots: list_recovery_snapshots(paths)?,
         detail: format!("{error:#}"),
-    }
+    })
 }
 
 /// Launch-time auto-heal for the canonical archive's config↔file at-rest drift.
@@ -488,23 +638,29 @@ fn recover_archive_on_launch_locked(
         // (1) Recover a whole-app import whose commit phase was cut by a crash. `recover_interrupted_import`
         // leaves its marker on Err, so we surface — never clear — an unrecoverable import.
         if let Err(error) = crate::migration::recover_interrupted_import(paths) {
-            return Ok(LaunchRecovery::Unrecoverable(build_recovery_report(
-                paths,
-                config,
-                ArchiveRecoveryKind::InterruptedImportModeDrift,
-                &error,
-            )));
+            return Ok(LaunchRecovery::Unrecoverable(
+                build_recovery_report(
+                    paths,
+                    config,
+                    ArchiveRecoveryKind::InterruptedImportModeDrift,
+                    &error,
+                )
+                .context("building recovery report after interrupted import recovery failed")?,
+            ));
         }
 
         // (2) Recover an interrupted rekey (the marker the rekey swap writes). Fail-closed when the
         // canonical archive is gone — `recover_interrupted_rekey` leaves the marker on Err.
         if let Err(error) = super::recover_interrupted_rekey(paths) {
-            return Ok(LaunchRecovery::Unrecoverable(build_recovery_report(
-                paths,
-                config,
-                ArchiveRecoveryKind::InterruptedRekeyUnresolved,
-                &error,
-            )));
+            return Ok(LaunchRecovery::Unrecoverable(
+                build_recovery_report(
+                    paths,
+                    config,
+                    ArchiveRecoveryKind::InterruptedRekeyUnresolved,
+                    &error,
+                )
+                .context("building recovery report after interrupted rekey recovery failed")?,
+            ));
         }
     }
 
@@ -515,12 +671,15 @@ fn recover_archive_on_launch_locked(
     // the quarantined originals, then converges config; the keyed verify + source-evidence rebuild are
     // deferred to the next keyed open (mirrors the rekey source-evidence deferral).
     if let Err(error) = super::recover_interrupted_restore(paths) {
-        return Ok(LaunchRecovery::Unrecoverable(build_recovery_report(
-            paths,
-            config,
-            ArchiveRecoveryKind::InterruptedRestoreUnresolved,
-            &error,
-        )));
+        return Ok(LaunchRecovery::Unrecoverable(
+            build_recovery_report(
+                paths,
+                config,
+                ArchiveRecoveryKind::InterruptedRestoreUnresolved,
+                &error,
+            )
+            .context("building recovery report after interrupted restore recovery failed")?,
+        ));
     }
 
     // (4) Config↔file at-rest drift, HEADER READS ONLY (never open/scan the DB — the 14.4M-row
@@ -1890,7 +2049,7 @@ mod tests {
         set_snapshot_mtime(&corrupt, 1_000_000_000);
         set_snapshot_mtime(&valid, 2_000_000_000);
 
-        let snapshots = list_recovery_snapshots(&paths);
+        let snapshots = list_recovery_snapshots(&paths).expect("list snapshots");
         assert_eq!(snapshots.len(), 2, "both snapshots are listed");
         assert_eq!(snapshots[0].path, valid.display().to_string(), "newest (valid) leads");
         assert_eq!(snapshots[1].path, corrupt.display().to_string());
@@ -1931,7 +2090,7 @@ mod tests {
         fs::write(paths.raw_snapshots_dir.join("loose.sqlite"), b"loose")
             .expect("write loose file");
 
-        let snapshots = list_recovery_snapshots(&paths);
+        let snapshots = list_recovery_snapshots(&paths).expect("list snapshots");
         assert_eq!(snapshots.len(), 3, "only the three bucketed .sqlite files are listed");
         let find = |needle: &str| {
             snapshots.iter().find(|s| s.path.contains(needle)).expect("snapshot present").clone()
@@ -1952,9 +2111,156 @@ mod tests {
     fn list_recovery_snapshots_empty_for_missing_and_empty_dirs() {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
-        assert!(list_recovery_snapshots(&paths).is_empty(), "missing dir -> empty");
+        assert!(
+            list_recovery_snapshots(&paths).expect("missing inventory is valid").is_empty(),
+            "missing dir -> empty"
+        );
         fs::create_dir_all(&paths.raw_snapshots_dir).expect("raw snapshots dir");
-        assert!(list_recovery_snapshots(&paths).is_empty(), "empty dir -> empty");
+        assert!(
+            list_recovery_snapshots(&paths).expect("empty inventory is valid").is_empty(),
+            "empty dir -> empty"
+        );
+    }
+
+    #[test]
+    fn list_recovery_snapshots_surfaces_a_non_not_found_root_read_error() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        fs::create_dir_all(
+            paths.raw_snapshots_dir.parent().expect("raw snapshots parent directory"),
+        )
+        .expect("create parent");
+        fs::write(&paths.raw_snapshots_dir, b"not a directory").expect("replace root with file");
+
+        let error =
+            list_recovery_snapshots(&paths).expect_err("a non-directory inventory root must fail");
+        assert!(
+            format!("{error:#}").contains("reading recovery snapshot inventory"),
+            "the error identifies the incomplete inventory: {error:#}"
+        );
+    }
+
+    #[test]
+    fn available_verified_snapshots_surfaces_a_non_not_found_read_error() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        inject_snapshot_inventory_fault(
+            SnapshotInventoryFaultSite::LegacyBucketReadDir,
+            std::io::ErrorKind::PermissionDenied,
+        );
+
+        let error = available_verified_snapshots(&paths)
+            .expect_err("an unreadable legacy rekey bucket must fail");
+        assert!(
+            format!("{error:#}").contains("reading recovery snapshot bucket"),
+            "the error identifies the unreadable bucket: {error:#}"
+        );
+    }
+
+    #[test]
+    fn list_recovery_snapshots_surfaces_a_root_iterator_error() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        fs::create_dir_all(&paths.raw_snapshots_dir).expect("raw snapshots dir");
+        inject_snapshot_inventory_fault(
+            SnapshotInventoryFaultSite::RootEntry,
+            std::io::ErrorKind::PermissionDenied,
+        );
+
+        let error =
+            list_recovery_snapshots(&paths).expect_err("a root iterator error must fail inventory");
+        assert!(
+            format!("{error:#}").contains("reading a recovery snapshot bucket entry"),
+            "the error identifies the incomplete root iteration: {error:#}"
+        );
+    }
+
+    #[test]
+    fn list_recovery_snapshots_skips_a_bucket_deleted_before_metadata() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        fs::create_dir_all(paths.raw_snapshots_dir.join("rekey")).expect("rekey bucket");
+        inject_snapshot_inventory_fault(
+            SnapshotInventoryFaultSite::BucketMetadata,
+            std::io::ErrorKind::NotFound,
+        );
+
+        assert!(
+            list_recovery_snapshots(&paths)
+                .expect("a concurrently deleted bucket is skipped")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn list_recovery_snapshots_surfaces_a_bucket_metadata_error() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        fs::create_dir_all(paths.raw_snapshots_dir.join("rekey")).expect("rekey bucket");
+        inject_snapshot_inventory_fault(
+            SnapshotInventoryFaultSite::BucketMetadata,
+            std::io::ErrorKind::PermissionDenied,
+        );
+
+        let error = list_recovery_snapshots(&paths)
+            .expect_err("a bucket metadata error must fail inventory");
+        assert!(
+            format!("{error:#}").contains("reading recovery snapshot bucket metadata"),
+            "the error identifies the unreadable bucket metadata: {error:#}"
+        );
+    }
+
+    #[test]
+    fn list_recovery_snapshots_skips_a_bucket_deleted_before_read_dir() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        fs::create_dir_all(paths.raw_snapshots_dir.join("rekey")).expect("rekey bucket");
+        inject_snapshot_inventory_fault(
+            SnapshotInventoryFaultSite::BucketReadDir,
+            std::io::ErrorKind::NotFound,
+        );
+
+        assert!(
+            list_recovery_snapshots(&paths)
+                .expect("a bucket deleted before scanning is skipped")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn list_recovery_snapshots_surfaces_a_bucket_read_error() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        fs::create_dir_all(paths.raw_snapshots_dir.join("rekey")).expect("rekey bucket");
+        inject_snapshot_inventory_fault(
+            SnapshotInventoryFaultSite::BucketReadDir,
+            std::io::ErrorKind::PermissionDenied,
+        );
+
+        let error =
+            list_recovery_snapshots(&paths).expect_err("an unreadable bucket must fail inventory");
+        assert!(
+            format!("{error:#}").contains("reading recovery snapshot bucket"),
+            "the error identifies the unreadable bucket: {error:#}"
+        );
+    }
+
+    #[test]
+    fn list_recovery_snapshots_surfaces_a_snapshot_iterator_error() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        fs::create_dir_all(paths.raw_snapshots_dir.join("rekey")).expect("rekey bucket");
+        inject_snapshot_inventory_fault(
+            SnapshotInventoryFaultSite::SnapshotEntry,
+            std::io::ErrorKind::PermissionDenied,
+        );
+
+        let error = list_recovery_snapshots(&paths)
+            .expect_err("a snapshot iterator error must fail inventory");
+        assert!(
+            format!("{error:#}").contains("reading an entry in recovery snapshot bucket"),
+            "the error identifies the incomplete bucket iteration: {error:#}"
+        );
     }
 
     #[test]
@@ -1969,7 +2275,7 @@ mod tests {
         fs::create_dir_all(&rekey_dir).expect("rekey dir");
         fs::write(rekey_dir.join("tiny.sqlite"), b"abcde").expect("write 5-byte snapshot");
 
-        let snapshots = list_recovery_snapshots(&paths);
+        let snapshots = list_recovery_snapshots(&paths).expect("list snapshots");
         assert_eq!(snapshots.len(), 1, "the sub-header file is still listed");
         assert!(
             !snapshots[0].verified_openable,
@@ -1992,8 +2298,27 @@ mod tests {
         )
         .expect("create dangling symlink");
         assert!(
-            list_recovery_snapshots(&paths).is_empty(),
+            list_recovery_snapshots(&paths).expect("list snapshots").is_empty(),
             "a dangling snapshot symlink contributes nothing",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn list_recovery_snapshots_surfaces_a_non_not_found_metadata_error() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let rekey_dir = paths.raw_snapshots_dir.join("rekey");
+        fs::create_dir_all(&rekey_dir).expect("rekey dir");
+        let loop_path = rekey_dir.join("metadata-loop.sqlite");
+        std::os::unix::fs::symlink("metadata-loop.sqlite", &loop_path)
+            .expect("create self-referential symlink");
+
+        let error =
+            list_recovery_snapshots(&paths).expect_err("a metadata I/O error must fail inventory");
+        assert!(
+            format!("{error:#}").contains("reading recovery snapshot metadata"),
+            "the error identifies the unreadable snapshot: {error:#}"
         );
     }
 
@@ -2012,6 +2337,7 @@ mod tests {
         assert!(report.repaired, "the drift forces a source-evidence rewrite");
 
         let captured = list_recovery_snapshots(&paths)
+            .expect("list snapshots")
             .into_iter()
             .find(|snapshot| snapshot.source_op == "reconcile")
             .expect("a reconcile safety snapshot must be captured before the rewrite");
@@ -2033,7 +2359,10 @@ mod tests {
             .expect("reconcile");
         assert!(!report.repaired, "no drift -> no rewrite");
         assert!(
-            list_recovery_snapshots(&paths).iter().all(|s| s.source_op != "reconcile"),
+            list_recovery_snapshots(&paths)
+                .expect("list snapshots")
+                .iter()
+                .all(|s| s.source_op != "reconcile"),
             "a no-op reconcile must NOT capture a snapshot (perf: never copy the full DB on a hot path)",
         );
     }

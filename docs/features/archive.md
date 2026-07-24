@@ -88,6 +88,9 @@
   - Windows：Task Scheduler
   - Linux：systemd user timer（支援 persistent timer）
 - 預設邏輯：原生排程器按用戶設定的備份間隔喚醒；如果平台只能用較小步長安全表達該間隔，worker 仍會用 `--due-only` 根據上次成功備份時間判斷真正「該不該跑」。
+- 每一次原生排程喚醒都是 first-class **schedule attempt**。attempt 必須在讀取 config、keyring 或 archive 之前先落到 archive-independent、crash-safe、bounded 的本機 ledger，並以 typed outcome 區分 `running`、`success`、`skipped-not-due`、`deferred-lock`、`failed` 與中斷後復原出的 `interrupted`。不能把 skip / defer / pre-archive failure 只寫進 stdout/stderr。
+- Schedule health 只能以 scheduled attempt / scheduled success 判斷；手動 backup success 不得冒充排程成功或清除排程 failure/overdue warning。Native artifact 已安裝只代表「排程存在」，不代表 worker 已健康完成。
+- Native scheduler 直接執行隨 app bundle 發佈的 `pathkeep-worker` sidecar，避免 GUI lifecycle / Dock activation，並讓 native host 取得真正的 worker exit code。Durable attempt outcome 仍是產品內健康狀態的 source of truth；任何 launcher / host 的 `0` 都不能單獨充當 backup success。
 - **預設備份間隔為每 12 小時**。用戶可以在設定中自定義整數分鐘間隔；`6h / 12h / 24h / 72h` 只是快捷預設，不是上限或唯一選項，最短為 1 分鐘。
 - 「沒有一直開機也能補跑」：開機/登入後，如果距離上次備份已超時，自動補跑。
 - 排程的設定走 Preview/Manual/Execute 流程：
@@ -317,6 +320,7 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 ### 需求要點
 
 - App Lock 是 **UI session lock**：啟動時、手動鎖定時，以及可配置的閒置逾時（預設 5 分鐘，可調 1–60 分鐘）後出現。
+- Trusted native scheduled-backup worker 是安全例外：它不渲染或回傳 archive data，因此不受 UI session lock 阻擋；archive encryption / keyring 邊界仍完整適用。App Lock 不得讓使用者已安裝的自動備份永久停擺。
 - 目前 shipped unlock path 是 **app-lock passcode + macOS Touch ID**。
 - Touch ID 只在 macOS 上作為真正可用的 session unlock path；Windows / Linux 仍維持 capability / degradation state，不可假裝已有 native biometric parity。
 - biometric toggle 是 authoritative user preference：若使用者在 Settings 關閉 biometric unlock，lock screen 不得再顯示 Touch ID / biometric CTA，backend 也不得繞過設定直接允許 biometric unlock。

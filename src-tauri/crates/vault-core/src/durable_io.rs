@@ -59,6 +59,10 @@ thread_local! {
     /// When set, `fsync_parent_dir` fails its directory open with this errno before touching the
     /// filesystem. `None` (production default) opens the directory for real.
     static DIR_OPEN_FAULT: Cell<Option<i32>> = const { Cell::new(None) };
+    /// Makes the macOS-only real `fcntl(F_FULLFSYNC)` path report this errno. Unlike
+    /// `FSYNC_FAULTS`, this reaches the error arm inside `real_full_fsync`.
+    #[cfg(target_os = "macos")]
+    static REAL_FULL_FSYNC_FAULT: Cell<Option<i32>> = const { Cell::new(None) };
 }
 
 /// Pops the next injected `full_fsync` directive. `None` => run the real barrier (always so in
@@ -73,6 +77,16 @@ fn next_fsync_fault() -> Option<i32> {
 #[cfg(unix)]
 fn dir_open_fault() -> Option<i32> {
     DIR_OPEN_FAULT.with(Cell::get)
+}
+
+#[cfg(all(target_os = "macos", test))]
+fn take_real_full_fsync_fault() -> Option<i32> {
+    REAL_FULL_FSYNC_FAULT.with(Cell::take)
+}
+
+#[cfg(all(target_os = "macos", test))]
+fn inject_real_full_fsync_fault(errno: i32) {
+    REAL_FULL_FSYNC_FAULT.with(|fault| fault.set(Some(errno)));
 }
 
 /// Queues per-`full_fsync` fault directives for the current test thread (replacing any prior queue).
@@ -123,6 +137,19 @@ fn handle_fsync_errno(file: &File, errno: i32) -> Result<()> {
 #[cfg(target_os = "macos")]
 fn real_full_fsync(file: &File) -> Result<()> {
     use std::os::unix::io::AsRawFd;
+    #[cfg(test)]
+    let rc = if let Some(errno) = take_real_full_fsync_fault() {
+        // SAFETY: `__error` returns this thread's writable errno slot on macOS. The test seam sets
+        // it immediately before reporting `-1`, exactly as a failing `fcntl` would.
+        unsafe {
+            *libc::__error() = errno;
+        }
+        -1
+    } else {
+        // SAFETY: the fd is owned by `file` and stays valid for this call.
+        unsafe { libc::fcntl(file.as_raw_fd(), libc::F_FULLFSYNC) }
+    };
+    #[cfg(not(test))]
     // SAFETY: the fd is owned by `file` and stays valid for this call.
     let rc = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_FULLFSYNC) };
     if rc == -1 {
@@ -466,6 +493,22 @@ mod tests {
         assert!(error.to_string().contains("F_FULLFSYNC failed"));
         // A fatal data-barrier failure must abort BEFORE the rename, so no destination appears.
         assert!(!path.exists(), "must not publish a file whose data was never made durable");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn real_full_fsync_propagates_the_fcntl_errno() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("barrier-target");
+        fs::write(&path, b"durable bytes").expect("seed file");
+        let file = File::open(&path).expect("open file");
+        inject_real_full_fsync_fault(libc::EIO);
+
+        let error = real_full_fsync(&file).expect_err("a real F_FULLFSYNC error must propagate");
+        assert!(
+            format!("{error:#}").contains("F_FULLFSYNC failed"),
+            "the real fcntl failure keeps its context: {error:#}"
+        );
     }
 
     #[cfg(unix)]

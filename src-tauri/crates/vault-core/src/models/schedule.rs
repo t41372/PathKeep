@@ -18,6 +18,57 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Durable result of one native-scheduler worker invocation.
+///
+/// This record intentionally lives outside the encrypted archive so failures
+/// that happen before the archive can open remain observable.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledBackupAttempt {
+    pub id: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub outcome: ScheduledBackupAttemptOutcome,
+    pub phase: ScheduledBackupAttemptPhase,
+    pub reason_code: Option<String>,
+    pub detail: Option<String>,
+    pub run_id: Option<i64>,
+}
+
+/// Stable outcome taxonomy for scheduled-backup attempts.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScheduledBackupAttemptOutcome {
+    Running,
+    Success,
+    Skipped,
+    Deferred,
+    Failed,
+    Interrupted,
+}
+
+/// Furthest lifecycle boundary reached by a scheduled-backup attempt.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScheduledBackupAttemptPhase {
+    WorkerEntry,
+    Keyring,
+    Config,
+    Backup,
+    Finished,
+}
+
+/// Typed execution-health evidence derived from the bounded attempt ledger.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledBackupHealthIssue {
+    pub code: String,
+    pub severity: String,
+    pub detected_at: String,
+    pub related_attempt_id: Option<String>,
+    pub evidence: Vec<String>,
+}
+
 /// One generated file that a schedule plan asks the user or platform to create.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,6 +170,9 @@ pub struct ScheduleStatus {
     pub verification_checks: Vec<ScheduleVerificationCheck>,
     pub checked_at: Option<String>,
     pub last_action: Option<ScheduleLastAction>,
+    #[serde(default)]
+    pub recent_attempts: Vec<ScheduledBackupAttempt>,
+    pub last_scheduled_success_at: Option<String>,
 }
 
 /// Result payload for schedule apply/remove actions.
