@@ -262,6 +262,13 @@ export function useScheduleWorkflow() {
           await persistInterval()
           /* v8 ignore next -- React teardown guard; mounted paths are covered by workflow tests. */
           if (!mountedRef.current) return
+        }
+
+        // A re-install is a reconciliation operation, not a replay of the
+        // route's cached preview. An app update can change the worker path or
+        // native artifact while this page remains mounted; applying that old
+        // plan is exactly how a user gets stuck in a permanent mismatch loop.
+        if (kind === 'install' || kind === 'update') {
           setOperation({
             kind,
             current: 2,

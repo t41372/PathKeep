@@ -27,6 +27,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { LoadingState } from '../../components/primitives/loading-state'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { useI18n } from '../../lib/i18n'
 import { AiProvidersSection } from './ai-providers-section'
 import { AppearanceSection } from './appearance-section'
@@ -169,6 +170,26 @@ export function SettingsPage() {
           label={t('navigation.settingsLabel')}
         />
       )}
+
+      {routeState.supportStateError ? (
+        <StatusCallout
+          role="alert"
+          tone="danger"
+          title={t('settings.supportInspectionFailedTitle')}
+          body={`${t('settings.supportInspectionFailedBody')} ${routeState.supportStateError}`}
+          actions={
+            <button
+              className="border-accent text-accent-text hover:bg-accent-soft rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px]"
+              type="button"
+              onClick={() => {
+                void refreshAppData()
+              }}
+            >
+              {t('settings.supportInspectionRetry')}
+            </button>
+          }
+        />
+      ) : null}
 
       <div className="settings-group">
         <div className="settings-group__label">

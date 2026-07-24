@@ -118,6 +118,26 @@ fn restore_env_var_sets_and_clears_values() {
 }
 
 #[test]
+fn config_save_delta_preserves_a_concurrent_unrelated_setting_change() {
+    let mut base = AppConfig::default();
+    base.selected_profile_ids = vec!["chrome:Default".to_string()];
+
+    let mut current = base.clone();
+    current.due_after_hours = 6.0;
+    current.app_lock.idle_timeout_minutes = 30;
+
+    let mut proposed = base.clone();
+    proposed.selected_profile_ids = vec!["firefox:default-release".to_string()];
+
+    let merged =
+        crate::app::merge_config_change(&current, &base, &proposed).expect("merge config delta");
+
+    assert_eq!(merged.selected_profile_ids, proposed.selected_profile_ids);
+    assert_eq!(merged.due_after_hours, 6.0);
+    assert_eq!(merged.app_lock.idle_timeout_minutes, 30);
+}
+
+#[test]
 fn queue_failure_classifier_preserves_retry_and_manual_review_semantics() {
     let cases = [
         ("provider returned 429 rate limit", "rate-limited", true, 300),

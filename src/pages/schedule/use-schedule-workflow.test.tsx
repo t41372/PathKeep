@@ -189,6 +189,24 @@ describe('useScheduleWorkflow', () => {
     })
   })
 
+  test('rebuilds the plan before re-installing even when the interval did not change', async () => {
+    const stalePlan = planFixture({ label: 'PathKeep Backup old build' })
+    const currentPlan = planFixture({ label: 'PathKeep Backup current build' })
+    backendMock.previewSchedule
+      .mockResolvedValueOnce(stalePlan)
+      .mockResolvedValueOnce(currentPlan)
+    const { result } = renderWorkflow()
+
+    await waitForLoaded(result)
+    await act(async () => {
+      await result.current.runNativeAction('update')
+    })
+
+    expect(backendMock.applySchedule).toHaveBeenCalledWith(currentPlan)
+    // Initial inspection + authoritative re-install plan + post-apply verify.
+    expect(backendMock.previewSchedule).toHaveBeenCalledTimes(3)
+  })
+
   test('handles remove and repair through their dedicated schedule commands', async () => {
     backendMock.removeSchedule.mockResolvedValueOnce(
       applyResultFixture({ applied: false, message: 'nothing to remove' }),

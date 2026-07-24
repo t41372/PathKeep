@@ -23,8 +23,10 @@
 
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import { BrowserIcon } from '../../lib/browser-icons'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { useI18n } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
+import type { BrowserDiscoveryState } from '../../lib/platform-guidance'
 import type { BrowserProfile } from '../../lib/types'
 import type { SettingsSectionNavItem } from './section-nav-items'
 
@@ -32,9 +34,14 @@ import type { SettingsSectionNavItem } from './section-nav-items'
  * Defines the route-owned profile selection state consumed by the extracted section.
  */
 export interface ProfileSelectionSectionState {
+  discoveryState: BrowserDiscoveryState
+  discoveryError: string | null
   profiles: BrowserProfile[]
+  rechecking: boolean
   saving: boolean
   selectedIds: Set<string>
+  onOpenFullDiskAccessSettings: () => Promise<void>
+  onRecheck: () => Promise<void>
   onToggleProfile: (profileId: string) => Promise<void>
 }
 
@@ -58,7 +65,32 @@ export function ProfileSelectionSection({
   state,
 }: ProfileSelectionSectionProps) {
   const { t } = useI18n()
-  const { profiles, saving, selectedIds, onToggleProfile } = state
+  const {
+    discoveryError,
+    discoveryState,
+    profiles,
+    rechecking,
+    saving,
+    selectedIds,
+    onOpenFullDiskAccessSettings,
+    onRecheck,
+    onToggleProfile,
+  } = state
+
+  const recheckAction = (
+    <button
+      className="border-accent text-accent-text hover:bg-accent-soft rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px]"
+      disabled={rechecking}
+      type="button"
+      onClick={() => {
+        void onRecheck()
+      }}
+    >
+      {rechecking
+        ? t('settings.browserDiscoveryRechecking')
+        : t('settings.browserDiscoveryRecheck')}
+    </button>
+  )
 
   return (
     <PaperCard testId={navItem.id}>
@@ -67,6 +99,50 @@ export function ProfileSelectionSection({
         <p className="text-ink-muted m-0 mb-4 font-serif text-[13.5px] leading-[1.55] italic">
           {t('settings.browserProfilesBody')}
         </p>
+        {discoveryState === 'full-disk-access' ? (
+          <StatusCallout
+            role="alert"
+            tone="blocked"
+            title={t('settings.browserAccessBlockedTitle')}
+            body={t('settings.browserAccessBlockedBody')}
+            actions={
+              <>
+                <button
+                  className="btn-primary"
+                  type="button"
+                  onClick={() => {
+                    void onOpenFullDiskAccessSettings()
+                  }}
+                >
+                  {t('settings.openFullDiskAccessSettings')}
+                </button>
+                {recheckAction}
+              </>
+            }
+          />
+        ) : null}
+        {discoveryState === 'discovery-error' ? (
+          <StatusCallout
+            role="alert"
+            tone="danger"
+            title={t('settings.browserDiscoveryFailedTitle')}
+            body={t('settings.browserDiscoveryFailedBody')}
+            actions={recheckAction}
+          />
+        ) : null}
+        {discoveryState === 'empty' ? (
+          <StatusCallout
+            tone="info"
+            title={t('settings.noBrowsersDetectedTitle')}
+            body={t('settings.noBrowsersDetectedBody')}
+            actions={recheckAction}
+          />
+        ) : null}
+        {discoveryError ? (
+          <p className="inline-error mt-3" role="alert">
+            {discoveryError}
+          </p>
+        ) : null}
         <div className="flex flex-col gap-1.5">
           {profiles.map((profile) => {
             const checked = selectedIds.has(profile.profileId)

@@ -13,6 +13,8 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+- [x] **WORK-P0-SETTINGS-SCHEDULE-TRUST-RECOVERY** — 2026-07-23 incident follow-up：Settings 現在把 browser discovery FDA / error / genuinely-empty 狀態都誠實呈現，FDA 有直達 System Settings + recheck；support probe failure 不再吞成 null。Schedule reinstall 每次用當前 plan，loaded-agent bootout failure fail-closed。`save_config` 採 base-config structural delta，阻止 stale full-config auto-save 覆寫無關設定。驗證：targeted JS 75 tests、`bun run build`、`cargo test -p pathkeep-desktop --lib`、`vault-platform --lib`、`vault-worker` config merge regression。
+
 - [x] **WORK-AI-0-FOUNDATIONS** — AI traits / model-agnostic config / storage planes / secrets（無模型呼叫）
   - 讀先（**第一份必讀**）：
     `docs/plan/program/ai-redesign-2026/04-current-state-and-execution.md`（現實對齊 + 執行序 + review 協議 + file anchors）

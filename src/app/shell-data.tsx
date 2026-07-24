@@ -623,13 +623,9 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setNotice(t('shell.runtimeCrashNotice'))
   }, [notice, snapshot?.runtimeDiagnostics.latestCrashReport?.path, t])
 
-  // Stale-plist startup probe. The macOS 26 LaunchService changes broke any
-  // v0.2.0 schedule that launched the binary directly; users upgrading into
-  // this build need to re-apply once so the new plist (which routes through
-  // `/usr/bin/open`) takes over. The Schedule status command already returns
-  // `installState: "mismatch"` for that case; we surface it proactively as
-  // a shell notification so users don't have to discover it themselves by
-  // wondering why backups stopped firing.
+  // Startup schedule health probe. A mismatch needs a proactive repair notice;
+  // an inspection failure needs one too. Neither may disappear into a
+  // best-effort catch while the user assumes automatic backup is healthy.
   //
   // `useEffectEvent` wraps the publish call so the effect doesn't need to
   // re-run every render just to capture a fresh `publishNotification`
@@ -642,6 +638,14 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       href: '/settings#schedule',
     })
   })
+  const publishScheduleProbeFailure = useEffectEvent((error: unknown) => {
+    publishNotification({
+      title: t('shell.scheduleHealthProbeFailedTitle'),
+      body: `${t('shell.scheduleHealthProbeFailedBody')} ${describeError(error, 'schedule_health_probe')}`,
+      tone: 'danger',
+      href: '/schedule',
+    })
+  })
   useEffect(() => {
     if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
       return
@@ -650,7 +654,11 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     if (surfacedScheduleHealthRef.current === guardKey) return
     surfacedScheduleHealthRef.current = guardKey
     const cancelToken = { cancelled: false }
-    void runScheduleHealthProbe(cancelToken, publishStaleScheduleNotice)
+    void runScheduleHealthProbe(
+      cancelToken,
+      publishStaleScheduleNotice,
+      publishScheduleProbeFailure,
+    )
     return () => {
       cancelToken.cancelled = true
     }
@@ -822,6 +830,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     unlockAppSession,
     startLocalSemanticSetup,
   } = createShellDataActions({
+    baseConfig: snapshot?.config,
     t,
     setLanguagePreference,
     refreshDashboardSnapshot,
@@ -987,15 +996,15 @@ function isShellNotification(value: unknown): value is ShellNotification {
 async function runScheduleHealthProbe(
   cancelToken: { cancelled: boolean },
   publishStaleScheduleNotice: () => void,
+  publishScheduleProbeFailure: (error: unknown) => void,
 ) {
   try {
     const status = await backend.scheduleStatus('macos')
     if (cancelToken.cancelled) return
     if (status.installState !== 'mismatch') return
     publishStaleScheduleNotice()
-  } catch {
-    // Schedule probes are best-effort — non-macOS hosts and devices without
-    // a configured schedule are expected to no-op here. We don't want a
-    // startup failure path that blocks the rest of the shell.
+  } catch (error) {
+    if (cancelToken.cancelled) return
+    publishScheduleProbeFailure(error)
   }
 }

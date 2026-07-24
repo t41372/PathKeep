@@ -17,6 +17,7 @@ use crate::context::{
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use vault_core::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, AppConfig, AppSnapshot, ArchiveMode, ArchiveRecoveryReport,
     ArchiveUpgradeAssessment, ArchiveUpgradeProgress, DISCOVERY_ISSUE_DISCOVERY_ERROR,
@@ -222,14 +223,29 @@ pub fn save_user_config(
     config: &AppConfig,
     session_database_key: Option<&str>,
 ) -> Result<AppSnapshot> {
+    save_user_config_with_base(config, None, session_database_key)
+}
+
+/// Saves a user configuration while preserving concurrent edits made after the
+/// caller's snapshot. Desktop Settings auto-saves independent controls, so a
+/// full stale config must never erase a newer unrelated preference.
+pub fn save_user_config_with_base(
+    config: &AppConfig,
+    base_config: Option<&AppConfig>,
+    session_database_key: Option<&str>,
+) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
-    let previous_config = load_hydrated_config(&paths).unwrap_or_default();
+    let previous_config = load_hydrated_config(&paths)
+        .context("loading the current configuration before saving user changes")?;
     // Settings (including App Lock's own enabled/biometric fields) must not be
     // mutated while the session is locked: otherwise the lock could be disabled
     // out from under itself without the passcode. Enabling the lock from an
     // unlocked session, and all initial setup, still pass this no-op check.
     ensure_app_lock_unlocked(&paths, &previous_config)?;
-    let mut next_config = config.clone();
+    let mut next_config = match base_config {
+        Some(base_config) => merge_config_change(&previous_config, base_config, config)?,
+        None => config.clone(),
+    };
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
     validate_app_lock_config_with_biometric(
@@ -245,6 +261,50 @@ pub fn save_user_config(
         session_database_key,
     )?;
     app_snapshot(session_database_key)
+}
+
+/// Applies only the leaves the caller changed relative to its base snapshot to
+/// the current durable configuration. This is intentionally structural rather
+/// than field-by-field: nested Settings domains evolve frequently, and an
+/// omitted new field must not become a future data-loss footgun.
+pub(crate) fn merge_config_change(
+    current: &AppConfig,
+    base: &AppConfig,
+    proposed: &AppConfig,
+) -> Result<AppConfig> {
+    let mut current_value = serde_json::to_value(current).context("serializing current config")?;
+    let base_value = serde_json::to_value(base).context("serializing base config")?;
+    let proposed_value = serde_json::to_value(proposed).context("serializing proposed config")?;
+    apply_config_delta(&mut current_value, &base_value, &proposed_value);
+    serde_json::from_value(current_value).context("decoding merged config")
+}
+
+/// Recursively applies `proposed - base` onto `current`. Arrays are atomic
+/// settings values; objects merge by leaf so a concurrent language change and
+/// App Lock change cannot reset each other.
+fn apply_config_delta(current: &mut Value, base: &Value, proposed: &Value) {
+    match (current, base, proposed) {
+        (Value::Object(current), Value::Object(base), Value::Object(proposed)) => {
+            for (key, proposed_value) in proposed {
+                match base.get(key) {
+                    Some(base_value) => match current.get_mut(key) {
+                        Some(current_value) => {
+                            apply_config_delta(current_value, base_value, proposed_value)
+                        }
+                        None if proposed_value != base_value => {
+                            current.insert(key.clone(), proposed_value.clone());
+                        }
+                        None => {}
+                    },
+                    None => {
+                        current.insert(key.clone(), proposed_value.clone());
+                    }
+                }
+            }
+        }
+        (current, base, proposed) if proposed != base => *current = proposed.clone(),
+        _ => {}
+    }
 }
 
 fn reconcile_ai_queue_controls_or_restore_config(

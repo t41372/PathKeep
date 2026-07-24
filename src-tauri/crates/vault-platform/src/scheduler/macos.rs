@@ -678,7 +678,20 @@ fn describe_launchctl_output(action: &str, target: &str, output: &Output) -> Str
 
 #[cfg(not(any(test, coverage)))]
 fn bootstrap_launch_agent(uid: &str, label: &str, plist_path: &str) -> Result<LaunchctlOutcome> {
-    let _ = bootout_launch_agent(uid, label);
+    let bootout = bootout_launch_agent(uid, label)?;
+    // A failed bootout is normally harmless when no previous service exists.
+    // It is NOT harmless when the old service is still loaded: writing a new
+    // plist then reporting bootstrap success leaves the user in an endless
+    // "reinstall" / mismatch loop. Preserve the exact launchctl evidence.
+    if !bootout.success && macos_launch_agent_loaded(label) {
+        return Ok(LaunchctlOutcome {
+            success: false,
+            status_description: format!(
+                "could not unload the existing LaunchAgent before reinstalling: {}",
+                bootout.status_description
+            ),
+        });
+    }
     let output = Command::new("launchctl")
         .args(["bootstrap", &format!("gui/{uid}"), plist_path])
         .output()

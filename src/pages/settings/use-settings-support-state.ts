@@ -29,6 +29,10 @@ import { backend } from '../../lib/backend-client'
 import { describeError } from '../../lib/errors'
 import { normalizeExplorerBackgroundPrefetchPages } from '../../lib/explorer-preferences'
 import { useI18n } from '../../lib/i18n'
+import {
+  browserDiscoveryState,
+  macosFullDiskAccessSettingsUrl,
+} from '../../lib/platform-guidance'
 import type {
   AppConfig,
   AppLockConfig,
@@ -100,6 +104,15 @@ export function useSettingsSupportState({
     securityStatus: null,
   })
   const [supportStateLoaded, setSupportStateLoaded] = useState(false)
+  const [supportStateError, setSupportStateError] = useState<string | null>(
+    null,
+  )
+  const [browserDiscoveryAction, setBrowserDiscoveryAction] = useState<
+    'opening-access' | 'rechecking' | null
+  >(null)
+  const [browserDiscoveryError, setBrowserDiscoveryError] = useState<
+    string | null
+  >(null)
   const [supportCopyFeedback, setSupportCopyFeedback] =
     useState<ReviewCopyFeedback | null>(null)
   const [retentionPreview, setRetentionPreview] =
@@ -144,6 +157,7 @@ export function useSettingsSupportState({
   useEffect(() => {
     let cancelled = false
     setSupportStateLoaded(false)
+    setSupportStateError(null)
 
     const loadSupportState = async () => {
       try {
@@ -154,11 +168,13 @@ export function useSettingsSupportState({
 
         if (!cancelled) {
           setSupportState({ scheduleStatus, securityStatus })
+          setSupportStateError(null)
           setSupportStateLoaded(true)
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
           setSupportState({ scheduleStatus: null, securityStatus: null })
+          setSupportStateError(describeError(error, 'load_settings_support'))
           setSupportStateLoaded(true)
         }
       }
@@ -343,6 +359,32 @@ export function useSettingsSupportState({
     }
   }
 
+  async function recheckBrowserDiscovery() {
+    setBrowserDiscoveryAction('rechecking')
+    setBrowserDiscoveryError(null)
+    try {
+      await refreshAppData()
+    } catch (error) {
+      setBrowserDiscoveryError(
+        describeError(error, 'refresh_browser_discovery'),
+      )
+    } finally {
+      setBrowserDiscoveryAction(null)
+    }
+  }
+
+  async function openFullDiskAccessSettings() {
+    setBrowserDiscoveryAction('opening-access')
+    setBrowserDiscoveryError(null)
+    try {
+      await backend.openExternalUrl(macosFullDiskAccessSettingsUrl)
+    } catch (error) {
+      setBrowserDiscoveryError(describeError(error, 'open_full_disk_access'))
+    } finally {
+      setBrowserDiscoveryAction(null)
+    }
+  }
+
   // Normalize an App Lock draft the same way the backend persists it: biometric is
   // gated on real availability, passcode flags are forced, and the recovery hint is
   // trimmed (empty → null). Crucially this normalizes the hint that is ALREADY on
@@ -494,6 +536,7 @@ export function useSettingsSupportState({
 
   return {
     supportState,
+    supportStateError,
     supportStateLoaded,
     general: {
       explorerBackgroundPrefetchPages:
@@ -542,9 +585,17 @@ export function useSettingsSupportState({
       onSetPasscode: handleSetAppLockPasscode,
     },
     profiles: {
+      discoveryState: browserDiscoveryState(
+        snapshot?.browserDiscoveryIssue,
+        snapshot?.browserProfiles.length ?? 0,
+      ),
+      discoveryError: browserDiscoveryError,
       profiles: snapshot?.browserProfiles ?? [],
+      rechecking: browserDiscoveryAction === 'rechecking',
       saving,
       selectedIds,
+      onOpenFullDiskAccessSettings: openFullDiskAccessSettings,
+      onRecheck: recheckBrowserDiscovery,
       onToggleProfile: toggleProfile,
     },
   }

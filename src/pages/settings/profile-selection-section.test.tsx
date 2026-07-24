@@ -43,6 +43,8 @@ describe('ProfileSelectionSection', () => {
         <ProfileSelectionSection
           navItem={navItem}
           state={{
+            discoveryError: null,
+            discoveryState: 'ok',
             profiles: [
               createProfile({
                 browserName: 'Google Chrome',
@@ -61,8 +63,11 @@ describe('ProfileSelectionSection', () => {
                 historyFileName: '',
               }),
             ],
+            rechecking: false,
             saving: false,
             selectedIds: new Set(['chrome:Default']),
+            onOpenFullDiskAccessSettings: vi.fn().mockResolvedValue(undefined),
+            onRecheck: vi.fn().mockResolvedValue(undefined),
             onToggleProfile,
           }}
         />
@@ -91,6 +96,8 @@ describe('ProfileSelectionSection', () => {
         <ProfileSelectionSection
           navItem={navItem}
           state={{
+            discoveryError: null,
+            discoveryState: 'ok',
             profiles: [
               createProfile({
                 browserName: 'Google Chrome',
@@ -100,8 +107,11 @@ describe('ProfileSelectionSection', () => {
                 historyExists: true,
               }),
             ],
+            rechecking: false,
             saving: true,
             selectedIds: new Set(),
+            onOpenFullDiskAccessSettings: vi.fn().mockResolvedValue(undefined),
+            onRecheck: vi.fn().mockResolvedValue(undefined),
             onToggleProfile: vi.fn().mockResolvedValue(undefined),
           }}
         />
@@ -113,6 +123,41 @@ describe('ProfileSelectionSection', () => {
         name: new RegExp('Google Chrome / Default'),
       }),
     ).toBeDisabled()
+  })
+
+  test('turns a missing-profile permission wall into an actionable Full Disk Access recovery', async () => {
+    const user = userEvent.setup()
+    const onOpenFullDiskAccessSettings = vi.fn().mockResolvedValue(undefined)
+    const onRecheck = vi.fn().mockResolvedValue(undefined)
+
+    render(
+      <I18nProvider>
+        <ProfileSelectionSection
+          navItem={navItem}
+          state={{
+            discoveryError: null,
+            discoveryState: 'full-disk-access',
+            profiles: [],
+            rechecking: false,
+            saving: false,
+            selectedIds: new Set(),
+            onOpenFullDiskAccessSettings,
+            onRecheck,
+            onToggleProfile: vi.fn().mockResolvedValue(undefined),
+          }}
+        />
+      </I18nProvider>,
+    )
+
+    expect(
+      screen.getByText('PathKeep cannot read your browser profiles'),
+    ).toBeVisible()
+    await user.click(
+      screen.getByRole('button', { name: 'Open Full Disk Access settings' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Check again' }))
+    expect(onOpenFullDiskAccessSettings).toHaveBeenCalledOnce()
+    expect(onRecheck).toHaveBeenCalledOnce()
   })
 })
 

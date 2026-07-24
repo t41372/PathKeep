@@ -371,6 +371,8 @@ pub(super) struct AppUpdateInstallPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct WrappedConfigPayload {
     pub(super) config: AppConfig,
+    #[serde(default)]
+    pub(super) base_config: Option<AppConfig>,
 }
 
 /// Selects a canonical visit/history id for the W-ENRICH-1 visit-enrichment list.

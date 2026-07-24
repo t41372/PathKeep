@@ -69,8 +69,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "app_lock_status" => json_value!(worker_bridge::app_lock_status_impl()?),
         "save_config" => {
             let payload = parse_payload::<WrappedConfigPayload>(payload)?;
-            json_value!(worker_bridge::save_config_impl(
+            json_value!(worker_bridge::save_config_with_base_impl(
                 payload.config,
+                payload.base_config,
                 session_key(&state.session).as_deref()
             )?)
         }

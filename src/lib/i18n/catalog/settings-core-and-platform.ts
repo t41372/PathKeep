@@ -31,9 +31,26 @@ export const settingsCoreAndPlatformNamespace = {
     unavailableTitle: 'Settings are temporarily unavailable',
     unavailableBody:
       'PathKeep could not load the current settings review surface. Try refreshing after the shell finishes reloading.',
+    supportInspectionFailedTitle:
+      'PathKeep could not inspect system protection',
+    supportInspectionFailedBody:
+      'Schedule or security status is unavailable, so PathKeep cannot claim these safeguards are healthy. Check again. Diagnostic:',
+    supportInspectionRetry: 'Check again',
     browserProfiles: 'BROWSER PROFILES',
     browserProfilesBody:
       'Select which browsers to include in your archive. History will only be backed up from checked profiles.',
+    browserAccessBlockedTitle: 'PathKeep cannot read your browser profiles',
+    browserAccessBlockedBody:
+      'macOS denied access to browser data, so no profiles can be selected and scheduled backups cannot protect them. Grant Full Disk Access to PathKeep, then check again.',
+    openFullDiskAccessSettings: 'Open Full Disk Access settings',
+    browserDiscoveryRecheck: 'Check again',
+    browserDiscoveryRechecking: 'Checking…',
+    browserDiscoveryFailedTitle: 'Browser detection failed',
+    browserDiscoveryFailedBody:
+      'PathKeep could not inspect browser profiles. Check again; if this persists, use the diagnostic logs to investigate the reported failure.',
+    noBrowsersDetectedTitle: 'No browser profiles found',
+    noBrowsersDetectedBody:
+      'PathKeep did not find a supported browser profile yet. Start or install a supported browser, then check again.',
     aiProvider: 'AI PROVIDER',
     aiProviderBody:
       'Connect a local or self-hosted AI provider to chat with your history and turn on smart search. Optional and off by default — keyword search and Core Intelligence work without it.',
@@ -277,8 +294,24 @@ export const settingsCoreAndPlatformNamespace = {
     unavailableTitle: '设置暂时不可用',
     unavailableBody:
       'PathKeep 当前无法加载这组设置检查界面。等主界面刷新完成后再试一次。',
+    supportInspectionFailedTitle: 'PathKeep 无法检查系统保护状态',
+    supportInspectionFailedBody:
+      '定时备份或安全状态不可用，因此 PathKeep 不能声称这些保护正常。请重新检查。诊断：',
+    supportInspectionRetry: '重新检查',
     browserProfiles: '浏览器',
     browserProfilesBody: '选择要备份的浏览器。只有勾选的浏览器会被纳入存档。',
+    browserAccessBlockedTitle: 'PathKeep 无法读取你的浏览器配置',
+    browserAccessBlockedBody:
+      'macOS 拒绝了对浏览器数据的访问，因此无法选择配置，定时备份也无法保护它们。请授予 PathKeep 完全磁盘访问权限，然后重新检查。',
+    openFullDiskAccessSettings: '打开完全磁盘访问权限设置',
+    browserDiscoveryRecheck: '重新检查',
+    browserDiscoveryRechecking: '正在检查…',
+    browserDiscoveryFailedTitle: '浏览器检测失败',
+    browserDiscoveryFailedBody:
+      'PathKeep 无法检查浏览器配置。请重新检查；若问题持续存在，请用诊断日志调查已报告的错误。',
+    noBrowsersDetectedTitle: '未找到浏览器配置',
+    noBrowsersDetectedBody:
+      'PathKeep 尚未找到受支持的浏览器配置。请启动或安装受支持的浏览器，然后重新检查。',
     aiProvider: 'AI 服务',
     aiProviderBody:
       '连接一个本地或自托管的 AI 服务，即可与你的历史对话并开启智能搜索。可选功能，默认关闭——关键词搜索和确定性智能分析无需它也能使用。',
@@ -515,8 +548,24 @@ export const settingsCoreAndPlatformNamespace = {
     unavailableTitle: '設定暫時無法使用',
     unavailableBody:
       'PathKeep 目前無法載入這組設定檢查畫面。等主介面刷新完成後再試一次。',
+    supportInspectionFailedTitle: 'PathKeep 無法檢查系統保護狀態',
+    supportInspectionFailedBody:
+      '定時備份或安全狀態無法取得，因此 PathKeep 不能宣稱這些保護正常。請重新偵測。診斷：',
+    supportInspectionRetry: '重新偵測',
     browserProfiles: '瀏覽器',
     browserProfilesBody: '選擇要備份的瀏覽器。只有勾選的瀏覽器會被納入封存。',
+    browserAccessBlockedTitle: 'PathKeep 無法讀取你的瀏覽器設定檔',
+    browserAccessBlockedBody:
+      'macOS 拒絕了對瀏覽器資料的存取，因此無法選擇設定檔，定時備份也無法保護它們。請授予 PathKeep 完整磁碟取用權，然後重新偵測。',
+    openFullDiskAccessSettings: '開啟完整磁碟取用權設定',
+    browserDiscoveryRecheck: '重新偵測',
+    browserDiscoveryRechecking: '正在偵測…',
+    browserDiscoveryFailedTitle: '瀏覽器偵測失敗',
+    browserDiscoveryFailedBody:
+      'PathKeep 無法檢查瀏覽器設定檔。請重新偵測；若問題持續，請使用診斷日誌調查已回報的錯誤。',
+    noBrowsersDetectedTitle: '找不到瀏覽器設定檔',
+    noBrowsersDetectedBody:
+      'PathKeep 尚未找到受支援的瀏覽器設定檔。請啟動或安裝受支援的瀏覽器，然後重新偵測。',
     aiProvider: 'AI 服務',
     aiProviderBody:
       '連接一個本地或自架的 AI 服務，即可與你的歷史對話並開啟智慧搜尋。選用功能，預設關閉——關鍵字搜尋和確定性智慧分析不需要它也能使用。',

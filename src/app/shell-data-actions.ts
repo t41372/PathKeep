@@ -54,6 +54,8 @@ type StateSetter<T> = (value: T | ((current: T) => T)) => void
 const BACKUP_CONFLICT_ERROR_NAME = 'BackupConflictError'
 
 interface ShellDataActionDeps {
+  /** The snapshot used as the base for a Settings auto-save, if one exists. */
+  baseConfig?: AppConfig | null
   t: ShellTranslator
   setLanguagePreference: I18nContextValue['setLanguagePreference']
   refreshDashboardSnapshot: (
@@ -196,6 +198,7 @@ function backupCompletionNotice(report: BackupReport, t: ShellTranslator) {
  * public context contract or introducing a second state owner.
  */
 export function createShellDataActions({
+  baseConfig,
   t,
   setLanguagePreference,
   refreshDashboardSnapshot,
@@ -242,7 +245,9 @@ export function createShellDataActions({
         if (!quiet) {
           await waitForNextPaint()
         }
-        const nextSnapshot = await backend.saveConfig(config)
+        const nextSnapshot = await (baseConfig
+          ? backend.saveConfig(config, baseConfig)
+          : backend.saveConfig(config))
         setLanguagePreference(nextSnapshot.config.preferredLanguage)
         setAppLockStatus(nextSnapshot.appLockStatus)
         setSnapshot(nextSnapshot)

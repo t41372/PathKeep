@@ -34,6 +34,22 @@ pub(crate) fn save_config_impl(
     worker_result(vault_worker::save_user_config(&config, session_database_key))
 }
 
+/// Persists a config delta using the caller's snapshot as its concurrency base.
+/// Kept beside the legacy full-replace helper because non-UI worker callers do
+/// not have a shell snapshot and intentionally retain their explicit behavior.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn save_config_with_base_impl(
+    config: AppConfig,
+    base_config: Option<AppConfig>,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::AppSnapshot, String> {
+    worker_result(vault_worker::save_user_config_with_base(
+        &config,
+        base_config.as_ref(),
+        session_database_key,
+    ))
+}
+
 /// Caches a session-only database key in the in-process Tauri state.
 pub(crate) fn set_session_database_key_impl(
     database_key: String,

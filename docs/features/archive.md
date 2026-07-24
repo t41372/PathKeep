@@ -91,6 +91,8 @@
 - 每一次原生排程喚醒都是 first-class **schedule attempt**。attempt 必須在讀取 config、keyring 或 archive 之前先落到 archive-independent、crash-safe、bounded 的本機 ledger，並以 typed outcome 區分 `running`、`success`、`skipped-not-due`、`deferred-lock`、`failed` 與中斷後復原出的 `interrupted`。不能把 skip / defer / pre-archive failure 只寫進 stdout/stderr。
 - Schedule health 只能以 scheduled attempt / scheduled success 判斷；手動 backup success 不得冒充排程成功或清除排程 failure/overdue warning。Native artifact 已安裝只代表「排程存在」，不代表 worker 已健康完成。
 - Native scheduler 直接執行隨 app bundle 發佈的 `pathkeep-worker` sidecar，避免 GUI lifecycle / Dock activation，並讓 native host 取得真正的 worker exit code。Durable attempt outcome 仍是產品內健康狀態的 source of truth；任何 launcher / host 的 `0` 都不能單獨充當 backup success。
+- Settings、Onboarding 與 Schedule 都必須把 browser discovery 的 permission / discovery failure 視為 blocked 或 degraded state；不得把它渲染成空白 profile 清單。Full Disk Access case 必須說明影響、提供直達 System Settings、重新偵測，以及任何 launcher failure 的可見 diagnostic。
+- Reinstall / update schedule 是以**執行當下**的 current build + current config 重新產生 plan 的 reconciliation，不得重播 route cache 的舊 plan。若無法卸載仍 loaded 的既有 LaunchAgent，apply 必須失敗並回傳 `launchctl` evidence，不得宣稱已修復。
 - **預設備份間隔為每 12 小時**。用戶可以在設定中自定義整數分鐘間隔；`6h / 12h / 24h / 72h` 只是快捷預設，不是上限或唯一選項，最短為 1 分鐘。
 - 「沒有一直開機也能補跑」：開機/登入後，如果距離上次備份已超時，自動補跑。
 - 排程的設定走 Preview/Manual/Execute 流程：
@@ -104,6 +106,7 @@
   - 移除 / 解除安裝同樣要留下 verify 訊號與 audit artifact，讓使用者能確認 PathKeep 實際移除了哪些檔案。
   - 已知 legacy scheduler conflict 必須透過使用者明確點擊 `repair_schedule` 才能自動修復；不得在 status detection、install 或 remove 中靜默清理 legacy tasks。
 - Dashboard / Settings / Schedule 必須共享平台 capability 與 troubleshooting 語法，至少能清楚暴露 manual-review、mismatch、legacy install、permission warning 等狀態，並直接引導回排程頁修復。
+- Settings 的 independent support inspections（schedule / keyring / security）失敗時，必須在 Settings 本身留下可見 failure + retry，不能用 `null` status 偽裝成沒有問題。
 - Schedule 的 Verify surface 必須直接列出 install state、detected files、typed issues、verification checks、latest audit artifact 與最近一次 apply / remove / repair 結果，避免 verify 只剩一段模糊狀態字串或 raw backend English warning。
 - App 的「開機啟動」（autostart）和備份排程是兩件分開的事。
 - 2026-04-29 scheduled-backup state-machine truth：如果 macOS 存在 known pre-rename LaunchAgent（`dev.codex.pathkeep.backup` 或 `dev.codex.browser-history-backup.backup`），status 必須顯示 typed `legacy-launch-agent` issue 並把 UI 映射到 `INSTALLED_WARN`，讓使用者選擇一鍵修復或手動修復；不得把它顯示成 canonical installed，也不得因 canonical `com.yi-ting.pathkeep.backup` 缺失而直接顯示普通 `NOT_INSTALLED`。

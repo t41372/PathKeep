@@ -35,11 +35,12 @@ pub(crate) async fn app_snapshot(
 /// Persists user config changes and returns the refreshed desktop snapshot, off the UI thread.
 pub(crate) async fn save_config(
     config: vault_core::AppConfig,
+    base_config: Option<vault_core::AppConfig>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, String> {
     let key = state.get_key();
     run_blocking_command("save_config", move || {
-        worker_bridge::save_config_impl(config, key.as_deref())
+        worker_bridge::save_config_with_base_impl(config, base_config, key.as_deref())
     })
     .await
 }
