@@ -14,6 +14,8 @@
  *   preserving newest-first order.
  * - Format a HistoryEntry as a PaperSearchResultEntry (title fallback to
  *   url, local-time clock, transition kind label).
+ * - Resolve the backend's stable Smart-search `matchReason` CODE to the
+ *   localized per-row caption, so the row component only ever sees display copy.
  *
  * ## Not responsible for
  * - Fetching results or owning URL state — the route hands them in.
@@ -205,13 +207,81 @@ export function buildPaperSearchDayGroups(
 }
 
 /**
- * Translate accessor shared by the AI adapters below — pinned to the
- * `intelligence` namespace because `scoreBand`'s band labels live there.
+ * Translate accessor shared by the AI adapters below. The adapters need TWO of
+ * these, each bound to a different namespace (`intelligence` for `scoreBand`'s
+ * band labels, `explorer` for the match-reason captions), so callers pass them
+ * by NAME via `PaperSearchAiEntryOptions` rather than by position.
  */
 type IntelligenceTranslator = (
   key: string,
   vars?: Record<string, string | number>,
 ) => string
+
+/**
+ * Catalog keys for the backend's stable per-row match-reason CODES.
+ *
+ * The wire contract (owned by `vault-core/src/ai/search.rs`): `AiSearchResultItem.matchReason` is a
+ * locale-independent CODE — one of the base codes below, optionally suffixed `+starred` when the
+ * starred boost promoted the row (e.g. `lexical+semantic+starred`). It is NOT English prose, because
+ * the same field is quoted verbatim into the model's context by the agent/`run_code`/MCP surfaces AND
+ * rendered as the caption under every Smart result here; prose could only be honest for one of them.
+ *
+ * Keep this table in lockstep with the Rust constants. A code the backend adds but this table does
+ * not know is rendered VERBATIM (see `localizeAiMatchReason`) — a visible token the user can report,
+ * never a plausible-but-wrong translation of a reason we did not actually ship copy for.
+ */
+const AI_MATCH_REASON_KEYS: Readonly<Record<string, string>> = {
+  lexical: 'aiMatchReasonLexical',
+  semantic: 'aiMatchReasonSemantic',
+  'lexical+semantic': 'aiMatchReasonLexicalSemantic',
+  'lexical-date-ordered': 'aiMatchReasonLexicalDateOrdered',
+  'recent-visit': 'aiMatchReasonRecentVisit',
+}
+
+/** Suffix the backend appends to a base code when the starred boost promoted the row. */
+const AI_MATCH_REASON_STARRED_SUFFIX = '+starred'
+
+/**
+ * Resolve one backend match-reason CODE to the localized caption a Smart result row shows.
+ *
+ * `explorerT` must be bound to the `explorer` namespace (where the `aiMatchReason*` copy lives). The
+ * `+starred` suffix is localized as a suffix on the base caption rather than as five extra keys, so
+ * the base vocabulary and the favorite affordance stay independent.
+ *
+ * An unrecognized code (base unknown, with or without the suffix) is returned verbatim so a backend
+ * that ships a new code degrades to a readable token instead of a silently faked translation.
+ */
+export function localizeAiMatchReason(
+  matchReason: string,
+  explorerT: IntelligenceTranslator,
+): string {
+  const starred = matchReason.endsWith(AI_MATCH_REASON_STARRED_SUFFIX)
+  const base = starred
+    ? matchReason.slice(0, -AI_MATCH_REASON_STARRED_SUFFIX.length)
+    : matchReason
+  const key = AI_MATCH_REASON_KEYS[base]
+  if (!key) return matchReason
+  const caption = explorerT(key)
+  return starred
+    ? `${caption}${explorerT('aiMatchReasonStarredSuffix')}`
+    : caption
+}
+
+/**
+ * Translators + labels both Smart-search adapters need, bundled so the two
+ * namespace-bound translators can never be swapped by position.
+ */
+export interface PaperSearchAiEntryOptions {
+  /** `intelligence`-namespace translator — owns `scoreBand`'s relevance-band labels. */
+  intelligenceT: IntelligenceTranslator
+  /** `explorer`-namespace translator — owns the `aiMatchReason*` captions. */
+  explorerT: IntelligenceTranslator
+  /**
+   * Localized source label ("Page summary") stamped on enriched rows so the excerpt is framed by
+   * SOURCE, not by a match-claim. Only attached when a row actually has an excerpt.
+   */
+  enrichmentSourceLabel: string
+}
 
 /**
  * Map one Smart-search result (`AiSearchResultItem`) onto the existing paper
@@ -223,12 +293,16 @@ type IntelligenceTranslator = (
  * faked snippet) and derive a `relevanceBand` pill from `score` via the shared
  * `scoreBand(...)`. `id` keeps the real `historyId`, so selecting a Smart row
  * opens the detail panel exactly like a keyword row.
+ *
+ * The caption is LOCALIZED here from the backend's stable code
+ * (`localizeAiMatchReason`) — the row component receives display copy only, so
+ * zh-CN/zh-TW users no longer read an English reason on every result.
  */
 export function paperSearchEntryFromAiSearchItem(
   item: AiSearchResultItem,
-  intelligenceT: IntelligenceTranslator,
-  enrichmentSourceLabel: string,
+  options: PaperSearchAiEntryOptions,
 ): PaperSearchResultEntry {
+  const { intelligenceT, explorerT, enrichmentSourceLabel } = options
   const band = scoreBand(item.score, intelligenceT)
   // REACH-C3: surface the honest enrichment excerpt when the Smart-search backend attached one (only
   // enriched pages have it). Non-enriched Smart rows leave it undefined, which the row treats as "no
@@ -247,7 +321,7 @@ export function paperSearchEntryFromAiSearchItem(
     url: item.url,
     domain: item.domain,
     time: formatLocalTime(item.visitedAt),
-    matchReason: item.matchReason,
+    matchReason: localizeAiMatchReason(item.matchReason, explorerT),
     relevanceBand: { label: band.label, tone: band.tone },
     dayKey: localDayKey(item.visitedAt),
     enrichmentExcerpt,
@@ -271,16 +345,9 @@ export function paperSearchEntryFromAiSearchItem(
  */
 export function buildPaperSearchRelevanceList(
   items: readonly AiSearchResultItem[],
-  intelligenceT: IntelligenceTranslator,
-  enrichmentSourceLabel: string,
+  options: PaperSearchAiEntryOptions,
 ): PaperSearchResultEntry[] {
-  return items.map((item) =>
-    paperSearchEntryFromAiSearchItem(
-      item,
-      intelligenceT,
-      enrichmentSourceLabel,
-    ),
-  )
+  return items.map((item) => paperSearchEntryFromAiSearchItem(item, options))
 }
 
 /**

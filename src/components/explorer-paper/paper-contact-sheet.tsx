@@ -256,8 +256,23 @@ export interface PaperContactSheetProps {
    * When it returns `null` the strip falls back to the client-side
    * `aggregateDayInsights(day)` so the panel never renders empty while
    * the backend reply is in flight — see feedback-2026-05-25 §3.1.
+   *
+   * MUST be a pure lookup: it is called during render. Anything that
+   * fetches belongs in `onDayVisible`.
    */
   resolveDayInsights?: (date: string) => DayInsights | null
+  /**
+   * Reported from an effect once a day block mounts into the viewport, so
+   * the route can fetch that day's backend aggregate. Keeping the fetch here
+   * rather than inside `resolveDayInsights` means (a) render stays
+   * side-effect free and (b) the fan-out is bounded by the days actually on
+   * screen, not by every day the infinite scroll has accumulated.
+   *
+   * Must be referentially stable (the day block uses it as an effect
+   * dependency); a changed identity re-reports every mounted day, which is
+   * exactly what should happen when the route's cache token rotates.
+   */
+  onDayVisible?: (date: string) => void
   /** Language tag used for time/labels in headers. */
   language?: string
   /** True when the user has chosen the 12h clock (default). */
@@ -305,6 +320,7 @@ export function PaperContactSheet({
   infiniteScroll,
   dayInsightsCopy,
   resolveDayInsights,
+  onDayVisible,
   language = 'en',
   hour12 = true,
   copy,
@@ -460,6 +476,7 @@ export function PaperContactSheet({
             entryStar={entryStar}
             dayInsightsCopy={dayInsightsCopy}
             resolveDayInsights={resolveDayInsights}
+            onDayVisible={onDayVisible}
             language={language}
             hour12={hour12}
             copy={copy}
@@ -493,6 +510,7 @@ interface PaperDayBlockProps {
   entryStar?: PaperContactSheetEntryStar
   dayInsightsCopy?: PaperDayInsightsCopy
   resolveDayInsights?: (date: string) => DayInsights | null
+  onDayVisible?: (date: string) => void
   language: string
   hour12: boolean
   copy: PaperContactSheetCopy
@@ -528,6 +546,7 @@ function PaperDayBlock({
   entryStar,
   dayInsightsCopy,
   resolveDayInsights,
+  onDayVisible,
   language,
   hour12,
   copy,
@@ -544,6 +563,17 @@ function PaperDayBlock({
     !shouldRender && measuredHeight !== null
       ? { minHeight: `${measuredHeight}px` }
       : undefined
+
+  // Report the day once it is actually on screen so the route can fetch its
+  // backend aggregate. This is the *only* place the insights fetch is
+  // triggered from — `resolveDayInsights` used to fire it from inside the
+  // render below, which put IPC on the render path and made a discarded
+  // concurrent render still send a command.
+  const dayDate = day.date
+  useEffect(() => {
+    if (!shouldRender) return
+    onDayVisible?.(dayDate)
+  }, [shouldRender, dayDate, onDayVisible])
 
   return (
     <div
@@ -594,6 +624,23 @@ function PaperDayBlockContent({
   PaperDayBlockProps,
   'disableVirtualization' | 'virtualizationRootMargin'
 >) {
+  // The backend aggregate, if it has landed. Pure lookup — the fetch is
+  // reported from `PaperDayBlock`'s effect, not from here.
+  const resolvedInsights = dayInsightsCopy
+    ? (resolveDayInsights?.(day.date) ?? null)
+    : null
+  // `aggregateDayInsights` is O(visits): three Maps, 24 buckets, and one
+  // `new URL()` parse per visit. A heavy day (5 000 visits) paid that on
+  // EVERY re-render of a mounted day block — and mounted blocks re-render
+  // constantly (scroll flipping viewport mount, star toggles, favicon/og
+  // cache batches). Memoising on `day` means it runs once per day payload,
+  // and the `??` short-circuit means it does not run at all once the backend
+  // aggregate is available.
+  const dayInsights = useMemo(
+    () =>
+      dayInsightsCopy ? (resolvedInsights ?? aggregateDayInsights(day)) : null,
+    [dayInsightsCopy, resolvedInsights, day],
+  )
   // Pre-compute the cumulative card-frame index per session so the
   // render path stays pure (no closure-captured `let` mutated during
   // map iteration). `frameOffset` is the cumulative entry count of
@@ -617,9 +664,9 @@ function PaperDayBlockContent({
         active={target?.date === day.date}
       />
 
-      {dayInsightsCopy ? (
+      {dayInsightsCopy && dayInsights ? (
         <PaperDayInsights
-          insights={resolveDayInsights?.(day.date) ?? aggregateDayInsights(day)}
+          insights={dayInsights}
           copy={dayInsightsCopy}
           language={language}
           hour12={hour12}

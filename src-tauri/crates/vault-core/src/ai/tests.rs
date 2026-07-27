@@ -8,6 +8,12 @@ use super::provider::{
     should_retry_embedding_error, stub_embedding_dimensions, stub_embedding_vector,
 };
 use super::*;
+// The match-reason CODE vocabulary the search pipeline stamps (see `ai::search`): these tests
+// assert the wire CODES, never English prose, because the FE localizes from the code.
+use super::search::{
+    MATCH_REASON_LEXICAL, MATCH_REASON_LEXICAL_SEMANTIC, MATCH_REASON_RECENT_VISIT,
+    MATCH_REASON_SEMANTIC, MATCH_REASON_STARRED_SUFFIX,
+};
 use crate::utils::sha256_hex;
 use crate::{
     ai_sidecar::SidecarEmbeddingRow,
@@ -1318,7 +1324,7 @@ fn build_assistant_preamble_covers_empty_and_seeded_context() {
                 domain: "example.com".to_string(),
                 visited_at: "2026-04-04T00:00:00Z".to_string(),
                 score: 0.91,
-                match_reason: "Semantic match".to_string(),
+                match_reason: MATCH_REASON_SEMANTIC.to_string(),
                 enrichment_excerpt: None,
             }],
             notes: Vec::new(),
@@ -1328,7 +1334,7 @@ fn build_assistant_preamble_covers_empty_and_seeded_context() {
             has_more: false,
         },
     );
-    assert!(with_context.contains("Semantic match"));
+    assert!(with_context.contains(MATCH_REASON_SEMANTIC));
     assert!(with_context.contains("https://example.com/docs"));
 }
 
@@ -1533,7 +1539,7 @@ fn search_history_internal_empty_query_returns_recent_visits() {
         // Newest visit (history_id 2, visit_time 99) sorts first; its recency score is the max (1.0).
         assert_eq!(response.items[0].history_id, 2);
         assert_eq!(response.items[0].score, 1.0);
-        assert_eq!(response.items[0].match_reason, "Most recent visit");
+        assert_eq!(response.items[0].match_reason, MATCH_REASON_RECENT_VISIT);
         assert!(response.items[1].score < response.items[0].score, "older row ranks lower");
         // The recency path is pure recall — no degradation notes, no semantic plane.
         assert!(response.notes.is_empty());
@@ -1611,7 +1617,12 @@ fn search_history_internal_empty_query_honors_starred_facet() {
         .expect("starred-only recency");
     assert_eq!(response.total, 1, "only the starred page survives the facet");
     assert_eq!(response.items[0].url, "https://starred.com/page");
-    assert!(response.items[0].match_reason.contains("Starred"));
+    // The recency path still applies the starred boost, so the code is the base recency code with
+    // the `+starred` suffix appended — the exact composed value the FE resolves.
+    assert_eq!(
+        response.items[0].match_reason,
+        format!("{MATCH_REASON_RECENT_VISIT}{MATCH_REASON_STARRED_SUFFIX}")
+    );
 }
 
 #[test]
@@ -2797,7 +2808,7 @@ fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
         .expect("semantic empty fallback");
     assert_eq!(response.provider_id, "embed");
     assert_eq!(response.items.len(), 1);
-    assert_eq!(response.items[0].match_reason, "Lexical match");
+    assert_eq!(response.items[0].match_reason, MATCH_REASON_LEXICAL);
     assert!(
         response.notes.iter().any(|note| note.contains("has no vectors yet")),
         "empty index must surface an honest note: {:?}",
@@ -3265,7 +3276,7 @@ fn semantic_matches_returns_real_hits_and_surfaces_stale_ledger_note() {
     assert!(!report.hits.is_empty(), "a built index must return real hits");
     // Page 1 (the exact match) must rank first.
     assert_eq!(report.hits[0].history_id, 1);
-    assert_eq!(report.hits[0].match_reason, "Semantic match");
+    assert_eq!(report.hits[0].match_reason, MATCH_REASON_SEMANTIC);
     assert!(report.hits[0].url.contains("/docs"));
     assert!(
         report.notes.iter().any(|note| matches!(
@@ -3790,14 +3801,14 @@ fn search_history_internal_uses_lexical_results_when_index_is_empty() {
 
     assert_eq!(search.items.len(), 1);
     assert_eq!(search.items[0].history_id, 1);
-    assert_eq!(search.items[0].match_reason, "Lexical match");
+    assert_eq!(search.items[0].match_reason, MATCH_REASON_LEXICAL);
     assert!(search.notes.iter().any(|note| note.contains("has no vectors yet")));
 }
 
 #[test]
 fn search_history_internal_merges_real_semantic_hits_with_lexical() {
     // With built planes, a page found by BOTH lexical and semantic recall reconciles on its visit
-    // and reads as a combined "Lexical + semantic match"; a semantic-only page joins as a fresh hit.
+    // and is stamped the combined `lexical+semantic` code; a semantic-only page joins as a fresh hit.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let embedding = embedding_provider();
@@ -3837,12 +3848,12 @@ fn search_history_internal_merges_real_semantic_hits_with_lexical() {
 
     let page_one = search.items.iter().find(|item| item.history_id == 1).expect("page 1");
     assert_eq!(
-        page_one.match_reason, "Lexical + semantic match",
+        page_one.match_reason, MATCH_REASON_LEXICAL_SEMANTIC,
         "a dual-recall page reads as a combined match"
     );
     let page_two = search.items.iter().find(|item| item.history_id == 2).expect("page 2");
     assert_eq!(
-        page_two.match_reason, "Semantic match",
+        page_two.match_reason, MATCH_REASON_SEMANTIC,
         "a semantic-only page joins as a fresh hit"
     );
 }
@@ -3912,7 +3923,7 @@ fn rrf_ranks_a_dual_list_page_above_a_single_list_page() {
         search.items[0].history_id, 1,
         "the dual-list page wins on summed RRF contributions"
     );
-    assert_eq!(search.items[0].match_reason, "Lexical + semantic match");
+    assert_eq!(search.items[0].match_reason, MATCH_REASON_LEXICAL_SEMANTIC);
     let page_two = search.items.iter().find(|item| item.history_id == 2).expect("page 2");
     assert!(
         search.items[0].score > page_two.score,
@@ -3928,7 +3939,7 @@ fn rrf_fuses_a_multi_visit_page_into_one_dual_list_row() {
     // visits 1 (older) and 2 (newer) on ONE url; the semantic representative is the most-recent visible
     // visit (id 2), while the lexical list ALSO surfaces visit 1 (a DIFFERENT visit id). Page-stable
     // keying (canonical url) collapses both lexical visits onto page A and fuses them with the semantic
-    // hit, so page A is ONE "Lexical + semantic match" that out-ranks a single-list page.
+    // hit, so page A is ONE `lexical+semantic` row that out-ranks a single-list page.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let embedding = embedding_provider();
@@ -4018,13 +4029,13 @@ fn rrf_fuses_a_multi_visit_page_into_one_dual_list_row() {
         "the surviving row is the most-recent visible visit (the rep)"
     );
     assert_eq!(
-        page_a.match_reason, "Lexical + semantic match",
+        page_a.match_reason, MATCH_REASON_LEXICAL_SEMANTIC,
         "the fused multi-visit page earns the dual-list reason (and the RRF dual-list credit)"
     );
     // The dual-list page out-ranks the single-list page B.
     assert_eq!(search.items[0].url, "https://example.com/docs", "the dual-list page ranks first");
     let page_b = search.items.iter().find(|item| item.history_id == 3).expect("page B");
-    assert_eq!(page_b.match_reason, "Semantic match", "page B is single-list (semantic only)");
+    assert_eq!(page_b.match_reason, MATCH_REASON_SEMANTIC, "page B is single-list (semantic only)");
     assert!(page_a.score > page_b.score, "the fused dual-list page out-ranks the single-list page");
 }
 
@@ -4172,7 +4183,7 @@ fn ai_off_search_is_lexical_only() {
         ))
         .expect("lexical-only");
     assert_eq!(response.items.len(), 1);
-    assert_eq!(response.items[0].match_reason, "Lexical match");
+    assert_eq!(response.items[0].match_reason, MATCH_REASON_LEXICAL);
     assert!(response.notes.iter().any(|note| note.contains("lexical retrieval only")));
 }
 
@@ -4261,17 +4272,24 @@ fn starred_boost_promotes_a_relevant_favorite_without_dominating() {
     );
     // PROMOTING: the modestly-relevant STARRED page 2 ranks above the identical UNSTARRED page 3.
     assert!(rank_of(2) < rank_of(3), "a relevant favorite is promoted over its unstarred twin");
-    // The starred pages carry the "(Starred)" affordance the FE shows; the unstarred ones do not.
+    // The starred pages carry the `+starred` code suffix the FE resolves to the favorite affordance;
+    // the unstarred ones do not.
     let page_two = &search.items[rank_of(2)];
-    assert!(page_two.match_reason.contains("(Starred)"), "a boosted result is marked Starred");
+    assert!(
+        page_two.match_reason.ends_with(MATCH_REASON_STARRED_SUFFIX),
+        "a boosted result is marked Starred"
+    );
     let page_three = &search.items[rank_of(3)];
-    assert!(!page_three.match_reason.contains("Starred"), "an unstarred result is not marked");
+    assert!(
+        !page_three.match_reason.contains(MATCH_REASON_STARRED_SUFFIX),
+        "an unstarred result is not marked"
+    );
 }
 
 #[test]
 fn starred_boost_off_leaves_favorites_unpromoted() {
     // With the boost set to 0 the starred status is inert: the identical pages 2 (starred) and 3
-    // (unstarred) tie on fusion and neither carries the "(Starred)" affordance.
+    // (unstarred) tie on fusion and neither carries the `+starred` code suffix.
     let runtime = Runtime::new().expect("runtime");
     let (paths, mut config, connection) = prepared_archive();
     config.ai.starred_boost = 0.0;
@@ -4308,7 +4326,7 @@ fn starred_boost_off_leaves_favorites_unpromoted() {
         ))
         .expect("boost-off search");
     assert!(
-        search.items.iter().all(|item| !item.match_reason.contains("Starred")),
+        search.items.iter().all(|item| !item.match_reason.contains(MATCH_REASON_STARRED_SUFFIX)),
         "no result is marked Starred when the boost is 0"
     );
 }

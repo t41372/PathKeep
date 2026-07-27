@@ -30,12 +30,12 @@ export const settingsRemoteAndOutputsNamespace = {
       'Review Core Intelligence outputs before using them elsewhere',
     externalOutputsSummaryBody:
       'Preview embed cards, widget snapshots, and public snapshots here, then copy the payload you need into another trusted local host yourself.',
-    externalOutputsScopedTitle: 'Inherited shared profile scope',
+    externalOutputsScopedTitle: 'Inherited shared browser scope',
     externalOutputsScopedBody:
-      'These previews are only reading {profile} right now. Clear the shared profile scope if you want archive-wide output payloads.',
+      'These previews are only reading {profile} right now. Clear the shared browser scope if you want output that covers the whole archive.',
     externalOutputsArchiveWideTitle: 'Archive-wide preview',
     externalOutputsArchiveWideBody:
-      'These previews currently use the whole visible archive. Pick a shared profile scope in the shell if you want profile-scoped output payloads.',
+      'These previews currently use the whole visible archive. Pick a shared browser scope in the sidebar if you want output limited to one browser.',
     externalOutputsNeedsArchiveTitle:
       'Create an archive before reviewing manual outputs',
     externalOutputsNeedsArchiveBody:
@@ -100,7 +100,7 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostBadge: 'TRUSTED LOCAL',
     externalOutputsLocalHostSummaryTitle: 'Reusable browser snippet',
     externalOutputsLocalHostSummaryBody:
-      'Build a browser-openable local snippet under the app data folder. It reuses the same shared profile scope and local time window as the manual previews above.',
+      'Build a browser-openable local snippet under the PathKeep data folder. It reuses the same shared browser scope and local time window as the manual previews above.',
     externalOutputsLocalHostLoading: 'Loading local host preview',
     externalOutputsLocalHostUnavailableTitle:
       'Trusted local host preview is unavailable',
@@ -170,8 +170,8 @@ export const settingsRemoteAndOutputsNamespace = {
     migrationPreviewAppVersion: 'Source app',
     migrationPreviewSchemaVersion: 'Archive schema',
     migrationPreviewSchemaCurrent: 'matches this build',
-    migrationPreviewSchemaWillMigrate:
-      'will apply {count} forward migration(s)',
+    migrationPreviewSchemaWillMigrateOne: 'will apply 1 forward update',
+    migrationPreviewSchemaWillMigrateMany: 'will apply {count} forward updates',
     migrationPreviewArchiveMode: 'Archive mode',
     migrationPreviewFileCount: 'Payload',
     migrationPreviewOverwriteWarning:
@@ -187,15 +187,15 @@ export const settingsRemoteAndOutputsNamespace = {
     migrationAppliedNoMigrations: 'none',
     migrationAppliedBakNotice:
       'Previous project preserved as .bak-<timestamp> sidecars.',
-    migrationSourceKeyLabel: 'Source archive key',
+    migrationSourceKeyLabel: 'Source archive password',
     migrationSourceKeyHint:
-      'This bundle was encrypted on the source machine. Enter the archive key from the machine that produced this bundle to continue. The live archive on this machine stays untouched until the key matches.',
-    migrationSourceKeyMissingTitle: 'Source archive key required',
+      'This bundle was encrypted on the source machine. Enter the archive password from the machine that produced this bundle to continue. The live archive on this machine stays untouched until the password matches.',
+    migrationSourceKeyMissingTitle: 'Source archive password required',
     migrationSourceKeyMissingBody:
-      'The bundle is encrypted. Enter the source archive key above and try the import again. Your live data has not been changed.',
-    migrationSourceKeyInvalidTitle: 'Source archive key is incorrect',
+      'The bundle is encrypted. Enter the source archive password above and try the import again. Your live data has not been changed.',
+    migrationSourceKeyInvalidTitle: 'Source archive password is incorrect',
     migrationSourceKeyInvalidBody:
-      'That key does not decrypt the imported archive. Double-check the key from the source machine and try again. Your live data has not been changed.',
+      'That password does not decrypt the imported archive. Double-check the password from the source machine and try again. Your live data has not been changed.',
   },
   'zh-CN': {
     restoreReady: '可恢复',
@@ -204,7 +204,7 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsSummaryTitle:
       '先检查 Core Intelligence 输出，再带到别处使用',
     externalOutputsSummaryBody:
-      '在这里预览嵌入卡片、小组件快照和公开快照，然后把需要的载荷手动复制到你信任的本地宿主。',
+      '在这里预览嵌入卡片、小组件快照和公开快照，然后把需要的内容手动复制到你信任的本地预览服务。',
     externalOutputsScopedTitle: '沿用共享浏览器范围',
     externalOutputsScopedBody:
       '这些预览现在只会读取 {profile}。如果你想看全存档输出，请先清除顶部的共享浏览器范围。',
@@ -219,7 +219,7 @@ export const settingsRemoteAndOutputsNamespace = {
       '只有当前存档会话处于解锁状态时，手动输出预览才会加载。',
     externalOutputsManualOnlyTitle: '仅支持手动复制 / 导出',
     externalOutputsManualOnlyBody:
-      '这里不会安装小组件、发布本机 API，也不会保存可复用的宿主产物。请先检查载荷，再手动复制到你信任的本地界面。',
+      '这里不会安装小组件、发布本机 API，也不会保存可复用的托管文件。请先检查内容，再手动复制到你信任的本地界面。',
     externalOutputsTabEmbed: '嵌入卡片',
     externalOutputsTabWidget: '小组件快照',
     externalOutputsTabPublic: '公开快照',
@@ -228,8 +228,8 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsUnavailableBody:
       'PathKeep 现在无法加载这组手动输出预览。等主界面完成刷新后再试一次。',
     externalOutputsEmbedPreviewTitle: '嵌入卡片预览',
-    externalOutputsTrustedOnlyBadge: '仅限受信任宿主',
-    externalOutputsHref: '载荷链接',
+    externalOutputsTrustedOnlyBadge: '仅限受信任的本地预览',
+    externalOutputsHref: '内容链接',
     externalOutputsOpenInsights: '打开洞察',
     externalOutputsEmbedEmpty: '这个范围里暂时没有可用的嵌入卡片。',
     externalOutputsCardVisitsTitle: '访问',
@@ -249,32 +249,32 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsCardSourceBody:
       '{domain} 经常作为{source}来源帮助收束浏览轨迹。',
     externalOutputsCardMostlyBrowsingBody: '主要在浏览 {domain}',
-    externalOutputsJsonTitle: '原始 JSON 载荷',
+    externalOutputsJsonTitle: '原始 JSON 内容',
     externalOutputsWidgetPreviewTitle: '小组件快照预览',
     externalOutputsWindowLabel: '时间范围：{start} → {end}',
-    externalOutputsWidgetTrustedTitle: '需要受信任宿主审查',
+    externalOutputsWidgetTrustedTitle: '需要受信任的本地预览审查',
     externalOutputsWidgetTrustedBody:
-      '这份小组件快照仍包含仅限受信任宿主的卡片。请把它留在 PathKeep 控制的受信任宿主里，不要把它当成公开导出内容。',
+      '这份小组件快照仍包含仅限受信任的本地预览的卡片。请把它留在 PathKeep 控制的受信任的本地预览里，不要把它当成公开导出内容。',
     externalOutputsPublicPreviewTitle: '公开快照预览',
     externalOutputsPublicRedactedTitle: '公开快照会保持脱敏',
     externalOutputsPublicRedactedBody:
-      '这份载荷会刻意省略访问 ID 和直接页面 URL，离开 PathKeep 受信任界面时会更安全。',
+      '这份内容会刻意省略访问 ID 和直接页面 URL，离开 PathKeep 受信任界面时会更安全。',
     externalOutputsTopDomains: '常访域名',
     externalOutputsSearchEngines: '搜索引擎',
     externalOutputsNoSearchEngines: '这个时间范围里没有可用的搜索引擎活动。',
     externalOutputsDiscoveryTrend: '发现趋势',
     externalOutputsNoDiscoveryTrend: '这个时间范围里没有可用的发现趋势点。',
     externalOutputsCopyFailed:
-      '这份载荷无法直接复制，请改为手动从 JSON 区块复制。',
-    externalOutputsLocalHostTitle: '受信任本地宿主',
+      '这份内容无法直接复制，请改为手动从 JSON 区块复制。',
+    externalOutputsLocalHostTitle: '受信任本地预览服务',
     externalOutputsLocalHostBadge: '仅限本地',
     externalOutputsLocalHostSummaryTitle: '可复用的浏览器片段',
     externalOutputsLocalHostSummaryBody:
-      '在应用资料目录下生成一个可直接打开的本地浏览器片段。它会沿用上面手动预览同一套共享浏览器范围和本地时间窗口。',
-    externalOutputsLocalHostLoading: '正在加载本地宿主预览',
-    externalOutputsLocalHostUnavailableTitle: '本地宿主预览暂时不可用',
+      '在 PathKeep 数据目录下生成一个可直接打开的本地浏览器片段。它会沿用上面手动预览同一套共享浏览器范围和本地时间窗口。',
+    externalOutputsLocalHostLoading: '正在加载本地预览服务预览',
+    externalOutputsLocalHostUnavailableTitle: '本地预览服务预览暂时不可用',
     externalOutputsLocalHostUnavailableBody:
-      'PathKeep 现在无法准备这组本地宿主预览。等主界面完成刷新后再试一次。',
+      'PathKeep 现在无法准备这组本地预览服务预览。等主界面完成刷新后再试一次。',
     externalOutputsLocalHostPreviewTitle: '预览',
     externalOutputsLocalHostPreviewBody:
       'PathKeep 会在 {path} 写入或更新这个受信任的本地片段。先检查生成文件，再决定是否创建它。',
@@ -283,7 +283,7 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostManualTitle: '手动检查',
     externalOutputsLocalHostExecuteTitle: '创建或更新本地片段',
     externalOutputsLocalHostExecuteBody:
-      '这个动作会把 index.html 和 bundle.json 写入固定的本地宿主目录。只要范围、时间窗口或语言变了，就应该重新生成。',
+      '这个动作会把 index.html 和 bundle.json 写入固定的本地预览服务目录。只要范围、时间窗口或语言变了，就应该重新生成。',
     externalOutputsLocalHostCreateAction: '创建本地片段',
     externalOutputsLocalHostUpdateAction: '更新本地片段',
     externalOutputsLocalHostBuilding: '正在生成本地片段…',
@@ -296,30 +296,30 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostWindowLabel: '时间窗口',
     externalOutputsLocalHostGeneratedAtLabel: '生成时间',
     externalOutputsLocalHostEntryPathLabel: '入口文件',
-    externalOutputsLocalHostArtifactRootLabel: '产物目录',
-    externalOutputsLocalHostOpenAction: '打开本地宿主',
+    externalOutputsLocalHostArtifactRootLabel: '文件目录',
+    externalOutputsLocalHostOpenAction: '打开本地预览服务',
     externalOutputsLocalHostCopyPathAction: '复制路径',
     externalOutputsLocalHostBoundaryDeterministic:
-      '这个本地宿主只使用确定性的 Core Intelligence 读取模型。',
+      '这个本地预览服务只使用确定性的 Core Intelligence 读取模型。',
     externalOutputsLocalHostBoundaryTrusted:
-      '仅限受信任宿主的卡片必须留在 PathKeep 控制的本地界面内。',
+      '仅限受信任的本地预览的卡片必须留在 PathKeep 控制的本地界面内。',
     externalOutputsLocalHostBoundaryPublic:
       '公开快照会保持脱敏，不包含访问级 URL 或标识字段。',
     externalOutputsLocalHostManualReview:
       '先检查 index.html 和 bundle.json，再把这个文件夹交给其他受信任的本地工具。',
     externalOutputsLocalHostManualOpen:
-      '直接从这个文件夹打开 index.html，在受信任的本地浏览器宿主里查看它。',
+      '直接从这个文件夹打开 index.html，在受信任的本地浏览器里查看它。',
     externalOutputsLocalHostManualRebuild:
       '只要范围、时间窗口或语言发生变化，就重新创建这个本地片段。',
     externalOutputsLocalHostWarningTrusted:
-      '这个本地片段包含仅限受信任宿主的卡片，不能把它当成公开导出。',
+      '这个本地片段包含仅限受信任的本地预览的卡片，不能把它当成公开导出。',
     externalOutputsLocalHostPurposeEntry:
       '可直接在本机浏览器打开的 Core Intelligence 片段。',
     externalOutputsLocalHostPurposeBundle:
-      '同一份本地宿主数据的机器可读 JSON 包。',
+      '同一份本地预览服务数据的机器可读 JSON 包。',
     migrationTitle: '数据迁移',
     migrationIntro:
-      '把整个 PathKeep 项目——配置、历史记录、派生数据、审计账本、原始快照与智能侧链——迁移到另一台机器，或者还原一份之前导出的数据。App Lock 密钥与平台定时任务保留在源机器上。',
+      '把整个 PathKeep 项目——配置、历史记录、派生数据、审计账本、原始快照与智能附属数据——迁移到另一台机器，或者还原一份之前导出的数据。App Lock 密码与平台定时任务保留在源机器上。',
     migrationExportAction: '导出数据包',
     migrationExportDescription:
       '把当前项目打包成一个 .pathkeep 文件，可以带去另一台机器。',
@@ -337,9 +337,10 @@ export const settingsRemoteAndOutputsNamespace = {
     migrationPreviewErrorTitle: '无法读取此数据包',
     migrationPreviewExportedAt: '导出于',
     migrationPreviewAppVersion: '源端 App',
-    migrationPreviewSchemaVersion: '存档 schema',
+    migrationPreviewSchemaVersion: '存档结构版本',
     migrationPreviewSchemaCurrent: '与当前版本一致',
-    migrationPreviewSchemaWillMigrate: '将向前应用 {count} 次迁移',
+    migrationPreviewSchemaWillMigrateOne: '将向前应用 {count} 次更新',
+    migrationPreviewSchemaWillMigrateMany: '将向前应用 {count} 次更新',
     migrationPreviewArchiveMode: '存档模式',
     migrationPreviewFileCount: '内容',
     migrationPreviewOverwriteWarning:
@@ -351,18 +352,18 @@ export const settingsRemoteAndOutputsNamespace = {
     migrationCancelAction: '取消',
     migrationAppliedTitle: '导入完成',
     migrationAppliedBody:
-      '存档现在是 schema v{finalSchemaVersion}。已应用的迁移：{migrationsApplied}。{bakNotice}',
+      '存档结构现在是 v{finalSchemaVersion} 版。已应用的更新：{migrationsApplied}。{bakNotice}',
     migrationAppliedNoMigrations: '无',
     migrationAppliedBakNotice: '原先的项目已以 .bak-<时间戳> 为后缀保留。',
-    migrationSourceKeyLabel: '来源存档密钥',
+    migrationSourceKeyLabel: '来源存档密码',
     migrationSourceKeyHint:
-      '这个数据包在来源机器上是加密的。请输入产生此数据包的那台机器使用的存档密钥，才能继续导入。密钥匹配之前，本机的现有存档完全不会被修改。',
-    migrationSourceKeyMissingTitle: '需要来源存档密钥',
+      '这个数据包在来源机器上是加密的。请输入产生此数据包的那台机器使用的存档密码，才能继续导入。密码匹配之前，本机的现有存档完全不会被修改。',
+    migrationSourceKeyMissingTitle: '需要来源存档密码',
     migrationSourceKeyMissingBody:
-      '此数据包是加密的。请在上方输入来源存档密钥后再次尝试导入。本机的现有数据没有被改动。',
-    migrationSourceKeyInvalidTitle: '来源存档密钥不正确',
+      '此数据包是加密的。请在上方输入来源存档密码后再次尝试导入。本机的现有数据没有被改动。',
+    migrationSourceKeyInvalidTitle: '来源存档密码不正确',
     migrationSourceKeyInvalidBody:
-      '这把密钥无法解密导入的存档。请确认来源机器上的密钥后再试一次。本机的现有数据没有被改动。',
+      '这个密码无法解密导入的存档。请确认来源机器上的密码后再试一次。本机的现有数据没有被改动。',
   },
   'zh-TW': {
     restoreReady: '可還原',
@@ -371,7 +372,7 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsSummaryTitle:
       '先檢查 Core Intelligence 輸出，再帶到別處使用',
     externalOutputsSummaryBody:
-      '在這裡預覽嵌入卡片、小工具快照和公開快照，然後把需要的載荷手動複製到你信任的本地宿主。',
+      '在這裡預覽嵌入卡片、小工具快照和公開快照，然後把需要的內容手動複製到你信任的本機預覽服務。',
     externalOutputsScopedTitle: '沿用共享瀏覽器範圍',
     externalOutputsScopedBody:
       '這些預覽現在只會讀取 {profile}。如果你想看全封存輸出，請先清除頂部的共享瀏覽器範圍。',
@@ -386,7 +387,7 @@ export const settingsRemoteAndOutputsNamespace = {
       '只有目前封存工作階段保持解鎖時，手動輸出預覽才會載入。',
     externalOutputsManualOnlyTitle: '僅支援手動複製 / 匯出',
     externalOutputsManualOnlyBody:
-      '這裡不會安裝小工具、發布本機 API，也不會儲存可重用的宿主產物。請先檢查載荷，再手動複製到你信任的本地介面。',
+      '這裡不會安裝小工具、發布本機 API，也不會儲存可重用的託管檔案。請先檢查內容，再手動複製到你信任的本地介面。',
     externalOutputsTabEmbed: '嵌入卡片',
     externalOutputsTabWidget: '小工具快照',
     externalOutputsTabPublic: '公開快照',
@@ -395,8 +396,8 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsUnavailableBody:
       'PathKeep 目前無法載入這組手動輸出預覽。等主介面完成重新整理後再試一次。',
     externalOutputsEmbedPreviewTitle: '嵌入卡片預覽',
-    externalOutputsTrustedOnlyBadge: '僅限受信任宿主',
-    externalOutputsHref: '載荷連結',
+    externalOutputsTrustedOnlyBadge: '僅限受信任的本機預覽',
+    externalOutputsHref: '內容連結',
     externalOutputsOpenInsights: '打開洞察',
     externalOutputsEmbedEmpty: '這個範圍裡暫時沒有可用的嵌入卡片。',
     externalOutputsCardVisitsTitle: '造訪',
@@ -416,32 +417,32 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsCardSourceBody:
       '{domain} 經常作為{source}來源幫助收束瀏覽軌跡。',
     externalOutputsCardMostlyBrowsingBody: '主要在瀏覽 {domain}',
-    externalOutputsJsonTitle: '原始 JSON 載荷',
+    externalOutputsJsonTitle: '原始 JSON 內容',
     externalOutputsWidgetPreviewTitle: '小工具快照預覽',
     externalOutputsWindowLabel: '時間範圍：{start} → {end}',
-    externalOutputsWidgetTrustedTitle: '需要受信任宿主審查',
+    externalOutputsWidgetTrustedTitle: '需要受信任的本機預覽審查',
     externalOutputsWidgetTrustedBody:
-      '這份小工具快照仍包含僅限受信任宿主的卡片。請把它留在 PathKeep 控制的受信任宿主裡，不要把它當成公開匯出內容。',
+      '這份小工具快照仍包含僅限受信任的本機預覽的卡片。請把它留在 PathKeep 控制的受信任的本機預覽裡，不要把它當成公開匯出內容。',
     externalOutputsPublicPreviewTitle: '公開快照預覽',
     externalOutputsPublicRedactedTitle: '公開快照會保持去識別化',
     externalOutputsPublicRedactedBody:
-      '這份載荷會刻意省略造訪 ID 和直接頁面 URL，離開 PathKeep 受信任介面時會更安全。',
+      '這份內容會刻意省略造訪 ID 和直接頁面 URL，離開 PathKeep 受信任介面時會更安全。',
     externalOutputsTopDomains: '常訪網域',
     externalOutputsSearchEngines: '搜尋引擎',
     externalOutputsNoSearchEngines: '這個時間範圍裡沒有可用的搜尋引擎活動。',
     externalOutputsDiscoveryTrend: '發現趨勢',
     externalOutputsNoDiscoveryTrend: '這個時間範圍裡沒有可用的發現趨勢點。',
     externalOutputsCopyFailed:
-      '這份載荷無法直接複製，請改為手動從 JSON 區塊複製。',
-    externalOutputsLocalHostTitle: '受信任本地宿主',
+      '這份內容無法直接複製，請改為手動從 JSON 區塊複製。',
+    externalOutputsLocalHostTitle: '受信任本機預覽服務',
     externalOutputsLocalHostBadge: '僅限本地',
     externalOutputsLocalHostSummaryTitle: '可重用的瀏覽器片段',
     externalOutputsLocalHostSummaryBody:
       '在應用資料目錄下產生一個可直接開啟的本地瀏覽器片段。它會沿用上面手動預覽同一套共享瀏覽器範圍和本地時間視窗。',
-    externalOutputsLocalHostLoading: '正在載入本地宿主預覽',
-    externalOutputsLocalHostUnavailableTitle: '本地宿主預覽暫時無法使用',
+    externalOutputsLocalHostLoading: '正在載入本機預覽服務預覽',
+    externalOutputsLocalHostUnavailableTitle: '本機預覽服務預覽暫時無法使用',
     externalOutputsLocalHostUnavailableBody:
-      'PathKeep 目前無法準備這組本地宿主預覽。等主介面完成重新整理後再試一次。',
+      'PathKeep 目前無法準備這組本機預覽服務預覽。等主介面完成重新整理後再試一次。',
     externalOutputsLocalHostPreviewTitle: '預覽',
     externalOutputsLocalHostPreviewBody:
       'PathKeep 會在 {path} 寫入或更新這個受信任的本地片段。先檢查生成檔案，再決定是否建立它。',
@@ -450,12 +451,12 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostManualTitle: '手動檢查',
     externalOutputsLocalHostExecuteTitle: '建立或更新本地片段',
     externalOutputsLocalHostExecuteBody:
-      '這個動作會把 index.html 和 bundle.json 寫入固定的本地宿主目錄。只要範圍、時間視窗或語言變了，就應該重新產生。',
+      '這個動作會把 index.html 和 bundle.json 寫入固定的本機預覽服務目錄。只要範圍、時間視窗或語言變了，就應該重新產生。',
     externalOutputsLocalHostCreateAction: '建立本地片段',
     externalOutputsLocalHostUpdateAction: '更新本地片段',
     externalOutputsLocalHostBuilding: '正在產生本地片段…',
     externalOutputsLocalHostBuilt:
-      'PathKeep 已刷新受信任的本地片段。請在下方的驗證區繼續檢查。',
+      'PathKeep 已重新整理受信任的本地片段。請在下方的驗證區繼續檢查。',
     externalOutputsLocalHostVerifyTitle: '驗證',
     externalOutputsLocalHostVerifyUnavailable:
       '這個範圍目前還沒有已安裝的受信任本地片段。',
@@ -463,30 +464,30 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostWindowLabel: '時間視窗',
     externalOutputsLocalHostGeneratedAtLabel: '產生時間',
     externalOutputsLocalHostEntryPathLabel: '入口檔案',
-    externalOutputsLocalHostArtifactRootLabel: '產物目錄',
-    externalOutputsLocalHostOpenAction: '開啟本地宿主',
+    externalOutputsLocalHostArtifactRootLabel: '檔案目錄',
+    externalOutputsLocalHostOpenAction: '開啟本機預覽服務',
     externalOutputsLocalHostCopyPathAction: '複製路徑',
     externalOutputsLocalHostBoundaryDeterministic:
-      '這個本地宿主只使用確定性的 Core Intelligence 讀取模型。',
+      '這個本機預覽服務只使用確定性的 Core Intelligence 讀取模型。',
     externalOutputsLocalHostBoundaryTrusted:
-      '僅限受信任宿主的卡片必須留在 PathKeep 控制的本地介面內。',
+      '僅限受信任的本機預覽的卡片必須留在 PathKeep 控制的本地介面內。',
     externalOutputsLocalHostBoundaryPublic:
       '公開快照會保持去識別化，不包含造訪級 URL 或識別欄位。',
     externalOutputsLocalHostManualReview:
       '先檢查 index.html 與 bundle.json，再把這個資料夾交給其他受信任的本地工具。',
     externalOutputsLocalHostManualOpen:
-      '從這個資料夾直接打開 index.html，在受信任的本地瀏覽器宿主裡檢視它。',
+      '從這個資料夾直接打開 index.html，在受信任的本地瀏覽器裡檢視它。',
     externalOutputsLocalHostManualRebuild:
       '只要範圍、時間視窗或語言改變，就重新建立這個本地片段。',
     externalOutputsLocalHostWarningTrusted:
-      '這個本地片段包含僅限受信任宿主的卡片，不能把它當成公開匯出。',
+      '這個本地片段包含僅限受信任的本機預覽的卡片，不能把它當成公開匯出。',
     externalOutputsLocalHostPurposeEntry:
       '可直接在本機瀏覽器開啟的 Core Intelligence 片段。',
     externalOutputsLocalHostPurposeBundle:
-      '同一份本地宿主資料的機器可讀 JSON 包。',
+      '同一份本機預覽服務資料的機器可讀 JSON 包。',
     migrationTitle: '資料遷移',
     migrationIntro:
-      '把整個 PathKeep 專案——設定、歷史紀錄、衍生資料、稽核帳本、原始快照與智能側鏈——搬到另一台機器，或還原一份先前匯出的資料。App Lock 密鑰與平台排程僅留在來源機器上。',
+      '把整個 PathKeep 專案——設定、歷史紀錄、衍生資料、稽核帳本、原始快照與智慧附屬資料——搬到另一台機器，或還原一份先前匯出的資料。App Lock 密碼與平台排程僅留在來源機器上。',
     migrationExportAction: '匯出資料包',
     migrationExportDescription:
       '把目前的專案打包成一個 .pathkeep 檔案，可以帶到另一台機器。',
@@ -504,9 +505,10 @@ export const settingsRemoteAndOutputsNamespace = {
     migrationPreviewErrorTitle: '無法讀取此資料包',
     migrationPreviewExportedAt: '匯出於',
     migrationPreviewAppVersion: '來源 App',
-    migrationPreviewSchemaVersion: '封存 schema',
+    migrationPreviewSchemaVersion: '封存結構版本',
     migrationPreviewSchemaCurrent: '與目前版本一致',
-    migrationPreviewSchemaWillMigrate: '將向前套用 {count} 次遷移',
+    migrationPreviewSchemaWillMigrateOne: '將向前套用 {count} 次更新',
+    migrationPreviewSchemaWillMigrateMany: '將向前套用 {count} 次更新',
     migrationPreviewArchiveMode: '封存模式',
     migrationPreviewFileCount: '內容',
     migrationPreviewOverwriteWarning:
@@ -518,7 +520,7 @@ export const settingsRemoteAndOutputsNamespace = {
     migrationCancelAction: '取消',
     migrationAppliedTitle: '匯入完成',
     migrationAppliedBody:
-      '封存現在是 schema v{finalSchemaVersion}。已套用的遷移：{migrationsApplied}。{bakNotice}',
+      '封存結構現在是 v{finalSchemaVersion} 版。已套用的更新：{migrationsApplied}。{bakNotice}',
     migrationAppliedNoMigrations: '無',
     migrationAppliedBakNotice: '原先的專案已以 .bak-<時間戳> 為後綴保留。',
     migrationSourceKeyLabel: '來源封存密碼',

@@ -25,10 +25,10 @@ import {
   upsertDeterministicModuleState,
   upsertEnrichmentPluginPreference,
 } from './intelligence-runtime'
-import { createTranslator } from './i18n'
+import { createNamespaceTranslator } from './i18n'
 
 describe('intelligence runtime helpers', () => {
-  const t = createTranslator('en')
+  const t = createNamespaceTranslator('en', 'settings')
 
   test('maps known plugin ids to labels and descriptions', () => {
     expect(enrichmentPluginLabel('title-normalization', t)).toBe(

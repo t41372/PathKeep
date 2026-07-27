@@ -117,7 +117,7 @@ export const archiveUpgradeNamespaceCatalog = {
       schemaMigration: '準備封存',
       registrableDomainBackfill: '依網域歸類站點',
       searchReprojection: '重建搜尋',
-      intelligence: '刷新洞察',
+      intelligence: '重新整理洞察',
       finalizing: '即將完成',
     },
 
@@ -127,7 +127,7 @@ export const archiveUpgradeNamespaceCatalog = {
     working: '處理中…',
     finishing: '就快好了…',
 
-    intelligenceInfo: '封存就緒後，洞察會在背景悄悄刷新。',
+    intelligenceInfo: '封存就緒後，洞察會在背景悄悄重新整理。',
 
     errorTitle: '升級未能完成',
     errorDetail: '詳情：{detail}',

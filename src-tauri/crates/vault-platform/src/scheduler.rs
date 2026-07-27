@@ -19,7 +19,7 @@ use std::{
 };
 use vault_core::{
     ProjectPaths,
-    models::{ApplyResult, SchedulePlan, ScheduleStatus},
+    models::{ApplyResult, ScheduleIssue, SchedulePlan, ScheduleStatus},
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -182,9 +182,21 @@ pub fn schedule_status(
     }
 
     if plan.platform != "macos" {
+        // `warnings` stays as the diagnostic transcript in the payload; the
+        // localized `issues` channel is what the UI actually renders.
         status.warnings.push(
             "Automatic install-status detection is only implemented on macOS in v1. Use the manual verification steps for this platform.".to_string(),
         );
+        status.issues.push(ScheduleIssue {
+            code: "status-detection-unavailable".to_string(),
+            severity: "warning".to_string(),
+            title_key: "schedule.issueStatusDetectionUnavailableTitle".to_string(),
+            detail_key: "schedule.issueStatusDetectionUnavailableDetail".to_string(),
+            consequence_key: "schedule.issueStatusDetectionUnavailableConsequence".to_string(),
+            evidence: vec![plan.platform.clone()],
+            repair_action: None,
+            dismissible: true,
+        });
         return Ok(status);
     }
     macos::macos_schedule_status(&plan, status)
@@ -246,6 +258,37 @@ mod tests {
 
     fn sample_paths(root: &Path) -> ProjectPaths {
         vault_core::config::project_paths_with_root(root)
+    }
+
+    /// Platforms without install-status detection must publish a typed issue,
+    /// not just an English warning: `warnings` is diagnostic-only and the UI
+    /// renders `issues`, so a warning without a paired issue is invisible.
+    #[test]
+    fn platforms_without_status_detection_publish_a_typed_issue() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
+
+        let status = schedule_status(Some("linux"), Path::new("/usr/bin/chb"), &paths, &params)
+            .expect("linux status");
+
+        assert_eq!(status.install_state, "manual-review");
+        assert!(
+            status.warnings.iter().any(|warning| warning.contains("only implemented on macOS")),
+            "diagnostic prose stays in the payload"
+        );
+        let issue = status
+            .issues
+            .iter()
+            .find(|issue| issue.code == "status-detection-unavailable")
+            .expect("typed status-detection issue");
+        assert_eq!(issue.severity, "warning");
+        assert_eq!(issue.title_key, "schedule.issueStatusDetectionUnavailableTitle");
+        assert_eq!(issue.detail_key, "schedule.issueStatusDetectionUnavailableDetail");
+        assert_eq!(issue.consequence_key, "schedule.issueStatusDetectionUnavailableConsequence");
+        assert_eq!(issue.evidence, vec!["linux".to_string()]);
+        assert!(issue.dismissible);
     }
 
     #[test]

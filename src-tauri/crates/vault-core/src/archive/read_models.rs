@@ -6,7 +6,7 @@
 //! must not hide the canonical run ledger behind page-specific shortcuts.
 
 use super::*;
-use crate::models::ArchiveUpgradeProgress;
+use crate::models::{ArchiveUpgradeProgress, BackupWarning};
 
 /// Initializes the archive schema and returns the resulting status snapshot.
 pub fn ensure_archive_initialized(
@@ -254,11 +254,8 @@ pub fn load_audit_run_detail(
 
     let profile_scope = decode_profile_scope(row.8.as_deref());
     let stats = decode_run_stats(row.9.as_deref());
-    let warnings = row
-        .10
-        .as_ref()
-        .and_then(|value| serde_json::from_str::<Vec<String>>(value).ok())
-        .unwrap_or_default();
+    let warning_details = decode_run_warnings(row.10.as_deref());
+    let warnings = crate::models::backup_warning_messages(&warning_details);
 
     Ok(AuditRunDetail {
         run: BackupRunOverview {
@@ -281,6 +278,7 @@ pub fn load_audit_run_detail(
         due_only: row.4 != 0,
         profile_scope,
         warnings,
+        warning_details,
         error_message: row.11,
         stats,
         manifest_path: manifest.as_ref().and_then(|(path, _)| path.clone()),
@@ -313,6 +311,29 @@ pub(super) fn backup_run_overview_from_row(row: &Row<'_>) -> rusqlite::Result<Ba
 /// Decodes the stored JSON profile scope, defaulting to an empty scope on malformed data.
 pub(super) fn decode_profile_scope(value: Option<&str>) -> Vec<String> {
     value.and_then(|content| serde_json::from_str::<Vec<String>>(content).ok()).unwrap_or_default()
+}
+
+/// Decodes the stored run warnings, accepting both wire shapes.
+///
+/// `warnings_json` used to be a plain `["message", …]` array and backup runs now
+/// write `[{ code, message, … }, …]`. Both shapes stay readable so an archive
+/// written by an older build keeps its warnings visible in Audit — a run whose
+/// warnings silently vanished would be worse than an unlocalized one. Non-backup
+/// run types (maintenance, doctor, projection) still write plain strings.
+pub(super) fn decode_run_warnings(value: Option<&str>) -> Vec<BackupWarning> {
+    let Some(parsed) = value.and_then(|content| serde_json::from_str::<Value>(content).ok()) else {
+        return Vec::new();
+    };
+    let Some(entries) = parsed.as_array() else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter_map(|entry| match entry {
+            Value::String(message) => Some(BackupWarning::opaque(message.clone())),
+            other => serde_json::from_value::<BackupWarning>(other.clone()).ok(),
+        })
+        .collect()
 }
 
 /// Decodes the stored run stats JSON, defaulting to an empty object when absent or malformed.

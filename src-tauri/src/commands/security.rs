@@ -7,6 +7,8 @@
 #[cfg(not(test))]
 use super::blocking::run_blocking_command;
 #[cfg(not(test))]
+use crate::command_error::CommandError;
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
 use tauri::State;
@@ -14,10 +16,12 @@ use tauri::State;
 #[cfg(not(test))]
 #[tauri::command]
 /// Returns whether local secrets are present in native keyrings, off the UI thread.
-pub(crate) async fn keyring_status() -> vault_core::KeyringStatusReport {
-    run_blocking_command("keyring_status", move || Ok(worker_bridge::keyring_status_impl()))
-        .await
-        .unwrap_or_default()
+///
+/// Propagates join failures instead of defaulting to an empty report — an
+/// empty default would render the Security page as "no secrets stored" when
+/// the truth is "the status query failed", which are very different claims.
+pub(crate) async fn keyring_status() -> Result<vault_core::KeyringStatusReport, CommandError> {
+    run_blocking_command("keyring_status", move || Ok(worker_bridge::keyring_status_impl())).await
 }
 
 #[cfg(not(test))]
@@ -25,7 +29,7 @@ pub(crate) async fn keyring_status() -> vault_core::KeyringStatusReport {
 /// Loads the combined security read model for the current session, off the UI thread.
 pub(crate) async fn security_status(
     state: State<'_, SessionState>,
-) -> Result<vault_core::SecurityStatus, String> {
+) -> Result<vault_core::SecurityStatus, CommandError> {
     let key = state.get_key();
     run_blocking_command("security_status", move || {
         worker_bridge::security_status_impl(key.as_deref())
@@ -36,7 +40,7 @@ pub(crate) async fn security_status(
 #[cfg(not(test))]
 #[tauri::command]
 /// Reads the archive database key from the native keyring, off the UI thread.
-pub(crate) async fn keyring_get_database_key() -> Result<Option<String>, String> {
+pub(crate) async fn keyring_get_database_key() -> Result<Option<String>, CommandError> {
     run_blocking_command("keyring_get_database_key", worker_bridge::keyring_get_database_key_impl)
         .await
 }
@@ -46,7 +50,7 @@ pub(crate) async fn keyring_get_database_key() -> Result<Option<String>, String>
 /// Stores the archive database key in the native keyring, off the UI thread.
 pub(crate) async fn keyring_store_database_key(
     value: String,
-) -> Result<vault_core::KeyringStatusReport, String> {
+) -> Result<vault_core::KeyringStatusReport, CommandError> {
     run_blocking_command("keyring_store_database_key", move || {
         worker_bridge::keyring_store_database_key_impl(value)
     })
@@ -56,8 +60,8 @@ pub(crate) async fn keyring_store_database_key(
 #[cfg(not(test))]
 #[tauri::command]
 /// Removes the archive database key from the native keyring, off the UI thread.
-pub(crate) async fn keyring_clear_database_key() -> Result<vault_core::KeyringStatusReport, String>
-{
+pub(crate) async fn keyring_clear_database_key()
+-> Result<vault_core::KeyringStatusReport, CommandError> {
     run_blocking_command(
         "keyring_clear_database_key",
         worker_bridge::keyring_clear_database_key_impl,
@@ -68,7 +72,7 @@ pub(crate) async fn keyring_clear_database_key() -> Result<vault_core::KeyringSt
 #[cfg(not(test))]
 #[tauri::command]
 /// Clears PathKeep's local secret vault after explicit user confirmation, off the UI thread.
-pub(crate) async fn reset_local_secret_vault() -> Result<(), String> {
+pub(crate) async fn reset_local_secret_vault() -> Result<(), CommandError> {
     run_blocking_command("reset_local_secret_vault", worker_bridge::reset_local_secret_vault_impl)
         .await
 }

@@ -188,7 +188,13 @@ export function RefindPageInsightsRoutePage() {
             explanation={{
               entityType: 'refind_page',
               entityId: detail.page.canonicalUrl,
-              triggerRule: `Refind score >= ${detail.explanation.refindScore.toFixed(1)}`,
+              // The route hands the panel the STABLE RULE CODE plus the structured score. It used to
+              // compose the English sentence `Refind score >= 3.2` purely so the panel could regex the
+              // number back out to localize it — a serialization round trip through a language the
+              // route has no business speaking. The refind detail payload carries no prose of its own,
+              // so `triggerRule` is simply omitted; the code is the authoritative rule identity.
+              triggerRuleCode: 'refind-score',
+              triggerRuleScore: detail.explanation.refindScore,
               factors: detail.explanation.factors.map((factor) => ({
                 label: factor.signal,
                 rawValue: factor.rawValue,

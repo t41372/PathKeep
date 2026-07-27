@@ -636,6 +636,7 @@ describe('intelligence surfaces', () => {
 
   test('renders refind-page insights with day and trail drilldowns', async () => {
     const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
     const detailSpy = vi
       .spyOn(coreIntelligenceApi, 'getRefindPageDetail')
       .mockResolvedValue(
@@ -735,6 +736,17 @@ describe('intelligence surfaces', () => {
       'href',
       '/intelligence/trail/trail-1?range=custom&start=2026-04-01&end=2026-04-30&profileId=chrome%3ADefault',
     )
+    // The explainability panel localizes from the STABLE RULE CODE + the structured refind score the
+    // route hands it. The route no longer composes an English sentence for the panel to regex apart,
+    // so this asserts the localized copy, never a backend-shaped string.
+    fireEvent.click(
+      screen.getByRole('button', { name: intelligenceT('explainTitle') }),
+    )
+    expect(
+      screen.getByText(
+        intelligenceT('explainRuleRefindScore', { score: '5.0' }),
+      ),
+    ).toBeVisible()
   })
 
   test('keeps refind route placeholders and empty optional detail lists honest', async () => {

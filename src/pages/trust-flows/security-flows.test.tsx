@@ -146,6 +146,8 @@ describe('trust flows security', () => {
       .mockResolvedValue({
         ...lockedStatus,
         warnings: ['database key is required for encrypted archives'],
+        // Localization keys off the stable code, not the English sentence.
+        warningCodes: ['encrypted-needs-password'],
       })
 
     renderTrustPage(<SecurityPage />, {
@@ -203,7 +205,7 @@ describe('trust flows security', () => {
 
     expect(
       await screen.findByText(
-        'That key did not unlock this archive. Check the password or saved key, then try again.',
+        'That password did not unlock this archive. Retype it, or use the one saved in your keychain.',
       ),
     ).toBeVisible()
     expect(setSessionSpy).toHaveBeenCalledWith('000000')

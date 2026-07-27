@@ -35,6 +35,7 @@ use super::{
     StructuralDeltaSummary, TrailBatchCursor, TrailRecord, clear_core_tables_for_job_kind,
     load_stage_checkpoint, save_stage_checkpoint, stage_name, stage_version, watermark_regressed,
 };
+use crate::models::DerivedRuntimeNote;
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -78,15 +79,24 @@ pub(super) fn execute_structural_stage(
         return Ok(StageRunResult {
             execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
             affected_profiles: vec![profile_id.to_string()],
-            notes: vec![format!(
-                "No visible visits remained for {profile_id}; cleared structural entities."
-            )],
+            notes: vec![
+                DerivedRuntimeNote::new(
+                    crate::models::DERIVED_NOTE_STRUCTURAL_CLEARED_NO_VISITS,
+                    format!(
+                        "No visible visits remained for {profile_id}; cleared structural entities."
+                    ),
+                )
+                .with_profile_id(profile_id),
+            ],
             ..StageRunResult::default()
         });
     }
 
-    let mut fallback_reason =
+    let structural_fallback =
         structural_fallback_reason(force_full, checkpoint.as_ref(), watermark, &current_version);
+    let mut fallback_reason_code =
+        structural_fallback.as_ref().map(|(code, _)| (*code).to_string());
+    let mut fallback_reason = structural_fallback.map(|(_, reason)| reason);
 
     if fallback_reason.is_none()
         && checkpoint.as_ref().is_some_and(|checkpoint| checkpoint.source_watermark == *watermark)
@@ -111,7 +121,13 @@ pub(super) fn execute_structural_stage(
         return Ok(StageRunResult {
             execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
             affected_profiles: vec![profile_id.to_string()],
-            notes: vec![format!("Structural entities for {profile_id} were already up to date.")],
+            notes: vec![
+                DerivedRuntimeNote::new(
+                    crate::models::DERIVED_NOTE_STRUCTURAL_UP_TO_DATE,
+                    format!("Structural entities for {profile_id} were already up to date."),
+                )
+                .with_profile_id(profile_id),
+            ],
             ..StageRunResult::default()
         });
     }
@@ -140,6 +156,8 @@ pub(super) fn execute_structural_stage(
                     "Structural delta rows no longer matched the current archive watermark."
                         .to_string(),
                 );
+                fallback_reason_code =
+                    Some(crate::models::REBUILD_FALLBACK_STRUCTURAL_DELTA_MISMATCH.to_string());
                 (
                     StageExecutionMode::FallbackFull,
                     watermark.visible_visit_count as usize,
@@ -226,33 +244,52 @@ pub(super) fn execute_structural_stage(
         dirty_visit_count: Some(dirty_visit_count),
         dirty_date_keys,
         fallback_reason: fallback_reason.clone(),
+        fallback_reason_code,
         notes: vec![if execution_mode == StageExecutionMode::Incremental {
-            format!("Rebuilt structural tail entities for {profile_id}.")
+            DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_STRUCTURAL_TAIL_REBUILT,
+                format!("Rebuilt structural tail entities for {profile_id}."),
+            )
+            .with_profile_id(profile_id)
         } else {
-            format!("Rebuilt all structural entities for {profile_id}.")
+            DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_STRUCTURAL_REBUILT,
+                format!("Rebuilt all structural entities for {profile_id}."),
+            )
+            .with_profile_id(profile_id)
         }],
         ..StageRunResult::default()
     })
 }
 
+/// Returns the `(stable code, diagnostic prose)` pair for a structural-stage
+/// fallback, or `None` when the incremental path is safe.
 fn structural_fallback_reason(
     force_full: bool,
     checkpoint: Option<&StageCheckpoint>,
     watermark: &ProfileSourceWatermark,
     current_version: &str,
-) -> Option<String> {
+) -> Option<(&'static str, String)> {
     if force_full {
-        return Some("Manual full rebuild requested for structural entities.".to_string());
+        return Some((
+            crate::models::REBUILD_FALLBACK_STRUCTURAL_MANUAL_FULL_REBUILD,
+            "Manual full rebuild requested for structural entities.".to_string(),
+        ));
     }
     match checkpoint {
-        None => Some("No structural checkpoint was recorded for this profile yet.".to_string()),
-        Some(checkpoint) if checkpoint.stage_version != current_version => {
-            Some("Structural rebuild logic changed since the last successful rebuild.".to_string())
-        }
-        Some(checkpoint) if watermark_regressed(watermark, &checkpoint.source_watermark) => Some(
+        None => Some((
+            crate::models::REBUILD_FALLBACK_STRUCTURAL_NO_CHECKPOINT,
+            "No structural checkpoint was recorded for this profile yet.".to_string(),
+        )),
+        Some(checkpoint) if checkpoint.stage_version != current_version => Some((
+            crate::models::REBUILD_FALLBACK_STRUCTURAL_RULES_CHANGED,
+            "Structural rebuild logic changed since the last successful rebuild.".to_string(),
+        )),
+        Some(checkpoint) if watermark_regressed(watermark, &checkpoint.source_watermark) => Some((
+            crate::models::REBUILD_FALLBACK_STRUCTURAL_VISIBILITY_REGRESSED,
             "Archive visibility regressed or source counters moved backwards for structural entities."
                 .to_string(),
-        ),
+        )),
         _ => None,
     }
 }
@@ -559,7 +596,7 @@ mod tests {
             visible_search_term_count: 4,
         };
 
-        let reason = structural_fallback_reason(
+        let (code, reason) = structural_fallback_reason(
             false,
             Some(&checkpoint),
             &regressed,
@@ -568,6 +605,7 @@ mod tests {
         .expect("regression reason");
 
         assert!(reason.contains("regressed"));
+        assert_eq!(code, crate::models::REBUILD_FALLBACK_STRUCTURAL_VISIBILITY_REGRESSED);
         assert!(
             structural_fallback_reason(
                 false,

@@ -19,4 +19,5 @@
  * - Barrel-only module with no runtime work beyond re-exporting component owners.
  */
 
+export * from './localize-task'
 export * from './task-progress'

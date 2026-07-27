@@ -17,7 +17,7 @@
  * - Prefer additive, explicit fields over ambiguous catch-all objects so the trust surface stays auditable.
  */
 
-import type { BackupRunOverview } from './archive'
+import type { BackupRunOverview, BackupWarning } from './archive'
 
 /**
  * Defines the typed shape for audit artifact.
@@ -44,7 +44,13 @@ export interface AuditRunDetail {
   timezone?: string | null
   dueOnly: boolean
   profileScope: string[]
+  /** Diagnostic English prose; rendered only when a code has no catalog entry. */
   warnings: string[]
+  /**
+   * Coded mirror of `warnings`, index-aligned. Backup runs persist codes; other
+   * run types still store opaque messages and carry an empty `code`.
+   */
+  warningDetails?: BackupWarning[]
   errorMessage?: string | null
   stats: Record<string, unknown>
   manifestPath?: string | null
@@ -57,14 +63,27 @@ export interface AuditRunDetail {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface HealthCheck {
+  /**
+   * Stable kebab-case slug for the check (`config`, `manifest-chain`, …). The
+   * UI resolves the displayed check name from this code so a `zh` user is not
+   * shown the backend's English `name`; `name` remains the fallback for codes
+   * the catalog does not know yet.
+   */
+  code?: string
   name: string
   /**
-   * Matches the Rust `HealthCheck` contract (`{ name, ok, detail }`): a doctor
-   * check is pass/fail. The previous `status`/`message` shape never existed on
-   * the wire, so on real desktop every check rendered as a benign "Info" with
-   * an empty body — hiding failing checks in the import review surface.
+   * Matches the Rust `HealthCheck` contract (`{ code, name, ok, detail }`): a
+   * doctor check is pass/fail. The previous `status`/`message` shape never
+   * existed on the wire, so on real desktop every check rendered as a benign
+   * "Info" with an empty body — hiding failing checks in the import review
+   * surface.
    */
   ok: boolean
+  /**
+   * Raw diagnostic prose (paths, counts, hash mismatches). Intentionally not
+   * localized — it is rendered with the diagnostic text treatment so the user
+   * can tell evidence apart from PathKeep's own copy.
+   */
   detail: string
 }
 

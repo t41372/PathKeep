@@ -30,8 +30,29 @@ import {
   formatBuildVersionLabel,
   formatBuildVersionTitle,
 } from '../../lib/build-info'
+import { describeError } from '../../lib/errors'
+import { commandErrorCode } from '../../lib/ipc/command-error'
 import { useI18n } from '../../lib/i18n'
+import { localizeAppLockDegradationNote } from '../../lib/trust-review'
 import { cn } from '../../lib/cn'
+
+/**
+ * Maps the backend's `biometric-*` `CommandError` codes onto shipped lock-screen
+ * copy.
+ *
+ * Keyed by the stable code channel from `src-tauri/src/command_error.rs` — never
+ * by backend prose — so the lock screen localizes Touch ID refusals without
+ * matching English sentences. Unknown or missing codes fall back to the raw
+ * diagnostic message so a newer backend never renders a blank or fake line.
+ */
+const UNLOCK_ERROR_KEY_BY_CODE: Record<string, string> = {
+  'biometric-not-enrolled': 'shell.unlockErrorBiometricNotEnrolled',
+  'biometric-lockout': 'shell.unlockErrorBiometricLockout',
+  'biometric-unavailable': 'shell.unlockErrorBiometricUnavailable',
+  'biometric-canceled': 'shell.unlockErrorBiometricCanceled',
+  'biometric-turned-off': 'shell.unlockErrorBiometricTurnedOff',
+  'biometric-failed': 'shell.unlockErrorBiometricFailed',
+}
 
 /**
  * Explains how lock reason label works.
@@ -68,6 +89,10 @@ export function LockPage() {
   const buildTitle = formatBuildVersionTitle(buildInfo)
   const [passcode, setPasscode] = useState('')
   const [unlocking, setUnlocking] = useState(false)
+  const [unlockError, setUnlockError] = useState<{
+    code: string | null
+    message: string
+  } | null>(null)
   const [copyFeedback, setCopyFeedback] = useState<ReviewCopyFeedback | null>(
     null,
   )
@@ -104,12 +129,34 @@ export function LockPage() {
         passcode: useBiometric ? null : passcode,
         useBiometric,
       })
+      setUnlockError(null)
       setPasscode('')
       void navigate(nextPath, { replace: true })
+    } catch (nextError) {
+      // Keep the structured code alongside the diagnostic prose: the code is
+      // what this route localizes on; the raw message stays the honest
+      // fallback for uncoded/unknown failures (e.g. a wrong passcode, which
+      // the backend deliberately never classifies).
+      setUnlockError({
+        code: commandErrorCode(nextError),
+        message: describeError(nextError, 'unlock_app_session'),
+      })
     } finally {
       setUnlocking(false)
     }
   }
+
+  const unlockErrorKey = unlockError?.code
+    ? UNLOCK_ERROR_KEY_BY_CODE[unlockError.code]
+    : undefined
+  // Prefer the route-local unlock failure (localizable via its code); the
+  // shell-level `error` string stays the fallback for failures raised outside
+  // this route's own unlock attempts.
+  const displayedUnlockError = unlockError
+    ? unlockErrorKey
+      ? t(unlockErrorKey)
+      : unlockError.message
+    : error
 
   return (
     <div
@@ -185,12 +232,12 @@ export function LockPage() {
               </div>
             </div>
 
-            {error ? (
+            {displayedUnlockError ? (
               <div className="pt-3">
                 <StatusCallout
                   tone="danger"
                   title={t('shell.unlockAppFailed')}
-                  body={error}
+                  body={displayedUnlockError}
                 />
               </div>
             ) : null}
@@ -287,12 +334,16 @@ export function LockPage() {
 
             {appLockStatus.degradationNotes.length ? (
               <div className="border-border-light mt-4 flex flex-col gap-1 border-t pt-3">
-                {appLockStatus.degradationNotes.map((note) => (
+                {appLockStatus.degradationNotes.map((note, index) => (
                   <p
-                    key={note}
+                    key={appLockStatus.degradationNoteCodes?.[index] ?? note}
                     className="text-ink-faint m-0 font-mono text-[10.5px]"
                   >
-                    {note}
+                    {localizeAppLockDegradationNote(
+                      note,
+                      appLockStatus.degradationNoteCodes?.[index],
+                      t,
+                    )}
                   </p>
                 ))}
               </div>

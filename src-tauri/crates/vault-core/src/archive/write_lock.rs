@@ -831,11 +831,28 @@ mod tests {
         );
 
         // Closing the first description releases the lock for the second.
+        //
+        // Bounded retry, NOT a single shot: sibling tests in this binary spawn
+        // subprocesses (`git_audit` shells out to `git`), and `fork` duplicates
+        // every open file descriptor — including `first`'s — until the child's
+        // `exec` closes it via CLOEXEC. Inside that fork→exec window the open
+        // file description stays referenced by the child, so dropping `first`
+        // here does not release the flock at that exact instant. The guarantee
+        // under test is "released once the description truly closes", which the
+        // bounded wait still proves strictly (the exclusion assertions above
+        // remain single-shot).
         drop(first);
-        assert!(
-            flock_try_exclusive(second.as_raw_fd()).expect("re-flock must not error"),
-            "the lock must be takeable once the first description closes"
-        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if flock_try_exclusive(second.as_raw_fd()).expect("re-flock must not error") {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the lock must become takeable once the first description closes"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 
     #[test]

@@ -99,11 +99,24 @@ pub fn stage_profile_snapshot(
 
 /// Builds the non-fatal note recorded when a profile's database had to be staged
 /// through the raw-copy + recovery fallback instead of an online snapshot.
-fn staging_fallback_warning(profile: &BrowserProfile, source_label: &str, reason: &str) -> String {
-    format!(
-        "{} ({source_label}): the live database was busy, so the backup used a recovered file copy instead of an online snapshot — {reason}",
-        profile.profile_id
+///
+/// Coded so the Audit surface can localize the degradation; the snapshot
+/// failure reason is a true error chain, so it rides in `diagnostic` (with the
+/// affected source label) instead of being pattern-matched out of the prose.
+fn staging_fallback_warning(
+    profile: &BrowserProfile,
+    source_label: &str,
+    reason: &str,
+) -> crate::models::BackupWarning {
+    crate::models::BackupWarning::new(
+        "staging-fallback-recovered-copy",
+        format!(
+            "{} ({source_label}): the live database was busy, so the backup used a recovered file copy instead of an online snapshot — {reason}",
+            profile.profile_id
+        ),
     )
+    .with_profile_id(profile.profile_id.clone())
+    .with_diagnostic(format!("{source_label}: {reason}"))
 }
 
 /// A staged database file plus how it got there.

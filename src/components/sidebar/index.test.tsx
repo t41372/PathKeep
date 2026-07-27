@@ -71,7 +71,7 @@ describe('Sidebar', () => {
     expect(await screen.findByText('Archive not initialized')).toBeVisible()
     expect(await screen.findByText('Encrypted archive')).toBeVisible()
     expect(screen.getByText('0 B')).toBeVisible()
-    expect(screen.getByText('Profile scope: All profiles')).toBeVisible()
+    expect(screen.getByText('Browser scope: All browsers')).toBeVisible()
 
     document.documentElement.setAttribute('data-theme', 'light')
     await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
@@ -351,7 +351,7 @@ describe('Sidebar', () => {
 
     expect(screen.getByText('Archive attention needed')).toBeVisible()
     expect(screen.getByText('Plaintext archive')).toBeVisible()
-    expect(screen.getByText('Profile scope: Personal research')).toBeVisible()
+    expect(screen.getByText('Browser scope: Personal research')).toBeVisible()
   })
 
   test('falls back to readable profile id labels when active metadata is stale', async () => {
@@ -424,7 +424,7 @@ describe('Sidebar', () => {
       </I18nProvider>,
     )
 
-    expect(screen.getByText('Profile scope: Archived')).toBeVisible()
+    expect(screen.getByText('Browser scope: Archived')).toBeVisible()
   })
 
   test('shows the compact build revision and routes background work toward Security while locked', async () => {

@@ -109,9 +109,9 @@ pub fn inspect_takeout(
                 inspection.preview_range_start = preview_range.start;
                 inspection.preview_range_end = preview_range.end;
                 if payload.skipped_missing_visit_time > 0 {
-                    inspection.notes.push(format!(
-                        "Skipped {} records from {} because they were missing a visit timestamp.",
-                        payload.skipped_missing_visit_time, file.path
+                    inspection.push_note(skipped_missing_visit_time_note(
+                        payload.skipped_missing_visit_time,
+                        &file.path,
                     ));
                 }
                 for record in payload.records {
@@ -128,20 +128,44 @@ pub fn inspect_takeout(
                 );
                 report.classification = "parse-error".to_string();
                 report.reason_code = Some("parse-error".to_string());
-                inspection.notes.push(format!("Could not parse {}: {}", file.path, error));
+                inspection.push_note(payload_parse_failed_note(&file.path, &error));
                 inspection.recognized_files.push(report);
             }
         }
     }
 
     if !found_importable_payload {
-        inspection.notes.push(
-            "No directly importable history files were detected. Dry-run still captured the archive structure."
-                .to_string(),
-        );
+        inspection.push_note(TakeoutNote::new(
+            "no-importable-files",
+            "No directly importable history files were detected. Dry-run still captured the archive structure.",
+        ));
     }
 
     Ok(inspection)
+}
+
+/// Builds the coded note for records the parser skipped for a missing timestamp.
+///
+/// Shared by inspect and import so both flows emit the same code/params pair.
+pub(super) fn skipped_missing_visit_time_note(skipped: usize, source_path: &str) -> TakeoutNote {
+    TakeoutNote::new(
+        "skipped-missing-timestamp",
+        format!(
+            "Skipped {} records from {} because they were missing a visit timestamp.",
+            skipped, source_path
+        ),
+    )
+    .with_count(skipped)
+    .with_source(source_path)
+}
+
+/// Builds the coded note for a recognized payload that failed to parse.
+///
+/// The error chain stays in `diagnostic` because it is evidence, not copy.
+pub(super) fn payload_parse_failed_note(source_path: &str, error: &anyhow::Error) -> TakeoutNote {
+    TakeoutNote::new("parse-failed", format!("Could not parse {}: {}", source_path, error))
+        .with_source(source_path)
+        .with_diagnostic(error.to_string())
 }
 
 /// Builds one preview entry from parser output during test-only fixture coverage.

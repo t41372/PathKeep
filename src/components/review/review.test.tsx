@@ -458,6 +458,26 @@ describe('shared review primitives', () => {
     ).toBeVisible()
   })
 
+  test('renders a status-only verify row without an empty body paragraph', () => {
+    const { container } = render(
+      <VerifyCheckList
+        items={[
+          {
+            key: 'manifest',
+            label: 'Manifest integrity',
+            status: 'success',
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('Manifest integrity')).toBeVisible()
+    expect(screen.getByText('success')).toBeVisible()
+    // A check with no explanatory body must not leave a blank <p> behind —
+    // that would render as dead vertical space in the verify list.
+    expect(container.querySelectorAll('p')).toHaveLength(0)
+  })
+
   test('renders no verify-result wrapper when there are no rows', () => {
     const { container } = render(<VerifyCheckList items={[]} />)
 

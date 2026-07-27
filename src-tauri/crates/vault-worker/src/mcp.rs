@@ -74,7 +74,12 @@ pub(crate) struct McpSearchItem {
     pub(crate) visited_at: String,
     /// Score produced by the active recall mode.
     pub(crate) score: f32,
-    /// Short explanation for why this row matched.
+    /// Stable CODE for why this row matched (`lexical` / `semantic` / `lexical+semantic` /
+    /// `lexical-date-ordered` / `recent-visit`, optionally suffixed `+starred`).
+    ///
+    /// Passed straight through from [`vault_core::AiSearchEntry::match_reason`], which is deliberately
+    /// a locale-independent token rather than English prose (the same field feeds PathKeep's own
+    /// localized UI). The usage guide teaches the external agent this vocabulary.
     pub(crate) match_reason: String,
 }
 
@@ -172,7 +177,7 @@ fn build_mcp_usage_guide(enabled: bool) -> McpUsageGuide {
                     "Every result row carries a stable `historyId` (the canonical visit identifier in this archive) and a `url`. Cite the `historyId` as your evidence handle and quote the `url`, `title`, and `visitedAt` when you reference a visit.".to_string(),
                     "Use `url` for a stable, human-readable reference; use `historyId` when you need to refer back to the exact visit unambiguously. Do not invent identifiers or fields that are not in the response.".to_string(),
                     "If the results do not support a claim, say so rather than guessing — answer from the returned evidence only.".to_string(),
-                    "`matchReason` and `score` explain why a row matched and how strongly; surface that reasoning instead of asserting relevance without support.".to_string(),
+                    "`matchReason` and `score` explain why a row matched and how strongly; surface that reasoning instead of asserting relevance without support. `matchReason` is a stable code, not a sentence: `lexical` (keyword match), `semantic` (meaning match), `lexical+semantic` (both, the strongest signal), `lexical-date-ordered` (keyword match returned in visit-date order, not by relevance), `recent-visit` (most-recent visits for a blank query, no relevance ranking at all), and any of those with a `+starred` suffix when the user has starred the page.".to_string(),
                 ],
             },
             McpUsageGuideSection {

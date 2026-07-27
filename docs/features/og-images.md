@@ -151,6 +151,10 @@ data-sovereignty)`、無 Referer、connect 8 s / total 12 s、最多 1 次 redir
   - Run-cleanup / Clear-all（後者有 `window.confirm` guard）。
   - 三語 i18n keys（`settings.linkPreviews*`）位於
     `src/lib/i18n/catalog/settings-core-and-platform.ts`。
+- `src/pages/onboarding/ready-step.tsx`：onboarding Ready 步有一次性 egress 披露
+  （2026-07-26 加入）：如實說明連結預覽預設開啟、每次備份後會向造訪過的網站請求預覽圖
+  （Bilibili 經其公開 API）、不帶 cookie / 帳號資訊，並指向「設定 → 連結預覽」關閉或
+  改為按需。
 
 ## 5. 與其他系統的互動
 

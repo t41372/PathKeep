@@ -108,8 +108,23 @@ fn bad_request(message: String) -> (StatusCode, axum::Json<Value>) {
 }
 
 /// Shapes command dispatch failures as JSON.
-fn internal_error(message: String) -> (StatusCode, axum::Json<Value>) {
-    (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(json!({ "error": message })))
+///
+/// Mirrors the Tauri path's [`CommandError`] envelope: `error` stays the
+/// legacy message string, while `code` / `actionHint` / `retryHint` carry the
+/// structured classification so browser-preview-over-bridge sessions get the
+/// same remediation behavior as the desktop app.
+fn internal_error(error: crate::command_error::CommandError) -> (StatusCode, axum::Json<Value>) {
+    let mut body = json!({ "error": error.message, "message": error.message });
+    if let Some(code) = error.code {
+        body["code"] = json!(code);
+    }
+    if let Some(action_hint) = error.action_hint {
+        body["actionHint"] = json!(action_hint);
+    }
+    if let Some(retry_hint) = error.retry_hint {
+        body["retryHint"] = json!(retry_hint);
+    }
+    (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(body))
 }
 
 #[cfg(test)]
@@ -178,8 +193,22 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body.0["error"], "bad");
 
-        let (status, body) = internal_error("broken".to_string());
+        let (status, body) = internal_error(crate::command_error::CommandError::internal("broken"));
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(body.0["error"], "broken");
+        assert_eq!(body.0["message"], "broken");
+        assert!(body.0.get("code").is_none());
+        assert!(body.0.get("actionHint").is_none());
+        assert!(body.0.get("retryHint").is_none());
+
+        // A classified failure must mirror the Tauri envelope over the dev
+        // bridge, otherwise browser-preview-over-bridge sessions would lose the
+        // unlock / Full Disk Access remediation the desktop app gets.
+        let (_, body) = internal_error(crate::command_error::CommandError::classified(
+            "open archive: database key is required for encrypted archives".to_string(),
+        ));
+        assert_eq!(body.0["code"], "lock-required");
+        assert_eq!(body.0["actionHint"], "unlock");
+        assert_eq!(body.0["retryHint"], "retry-after-action");
     }
 }

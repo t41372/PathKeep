@@ -12,11 +12,21 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import type { HistoryEntry } from '@/lib/types/archive'
 import type { PaperDay } from '@/pages/explorer/paper/group-entries'
+import { aggregateDayInsights } from './paper-day-insights-helpers'
+import type * as DayInsightsHelpers from './paper-day-insights-helpers'
 import {
   PaperContactSheet,
   type PaperContactSheetCopy,
   type PaperContactSheetDayNav,
 } from './paper-contact-sheet'
+
+// Delegating spy: behaviour is the real aggregator, but the call count is
+// observable. Used by the memoisation test below — `aggregateDayInsights` is
+// O(visits) and must not run on every re-render of a mounted day block.
+vi.mock('./paper-day-insights-helpers', async (importOriginal) => {
+  const actual = await importOriginal<typeof DayInsightsHelpers>()
+  return { ...actual, aggregateDayInsights: vi.fn(actual.aggregateDayInsights) }
+})
 
 const COPY: PaperContactSheetCopy = {
   view: 'View',
@@ -1162,4 +1172,102 @@ describe('PaperContactSheet', () => {
     // scroll-loaded blocks; github.com leads with 3 visits.
     expect(screen.getAllByText('github.com').length).toBeGreaterThan(0)
   })
+
+  test('reports each mounted day through onDayVisible instead of fetching from render', () => {
+    // E5 contract. The insights fetch used to be a side effect of
+    // `resolveDayInsights` being called during render. It now happens in an
+    // effect keyed on the day block actually being mounted, so render stays
+    // pure and the fan-out is bounded by what is on screen.
+    const onDayVisible = vi.fn()
+    render(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        dayInsightsCopy={DAY_INSIGHTS_COPY}
+        resolveDayInsights={() => null}
+        onDayVisible={onDayVisible}
+      />,
+    )
+    expect(onDayVisible).toHaveBeenCalledWith('2026-05-16')
+    expect(onDayVisible).toHaveBeenCalledWith('2026-05-15')
+  })
+
+  test('does not re-run the client-side aggregator on re-renders that leave the day untouched', () => {
+    // E5 perf contract. `aggregateDayInsights` is O(visits) — three Maps, 24
+    // buckets and a `new URL()` parse per visit — and used to run inline on
+    // every re-render of a mounted day block. Mounted blocks re-render often
+    // (scroll, star toggles, favicon/og cache batches), so on a 5 000-visit
+    // day that was a full re-walk per tick. Memoising on `day` makes it once
+    // per payload. We prove it via the resolver: the aggregate is only
+    // consulted when the resolver returns null, and the memo must survive a
+    // re-render that changes an unrelated prop.
+    const days = baseDays()
+    const spy = vi.fn(() => null)
+    const { rerender } = render(
+      <PaperContactSheet
+        days={days}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        dayInsightsCopy={DAY_INSIGHTS_COPY}
+        resolveDayInsights={spy}
+        selectedEntryId={null}
+      />,
+    )
+    expect(vi.mocked(aggregateDayInsights)).toHaveBeenCalled()
+    vi.mocked(aggregateDayInsights).mockClear()
+
+    // An unrelated prop change: a row got selected. Same `days` identity.
+    rerender(
+      <PaperContactSheet
+        days={days}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        dayInsightsCopy={DAY_INSIGHTS_COPY}
+        resolveDayInsights={spy}
+        selectedEntryId={1}
+      />,
+    )
+    expect(vi.mocked(aggregateDayInsights)).not.toHaveBeenCalled()
+
+    // A NEW `days` payload must invalidate the memo and re-aggregate.
+    rerender(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        dayInsightsCopy={DAY_INSIGHTS_COPY}
+        resolveDayInsights={spy}
+        selectedEntryId={1}
+      />,
+    )
+    expect(vi.mocked(aggregateDayInsights)).toHaveBeenCalled()
+  })
 })
+
+const DAY_INSIGHTS_COPY = {
+  topDomainsTitle: 'Top domains',
+  activityTitle: 'Activity',
+  hourlyTitle: '24-hour activity',
+  pagesLabel: 'Pages',
+  typedLabel: 'Typed',
+  linksLabel: 'Links',
+  searchesLabel: 'Searches',
+  sessionsTemplate: '{count} sessions',
+  domainsTemplate: '{count} domains',
+  moreDetailsLabel: 'More details',
+  firstVisitLabel: 'First visit',
+  lastVisitLabel: 'Last visit',
+  peakHourLabel: 'Peak hour',
+  longestSessionLabel: 'Longest session',
+  topUrlsTitle: 'Most revisited',
+  visitsCountTemplate: '{count} visits',
+}

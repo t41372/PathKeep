@@ -5,6 +5,10 @@
 //! session-state lookups, transient key updates, progress callbacks, and
 //! uniform string error shaping.
 
+use crate::command_error::CommandError;
+#[cfg(test)]
+use crate::command_error::{ACTION_HINT_UNLOCK, ERROR_CODE_LOCK_REQUIRED, RETRY_HINT_AFTER_ACTION};
+
 mod annotations;
 mod app;
 mod archive;
@@ -37,21 +41,22 @@ pub(crate) use self::migration::*;
 pub(crate) use self::stars::*;
 pub(crate) use self::{app::*, archive::*, import::*, intelligence::*, schedule::*, security::*};
 
-/// Normalizes worker/core errors into the string transport contract used by Tauri commands.
+/// Normalizes worker/core errors into the [`CommandError`] envelope used by Tauri commands.
 ///
 /// Uses the `{:#}` alternate Display formatter so `anyhow::Error` chains
-/// surface as `"top: cause: root"` instead of just the top-level summary.
-/// PathKeep is a local-only app and the user is *also* the bug reporter —
-/// hiding the cause behind a generic frontend fallback ("…failed for an
-/// unknown reason.") strips the one piece of information that would let
-/// them file an actionable bug. Non-anyhow types fall back to plain
-/// Display, which `{:#}` reduces to for any type that does not honour the
-/// alternate flag.
-fn worker_result<T, E: std::fmt::Display>(result: Result<T, E>) -> Result<T, String> {
+/// surface as `"top: cause: root"` — the full chain stays in `message`
+/// because PathKeep is a local-only app and the user is *also* the bug
+/// reporter. The structured `code` / `action_hint` / `retry_hint` fields
+/// (required by `module-boundary-map.md`) are classified here, in the one
+/// layer that owns the backend's canonical error markers, so the frontend
+/// keys remediation and i18n on `code` instead of sniffing message text.
+/// Non-anyhow types fall back to plain Display, which `{:#}` reduces to for
+/// any type that does not honour the alternate flag.
+fn worker_result<T, E: std::fmt::Display>(result: Result<T, E>) -> Result<T, CommandError> {
     result.map_err(|error| {
         let message = format!("{error:#}");
         log::warn!(target: "pathkeep::worker_bridge", "{message}");
-        message
+        CommandError::classified(message)
     })
 }
 
@@ -266,7 +271,7 @@ mod tests {
             .expect("assess archive upgrade");
         assert!(!upgrade.pending, "a freshly initialized archive has no pending upgrade");
         assert_eq!(
-            save_config_impl(config.clone(), session_key(&session).as_deref())
+            save_config_with_base_impl(config.clone(), None, session_key(&session).as_deref())
                 .expect("save config")
                 .config
                 .selected_profile_ids,
@@ -445,7 +450,7 @@ mod tests {
                 // Real-network path: only a PROVIDER-returned error may block — never PathKeep's
                 // own missing-key precondition.
                 assert!(
-                    !error.contains("store an API key"),
+                    !error.message.contains("store an API key"),
                     "must not pre-empt on a missing key; got: {error}"
                 );
             }
@@ -818,7 +823,8 @@ mod tests {
             |_| {},
         )
         .expect("initialize archive");
-        save_config_impl(config, session_key(&session).as_deref()).expect("save config");
+        save_config_with_base_impl(config, None, session_key(&session).as_deref())
+            .expect("save config");
         let report = run_backup_now_impl(false, session_key(&session).as_deref(), |_| {})
             .expect("run backup");
         let run_id = report.run.expect("backup run").id;
@@ -872,13 +878,13 @@ mod tests {
 
         let replay = replay_ai_job_impl(999, session_key(&session).as_deref())
             .expect_err("missing ai job should not replay");
-        assert!(replay.contains("999"));
+        assert!(replay.message.contains("999"));
         let cancel = cancel_ai_job_impl(999, session_key(&session).as_deref())
             .expect_err("missing ai job should not cancel");
-        assert!(cancel.contains("999"));
+        assert!(cancel.message.contains("999"));
         let assistant_job = load_ai_assistant_job_impl(999, session_key(&session).as_deref())
             .expect_err("missing assistant job should not load");
-        assert!(assistant_job.contains("999"));
+        assert!(assistant_job.message.contains("999"));
 
         let intelligence_run = run_core_intelligence_now_impl(
             vault_core::CoreIntelligenceRebuildRequest::default(),
@@ -954,7 +960,8 @@ mod tests {
         let config = initialized_config();
         initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
             .expect("initialize archive");
-        save_config_impl(config, session_key(&session).as_deref()).expect("save config");
+        save_config_with_base_impl(config, None, session_key(&session).as_deref())
+            .expect("save config");
         run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
 
         // Annotations PME loop: set notes, replace tags, read back, list, search.
@@ -1091,7 +1098,7 @@ mod tests {
         // the blocked_outcome branch instead of hitting the network.
         let mut blocked_config = initialized_config();
         blocked_config.og_image.blocked_hosts = vec!["blocked.example.test".to_string()];
-        save_config_impl(blocked_config, session_key(&session).as_deref())
+        save_config_with_base_impl(blocked_config, None, session_key(&session).as_deref())
             .expect("save blocked-hosts config");
         let blocked_count = super::refetch_og_images_impl(
             vec!["https://blocked.example.test/post".to_string()],
@@ -1102,7 +1109,7 @@ mod tests {
 
         let mut disabled_config = initialized_config();
         disabled_config.og_image.fetch_enabled = false;
-        save_config_impl(disabled_config, session_key(&session).as_deref())
+        save_config_with_base_impl(disabled_config, None, session_key(&session).as_deref())
             .expect("save og-image-disabled config");
         let disabled = super::refetch_og_images_impl(
             vec!["https://example.com/some-page".to_string()],
@@ -1119,7 +1126,7 @@ mod tests {
         let mut off_mode_config = initialized_config();
         off_mode_config.og_image.fetch_enabled = true;
         off_mode_config.og_image.fetch_mode = vault_core::OgImageFetchMode::Off;
-        save_config_impl(off_mode_config, session_key(&session).as_deref())
+        save_config_with_base_impl(off_mode_config, None, session_key(&session).as_deref())
             .expect("save fetch_mode=Off config");
         let off_mode = super::refetch_og_images_impl(
             vec!["https://example.com/another-page".to_string()],
@@ -1143,7 +1150,7 @@ mod tests {
             recovery_hint: None,
         })
         .expect("set app lock passcode for refetch err-arm coverage");
-        save_config_impl(locked_config, session_key(&session).as_deref())
+        save_config_with_base_impl(locked_config, None, session_key(&session).as_deref())
             .expect("save app-lock-enabled config");
         lock_app_session_impl(Some("manual".to_string()))
             .expect("lock app session for refetch err-arm coverage");
@@ -1153,7 +1160,7 @@ mod tests {
         )
         .expect_err("refetch must surface lock error from effective_mode helper");
         assert!(
-            err.contains("currently locked"),
+            err.message.contains("currently locked"),
             "expected locked-session error context, got {err:?}",
         );
         // Restore the unlocked-baseline so subsequent assertions in this
@@ -1205,7 +1212,8 @@ mod tests {
 
         config.app_lock.enabled = true;
         let saved_snapshot =
-            save_config_impl(config, session_key(&session).as_deref()).expect("enable app lock");
+            save_config_with_base_impl(config, None, session_key(&session).as_deref())
+                .expect("enable app lock");
         assert!(saved_snapshot.config.app_lock.enabled);
 
         let locked = lock_app_session_impl(Some("manual".to_string())).expect("lock app session");
@@ -1214,18 +1222,27 @@ mod tests {
 
         let snapshot_error =
             app_snapshot_impl(session_key(&session).as_deref()).expect_err("snapshot should block");
-        assert!(snapshot_error.contains("currently locked"));
+        assert!(snapshot_error.message.contains("currently locked"));
+        // The frontend routes to the unlock gate off the machine-readable code,
+        // never by sniffing this message — so the envelope must classify it.
+        assert_eq!(snapshot_error.code.as_deref(), Some(ERROR_CODE_LOCK_REQUIRED));
+        assert_eq!(snapshot_error.action_hint.as_deref(), Some(ACTION_HINT_UNLOCK));
+        assert_eq!(snapshot_error.retry_hint.as_deref(), Some(RETRY_HINT_AFTER_ACTION));
 
         let dashboard_error = dashboard_snapshot_impl(session_key(&session).as_deref())
             .expect_err("dashboard should block");
-        assert!(dashboard_error.contains("currently locked"));
+        assert!(dashboard_error.message.contains("currently locked"));
+        assert_eq!(dashboard_error.code.as_deref(), Some(ERROR_CODE_LOCK_REQUIRED));
 
         let unlock_error = unlock_app_session_impl(UnlockAppSessionRequest {
             passcode: Some("9999".to_string()),
             use_biometric: false,
         })
         .expect_err("wrong passcode should fail");
-        assert!(unlock_error.contains("did not match"));
+        assert!(unlock_error.message.contains("did not match"));
+        // A wrong passcode is a user input error, not an "unlock first" refusal:
+        // classifying it as lock-required would loop the unlock gate on itself.
+        assert_eq!(unlock_error.code, None);
 
         let unlocked = unlock_app_session_impl(UnlockAppSessionRequest {
             passcode: Some("2468".to_string()),
@@ -1277,7 +1294,8 @@ mod tests {
         let config = initialized_config();
         initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
             .expect("initialize archive");
-        save_config_impl(config, session_key(&session).as_deref()).expect("save config");
+        save_config_with_base_impl(config, None, session_key(&session).as_deref())
+            .expect("save config");
         run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
 
         // Browse-day insights: aggregates one local calendar day from the
@@ -1331,7 +1349,7 @@ mod tests {
         let bogus = dir.path().join("does-not-exist.pathkeep");
         let preview_err = super::preview_app_data_import_impl(bogus)
             .expect_err("missing bundle should surface as a string error");
-        assert!(!preview_err.is_empty());
+        assert!(!preview_err.message.is_empty());
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

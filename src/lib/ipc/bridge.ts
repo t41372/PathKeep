@@ -16,6 +16,32 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import { hasTauriGuestApi, resolveDevIpcBridgeUrl } from '../runtime'
+import { CommandInvokeError } from './command-error'
+
+/**
+ * Converts a backend `CommandError` envelope (`{ message, code?, actionHint?,
+ * retryHint? }`) into the typed error routes consume, or `null` when the
+ * rejected value has some other shape.
+ */
+function commandInvokeErrorFromEnvelope(
+  value: unknown,
+): CommandInvokeError | null {
+  if (typeof value !== 'object' || value === null) return null
+  const record = value as Record<string, unknown>
+  const message =
+    typeof record.message === 'string' && record.message.length > 0
+      ? record.message
+      : typeof record.error === 'string' && record.error.length > 0
+        ? record.error
+        : null
+  if (message === null) return null
+  return new CommandInvokeError(message, {
+    code: typeof record.code === 'string' ? record.code : null,
+    actionHint:
+      typeof record.actionHint === 'string' ? record.actionHint : null,
+    retryHint: typeof record.retryHint === 'string' ? record.retryHint : null,
+  })
+}
 
 /**
  * Defines the type-level contract for command payload.
@@ -37,6 +63,11 @@ export async function invokeCommand<TResponse>(
     try {
       return await invoke<TResponse>(command, payload)
     } catch (error) {
+      const envelope = commandInvokeErrorFromEnvelope(error)
+      if (envelope) {
+        throw envelope
+      }
+
       if (error instanceof Error) {
         throw error
       }
@@ -79,14 +110,13 @@ export async function invokeCommand<TResponse>(
   const data = raw.length > 0 ? (JSON.parse(raw) as unknown) : null
 
   if (!response.ok) {
-    const message =
-      typeof data === 'object' &&
-      data !== null &&
-      'error' in data &&
-      typeof data.error === 'string'
-        ? data.error
-        : `PathKeep desktop command "${command}" failed with HTTP ${response.status}.`
-    throw new Error(message)
+    const envelope = commandInvokeErrorFromEnvelope(data)
+    if (envelope) {
+      throw envelope
+    }
+    throw new Error(
+      `PathKeep desktop command "${command}" failed with HTTP ${response.status}.`,
+    )
   }
 
   return data as TResponse

@@ -55,10 +55,10 @@ export const recoveryNamespaceCatalog = {
     encryptedNeedsKeyBadge: 'Encrypted · needs your key',
 
     // Archive-key entry (encrypted snapshot confirm step)
-    keyFieldLabel: 'Archive key',
-    keyFieldPlaceholder: 'Enter your archive key',
+    keyFieldLabel: 'Archive password',
+    keyFieldPlaceholder: 'Enter your archive password',
     keyFieldHint:
-      'This snapshot is encrypted. Enter your archive key so PathKeep can verify and restore it. A wrong key fails safely — nothing is changed.',
+      'This snapshot is encrypted. Enter your archive password so PathKeep can verify and restore it. A wrong password fails safely — nothing is changed.',
 
     // Actions
     restoreThis: 'Restore this',
@@ -139,12 +139,12 @@ export const recoveryNamespaceCatalog = {
     snapshotSize: '{size}',
     verifiedBadge: '已验证',
     notVerifiedBadge: '未验证',
-    encryptedNeedsKeyBadge: '已加密 · 需要你的密钥',
+    encryptedNeedsKeyBadge: '已加密 · 需要你的密码',
 
-    keyFieldLabel: '存档密钥',
-    keyFieldPlaceholder: '输入你的存档密钥',
+    keyFieldLabel: '存档密码',
+    keyFieldPlaceholder: '输入你的存档密码',
     keyFieldHint:
-      '此快照已加密。请输入你的存档密钥，PathKeep 才能验证并恢复它。密钥错误会安全失败，不会改动任何数据。',
+      '此快照已加密。请输入你的存档密码，PathKeep 才能验证并恢复它。密码错误会安全失败，不会改动任何数据。',
 
     restoreThis: '恢复此快照',
     restoreThisAria: '从此快照恢复',
@@ -216,12 +216,12 @@ export const recoveryNamespaceCatalog = {
     snapshotSize: '{size}',
     verifiedBadge: '已驗證',
     notVerifiedBadge: '未驗證',
-    encryptedNeedsKeyBadge: '已加密 · 需要你的密鑰',
+    encryptedNeedsKeyBadge: '已加密 · 需要你的密碼',
 
-    keyFieldLabel: '封存密鑰',
-    keyFieldPlaceholder: '輸入你的封存密鑰',
+    keyFieldLabel: '封存密碼',
+    keyFieldPlaceholder: '輸入你的封存密碼',
     keyFieldHint:
-      '此快照已加密。請輸入你的封存密鑰，PathKeep 才能驗證並還原它。密鑰錯誤會安全失敗，不會更動任何資料。',
+      '此快照已加密。請輸入你的封存密碼，PathKeep 才能驗證並還原它。密碼錯誤會安全失敗，不會更動任何資料。',
 
     restoreThis: '還原此快照',
     restoreThisAria: '從此快照還原',

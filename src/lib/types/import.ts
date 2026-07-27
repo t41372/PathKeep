@@ -97,6 +97,25 @@ export interface ImportBatchOverview {
 }
 
 /**
+ * Names one inspection/import note with a stable code and typed params.
+ *
+ * Why this exists: the plain `notes: string[]` channel carries backend English
+ * prose, so the wizard could only ever show a count of "technical notes". The
+ * code lets the UI resolve localized copy from the catalog and interpolate the
+ * params; `message` is the fallback for codes the catalog does not know, and
+ * `diagnostic` is verbatim evidence (error chains) that stays untranslated.
+ */
+export interface TakeoutNote {
+  code: string
+  message: string
+  count?: number | null
+  source?: string | null
+  at?: string | null
+  runId?: number | null
+  diagnostic?: string | null
+}
+
+/**
  * Represents the detailed view model for import batch.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
@@ -106,7 +125,10 @@ export interface ImportBatchDetail {
   previewEntries: TakeoutPreviewEntry[]
   recognizedFiles: TakeoutFileReport[]
   quarantinedFiles: TakeoutFileReport[]
+  /** Diagnostic English prose; rendered only when a code has no catalog entry. */
   notes: string[]
+  /** Coded mirror of `notes`; absent on payloads written before code-ification. */
+  noteDetails?: TakeoutNote[]
   detectedLocale?: string | null
   previewRangeStart?: string | null
   previewRangeEnd?: string | null
@@ -126,7 +148,10 @@ export interface TakeoutInspection {
   candidateItems: number
   importedItems: number
   duplicateItems: number
+  /** Diagnostic English prose; rendered only when a code has no catalog entry. */
   notes: string[]
+  /** Coded mirror of `notes`; absent on payloads written before code-ification. */
+  noteDetails?: TakeoutNote[]
   importBatch?: ImportBatchOverview | null
   detectedLocale?: string | null
   previewRangeStart?: string | null

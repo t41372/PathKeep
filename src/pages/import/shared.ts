@@ -21,12 +21,14 @@
 
 import type { WorkflowStep } from '../../components/review'
 import type {
+  HealthCheck,
   HealthReport,
   ImportBatchDetail,
   ImportBatchOverview,
   ImportProgressEvent,
   TakeoutFileReport,
   TakeoutInspection,
+  TakeoutNote,
 } from '../../lib/types'
 
 /**
@@ -381,8 +383,114 @@ export function localizedImportNoteSummary(
   t: (key: string, vars?: Record<string, string | number>) => string,
   language: string,
 ) {
-  return t('import.technicalNotesRecorded', {
-    count: noteCount.toLocaleString(language),
+  // Plural pairs, not "note(s)".
+  return t(
+    noteCount === 1
+      ? 'import.technicalNotesRecordedOne'
+      : 'import.technicalNotesRecordedMany',
+    { count: noteCount.toLocaleString(language) },
+  )
+}
+
+/**
+ * Renders one import note in the user's language, or `null` when it has no
+ * localized form yet.
+ *
+ * The backend ships a stable `code` plus typed params next to the English
+ * `message`. Codes the catalog knows are localized and interpolated. Unknown
+ * codes return `null` rather than falling back to `message`: leaking backend
+ * English into the wizard is the exact defect this code-ification removes, and
+ * the note is still counted by `localizedImportNoteSummary` and preserved
+ * verbatim in the audit artifact. Notes whose evidence cannot be translated — a
+ * parse error chain, a rebuild failure — pair localized copy with the raw
+ * `diagnostic` so the user still sees what actually happened.
+ */
+export function localizedImportNoteText(
+  note: TakeoutNote,
+  t: ImportTranslate,
+  language: string,
+): string | null {
+  const rawCount = note.count ?? 0
+  const count = rawCount.toLocaleString(language)
+  const source = note.source ?? ''
+  const diagnostic = note.diagnostic ?? note.message
+
+  switch (note.code) {
+    case 'skipped-missing-timestamp':
+      return t(
+        rawCount === 1
+          ? 'import.noteSkippedMissingTimestampOne'
+          : 'import.noteSkippedMissingTimestampMany',
+        { count, source },
+      )
+    case 'no-importable-files':
+      return t('import.noteNoImportableFiles')
+    case 'parse-failed':
+      return `${t('import.noteParseFailed', { source })} ${diagnostic}`
+    case 'browser-skipped-missing-url-row':
+      return t(
+        rawCount === 1
+          ? 'import.noteBrowserSkippedMissingUrlRowOne'
+          : 'import.noteBrowserSkippedMissingUrlRowMany',
+        { count },
+      )
+    case 'takeout-source-evidence-rebuild-needed':
+      return `${t('import.noteTakeoutSourceEvidenceRebuildNeeded')} ${diagnostic}`
+    case 'browser-source-evidence-rebuild-needed':
+      return `${t('import.noteBrowserSourceEvidenceRebuildNeeded')} ${diagnostic}`
+    case 'search-projection-rebuild-needed':
+      return `${t('import.noteSearchProjectionRebuildNeeded')} ${diagnostic}`
+    case 'batch-revert-projection-rebuild-needed':
+      return `${t('import.noteRevertProjectionRebuildNeeded')} ${diagnostic}`
+    case 'batch-restore-projection-rebuild-needed':
+      return `${t('import.noteRestoreProjectionRebuildNeeded')} ${diagnostic}`
+    case 'batch-reverted':
+      return t(
+        rawCount === 1
+          ? 'import.noteBatchRevertedOne'
+          : 'import.noteBatchRevertedMany',
+        { count, at: note.at ?? '' },
+      )
+    case 'batch-restored':
+      return t(
+        rawCount === 1
+          ? 'import.noteBatchRestoredOne'
+          : 'import.noteBatchRestoredMany',
+        { count, at: note.at ?? '', runId: note.runId ?? '' },
+      )
+    case 'parser-missing-table':
+      return `${t('import.noteParserMissingTable')} ${diagnostic}`
+    case 'parser-missing-source':
+      return `${t('import.noteParserMissingSource')} ${diagnostic}`
+    case 'parser-baseline-support':
+      return t('import.noteParserBaselineSupport')
+    case 'parser-index-only':
+      return t('import.noteParserIndexOnly')
+    case 'parser-missing-visit-time':
+      return `${t('import.noteParserMissingVisitTime')} ${diagnostic}`
+    case 'parser-no-recognized-payload':
+      return t('import.noteParserNoRecognizedPayload')
+    case 'parser-source-warning':
+      return `${t('import.noteParserSourceWarning')} ${diagnostic}`
+    default:
+      return null
+  }
+}
+
+/**
+ * Picks the import notes that have localized copy, paired with their text.
+ *
+ * Keeping the filter here (instead of in the panel) means the render path does
+ * no per-note branching and the "which notes are showable" rule stays testable.
+ */
+export function localizedImportNoteLines(
+  notes: TakeoutNote[] | null | undefined,
+  t: ImportTranslate,
+  language: string,
+) {
+  return (notes ?? []).flatMap((note, index) => {
+    const text = localizedImportNoteText(note, t, language)
+    return text === null ? [] : [{ key: `${note.code}:${index}`, text }]
   })
 }
 
@@ -456,6 +564,44 @@ export function takeoutFileGroupBodyKey(
       return 'import.groupNeedsReviewBody'
     case 'parse-error':
       return 'import.groupParseErrorBody'
+  }
+}
+
+/**
+ * Names one doctor health check in the user's language.
+ *
+ * The backend ships a stable kebab-case `code` next to its English `name`, so
+ * this mapping — not the raw backend prose — is what a `zh` user reads. An
+ * unknown code (older backend, preview fixture, future check) falls back to the
+ * English name instead of rendering an empty row.
+ */
+export function healthCheckNameLabel(
+  check: Pick<HealthCheck, 'code' | 'name'>,
+  t: ImportTranslate,
+) {
+  switch (check.code) {
+    case 'config':
+      return t('import.doctorCheckConfig')
+    case 'browser-sources':
+      return t('import.doctorCheckBrowserSources')
+    case 'archive-db':
+      return t('import.doctorCheckArchiveDb')
+    case 'archive-unlock':
+      return t('import.doctorCheckArchiveUnlock')
+    case 'schema-version':
+      return t('import.doctorCheckSchemaVersion')
+    case 'manifest-chain':
+      return t('import.doctorCheckManifestChain')
+    case 'snapshot-artifacts':
+      return t('import.doctorCheckSnapshotArtifacts')
+    case 'import-audit-artifacts':
+      return t('import.doctorCheckImportAuditArtifacts')
+    case 'broken-visibility-references':
+      return t('import.doctorCheckBrokenVisibilityReferences')
+    case 'derived-state-freshness':
+      return t('import.doctorCheckDerivedStateFreshness')
+    default:
+      return check.name
   }
 }
 

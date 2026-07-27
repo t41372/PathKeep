@@ -473,14 +473,18 @@ export function AppShell() {
         <AmbientTaskBar
           model={ambientModel}
           onOpenActivity={() => void navigate('/jobs')}
-          summaryLabel={t('shell.backgroundTasksRunning', {
-            count: ambientModel.count,
-          })}
+          summaryLabel={t(
+            ambientModel.count === 1
+              ? 'shell.backgroundTasksRunningOne'
+              : 'shell.backgroundTasksRunningMany',
+            { count: ambientModel.count },
+          )}
           viewActivityLabel={t('shell.backgroundTaskViewActivity')}
         />
       ) : shellError &&
         (shell.errorKind === 'backup' ||
-          shell.errorKind === 'full-disk-access') ? (
+          shell.errorKind === 'full-disk-access' ||
+          shell.errorKind === 'config-save') ? (
         <BackupFailureToast
           message={shellError}
           rawError={shell.rawError ?? null}

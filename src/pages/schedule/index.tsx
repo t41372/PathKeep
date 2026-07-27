@@ -343,7 +343,11 @@ function ScheduleStatusBar({
               ? t('schedule.operationSucceeded')
               : t('schedule.operationFailed')}
           </strong>
-          <span>{translateMaybe(t, actionResult.message)}</span>
+          <span>
+            {actionResult.messageKey
+              ? t(actionResult.messageKey)
+              : actionResult.message}
+          </span>
           {actionResult.auditPath ? (
             <span className="mono">{actionResult.auditPath}</span>
           ) : null}
@@ -1323,8 +1327,4 @@ function joinCommand(command: string[]) {
   return command
     .map((part) => (part.includes(' ') ? `"${part}"` : part))
     .join(' ')
-}
-
-function translateMaybe(t: Translator, value: string): string {
-  return value.startsWith('schedule.') ? t(value) : value
 }

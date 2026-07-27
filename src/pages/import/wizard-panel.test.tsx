@@ -160,7 +160,7 @@ describe('Import wizard render modules', () => {
 
     expect(screen.getByRole('heading', { name: 'Import Chrome' })).toBeVisible()
     expect(screen.getAllByText('3 / 12 records')).toHaveLength(2)
-    expect(screen.getByRole('link', { name: 'Open Jobs' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Open Activity' })).toHaveAttribute(
       'href',
       '/jobs',
     )
@@ -289,6 +289,47 @@ describe('Import wizard render modules', () => {
     )
     expect(onOpenFullDiskAccessSettings).toHaveBeenCalledTimes(1)
   })
+
+  test('shows coded preview notes in the UI language and keeps uncoded notes to the count summary', () => {
+    renderWizard({
+      step: 'preview',
+      inspection: inspectionFixture({
+        notes: [
+          'Skipped 4 records from BrowserHistory.json because they were missing a visit timestamp.',
+          'Something only a newer backend knows about.',
+        ],
+        noteDetails: [
+          {
+            code: 'skipped-missing-timestamp',
+            message:
+              'Skipped 4 records from BrowserHistory.json because they were missing a visit timestamp.',
+            count: 4,
+            source: 'BrowserHistory.json',
+          },
+          {
+            code: 'future-note',
+            message: 'Something only a newer backend knows about.',
+          },
+        ],
+      }),
+    })
+
+    expect(
+      screen.getByText(importT('technicalNotesRecordedMany', { count: '2' })),
+    ).toBeVisible()
+    expect(
+      screen.getByText(
+        importT('noteSkippedMissingTimestampMany', {
+          count: '4',
+          source: 'BrowserHistory.json',
+        }),
+      ),
+    ).toBeVisible()
+    // An unknown code must not leak the backend's English into the wizard.
+    expect(
+      screen.queryByText('Something only a newer backend knows about.'),
+    ).not.toBeInTheDocument()
+  })
 })
 
 function renderWizard(overrides: Partial<ImportWizardPanelProps> = {}) {
@@ -346,6 +387,7 @@ function taskFixture(): ShellTask {
     state: 'running',
     title: 'Import Chrome',
     detail: 'Writing archive records',
+    detailOrigin: 'shell',
     startedAt: '2026-04-27T10:00:00.000Z',
     updatedAt: '2026-04-27T10:01:00.000Z',
     finishedAt: null,

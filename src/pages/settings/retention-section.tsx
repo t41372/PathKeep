@@ -28,6 +28,7 @@ import { formatBytes } from '../../lib/format'
 import type { RetentionPreview, RetentionPruneResult } from '../../lib/types'
 import { useI18n } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
+import { localizeRetentionWarning } from './helpers'
 import type { SettingsSectionNavItem } from './section-nav-items'
 
 const BUTTON_SECONDARY =
@@ -181,25 +182,18 @@ export function RetentionSection({ navItem, state }: RetentionSectionProps) {
 
         {preview?.warnings.length ? (
           <div className="mt-3 flex flex-col gap-2">
-            {preview.warnings.map((warning) => {
-              const localizedWarning =
-                warning ===
-                'Pruning snapshots removes saved restore checkpoints from future Audit review. Manifest and run summaries stay in place.'
-                  ? t('settings.retentionSnapshotPruneWarning')
-                  : warning ===
-                      'Export pruning only removes local files under the PathKeep data directory. Remote objects are unchanged.'
-                    ? t('settings.retentionExportPruneWarning')
-                    : warning
-
-              return (
-                <StatusCallout
-                  key={warning}
-                  tone="warning"
-                  title={t('common.warning')}
-                  body={localizedWarning}
-                />
-              )
-            })}
+            {preview.warnings.map((warning, index) => (
+              <StatusCallout
+                key={preview.warningCodes?.[index] ?? warning}
+                tone="warning"
+                title={t('common.warning')}
+                body={localizeRetentionWarning(
+                  warning,
+                  preview.warningCodes?.[index],
+                  t,
+                )}
+              />
+            ))}
           </div>
         ) : null}
 

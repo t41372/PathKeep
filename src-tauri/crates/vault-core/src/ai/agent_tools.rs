@@ -1210,6 +1210,9 @@ impl<T: AgentTool> DynAgentTool for DynTool<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The match-reason CODE vocabulary the search pipeline stamps (see `ai::search`); the fixtures
+    // below carry codes, not prose, so they stay honest about the shape the summarizer really sees.
+    use super::super::search::{MATCH_REASON_LEXICAL, MATCH_REASON_LEXICAL_DATE_ORDERED};
     use crate::config::project_paths_with_root;
     use crate::models::{AiProviderConfig, AiProviderPurpose, AiRequestFormat};
     use rusqlite::params;
@@ -1482,7 +1485,7 @@ mod tests {
                 domain: "a.example".to_string(),
                 visited_at: "2025-03-04T12:00:00Z".to_string(),
                 score: 0.0,
-                match_reason: "Lexical match (date-ordered)".to_string(),
+                match_reason: MATCH_REASON_LEXICAL_DATE_ORDERED.to_string(),
                 enrichment_excerpt: None,
             }],
             notes: Vec::new(),
@@ -1573,7 +1576,7 @@ mod tests {
                 domain: "example.com".to_string(),
                 visited_at: "2026-06-21T00:00:00Z".to_string(),
                 score: 0.42,
-                match_reason: "Lexical match".to_string(),
+                match_reason: MATCH_REASON_LEXICAL.to_string(),
                 enrichment_excerpt: None,
             }],
             notes: vec!["lexical only".to_string()],
@@ -1619,7 +1622,7 @@ mod tests {
                 domain: "a.example".to_string(),
                 visited_at: "2026-06-21T00:00:00Z".to_string(),
                 score: 0.9,
-                match_reason: "Lexical match".to_string(),
+                match_reason: MATCH_REASON_LEXICAL.to_string(),
                 enrichment_excerpt: None,
             }],
             notes: Vec::new(),
@@ -2922,7 +2925,7 @@ mod tests {
                 domain: "x.example".to_string(),
                 visited_at: "2026-06-21T22:30:00Z".to_string(),
                 score: 0.1,
-                match_reason: "Lexical match".to_string(),
+                match_reason: MATCH_REASON_LEXICAL.to_string(),
                 enrichment_excerpt: None,
             }],
             notes: Vec::new(),

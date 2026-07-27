@@ -74,6 +74,7 @@ describe('shell task helpers', () => {
         level: 'info' as const,
         code: 'test.line',
         message: `Line ${index}`,
+        origin: 'shell' as const,
       }),
     )
     const capped = appendShellTaskLogs(task, manyLogs)
@@ -138,6 +139,7 @@ describe('shell task helpers', () => {
       level: 'warning',
       code: 'import.duplicates',
       message: 'Skipped duplicate records.',
+      origin: 'backend' as const,
       diagnostic: 'source_visit_id already exists',
       current: 3,
       total: 10,
@@ -175,6 +177,7 @@ describe('shell task helpers', () => {
       level: 'info',
       code: 'import.complete',
       message: 'Writing BrowserHistory.json',
+      origin: 'backend' as const,
     })
   })
 
@@ -382,6 +385,7 @@ describe('shell task helpers', () => {
     expect(phaseProgress.logEntries.at(-1)).toMatchObject({
       code: 'backup.stage-profile',
       message: 'Copying profile',
+      origin: 'backend' as const,
     })
   })
 

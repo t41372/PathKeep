@@ -187,6 +187,28 @@ describe('Shell primitives', () => {
     expect(
       screen.getByRole('heading', { name: 'Scheduler needs review' }),
     ).toBeVisible()
+    expect(
+      screen.getByText(
+        'Mismatch and manual-review states should stay visible until the user re-checks the plan.',
+      ),
+    ).not.toHaveClass('mono-support')
+  })
+
+  test('marks a diagnostic callout body as support text so evidence never reads as PathKeep copy', () => {
+    render(
+      <StatusCallout
+        tone="blocked"
+        title="Manifest chain"
+        body="manifest hash mismatch at run artifact /tmp/manifest.json"
+        bodyTone="diagnostic"
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        'manifest hash mismatch at run artifact /tmp/manifest.json',
+      ),
+    ).toHaveClass('mono-support')
   })
 
   test('renders the base Skeleton as an aria-hidden shimmer box carrying caller-supplied sizing', () => {

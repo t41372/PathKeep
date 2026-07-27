@@ -41,90 +41,125 @@ import {
   enrichmentPluginDescription,
   enrichmentPluginLabel,
 } from '../../lib/intelligence-runtime'
-import { readableContentFetchAvailable } from '../../lib/release-capabilities'
 import type {
   AppSnapshot,
   ClearDerivedIntelligenceReport,
   DashboardSnapshot,
+  DerivedRuntimeNote,
   IntelligenceRuntimeSnapshot,
 } from '../../lib/types'
 import type { CoreIntelligenceQueueReport } from '../../lib/core-intelligence/types'
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
+/**
+ * Maps `DERIVED_NOTE_*` codes from `vault-core/src/models/intelligence.rs` onto
+ * shipped Settings copy.
+ *
+ * Keyed by stable code — never by backend prose. The previous version of this
+ * module carried a regex table (`^Rebuilt all daily rollups for (.+)\.$` and
+ * friends) that silently fell back to English the moment Rust changed a
+ * sentence.
+ */
+const DERIVED_NOTE_KEY_BY_CODE: Record<string, string> = {
+  'visit-facts-cleared-no-visits':
+    'deterministicModuleNoVisibleVisitsClearedVisitFacts',
+  'visit-facts-up-to-date': 'deterministicModuleVisitFactsUpToDate',
+  'visit-facts-refreshed': 'deterministicModuleVisitFactsRefreshed',
+  'visit-facts-rebuilt': 'deterministicModuleVisitFactsRebuilt',
+  'daily-rollups-cleared-no-visits':
+    'deterministicModuleNoVisibleVisitsClearedDailyRollups',
+  'daily-rollups-up-to-date': 'deterministicModuleDailyRollupsUpToDate',
+  'daily-rollups-refreshed': 'deterministicModuleDailyRollupsRefreshed',
+  'daily-rollups-rebuilt': 'deterministicModuleDailyRollupsRebuilt',
+  'structural-cleared-no-visits':
+    'deterministicModuleNoVisibleVisitsClearedStructural',
+  'structural-up-to-date': 'deterministicModuleStructuralUpToDate',
+  'structural-tail-rebuilt': 'deterministicModuleStructuralTailRebuilt',
+  'structural-rebuilt': 'deterministicModuleStructuralRebuilt',
+  'rebuild-scope-empty': 'deterministicModuleRebuildScopeEmpty',
+  'rebuild-legacy-fallback': 'deterministicModuleRebuildLegacyFallback',
+  'rebuild-checkpoint-aware': 'deterministicModuleRebuildCheckpointAware',
+  'rebuild-completed': 'deterministicModuleRebuildCompleted',
+  'modules-in-sync': 'deterministicModuleModulesInSync',
+  'module-never-built': 'deterministicModuleNeverBuilt',
+  'module-no-successful-rebuild': 'deterministicModuleNoSuccessfulRebuild',
+  'module-disabled': 'deterministicModuleDisabledNote',
+  'module-rebuild-required': 'deterministicModuleRebuildRequired',
+  'module-version-mismatch': 'deterministicModuleVersionMismatch',
+}
+
+/**
+ * Maps stale-reason codes onto shipped Settings copy.
+ */
+const DERIVED_STALE_KEY_BY_CODE: Record<string, string> = {
+  'module-version-changed': 'deterministicModuleStaleVersionChanged',
+  'missing-build-timestamp': 'deterministicModuleStaleMissingBuildTimestamp',
+  'archive-data-changed': 'deterministicModuleStaleArchiveDataChanged',
+  'visibility-or-rollback-changed':
+    'deterministicModuleStaleVisibilityOrRollbackChanged',
+}
+
+/**
+ * Maps a stable `RebuildMode` id onto its localized label.
+ *
+ * The backend sends the id (never its English label) so the interpolated word
+ * inside a translated sentence is translated too.
+ */
+const REBUILD_MODE_KEY_BY_ID: Record<string, string> = {
+  'visit-derive': 'rebuildModeVisitDerive',
+  'daily-rollup': 'rebuildModeDailyRollup',
+  'structural-rebuild': 'rebuildModeStructuralRebuild',
+  'full-rebuild': 'rebuildModeFullRebuild',
+}
+
+/**
+ * Resolves one coded deterministic-runtime note into user-visible copy.
+ *
+ * The raw `message` stays the honest fallback for codes this build ships no copy
+ * for, so a newer backend never renders a blank line.
+ */
 function localizeDeterministicRuntimeNote(
-  note: string,
+  note: DerivedRuntimeNote,
   settingsNs: Translate,
 ): string {
-  const profilePatterns: Array<[RegExp, string]> = [
-    [
-      /^No visible visits remained for (.+); cleared visit-derived facts\.$/,
-      'deterministicModuleNoVisibleVisitsClearedVisitFacts',
-    ],
-    [
-      /^Visit-derived facts for (.+) were already up to date\.$/,
-      'deterministicModuleVisitFactsUpToDate',
-    ],
-    [
-      /^Incrementally refreshed visit-derived facts for (.+)\.$/,
-      'deterministicModuleVisitFactsRefreshed',
-    ],
-    [
-      /^Rebuilt visit-derived facts for (.+) with a scoped full refresh\.$/,
-      'deterministicModuleVisitFactsRebuilt',
-    ],
-    [
-      /^No visible visits remained for (.+); cleared daily rollups\.$/,
-      'deterministicModuleNoVisibleVisitsClearedDailyRollups',
-    ],
-    [
-      /^Daily rollups for (.+) were already up to date\.$/,
-      'deterministicModuleDailyRollupsUpToDate',
-    ],
-    [
-      /^Refreshed dirty daily rollups for (.+)\.$/,
-      'deterministicModuleDailyRollupsRefreshed',
-    ],
-    [
-      /^Rebuilt all daily rollups for (.+)\.$/,
-      'deterministicModuleDailyRollupsRebuilt',
-    ],
-    [
-      /^No visible visits remained for (.+); cleared structural entities\.$/,
-      'deterministicModuleNoVisibleVisitsClearedStructural',
-    ],
-    [
-      /^Structural entities for (.+) were already up to date\.$/,
-      'deterministicModuleStructuralUpToDate',
-    ],
-    [
-      /^Rebuilt structural tail entities for (.+)\.$/,
-      'deterministicModuleStructuralTailRebuilt',
-    ],
-    [
-      /^Rebuilt all structural entities for (.+)\.$/,
-      'deterministicModuleStructuralRebuilt',
-    ],
-  ]
+  const key = DERIVED_NOTE_KEY_BY_CODE[note.code]
+  const jobKindKey = REBUILD_MODE_KEY_BY_ID[note.jobKind ?? '']
+  // An unresolvable interpolation would leave a hole in the sentence, so fall
+  // back to the diagnostic prose rather than ship a half-rendered string.
+  if (!key || (note.jobKind && !jobKindKey)) return note.message
+  return settingsNs(key, {
+    profile: note.profileId ?? '',
+    jobKind: jobKindKey ? settingsNs(jobKindKey) : '',
+  })
+}
 
-  for (const [pattern, key] of profilePatterns) {
-    const match = note.match(pattern)
-    if (match) {
-      return settingsNs(key, { profile: match[1] })
-    }
-  }
+/**
+ * Resolves one module stale reason into user-visible copy.
+ */
+function localizeDeterministicStaleReason(
+  staleReason: string,
+  staleReasonCode: string | null | undefined,
+  settingsNs: Translate,
+): string {
+  const key = DERIVED_STALE_KEY_BY_CODE[staleReasonCode ?? '']
+  return key ? settingsNs(key) : staleReason
+}
 
-  if (note === 'Manual full rebuild requested for daily rollups.') {
-    return settingsNs('deterministicModuleDailyRollupsManualRebuild')
+/**
+ * Projects a module runtime row onto the note list the card renders.
+ *
+ * Legacy runtime rows written before code-ification carry only `notes`, so those
+ * are surfaced as uncoded pass-throughs instead of being guessed at.
+ */
+function runtimeNotesFor(
+  runtime: { notes: string[]; noteDetails?: DerivedRuntimeNote[] } | undefined,
+): DerivedRuntimeNote[] {
+  if (!runtime) return []
+  if (runtime.noteDetails && runtime.noteDetails.length > 0) {
+    return runtime.noteDetails
   }
-  if (
-    note ===
-    'Archive visibility regressed or source counters moved backwards for daily rollups.'
-  ) {
-    return settingsNs('deterministicModuleDailyRollupsVisibilityRegressed')
-  }
-
-  return note
+  return runtime.notes.map((message) => ({ code: '', message }))
 }
 
 /**
@@ -136,7 +171,6 @@ export interface DerivedRuntimeReviewProps {
   dashboardRecentRun: DashboardSnapshot['recentRuns'][number] | null
   intelligenceRuntime: IntelligenceRuntimeSnapshot | null
   intelligenceRuntimeError: string | null
-  readableContentAvailable?: boolean
   rebuildQueueReport: CoreIntelligenceQueueReport | null
   snapshot: AppSnapshot
   onCancelRuntimeJob: (jobId: number) => Promise<void>
@@ -154,7 +188,6 @@ export function DerivedRuntimeReview({
   dashboardRecentRun,
   intelligenceRuntime,
   intelligenceRuntimeError,
-  readableContentAvailable = readableContentFetchAvailable,
   rebuildQueueReport,
   snapshot,
   onDeterministicModuleToggle,
@@ -209,6 +242,7 @@ export function DerivedRuntimeReview({
     )
 
     return [...configIds, ...extraIds].map((moduleId) => ({
+      notes: runtimeNotesFor(runtimeModulesById.get(moduleId)),
       runtime: runtimeModulesById.get(moduleId),
       state: configuredModules.find((module) => module.id === moduleId) ?? {
         id: moduleId,
@@ -312,8 +346,9 @@ export function DerivedRuntimeReview({
               ? [
                   {
                     label: settingsNs('deterministicModuleStaleReason'),
-                    value: localizeDeterministicRuntimeNote(
+                    value: localizeDeterministicStaleReason(
                       module.runtime.staleReason,
+                      module.runtime.staleReasonCode,
                       settingsNs,
                     ),
                   },
@@ -321,12 +356,12 @@ export function DerivedRuntimeReview({
               : []),
           ]}
           notes={
-            module.runtime?.notes.length ? (
+            module.notes.length > 0 ? (
               <div className="intelligence-note-list">
-                {module.runtime.notes.map((note) => (
+                {module.notes.map((note, index) => (
                   <p
                     className="mono-support"
-                    key={`${module.state.id}-${note}`}
+                    key={`${module.state.id}-${index}-${note.code || note.message}`}
                   >
                     {localizeDeterministicRuntimeNote(note, settingsNs)}
                   </p>
@@ -339,9 +374,6 @@ export function DerivedRuntimeReview({
       ))}
 
       {reviewableEnrichmentPlugins.map((plugin) => {
-        const readableContentDeferred =
-          plugin.state.id === READABLE_CONTENT_REFETCH_PLUGIN_ID &&
-          !readableContentAvailable
         const sourceKind =
           plugin.runtime?.sourceKind ??
           (plugin.state.id === READABLE_CONTENT_REFETCH_PLUGIN_ID
@@ -350,26 +382,19 @@ export function DerivedRuntimeReview({
 
         return (
           <ReviewRuntimeBoundaryCard
-            active={!readableContentDeferred}
+            active
             actions={
               <button
                 className="btn-secondary"
                 type="button"
-                disabled={Boolean(action) || readableContentDeferred}
-                title={
-                  readableContentDeferred
-                    ? settingsNs('readableContentDeferredTooltip')
-                    : undefined
-                }
+                disabled={Boolean(action)}
                 onClick={() => {
                   void onEnrichmentPluginToggle(plugin.state.id)
                 }}
               >
-                {readableContentDeferred
-                  ? t('settings.enablePlugin')
-                  : plugin.state.enabled
-                    ? t('settings.disablePlugin')
-                    : t('settings.enablePlugin')}
+                {plugin.state.enabled
+                  ? t('settings.disablePlugin')
+                  : t('settings.enablePlugin')}
               </button>
             }
             description={enrichmentPluginDescription(
@@ -378,20 +403,16 @@ export function DerivedRuntimeReview({
             )}
             headerMeta={
               <span className="mono">
-                {readableContentDeferred
-                  ? settingsNs('readableContentDeferredBadge')
-                  : plugin.state.enabled
-                    ? t('settings.enabled')
-                    : t('settings.disabled')}
+                {plugin.state.enabled
+                  ? t('settings.enabled')
+                  : t('settings.disabled')}
               </span>
             }
             key={plugin.state.id}
             metrics={[
               {
                 label: settingsNs('pluginBoundary'),
-                value: readableContentDeferred
-                  ? settingsNs('readableContentDeferredBadge')
-                  : enrichmentPluginBoundaryLabel(sourceKind, settingsNs),
+                value: enrichmentPluginBoundaryLabel(sourceKind, settingsNs),
                 valueClassName: 'mono',
               },
               {

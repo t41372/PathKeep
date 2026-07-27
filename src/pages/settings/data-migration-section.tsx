@@ -427,7 +427,11 @@ function ImportPreviewPanel({
           {preview.manifest.archiveSchemaVersion}
           {preview.schemaUpToDate
             ? ` · ${t('settings.migrationPreviewSchemaCurrent')}`
-            : ` → ${t('settings.migrationPreviewSchemaWillMigrate').replace('{count}', String(preview.migrationsToApply.length))}`}
+            : ` → ${t(
+                preview.migrationsToApply.length === 1
+                  ? 'settings.migrationPreviewSchemaWillMigrateOne'
+                  : 'settings.migrationPreviewSchemaWillMigrateMany',
+              ).replace('{count}', String(preview.migrationsToApply.length))}`}
         </dd>
         <dt className="text-ink-faint font-mono text-[10.5px] uppercase tracking-[0.04em]">
           {t('settings.migrationPreviewArchiveMode')}

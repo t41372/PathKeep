@@ -219,7 +219,8 @@ fn runtime_snapshot_projects_disabled_stale_and_failed_runtime_rows() {
             "INSERT INTO deterministic_module_runtime
              (module_id, version, status, depends_on_json, derived_tables_json, last_run_id,
               last_built_at, last_invalidated_at, stale_reason, notes_json, updated_at)
-             VALUES (?1, ?2, 'ready', '{not-json', '{not-json', 1, ?3, NULL, NULL, '[]', ?3)",
+             VALUES (?1, ?2, 'ready', '{not-json', '{not-json', 1, ?3, NULL, NULL,
+              '[\"A legacy uncoded note.\"]', ?3)",
             params![modules[0].id, modules[0].version, now],
         )
         .expect("insert disabled stored module");
@@ -272,6 +273,20 @@ fn runtime_snapshot_projects_disabled_stale_and_failed_runtime_rows() {
     assert_eq!(disabled.status, "disabled");
     assert!(!disabled.depends_on.is_empty() || !disabled.derived_tables.is_empty());
     assert!(disabled.notes.iter().any(|note| note.contains("Disabled")));
+    // Legacy `notes_json` rows hold plain strings. They must survive as opaque
+    // pass-throughs rather than being pattern-matched back into codes.
+    let legacy = disabled
+        .note_details
+        .iter()
+        .find(|note| note.message == "A legacy uncoded note.")
+        .expect("legacy note preserved");
+    assert_eq!(legacy.code, "");
+    assert!(
+        disabled
+            .note_details
+            .iter()
+            .any(|note| note.code == crate::models::DERIVED_NOTE_MODULE_DISABLED)
+    );
     let version_stale = snapshot
         .modules
         .iter()
@@ -284,6 +299,16 @@ fn runtime_snapshot_projects_disabled_stale_and_failed_runtime_rows() {
             .as_deref()
             .is_some_and(|reason| reason.contains("version changed"))
     );
+    assert_eq!(
+        version_stale.stale_reason_code.as_deref(),
+        Some(crate::models::DERIVED_STALE_MODULE_VERSION_CHANGED)
+    );
+    assert!(
+        version_stale
+            .note_details
+            .iter()
+            .any(|note| note.code == crate::models::DERIVED_NOTE_MODULE_VERSION_MISMATCH)
+    );
     let timestamp_stale = snapshot
         .modules
         .iter()
@@ -295,6 +320,10 @@ fn runtime_snapshot_projects_disabled_stale_and_failed_runtime_rows() {
             .stale_reason
             .as_deref()
             .is_some_and(|reason| reason.contains("Missing build timestamp"))
+    );
+    assert_eq!(
+        timestamp_stale.stale_reason_code.as_deref(),
+        Some(crate::models::DERIVED_STALE_MISSING_BUILD_TIMESTAMP)
     );
     assert!(snapshot.plugins.iter().any(|plugin| plugin.plugin_id == READABLE_CONTENT_PLUGIN_ID
         && plugin.failed_jobs == 1
@@ -324,4 +353,10 @@ fn runtime_snapshot_marks_missing_disabled_module_rows() {
     assert_eq!(disabled.status, "disabled");
     assert!(!disabled.enabled);
     assert!(disabled.notes.iter().any(|note| note == "Disabled in Settings."));
+    assert!(
+        disabled
+            .note_details
+            .iter()
+            .any(|note| note.code == crate::models::DERIVED_NOTE_MODULE_DISABLED)
+    );
 }

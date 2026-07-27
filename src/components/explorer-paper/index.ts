@@ -185,9 +185,17 @@ export { PaperSearchView } from './paper-search-view'
 export type {
   PaperSearchViewCopy,
   PaperSearchViewDayGroup,
+  PaperSearchViewOffsetPagination,
   PaperSearchViewPagination,
   PaperSearchViewProps,
 } from './paper-search-view'
+
+export { PaperPaginationBar } from './paper-pagination-bar'
+export type {
+  PaperPaginationBarCopy,
+  PaperPaginationBarProps,
+  PaperPaginationBarState,
+} from './paper-pagination-bar'
 
 export { PaperAssistantView } from './paper-assistant-view'
 export type {

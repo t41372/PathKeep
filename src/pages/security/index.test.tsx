@@ -44,14 +44,19 @@ vi.mock('./use-security-workflow', () => ({
 
 vi.mock('./panels', () => ({
   SecurityStatusPanel: ({
+    localizedWarnings,
     onOpenPath,
     status,
   }: {
+    localizedWarnings: string[]
     onOpenPath: (path: string) => void
     status: SecurityStatus
   }) => (
     <section>
       <span>status panel:{String(status.unlocked)}</span>
+      {localizedWarnings.map((warning) => (
+        <span key={warning}>{warning}</span>
+      ))}
       <button type="button" onClick={() => onOpenPath('/tmp/security.sqlite')}>
         open security path
       </button>
@@ -70,12 +75,16 @@ vi.mock('./panels', () => ({
   SecurityRekeyPanel: ({
     localizedWarning,
   }: {
-    localizedWarning: (warning: string) => string
+    localizedWarning: (warning: string, code?: string) => string
   }) => (
     <section>
       rekey panel
+      <span>{localizedWarning('rekey preview diagnostic prose')}</span>
       <span>
-        {localizedWarning('database key is required for encrypted archives')}
+        {localizedWarning(
+          'The archive is currently locked. (drifted prose)',
+          'archive-locked',
+        )}
       </span>
     </section>
   ),
@@ -141,7 +150,8 @@ describe('SecurityPage route shell', () => {
             storedSecret: false,
           },
           unlocked: false,
-          warnings: ['database key is required for encrypted archives'],
+          warnings: ['open archive: database key is required (drifted prose)'],
+          warningCodes: ['encrypted-needs-password'],
         }),
       }),
     )
@@ -163,9 +173,20 @@ describe('SecurityPage route shell', () => {
     await user.click(screen.getByRole('button', { name: 'open security path' }))
     expect(openPath).toHaveBeenCalledWith('/tmp/security.sqlite')
     expect(screen.getByText('rekey panel')).toBeVisible()
+    // The status warning localizes off its stable code, so drifted backend prose
+    // still reaches the user as shipped copy.
     expect(
       screen.getByText(
         'Unlock this encrypted archive with its current password before reviewing history or audit data.',
+      ),
+    ).toBeVisible()
+    // Uncoded rekey preview warnings stay honest diagnostic prose.
+    expect(screen.getByText('rekey preview diagnostic prose')).toBeVisible()
+    // Coded rekey preview warnings localize off the stable code, so drifted
+    // backend prose still reaches the user as shipped copy.
+    expect(
+      screen.getByText(
+        'The archive is currently locked. Unlock it before applying this change.',
       ),
     ).toBeVisible()
   })

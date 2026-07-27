@@ -8,6 +8,8 @@
 #[cfg(not(test))]
 use super::blocking::run_blocking_command;
 #[cfg(not(test))]
+use crate::command_error::CommandError;
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
 use tauri::State;
@@ -17,7 +19,7 @@ use tauri::State;
 /// Previews the native scheduler plan for one platform, off the UI thread.
 pub(crate) async fn preview_schedule(
     platform: Option<String>,
-) -> Result<vault_core::SchedulePlan, String> {
+) -> Result<vault_core::SchedulePlan, CommandError> {
     run_blocking_command("preview_schedule", move || worker_bridge::preview_schedule_impl(platform))
         .await
 }
@@ -27,7 +29,7 @@ pub(crate) async fn preview_schedule(
 /// Applies one previously previewed native schedule plan, off the UI thread.
 pub(crate) async fn apply_schedule(
     plan: vault_core::SchedulePlan,
-) -> Result<vault_core::ApplyResult, String> {
+) -> Result<vault_core::ApplyResult, CommandError> {
     run_blocking_command("apply_schedule", move || worker_bridge::apply_schedule_impl(plan)).await
 }
 
@@ -36,7 +38,7 @@ pub(crate) async fn apply_schedule(
 /// Removes one previously previewed native schedule plan, off the UI thread.
 pub(crate) async fn remove_schedule(
     plan: vault_core::SchedulePlan,
-) -> Result<vault_core::ApplyResult, String> {
+) -> Result<vault_core::ApplyResult, CommandError> {
     run_blocking_command("remove_schedule", move || worker_bridge::remove_schedule_impl(plan)).await
 }
 
@@ -45,7 +47,7 @@ pub(crate) async fn remove_schedule(
 /// Repairs known scheduler conflicts after explicit user confirmation, off the UI thread.
 pub(crate) async fn repair_schedule(
     plan: vault_core::SchedulePlan,
-) -> Result<vault_core::ApplyResult, String> {
+) -> Result<vault_core::ApplyResult, CommandError> {
     run_blocking_command("repair_schedule", move || worker_bridge::repair_schedule_impl(plan)).await
 }
 
@@ -55,7 +57,7 @@ pub(crate) async fn repair_schedule(
 pub(crate) async fn schedule_status(
     platform: Option<String>,
     state: State<'_, SessionState>,
-) -> Result<vault_core::ScheduleStatus, String> {
+) -> Result<vault_core::ScheduleStatus, CommandError> {
     let key = state.get_key();
     run_blocking_command("schedule_status", move || {
         worker_bridge::schedule_status_impl(platform, key.as_deref())

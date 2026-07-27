@@ -80,7 +80,10 @@ use self::{
     intelligence_rebuild::load_archive_source_profile_id,
     intelligence_schema::clear_core_tables_for_job_kind,
 };
-use crate::{intelligence_catalog::RebuildMode, models::CoreIntelligenceStageTimings};
+use crate::{
+    intelligence_catalog::RebuildMode,
+    models::{CoreIntelligenceStageTimings, DerivedRuntimeNote},
+};
 
 pub use self::day_insights::get_day_insights;
 pub use self::host_artifacts::{build_intelligence_local_host, preview_intelligence_local_host};
@@ -372,8 +375,12 @@ struct StageRunResult {
     dirty_visit_count: Option<usize>,
     dirty_date_keys: Vec<String>,
     fallback_reason: Option<String>,
+    /// Stable `REBUILD_FALLBACK_*` code paired with `fallback_reason`.
+    fallback_reason_code: Option<String>,
     stage_timings_ms: Option<CoreIntelligenceStageTimings>,
-    notes: Vec<String>,
+    /// Coded notes carried all the way to the persisted module runtime so the
+    /// shell never has to recover meaning from English prose.
+    notes: Vec<DerivedRuntimeNote>,
 }
 
 // These batch sizes stay well below the low-RAM envelope we benchmark against,

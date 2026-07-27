@@ -138,6 +138,68 @@ describe('ImportReviewPanels', () => {
     expect(onBatchMutation).toHaveBeenCalledWith(revertedBatch, 'restore')
   })
 
+  test('renders coded batch notes on the review card and never leaks unknown-code English', () => {
+    render(
+      <I18nProvider>
+        <ImportReviewPanels
+          activeBatchDetail={{
+            ...batchDetail,
+            batch: {
+              ...batch,
+              status: 'reverted',
+              revertedAt: '2026-04-25T09:04:00.000Z',
+            },
+            notes: [
+              'Reverted at 2026-04-25T09:04:00Z. Hid 2 rows.',
+              'A future note without shipped copy.',
+            ],
+            noteDetails: [
+              {
+                code: 'batch-reverted',
+                message: 'Reverted at 2026-04-25T09:04:00Z. Hid 2 rows.',
+                count: 2,
+                at: '2026-04-25T09:04:00Z',
+              },
+              {
+                code: 'future-note-code',
+                message: 'A future note without shipped copy.',
+              },
+            ],
+          }}
+          healthReport={null}
+          historyExpanded={false}
+          language="en"
+          loadingBatch={false}
+          recentImportBatches={[]}
+          repairNotice={null}
+          selectedBatchId={7}
+          supportCopyFeedback={null}
+          onBatchMutation={vi.fn()}
+          onCopyPath={vi.fn()}
+          onHistoryExpandedChange={vi.fn()}
+          onOpenPath={vi.fn()}
+          onRepairHealth={vi.fn()}
+          onRunDoctor={vi.fn()}
+          onSelectBatch={vi.fn()}
+        />
+      </I18nProvider>,
+    )
+
+    // Count summary counts EVERY recorded note, localized or not.
+    expect(
+      screen.getByText('2 technical notes were recorded in the audit file.'),
+    ).toBeVisible()
+    // The coded revert note renders through the shipped catalog copy.
+    expect(
+      screen.getByText(
+        'Undone at 2026-04-25T09:04:00Z. Hid 2 visible history records from your archive.',
+      ),
+    ).toBeVisible()
+    // Unknown codes stay counted-but-unrendered: backend English never leaks
+    // into the localized review card (it stays in the audit artifact).
+    expect(screen.queryByText('A future note without shipped copy.')).toBeNull()
+  })
+
   test('renders empty import history when recent batches are not loaded', () => {
     render(
       <I18nProvider>

@@ -66,7 +66,7 @@ export const intelligenceSessionTrailAndExplainNamespace = {
     explainRuleSessionDeepDive:
       'This session crossed the deep-dive thresholds for navigation depth, domain breadth, and visit count.',
     explainRuleSessionGap:
-      'These visits stayed in one session because adjacent gaps never exceeded 30 minutes.',
+      'These visits stayed in one session because adjacent gaps never exceeded {minutes} minutes.',
     explainRuleSearchTrail:
       'This search trail started with "{query}" and kept extending through navigation ancestry inside the same session window.',
     explainRuleQueryFamily:
@@ -153,7 +153,7 @@ export const intelligenceSessionTrailAndExplainNamespace = {
     explainRuleSessionDeepDive:
       '这个会话达到了深度研究阈值：导航深度、网站数量和访问次数都足够高。',
     explainRuleSessionGap:
-      '这些访问被归为同一个会话，因为相邻间隔始终没有超过 30 分钟。',
+      '这些访问被归为同一个会话，因为相邻间隔始终没有超过 {minutes} 分钟。',
     explainRuleSearchTrail:
       '这条搜索旅程由 “{query}” 发起，并在同一会话窗口内沿导航来源继续扩展。',
     explainRuleQueryFamily:
@@ -195,13 +195,13 @@ export const intelligenceSessionTrailAndExplainNamespace = {
     viewModeTrail: '搜索旅程',
   },
   'zh-TW': {
-    sessionGroupEmpty: '該時間範圍內沒有會話紀錄。',
-    sessionGroupSummary: '共 {count} 個會話 · 第 {page} 頁',
-    sessionUntitled: '未命名會話',
+    sessionGroupEmpty: '該時間範圍內沒有工作階段紀錄。',
+    sessionGroupSummary: '共 {count} 個工作階段 · 第 {page} 頁',
+    sessionUntitled: '未命名工作階段',
     sessionVisitLabel: '個頁面',
     sessionSearchLabel: '次搜尋',
-    sessionDeepDive: '深度研究會話',
-    sessionDetailError: '無法載入會話詳情。',
+    sessionDeepDive: '深度研究工作階段',
+    sessionDetailError: '無法載入工作階段詳情。',
     trailGroupEmpty: '該時間範圍內沒有搜尋旅程。',
     trailGroupSummary: '共 {count} 條搜尋旅程 · 第 {page} 頁',
     trailReformulation: '次改寫',
@@ -238,7 +238,7 @@ export const intelligenceSessionTrailAndExplainNamespace = {
     explainRuleSessionDeepDive:
       '這個工作階段達到了深度研究門檻：導航深度、網站數量與造訪次數都夠高。',
     explainRuleSessionGap:
-      '這些造訪被歸成同一個工作階段，因為相鄰間隔始終沒有超過 30 分鐘。',
+      '這些造訪被歸成同一個工作階段，因為相鄰間隔始終沒有超過 {minutes} 分鐘。',
     explainRuleSearchTrail:
       '這條搜尋旅程由「{query}」發起，並在同一個工作階段視窗內沿著導航來源繼續延伸。',
     explainRuleQueryFamily:
@@ -277,7 +277,7 @@ export const intelligenceSessionTrailAndExplainNamespace = {
     explainFactorTypedRevisitCount: '直接輸入重訪次數',
     viewModeLabel: '排列方式',
     viewModeTime: '時間',
-    viewModeSession: '會話',
+    viewModeSession: '工作階段',
     viewModeTrail: '搜尋旅程',
   },
 } as const

@@ -31,6 +31,7 @@ use super::{
     build_daily_rollups, clear_core_tables_for_job_kind, display_name_for_domain, local_date_key,
     unique_date_keys,
 };
+use crate::models::DerivedRuntimeNote;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local, LocalResult, NaiveDate, TimeZone};
 use rusqlite::{Connection, params};
@@ -74,31 +75,49 @@ pub(super) fn execute_daily_rollup_stage(
         return Ok(StageRunResult {
             execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
             affected_profiles: vec![profile_id.to_string()],
-            notes: vec![format!(
-                "No visible visits remained for {profile_id}; cleared daily rollups."
-            )],
+            notes: vec![
+                DerivedRuntimeNote::new(
+                    crate::models::DERIVED_NOTE_DAILY_ROLLUPS_CLEARED_NO_VISITS,
+                    format!("No visible visits remained for {profile_id}; cleared daily rollups."),
+                )
+                .with_profile_id(profile_id),
+            ],
             ..StageRunResult::default()
         });
     }
 
+    let mut fallback_reason_code: Option<String> = None;
     let mut fallback_reason = if force_full {
+        fallback_reason_code =
+            Some(crate::models::REBUILD_FALLBACK_DAILY_ROLLUP_MANUAL_FULL_REBUILD.to_string());
         Some("Manual full rebuild requested for daily rollups.".to_string())
     } else {
         None
     };
     if !force_full {
         match checkpoint.as_ref() {
-            None => fallback_reason =
-                Some("No daily-rollup checkpoint was recorded for this profile yet.".to_string()),
+            None => {
+                fallback_reason = Some(
+                    "No daily-rollup checkpoint was recorded for this profile yet.".to_string(),
+                );
+                fallback_reason_code =
+                    Some(crate::models::REBUILD_FALLBACK_DAILY_ROLLUP_NO_CHECKPOINT.to_string());
+            }
             Some(checkpoint) if checkpoint.stage_version != current_version => {
-                fallback_reason =
-                    Some("Daily rollup logic changed since the last successful rebuild.".to_string())
+                fallback_reason = Some(
+                    "Daily rollup logic changed since the last successful rebuild.".to_string(),
+                );
+                fallback_reason_code =
+                    Some(crate::models::REBUILD_FALLBACK_DAILY_ROLLUP_RULES_CHANGED.to_string());
             }
             Some(checkpoint) if watermark_regressed(watermark, &checkpoint.source_watermark) => {
                 fallback_reason = Some(
                     "Archive visibility regressed or source counters moved backwards for daily rollups."
                         .to_string(),
-                )
+                );
+                fallback_reason_code = Some(
+                    crate::models::REBUILD_FALLBACK_DAILY_ROLLUP_VISIBILITY_REGRESSED.to_string(),
+                );
             }
             _ => {}
         }
@@ -126,7 +145,13 @@ pub(super) fn execute_daily_rollup_stage(
         return Ok(StageRunResult {
             execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
             affected_profiles: vec![profile_id.to_string()],
-            notes: vec![format!("Daily rollups for {profile_id} were already up to date.")],
+            notes: vec![
+                DerivedRuntimeNote::new(
+                    crate::models::DERIVED_NOTE_DAILY_ROLLUPS_UP_TO_DATE,
+                    format!("Daily rollups for {profile_id} were already up to date."),
+                )
+                .with_profile_id(profile_id),
+            ],
             ..StageRunResult::default()
         });
     }
@@ -166,6 +191,8 @@ pub(super) fn execute_daily_rollup_stage(
                     "Daily rollup delta rows no longer matched the current archive watermark."
                         .to_string(),
                 );
+                fallback_reason_code =
+                    Some(crate::models::REBUILD_FALLBACK_DAILY_ROLLUP_DELTA_MISMATCH.to_string());
                 let fallback_rollups = build_daily_rollups_for_profile_in_batches(
                     connection,
                     profile_id,
@@ -231,10 +258,19 @@ pub(super) fn execute_daily_rollup_stage(
         dirty_visit_count: Some(dirty_visit_count),
         dirty_date_keys,
         fallback_reason: fallback_reason.clone(),
+        fallback_reason_code,
         notes: vec![if matches!(execution_mode, StageExecutionMode::Incremental) {
-            format!("Refreshed dirty daily rollups for {profile_id}.")
+            DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_DAILY_ROLLUPS_REFRESHED,
+                format!("Refreshed dirty daily rollups for {profile_id}."),
+            )
+            .with_profile_id(profile_id)
         } else {
-            format!("Rebuilt all daily rollups for {profile_id}.")
+            DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_DAILY_ROLLUPS_REBUILT,
+                format!("Rebuilt all daily rollups for {profile_id}."),
+            )
+            .with_profile_id(profile_id)
         }],
         ..StageRunResult::default()
     })

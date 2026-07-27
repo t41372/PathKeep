@@ -21,40 +21,86 @@
  * landed. Until the reply lands, the client-side aggregator continues
  * to render so the panel never blinks empty.
  *
+ * ## Request/read split (why `resolve` is pure)
+ * `resolve` used to fire `request(date)` on a cache miss so the contact
+ * sheet could ask for insights from inside its day render. That made the
+ * render phase issue IPC and mutate a state `Map` in place — an
+ * AGENTS.md "no heavy work / no side effects on the render path"
+ * violation, and it made React's render phase non-idempotent (a
+ * discarded concurrent render still sent the command).
+ *
+ * The two halves are now separate:
+ * - `request(date)` is a side-effecting command. Callers invoke it from
+ *   an effect — the contact sheet reports each day block as it mounts
+ *   into the viewport, so the fan-out is bounded by what is on screen,
+ *   not by the accumulated infinite-scroll day list.
+ * - `resolve(date)` is a pure lookup. It never fetches and never
+ *   mutates; a miss simply returns `null` and the caller falls back to
+ *   its (memoised) client-side aggregator.
+ *
  * ## Caching contract
  * - The cache is keyed by `(profileId ?? '*all*', date)`. When the
  *   route's `refreshKey` changes (manual backup, import, etc.), the
  *   cache resets so stale aggregates don't outlast their archive
- *   state. When `profileId` changes, the cache also resets.
+ *   state. When `profileId` changes, the cache also resets. `request`
+ *   is re-created on that rotation, which is what re-arms the callers'
+ *   effects.
  * - In-flight requests are deduped by the same key, so two adjacent
- *   re-renders that both call `request(date)` only fire one backend
+ *   day mounts that both call `request(date)` only fire one backend
  *   call.
- * - Errors are remembered too, so a missing-archive failure doesn't
- *   spam the backend on every scroll tick.
+ * - Failures are retried a bounded number of times (`MAX_ATTEMPTS`)
+ *   across subsequent mounts of the same day. A permanent failure
+ *   settles into the error state and the caller keeps its client-side
+ *   fallback; a transient one (archive briefly locked mid-import) is no
+ *   longer a one-shot that pins the day to client aggregation for the
+ *   rest of the refresh cycle.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { backend } from '@/lib/backend-client'
 import type { BrowseDayInsights } from '@/lib/backend-client/explorer'
 import type { DayInsights } from '@/components/explorer-paper/paper-day-insights-helpers'
 
-interface CachedEntry {
-  state: 'pending' | 'ready' | 'error'
-  insights?: DayInsights
+/**
+ * How many times a single `(token, date)` may be re-attempted after a
+ * failure. Bounded so a systematically failing backend (locked archive,
+ * missing profile) settles instead of re-issuing a command every time the
+ * user scrolls the day back into view.
+ */
+const MAX_ATTEMPTS = 3
+
+/**
+ * A cache slot. Modelled as a discriminated union so `insights` exists exactly
+ * when the state says it does — `resolve` then has no "ready but empty" case
+ * to defend against.
+ */
+type CachedEntry = { attempts: number } & (
+  | { state: 'pending' }
+  | { state: 'ready'; insights: DayInsights }
+  | { state: 'error' }
+)
+
+interface CacheBox {
+  token: string
+  entries: Map<string, CachedEntry>
 }
 
 export interface BrowseDayInsightsCache {
   /**
-   * Returns the most recent backend-aggregated insights for `date`, or
-   * `null` if the backend reply has not landed yet (in which case the
-   * contact sheet falls back to its client-side aggregator). Calling
-   * `resolve` for a date the cache has not seen before will also fire
-   * the backend fetch as a side effect, so the contact sheet can ask
-   * for insights from inside its day render without the route having
-   * to enumerate visible days separately. Subsequent calls during the
-   * same refresh cycle are no-ops thanks to the in-flight dedup.
+   * Pure lookup. Returns the backend-aggregated insights for `date`, or
+   * `null` when nothing has landed (not requested yet, still in flight,
+   * or failed) — in which case the caller renders its own client-side
+   * aggregate. Never fetches and never mutates, so it is safe to call
+   * from render.
    */
   resolve: (date: string) => DayInsights | null
+  /**
+   * Side-effecting command: ensure `date` is being fetched. Call from an
+   * effect, never from render. Idempotent per `(token, date)` apart from
+   * the bounded error retry. Its identity changes only when the cache
+   * token rotates, so it is a safe effect dependency.
+   */
+  request: (date: string) => void
 }
 
 export interface BrowseDayInsightsCacheOptions {
@@ -98,83 +144,84 @@ export function useBrowseDayInsightsCache(
 ): BrowseDayInsightsCache {
   const profileKey = options.profileId ?? '*all*'
   const token = `${options.refreshKey}::${profileKey}`
-  // Single state holder keyed by token. When `token` changes (refresh
-  // bump or profile switch) we mint a fresh state object inline — the
-  // canonical React "derived state from props" pattern. The render
-  // that detects the change schedules an immediate re-render, so any
-  // `resolve(date)` calls from the same render observe the empty
-  // cache.
-  const [cacheState, setCacheState] = useState<{
-    token: string
-    cache: Map<string, CachedEntry>
-    version: number
-  }>(() => ({ token, cache: new Map(), version: 0 }))
-  if (cacheState.token !== token) {
-    setCacheState({ token, cache: new Map(), version: 0 })
-  }
+  const profileId = options.profileId ?? null
+  // The cache lives in a ref, not in state, because `request` must be able to
+  // read and write it from an effect without the write becoming a new state
+  // object that re-arms every caller's effect. `version` exists only to
+  // schedule the re-render that lets consumers observe a landed reply.
+  const boxRef = useRef<CacheBox>({ token, entries: new Map() })
+  const [version, setVersion] = useState(0)
+
+  /**
+   * Returns the cache box for the *current* token, rotating a stale one.
+   * Only ever called from `request` (i.e. from a caller's effect), never
+   * during render — rotating in render would mutate a ref from a phase React
+   * is allowed to discard.
+   */
+  const takeBox = useCallback((): CacheBox => {
+    if (boxRef.current.token !== token) {
+      boxRef.current = { token, entries: new Map() }
+    }
+    return boxRef.current
+  }, [token])
 
   const request = useCallback(
     (date: string) => {
-      // Mutate the in-place Map without bumping `version` — pending
-      // marker only needs to dedupe future requests during this
-      // render cycle; we'll bump `version` once the backend reply
-      // lands so consumers re-resolve and see the new payload.
-      cacheState.cache.set(date, { state: 'pending' })
+      const box = takeBox()
+      const existing = box.entries.get(date)
+      if (existing) {
+        // Pending / ready are terminal for request purposes. Errors get a
+        // bounded number of further attempts.
+        if (existing.state !== 'error') return
+        if (existing.attempts >= MAX_ATTEMPTS) return
+      }
+      const attempts = (existing?.attempts ?? 0) + 1
+      box.entries.set(date, { state: 'pending', attempts })
       backend
-        .getBrowseDayInsights({
-          date,
-          profileId: options.profileId ?? null,
-        })
+        .getBrowseDayInsights({ date, profileId })
         .then((insights) => {
-          setCacheState((current) => {
-            // Discard the reply if the route's token rotated mid-flight.
-            if (current.token !== token) return current
-            const nextCache = new Map(current.cache)
-            nextCache.set(date, {
-              state: 'ready',
-              insights: adaptInsights(insights),
-            })
-            return {
-              ...current,
-              cache: nextCache,
-              version: current.version + 1,
-            }
+          // Discard the reply if the route's token rotated mid-flight.
+          if (boxRef.current !== box) return
+          box.entries.set(date, {
+            state: 'ready',
+            insights: adaptInsights(insights),
+            attempts,
           })
+          setVersion((current) => current + 1)
         })
         .catch(() => {
-          setCacheState((current) => {
-            if (current.token !== token) return current
-            const nextCache = new Map(current.cache)
-            nextCache.set(date, { state: 'error' })
-            // Don't bump `version` — `resolve` keeps returning null
-            // for error entries so the contact sheet's client-side
-            // fallback aggregator keeps rendering. Mutating the Map
-            // shape via clone is still required so future requests
-            // for the same date dedupe correctly.
-            return { ...current, cache: nextCache }
-          })
+          if (boxRef.current !== box) return
+          box.entries.set(date, { state: 'error', attempts })
+          // Bump anyway: the strip has to re-read so an exhausted-retry day
+          // settles onto the client-side fallback deterministically rather
+          // than depending on some other render happening to come along.
+          setVersion((current) => current + 1)
         })
     },
-    [cacheState.cache, options.profileId, token],
+    [profileId, takeBox],
   )
 
   const resolve = useCallback(
     (date: string): DayInsights | null => {
-      const entry = cacheState.cache.get(date)
-      if (!entry) {
-        // First time we've heard of this date in the current refresh
-        // cycle — trigger the backend fetch as a side effect so the
-        // contact sheet does not have to call a separate `request`.
-        request(date)
-        return null
-      }
-      if (entry.state === 'ready' && entry.insights) {
-        return entry.insights
-      }
-      return null
+      const box = boxRef.current
+      // A stale box means the token rotated and nothing has re-requested yet;
+      // report a miss rather than serving aggregates from the previous
+      // archive state.
+      if (box.token !== token) return null
+      const entry = box.entries.get(date)
+      return entry?.state === 'ready' ? entry.insights : null
     },
-    [cacheState, request],
+    [token],
   )
 
-  return useMemo(() => ({ resolve }), [resolve])
+  // `version` is threaded through the returned identity on purpose. `resolve`
+  // reads a mutable ref, so its own identity cannot signal "a reply landed";
+  // consumers that memoise on the cache object need something that changes
+  // when one does. `request` stays stable across replies (see its test) so a
+  // landed reply never re-arms a caller's fetch effect.
+  return useMemo(
+    () => ({ resolve, request }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see note above.
+    [resolve, request, version],
+  )
 }

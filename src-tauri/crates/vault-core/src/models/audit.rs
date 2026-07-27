@@ -1,6 +1,6 @@
 //! Audit and health-report read models.
 
-use super::BackupRunOverview;
+use super::{BackupRunOverview, BackupWarning};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -26,6 +26,11 @@ pub struct AuditRunDetail {
     pub due_only: bool,
     pub profile_scope: Vec<String>,
     pub warnings: Vec<String>,
+    /// Coded mirror of `warnings`, index-aligned. Backup runs persist codes so
+    /// Audit can localize them; other run types still store opaque messages and
+    /// then carry an empty `code`.
+    #[serde(default)]
+    pub warning_details: Vec<BackupWarning>,
     pub error_message: Option<String>,
     pub stats: Value,
     pub manifest_path: Option<String>,
@@ -34,9 +39,15 @@ pub struct AuditRunDetail {
 }
 
 /// One health/doctor check row.
+///
+/// `code` exists so the UI can name the check in the user's language: the
+/// front-end looks the kebab-case slug up in its catalog and only falls back to
+/// the English `name` when it meets an unknown code. `detail` stays raw
+/// diagnostic prose (paths, counts, hash mismatches) and is rendered as such.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthCheck {
+    pub code: String,
     pub name: String,
     pub ok: bool,
     pub detail: String,

@@ -686,7 +686,7 @@ describe('ArchiveUnlockGate', () => {
       screen.getByRole('button', { name: /restore from this snapshot/i }),
     )
     // The panel seeded its key field from the password the user already typed.
-    expect(screen.getByLabelText('Archive key')).toHaveValue('typed-pw')
+    expect(screen.getByLabelText('Archive password')).toHaveValue('typed-pw')
   })
 
   test('"Back to unlock" returns to the password form', () => {
@@ -729,7 +729,7 @@ describe('ArchiveUnlockGate', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /restore from this snapshot/i }),
     )
-    fireEvent.change(screen.getByLabelText('Archive key'), {
+    fireEvent.change(screen.getByLabelText('Archive password'), {
       target: { value: 'my-key' },
     })
     fireEvent.click(

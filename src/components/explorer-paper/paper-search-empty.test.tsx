@@ -15,6 +15,10 @@ const COPY: PaperSearchEmptyCopy = {
   tryAskingHeading: 'Try asking',
   recentHeading: 'Recent',
   recentMeta: '{mode} · {count} results · {when}',
+  recentMetaBrief: '{mode}',
+  // Deliberately not the raw tokens: the row must render these display names,
+  // never the internal `keyword` / `regex` / `smart` values.
+  modeNames: { keyword: 'Keyword', regex: 'Regex', smart: 'Smart' },
   footer: 'Search is local. Nothing leaves your machine.',
   smartPrompt: 'Ask in plain language — that article about Rust async.',
 }
@@ -45,10 +49,18 @@ const RECENT: PaperSearchRecent[] = [
   {
     id: 'r2',
     q: 'gaussian splatting',
-    mode: 'semantic',
+    // `smart`, not the retired `semantic`. The prop type used to say
+    // `'keyword' | 'regex' | 'semantic'`, which matched nothing else on the
+    // surface — the row was unassignable from real data.
+    mode: 'smart',
     count: 27,
     when: 'last week',
   },
+]
+
+/** A row persisted before the count/timestamp were recorded. */
+const LEGACY_RECENT: PaperSearchRecent[] = [
+  { id: 'legacy', q: 'wal checkpoint', mode: 'regex' },
 ]
 
 describe('PaperSearchEmpty', () => {
@@ -142,13 +154,30 @@ describe('PaperSearchEmpty', () => {
     ).toBe(true)
   })
 
-  test('interpolates {mode} {count} {when} into the recent-meta string', () => {
+  test('interpolates the LOCALIZED mode name plus {count} {when} into the recent-meta string', () => {
     render(
       <PaperSearchEmpty recent={RECENT} copy={COPY} onRunRecent={() => {}} />,
     )
 
-    expect(screen.getByText('keyword · 89 results · yesterday')).toBeVisible()
-    expect(screen.getByText('semantic · 27 results · last week')).toBeVisible()
+    expect(screen.getByText('Keyword · 89 results · yesterday')).toBeVisible()
+    expect(screen.getByText('Smart · 27 results · last week')).toBeVisible()
+    // The internal token must never reach the screen.
+    expect(screen.queryByText(/\bkeyword\b/)).toBeNull()
+  })
+
+  test('falls back to the brief caption for entries with no recorded count', () => {
+    render(
+      <PaperSearchEmpty
+        recent={LEGACY_RECENT}
+        copy={COPY}
+        onRunRecent={() => {}}
+      />,
+    )
+
+    expect(screen.getByText('wal checkpoint')).toBeVisible()
+    expect(screen.getByText('Regex')).toBeVisible()
+    // Never "undefined results".
+    expect(screen.queryByText(/undefined/)).toBeNull()
   })
 
   test('skips the suggestion section when no suggestions are supplied', () => {

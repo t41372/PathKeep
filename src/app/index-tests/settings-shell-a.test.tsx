@@ -108,11 +108,9 @@ describe('App shell', () => {
     // longer wears the v0.2 "deferred" badge. It defaults OFF (decoupled
     // `defaultEnabled: false`) and offers an ENABLED toggle — egress itself
     // still stays off until the user opts in via the Site content section.
-    expect(
-      within(readableContentCard).queryByText(
-        settingsT('readableContentDeferredBadge'),
-      ),
-    ).toBeNull()
+    // The badge key itself has since been deleted, so the guard is now a
+    // literal scan: no release-version claim may reappear on this card.
+    expect(readableContentCard.textContent ?? '').not.toMatch(/v0\.\d/)
     expect(
       within(readableContentCard).getAllByText(settingsT('networkAccess'))
         .length,

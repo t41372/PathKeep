@@ -119,8 +119,10 @@ fn restore_env_var_sets_and_clears_values() {
 
 #[test]
 fn config_save_delta_preserves_a_concurrent_unrelated_setting_change() {
-    let mut base = AppConfig::default();
-    base.selected_profile_ids = vec!["chrome:Default".to_string()];
+    let base = AppConfig {
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
 
     let mut current = base.clone();
     current.due_after_hours = 6.0;
@@ -135,6 +137,92 @@ fn config_save_delta_preserves_a_concurrent_unrelated_setting_change() {
     assert_eq!(merged.selected_profile_ids, proposed.selected_profile_ids);
     assert_eq!(merged.due_after_hours, 6.0);
     assert_eq!(merged.app_lock.idle_timeout_minutes, 30);
+}
+
+#[test]
+fn saving_settings_against_a_base_snapshot_does_not_clobber_a_concurrent_write() {
+    // Drives the REAL persistence entry point (`save_user_config_with_base` →
+    // `load_hydrated_config` → `save_config`) and reads the result back off
+    // disk, instead of hand-merging two structs in memory. Settings auto-saves
+    // every control independently, so a stale full config must never erase a
+    // preference that landed after the caller took its snapshot.
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = chrome_user_data_fixture(dir.path());
+    let keyring_root = dir.path().join("test-keyring");
+
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    let base = initialized_config();
+    initialize_archive_database(&base, None).expect("initialize archive");
+
+    // A concurrent Settings control lands AFTER the caller took `base`.
+    let mut concurrent = base.clone();
+    concurrent.due_after_hours = 6.0;
+    concurrent.app_lock.idle_timeout_minutes = 30;
+    save_user_config(&concurrent, None).expect("persist the concurrent change");
+
+    // The caller now saves its own (stale) full config with a different control.
+    let mut proposed = base.clone();
+    proposed.capture_favicons = !base.capture_favicons;
+    let saved = save_user_config_with_base(&proposed, Some(&base), None)
+        .expect("save config against its base snapshot");
+
+    // The caller's own change applied…
+    assert_eq!(saved.config.capture_favicons, proposed.capture_favicons);
+    // …and the concurrent edits survived instead of being reset to `base`.
+    assert_eq!(saved.config.due_after_hours, 6.0);
+    assert_eq!(saved.config.app_lock.idle_timeout_minutes, 30);
+
+    // Re-read from disk: the merge must be what was actually persisted.
+    let reloaded = app_snapshot(None).expect("snapshot after delta save");
+    assert_eq!(reloaded.config.capture_favicons, proposed.capture_favicons);
+    assert_eq!(reloaded.config.due_after_hours, 6.0);
+    assert_eq!(reloaded.config.app_lock.idle_timeout_minutes, 30);
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
+}
+
+#[test]
+fn config_delta_merge_handles_key_sets_that_do_not_line_up() {
+    // `apply_config_delta` is a raw JSON merge primitive: it also has to cope
+    // with objects whose key sets differ (a config shape that gained or lost a
+    // field between the base snapshot and the on-disk value). These arms decide
+    // whether an unknown key is adopted or ignored, so they get asserted
+    // directly rather than only through same-shape `AppConfig` round trips.
+    let base = serde_json::json!({ "kept": 1, "shared": { "a": 1 } });
+    let proposed = serde_json::json!({
+        "kept": 1,
+        "shared": { "a": 1 },
+        // Present in neither base nor current: an added leaf must be adopted.
+        "added": "new",
+    });
+
+    // `current` is missing `kept` and `shared` entirely.
+    let mut current = serde_json::json!({ "untouched": true });
+    crate::app::apply_config_delta(&mut current, &base, &proposed);
+    assert_eq!(current["untouched"], serde_json::json!(true));
+    // `kept`/`shared` are unchanged relative to base, so a value the current
+    // document never had must NOT be resurrected.
+    assert!(current.get("kept").is_none());
+    assert!(current.get("shared").is_none());
+    // A key absent from base is a genuine addition and IS adopted.
+    assert_eq!(current["added"], serde_json::json!("new"));
+
+    // Same missing-key shape, but this time the proposal actually changes the
+    // value relative to base — an edit must land even without a current entry.
+    let changed = serde_json::json!({ "kept": 2, "shared": { "a": 1 } });
+    let mut current = serde_json::json!({ "untouched": true });
+    crate::app::apply_config_delta(&mut current, &base, &changed);
+    assert_eq!(current["kept"], serde_json::json!(2));
 }
 
 #[test]
@@ -1348,6 +1436,15 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
             .iter()
             .any(|warning| warning.contains("requires a new database key"))
     );
+    // Codes stay index-aligned with the prose so the shell localizes off the
+    // stable code channel instead of matching backend English sentences.
+    assert_eq!(rekey_preview.warnings.len(), rekey_preview.warning_codes.len());
+    assert!(
+        rekey_preview
+            .warning_codes
+            .iter()
+            .any(|code| code == vault_core::REKEY_WARNING_NEW_KEY_REQUIRED)
+    );
     let same_mode_rekey_preview = preview_rekey_archive(
         None,
         &RekeyRequest { new_mode: ArchiveMode::Plaintext, new_key: None },
@@ -1358,6 +1455,13 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
             .warnings
             .iter()
             .any(|warning| { warning.contains("target mode matches the current mode") })
+    );
+    assert_eq!(same_mode_rekey_preview.warnings.len(), same_mode_rekey_preview.warning_codes.len());
+    assert!(
+        same_mode_rekey_preview
+            .warning_codes
+            .iter()
+            .any(|code| code == vault_core::REKEY_WARNING_SAME_MODE_REWRITE)
     );
 
     let paths = project_paths().expect("project paths");
@@ -3098,6 +3202,13 @@ fn security_status_keeps_last_rekey_review_visible_when_archive_is_locked() {
     )
     .expect("locked rekey preview");
     assert!(locked_preview.warnings.iter().any(|warning| { warning.contains("currently locked") }));
+    assert_eq!(locked_preview.warnings.len(), locked_preview.warning_codes.len());
+    assert!(
+        locked_preview
+            .warning_codes
+            .iter()
+            .any(|code| code == vault_core::REKEY_WARNING_ARCHIVE_LOCKED)
+    );
 
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

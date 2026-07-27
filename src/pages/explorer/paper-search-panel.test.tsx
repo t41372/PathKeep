@@ -47,6 +47,134 @@ describe('PaperSearchPanel', () => {
     expect(screen.getByTestId('paper-search-results')).toBeInTheDocument()
   })
 
+  test('renders persisted recent searches in the empty state and re-runs one through the submit path', () => {
+    // E4 regression. `persistRecentSearch` has always written to localStorage
+    // and `useExplorerUrlState` has always loaded the result into
+    // `recentSearches`, but nothing ever read it back — the empty state
+    // gated the whole section on `recent.length > 0` and never received a
+    // value, so only the footer line rendered.
+    const onQueryChange = vi.fn()
+    const onSubmit = vi.fn()
+    const onModeChange = vi.fn()
+    render(
+      <PaperSearchPanel
+        query=""
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        recentSearches={[
+          {
+            label: 'tokio scheduler',
+            total: 89,
+            at: Date.parse('2026-05-16T10:00:00Z'),
+            params: { q: 'tokio scheduler', mode: 'keyword', sort: 'newest' },
+          },
+          {
+            label: 'gaussian splatting',
+            params: { q: 'gaussian splatting', mode: 'hybrid', sort: 'newest' },
+          },
+          // No stored mode (an entry written before the field, or a bare
+          // query) must adapt to the keyword default, not crash the row.
+          { label: 'wal checkpoint', params: { q: 'wal checkpoint' } },
+          // Filters-only recalls have nothing to show as a row label.
+          { label: 'domain only', params: { domain: 'docs.rs' } },
+        ]}
+        onQueryChange={onQueryChange}
+        onModeChange={onModeChange}
+        onSubmit={onSubmit}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+
+    expect(screen.getByTestId('paper-search-empty')).toBeInTheDocument()
+    expect(screen.getByText('tokio scheduler')).toBeVisible()
+    expect(screen.getByText('gaussian splatting')).toBeVisible()
+    expect(screen.getByText('wal checkpoint')).toBeVisible()
+    expect(screen.queryByText('domain only')).toBeNull()
+
+    fireEvent.click(screen.getByText('gaussian splatting'))
+    // Smart entry → the mode switches first, then the SAME submit path a typed
+    // query uses runs the query.
+    expect(onModeChange).toHaveBeenCalledWith({
+      mode: 'hybrid',
+      regexMode: false,
+    })
+    expect(onQueryChange).toHaveBeenCalledWith('gaussian splatting')
+    expect(onSubmit).toHaveBeenCalledWith('gaussian splatting')
+  })
+
+  test('re-running a recent search in the already-active mode does not churn the mode', () => {
+    const onModeChange = vi.fn()
+    const onSubmit = vi.fn()
+    render(
+      <PaperSearchPanel
+        query=""
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        recentSearches={[
+          {
+            label: 'tokio scheduler',
+            params: { q: 'tokio scheduler', mode: 'keyword', sort: 'newest' },
+          },
+        ]}
+        onQueryChange={() => {}}
+        onModeChange={onModeChange}
+        onSubmit={onSubmit}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('tokio scheduler'))
+    expect(onModeChange).not.toHaveBeenCalled()
+    expect(onSubmit).toHaveBeenCalledWith('tokio scheduler')
+  })
+
+  test('re-running a regex recent from plain keyword mode flips only the regex flag', () => {
+    // `explorerStateFromPaperSearchMode('regex')` keeps `mode: 'keyword'` and
+    // only raises `regexMode`, so this exercises the second half of the
+    // "did anything actually change?" guard.
+    const onModeChange = vi.fn()
+    const onSubmit = vi.fn()
+    render(
+      <PaperSearchPanel
+        query=""
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        recentSearches={[
+          {
+            label: 'wal-\\d+',
+            params: { q: 'wal-\\d+', mode: 'keyword', regex: '1' },
+          },
+        ]}
+        onQueryChange={() => {}}
+        onModeChange={onModeChange}
+        onSubmit={onSubmit}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('wal-\\d+'))
+    expect(onModeChange).toHaveBeenCalledWith({
+      mode: 'keyword',
+      regexMode: true,
+    })
+    expect(onSubmit).toHaveBeenCalledWith('wal-\\d+')
+  })
+
   test('clicking the Search button submits the current query', () => {
     const onSubmit = vi.fn()
     render(
@@ -653,5 +781,111 @@ describe('PaperSearchPanel', () => {
     // Result preserves the note operator and the bare `rust` keyword,
     // drops the `tag:rust` operator.
     expect(onQueryChange).toHaveBeenCalledWith('note:hi rust')
+  })
+  test('routes each pagination model to the layout that owns it', () => {
+    // Keyword/regex results are offset-paged; Smart results are cursor-paged.
+    // The panel must never hand one layout the other's descriptor — that is
+    // how the day-grouped list ended up with no pager at all.
+    const offsetPagination = {
+      page: 3,
+      pageCount: 9,
+      total: 421,
+      loaded: 50,
+      pageSize: 50,
+      pageSizeOptions: [25, 50, 100, 200] as const,
+      pageInput: '3',
+      onPageInputChange: () => {},
+      onFirst: () => {},
+      onPrevious: () => {},
+      onNext: () => {},
+      onLast: () => {},
+      onJump: () => {},
+      onChangePageSize: () => {},
+      copy: {
+        navLabel: 'Search result pages',
+        first: 'First page',
+        previous: 'Previous page',
+        next: 'Next page',
+        last: 'Last page',
+        jump: 'Go',
+        pageInputLabel: 'Page number',
+        pageSummary: 'Page {current} of {total}',
+        resultsSummary: 'Showing {loaded} of {total} results on this page',
+        pageSizeLabel: 'Rows',
+        pageSizeOption: '{count} rows',
+      },
+    }
+    const cursorPagination = {
+      prevDisabled: false,
+      nextDisabled: false,
+      onPrev: () => {},
+      onNext: () => {},
+      page: 2,
+    }
+
+    const keyword = render(
+      <PaperSearchPanel
+        query="rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[makeEntry({ id: 1, title: 'tokio docs' })]}
+        totalResults={421}
+        language="en"
+        explorerT={explorerT}
+        pagination={cursorPagination}
+        offsetPagination={offsetPagination}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    expect(screen.getByTestId('paper-search-pagination-top')).toBeVisible()
+    expect(screen.getByTestId('paper-search-pagination-bottom')).toBeVisible()
+    expect(
+      screen.getByTestId('paper-search-pagination-top-summary'),
+    ).toHaveTextContent('Page 3 of 9')
+    expect(
+      screen.queryByTestId('paper-search-relevance-pagination'),
+    ).not.toBeInTheDocument()
+    keyword.unmount()
+
+    render(
+      <PaperSearchPanel
+        query="scheduler"
+        mode="hybrid"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        rankedEntries={[
+          {
+            id: 11,
+            title: 'tokio internals',
+            url: 'https://tokio.rs/internals',
+            domain: 'tokio.rs',
+            time: '09:00',
+          },
+        ]}
+        pagination={cursorPagination}
+        offsetPagination={offsetPagination}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    expect(
+      screen.getByTestId('paper-search-relevance-pagination'),
+    ).toBeVisible()
+    expect(
+      screen.queryByTestId('paper-search-pagination-top'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('paper-search-pagination-bottom'),
+    ).not.toBeInTheDocument()
   })
 })

@@ -46,8 +46,8 @@ use crate::{
     git_audit,
     models::{
         AppConfig, BrowserHistoryImportRequest, ImportBatchDetail, ImportBatchOverview,
-        ImportProgressEvent, TakeoutFileReport, TakeoutInspection, TakeoutPreviewEntry,
-        TakeoutRequest,
+        ImportProgressEvent, TakeoutFileReport, TakeoutInspection, TakeoutNote,
+        TakeoutPreviewEntry, TakeoutRequest,
     },
     utils::{now_rfc3339, sha256_hex},
 };
@@ -154,6 +154,7 @@ struct ImportBatchRecord {
     recognized_files: Vec<TakeoutFileReport>,
     quarantined_files: Vec<TakeoutFileReport>,
     notes: Vec<String>,
+    note_details: Vec<TakeoutNote>,
     detected_locale: Option<String>,
     preview_range_start: Option<String>,
     preview_range_end: Option<String>,
@@ -170,6 +171,7 @@ struct BatchSummaryUpdate<'a> {
     recognized_files: &'a [TakeoutFileReport],
     quarantined_files: &'a [TakeoutFileReport],
     notes: &'a [String],
+    note_details: &'a [TakeoutNote],
     detected_locale: Option<&'a str>,
     preview_range_start: Option<&'a str>,
     preview_range_end: Option<&'a str>,

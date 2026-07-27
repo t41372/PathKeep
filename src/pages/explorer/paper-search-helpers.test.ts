@@ -12,6 +12,7 @@ import {
   buildSmartScopeLine,
   deriveSmartIndexProgress,
   explorerStateFromPaperSearchMode,
+  localizeAiMatchReason,
   paperSearchEntryFromAiSearchItem,
   paperSearchEntryFromHistoryEntry,
   paperSearchModeFromExplorerState,
@@ -29,6 +30,16 @@ function intelligenceT(key: string) {
 // match-claim (REACH-C3 F1/F2).
 const SOURCE_LABEL = 'Page summary'
 
+// The two namespace-bound translators the Smart adapters need. `explorerT` is a REAL
+// `explorer` translator (not an echo stub) so these tests assert the shipped match-reason
+// copy, proving the backend CODE is resolved through the catalog rather than rendered raw.
+const explorerT = createNamespaceTranslator('en', 'explorer')
+const AI_ENTRY_OPTIONS = {
+  intelligenceT,
+  explorerT,
+  enrichmentSourceLabel: SOURCE_LABEL,
+}
+
 function makeAiItem(
   over: Partial<AiSearchResultItem> = {},
 ): AiSearchResultItem {
@@ -40,7 +51,8 @@ function makeAiItem(
     domain: 'example.com',
     visitedAt: '2026-05-17T10:30:00',
     score: 0.91,
-    matchReason: 'Lexical + semantic match',
+    // The wire value is a stable CODE (see `localizeAiMatchReason`), never display copy.
+    matchReason: 'lexical+semantic',
     ...over,
   }
 }
@@ -300,41 +312,85 @@ describe('buildPaperSearchDayGroups', () => {
   })
 })
 
+describe('localizeAiMatchReason', () => {
+  // The catalog contract: every base CODE the backend can stamp
+  // (vault-core/src/ai/search.rs) has shipped copy in all three locales, and the
+  // `+starred` suffix composes onto the base caption.
+  const BASE_CODES = [
+    ['lexical', 'aiMatchReasonLexical'],
+    ['semantic', 'aiMatchReasonSemantic'],
+    ['lexical+semantic', 'aiMatchReasonLexicalSemantic'],
+    ['lexical-date-ordered', 'aiMatchReasonLexicalDateOrdered'],
+    ['recent-visit', 'aiMatchReasonRecentVisit'],
+  ] as const
+
+  test.each(['en', 'zh-CN', 'zh-TW'] as const)(
+    'resolves every base code and the +starred suffix in %s',
+    (language) => {
+      const t = createNamespaceTranslator(language, 'explorer')
+      for (const [code, key] of BASE_CODES) {
+        // Real shipped copy, never the raw wire token.
+        expect(localizeAiMatchReason(code, t)).toBe(t(key))
+        expect(localizeAiMatchReason(code, t)).not.toBe(code)
+        expect(localizeAiMatchReason(`${code}+starred`, t)).toBe(
+          `${t(key)}${t('aiMatchReasonStarredSuffix')}`,
+        )
+      }
+    },
+  )
+
+  test('renders an UNKNOWN code verbatim instead of faking a translation', () => {
+    // A backend that ships a new code must degrade to a visible token — never to a
+    // plausible-but-wrong caption for copy we did not write.
+    expect(localizeAiMatchReason('teleport', explorerT)).toBe('teleport')
+    expect(localizeAiMatchReason('teleport+starred', explorerT)).toBe(
+      'teleport+starred',
+    )
+    // The legacy English prose the backend used to send is likewise NOT a known
+    // code, so it survives verbatim rather than being silently remapped.
+    expect(localizeAiMatchReason('Lexical + semantic match', explorerT)).toBe(
+      'Lexical + semantic match',
+    )
+    expect(localizeAiMatchReason('', explorerT)).toBe('')
+  })
+})
+
 describe('paperSearchEntryFromAiSearchItem', () => {
   test('keeps the real historyId so the row binds to the detail panel', () => {
     const entry = paperSearchEntryFromAiSearchItem(
       makeAiItem({ historyId: 1234 }),
-      intelligenceT,
-      SOURCE_LABEL,
+      AI_ENTRY_OPTIONS,
     )
     expect(entry.id).toBe(1234)
   })
 
-  test('surfaces matchReason verbatim (NO faked snippet)', () => {
+  test('localizes the matchReason CODE into a caption (NO faked snippet)', () => {
     const entry = paperSearchEntryFromAiSearchItem(
-      makeAiItem({ matchReason: 'Semantic match (Starred)' }),
-      intelligenceT,
-      SOURCE_LABEL,
+      makeAiItem({ matchReason: 'semantic+starred' }),
+      AI_ENTRY_OPTIONS,
     )
-    expect(entry.matchReason).toBe('Semantic match (Starred)')
+    // The row receives display copy resolved from the CODE — never the raw wire token.
+    expect(entry.matchReason).toBe(
+      `${explorerT('aiMatchReasonSemantic')}${explorerT('aiMatchReasonStarredSuffix')}`,
+    )
+    expect(entry.matchReason).not.toBe('semantic+starred')
     // The AI item carries no snippet field, so the adapter must never invent one.
     expect(entry.snippet).toBeUndefined()
     expect(entry.enrichmentExcerpt).toBeUndefined()
   })
 
   test('a pure-semantic enriched hit is framed by SOURCE, not a match-claim (REACH-C3 F1)', () => {
-    // The honesty fix: on a "Semantic match" the excerpt is the page's summary
+    // The honesty fix: on a semantic-only hit the excerpt is the page's summary
     // (it may contain none of the query words), so the row labels it by SOURCE —
     // the honest "Page summary" pill — never "Matched in enriched content".
     const entry = paperSearchEntryFromAiSearchItem(
       makeAiItem({
-        matchReason: 'Semantic match',
+        matchReason: 'semantic',
         enrichmentExcerpt: 'Reusable workflow runner • CI',
       }),
-      intelligenceT,
-      SOURCE_LABEL,
+      AI_ENTRY_OPTIONS,
     )
-    expect(entry.matchReason).toBe('Semantic match')
+    expect(entry.matchReason).toBe(explorerT('aiMatchReasonSemantic'))
     expect(entry.enrichmentExcerpt).toBe('Reusable workflow runner • CI')
     expect(entry.enrichmentSourceLabel).toBe(SOURCE_LABEL)
   })
@@ -342,15 +398,13 @@ describe('paperSearchEntryFromAiSearchItem', () => {
   test('suppresses a blank or null enrichment excerpt + pill (honest non-enriched row)', () => {
     const fromBlank = paperSearchEntryFromAiSearchItem(
       makeAiItem({ enrichmentExcerpt: '   ' }),
-      intelligenceT,
-      SOURCE_LABEL,
+      AI_ENTRY_OPTIONS,
     )
     expect(fromBlank.enrichmentExcerpt).toBeUndefined()
     expect(fromBlank.enrichmentSourceLabel).toBeUndefined()
     const fromNull = paperSearchEntryFromAiSearchItem(
       makeAiItem({ enrichmentExcerpt: null }),
-      intelligenceT,
-      SOURCE_LABEL,
+      AI_ENTRY_OPTIONS,
     )
     expect(fromNull.enrichmentExcerpt).toBeUndefined()
     expect(fromNull.enrichmentSourceLabel).toBeUndefined()
@@ -362,22 +416,19 @@ describe('paperSearchEntryFromAiSearchItem', () => {
     expect(
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ score: 0.9 }),
-        intelligenceT,
-        SOURCE_LABEL,
+        AI_ENTRY_OPTIONS,
       ).relevanceBand,
     ).toEqual({ label: 'highConfidence', tone: 'success' })
     expect(
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ score: 0.7 }),
-        intelligenceT,
-        SOURCE_LABEL,
+        AI_ENTRY_OPTIONS,
       ).relevanceBand,
     ).toEqual({ label: 'relevant', tone: 'info' })
     expect(
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ score: 0.2 }),
-        intelligenceT,
-        SOURCE_LABEL,
+        AI_ENTRY_OPTIONS,
       ).relevanceBand,
     ).toEqual({ label: 'weakMatch', tone: 'blocked' })
   })
@@ -385,8 +436,7 @@ describe('paperSearchEntryFromAiSearchItem', () => {
   test('stamps the local day key for see-in-context', () => {
     const entry = paperSearchEntryFromAiSearchItem(
       makeAiItem({ visitedAt: '2026-05-17T10:30:00' }),
-      intelligenceT,
-      SOURCE_LABEL,
+      AI_ENTRY_OPTIONS,
     )
     expect(entry.dayKey).toBe('2026-05-17')
   })
@@ -395,15 +445,13 @@ describe('paperSearchEntryFromAiSearchItem', () => {
     expect(
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ title: null, url: 'https://example.com/y' }),
-        intelligenceT,
-        SOURCE_LABEL,
+        AI_ENTRY_OPTIONS,
       ).title,
     ).toBe('https://example.com/y')
     expect(
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ title: '   ', url: 'https://example.com/z' }),
-        intelligenceT,
-        SOURCE_LABEL,
+        AI_ENTRY_OPTIONS,
       ).title,
     ).toBe('https://example.com/z')
   })
@@ -417,8 +465,7 @@ describe('buildPaperSearchRelevanceList', () => {
         makeAiItem({ historyId: 1, visitedAt: '2026-05-17T08:00:00' }),
         makeAiItem({ historyId: 2, visitedAt: '2026-05-12T08:00:00' }),
       ],
-      intelligenceT,
-      SOURCE_LABEL,
+      AI_ENTRY_OPTIONS,
     )
     // Ranking order is kept exactly as the backend returned it (3, 1, 2) — NOT
     // re-sorted newest-first the way the day-grouped keyword path would.
@@ -426,9 +473,7 @@ describe('buildPaperSearchRelevanceList', () => {
   })
 
   test('returns an empty list for no items', () => {
-    expect(
-      buildPaperSearchRelevanceList([], intelligenceT, SOURCE_LABEL),
-    ).toEqual([])
+    expect(buildPaperSearchRelevanceList([], AI_ENTRY_OPTIONS)).toEqual([])
   })
 })
 

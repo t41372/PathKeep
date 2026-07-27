@@ -330,6 +330,202 @@ describe('ExplainabilityPanel', () => {
     })
   })
 
+  test('localizes the trigger rule from the stable CODE + params, not the prose', async () => {
+    const user = userEvent.setup()
+    // The PRIMARY path, covering EVERY code the backend ships: the panel reads `triggerRuleCode` + the
+    // structured params, so the English `triggerRule` prose is irrelevant. Most cases omit it entirely
+    // (the shape a front-end-composed explanation has) and the session-gap case supplies a MISLEADING
+    // sentence to prove the code path wins and nothing recites backend prose.
+    const coded = [
+      [
+        { triggerRuleCode: 'refind-score', triggerRuleScore: 3.24 },
+        intelligenceT('explainRuleRefindScore', { score: '3.2' }),
+      ],
+      [
+        { triggerRuleCode: 'session-deep-dive' },
+        intelligenceT('explainRuleSessionDeepDive'),
+      ],
+      [
+        {
+          triggerRule:
+            'Visits were grouped into one session because adjacent gaps stayed within 30 minutes.',
+          triggerRuleCode: 'session-gap',
+          triggerRuleGapMinutes: 45,
+        },
+        intelligenceT('explainRuleSessionGap', { minutes: 45 }),
+      ],
+      [
+        {
+          triggerRuleCode: 'search-trail',
+          // An anchor query full of quote characters: the code path passes it structurally, so the
+          // quotes that used to break the prose regex are irrelevant.
+          triggerRuleQuery: "it's 'quoted' \"twice\"",
+        },
+        intelligenceT('explainRuleSearchTrail', {
+          query: "it's 'quoted' \"twice\"",
+        }),
+      ],
+      [
+        {
+          triggerRuleCode: 'query-family',
+          triggerRuleQuery: "anchor with 'quotes'",
+        },
+        intelligenceT('explainRuleQueryFamily', {
+          query: "anchor with 'quotes'",
+        }),
+      ],
+      [
+        { triggerRuleCode: 'reopened-investigation' },
+        intelligenceT('explainRuleReopenedInvestigation'),
+      ],
+      [
+        // The habit TYPE arrives as its persisted code, so the localized habit NAME comes from the
+        // catalog rather than from a fragment captured out of a sentence.
+        {
+          triggerRuleCode: 'habit-pattern',
+          triggerRuleHabitType: 'daily_habit',
+        },
+        intelligenceT('explainRuleHabitPattern', {
+          habit: intelligenceT('habitType_daily_habit'),
+        }),
+      ],
+      [
+        {
+          triggerRuleCode: 'habit-pattern-interrupted',
+          triggerRuleHabitType: 'weekly_habit',
+        },
+        intelligenceT('explainRuleHabitPatternInterrupted', {
+          habit: intelligenceT('habitType_weekly_habit'),
+        }),
+      ],
+      [
+        // An unmapped habit type still degrades readably (underscores → spaces), never to a key.
+        {
+          triggerRuleCode: 'habit-pattern',
+          triggerRuleHabitType: 'custom_habit',
+        },
+        intelligenceT('explainRuleHabitPattern', { habit: 'custom habit' }),
+      ],
+      [{ triggerRuleCode: 'path-flow' }, intelligenceT('explainRulePathFlow')],
+      [
+        { triggerRuleCode: 'compare-set' },
+        intelligenceT('explainRuleCompareSet'),
+      ],
+    ] as const
+
+    for (const [overrides, expected] of coded) {
+      const { unmount } = render(
+        <ExplainabilityPanel
+          entityType="entity"
+          entityId={overrides.triggerRuleCode}
+          // `triggerRule` is deliberately ABSENT on most cases — the panel must never need it.
+          explanation={{
+            entityType: 'refind_page',
+            entityId: 'entity-1',
+            factors: [],
+            participatingVisitIds: [],
+            ...overrides,
+          }}
+          t={intelligenceT}
+        />,
+      )
+      await user.click(
+        screen.getByRole('button', { name: intelligenceT('explainTitle') }),
+      )
+      expect(screen.getByText(expected)).toBeVisible()
+      unmount()
+    }
+  })
+
+  test('missing params on a coded rule degrade to a zero/empty value, never a crash', async () => {
+    const user = userEvent.setup()
+    // Defensive: a code whose param the backend omitted still renders localized copy rather than
+    // "undefined" or a blank rule row.
+    const missingParams = [
+      [
+        'refind-score',
+        intelligenceT('explainRuleRefindScore', { score: '0.0' }),
+      ],
+      ['session-gap', intelligenceT('explainRuleSessionGap', { minutes: 0 })],
+      ['search-trail', intelligenceT('explainRuleSearchTrail', { query: '' })],
+      ['query-family', intelligenceT('explainRuleQueryFamily', { query: '' })],
+      [
+        'habit-pattern',
+        intelligenceT('explainRuleHabitPattern', { habit: '' }),
+      ],
+      [
+        'habit-pattern-interrupted',
+        intelligenceT('explainRuleHabitPatternInterrupted', { habit: '' }),
+      ],
+    ] as const
+
+    for (const [code, expected] of missingParams) {
+      const { container, unmount } = render(
+        <ExplainabilityPanel
+          entityType="entity"
+          entityId={code}
+          explanation={explanationFixture({
+            triggerRule: undefined,
+            triggerRuleCode: code,
+          })}
+          t={intelligenceT}
+        />,
+      )
+      await user.click(
+        screen.getByRole('button', { name: intelligenceT('explainTitle') }),
+      )
+      // Compared against the raw text rather than through `getByText`: an empty interpolation can
+      // leave a double space that the query's whitespace normalizer would collapse away.
+      expect(
+        container.querySelector('.explainability-panel__rule-value')
+          ?.textContent,
+      ).toBe(expected)
+      unmount()
+    }
+  })
+
+  test('an UNKNOWN code falls back to the legacy prose matcher', async () => {
+    const user = userEvent.setup()
+    // Forward compatibility: a code this build has no copy for must not blank the row — the legacy
+    // English matcher still resolves the prose the backend shipped alongside it.
+    render(
+      <ExplainabilityPanel
+        entityType="entity"
+        entityId="unknown-code"
+        explanation={explanationFixture({
+          triggerRule:
+            'This flow pattern recurs across session-local domain n-grams.',
+          triggerRuleCode: 'teleport-rule',
+        })}
+        t={intelligenceT}
+      />,
+    )
+    await user.click(
+      screen.getByRole('button', { name: intelligenceT('explainTitle') }),
+    )
+    expect(screen.getByText(intelligenceT('explainRulePathFlow'))).toBeVisible()
+  })
+
+  test('renders an empty rule value when a payload carries neither code nor prose', async () => {
+    const user = userEvent.setup()
+    // `triggerRule` is optional, so the legacy matcher must guard it: no code + no prose is an empty
+    // rule value, never "undefined" and never a crash.
+    const { container } = render(
+      <ExplainabilityPanel
+        entityType="entity"
+        entityId="bare"
+        explanation={explanationFixture({ triggerRule: undefined })}
+        t={intelligenceT}
+      />,
+    )
+    await user.click(
+      screen.getByRole('button', { name: intelligenceT('explainTitle') }),
+    )
+    expect(
+      container.querySelector('.explainability-panel__rule-value'),
+    ).toHaveTextContent('')
+  })
+
   test('covers deterministic rule localization variants used by intelligence cards', async () => {
     const user = userEvent.setup()
     const rules = [
@@ -339,7 +535,9 @@ describe('ExplainabilityPanel', () => {
       ],
       [
         'Visits were grouped into one session because adjacent gaps stayed within 30 minutes.',
-        intelligenceT('explainRuleSessionGap'),
+        // The legacy matcher CAPTURES the threshold from the prose, so the localized copy quotes the
+        // number the backend actually applied rather than a hard-coded 30.
+        intelligenceT('explainRuleSessionGap', { minutes: '30' }),
       ],
       [
         "Queries were merged into one family because their Jaccard or containment similarity matched 'pathkeep'.",
@@ -406,6 +604,9 @@ describe('ExplainabilityPanel', () => {
     const nearMatches = [
       'prefix Refind score >= 3.2',
       'Refind score >= 3.2 trailing',
+      'prefix Visits were grouped into one session because adjacent gaps stayed within 30 minutes.',
+      'Visits were grouped into one session because adjacent gaps stayed within 30 minutes. trailing',
+      'Visits were grouped into one session because adjacent gaps stayed within thirty minutes.',
       "prefix Search trail anchored by 'tauri v2' and extended through navigation ancestry within the session window.",
       "Search trail anchored by 'tauri v2' and extended through navigation ancestry within the session window. trailing",
       "prefix Queries were merged into one family because their Jaccard or containment similarity matched 'pathkeep'.",

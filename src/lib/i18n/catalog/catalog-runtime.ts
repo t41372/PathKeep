@@ -176,8 +176,10 @@ function flattenDictionary(
   for (const [key, value] of Object.entries(dictionary)) {
     const nextKey = prefix ? `${prefix}.${key}` : key
     if (typeof value === 'string') {
+      // Namespaced keys only. Registering bare leaf names as aliases would
+      // make `t('title')` silently resolve to whichever namespace happened to
+      // flatten first — a wrong-copy bug that no test or type can catch.
       target[nextKey] = value
-      target[key] ??= value
       continue
     }
 

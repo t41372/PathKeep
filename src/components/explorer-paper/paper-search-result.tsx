@@ -42,11 +42,13 @@ export interface PaperSearchResultEntry {
   /** Optional snippet to render below the URL (semantic mode). */
   snippet?: string
   /**
-   * Smart-search match reason — a short backend-supplied caption explaining why
-   * a row matched ("Semantic match", "Lexical + semantic match", "…(Starred)").
-   * Rendered as a mono caption on relevance-ranked rows. There is NO snippet on
-   * Smart results (`AiSearchResultItem` has no snippet field); this caption is
-   * the honest stand-in. Absent on keyword/regex rows.
+   * Smart-search match reason — a short, ALREADY-LOCALIZED caption explaining why
+   * a row matched ("Meaning match", "Keyword + meaning match", "… · Starred").
+   * The backend ships a stable CODE; `paperSearchEntryFromAiSearchItem` resolves it
+   * against the `explorer` catalog before it reaches this row, so nothing here
+   * renders raw wire text. Displayed as a mono caption on relevance-ranked rows.
+   * There is NO snippet on Smart results (`AiSearchResultItem` has no snippet
+   * field); this caption is the honest stand-in. Absent on keyword/regex rows.
    */
   matchReason?: string
   /**

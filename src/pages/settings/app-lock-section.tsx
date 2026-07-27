@@ -35,6 +35,7 @@ import {
 } from '../../components/review'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import type { AppLockConfig, AppLockStatus } from '../../lib/types'
+import { localizeAppLockDegradationNote } from '../../lib/trust-review'
 import { useI18n } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { Field } from './paper-form-primitives'
@@ -155,11 +156,22 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
         </div>
 
         <Field label={t('settings.appLockEnabled')}>
+          {/*
+            Gated on `canEnable`, not just on `action`: the backend refuses to
+            turn App Lock on without a passcode (`app_lock.rs` bails with "Set
+            an app lock passcode before turning on App Lock."), so an ungated
+            checkbox let the user tick a security switch that silently sprang
+            back with no explanation. The reason lives directly under the
+            control, where the click happens — the section-level callout below
+            is too far away to read as a response to it.
+          */}
           <label className="text-ink-muted flex items-center gap-2 font-sans text-[12px]">
             <input
               aria-label={t('settings.appLockEnabled')}
               checked={currentSettings.enabled}
-              disabled={Boolean(action)}
+              disabled={
+                Boolean(action) || (!canEnable && !currentSettings.enabled)
+              }
               type="checkbox"
               onChange={(event) => {
                 flashOnSave(onEnabledChange(event.target.checked))
@@ -167,6 +179,14 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
             />
             <span>{t('settings.appLockEnabled')}</span>
           </label>
+          {!canEnable && !currentSettings.enabled ? (
+            <p
+              className="text-ink-muted mt-1.5 font-sans text-[11.5px]"
+              data-testid="app-lock-enable-blocked-reason"
+            >
+              {t('settings.appLockNeedsPasscodeBody')}
+            </p>
+          ) : null}
         </Field>
 
         <Field label={t('settings.appLockStatus')}>
@@ -308,25 +328,18 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
 
         {status?.degradationNotes.length ? (
           <div className="border-border-light mt-4 flex flex-col gap-1 border-t pt-3">
-            {status.degradationNotes.map((note) => {
-              const localizedNote =
-                note ===
-                'App Lock only protects the PathKeep UI session. Archive encryption still protects data at rest.'
-                  ? t('settings.appLockBoundaryBody')
-                  : note ===
-                      'Touch ID is available on this Mac and can unlock the current PathKeep session.'
-                    ? t('settings.appLockTouchIdAvailable')
-                    : note
-
-              return (
-                <p
-                  className="text-ink-faint m-0 font-mono text-[11px]"
-                  key={note}
-                >
-                  {localizedNote}
-                </p>
-              )
-            })}
+            {status.degradationNotes.map((note, index) => (
+              <p
+                className="text-ink-faint m-0 font-mono text-[11px]"
+                key={status.degradationNoteCodes?.[index] ?? note}
+              >
+                {localizeAppLockDegradationNote(
+                  note,
+                  status.degradationNoteCodes?.[index],
+                  t,
+                )}
+              </p>
+            ))}
           </div>
         ) : null}
 

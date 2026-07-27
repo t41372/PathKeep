@@ -75,6 +75,7 @@ function makeShellTask(overrides: Partial<ShellTask> = {}): ShellTask {
     state: 'running',
     title: 'Import browser history',
     detail: 'Writing archive records',
+    detailOrigin: 'shell',
     startedAt: '2026-04-07T10:00:00Z',
     updatedAt: '2026-04-07T10:01:00Z',
     finishedAt: null,
@@ -797,6 +798,52 @@ describe('runtimeJobToActivity — runtime job mapping', () => {
     })
     expect(activities[0].progress.value).toBeNull()
     expect(activities[0].progress.label).toBeNull()
+  })
+
+  test('runtime job with a known fallbackReasonCode → jobs-namespace key + raw prose kept', () => {
+    const job = makeRuntimeJob({
+      jobType: 'full-rebuild',
+      state: 'succeeded',
+      fallbackReason: 'Manual full rebuild requested for visit-derived facts.',
+      fallbackReasonCode: 'visit-derive-manual-full-rebuild',
+    })
+    const activities = buildActivities({
+      ...emptyInput(),
+      runtime: makeRuntime([job]),
+    })
+    expect(activities[0].fallbackReasonKey).toBe(
+      'fallbackReasonVisitDeriveManualFullRebuild',
+    )
+    expect(activities[0].fallbackReason).toBe(
+      'Manual full rebuild requested for visit-derived facts.',
+    )
+  })
+
+  test('runtime job with an unknown fallbackReasonCode → no key, raw prose only', () => {
+    const job = makeRuntimeJob({
+      jobType: 'full-rebuild',
+      state: 'succeeded',
+      fallbackReason: 'A reason this build ships no copy for.',
+      fallbackReasonCode: 'not-a-shipped-code',
+    })
+    const activities = buildActivities({
+      ...emptyInput(),
+      runtime: makeRuntime([job]),
+    })
+    expect(activities[0].fallbackReasonKey).toBeUndefined()
+    expect(activities[0].fallbackReason).toBe(
+      'A reason this build ships no copy for.',
+    )
+  })
+
+  test('runtime job without fallback fields → both channels unset', () => {
+    const job = makeRuntimeJob({ state: 'succeeded' })
+    const activities = buildActivities({
+      ...emptyInput(),
+      runtime: makeRuntime([job]),
+    })
+    expect(activities[0].fallbackReasonKey).toBeUndefined()
+    expect(activities[0].fallbackReason).toBeUndefined()
   })
 
   test('runtime job uses startedAt when set, createdAt as fallback', () => {

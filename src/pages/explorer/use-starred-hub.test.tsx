@@ -14,7 +14,7 @@ vi.mock('../../lib/backend-client', () => ({
   },
 }))
 
-import { useStarredHub } from './use-starred-hub'
+import { STARRED_HUB_LIMIT, useStarredHub } from './use-starred-hub'
 
 function item(overrides: Partial<StarListItem> = {}): StarListItem {
   return {
@@ -47,7 +47,13 @@ describe('useStarredHub', () => {
     expect(result.current.loading).toBe(true)
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.items).toHaveLength(1)
-    expect(listStars).toHaveBeenCalledWith(null, 'recently_starred')
+    // E2: an explicit limit. The call used to pass none, silently taking the
+    // backend's DEFAULT_LIST_LIMIT of 500 and dropping the rest with no signal.
+    expect(listStars).toHaveBeenCalledWith(
+      null,
+      'recently_starred',
+      STARRED_HUB_LIMIT,
+    )
   })
 
   test('re-fetches with the new sort when setSort changes', async () => {
@@ -55,7 +61,11 @@ describe('useStarredHub', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
     act(() => result.current.setSort('most_revisited'))
     await waitFor(() =>
-      expect(listStars).toHaveBeenCalledWith(null, 'most_revisited'),
+      expect(listStars).toHaveBeenCalledWith(
+        null,
+        'most_revisited',
+        STARRED_HUB_LIMIT,
+      ),
     )
   })
 
@@ -102,5 +112,26 @@ describe('useStarredHub', () => {
     unmount()
     rejectFetch(new Error('late'))
     await Promise.resolve()
+  })
+
+  test('reports truncated when the reply fills the requested limit', async () => {
+    // A full page means the backend may be holding more. Surfaces need this
+    // flag to say so rather than presenting the prefix as the whole set.
+    listStars
+      .mockReset()
+      .mockResolvedValue(
+        Array.from({ length: STARRED_HUB_LIMIT }, () => item()),
+      )
+    const { result } = renderHook(() => useStarredHub(true))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.items).toHaveLength(STARRED_HUB_LIMIT)
+    expect(result.current.truncated).toBe(true)
+    expect(result.current.limit).toBe(STARRED_HUB_LIMIT)
+  })
+
+  test('reports not-truncated for a partial page', async () => {
+    const { result } = renderHook(() => useStarredHub(true))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.truncated).toBe(false)
   })
 })

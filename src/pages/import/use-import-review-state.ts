@@ -31,6 +31,7 @@ import {
 } from '../../components/review'
 import { backend } from '../../lib/backend-client'
 import { describeError } from '../../lib/errors'
+import { isFullDiskAccessError } from '../../lib/ipc/command-error'
 import type {
   HealthReport,
   ImportBatchDetail,
@@ -65,6 +66,8 @@ export function useImportReviewState({
 }: UseImportReviewStateArgs) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [actionError, setActionError] = useState<string | null>(null)
+  const [actionErrorIsFullDiskAccess, setActionErrorIsFullDiskAccess] =
+    useState(false)
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
   const [selectedBatchDetail, setSelectedBatchDetail] =
     useState<ImportBatchDetail | null>(null)
@@ -117,12 +120,16 @@ export function useImportReviewState({
     setSearchParams(nextParams, { replace: true })
   }, [searchParams, selectedBatchId, setSearchParams])
 
+  // Classification happens HERE, on the raw thrown value, before any
+  // display formatting — localized copy must never be re-classified.
   const reportActionError = useCallback((nextError: unknown) => {
     setActionError(describeError(nextError, 'import_review_action'))
+    setActionErrorIsFullDiskAccess(isFullDiskAccessError(nextError))
   }, [])
 
   const clearActionError = useCallback(() => {
     setActionError(null)
+    setActionErrorIsFullDiskAccess(false)
   }, [])
 
   useEffect(() => {
@@ -250,6 +257,7 @@ export function useImportReviewState({
 
   return {
     actionError,
+    actionErrorIsFullDiskAccess,
     activeBatchDetail,
     clearActionError,
     handleBatchMutation,

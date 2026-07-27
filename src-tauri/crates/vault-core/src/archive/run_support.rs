@@ -25,7 +25,7 @@ use super::SnapshotArtifact;
 use crate::{
     config::ProjectPaths,
     git_audit,
-    models::{AppConfig, BackupProfileSummary, BackupRunOverview},
+    models::{AppConfig, BackupProfileSummary, BackupRunOverview, BackupWarning},
     utils::now_rfc3339,
 };
 use anyhow::Result;
@@ -156,7 +156,7 @@ pub(crate) fn finalize_successful_run(
     run_id: i64,
     finished_at: &str,
     summary: &BackupRunOverview,
-    warnings: &[String],
+    warnings: &[BackupWarning],
     manifest_hash: &str,
 ) -> Result<()> {
     let stats = stats_with_archive_totals(
@@ -195,7 +195,7 @@ pub(crate) fn finalize_failed_run(
     connection: &Connection,
     run_id: i64,
     profile_summaries: &[BackupProfileSummary],
-    warnings: &[String],
+    warnings: &[BackupWarning],
     error: &anyhow::Error,
 ) -> Result<()> {
     connection.execute(

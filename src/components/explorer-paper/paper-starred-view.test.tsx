@@ -23,6 +23,7 @@ const COPY: PaperStarredViewCopy = {
   emptyTitle: 'Nothing starred yet',
   emptyBody: 'Star a page to keep it here.',
   emptyCta: 'Browse your history →',
+  truncated: 'Showing the first {shown} of {total} — narrow the range.',
   visitCountTemplate: '{count}×',
   starAction: 'Star',
   unstarAction: 'Unstar',
@@ -287,5 +288,87 @@ describe('PaperStarredView', () => {
     // Source chip text is just the domain (no "9×") when visitCount is 0.
     const chip = screen.getByTestId('paper-starred-source-example.com')
     expect(chip.textContent).toBe('example.com')
+  })
+
+  test('announces truncation only when a real aggregate total exceeds the loaded slice', () => {
+    // E2 regression. The hub used to show a silently-capped prefix while the
+    // entry badge showed the true aggregate — three contradictory numbers on
+    // one screen. The notice must appear when (and only when) we can name a
+    // real total that is larger than what is on screen.
+    const { rerender } = render(
+      <PaperStarredView
+        items={[page()]}
+        loading={false}
+        truncated
+        total={700}
+        sort="recently_starred"
+        onSortChange={() => {}}
+        onToggleStar={() => {}}
+        copy={COPY}
+      />,
+    )
+    expect(screen.getByTestId('paper-starred-truncated')).toHaveTextContent(
+      'Showing the first 1 of 700',
+    )
+
+    // No aggregate yet → no claim. Better silent than another invented number.
+    rerender(
+      <PaperStarredView
+        items={[page()]}
+        loading={false}
+        truncated
+        total={null}
+        sort="recently_starred"
+        onSortChange={() => {}}
+        onToggleStar={() => {}}
+        copy={COPY}
+      />,
+    )
+    expect(screen.queryByTestId('paper-starred-truncated')).toBeNull()
+
+    // Nothing hidden → no notice.
+    rerender(
+      <PaperStarredView
+        items={[page()]}
+        loading={false}
+        truncated
+        total={1}
+        sort="recently_starred"
+        onSortChange={() => {}}
+        onToggleStar={() => {}}
+        copy={COPY}
+      />,
+    )
+    expect(screen.queryByTestId('paper-starred-truncated')).toBeNull()
+
+    // Not truncated → no notice.
+    rerender(
+      <PaperStarredView
+        items={[page()]}
+        loading={false}
+        truncated={false}
+        total={700}
+        sort="recently_starred"
+        onSortChange={() => {}}
+        onToggleStar={() => {}}
+        copy={COPY}
+      />,
+    )
+    expect(screen.queryByTestId('paper-starred-truncated')).toBeNull()
+
+    // Still loading → no notice (the slice is not final yet).
+    rerender(
+      <PaperStarredView
+        items={[page()]}
+        loading
+        truncated
+        total={700}
+        sort="recently_starred"
+        onSortChange={() => {}}
+        onToggleStar={() => {}}
+        copy={COPY}
+      />,
+    )
+    expect(screen.queryByTestId('paper-starred-truncated')).toBeNull()
   })
 })

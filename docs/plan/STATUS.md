@@ -13,6 +13,10 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+- [x] **WORK-REVIEW-2026-07-27-PARALLEL-DEEP-REVIEW** — 同一輪審查的第二回,改用切片並行審查。三個 P0 全數修復:Smart search 從 UI 根本進不去(`updateParam` 基於 stale params,同一 handler 兩次寫入互相覆蓋)、Settings 自動保存失敗完全無渲染面(同意開關可顯示 OFF 而後端為 ON)、keyword/regex 搜索只渲染第 1 頁卻顯示真實總數(違反 `recall.md` 分頁契約)。另修 Explorer 八條 P1(render 階段發 IPC、Session/Trail 無入口、Starred 靜默截斷、`items[0]` 幽靈選中等)、三語文案質量(Dashboard footer 宣稱「0 network requests」自相矛盾、v0.3 過期 badge、術語四譯法、機翻假朋友、16 條工程日誌文案)、以及 Settings 四條 P1(Off 模式旁的 Rebuild 照樣抓、keyring 清除失敗被吞卻說已儲存、retry 按鈕是死的、App Lock 勾選框靜默彈回)。**根因級修復**:i18n gate 原本只掃中文且只有 12 個 pattern,已擴充並加入 zh-TW 地區用語集與英文側 jargon 集。Gate 全綠(coverage 100/100/100/100)。方法教訓與遞延項見 CHANGELOG。
+
+- [x] **WORK-REVIEW-2026-07-26-COHERENCE-SWEEP** — 使用者插單的全庫對抗性審查（逆天點/左右腦互搏/違規自我合理化）+ 同輪修復。三輪審查 27 findings 全數核實處置：結構化 `CommandError` envelope 落地 module-boundary-map error model 條款（80 命令 + dev bridge + 前端單一分類面，剷除三套分叉 FDA 嗅探與「translated copy 回灌 error 通道」毒源）；後端 copy 全面 stable-code 化（progress/match_reason/explain rules×10/doctor/takeout notes/backup warnings/retention/security/app-lock/derived-runtime/schedule，六個影子翻譯表與前端序列化往返剷除）；posture 文檔對 og:image default-ON egress 如實化；死 LIKE 全表掃描通路、死 420 行 PME panel、i18n 裸鍵別名、zh-TW FDA 官方名與封存術語統一。Gate 全綠（unit 3675、JS+Rust coverage 100%、mutation 100%、雙 e2e），並順修 `4905b909` 遺留的 HEAD 紅項。使用者拍板項與殘餘 prose 面見 BACKLOG。
+
 - [x] **WORK-P0-SETTINGS-SCHEDULE-TRUST-RECOVERY** — 2026-07-23 incident follow-up：Settings 現在把 browser discovery FDA / error / genuinely-empty 狀態都誠實呈現，FDA 有直達 System Settings + recheck；support probe failure 不再吞成 null。Schedule reinstall 每次用當前 plan，loaded-agent bootout failure fail-closed。`save_config` 採 base-config structural delta，阻止 stale full-config auto-save 覆寫無關設定。驗證：targeted JS 75 tests、`bun run build`、`cargo test -p pathkeep-desktop --lib`、`vault-platform --lib`、`vault-worker` config merge regression。
 
 - [x] **WORK-AI-0-FOUNDATIONS** — AI traits / model-agnostic config / storage planes / secrets（無模型呼叫）

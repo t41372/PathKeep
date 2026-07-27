@@ -116,6 +116,54 @@ export const auditNamespaceCatalog = {
     artifactsTab: 'Artifacts',
     warningsTab: 'Warnings',
     noWarnings: 'No warnings for this run.',
+    warningOgRefetchSummaryOne:
+      'Link previews: retried 1 URL that had failed before, {succeeded} succeeded.',
+    warningOgRefetchSummaryMany:
+      'Link previews: retried {count} URLs that had failed before, {succeeded} succeeded.',
+    warningOgRefetchFailed: 'Link previews could not retry failed URLs.',
+    warningOgPrefetchSummaryOne:
+      'Link previews: queued 1 newly visited URL, {succeeded} succeeded.',
+    warningOgPrefetchSummaryMany:
+      'Link previews: queued {count} newly visited URLs, {succeeded} succeeded.',
+    warningOgPrefetchFailed:
+      'Link previews could not be prepared for newly visited pages.',
+    warningOgCleanupSummaryOne:
+      'Link preview cache cleanup: removed 1 row and {blobs} orphaned image files, reclaiming {bytes} bytes.',
+    warningOgCleanupSummaryMany:
+      'Link preview cache cleanup: removed {count} rows and {blobs} orphaned image files, reclaiming {bytes} bytes.',
+    warningOgCleanupFailed: 'Link preview cache cleanup did not finish.',
+    warningIntelligenceRefreshFailed:
+      'The backup succeeded, but Core Intelligence could not refresh afterwards.',
+    warningAiAutoIndexQueuedWhilePaused:
+      'AI auto-index queued job #{jobId}, but the AI queue is paused, so it will not run until you resume it.',
+    warningAiAutoIndexEnqueueFailed:
+      'AI auto-index could not queue its follow-up job.',
+    warningAiAutoIndexProviderNotReady:
+      'AI auto-index is on, but the embedding provider is not ready.',
+    warningSafariFullDiskAccessSkip:
+      'Skipped {profileId}: Safari history is not readable yet. Grant PathKeep Full Disk Access in System Settings, then run the backup again.',
+    warningProfileHistoryUnreadableSkip:
+      'Skipped {profileId}: its history database is missing or unreadable.',
+    warningProfileNotDetectedSkip:
+      'Skipped {profileId}: it is no longer detected on this device.',
+    warningStagingFallbackRecoveredCopy:
+      '{profileId}: the live database was busy, so the backup used a recovered file copy instead of an online snapshot.',
+    warningGitHistorySkipped:
+      'Audit artifacts were written, but the optional Git history step was skipped.',
+    warningParserMissingTable:
+      '{profileId}: a table this browser normally provides is missing from the staged database.',
+    warningParserMissingSource:
+      '{profileId}: an optional source database was not provided for this backup.',
+    warningParserBaselineSupport:
+      '{profileId}: this browser is captured with baseline support — visits and URLs are backed up; downloads, search terms, and favicons are not included yet.',
+    warningProfileSearchTermsCapturedOne:
+      'Captured 1 search term row for {profileId}.',
+    warningProfileSearchTermsCapturedMany:
+      'Captured {count} search term rows for {profileId}.',
+    warningSourceEvidenceRebuildNeeded:
+      'The backup succeeded, but the source-evidence archive needs a rebuild.',
+    warningSearchProjectionRebuildNeeded:
+      'The backup succeeded, but keyword recall needs a rebuild.',
     detailEmptyTitle: 'Select a run to review',
     detailEmptyBody:
       'Pick any run in the timeline to inspect what changed, open its artifacts, and rollback imports when needed.',
@@ -129,7 +177,7 @@ export const auditNamespaceCatalog = {
     allRunTypes: 'All run types',
     allSeverities: 'All severities',
     allSources: 'All sources',
-    allProfiles: 'All profiles',
+    allProfiles: 'All browsers',
     allArtifactTypes: 'All artifact types',
     filtersLoading: 'Loading run metadata for filters',
     noMatchingRuns: 'No runs match the current filters.',
@@ -238,7 +286,7 @@ export const auditNamespaceCatalog = {
       '如果这是一条导入相关的运行，下面会直接显示受影响记录的预览，帮助你确认哪些数据被加入、隐藏或恢复。',
     importBatchLabel: '导入批次 #{id}',
     openImportReview: '打开导入复核',
-    openImportArtifact: '打开导入工件',
+    openImportArtifact: '打开导入文件',
     importPreviewUnavailable: '导入预览暂时不可用',
     changePreviewUnavailableTitle: '暂时无法显示记录级预览',
     changePreviewUnavailableBody:
@@ -264,17 +312,60 @@ export const auditNamespaceCatalog = {
     estimatedDownloads: '预估下载',
     reviewGuideTitle: '先复核，再信任这次运行',
     reviewGuideBody:
-      '先看摘要确认范围，再看变更预览确认受影响记录，最后再使用工件或撤销动作。',
-    viewManifest: '打开运行工件',
+      '先看摘要确认范围，再看变更预览确认受影响记录，最后再使用文件或撤销动作。',
+    viewManifest: '打开运行文件',
     copyPath: '复制路径',
     copied: '已复制',
     summaryTab: '摘要',
     artifactsTab: '文件',
     warningsTab: '警告',
     noWarnings: '这次运行没有警告。',
+    warningOgRefetchSummaryOne:
+      '链接预览：重新尝试了 {count} 个之前失败的网址，{succeeded} 个成功。',
+    warningOgRefetchSummaryMany:
+      '链接预览：重新尝试了 {count} 个之前失败的网址，{succeeded} 个成功。',
+    warningOgRefetchFailed: '链接预览无法重试之前失败的网址。',
+    warningOgPrefetchSummaryOne:
+      '链接预览：为 {count} 个新访问的网址排队，{succeeded} 个成功。',
+    warningOgPrefetchSummaryMany:
+      '链接预览：为 {count} 个新访问的网址排队，{succeeded} 个成功。',
+    warningOgPrefetchFailed: '无法为新访问的页面准备链接预览。',
+    warningOgCleanupSummaryOne:
+      '链接预览缓存清理：移除了 {count} 条记录与 {blobs} 个孤立图片，回收 {bytes} 字节。',
+    warningOgCleanupSummaryMany:
+      '链接预览缓存清理：移除了 {count} 条记录与 {blobs} 个孤立图片，回收 {bytes} 字节。',
+    warningOgCleanupFailed: '链接预览缓存清理没有完成。',
+    warningIntelligenceRefreshFailed:
+      '备份已成功，但之后 Core Intelligence 未能刷新。',
+    warningAiAutoIndexQueuedWhilePaused:
+      'AI 自动索引已排入任务 #{jobId}，但 AI 队列处于暂停状态，恢复后才会执行。',
+    warningAiAutoIndexEnqueueFailed: 'AI 自动索引无法排入后续任务。',
+    warningAiAutoIndexProviderNotReady:
+      'AI 自动索引已开启，但向量化服务尚未就绪。',
+    warningSafariFullDiskAccessSkip:
+      '已跳过 {profileId}：目前无法读取 Safari 历史。请在系统设置中授予 PathKeep 完全磁盘访问权限，然后重新运行备份。',
+    warningProfileHistoryUnreadableSkip:
+      '已跳过 {profileId}：它的历史数据库缺失或不可读。',
+    warningProfileNotDetectedSkip:
+      '已跳过 {profileId}：这台设备上已检测不到它。',
+    warningStagingFallbackRecoveredCopy:
+      '{profileId}：实时数据库正忙，备份改用恢复的文件副本，而不是在线快照。',
+    warningGitHistorySkipped: '审计文件已写入，但可选的 Git 历史步骤被跳过。',
+    warningParserMissingTable:
+      '{profileId}：这个浏览器通常提供的数据表在暂存数据库中缺失。',
+    warningParserMissingSource:
+      '{profileId}：本次备份没有提供某个可选的来源数据库。',
+    warningParserBaselineSupport:
+      '{profileId}：这个浏览器以基线支持方式备份——会备份访问记录和网址；下载、搜索词和图标暂不包含。',
+    warningProfileSearchTermsCapturedOne:
+      '已为 {profileId} 捕获 {count} 条搜索词记录。',
+    warningProfileSearchTermsCapturedMany:
+      '已为 {profileId} 捕获 {count} 条搜索词记录。',
+    warningSourceEvidenceRebuildNeeded: '备份已成功，但原始证据存档需要重建。',
+    warningSearchProjectionRebuildNeeded: '备份已成功，但关键词检索需要重建。',
     detailEmptyTitle: '选择一条运行记录',
     detailEmptyBody:
-      '从上方时间线里选一条记录，查看它改了什么、有哪些工件，以及是否需要撤销导入。',
+      '从上方时间线里选一条记录，查看它改了什么、有哪些文件，以及是否需要撤销导入。',
     filterLabel: '筛选',
     filterDescription: '缩小备份记录范围',
     filterRunType: '类型',
@@ -314,9 +405,9 @@ export const auditNamespaceCatalog = {
     triageShowWarning: '只看 {count} 条需关注',
     triageShowBlocked: '只看 {count} 条阻塞',
     paperManifestTitle: '清单链',
-    paperManifestBadge: '哈希链接 · 篡改可见',
+    paperManifestBadge: '哈希串接 · 篡改可见',
     paperManifestCallout:
-      '每一块都携带前一块的哈希。任意修改一条记录,链条会在下次备份时显式断裂。',
+      '每一块都携带前一块的哈希。任意修改一条记录，链条会在下次备份时显式断裂。',
     paperEarlierBlockLabel: '… 更早',
     paperRecentRunsTitle: '近期运行',
     paperRecentRunsBadge: '最近 30 天',
@@ -325,7 +416,7 @@ export const auditNamespaceCatalog = {
     paperExportTitle: '导出与回滚',
     paperSnapshotsTitle: '快照',
     paperSnapshotsBadge: '还原点',
-    paperFooter: '信任不是靠界面建立的;它建立在你可以审计的记录之上。',
+    paperFooter: '信任不是靠界面建立的；它建立在你可以审计的记录之上。',
     paperRunTypeBackup: '备份',
     paperRunTypeImport: '导入',
     paperRunTypeMaintenance: '维护',
@@ -365,7 +456,7 @@ export const auditNamespaceCatalog = {
     runTypeRekey: '修改加密',
     runTypeDoctor: '健康檢查',
     runTypeSnapshotRestore: '快照還原',
-    runTypeRetentionPrune: '清理保留工件',
+    runTypeRetentionPrune: '清理保留檔案',
     runTypeAiIndex: 'AI 索引',
     runTypeAssistant: 'AI 助手',
     runTypeMcpQuery: 'MCP 查詢',
@@ -390,7 +481,7 @@ export const auditNamespaceCatalog = {
       '如果這是一筆匯入相關的執行，下面會直接顯示受影響紀錄的預覽，幫你確認哪些資料被加入、隱藏或恢復。',
     importBatchLabel: '匯入批次 #{id}',
     openImportReview: '打開匯入複核',
-    openImportArtifact: '打開匯入工件',
+    openImportArtifact: '打開匯入檔案',
     importPreviewUnavailable: '匯入預覽暫時無法使用',
     changePreviewUnavailableTitle: '目前無法顯示紀錄級預覽',
     changePreviewUnavailableBody:
@@ -416,17 +507,60 @@ export const auditNamespaceCatalog = {
     estimatedDownloads: '預估下載',
     reviewGuideTitle: '先複核，再信任這次執行',
     reviewGuideBody:
-      '先看摘要確認範圍，再看變更預覽確認受影響紀錄，最後再使用工件或復原動作。',
-    viewManifest: '打開執行工件',
+      '先看摘要確認範圍，再看變更預覽確認受影響紀錄，最後再使用檔案或復原動作。',
+    viewManifest: '打開執行檔案',
     copyPath: '複製路徑',
     copied: '已複製',
     summaryTab: '摘要',
     artifactsTab: '檔案',
     warningsTab: '警告',
     noWarnings: '這次執行沒有警告。',
+    warningOgRefetchSummaryOne:
+      '連結預覽：重新嘗試了 {count} 個先前失敗的網址，{succeeded} 個成功。',
+    warningOgRefetchSummaryMany:
+      '連結預覽：重新嘗試了 {count} 個先前失敗的網址，{succeeded} 個成功。',
+    warningOgRefetchFailed: '連結預覽無法重試先前失敗的網址。',
+    warningOgPrefetchSummaryOne:
+      '連結預覽：為 {count} 個新造訪的網址排入佇列，{succeeded} 個成功。',
+    warningOgPrefetchSummaryMany:
+      '連結預覽：為 {count} 個新造訪的網址排入佇列，{succeeded} 個成功。',
+    warningOgPrefetchFailed: '無法為新造訪的頁面準備連結預覽。',
+    warningOgCleanupSummaryOne:
+      '連結預覽快取清理：移除了 {count} 筆紀錄與 {blobs} 個孤立圖片，回收 {bytes} 位元組。',
+    warningOgCleanupSummaryMany:
+      '連結預覽快取清理：移除了 {count} 筆紀錄與 {blobs} 個孤立圖片，回收 {bytes} 位元組。',
+    warningOgCleanupFailed: '連結預覽快取清理沒有完成。',
+    warningIntelligenceRefreshFailed:
+      '備份已成功，但之後 Core Intelligence 未能重新整理。',
+    warningAiAutoIndexQueuedWhilePaused:
+      'AI 自動索引已排入工作 #{jobId}，但 AI 佇列處於暫停狀態，恢復後才會執行。',
+    warningAiAutoIndexEnqueueFailed: 'AI 自動索引無法排入後續工作。',
+    warningAiAutoIndexProviderNotReady:
+      'AI 自動索引已開啟，但向量化服務尚未就緒。',
+    warningSafariFullDiskAccessSkip:
+      '已略過 {profileId}：目前無法讀取 Safari 歷史。請在系統設定中授予 PathKeep 完整磁碟取用權限，然後重新執行備份。',
+    warningProfileHistoryUnreadableSkip:
+      '已略過 {profileId}：它的歷史資料庫遺失或無法讀取。',
+    warningProfileNotDetectedSkip:
+      '已略過 {profileId}：這台裝置上已偵測不到它。',
+    warningStagingFallbackRecoveredCopy:
+      '{profileId}：即時資料庫正忙，備份改用復原的檔案副本，而不是線上快照。',
+    warningGitHistorySkipped: '稽核檔案已寫入，但可選的 Git 歷史步驟被略過。',
+    warningParserMissingTable:
+      '{profileId}：這個瀏覽器通常提供的資料表在暫存資料庫中遺失。',
+    warningParserMissingSource:
+      '{profileId}：本次備份沒有提供某個可選的來源資料庫。',
+    warningParserBaselineSupport:
+      '{profileId}：這個瀏覽器以基線支援方式備份——會備份造訪紀錄和網址；下載、搜尋詞和圖示暫不包含。',
+    warningProfileSearchTermsCapturedOne:
+      '已為 {profileId} 擷取 {count} 筆搜尋詞紀錄。',
+    warningProfileSearchTermsCapturedMany:
+      '已為 {profileId} 擷取 {count} 筆搜尋詞紀錄。',
+    warningSourceEvidenceRebuildNeeded: '備份已成功，但原始證據封存需要重建。',
+    warningSearchProjectionRebuildNeeded: '備份已成功，但關鍵字檢索需要重建。',
     detailEmptyTitle: '選擇一筆執行紀錄',
     detailEmptyBody:
-      '從上方時間線裡選一筆紀錄，查看它改了什麼、有哪些工件，以及是否需要復原匯入。',
+      '從上方時間線裡選一筆紀錄，查看它改了什麼、有哪些檔案，以及是否需要復原匯入。',
     filterLabel: '篩選',
     filterDescription: '縮小備份紀錄範圍',
     filterRunType: '類型',

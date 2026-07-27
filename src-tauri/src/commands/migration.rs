@@ -9,6 +9,8 @@
 #[cfg(not(test))]
 use super::blocking::run_blocking_command;
 #[cfg(not(test))]
+use crate::command_error::CommandError;
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
 use std::path::PathBuf;
@@ -21,7 +23,7 @@ use tauri::State;
 pub(crate) async fn export_app_data(
     state: State<'_, SessionState>,
     target_path: String,
-) -> Result<vault_core::ExportedBundle, String> {
+) -> Result<vault_core::ExportedBundle, CommandError> {
     let key = state.get_key();
     let target = PathBuf::from(target_path);
     run_blocking_command("export_app_data", move || {
@@ -37,7 +39,7 @@ pub(crate) async fn export_app_data(
 /// destructive overwrite.
 pub(crate) async fn preview_app_data_import(
     bundle_path: String,
-) -> Result<vault_core::ImportPreview, String> {
+) -> Result<vault_core::ImportPreview, CommandError> {
     let bundle = PathBuf::from(bundle_path);
     run_blocking_command("preview_app_data_import", move || {
         worker_bridge::preview_app_data_import_impl(bundle)
@@ -55,7 +57,7 @@ pub(crate) async fn apply_app_data_import(
     state: State<'_, SessionState>,
     bundle_path: String,
     options: vault_core::ApplyImportOptions,
-) -> Result<vault_core::ImportResult, String> {
+) -> Result<vault_core::ImportResult, CommandError> {
     let key = state.get_key();
     let bundle = PathBuf::from(bundle_path);
     run_blocking_command("apply_app_data_import", move || {

@@ -192,11 +192,119 @@ describe('ScheduleStep', () => {
           schedulePlan={schedulePlanFixture()}
           schedulePreviewError={null}
           schedulePreviewLoading={false}
+          scheduleStatus={scheduleStatusFixture('manual-review')}
+        />
+      </I18nProvider>,
+    )
+    expect(screen.getByText('Manual setup')).toBeVisible()
+
+    rerender(
+      <I18nProvider>
+        <ScheduleStep
+          busyAction={null}
+          dueAfterHours={24}
+          onBack={vi.fn()}
+          onInstallSchedule={vi.fn()}
+          onSelectDueAfterHours={vi.fn()}
+          onSkipSchedule={vi.fn()}
+          schedulePlan={schedulePlanFixture()}
+          schedulePreviewError={null}
+          schedulePreviewLoading={false}
           scheduleStatus={null}
         />
       </I18nProvider>,
     )
     expect(screen.queryByText('Install state')).not.toBeInTheDocument()
+  })
+
+  test('renders typed manual step details instead of backend English prose', () => {
+    render(
+      <I18nProvider>
+        <ScheduleStep
+          busyAction={null}
+          dueAfterHours={24}
+          onBack={vi.fn()}
+          onInstallSchedule={vi.fn()}
+          onSelectDueAfterHours={vi.fn()}
+          onSkipSchedule={vi.fn()}
+          schedulePlan={{
+            ...schedulePlanFixture(),
+            // Prose that no onboarding matcher could ever recognise; the typed
+            // details channel is what the step must render.
+            manualSteps: ['Save the plist somewhere (drifted prose).'],
+            manualStepDetails: [
+              {
+                id: 'macos-save-plist',
+                titleKey: 'schedule.manualMacosSavePlistTitle',
+                summaryKey: 'schedule.manualMacosSavePlistSummary',
+                whyKey: 'schedule.manualMacosSavePlistWhy',
+                command: ['launchctl', 'bootstrap', 'gui/501 path with space'],
+                canAutoRun: true,
+                canVerify: true,
+              },
+              {
+                id: 'macos-load',
+                titleKey: 'schedule.manualMacosLoadTitle',
+                summaryKey: 'schedule.manualMacosLoadSummary',
+                whyKey: 'schedule.manualMacosLoadWhy',
+                command: null,
+                canAutoRun: false,
+                canVerify: true,
+              },
+            ],
+          }}
+          schedulePreviewError={null}
+          schedulePreviewLoading={false}
+          scheduleStatus={null}
+        />
+      </I18nProvider>,
+    )
+
+    expect(screen.getByText('Save the LaunchAgent plist')).toBeVisible()
+    expect(
+      screen.getByText(
+        'Create or replace the plist in your user LaunchAgents folder.',
+      ),
+    ).toBeVisible()
+    expect(
+      screen.getByText('launchctl bootstrap "gui/501 path with space"'),
+    ).toBeVisible()
+    // A step without a command renders its copy and nothing else.
+    expect(screen.getByText('Load the LaunchAgent')).toBeVisible()
+    expect(
+      screen.getByText(
+        'Register the plist with launchd for the current user session.',
+      ),
+    ).toBeVisible()
+    expect(
+      screen.queryByText('Save the plist somewhere (drifted prose).'),
+    ).toBeNull()
+  })
+
+  test('falls back to raw manual steps when the backend sends no typed details', () => {
+    render(
+      <I18nProvider>
+        <ScheduleStep
+          busyAction={null}
+          dueAfterHours={24}
+          onBack={vi.fn()}
+          onInstallSchedule={vi.fn()}
+          onSelectDueAfterHours={vi.fn()}
+          onSkipSchedule={vi.fn()}
+          schedulePlan={{
+            ...schedulePlanFixture(),
+            manualSteps: ['A step only an older backend knows about.'],
+          }}
+          schedulePreviewError={null}
+          schedulePreviewLoading={false}
+          scheduleStatus={null}
+        />
+      </I18nProvider>,
+    )
+
+    expect(
+      screen.getByText('A step only an older backend knows about.'),
+    ).toBeVisible()
   })
 })
 

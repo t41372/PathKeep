@@ -25,6 +25,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
 import { I18nProvider } from '../../lib/i18n'
+import { macosFullDiskAccessSettingsUrl } from '../../lib/platform-guidance'
 import type {
   AppConfig,
   AppLockStatus,
@@ -157,6 +158,50 @@ describe('useSettingsSupportState', () => {
         selectedProfileIds: [],
       }),
     )
+  })
+
+  test('a refreshKey bump re-runs the support probe so "Check again" is not inert', async () => {
+    // The failure callout this state raises carries a "Check again" button whose
+    // only action is `refreshAppData()`, which just bumps `refreshKey`. The
+    // effect used to depend solely on `preferredLanguage`, so the retry was a
+    // no-op and the callout could only be cleared by changing the UI language.
+    const snapshot = await createSnapshot()
+    const scheduleStatus = vi
+      .spyOn(backend, 'scheduleStatus')
+      .mockRejectedValueOnce(new Error('probe boom'))
+      .mockResolvedValue(scheduleFixture())
+    vi.spyOn(backend, 'securityStatus').mockResolvedValue(securityFixture())
+    vi.spyOn(backend, 'previewRetentionPrune').mockResolvedValue(
+      retentionPreviewFixture(),
+    )
+
+    const { result, rerender } = renderHook(
+      ({ refreshKey }: { refreshKey: number }) =>
+        useSettingsSupportState({
+          appLockStatus: appLockStatusFixture(),
+          clearAppLockPasscode: vi
+            .fn()
+            .mockResolvedValue(appLockStatusFixture()),
+          lockAppSession: vi.fn().mockResolvedValue(appLockStatusFixture()),
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          refreshKey,
+          saveConfig: vi.fn().mockResolvedValue(snapshot),
+          setAppLockPasscode: vi.fn().mockResolvedValue(appLockStatusFixture()),
+          setLanguagePreference: vi.fn(),
+          snapshot,
+        }),
+      { wrapper: Wrapper, initialProps: { refreshKey: 1 } },
+    )
+
+    await waitFor(() =>
+      expect(result.current.supportStateError).toContain('probe boom'),
+    )
+    expect(scheduleStatus).toHaveBeenCalledTimes(1)
+
+    rerender({ refreshKey: 2 })
+
+    await waitFor(() => expect(scheduleStatus).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(result.current.supportStateError).toBeNull())
   })
 
   test('handles retention prune empty-selection, failure, refresh, and success paths', async () => {
@@ -656,6 +701,89 @@ describe('useSettingsSupportState', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
+  })
+
+  test('drives browser-discovery recovery: recheck busy state, Full Disk Access deep link, and both failures', async () => {
+    const snapshot = await createSnapshot()
+    const refresh = deferred<void>()
+    const refreshAppData = vi
+      .fn()
+      .mockReturnValueOnce(refresh.promise)
+      .mockRejectedValueOnce(new Error('refresh_browser_discovery: EPERM'))
+    const openExternalUrl = vi
+      .spyOn(backend, 'openExternalUrl')
+      .mockResolvedValueOnce('opened')
+      .mockRejectedValueOnce(new Error('open_external_url: no handler'))
+    vi.spyOn(backend, 'scheduleStatus').mockResolvedValue(scheduleFixture())
+    vi.spyOn(backend, 'securityStatus').mockResolvedValue(securityFixture())
+    vi.spyOn(backend, 'previewRetentionPrune').mockResolvedValue(
+      retentionPreviewFixture(),
+    )
+
+    const { result } = renderHook(
+      () =>
+        useSettingsSupportState({
+          appLockStatus: appLockStatusFixture(),
+          clearAppLockPasscode: vi
+            .fn()
+            .mockResolvedValue(appLockStatusFixture()),
+          lockAppSession: vi.fn().mockResolvedValue(appLockStatusFixture()),
+          refreshAppData,
+          refreshKey: 1,
+          saveConfig: vi.fn((config: AppConfig) =>
+            Promise.resolve({ ...snapshot, config }),
+          ),
+          setAppLockPasscode: vi.fn().mockResolvedValue(appLockStatusFixture()),
+          setLanguagePreference: vi.fn(),
+          snapshot,
+        }),
+      { wrapper: Wrapper },
+    )
+
+    await waitFor(() => expect(result.current.supportStateLoaded).toBe(true))
+    expect(result.current.profiles.rechecking).toBe(false)
+
+    // A recheck re-runs the shell snapshot load; the button must report the
+    // in-flight state while the backend is still working.
+    let pending: Promise<void> | undefined
+    act(() => {
+      pending = result.current.profiles.onRecheck()
+    })
+    await waitFor(() => expect(result.current.profiles.rechecking).toBe(true))
+    await act(async () => {
+      refresh.resolve()
+      await pending
+    })
+    expect(result.current.profiles.rechecking).toBe(false)
+    expect(result.current.profiles.discoveryError).toBeNull()
+
+    // A failing recheck must surface the raw diagnostic and still release the
+    // busy state, otherwise the button stays stuck on "Checking…" forever.
+    await act(async () => {
+      await result.current.profiles.onRecheck()
+    })
+    expect(result.current.profiles.rechecking).toBe(false)
+    expect(result.current.profiles.discoveryError).toContain(
+      'refresh_browser_discovery: EPERM',
+    )
+
+    // The Full Disk Access affordance opens the macOS privacy pane and clears
+    // the previous diagnostic.
+    await act(async () => {
+      await result.current.profiles.onOpenFullDiskAccessSettings()
+    })
+    expect(openExternalUrl).toHaveBeenLastCalledWith(
+      macosFullDiskAccessSettingsUrl,
+    )
+    expect(result.current.profiles.discoveryError).toBeNull()
+
+    // …and a failure to open it is reported instead of silently doing nothing.
+    await act(async () => {
+      await result.current.profiles.onOpenFullDiskAccessSettings()
+    })
+    expect(result.current.profiles.discoveryError).toContain(
+      'open_external_url: no handler',
+    )
   })
 
   test('keeps App Lock handlers safe before a draft exists and without platform status', async () => {

@@ -257,11 +257,15 @@ describe('buildPaperSearchViewCopy', () => {
       // members are folded back into `all` below. `advancedSyntaxHelp` lives in
       // a different namespace (`explorer.advancedSearchHelp*`).
       const { advancedSyntaxHelp, staleModeNames, ...heroStrings } = copy.hero
+      // `empty.modeNames` is likewise a nested object; unpack it so the walk
+      // stays over strings and its members are still checked.
+      const { modeNames: emptyModeNames, ...emptyStrings } = copy.empty
       const all: string[] = [
         ...Object.values(heroStrings),
         ...Object.values(advancedSyntaxHelp),
         ...Object.values(staleModeNames),
-        ...Object.values(copy.empty),
+        ...Object.values(emptyStrings),
+        ...Object.values(emptyModeNames),
         copy.resultsCount,
         copy.resultsRange,
         copy.pageSuffixSingular,

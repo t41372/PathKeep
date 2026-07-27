@@ -24,6 +24,7 @@
 //! intelligence work must stay behind the existing worker bridge and
 //! off-main-thread command contracts.
 
+use crate::command_error::CommandError;
 use crate::{file_manager, session::session_key, updater, worker_bridge};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -54,7 +55,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
     state: &DevIpcBridgeState,
     command: &str,
     payload: Value,
-) -> Result<Value, String> {
+) -> Result<Value, CommandError> {
     macro_rules! json_value {
         ($value:expr) => {
             to_json_value($value)
@@ -1017,9 +1018,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let app = require_app_handle(state)?;
             json_value!(updater::relaunch_after_update(app))
         }
-        other => {
-            Err(format!("PathKeep dev IPC bridge does not recognize desktop command \"{other}\"."))
-        }
+        other => Err(CommandError::internal(format!(
+            "PathKeep dev IPC bridge does not recognize desktop command \"{other}\"."
+        ))),
     }
 }
 
@@ -1037,8 +1038,18 @@ fn parse_payload<T: DeserializeOwned>(payload: Value) -> Result<T, String> {
     serde_json::from_value(payload).map_err(|error| error.to_string())
 }
 
-fn to_json_value<T: Serialize>(value: T) -> Result<Value, String> {
-    serde_json::to_value(value).map_err(|error| error.to_string())
+fn to_json_value<T: Serialize>(value: T) -> Result<Value, CommandError> {
+    serde_json::to_value(value).map_err(|error| CommandError::internal(error.to_string()))
+}
+
+/// Shapes a `spawn_blocking` join failure — the worker thread panicked or was
+/// cancelled — into the command envelope.
+///
+/// A join failure is an infrastructure fault, not something the user can act
+/// on, so it deliberately carries no `code` / hint: routing it into the unlock
+/// or Full Disk Access remediation surfaces would be a lie.
+fn join_failure<T>(command: &str, error: tokio::task::JoinError) -> Result<T, CommandError> {
+    Err(CommandError::internal(format!("{command} join failed: {error}")))
 }
 
 /// Hops `run_backup_now_impl` onto the tokio blocking thread pool.
@@ -1054,7 +1065,7 @@ fn to_json_value<T: Serialize>(value: T) -> Result<Value, String> {
 async fn backup_now_off_thread(
     due_only: bool,
     key: Option<String>,
-) -> Result<vault_core::BackupReport, String> {
+) -> Result<vault_core::BackupReport, CommandError> {
     tokio::task::spawn_blocking(move || {
         worker_bridge::run_backup_now_impl(
             due_only,
@@ -1063,7 +1074,7 @@ async fn backup_now_off_thread(
         )
     })
     .await
-    .unwrap_or_else(|error| Err(format!("run_backup_now join failed: {error}")))
+    .unwrap_or_else(|error| join_failure("run_backup_now", error))
 }
 
 /// Hops `test_ai_provider_connection_impl` onto the tokio blocking
@@ -1075,12 +1086,12 @@ async fn backup_now_off_thread(
 async fn test_ai_provider_connection_off_thread(
     request: vault_core::AiProviderConnectionTestRequest,
     key: Option<String>,
-) -> Result<vault_core::AiProviderConnectionTestReport, String> {
+) -> Result<vault_core::AiProviderConnectionTestReport, CommandError> {
     tokio::task::spawn_blocking(move || {
         worker_bridge::test_ai_provider_connection_impl(request, key.as_deref())
     })
     .await
-    .unwrap_or_else(|error| Err(format!("test_ai_provider_connection join failed: {error}")))
+    .unwrap_or_else(|error| join_failure("test_ai_provider_connection", error))
 }
 
 /// Hops `run_ai_queue_jobs_impl` onto the tokio blocking thread pool.
@@ -1090,12 +1101,12 @@ async fn test_ai_provider_connection_off_thread(
 async fn run_ai_queue_jobs_off_thread(
     max_jobs: Option<u32>,
     key: Option<String>,
-) -> Result<vault_core::AiQueueStatus, String> {
+) -> Result<vault_core::AiQueueStatus, CommandError> {
     tokio::task::spawn_blocking(move || {
         worker_bridge::run_ai_queue_jobs_impl(max_jobs, key.as_deref())
     })
     .await
-    .unwrap_or_else(|error| Err(format!("run_ai_queue_jobs join failed: {error}")))
+    .unwrap_or_else(|error| join_failure("run_ai_queue_jobs", error))
 }
 
 /// Hops `search_ai_history_impl` onto the tokio blocking thread pool.
@@ -1105,12 +1116,12 @@ async fn run_ai_queue_jobs_off_thread(
 async fn search_ai_history_off_thread(
     request: vault_core::AiSearchRequest,
     key: Option<String>,
-) -> Result<vault_core::AiSearchResponse, String> {
+) -> Result<vault_core::AiSearchResponse, CommandError> {
     tokio::task::spawn_blocking(move || {
         worker_bridge::search_ai_history_impl(request, key.as_deref())
     })
     .await
-    .unwrap_or_else(|error| Err(format!("search_ai_history join failed: {error}")))
+    .unwrap_or_else(|error| join_failure("search_ai_history", error))
 }
 
 /// Hops `ask_ai_assistant_impl` onto the tokio blocking thread pool.
@@ -1121,12 +1132,12 @@ async fn search_ai_history_off_thread(
 async fn ask_ai_assistant_off_thread(
     request: vault_core::AiAssistantRequest,
     key: Option<String>,
-) -> Result<vault_core::AiAssistantResponse, String> {
+) -> Result<vault_core::AiAssistantResponse, CommandError> {
     tokio::task::spawn_blocking(move || {
         worker_bridge::ask_ai_assistant_impl(request, key.as_deref())
     })
     .await
-    .unwrap_or_else(|error| Err(format!("ask_ai_assistant join failed: {error}")))
+    .unwrap_or_else(|error| join_failure("ask_ai_assistant", error))
 }
 
 /// Hops `ai_chat_send_impl` onto the tokio blocking thread pool. The worker
@@ -1137,7 +1148,7 @@ async fn ask_ai_assistant_off_thread(
 async fn ai_chat_send_off_thread(
     request: vault_core::AiChatSendRequest,
     key: Option<String>,
-) -> Result<vault_core::AiChatSendAck, String> {
+) -> Result<vault_core::AiChatSendAck, CommandError> {
     tokio::task::spawn_blocking(move || {
         worker_bridge::ai_chat_send_impl(
             request,
@@ -1146,33 +1157,33 @@ async fn ai_chat_send_off_thread(
         )
     })
     .await
-    .unwrap_or_else(|error| Err(format!("ai_chat_send join failed: {error}")))
+    .unwrap_or_else(|error| join_failure("ai_chat_send", error))
 }
 
 /// Hops `download_ai_embedding_model_impl` onto the tokio blocking thread pool. The worker spawns
 /// the actual download thread; the emit sink is dropped because the dev HTTP bridge does not deliver
 /// Tauri events (progress only flows under real Tauri).
-async fn download_ai_embedding_model_off_thread() -> Result<(), String> {
+async fn download_ai_embedding_model_off_thread() -> Result<(), CommandError> {
     tokio::task::spawn_blocking(move || {
         worker_bridge::download_ai_embedding_model_impl(
             std::mem::drop::<vault_core::ModelDownloadProgressEvent>,
         )
     })
     .await
-    .unwrap_or_else(|error| Err(format!("download_ai_embedding_model join failed: {error}")))
+    .unwrap_or_else(|error| join_failure("download_ai_embedding_model", error))
 }
 
 /// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). Same posture
 /// as the heavy-tier download above: the worker spawns the actual download thread and the emit sink is
 /// dropped (the dev HTTP bridge does not deliver Tauri events).
-async fn download_static_embedding_model_off_thread() -> Result<(), String> {
+async fn download_static_embedding_model_off_thread() -> Result<(), CommandError> {
     tokio::task::spawn_blocking(move || {
         worker_bridge::download_static_embedding_model_impl(
             std::mem::drop::<vault_core::ModelDownloadProgressEvent>,
         )
     })
     .await
-    .unwrap_or_else(|error| Err(format!("download_static_embedding_model join failed: {error}")))
+    .unwrap_or_else(|error| join_failure("download_static_embedding_model", error))
 }
 
 #[cfg(test)]

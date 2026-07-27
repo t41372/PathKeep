@@ -167,6 +167,13 @@ export interface ScheduleStatus {
   lastScheduledSuccessAt?: string | null
   /** Bounded newest-first native worker attempt history. */
   recentAttempts?: ScheduledBackupAttempt[]
+  /**
+   * Backend English diagnostics kept for audit/diagnostic copy only.
+   *
+   * Never render these: every user-facing scheduler fault is also published as a
+   * localized `ScheduleIssue`, so showing both duplicates the same fault once
+   * translated and once in raw English.
+   */
   warnings: string[]
   issues?: ScheduleIssue[]
   verificationChecks?: ScheduleVerificationCheck[]

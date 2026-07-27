@@ -179,29 +179,14 @@ export const onboardingNamespaceCatalog = {
       windowsLabel: 'Windows',
       linuxLabel: 'Linux',
     },
-    scheduleManualStepLaunchAgentSave:
-      'Save the plist to ~/Library/LaunchAgents/{label}.plist.',
-    scheduleManualStepLaunchAgentBootstrap:
-      'Run `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{label}.plist` to load the new schedule.',
-    scheduleManualStepLaunchAgentReviewInstalled:
-      'Open the desktop app to review the LaunchAgent file and install status.',
-    scheduleManualStepLaunchAgentRemove:
-      'Remove the LaunchAgent if you no longer want automatic backups.',
-    scheduleManualStepWindowsSaveXml:
-      'Review the XML file before registering it with Task Scheduler.',
-    scheduleManualStepWindowsCreateTask:
-      'PathKeep can register it with `schtasks /Create /TN {label} /XML <generated XML> /F`.',
-    scheduleManualStepLinuxCopy: 'Copy the files to ~/.config/systemd/user/.',
-    scheduleManualStepLinuxReload: 'Run `systemctl --user daemon-reload`.',
-    scheduleManualStepLinuxEnable:
-      'Run `systemctl --user enable --now {label}.timer`.',
-    scheduleManualStepLinuxVerify:
-      'Run `systemctl --user list-timers {label}.timer` to verify the next scheduled run.',
     readyTitle: 'All Set',
     readyDesc: 'Review your choices below, then start the first backup.',
     readyAccessWarningTitle: 'Some browsers still need access',
     readyAccessWarningBody:
       'The first backup will process readable browsers now. Safari needs macOS Full Disk Access for PathKeep or the running development process before it can be included.',
+    readyLinkPreviewDisclosureTitle: 'Link previews are on by default',
+    readyLinkPreviewDisclosureBody:
+      "After each backup, PathKeep requests preview images from the sites you visited (Bilibili via its public API). This is PathKeep's only default network request, and it carries no cookies or account information. You can turn it off or switch to on-demand later in Settings → Link previews.",
     configSummary: 'YOUR CHOICES',
     reviewBeforeInit: 'Review',
     configProfiles: 'Browsers',
@@ -388,29 +373,14 @@ export const onboardingNamespaceCatalog = {
       windowsLabel: 'Windows',
       linuxLabel: 'Linux',
     },
-    scheduleManualStepLaunchAgentSave:
-      '将 plist 保存到 ~/Library/LaunchAgents/{label}.plist。',
-    scheduleManualStepLaunchAgentBootstrap:
-      '运行 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{label}.plist` 以加载新的计划。',
-    scheduleManualStepLaunchAgentReviewInstalled:
-      '打开桌面应用，检查 LaunchAgent 文件和安装状态。',
-    scheduleManualStepLaunchAgentRemove:
-      '如果你不再需要自动备份，请移除这个 LaunchAgent。',
-    scheduleManualStepWindowsSaveXml:
-      '先检查 XML 文件，再把它注册到任务计划程序。',
-    scheduleManualStepWindowsCreateTask:
-      'PathKeep 可以用 `schtasks /Create /TN {label} /XML <generated XML> /F` 注册任务。',
-    scheduleManualStepLinuxCopy: '把这些文件复制到 ~/.config/systemd/user/。',
-    scheduleManualStepLinuxReload: '运行 `systemctl --user daemon-reload`。',
-    scheduleManualStepLinuxEnable:
-      '运行 `systemctl --user enable --now {label}.timer`。',
-    scheduleManualStepLinuxVerify:
-      '运行 `systemctl --user list-timers {label}.timer`，确认下一次计划执行时间。',
     readyTitle: '一切就绪',
     readyDesc: '检查下方的设置，然后开始首次备份。',
     readyAccessWarningTitle: '有浏览器还需要权限',
     readyAccessWarningBody:
       '首次备份会先处理可读取的浏览器；Safari 需要在 macOS“完全磁盘访问权限”中授权 PathKeep 或当前开发进程。',
+    readyLinkPreviewDisclosureTitle: '链接预览默认开启',
+    readyLinkPreviewDisclosureBody:
+      '每次备份后，PathKeep 会向你浏览过的网站请求预览图（Bilibili 经其公开 API）。这是 PathKeep 唯一的默认网络请求，不携带 cookie 或账号信息。之后可在“设置 → 链接预览”中关闭或改为按需。',
     configSummary: '你的设置',
     reviewBeforeInit: '检查',
     configProfiles: '浏览器',
@@ -475,9 +445,9 @@ export const onboardingNamespaceCatalog = {
     errorSelectedProfilesNeedAccess:
       '已選的瀏覽器目前都不能讀取。請先授予權限，或回到瀏覽器步驟選擇可讀取的來源。',
     errorOpenFullDiskAccessSettings:
-      '無法開啟系統設定。請手動前往「系統設定 → 隱私權與安全性 → 完整磁碟取用權」。',
+      '無法開啟系統設定。請手動前往「系統設定 → 隱私權與安全性 → 完整磁碟取用權限」。',
     errorSafariNeedsFullDiskAccess:
-      'Safari 目前還不能讀取。請在 macOS「完整磁碟取用權」中授權 PathKeep 或目前的開發行程，然後再執行備份。',
+      'Safari 目前還不能讀取。請在 macOS「完整磁碟取用權限」中授權 PathKeep 或目前的開發行程，然後再執行備份。',
     errorRecheckFailed: '重新檢查瀏覽器時發生錯誤：{detail}。請再試一次。',
     welcomeTagline1: '你的瀏覽歷史屬於你。',
     welcomeTagline2: '備份它，搜尋它，從中發現規律。',
@@ -516,11 +486,11 @@ export const onboardingNamespaceCatalog = {
       'PathKeep 目前無法讀取這個瀏覽器的歷史資料。請先確認檔案權限，或關閉正在使用它的瀏覽器。',
     selectedProfilesNeedAccess:
       '已選的瀏覽器中有來源還不能讀取。授予權限後再回來重新檢查。',
-    openFullDiskAccessSettings: '開啟完整磁碟取用權設定',
+    openFullDiskAccessSettings: '開啟完整磁碟取用權限設定',
     fullDiskAccessEmptyTitle:
-      'PathKeep 需要「完整磁碟取用權」才能看到你的瀏覽器',
+      'PathKeep 需要「完整磁碟取用權限」才能看到你的瀏覽器',
     fullDiskAccessEmptyBody:
-      'macOS 目前擋住了讀取瀏覽歷史的權限，所以 PathKeep 找不到任何可備份的內容 —— 並不是這台裝置上沒有瀏覽器。請到系統設定授予「完整磁碟取用權」，再點一下重新檢查，不必重跑設定，瀏覽器就會出現。',
+      'macOS 目前擋住了讀取瀏覽歷史的權限，所以 PathKeep 找不到任何可備份的內容 —— 並不是這台裝置上沒有瀏覽器。請到系統設定授予「完整磁碟取用權限」，再點一下重新檢查，不必重跑設定，瀏覽器就會出現。',
     discoveryErrorTitle: '偵測瀏覽器時發生問題',
     discoveryErrorBody:
       'PathKeep 無法在這台裝置上完成瀏覽器掃描。這是偵測失敗，而不是真的沒有瀏覽器 —— 請重新檢查再試一次。',
@@ -597,29 +567,14 @@ export const onboardingNamespaceCatalog = {
       windowsLabel: 'Windows',
       linuxLabel: 'Linux',
     },
-    scheduleManualStepLaunchAgentSave:
-      '將 plist 儲存到 ~/Library/LaunchAgents/{label}.plist。',
-    scheduleManualStepLaunchAgentBootstrap:
-      '執行 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{label}.plist` 以載入新的排程。',
-    scheduleManualStepLaunchAgentReviewInstalled:
-      '打開桌面應用，檢查 LaunchAgent 檔案與安裝狀態。',
-    scheduleManualStepLaunchAgentRemove:
-      '如果你不再需要自動備份，請移除這個 LaunchAgent。',
-    scheduleManualStepWindowsSaveXml:
-      '先檢查 XML 檔案，再把它註冊到工作排程器。',
-    scheduleManualStepWindowsCreateTask:
-      'PathKeep 可以用 `schtasks /Create /TN {label} /XML <generated XML> /F` 註冊工作。',
-    scheduleManualStepLinuxCopy: '把這些檔案複製到 ~/.config/systemd/user/。',
-    scheduleManualStepLinuxReload: '執行 `systemctl --user daemon-reload`。',
-    scheduleManualStepLinuxEnable:
-      '執行 `systemctl --user enable --now {label}.timer`。',
-    scheduleManualStepLinuxVerify:
-      '執行 `systemctl --user list-timers {label}.timer`，確認下一次排程執行時間。',
     readyTitle: '一切就緒',
     readyDesc: '檢查下方的設定，然後開始首次備份。',
     readyAccessWarningTitle: '有瀏覽器還需要權限',
     readyAccessWarningBody:
-      '首次備份會先處理可讀取的瀏覽器；Safari 需要在 macOS「完整磁碟取用權」中授權 PathKeep 或目前的開發行程。',
+      '首次備份會先處理可讀取的瀏覽器；Safari 需要在 macOS「完整磁碟取用權限」中授權 PathKeep 或目前的開發行程。',
+    readyLinkPreviewDisclosureTitle: '連結預覽預設開啟',
+    readyLinkPreviewDisclosureBody:
+      '每次備份後，PathKeep 會向你瀏覽過的網站請求預覽圖（Bilibili 經其公開 API）。這是 PathKeep 唯一的預設網路請求，不攜帶 cookie 或帳號資訊。之後可在「設定 → 連結預覽」中關閉或改為按需。',
     configSummary: '你的設定',
     reviewBeforeInit: '檢查',
     configProfiles: '瀏覽器',

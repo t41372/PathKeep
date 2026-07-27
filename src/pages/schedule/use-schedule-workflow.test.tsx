@@ -114,6 +114,8 @@ describe('useScheduleWorkflow', () => {
     expect(result.current.uiState).toBe('INSTALLED_WARN')
     expect(result.current.actionResult).toMatchObject({
       kind: 'detect',
+      message: null,
+      messageKey: 'schedule.detectComplete',
       status: 'success',
     })
   })
@@ -155,6 +157,7 @@ describe('useScheduleWorkflow', () => {
     expect(result.current.actionResult).toMatchObject({
       kind: 'detect',
       message: 'bridge unavailable',
+      messageKey: null,
       status: 'error',
     })
   })
@@ -182,9 +185,11 @@ describe('useScheduleWorkflow', () => {
       expect.objectContaining({ dueAfterHours: 24 }),
     )
     expect(backendMock.applySchedule).toHaveBeenCalledWith(refreshedPlan)
+    // Native scheduler prose stays in the prose channel.
     expect(result.current.actionResult).toMatchObject({
       kind: 'install',
       message: 'launchctl denied',
+      messageKey: null,
       status: 'error',
     })
   })
@@ -247,9 +252,12 @@ describe('useScheduleWorkflow', () => {
     })
 
     expect(backendMock.applySchedule).not.toHaveBeenCalled()
+    // A route-owned precondition failure carries a catalog key, not prose, so
+    // the renderer never has to guess which channel it received.
     expect(result.current.actionResult).toMatchObject({
       kind: 'install',
-      message: 'schedule.initializeArchiveFirst',
+      message: null,
+      messageKey: 'schedule.initializeArchiveFirst',
       status: 'error',
     })
   })
@@ -294,7 +302,8 @@ describe('useScheduleWorkflow', () => {
 
     expect(result.current.actionResult).toMatchObject({
       kind: 'copy-diagnostics',
-      message: 'schedule.diagnosticsClipboardUnavailable',
+      message: null,
+      messageKey: 'schedule.diagnosticsClipboardUnavailable',
       status: 'error',
     })
   })
@@ -359,6 +368,7 @@ describe('useScheduleWorkflow', () => {
     expect(result.current.actionResult).toMatchObject({
       kind: 'copy-diagnostics',
       message: 'clipboard denied',
+      messageKey: null,
       status: 'error',
     })
   })

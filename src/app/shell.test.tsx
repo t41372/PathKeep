@@ -784,11 +784,32 @@ describe('AppShell (paper redesign)', () => {
     expect(toast).toHaveTextContent('Backup failed: permission denied')
   })
 
-  test('non-backup errors (config save, lock, etc.) do NOT show the backup toast', () => {
-    // The toast is scoped to backup failures: "Backup didn't finish", a reassurance
-    // about archive safety, and a "Try again → runBackup" button are all wrong for
-    // a config-save or lock/unlock error. Those stay quiet in the shell (the failing
-    // action surfaces its own feedback).
+  test('a failed config save is VISIBLE, with settings copy and no backup retry', () => {
+    // Regression: a quiet Settings auto-save failure used to be completely
+    // invisible — `setError` resets errorKind to null and nothing rendered a
+    // null-kind error, while the section swallowed the rejection. The toggle
+    // kept showing the value the user picked even though the backend still
+    // held the old one, which on a consent switch (MCP exposure, AI master,
+    // App Lock) is a data-sovereignty lie. The failure now renders with
+    // settings-specific copy, and WITHOUT the backup "Try again" button —
+    // the shell has no idea which control was being saved.
+    renderShell(
+      { error: 'Could not save config', errorKind: 'config-save' },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
+    expect(toast).toHaveAttribute('role', 'alert')
+    expect(toast).toHaveTextContent('Could not save config')
+    expect(toast).toHaveTextContent(/that setting wasn’t saved/i)
+    expect(toast).not.toHaveTextContent(/backup didn’t finish/i)
+    expect(
+      within(toast).queryByRole('button', { name: /try again/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  test('an unclassified shell error still shows no toast', () => {
+    // Only classified kinds get the toast; an unclassified error has no honest
+    // copy to render and no remediation to offer.
     renderShell({ error: 'Could not save config', errorKind: null }, '/')
     expect(screen.queryByTestId('backup-failure-toast')).not.toBeInTheDocument()
   })
@@ -1284,6 +1305,7 @@ function runningArchiveTask(overrides: Partial<ShellTask> = {}): ShellTask {
     state: 'running',
     title: 'Importing history',
     detail: '',
+    detailOrigin: 'shell',
     startedAt: '2026-06-28T00:00:00Z',
     updatedAt: '2026-06-28T00:00:00Z',
     finishedAt: null,

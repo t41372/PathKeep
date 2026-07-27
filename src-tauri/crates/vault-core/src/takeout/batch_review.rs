@@ -124,6 +124,7 @@ pub(super) fn load_import_batch_detail(
         recognized_files: batch.recognized_files,
         quarantined_files: batch.quarantined_files,
         notes: batch.notes,
+        note_details: batch.note_details,
         detected_locale: batch.detected_locale,
         preview_range_start: batch.preview_range_start,
         preview_range_end: batch.preview_range_end,
@@ -217,6 +218,13 @@ pub(super) fn load_import_batch_record(
         .unwrap_or_default(),
         notes: serde_json::from_value(summary.get("notes").cloned().unwrap_or_else(|| json!([])))
             .unwrap_or_default(),
+        // Batches written before note code-ification only stored `notes`, so an
+        // absent/unreadable `noteDetails` degrades to the string channel rather
+        // than failing the whole batch read.
+        note_details: serde_json::from_value(
+            summary.get("noteDetails").cloned().unwrap_or_else(|| json!([])),
+        )
+        .unwrap_or_default(),
         detected_locale: summary
             .get("detectedLocale")
             .and_then(Value::as_str)

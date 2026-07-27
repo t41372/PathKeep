@@ -31,9 +31,11 @@
  *   saves immediately via the existing `saveConfig` path.
  */
 
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '@/lib/backend-client'
+import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { useShellData } from '../../app/shell-data-context'
 import { Field, Toggle } from './paper-form-primitives'
@@ -53,6 +55,7 @@ export function SecuritySection({ navItem }: SecuritySectionProps) {
   const { snapshot, saveConfig } = useShellData()
   const { t } = useI18n()
   const { visible: savedVisible, flash } = useSavedFeedback()
+  const [clearError, setClearError] = useState<string | null>(null)
 
   const keyringAvailable = snapshot?.keyringStatus?.available ?? false
   const keyringStored = snapshot?.keyringStatus?.storedSecret ?? false
@@ -66,22 +69,34 @@ export function SecuritySection({ navItem }: SecuritySectionProps) {
       // is inert. Bail before any save so we never flash a dishonest "Saved" for
       // a switch that cannot actually hold state.
       if (!snapshot || !keyringAvailable) return
+      setClearError(null)
       try {
         if (!next) {
-          // Clear the stored key so auto-unlock stops working immediately.
-          await backend.keyringClearDatabaseKey().catch(() => undefined)
+          // Turning this OFF is a promise: the stored key leaves the OS
+          // keychain. Swallowing a failure here and persisting the flag anyway
+          // would flash "Saved" while the secret is still sitting in the
+          // keychain — the one outcome the user explicitly asked to avoid. So a
+          // failed clear aborts the write, keeps the toggle where it was, and
+          // says so.
+          await backend.keyringClearDatabaseKey()
         }
         await saveConfig(
           { ...snapshot.config, rememberDatabaseKeyInKeyring: next },
           { quiet: true },
         )
         flash()
-      } catch {
-        // saveConfig already surfaces errors through the shell error channel;
-        // no additional handling needed here.
+      } catch (error) {
+        if (!next) {
+          setClearError(
+            `${t('security.keychainClearFailed')} ${describeError(error, 'keyring_clear_database_key')}`,
+          )
+        }
+        // A `saveConfig` failure additionally surfaces through the shell's
+        // config-save channel; the inline copy above is specific to the
+        // keychain-clear promise this toggle makes.
       }
     },
-    [flash, keyringAvailable, saveConfig, snapshot],
+    [flash, keyringAvailable, saveConfig, snapshot, t],
   )
 
   // Build the status line describing the current keychain state.
@@ -120,6 +135,16 @@ export function SecuritySection({ navItem }: SecuritySectionProps) {
           <p className="text-ink-muted mt-2 font-mono text-[10.5px]">
             {statusText}
           </p>
+          {clearError ? (
+            <div className="mt-2">
+              <StatusCallout
+                tone="danger"
+                title={t('security.keychainClearFailedTitle')}
+                body={clearError}
+                bodyTone="diagnostic"
+              />
+            </div>
+          ) : null}
         </Field>
       </PaperCardBody>
     </PaperCard>

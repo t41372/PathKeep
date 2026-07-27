@@ -76,7 +76,7 @@ export const importNamespaceCatalog = {
     takeoutPathPlaceholder: '/path/to/takeout.zip',
     browserPathPlaceholder: '/path/to/History',
     scanSource: 'Scan source →',
-    scanningTitle: 'Step 2: Scanning...',
+    scanningTitle: 'Step 2: Scanning…',
     scanningBody: 'Inspecting source files for recognized history formats.',
     previewTitle: 'Step 3: Preview Import',
     previewBody: 'Review what will be imported before confirming.',
@@ -90,8 +90,10 @@ export const importNamespaceCatalog = {
     quarantinedFiles: 'QUARANTINED FILES',
     detectedLocaleLabel: 'Detected layout',
     timeRangeLabel: 'Time range',
-    ignoredFilesInline:
-      '{count} file(s) are known but intentionally ignored in this pass.',
+    ignoredFilesInlineOne:
+      '1 file is known but intentionally ignored in this pass.',
+    ignoredFilesInlineMany:
+      '{count} files are known but intentionally ignored in this pass.',
     groupWillImportTitle: 'Will import',
     groupWillImportBody:
       'These files will become browsing history visits in your archive.',
@@ -148,7 +150,7 @@ export const importNamespaceCatalog = {
     fileRecordsLabel: '{count} records',
     backAction: '← Back',
     confirmImport: 'Confirm import →',
-    importingTitle: 'Step 4: Importing...',
+    importingTitle: 'Step 4: Importing…',
     importingProgressDetail: '{records} records · {files} files',
     importProgressActiveLabel: 'File {current} of {total}',
     importProgressPrepareDetail:
@@ -167,9 +169,11 @@ export const importNamespaceCatalog = {
     importProgressFinalizeDetail:
       'Updating search recall and import review data.',
     importProgressCompleteDetail:
-      'Import review is ready. Follow-up rebuild work continues in Background Jobs.',
-    technicalNotesRecorded:
-      '{count} technical note(s) were recorded in the audit artifact.',
+      'Import review is ready. Follow-up rebuild work continues in Activity.',
+    technicalNotesRecordedOne:
+      '1 technical note was recorded in the audit file.',
+    technicalNotesRecordedMany:
+      '{count} technical notes were recorded in the audit file.',
     importingBody: 'Writing records to the archive. This may take a moment.',
     completeTitle: 'Step 5: Import Complete',
     completeBody:
@@ -233,6 +237,8 @@ export const importNamespaceCatalog = {
     selectedSource: 'SELECTED SOURCE',
     browserProfileSourcePath: 'Show source path',
     actionErrorTitle: 'Import could not continue',
+    importUnavailableBody:
+      'The desktop import backend is not available in this session, so the import cannot start.',
     batchReviewTitle: 'Current import result',
     batchReviewBody:
       'PathKeep shows the latest imported batch here so you can verify it right away or undo it if needed.',
@@ -288,6 +294,58 @@ export const importNamespaceCatalog = {
       'Attempt to fix inconsistencies found by the health check. This clears stale derived data, repairs visibility links, and rebuilds audit records.',
     healthCheckName: 'Check',
     healthCheckMessage: 'Details',
+    doctorCheckConfig: 'Config file',
+    doctorCheckBrowserSources: 'Browser sources',
+    doctorCheckArchiveDb: 'Archive database',
+    doctorCheckArchiveUnlock: 'Archive unlock',
+    doctorCheckSchemaVersion: 'Schema version',
+    doctorCheckManifestChain: 'Manifest chain',
+    doctorCheckSnapshotArtifacts: 'Snapshot artifacts',
+    doctorCheckImportAuditArtifacts: 'Import audit artifacts',
+    doctorCheckBrokenVisibilityReferences: 'Hidden-row references',
+    doctorCheckDerivedStateFreshness: 'Derived data freshness',
+    noteSkippedMissingTimestampOne:
+      'Skipped 1 record in {source} because it had no visit timestamp.',
+    noteSkippedMissingTimestampMany:
+      'Skipped {count} records in {source} because they had no visit timestamp.',
+    noteNoImportableFiles:
+      'No directly importable history file was found. The scan still recorded the structure of this export.',
+    noteParseFailed: 'Could not parse {source}.',
+    noteBrowserSkippedMissingUrlRowOne:
+      'Skipped 1 visit because its matching URL row was missing from the source.',
+    noteBrowserSkippedMissingUrlRowMany:
+      'Skipped {count} visits because their matching URL rows were missing from the source.',
+    noteTakeoutSourceEvidenceRebuildNeeded:
+      'The import finished, but the source-evidence archive needs a rebuild.',
+    noteBrowserSourceEvidenceRebuildNeeded:
+      'The Browser Direct import finished, but the source-evidence archive needs a rebuild.',
+    noteSearchProjectionRebuildNeeded:
+      'The import finished, but keyword recall needs a rebuild.',
+    noteRevertProjectionRebuildNeeded:
+      'The undo finished, but keyword recall needs a rebuild.',
+    noteRestoreProjectionRebuildNeeded:
+      'The restore finished, but keyword recall needs a rebuild.',
+    noteBatchRevertedOne:
+      'Undone at {at}. Hid 1 visible history record from your archive.',
+    noteBatchRevertedMany:
+      'Undone at {at}. Hid {count} visible history records from your archive.',
+    noteBatchRestoredOne:
+      'Restored at {at}. Returned 1 hidden history record to your archive via restore run #{runId}.',
+    noteBatchRestoredMany:
+      'Restored at {at}. Returned {count} hidden history records to your archive via restore run #{runId}.',
+    noteParserMissingTable:
+      'A table this import expects was missing from the source database.',
+    noteParserMissingSource:
+      'An optional companion database was not available in the source.',
+    noteParserBaselineSupport:
+      'This browser uses baseline import: visits and URLs are captured, while downloads, search terms, and favicons are not supported yet.',
+    noteParserIndexOnly:
+      'This file is a Takeout index and carries no importable history rows.',
+    noteParserMissingVisitTime:
+      'Some rows were skipped because they had no visit timestamp:',
+    noteParserNoRecognizedPayload:
+      'No recognized history payload was found in this file.',
+    noteParserSourceWarning: 'The source reported a warning while reading:',
     batchIdLabel: 'Batch #{id}',
     repairSummary:
       'Cleaned up {derivedRows} derived rows, fixed {visibilityRows} visibility links, and rebuilt {importAudits} audit records.',
@@ -346,7 +404,7 @@ export const importNamespaceCatalog = {
     takeoutGuideUnsupportedExample:
       'Chrome My Activity JSON 和 HTML 导出不会在这里导入。',
     browserPreparationHint:
-      '找到浏览器的 History 文件，通常在浏览器的个人资料文件夹中。建议先关闭浏览器再操作。',
+      '找到浏览器的 History 文件，通常在浏览器的配置目录里。建议先关闭浏览器再操作。',
     stepUpload: '上传',
     stepScan: '扫描',
     stepPreview: '预览',
@@ -373,7 +431,8 @@ export const importNamespaceCatalog = {
     quarantinedFiles: '被隔离的文件',
     detectedLocaleLabel: '检测到的导出布局',
     timeRangeLabel: '时间范围',
-    ignoredFilesInline: '这次有 {count} 个文件属于已知但刻意忽略的范围。',
+    ignoredFilesInlineOne: '这次有 {count} 个文件属于已知但刻意忽略的范围。',
+    ignoredFilesInlineMany: '这次有 {count} 个文件属于已知但刻意忽略的范围。',
     groupWillImportTitle: '会导入',
     groupWillImportBody: '这些文件会写入你的浏览历史存档。',
     groupIgnoredTitle: '已知但忽略',
@@ -384,7 +443,7 @@ export const importNamespaceCatalog = {
     groupParseErrorTitle: '解析失败',
     groupParseErrorBody: '这些文件命中了支持的格式，但在导入前解析失败了。',
     kindJsonl: 'JSONL 历史文件',
-    kindBrowserHistory: 'Chrome 历史 payload',
+    kindBrowserHistory: 'Chrome 历史内容',
     kindTypedUrl: 'Typed URL 辅助文件',
     kindSession: 'Session 辅助文件',
     kindTakeoutIndex: 'Takeout 索引页',
@@ -406,10 +465,10 @@ export const importNamespaceCatalog = {
     reasonChromeMyActivityHtml:
       '这是 Chrome My Activity HTML 导出，这一版不会导入 HTML 活动文件。',
     reasonActivityOutsideScope:
-      '这是 Google 活动导出，不是专门的 Chrome 历史 payload。',
+      '这是 Google 活动导出，不是专门的 Chrome 历史内容。',
     reasonOutsideChromeScope: '这个文件不在当前 Chrome-first 的导入范围内。',
     reasonChromeSupportingFile:
-      '这是 Chrome 的辅助导出文件，但不是可直接导入的浏览历史 payload。',
+      '这是 Chrome 的辅助导出文件，但不是可直接导入的浏览历史内容。',
     reasonUnrecognizedHistoryFile:
       '看起来像历史相关文件，但 PathKeep 还没有安全的导入规则。',
     reasonParseError: '解析失败，请先检查文件，再决定是否继续信任这次导入。',
@@ -440,8 +499,10 @@ export const importNamespaceCatalog = {
     importProgressRecordStats: '新增 {imported} · 重复 {duplicates}',
     importProgressSkippedRecords: '已跳过 {count} 条',
     importProgressFinalizeDetail: '正在更新搜索检索和导入复核数据。',
-    importProgressCompleteDetail: '导入复核已就绪，后续重建会在后台继续进行。',
-    technicalNotesRecorded: '有 {count} 条技术备注已记录到审计文件。',
+    importProgressCompleteDetail:
+      '导入复核已就绪，后续重建会在活动页继续进行。',
+    technicalNotesRecordedOne: '有 {count} 条技术备注已记录到审计文件。',
+    technicalNotesRecordedMany: '有 {count} 条技术备注已记录到审计文件。',
     importingBody: '正在写入记录，请稍候。',
     completeTitle: '第 5 步：完成',
     completeBody: '记录已写入存档。下面可以继续核对这次导入。',
@@ -490,6 +551,7 @@ export const importNamespaceCatalog = {
     selectedSource: '当前来源',
     browserProfileSourcePath: '显示来源路径',
     actionErrorTitle: '导入无法继续',
+    importUnavailableBody: '当前会话无法使用桌面导入后端，导入无法开始。',
     batchReviewTitle: '当前导入结果',
     batchReviewBody: '最新导入的批次会先显示在这里，方便你立刻核对或撤销。',
     historyToolsTitle: '导入记录与维护工具',
@@ -538,6 +600,50 @@ export const importNamespaceCatalog = {
       '尝试修复健康检查发现的不一致问题。会清理过时的分析数据、修复引用链接，并重建审计记录。',
     healthCheckName: '检查项',
     healthCheckMessage: '详情',
+    doctorCheckConfig: '配置文件',
+    doctorCheckBrowserSources: '浏览器来源',
+    doctorCheckArchiveDb: '存档数据库',
+    doctorCheckArchiveUnlock: '存档解锁',
+    doctorCheckSchemaVersion: '架构版本',
+    doctorCheckManifestChain: '清单链',
+    doctorCheckSnapshotArtifacts: '快照文件',
+    doctorCheckImportAuditArtifacts: '导入审计文件',
+    doctorCheckBrokenVisibilityReferences: '隐藏记录引用',
+    doctorCheckDerivedStateFreshness: '分析数据新鲜度',
+    noteSkippedMissingTimestampOne:
+      '{source} 中有 {count} 条记录没有访问时间，已跳过。',
+    noteSkippedMissingTimestampMany:
+      '{source} 中有 {count} 条记录没有访问时间，已跳过。',
+    noteNoImportableFiles:
+      '没有找到可直接导入的历史文件。这次扫描仍然记录了该导出的结构。',
+    noteParseFailed: '无法解析 {source}。',
+    noteBrowserSkippedMissingUrlRowOne:
+      '有 {count} 条访问记录在来源中找不到对应的网址记录，已跳过。',
+    noteBrowserSkippedMissingUrlRowMany:
+      '有 {count} 条访问记录在来源中找不到对应的网址记录，已跳过。',
+    noteTakeoutSourceEvidenceRebuildNeeded:
+      '导入已完成，但原始证据存档需要重建。',
+    noteBrowserSourceEvidenceRebuildNeeded:
+      '浏览器直连导入已完成，但原始证据存档需要重建。',
+    noteSearchProjectionRebuildNeeded: '导入已完成，但关键词检索需要重建。',
+    noteRevertProjectionRebuildNeeded: '撤销已完成，但关键词检索需要重建。',
+    noteRestoreProjectionRebuildNeeded: '恢复已完成，但关键词检索需要重建。',
+    noteBatchRevertedOne:
+      '已于 {at} 撤销。已从存档中隐藏 {count} 条可见的历史记录。',
+    noteBatchRevertedMany:
+      '已于 {at} 撤销。已从存档中隐藏 {count} 条可见的历史记录。',
+    noteBatchRestoredOne:
+      '已于 {at} 恢复。通过恢复运行 #{runId} 把 {count} 条隐藏的历史记录放回存档。',
+    noteBatchRestoredMany:
+      '已于 {at} 恢复。通过恢复运行 #{runId} 把 {count} 条隐藏的历史记录放回存档。',
+    noteParserMissingTable: '来源数据库缺少这次导入需要的表。',
+    noteParserMissingSource: '来源里没有可选的配套数据库。',
+    noteParserBaselineSupport:
+      '这个浏览器使用基础导入：会采集访问与网址，暂不支持下载记录、搜索词与网站图标。',
+    noteParserIndexOnly: '这个文件是 Takeout 索引，不包含可导入的历史记录。',
+    noteParserMissingVisitTime: '部分记录因缺少访问时间戳被跳过：',
+    noteParserNoRecognizedPayload: '这个文件里没有找到可识别的历史数据。',
+    noteParserSourceWarning: '读取来源时报告了一个警告：',
     batchIdLabel: '批次 #{id}',
     repairSummary:
       '修复了 {derivedRows} 条分析数据、{visibilityRows} 条引用链接，并重建了 {importAudits} 条审计记录。',
@@ -623,7 +729,8 @@ export const importNamespaceCatalog = {
     quarantinedFiles: '被隔離的檔案',
     detectedLocaleLabel: '偵測到的匯出版型',
     timeRangeLabel: '時間範圍',
-    ignoredFilesInline: '這次有 {count} 個檔案屬於已知但刻意忽略的範圍。',
+    ignoredFilesInlineOne: '這次有 {count} 個檔案屬於已知但刻意忽略的範圍。',
+    ignoredFilesInlineMany: '這次有 {count} 個檔案屬於已知但刻意忽略的範圍。',
     groupWillImportTitle: '會匯入',
     groupWillImportBody: '這些檔案會寫入你的瀏覽歷史封存。',
     groupIgnoredTitle: '已知但忽略',
@@ -634,7 +741,7 @@ export const importNamespaceCatalog = {
     groupParseErrorTitle: '解析失敗',
     groupParseErrorBody: '這些檔案命中了支援的格式，但在匯入前解析失敗了。',
     kindJsonl: 'JSONL 歷史檔案',
-    kindBrowserHistory: 'Chrome 歷史 payload',
+    kindBrowserHistory: 'Chrome 歷史內容',
     kindTypedUrl: 'Typed URL 輔助檔',
     kindSession: 'Session 輔助檔',
     kindTakeoutIndex: 'Takeout 索引頁',
@@ -656,10 +763,10 @@ export const importNamespaceCatalog = {
     reasonChromeMyActivityHtml:
       '這是 Chrome My Activity HTML 匯出，這一版不會匯入 HTML 活動檔。',
     reasonActivityOutsideScope:
-      '這是 Google 活動匯出，不是專門的 Chrome 歷史 payload。',
+      '這是 Google 活動匯出，不是專門的 Chrome 歷史內容。',
     reasonOutsideChromeScope: '這個檔案不在目前 Chrome-first 的匯入範圍內。',
     reasonChromeSupportingFile:
-      '這是 Chrome 的輔助匯出檔，但不是可直接匯入的瀏覽歷史 payload。',
+      '這是 Chrome 的輔助匯出檔，但不是可直接匯入的瀏覽歷史內容。',
     reasonUnrecognizedHistoryFile:
       '看起來像歷史相關檔案，但 PathKeep 還沒有安全的匯入規則。',
     reasonParseError: '解析失敗，請先檢查檔案，再決定是否繼續信任這次匯入。',
@@ -691,8 +798,9 @@ export const importNamespaceCatalog = {
     importProgressSkippedRecords: '已略過 {count} 筆',
     importProgressFinalizeDetail: '正在更新搜尋檢索和匯入複核資料。',
     importProgressCompleteDetail:
-      '匯入複核已就緒，後續重建會在背景工作中繼續進行。',
-    technicalNotesRecorded: '有 {count} 條技術備註已記錄到稽核檔案。',
+      '匯入複核已就緒，後續重建會在活動頁繼續進行。',
+    technicalNotesRecordedOne: '有 {count} 條技術備註已記錄到稽核檔案。',
+    technicalNotesRecordedMany: '有 {count} 條技術備註已記錄到稽核檔案。',
     importingBody: '正在寫入紀錄，請稍候。',
     completeTitle: '第 5 步：完成',
     completeBody: '紀錄已寫入封存。下面可以繼續核對這次匯入。',
@@ -730,7 +838,7 @@ export const importNamespaceCatalog = {
     browserProfileReady: '可匯入',
     browserProfileNeedsAccess: '需要權限',
     safariFullDiskAccessHint:
-      'Safari History.db 通常需要授予 PathKeep 或目前開發行程「完整磁碟取用權」後才能暫存。',
+      'Safari History.db 通常需要授予 PathKeep 或目前開發行程「完整磁碟取用權限」後才能暫存。',
     openFullDiskAccessSettings: '打開全盤讀取權限',
     browserProfileUnreadable: '目前無法讀取這個歷史檔案，請檢查路徑和權限。',
     noDetectedBrowserProfilesTitle: '沒有偵測到可直接匯入的瀏覽器設定檔',
@@ -741,6 +849,7 @@ export const importNamespaceCatalog = {
     selectedSource: '目前來源',
     browserProfileSourcePath: '顯示來源路徑',
     actionErrorTitle: '匯入無法繼續',
+    importUnavailableBody: '目前工作階段無法使用桌面匯入後端，匯入無法開始。',
     batchReviewTitle: '目前匯入結果',
     batchReviewBody: '最新匯入的批次會先顯示在這裡，方便你立刻核對或復原。',
     historyToolsTitle: '匯入紀錄與維護工具',
@@ -789,6 +898,50 @@ export const importNamespaceCatalog = {
       '嘗試修復健康檢查發現的不一致問題。會清理過時的分析資料、修復參照連結，並重建稽核紀錄。',
     healthCheckName: '檢查項目',
     healthCheckMessage: '詳情',
+    doctorCheckConfig: '設定檔',
+    doctorCheckBrowserSources: '瀏覽器來源',
+    doctorCheckArchiveDb: '封存資料庫',
+    doctorCheckArchiveUnlock: '封存解鎖',
+    doctorCheckSchemaVersion: '結構版本',
+    doctorCheckManifestChain: '清單鏈',
+    doctorCheckSnapshotArtifacts: '快照檔案',
+    doctorCheckImportAuditArtifacts: '匯入稽核檔案',
+    doctorCheckBrokenVisibilityReferences: '隱藏紀錄參照',
+    doctorCheckDerivedStateFreshness: '分析資料新鮮度',
+    noteSkippedMissingTimestampOne:
+      '{source} 中有 {count} 筆紀錄沒有造訪時間，已略過。',
+    noteSkippedMissingTimestampMany:
+      '{source} 中有 {count} 筆紀錄沒有造訪時間，已略過。',
+    noteNoImportableFiles:
+      '沒有找到可直接匯入的歷史檔案。這次掃描仍然記錄了該匯出的結構。',
+    noteParseFailed: '無法解析 {source}。',
+    noteBrowserSkippedMissingUrlRowOne:
+      '有 {count} 筆造訪紀錄在來源中找不到對應的網址紀錄，已略過。',
+    noteBrowserSkippedMissingUrlRowMany:
+      '有 {count} 筆造訪紀錄在來源中找不到對應的網址紀錄，已略過。',
+    noteTakeoutSourceEvidenceRebuildNeeded:
+      '匯入已完成，但原始證據封存需要重建。',
+    noteBrowserSourceEvidenceRebuildNeeded:
+      '瀏覽器直連匯入已完成，但原始證據封存需要重建。',
+    noteSearchProjectionRebuildNeeded: '匯入已完成，但關鍵字檢索需要重建。',
+    noteRevertProjectionRebuildNeeded: '復原已完成，但關鍵字檢索需要重建。',
+    noteRestoreProjectionRebuildNeeded: '恢復已完成，但關鍵字檢索需要重建。',
+    noteBatchRevertedOne:
+      '已於 {at} 復原。已從封存中隱藏 {count} 筆可見的歷史紀錄。',
+    noteBatchRevertedMany:
+      '已於 {at} 復原。已從封存中隱藏 {count} 筆可見的歷史紀錄。',
+    noteBatchRestoredOne:
+      '已於 {at} 恢復。透過恢復執行 #{runId} 把 {count} 筆隱藏的歷史紀錄放回封存。',
+    noteBatchRestoredMany:
+      '已於 {at} 恢復。透過恢復執行 #{runId} 把 {count} 筆隱藏的歷史紀錄放回封存。',
+    noteParserMissingTable: '來源資料庫缺少這次匯入需要的資料表。',
+    noteParserMissingSource: '來源裡沒有可選的配套資料庫。',
+    noteParserBaselineSupport:
+      '這個瀏覽器使用基礎匯入：會擷取造訪與網址，暫不支援下載紀錄、搜尋詞與網站圖示。',
+    noteParserIndexOnly: '這個檔案是 Takeout 索引，不含可匯入的歷史紀錄。',
+    noteParserMissingVisitTime: '部分紀錄因缺少造訪時間戳被略過：',
+    noteParserNoRecognizedPayload: '這個檔案裡沒有找到可識別的歷史資料。',
+    noteParserSourceWarning: '讀取來源時回報了一個警告：',
     batchIdLabel: '批次 #{id}',
     repairSummary:
       '修復了 {derivedRows} 筆分析資料、{visibilityRows} 筆參照連結，並重建了 {importAudits} 筆稽核紀錄。',

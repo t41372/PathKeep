@@ -162,7 +162,10 @@ describe('SnapshotRecoveryPanel', () => {
       screen.getByRole('button', { name: /restore from this snapshot/i }),
     )
 
-    const keyInput = screen.getByLabelText('Archive key')
+    // Copy fix: the field was labelled "Archive key" while every other surface
+    // called the same secret a password. The catalog now says "Archive
+    // password" everywhere, so these lookups follow the shipped label.
+    const keyInput = screen.getByLabelText('Archive password')
     expect(keyInput).toBeInTheDocument()
     fireEvent.change(keyInput, { target: { value: 'my-secret' } })
 
@@ -203,7 +206,7 @@ describe('SnapshotRecoveryPanel', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /restore from this snapshot/i }),
     )
-    fireEvent.change(screen.getByLabelText('Archive key'), {
+    fireEvent.change(screen.getByLabelText('Archive password'), {
       target: { value: 'bad-key' },
     })
     fireEvent.click(
@@ -255,7 +258,7 @@ describe('SnapshotRecoveryPanel', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /restore from this snapshot/i }),
     )
-    expect(screen.getByLabelText('Archive key')).toHaveValue('prefilled')
+    expect(screen.getByLabelText('Archive password')).toHaveValue('prefilled')
   })
 
   test('plaintext snapshot: confirm shows no key field and restores with a null key', async () => {
@@ -271,7 +274,7 @@ describe('SnapshotRecoveryPanel', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /restore from this snapshot/i }),
     )
-    expect(screen.queryByLabelText('Archive key')).toBeNull()
+    expect(screen.queryByLabelText('Archive password')).toBeNull()
 
     fireEvent.click(
       screen.getByRole('button', {
@@ -409,7 +412,9 @@ describe('SnapshotRecoveryPanel', () => {
     })
     restoreBtn.focus()
     fireEvent.click(restoreBtn)
-    expect(document.activeElement).toBe(screen.getByLabelText('Archive key'))
+    expect(document.activeElement).toBe(
+      screen.getByLabelText('Archive password'),
+    )
   })
 
   test('focus: Cancel returns focus to a snapshot restore button, not the body', async () => {
@@ -443,7 +448,7 @@ describe('SnapshotRecoveryPanel', () => {
         name: /restore from this snapshot/i,
       }),
     )
-    fireEvent.change(screen.getByLabelText('Archive key'), {
+    fireEvent.change(screen.getByLabelText('Archive password'), {
       target: { value: 'bad-key' },
     })
     fireEvent.click(

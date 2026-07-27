@@ -865,7 +865,7 @@ describe('ShellDataProvider', () => {
     expect(true).toBe(true)
   })
 
-  test('survives a scheduleStatus probe rejection without surfacing an error to the shell', async () => {
+  test('surfaces a scheduleStatus probe rejection as a notification without failing the shell', async () => {
     const { dashboard, snapshot } = await seedSnapshot()
     const readySnapshot: AppSnapshot = {
       ...snapshot,
@@ -886,8 +886,70 @@ describe('ShellDataProvider', () => {
     await waitFor(() =>
       expect(screen.getByTestId('loading')).toHaveTextContent('false'),
     )
+    // A probe failure must never hard-fail the shell…
     expect(screen.getByTestId('error')).toHaveTextContent('none')
+    // …but it must stay OBSERVABLE: the shell publishes a danger notification
+    // instead of swallowing the background failure silently.
+    await waitFor(() =>
+      expect(screen.getByTestId('notification-count')).toHaveTextContent('1'),
+    )
+    expect(screen.getByTestId('notification-titles')).toHaveTextContent(
+      createTranslator('en')('shell.scheduleHealthProbeFailedTitle'),
+    )
+  })
+
+  test('drops a schedule probe REJECTION that lands after the probe was cancelled', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    const readySnapshot: AppSnapshot = {
+      ...snapshot,
+      config: { ...snapshot.config, initialized: true },
+      archiveStatus: { ...snapshot.archiveStatus, unlocked: true },
+    }
+    const lockedSnapshot: AppSnapshot = {
+      ...readySnapshot,
+      archiveStatus: { ...readySnapshot.archiveStatus, unlocked: false },
+    }
+    // First load arms the probe; the refresh below re-locks the archive, which
+    // re-runs the effect and fires its cleanup — cancelling the in-flight probe.
+    vi.spyOn(backend, 'getAppSnapshot')
+      .mockResolvedValueOnce(readySnapshot)
+      .mockResolvedValue(lockedSnapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    let rejectProbe: ((reason: unknown) => void) | undefined
+    vi.spyOn(backend, 'scheduleStatus').mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectProbe = reject
+      }),
+    )
+
+    renderShellProbe()
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
     expect(screen.getByTestId('notification-count')).toHaveTextContent('0')
+
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    // The probe now fails, but its cancel token was already tripped. Without the
+    // cancelled guard in the CATCH arm the shell would raise a danger bell about
+    // a probe it deliberately abandoned — noise the user cannot act on.
+    rejectProbe?.(new Error('schedule_status: unsupported platform'))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId('notification-count')).toHaveTextContent('0')
+    expect(screen.getByTestId('notification-titles')).not.toHaveTextContent(
+      createTranslator('en')('shell.scheduleHealthProbeFailedTitle'),
+    )
   })
 
   test('ignores follow-up dashboard refresh failures after saving config', async () => {

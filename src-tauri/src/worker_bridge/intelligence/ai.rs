@@ -22,6 +22,7 @@
 //! This layer stays a thin adapter; expensive provider/index work must remain in
 //! worker-owned jobs or bounded worker calls.
 
+use crate::command_error::CommandError;
 use vault_core::{
     AgentConversationDetail, AgentConversationListResponse, AgentConversationSummary,
     AiAssistantRequest, AiChatSendRequest, AiChatStreamEvent, AiIndexRequest,
@@ -37,7 +38,7 @@ use super::super::worker_result;
 pub(crate) fn store_ai_provider_api_key_impl(
     input: AiProviderSecretInput,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AppSnapshot, String> {
+) -> Result<vault_core::AppSnapshot, CommandError> {
     worker_result(vault_worker::store_ai_provider_api_key(&input, session_database_key))
 }
 
@@ -45,7 +46,7 @@ pub(crate) fn store_ai_provider_api_key_impl(
 pub(crate) fn clear_ai_provider_api_key_impl(
     provider_id: String,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AppSnapshot, String> {
+) -> Result<vault_core::AppSnapshot, CommandError> {
     worker_result(vault_worker::clear_ai_provider_api_key(&provider_id, session_database_key))
 }
 
@@ -54,7 +55,7 @@ pub(crate) fn clear_ai_provider_api_key_impl(
 pub(crate) fn test_ai_provider_connection_impl(
     request: AiProviderConnectionTestRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AiProviderConnectionTestReport, String> {
+) -> Result<vault_core::AiProviderConnectionTestReport, CommandError> {
     worker_result(vault_worker::test_ai_provider_connection_report(session_database_key, &request))
 }
 
@@ -62,7 +63,7 @@ pub(crate) fn test_ai_provider_connection_impl(
 /// Loads the AI queue read model.
 pub(crate) fn load_ai_queue_status_impl(
     session_database_key: Option<&str>,
-) -> Result<vault_core::AiQueueStatus, String> {
+) -> Result<vault_core::AiQueueStatus, CommandError> {
     worker_result(vault_worker::load_ai_queue(session_database_key))
 }
 
@@ -71,7 +72,7 @@ pub(crate) fn load_ai_queue_status_impl(
 pub(crate) fn run_ai_queue_jobs_impl(
     max_jobs: Option<u32>,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AiQueueStatus, String> {
+) -> Result<vault_core::AiQueueStatus, CommandError> {
     worker_result(vault_worker::run_ai_queue_jobs(session_database_key, max_jobs))
 }
 
@@ -80,7 +81,7 @@ pub(crate) fn run_ai_queue_jobs_impl(
 pub(crate) fn replay_ai_job_impl(
     job_id: i64,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AiQueueJob, String> {
+) -> Result<vault_core::AiQueueJob, CommandError> {
     worker_result(vault_worker::replay_ai_job(session_database_key, job_id))
 }
 
@@ -89,7 +90,7 @@ pub(crate) fn replay_ai_job_impl(
 pub(crate) fn cancel_ai_job_impl(
     job_id: i64,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AiQueueJob, String> {
+) -> Result<vault_core::AiQueueJob, CommandError> {
     worker_result(vault_worker::cancel_ai_job(session_database_key, job_id))
 }
 
@@ -98,7 +99,7 @@ pub(crate) fn cancel_ai_job_impl(
 pub(crate) fn load_ai_assistant_job_impl(
     job_id: i64,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AiAssistantResponse, String> {
+) -> Result<vault_core::AiAssistantResponse, CommandError> {
     worker_result(vault_worker::load_ai_assistant_job(session_database_key, job_id))
 }
 
@@ -106,7 +107,7 @@ pub(crate) fn load_ai_assistant_job_impl(
 pub(crate) fn build_ai_index_impl(
     request: AiIndexRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AiIndexReport, String> {
+) -> Result<vault_core::AiIndexReport, CommandError> {
     worker_result(vault_worker::build_ai_index_now(session_database_key, &request))
 }
 
@@ -115,7 +116,7 @@ pub(crate) fn build_ai_index_impl(
 pub(crate) fn reset_ai_index_build_impl(
     request: AiIndexRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AiIndexReport, String> {
+) -> Result<vault_core::AiIndexReport, CommandError> {
     worker_result(vault_worker::reset_ai_index_build(session_database_key, &request))
 }
 
@@ -124,7 +125,7 @@ pub(crate) fn reset_ai_index_build_impl(
 pub(crate) fn estimate_reembed_impl(
     scope: vault_core::ReembedScope,
     session_database_key: Option<&str>,
-) -> Result<vault_core::ReembedEstimate, String> {
+) -> Result<vault_core::ReembedEstimate, CommandError> {
     worker_result(vault_worker::estimate_reembed_now(session_database_key, scope))
 }
 
@@ -132,7 +133,7 @@ pub(crate) fn estimate_reembed_impl(
 pub(crate) fn search_ai_history_impl(
     request: AiSearchRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AiSearchResponse, String> {
+) -> Result<vault_core::AiSearchResponse, CommandError> {
     worker_result(vault_worker::search_ai_history(session_database_key, &request))
 }
 
@@ -140,12 +141,13 @@ pub(crate) fn search_ai_history_impl(
 pub(crate) fn ask_ai_assistant_impl(
     request: AiAssistantRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AiAssistantResponse, String> {
+) -> Result<vault_core::AiAssistantResponse, CommandError> {
     worker_result(vault_worker::ask_ai_assistant(session_database_key, &request))
 }
 
 /// Previews the generated MCP and skill integration artifacts.
-pub(crate) fn preview_ai_integrations_impl() -> Result<vault_core::AiIntegrationPreview, String> {
+pub(crate) fn preview_ai_integrations_impl()
+-> Result<vault_core::AiIntegrationPreview, CommandError> {
     worker_result(vault_worker::preview_ai_integration_files())
 }
 
@@ -158,7 +160,7 @@ pub(crate) fn ai_chat_send_impl<E>(
     request: AiChatSendRequest,
     session_database_key: Option<&str>,
     emit: E,
-) -> Result<vault_core::AiChatSendAck, String>
+) -> Result<vault_core::AiChatSendAck, CommandError>
 where
     E: Fn(AiChatStreamEvent) + Send + Sync + 'static,
 {
@@ -170,7 +172,7 @@ where
 pub(crate) fn ai_chat_cancel_impl(
     run_id: String,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AiChatCancelResult, String> {
+) -> Result<vault_core::AiChatCancelResult, CommandError> {
     worker_result(vault_worker::ai_chat_cancel(session_database_key, &run_id))
 }
 
@@ -179,7 +181,7 @@ pub(crate) fn ai_chat_cancel_impl(
 ///
 /// `emit` wraps `AppHandle::emit("pathkeep://model-download-progress", ...)`; it must be
 /// `Send + 'static` so the worker's background download thread can own it (W-AI-4b §C.5).
-pub(crate) fn download_ai_embedding_model_impl<E>(emit: E) -> Result<(), String>
+pub(crate) fn download_ai_embedding_model_impl<E>(emit: E) -> Result<(), CommandError>
 where
     E: Fn(ModelDownloadProgressEvent) + Send + 'static,
 {
@@ -188,7 +190,7 @@ where
 
 #[cfg_attr(test, allow(dead_code))]
 /// Starts the consent-gated in-app STATIC (Tier-0) embedding model download (F1); progress via `emit`.
-pub(crate) fn download_static_embedding_model_impl<E>(emit: E) -> Result<(), String>
+pub(crate) fn download_static_embedding_model_impl<E>(emit: E) -> Result<(), CommandError>
 where
     E: Fn(ModelDownloadProgressEvent) + Send + 'static,
 {
@@ -197,7 +199,7 @@ where
 
 #[cfg_attr(test, allow(dead_code))]
 /// Requests cancellation of any in-flight in-app model download.
-pub(crate) fn cancel_model_download_impl() -> Result<(), String> {
+pub(crate) fn cancel_model_download_impl() -> Result<(), CommandError> {
     vault_worker::cancel_model_download();
     Ok(())
 }
@@ -212,7 +214,7 @@ pub(crate) fn cancel_model_download_impl() -> Result<(), String> {
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn save_ai_conversation_impl(
     request: SaveAgentConversationRequest,
-) -> Result<AgentConversationSummary, String> {
+) -> Result<AgentConversationSummary, CommandError> {
     worker_result(vault_worker::save_ai_conversation(&request))
 }
 
@@ -220,7 +222,7 @@ pub(crate) fn save_ai_conversation_impl(
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn list_ai_conversations_impl(
     request: ListAgentConversationsRequest,
-) -> Result<AgentConversationListResponse, String> {
+) -> Result<AgentConversationListResponse, CommandError> {
     worker_result(vault_worker::list_ai_conversations(&request))
 }
 
@@ -231,7 +233,7 @@ pub(crate) fn list_ai_conversations_impl(
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn load_ai_conversation_impl(
     conversation_id: String,
-) -> Result<Option<AgentConversationDetail>, String> {
+) -> Result<Option<AgentConversationDetail>, CommandError> {
     worker_result(vault_worker::load_ai_conversation(&conversation_id))
 }
 
@@ -239,7 +241,7 @@ pub(crate) fn load_ai_conversation_impl(
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn delete_ai_conversation_impl(
     conversation_id: String,
-) -> Result<DeleteAgentConversationResult, String> {
+) -> Result<DeleteAgentConversationResult, CommandError> {
     worker_result(vault_worker::delete_ai_conversation(&conversation_id))
 }
 
@@ -247,7 +249,7 @@ pub(crate) fn delete_ai_conversation_impl(
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn rename_ai_conversation_impl(
     request: RenameAgentConversationRequest,
-) -> Result<Option<AgentConversationSummary>, String> {
+) -> Result<Option<AgentConversationSummary>, CommandError> {
     worker_result(vault_worker::rename_ai_conversation(&request))
 }
 
@@ -257,7 +259,7 @@ pub(crate) fn rename_ai_conversation_impl(
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn content_fetch_settings_impl(
     session_database_key: Option<&str>,
-) -> Result<ContentFetchSettings, String> {
+) -> Result<ContentFetchSettings, CommandError> {
     worker_result(vault_worker::content_fetch_settings(session_database_key))
 }
 
@@ -269,7 +271,7 @@ pub(crate) fn content_fetch_settings_impl(
 pub(crate) fn set_content_fetch_settings_impl(
     settings: ContentFetchSettings,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AppSnapshot, String> {
+) -> Result<vault_core::AppSnapshot, CommandError> {
     worker_result(vault_worker::set_content_fetch_settings(&settings, session_database_key))
 }
 
@@ -278,7 +280,7 @@ pub(crate) fn set_content_fetch_settings_impl(
 pub(crate) fn list_visit_enrichment_impl(
     history_id: i64,
     session_database_key: Option<&str>,
-) -> Result<Vec<VisitEnrichmentRecord>, String> {
+) -> Result<Vec<VisitEnrichmentRecord>, CommandError> {
     worker_result(vault_worker::list_visit_enrichment(history_id, session_database_key))
 }
 
@@ -287,7 +289,7 @@ pub(crate) fn list_visit_enrichment_impl(
 pub(crate) fn content_fetch_now_impl(
     request: ContentFetchNowRequest,
     session_database_key: Option<&str>,
-) -> Result<ContentFetchNowResult, String> {
+) -> Result<ContentFetchNowResult, CommandError> {
     worker_result(vault_worker::content_fetch_now(&request, session_database_key))
 }
 
@@ -296,7 +298,7 @@ pub(crate) fn content_fetch_now_impl(
 pub(crate) fn enqueue_content_fetch_working_set_impl(
     limit: Option<u32>,
     session_database_key: Option<&str>,
-) -> Result<usize, String> {
+) -> Result<usize, CommandError> {
     let limit = limit.map(|value| value as usize).unwrap_or(2_000);
     worker_result(vault_worker::enqueue_content_fetch_working_set(limit, session_database_key))
 }

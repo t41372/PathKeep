@@ -496,8 +496,9 @@ pub(super) fn build_assistant_preamble(
 /// a result's fused score is `Σ_list weight_list / (rrf_k + rank_in_list)` (0-based rank). Fusion dedups
 /// on a PAGE-STABLE key (the canonical url, M-12), not the per-visit id, so a frequently-visited page
 /// whose several matching visits land in the lexical window fuses into ONE row (its most-recent visit)
-/// rather than duplicating — the page in BOTH lists sums both contributions and reads "Lexical + semantic
-/// match"; lexical-only reads "Lexical match"; semantic-only reads "Semantic match". RRF is deterministic,
+/// rather than duplicating — the page in BOTH lists sums both contributions and is stamped
+/// [`MATCH_REASON_LEXICAL_SEMANTIC`]; lexical-only gets [`MATCH_REASON_LEXICAL`], semantic-only
+/// [`MATCH_REASON_SEMANTIC`]. RRF is deterministic,
 /// model-free, and operates on the BOUNDED recall pools (never the corpus), so it is fast at 14.4M. After
 /// fusion a BOUNDED, tunable
 /// starred boost (05 §10) promotes favorites without letting them dominate. The `is:starred` facet
@@ -663,13 +664,53 @@ pub(super) async fn search_history_internal(
     })
 }
 
-/// The model-facing match reason carried on every browse-by-recency row (empty-query path).
+/// Stable, locale-independent match-reason CODE for browse-by-recency rows (blank-query path).
 ///
-/// Free-form per-entry `match_reason` text (not a wire-localized [`AiSearchNote`] code): the
-/// empty-query response is reached only from the MODEL-facing agent/run_code path (the Explorer FE
-/// guards empty queries before calling), so this never needs FE i18n. It tells the model these rows
-/// are the newest visits — the entry point for date-range questions ("last Friday").
-const RECENT_VISITS_MATCH_REASON: &str = "Most recent visit";
+/// See the [module match-reason contract](#match-reason-codes) below: this tells BOTH audiences that
+/// the row is one of the newest visits and carries no relevance ranking at all — the model's entry
+/// point for date-range questions ("last Friday"), and the FE's "Most recent visit" caption.
+pub(super) const MATCH_REASON_RECENT_VISIT: &str = "recent-visit";
+
+/// Match-reason CODE for a page only the lexical (keyword/FTS) plane matched.
+pub(super) const MATCH_REASON_LEXICAL: &str = "lexical";
+
+/// Match-reason CODE for a page only the semantic (embedding) plane matched.
+pub(super) const MATCH_REASON_SEMANTIC: &str = "semantic";
+
+/// Match-reason CODE for a page BOTH planes matched — the strongest hybrid signal.
+pub(super) const MATCH_REASON_LEXICAL_SEMANTIC: &str = "lexical+semantic";
+
+/// Match-reason CODE for lexical matches enumerated in pure visit-date order.
+///
+/// Distinct from [`MATCH_REASON_LEXICAL`] because the ordering is chronological, not relevance: it
+/// tells the model these rows are an EARLIEST-/latest-first enumeration of the keyword's matches (the
+/// entry point for "when did I first browse X?") so it never reads them as a ranked top-K.
+pub(super) const MATCH_REASON_LEXICAL_DATE_ORDERED: &str = "lexical-date-ordered";
+
+/// Suffix appended to a base match-reason code when the starred boost promoted the row.
+///
+/// The composed value is `{base}+starred` (e.g. `lexical+semantic+starred`), so the base vocabulary
+/// stays a single closed set and the favorite affordance needs no extra wire field.
+pub(super) const MATCH_REASON_STARRED_SUFFIX: &str = "+starred";
+
+// <a name="match-reason-codes"></a>
+// ## `match_reason` is a stable CODE, not prose
+//
+// [`AiSearchEntry::match_reason`] carries one of the codes above — never an English sentence —
+// because it has TWO audiences with opposite needs:
+//
+// - MODEL-facing: the agent-tool summaries ([`super::agent_tools`]), the `run_code` row shape
+//   ([`super::code_mode`]), the assistant preamble in this module, and the MCP search item all quote
+//   the value verbatim into the model's context. A short stable token is as legible to the model as
+//   prose and cannot drift between call sites.
+// - USER-facing: the Explorer Smart-search surface renders it as the mono caption under EVERY ranked
+//   result (`paperSearchEntryFromAiSearchItem` → `PaperSearchResult`). While this field held English
+//   prose, every zh-CN/zh-TW user read English on every row.
+//
+// The front end resolves each code through its i18n catalog (`aiMatchReason*` in the `explorer`
+// namespace, `+starred` handled as a suffix) and falls back to printing an UNKNOWN code verbatim, so
+// adding a code here degrades to a visible token rather than a silently wrong translation. Codes are
+// therefore additive-only: renaming one is a breaking wire change that must land with the catalog.
 
 /// Returns the most recent visits as the [`AiSearchResponse`] for a blank query (browse-by-recency).
 ///
@@ -707,7 +748,7 @@ fn recent_visits_response(
         .enumerate()
         .map(|(rank, item)| {
             let score = 1.0 - (rank as f32) / (limit.max(1) as f32);
-            history_entry_to_search_entry(item, score.max(0.0), RECENT_VISITS_MATCH_REASON)
+            history_entry_to_search_entry(item, score.max(0.0), MATCH_REASON_RECENT_VISIT)
         })
         .take(limit + 1)
         .collect();
@@ -742,14 +783,6 @@ fn recent_visits_response(
         has_more,
     })
 }
-
-/// The model-facing match reason carried on every date-ordered row (`sort:"oldest"|"newest"` path).
-///
-/// Like [`RECENT_VISITS_MATCH_REASON`], a free-form per-entry reason (not a localized
-/// [`AiSearchNote`]) because this path is reached only from the MODEL-facing agent/run_code surface.
-/// It tells the model these rows are an EARLIEST-/latest-first enumeration of the keyword's matches —
-/// the entry point for "when did I first browse X?" — so it doesn't mistake them for relevance ranking.
-const DATE_ORDERED_MATCH_REASON: &str = "Lexical match (date-ordered)";
 
 /// Returns the keyword's matches in pure VISIT-DATE order for a `sort: "oldest" | "newest"` request.
 ///
@@ -831,7 +864,7 @@ fn date_ordered_response(
         .map(|item| {
             // Constant score as a stable, non-reordering tag (it never re-sorts the page); the
             // chronological order from `list_history` is what carries the meaning here.
-            history_entry_to_search_entry(item, 0.0, DATE_ORDERED_MATCH_REASON)
+            history_entry_to_search_entry(item, 0.0, MATCH_REASON_LEXICAL_DATE_ORDERED)
         })
         .collect();
     let next_offset = offset.saturating_add(page.len());
@@ -922,7 +955,7 @@ fn fuse_ranked_lists(
     for (rank, item) in lexical_ranked.iter().enumerate() {
         let key = fusion_page_key(&item.url);
         let result = fused.entry(key).or_insert_with(|| FusedResult {
-            entry: history_entry_to_search_entry(item, 0.0, "Lexical match"),
+            entry: history_entry_to_search_entry(item, 0.0, MATCH_REASON_LEXICAL),
             lexical_rank: None,
             semantic_rank: None,
         });
@@ -974,16 +1007,16 @@ fn fuse_ranked_lists(
         .collect()
 }
 
-/// Returns the honest match-reason label for a fused result given which lists matched (W-AI-6).
+/// Returns the honest match-reason CODE for a fused result given which lists matched (W-AI-6).
 ///
-/// A page in both lists is the strongest signal ("Lexical + semantic match"); otherwise it names the
-/// single list it came from. The all-false case is unreachable in `fuse_ranked_lists` (every fused id
-/// has at least one rank), but is mapped to the lexical label as a total, panic-free default.
+/// A page in both lists is the strongest signal ([`MATCH_REASON_LEXICAL_SEMANTIC`]); otherwise it names
+/// the single plane it came from. The all-false case is unreachable in `fuse_ranked_lists` (every fused
+/// id has at least one rank), but is mapped to the lexical code as a total, panic-free default.
 fn fusion_reason(has_lexical: bool, has_semantic: bool) -> &'static str {
     match (has_lexical, has_semantic) {
-        (true, true) => "Lexical + semantic match",
-        (false, true) => "Semantic match",
-        _ => "Lexical match",
+        (true, true) => MATCH_REASON_LEXICAL_SEMANTIC,
+        (false, true) => MATCH_REASON_SEMANTIC,
+        _ => MATCH_REASON_LEXICAL,
     }
 }
 
@@ -996,8 +1029,9 @@ fn fusion_reason(has_lexical: bool, has_semantic: bool) -> &'static str {
 /// `boost` and so can never leapfrog a strongly-relevant unstarred page near `1.0`. The boost is added
 /// to the SAME normalized scale the un-boosted results are renormalized onto, so the ordering stays a
 /// single comparable space. `boost == 0` (or nothing starred) is a no-op pass-through. Starred results
-/// get a "(Starred)" suffix on their reason so the FE can show the favorite affordance without a new
-/// field. Operates on the bounded fused pool — never the corpus.
+/// get the [`MATCH_REASON_STARRED_SUFFIX`] appended to their reason CODE (`{base}+starred`) so the FE
+/// can show the favorite affordance without a new field. Operates on the bounded fused pool — never
+/// the corpus.
 fn apply_starred_boost(
     fused: Vec<AiSearchEntry>,
     starred: &crate::stars::StarredMatcher,
@@ -1019,7 +1053,7 @@ fn apply_starred_boost(
             // starred — the common case stays free.
             if boost > 0.0 && !starred.is_empty() && starred.is_starred(&entry.url) {
                 entry.score += boost;
-                entry.match_reason = format!("{} (Starred)", entry.match_reason);
+                entry.match_reason.push_str(MATCH_REASON_STARRED_SUFFIX);
             }
             entry
         })
@@ -1464,7 +1498,7 @@ fn visit_passes_facets(visit: &HistoryEntry, request: &AiSearchRequest) -> bool 
 
 /// Converts one hydrated semantic hit into the public AI search entry shape with an honest reason.
 fn semantic_hit_to_search_entry(hit: SemanticHit) -> AiSearchEntry {
-    history_entry_to_search_entry(&hit.visit, hit.score, "Semantic match")
+    history_entry_to_search_entry(&hit.visit, hit.score, MATCH_REASON_SEMANTIC)
 }
 
 /// Persists one assistant run trace after the final answer is known.

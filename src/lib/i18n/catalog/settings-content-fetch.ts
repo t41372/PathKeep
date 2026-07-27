@@ -111,7 +111,7 @@ export const settingsContentFetchNamespace = {
     contentFetchDisclosureBody:
       '仅限一次普通请求会暴露的最少信息：你的 IP 地址、一个通用的桌面浏览器标识、你的 Accept-Language 头，以及你本就打开过的页面路径。',
     contentFetchDisclosureNotSent:
-      '绝不发送：Cookie、你的 Referer、任何账号或登录信息，以及任何超出普通请求、能用来识别你的指纹。',
+      '绝不发送：Cookie、你的 Referer、任何账号或登录信息，以及任何超出普通请求、能用来追踪识别你的特征。',
     contentFetchDisclosureOffline:
       '离线优先：抓取绝不会在备份或导入期间运行，搜索和浏览也绝不会等待网络。',
     contentFetchDisclosureRateLimit:
@@ -173,7 +173,7 @@ export const settingsContentFetchNamespace = {
     contentFetchDisclosureBody:
       '僅限一次普通請求會揭露的最少資訊：你的 IP 位址、一個通用的桌面瀏覽器識別、你的 Accept-Language 標頭，以及你本就開啟過的頁面路徑。',
     contentFetchDisclosureNotSent:
-      '絕不傳送：Cookie、你的 Referer、任何帳號或登入資訊，以及任何超出普通請求、能用來識別你的指紋。',
+      '絕不傳送：Cookie、你的 Referer、任何帳號或登入資訊，以及任何超出普通請求、能用來追蹤識別你的特徵。',
     contentFetchDisclosureOffline:
       '離線優先：擷取絕不會在備份或匯入期間執行，搜尋和瀏覽也絕不會等待網路。',
     contentFetchDisclosureRateLimit:

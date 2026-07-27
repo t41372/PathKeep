@@ -29,6 +29,7 @@ import type {
   BackupReport,
   BackupRunOverview,
 } from '../lib/types'
+import { CommandInvokeError } from '../lib/ipc/command-error'
 import { createShellDataActions } from './shell-data-actions'
 import { createShellTask } from './shell-tasks'
 
@@ -156,6 +157,11 @@ describe('createShellDataActions', () => {
     ).rejects.toThrow('quiet save failed')
 
     expect(harness.setError).toHaveBeenLastCalledWith('quiet save failed')
+    // The kind MUST be re-asserted after setError (which resets it to null),
+    // because nothing renders a null-kind shell error — a quiet auto-save
+    // failure would otherwise be completely invisible while the toggle kept
+    // showing the value the user picked.
+    expect(harness.setErrorKind).toHaveBeenLastCalledWith('config-save')
     expect(harness.showBusyOverlay).not.toHaveBeenCalled()
     expect(harness.clearBusyOverlay).not.toHaveBeenCalled()
   })
@@ -299,8 +305,10 @@ describe('createShellDataActions', () => {
       new Error('Safari History.db is not readable yet'),
     )
 
+    // The ORIGINAL backend error is rethrown untouched — localized copy stays
+    // out of the error channel (callers classify the raw error themselves).
     await expect(harness.actions.runBackup()).rejects.toThrow(
-      t('shell.fullDiskAccessBackupError'),
+      'Safari History.db is not readable yet',
     )
     expect(harness.setError).toHaveBeenLastCalledWith(
       t('shell.fullDiskAccessBackupError'),
@@ -320,6 +328,64 @@ describe('createShellDataActions', () => {
     expect(harness.refreshAppData).toHaveBeenCalledTimes(2)
     expect(unsubscribe).toHaveBeenCalledTimes(2)
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(2)
+  })
+
+  test('localizes every skipped-backup notice from the stable reasonCode', async () => {
+    const harness = createActionHarness()
+    backendMock.runBackupNow
+      .mockResolvedValueOnce(
+        buildBackupReport({
+          dueSkipped: true,
+          reasonCode: 'write-lock',
+          // The backend's English prose must NOT win over the coded copy.
+          reason: 'Another PathKeep process holds the archive write lock',
+          run: null,
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildBackupReport({
+          dueSkipped: true,
+          reasonCode: 'not-due',
+          reason: 'Backup is not due for 6 hours',
+          run: null,
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildBackupReport({
+          dueSkipped: true,
+          reasonCode: 'quantum-lock',
+          reason: 'Deferred by a reason this build does not know',
+          run: null,
+        }),
+      )
+      .mockResolvedValueOnce(buildBackupReport({ dueSkipped: true, run: null }))
+
+    // 'write-lock' → deferred copy, NOT the backend prose.
+    await expect(harness.actions.runBackup()).resolves.toMatchObject({
+      dueSkipped: true,
+    })
+    expect(harness.setNotice).toHaveBeenLastCalledWith(
+      t('shell.manualBackupWriteLockDeferred'),
+    )
+
+    // 'not-due' → due-window copy, NOT the backend prose.
+    await harness.actions.runBackup()
+    expect(harness.setNotice).toHaveBeenLastCalledWith(
+      t('shell.manualBackupDueWindow'),
+    )
+
+    // Unknown code → the backend's raw reason degrades visibly instead of
+    // silently rendering the wrong localized copy.
+    await harness.actions.runBackup()
+    expect(harness.setNotice).toHaveBeenLastCalledWith(
+      'Deferred by a reason this build does not know',
+    )
+
+    // No code and no reason → the due-window default.
+    await harness.actions.runBackup()
+    expect(harness.setNotice).toHaveBeenLastCalledWith(
+      t('shell.manualBackupDueWindow'),
+    )
   })
 
   test('maps every manual backup completion notice branch explicitly', async () => {
@@ -460,11 +526,17 @@ describe('createShellDataActions', () => {
     // false branch while still routing to the gate without a danger toast.
     const harness = createActionHarness()
     subscribeToBackupProgressMock.mockResolvedValueOnce(vi.fn())
+    // The primary classification path: the backend envelope's `code`, not
+    // message sniffing (the message here deliberately carries no marker).
     backendMock.runBackupNow.mockRejectedValueOnce(
-      new Error('no session key for the encrypted archive'),
+      new CommandInvokeError('backup refused while locked', {
+        code: 'lock-required',
+      }),
     )
 
-    await expect(harness.actions.runBackup()).rejects.toThrow('no session key')
+    await expect(harness.actions.runBackup()).rejects.toThrow(
+      'backup refused while locked',
+    )
 
     expect(harness.setErrorKind).toHaveBeenLastCalledWith('lock-required')
     expect(harness.setError).toHaveBeenLastCalledWith(null)

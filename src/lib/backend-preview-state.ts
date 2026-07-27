@@ -207,6 +207,14 @@ export function syncMockAppLockState(state: MockBackendState) {
           ? 'Touch ID is unavailable on this Mac right now, so PathKeep falls back to the app-lock passcode.'
           : 'Biometric unlock is reserved for future platform integration; this preview falls back to the app-lock passcode.',
     ],
+    degradationNoteCodes: [
+      'ui-session-only',
+      state.biometricState === 'touch-id-available'
+        ? 'touch-id-available'
+        : state.biometricState === 'touch-id-unavailable'
+          ? 'touch-id-unavailable'
+          : 'biometric-not-wired',
+    ],
   }
 }
 

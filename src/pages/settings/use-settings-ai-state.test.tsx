@@ -394,6 +394,50 @@ describe('useSettingsAiState', () => {
     expect(saveConfig).toHaveBeenCalledTimes(2)
   })
 
+  test('rolls the optimistic draft back when the auto-save fails', async () => {
+    // These are consent switches. If the write does not land, the control must
+    // NOT keep showing what the user picked — a toggle reading "on" while the
+    // backend still holds "off" is a data-sovereignty lie, and the sync effect
+    // cannot recover it because a failed write leaves the snapshot signature
+    // unchanged (so the effect short-circuits). The failure itself surfaces
+    // through the shell's `config-save` error kind; this test owns the rollback.
+    vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
+      integrationPreviewFixture(),
+    )
+    const snapshot = snapshotFixture()
+    const saveConfig = vi.fn(() => Promise.reject(new Error('disk full')))
+
+    const { result } = renderHook(
+      () =>
+        useSettingsAiState({
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          saveConfig,
+          snapshot,
+        }),
+      { wrapper: Wrapper },
+    )
+
+    const before = result.current.ai.currentSettings?.enabled
+    expect(before).toBe(false)
+
+    await act(async () => {
+      await expect(result.current.ai.onToggleAi()).rejects.toThrow('disk full')
+    })
+
+    expect(saveConfig).toHaveBeenCalledTimes(1)
+    expect(result.current.ai.currentSettings?.enabled).toBe(before)
+
+    // The rollback must also restore the internal signature, so a retry of the
+    // SAME change is still treated as a real write rather than a silent no-op.
+    saveConfig.mockImplementationOnce(((config: AppConfig) =>
+      Promise.resolve({ ...snapshot, config })) as typeof saveConfig)
+    await act(async () => {
+      await result.current.ai.onToggleAi()
+    })
+    expect(saveConfig).toHaveBeenCalledTimes(2)
+    expect(result.current.ai.currentSettings?.enabled).toBe(true)
+  })
+
   test('keeps AI handlers no-op safe before a snapshot is available', async () => {
     const refreshAppData = vi.fn().mockResolvedValue(undefined)
     const saveConfig = vi.fn((config: AppConfig) =>

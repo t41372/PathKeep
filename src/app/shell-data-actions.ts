@@ -23,6 +23,11 @@
 import { backend } from '../lib/backend-client'
 import { describeError } from '../lib/errors'
 import { subscribeToBackupProgress } from '../lib/ipc/backup-progress'
+import {
+  isFullDiskAccessError,
+  isFullDiskAccessIssueMessage,
+  isLockRequiredError,
+} from '../lib/ipc/command-error'
 import { runLocalSemanticSetup } from '../lib/ipc/semantic-setup'
 import { waitForNextPaint } from '../lib/wait-for-next-paint'
 import type {
@@ -133,10 +138,7 @@ function formatShellActionError(
   command: string,
   t: ShellTranslator,
 ): { message: string; isFullDiskAccess: boolean } {
-  if (
-    nextError instanceof Error &&
-    isFullDiskAccessIssueMessage(nextError.message)
-  ) {
+  if (isFullDiskAccessError(nextError)) {
     return {
       message: t('shell.fullDiskAccessBackupError'),
       isFullDiskAccess: true,
@@ -149,37 +151,24 @@ function formatShellActionError(
 }
 
 /**
- * Returns `true` when the error message indicates a Full Disk Access / macOS
- * permission denial. Covers both the legacy Safari-specific text (still
- * produced when only Safari is blocked) and the new generic backend contract
- * that always contains `"Full Disk Access"` for any browser that can't be read
- * due to a missing TCC entitlement.
+ * Localizes a skipped/deferred backup notice from the stable `reasonCode`
+ * ('not-due' | 'write-lock'); the backend's English `reason` prose is only a
+ * fallback for codes this build does not know.
  */
-export function isFullDiskAccessIssueMessage(message: string) {
-  return (
-    message.includes('Safari History.db is not readable yet') ||
-    message.includes('Full Disk Access')
-  )
-}
-
-/**
- * Returns `true` when the backup failed because the archive is encrypted and
- * no session key is available. The gate handles these failures — no toast.
- */
-export function isLockRequiredError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-  const msg = error.message
-  return (
-    msg.includes('database key is required') ||
-    msg.includes('encrypted archive requires') ||
-    msg.includes('no session key') ||
-    /archive.*locked/i.test(msg)
-  )
+export function backupSkipNotice(report: BackupReport, t: ShellTranslator) {
+  switch (report.reasonCode) {
+    case 'write-lock':
+      return t('shell.manualBackupWriteLockDeferred')
+    case 'not-due':
+      return t('shell.manualBackupDueWindow')
+    default:
+      return report.reason ?? t('shell.manualBackupDueWindow')
+  }
 }
 
 function backupCompletionNotice(report: BackupReport, t: ShellTranslator) {
   if (report.dueSkipped) {
-    return report.reason ?? t('shell.manualBackupDueWindow')
+    return backupSkipNotice(report, t)
   }
 
   if (report.run) {
@@ -255,7 +244,12 @@ export function createShellDataActions({
         void refreshDashboardSnapshot(nextSnapshot)
         return nextSnapshot
       } catch (nextError) {
+        // `setError` resets `errorKind` to null, and NOTHING renders a
+        // null-kind shell error — so a quiet auto-save failure used to be
+        // completely invisible while the control kept showing the value the
+        // user picked. Re-assert a kind the shell actually renders.
         setError(describeError(nextError, 'save_config'))
+        setErrorKind('config-save')
         throw nextError
       } finally {
         if (!quiet) {
@@ -428,9 +422,12 @@ export function createShellDataActions({
           setRawError(rawMessage)
           setErrorKind(isFullDiskAccess ? 'full-disk-access' : 'backup')
         }
-        if (nextError instanceof Error && message !== nextError.message) {
-          throw new Error(message)
-        }
+        // ALWAYS rethrow the ORIGINAL error. Replacing it with a localized
+        // message would push translated copy into the error channel, forcing
+        // downstream catch blocks (onboarding) to re-classify by sniffing
+        // translations — the exact bug class the CommandError envelope
+        // eliminated. Callers that display the failure classify the raw
+        // error themselves and render their own localized copy.
         throw nextError
       } finally {
         unsubscribe()

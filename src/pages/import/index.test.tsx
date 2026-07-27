@@ -344,6 +344,9 @@ describe('ImportPage route owner', () => {
     importReviewStateMock.mockReturnValue(
       importReviewStateFixture({
         actionError: 'Full Disk Access required',
+        // The repair affordance keys off the hook's raw-error classification,
+        // never off the displayed (possibly localized) message text.
+        actionErrorIsFullDiskAccess: true,
       }),
     )
     renderPage()
@@ -677,7 +680,7 @@ describe('ImportPage route owner', () => {
     })
 
     expect(latestReviewState().reportedErrors.at(-1)?.message).toBe(
-      'import.actionErrorTitle',
+      'import.importUnavailableBody',
     )
   })
 })
@@ -753,6 +756,7 @@ function shellTaskFixture(overrides: Partial<ShellTask> = {}): ShellTask {
     state: 'running',
     title: 'Import task',
     detail: 'Writing archive records',
+    detailOrigin: 'shell',
     startedAt: '2026-04-27T10:00:00.000Z',
     updatedAt: '2026-04-27T10:01:00.000Z',
     finishedAt: null,
@@ -792,6 +796,7 @@ function importReviewStateFixtureBase() {
   const selectedBatchIds: number[] = []
   return {
     actionError: null as string | null,
+    actionErrorIsFullDiskAccess: false,
     activeBatchDetail: null,
     clearActionError: clearActionErrorMock,
     handleBatchMutation: vi.fn(),

@@ -28,6 +28,7 @@ import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { formatDateTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
+import { isPaperQaLayoutEnabled } from '../../lib/paper-qa-layout'
 import {
   auditSeverity,
   auditSeverityKey,
@@ -453,7 +454,7 @@ export function AuditPage() {
       className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 pt-7"
       data-testid="audit-page"
     >
-      {searchParams.get('layout') === 'paper' ? (
+      {isPaperQaLayoutEnabled(searchParams) ? (
         <PaperAuditPanel
           recentRuns={snapshot.recentRuns}
           currentRunId={runId}

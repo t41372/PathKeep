@@ -213,7 +213,9 @@ describe('Security route panels', () => {
         {...handlers}
         actionError="Could not rekey"
         busy="security.previewRekey"
-        localizedWarning={(warning) => `localized:${warning}`}
+        localizedWarning={(warning, code) =>
+          `localized:${code ?? 'uncoded'}:${warning}`
+        }
         notice="Preview ready"
         preview={rekeyPreviewFixture()}
         rekeyConfirmText=""
@@ -246,7 +248,14 @@ describe('Security route panels', () => {
     expect(handlers.handlePreviewRekey).toHaveBeenCalledTimes(1)
     expect(handlers.handleExecuteRekey).toHaveBeenCalledTimes(1)
     expect(screen.getByText('/tmp/rekey-snapshot.sqlite')).toBeInTheDocument()
-    expect(screen.getByText('localized:Back up first')).toBeInTheDocument()
+    // Warnings hand their index-aligned stable code to the localizer, so the
+    // page can localize off codes instead of backend prose.
+    expect(
+      screen.getByText('localized:archive-locked:Back up first'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('localized:uncoded:Uncoded diagnostic warning'),
+    ).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('Could not rekey')
 
     const plaintextHandlers = rekeyHandlers()
@@ -367,7 +376,8 @@ function rekeyPreviewFixture(
     snapshotPath: '/tmp/rekey-snapshot.sqlite',
     steps: ['Create snapshot', 'Rewrite database'],
     tempDatabasePath: '/tmp/rekey-temp.sqlite',
-    warnings: ['Back up first'],
+    warnings: ['Back up first', 'Uncoded diagnostic warning'],
+    warningCodes: ['archive-locked'],
     ...overrides,
   }
 }

@@ -475,6 +475,15 @@
   text-decoration: underline;
 }
 
+/* Full-width secondary line under a recent row: the localized fallback reason
+   explaining why a rebuild recomputed from scratch instead of incrementally. */
+.recent-row__detail {
+  flex-basis: 100%;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-faint);
+}
+
 /* ═══ OUTCOME PILLS ═══ */
 
 .outcome-pill {

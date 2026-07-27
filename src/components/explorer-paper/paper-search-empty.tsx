@@ -12,6 +12,7 @@
  */
 
 import { cn } from '@/lib/cn'
+import type { PaperSearchMode } from './paper-search-hero'
 
 export interface PaperSearchSuggestion {
   id: string
@@ -26,11 +27,22 @@ export interface PaperSearchSuggestion {
 export interface PaperSearchRecent {
   id: string
   q: string
-  mode: 'keyword' | 'regex' | 'semantic'
-  /** Number of results last time the query ran. */
-  count: number
-  /** Pretty-formatted "when" string. */
-  when: string
+  /**
+   * The search mode the query last ran in. Typed as the shared
+   * `PaperSearchMode` — this used to be a private
+   * `'keyword' | 'regex' | 'semantic'` union that no longer matched the rest
+   * of the surface (the third mode has been `'smart'` since the Smart tab
+   * landed), so nothing could actually be assigned to it.
+   */
+  mode: PaperSearchMode
+  /**
+   * Number of results the query returned last time it ran, when known.
+   * Omitted for entries persisted before the count was recorded — the row
+   * then renders `recentMetaBrief` rather than inventing a number.
+   */
+  count?: number
+  /** Pretty-formatted "when" string, when known. */
+  when?: string
 }
 
 export interface PaperSearchEmptyCopy {
@@ -38,6 +50,18 @@ export interface PaperSearchEmptyCopy {
   recentHeading: string
   /** Template, e.g. "{mode} · {count} results · {when}". */
   recentMeta: string
+  /**
+   * Reduced template for entries with no recorded count / timestamp — e.g. "{mode}".
+   * Used instead of `recentMeta` so a legacy stored entry never renders
+   * "undefined results".
+   */
+  recentMetaBrief: string
+  /**
+   * Localized display names for the `{mode}` slot. Keyed by the internal mode
+   * token so the raw token (`keyword` / `regex` / `smart`) never reaches the
+   * screen.
+   */
+  modeNames: Record<PaperSearchMode, string>
   /** Quiet footer line. */
   footer: string
   /**
@@ -144,10 +168,15 @@ export function PaperSearchEmpty({
               >
                 <span>{entry.q}</span>
                 <span className="text-ink-faint font-mono text-[10.5px]">
-                  {copy.recentMeta
-                    .replace('{mode}', entry.mode)
-                    .replace('{count}', String(entry.count))
-                    .replace('{when}', entry.when)}
+                  {entry.count !== undefined && entry.when !== undefined
+                    ? copy.recentMeta
+                        .replace('{mode}', copy.modeNames[entry.mode])
+                        .replace('{count}', String(entry.count))
+                        .replace('{when}', entry.when)
+                    : copy.recentMetaBrief.replace(
+                        '{mode}',
+                        copy.modeNames[entry.mode],
+                      )}
                 </span>
               </button>
             ))}

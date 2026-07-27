@@ -48,6 +48,23 @@
   - 目標：建立 reusable run-attempt finalizer/guard，讓 canonical run row 一旦建立，任何 transaction 前置、commit 後 follow-up、manifest/stats/batch finalization 錯誤都留下 terminal、帶原始錯誤與 partial-commit phase 的結果，不再永久 `running`。
   - 已確認範圍：retention prune；checkpoint snapshot restore；Takeout import；Browser Direct import；backup commit 後 manifest/search-projection/finalize tails。另修 Audit「Last 30 days」實際只取 12 筆、paper chain 再截 6 筆的 truth mismatch，以及 native worker stdout/stderr bounded rotation。
   - 契約：每條舊碼 failure window 都先有 failing regression；若資料 transaction 已 commit，狀態必須誠實區分 committed-with-followup-failure，不得假裝完全失敗或成功；finalizer 自身錯誤不得覆蓋原始錯誤。
+
+> 2026-07-26 coherence-sweep closeout note：使用者插單的全庫「逆天點」審查（`WORK-REVIEW-2026-07-26-COHERENCE-SWEEP`，見 CHANGELOG）已完成並全 gate 綠。結構化 `CommandError` envelope、十餘條 stable-code copy 通道、六個影子翻譯表剷除、posture/boundary-map 文檔如實化都已落地。待使用者拍板：`?layout=paper` QA mounts 去留、og:image 預設是否翻 `OnDemand`、onboarding 一次性 egress 披露。
+
+- [ ] **WORK-REVIEW-FOLLOWUPS-COPY-CHANNELS-2** — 2026-07-27 並行審查的遞延 copy-channel 工作(均已由 orchestrator 逐檔追蹤確認,可直接動手)
+  - **後端平行 i18n 系統**:`vault-core/src/intelligence/host_artifacts.rs:393-415` 的 `build_boundary_notes(locale)` 按 locale 返回硬編碼中文,前端 `src/pages/settings/helpers.ts:475-511` 的 `localizeLocalHostLine` 再用**整句中文**(zh-CN 與 zh-TW 各一份)當 switch case 映射回真正的 catalog。兩邊譯文不一致且後端那份更差(「这个本地宿主只使用 deterministic Core Intelligence read models。」混入未翻譯術語)。後端改一個標點,用戶靜默看到更差的中文。修法:HTML 產物保留後端 locale copy(獨立檔案的合法需求,但把譯文修好);preview payload 改 additive `boundary_note_codes` 等 stable code 通道,前端按 code 查 catalog,刪整句匹配。
+  - **`formatDuration` 三個實現**:`src/lib/format.ts:94`(硬編碼英文,**死代碼**,唯一 importer 是 `App.helpers.test.tsx`)、`src/components/explorer-paper/paper-day-insights-helpers.ts:352`(Intl unit-style,**唯一正確**)、`src/pages/intelligence/sections/shared.ts:31`(硬編碼英文 + 把毫秒暴露給用戶)。zh 用戶在 Explorer 看「45 分鐘」、在 Intelligence 看「45.0m」,而 `paper-session-gap.tsx:11-12` 與 `observed-interactions-section.tsx:18` 兩處檔頭**各自聲稱**自己保證了一致性。修法:以 Intl 版為基準提升到 `lib/format.ts`,兩處改用它,修掉兩段假註釋。
+  - **死碼刪除**:AI integration preview 整條路已驗證是死的(`settings/index.tsx:80`、`integrations/index.tsx:64`、`maintenance/index.tsx:71` 三處全 `enableAiIntegrationPreview: false`;`ai-providers-section.tsx:104-105` 只在 props 介面宣告從未 destructure)。連帶 `helpers.ts:401-542` 的 **45 句英文影子翻譯表**(其中多處並列同一語義的新舊兩版 —— 漂移已發生過的物證)。直接刪,不要 code 化。
+  - **重複工具函數**:`isoDateOnly` ×2 逐字相同(heatmap / dashboard,且 explorer 跨模塊 import dashboard 的私有 helper)、`formatLocalDateKey` ×2 逐字相同且在**同一模塊家族內**(`core-intelligence/routes.ts` 與 `core-intelligence/api/shared.ts`);`src/lib/format.ts:153-156` 把三語 fallback 文案硬編碼在 catalog 之外。
+  - **其他**:`worker_bridge/intelligence.rs:3` 與 `dev_ipc_bridge/dispatch.rs:842` 兩個 TODO 引用已於 2026-04-23 完成的 M13;`applyDateShortcut` / `activeDateShortcut` / `clearDateRange` / `buildRecentSearchLabel` 從 `useExplorerUrlState` 導出但無消費者(需 UI 決策);Settings 尚未修的 P1/P2 見 2026-07-27 審查報告(滑桿每格寫一次 config 無 debounce、危險操作缺確認、retention 預設勾選 snapshots、搜尋規則存檔靜默觸發全量重建、遷移排除說明硬編碼英文、匯入 bundle 後不刷新不提示重啟、AI API key 存/清失敗無回饋)。
+
+- [ ] **WORK-REVIEW-FOLLOWUPS-COPY-CHANNELS** — 2026-07-26 coherence sweep 的殘餘 prose 面收口
+  - 讀先：`docs/architecture/desktop-command-surface.md` 2026-07-26 stable-code copy channels 條目；CHANGELOG `WORK-REVIEW-2026-07-26-COHERENCE-SWEEP`。
+  - 範圍：`RekeyPreview.warnings`（vault-worker/src/security.rs:334-348 → security/panels.tsx）補 code 通道；Jobs `IntelligenceJobOverview.fallbackReason` prose；Touch-ID unlock error path 英文字串（vault-platform/src/biometric.rs `map_touch_id_error`）；`mark_all_deterministic_modules_stale` 寫入的兩條 stale reason prose（需 `deterministic_module_runtime` 的 `stale_reason_code` 遷移）；backup warnings 中仍為 `code: ""` opaque 的 producer（skipped-profile 清單、staging fallback、per-profile ingest notes、git-commit failures）；`ImportBatchDetail.note_details` 的 batch review 渲染面接入。
+  - 契約：同 2026-07-26 通則——枚舉狀態 code 化三語、diagnostic 原文保留、unknown fallback 誠實。
+- [ ] **WORK-FLAKY-WRITE-LOCK-TEST** — de-flake `archive/write_lock.rs:835` `distinct_open_file_descriptions_exclude_each_other`
+  - 現象：全量 `bun run check` 6 跑 2 失敗、隔離跑全過（2026-07-26 checker 記錄）。疑似 fd-inheritance 窗口：兄弟測試 fork 子進程（`git_audit` shell out）瞬時複製仍開啟的 lock fd，導致 drop 後 flock 未即時釋放。
+  - 契約：de-flake 不得弱化該 durability 斷言;優先隔離 fork 窗口（如測試內序列化與 fork 類測試的併發）而不是加 retry。
   - 驗收：上述 owners 無非測試用途的裸 `running` leak；Audit copy/query一致且大列表 bounded/virtualized；worker logs有上限；`bun run check` 綠。
 
 - [ ] **WORK-REVIEW-0614-FOLLOWUPS-A** — 2026-06-14 review non-blocking follow-ups
@@ -706,6 +723,14 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 讀先：`src-tauri/tauri.conf.json`（bundle / identifier / updater）；`.github/workflows/`（CI）；Tauri v2 macOS code-signing + updater 文檔。
   - 契約：憑證/私鑰只進加密 secrets，永不入 repo；reproducible build 原則不破；release rehearsal（`bun run verify`）通過。
   - 驗收：CI 產出 signed + notarized + stapled 的 `.app`/`.dmg`；裝在乾淨機器上 Gatekeeper 不擋；授一次 FDA 後，安裝下一個版本仍保有 FDA（備份不再靜默失效）。
+
+- [ ] **WORK-STARS-PAGINATE-A** — 給 `list_stars` 真正的 cursor 分頁，讓 Starred hub 不再只是「有標註的前 N 筆」
+  - 來源：2026-07-27 Explorer P1 修復（E2）。原狀：`use-starred-hub.ts` 呼叫 `backend.listStars(null, sort)` 不帶 limit，靜默吃下 Rust 端 `DEFAULT_LIST_LIMIT = 500` 並丟掉其餘；hub 檔頭卻自稱 _paginated read model_；`index.tsx` 又把 `starredSearchEntries.length` 當成 `is:starred` 的結果總數。有 700 個星標的使用者：入口徽章 700、hub 500 筆、搜索說「500 pages found」——同一畫面三個互相矛盾的數字。
+  - 本輪已做（**過渡方案，不是完成**）：(a) 明確傳 `MAX_LIST_LIMIT`（2000）而非隱式吃 500；(b) `useStarredHub` 回報 `truncated`，`PaperStarredView` 在「回覆填滿上限 且 聚合總數 > 已載入數」時渲染三語的「顯示前 N 筆，共 M 筆——縮小範圍以查看更多」；(c) `is:starred` 改用 `useStarredCount` 的真實聚合（`counts.urls`，domain 星標不算頁面）而不是切片長度；(d) 修掉與代碼相反的檔頭/註釋。**上限仍在，只是不再說謊。**
+  - 本 block 要做：`list_stars` 加 cursor/offset + limit 的真分頁契約（含 `most_revisited` 排序語意——現在的視窗內排序註釋明說「若星標數超過 cap，排序只在 recency-bounded slice 內成立」，真分頁後要改成 SQL `ORDER BY`），前端 hub 換成漸進載入（無限捲動或分頁條），移除 `truncated` 過渡文案。
+  - 讀先：`src-tauri/crates/vault-core/src/stars.rs`（`list_stars` / `collect_star_rows` / `MAX_LIST_LIMIT` 與 `most_revisited` 的視窗內排序註釋）、`src-tauri/src/commands/stars.rs`、`src/lib/backend-client/stars.ts`、`src/pages/explorer/use-starred-hub.ts`、`src/pages/explorer/use-starred-count.ts`、`docs/features/`（stars）。
+  - 契約：i18n×3；100% JS/Rust coverage；hub 任何時刻不凍結主線程；總數一律來自聚合讀模型，永不用已載入切片長度。
+  - 驗收：造一個超過 2000 星標的 fixture，hub 能一路載到底、`is:starred` 總數與入口徽章一致、排序在全集上成立；`bun run check` 綠。
 
 ---
 

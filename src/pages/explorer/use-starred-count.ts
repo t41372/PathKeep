@@ -28,13 +28,20 @@ import { hasDesktopCommandTransport } from '../../lib/runtime'
 export interface StarredCount {
   /** Total starred entities (urls + domains). `0` until the first read lands. */
   total: number
+  /**
+   * Starred *pages* only. The `is:starred` search facet renders url-kind stars
+   * exclusively (a domain star is not a page), so it must report this rather
+   * than `total` — and never the length of the hub's bounded slice, which is
+   * what made a 700-star archive announce "500 pages found".
+   */
+  urls: number
   /** True while the count is loaded and trustworthy (a real read completed). */
   loaded: boolean
 }
 
 // Browser-preview has no stars backend, so the count is a trustworthy empty
 // straight away — matching a fresh install — without ever touching the effect.
-const PREVIEW_EMPTY: StarredCount = { total: 0, loaded: true }
+const PREVIEW_EMPTY: StarredCount = { total: 0, urls: 0, loaded: true }
 
 export function useStarredCount(reloadToken: number = 0): StarredCount {
   const desktop = hasDesktopCommandTransport()
@@ -43,6 +50,7 @@ export function useStarredCount(reloadToken: number = 0): StarredCount {
   // setting state synchronously inside the effect (forbidden by the lint gate).
   const [fetched, setFetched] = useState<StarredCount>({
     total: 0,
+    urls: 0,
     loaded: false,
   })
 
@@ -53,13 +61,17 @@ export function useStarredCount(reloadToken: number = 0): StarredCount {
       .getStarCounts()
       .then((counts) => {
         if (cancelled) return
-        setFetched({ total: counts.urls + counts.domains, loaded: true })
+        setFetched({
+          total: counts.urls + counts.domains,
+          urls: counts.urls,
+          loaded: true,
+        })
       })
       .catch(() => {
         // A failed count must not crash the toolbar; keep the entry usable and
         // simply suppress the badge by reporting an untrustworthy count.
         if (cancelled) return
-        setFetched({ total: 0, loaded: false })
+        setFetched({ total: 0, urls: 0, loaded: false })
       })
     return () => {
       cancelled = true

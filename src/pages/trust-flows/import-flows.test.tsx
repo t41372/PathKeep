@@ -92,7 +92,7 @@ describe('trust flows/import flows', () => {
     expect(await screen.findByText('PathKeep trust UX notes')).toBeVisible()
     expect(
       screen.getByText(
-        importT('technicalNotesRecorded', {
+        importT('technicalNotesRecordedMany', {
           count: '1',
         }),
       ),

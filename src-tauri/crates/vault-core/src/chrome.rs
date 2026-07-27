@@ -79,10 +79,12 @@ pub struct ProfileSnapshot {
 /// `warnings` exists so a degraded staging path (an online snapshot that fell
 /// back to a recovered raw copy because the live browser was busy) is recorded
 /// on the backup run instead of vanishing — the caller folds it into the run's
-/// warning ledger.
+/// warning ledger. Each entry is a coded [`crate::models::BackupWarning`] so
+/// the Audit surface localizes the degradation; the snapshot-failure error
+/// chain stays in `diagnostic`.
 pub struct StagedProfile {
     pub snapshot: ProfileSnapshot,
-    pub warnings: Vec<String>,
+    pub warnings: Vec<crate::models::BackupWarning>,
 }
 
 #[derive(Clone, Copy)]

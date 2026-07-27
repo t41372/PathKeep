@@ -4,6 +4,7 @@
  * ## Responsibilities
  * - Cover the schedule install, skip, and default summary branches.
  * - Verify the skip hint remains visible when setup defers scheduled backup.
+ * - Verify the default-on link-preview egress disclosure is always shown.
  *
  * ## Not responsible for
  * - Re-testing the full onboarding route state machine.
@@ -46,6 +47,16 @@ describe('ReadyStep', () => {
 
     rerender(readyStepElement({ dueAfterHours: 1.5, scheduleSetupMode: null }))
     expect(screen.getByText('Every 90 minutes')).toBeVisible()
+  })
+
+  test('discloses default-on link preview fetching before the first backup', () => {
+    renderReadyStep()
+    expect(screen.getByText('Link previews are on by default')).toBeVisible()
+    expect(
+      screen.getByText(
+        /After each backup, PathKeep requests preview images from the sites you visited \(Bilibili via its public API\)\. This is PathKeep's only default network request, and it carries no cookies or account information\. You can turn it off or switch to on-demand later in Settings → Link previews\./,
+      ),
+    ).toBeVisible()
   })
 })
 

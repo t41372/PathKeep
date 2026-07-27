@@ -85,8 +85,18 @@ export interface PaperDetailPanelCopy {
   /** Notes meta. */
   notesPlaceholder: string
   notesEmpty: string
-  notesSavedLocally: string
-  /** Shown in place of the saved-locally hint when the last write failed. */
+  /**
+   * Settled state: the text on screen matches what the annotation store holds.
+   *
+   * Deliberately does NOT say "local". On desktop the write lands in the
+   * encrypted vault via `set_url_notes`; "local" was inherited from the
+   * browser-preview localStorage prototype and misdescribed where the data
+   * went.
+   */
+  notesSaved: string
+  /** In-flight state: the debounced write has not been issued/settled yet. */
+  notesSaving: string
+  /** Shown in place of the saved/saving hint when the last write failed. */
   notesSaveError: string
   /** Singular char counter, e.g. "1 char". */
   notesCharSingular: string
@@ -184,8 +194,8 @@ export interface PaperDetailPanelProps {
   onToggleStar?: (entry: PaperDetailPanelEntry) => void
   /**
    * Last annotation-write error, if any. When set, the panel surfaces a
-   * "not saved" alert instead of the misleading "Saved · local" hint, so an
-   * archive-locked / IPC-failed write can't masquerade as a successful save.
+   * "not saved" alert instead of the saved/saving hint, so an archive-locked
+   * / IPC-failed write can't masquerade as a successful save.
    */
   annotationError?: string | null
   /** Look-further row click handlers. Optional — rows render but become inert when omitted. */
@@ -645,12 +655,27 @@ export function PaperDetailPanel({
                     )
                 : copy.notesEmpty}
             </span>
+            {/*
+              Three honest states, driven by the save machinery rather than by
+              "is the textarea non-empty". The old `notesValue ? saved : ''`
+              claimed "Saved" on the very first keystroke, while the write was
+              still 400 ms away in `saveTimer` — and it ignored `savePending`,
+              which this component already maintained but never rendered.
+            */}
             {annotationError ? (
               <span role="alert" className="text-error">
                 {copy.notesSaveError}
               </span>
+            ) : savePending ? (
+              <span data-testid="paper-detail-notes-saving">
+                {copy.notesSaving}
+              </span>
+            ) : notesValue && notesValue === lastSyncedNotes ? (
+              <span data-testid="paper-detail-notes-saved">
+                {copy.notesSaved}
+              </span>
             ) : (
-              <span>{notesValue ? copy.notesSavedLocally : ''}</span>
+              <span />
             )}
           </div>
 

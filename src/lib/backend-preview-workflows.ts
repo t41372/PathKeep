@@ -48,9 +48,12 @@ import type {
 export function buildMockSecurityStatus(
   state: MockBackendState,
 ): SecurityStatus {
-  const warnings = state.snapshot.archiveStatus.warning
-    ? [state.snapshot.archiveStatus.warning]
-    : []
+  // Browser preview never fails to open the archive for any other reason, so the
+  // only archive warning it can surface is the locked-archive one. The code
+  // channel therefore mirrors `warnings` one-for-one.
+  const archiveWarning = state.snapshot.archiveStatus.warning
+  const warnings = archiveWarning ? [archiveWarning] : []
+  const warningCodes = archiveWarning ? ['encrypted-needs-password'] : []
   const lastRekeyRun =
     state.snapshot.recentRuns.find((run) => run.runType === 'rekey') ?? null
 
@@ -62,6 +65,7 @@ export function buildMockSecurityStatus(
     warnings.push(
       'Archive is encrypted, but the database key is not currently stored in the system keyring.',
     )
+    warningCodes.push('remembered-key-missing')
   }
 
   const mode = !state.snapshot.archiveStatus.initialized
@@ -89,6 +93,7 @@ export function buildMockSecurityStatus(
       : null,
     keyringStatus: structuredClone(state.snapshot.keyringStatus),
     warnings,
+    warningCodes,
   }
 }
 
@@ -108,7 +113,11 @@ export function buildMockRekeyPreview(
     )
   }
 
+  // Codes mirror `warnings` index-for-index, matching the desktop backend's
+  // `REKEY_WARNING_*` channel so preview mode exercises the same localization
+  // path as desktop.
   const warnings: string[] = []
+  const warningCodes: string[] = []
   if (
     state.snapshot.archiveStatus.encrypted &&
     !state.snapshot.archiveStatus.unlocked
@@ -116,16 +125,19 @@ export function buildMockRekeyPreview(
     warnings.push(
       'The archive is currently locked. Unlock it before executing the rekey.',
     )
+    warningCodes.push('archive-locked')
   }
   if (request.newMode === 'Encrypted' && !request.newKey?.trim()) {
     warnings.push(
       'Encrypted rekey requires a new database key before execute can run.',
     )
+    warningCodes.push('new-key-required')
   }
   if (state.snapshot.config.archiveMode === request.newMode) {
     warnings.push(
       'The target mode matches the current mode, so PathKeep will treat this as a key rotation / validation pass.',
     )
+    warningCodes.push('same-mode-rewrite')
   }
 
   return {
@@ -140,6 +152,7 @@ export function buildMockRekeyPreview(
       'Swap the rewritten database into place only after the export succeeds.',
     ],
     warnings,
+    warningCodes,
   }
 }
 
@@ -221,6 +234,10 @@ export function buildMockRetentionPreview(
     warnings: [
       'Pruning snapshots removes saved restore checkpoints from future Audit review. Manifest and run summaries stay in place.',
       'Export pruning only removes local files under the PathKeep data directory. Remote objects are unchanged.',
+    ],
+    warningCodes: [
+      'snapshot-prune-removes-checkpoints',
+      'export-prune-local-only',
     ],
   }
 }

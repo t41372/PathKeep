@@ -87,6 +87,12 @@ export interface ApplyImportOptions {
  *
  * Pinned constant rather than free text so a future copy tweak on the
  * Rust side does not silently break the UI detection.
+ *
+ * Mirrors `IMPORT_SOURCE_KEY_REQUIRED_PREFIX` in
+ * `src-tauri/crates/vault-core/src/migration.rs`. Both sides are pinned by a
+ * test that spells the literal out (`migration.test.ts` here,
+ * `import_source_key_error_prefixes_stay_the_literals_the_shell_pins` there),
+ * so a one-sided edit fails a test instead of silently breaking the prompt.
  */
 export const IMPORT_SOURCE_KEY_REQUIRED_PREFIX = 'source_archive_key required'
 
@@ -95,6 +101,10 @@ export const IMPORT_SOURCE_KEY_REQUIRED_PREFIX = 'source_archive_key required'
  * key does not decrypt the imported archive." Distinct from
  * `IMPORT_SOURCE_KEY_REQUIRED_PREFIX` so the UI can swap copy between
  * "please enter" and "wrong key, try again."
+ *
+ * Mirrors `IMPORT_SOURCE_KEY_INVALID_PREFIX` in
+ * `src-tauri/crates/vault-core/src/migration.rs`; see the note on
+ * `IMPORT_SOURCE_KEY_REQUIRED_PREFIX` for how the two sides stay locked.
  */
 export const IMPORT_SOURCE_KEY_INVALID_PREFIX = 'source_archive_key invalid'
 

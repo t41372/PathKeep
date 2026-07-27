@@ -5,14 +5,18 @@
 //! repainting busy overlays and progress updates honestly.
 
 #[cfg(not(test))]
+use crate::command_error::CommandError;
+#[cfg(not(test))]
 use tauri::async_runtime;
 
 #[cfg(not(test))]
 pub(super) async fn run_blocking_command<T: Send + 'static>(
     command_name: &'static str,
-    task: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
+    task: impl FnOnce() -> Result<T, CommandError> + Send + 'static,
+) -> Result<T, CommandError> {
     async_runtime::spawn_blocking(task).await.map_err(|error| {
-        format!("PathKeep desktop command \"{command_name}\" join failed: {error}")
+        CommandError::internal(format!(
+            "PathKeep desktop command \"{command_name}\" join failed: {error}"
+        ))
     })?
 }

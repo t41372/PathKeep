@@ -514,6 +514,13 @@ export interface IntelligenceJobOverview {
   progressCurrent?: number | null
   progressTotal?: number | null
   progressPercent?: number | null
+  /** Diagnostic English prose; localize through `fallbackReasonCode`. */
+  fallbackReason?: string | null
+  /**
+   * Stable `REBUILD_FALLBACK_*` code for `fallbackReason`; absent for job
+   * artifacts written before code-ification.
+   */
+  fallbackReasonCode?: string | null
   lastError?: string | null
   retryable: boolean
   cancellable: boolean
@@ -534,8 +541,34 @@ export interface DeterministicModuleRuntimeStatus {
   lastRunId?: number | null
   lastBuiltAt?: string | null
   lastInvalidatedAt?: string | null
+  /** Diagnostic English prose; localize through `staleReasonCode`. */
   staleReason?: string | null
+  /** Stable code for `staleReason`; absent when the prose is opaque. */
+  staleReasonCode?: string | null
+  /** Diagnostic English prose, index-aligned with `noteDetails`. */
   notes: string[]
+  /**
+   * Coded notes Settings localizes. Empty only for legacy runtime rows written
+   * before code-ification, in which case `notes` is the whole truth.
+   */
+  noteDetails?: DerivedRuntimeNote[]
+}
+
+/**
+ * Names one deterministic-runtime note with a stable code and typed params.
+ *
+ * Why this exists: the derived-state review card used to recover meaning from
+ * backend English with regexes, so one punctuation edit in Rust silently dropped
+ * zh copy back to English. `code` drives catalog lookup, `message` is the
+ * fallback, and an empty `code` marks a deliberate diagnostic pass-through.
+ */
+export interface DerivedRuntimeNote {
+  code: string
+  message: string
+  /** Browser profile the note is about, interpolated as `{profile}`. */
+  profileId?: string | null
+  /** Stable rebuild-mode id the shell turns into a localized label. */
+  jobKind?: string | null
 }
 
 /**
@@ -658,6 +691,14 @@ export interface AiSearchResultItem {
   domain: string
   visitedAt: string
   score: number
+  /**
+   * Stable, locale-independent CODE for why the row matched — NEVER display copy.
+   *
+   * One of `lexical` / `semantic` / `lexical+semantic` / `lexical-date-ordered` / `recent-visit`,
+   * optionally suffixed `+starred` when the starred boost promoted the row. The same field is quoted
+   * verbatim into the model's context by the agent/`run_code`/MCP surfaces, so it cannot be prose;
+   * the UI resolves it through `localizeAiMatchReason` (an unknown code renders verbatim).
+   */
   matchReason: string
   /**
    * Capped excerpt of the matched page's enrichment summary (W-ENRICH-1, 06 §6; REACH-C3). The only

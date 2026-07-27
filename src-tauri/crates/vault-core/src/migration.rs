@@ -1685,6 +1685,20 @@ mod tests {
         (dir, paths)
     }
 
+    /// Locks the two typed apply-import error prefixes to exact literals.
+    ///
+    /// The shell hand-copies these same literals in
+    /// `src/lib/backend-client/migration.ts` because the source-key prompt is
+    /// selected by prefix match. `src/lib/backend-client/migration.test.ts`
+    /// pins the TypeScript side against the identical strings, so editing
+    /// either language alone fails a test instead of silently turning the
+    /// source-key prompt into a generic error banner.
+    #[test]
+    fn import_source_key_error_prefixes_stay_the_literals_the_shell_pins() {
+        assert_eq!(IMPORT_SOURCE_KEY_REQUIRED_PREFIX, "source_archive_key required");
+        assert_eq!(IMPORT_SOURCE_KEY_INVALID_PREFIX, "source_archive_key invalid");
+    }
+
     fn seed_archive(paths: &ProjectPaths) -> AppConfig {
         let config = AppConfig::default(); // plaintext
         fs::create_dir_all(paths.archive_database_path.parent().unwrap()).unwrap();

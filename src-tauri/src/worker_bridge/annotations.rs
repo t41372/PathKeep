@@ -1,13 +1,14 @@
 //! Worker-bridge helpers for per-URL annotations (notes + tags).
 
 use super::worker_result;
+use crate::command_error::CommandError;
 
 /// Reads the annotation bundle for a URL — see `vault_core::get_annotation`.
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_annotation_impl(
     session_database_key: Option<&str>,
     url: &str,
-) -> Result<Option<vault_core::UrlAnnotation>, String> {
+) -> Result<Option<vault_core::UrlAnnotation>, CommandError> {
     worker_result(vault_worker::get_annotation(session_database_key, url))
 }
 
@@ -16,7 +17,7 @@ pub(crate) fn get_annotation_impl(
 pub(crate) fn set_notes_impl(
     session_database_key: Option<&str>,
     request: vault_core::SetNotesRequest,
-) -> Result<vault_core::UrlAnnotation, String> {
+) -> Result<vault_core::UrlAnnotation, CommandError> {
     worker_result(vault_worker::set_notes(session_database_key, request))
 }
 
@@ -25,7 +26,7 @@ pub(crate) fn set_notes_impl(
 pub(crate) fn replace_tags_impl(
     session_database_key: Option<&str>,
     request: vault_core::ReplaceTagsRequest,
-) -> Result<vault_core::UrlAnnotation, String> {
+) -> Result<vault_core::UrlAnnotation, CommandError> {
     worker_result(vault_worker::replace_tags(session_database_key, request))
 }
 
@@ -34,7 +35,7 @@ pub(crate) fn replace_tags_impl(
 pub(crate) fn list_annotations_impl(
     session_database_key: Option<&str>,
     limit: Option<usize>,
-) -> Result<Vec<vault_core::UrlAnnotation>, String> {
+) -> Result<Vec<vault_core::UrlAnnotation>, CommandError> {
     worker_result(vault_worker::list_annotations(session_database_key, limit))
 }
 
@@ -44,6 +45,6 @@ pub(crate) fn search_annotations_impl(
     session_database_key: Option<&str>,
     query: &str,
     limit: Option<usize>,
-) -> Result<Vec<vault_core::UrlAnnotation>, String> {
+) -> Result<Vec<vault_core::UrlAnnotation>, CommandError> {
     worker_result(vault_worker::search_annotations(session_database_key, query, limit))
 }

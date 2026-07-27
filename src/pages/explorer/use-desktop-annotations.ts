@@ -14,12 +14,18 @@
  * - Optimistically apply local mutations, then write through to the
  *   `set_url_notes` / `replace_url_tags` commands; on failure the cache
  *   stays optimistic so the user keeps their typed-but-unsaved text.
+ * - Expose the latest write/hydration failure as `lastError`, which the
+ *   detail panel renders as its "Not saved · retry" alert. (This block used
+ *   to claim the opposite — see "Not responsible for" below — while the hook
+ *   already maintained `lastError` and the panel already rendered it.)
  *
  * ## Not responsible for
  * - Conflict resolution if two sessions write the same URL — last write
  *   wins, same as the local hook.
- * - Surfacing transport errors to the user; the panel renders a "Saved ·
- *   local" pill which is honest enough for prototype use.
+ * - Per-URL error attribution: `lastError` is a single latest-error slot for
+ *   the whole hook, not a map keyed by URL. The panel shows one record at a
+ *   time, so this is sufficient today.
+ * - Retrying a failed write. The user re-triggers the write by editing again.
  *
  * ## Performance notes
  * - Hydration is per-URL on-demand. The detail panel renders one URL at a

@@ -79,6 +79,16 @@ export const explorerNamespaceCatalog = {
       'Page content changed after the last smart-search build. Rebuild the index to refresh results with the latest text.',
     aiSearchNoteProviderResolutionFailed:
       'Smart search is unavailable right now ({reason}); showing keyword results only.',
+    // Per-row Smart-search match-reason captions, resolved from the backend's stable
+    // `match_reason` CODE vocabulary (`ai::search`). Every Smart result renders one of these
+    // under its title, so an English-prose backend value used to ship raw to zh users.
+    aiMatchReasonLexical: 'Keyword match',
+    aiMatchReasonSemantic: 'Meaning match',
+    aiMatchReasonLexicalSemantic: 'Keyword + meaning match',
+    aiMatchReasonLexicalDateOrdered: 'Keyword match (by date)',
+    aiMatchReasonRecentVisit: 'Most recent visit',
+    // Appended to the caption above when the backend code carries the `+starred` suffix.
+    aiMatchReasonStarredSuffix: ' · Starred',
     searchHeroEyebrow: 'SEARCH HISTORY',
     searchHeroPlaceholder: 'Type to search your history…',
     searchHeroLabel: 'Search mode',
@@ -184,7 +194,7 @@ export const explorerNamespaceCatalog = {
     filterDomain: 'DOMAIN',
     filterProfile: 'PROFILE',
     filterProfileAria: 'Explorer profile',
-    allProfiles: 'All profiles',
+    allProfiles: 'All browsers',
     filterBrowser: 'BROWSER',
     allBrowsers: 'All browsers',
     filterStart: 'START',
@@ -274,6 +284,11 @@ export const explorerNamespaceCatalog = {
       hubEmptyTitle: 'Nothing starred yet',
       hubEmptyBody: 'Star a page to keep it here.',
       hubEmptyCta: 'Browse your history →',
+      // Shown when `list_stars` came back full: the hub is displaying a
+      // prefix, not the whole starred set. Never let the prefix length
+      // masquerade as the total.
+      hubTruncated:
+        'Showing the first {shown} of {total} — narrow the range to see more.',
       hubVisitCount: '{count}×',
       facetIsStarred: 'Show only starred pages.',
       shortcutHint: 'Press S to star the selected page.',
@@ -402,7 +417,8 @@ export const explorerNamespaceCatalog = {
       detailTitleHistory: 'Title history',
       detailNotesPlaceholder: 'Why did this matter? What were you looking for?',
       detailNotesEmpty: 'Empty',
-      detailNotesSavedLocally: 'Saved · local',
+      detailNotesSaved: 'Saved',
+      detailNotesSaving: 'Saving…',
       detailNotesSaveError: 'Not saved · retry',
       detailNotesCharSingular: '1 char',
       detailNotesCharPlural: '{count} chars',
@@ -497,6 +513,9 @@ export const explorerNamespaceCatalog = {
       emptyTryAskingHeading: 'Try asking',
       emptyRecentHeading: 'Recent searches',
       emptyRecentMeta: '{mode} · {count} results · {when}',
+      // Used for entries stored before the count/timestamp were recorded, so
+      // a legacy row never renders "undefined results".
+      emptyRecentMetaBrief: '{mode}',
       emptyFooter:
         'Memory is patient. Type something above to begin recalling.',
       emptySmartPrompt:
@@ -506,8 +525,11 @@ export const explorerNamespaceCatalog = {
       pageSuffixSingular: 'page',
       pageSuffixPlural: 'pages',
       noMatchesTitle: 'Memory is patient.',
+      // Names the tab the user actually has to click. The tab is "Smart"
+      // (`modeSmart` / `heroModeSmart`); "semantic search" was an internal
+      // term that matched no visible control.
       noMatchesBody:
-        'Nothing matched. Try a softer phrase, or switch to semantic search.',
+        'Nothing matched. Try a softer phrase, or switch to Smart search.',
       seeInContextLabel: 'See in context →',
       dayCountTemplate: '{count} {noun}',
       enrichmentSourceGeneric: 'Page summary',
@@ -526,6 +548,10 @@ export const explorerNamespaceCatalog = {
       // a piece is omitted when its datum is unavailable, never faked).
       relevanceScopeIndexed: '{count} pages indexed',
       relevanceScopeUpdated: 'updated {date}',
+      // Landmark name for the keyword/regex result pager. The button, jump,
+      // page-size, and summary strings themselves reuse the shared
+      // `firstPage` / `previousPage` / … Explorer keys.
+      paginationNavAria: 'Search result pages',
     },
   },
   'zh-CN': {
@@ -580,6 +606,12 @@ export const explorerNamespaceCatalog = {
       '上次智能搜索构建后页面内容发生了变化。重新构建索引，用最新文本刷新结果。',
     aiSearchNoteProviderResolutionFailed:
       '智能搜索当前不可用（{reason}）；仅显示关键词结果。',
+    aiMatchReasonLexical: '关键词匹配',
+    aiMatchReasonSemantic: '语义匹配',
+    aiMatchReasonLexicalSemantic: '关键词+语义匹配',
+    aiMatchReasonLexicalDateOrdered: '关键词匹配（按时间排序）',
+    aiMatchReasonRecentVisit: '最近访问',
+    aiMatchReasonStarredSuffix: ' · 已收藏',
     searchHeroEyebrow: '搜索历史',
     searchHeroPlaceholder: '输入关键词搜索你的历史记录…',
     searchHeroLabel: '搜索模式',
@@ -607,7 +639,7 @@ export const explorerNamespaceCatalog = {
     smartIndexEyebrow: '智能索引',
     smartIndexBuildTitle: '构建智能搜索索引',
     smartIndexBuildBody:
-      '智能搜索还没有可排序的内容。先构建一次索引以嵌入你的历史记录;之后备份的新页面会自动加入索引。',
+      '智能搜索还没有可排序的内容。先构建一次索引以嵌入你的历史记录；之后备份的新页面会自动加入索引。',
     smartIndexReadyBody:
       '已索引 {count} 个页面。大批量导入后可重建以保持结果新鲜。',
     smartIndexBuildCta: '构建索引',
@@ -615,14 +647,15 @@ export const explorerNamespaceCatalog = {
     // REACH-B B1：实时构建阶段文案，反映队列状态而非瞬时的入队调用。
     smartIndexBuildingTitle: '正在构建智能搜索索引',
     smartIndexBuildingBody:
-      '正在后台嵌入你的历史记录。你可以继续搜索——索引的页面越多,结果越好。',
+      '正在后台嵌入你的历史记录。你可以继续搜索——索引的页面越多，结果越好。',
     smartIndexBuildingDetail:
-      '该任务在队列中运行,对于大型存档可能需要一段时间。',
+      '该任务在队列中运行，对于大型存档可能需要一段时间。',
     smartIndexQueuedTitle: '索引构建已排队',
-    smartIndexQueuedBody: '你的构建任务正在队列中等待,即将开始。索引尚未就绪。',
+    smartIndexQueuedBody:
+      '你的构建任务正在队列中等待，即将开始。索引尚未就绪。',
     smartIndexPausedTitle: '索引构建已暂停',
     smartIndexPausedBody:
-      '已有构建任务排队,但智能搜索队列处于暂停状态,需恢复后才能完成。',
+      '已有构建任务排队，但智能搜索队列处于暂停状态，需恢复后才能完成。',
     smartIndexResumeCta: '在设置中恢复',
     loadingArchive: '正在搜索历史记录',
     queryFailedTitle: '搜索失败',
@@ -767,6 +800,7 @@ export const explorerNamespaceCatalog = {
       hubEmptyTitle: '还没有收藏',
       hubEmptyBody: '收藏一个页面，它会保留在这里。',
       hubEmptyCta: '浏览你的历史 →',
+      hubTruncated: '显示前 {shown} 条，共 {total} 条——缩小范围以查看更多。',
       hubVisitCount: '{count} 次',
       facetIsStarred: '只显示已收藏的页面。',
       shortcutHint: '按 S 收藏当前选中的页面。',
@@ -788,7 +822,7 @@ export const explorerNamespaceCatalog = {
       filterPopoverTitle: '细化视图',
       filterPopoverFieldDomain: '域名包含',
       filterPopoverFieldBrowser: '浏览器',
-      filterPopoverFieldProfile: '配置文件',
+      filterPopoverFieldProfile: '浏览器配置',
       filterPopoverFieldStart: '起始日期',
       filterPopoverFieldEnd: '截止日期',
       filterPopoverFieldRegex: '正则搜索',
@@ -829,7 +863,7 @@ export const explorerNamespaceCatalog = {
       calendarDowSunday: '日',
       calendarToday: '今天',
       calendarOneYearAgo: '1 年前',
-      calendarPagesArchived: '已归档 {count} 页',
+      calendarPagesArchived: '已备份 {count} 页',
       calendarMonthSummary: '{active} 个活跃日 · {total} 页',
       calendarBoundsMeta: '{firstYear}–{lastYear} · {totalDays} 天',
       calendarDialogLabel: '日历',
@@ -837,18 +871,18 @@ export const explorerNamespaceCatalog = {
       targetFromSearch: '来自搜索',
       targetFromSearchWithQuery: '来自搜索 ·「{query}」',
       targetFromIntelligence: '来自智能洞察',
-      targetPagesArchived: '已归档 {count} 页',
-      targetNoArchive: '这一天还没有归档记录',
+      targetPagesArchived: '已备份 {count} 页',
+      targetNoArchive: '这一天还没有备份记录',
       paginationOlder: '更早',
       paginationNewer: '更新',
       paginationSummary: '第 {page}/{pageCount} 页 · 共 {total} 条',
       paginationSummaryPending: '正在加载更多页…',
       paginationPageSizeLabel: '每页条数',
       infiniteLoadingMore: '正在加载更早的日期…',
-      infiniteEndOfArchive: '已到达归档的最早一天。',
+      infiniteEndOfArchive: '已到达存档的最早一天。',
       infiniteLoadedSummary: '已加载 {loaded}/{total} 页 · 视图中 {rows} 条',
       infiniteCapReached:
-        '当前展示前 {loaded} 条 · 使用搜索或日历跳转到更深的归档。',
+        '当前展示前 {loaded} 条 · 使用搜索或日历跳转到更深的存档。',
       infiniteError: '加载下一页时出错 · {message}',
       dayInsightsTopDomains: '常去网域',
       dayInsightsActivity: '当日活动',
@@ -894,7 +928,8 @@ export const explorerNamespaceCatalog = {
       detailTitleHistory: '标题历史',
       detailNotesPlaceholder: '为什么重要？当时在找什么？',
       detailNotesEmpty: '空',
-      detailNotesSavedLocally: '已保存 · 本地',
+      detailNotesSaved: '已保存',
+      detailNotesSaving: '保存中…',
       detailNotesSaveError: '未保存 · 重试',
       detailNotesCharSingular: '1 字符',
       detailNotesCharPlural: '{count} 字符',
@@ -953,15 +988,15 @@ export const explorerNamespaceCatalog = {
     },
     paperSearchView: {
       heroPrompt: '你想再找回什么？',
-      heroInputPlaceholder: '搜索归档内容',
+      heroInputPlaceholder: '搜索存档内容',
       heroModesLabel: '模式',
       heroFiltersLabel: '筛选',
       heroModeKeyword: '关键词',
       heroModeRegex: '正则',
       heroModeSmart: '智能搜索',
       heroModeHintKeyword: '精确匹配，可用引号和运算符。',
-      heroModeHintRegex: 'Rust 正则,不支持前后瞻和反向引用。',
-      heroModeHintSmart: '用自然语言提问;按语义和关键词排序相关页面。',
+      heroModeHintRegex: 'Rust 正则，不支持前后瞻和反向引用。',
+      heroModeHintSmart: '用自然语言提问；按语义和关键词排序相关页面。',
       heroModeHintSmartUnavailable:
         '可在 设置 → AI 中配置 embedding 服务后开启。',
       heroModeSmartUnavailableAria: '（不可用）',
@@ -984,7 +1019,8 @@ export const explorerNamespaceCatalog = {
       emptyTryAskingHeading: '试着这样问',
       emptyRecentHeading: '最近搜索',
       emptyRecentMeta: '{mode} · {count} 条结果 · {when}',
-      emptyFooter: '记忆需要时间。在上方输入,开始回忆。',
+      emptyRecentMetaBrief: '{mode}',
+      emptyFooter: '记忆需要时间。在上方输入，开始回忆。',
       emptySmartPrompt:
         '用自然语言提问——“春天读过的那篇关于 Rust 异步的文章”——智能搜索按含义查找，而不只是匹配字词。',
       resultsCount: '找到 {count} {noun}',
@@ -992,7 +1028,7 @@ export const explorerNamespaceCatalog = {
       pageSuffixSingular: '页',
       pageSuffixPlural: '页',
       noMatchesTitle: '记忆需要时间。',
-      noMatchesBody: '没有匹配。换一个更宽松的说法,或切换到语义搜索。',
+      noMatchesBody: '没有匹配。换一个更宽松的说法，或切换到智能搜索。',
       seeInContextLabel: '回到当天 →',
       dayCountTemplate: '{count} {noun}',
       enrichmentSourceGeneric: '页面摘要',
@@ -1002,13 +1038,14 @@ export const explorerNamespaceCatalog = {
       relevancePrevPage: '上一页',
       relevanceNextPage: '下一页',
       relevancePageSummary: '第 {page} 页',
-      // I2：诚实分页——在结果集内定位当前页,而非仅显示页码。
+      // I2：诚实分页——在结果集内定位当前页，而非仅显示页码。
       relevancePageSummaryRanked: '第 {page} 页 · 共 {total} 条排序结果',
       relevanceMoreAvailable: '还有更多',
       relevanceEndOfResults: '已到结尾',
-      // I3：排序标题上的覆盖范围 / 新鲜度提示(仅用真实数据,缺失则省略而非虚构)。
+      // I3：排序标题上的覆盖范围 / 新鲜度提示（仅用真实数据，缺失则省略而非虚构）。
       relevanceScopeIndexed: '已索引 {count} 个页面',
       relevanceScopeUpdated: '更新于 {date}',
+      paginationNavAria: '搜索结果分页',
     },
   },
   'zh-TW': {
@@ -1050,19 +1087,25 @@ export const explorerNamespaceCatalog = {
     aiSearchNoteLexicalFallbackNoProvider:
       '尚未選擇向量模型，因此結果僅使用關鍵字搜尋。',
     aiSearchNoteEmptySemanticIndex:
-      '智慧搜尋索引還沒有內容；先建立它即可啟用依語義搜尋。目前僅顯示關鍵字結果。',
+      '智慧搜尋索引還沒有內容；先建立它即可啟用依語意搜尋。目前僅顯示關鍵字結果。',
     aiSearchNoteSemanticMatchesFilteredOut:
       '找到了智慧比對，但在目前的篩選條件下都不可見。',
     aiSearchNoteConfigDriftDimension:
-      '智慧搜尋索引是用不同的向量設定（向量維度已改變）建立的，因此在重新建立前會暫停依語義搜尋。目前僅顯示關鍵字結果。',
+      '智慧搜尋索引是用不同的向量設定（向量維度已改變）建立的，因此在重新建立前會暫停依語意搜尋。目前僅顯示關鍵字結果。',
     aiSearchNoteConfigDriftFingerprint:
-      '智慧搜尋索引是用不同的向量設定（模型或參數已改變）建立的，因此在重新建立前會暫停依語義搜尋。目前僅顯示關鍵字結果。',
+      '智慧搜尋索引是用不同的向量設定（模型或參數已改變）建立的，因此在重新建立前會暫停依語意搜尋。目前僅顯示關鍵字結果。',
     aiSearchNoteStaleWatermark:
       '智慧搜尋索引已與目前歷史不一致。重新建立它，讓智慧搜尋納入最新匯入並反映已刪除的頁面。',
     aiSearchNoteStaleEnrichment:
       '上次智慧搜尋建立後頁面內容發生了變化。重新建立索引，用最新文字重新整理結果。',
     aiSearchNoteProviderResolutionFailed:
       '智慧搜尋目前無法使用（{reason}）；僅顯示關鍵字結果。',
+    aiMatchReasonLexical: '關鍵字匹配',
+    aiMatchReasonSemantic: '語意匹配',
+    aiMatchReasonLexicalSemantic: '關鍵字＋語意匹配',
+    aiMatchReasonLexicalDateOrdered: '關鍵字匹配（依時間排序）',
+    aiMatchReasonRecentVisit: '最近造訪',
+    aiMatchReasonStarredSuffix: ' · 已收藏',
     searchHeroEyebrow: '搜尋歷史',
     searchHeroPlaceholder: '輸入關鍵字搜尋你的歷史紀錄…',
     searchHeroLabel: '搜尋模式',
@@ -1090,22 +1133,23 @@ export const explorerNamespaceCatalog = {
     smartIndexEyebrow: '智慧索引',
     smartIndexBuildTitle: '建立智慧搜尋索引',
     smartIndexBuildBody:
-      '智慧搜尋還沒有可排序的內容。先建立一次索引以嵌入你的歷史紀錄;之後備份的新頁面會自動加入索引。',
+      '智慧搜尋還沒有可排序的內容。先建立一次索引以嵌入你的歷史紀錄；之後備份的新頁面會自動加入索引。',
     smartIndexReadyBody:
       '已索引 {count} 個頁面。大量匯入後可重建以保持結果新鮮。',
     smartIndexBuildCta: '建立索引',
     smartIndexBuildingCta: '正在建立…',
-    // REACH-B B1：即時建立階段文案,反映佇列狀態而非瞬時的入列呼叫。
+    // REACH-B B1：即時建立階段文案，反映佇列狀態而非瞬時的入列呼叫。
     smartIndexBuildingTitle: '正在建立智慧搜尋索引',
     smartIndexBuildingBody:
-      '正在背景嵌入你的歷史紀錄。你可以繼續搜尋——索引的頁面越多,結果越好。',
+      '正在背景嵌入你的歷史紀錄。你可以繼續搜尋——索引的頁面越多，結果越好。',
     smartIndexBuildingDetail:
-      '此工作在佇列中執行,對於大型封存可能需要一段時間。',
+      '此工作在佇列中執行，對於大型封存可能需要一段時間。',
     smartIndexQueuedTitle: '索引建立已排入佇列',
-    smartIndexQueuedBody: '你的建立工作正在佇列中等待,即將開始。索引尚未就緒。',
+    smartIndexQueuedBody:
+      '你的建立工作正在佇列中等待，即將開始。索引尚未就緒。',
     smartIndexPausedTitle: '索引建立已暫停',
     smartIndexPausedBody:
-      '已有建立工作排入佇列,但智慧搜尋佇列處於暫停狀態,需恢復後才能完成。',
+      '已有建立工作排入佇列，但智慧搜尋佇列處於暫停狀態，需恢復後才能完成。',
     smartIndexResumeCta: '在設定中恢復',
     loadingArchive: '正在搜尋歷史紀錄',
     queryFailedTitle: '搜尋失敗',
@@ -1184,7 +1228,7 @@ export const explorerNamespaceCatalog = {
     modeSmart: '智慧',
     viewModeLabel: '排列方式',
     viewModeTime: '時間',
-    viewModeSession: '會話',
+    viewModeSession: '工作階段',
     viewModeTrail: '搜尋旅程',
     buildIndex: '建立索引',
     buildingIndexAction: '正在建立索引',
@@ -1250,6 +1294,7 @@ export const explorerNamespaceCatalog = {
       hubEmptyTitle: '還沒有收藏',
       hubEmptyBody: '收藏一個頁面，它會保留在這裡。',
       hubEmptyCta: '瀏覽你的歷史 →',
+      hubTruncated: '顯示前 {shown} 筆，共 {total} 筆——縮小範圍以查看更多。',
       hubVisitCount: '{count} 次',
       facetIsStarred: '只顯示已收藏的頁面。',
       shortcutHint: '按 S 收藏目前選取的頁面。',
@@ -1312,7 +1357,7 @@ export const explorerNamespaceCatalog = {
       calendarDowSunday: '日',
       calendarToday: '今天',
       calendarOneYearAgo: '1 年前',
-      calendarPagesArchived: '已歸檔 {count} 頁',
+      calendarPagesArchived: '已封存 {count} 頁',
       calendarMonthSummary: '{active} 個活躍日 · {total} 頁',
       calendarBoundsMeta: '{firstYear}–{lastYear} · {totalDays} 天',
       calendarDialogLabel: '日曆',
@@ -1320,18 +1365,18 @@ export const explorerNamespaceCatalog = {
       targetFromSearch: '來自搜尋',
       targetFromSearchWithQuery: '來自搜尋 ·「{query}」',
       targetFromIntelligence: '來自智慧洞察',
-      targetPagesArchived: '已歸檔 {count} 頁',
-      targetNoArchive: '這一天還沒有歸檔記錄',
+      targetPagesArchived: '已封存 {count} 頁',
+      targetNoArchive: '這一天還沒有封存記錄',
       paginationOlder: '更早',
       paginationNewer: '更新',
       paginationSummary: '第 {page}/{pageCount} 頁 · 共 {total} 條',
       paginationSummaryPending: '正在載入更多頁…',
       paginationPageSizeLabel: '每頁條數',
       infiniteLoadingMore: '正在載入更早的日期…',
-      infiniteEndOfArchive: '已抵達歸檔的最早一天。',
-      infiniteLoadedSummary: '已載入 {loaded}/{total} 頁 · 視圖中 {rows} 條',
+      infiniteEndOfArchive: '已抵達封存的最早一天。',
+      infiniteLoadedSummary: '已載入 {loaded}/{total} 頁 · 檢視中 {rows} 條',
       infiniteCapReached:
-        '目前展示前 {loaded} 條 · 使用搜尋或日曆跳轉到更深的歸檔。',
+        '目前展示前 {loaded} 條 · 使用搜尋或日曆跳轉到更深的封存。',
       infiniteError: '載入下一頁時發生錯誤 · {message}',
       dayInsightsTopDomains: '常去網域',
       dayInsightsActivity: '當日活動',
@@ -1345,14 +1390,14 @@ export const explorerNamespaceCatalog = {
       dayInsightsTyped: '手動輸入',
       dayInsightsLinks: '連結跳轉',
       dayInsightsSearches: '搜尋',
-      dayInsightsSessionsTemplate: '{count} 個會話',
+      dayInsightsSessionsTemplate: '{count} 個工作階段',
       dayInsightsDomainsTemplate: '{count} 個網域',
       dayInsightsMoreDetailsLabel: '更多細節',
       dayInsightsSpanTemplate: '{first} – {last}',
       dayInsightsFirstVisitLabel: '最早瀏覽',
       dayInsightsLastVisitLabel: '最晚瀏覽',
       dayInsightsPeakHourLabel: '高峰時段',
-      dayInsightsLongestSessionLabel: '最長會話',
+      dayInsightsLongestSessionLabel: '最長工作階段',
       dayInsightsTopUrlsTitle: '回訪最多',
       dayInsightsVisitsCountTemplate: '{count} 次瀏覽',
       detailRecordEyebrow: '紀錄',
@@ -1377,7 +1422,8 @@ export const explorerNamespaceCatalog = {
       detailTitleHistory: '標題歷史',
       detailNotesPlaceholder: '為什麼重要？當時在找什麼？',
       detailNotesEmpty: '空',
-      detailNotesSavedLocally: '已儲存 · 本機',
+      detailNotesSaved: '已儲存',
+      detailNotesSaving: '儲存中…',
       detailNotesSaveError: '未儲存 · 重試',
       detailNotesCharSingular: '1 字元',
       detailNotesCharPlural: '{count} 字元',
@@ -1386,7 +1432,7 @@ export const explorerNamespaceCatalog = {
       detailLookPageInsights: '頁面級洞察',
       detailLookAllOfDomain: '{domain} 的全部',
       detailLookThread: '所屬話題',
-      detailLookSession: '所屬會話',
+      detailLookSession: '所屬工作階段',
       detailVisitCountSuffix: '{count} 次',
       detailEnrichedHeading: '補充內容',
       detailEnrichedLoading: '正在載入補充內容…',
@@ -1467,6 +1513,7 @@ export const explorerNamespaceCatalog = {
       emptyTryAskingHeading: '試著這樣問',
       emptyRecentHeading: '最近搜尋',
       emptyRecentMeta: '{mode} · {count} 筆結果 · {when}',
+      emptyRecentMetaBrief: '{mode}',
       emptyFooter: '記憶需要時間。在上方輸入，開始回想。',
       emptySmartPrompt:
         '用自然語言提問——「春天讀過的那篇關於 Rust 非同步的文章」——智慧搜尋按含義查找，而不只是比對字詞。',
@@ -1475,7 +1522,7 @@ export const explorerNamespaceCatalog = {
       pageSuffixSingular: '頁',
       pageSuffixPlural: '頁',
       noMatchesTitle: '記憶需要時間。',
-      noMatchesBody: '沒有匹配。換一個更寬鬆的說法，或切換到語意搜尋。',
+      noMatchesBody: '沒有匹配。換一個更寬鬆的說法，或切換到智慧搜尋。',
       seeInContextLabel: '回到當天 →',
       dayCountTemplate: '{count} {noun}',
       enrichmentSourceGeneric: '頁面摘要',
@@ -1485,13 +1532,14 @@ export const explorerNamespaceCatalog = {
       relevancePrevPage: '上一頁',
       relevanceNextPage: '下一頁',
       relevancePageSummary: '第 {page} 頁',
-      // I2：誠實分頁——在結果集內定位目前頁,而非僅顯示頁碼。
+      // I2：誠實分頁——在結果集內定位目前頁，而非僅顯示頁碼。
       relevancePageSummaryRanked: '第 {page} 頁 · 共 {total} 筆排序結果',
       relevanceMoreAvailable: '還有更多',
       relevanceEndOfResults: '已到結尾',
-      // I3：排序標題上的涵蓋範圍 / 新鮮度提示(僅用真實資料,缺漏則省略而非虛構)。
+      // I3：排序標題上的涵蓋範圍 / 新鮮度提示（僅用真實資料，缺漏則省略而非虛構）。
       relevanceScopeIndexed: '已索引 {count} 個頁面',
       relevanceScopeUpdated: '更新於 {date}',
+      paginationNavAria: '搜尋結果分頁',
     },
   },
 } as const

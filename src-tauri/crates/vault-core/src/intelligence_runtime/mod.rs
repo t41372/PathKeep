@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS deterministic_module_runtime (
   last_built_at TEXT,
   last_invalidated_at TEXT,
   stale_reason TEXT,
+  stale_reason_code TEXT,
   notes_json TEXT NOT NULL DEFAULT '[]',
   updated_at TEXT NOT NULL
 );
@@ -201,8 +202,16 @@ pub(crate) struct DeterministicModuleRuntimeUpdate {
     pub last_run_id: Option<i64>,
     pub last_built_at: Option<String>,
     pub last_invalidated_at: Option<String>,
+    /// Persisted diagnostic prose; the fallback channel for
+    /// [`Self::stale_reason_code`], never the localization key.
     pub stale_reason: Option<String>,
-    pub notes: Vec<String>,
+    /// Persisted stable code for [`Self::stale_reason`]. Read-time derivations
+    /// in `snapshot::load_module_statuses` (version drift, missing build
+    /// timestamp) still override both fields; this column carries the reasons
+    /// that only the *writer* knows (archive data changed, visibility repair).
+    pub stale_reason_code: Option<String>,
+    /// Coded notes; persisted as JSON so `notes_json` keeps the code channel.
+    pub notes: Vec<crate::models::DerivedRuntimeNote>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -242,6 +251,7 @@ pub(super) struct IntelligenceJobArtifact {
     pub dirty_visit_count: Option<usize>,
     pub dirty_date_keys: Option<Vec<String>>,
     pub fallback_reason: Option<String>,
+    pub fallback_reason_code: Option<String>,
     pub notes: Option<Vec<String>>,
 }
 
@@ -277,6 +287,19 @@ pub(super) const BUILT_IN_ENRICHMENT_PLUGINS: [EnrichmentPluginDefinition; 2] = 
 /// Ensures the persistent intelligence runtime tables exist.
 pub(crate) fn ensure_intelligence_runtime_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(INTELLIGENCE_RUNTIME_SCHEMA_SQL)?;
+    // Runtime tables are created with `CREATE TABLE IF NOT EXISTS`, so a DB
+    // written before the column existed keeps its old shape. The nullable ALTER
+    // follows the guarded pattern from
+    // `enrichment::add_visit_content_enrichment_w_enrich_columns`: a fresh DB
+    // already has the column and the duplicate-column error is the no-op.
+    if let Err(error) = connection
+        .execute("ALTER TABLE deterministic_module_runtime ADD COLUMN stale_reason_code TEXT", [])
+    {
+        let message = error.to_string();
+        if !message.contains("duplicate column name") {
+            return Err(error.into());
+        }
+    }
     Ok(())
 }
 

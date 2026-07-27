@@ -37,6 +37,35 @@ fn setup_runtime_archive() -> (tempfile::TempDir, ProjectPaths, AppConfig) {
 }
 
 #[test]
+fn runtime_schema_propagates_alter_failures_other_than_a_duplicate_column() {
+    // The `stale_reason_code` ALTER is guarded so an already-migrated DB is a
+    // no-op, but the guard must only swallow the duplicate-column case. A
+    // genuine schema failure has to surface: silently continuing would leave
+    // callers writing a stale reason code into a column that does not exist,
+    // and the read path would then report "no reason" for a stale module.
+    //
+    // Driven by opening the schema against a connection whose migration cannot
+    // complete: a pre-existing VIEW occupies the table name, so `CREATE TABLE
+    // IF NOT EXISTS` is satisfied while the ALTER fails with a message that is
+    // NOT "duplicate column name".
+    let connection = Connection::open_in_memory().expect("memory db");
+    connection
+        .execute_batch(
+            "CREATE TABLE seed (id INTEGER PRIMARY KEY);
+             CREATE VIEW deterministic_module_runtime AS SELECT id FROM seed;",
+        )
+        .expect("seed a view where the runtime table would go");
+
+    let error = ensure_intelligence_runtime_schema(&connection)
+        .expect_err("a non-duplicate-column ALTER failure must propagate");
+    let message = format!("{error:#}");
+    assert!(
+        !message.contains("duplicate column name"),
+        "the guard must not be what produced this error; got: {message}"
+    );
+}
+
+#[test]
 fn queue_jobs_can_be_enqueued_and_loaded() {
     let connection = Connection::open_in_memory().expect("memory db");
     ensure_intelligence_runtime_schema(&connection).expect("queue schema");
@@ -293,7 +322,8 @@ fn enqueue_runtime_helpers_dedupe_refresh_and_mark_stale_contracts() {
                 last_built_at: None,
                 last_invalidated_at: Some("2026-04-26T00:00:00Z".to_string()),
                 stale_reason: Some("ignored".to_string()),
-                notes: vec!["ignored".to_string()],
+                stale_reason_code: None,
+                notes: vec![crate::models::DerivedRuntimeNote::opaque("ignored")],
             },
             DeterministicModuleRuntimeUpdate {
                 module_id: VISIT_DERIVED_FACTS_MODULE_ID.to_string(),
@@ -302,7 +332,8 @@ fn enqueue_runtime_helpers_dedupe_refresh_and_mark_stale_contracts() {
                 last_built_at: Some("2026-04-26T00:00:00Z".to_string()),
                 last_invalidated_at: None,
                 stale_reason: None,
-                notes: vec!["fresh".to_string()],
+                stale_reason_code: None,
+                notes: vec![crate::models::DerivedRuntimeNote::opaque("fresh")],
             },
         ],
     )
@@ -312,11 +343,11 @@ fn enqueue_runtime_helpers_dedupe_refresh_and_mark_stale_contracts() {
         .expect("module runtime count");
     assert_eq!(module_count, 1);
 
-    mark_all_deterministic_modules_stale(&connection, "coverage stale")
+    mark_all_deterministic_modules_stale(&connection, "coverage-stale-code", "coverage stale")
         .expect("mark deterministic modules stale");
     let stale_count: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM deterministic_module_runtime WHERE status = 'stale' AND stale_reason = 'coverage stale'",
+            "SELECT COUNT(*) FROM deterministic_module_runtime WHERE status = 'stale' AND stale_reason = 'coverage stale' AND stale_reason_code = 'coverage-stale-code'",
             [],
             |row| row.get(0),
         )

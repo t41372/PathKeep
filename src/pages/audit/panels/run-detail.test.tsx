@@ -254,6 +254,36 @@ describe('AuditRunDetailPanel', () => {
     expect(screen.getByText('audit.noWarnings')).toBeVisible()
   })
 
+  test('localizes coded run warnings and still shows opaque diagnostics verbatim', () => {
+    renderPanel({
+      detail: auditRunDetailFixture({
+        warnings: [
+          'Link previews cache hygiene failed: archive locked',
+          'staging fell back to a recovered raw copy',
+        ],
+        warningDetails: [
+          {
+            code: 'og-cleanup-failed',
+            message: 'Link previews cache hygiene failed: archive locked',
+            diagnostic: 'archive locked',
+          },
+          {
+            code: '',
+            message: 'staging fell back to a recovered raw copy',
+          },
+        ],
+      }),
+      detailTab: 'warnings',
+    })
+
+    expect(
+      screen.getByText('audit.warningOgCleanupFailed archive locked'),
+    ).toBeVisible()
+    expect(
+      screen.getByText('staging fell back to a recovered raw copy'),
+    ).toBeVisible()
+  })
+
   test('renders an error callout for failed runs with an errorMessage', () => {
     const failedRun = {
       ...auditRunDetailFixture().run,

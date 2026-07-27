@@ -1544,6 +1544,14 @@ pub struct AiSearchEntry {
     pub domain: String,
     pub visited_at: String,
     pub score: f32,
+    /// Stable, locale-independent CODE for why this row matched — NEVER English prose.
+    ///
+    /// The closed base vocabulary (`lexical` / `semantic` / `lexical+semantic` / `lexical-date-ordered`
+    /// / `recent-visit`, optionally suffixed `+starred`) is owned by `ai::search`; see its match-reason
+    /// contract for why. Both audiences read this one field: the MODEL-facing tool/`run_code`/MCP
+    /// surfaces quote it verbatim, and the Explorer Smart-search FE resolves it against its
+    /// `aiMatchReason*` catalog to render the per-row caption (an unknown code prints verbatim rather
+    /// than being mistranslated). Additive-only: renaming a code is a breaking wire change.
     pub match_reason: String,
     /// Capped excerpt of the matched page's enrichment summary (W-ENRICH-1, 06 §6; REACH-C3).
     ///
@@ -1801,11 +1809,202 @@ pub struct IntelligenceJobOverview {
     pub affected_profiles: Option<Vec<String>>,
     pub dirty_visit_count: Option<usize>,
     pub dirty_date_keys: Option<Vec<String>>,
+    /// Diagnostic English prose; localize through [`Self::fallback_reason_code`].
     pub fallback_reason: Option<String>,
+    /// Stable `REBUILD_FALLBACK_*` code for [`Self::fallback_reason`], absent
+    /// for artifacts written before code-ification.
+    #[serde(default)]
+    pub fallback_reason_code: Option<String>,
     pub last_error: Option<String>,
     pub retryable: bool,
     pub cancellable: bool,
 }
+
+/// One deterministic-runtime note as a stable code plus typed params.
+///
+/// Why this exists: the derived-state review card used to receive only English
+/// sentences, so Settings had to reverse-engineer them with regexes to localize
+/// (`^Rebuilt all daily rollups for (.+)\.$` and friends). A single punctuation
+/// edit in Rust silently dropped `zh` copy back to English. `code` is the stable
+/// identity Settings resolves; `message` stays the diagnostic fallback so an
+/// older shell — or a code this build has no copy for — still shows something
+/// truthful. An empty `code` marks a note PathKeep is passing through opaquely.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DerivedRuntimeNote {
+    pub code: String,
+    pub message: String,
+    /// Browser profile the note is about, interpolated as `{profile}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    /// Stable `RebuildMode::job_type()` id the shell turns into a localized label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_kind: Option<String>,
+}
+
+impl DerivedRuntimeNote {
+    /// Builds a coded note the shell can localize.
+    pub fn new(code: &str, message: impl Into<String>) -> Self {
+        Self { code: code.to_string(), message: message.into(), ..Self::default() }
+    }
+
+    /// Wraps a note PathKeep can only pass through verbatim.
+    ///
+    /// Kept explicit (rather than defaulting `code`) so a reader can tell an
+    /// intentional diagnostic pass-through from a forgotten code.
+    pub fn opaque(message: impl Into<String>) -> Self {
+        Self { code: String::new(), message: message.into(), ..Self::default() }
+    }
+
+    /// Attaches the browser profile a localized sentence interpolates.
+    pub fn with_profile_id(mut self, profile_id: impl Into<String>) -> Self {
+        self.profile_id = Some(profile_id.into());
+        self
+    }
+
+    /// Attaches the rebuild-mode id a localized sentence interpolates.
+    pub fn with_job_kind(mut self, job_kind: impl Into<String>) -> Self {
+        self.job_kind = Some(job_kind.into());
+        self
+    }
+}
+
+/// Collects the fallback message channel from a coded note list.
+///
+/// Keeps `DeterministicModuleRuntimeStatus.notes` byte-identical to the
+/// pre-code-ification contract while `note_details` carries the codes.
+pub fn derived_runtime_note_messages(notes: &[DerivedRuntimeNote]) -> Vec<String> {
+    notes.iter().map(|note| note.message.clone()).collect()
+}
+
+/// Stable code for "no visible visits left, so visit-derived facts were cleared".
+pub const DERIVED_NOTE_VISIT_FACTS_CLEARED_NO_VISITS: &str = "visit-facts-cleared-no-visits";
+
+/// Stable code for "visit-derived facts were already current".
+pub const DERIVED_NOTE_VISIT_FACTS_UP_TO_DATE: &str = "visit-facts-up-to-date";
+
+/// Stable code for "visit-derived facts were refreshed incrementally".
+pub const DERIVED_NOTE_VISIT_FACTS_REFRESHED: &str = "visit-facts-refreshed";
+
+/// Stable code for "visit-derived facts were rebuilt by a scoped full refresh".
+pub const DERIVED_NOTE_VISIT_FACTS_REBUILT: &str = "visit-facts-rebuilt";
+
+/// Stable code for "no visible visits left, so daily rollups were cleared".
+pub const DERIVED_NOTE_DAILY_ROLLUPS_CLEARED_NO_VISITS: &str = "daily-rollups-cleared-no-visits";
+
+/// Stable code for "daily rollups were already current".
+pub const DERIVED_NOTE_DAILY_ROLLUPS_UP_TO_DATE: &str = "daily-rollups-up-to-date";
+
+/// Stable code for "only the dirty daily rollups were refreshed".
+pub const DERIVED_NOTE_DAILY_ROLLUPS_REFRESHED: &str = "daily-rollups-refreshed";
+
+/// Stable code for "every daily rollup was rebuilt".
+pub const DERIVED_NOTE_DAILY_ROLLUPS_REBUILT: &str = "daily-rollups-rebuilt";
+
+/// Stable code for "no visible visits left, so structural entities were cleared".
+pub const DERIVED_NOTE_STRUCTURAL_CLEARED_NO_VISITS: &str = "structural-cleared-no-visits";
+
+/// Stable code for "structural entities were already current".
+pub const DERIVED_NOTE_STRUCTURAL_UP_TO_DATE: &str = "structural-up-to-date";
+
+/// Stable code for "only the structural tail was rebuilt".
+pub const DERIVED_NOTE_STRUCTURAL_TAIL_REBUILT: &str = "structural-tail-rebuilt";
+
+/// Stable code for "every structural entity was rebuilt".
+pub const DERIVED_NOTE_STRUCTURAL_REBUILT: &str = "structural-rebuilt";
+
+/// Stable code for "the requested rebuild scope matched no visible visits".
+pub const DERIVED_NOTE_REBUILD_SCOPE_EMPTY: &str = "rebuild-scope-empty";
+
+/// Stable code for "this rebuild ran through the scoped debug fallback path".
+pub const DERIVED_NOTE_REBUILD_LEGACY_FALLBACK: &str = "rebuild-legacy-fallback";
+
+/// Stable code for "a checkpoint-aware rebuild ran for this profile".
+pub const DERIVED_NOTE_REBUILD_CHECKPOINT_AWARE: &str = "rebuild-checkpoint-aware";
+
+/// Stable code for "the rebuild finished" with no stage-specific detail.
+pub const DERIVED_NOTE_REBUILD_COMPLETED: &str = "rebuild-completed";
+
+/// Stable code for "modules are in sync with the current derived plane".
+pub const DERIVED_NOTE_MODULES_IN_SYNC: &str = "modules-in-sync";
+
+/// Stable code for "no deterministic rebuild has run yet for this module".
+pub const DERIVED_NOTE_MODULE_NEVER_BUILT: &str = "module-never-built";
+
+/// Stable code for "no successful rebuild has been recorded for this module".
+pub const DERIVED_NOTE_MODULE_NO_SUCCESSFUL_REBUILD: &str = "module-no-successful-rebuild";
+
+/// Stable code for "this module is switched off in Settings".
+pub const DERIVED_NOTE_MODULE_DISABLED: &str = "module-disabled";
+
+/// Stable code for "a deterministic rebuild is required before this is fresh".
+pub const DERIVED_NOTE_MODULE_REBUILD_REQUIRED: &str = "module-rebuild-required";
+
+/// Stable code for "the stored module version predates this rule pack".
+pub const DERIVED_NOTE_MODULE_VERSION_MISMATCH: &str = "module-version-mismatch";
+
+/// Stale-reason code for "module version changed since the last rebuild".
+pub const DERIVED_STALE_MODULE_VERSION_CHANGED: &str = "module-version-changed";
+
+/// Stale-reason code for "the latest derived output has no build timestamp".
+pub const DERIVED_STALE_MISSING_BUILD_TIMESTAMP: &str = "missing-build-timestamp";
+
+/// Stale-reason code for "archive data changed and refresh jobs were queued".
+///
+/// Persisted (not read-derived): only the backup/import writer knows a run
+/// mutated archive facts, so the code travels with the runtime row.
+pub const DERIVED_STALE_ARCHIVE_DATA_CHANGED: &str = "archive-data-changed";
+
+/// Stale-reason code for "archive visibility or rollback state changed".
+///
+/// Persisted by the doctor repair path after it clears derived tables.
+pub const DERIVED_STALE_VISIBILITY_OR_ROLLBACK_CHANGED: &str = "visibility-or-rollback-changed";
+
+// ─── Stage fallback-reason codes ─────────────────────────────────────────────
+// Why these exist: `fallback_reason` explains why an incremental rebuild stage
+// recomputed from scratch. The prose reaches the Jobs page through the job
+// artifact, so each producer sentence gets a stable code the shell localizes;
+// the English stays the diagnostic fallback. Codes are per stage × cause
+// because the shipped sentences name the stage's derived object directly
+// (no interpolation channel to reassemble them from parts).
+
+/// Visit-derive stage fell back because a manual full rebuild was requested.
+pub const REBUILD_FALLBACK_VISIT_DERIVE_MANUAL_FULL_REBUILD: &str =
+    "visit-derive-manual-full-rebuild";
+/// Visit-derive stage fell back because no checkpoint existed yet.
+pub const REBUILD_FALLBACK_VISIT_DERIVE_NO_CHECKPOINT: &str = "visit-derive-no-checkpoint";
+/// Visit-derive stage fell back because its rules changed since the last run.
+pub const REBUILD_FALLBACK_VISIT_DERIVE_RULES_CHANGED: &str = "visit-derive-rules-changed";
+/// Visit-derive stage fell back because archive visibility/counters regressed.
+pub const REBUILD_FALLBACK_VISIT_DERIVE_VISIBILITY_REGRESSED: &str =
+    "visit-derive-visibility-regressed";
+/// Visit-derive stage fell back because delta rows mismatched the watermark.
+pub const REBUILD_FALLBACK_VISIT_DERIVE_DELTA_MISMATCH: &str = "visit-derive-delta-mismatch";
+/// Daily-rollup stage fell back because a manual full rebuild was requested.
+pub const REBUILD_FALLBACK_DAILY_ROLLUP_MANUAL_FULL_REBUILD: &str =
+    "daily-rollup-manual-full-rebuild";
+/// Daily-rollup stage fell back because no checkpoint existed yet.
+pub const REBUILD_FALLBACK_DAILY_ROLLUP_NO_CHECKPOINT: &str = "daily-rollup-no-checkpoint";
+/// Daily-rollup stage fell back because its logic changed since the last run.
+pub const REBUILD_FALLBACK_DAILY_ROLLUP_RULES_CHANGED: &str = "daily-rollup-rules-changed";
+/// Daily-rollup stage fell back because archive visibility/counters regressed.
+pub const REBUILD_FALLBACK_DAILY_ROLLUP_VISIBILITY_REGRESSED: &str =
+    "daily-rollup-visibility-regressed";
+/// Daily-rollup stage fell back because delta rows mismatched the watermark.
+pub const REBUILD_FALLBACK_DAILY_ROLLUP_DELTA_MISMATCH: &str = "daily-rollup-delta-mismatch";
+/// Structural stage fell back because a manual full rebuild was requested.
+pub const REBUILD_FALLBACK_STRUCTURAL_MANUAL_FULL_REBUILD: &str = "structural-manual-full-rebuild";
+/// Structural stage fell back because no checkpoint existed yet.
+pub const REBUILD_FALLBACK_STRUCTURAL_NO_CHECKPOINT: &str = "structural-no-checkpoint";
+/// Structural stage fell back because its logic changed since the last run.
+pub const REBUILD_FALLBACK_STRUCTURAL_RULES_CHANGED: &str = "structural-rules-changed";
+/// Structural stage fell back because archive visibility/counters regressed.
+pub const REBUILD_FALLBACK_STRUCTURAL_VISIBILITY_REGRESSED: &str =
+    "structural-visibility-regressed";
+/// Structural stage fell back because delta rows mismatched the watermark.
+pub const REBUILD_FALLBACK_STRUCTURAL_DELTA_MISMATCH: &str = "structural-delta-mismatch";
+/// Scoped debug rebuilds always run the legacy full recompute path.
+pub const REBUILD_FALLBACK_LEGACY_DEBUG_REBUILD: &str = "legacy-debug-rebuild";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1820,8 +2019,17 @@ pub struct DeterministicModuleRuntimeStatus {
     pub last_run_id: Option<i64>,
     pub last_built_at: Option<String>,
     pub last_invalidated_at: Option<String>,
+    /// Diagnostic English prose; localize through [`Self::stale_reason_code`].
     pub stale_reason: Option<String>,
+    /// Stable code for [`Self::stale_reason`], absent when the prose is opaque.
+    #[serde(default)]
+    pub stale_reason_code: Option<String>,
+    /// Diagnostic English prose, index-aligned with [`Self::note_details`].
     pub notes: Vec<String>,
+    /// Coded notes the shell localizes. Empty only for legacy runtime rows
+    /// written before code-ification, in which case `notes` is the whole truth.
+    #[serde(default)]
+    pub note_details: Vec<DerivedRuntimeNote>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

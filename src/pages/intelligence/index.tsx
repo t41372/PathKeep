@@ -30,6 +30,7 @@ import {
   trailInsightsHref,
 } from '../../lib/core-intelligence/routes'
 import { useI18n } from '../../lib/i18n/hooks'
+import { isPaperQaLayoutEnabled } from '../../lib/paper-qa-layout'
 import { IntelligenceSections, IntelligenceSectionsSkeleton } from './sections'
 import { useIntelligenceRouteState } from './route-state'
 import { IntelligenceRuntimeDigest } from './runtime-digest'
@@ -164,7 +165,7 @@ export function IntelligencePage() {
         unlocked={Boolean(snapshot?.archiveStatus.unlocked)}
       />
 
-      {searchParams.get('layout') === 'paper' ? (
+      {isPaperQaLayoutEnabled(searchParams) ? (
         <PaperIntelligencePanel
           primaryOverview={primaryOverview}
           dashboard={dashboard}

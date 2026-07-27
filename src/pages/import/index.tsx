@@ -23,6 +23,7 @@ import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
 import { clearIntelligenceOverviewCache } from '../../lib/core-intelligence/api'
 import { useI18n } from '../../lib/i18n'
+import { isPaperQaLayoutEnabled } from '../../lib/paper-qa-layout'
 import {
   isBrowserProfileReadable,
   macosFullDiskAccessSettingsUrl,
@@ -59,15 +60,6 @@ function isValidatedBrowserDirectProfile(profile: BrowserProfile) {
     profile.profileId.startsWith('edge:') ||
     profile.profileId.startsWith('edge-dev:') ||
     profile.profileId.startsWith('firefox:')
-  )
-}
-
-function isFullDiskAccessError(message: string) {
-  return (
-    message.includes('Full Disk Access') ||
-    message.includes('完全磁盘访问权限') ||
-    message.includes('完整磁碟取用權') ||
-    message.includes('全盤讀取權限')
   )
 }
 
@@ -146,6 +138,7 @@ export function ImportPage() {
   )
   const {
     actionError,
+    actionErrorIsFullDiskAccess,
     activeBatchDetail,
     clearActionError,
     handleBatchMutation,
@@ -349,7 +342,10 @@ export function ImportPage() {
   async function handleImport() {
     if (!sourcePath.trim()) return
     if (!runImport) {
-      reportActionError(new Error(t('import.actionErrorTitle')))
+      // Report the unavailable-backend case as a plain localized string —
+      // never wrap t() output in an Error, so localized copy cannot leak
+      // back into a channel that classifies raw backend errors.
+      reportActionError(t('import.importUnavailableBody'))
       return
     }
     clearActionError()
@@ -434,7 +430,7 @@ export function ImportPage() {
 
   return (
     <section className="page-shell import-page" data-testid="import-page">
-      {searchParams.get('layout') === 'paper' ? (
+      {isPaperQaLayoutEnabled(searchParams) ? (
         <PaperImportPanel
           activeMethod={method}
           onSelectMethod={(id) =>
@@ -482,7 +478,7 @@ export function ImportPage() {
           title={t('import.actionErrorTitle')}
           body={actionError}
           actions={
-            isFullDiskAccessError(actionError) ? (
+            actionErrorIsFullDiskAccess ? (
               <button
                 className="btn-secondary"
                 type="button"

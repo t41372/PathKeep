@@ -139,9 +139,12 @@ export function Topbar({ screen }: TopbarProps) {
             aria-expanded={notificationsOpen}
             aria-label={
               unreadNotificationCount > 0
-                ? t('navigation.notificationsUnread', {
-                    count: unreadNotificationCount,
-                  })
+                ? t(
+                    unreadNotificationCount === 1
+                      ? 'navigation.notificationsUnreadOne'
+                      : 'navigation.notificationsUnreadMany',
+                    { count: unreadNotificationCount },
+                  )
                 : t('navigation.notifications')
             }
             className={`topbar-notifications__button ${

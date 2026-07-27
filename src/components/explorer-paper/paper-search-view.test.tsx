@@ -62,6 +62,8 @@ const COPY: PaperSearchViewCopy = {
     tryAskingHeading: 'Try asking',
     recentHeading: 'Recent',
     recentMeta: '{mode} · {count} · {when}',
+    recentMetaBrief: '{mode}',
+    modeNames: { keyword: 'Keyword', regex: 'Regex', smart: 'Smart' },
     footer: 'Search is local.',
     smartPrompt: 'Ask in plain language — that article about Rust async.',
   },
@@ -175,6 +177,50 @@ describe('PaperSearchView', () => {
     expect(screen.getByTestId('paper-search-results')).toBeVisible()
     expect(screen.getByTestId('paper-search-day-2026-05-16')).toBeVisible()
     expect(screen.getByTestId('paper-search-day-2026-05-15')).toBeVisible()
+  })
+
+  test('fills the results-range {mode} slot with the localized mode name, not the internal token', () => {
+    // Regression: the range line interpolated the raw `mode` prop, so a
+    // zh-TW user read "2026-05-15 — 2026-05-16 · smart". The localized display
+    // names already exist as `hero.staleModeNames`.
+    const localizedCopy = {
+      ...COPY,
+      hero: {
+        ...COPY.hero,
+        staleModeNames: {
+          keyword: '關鍵字',
+          regex: '正規表達式',
+          smart: '智慧',
+        },
+      },
+    }
+    const { rerender } = renderView({ copy: localizedCopy })
+    expect(screen.getByTestId('paper-search-results').textContent).toContain(
+      '· 關鍵字',
+    )
+    expect(
+      screen.getByTestId('paper-search-results').textContent,
+    ).not.toContain('· keyword')
+
+    rerender(
+      <PaperSearchView
+        query="rust"
+        mode="regex"
+        activeFilters={[]}
+        groups={GROUPS}
+        totalResults={3}
+        resolveDomainColor={() => '#888'}
+        resolveDomainAbbr={(domain) => domain.slice(0, 3).toUpperCase()}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        copy={localizedCopy}
+        testId="view"
+      />,
+    )
+    expect(screen.getByTestId('paper-search-results').textContent).toContain(
+      '· 正規表達式',
+    )
   })
 
   test('renders the empty state when query is blank', () => {

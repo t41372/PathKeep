@@ -243,10 +243,14 @@ export function useSettingsAiState({
   // value (so the control stays responsive), then re-sync to the backend's truth
   // on success. Returns true only when the write landed so the section flashes
   // the quiet "Saved" chip; a no-op (settings unchanged) or a snapshot-less call
-  // returns false and stays silent. On failure the optimistic draft is kept (so
-  // the control still shows what the user chose) and `saveConfig` re-throws — the
-  // shell surfaces the error banner and the caller swallows the rejection. The
-  // next external snapshot reconciles the draft back to the persisted truth.
+  // returns false and stays silent. On failure the optimistic draft is ROLLED
+  // BACK to the last persisted value (matching the content-fetch precedent):
+  // these are consent switches — MCP exposure, the AI master flag, semantic
+  // indexing — and a control left showing "off" while the backend still holds
+  // "on" is a data-sovereignty lie. The sync effect cannot recover it either,
+  // because a failed write leaves the snapshot signature unchanged and the
+  // effect short-circuits. `saveConfig` still re-throws so the shell renders
+  // the config-save failure surface.
   async function persistAi(next: AiSettings): Promise<boolean> {
     if (!snapshot) {
       return false
@@ -259,6 +263,7 @@ export function useSettingsAiState({
       return false
     }
 
+    const previous = aiDraftRef.current
     aiDraftRef.current = next
     setAiDraft(next)
     setSaving(true)
@@ -269,6 +274,10 @@ export function useSettingsAiState({
       })
       syncAiDraft(nextSnapshot.config.ai)
       return true
+    } catch (error) {
+      aiDraftRef.current = previous
+      setAiDraft(previous)
+      throw error
     } finally {
       setSaving(false)
     }

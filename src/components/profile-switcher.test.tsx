@@ -47,7 +47,7 @@ describe('ProfileSwitcher', () => {
     renderProfileSwitcher(snapshot)
 
     const trigger = screen.getByRole('button', {
-      name: 'Switch profile scope. Current: All profiles',
+      name: 'Switch browser scope. Current: All browsers',
     })
     expect(trigger).not.toHaveAttribute('aria-controls')
     expect(trigger.querySelector('.profile-switcher__caret')).toHaveTextContent(
@@ -60,15 +60,15 @@ describe('ProfileSwitcher', () => {
     )
 
     const listbox = screen.getByRole('listbox', {
-      name: 'Switch profile scope',
+      name: 'Switch browser scope',
     })
     expect(listbox).toBeVisible()
-    expect(screen.getByRole('option', { name: 'All profiles' })).toHaveClass(
+    expect(screen.getByRole('option', { name: 'All browsers' })).toHaveClass(
       'profile-switcher__option',
       'profile-switcher__option--active',
     )
     expect(
-      screen.getByRole('option', { name: 'All profiles' }),
+      screen.getByRole('option', { name: 'All browsers' }),
     ).toHaveAttribute('aria-selected', 'true')
     expect(
       screen.getByRole('option', { name: 'Personal research' }),
@@ -84,7 +84,7 @@ describe('ProfileSwitcher', () => {
     expect(screen.getByRole('option', { name: 'Work' })).toBeVisible()
 
     await waitFor(() => {
-      expect(screen.getByRole('option', { name: 'All profiles' })).toHaveFocus()
+      expect(screen.getByRole('option', { name: 'All browsers' })).toHaveFocus()
     })
     await user.keyboard('{ArrowDown}')
     expect(
@@ -93,26 +93,26 @@ describe('ProfileSwitcher', () => {
     await user.keyboard('{End}')
     expect(screen.getByRole('option', { name: 'Work' })).toHaveFocus()
     await user.keyboard('{Home}')
-    expect(screen.getByRole('option', { name: 'All profiles' })).toHaveFocus()
+    expect(screen.getByRole('option', { name: 'All browsers' })).toHaveFocus()
 
     await user.click(screen.getByRole('option', { name: 'Personal research' }))
     expect(
       screen.getByRole('button', {
-        name: 'Switch profile scope. Current: Personal research',
+        name: 'Switch browser scope. Current: Personal research',
       }),
     ).toBeVisible()
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
     expect(
       screen
         .getByRole('button', {
-          name: 'Switch profile scope. Current: Personal research',
+          name: 'Switch browser scope. Current: Personal research',
         })
         .querySelector('.profile-switcher__caret'),
     ).toHaveTextContent('▾')
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Switch profile scope. Current: Personal research',
+        name: 'Switch browser scope. Current: Personal research',
       }),
     )
     expect(screen.getByRole('listbox')).toBeVisible()
@@ -180,7 +180,7 @@ describe('ProfileSwitcher', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Switch profile scope. Current: All profiles',
+        name: 'Switch browser scope. Current: All browsers',
       }),
     )
 
@@ -235,7 +235,7 @@ describe('ProfileSwitcher', () => {
 
     fireEvent.keyDown(
       screen.getByRole('button', {
-        name: 'Switch profile scope. Current: Work',
+        name: 'Switch browser scope. Current: Work',
       }),
       { key: 'ArrowDown' },
     )
@@ -261,7 +261,7 @@ describe('ProfileSwitcher', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Switch profile scope. Current: All profiles',
+        name: 'Switch browser scope. Current: All browsers',
       }),
     )
 
@@ -286,7 +286,7 @@ describe('ProfileSwitcher', () => {
     const normalView = renderProfileSwitcher(normalSnapshot)
     await user.click(
       screen.getByRole('button', {
-        name: 'Switch profile scope. Current: All profiles',
+        name: 'Switch browser scope. Current: All browsers',
       }),
     )
     expect(screen.getAllByRole('option')).toHaveLength(3)
@@ -300,7 +300,7 @@ describe('ProfileSwitcher', () => {
     renderProfileSwitcher(malformedSnapshot)
     await user.click(
       screen.getByRole('button', {
-        name: 'Switch profile scope. Current: All profiles',
+        name: 'Switch browser scope. Current: All browsers',
       }),
     )
 
@@ -325,7 +325,7 @@ describe('ProfileSwitcher', () => {
     await waitFor(() => {
       expect(
         screen.getByRole('button', {
-          name: 'Switch profile scope. Current: All profiles',
+          name: 'Switch browser scope. Current: All browsers',
         }),
       ).toBeVisible()
     })
@@ -339,18 +339,18 @@ describe('ProfileSwitcher', () => {
     renderProfileSwitcher(snapshot)
 
     const trigger = screen.getByRole('button', {
-      name: 'Switch profile scope. Current: All profiles',
+      name: 'Switch browser scope. Current: All browsers',
     })
     trigger.focus()
     await user.keyboard('{ArrowDown}')
 
     expect(
       screen.getByRole('listbox', {
-        name: 'Switch profile scope',
+        name: 'Switch browser scope',
       }),
     ).toBeVisible()
     await waitFor(() => {
-      expect(screen.getByRole('option', { name: 'All profiles' })).toHaveFocus()
+      expect(screen.getByRole('option', { name: 'All browsers' })).toHaveFocus()
     })
 
     await user.keyboard('{ArrowUp}')
@@ -363,7 +363,7 @@ describe('ProfileSwitcher', () => {
     await user.keyboard('{ArrowUp}')
     expect(
       screen.getByRole('listbox', {
-        name: 'Switch profile scope',
+        name: 'Switch browser scope',
       }),
     ).toBeVisible()
     act(() => {
@@ -398,13 +398,13 @@ describe('ProfileSwitcher', () => {
 
     expect(
       screen.getByRole('button', {
-        name: 'Switch profile scope. Current: Research',
+        name: 'Switch browser scope. Current: Research',
       }),
     ).toBeVisible()
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Switch profile scope. Current: Research',
+        name: 'Switch browser scope. Current: Research',
       }),
     )
 
@@ -426,7 +426,7 @@ describe('ProfileSwitcher', () => {
     renderProfileSwitcherWithProfileScope(snapshot, 'chrome:Default')
 
     const trigger = screen.getByRole('button', {
-      name: 'Switch profile scope. Current: Default',
+      name: 'Switch browser scope. Current: Default',
     })
     await user.click(trigger)
 
@@ -448,14 +448,14 @@ describe('ProfileSwitcher', () => {
     renderProfileSwitcher(snapshot)
 
     const trigger = screen.getByRole('button', {
-      name: 'Switch profile scope. Current: All profiles',
+      name: 'Switch browser scope. Current: All browsers',
     })
     fireEvent.keyDown(trigger, { key: 'Enter' })
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
 
     await user.click(trigger)
     expect(screen.getAllByRole('option')).toHaveLength(1)
-    expect(screen.getByRole('option', { name: 'All profiles' })).toBeVisible()
+    expect(screen.getByRole('option', { name: 'All browsers' })).toBeVisible()
   })
 
   test('keeps fallback focus stable when the active profile is outside the visible options', async () => {
@@ -466,16 +466,16 @@ describe('ProfileSwitcher', () => {
     renderProfileSwitcherWithProfileScope(snapshot, 'safari:Archived')
 
     const trigger = screen.getByRole('button', {
-      name: 'Switch profile scope. Current: Archived',
+      name: 'Switch browser scope. Current: Archived',
     })
     fireEvent.keyDown(trigger, { key: 'ArrowDown' })
 
     await waitFor(() => {
-      expect(screen.getByRole('option', { name: 'All profiles' })).toHaveFocus()
+      expect(screen.getByRole('option', { name: 'All browsers' })).toHaveFocus()
     })
 
     const allProfilesOption = screen.getByRole('option', {
-      name: 'All profiles',
+      name: 'All browsers',
     })
     fireEvent.keyDown(allProfilesOption, { key: 'Tab' })
     expect(allProfilesOption).toHaveFocus()

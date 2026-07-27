@@ -462,7 +462,7 @@ export const assistantNamespaceCatalog = {
     cancelledQueuedRequest: '已取消排隊中的提問。',
     attentionTitle: '助手需要處理',
     loadExamplePrompt: '試試這個範例',
-    examplePrompt: '我最近看了哪些關於語義搜尋的文章？',
+    examplePrompt: '我最近看了哪些關於語意搜尋的文章？',
     examplePromptFocus: '最近一週我最專注的主題是什麼？',
     examplePromptTimeline: '我上次認真研究 SQLite 是什麼時候？',
     emptyEyebrow: '根據你的瀏覽紀錄',
@@ -565,7 +565,7 @@ export const assistantNamespaceCatalog = {
     chatRegenerateAnswer: '重新產生這個回答',
     chatSavedAnnouncement: '對話已儲存',
     chatOpeningConversation: '正在開啟對話…',
-    chatScopeNote: '搜尋你的整個歸檔',
+    chatScopeNote: '搜尋你的整個封存',
     chatAgentNoteMaxStepsReached:
       '已達到本次執行的步數上限，正在根據已蒐集的證據作答。',
     chatAgentNoteTokenBudgetReached:

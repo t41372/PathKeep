@@ -13,6 +13,8 @@
 #[cfg(not(test))]
 use super::blocking::run_blocking_command;
 #[cfg(not(test))]
+use crate::command_error::CommandError;
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
 use std::collections::HashMap;
@@ -25,7 +27,7 @@ use tauri::State;
 pub(crate) async fn set_star(
     state: State<'_, SessionState>,
     request: vault_core::SetStarRequest,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("set_star", move || {
         worker_bridge::set_star_impl(session_database_key.as_deref(), request)
@@ -39,7 +41,7 @@ pub(crate) async fn set_star(
 pub(crate) async fn unset_star(
     state: State<'_, SessionState>,
     request: vault_core::SetStarRequest,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("unset_star", move || {
         worker_bridge::unset_star_impl(session_database_key.as_deref(), request)
@@ -53,7 +55,7 @@ pub(crate) async fn unset_star(
 pub(crate) async fn get_star_status(
     state: State<'_, SessionState>,
     request: vault_core::StarStatusRequest,
-) -> Result<HashMap<String, bool>, String> {
+) -> Result<HashMap<String, bool>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_star_status", move || {
         worker_bridge::is_starred_batch_impl(
@@ -73,7 +75,7 @@ pub(crate) async fn list_stars(
     kind: Option<vault_core::StarEntityKind>,
     sort: vault_core::StarSort,
     limit: Option<usize>,
-) -> Result<Vec<vault_core::StarListItem>, String> {
+) -> Result<Vec<vault_core::StarListItem>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("list_stars", move || {
         worker_bridge::list_stars_impl(session_database_key.as_deref(), kind, sort, limit)
@@ -86,7 +88,7 @@ pub(crate) async fn list_stars(
 /// Rolls up per-kind star counts for the Starred hub header.
 pub(crate) async fn get_star_counts(
     state: State<'_, SessionState>,
-) -> Result<vault_core::StarCounts, String> {
+) -> Result<vault_core::StarCounts, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_star_counts", move || {
         worker_bridge::star_counts_impl(session_database_key.as_deref())

@@ -50,7 +50,7 @@ function makeTranslator() {
     verifiedBadge: 'Verified',
     notVerifiedBadge: 'Not verified',
     encryptedNeedsKeyBadge: 'Encrypted · needs your key',
-    keyFieldLabel: 'Archive key',
+    keyFieldLabel: 'Archive password',
     keyFieldPlaceholder: 'Enter your archive key',
     keyFieldHint:
       'This snapshot is encrypted. Enter your archive key so PathKeep can verify and restore it. A wrong key fails safely — nothing is changed.',
@@ -198,8 +198,8 @@ describe('ArchiveKeyField', () => {
 
   test('renders the label, placeholder, and hint', () => {
     renderWithI18n(<ArchiveKeyField id="k" value="" onChange={vi.fn()} t={t} />)
-    expect(screen.getByText('Archive key')).toBeInTheDocument()
-    const input = screen.getByLabelText('Archive key')
+    expect(screen.getByText('Archive password')).toBeInTheDocument()
+    const input = screen.getByLabelText('Archive password')
     expect(input).toHaveAttribute('placeholder', 'Enter your archive key')
     expect(input).toHaveAttribute('type', 'password')
     expect(screen.getByText(/fails safely/i)).toBeInTheDocument()
@@ -210,7 +210,7 @@ describe('ArchiveKeyField', () => {
     renderWithI18n(
       <ArchiveKeyField id="k" value="" onChange={onChange} t={t} />,
     )
-    fireEvent.change(screen.getByLabelText('Archive key'), {
+    fireEvent.change(screen.getByLabelText('Archive password'), {
       target: { value: 'secret' },
     })
     expect(onChange).toHaveBeenCalledWith('secret')
@@ -220,7 +220,7 @@ describe('ArchiveKeyField', () => {
     renderWithI18n(
       <ArchiveKeyField id="k" value="x" onChange={vi.fn()} t={t} disabled />,
     )
-    expect(screen.getByLabelText('Archive key')).toBeDisabled()
+    expect(screen.getByLabelText('Archive password')).toBeDisabled()
   })
 })
 

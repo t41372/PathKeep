@@ -103,6 +103,10 @@ export function BackupFailureToast({
   }, [report])
 
   const isFullDiskAccess = errorKind === 'full-disk-access'
+  // A failed config write has nothing the shell can retry (it does not know
+  // which control was being saved), so it shows honest settings-specific copy
+  // and drops the backup retry rather than offering an action that would lie.
+  const isConfigSave = errorKind === 'config-save'
 
   return (
     <div
@@ -131,7 +135,9 @@ export function BackupFailureToast({
             id="pk-backup-failure-heading"
             className="flex-1 font-sans text-[13px] font-semibold leading-snug text-error"
           >
-            {t('shell.backupFailedHeading')}
+            {isConfigSave
+              ? t('shell.configSaveFailedHeading')
+              : t('shell.backupFailedHeading')}
           </span>
           <div className="flex flex-wrap items-center gap-2">
             {isFullDiskAccess ? (
@@ -143,13 +149,15 @@ export function BackupFailureToast({
                 {t('shell.fullDiskAccessOpenSettings')}
               </button>
             ) : null}
-            <button
-              type="button"
-              className="btn-secondary text-[12px]"
-              onClick={onRetry}
-            >
-              {t('shell.backupFailedRetry')}
-            </button>
+            {isConfigSave ? null : (
+              <button
+                type="button"
+                className="btn-secondary text-[12px]"
+                onClick={onRetry}
+              >
+                {t('shell.backupFailedRetry')}
+              </button>
+            )}
             <button
               type="button"
               className="btn-secondary text-[12px]"
@@ -170,7 +178,9 @@ export function BackupFailureToast({
           </button>
         </div>
         <p className="m-0 font-sans text-[12px] leading-[1.45] text-ink-muted">
-          {t('shell.backupFailedReassurance')}
+          {isConfigSave
+            ? t('shell.configSaveFailedReassurance')
+            : t('shell.backupFailedReassurance')}
         </p>
         <p className="m-0 font-sans text-[12px] leading-[1.5] text-ink-secondary">
           {message}

@@ -153,6 +153,14 @@ export function ReadyStep({
         </PaperCard>
       </div>
 
+      <div className="mt-4">
+        <StatusCallout
+          tone="info"
+          title={t('readyLinkPreviewDisclosureTitle')}
+          body={t('readyLinkPreviewDisclosureBody')}
+        />
+      </div>
+
       {selectedAccessIssueCount > 0 ? (
         <div className="mt-4">
           <StatusCallout

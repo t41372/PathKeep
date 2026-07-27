@@ -362,7 +362,8 @@ pub fn inspect_browser_history(
         ..BrowserPreviewCollector::default()
     };
     let streamed = stream_browser_history(&staged, &mut collector)?;
-    let notes = streamed.warnings.iter().map(|warning| warning.message.clone()).collect::<Vec<_>>();
+    let note_details = parser_warning_notes(&streamed.warnings);
+    let notes = note_details.iter().map(|note| note.message.clone()).collect::<Vec<_>>();
 
     Ok(TakeoutInspection {
         source_path: request.source_path.clone(),
@@ -379,6 +380,7 @@ pub fn inspect_browser_history(
         preview_entries: collector.preview_entries,
         import_batch: None,
         notes,
+        note_details,
         detected_locale: None,
         preview_range_start: collector.preview_range.start,
         preview_range_end: collector.preview_range.end,
@@ -540,13 +542,16 @@ where
             inspection.duplicate_items = stats.duplicate_items;
             inspection.recognized_files =
                 vec![browser_file_report(&staged, "previewed", counts.visits)];
-            inspection.notes =
-                streamed.warnings.iter().map(|warning| warning.message.clone()).collect::<Vec<_>>();
-            append_browser_import_skipped_note(&mut inspection.notes, stats.skipped_items);
+            let parser_notes = parser_warning_notes(&streamed.warnings);
+            inspection.replace_notes(
+                parser_notes.iter().map(|note| note.message.clone()).collect(),
+                parser_notes,
+            );
+            append_browser_import_skipped_note(&mut inspection, stats.skipped_items);
             inspection.preview_range_start = preview_range.start;
             inspection.preview_range_end = preview_range.end;
 
-            inspection.notes.extend(
+            inspection.extend_notes(
                 persist_browser_source_evidence_plan(
                     BrowserEvidencePersistInput {
                         paths,
@@ -567,7 +572,7 @@ where
             );
             batches::finalize_import_batch(&archive, batch_id, &inspection)?;
             finalize_successful_import_run(&archive, run_id, batch_id, &inspection, &stats)?;
-            inspection.notes.extend(
+            inspection.extend_notes(
                 refresh_search_projection_for_import_batch(paths, config, key, batch_id)
                     .err()
                     .map(browser_import_search_projection_warning),
@@ -584,7 +589,7 @@ where
             inspection.preview_entries = detail.preview_entries;
             inspection.recognized_files = detail.recognized_files;
             inspection.quarantined_files = detail.quarantined_files;
-            inspection.notes = detail.notes;
+            inspection.replace_notes(detail.notes, detail.note_details);
             inspection.preview_range_start = detail.preview_range_start;
             inspection.preview_range_end = detail.preview_range_end;
             progress_log_lines.push(format!(
@@ -652,33 +657,68 @@ fn emit_browser_import_progress_if_changed(
     );
 }
 
-fn append_browser_import_skipped_note(notes: &mut Vec<String>, skipped_items: usize) {
+/// Converts parser warnings into coded notes the review UI can localize.
+///
+/// The parser already emits a stable `code`, so it is namespaced rather than
+/// re-derived; the raw parser sentence stays as fallback/diagnostic evidence
+/// because it names concrete tables and files.
+fn parser_warning_notes(warnings: &[browser_history_parser::ParserWarning]) -> Vec<TakeoutNote> {
+    warnings
+        .iter()
+        .map(|warning| {
+            TakeoutNote::new(&format!("parser-{}", warning.code), warning.message.clone())
+                .with_diagnostic(warning.message.clone())
+        })
+        .collect()
+}
+
+fn append_browser_import_skipped_note(inspection: &mut TakeoutInspection, skipped_items: usize) {
     if skipped_items > 0 {
-        notes.push(format!(
-            "Skipped {} visit row(s) because their URL row was not present in the source.",
-            skipped_items
-        ));
+        inspection.push_note(
+            TakeoutNote::new(
+                "browser-skipped-missing-url-row",
+                format!(
+                    "Skipped {} visit row(s) because their URL row was not present in the source.",
+                    skipped_items
+                ),
+            )
+            .with_count(skipped_items),
+        );
     }
 }
 
 #[cfg(test)]
-fn append_browser_import_source_evidence_warning(notes: &mut Vec<String>, error: &anyhow::Error) {
-    notes.push(browser_import_source_evidence_warning(anyhow::anyhow!("{error}")));
+fn append_browser_import_source_evidence_warning(
+    inspection: &mut TakeoutInspection,
+    error: &anyhow::Error,
+) {
+    inspection.push_note(browser_import_source_evidence_warning(anyhow::anyhow!("{error}")));
 }
 
 #[cfg(test)]
-fn append_browser_import_search_projection_warning(notes: &mut Vec<String>, error: &anyhow::Error) {
-    notes.push(browser_import_search_projection_warning(anyhow::anyhow!("{error}")));
+fn append_browser_import_search_projection_warning(
+    inspection: &mut TakeoutInspection,
+    error: &anyhow::Error,
+) {
+    inspection.push_note(browser_import_search_projection_warning(anyhow::anyhow!("{error}")));
 }
 
-fn browser_import_source_evidence_warning(error: anyhow::Error) -> String {
-    format!(
-        "Canonical Browser Direct import completed, but the source-evidence archive needs a rebuild: {error}"
+fn browser_import_source_evidence_warning(error: anyhow::Error) -> TakeoutNote {
+    TakeoutNote::new(
+        "browser-source-evidence-rebuild-needed",
+        format!(
+            "Canonical Browser Direct import completed, but the source-evidence archive needs a rebuild: {error}"
+        ),
     )
+    .with_diagnostic(format!("{error}"))
 }
 
-fn browser_import_search_projection_warning(error: anyhow::Error) -> String {
-    format!("Import completed, but the keyword-recall projection needs a rebuild: {error}")
+fn browser_import_search_projection_warning(error: anyhow::Error) -> TakeoutNote {
+    TakeoutNote::new(
+        "search-projection-rebuild-needed",
+        format!("Import completed, but the keyword-recall projection needs a rebuild: {error}"),
+    )
+    .with_diagnostic(format!("{error}"))
 }
 
 fn finalize_failed_browser_history_import(
@@ -1162,19 +1202,49 @@ mod tests {
             Some("Google Chrome / Primary")
         );
 
-        let mut notes = Vec::new();
-        append_browser_import_skipped_note(&mut notes, 2);
+        let mut note_inspection = TakeoutInspection::default();
+        append_browser_import_skipped_note(&mut note_inspection, 0);
+        assert!(note_inspection.notes.is_empty());
+        assert!(note_inspection.note_details.is_empty());
+        append_browser_import_skipped_note(&mut note_inspection, 2);
         append_browser_import_source_evidence_warning(
-            &mut notes,
+            &mut note_inspection,
             &anyhow::anyhow!("source evidence offline"),
         );
         append_browser_import_search_projection_warning(
-            &mut notes,
+            &mut note_inspection,
             &anyhow::anyhow!("projection offline"),
         );
+        let notes = note_inspection.notes.clone();
         assert!(notes.iter().any(|note| note.contains("Skipped 2 visit row")));
         assert!(notes.iter().any(|note| note.contains("source-evidence archive")));
         assert!(notes.iter().any(|note| note.contains("keyword-recall projection")));
+        let note_codes =
+            note_inspection.note_details.iter().map(|note| note.code.as_str()).collect::<Vec<_>>();
+        assert_eq!(
+            note_codes,
+            vec![
+                "browser-skipped-missing-url-row",
+                "browser-source-evidence-rebuild-needed",
+                "search-projection-rebuild-needed",
+            ]
+        );
+        assert_eq!(note_inspection.note_details[0].count, Some(2));
+        assert_eq!(
+            note_inspection.note_details[1].diagnostic.as_deref(),
+            Some("source evidence offline")
+        );
+
+        let parser_notes = parser_warning_notes(&[browser_history_parser::ParserWarning {
+            code: "missing-table".to_string(),
+            message: "required Chromium table `urls` is missing".to_string(),
+        }]);
+        assert_eq!(parser_notes.len(), 1);
+        assert_eq!(parser_notes[0].code, "parser-missing-table");
+        assert_eq!(
+            parser_notes[0].diagnostic.as_deref(),
+            Some("required Chromium table `urls` is missing")
+        );
 
         let root = tempdir().expect("tempdir");
         let paths = project_paths_with_root(root.path());

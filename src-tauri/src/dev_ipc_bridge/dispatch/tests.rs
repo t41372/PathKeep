@@ -81,7 +81,88 @@ async fn dispatch_command_rejects_unknown_commands() {
         .await
         .expect_err("missing command should fail");
 
-    assert!(error.contains("does not recognize"));
+    assert!(error.message.contains("does not recognize"));
+    // An unknown command is an infrastructure failure, not a remediable one:
+    // it must not carry a classification the frontend would route to the
+    // unlock / Full Disk Access repair surfaces.
+    assert_eq!(error.code, None);
+    assert_eq!(error.action_hint, None);
+    assert_eq!(error.retry_hint, None);
+}
+
+#[test]
+fn dispatch_initialize_archive_bootstraps_the_archive_and_drives_the_upgrade_reporter() {
+    // The dev bridge cannot deliver Tauri events, so its upgrade-progress sink
+    // is a documented no-op — but the sink must still be REACHED, i.e. the
+    // command has to actually bootstrap the archive rather than fail early and
+    // leave browser-preview-over-bridge sessions staring at an empty shell.
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = dir.path().join("chrome-user-data");
+    let keyring_root = dir.path().join("test-keyring");
+    std::fs::create_dir_all(&chrome_root).expect("chrome root");
+
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    let snapshot = ready_block_on(dispatch_command(
+        &state,
+        "initialize_archive",
+        json!({ "config": test_config(), "databaseKey": null }),
+    ))
+    .expect("initialize archive over the dev bridge");
+
+    // Returning `Ok` at all means the command reached
+    // `ensure_archive_initialized_with_progress`, which ALWAYS emits a
+    // `finished` upgrade event into the bridge's sink. The snapshot below is
+    // the observable proof the archive really exists afterwards.
+    let database_path = snapshot["archiveStatus"]["databasePath"]
+        .as_str()
+        .expect("the snapshot must report the canonical archive path");
+    assert!(
+        std::path::Path::new(database_path).exists(),
+        "the canonical archive database must exist after initialize_archive, got {database_path}"
+    );
+    assert_eq!(snapshot["archiveStatus"]["initialized"], json!(true));
+    assert_eq!(snapshot["config"]["initialized"], json!(true));
+    // NOTE: `unlocked` and the concrete project root are deliberately not
+    // asserted. Both App Lock session state and the resolved root are
+    // process-global for this test binary, so sibling tests can legitimately
+    // change what a freshly created plaintext archive reports. The bootstrap
+    // claim above is the contract this test owns; app-lock and path-resolution
+    // behavior are covered by the worker-bridge and config suites.
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
+}
+
+#[tokio::test]
+async fn blocking_join_failures_report_the_command_without_a_remediation_code() {
+    // A worker thread that panics must not vanish: the bridge names the command
+    // that died and forwards the panic text, but leaves the envelope
+    // unclassified so the frontend does not route it to the unlock / Full Disk
+    // Access repair surfaces.
+    let join_error = tokio::task::spawn_blocking(|| panic!("worker thread died"))
+        .await
+        .expect_err("a panicking blocking task yields a join error");
+
+    let failure: Result<(), super::CommandError> =
+        super::join_failure("run_backup_now", join_error);
+    let failure = failure.expect_err("a join failure is always an error");
+
+    assert!(failure.message.starts_with("run_backup_now join failed:"));
+    assert!(failure.message.contains("panic"));
+    assert_eq!(failure.code, None);
+    assert_eq!(failure.action_hint, None);
+    assert_eq!(failure.retry_hint, None);
 }
 
 fn wrapped<T: Serialize>(request: T) -> Value {

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '../../lib/i18n'
 import type { AppLockConfig, AppLockStatus } from '../../lib/types'
@@ -108,9 +109,11 @@ describe('AppLockSection', () => {
   })
 
   test('keeps the Saved chip hidden and swallows the rejection when an auto-save fails', async () => {
-    // persistAppLock re-throws on a failed saveConfig (the shell already set the
-    // error banner). flashOnSave must swallow that rejection so there is no
-    // unhandled rejection on every failing toggle, and the chip must stay hidden.
+    // persistAppLock re-throws on a failed saveConfig. The visible failure
+    // surface is shell-owned: `saveConfig` sets errorKind 'config-save', which
+    // the shell renders. This test owns only the section's half — swallow the
+    // rejection so a failing toggle cannot produce an unhandled rejection, and
+    // never flash a "Saved" chip for a write that did not land.
     const handlers = handlerFixture()
     handlers.onEnabledChange.mockRejectedValue(new Error('save failed'))
     const unhandled = vi.fn()
@@ -134,6 +137,54 @@ describe('AppLockSection', () => {
     }
   })
 
+  test('cannot tick Enable without a passcode, and says why at the control', async () => {
+    // The backend refuses to enable App Lock without a passcode, so an ungated
+    // checkbox let the user tick a security switch that silently sprang back
+    // with no message at all. It is now blocked, with the reason directly under
+    // the control rather than only in the section-level callout further down.
+    const handlers = handlerFixture()
+    renderSection({
+      ...handlers,
+      canEnable: false,
+      currentSettings: configFixture({
+        enabled: false,
+        passcodeConfigured: false,
+      }),
+    })
+
+    const checkbox = screen.getByLabelText('Enable App Lock')
+    expect(checkbox).toBeDisabled()
+    expect(
+      screen.getByTestId('app-lock-enable-blocked-reason'),
+    ).toBeInTheDocument()
+
+    // `userEvent`, not `fireEvent`: a real browser will not deliver a click to
+    // a disabled control, and `fireEvent` bypasses that check — asserting with
+    // it would prove nothing about what the user can actually do.
+    await userEvent.click(checkbox)
+    expect(handlers.onEnabledChange).not.toHaveBeenCalled()
+  })
+
+  test('an already-enabled lock stays togglable even when canEnable is false', () => {
+    // `canEnable` gates turning it ON. Someone who already has App Lock on must
+    // still be able to turn it OFF, or a stale capability probe would trap them.
+    const handlers = handlerFixture()
+    renderSection({
+      ...handlers,
+      canEnable: false,
+      currentSettings: configFixture({ enabled: true }),
+    })
+
+    const checkbox = screen.getByLabelText('Enable App Lock')
+    expect(checkbox).not.toBeDisabled()
+    expect(
+      screen.queryByTestId('app-lock-enable-blocked-reason'),
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(checkbox)
+    expect(handlers.onEnabledChange).toHaveBeenCalledWith(false)
+  })
+
   test('shows disabled and degraded states without inventing fallback settings', () => {
     renderSection({
       action: 'Saving...',
@@ -151,6 +202,8 @@ describe('AppLockSection', () => {
           'App Lock only protects the PathKeep UI session. Archive encryption still protects data at rest.',
           'Custom backend warning',
         ],
+        // Second note carries no code, so it must fall through as raw prose.
+        degradationNoteCodes: ['ui-session-only'],
         enabled: false,
         lastUnlockedAt: null,
         passcodeConfigured: false,
@@ -187,9 +240,9 @@ describe('AppLockSection', () => {
       status: statusFixture({
         biometricAvailable: false,
         biometricState: 'touch-id-unavailable',
-        degradationNotes: [
-          'Touch ID is available on this Mac and can unlock the current PathKeep session.',
-        ],
+        // Deliberately drifted backend prose: the code channel must still win.
+        degradationNotes: ['Touch ID note prose that no longer matches copy'],
+        degradationNoteCodes: ['touch-id-available'],
       }),
       usesTouchId: true,
     })
@@ -207,6 +260,20 @@ describe('AppLockSection', () => {
         'Touch ID is available on this Mac and can unlock the current PathKeep session.',
       ),
     ).toBeVisible()
+    expect(
+      screen.queryByText('Touch ID note prose that no longer matches copy'),
+    ).toBeNull()
+  })
+
+  test('renders unknown degradation note codes as diagnostic prose', () => {
+    renderSection({
+      status: statusFixture({
+        degradationNotes: ['A note from a newer backend'],
+        degradationNoteCodes: ['some-future-app-lock-note'],
+      }),
+    })
+
+    expect(screen.getByText('A note from a newer backend')).toBeVisible()
   })
 })
 

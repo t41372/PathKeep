@@ -282,7 +282,7 @@ pub(crate) fn merge_config_change(
 /// Recursively applies `proposed - base` onto `current`. Arrays are atomic
 /// settings values; objects merge by leaf so a concurrent language change and
 /// App Lock change cannot reset each other.
-fn apply_config_delta(current: &mut Value, base: &Value, proposed: &Value) {
+pub(crate) fn apply_config_delta(current: &mut Value, base: &Value, proposed: &Value) {
     match (current, base, proposed) {
         (Value::Object(current), Value::Object(base), Value::Object(proposed)) => {
             for (key, proposed_value) in proposed {

@@ -15,7 +15,7 @@ import { StatusCallout } from '../../components/primitives/status-callout'
 import { BackupIntervalSelector } from '../../components/schedule/backup-interval-selector'
 import { useI18n } from '../../lib/i18n'
 import type { SchedulePlan, ScheduleStatus } from '../../lib/types'
-import { localizeScheduleManualStep, schedulePlatformLabel } from './shared'
+import { schedulePlatformLabel } from './shared'
 
 export interface ScheduleStepProps {
   dueAfterHours: number
@@ -42,7 +42,12 @@ export function ScheduleStep({
   schedulePreviewLoading,
   scheduleStatus,
 }: ScheduleStepProps) {
-  const { t } = useI18n('onboarding')
+  // Two translators on purpose: onboarding copy is namespaced, while the
+  // backend-owned manual-step keys (`schedule.manual*`) are fully qualified and
+  // shared verbatim with the Schedule route.
+  const { t: translate, ns } = useI18n()
+  const t = ns('onboarding')
+  const manualSteps = schedulePlan?.manualStepDetails ?? []
   const installDisabled =
     Boolean(busyAction) ||
     schedulePreviewLoading ||
@@ -110,14 +115,27 @@ export function ScheduleStep({
                 </div>
               ) : null}
               <div className="manual-steps">
-                {schedulePlan.manualSteps.map((step, index) => (
-                  <div className="manual-step" key={`${index}-${step}`}>
-                    <span className="step-num-inline">{index + 1}.</span>
-                    <span>
-                      {localizeScheduleManualStep(step, schedulePlan.label, t)}
-                    </span>
-                  </div>
-                ))}
+                {manualSteps.length > 0
+                  ? manualSteps.map((step, index) => (
+                      <div className="manual-step" key={step.id}>
+                        <span className="step-num-inline">{index + 1}.</span>
+                        <div>
+                          <strong>{translate(step.titleKey)}</strong>
+                          <p className="m-0">{translate(step.summaryKey)}</p>
+                          {step.command ? (
+                            <pre className="code-block">
+                              <code>{joinCommand(step.command)}</code>
+                            </pre>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))
+                  : schedulePlan.manualSteps.map((step, index) => (
+                      <div className="manual-step" key={`${index}-${step}`}>
+                        <span className="step-num-inline">{index + 1}.</span>
+                        <span>{step}</span>
+                      </div>
+                    ))}
               </div>
             </PaperCardBody>
           </PaperCard>
@@ -156,6 +174,16 @@ export function ScheduleStep({
       </div>
     </div>
   )
+}
+
+/**
+ * Renders one manual-step command the way the Schedule route does, so onboarding
+ * and Settings never disagree about how a command is quoted.
+ */
+function joinCommand(command: string[]) {
+  return command
+    .map((part) => (part.includes(' ') ? `"${part}"` : part))
+    .join(' ')
 }
 
 function scheduleInstallStateLabel(

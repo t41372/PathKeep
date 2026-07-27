@@ -251,6 +251,35 @@ export function buildRetentionSelection(
 }
 
 /**
+ * Maps the backend retention warning codes onto shipped Settings copy.
+ *
+ * Keyed by `RETENTION_WARNING_*` codes emitted from
+ * `vault-core/src/models/archive.rs`, so a copy tweak on the Rust prose can
+ * never silently drop a translated warning back to English.
+ */
+const RETENTION_WARNING_KEY_BY_CODE: Record<string, string> = {
+  'snapshot-prune-removes-checkpoints':
+    'settings.retentionSnapshotPruneWarning',
+  'export-prune-local-only': 'settings.retentionExportPruneWarning',
+}
+
+/**
+ * Resolves one retention preview warning into user-visible copy.
+ *
+ * `code` is the stable backend code for the warning at the same index; the raw
+ * English `warning` stays the honest fallback for codes this build does not yet
+ * ship copy for, so a newer backend never renders a blank callout.
+ */
+export function localizeRetentionWarning(
+  warning: string,
+  code: string | undefined,
+  t: SettingsTranslator,
+): string {
+  const key = code ? RETENTION_WARNING_KEY_BY_CODE[code] : undefined
+  return key ? t(key) : warning
+}
+
+/**
  * Creates the editable draft shape used by the search-engine rule editor.
  *
  * This keeps built-in and custom rule rows aligned with the same draft model,

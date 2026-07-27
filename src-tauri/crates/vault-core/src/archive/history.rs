@@ -405,7 +405,6 @@ pub fn list_history(
         cursor,
         cursor_visit_time,
         cursor_id,
-        q,
     )
 }
 
@@ -549,7 +548,6 @@ fn list_history_with_regex_capped(
     let mut rows = statement.query(named_params! {
         ":profileId": profile_id,
         ":browserKind": browser_kind,
-        ":query": Option::<String>::None,
         ":domainPattern": domain_pattern,
         ":startTimeMs": start_time_ms,
         ":endTimeMs": end_time_ms,
@@ -880,7 +878,6 @@ fn list_history_with_sql(
     cursor: Option<HistoryCursor>,
     cursor_visit_time: i64,
     cursor_id: i64,
-    q: Option<String>,
 ) -> Result<HistoryQueryResponse> {
     let total: usize = connection
         .query_row(
@@ -888,7 +885,6 @@ fn list_history_with_sql(
             named_params! {
                 ":profileId": profile_id.clone(),
                 ":browserKind": browser_kind.clone(),
-                ":query": q.clone(),
                 ":domainPattern": domain_pattern.clone(),
                 ":startTimeMs": start_time_ms,
                 ":endTimeMs": end_time_ms,
@@ -909,7 +905,6 @@ fn list_history_with_sql(
         named_params! {
             ":profileId": profile_id,
             ":browserKind": browser_kind,
-            ":query": q,
             ":domainPattern": domain_pattern,
             ":startTimeMs": start_time_ms,
             ":endTimeMs": end_time_ms,

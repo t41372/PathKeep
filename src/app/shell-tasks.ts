@@ -45,7 +45,16 @@ export interface ShellTaskLogEntry {
   timestamp: string
   level: ShellTaskLogLevel
   code: string
+  /**
+   * Raw entry text. For `origin: 'backend'` entries this is the backend's
+   * English narration and is a FALLBACK only — renderers must localize by
+   * `code` first (`desktop-command-surface.md`: the UI consumes structured
+   * `logEvents` codes, not transport prose). `origin: 'shell'` entries
+   * already carry localized copy.
+   */
   message: string
+  /** Who authored `message`: backend progress transport or the shell (localized). */
+  origin: 'backend' | 'shell'
   sourceLabel?: string | null
   diagnostic?: string | null
   current?: number | null
@@ -57,7 +66,16 @@ export interface ShellTask {
   kind: ShellTaskKind
   state: ShellTaskState
   title: string
+  /**
+   * Task narration. When `detailOrigin` is `'backend'` this is the backend's
+   * English transport prose and renderers must prefer localized copy keyed on
+   * `phase`; when `'shell'` it is already localized.
+   */
   detail: string
+  /** Who authored `detail`. */
+  detailOrigin: 'backend' | 'shell'
+  /** Last backend progress phase (e.g. `stage-profile`), for phase-keyed i18n. */
+  phase?: string | null
   startedAt: string
   updatedAt: string
   finishedAt?: string | null
@@ -121,6 +139,8 @@ export function createShellTask(input: NewShellTaskInput): ShellTask {
     state: 'running',
     title: input.title,
     detail: input.detail,
+    detailOrigin: 'shell',
+    phase: null,
     startedAt: input.timestamp,
     updatedAt: input.timestamp,
     finishedAt: null,
@@ -142,6 +162,7 @@ export function createShellTask(input: NewShellTaskInput): ShellTask {
         level: 'info',
         code: `${input.kind}.started`,
         message: input.detail,
+        origin: 'shell',
         sourceLabel: input.sourceLabel ?? null,
       },
     ],
@@ -245,6 +266,8 @@ export function applyImportProgressToTask(
       ...task,
       state: progress.phase === 'complete' ? 'succeeded' : 'running',
       detail: progress.detail,
+      detailOrigin: 'backend',
+      phase: progress.phase,
       updatedAt: timestamp,
       finishedAt: progress.phase === 'complete' ? timestamp : task.finishedAt,
       sourceLabel:
@@ -305,6 +328,8 @@ export function applyBackupProgressToTask(
       ...task,
       state: 'running',
       detail: progress.detail,
+      detailOrigin: 'backend',
+      phase: progress.phase,
       updatedAt: timestamp,
       sourceLabel:
         progress.sourceLabel ?? progress.profileId ?? task.sourceLabel ?? null,
@@ -353,6 +378,8 @@ export function completeImportTask(
       ...task,
       state: 'succeeded',
       detail: message,
+      detailOrigin: 'shell',
+      phase: 'complete',
       updatedAt: timestamp,
       finishedAt: timestamp,
       progressValue: 100,
@@ -369,6 +396,7 @@ export function completeImportTask(
         level: 'success',
         code: 'import.complete',
         message,
+        origin: 'shell',
         current: result.importedItems,
       },
     ],
@@ -395,6 +423,8 @@ export function completeBackupTask(
       ...task,
       state: 'succeeded',
       detail: message,
+      detailOrigin: 'shell',
+      phase: 'complete',
       updatedAt: timestamp,
       finishedAt: timestamp,
       progressValue: 100,
@@ -407,6 +437,7 @@ export function completeBackupTask(
         level: report.warnings.length > 0 ? 'warning' : 'success',
         code: 'backup.complete',
         message,
+        origin: 'shell',
       },
     ],
   )
@@ -430,6 +461,8 @@ export function failShellTask(
       ...task,
       state: 'failed',
       detail: message,
+      detailOrigin: 'shell',
+      phase: 'failed',
       updatedAt: timestamp,
       finishedAt: timestamp,
       error: message,
@@ -441,6 +474,7 @@ export function failShellTask(
         level: 'error',
         code: `${task.kind}.failed`,
         message,
+        origin: 'shell',
       },
     ],
   )
@@ -518,6 +552,7 @@ function progressLogEntries(input: {
         level: normalizeLogLevel(event.level),
         code: event.code || input.fallbackCode,
         message: event.message || input.fallbackMessage,
+        origin: 'backend' as const,
         sourceLabel: event.sourceLabel ?? input.sourceLabel ?? null,
         diagnostic: event.diagnostic ?? null,
         current: event.processedRecords ?? input.current ?? null,
@@ -536,6 +571,7 @@ function progressLogEntries(input: {
     level: 'info' as const,
     code: input.fallbackCode,
     message: line,
+    origin: 'backend' as const,
     sourceLabel: input.sourceLabel ?? null,
     current: input.current ?? null,
     total: input.total ?? null,

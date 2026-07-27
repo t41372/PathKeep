@@ -45,7 +45,8 @@ pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core:
     let config = load_unlocked_config(&paths)?;
     let archive = archive_status(&paths, &config, session_database_key)?;
     let keyring = keyring_status();
-    let warnings = security_status_warnings(&config, &archive, &keyring);
+    let (warnings, warning_codes) =
+        security_status_warnings(&config, &archive, &keyring, session_database_key);
 
     let mode = if !archive.initialized {
         "uninitialized"
@@ -83,17 +84,33 @@ pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core:
         last_rekey_snapshot_path,
         keyring_status: keyring,
         warnings,
+        warning_codes,
     })
 }
 
+/// Builds the security warning list plus the parallel stable-code list.
+///
+/// The codes exist so the Security route can localize without matching backend
+/// English prose. `session_database_key` is what makes the first code honest: an
+/// archive-open failure is only reported as "needs a password" when the archive
+/// really is encrypted and no key was supplied for this session. Any other
+/// archive-open failure stays an uncoded (`""`) diagnostic pass-through.
 fn security_status_warnings(
     config: &vault_core::AppConfig,
     archive: &vault_core::ArchiveStatus,
     keyring: &KeyringStatusReport,
-) -> Vec<String> {
+    session_database_key: Option<&str>,
+) -> (Vec<String>, Vec<String>) {
     let mut warnings = Vec::new();
+    let mut codes = Vec::new();
     if let Some(warning) = archive.warning.clone() {
+        let needs_password = archive.encrypted && session_database_key.is_none();
         warnings.push(warning);
+        codes.push(if needs_password {
+            vault_core::SECURITY_WARNING_ENCRYPTED_NEEDS_PASSWORD.to_string()
+        } else {
+            String::new()
+        });
     }
     if matches!(config.archive_mode, ArchiveMode::Encrypted)
         && config.remember_database_key_in_keyring
@@ -102,6 +119,7 @@ fn security_status_warnings(
         warnings.push(
             "Archive is configured to remember the database key, but no native keyring backend is available on this machine.".to_string(),
         );
+        codes.push(vault_core::SECURITY_WARNING_REMEMBER_KEY_NO_KEYRING.to_string());
     }
     if matches!(config.archive_mode, ArchiveMode::Encrypted)
         && config.remember_database_key_in_keyring
@@ -110,8 +128,9 @@ fn security_status_warnings(
         warnings.push(
             "Archive is encrypted, but the database key is not currently stored in the system keyring.".to_string(),
         );
+        codes.push(vault_core::SECURITY_WARNING_REMEMBERED_KEY_MISSING.to_string());
     }
-    warnings
+    (warnings, codes)
 }
 
 /// Reads the most recent rekey review directly from the archive when available.
@@ -312,21 +331,28 @@ pub fn preview_rekey_archive(
         anyhow::bail!("initialize the archive before previewing a rekey operation");
     }
 
+    // Warnings and codes stay index-aligned (the `SecurityStatus::warning_codes`
+    // template): the shell localizes off the stable code and only falls back to
+    // the English prose for codes it does not ship copy for.
     let mut warnings = Vec::new();
+    let mut warning_codes = Vec::new();
     if archive.encrypted && !archive.unlocked {
         warnings.push(
             "The archive is currently locked. Unlock it before executing the rekey.".to_string(),
         );
+        warning_codes.push(vault_core::REKEY_WARNING_ARCHIVE_LOCKED.to_string());
     }
     if matches!(request.new_mode, ArchiveMode::Encrypted) && request.new_key.is_none() {
         warnings.push(
             "Encrypted rekey requires a new database key before execute can run.".to_string(),
         );
+        warning_codes.push(vault_core::REKEY_WARNING_NEW_KEY_REQUIRED.to_string());
     }
     if config.archive_mode == request.new_mode {
         warnings.push(
             "The archive will still be rewritten because the target mode matches the current mode, which makes this a key rotation or validation pass rather than a mode switch.".to_string(),
         );
+        warning_codes.push(vault_core::REKEY_WARNING_SAME_MODE_REWRITE.to_string());
     }
 
     let snapshot_path =
@@ -351,6 +377,7 @@ pub fn preview_rekey_archive(
             "Swap the rewritten database into place only after the export succeeds, and keep the safety snapshot for manual recovery.".to_string(),
         ],
         warnings,
+        warning_codes,
     })
 }
 
@@ -426,6 +453,7 @@ mod tests {
             ..AppConfig::default()
         };
         let archive = ArchiveStatus {
+            encrypted: true,
             warning: Some("archive warning".to_string()),
             ..ArchiveStatus::default()
         };
@@ -435,21 +463,51 @@ mod tests {
             ..KeyringStatusReport::default()
         };
 
-        let warnings = security_status_warnings(&config, &archive, &unavailable_keyring);
+        let (warnings, codes) =
+            security_status_warnings(&config, &archive, &unavailable_keyring, None);
         assert_eq!(warnings.len(), 3);
         assert_eq!(warnings[0], "archive warning");
         assert!(warnings[1].contains("no native keyring backend"));
         assert!(warnings[2].contains("database key is not currently stored"));
+        assert_eq!(
+            codes,
+            vec![
+                vault_core::SECURITY_WARNING_ENCRYPTED_NEEDS_PASSWORD.to_string(),
+                vault_core::SECURITY_WARNING_REMEMBER_KEY_NO_KEYRING.to_string(),
+                vault_core::SECURITY_WARNING_REMEMBERED_KEY_MISSING.to_string(),
+            ]
+        );
+
+        // A session key was supplied, so an archive-open failure is NOT a
+        // "needs a password" warning and must stay an uncoded diagnostic.
+        let (warnings, codes) =
+            security_status_warnings(&config, &archive, &unavailable_keyring, Some("secret"));
+        assert_eq!(warnings[0], "archive warning");
+        assert_eq!(codes[0], "");
+
+        // A plaintext archive that failed to open is also uncoded.
+        let plaintext_archive = ArchiveStatus {
+            warning: Some("archive warning".to_string()),
+            ..ArchiveStatus::default()
+        };
+        let (_, codes) =
+            security_status_warnings(&config, &plaintext_archive, &unavailable_keyring, None);
+        assert_eq!(codes[0], "");
 
         let available_missing_secret = KeyringStatusReport {
             available: true,
             stored_secret: false,
             ..KeyringStatusReport::default()
         };
-        let warnings =
-            security_status_warnings(&config, &ArchiveStatus::default(), &available_missing_secret);
+        let (warnings, codes) = security_status_warnings(
+            &config,
+            &ArchiveStatus::default(),
+            &available_missing_secret,
+            None,
+        );
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("database key is not currently stored"));
+        assert_eq!(codes, vec![vault_core::SECURITY_WARNING_REMEMBERED_KEY_MISSING.to_string()]);
     }
 
     #[test]

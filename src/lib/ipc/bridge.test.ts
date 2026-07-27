@@ -77,6 +77,90 @@ describe('ipc bridge', () => {
     )
   })
 
+  test('turns a tauri CommandError envelope into a typed CommandInvokeError', async () => {
+    invokeMock.mockRejectedValueOnce({
+      message: 'run_backup_now failed: PathKeep is currently locked',
+      code: 'lock-required',
+      actionHint: 'Unlock PathKeep to continue.',
+      retryHint: 'Retry the backup after unlocking.',
+    })
+
+    const { invokeCommand } = await import('./bridge')
+    const { CommandInvokeError } = await import('./command-error')
+
+    const error = await invokeCommand('run_backup_now').catch(
+      (thrown: unknown) => thrown,
+    )
+
+    expect(error).toBeInstanceOf(CommandInvokeError)
+    expect(error).toMatchObject({
+      message: 'run_backup_now failed: PathKeep is currently locked',
+      code: 'lock-required',
+      actionHint: 'Unlock PathKeep to continue.',
+      retryHint: 'Retry the backup after unlocking.',
+    })
+  })
+
+  test('accepts a tauri envelope that only carries `error` text', async () => {
+    invokeMock.mockRejectedValueOnce({ error: 'archive is unreadable' })
+
+    const { invokeCommand } = await import('./bridge')
+    const { CommandInvokeError } = await import('./command-error')
+
+    const error = await invokeCommand('app_snapshot').catch(
+      (thrown: unknown) => thrown,
+    )
+
+    expect(error).toBeInstanceOf(CommandInvokeError)
+    expect(error).toMatchObject({
+      message: 'archive is unreadable',
+      code: null,
+      actionHint: null,
+      retryHint: null,
+    })
+  })
+
+  test('drops non-string envelope hints instead of leaking them into typed fields', async () => {
+    invokeMock.mockRejectedValueOnce({
+      message: 'command failed',
+      code: 42,
+      actionHint: { deepLink: 'x-apple.systempreferences' },
+      retryHint: ['later'],
+    })
+
+    const { invokeCommand } = await import('./bridge')
+
+    const error = await invokeCommand('app_snapshot').catch(
+      (thrown: unknown) => thrown,
+    )
+
+    expect(error).toMatchObject({
+      message: 'command failed',
+      code: null,
+      actionHint: null,
+      retryHint: null,
+    })
+  })
+
+  test('ignores a blank envelope message and keeps the `error` text', async () => {
+    invokeMock.mockRejectedValueOnce({ message: '', error: 'still broken' })
+
+    const { invokeCommand } = await import('./bridge')
+
+    await expect(invokeCommand('app_snapshot')).rejects.toThrow('still broken')
+  })
+
+  test('rethrows the ORIGINAL Error object when it carries no envelope text', async () => {
+    // An Error with an empty message is not a readable envelope; the bridge must
+    // preserve the original object (name/stack) rather than fabricating one.
+    const original = new TypeError('')
+    invokeMock.mockRejectedValueOnce(original)
+
+    const { invokeCommand } = await import('./bridge')
+
+    await expect(invokeCommand('app_snapshot')).rejects.toBe(original)
+  })
+
   test('uses tauri invoke when the desktop webview only exposes __TAURI_INTERNALS__', async () => {
     isTauriMock.mockReturnValue(false)
     vi.stubGlobal('__TAURI_INTERNALS__', {
@@ -107,6 +191,44 @@ describe('ipc bridge', () => {
 
     const { invokeCommand } = await import('./bridge')
 
+    await expect(invokeCommand('app_snapshot')).rejects.toThrow(
+      'PathKeep desktop command "app_snapshot" failed.',
+    )
+  })
+
+  test('falls back to a generic tauri error for empty rejections', async () => {
+    // A plugin/webview that rejects with nothing at all must still surface a
+    // named failure — never a TypeError from probing a nullish envelope.
+    const { invokeCommand } = await import('./bridge')
+
+    invokeMock.mockRejectedValueOnce(undefined)
+    await expect(invokeCommand('app_snapshot')).rejects.toThrow(
+      'PathKeep desktop command "app_snapshot" failed.',
+    )
+
+    invokeMock.mockRejectedValueOnce(null)
+    await expect(invokeCommand('app_snapshot')).rejects.toThrow(
+      'PathKeep desktop command "app_snapshot" failed.',
+    )
+  })
+
+  test('rejects an envelope whose only text field is an empty string', async () => {
+    // `{ error: '' }` carries no diagnostic at all; wrapping it would show the
+    // user a blank failure instead of the named command fallback.
+    const { invokeCommand } = await import('./bridge')
+    const { CommandInvokeError } = await import('./command-error')
+
+    invokeMock.mockRejectedValueOnce({ error: '' })
+    const error = await invokeCommand('app_snapshot').catch(
+      (thrown: unknown) => thrown,
+    )
+
+    expect(error).not.toBeInstanceOf(CommandInvokeError)
+    expect(error).toMatchObject({
+      message: 'PathKeep desktop command "app_snapshot" failed.',
+    })
+
+    invokeMock.mockRejectedValueOnce({ message: '', error: '' })
     await expect(invokeCommand('app_snapshot')).rejects.toThrow(
       'PathKeep desktop command "app_snapshot" failed.',
     )
@@ -181,20 +303,62 @@ describe('ipc bridge', () => {
     )
   })
 
+  test('preserves the CommandError envelope classification across the desktop bridge', async () => {
+    isTauriMock.mockReturnValue(false)
+    vi.stubEnv('VITE_PATHKEEP_DEV_IPC_URL', 'http://127.0.0.1:43117')
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            message: 'app_snapshot failed: PathKeep is currently locked',
+            code: 'lock-required',
+            actionHint: 'Unlock PathKeep to continue.',
+            retryHint: 'Retry after unlocking.',
+          }),
+        ),
+    })
+
+    const { invokeCommand } = await import('./bridge')
+    const { CommandInvokeError } = await import('./command-error')
+
+    const error = await invokeCommand('app_snapshot').catch(
+      (thrown: unknown) => thrown,
+    )
+
+    expect(error).toBeInstanceOf(CommandInvokeError)
+    expect(error).toMatchObject({
+      message: 'app_snapshot failed: PathKeep is currently locked',
+      code: 'lock-required',
+      actionHint: 'Unlock PathKeep to continue.',
+      retryHint: 'Retry after unlocking.',
+    })
+  })
+
   test('falls back to the HTTP status when the desktop bridge omits an error message', async () => {
     isTauriMock.mockReturnValue(false)
     vi.stubEnv('VITE_PATHKEEP_DEV_IPC_URL', 'http://127.0.0.1:43117')
     fetchMock.mockResolvedValueOnce({
       ok: false,
       status: 502,
-      text: () => Promise.resolve('{"message":"bad gateway"}'),
+      text: () => Promise.resolve('{"status":"bad gateway"}'),
     })
 
     const { invokeCommand } = await import('./bridge')
+    const { CommandInvokeError } = await import('./command-error')
 
-    await expect(invokeCommand('app_snapshot')).rejects.toThrow(
-      'PathKeep desktop command "app_snapshot" failed with HTTP 502.',
+    const error = await invokeCommand('app_snapshot').catch(
+      (thrown: unknown) => thrown,
     )
+
+    // A non-envelope body must produce a REAL Error carrying the HTTP status —
+    // never a bare `null` throw from an unchecked envelope.
+    expect(error).toBeInstanceOf(Error)
+    expect(error).not.toBeInstanceOf(CommandInvokeError)
+    expect(error).toMatchObject({
+      message: 'PathKeep desktop command "app_snapshot" failed with HTTP 502.',
+    })
   })
 
   test('shapes unreachable desktop bridge failures into PathKeep-specific errors', async () => {

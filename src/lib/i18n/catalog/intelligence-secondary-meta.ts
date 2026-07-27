@@ -90,7 +90,7 @@ export const intelligenceSecondaryMetaNamespace = {
     observedLoadFailed: 'Load failed',
     scopedViewTitle: 'Profile-scoped view',
     scopedViewBody:
-      'Core Intelligence is only reading {profile} right now. Clear the shared profile scope to return to the whole archive.',
+      'Core Intelligence is only reading {profile} right now. Clear the shared browser scope to return to the whole archive.',
     archiveWideBadge: 'Archive-wide metrics',
     archiveWideBody:
       'You are looking at archive-wide Core Intelligence results. Switch to one browser profile when you want the analysis to narrow with it.',
@@ -131,7 +131,7 @@ export const intelligenceSecondaryMetaNamespace = {
       'PathKeep could not load the latest Core Intelligence queue summary right now.',
     runtimeDigestFailedTitle: '{count} jobs need review',
     runtimeDigestFailedBody:
-      'Some rebuild or enrichment work still needs attention. Use Jobs for retry, cancel, and recovery details.',
+      'Some rebuild or enrichment work still needs attention. Use Activity for retry, cancel, and recovery details.',
     runtimeDigestRunningTitle: '{count} jobs running',
     runtimeDigestRunningBody:
       '{queued} more jobs are still queued behind the active work.',
@@ -192,17 +192,17 @@ export const intelligenceSecondaryMetaNamespace = {
     compareSetsPages: '{count} 个页面',
     compareSetsLanding: '落地',
     multiBrowserTitle: '多浏览器对比',
-    multiBrowserEmpty: '需要至少两个已备份的浏览器档案才能对比。',
+    multiBrowserEmpty: '需要至少两个已备份的浏览器配置才能对比。',
     multiBrowserVisits: '{count} 次访问',
     multiBrowserDomains: '{count} 个网站',
     multiBrowserShared: '共享网站 ({count})',
-    multiBrowserExclusive: '各档案独有',
+    multiBrowserExclusive: '各浏览器配置独有',
     multiBrowserCategories: '类别分布对比',
     observedTitle: '浏览器直接报告的互动',
     observedCapabilityBadge: '能力受限',
     observedDisclaimer:
       '这些数据直接来自浏览器历史记录里报告的字段。不是所有浏览器都提供；没有报告的会直接留空。',
-    observedEmpty: '这个档案没有可用的互动数据。',
+    observedEmpty: '这个浏览器配置没有可用的互动数据。',
     observedForeground: '前台 {duration}',
     observedScroll: '滚动 {duration}',
     observedKeyPresses: '{count} 次按键',
@@ -224,7 +224,7 @@ export const intelligenceSecondaryMetaNamespace = {
     sectionMetaWindow: '窗口',
     sectionMetaModules: '所属模块',
     sectionMetaSourceTables: '来源表',
-    sectionMetaEnrichment: '包含 enrichment',
+    sectionMetaEnrichment: '包含增强数据',
     sectionMetaEnrichmentEnabled: '是',
     sectionMetaEnrichmentDisabled: '否',
     sectionMetaStateReason: '状态原因',
@@ -249,7 +249,7 @@ export const intelligenceSecondaryMetaNamespace = {
       'PathKeep 目前无法加载最新的 Core Intelligence 队列摘要。',
     runtimeDigestFailedTitle: '{count} 个任务需要处理',
     runtimeDigestFailedBody:
-      '仍有重建或增强任务需要处理。重试、取消和恢复细节请到 Jobs 页面查看。',
+      '仍有重建或增强任务需要处理。重试、取消和恢复细节请到活动页查看。',
     runtimeDigestRunningTitle: '{count} 个任务正在运行',
     runtimeDigestRunningBody: '当前活跃工作后面还有 {queued} 个任务正在排队。',
     runtimeDigestQueuedTitle: '{count} 个任务正在排队',
@@ -262,7 +262,7 @@ export const intelligenceSecondaryMetaNamespace = {
     runtimeDigestIdleMeta: '最近没有队列活动',
     externalOutputsDeferredTitle: '保存片段和小组件仍在后续版本',
     externalOutputsDeferredBody:
-      'PathKeep 目前可以为未来的嵌入卡片、小组件和公开快照准备内部 payload，但这一版还没有交付任何外部宿主集成。',
+      'PathKeep 目前可以为未来的嵌入卡片、小组件和公开快照准备内部数据，但这一版还没有交付任何外部托管集成。',
   },
   'zh-TW': {
     breadthTitle: '集中度 / 廣度指數',
@@ -324,7 +324,7 @@ export const intelligenceSecondaryMetaNamespace = {
     observedScroll: '滾動 {duration}',
     observedKeyPresses: '{count} 次按鍵',
     observedLoadFailed: '載入失敗',
-    scopedViewTitle: '目前為瀏覽器範圍視圖',
+    scopedViewTitle: '目前為瀏覽器範圍檢視',
     scopedViewBody:
       '目前只顯示 {profile} 的 Core Intelligence 結果。清除共享瀏覽器篩選後，就會回到整份封存。',
     archiveWideBadge: '全部封存統計',
@@ -341,7 +341,7 @@ export const intelligenceSecondaryMetaNamespace = {
     sectionMetaWindow: '視窗',
     sectionMetaModules: '所屬模組',
     sectionMetaSourceTables: '來源表',
-    sectionMetaEnrichment: '包含 enrichment',
+    sectionMetaEnrichment: '包含增強資料',
     sectionMetaEnrichmentEnabled: '是',
     sectionMetaEnrichmentDisabled: '否',
     sectionMetaStateReason: '狀態原因',
@@ -366,7 +366,7 @@ export const intelligenceSecondaryMetaNamespace = {
       'PathKeep 目前無法載入最新的 Core Intelligence 佇列摘要。',
     runtimeDigestFailedTitle: '{count} 個工作需要處理',
     runtimeDigestFailedBody:
-      '仍有重建或增強工作需要處理。重試、取消和恢復細節請到 Jobs 頁面查看。',
+      '仍有重建或增強工作需要處理。重試、取消和還原細節請到活動頁查看。',
     runtimeDigestRunningTitle: '{count} 個工作正在執行',
     runtimeDigestRunningBody:
       '目前活躍工作的後面還有 {queued} 個工作正在排隊。',
@@ -380,6 +380,6 @@ export const intelligenceSecondaryMetaNamespace = {
     runtimeDigestIdleMeta: '最近沒有佇列活動',
     externalOutputsDeferredTitle: '儲存片段與小工具仍在後續版本',
     externalOutputsDeferredBody:
-      'PathKeep 目前可以為未來的嵌入卡片、小工具與公開快照準備內部 payload，但這一版還沒有交付任何外部宿主整合。',
+      'PathKeep 目前可以為未來的嵌入卡片、小工具與公開快照準備內部資料，但這一版還沒有交付任何外部託管整合。',
   },
 } as const

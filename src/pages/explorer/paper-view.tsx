@@ -259,6 +259,12 @@ export interface PaperExplorerViewProps {
    * aggregator and the strip stays scroll-coupled.
    */
   resolveDayInsights?: (date: string) => DayInsights | null
+  /**
+   * Reported (from an effect) when a day block scrolls into view, so the
+   * route can fetch that day's backend aggregate. Pairs with
+   * `resolveDayInsights`, which stays a pure render-time lookup.
+   */
+  onDayVisible?: (date: string) => void
   className?: string
   testId?: string
 }
@@ -285,6 +291,7 @@ export function PaperExplorerView({
   copy,
   filterStripSlot,
   resolveDayInsights,
+  onDayVisible,
   className,
   testId,
 }: PaperExplorerViewProps) {
@@ -510,6 +517,7 @@ export function PaperExplorerView({
       }
       dayInsightsCopy={copy.dayInsights}
       resolveDayInsights={resolveDayInsights}
+      onDayVisible={onDayVisible}
       language={language}
       hour12={clockFormat === '12h'}
       copy={copy.contactSheet}

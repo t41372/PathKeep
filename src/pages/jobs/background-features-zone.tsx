@@ -170,7 +170,12 @@ function AnalysisChip({ runtime, jobsT }: AnalysisChipProps) {
 
   if (attentionCount > 0) {
     stateKey = 'chipStateDegraded'
-    detail = jobsT('chipAnalysisAttention', { count: attentionCount })
+    detail = jobsT(
+      attentionCount === 1
+        ? 'chipAnalysisAttentionOne'
+        : 'chipAnalysisAttentionMany',
+      { count: attentionCount },
+    )
   } else {
     stateKey = 'chipStateReady'
     detail = jobsT('chipAnalysisReady')

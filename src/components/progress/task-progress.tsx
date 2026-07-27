@@ -48,6 +48,10 @@ export interface TaskProgressCardProps {
     records: string
     console: string
     noLogs: string
+    /** Localized task-kind word for the eyebrow (see `localize-task.ts`). */
+    kind: string
+    /** Localized task-state word for the eyebrow (see `localize-task.ts`). */
+    state: string
   }
   compact?: boolean
   actions?: ReactNode
@@ -211,7 +215,7 @@ export function TaskProgressCard({
       <div className="task-progress-card__header">
         <div>
           <span className="task-progress-card__eyebrow">
-            {task.kind} · {task.state}
+            {labels.kind} · {labels.state}
           </span>
           <h3>{task.title}</h3>
         </div>

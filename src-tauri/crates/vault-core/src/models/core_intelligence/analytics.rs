@@ -365,12 +365,72 @@ pub struct ExplainabilityFactor {
 }
 
 /// Generic explanation payload for entity-focused Core Intelligence surfaces.
+///
+/// `trigger_rule` is English DIAGNOSTIC prose. The user-facing surface reads `trigger_rule_code` plus
+/// the structured params below instead: the Explainability Panel used to reverse-engineer this prose
+/// with regexes to recover the numbers it needed for localization, which meant the front end had to
+/// recite backend sentences to stay translated. The code + params make that round trip unnecessary.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Explanation {
     pub entity_type: String,
     pub entity_id: String,
     pub trigger_rule: String,
+    /// Stable, locale-independent CODE for the rule that produced this entity.
+    ///
+    /// One of the `TRIGGER_RULE_*` constants on this type. Additive: `None` on any payload whose rule
+    /// has not been coded yet (and on every pre-existing persisted/mocked payload), which the front end
+    /// answers by falling back to its legacy prose matching. The paired params below are populated
+    /// only for the codes that need them, so the front end never parses a sentence to get a number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_rule_code: Option<String>,
+    /// Score threshold the entity crossed — set with [`Explanation::TRIGGER_RULE_REFIND_SCORE`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_rule_score: Option<f32>,
+    /// Anchor query the rule keyed on — set with [`Explanation::TRIGGER_RULE_SEARCH_TRAIL`] and
+    /// [`Explanation::TRIGGER_RULE_QUERY_FAMILY`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_rule_query: Option<String>,
+    /// Habit-cadence TYPE code (`daily_habit` / `weekly_habit` / `periodic_reference`) — set with the
+    /// two [`Explanation::TRIGGER_RULE_HABIT_PATTERN`] variants.
+    ///
+    /// The raw persisted code, not a rendered name: the front end already owns the habit-type →
+    /// localized-name table, so handing it the code lets it skip scraping the name out of the prose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_rule_habit_type: Option<String>,
+    /// Session-grouping gap threshold in MINUTES — set with [`Explanation::TRIGGER_RULE_SESSION_GAP`].
+    ///
+    /// Derived from the one `SESSION_GAP_MS` constant the grouper actually uses, so the localized copy
+    /// can interpolate the real threshold instead of hard-coding "30 minutes" in three catalogs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_rule_gap_minutes: Option<i64>,
     pub factors: Vec<ExplainabilityFactor>,
     pub participating_visit_ids: Vec<i64>,
+}
+
+impl Explanation {
+    /// A refind page crossed its refind-score threshold (param: [`Self::trigger_rule_score`]).
+    pub const TRIGGER_RULE_REFIND_SCORE: &'static str = "refind-score";
+    /// A session crossed the deep-dive thresholds (no params).
+    pub const TRIGGER_RULE_SESSION_DEEP_DIVE: &'static str = "session-deep-dive";
+    /// Visits grouped into one session by adjacent-gap proximity (param:
+    /// [`Self::trigger_rule_gap_minutes`]).
+    pub const TRIGGER_RULE_SESSION_GAP: &'static str = "session-gap";
+    /// A search trail anchored on a query and extended through navigation ancestry (param:
+    /// [`Self::trigger_rule_query`]).
+    pub const TRIGGER_RULE_SEARCH_TRAIL: &'static str = "search-trail";
+    /// Queries merged into one family by similarity to an anchor (param: [`Self::trigger_rule_query`]).
+    pub const TRIGGER_RULE_QUERY_FAMILY: &'static str = "query-family";
+    /// An investigation reopened because its anchor reappeared across days (no params).
+    pub const TRIGGER_RULE_REOPENED_INVESTIGATION: &'static str = "reopened-investigation";
+    /// A habit cadence was detected from repeated cross-day visits (param:
+    /// [`Self::trigger_rule_habit_type`]).
+    pub const TRIGGER_RULE_HABIT_PATTERN: &'static str = "habit-pattern";
+    /// A detected habit cadence later crossed its interruption threshold (param:
+    /// [`Self::trigger_rule_habit_type`]).
+    pub const TRIGGER_RULE_HABIT_PATTERN_INTERRUPTED: &'static str = "habit-pattern-interrupted";
+    /// A flow pattern recurs across session-local domain n-grams (no params).
+    pub const TRIGGER_RULE_PATH_FLOW: &'static str = "path-flow";
+    /// A compare set alternated between comparable pages inside one trail (no params).
+    pub const TRIGGER_RULE_COMPARE_SET: &'static str = "compare-set";
 }

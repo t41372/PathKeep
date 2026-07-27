@@ -77,7 +77,7 @@ export const settingsAiProvidersNamespace = {
     aiNoneSelected: 'None',
     aiGettingStartedTitle: 'No AI providers configured yet',
     aiGettingStartedBody:
-      'Add a chat provider to use the AI assistant and a embedding provider for smart search. Click "Add chat provider" below to get started with a preset.',
+      'Add a chat provider to use the AI assistant and an embedding provider for smart search. Click "Add chat provider" below to get started with a preset.',
     aiProviderName: 'Name',
     aiProviderId: 'ID',
     aiRequestFormat: 'API format',
@@ -274,7 +274,7 @@ export const settingsAiProvidersNamespace = {
     aiReembedProgress: 'Re-embedding… {queued} queued, {running} running',
     aiReembedDone: 'Re-embed complete.',
     aiReembedBackground:
-      'Re-embed is running in the background — check Jobs for progress.',
+      'Re-embed is running in the background — check Activity for progress.',
     aiReembedError: 'Could not start re-embedding. Please try again.',
     aiReembedEstimateError: 'Could not load the estimate.',
   },
@@ -284,12 +284,12 @@ export const settingsAiProvidersNamespace = {
     aiAssistantToggleHelp: '在助手页面用你配置的对话模型与历史记录对话。',
     aiSemanticToggle: '智能搜索',
     aiSemanticToggleHelp:
-      '在浏览器页面使用语义和混合搜索。需要先配置向量模型，并完成一次索引构建（在浏览器 → 智能搜索里运行），结果才会出现。',
+      '在浏览页使用语义和混合搜索。需要先配置向量模型，并完成一次索引构建（在「浏览 → 智能搜索」里运行），结果才会出现。',
     aiMcpToggle: '外部工具访问（MCP）',
     aiMcpToggleHelp:
       '让你连接的外部 AI 工具（如 Claude Code 或 Cursor）通过 PathKeep 按需运行的仅本机服务器搜索你的历史记录。它们获得的是与应用内助手相同的、有界的只读搜索——仅此而已——在你开启之前不会暴露任何内容。',
     aiMcpToggleAudit:
-      '每次外部查询都会作为一条记录写入你的归档活动日志，并且在 PathKeep 锁定时服务器会拒绝运行。',
+      '每次外部查询都会作为一条记录写入你的存档活动日志，并且在 PathKeep 锁定时服务器会拒绝运行。',
     aiMcpToggleAuditLink: '查看外部查询活动',
     aiMcpToggleConnect:
       '启用后，打开“集成”页面获取连接工具所需的确切命令和配置。',
@@ -322,7 +322,7 @@ export const settingsAiProvidersNamespace = {
       '向量和审计记录保存在存档旁的本地，聊天记录也不会包含在导出里。',
     aiConsentDisclosureCodeMode:
       '为了回答问题，助手可能会编写并运行一个小程序，在你的历史记录上搜索并整合结果。这些程序运行在沙箱中且只读——无法访问网络或你的文件，并受到严格的时间、内存和输出限制。每个回答都会展示它实际运行的代码和查询。',
-    aiIntegrationCopyFailed: '复制该产物失败。',
+    aiIntegrationCopyFailed: '复制该文件失败。',
     aiLlmProviders: '对话模型',
     aiEmbeddingProviders: '向量模型',
     aiAddLlmProvider: '添加对话模型',
@@ -364,7 +364,7 @@ export const settingsAiProvidersNamespace = {
     aiIndexBuildQueued: '索引构建已加入队列——PathKeep 正在后台处理。',
     aiIndexBuildError: '无法开始构建索引，请重试。',
     aiIndexedRows: '已索引记录',
-    aiSemanticSidecar: '语义侧车',
+    aiSemanticSidecar: '语义附属数据',
     aiSemanticMetadata: 'SQLite 元数据',
     aiEstimatedTokens: '预估 tokens',
     aiIndexWarning: '当前索引警告',
@@ -384,7 +384,7 @@ export const settingsAiProvidersNamespace = {
     aiIndexWarningStaleWatermark:
       '语义索引已与当前存档不一致。运行“构建索引”，让语义检索纳入最新导入并反映已撤销的记录。',
     aiIndexWarningStaleEnrichment:
-      '上次语义构建后，可读正文 enrichment 发生了变化。运行“构建索引”，用最新提取的文本刷新向量。',
+      '上次语义构建后，可读正文的增强数据发生了变化。运行「构建索引」，用最新提取的文本刷新向量。',
     aiIndexWarningBuildFailed: '上次索引构建失败：{reason}',
     aiIndexWarningIndexVectorsMissing:
       '索引记录了页面但生成了 0 个向量——向量模型没有产生任何输出。请切换到内置静态层或检查外部 provider，然后重新构建。',
@@ -413,14 +413,14 @@ export const settingsAiProvidersNamespace = {
     aiAddExternalEmbeddingProvider: '+ 添加外部模型',
     aiResetIndexBuildAction: '清除卡住的构建并重建',
     aiResetIndexBuildConfirmPrompt:
-      '将清除卡住的构建任务，并从头重建搜索索引——档案中的每一页都会被重新分析。你的浏览历史不受影响，重建在后台运行，可能需要一段时间。',
+      '将清除卡住的构建任务，并从头重建搜索索引——存档中的每一页都会被重新分析。你的浏览历史不受影响，重建在后台运行，可能需要一段时间。',
     aiResetIndexBuildConfirmYes: '确认，清除并重建',
     aiResetIndexBuildConfirmNo: '取消',
     aiResetIndexBuildResetting: '清除中…',
     aiResetIndexBuildQueued: '已清除——完整重建已加入后台队列。',
     aiResetIndexBuildError: '无法重置构建，请重试。',
     aiIntegrationUnavailable: '集成预览不可用',
-    aiIntegrationArtifactsTitle: 'AI 集成产物',
+    aiIntegrationArtifactsTitle: 'AI 集成文件',
     aiIntegrationArtifactsSummaryTitle: '使用前先检查生成文件',
     aiIntegrationArtifactsSummaryBody:
       'PathKeep 可以准备 MCP 和 skill 片段，但不会自动安装到外部工具。请先检查内容，再只复制你信任的部分。',
@@ -438,7 +438,7 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationManualEnable:
       '先在设置里开启 MCP 或 Skill 集成，两者默认都关闭。',
     aiIntegrationManualStoreKey:
-      '如果存档已加密，请把数据库密钥存进系统钥匙串，这样后台任务和 MCP 查询才能解锁存档。',
+      '如果存档已加密，请把存档密码存进系统钥匙串，这样后台任务和 MCP 查询才能解锁存档。',
     aiIntegrationManualCopyJson:
       '把生成好的 MCP JSON 复制到本地 MCP client 配置里，然后重启那个 client。',
     aiIntegrationManualCopySkill:
@@ -522,7 +522,7 @@ export const settingsAiProvidersNamespace = {
     aiReembedQueued: '重嵌入已加入队列——PathKeep 正在后台处理。',
     aiReembedProgress: '重嵌入中…{queued} 个排队，{running} 个进行中',
     aiReembedDone: '重嵌入完成。',
-    aiReembedBackground: '重嵌入正在后台运行——可在「任务」中查看进度。',
+    aiReembedBackground: '重嵌入正在后台运行——可在活动页查看进度。',
     aiReembedError: '无法开始重嵌入，请重试。',
     aiReembedEstimateError: '无法加载预估。',
   },
@@ -532,7 +532,7 @@ export const settingsAiProvidersNamespace = {
     aiAssistantToggleHelp: '在助手頁面用你設定的對話模型與歷史紀錄對話。',
     aiSemanticToggle: '智慧搜尋',
     aiSemanticToggleHelp:
-      '在瀏覽器頁面使用語義和混合搜尋。需要先設定向量模型，並完成一次索引建立（在瀏覽器 → 智慧搜尋裡執行），結果才會出現。',
+      '在瀏覽頁使用語意和混合搜尋。需要先設定向量模型，並完成一次索引建立（在「瀏覽 → 智慧搜尋」裡執行），結果才會出現。',
     aiMcpToggle: '外部工具存取（MCP）',
     aiMcpToggleHelp:
       '讓你連接的外部 AI 工具（如 Claude Code 或 Cursor）透過 PathKeep 按需執行的僅本機伺服器搜尋你的歷史紀錄。它們獲得的是與應用內助手相同的、有界的唯讀搜尋——僅此而已——在你開啟之前不會暴露任何內容。',
@@ -570,7 +570,7 @@ export const settingsAiProvidersNamespace = {
       '向量和稽核記錄保存在封存旁的本機，聊天紀錄也不會包含在匯出裡。',
     aiConsentDisclosureCodeMode:
       '為了回答問題，助手可能會撰寫並執行一個小程式，在你的歷史紀錄上搜尋並整合結果。這些程式執行於沙箱中且唯讀——無法存取網路或你的檔案，並受到嚴格的時間、記憶體和輸出限制。每個回答都會顯示它實際執行的程式碼和查詢。',
-    aiIntegrationCopyFailed: '複製該產物失敗。',
+    aiIntegrationCopyFailed: '複製該檔案失敗。',
     aiLlmProviders: '對話模型',
     aiEmbeddingProviders: '向量模型',
     aiAddLlmProvider: '新增對話模型',
@@ -612,27 +612,27 @@ export const settingsAiProvidersNamespace = {
     aiIndexBuildQueued: '索引建立已加入佇列——PathKeep 正在背景處理。',
     aiIndexBuildError: '無法開始建立索引，請重試。',
     aiIndexedRows: '已索引記錄',
-    aiSemanticSidecar: '語意側車',
+    aiSemanticSidecar: '語意附屬資料',
     aiSemanticMetadata: 'SQLite 中繼資料',
     aiEstimatedTokens: '預估 tokens',
     aiIndexWarning: '目前索引警告',
     aiIndexWarningArchiveNotInitialized: '請先初始化封存，再使用 AI 分析功能。',
     aiIndexWarningNoEmbeddingProvider:
-      '請先在設定裡選擇向量模型，再啟用語義檢索。',
+      '請先在設定裡選擇向量模型，再啟用語意檢索。',
     aiIndexWarningEmbeddingProviderMissing:
       '向量模型 {providerId} 已不在設定中可用。',
     aiIndexWarningEmbeddingProviderDisabled:
-      '請先啟用 {providerName}，再使用語義檢索。',
+      '請先啟用 {providerName}，再使用語意檢索。',
     aiIndexWarningEmbeddingProviderNoApiKey:
-      '請先為 {providerName} 儲存 API 金鑰，再使用語義檢索。',
+      '請先為 {providerName} 儲存 API 金鑰，再使用語意檢索。',
     aiIndexWarningEmbeddingProviderNoModel:
-      '請先為 {providerName} 選擇預設模型，再使用語義檢索。',
+      '請先為 {providerName} 選擇預設模型，再使用語意檢索。',
     aiIndexWarningIndexNotBuilt:
-      '設定好向量模型後，執行「建立索引」即可啟用語義搜尋。',
+      '設定好向量模型後，執行「建立索引」即可啟用語意搜尋。',
     aiIndexWarningStaleWatermark:
-      '語義索引已與目前封存不一致。執行「建立索引」，讓語義檢索納入最新匯入並反映已撤銷的紀錄。',
+      '語意索引已與目前封存不一致。執行「建立索引」，讓語意檢索納入最新匯入並反映已撤銷的紀錄。',
     aiIndexWarningStaleEnrichment:
-      '上次語義建立後，可讀正文 enrichment 發生了變化。執行「建立索引」，用最新擷取的文字重新整理向量。',
+      '上次語意建立後，可讀正文的增強資料發生了變化。執行「建立索引」，用最新擷取的文字重新整理向量。',
     aiIndexWarningBuildFailed: '上次索引建立失敗：{reason}',
     aiIndexWarningIndexVectorsMissing:
       '索引記錄了頁面但產生了 0 個向量——向量模型沒有產生任何輸出。請切換到內建靜態層或檢查外部 provider，然後重新建立。',
@@ -668,7 +668,7 @@ export const settingsAiProvidersNamespace = {
     aiResetIndexBuildQueued: '已清除——完整重建已加入背景佇列。',
     aiResetIndexBuildError: '無法重置建立，請重試。',
     aiIntegrationUnavailable: '整合預覽無法使用',
-    aiIntegrationArtifactsTitle: 'AI 整合產物',
+    aiIntegrationArtifactsTitle: 'AI 整合檔案',
     aiIntegrationArtifactsSummaryTitle: '使用前先檢查生成檔案',
     aiIntegrationArtifactsSummaryBody:
       'PathKeep 可以準備 MCP 和 skill 片段，但不會自動安裝到外部工具。請先檢查內容，再只複製你信任的部分。',
@@ -702,7 +702,7 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationCapabilitySkillDisabled:
       '已儲存的設定關閉了使用指南，因此已連接的工具只會收到一則簡短的停用提示，而不是查詢指南。',
     aiIntegrationCapabilityEmbeddingEnabled:
-      '建立語義索引後，語義檢索會使用目前已設定的 embedding provider。',
+      '建立語意索引後，語意檢索會使用目前已設定的 embedding provider。',
     aiIntegrationCapabilityEmbeddingDisabled:
       '目前尚未選擇向量模型，所以 MCP 和外部助手會回退到詞彙召回，但仍然遵守封存可見性與 App Lock。',
     aiIntegrationScopeVisibleOnly:
@@ -770,7 +770,7 @@ export const settingsAiProvidersNamespace = {
     aiReembedQueued: '重新嵌入已加入佇列——PathKeep 正在背景處理。',
     aiReembedProgress: '重新嵌入中…{queued} 個排隊，{running} 個進行中',
     aiReembedDone: '重新嵌入完成。',
-    aiReembedBackground: '重新嵌入正在背景執行——可在「工作」中查看進度。',
+    aiReembedBackground: '重新嵌入正在背景執行——可在活動頁查看進度。',
     aiReembedError: '無法開始重新嵌入，請重試。',
     aiReembedEstimateError: '無法載入預估。',
   },

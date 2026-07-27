@@ -61,10 +61,19 @@ pub fn revert_import_batch(
         params![reverted_at, rollback_run_id, batch_id],
     )?;
     let mut notes = existing.notes.clone();
-    notes.push(format!(
-        "Reverted at {}. Soft-hid {} live history rows from the archive view.",
-        reverted_at, removed
-    ));
+    let mut note_details = existing.note_details.clone();
+    let revert_note = TakeoutNote::new(
+        "batch-reverted",
+        format!(
+            "Reverted at {}. Soft-hid {} live history rows from the archive view.",
+            reverted_at, removed
+        ),
+    )
+    .with_count(removed.max(0) as usize)
+    .with_at(reverted_at.clone())
+    .with_run_id(rollback_run_id);
+    notes.push(revert_note.message.clone());
+    note_details.push(revert_note);
     update_batch_summary(
         &transaction,
         BatchSummaryUpdate {
@@ -76,6 +85,7 @@ pub fn revert_import_batch(
             recognized_files: &existing.recognized_files,
             quarantined_files: &existing.quarantined_files,
             notes: &notes,
+            note_details: &note_details,
             detected_locale: existing.detected_locale.as_deref(),
             preview_range_start: existing.preview_range_start.as_deref(),
             preview_range_end: existing.preview_range_end.as_deref(),
@@ -97,7 +107,7 @@ pub fn revert_import_batch(
 
     ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("reverted"))?;
     let mut detail = preview_import_batch(paths, config, key, batch_id)?;
-    append_import_batch_projection_warning(&mut detail.notes, rebuild_warning);
+    append_import_batch_projection_warning(&mut detail, rebuild_warning);
     Ok(detail)
 }
 
@@ -140,10 +150,19 @@ pub fn restore_import_batch(
         [batch_id],
     )?;
     let mut notes = existing.notes.clone();
-    notes.push(format!(
-        "Restored at {}. Returned {} hidden history rows to the visible archive view via restore run #{}.",
-        restored_at, restored, restore_run_id
-    ));
+    let mut note_details = existing.note_details.clone();
+    let restore_note = TakeoutNote::new(
+        "batch-restored",
+        format!(
+            "Restored at {}. Returned {} hidden history rows to the visible archive view via restore run #{}.",
+            restored_at, restored, restore_run_id
+        ),
+    )
+    .with_count(restored.max(0) as usize)
+    .with_at(restored_at.clone())
+    .with_run_id(restore_run_id);
+    notes.push(restore_note.message.clone());
+    note_details.push(restore_note);
     update_batch_summary(
         &transaction,
         BatchSummaryUpdate {
@@ -155,6 +174,7 @@ pub fn restore_import_batch(
             recognized_files: &existing.recognized_files,
             quarantined_files: &existing.quarantined_files,
             notes: &notes,
+            note_details: &note_details,
             detected_locale: existing.detected_locale.as_deref(),
             preview_range_start: existing.preview_range_start.as_deref(),
             preview_range_end: existing.preview_range_end.as_deref(),
@@ -179,17 +199,34 @@ pub fn restore_import_batch(
 
     ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("restored"))?;
     let mut detail = preview_import_batch(paths, config, key, batch_id)?;
-    append_import_batch_projection_warning(&mut detail.notes, rebuild_warning);
+    append_import_batch_projection_warning(&mut detail, rebuild_warning);
     Ok(detail)
 }
 
-fn import_batch_projection_warning(action: &str, error: anyhow::Error) -> String {
-    format!("{action} completed, but the keyword-recall projection needs a rebuild: {error}")
+/// Builds the coded note for a revert/restore whose search projection lagged.
+///
+/// `action` names the completed mutation in the English fallback sentence and
+/// picks the matching stable code so the UI can localize each case separately.
+fn import_batch_projection_warning(action: &str, error: anyhow::Error) -> TakeoutNote {
+    let code = if action.eq_ignore_ascii_case("revert") {
+        "batch-revert-projection-rebuild-needed"
+    } else {
+        "batch-restore-projection-rebuild-needed"
+    };
+    TakeoutNote::new(
+        code,
+        format!("{action} completed, but the keyword-recall projection needs a rebuild: {error}"),
+    )
+    .with_diagnostic(format!("{error}"))
 }
 
-fn append_import_batch_projection_warning(notes: &mut Vec<String>, warning: Option<String>) {
+fn append_import_batch_projection_warning(
+    detail: &mut ImportBatchDetail,
+    warning: Option<TakeoutNote>,
+) {
     if let Some(warning) = warning {
-        notes.push(warning);
+        detail.notes.push(warning.message.clone());
+        detail.note_details.push(warning);
     }
 }
 
@@ -254,6 +291,7 @@ pub(super) fn create_import_batch_for_source(
         "recognizedFiles": [],
         "quarantinedFiles": [],
         "notes": [],
+        "noteDetails": [],
         "detectedLocale": null,
         "previewRangeStart": null,
         "previewRangeEnd": null,
@@ -289,6 +327,7 @@ pub(super) fn finalize_import_batch(
             recognized_files: &inspection.recognized_files,
             quarantined_files: &inspection.quarantined_files,
             notes: &inspection.notes,
+            note_details: &inspection.note_details,
             detected_locale: inspection.detected_locale.as_deref(),
             preview_range_start: inspection.preview_range_start.as_deref(),
             preview_range_end: inspection.preview_range_end.as_deref(),
@@ -409,6 +448,7 @@ fn update_batch_summary(archive: &Connection, update: BatchSummaryUpdate<'_>) ->
         "recognizedFiles": update.recognized_files,
         "quarantinedFiles": update.quarantined_files,
         "notes": update.notes,
+        "noteDetails": update.note_details,
         "detectedLocale": update.detected_locale,
         "previewRangeStart": update.preview_range_start,
         "previewRangeEnd": update.preview_range_end,
@@ -460,22 +500,33 @@ pub(super) fn update_batch_audit(
 
 #[cfg(test)]
 mod tests {
-    use super::{append_import_batch_projection_warning, import_batch_projection_warning};
+    use super::{
+        ImportBatchDetail, append_import_batch_projection_warning, import_batch_projection_warning,
+    };
 
     #[test]
     fn import_batch_projection_warning_names_the_completed_action() {
         let revert =
             import_batch_projection_warning("Revert", anyhow::anyhow!("projection offline"));
-        assert!(revert.contains("Revert completed"));
-        assert!(revert.contains("projection offline"));
+        assert_eq!(revert.code, "batch-revert-projection-rebuild-needed");
+        assert!(revert.message.contains("Revert completed"));
+        assert!(revert.message.contains("projection offline"));
+        assert_eq!(revert.diagnostic.as_deref(), Some("projection offline"));
 
         let restore =
             import_batch_projection_warning("Restore", anyhow::anyhow!("projection offline"));
-        assert!(restore.contains("Restore completed"));
+        assert_eq!(restore.code, "batch-restore-projection-rebuild-needed");
+        assert!(restore.message.contains("Restore completed"));
 
-        let mut notes = vec!["kept".to_string()];
-        append_import_batch_projection_warning(&mut notes, None);
-        append_import_batch_projection_warning(&mut notes, Some(restore));
-        assert_eq!(notes.len(), 2);
+        let mut detail =
+            ImportBatchDetail { notes: vec!["kept".to_string()], ..ImportBatchDetail::default() };
+        append_import_batch_projection_warning(&mut detail, None);
+        assert_eq!(detail.notes.len(), 1);
+        assert!(detail.note_details.is_empty());
+
+        append_import_batch_projection_warning(&mut detail, Some(restore));
+        assert_eq!(detail.notes.len(), 2);
+        assert_eq!(detail.note_details.len(), 1);
+        assert_eq!(detail.note_details[0].code, "batch-restore-projection-rebuild-needed");
     }
 }

@@ -709,6 +709,42 @@ describe('LinkPreviewsSection', () => {
     expect(screen.getByTestId('link-previews-rebuild-now')).toBeDisabled()
   })
 
+  test('Rebuild now is blocked while fetching mode is Off, and says why', async () => {
+    // The worker deliberately overrides `fetchMode` for an explicit Rebuild.
+    // That is fine for On-demand, but the Off hint promises "no fetching
+    // anywhere" — so offering a button on the same card that would fetch from
+    // sites the user visited made the app lie about its egress. Off blocks the
+    // control and explains, instead of silently honouring the click.
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const prefetch = vi.spyOn(backend, 'prefetchOgImages')
+    render(withShell({ ogImageFetchEnabled: true, fetchMode: 'off' }))
+
+    const rebuild = await screen.findByTestId('link-previews-rebuild-now')
+    expect(rebuild).toBeDisabled()
+    expect(rebuild).toHaveAttribute('title', expect.stringContaining('Off'))
+    await userEvent.click(rebuild)
+    expect(prefetch).not.toHaveBeenCalled()
+  })
+
+  test('Rebuild now stays available in On demand mode', async () => {
+    // Only Off makes the promise Rebuild would break; On-demand must keep it.
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    render(withShell({ ogImageFetchEnabled: true, fetchMode: 'on_demand' }))
+    expect(
+      await screen.findByTestId('link-previews-rebuild-now'),
+    ).not.toBeDisabled()
+  })
+
   test('Rebuild now clears the pending state even when the worker throws', async () => {
     vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
       rowCount: 0,

@@ -82,7 +82,7 @@ describe('dashboard route fallback', () => {
         },
         dashboard: null,
         dashboardLoading: false,
-        error: t('archiveUnavailableBody'),
+        error: t('dashboard.archiveUnavailableBody'),
         loading: false,
         snapshot: null,
       }),
@@ -99,7 +99,7 @@ describe('dashboard route fallback', () => {
         },
         dashboard: null,
         dashboardLoading: false,
-        error: t('archiveUnavailableBody'),
+        error: t('dashboard.archiveUnavailableBody'),
         loading: false,
         snapshot: null,
       }),
@@ -168,10 +168,10 @@ describe('dashboard route fallback', () => {
     )
 
     expect(
-      screen.getByRole('link', { name: t('openOnboardingFlow') }),
+      screen.getByRole('link', { name: t('dashboard.openOnboardingFlow') }),
     ).toHaveAttribute('href', '/onboarding')
     expect(
-      screen.getByRole('link', { name: t('archiveUnlockAction') }),
+      screen.getByRole('link', { name: t('dashboard.archiveUnlockAction') }),
     ).toHaveAttribute('href', '/security#unlock-archive')
   })
 
@@ -192,12 +192,12 @@ describe('dashboard route fallback', () => {
       </MemoryRouter>,
     )
 
-    expect(screen.getByLabelText(t('loadingDashboard'))).toHaveAttribute(
+    expect(screen.getByLabelText(t('common.loadingDashboard'))).toHaveAttribute(
       'aria-busy',
       'true',
     )
     expect(screen.getByText('sqlite unavailable')).toBeVisible()
-    expect(screen.getByText(t('archiveUnavailable'))).toBeVisible()
+    expect(screen.getByText(t('dashboard.archiveUnavailable'))).toBeVisible()
   })
 
   test('keeps archive-access probing limited to bootstrap error states', () => {

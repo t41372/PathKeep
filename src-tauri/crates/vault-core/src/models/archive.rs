@@ -87,7 +87,109 @@ pub struct BackupProfileSummary {
     pub new_urls: usize,
     pub new_downloads: usize,
     pub checkpoint_created: bool,
+    /// Diagnostic English prose, index-aligned with [`Self::note_details`].
     pub notes: Vec<String>,
+    /// Coded per-profile notes (parser warnings, search-term captures) so the
+    /// run's warning ledger localizes them. Empty for summaries written before
+    /// code-ification, in which case `notes` is the whole truth.
+    #[serde(default)]
+    pub note_details: Vec<BackupWarning>,
+}
+
+/// One non-fatal backup warning carried as a stable code plus typed params.
+///
+/// Why this exists: `BackupReport.warnings` ships English prose that lands in
+/// the run ledger and the Audit run-detail view, so a `zh` user reads English.
+/// `code` lets the front-end resolve localized copy and interpolate the typed
+/// params; `message` stays the fallback. An empty `code` means the backend is
+/// deliberately passing an opaque diagnostic through (staging fallbacks, git
+/// errors) that has no localizable meaning of its own.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupWarning {
+    pub code: String,
+    pub message: String,
+    /// Primary count: URLs due, URLs enqueued, cache rows removed, …
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u64>,
+    /// How many of `count` succeeded, for warnings that report an attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub succeeded: Option<u64>,
+    /// Orphan blobs removed by a cache-hygiene pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blobs: Option<u64>,
+    /// Bytes reclaimed by a cache-hygiene pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
+    /// Queue job id referenced by the warning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<i64>,
+    /// Browser profile the warning is about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    /// Raw error chain that stays untranslated because it is evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<String>,
+}
+
+impl BackupWarning {
+    /// Builds a coded warning the UI can localize.
+    pub fn new(code: &str, message: impl Into<String>) -> Self {
+        Self { code: code.to_string(), message: message.into(), ..Self::default() }
+    }
+
+    /// Wraps a warning PathKeep can only pass through verbatim.
+    ///
+    /// Kept explicit (rather than defaulting `code`) so a reader can tell an
+    /// intentional diagnostic pass-through from a forgotten code.
+    pub fn opaque(message: impl Into<String>) -> Self {
+        Self { code: String::new(), message: message.into(), ..Self::default() }
+    }
+
+    /// Attaches the primary count a localized sentence interpolates.
+    pub fn with_count(mut self, count: usize) -> Self {
+        self.count = Some(count as u64);
+        self
+    }
+
+    /// Attaches how many attempts succeeded.
+    pub fn with_succeeded(mut self, succeeded: u32) -> Self {
+        self.succeeded = Some(u64::from(succeeded));
+        self
+    }
+
+    /// Attaches the orphan-blob and reclaimed-byte totals of a hygiene pass.
+    pub fn with_reclaimed(mut self, blobs: usize, bytes: u64) -> Self {
+        self.blobs = Some(blobs as u64);
+        self.bytes = Some(bytes);
+        self
+    }
+
+    /// Attaches the queue job id a localized sentence interpolates.
+    pub fn with_job_id(mut self, job_id: i64) -> Self {
+        self.job_id = Some(job_id);
+        self
+    }
+
+    /// Attaches the browser profile a localized sentence interpolates.
+    pub fn with_profile_id(mut self, profile_id: impl Into<String>) -> Self {
+        self.profile_id = Some(profile_id.into());
+        self
+    }
+
+    /// Attaches verbatim diagnostic evidence that must never be translated.
+    pub fn with_diagnostic(mut self, diagnostic: impl Into<String>) -> Self {
+        self.diagnostic = Some(diagnostic.into());
+        self
+    }
+}
+
+/// Collects the fallback message channel from a coded warning list.
+///
+/// Keeps `BackupReport.warnings` and persisted manifests byte-identical to the
+/// pre-code-ification contract while `warning_details` carries the new codes.
+pub fn backup_warning_messages(warnings: &[BackupWarning]) -> Vec<String> {
+    warnings.iter().map(|warning| warning.message.clone()).collect()
 }
 
 /// Full backup/report payload returned by backup-like operations.
@@ -103,6 +205,18 @@ pub struct BackupReport {
     pub manifest_path: Option<String>,
     pub git_commit: Option<String>,
     pub warnings: Vec<String>,
+    /// Coded mirror of `warnings`, index-aligned. Additive: older payloads and
+    /// preview fixtures may omit it, and the UI then renders `warnings`.
+    #[serde(default)]
+    pub warning_details: Vec<BackupWarning>,
+}
+
+impl BackupReport {
+    /// Appends one warning to both warning channels so they cannot drift.
+    pub fn push_warning(&mut self, warning: BackupWarning) {
+        self.warnings.push(warning.message.clone());
+        self.warning_details.push(warning);
+    }
 }
 
 /// Progress event streamed during a running backup.
@@ -397,8 +511,24 @@ pub struct RetentionBucket {
 #[serde(rename_all = "camelCase")]
 pub struct RetentionPreview {
     pub buckets: Vec<RetentionBucket>,
+    /// Diagnostic English prose kept only as the last-resort fallback when a
+    /// warning has no matching catalog entry on the shell side.
     pub warnings: Vec<String>,
+    /// Stable warning codes aligned index-for-index with [`Self::warnings`].
+    ///
+    /// This exists so the shell never has to match on backend English prose to
+    /// localize a retention warning: a punctuation edit on the Rust side must
+    /// not silently degrade translated copy back to English.
+    #[serde(default)]
+    pub warning_codes: Vec<String>,
 }
+
+/// Stable code for "pruning snapshots drops saved restore checkpoints".
+pub const RETENTION_WARNING_SNAPSHOT_PRUNE_REMOVES_CHECKPOINTS: &str =
+    "snapshot-prune-removes-checkpoints";
+
+/// Stable code for "export pruning only touches local files".
+pub const RETENTION_WARNING_EXPORT_PRUNE_LOCAL_ONLY: &str = "export-prune-local-only";
 
 /// Request payload for retention pruning.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

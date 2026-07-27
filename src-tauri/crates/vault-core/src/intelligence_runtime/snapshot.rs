@@ -148,14 +148,28 @@ pub(super) fn empty_module_statuses(config: &AppConfig) -> Vec<DeterministicModu
                 .iter()
                 .map(|value| (*value).to_string())
                 .collect(),
-            notes: if deterministic_module_enabled(config, module.id) {
-                vec!["No deterministic rebuild has run yet for this module.".to_string()]
-            } else {
-                vec!["Disabled in Settings.".to_string()]
-            },
+            notes: crate::models::derived_runtime_note_messages(&never_built_notes(
+                deterministic_module_enabled(config, module.id),
+            )),
+            note_details: never_built_notes(deterministic_module_enabled(config, module.id)),
             ..DeterministicModuleRuntimeStatus::default()
         })
         .collect()
+}
+
+/// Builds the "nothing has run yet" note for a module with no runtime row.
+fn never_built_notes(enabled: bool) -> Vec<crate::models::DerivedRuntimeNote> {
+    if enabled {
+        vec![crate::models::DerivedRuntimeNote::new(
+            crate::models::DERIVED_NOTE_MODULE_NEVER_BUILT,
+            "No deterministic rebuild has run yet for this module.",
+        )]
+    } else {
+        vec![crate::models::DerivedRuntimeNote::new(
+            crate::models::DERIVED_NOTE_MODULE_DISABLED,
+            "Disabled in Settings.",
+        )]
+    }
 }
 
 pub(super) fn load_queue_status(connection: &Connection) -> Result<IntelligenceQueueStatus> {
@@ -308,6 +322,7 @@ pub(super) fn load_recent_jobs(connection: &Connection) -> Result<Vec<Intelligen
                 dirty_visit_count: artifact.dirty_visit_count,
                 dirty_date_keys: artifact.dirty_date_keys,
                 fallback_reason: artifact.fallback_reason,
+                fallback_reason_code: artifact.fallback_reason_code,
                 last_error: row.get(12)?,
                 retryable: matches!(state.as_str(), "failed" | "cancelled"),
                 cancellable: match state.as_str() {
@@ -327,7 +342,7 @@ pub(super) fn load_module_statuses(
 ) -> Result<Vec<DeterministicModuleRuntimeStatus>> {
     let mut statement = connection.prepare(
         "SELECT module_id, version, status, depends_on_json, derived_tables_json, last_run_id,
-                last_built_at, last_invalidated_at, stale_reason, notes_json
+                last_built_at, last_invalidated_at, stale_reason, notes_json, stale_reason_code
          FROM deterministic_module_runtime",
     )?;
     let stored = statement
@@ -343,6 +358,7 @@ pub(super) fn load_module_statuses(
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, String>(9)?,
+                row.get::<_, Option<String>>(10)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -366,11 +382,8 @@ pub(super) fn load_module_statuses(
                     .iter()
                     .map(|value| (*value).to_string())
                     .collect(),
-                notes: if enabled {
-                    vec!["No successful deterministic rebuild has been recorded yet.".to_string()]
-                } else {
-                    vec!["Disabled in Settings.".to_string()]
-                },
+                notes: crate::models::derived_runtime_note_messages(&no_runtime_row_notes(enabled)),
+                note_details: no_runtime_row_notes(enabled),
                 ..DeterministicModuleRuntimeStatus::default()
             });
             continue;
@@ -378,22 +391,33 @@ pub(super) fn load_module_statuses(
 
         let mut status = stored_row.2;
         let mut stale_reason = stored_row.8;
-        let mut notes = serde_json::from_str::<Vec<String>>(&stored_row.9).unwrap_or_default();
+        // Persisted code first (writer-known reasons); the read-time
+        // derivations below still win because they describe a *fresher* fact
+        // than what the last writer recorded.
+        let mut stale_reason_code: Option<String> = stored_row.10;
+        let mut notes = parse_stored_notes(&stored_row.9);
         if !enabled {
             status = "disabled".to_string();
-            notes.push("Disabled in Settings.".to_string());
+            notes.push(crate::models::DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_MODULE_DISABLED,
+                "Disabled in Settings.",
+            ));
         } else if stored_row.1 != module.version {
             status = "stale".to_string();
             stale_reason =
                 Some("Module version changed since the last deterministic rebuild.".to_string());
-            notes.push(
-                "The stored module version does not match the current built-in rule pack."
-                    .to_string(),
-            );
+            stale_reason_code =
+                Some(crate::models::DERIVED_STALE_MODULE_VERSION_CHANGED.to_string());
+            notes.push(crate::models::DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_MODULE_VERSION_MISMATCH,
+                "The stored module version does not match the current built-in rule pack.",
+            ));
         } else if status == "ready" && stored_row.6.is_none() {
             status = "stale".to_string();
             stale_reason =
                 Some("Missing build timestamp for the latest deterministic output.".to_string());
+            stale_reason_code =
+                Some(crate::models::DERIVED_STALE_MISSING_BUILD_TIMESTAMP.to_string());
         }
 
         statuses.push(DeterministicModuleRuntimeStatus {
@@ -411,9 +435,44 @@ pub(super) fn load_module_statuses(
             last_built_at: stored_row.6,
             last_invalidated_at: stored_row.7,
             stale_reason,
-            notes,
+            stale_reason_code,
+            notes: crate::models::derived_runtime_note_messages(&notes),
+            note_details: notes,
         });
     }
 
     Ok(statuses)
+}
+
+/// Builds the "no successful rebuild recorded" note for a module with a row but
+/// no successful build.
+fn no_runtime_row_notes(enabled: bool) -> Vec<crate::models::DerivedRuntimeNote> {
+    if enabled {
+        vec![crate::models::DerivedRuntimeNote::new(
+            crate::models::DERIVED_NOTE_MODULE_NO_SUCCESSFUL_REBUILD,
+            "No successful deterministic rebuild has been recorded yet.",
+        )]
+    } else {
+        vec![crate::models::DerivedRuntimeNote::new(
+            crate::models::DERIVED_NOTE_MODULE_DISABLED,
+            "Disabled in Settings.",
+        )]
+    }
+}
+
+/// Parses `notes_json`, tolerating rows written before notes carried codes.
+///
+/// A legacy row holds a plain `["sentence", …]` array. Those notes are uncoded by
+/// definition, so they surface as opaque pass-throughs rather than being
+/// pattern-matched back into codes — guessing is exactly the failure mode the
+/// code channel exists to remove.
+fn parse_stored_notes(notes_json: &str) -> Vec<crate::models::DerivedRuntimeNote> {
+    if let Ok(coded) = serde_json::from_str::<Vec<crate::models::DerivedRuntimeNote>>(notes_json) {
+        return coded;
+    }
+    serde_json::from_str::<Vec<String>>(notes_json)
+        .unwrap_or_default()
+        .into_iter()
+        .map(crate::models::DerivedRuntimeNote::opaque)
+        .collect()
 }

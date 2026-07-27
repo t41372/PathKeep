@@ -33,6 +33,22 @@ import {
   PaperSearchResult,
   type PaperSearchResultEntry,
 } from './paper-search-result'
+import {
+  PaperPaginationBar,
+  type PaperPaginationBarState,
+} from './paper-pagination-bar'
+
+/**
+ * Offset (page-number) pagination for the day-grouped keyword / regex list.
+ *
+ * Deliberately NOT merged with `PaperSearchViewPagination`: the Smart list is
+ * cursor-paged (it can only step one page at a time, and the total page count
+ * is unknowable mid-stream), while the keyword list is offset-paged against a
+ * known `pageCount`. Forcing one shape would mean faking a page count for
+ * Smart or throwing away first/last/jump for keyword. They share the visual
+ * language, not the data model.
+ */
+export type PaperSearchViewOffsetPagination = PaperPaginationBarState
 
 export interface PaperSearchViewDayGroup {
   date: string
@@ -46,7 +62,11 @@ export interface PaperSearchViewCopy {
   empty: PaperSearchEmptyCopy
   /** Mono "N pages found" header above results, with {count} template. */
   resultsCount: string
-  /** Mono range line, e.g. "{first} — {last} · {mode}". */
+  /**
+   * Mono range line, e.g. "{first} — {last} · {mode}". The `{mode}` slot is
+   * filled from `hero.staleModeNames` (localized display names), never from
+   * the raw internal mode token.
+   */
   resultsRange: string
   /** Pretty page suffix label, "page" / "pages". */
   pageSuffixSingular: string
@@ -134,6 +154,12 @@ export interface PaperSearchViewProps {
   /** Prev/next cursor pagination (only read in the 'relevance' layout). */
   pagination?: PaperSearchViewPagination | null
   /**
+   * Offset pagination for the 'day-grouped' layout. Mounted BOTH above and
+   * below the result list per `docs/features/recall.md` — without it the
+   * keyword / regex surface strands the user on page 1 of a multi-page hit set.
+   */
+  offsetPagination?: PaperSearchViewOffsetPagination | null
+  /**
    * I3: pre-formatted scope / freshness micro-line shown under the ranked-count
    * header (e.g. "1,240 pages indexed · updated May 17"). The route composes it
    * from real index data only — omitting any piece whose datum is unavailable —
@@ -211,6 +237,7 @@ export function PaperSearchView({
   aiError = null,
   aiNotes = [],
   pagination = null,
+  offsetPagination = null,
   relevanceScopeLine = null,
   smartAvailable = true,
   onAskAssistant,
@@ -340,12 +367,27 @@ export function PaperSearchView({
                 .replace('{count}', '')}
             </div>
             <div className="text-ink-faint font-mono text-[11px]">
+              {/*
+                `mode` is an internal token (`keyword` / `regex` / `smart`).
+                Interpolating it raw leaked untranslated English into every
+                locale — a zh-TW user read "… · keyword". `staleModeNames`
+                already ships the localized display name for exactly these
+                three tokens, so reuse it here.
+              */}
               {copy.resultsRange
                 .replace('{first}', oldestDate)
                 .replace('{last}', newestDate)
-                .replace('{mode}', mode)}
+                .replace('{mode}', copy.hero.staleModeNames[mode])}
             </div>
           </div>
+
+          {offsetPagination ? (
+            <PaperPaginationBar
+              {...offsetPagination}
+              placement="top"
+              testId="paper-search-pagination-top"
+            />
+          ) : null}
 
           {groups.map((group) => (
             <div
@@ -398,6 +440,14 @@ export function PaperSearchView({
               ))}
             </div>
           ))}
+
+          {offsetPagination ? (
+            <PaperPaginationBar
+              {...offsetPagination}
+              placement="bottom"
+              testId="paper-search-pagination-bottom"
+            />
+          ) : null}
         </div>
       )}
     </section>

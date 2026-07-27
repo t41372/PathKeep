@@ -248,6 +248,12 @@ export const scheduleNamespaceCatalog = {
       'The plist matches PathKeep settings, but launchd does not report the agent as loaded.',
     issueLaunchAgentNotLoadedConsequence:
       'The background task may never wake up until the schedule is reinstalled.',
+    issueStatusDetectionUnavailableTitle:
+      'PathKeep cannot detect install status on this platform',
+    issueStatusDetectionUnavailableDetail:
+      'Automatic install-status detection is implemented for macOS and Windows only. On this platform PathKeep can generate the schedule files but cannot read back their state.',
+    issueStatusDetectionUnavailableConsequence:
+      'Use the manual verification steps to confirm the background backup is really registered.',
     manualGenericStepTitle: 'Follow the platform step',
     manualGenericStepSummary:
       'Complete the platform-specific action shown below.',
@@ -487,7 +493,7 @@ export const scheduleNamespaceCatalog = {
       '在修复记录错误并成功验证前，请勿依赖自动备份。',
     attemptHistoryTitle: '最近的定时备份尝试',
     attemptHistoryBody:
-      '每次系统定时任务唤醒都会记录在这里，包括未到期跳过和打开归档前的失败。',
+      '每次系统定时任务唤醒都会记录在这里，包括未到期跳过和打开存档前的失败。',
     attemptHistoryCount: '{count} 次尝试',
     attemptHistoryEmpty: '尚未记录到系统定时任务唤醒。',
     attemptRunId: '运行 #{id}',
@@ -531,13 +537,18 @@ export const scheduleNamespaceCatalog = {
       'plist 与设置一致，但 launchd 没有显示 agent 已载入。',
     issueLaunchAgentNotLoadedConsequence:
       '重新安装前，后台任务可能不会被唤醒。',
+    issueStatusDetectionUnavailableTitle: 'PathKeep 无法在此平台检测安装状态',
+    issueStatusDetectionUnavailableDetail:
+      '自动安装状态检测目前只支持 macOS 和 Windows。在此平台上，PathKeep 可以生成定时任务文件，但无法读回它们的状态。',
+    issueStatusDetectionUnavailableConsequence:
+      '请按手动验证步骤确认后台备份确实已注册。',
     manualGenericStepTitle: '执行平台步骤',
     manualGenericStepSummary: '完成下方的平台相关操作。',
     manualGenericStepWhy: '手动模式保证自动安装不可用时仍有明确路径。',
     manualMacosSavePlistTitle: '保存 LaunchAgent plist',
     manualMacosSavePlistSummary:
       '在用户 LaunchAgents 文件夹中创建或替换 plist。',
-    manualMacosSavePlistWhy: 'launchd 通过这个文件启动 PathKeep 备份 worker。',
+    manualMacosSavePlistWhy: 'launchd 通过这个文件启动 PathKeep 的备份进程。',
     manualMacosLoadTitle: '载入 LaunchAgent',
     manualMacosLoadSummary: '把 plist 注册到当前用户的 launchd 会话。',
     manualMacosLoadWhy: '只写入文件还不够，必须载入后才会运行。',
@@ -550,8 +561,7 @@ export const scheduleNamespaceCatalog = {
     manualWindowsRegisterWhy: '只有注册到本机调度服务的任务才会运行。',
     manualLinuxCopyServiceTitle: '保存 systemd service',
     manualLinuxCopyServiceSummary: '把 service unit 复制到用户 systemd 目录。',
-    manualLinuxCopyServiceWhy:
-      'service 描述一次性的 PathKeep 备份 worker 命令。',
+    manualLinuxCopyServiceWhy: 'service 描述一次性的 PathKeep 备份命令。',
     manualLinuxCopyTimerTitle: '保存 systemd timer',
     manualLinuxCopyTimerSummary: '把 timer unit 复制到用户 systemd 目录。',
     manualLinuxCopyTimerWhy: 'timer 负责按计划唤醒 service。',
@@ -593,9 +603,9 @@ export const scheduleNamespaceCatalog = {
     verifyWindowsTaskXml: 'Task Scheduler XML',
     verifyWindowsTaskXmlOk: '已安装任务与当前计划一致。',
     verifyWindowsTaskXmlMismatch: '已安装任务与当前计划不同。',
-    encryptedNoKeyringTitle: '定时备份无法解锁加密归档',
+    encryptedNoKeyringTitle: '定时备份无法解锁加密存档',
     encryptedNoKeyringBody:
-      '归档已加密，但密码未保存到系统钥匙串。后台备份会失败，因为工作进程无法解锁数据库。请在安全设置中保存密码到钥匙串，或切换到不加密模式。',
+      '存档已加密，但密码未保存到系统钥匙串。后台备份会失败，因为工作进程无法解锁数据库。请在安全设置中保存密码到钥匙串，或切换到不加密模式。',
     encryptedNoKeyringAction: '打开安全设置',
     linuxManualOnlyTitle: 'Linux 需要手动安装',
     linuxManualOnlyBody:
@@ -722,7 +732,7 @@ export const scheduleNamespaceCatalog = {
       'Task Scheduler 拒絕為目前 Windows 使用者註冊任務。請移除其他帳號建立的同名任務，或在提升權限的終端機中執行手動命令。',
     progressStep: '步驟 {current}/{total}',
     progressSaving: '正在儲存間隔…',
-    progressRefreshingPlan: '正在刷新系統排程計畫…',
+    progressRefreshingPlan: '正在重新整理系統排程計畫…',
     progressInstallingNative: '正在寫入並載入系統排程…',
     progressRemoving: '正在準備移除…',
     progressRemovingNative: '正在移除系統排程…',
@@ -777,7 +787,7 @@ export const scheduleNamespaceCatalog = {
     issuePlistMissingLoadedDetail:
       'launchd 仍載入目前 PathKeep agent，但 LaunchAgents 資料夾裡沒有對應 plist。',
     issuePlistMissingLoadedConsequence:
-      '重新安裝或卸載前，PathKeep 無法可靠修改或移除這個排程。',
+      '重新安裝或移除前，PathKeep 無法可靠修改或移除這個排程。',
     issueTaskMismatchTitle: '已安裝任務與目前設定不一致',
     issueTaskMismatchDetail: '系統排程存在，但 XML 與目前 PathKeep 計畫不同。',
     issueTaskMismatchConsequence: '背景任務可能使用過期的間隔或命令路徑。',
@@ -795,13 +805,18 @@ export const scheduleNamespaceCatalog = {
       'plist 與設定一致，但 launchd 沒有顯示 agent 已載入。',
     issueLaunchAgentNotLoadedConsequence:
       '重新安裝前，背景任務可能不會被喚醒。',
+    issueStatusDetectionUnavailableTitle: 'PathKeep 無法在此平台偵測安裝狀態',
+    issueStatusDetectionUnavailableDetail:
+      '自動安裝狀態偵測目前只支援 macOS 與 Windows。在此平台上，PathKeep 可以產生排程檔案，但無法讀回它們的狀態。',
+    issueStatusDetectionUnavailableConsequence:
+      '請依手動驗證步驟確認背景備份確實已註冊。',
     manualGenericStepTitle: '執行平台步驟',
     manualGenericStepSummary: '完成下方的平台相關操作。',
     manualGenericStepWhy: '手動模式保證自動安裝不可用時仍有明確路徑。',
     manualMacosSavePlistTitle: '儲存 LaunchAgent plist',
     manualMacosSavePlistSummary:
       '在使用者 LaunchAgents 資料夾中建立或替換 plist。',
-    manualMacosSavePlistWhy: 'launchd 透過這個檔案啟動 PathKeep 備份 worker。',
+    manualMacosSavePlistWhy: 'launchd 透過這個檔案啟動 PathKeep 的備份程序。',
     manualMacosLoadTitle: '載入 LaunchAgent',
     manualMacosLoadSummary: '把 plist 註冊到目前使用者的 launchd session。',
     manualMacosLoadWhy: '只寫入檔案還不夠，必須載入後才會執行。',
@@ -815,8 +830,7 @@ export const scheduleNamespaceCatalog = {
     manualLinuxCopyServiceTitle: '儲存 systemd service',
     manualLinuxCopyServiceSummary:
       '把 service unit 複製到使用者 systemd 目錄。',
-    manualLinuxCopyServiceWhy:
-      'service 描述一次性的 PathKeep 備份 worker 命令。',
+    manualLinuxCopyServiceWhy: 'service 描述一次性的 PathKeep 備份命令。',
     manualLinuxCopyTimerTitle: '儲存 systemd timer',
     manualLinuxCopyTimerSummary: '把 timer unit 複製到使用者 systemd 目錄。',
     manualLinuxCopyTimerWhy: 'timer 負責按計畫喚醒 service。',
@@ -858,9 +872,9 @@ export const scheduleNamespaceCatalog = {
     verifyWindowsTaskXml: 'Task Scheduler XML',
     verifyWindowsTaskXmlOk: '已安裝任務與目前計畫一致。',
     verifyWindowsTaskXmlMismatch: '已安裝任務與目前計畫不同。',
-    encryptedNoKeyringTitle: '定時備份無法解鎖加密歸檔',
+    encryptedNoKeyringTitle: '定時備份無法解鎖加密封存',
     encryptedNoKeyringBody:
-      '歸檔已加密，但密碼未儲存至系統鑰匙圈。背景備份會失敗，因為工作程序無法解鎖資料庫。請在安全設定中將密碼儲存至鑰匙圈，或切換為不加密模式。',
+      '封存已加密，但密碼未儲存至系統鑰匙圈。背景備份會失敗，因為工作程序無法解鎖資料庫。請在安全設定中將密碼儲存至鑰匙圈，或切換為不加密模式。',
     encryptedNoKeyringAction: '開啟安全設定',
     linuxManualOnlyTitle: 'Linux 需要手動安裝',
     linuxManualOnlyBody:

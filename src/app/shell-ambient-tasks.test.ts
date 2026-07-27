@@ -24,6 +24,7 @@ function archiveTask(overrides: Partial<ShellTask> = {}): ShellTask {
     state: 'running',
     title: 'Importing history',
     detail: '',
+    detailOrigin: 'shell',
     startedAt: '2026-06-28T00:00:00Z',
     updatedAt: '2026-06-28T00:00:00Z',
     finishedAt: null,

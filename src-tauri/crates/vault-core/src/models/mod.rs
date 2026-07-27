@@ -362,4 +362,37 @@ mod tests {
         assert_eq!(parsed.fetch_mode, super::OgImageFetchMode::Background);
         assert_eq!(parsed.daily_refetch_budget, 50);
     }
+
+    #[test]
+    fn extend_notes_keeps_the_legacy_and_coded_note_channels_aligned() {
+        // The review UI localizes from `note_details` while the audit artifact
+        // ships `notes`; a drift between the two makes the UI show copy the
+        // artifact does not contain. `extend_notes` must append to BOTH.
+        let mut inspection = super::TakeoutInspection::default();
+        inspection.extend_notes([
+            super::TakeoutNote::new("parser-index-only", "Takeout index file, nothing to import."),
+            super::TakeoutNote::new("parser-source-warning", "The source reported a warning.")
+                .with_diagnostic("row 12: truncated payload"),
+        ]);
+
+        assert_eq!(
+            inspection.notes,
+            vec![
+                "Takeout index file, nothing to import.".to_string(),
+                "The source reported a warning.".to_string(),
+            ]
+        );
+        assert_eq!(inspection.note_details.len(), 2);
+        assert_eq!(inspection.note_details[0].code, "parser-index-only");
+        assert_eq!(inspection.note_details[1].code, "parser-source-warning");
+        assert_eq!(
+            inspection.note_details[1].diagnostic.as_deref(),
+            Some("row 12: truncated payload")
+        );
+
+        // An empty batch (the common `.err().map(...)` success path) is a no-op.
+        inspection.extend_notes(None);
+        assert_eq!(inspection.notes.len(), 2);
+        assert_eq!(inspection.note_details.len(), 2);
+    }
 }

@@ -719,9 +719,12 @@ describe('AiProvidersSection', () => {
   })
 
   test('keeps the Saved chip hidden and swallows the rejection when an auto-save fails', async () => {
-    // persistAi re-throws on a failed saveConfig (the shell already set the error
-    // banner). flashOnSave must swallow that rejection so there is no unhandled
-    // rejection on every failing toggle, and the chip must stay hidden.
+    // persistAi re-throws on a failed saveConfig. The visible failure surface is
+    // shell-owned: `saveConfig` sets errorKind 'config-save', which the shell
+    // renders (see app/shell.tsx + primitives/backup-failure-toast). This test
+    // owns only the section's half of that contract — swallow the rejection so a
+    // failing toggle cannot produce an unhandled rejection, and never flash a
+    // "Saved" chip for a write that did not land.
     const handlers = handlerFixture()
     handlers.onToggleAi.mockRejectedValue(new Error('save failed'))
     const unhandled = vi.fn()

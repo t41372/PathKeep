@@ -26,7 +26,7 @@ export const jobsNamespaceCatalog = {
   en: {
     // ── Gates / setup ──────────────────────────────────────────────────
     statusEyebrow: 'BACKGROUND WORK',
-    setupTitle: 'Background jobs start after setup',
+    setupTitle: 'Activity starts after setup',
     setupDescription:
       'Finish setup and run your first backup. Queue activity, logs, and recovery controls will appear here.',
     lockedTitle: 'Unlock the archive to review background work',
@@ -72,9 +72,6 @@ export const jobsNamespaceCatalog = {
 
     // ── Content fetch section (used by job panels / settings) ──────────
     contentFetchTitle: 'Site content',
-    contentFetchDeferredBadge: 'Coming in v0.3',
-    contentFetchDeferredBody:
-      'Webpage body fetching is tracked for v0.3 and is not available in v0.2.0. This area stays visible for the roadmap, but PathKeep is not revisiting pages or saving readable copies yet.',
     contentFetchBacklogBody:
       'PathKeep saved {stored} readable pages. {queued} page-text fetches are waiting so local analysis does not wait on every site.',
     contentFetchRunningBody:
@@ -99,20 +96,20 @@ export const jobsNamespaceCatalog = {
     sidebarIdleDetail: 'No queued background work.',
     sidebarLastActivity: 'Last activity {relative}',
     sidebarOpenSecurity: 'Security',
-    sidebarOpenJobs: 'Open Jobs',
+    sidebarOpenJobs: 'Open Activity',
     openJobs: 'Activity',
 
     // ── Archive tasks (notifications + jobs page) ──────────────────────
     archiveTaskAlreadyRunningTitle: 'Archive task already running',
     archiveTaskAlreadyRunningBody:
-      '{task} is still writing archive records. Open Background Jobs to follow the live progress.',
+      '{task} is still writing archive records. Open Activity to follow the live progress.',
     importTakeoutTaskTitle: 'Import Google Takeout',
     importBrowserTaskTitle: 'Import browser history',
     importTaskStartedTitle: 'Import started',
     importTaskStartedBody: 'Writing archive records from {source}.',
     importTaskCompleteTitle: 'Import finished',
     importTaskCompleteBody:
-      '{imported} new record(s) written · {duplicates} duplicate(s) skipped.',
+      'New records written: {imported} · Duplicates skipped: {duplicates}.',
     backupTaskTitle: 'Manual backup',
     backupTaskStartedTitle: 'Backup started',
     backupTaskStartedBody:
@@ -129,10 +126,59 @@ export const jobsNamespaceCatalog = {
     archiveTaskNoLogs:
       'Waiting for the next progress event. Large browser profiles can spend a while copying and validating before record counts appear.',
     archiveTaskOpenResult: 'Open result',
-    archiveTaskOpenJobs: 'Open Jobs',
+    archiveTaskOpenJobs: 'Open Activity',
     archiveTasksTitle: 'Archive writes',
     archiveTasksBody:
       'Imports and backups stay visible here while they write archive records, even if you leave the starting page.',
+
+    // ── Task card vocabulary + backend progress codes (localize-task.ts) ──
+    taskKind: {
+      import: 'Import',
+      backup: 'Backup',
+      runtime: 'Background job',
+    },
+    taskState: {
+      queued: 'Queued',
+      running: 'Running',
+      succeeded: 'Succeeded',
+      failed: 'Failed',
+      stale: 'Interrupted',
+    },
+    phase: {
+      backup: {
+        prepare: 'Inspecting the selected browser profiles.',
+        'stage-profile': 'Copying browser history into the staging area.',
+        'ingest-profile': 'Writing staged history into the archive.',
+        finalize: 'Finalizing the manifest and run ledger.',
+      },
+      import: {
+        prepare: 'Validating the selected source before the archive write.',
+        'import-file': 'Importing browser history records.',
+        finalize: 'Finalizing the import batch.',
+        complete: 'Import review is ready.',
+        'unexpected-phase':
+          'Import hit an unexpected step; see the console log.',
+      },
+    },
+    log: {
+      'backup.prepare': 'Inspecting the selected browser profiles.',
+      'backup.stage-profile': 'Copying this profile into the staging area.',
+      'backup.stage-profile.fallback':
+        'Staging fell back to an alternate copy strategy for this profile.',
+      'backup.stage-profile.skip':
+        'Skipped this profile; see the warning for why.',
+      'backup.ingest-profile': 'Writing staged history into the archive.',
+      'backup.ingest-profile.recordsOne': 'Processed 1 record so far.',
+      'backup.ingest-profile.recordsMany':
+        'Processed {current} records so far.',
+      'backup.finalize': 'Finalizing the manifest and run ledger.',
+      'import.prepare':
+        'Validating the selected source before the archive write.',
+      'import.import-file': 'Importing browser history records.',
+      'import.finalize': 'Finalizing the import batch.',
+      'import.complete': 'Import review is ready.',
+      'import.unexpected-phase': 'Import hit an unexpected step.',
+    },
 
     // ── Counts (sidebar + runtime-digest) ─────────────────────────────
     runningCount: 'Running',
@@ -219,14 +265,15 @@ export const jobsNamespaceCatalog = {
     chipGoToSettings: '→ Settings',
     chipSmartSearchIndexed: '{count} pages indexed',
     chipSmartSearchEmpty: 'Index not built',
-    chipSmartSearchBuilding: 'Building...',
+    chipSmartSearchBuilding: 'Building…',
     chipSmartSearchOff: 'Not enabled',
     chipSmartSearchFailed: 'Build failed',
     chipSiteContentStored: '{count} pages stored',
     chipSiteContentOff: 'Off',
     chipSiteContentQueued: '{count} fetches queued',
     chipAnalysisReady: 'All modules ready',
-    chipAnalysisAttention: '{count} module(s) need refresh',
+    chipAnalysisAttentionOne: '1 module needs refresh',
+    chipAnalysisAttentionMany: '{count} modules need refresh',
 
     // Section headings
     needsAttentionTitle: 'Needs attention',
@@ -243,8 +290,45 @@ export const jobsNamespaceCatalog = {
     outcomeCancelled: 'Cancelled',
     outcomeInterrupted: 'Interrupted',
 
+    // Rebuild fallback reasons (REBUILD_FALLBACK_* codes from
+    // vault-core/src/models/intelligence.rs; keyed by stable code, never by
+    // backend prose — unknown codes fall back to the artifact's diagnostic)
+    fallbackReasonVisitDeriveManualFullRebuild:
+      'You asked for a full rebuild, so PathKeep recomputed visit analysis from scratch. Nothing to do.',
+    fallbackReasonVisitDeriveNoCheckpoint:
+      'This was the first full visit analysis for this browser. Nothing to do.',
+    fallbackReasonVisitDeriveRulesChanged:
+      'The visit analysis rules were updated, so PathKeep recomputed them. Nothing to do.',
+    fallbackReasonVisitDeriveVisibilityRegressed:
+      'An import was undone, so PathKeep recomputed visit analysis to leave the hidden records out. Nothing to do.',
+    fallbackReasonVisitDeriveDeltaMismatch:
+      'The archive changed in a way an incremental update could not follow, so PathKeep rebuilt visit analysis in full. No data was lost.',
+    fallbackReasonDailyRollupManualFullRebuild:
+      'You asked for a full rebuild, so PathKeep recomputed the daily summaries from scratch. Nothing to do.',
+    fallbackReasonDailyRollupNoCheckpoint:
+      'These were the first daily summaries built for this browser. Nothing to do.',
+    fallbackReasonDailyRollupRulesChanged:
+      'The daily summary rules were updated, so PathKeep recomputed them. Nothing to do.',
+    fallbackReasonDailyRollupVisibilityRegressed:
+      'An import was undone, so PathKeep recomputed the daily summaries to leave the hidden records out. Nothing to do.',
+    fallbackReasonDailyRollupDeltaMismatch:
+      'The archive changed in a way an incremental update could not follow, so PathKeep rebuilt the daily summaries in full. No data was lost.',
+    fallbackReasonStructuralManualFullRebuild:
+      'You asked for a full rebuild, so PathKeep recomputed the page and site structure from scratch. Nothing to do.',
+    fallbackReasonStructuralNoCheckpoint:
+      'This was the first page and site structure build for this browser. Nothing to do.',
+    fallbackReasonStructuralRulesChanged:
+      'The page and site structure rules were updated, so PathKeep recomputed them. Nothing to do.',
+    fallbackReasonStructuralVisibilityRegressed:
+      'An import was undone, so PathKeep recomputed the page and site structure to leave the hidden records out. Nothing to do.',
+    fallbackReasonStructuralDeltaMismatch:
+      'The archive changed in a way an incremental update could not follow, so PathKeep rebuilt the page and site structure in full. No data was lost.',
+    fallbackReasonLegacyDebugRebuild:
+      'This rebuild covered only part of the archive, so PathKeep recomputed it in full instead of updating what changed. The next rebuild will start over the same way. Nothing to do.',
+
     // Callouts
-    pausedQueueCallout: 'Queue paused — {count} item(s) waiting',
+    pausedQueueCalloutOne: 'Queue paused — 1 item waiting',
+    pausedQueueCalloutMany: 'Queue paused — {count} items waiting',
     pausedQueueBody: 'Work is saved. Resume to continue processing.',
 
     // Loading state
@@ -253,7 +337,7 @@ export const jobsNamespaceCatalog = {
 
   'zh-CN': {
     statusEyebrow: '后台工作',
-    setupTitle: '完成设置后才会开始后台任务',
+    setupTitle: '完成设置后，活动页才会有内容',
     setupDescription:
       '先完成初始设置并运行第一次备份。这里之后会显示队列活动、日志和恢复控制。',
     lockedTitle: '先解锁存档，才能查看后台工作',
@@ -292,9 +376,6 @@ export const jobsNamespaceCatalog = {
     contentFetchRunningSummaryHost: '正在抓取 {host} 的站点内容。',
 
     contentFetchTitle: '站点内容',
-    contentFetchDeferredBadge: 'v0.3 开放',
-    contentFetchDeferredBody:
-      '网页正文抓取已排入 v0.3，v0.2.0 暂不开放。这里先保留路线图入口，但 PathKeep 现在不会重新访问网页，也不会保存正文副本。',
     contentFetchBacklogBody:
       '已保存 {stored} 条可读网页内容；还有 {queued} 条网页正文抓取在队列中，本地分析不用等每个网站都返回。',
     contentFetchRunningBody:
@@ -318,25 +399,25 @@ export const jobsNamespaceCatalog = {
     sidebarIdleDetail: '当前没有排队任务。',
     sidebarLastActivity: '最近活动 {relative}',
     sidebarOpenSecurity: '安全',
-    sidebarOpenJobs: '打开后台任务',
+    sidebarOpenJobs: '打开活动页',
     openJobs: '活动',
 
-    archiveTaskAlreadyRunningTitle: '已有归档任务在运行',
+    archiveTaskAlreadyRunningTitle: '已有存档任务在运行',
     archiveTaskAlreadyRunningBody:
-      '{task} 仍在写入归档记录。打开后台任务可以继续查看实时进度。',
+      '{task} 仍在写入存档记录。打开活动页可以继续查看实时进度。',
     importTakeoutTaskTitle: '导入 Google Takeout',
     importBrowserTaskTitle: '导入浏览历史',
     importTaskStartedTitle: '导入已开始',
-    importTaskStartedBody: '正在从 {source} 写入归档记录。',
+    importTaskStartedBody: '正在从 {source} 写入存档记录。',
     importTaskCompleteTitle: '导入完成',
     importTaskCompleteBody:
       '已写入 {imported} 条新记录 · 跳过 {duplicates} 条重复。',
     backupTaskTitle: '手动备份',
     backupTaskStartedTitle: '备份已开始',
-    backupTaskStartedBody: 'PathKeep 正在读取选定浏览器配置，并写入归档记录。',
+    backupTaskStartedBody: 'PathKeep 正在读取选定浏览器配置，并写入存档记录。',
     backupTaskCompleteTitle: '备份完成',
-    archiveTaskFailedTitle: '归档任务失败',
-    archiveTaskStaleTitle: '中断的归档任务',
+    archiveTaskFailedTitle: '存档任务失败',
+    archiveTaskStaleTitle: '中断的存档任务',
     archiveTaskStaleBody:
       '上次加载记录时，这个运行仍标记为运行中。重启后无法恢复实时进度。',
     archiveTaskStarted: '开始',
@@ -346,10 +427,54 @@ export const jobsNamespaceCatalog = {
     archiveTaskNoLogs:
       '正在等待下一条进度事件。大型浏览器配置在复制和校验阶段可能会停留一会儿，之后才出现记录数。',
     archiveTaskOpenResult: '打开结果',
-    archiveTaskOpenJobs: '打开后台任务',
-    archiveTasksTitle: '归档写入',
+    archiveTaskOpenJobs: '打开活动页',
+    archiveTasksTitle: '存档写入',
     archiveTasksBody:
-      '导入和备份在写入归档记录时会留在这里；离开开始页面后仍能继续查看。',
+      '导入和备份在写入存档记录时会留在这里；离开开始页面后仍能继续查看。',
+
+    // ── Task card vocabulary + backend progress codes (localize-task.ts) ──
+    taskKind: {
+      import: '导入',
+      backup: '备份',
+      runtime: '后台任务',
+    },
+    taskState: {
+      queued: '排队中',
+      running: '运行中',
+      succeeded: '已完成',
+      failed: '已失败',
+      stale: '已中断',
+    },
+    phase: {
+      backup: {
+        prepare: '正在检查所选浏览器配置。',
+        'stage-profile': '正在把浏览器历史复制到暂存区。',
+        'ingest-profile': '正在把暂存历史写入存档。',
+        finalize: '正在收尾清单与运行台账。',
+      },
+      import: {
+        prepare: '正在写入存档前校验所选来源。',
+        'import-file': '正在导入浏览器历史记录。',
+        finalize: '正在收尾导入批次。',
+        complete: '导入结果已可查看。',
+        'unexpected-phase': '导入遇到意外步骤，请查看控制台日志。',
+      },
+    },
+    log: {
+      'backup.prepare': '正在检查所选浏览器配置。',
+      'backup.stage-profile': '正在把该配置复制到暂存区。',
+      'backup.stage-profile.fallback': '该配置改用备选复制策略完成暂存。',
+      'backup.stage-profile.skip': '已跳过该配置，原因见警告信息。',
+      'backup.ingest-profile': '正在把暂存历史写入存档。',
+      'backup.ingest-profile.recordsOne': '目前已处理 {current} 条记录。',
+      'backup.ingest-profile.recordsMany': '目前已处理 {current} 条记录。',
+      'backup.finalize': '正在收尾清单与运行台账。',
+      'import.prepare': '正在写入存档前校验所选来源。',
+      'import.import-file': '正在导入浏览器历史记录。',
+      'import.finalize': '正在收尾导入批次。',
+      'import.complete': '导入结果已可查看。',
+      'import.unexpected-phase': '导入遇到意外步骤。',
+    },
 
     runningCount: '运行中',
 
@@ -365,7 +490,7 @@ export const jobsNamespaceCatalog = {
     runningBody:
       'PathKeep 正在后台处理排队任务。你可以继续使用应用的其他部分。',
     runningTitle: '后台工作正在运行',
-    queuedBody: '这些任务正在等待可用 worker，或等待你恢复队列。',
+    queuedBody: '这些任务正在等待空闲的处理进程，或等待你恢复队列。',
     queuedTitle: '后台工作正在排队',
     readyBody:
       '当前没有等待的任务。新的本地分析刷新和存档写入任务会显示在这里。',
@@ -430,7 +555,8 @@ export const jobsNamespaceCatalog = {
     chipSiteContentOff: '已关闭',
     chipSiteContentQueued: '{count} 项抓取排队中',
     chipAnalysisReady: '所有模块已就绪',
-    chipAnalysisAttention: '{count} 个模块需要重新整理',
+    chipAnalysisAttentionOne: '{count} 个模块需要刷新',
+    chipAnalysisAttentionMany: '{count} 个模块需要刷新',
 
     needsAttentionTitle: '需要处理',
     runningNowTitle: '正在运行',
@@ -445,7 +571,41 @@ export const jobsNamespaceCatalog = {
     outcomeCancelled: '已取消',
     outcomeInterrupted: '已中断',
 
-    pausedQueueCallout: '队列已暂停 — {count} 项等待中',
+    fallbackReasonVisitDeriveManualFullRebuild:
+      '你要求了完整重建，PathKeep 已从头重新分析访问记录。无需处理。',
+    fallbackReasonVisitDeriveNoCheckpoint:
+      '这是这个浏览器的第一次完整访问记录分析。无需处理。',
+    fallbackReasonVisitDeriveRulesChanged:
+      '访问记录的分析规则更新了，PathKeep 重新算了一遍。无需处理。',
+    fallbackReasonVisitDeriveVisibilityRegressed:
+      '你撤销过导入，PathKeep 重新分析了访问记录，以排除隐藏的记录。无需处理。',
+    fallbackReasonVisitDeriveDeltaMismatch:
+      '存档发生了无法增量更新的变化，PathKeep 已重新完整分析访问记录。数据没有丢失。',
+    fallbackReasonDailyRollupManualFullRebuild:
+      '你要求了完整重建，PathKeep 已从头重新生成每日汇总。无需处理。',
+    fallbackReasonDailyRollupNoCheckpoint:
+      '这是这个浏览器的第一次每日汇总。无需处理。',
+    fallbackReasonDailyRollupRulesChanged:
+      '每日汇总的规则更新了，PathKeep 重新算了一遍。无需处理。',
+    fallbackReasonDailyRollupVisibilityRegressed:
+      '你撤销过导入，PathKeep 重新生成了每日汇总，以排除隐藏的记录。无需处理。',
+    fallbackReasonDailyRollupDeltaMismatch:
+      '存档发生了无法增量更新的变化，PathKeep 已重新完整生成每日汇总。数据没有丢失。',
+    fallbackReasonStructuralManualFullRebuild:
+      '你要求了完整重建，PathKeep 已从头重新生成页面与网站结构。无需处理。',
+    fallbackReasonStructuralNoCheckpoint:
+      '这是这个浏览器的第一次页面与网站结构分析。无需处理。',
+    fallbackReasonStructuralRulesChanged:
+      '页面与网站结构的分析规则更新了，PathKeep 重新算了一遍。无需处理。',
+    fallbackReasonStructuralVisibilityRegressed:
+      '你撤销过导入，PathKeep 重新生成了页面与网站结构，以排除隐藏的记录。无需处理。',
+    fallbackReasonStructuralDeltaMismatch:
+      '存档发生了无法增量更新的变化，PathKeep 已重新完整生成页面与网站结构。数据没有丢失。',
+    fallbackReasonLegacyDebugRebuild:
+      '这次重建只覆盖了部分存档，因此 PathKeep 完整重算了一遍，而不是只更新变化的部分。下次重建仍会这样从头开始。无需处理。',
+
+    pausedQueueCalloutOne: '队列已暂停 — {count} 项等待中',
+    pausedQueueCalloutMany: '队列已暂停 — {count} 项等待中',
     pausedQueueBody: '任务已保存，恢复后继续处理。',
 
     loadingActivity: '正在加载活动',
@@ -453,7 +613,7 @@ export const jobsNamespaceCatalog = {
 
   'zh-TW': {
     statusEyebrow: '背景工作',
-    setupTitle: '完成設定後才會開始背景任務',
+    setupTitle: '完成設定後，活動頁才會有內容',
     setupDescription:
       '先完成初始設定並執行第一次備份。之後這裡會顯示佇列活動、日誌與恢復控制。',
     lockedTitle: '先解鎖封存，才能查看背景工作',
@@ -492,9 +652,6 @@ export const jobsNamespaceCatalog = {
     contentFetchRunningSummaryHost: '正在擷取 {host} 的網站內容。',
 
     contentFetchTitle: '網站內容',
-    contentFetchDeferredBadge: 'v0.3 開放',
-    contentFetchDeferredBody:
-      '網頁正文擷取已排入 v0.3，v0.2.0 暫不開放。這裡先保留路線圖入口，但 PathKeep 現在不會重新造訪網頁，也不會保存正文副本。',
     contentFetchBacklogBody:
       '已保存 {stored} 筆可讀網頁內容；還有 {queued} 筆網頁正文擷取在佇列中，本機分析不用等每個網站都回應。',
     contentFetchRunningBody:
@@ -518,12 +675,12 @@ export const jobsNamespaceCatalog = {
     sidebarIdleDetail: '目前沒有排隊任務。',
     sidebarLastActivity: '最近活動 {relative}',
     sidebarOpenSecurity: '安全',
-    sidebarOpenJobs: '打開背景工作',
+    sidebarOpenJobs: '打開活動頁',
     openJobs: '活動',
 
     archiveTaskAlreadyRunningTitle: '已有封存任務正在執行',
     archiveTaskAlreadyRunningBody:
-      '{task} 仍在寫入封存紀錄。打開背景工作可以繼續查看即時進度。',
+      '{task} 仍在寫入封存紀錄。打開活動頁可以繼續查看即時進度。',
     importTakeoutTaskTitle: '匯入 Google Takeout',
     importBrowserTaskTitle: '匯入瀏覽歷史',
     importTaskStartedTitle: '匯入已開始',
@@ -543,14 +700,58 @@ export const jobsNamespaceCatalog = {
     archiveTaskStarted: '開始',
     archiveTaskUpdated: '更新',
     archiveTaskRecords: '筆紀錄',
-    archiveTaskConsole: 'Console log',
+    archiveTaskConsole: '主控台日誌',
     archiveTaskNoLogs:
       '正在等待下一筆進度事件。大型瀏覽器設定檔在複製和驗證階段可能會停留一會兒，之後才出現記錄數。',
     archiveTaskOpenResult: '打開結果',
-    archiveTaskOpenJobs: '打開背景工作',
+    archiveTaskOpenJobs: '打開活動頁',
     archiveTasksTitle: '封存寫入',
     archiveTasksBody:
       '匯入和備份在寫入封存紀錄時會留在這裡；離開開始頁面後仍能繼續查看。',
+
+    // ── Task card vocabulary + backend progress codes (localize-task.ts) ──
+    taskKind: {
+      import: '匯入',
+      backup: '備份',
+      runtime: '背景工作',
+    },
+    taskState: {
+      queued: '排隊中',
+      running: '執行中',
+      succeeded: '已完成',
+      failed: '已失敗',
+      stale: '已中斷',
+    },
+    phase: {
+      backup: {
+        prepare: '正在檢查所選瀏覽器設定檔。',
+        'stage-profile': '正在把瀏覽器歷史複製到暫存區。',
+        'ingest-profile': '正在把暫存歷史寫入封存。',
+        finalize: '正在收尾清單與執行台帳。',
+      },
+      import: {
+        prepare: '正在寫入封存前驗證所選來源。',
+        'import-file': '正在匯入瀏覽器歷史紀錄。',
+        finalize: '正在收尾匯入批次。',
+        complete: '匯入結果已可查看。',
+        'unexpected-phase': '匯入遇到非預期步驟，請查看主控台日誌。',
+      },
+    },
+    log: {
+      'backup.prepare': '正在檢查所選瀏覽器設定檔。',
+      'backup.stage-profile': '正在把該設定檔複製到暫存區。',
+      'backup.stage-profile.fallback': '該設定檔改用備選複製策略完成暫存。',
+      'backup.stage-profile.skip': '已略過該設定檔，原因見警告訊息。',
+      'backup.ingest-profile': '正在把暫存歷史寫入封存。',
+      'backup.ingest-profile.recordsOne': '目前已處理 {current} 筆紀錄。',
+      'backup.ingest-profile.recordsMany': '目前已處理 {current} 筆紀錄。',
+      'backup.finalize': '正在收尾清單與執行台帳。',
+      'import.prepare': '正在寫入封存前驗證所選來源。',
+      'import.import-file': '正在匯入瀏覽器歷史紀錄。',
+      'import.finalize': '正在收尾匯入批次。',
+      'import.complete': '匯入結果已可查看。',
+      'import.unexpected-phase': '匯入遇到非預期步驟。',
+    },
 
     runningCount: '執行中',
 
@@ -566,7 +767,7 @@ export const jobsNamespaceCatalog = {
     runningBody:
       'PathKeep 正在背景處理排隊任務。你可以繼續使用應用的其他部分。',
     runningTitle: '背景工作正在執行',
-    queuedBody: '這些任務正在等待可用 worker，或等待你恢復佇列。',
+    queuedBody: '這些任務正在等待空閒的處理程序，或等待你恢復佇列。',
     queuedTitle: '背景工作正在排隊',
     readyBody:
       '目前沒有等待的任務。新的本機分析重新整理和封存寫入工作會顯示在這裡。',
@@ -631,7 +832,8 @@ export const jobsNamespaceCatalog = {
     chipSiteContentOff: '已關閉',
     chipSiteContentQueued: '{count} 項擷取排隊中',
     chipAnalysisReady: '所有模組已就緒',
-    chipAnalysisAttention: '{count} 個模組需要重新整理',
+    chipAnalysisAttentionOne: '{count} 個模組需要重新整理',
+    chipAnalysisAttentionMany: '{count} 個模組需要重新整理',
 
     needsAttentionTitle: '需要處理',
     runningNowTitle: '正在執行',
@@ -646,7 +848,41 @@ export const jobsNamespaceCatalog = {
     outcomeCancelled: '已取消',
     outcomeInterrupted: '已中斷',
 
-    pausedQueueCallout: '佇列已暫停 — {count} 項等待中',
+    fallbackReasonVisitDeriveManualFullRebuild:
+      '你要求了完整重建，PathKeep 已從頭重新分析造訪紀錄。無需處理。',
+    fallbackReasonVisitDeriveNoCheckpoint:
+      '這是這個瀏覽器的第一次完整造訪紀錄分析。無需處理。',
+    fallbackReasonVisitDeriveRulesChanged:
+      '造訪紀錄的分析規則更新了，PathKeep 重新算了一遍。無需處理。',
+    fallbackReasonVisitDeriveVisibilityRegressed:
+      '你復原過匯入，PathKeep 重新分析了造訪紀錄，以排除隱藏的紀錄。無需處理。',
+    fallbackReasonVisitDeriveDeltaMismatch:
+      '封存發生了無法增量更新的變化，PathKeep 已重新完整分析造訪紀錄。資料沒有遺失。',
+    fallbackReasonDailyRollupManualFullRebuild:
+      '你要求了完整重建，PathKeep 已從頭重新產生每日彙總。無需處理。',
+    fallbackReasonDailyRollupNoCheckpoint:
+      '這是這個瀏覽器的第一次每日彙總。無需處理。',
+    fallbackReasonDailyRollupRulesChanged:
+      '每日彙總的規則更新了，PathKeep 重新算了一遍。無需處理。',
+    fallbackReasonDailyRollupVisibilityRegressed:
+      '你復原過匯入，PathKeep 重新產生了每日彙總，以排除隱藏的紀錄。無需處理。',
+    fallbackReasonDailyRollupDeltaMismatch:
+      '封存發生了無法增量更新的變化，PathKeep 已重新完整產生每日彙總。資料沒有遺失。',
+    fallbackReasonStructuralManualFullRebuild:
+      '你要求了完整重建，PathKeep 已從頭重新產生頁面與網站結構。無需處理。',
+    fallbackReasonStructuralNoCheckpoint:
+      '這是這個瀏覽器的第一次頁面與網站結構分析。無需處理。',
+    fallbackReasonStructuralRulesChanged:
+      '頁面與網站結構的分析規則更新了，PathKeep 重新算了一遍。無需處理。',
+    fallbackReasonStructuralVisibilityRegressed:
+      '你復原過匯入，PathKeep 重新產生了頁面與網站結構，以排除隱藏的紀錄。無需處理。',
+    fallbackReasonStructuralDeltaMismatch:
+      '封存發生了無法增量更新的變化，PathKeep 已重新完整產生頁面與網站結構。資料沒有遺失。',
+    fallbackReasonLegacyDebugRebuild:
+      '這次重建只涵蓋了部分封存，因此 PathKeep 完整重算了一遍，而不是只更新變動的部分。下次重建仍會這樣從頭開始。無需處理。',
+
+    pausedQueueCalloutOne: '佇列已暫停 — {count} 項等待中',
+    pausedQueueCalloutMany: '佇列已暫停 — {count} 項等待中',
     pausedQueueBody: '任務已保存，恢復後繼續處理。',
 
     loadingActivity: '正在載入活動',

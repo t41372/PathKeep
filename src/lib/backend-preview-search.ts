@@ -665,7 +665,9 @@ export function paginateMockAiSearch(
     domain: item.domain,
     visitedAt: item.visitedAt,
     score: 0.8 - index * 0.1,
-    matchReason: 'Browser preview lexical fixture',
+    // The wire contract is a stable CODE, not prose (the UI localizes it): browser preview has no
+    // embedding provider, so every fixture row is honestly a keyword-only match.
+    matchReason: 'lexical',
   }))
   const pagedItems = items.slice(offset, offset + limit)
   const nextOffset = offset + pagedItems.length

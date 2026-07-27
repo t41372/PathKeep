@@ -56,19 +56,23 @@ describe('DerivedRuntimeReview', () => {
       </MemoryRouter>,
     )
 
+    // Coded notes localize even though every backend sentence drifted.
+    expect(
+      screen.getByText('Rebuilt all daily rollups for chrome:Default.'),
+    ).toBeVisible()
+    expect(screen.getByText('Completed a daily rollup refresh.')).toBeVisible()
     expect(
       screen.getByText(
-        'No visible visits remained for chrome:Default; cleared visit-derived facts.',
+        'Module version changed since the last deterministic rebuild.',
       ),
     ).toBeVisible()
+    // An unknown code keeps its diagnostic prose instead of rendering blank.
     expect(
-      screen.getByText('Manual full rebuild requested for daily rollups.'),
+      screen.getByText('A note only a newer backend knows about.'),
     ).toBeVisible()
-    expect(
-      screen.getByText(
-        'Archive visibility regressed or source counters moved backwards for daily rollups.',
-      ),
-    ).toBeVisible()
+    // A known code whose typed param this build cannot resolve also falls back,
+    // instead of rendering a sentence with a hole in it.
+    expect(screen.getByText('Completed a future-mode rebuild.')).toBeVisible()
 
     await user.click(screen.getAllByRole('button', { name: 'Disable' })[0])
     expect(onDeterministicModuleToggle).toHaveBeenCalledWith('sessions')
@@ -103,8 +107,9 @@ describe('DerivedRuntimeReview', () => {
                   lastRunId: null,
                   lastBuiltAt: null,
                   lastInvalidatedAt: null,
-                  staleReason: null,
-                  notes: [],
+                  // A legacy runtime row: prose only, no code channel at all.
+                  staleReason: 'A stale reason with no code.',
+                  notes: ['A legacy uncoded runtime note.'],
                 },
               ],
               plugins: [
@@ -157,6 +162,9 @@ describe('DerivedRuntimeReview', () => {
       0,
     )
     expect(screen.getByText('Saving runtime preference')).toBeVisible()
+    // Legacy rows keep their prose rather than being pattern-matched.
+    expect(screen.getByText('A legacy uncoded runtime note.')).toBeVisible()
+    expect(screen.getByText('A stale reason with no code.')).toBeVisible()
   })
 
   test('renders raw runtime timestamps when date formatting cannot parse them', () => {
@@ -174,7 +182,9 @@ describe('DerivedRuntimeReview', () => {
                   ...runtimeFixture().modules[0],
                   lastBuiltAt: 'not-a-module-date',
                   staleReason: null,
+                  staleReasonCode: null,
                   notes: [],
+                  noteDetails: [],
                 },
               ],
               plugins: [
@@ -243,7 +253,6 @@ describe('DerivedRuntimeReview', () => {
               ],
             }}
             intelligenceRuntimeError={null}
-            readableContentAvailable
             rebuildQueueReport={null}
             snapshot={snapshotFixture({
               enrichmentPlugins: [
@@ -306,7 +315,6 @@ describe('DerivedRuntimeReview', () => {
               ],
             }}
             intelligenceRuntimeError={null}
-            readableContentAvailable
             rebuildQueueReport={null}
             snapshot={snapshotFixture({
               enrichmentPlugins: [
@@ -343,7 +351,12 @@ describe('DerivedRuntimeReview', () => {
     ).toBeVisible()
   })
 
-  test('shows the deferred placeholder when readable content is not release-available', () => {
+  // Copy fix: the readable-content card used to wear a "Coming in v0.3"
+  // badge behind a `readableContentAvailable` prop. Content fetch shipped, the
+  // prop was always `true` in production, and the badge outlived its release.
+  // Both are gone, so this now guards the replacement contract: an off plugin
+  // reports its real boundary and stays togglable, with no version claim.
+  test('reports the network boundary without any release-version claim', () => {
     render(
       <MemoryRouter>
         <I18nProvider>
@@ -368,7 +381,6 @@ describe('DerivedRuntimeReview', () => {
               ],
             }}
             intelligenceRuntimeError={null}
-            readableContentAvailable={false}
             rebuildQueueReport={null}
             snapshot={snapshotFixture({
               enrichmentPlugins: [
@@ -388,24 +400,23 @@ describe('DerivedRuntimeReview', () => {
       </MemoryRouter>,
     )
 
-    const deferredRow = screen
+    const readableContentRow = screen
       .getByText('Readable content fetcher')
       .closest('.result-row')
-    expect(deferredRow).toBeInstanceOf(HTMLElement)
-    if (!(deferredRow instanceof HTMLElement)) {
-      throw new Error('expected deferred readable content row')
+    expect(readableContentRow).toBeInstanceOf(HTMLElement)
+    if (!(readableContentRow instanceof HTMLElement)) {
+      throw new Error('expected readable content row')
     }
-    // Deferred branch: placeholder badge + a disabled enable button.
     expect(
-      within(deferredRow).getAllByText(
-        settingsT('readableContentDeferredBadge'),
-      ).length,
+      within(readableContentRow).getAllByText(settingsT('networkAccess'))
+        .length,
     ).toBeGreaterThan(0)
+    expect(readableContentRow.textContent ?? '').not.toMatch(/v0\.\d/)
     expect(
-      within(deferredRow).getByRole('button', {
+      within(readableContentRow).getByRole('button', {
         name: settingsT('enablePlugin'),
       }),
-    ).toBeDisabled()
+    ).toBeEnabled()
   })
 })
 
@@ -459,11 +470,35 @@ function runtimeFixture(): IntelligenceRuntimeSnapshot {
         lastRunId: 10,
         lastBuiltAt: '2026-04-25T11:00:00Z',
         lastInvalidatedAt: null,
-        staleReason:
-          'No visible visits remained for chrome:Default; cleared visit-derived facts.',
+        // Deliberately drifted prose: localization must come from the codes.
+        staleReason: 'module version changed (drifted backend prose)',
+        staleReasonCode: 'module-version-changed',
         notes: [
-          'Manual full rebuild requested for daily rollups.',
-          'Archive visibility regressed or source counters moved backwards for daily rollups.',
+          'Rebuilt all daily rollups for chrome:Default!!',
+          'Completed a daily rollup refresh (drifted).',
+          'A note only a newer backend knows about.',
+          'Completed a future-mode rebuild.',
+        ],
+        noteDetails: [
+          {
+            code: 'daily-rollups-rebuilt',
+            message: 'Rebuilt all daily rollups for chrome:Default!!',
+            profileId: 'chrome:Default',
+          },
+          {
+            code: 'rebuild-completed',
+            message: 'Completed a daily rollup refresh (drifted).',
+            jobKind: 'daily-rollup',
+          },
+          {
+            code: 'some-future-note-code',
+            message: 'A note only a newer backend knows about.',
+          },
+          {
+            code: 'rebuild-completed',
+            message: 'Completed a future-mode rebuild.',
+            jobKind: 'some-future-rebuild-mode',
+          },
         ],
       },
     ],

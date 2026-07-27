@@ -48,7 +48,8 @@ export type TranslationNamespace =
   | 'archiveUpgrade'
 
 /**
- * Leaves room for legacy flat-key callers while still documenting that translator keys are string paths.
+ * Translator keys are namespaced string paths (`namespace.key`); namespace
+ * translators prepend their namespace before lookup.
  */
 export type TranslationKey = string
 

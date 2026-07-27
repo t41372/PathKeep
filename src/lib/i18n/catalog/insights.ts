@@ -49,7 +49,7 @@ export const insightsNamespaceCatalog = {
     refreshAttentionTitle: 'Refresh needs attention',
     refreshQueuedTitle: 'Refresh queued',
     refreshQueuedBody:
-      'Deterministic rebuild job #{jobId} is now in Background Jobs. Keep browsing while PathKeep refreshes the latest derived evidence.',
+      'Deterministic rebuild job #{jobId} is now in Activity. Keep browsing while PathKeep refreshes the latest derived evidence.',
     overviewTitle: 'Latest analysis',
     overviewHeadline:
       'Start with the clearest signals, then decide where to dig deeper',
@@ -58,7 +58,7 @@ export const insightsNamespaceCatalog = {
     archiveWideBody:
       'You are viewing archive-wide analysis. If you switch to one browser profile, cards and research signals narrow with it, while storage and growth metrics stay archive-wide.',
     queueReviewBody:
-      'Rebuilds and page-text fetches keep moving in the background. This surface only keeps the most important runtime clue visible here; use Jobs for the full queue review.',
+      'Rebuilds and page-text fetches keep moving in the background. This surface only keeps the most important runtime clue visible here; use Activity for the full queue review.',
     coreHistory: 'Core history',
     otherData: 'Other data',
     canonicalArchive: 'Canonical archive',
@@ -189,25 +189,25 @@ export const insightsNamespaceCatalog = {
     intelligenceEyebrow: '智能分析',
     goToSetup: '前往设置',
     refreshInsights: '刷新洞察',
-    openExplorer: '打开历史浏览器',
+    openExplorer: '浏览历史记录',
     askAssistant: '问问 AI 助手',
     assistantSummaryPrompt: '总结一下我最近浏览洞察中最明显的变化。',
     scopedViewTitle: '当前为浏览器范围视图',
     scopedViewBody:
-      '洞察卡片、主题、线程和摘要只会显示 {profile}。覆盖率、存储统计和增长信号仍然使用全部存档。',
+      '洞察卡片、主题、研究线索和摘要只会显示 {profile}。覆盖率、存储统计和增长信号仍然使用全部存档。',
     archiveWideBadge: '全部存档统计',
     refreshAttentionTitle: '洞察刷新遇到问题',
     refreshQueuedTitle: '刷新已加入队列',
     refreshQueuedBody:
-      '确定性重新生成任务 #{jobId} 已进入后台任务。你可以继续浏览，PathKeep 会在后台刷新最新的派生证据。',
+      '确定性重新生成任务 #{jobId} 已进入活动页。你可以继续浏览，PathKeep 会在后台刷新最新的派生证据。',
     overviewTitle: '分析快照',
     overviewHeadline: '先看结论，再决定要不要继续深挖',
     overviewBody:
       '这一页应该先告诉你最近发生了什么，再把查询组、线索、参考页和来源效果分层展开，而不是把所有模块一次性堆在你面前。',
     archiveWideBody:
-      '当前显示的是整个 archive 的分析结果。切换浏览器范围后，卡片与线索会跟着收窄，但存储与增长指标仍保持 archive-wide。',
+      '当前显示的是整个存档的分析结果。切换浏览器范围后，卡片与研究线索会跟着收窄，但存储与增长指标仍覆盖整个存档。',
     queueReviewBody:
-      '重建与网页内容抓取会继续在后台推进。这里只保留最重要的运行线索，完整进度与失败处理请到 Jobs 页面查看。',
+      '重建与网页内容抓取会继续在后台推进。这里只保留最重要的运行线索，完整进度与失败处理请到活动页查看。',
     coreHistory: '核心浏览记录',
     otherData: '其他数据',
     canonicalArchive: '规范化存档',
@@ -216,7 +216,7 @@ export const insightsNamespaceCatalog = {
     intelligenceProjection: '智能投影',
     semanticIndex: '语义索引',
     contentBlobs: '正文缓存',
-    auditArtifacts: '审计产物',
+    auditArtifacts: '审计文件',
     temporaryFiles: '临时文件',
     window: '时间范围',
     windowDaysCompact: '{days} 天',
@@ -264,7 +264,7 @@ export const insightsNamespaceCatalog = {
     referencePagesEmptyDescription:
       '当页面在不同搜索里反复出现后，这里就会显示。',
     referencePagesBody:
-      '出现在 {groups} 个查询组、{threads} 条线索里，并被重访了 {revisits} 次。',
+      '出现在 {groups} 个查询组、{threads} 条研究线索里，并被重访了 {revisits} 次。',
     sourceEffectiveness: '来源效果',
     sourceEffectivenessEmptyTitle: '还没有来源效果数据',
     sourceEffectivenessEmptyDescription:
@@ -276,7 +276,7 @@ export const insightsNamespaceCatalog = {
       '查看哪些确定性模块是最新、已过期、已关闭，或还在等待重建。',
     deterministicModulesEmptyTitle: '还没有模块状态',
     deterministicModulesEmptyDescription:
-      '先运行一次确定性重建，这里才会显示模块状态和 trace 细节。',
+      '先运行一次确定性重建，这里才会显示模块状态和运行记录细节。',
     threads: '研究线索',
     cardsStat: '卡片',
     topicsStat: '话题',
@@ -337,25 +337,25 @@ export const insightsNamespaceCatalog = {
     intelligenceEyebrow: '智慧分析',
     goToSetup: '前往設定',
     refreshInsights: '重新整理洞察',
-    openExplorer: '開啟歷史瀏覽器',
+    openExplorer: '瀏覽歷史紀錄',
     askAssistant: '問問 AI 助手',
     assistantSummaryPrompt: '總結一下我最近瀏覽洞察中最明顯的變化。',
-    scopedViewTitle: '目前為瀏覽器範圍視圖',
+    scopedViewTitle: '目前為瀏覽器範圍檢視',
     scopedViewBody:
-      '洞察卡片、主題、執行緒和摘要只會顯示 {profile}。涵蓋率、儲存統計和成長訊號仍然使用全部封存。',
+      '洞察卡片、主題、研究線索和摘要只會顯示 {profile}。涵蓋率、儲存統計和成長訊號仍然使用全部封存。',
     archiveWideBadge: '全部封存統計',
     refreshAttentionTitle: '洞察重新整理遇到問題',
     refreshQueuedTitle: '重新整理已加入佇列',
     refreshQueuedBody:
-      '確定性重新產生任務 #{jobId} 已進入背景工作。你可以繼續瀏覽，PathKeep 會在背景重新整理最新的派生證據。',
+      '確定性重新產生任務 #{jobId} 已進入活動頁。你可以繼續瀏覽，PathKeep 會在背景重新整理最新的派生證據。',
     overviewTitle: '分析快照',
     overviewHeadline: '先看結論，再決定要不要繼續深挖',
     overviewBody:
       '這一頁應該先告訴你最近發生了什麼，再把查詢群組、線索、參考頁與來源效果分層展開，而不是把所有模組一次堆給你。',
     archiveWideBody:
-      '目前顯示的是整個 archive 的分析結果。切換瀏覽器範圍後，卡片與研究訊號會跟著收窄，但儲存與成長指標仍維持 archive-wide。',
+      '目前顯示的是整個封存的分析結果。切換瀏覽器範圍後，卡片與研究線索會跟著收窄，但儲存與成長指標仍涵蓋整個封存。',
     queueReviewBody:
-      '重建與網頁內容抓取會繼續在背景推進。這裡只保留最重要的執行線索，完整進度與失敗處理請到 Jobs 頁面查看。',
+      '重建與網頁內容擷取會繼續在背景推進。這裡只保留最重要的執行線索，完整進度與失敗處理請到活動頁查看。',
     coreHistory: '核心瀏覽紀錄',
     otherData: '其他資料',
     canonicalArchive: '規範化封存',
@@ -364,7 +364,7 @@ export const insightsNamespaceCatalog = {
     intelligenceProjection: '智慧投影',
     semanticIndex: '語意索引',
     contentBlobs: '正文快取',
-    auditArtifacts: '稽核產物',
+    auditArtifacts: '稽核檔案',
     temporaryFiles: '暫存檔',
     window: '時間範圍',
     windowDaysCompact: '{days} 天',
@@ -412,7 +412,7 @@ export const insightsNamespaceCatalog = {
     referencePagesEmptyDescription:
       '當頁面在不同搜尋裡反覆出現後，這裡就會顯示。',
     referencePagesBody:
-      '出現在 {groups} 個查詢群組、{threads} 條線索裡，並被重訪了 {revisits} 次。',
+      '出現在 {groups} 個查詢群組、{threads} 條研究線索裡，並被重訪了 {revisits} 次。',
     sourceEffectiveness: '來源效果',
     sourceEffectivenessEmptyTitle: '還沒有來源效果資料',
     sourceEffectivenessEmptyDescription:
@@ -424,7 +424,7 @@ export const insightsNamespaceCatalog = {
       '查看哪些確定性模組是最新、已過期、已關閉，或仍在等待重建。',
     deterministicModulesEmptyTitle: '還沒有模組狀態',
     deterministicModulesEmptyDescription:
-      '先執行一次確定性重建，這裡才會顯示模組狀態和 trace 細節。',
+      '先執行一次確定性重建，這裡才會顯示模組狀態和執行紀錄細節。',
     threads: '研究線索',
     cardsStat: '卡片',
     topicsStat: '主題',

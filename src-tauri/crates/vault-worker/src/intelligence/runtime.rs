@@ -318,6 +318,7 @@ fn finish_core_intelligence_job_success(
             "dirtyVisitCount": report.dirty_visit_count,
             "dirtyDateKeys": report.dirty_date_keys,
             "fallbackReason": report.fallback_reason,
+            "fallbackReasonCode": report.fallback_reason_code,
             "notes": report.notes,
         }),
     )?;

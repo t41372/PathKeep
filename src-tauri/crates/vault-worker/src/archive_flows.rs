@@ -17,13 +17,14 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use vault_core::{
-    AiIndexRequest, AiQueueJob, BackupProgressEvent, BrowseDayInsights, BrowseDayInsightsRequest,
-    BrowserHistoryImportRequest, ClearDerivedIntelligenceReport, CoreIntelligenceRebuildRequest,
-    DashboardSnapshot, ExportRequest, HealthRepairReport, HealthReport, HistoryQuery,
-    HistoryQueryResponse, ImportBatchDetail, ImportProgressEvent, TakeoutInspection,
-    TakeoutRequest, ai_queue, clear_derived_intelligence_state, doctor, export_history,
-    get_browse_day_insights, import_browser_history_with_progress, import_takeout_with_progress,
-    inspect_browser_history, inspect_takeout,
+    AiIndexRequest, AiQueueJob, BackupProgressEvent, BackupReport, BackupWarning,
+    BrowseDayInsights, BrowseDayInsightsRequest, BrowserHistoryImportRequest,
+    ClearDerivedIntelligenceReport, CoreIntelligenceRebuildRequest, DashboardSnapshot,
+    ExportRequest, HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse,
+    ImportBatchDetail, ImportProgressEvent, TakeoutInspection, TakeoutRequest, ai_queue,
+    clear_derived_intelligence_state, doctor, export_history, get_browse_day_insights,
+    import_browser_history_with_progress, import_takeout_with_progress, inspect_browser_history,
+    inspect_takeout,
     intelligence_runtime::{
         DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
         enqueue_core_intelligence_job, mark_all_deterministic_modules_stale,
@@ -163,7 +164,7 @@ where
                     ..AiIndexRequest::default()
                 };
                 if append_ai_auto_index_archive_result(
-                    &mut report.warnings,
+                    &mut report,
                     ai_archive_connection(paths, config, session_database_key),
                     &auto_index_request,
                     config.ai.job_queue_paused,
@@ -171,7 +172,7 @@ where
                     maybe_spawn_ai_queue_drain(paths, config, session_database_key, 1);
                 }
             }
-            Err(error) => append_ai_auto_index_provider_warning(&mut report.warnings, error),
+            Err(error) => append_ai_auto_index_provider_warning(&mut report, error),
         }
     }
     if !report.due_skipped && backup_changed_archive(report.run.as_ref()) {
@@ -184,7 +185,7 @@ where
             .map(|profile| profile.profile_id.clone())
             .collect::<Vec<_>>();
         append_core_refresh_backup_result(
-            &mut report.warnings,
+            &mut report,
             enqueue_and_spawn_deterministic_refresh(
                 paths,
                 config,
@@ -203,10 +204,7 @@ where
     // was skipped (due_skipped) because the OS scheduler is the one
     // driving daily cadence and a manual run shouldn't double-fire.
     if !report.due_skipped {
-        append_og_image_cleanup_result(
-            &mut report.warnings,
-            run_og_image_cleanup(session_database_key),
-        );
+        append_og_image_cleanup_result(&mut report, run_og_image_cleanup(session_database_key));
         // Negative-cache auto-refetch: try again for any URL whose
         // `refetch_after` has elapsed. Bounded by NEGATIVE_CACHE_DAILY_BUDGET
         // so a single overnight backlog can't burst-fire hundreds of
@@ -230,14 +228,14 @@ where
             })
             .unwrap_or((clamp_budget(50), clamp_budget(100)));
         append_og_image_refetch_due_result(
-            &mut report.warnings,
+            &mut report,
             try_refetch_due_og_images(session_database_key, refetch_budget),
         );
         // Background-mode prefetch: warm the cache for URLs the user
         // visited but the worker hasn't seen yet. OnDemand / Off
         // short-circuit inside `try_prefetch_new_visit_og_images`.
         append_og_image_prefetch_result(
-            &mut report.warnings,
+            &mut report,
             try_prefetch_new_visit_og_images(session_database_key, prefetch_budget),
         );
     }
@@ -373,28 +371,52 @@ fn try_prefetch_new_visit_og_images(
 /// Pushes a non-fatal refetch-due result onto a backup report's warning
 /// list. Same shape as `append_og_image_cleanup_result` so the formatting
 /// stays auditable without spinning up a real worker.
-fn append_og_image_refetch_due_result(warnings: &mut Vec<String>, result: Result<(usize, u32)>) {
+fn append_og_image_refetch_due_result(report: &mut BackupReport, result: Result<(usize, u32)>) {
     match result {
         Ok((0, _)) => {}
-        Ok((due, successful)) => warnings.push(format!(
-            "Link previews negative-cache retry: re-attempted {due} URLs, {successful} succeeded.",
-        )),
-        Err(error) => {
-            warnings.push(format!("Link previews negative-cache retry failed: {error:#}",))
-        }
+        Ok((due, successful)) => report.push_warning(
+            BackupWarning::new(
+                "og-refetch-summary",
+                format!(
+                    "Link previews negative-cache retry: re-attempted {due} URLs, {successful} succeeded.",
+                ),
+            )
+            .with_count(due)
+            .with_succeeded(successful),
+        ),
+        Err(error) => report.push_warning(
+            BackupWarning::new(
+                "og-refetch-failed",
+                format!("Link previews negative-cache retry failed: {error:#}"),
+            )
+            .with_diagnostic(format!("{error:#}")),
+        ),
     }
 }
 
 /// Pushes a non-fatal prefetch outcome onto a backup report's warning
 /// list. Mirrors `append_og_image_refetch_due_result` so the backup
 /// audit log treats both passes the same way.
-fn append_og_image_prefetch_result(warnings: &mut Vec<String>, result: Result<(usize, u32)>) {
+fn append_og_image_prefetch_result(report: &mut BackupReport, result: Result<(usize, u32)>) {
     match result {
         Ok((0, _)) => {}
-        Ok((enqueued, successful)) => warnings.push(format!(
-            "Link previews prefetch: enqueued {enqueued} new-visit URLs, {successful} succeeded.",
-        )),
-        Err(error) => warnings.push(format!("Link previews prefetch failed: {error:#}")),
+        Ok((enqueued, successful)) => report.push_warning(
+            BackupWarning::new(
+                "og-prefetch-summary",
+                format!(
+                    "Link previews prefetch: enqueued {enqueued} new-visit URLs, {successful} succeeded.",
+                ),
+            )
+            .with_count(enqueued)
+            .with_succeeded(successful),
+        ),
+        Err(error) => report.push_warning(
+            BackupWarning::new(
+                "og-prefetch-failed",
+                format!("Link previews prefetch failed: {error:#}"),
+            )
+            .with_diagnostic(format!("{error:#}")),
+        ),
     }
 }
 
@@ -403,22 +425,37 @@ fn append_og_image_prefetch_result(warnings: &mut Vec<String>, result: Result<(u
 /// Exposed at module scope so the success vs. failure formatting can be
 /// unit-tested directly, without spinning a full backup run.
 fn append_og_image_cleanup_result(
-    warnings: &mut Vec<String>,
+    report: &mut BackupReport,
     result: Result<vault_core::OgImageCleanupReport>,
 ) {
     match result {
-        Ok(report) => {
-            if report.deleted_rows > 0 || report.deleted_blobs > 0 || report.reclaimed_bytes > 0 {
-                warnings.push(format!(
-                    "Link previews cache hygiene: removed {} rows, {} orphan blobs, reclaimed {} bytes.",
-                    report.deleted_rows,
-                    report.deleted_blobs,
-                    report.reclaimed_bytes,
-                ));
+        Ok(cleanup) => {
+            if cleanup.deleted_rows > 0 || cleanup.deleted_blobs > 0 || cleanup.reclaimed_bytes > 0
+            {
+                report.push_warning(
+                    BackupWarning::new(
+                        "og-cleanup-summary",
+                        format!(
+                            "Link previews cache hygiene: removed {} rows, {} orphan blobs, reclaimed {} bytes.",
+                            cleanup.deleted_rows, cleanup.deleted_blobs, cleanup.reclaimed_bytes,
+                        ),
+                    )
+                    .with_count(cleanup.deleted_rows.max(0) as usize)
+                    .with_reclaimed(
+                        cleanup.deleted_blobs.max(0) as usize,
+                        cleanup.reclaimed_bytes.max(0) as u64,
+                    ),
+                );
             }
         }
         Err(error) => {
-            warnings.push(format!("Link previews cache hygiene failed: {error:#}",));
+            report.push_warning(
+                BackupWarning::new(
+                    "og-cleanup-failed",
+                    format!("Link previews cache hygiene failed: {error:#}"),
+                )
+                .with_diagnostic(format!("{error:#}")),
+            );
         }
     }
 }
@@ -911,6 +948,7 @@ fn enqueue_and_spawn_deterministic_refresh(
     let connection = ai_archive_connection(paths, config, session_database_key)?;
     mark_all_deterministic_modules_stale(
         &connection,
+        vault_core::DERIVED_STALE_ARCHIVE_DATA_CHANGED,
         "Archive data changed and Core Intelligence refresh jobs were queued.",
     )?;
     let rebuild_scopes = core_refresh_rebuild_scopes(dirty_profiles);
@@ -944,54 +982,74 @@ fn enqueue_and_spawn_deterministic_refresh(
     Ok(job_ids)
 }
 
-fn append_core_refresh_backup_result(warnings: &mut Vec<String>, result: Result<Vec<i64>>) {
+fn append_core_refresh_backup_result(report: &mut BackupReport, result: Result<Vec<i64>>) {
     if let Err(error) = result {
-        warnings.push(format!("Core Intelligence could not refresh after backup: {error}"));
+        report.push_warning(
+            BackupWarning::new(
+                "intelligence-refresh-failed",
+                format!("Core Intelligence could not refresh after backup: {error}"),
+            )
+            .with_diagnostic(format!("{error}")),
+        );
     }
 }
 
 fn append_ai_auto_index_enqueue_result(
-    warnings: &mut Vec<String>,
+    report: &mut BackupReport,
     result: Result<AiQueueJob>,
     queue_paused: bool,
 ) -> bool {
     match result {
         Ok(job) if queue_paused => {
-            warnings
-                .push(format!("AI auto-index queued job {} while the AI queue is paused.", job.id));
+            report.push_warning(
+                BackupWarning::new(
+                    "ai-autoindex-queued-while-paused",
+                    format!("AI auto-index queued job {} while the AI queue is paused.", job.id),
+                )
+                .with_job_id(job.id),
+            );
             false
         }
         Ok(_) => true,
         Err(error) => {
-            warnings.push(format!("AI auto-index could not enqueue a follow-up job: {error}"));
+            report.push_warning(
+                BackupWarning::new(
+                    "ai-autoindex-enqueue-failed",
+                    format!("AI auto-index could not enqueue a follow-up job: {error}"),
+                )
+                .with_diagnostic(format!("{error}")),
+            );
             false
         }
     }
 }
 
 fn append_ai_auto_index_archive_result(
-    warnings: &mut Vec<String>,
+    report: &mut BackupReport,
     connection: Result<rusqlite::Connection>,
     request: &AiIndexRequest,
     queue_paused: bool,
 ) -> bool {
     match connection {
-        Ok(connection) => append_ai_auto_index_enqueue_result(
-            warnings,
-            ai_queue::enqueue_index_job(&connection, request, queue_paused),
-            queue_paused,
-        ),
+        Ok(connection) => {
+            let enqueued = ai_queue::enqueue_index_job(&connection, request, queue_paused);
+            append_ai_auto_index_enqueue_result(report, enqueued, queue_paused)
+        }
         Err(error) => {
-            append_ai_auto_index_provider_warning(warnings, error);
+            append_ai_auto_index_provider_warning(report, error);
             false
         }
     }
 }
 
-fn append_ai_auto_index_provider_warning(warnings: &mut Vec<String>, error: anyhow::Error) {
-    warnings.push(format!(
-        "AI auto-index is enabled, but the embedding provider is not ready: {error}"
-    ));
+fn append_ai_auto_index_provider_warning(report: &mut BackupReport, error: anyhow::Error) {
+    report.push_warning(
+        BackupWarning::new(
+            "ai-autoindex-provider-not-ready",
+            format!("AI auto-index is enabled, but the embedding provider is not ready: {error}"),
+        )
+        .with_diagnostic(format!("{error}")),
+    );
 }
 
 fn append_core_refresh_import_result(notes: &mut Vec<String>, result: Result<Vec<i64>>) {
@@ -1043,7 +1101,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
     use tempfile::tempdir;
-    use vault_core::{AiQueueJob, AppConfig, ArchiveMode, OgImageCleanupReport};
+    use vault_core::{AiQueueJob, AppConfig, ArchiveMode, BackupReport, OgImageCleanupReport};
 
     fn fresh_host_state() -> Arc<Mutex<HashMap<String, Instant>>> {
         Arc::new(Mutex::new(HashMap::new()))
@@ -1051,58 +1109,72 @@ mod tests {
 
     #[test]
     fn append_og_image_cleanup_result_silent_when_no_work_done() {
-        let mut warnings = Vec::new();
+        let mut report = BackupReport::default();
         append_og_image_cleanup_result(
-            &mut warnings,
+            &mut report,
             Ok(OgImageCleanupReport { deleted_rows: 0, deleted_blobs: 0, reclaimed_bytes: 0 }),
         );
-        assert!(warnings.is_empty(), "no-op cleanup should not add a warning");
+        assert!(report.warnings.is_empty(), "no-op cleanup should not add a warning");
+        assert!(report.warning_details.is_empty());
     }
 
     #[test]
     fn append_og_image_cleanup_result_records_evicted_rows() {
-        let mut warnings = Vec::new();
+        let mut report = BackupReport::default();
         append_og_image_cleanup_result(
-            &mut warnings,
+            &mut report,
             Ok(OgImageCleanupReport { deleted_rows: 4, deleted_blobs: 2, reclaimed_bytes: 1_234 }),
         );
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("4 rows"));
-        assert!(warnings[0].contains("2 orphan blobs"));
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].contains("4 rows"));
+        assert!(report.warnings[0].contains("2 orphan blobs"));
+        assert_eq!(report.warning_details[0].code, "og-cleanup-summary");
+        assert_eq!(report.warning_details[0].count, Some(4));
+        assert_eq!(report.warning_details[0].blobs, Some(2));
+        assert_eq!(report.warning_details[0].bytes, Some(1_234));
     }
 
     #[test]
     fn append_og_image_cleanup_result_surfaces_errors_as_warnings() {
-        let mut warnings = Vec::new();
-        append_og_image_cleanup_result(&mut warnings, Err(anyhow::anyhow!("archive locked")));
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("archive locked"));
-        assert!(warnings[0].contains("cache hygiene failed"));
+        let mut report = BackupReport::default();
+        append_og_image_cleanup_result(&mut report, Err(anyhow::anyhow!("archive locked")));
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].contains("archive locked"));
+        assert!(report.warnings[0].contains("cache hygiene failed"));
+        assert_eq!(report.warning_details[0].code, "og-cleanup-failed");
+        assert_eq!(report.warning_details[0].diagnostic.as_deref(), Some("archive locked"));
     }
 
     #[test]
     fn append_og_image_refetch_due_result_silent_when_no_due_rows() {
-        let mut warnings = Vec::new();
-        append_og_image_refetch_due_result(&mut warnings, Ok((0, 0)));
-        assert!(warnings.is_empty(), "no due rows should not add a warning even when successful=0",);
+        let mut report = BackupReport::default();
+        append_og_image_refetch_due_result(&mut report, Ok((0, 0)));
+        assert!(
+            report.warnings.is_empty(),
+            "no due rows should not add a warning even when successful=0",
+        );
     }
 
     #[test]
     fn append_og_image_refetch_due_result_annotates_retried_counts() {
-        let mut warnings = Vec::new();
-        append_og_image_refetch_due_result(&mut warnings, Ok((7, 4)));
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("7 URLs"));
-        assert!(warnings[0].contains("4 succeeded"));
+        let mut report = BackupReport::default();
+        append_og_image_refetch_due_result(&mut report, Ok((7, 4)));
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].contains("7 URLs"));
+        assert!(report.warnings[0].contains("4 succeeded"));
+        assert_eq!(report.warning_details[0].code, "og-refetch-summary");
+        assert_eq!(report.warning_details[0].count, Some(7));
+        assert_eq!(report.warning_details[0].succeeded, Some(4));
     }
 
     #[test]
     fn append_og_image_refetch_due_result_surfaces_errors_as_warnings() {
-        let mut warnings = Vec::new();
-        append_og_image_refetch_due_result(&mut warnings, Err(anyhow::anyhow!("dns hiccup")));
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("dns hiccup"));
-        assert!(warnings[0].contains("negative-cache retry failed"));
+        let mut report = BackupReport::default();
+        append_og_image_refetch_due_result(&mut report, Err(anyhow::anyhow!("dns hiccup")));
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].contains("dns hiccup"));
+        assert!(report.warnings[0].contains("negative-cache retry failed"));
+        assert_eq!(report.warning_details[0].code, "og-refetch-failed");
     }
 
     #[test]
@@ -1653,19 +1725,23 @@ mod tests {
 
     #[test]
     fn append_og_image_prefetch_result_formats_each_case() {
-        let mut warnings: Vec<String> = Vec::new();
+        let mut report = BackupReport::default();
         // (0, _) silently drops — most backups have nothing to enqueue.
-        append_og_image_prefetch_result(&mut warnings, Ok((0, 0)));
-        assert!(warnings.is_empty());
+        append_og_image_prefetch_result(&mut report, Ok((0, 0)));
+        assert!(report.warnings.is_empty());
 
         // Success case formats both counts.
-        append_og_image_prefetch_result(&mut warnings, Ok((7, 4)));
-        assert!(warnings.iter().any(|w| w.contains("enqueued 7")));
-        assert!(warnings.iter().any(|w| w.contains("4 succeeded")));
+        append_og_image_prefetch_result(&mut report, Ok((7, 4)));
+        assert!(report.warnings.iter().any(|w| w.contains("enqueued 7")));
+        assert!(report.warnings.iter().any(|w| w.contains("4 succeeded")));
+        assert_eq!(report.warning_details[0].code, "og-prefetch-summary");
+        assert_eq!(report.warning_details[0].count, Some(7));
+        assert_eq!(report.warning_details[0].succeeded, Some(4));
 
         // Error case surfaces a warning with the message text.
-        append_og_image_prefetch_result(&mut warnings, Err(anyhow::anyhow!("network outage")));
-        assert!(warnings.iter().any(|w| w.contains("network outage")));
+        append_og_image_prefetch_result(&mut report, Err(anyhow::anyhow!("network outage")));
+        assert!(report.warnings.iter().any(|w| w.contains("network outage")));
+        assert_eq!(report.warning_details[1].code, "og-prefetch-failed");
     }
 
     #[test]
@@ -1711,42 +1787,54 @@ mod tests {
         assert!(notes.iter().any(|note| note.contains("7, 8")));
         assert!(notes.iter().any(|note| note.contains("queue offline")));
 
-        let mut warnings = Vec::new();
-        append_core_refresh_backup_result(&mut warnings, Ok(vec![1]));
-        append_core_refresh_backup_result(&mut warnings, Err(anyhow::anyhow!("archive locked")));
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("archive locked"));
+        let mut backup_report = BackupReport::default();
+        append_core_refresh_backup_result(&mut backup_report, Ok(vec![1]));
+        append_core_refresh_backup_result(
+            &mut backup_report,
+            Err(anyhow::anyhow!("archive locked")),
+        );
+        assert_eq!(backup_report.warnings.len(), 1);
+        assert!(backup_report.warnings[0].contains("archive locked"));
+        assert_eq!(backup_report.warning_details[0].code, "intelligence-refresh-failed");
 
-        let mut ai_warnings = Vec::new();
+        let mut ai_report = BackupReport::default();
         assert!(!append_ai_auto_index_enqueue_result(
-            &mut ai_warnings,
+            &mut ai_report,
             Ok(AiQueueJob { id: 42, ..AiQueueJob::default() }),
             true,
         ));
-        assert!(ai_warnings[0].contains("queued job 42"));
+        assert!(ai_report.warnings[0].contains("queued job 42"));
+        assert_eq!(ai_report.warning_details[0].code, "ai-autoindex-queued-while-paused");
+        assert_eq!(ai_report.warning_details[0].job_id, Some(42));
         assert!(append_ai_auto_index_enqueue_result(
-            &mut ai_warnings,
+            &mut ai_report,
             Ok(AiQueueJob::default()),
             false,
         ));
         assert!(!append_ai_auto_index_enqueue_result(
-            &mut ai_warnings,
+            &mut ai_report,
             Err(anyhow::anyhow!("queue offline")),
             false,
         ));
-        append_ai_auto_index_provider_warning(
-            &mut ai_warnings,
-            anyhow::anyhow!("provider missing"),
-        );
+        append_ai_auto_index_provider_warning(&mut ai_report, anyhow::anyhow!("provider missing"));
         assert!(!append_ai_auto_index_archive_result(
-            &mut ai_warnings,
+            &mut ai_report,
             Err(anyhow::anyhow!("archive unavailable")),
             &vault_core::AiIndexRequest::default(),
             false,
         ));
+        let ai_warnings = ai_report.warnings.clone();
         assert!(ai_warnings.iter().any(|warning| warning.contains("queue offline")));
         assert!(ai_warnings.iter().any(|warning| warning.contains("provider missing")));
         assert!(ai_warnings.iter().any(|warning| warning.contains("archive unavailable")));
+        let ai_codes = ai_report
+            .warning_details
+            .iter()
+            .map(|warning| warning.code.as_str())
+            .collect::<Vec<_>>();
+        assert!(ai_codes.contains(&"ai-autoindex-enqueue-failed"));
+        assert!(ai_codes.contains(&"ai-autoindex-provider-not-ready"));
+        assert_eq!(ai_report.warnings.len(), ai_report.warning_details.len());
 
         let all_profiles = core_refresh_rebuild_scopes(&[]);
         assert_eq!(all_profiles.len(), 1);

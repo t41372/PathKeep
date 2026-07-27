@@ -46,6 +46,12 @@ export interface PaperStarredViewCopy {
   emptyBody: string
   /** Empty-state CTA link copy, e.g. "Browse your history →". */
   emptyCta: string
+  /**
+   * Truncation notice template with `{shown}` / `{total}` slots. Rendered only
+   * when the caller reports that the list is a prefix of a larger starred set
+   * — the hub must never present a capped page as the whole collection.
+   */
+  truncated: string
   /** Visit-count chip template, e.g. "{count}×". */
   visitCountTemplate: string
   starAction: string
@@ -58,6 +64,14 @@ export interface PaperStarredViewCopy {
 export interface PaperStarredViewProps {
   items: readonly StarListItem[]
   loading: boolean
+  /**
+   * True when `items` is a capped prefix of the starred set. Pairs with
+   * `total`: without both, the view has no honest way to say how much is
+   * hidden, so the notice is suppressed unless a real aggregate is supplied.
+   */
+  truncated?: boolean
+  /** Aggregate starred count from `get_star_counts`, when known. */
+  total?: number | null
   sort: StarSort
   onSortChange: (sort: StarSort) => void
   /** Open a starred page in the detail panel / Browse. */
@@ -74,6 +88,8 @@ export interface PaperStarredViewProps {
 export function PaperStarredView({
   items,
   loading,
+  truncated = false,
+  total = null,
   sort,
   onSortChange,
   onSelect,
@@ -86,6 +102,10 @@ export function PaperStarredView({
   const pages = items.filter((item) => item.entityKind === 'url')
   const sources = items.filter((item) => item.entityKind === 'domain')
   const isEmpty = !loading && items.length === 0
+  // Only claim truncation when we can name a real total — an unloaded count
+  // would turn the honest notice into another invented number.
+  const showTruncated =
+    !loading && truncated && total !== null && total > items.length
 
   return (
     <section
@@ -123,6 +143,18 @@ export function PaperStarredView({
           </select>
         </label>
       </header>
+
+      {showTruncated ? (
+        <p
+          data-testid="paper-starred-truncated"
+          role="status"
+          className="text-ink-muted border-border-light bg-card-paper rounded-paper border px-3 py-2 font-mono text-[10.5px]"
+        >
+          {copy.truncated
+            .replace('{shown}', String(items.length))
+            .replace('{total}', String(total))}
+        </p>
+      ) : null}
 
       {loading ? (
         <StarredSkeleton label={copy.loading} />

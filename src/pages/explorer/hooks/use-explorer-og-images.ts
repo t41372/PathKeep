@@ -30,6 +30,11 @@
  * - Mirrors `useExplorerFavicons` for the dedup + inflight + cache-token
  *   invalidation behaviour, just without the visit-time scoping (og:image
  *   is page-level).
+ * - Every backend call here is a *delta*, never the accumulated visible list.
+ *   `visibleUrls` spans head + all infinite-scroll pages, so both the
+ *   `loadHistoryOgImages` batch (diffed against `ogImageCache`) and the
+ *   `markOgImagesShown` batch (diffed against `markedShownRef`) are bounded by
+ *   what is newly seen, and each flush is additionally capped.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -47,6 +52,11 @@ const MARK_SHOWN_DEBOUNCE_MS = 1000
 // of this so the absolute ceiling is 2 concurrent worker threads × the
 // host rate limit, not this number.
 const FETCH_ENQUEUE_BATCH_CAP = 20
+// Bound one mark-shown flush. `visibleUrls` grows without bound as the user
+// infinite-scrolls (up to `MAX_ACCUMULATED_PAGES` × page size), so the flush
+// must not be proportional to the accumulated list. Anything beyond the cap is
+// picked up by the next scroll tick.
+const MARK_SHOWN_BATCH_CAP = 200
 
 interface UseExplorerOgImagesOptions {
   cacheToken: number
@@ -89,6 +99,9 @@ export function useExplorerOgImages({
   const inflightKeysRef = useRef(new Set<string>())
   const markShownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingMarkShownRef = useRef<Set<string>>(new Set())
+  // Lookup keys already reported to `markOgImagesShown` for the current cache
+  // token. Reset alongside the other per-token refs below.
+  const markedShownRef = useRef<Set<string>>(new Set())
   const emptyCache = useMemo(
     () => new Map<string, HistoryEntry['ogImage'] | null>(),
     [],
@@ -99,6 +112,7 @@ export function useExplorerOgImages({
   useEffect(() => {
     inflightKeysRef.current.clear()
     pendingMarkShownRef.current.clear()
+    markedShownRef.current.clear()
   }, [cacheToken])
 
   const visibleUrls = useMemo(() => {
@@ -218,20 +232,47 @@ export function useExplorerOgImages({
 
   // Debounced "mark these URLs as shown" so user-configured LRU eviction
   // can prefer rows the user actually looked at.
+  //
+  // `visibleUrls` is the head page PLUS every infinite-scroll page accumulated
+  // so far (`MAX_ACCUMULATED_PAGES = 500` × a 50-row page = 25 000 URLs at the
+  // ceiling). Enqueueing the whole list on every page load re-sent the entire
+  // accumulated array across IPC once per scroll tick, re-marking rows that
+  // were already marked seconds earlier. `markedShownRef` keeps the set we
+  // have already reported for this cache token so the enqueue is a pure delta
+  // — the same diff-against-what-we-know discipline `loadHistoryOgImages`
+  // above already uses against `ogImageCache`.
   useEffect(() => {
     if (!enabled || loading || visibleUrls.length === 0) {
       return
     }
+    let queued = 0
     for (const url of visibleUrls) {
+      const key = historyOgImageLookupKey(url)
+      if (markedShownRef.current.has(key)) continue
+      if (pendingMarkShownRef.current.has(url)) continue
+      // Bound one flush the way the fetch enqueue is bounded. Anything over
+      // the cap is simply left unmarked for now; the next scroll tick re-runs
+      // this effect and picks the remainder up, so no URL is lost — the work
+      // is just spread across ticks instead of one jumbo payload.
+      if (queued >= MARK_SHOWN_BATCH_CAP) break
       pendingMarkShownRef.current.add(url)
+      queued += 1
+    }
+    if (pendingMarkShownRef.current.size === 0) {
+      return
     }
     markShownTimerRef.current = setTimeout(() => {
       const urls = Array.from(pendingMarkShownRef.current)
       pendingMarkShownRef.current.clear()
       if (urls.length === 0) return
+      for (const url of urls) {
+        markedShownRef.current.add(historyOgImageLookupKey(url))
+      }
       void backend.markOgImagesShown(urls).catch(() => {
         // mark-shown is best-effort; an LRU signal that drops a single
-        // batch isn't worth surfacing as a user-visible error.
+        // batch isn't worth surfacing as a user-visible error. The keys stay
+        // in `markedShownRef` so a failing backend can't turn into a retry
+        // storm on every subsequent scroll tick — the LRU hint is advisory.
       })
     }, MARK_SHOWN_DEBOUNCE_MS)
     return () => {

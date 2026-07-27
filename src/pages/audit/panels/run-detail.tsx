@@ -38,6 +38,7 @@ import type {
   ImportBatchOverview,
   SnapshotRestorePreview,
 } from '../../../lib/types'
+import { localizedBackupWarningText } from '../types'
 import type { AuditDetailTab, Translator } from '../types'
 
 /**
@@ -549,8 +550,15 @@ export function AuditRunDetailPanel({
             >
               <div className="warning-icon">⚠</div>
               <div className="warning-text">
-                {detail.warnings.map((warning) => (
-                  <div key={warning}>{warning}</div>
+                {detail.warnings.map((warning, index) => (
+                  <div key={`${index}:${warning}`}>
+                    {localizedBackupWarningText(
+                      detail.warningDetails?.[index],
+                      warning,
+                      t,
+                      language,
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

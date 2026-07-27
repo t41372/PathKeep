@@ -312,7 +312,7 @@ interface SecurityRekeyPanelProps {
   setPreview: (value: RekeyPreview | null) => void
   setSaveRekeyKey: (value: boolean) => void
   t: SecurityTranslate
-  localizedWarning: (warning: string) => string
+  localizedWarning: (warning: string, code?: string) => string
 }
 
 /**
@@ -468,11 +468,14 @@ export function SecurityRekeyPanel({
                 <span>{step}</span>
               </div>
             ))}
-            {preview.warnings.map((warning) => (
+            {preview.warnings.map((warning, index) => (
               <div key={warning} className="mt-3">
                 <StatusCallout
                   tone="warning"
-                  title={localizedWarning(warning)}
+                  title={localizedWarning(
+                    warning,
+                    preview.warningCodes?.[index],
+                  )}
                 />
               </div>
             ))}

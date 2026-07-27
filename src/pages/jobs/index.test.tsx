@@ -345,6 +345,7 @@ describe('Activity center (JobsPage)', () => {
         state: 'running',
         title: 'Importing history',
         detail: 'Importing browser history',
+        detailOrigin: 'shell',
         startedAt: '2026-04-07T08:05:00Z',
         updatedAt: '2026-04-07T08:06:00Z',
         finishedAt: null,
@@ -788,6 +789,95 @@ describe('Activity center (JobsPage)', () => {
     expect(screen.queryByText(jobsT('taskIndexBuild'))).toBeNull()
   })
 
+  // ── 13b. Recent zone fallback reason: coded → localized, unknown → raw ────
+
+  test('recent rebuild rows localize known fallbackReasonCode and pass through unknown codes', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+
+    const runtimeJobBase = {
+      pluginId: null,
+      attempt: 1,
+      createdAt: '2026-04-07T09:00:00Z',
+      startedAt: '2026-04-07T09:01:00Z',
+      finishedAt: '2026-04-07T09:30:00Z',
+      updatedAt: '2026-04-07T09:30:00Z',
+      retryable: false,
+      cancellable: false,
+    }
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: {
+        paused: false,
+        concurrency: 1,
+        queued: 0,
+        running: 0,
+        failed: 0,
+        indexQueued: 0,
+        indexRunning: 0,
+        recentJobs: [],
+      },
+      intelligence: {
+        queue: {
+          queued: 0,
+          running: 0,
+          succeeded: 2,
+          failed: 0,
+          cancelled: 0,
+          lastActivityAt: '2026-04-07T09:30:00Z',
+        },
+        plugins: [],
+        modules: [],
+        recentJobs: [
+          {
+            ...runtimeJobBase,
+            id: 71,
+            jobType: 'full-rebuild',
+            state: 'succeeded',
+            fallbackReason: 'Manual full rebuild requested for daily rollups.',
+            fallbackReasonCode: 'daily-rollup-manual-full-rebuild',
+          },
+          {
+            ...runtimeJobBase,
+            id: 72,
+            jobType: 'visit-derive',
+            state: 'succeeded',
+            fallbackReason: 'A future fallback reason without shipped copy.',
+            fallbackReasonCode: 'code-from-a-newer-backend',
+          },
+        ],
+        notes: [],
+      },
+      loading: false,
+      error: null,
+    }
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    await user.click(
+      screen.getByRole('button', {
+        name: jobsT('showRecentToggle', { count: 2 }),
+      }),
+    )
+
+    // Known code → shipped jobs-namespace copy.
+    expect(
+      await screen.findByText(
+        jobsT('fallbackReasonDailyRollupManualFullRebuild'),
+      ),
+    ).toBeVisible()
+    // Unknown code → the raw diagnostic prose, never a blank or guessed line.
+    expect(
+      screen.getByText('A future fallback reason without shipped copy.'),
+    ).toBeVisible()
+  })
+
   // ── 14. Paused queue callout ───────────────────────────────────────────────
 
   test('paused queue callout renders when paused+queued>0', async () => {
@@ -835,9 +925,60 @@ describe('Activity center (JobsPage)', () => {
     })
 
     expect(
-      screen.getByText(jobsT('pausedQueueCallout', { count: 3 })),
+      screen.getByText(jobsT('pausedQueueCalloutMany', { count: 3 })),
     ).toBeVisible()
     expect(screen.getByText(jobsT('pausedQueueBody'))).toBeVisible()
+  })
+
+  // Copy fix: the callout shipped "item(s)" and now ships a plural pair, so
+  // the queued=1 side needs its own case next to the queued=3 one above.
+  test('paused queue callout uses the singular copy when exactly one is queued', async () => {
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+
+    const pausedSnapshot = structuredClone(snapshot)
+    pausedSnapshot.config.ai.jobQueuePaused = true
+
+    const shellValue = createShellValue(pausedSnapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: {
+        paused: true,
+        concurrency: 1,
+        queued: 1,
+        running: 0,
+        failed: 0,
+        indexQueued: 1,
+        indexRunning: 0,
+        recentJobs: [],
+      },
+      intelligence: {
+        queue: {
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          failed: 0,
+          cancelled: 0,
+          lastActivityAt: null,
+        },
+        plugins: [],
+        modules: [],
+        recentJobs: [],
+        notes: [],
+      },
+      loading: false,
+      error: null,
+    }
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot: pausedSnapshot,
+    })
+
+    expect(
+      screen.getByText(jobsT('pausedQueueCalloutOne', { count: 1 })),
+    ).toBeVisible()
   })
 
   // ── 15. Runtime error renders inline StatusCallout ────────────────────────
@@ -1740,7 +1881,74 @@ describe('Activity center (JobsPage)', () => {
     })
 
     expect(
-      screen.getByText(jobsT('chipAnalysisAttention', { count: 1 })),
+      screen.getByText(jobsT('chipAnalysisAttentionOne', { count: 1 })),
+    ).toBeVisible()
+  })
+
+  // Copy fix: the chip shipped "module(s)" and now ships a plural pair, so the
+  // multi-module side is asserted next to the single-module case above.
+  test('analysis chip uses the plural copy when several modules are stale', async () => {
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: {
+        paused: false,
+        concurrency: 1,
+        queued: 0,
+        running: 0,
+        failed: 0,
+        indexQueued: 0,
+        indexRunning: 0,
+        recentJobs: [],
+      },
+      intelligence: {
+        queue: {
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          failed: 0,
+          cancelled: 0,
+          lastActivityAt: null,
+        },
+        plugins: [],
+        modules: [
+          {
+            moduleId: 'site-visits',
+            enabled: true,
+            version: '1.0',
+            status: 'stale',
+            dependsOn: [],
+            derivedTables: [],
+            notes: [],
+          },
+          {
+            moduleId: 'daily-rollups',
+            enabled: true,
+            version: '1.0',
+            status: 'stale',
+            dependsOn: [],
+            derivedTables: [],
+            notes: [],
+          },
+        ],
+        recentJobs: [],
+        notes: [],
+      },
+      loading: false,
+      error: null,
+    }
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    expect(
+      screen.getByText(jobsT('chipAnalysisAttentionMany', { count: 2 })),
     ).toBeVisible()
   })
 
@@ -1871,6 +2079,7 @@ describe('Activity center (JobsPage)', () => {
         state: 'stale',
         title: 'Import',
         detail: 'Stale import',
+        detailOrigin: 'shell',
         startedAt: '2026-04-07T08:00:00Z',
         updatedAt: '2026-04-07T08:01:00Z',
         finishedAt: null,
@@ -3084,6 +3293,7 @@ describe('Activity center (JobsPage)', () => {
         state: 'failed',
         title: 'Backup',
         detail: 'Backup failed',
+        detailOrigin: 'shell',
         startedAt: '2026-04-07T08:00:00Z',
         updatedAt: '2026-04-07T08:01:00Z',
         finishedAt: '2026-04-07T08:01:00Z',
@@ -3198,6 +3408,7 @@ describe('Activity center (JobsPage)', () => {
         state: 'running',
         title: 'Import',
         detail: 'Running',
+        detailOrigin: 'shell',
         startedAt: '2026-04-07T10:00:00Z',
         updatedAt: '2026-04-07T10:01:00Z',
         finishedAt: null,
@@ -3459,6 +3670,7 @@ describe('Activity center (JobsPage)', () => {
         state: 'failed',
         title: 'Import',
         detail: 'Import failed',
+        detailOrigin: 'shell',
         startedAt: '2026-04-07T08:00:00Z',
         updatedAt: '2026-04-07T08:01:00Z',
         finishedAt: '2026-04-07T08:01:00Z',
@@ -3710,6 +3922,7 @@ describe('Activity center (JobsPage)', () => {
           state: 'failed',
           title: 'Backup',
           detail: 'Backup failed',
+          detailOrigin: 'shell',
           startedAt: '2026-04-07T08:00:00Z',
           updatedAt: '2026-04-07T08:01:00Z',
           finishedAt: '2026-04-07T08:01:00Z',

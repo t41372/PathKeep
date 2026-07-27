@@ -214,15 +214,34 @@ documented carryover — see §7.
 
 ---
 
-## 4. Egress (W-ENRICH content-fetch / og:image): off by default, SSRF-guarded
+## 4. Egress (W-ENRICH content-fetch / og:image): two different default postures, both SSRF-guarded
 
-The only AI-side network egress is optional site-content / preview-image fetching. It is **hard-default-OFF
-and decoupled from the offline title plugin**: `content_fetch_enabled` defaults `false`, and the job runner
-is a no-op until the user opts in. The single egress chokepoint is `enrichment/content_fetch.rs`; the
-og:image fetcher is `archive/history/og_images_fetch.rs`.
+The only non-AI-provider network egress is site-content fetching (W-ENRICH) and preview-image
+(og:image) fetching. **Their default postures are intentionally different and must not be conflated:**
 
-- **Triple consent gate.** `content_fetch_allowed` requires the master `content_fetch_enabled`, then a
-  per-extractor toggle, then a per-domain rule — egress only happens for a URL that clears all three.
+- **content-fetch is hard-default-OFF** and decoupled from the offline title plugin:
+  `content_fetch_enabled` defaults `false`, and the job runner is a no-op until the user opts in.
+  The single egress chokepoint is `enrichment/content_fetch.rs`.
+- **og:image fetching is default-ON in `Background` mode** (an accepted product decision — see
+  `docs/features/og-images.md`, `og_image.fetch_enabled` 預設 on): after each backup, the worker
+  refetches expired negative-cache entries and prefetches preview images for newly visited URLs
+  (`vault-worker/src/archive_flows.rs`), both under bounded daily budgets. This IS automatic egress
+  to hosts the user has visited. For Bilibili URLs the fetcher additionally calls the
+  `api.bilibili.com` view API to resolve the cover image (`og_images_synth.rs`) — a side-channel
+  request beyond the visited host itself. Users can turn all of it off (`fetch_enabled`) or drop to
+  `OnDemand`; the fetcher is `archive/history/og_images_fetch.rs`. Since 2026-07-26 the onboarding
+  Ready step discloses this default-on egress (and the Settings → Link previews off/on-demand
+  controls) before the first backup runs.
+
+A security review of PathKeep's egress story must treat og:image Background mode as the observable
+network behavior of a default install: packet captures after a backup will show HTTP requests to
+visited third-party hosts (and `api.bilibili.com` for Bilibili history). Everything below about
+SSRF guarding, header hygiene, and rate limiting applies to both fetchers.
+
+- **Triple consent gate (content-fetch only).** `content_fetch_allowed` requires the master
+  `content_fetch_enabled`, then a per-extractor toggle, then a per-domain rule — egress only happens
+  for a URL that clears all three. og:image has no per-domain consent gate; its controls are the
+  `fetch_enabled` kill switch, the mode (`Background` / `OnDemand` / `Off`), and per-domain blocklist.
 - **SSRF-guarded on every hop.** `archive/history/net_guard.rs::url_target_is_blocked` rejects non-http(s)
   schemes and any URL resolving to loopback, RFC1918 private, link-local (incl. the
   `169.254.169.254` metadata address), CGNAT, IPv6 unique/link-local, multicast, or reserved space. It is
@@ -233,7 +252,8 @@ og:image fetcher is `archive/history/og_images_fetch.rs`.
 fetch_client_builder`) sets only a single static desktop Chrome UA, `Accept-Language`, and a fixed
   set of static, non-identifying headers (`sec-fetch-*`, `sec-ch-ua-*`, `Upgrade-Insecure-Requests`);
   it never sets a cookie or `Referer` header and carries nothing account- or session-specific.
-- **Offline-first, per-host rate-limited.** No implicit egress on any operation; per-host token buckets
+- **Per-host rate-limited.** Content-fetch performs no egress without the opt-in above; og:image
+  Background mode's automatic post-backup egress is budget-bounded per day. Per-host token buckets
   (`enrichment/rate_limit.rs`) throttle requests and negative caching avoids retry storms.
 
 ---

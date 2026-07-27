@@ -25,6 +25,14 @@ interface StatusCalloutProps {
   title: string
   body?: string
   eyebrow?: string
+  /**
+   * Marks `body` as raw backend diagnostics rather than PathKeep copy. Omit
+   * (default) for translated prose. Pass `"diagnostic"` when the body is an
+   * untranslated path, error chain, or count dump so it renders with the
+   * existing `mono-support` support-text treatment instead of reading like
+   * first-class localized copy.
+   */
+  bodyTone?: 'default' | 'diagnostic'
   actions?: ReactNode
   /**
    * Optional ARIA live-region role. Omit (default) for static callouts so
@@ -46,6 +54,7 @@ export function StatusCallout({
   title,
   body,
   eyebrow,
+  bodyTone,
   actions,
   role,
 }: StatusCalloutProps) {
@@ -53,7 +62,11 @@ export function StatusCallout({
     <section className={`status-callout status-callout--${tone}`} role={role}>
       {eyebrow ? <p className="mono-kicker">{eyebrow}</p> : null}
       <h3>{title}</h3>
-      {body ? <p>{body}</p> : null}
+      {body ? (
+        <p className={bodyTone === 'diagnostic' ? 'mono-support' : undefined}>
+          {body}
+        </p>
+      ) : null}
       {actions ? <div className="utility-block__actions">{actions}</div> : null}
     </section>
   )

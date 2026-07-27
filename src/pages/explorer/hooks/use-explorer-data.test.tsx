@@ -42,7 +42,7 @@ describe('useExplorerData', () => {
     window.localStorage.clear()
   })
 
-  test('loads history results, selects the first row, and skips blocked history requests', async () => {
+  test('loads history results without auto-selecting a row, and skips blocked history requests', async () => {
     const currentQuery = historyQueryFixture({ page: 1 })
     const historyResponse = historyResponseFixture({
       page: 1,
@@ -70,8 +70,17 @@ describe('useExplorerData', () => {
       expect(result.current.queryState.results).not.toBeNull(),
     )
     expect(result.current.queryState.results?.items[0]?.id).toBe(101)
-    expect(result.current.selectedId).toBe(101)
+    // E1 contract change: the data layer must NOT invent a selection. This
+    // assertion used to be `toBe(101)`, which pinned the old `items[0]`
+    // fallback — that fallback painted the first Browse card with the
+    // "selected" emphasis before the user clicked anything, and rebound an
+    // already-open detail panel to a different record whenever the head query
+    // re-ran. Selection is granted only by `index.tsx` (row clicks).
+    expect(result.current.selectedId).toBeNull()
     expect(queryHistory).toHaveBeenCalledWith(currentQuery)
+    // The outcome is recorded alongside the params (E4) so the Search empty
+    // state can caption the recent row with a real count instead of the
+    // shipped `{count} results` template interpolating a guess.
     expect(persistRecentSearch).toHaveBeenCalledWith(
       expect.objectContaining({
         q: 'sqlite',
@@ -79,6 +88,7 @@ describe('useExplorerData', () => {
         view: 'time',
         sort: 'newest',
       }),
+      expect.objectContaining({ total: historyResponse.total }),
     )
     expect(setRecentSearches).toHaveBeenCalled()
 
@@ -97,6 +107,146 @@ describe('useExplorerData', () => {
       }),
     )
     expect(queryHistory).not.toHaveBeenCalled()
+  })
+
+  // E1 regression. The `items[0]` fallback meant that a head-query re-run
+  // (refreshKey bump after a backup/import finishes) silently rebound an
+  // ALREADY-OPEN detail panel to a different record at the same scroll
+  // position — and any in-flight debounced note flush would then be written
+  // against the wrong URL. Both the fresh-response branch and the
+  // served-from-cache branch had the bug, so both are covered here.
+  test('drops a vanished selection instead of rebinding it to the first row', async () => {
+    const firstPage = historyResponseFixture({
+      total: 2,
+      items: [
+        { ...historyResponseFixture().items[0], id: 101 },
+        { ...historyResponseFixture().items[0], id: 102 },
+      ],
+    })
+    // What the head query returns after an import lands: entirely new rowids.
+    const refreshedPage = historyResponseFixture({
+      total: 2,
+      items: [
+        { ...historyResponseFixture().items[0], id: 301 },
+        { ...historyResponseFixture().items[0], id: 302 },
+      ],
+    })
+    const query = historyQueryFixture({ page: 1 })
+    vi.spyOn(backend, 'queryHistory')
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValue(refreshedPage)
+    const options = createOptions({
+      currentQuery: query,
+      requestKey: historyRequestKey(query, 1),
+    })
+    const { result, rerender } = renderHook(
+      (props: ReturnType<typeof createOptions>) => useExplorerData(props),
+      { initialProps: options },
+    )
+
+    await waitFor(() => {
+      expect(result.current.queryState.results?.items).toHaveLength(2)
+    })
+    // The user opens the detail panel on the second row.
+    act(() => {
+      result.current.setSelectedId(102)
+    })
+
+    // Fresh-response branch: refreshKey bump re-runs the head query.
+    rerender({
+      ...options,
+      cacheToken: 2,
+      requestKey: historyRequestKey(query, 2),
+    })
+    await waitFor(() => {
+      expect(result.current.queryState.results?.items[0]?.id).toBe(301)
+    })
+    expect(result.current.selectedId).toBeNull()
+
+    // Cached branch: a re-render that resolves to the already-cached response
+    // must apply the same rule rather than snapping to `items[0]`.
+    act(() => {
+      result.current.setSelectedId(999)
+    })
+    rerender({
+      ...options,
+      cacheToken: 2,
+      requestKey: `${historyRequestKey(query, 2)}:cached-rerun`,
+    })
+    await waitFor(() => {
+      expect(result.current.queryState.requestKey).toBe(
+        historyRequestKey(query, 2),
+      )
+    })
+    expect(result.current.selectedId).toBeNull()
+
+    // …and a selection that survives the response is still preserved.
+    act(() => {
+      result.current.setSelectedId(302)
+    })
+    rerender({
+      ...options,
+      cacheToken: 2,
+      requestKey: `${historyRequestKey(query, 2)}:cached-again`,
+    })
+    await waitFor(() => {
+      expect(result.current.queryState.requestKey).toBe(
+        historyRequestKey(query, 2),
+      )
+    })
+    expect(result.current.selectedId).toBe(302)
+  })
+
+  test('keeps a Smart selection that survives the ranked response and drops one that does not', async () => {
+    vi.spyOn(backend, 'searchAiHistory').mockResolvedValue(
+      semanticResponseFixture(),
+    )
+    const options = createOptions({
+      historyBlockedByInvalidRegex: true,
+      mode: 'semantic',
+      semanticQuery: {
+        query: 'local recall',
+        profileId: 'chrome:Default',
+        domain: null,
+        limit: 8,
+        cursor: null,
+      },
+      semanticRequestKey: 'semantic-selection-1',
+    })
+    const { result, rerender } = renderHook(
+      (props: ReturnType<typeof createOptions>) => useExplorerData(props),
+      { initialProps: options },
+    )
+
+    await waitFor(() => {
+      expect(result.current.semanticState.results?.items[0]?.historyId).toBe(
+        202,
+      )
+    })
+
+    // 202 is in the ranked pool → survives a re-run.
+    act(() => {
+      result.current.setSelectedId(202)
+    })
+    rerender({ ...options, semanticRequestKey: 'semantic-selection-2' })
+    await waitFor(() => {
+      expect(result.current.semanticState.requestKey).toBe(
+        'semantic-selection-2',
+      )
+    })
+    expect(result.current.selectedId).toBe(202)
+
+    // 999 is not → dropped, never replaced with `items[0].historyId`.
+    act(() => {
+      result.current.setSelectedId(999)
+    })
+    rerender({ ...options, semanticRequestKey: 'semantic-selection-3' })
+    await waitFor(() => {
+      expect(result.current.semanticState.requestKey).toBe(
+        'semantic-selection-3',
+      )
+    })
+    expect(result.current.selectedId).toBeNull()
   })
 
   test('does not re-query the backend while the requestKey is unchanged, only on a new submitted query', async () => {
@@ -243,7 +393,9 @@ describe('useExplorerData', () => {
     await waitFor(() => {
       expect(result.current.queryState.results?.page).toBe(2)
     })
-    expect(result.current.selectedId).toBe(202)
+    // Page 2 carries no row the user had selected, so the selection stays
+    // empty (E1). Previously this asserted `202` — the `items[0]` fallback.
+    expect(result.current.selectedId).toBeNull()
     expect(
       queryHistory.mock.calls.filter(([query]) => query.page === 2),
     ).toHaveLength(1)
@@ -625,18 +777,21 @@ describe('useExplorerData', () => {
     )
 
     await waitFor(() => {
-      expect(result.current.selectedId).toBe(101)
+      expect(result.current.queryState.results).not.toBeNull()
     })
     expect(persistRecentSearch).toHaveBeenCalledWith(
       expect.objectContaining({
         regex: '1',
         sort: 'newest',
       }),
+      expect.objectContaining({ total: expect.any(Number) as number }),
     )
 
     // Exercise the setter on a different value so the assertion proves the
     // wiring actually mutates state (the prior version called setSelectedId
     // with the already-current value, so a noop setter would have passed).
+    // Post-E1 this also stands in for the user click that grants a selection
+    // in the first place — the hook no longer auto-selects `items[0]`.
     act(() => {
       result.current.setSelectedId(202)
     })
@@ -998,7 +1153,10 @@ describe('useExplorerData', () => {
         202,
       ),
     )
-    expect(result.current.selectedId).toBe(202)
+    // Smart now follows the same rule as keyword (E1): no auto-selection. The
+    // old `current ?? items[0].historyId` was a *second* semantics for the
+    // same concept and is gone.
+    expect(result.current.selectedId).toBeNull()
     expect(searchAiHistory).toHaveBeenCalledWith(options.semanticQuery)
 
     rerender({

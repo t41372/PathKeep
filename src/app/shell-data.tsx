@@ -50,10 +50,8 @@ import {
   type ShellImportTaskRequest,
   ShellDataContext,
 } from './shell-data-context'
-import {
-  createShellDataActions,
-  isFullDiskAccessIssueMessage,
-} from './shell-data-actions'
+import { backupSkipNotice, createShellDataActions } from './shell-data-actions'
+import { isFullDiskAccessIssueMessage } from '../lib/ipc/command-error'
 import {
   archiveNeedsLaunchRecovery,
   buildUninitializedDashboardFallback,
@@ -357,7 +355,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
 
   function backupCompletionNoticeForTask(report: BackupReport) {
     if (report.dueSkipped) {
-      return report.reason ?? t('shell.manualBackupDueWindow')
+      return backupSkipNotice(report, t)
     }
     if (report.run) {
       return report.warnings.some(isFullDiskAccessIssueMessage)
@@ -987,11 +985,13 @@ function isShellNotification(value: unknown): value is ShellNotification {
 }
 
 /**
- * Runs the macOS schedule-status probe and fires the "re-apply schedule"
- * notification when the installed plist no longer matches the current PathKeep
- * build's plan. Pulled out of the inline IIFE so v8 coverage can see each
- * branch (the inline `async () => {}` form was reporting the whole body as
- * uncovered even when exercised by tests).
+ * Runs the schedule-status probe for the CURRENT platform and fires the
+ * "re-apply schedule" notification when the installed native schedule no
+ * longer matches the current PathKeep build's plan. Passing no platform lets
+ * the backend resolve its own — the probe covers macOS launchd plists and
+ * Windows Task Scheduler drift alike. Pulled out of the inline IIFE so v8
+ * coverage can see each branch (the inline `async () => {}` form was
+ * reporting the whole body as uncovered even when exercised by tests).
  */
 async function runScheduleHealthProbe(
   cancelToken: { cancelled: boolean },
@@ -999,7 +999,7 @@ async function runScheduleHealthProbe(
   publishScheduleProbeFailure: (error: unknown) => void,
 ) {
   try {
-    const status = await backend.scheduleStatus('macos')
+    const status = await backend.scheduleStatus()
     if (cancelToken.cancelled) return
     if (status.installState !== 'mismatch') return
     publishStaleScheduleNotice()

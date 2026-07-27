@@ -65,6 +65,32 @@ export interface UpdaterSectionProps {
 }
 
 /**
+ * Localizes the install-state callout body. The download/install/installed/
+ * up-to-date phases stream from the BACKEND with English transport messages,
+ * so those render phase-keyed catalog copy; the remaining phases carry
+ * copy the check flow already localized (or a diagnostic error chain),
+ * which passes through unchanged.
+ */
+function updateInstallStateBody(
+  state: UpdaterSectionState['updateInstallState'],
+  t: (key: string, vars?: Record<string, string | number>) => string,
+) {
+  const version = state.version ?? ''
+  switch (state.phase) {
+    case 'downloading':
+      return t('settings.updatePhaseDownloading', { version })
+    case 'installing':
+      return t('settings.updatePhaseInstalling', { version })
+    case 'installed':
+      return t('settings.updatePhaseInstalled', { version })
+    case 'uptodate':
+      return t('settings.updateUpToDateBody')
+    default:
+      return state.message ?? t('settings.updateBoundaryBody')
+  }
+}
+
+/**
  * Renders the updater review surface from route-owned state.
  *
  * Paper aesthetic: PaperCard with mono version chip in the header right slot;
@@ -106,9 +132,7 @@ export function UpdaterSection({ navItem, state }: UpdaterSectionProps) {
                   : 'info'
             }
             title={t('settings.updateBoundaryTitle')}
-            body={
-              updateInstallState.message ?? t('settings.updateBoundaryBody')
-            }
+            body={updateInstallStateBody(updateInstallState, t)}
           />
         </div>
 

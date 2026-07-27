@@ -26,6 +26,7 @@
 
 import type { ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '../../lib/i18n'
@@ -99,13 +100,15 @@ interface ShellOverrides {
 interface RouteOverrides {
   supportStateLoaded?: boolean
   securityStatus?: SecurityStatus | null
+  supportStateError?: string | null
 }
 
 function renderPage(
   route: string,
   shellOverrides: ShellOverrides = {},
   routeOverrides: RouteOverrides = {},
-): void {
+): { refreshAppData: ReturnType<typeof vi.fn> } {
+  const refreshAppData = vi.fn().mockResolvedValue(undefined)
   shellDataMock.mockReturnValue({
     appLockStatus: null,
     buildInfo: null,
@@ -113,7 +116,7 @@ function renderPage(
     dashboard: null,
     loading: shellOverrides.loading ?? false,
     lockAppSession: vi.fn(),
-    refreshAppData: vi.fn().mockResolvedValue(undefined),
+    refreshAppData,
     refreshKey: 1,
     saveConfig: vi.fn(),
     setAppLockPasscode: vi.fn(),
@@ -126,6 +129,7 @@ function renderPage(
     routeStateFixture({
       supportStateLoaded: routeOverrides.supportStateLoaded ?? true,
       securityStatus: routeOverrides.securityStatus ?? null,
+      supportStateError: routeOverrides.supportStateError ?? null,
     }),
   )
 
@@ -136,6 +140,8 @@ function renderPage(
       </I18nProvider>
     </MemoryRouter>,
   )
+
+  return { refreshAppData }
 }
 
 describe('SettingsPage', () => {
@@ -259,6 +265,36 @@ describe('SettingsPage', () => {
       expect(screen.getByTestId('mock-migration')).toBeInTheDocument()
     })
   })
+
+  describe('support-inspection failure callout', () => {
+    test('stays hidden while the support inspection is healthy', () => {
+      renderPage('/settings')
+
+      expect(
+        screen.queryByText('PathKeep could not inspect system protection'),
+      ).toBeNull()
+    })
+
+    test('surfaces the raw diagnostic and retries the shell refresh on demand', async () => {
+      const user = userEvent.setup()
+      const { refreshAppData } = renderPage(
+        '/settings',
+        {},
+        { supportStateError: 'schedule_status: unsupported platform' },
+      )
+
+      const alert = screen.getByRole('alert')
+      // PathKeep must not claim the safeguards are healthy when it could not
+      // inspect them — the diagnostic chain stays visible for the bug report.
+      expect(alert).toHaveTextContent(
+        'PathKeep could not inspect system protection',
+      )
+      expect(alert).toHaveTextContent('schedule_status: unsupported platform')
+
+      await user.click(screen.getByRole('button', { name: 'Check again' }))
+      expect(refreshAppData).toHaveBeenCalledTimes(1)
+    })
+  })
 })
 
 function populatedShellData() {
@@ -285,6 +321,7 @@ function snapshotFixture(): AppSnapshot {
 
 interface RouteStateFixture {
   supportStateLoaded: boolean
+  supportStateError: string | null
   supportState: { securityStatus: SecurityStatus | null }
   general: {
     explorerBackgroundPrefetchPages: number
@@ -302,10 +339,12 @@ function routeStateFixture(
   overrides: {
     supportStateLoaded?: boolean
     securityStatus?: SecurityStatus | null
+    supportStateError?: string | null
   } = {},
 ): RouteStateFixture {
   return {
     supportStateLoaded: overrides.supportStateLoaded ?? true,
+    supportStateError: overrides.supportStateError ?? null,
     supportState: { securityStatus: overrides.securityStatus ?? null },
     general: {
       explorerBackgroundPrefetchPages: 4,

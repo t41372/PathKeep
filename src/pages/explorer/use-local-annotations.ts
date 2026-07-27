@@ -1,11 +1,11 @@
 /**
- * localStorage-backed annotations hook for the paper detail panel.
+ * localStorage-backed annotations hook for BROWSER PREVIEW only.
  *
- * This is the prototype-grade backing store until the real
- * `vault-core/src/annotations/` Rust module + commands ship. It lets the
- * Detail panel demonstrate notes + tags without any backend dependency, and
- * the swap is a one-line change inside the Explorer route when the real
- * commands land.
+ * The real annotations backend has shipped (`vault-core` annotations module +
+ * `src-tauri/src/commands/annotations.rs`); desktop sessions use
+ * `use-desktop-annotations.ts` against the canonical archive. This hook is
+ * the preview-mode fallback so the Detail panel still demonstrates notes +
+ * tags without a backend. Do not extend it with new contract surface.
  *
  * ## Responsibilities
  * - Keep one notes string and one tag-list per URL key, persisted under
@@ -16,8 +16,8 @@
  *
  * ## Not responsible for
  * - Cross-device sync.
- * - Schema migration to the backend annotations table (that's a separate
- *   pass when the Rust module lands).
+ * - Desktop sessions or the canonical annotations table — preview-only data
+ *   here never migrates into the archive.
  */
 
 import { useCallback, useMemo, useState } from 'react'

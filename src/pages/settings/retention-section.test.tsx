@@ -57,6 +57,7 @@ const state = (
       },
     ],
     warnings: [snapshotWarning],
+    warningCodes: ['snapshot-prune-removes-checkpoints'],
   },
   result: {
     runId: 42,
@@ -126,6 +127,7 @@ describe('RetentionSection', () => {
             },
           ],
           warnings: [exportWarning],
+          warningCodes: ['export-prune-local-only'],
         },
         result: {
           runId: null,
@@ -150,5 +152,38 @@ describe('RetentionSection', () => {
     ).toBeVisible()
     expect(screen.queryByRole('link', { name: 'Open prune review' })).toBeNull()
     expect(screen.getByRole('alert')).toHaveTextContent('Prune failed')
+  })
+
+  test('localizes warnings by code even when the backend prose drifts', () => {
+    renderSection(
+      state({
+        preview: {
+          buckets: [],
+          warnings: ['Pruning snapshots removes saved restore checkpoints!!'],
+          warningCodes: ['snapshot-prune-removes-checkpoints'],
+        },
+      }),
+    )
+
+    expect(
+      screen.getByText(
+        'Snapshot pruning removes saved restore checkpoints from future Audit review. Manifest and run summaries stay in place.',
+      ),
+    ).toBeVisible()
+  })
+
+  test('falls back to the raw warning when the code is unknown or missing', () => {
+    renderSection(
+      state({
+        preview: {
+          buckets: [],
+          warnings: ['A newer backend warning', 'A warning with no code'],
+          warningCodes: ['some-future-retention-code'],
+        },
+      }),
+    )
+
+    expect(screen.getByText('A newer backend warning')).toBeVisible()
+    expect(screen.getByText('A warning with no code')).toBeVisible()
   })
 })

@@ -77,7 +77,20 @@ export interface ScheduleOperationProgress {
 export interface ScheduleActionResult {
   kind: ScheduleOperationKind
   status: 'success' | 'error'
-  message: string
+  /**
+   * Catalog key for outcomes this route owns end-to-end.
+   *
+   * Split from `message` on purpose: a single field carrying either a key or
+   * prose forces the renderer to guess which it got, and any guess (a
+   * `'schedule.'` prefix test, say) silently mislabels the next backend string
+   * that happens to look like a key.
+   */
+  messageKey: string | null
+  /**
+   * Diagnostic prose for outcomes the route cannot key — native scheduler
+   * `ApplyResult.message` and `describeError` output.
+   */
+  message: string | null
   auditPath?: string | null
   at: Date
 }
@@ -87,6 +100,46 @@ interface ScheduleLoadState {
   plan: SchedulePlan | null
   status: ScheduleStatus | null
   error: string | null
+}
+
+/**
+ * Marks a failure the route itself raised, whose copy is a catalog key.
+ *
+ * Route-owned preconditions (no initialized config, no clipboard) are not
+ * backend errors and have shipped copy in all three languages. Carrying the key
+ * on a dedicated class is what lets the renderer tell a key from backend prose
+ * without inspecting the string.
+ */
+class ScheduleCopyKeyError extends Error {
+  readonly messageKey: string
+
+  constructor(messageKey: string) {
+    super(messageKey)
+    this.name = 'ScheduleCopyKeyError'
+    this.messageKey = messageKey
+  }
+}
+
+/**
+ * Builds the error action-result for one failed scheduler action.
+ *
+ * Keyed route failures fill `messageKey`; anything else keeps its diagnostic
+ * prose in `message` so backend detail is never swallowed.
+ */
+function scheduleActionFailure(
+  kind: ScheduleOperationKind,
+  error: unknown,
+  context: string,
+): ScheduleActionResult {
+  const messageKey =
+    error instanceof ScheduleCopyKeyError ? error.messageKey : null
+  return {
+    kind,
+    status: 'error',
+    messageKey,
+    message: messageKey ? null : describeError(error, context),
+    at: new Date(),
+  }
 }
 
 /**
@@ -157,7 +210,8 @@ export function useScheduleWorkflow() {
           setActionResult({
             kind,
             status: 'success',
-            message: 'schedule.detectComplete',
+            messageKey: 'schedule.detectComplete',
+            message: null,
             auditPath: nextStatus.auditPath,
             at: checkedAt,
           })
@@ -173,6 +227,7 @@ export function useScheduleWorkflow() {
         setActionResult({
           kind,
           status: 'error',
+          messageKey: null,
           message,
           at: new Date(),
         })
@@ -233,7 +288,7 @@ export function useScheduleWorkflow() {
 
   const persistInterval = useCallback(async (): Promise<AppSnapshot> => {
     if (!snapshot?.config) {
-      throw new Error('schedule.initializeArchiveFirst')
+      throw new ScheduleCopyKeyError('schedule.initializeArchiveFirst')
     }
     const nextSnapshot = await saveConfig({
       ...snapshot.config,
@@ -303,6 +358,7 @@ export function useScheduleWorkflow() {
         setActionResult({
           kind,
           status: result.applied || kind === 'remove' ? 'success' : 'error',
+          messageKey: null,
           message: result.message,
           auditPath: result.auditPath,
           at: new Date(),
@@ -314,12 +370,9 @@ export function useScheduleWorkflow() {
       } catch (nextError) {
         /* v8 ignore next -- React teardown guard; mounted paths are covered by workflow tests. */
         if (!mountedRef.current) return
-        setActionResult({
-          kind,
-          status: 'error',
-          message: describeError(nextError, 'schedule_action'),
-          at: new Date(),
-        })
+        setActionResult(
+          scheduleActionFailure(kind, nextError, 'schedule_action'),
+        )
       } finally {
         /* v8 ignore next -- React teardown guard; mounted paths are covered by workflow tests. */
         if (mountedRef.current) {
@@ -342,7 +395,9 @@ export function useScheduleWorkflow() {
     try {
       await waitForNextPaint()
       if (!navigator.clipboard?.writeText) {
-        throw new Error('schedule.diagnosticsClipboardUnavailable')
+        throw new ScheduleCopyKeyError(
+          'schedule.diagnosticsClipboardUnavailable',
+        )
       }
       await navigator.clipboard.writeText(
         JSON.stringify(
@@ -373,18 +428,20 @@ export function useScheduleWorkflow() {
       setActionResult({
         kind: 'copy-diagnostics',
         status: 'success',
-        message: 'schedule.diagnosticsCopied',
+        messageKey: 'schedule.diagnosticsCopied',
+        message: null,
         at: new Date(),
       })
     } catch (nextError) {
       /* v8 ignore next -- React teardown guard; mounted paths are covered by workflow tests. */
       if (!mountedRef.current) return
-      setActionResult({
-        kind: 'copy-diagnostics',
-        status: 'error',
-        message: describeError(nextError, 'copy_schedule_diagnostics'),
-        at: new Date(),
-      })
+      setActionResult(
+        scheduleActionFailure(
+          'copy-diagnostics',
+          nextError,
+          'copy_schedule_diagnostics',
+        ),
+      )
     } finally {
       /* v8 ignore next -- React teardown guard; mounted paths are covered by workflow tests. */
       if (mountedRef.current) {

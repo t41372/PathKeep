@@ -17,6 +17,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
+import { localizedTaskDetail } from '../progress'
 import type { ShellRuntimeStatus } from '../../app/shell-data-context'
 import type { ShellTask } from '../../app/shell-tasks'
 
@@ -33,7 +34,7 @@ export function SidebarBackgroundStatus({
   runtimeStatus,
   activeArchiveTask = null,
 }: SidebarBackgroundStatusProps) {
-  const { language, ns } = useI18n()
+  const { language, ns, t } = useI18n()
   const jobsT = ns('jobs')
 
   const summary = useMemo(() => {
@@ -68,12 +69,14 @@ export function SidebarBackgroundStatus({
     }
 
     if (activeArchiveTask) {
+      const localizedDetail = localizedTaskDetail(activeArchiveTask, t)
       return {
         label: activeArchiveTask.title,
         detail:
           activeArchiveTask.progressLabel ??
-          activeArchiveTask.detail ??
-          jobsT('sidebarOpenJobs'),
+          (localizedDetail?.trim()
+            ? localizedDetail
+            : jobsT('sidebarOpenJobs')),
         tone: 'running',
         width:
           typeof activeArchiveTask.progressValue === 'number'
@@ -188,7 +191,15 @@ export function SidebarBackgroundStatus({
       width: '100%',
       indeterminate: false,
     }
-  }, [activeArchiveTask, initialized, jobsT, language, runtimeStatus, unlocked])
+  }, [
+    activeArchiveTask,
+    initialized,
+    jobsT,
+    language,
+    runtimeStatus,
+    t,
+    unlocked,
+  ])
 
   const actionTarget = '/jobs'
   const actionLabel = jobsT('openJobs')

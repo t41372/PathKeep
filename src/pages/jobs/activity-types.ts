@@ -91,4 +91,13 @@ export interface Activity {
   cancellable?: boolean
   resultLink?: string | null
   outcomeKey?: string
+  /**
+   * Jobs-namespace key for the rebuild's fallback reason, resolved from
+   * `IntelligenceJobOverview.fallbackReasonCode`. Unset when the backend sent
+   * no code or a code this build ships no copy for — then `fallbackReason`
+   * (raw diagnostic prose) is rendered instead.
+   */
+  fallbackReasonKey?: string
+  /** Raw diagnostic fallback-reason prose; shown only when no key resolved. */
+  fallbackReason?: string
 }

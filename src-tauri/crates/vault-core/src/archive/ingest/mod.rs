@@ -281,10 +281,15 @@ pub(super) fn select_supported_profiles<'a>(
 }
 
 /// Explains why selected profiles were skipped before staging or ingest began.
+///
+/// Each skip is a coded [`crate::models::BackupWarning`] so Audit localizes it;
+/// the English message stays the ledger/manifest fallback. The Safari sentence
+/// is FROZEN (see `backup::staging_access_skip_warning`): the shell's
+/// `isFullDiskAccessIssueMessage` keys on its marker text.
 pub(super) fn collect_skipped_profiles(
     discovered: &[crate::models::BrowserProfile],
     selected_profile_ids: &[String],
-) -> Vec<String> {
+) -> Vec<crate::models::BackupWarning> {
     let mut warnings = discovered
         .iter()
         .filter(|profile| !profile.history_exists || !profile.history_readable)
@@ -295,24 +300,42 @@ pub(super) fn collect_skipped_profiles(
         })
         .map(|profile| {
             if profile.browser_family == "safari" {
-                format!(
-                    "Skipped `{}` because Safari History.db is not readable yet. On macOS, grant Full Disk Access before the next backup.",
-                    profile.profile_id
+                crate::models::BackupWarning::new(
+                    "safari-full-disk-access-skip",
+                    format!(
+                        "Skipped `{}` because Safari History.db is not readable yet. On macOS, grant Full Disk Access before the next backup.",
+                        profile.profile_id
+                    ),
                 )
+                .with_profile_id(profile.profile_id.clone())
             } else {
-                format!(
-                    "Skipped `{}` because {} is missing or unreadable at {}.",
-                    profile.profile_id, profile.history_file_name, profile.profile_path
+                crate::models::BackupWarning::new(
+                    "profile-history-unreadable-skip",
+                    format!(
+                        "Skipped `{}` because {} is missing or unreadable at {}.",
+                        profile.profile_id, profile.history_file_name, profile.profile_path
+                    ),
                 )
+                .with_profile_id(profile.profile_id.clone())
+                .with_diagnostic(format!(
+                    "{} is missing or unreadable at {}",
+                    profile.history_file_name, profile.profile_path
+                ))
             }
         })
         .collect::<Vec<_>>();
 
     for selected_profile_id in selected_profile_ids {
         if !discovered.iter().any(|profile| profile.profile_id == *selected_profile_id) {
-            warnings.push(format!(
-                "Skipped `{selected_profile_id}` because it is no longer detected on this device."
-            ));
+            warnings.push(
+                crate::models::BackupWarning::new(
+                    "profile-not-detected-skip",
+                    format!(
+                        "Skipped `{selected_profile_id}` because it is no longer detected on this device."
+                    ),
+                )
+                .with_profile_id(selected_profile_id.clone()),
+            );
         }
     }
 
@@ -370,21 +393,38 @@ fn process_streamed_profile_snapshot(
     streamed: StreamedHistory,
     progress: ArchiveStreamProgress,
 ) -> Result<BackupProfileSummary> {
+    // Parser warnings already carry stable codes; keep them so the run's
+    // warning ledger can localize instead of pattern-matching the prose.
+    let mut note_details = streamed
+        .warnings
+        .iter()
+        .map(|warning| {
+            crate::models::BackupWarning::new(&warning.code, warning.message.clone())
+                .with_profile_id(snapshot.profile.profile_id.clone())
+        })
+        .collect::<Vec<_>>();
+    if progress.inserted_search_terms > 0 {
+        note_details.push(
+            crate::models::BackupWarning::new(
+                "profile-search-terms-captured",
+                format!(
+                    "Captured {} {} search term rows.",
+                    progress.inserted_search_terms, snapshot.profile.browser_name
+                ),
+            )
+            .with_count(progress.inserted_search_terms)
+            .with_profile_id(snapshot.profile.profile_id.clone()),
+        );
+    }
     let mut summary = BackupProfileSummary {
         profile_id: snapshot.profile.profile_id.clone(),
-        notes: streamed.warnings.iter().map(|warning| warning.message.clone()).collect(),
+        notes: crate::models::backup_warning_messages(&note_details),
+        note_details,
         new_urls: progress.new_urls,
         new_visits: progress.new_visits,
         new_downloads: progress.new_downloads,
         ..BackupProfileSummary::default()
     };
-
-    if progress.inserted_search_terms > 0 {
-        summary.notes.push(format!(
-            "Captured {} {} search term rows.",
-            progress.inserted_search_terms, snapshot.profile.browser_name
-        ));
-    }
 
     if allow_checkpoint && should_checkpoint(watermark, schema_hash, config.checkpoint_days) {
         let artifact = super::create_snapshot_artifact(

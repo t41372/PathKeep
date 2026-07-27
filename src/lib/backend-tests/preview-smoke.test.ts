@@ -340,7 +340,10 @@ describe('backend facade preview smoke', () => {
     })
     await expect(backend.doctor()).resolves.toMatchObject({
       checks: expect.arrayContaining([
-        expect.objectContaining({ name: 'import-artifacts' }),
+        expect.objectContaining({
+          code: 'import-audit-artifacts',
+          name: 'Import audit artifacts',
+        }),
       ]),
     })
     const repair = await backend.repairHealth()
@@ -436,7 +439,7 @@ describe('backend facade preview smoke', () => {
       items: [
         expect.objectContaining({
           historyId: 1,
-          matchReason: 'Browser preview lexical fixture',
+          matchReason: 'lexical',
         }),
         expect.objectContaining({
           historyId: 2,

@@ -770,8 +770,12 @@ fn takeout_progress_helpers_cover_bounds_and_unknown_phase() {
         super::import_flow::takeout_source_evidence_rebuild_note(anyhow::anyhow!("source offline"));
     let search_note =
         super::import_flow::takeout_keyword_recall_rebuild_note(anyhow::anyhow!("search offline"));
-    assert!(source_note.contains("source-evidence archive"));
-    assert!(search_note.contains("keyword-recall projection"));
+    assert_eq!(source_note.code, "takeout-source-evidence-rebuild-needed");
+    assert!(source_note.message.contains("source-evidence archive"));
+    assert_eq!(source_note.diagnostic.as_deref(), Some("source offline"));
+    assert_eq!(search_note.code, "search-projection-rebuild-needed");
+    assert!(search_note.message.contains("keyword-recall projection"));
+    assert_eq!(search_note.diagnostic.as_deref(), Some("search offline"));
 }
 
 #[test]

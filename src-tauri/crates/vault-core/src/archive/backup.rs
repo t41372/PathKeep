@@ -42,7 +42,10 @@ use crate::{
     chrome::discover_profiles,
     config::{ProjectPaths, ensure_paths},
     git_audit,
-    models::{AppConfig, BackupProgressEvent, BackupReport, BackupRunOverview, BrowserProfile},
+    models::{
+        AppConfig, BackupProgressEvent, BackupReport, BackupRunOverview, BackupWarning,
+        BrowserProfile, backup_warning_messages,
+    },
     utils::{now_rfc3339, sha256_hex},
 };
 use anyhow::{Context, Result};
@@ -200,7 +203,7 @@ where
     let mut source_hashes = BTreeMap::<String, BTreeMap<String, String>>::new();
     let mut snapshot_artifacts = Vec::<SnapshotArtifact>::new();
     let mut source_evidence_plans = Vec::new();
-    let mut warnings: Vec<String> = Vec::new();
+    let mut warnings: Vec<BackupWarning> = Vec::new();
 
     let backup_result = (|| -> Result<Vec<String>> {
         if config.selected_profile_ids.is_empty() {
@@ -277,7 +280,7 @@ where
                             BackupProgressEvent {
                                 phase: "stage-profile".to_string(),
                                 label: "Recovered a busy database".to_string(),
-                                detail: warning.clone(),
+                                detail: warning.message.clone(),
                                 step: 1,
                                 total_steps: 3,
                                 completed_profiles: index,
@@ -288,7 +291,7 @@ where
                                 progress_percent: Some(
                                     (((index + 1) as f32) / total_profiles as f32) * 100.0,
                                 ),
-                                log_lines: vec![warning.clone()],
+                                log_lines: vec![warning.message.clone()],
                                 source_label: Some(format!(
                                     "{} / {}",
                                     profile.browser_name, profile.profile_name
@@ -301,8 +304,9 @@ where
                     staged.snapshot
                 }
                 Err(error) if is_skippable_staging_access_error(profile, &error) => {
-                    let warning = staging_access_skip_warning(profile);
-                    warnings.push(warning.clone());
+                    let skip_warning = staging_access_skip_warning(profile);
+                    let warning = skip_warning.message.clone();
+                    warnings.push(skip_warning);
                     report_progress(
                         BackupProgressEvent {
                             phase: "stage-profile".to_string(),
@@ -385,7 +389,9 @@ where
             )
             .with_context(|| format!("processing profile {}", profile.profile_id))?;
             source_hashes.insert(profile.profile_id.clone(), snapshot_source_hashes(&snapshot));
-            warnings.extend(profile_summary.notes.clone());
+            // The coded channel; `notes` stays the message-only mirror for the
+            // manifest/ledger contract.
+            warnings.extend(profile_summary.note_details.iter().cloned());
             profile_summaries.push(profile_summary);
         }
         report_progress(
@@ -457,7 +463,7 @@ where
         database_path: paths.archive_database_path.display().to_string(),
         summary: summary.clone(),
         profiles: profile_summaries.clone(),
-        warnings: warnings.clone(),
+        warnings: backup_warning_messages(&warnings),
         source_hashes,
         snapshots: snapshot_artifacts,
         row_counts: row_counts.clone(),
@@ -507,7 +513,8 @@ where
         profiles: profile_summaries,
         manifest_path: Some(manifest_path.display().to_string()),
         git_commit,
-        warnings,
+        warnings: backup_warning_messages(&warnings),
+        warning_details: warnings,
     })
 }
 
@@ -607,11 +614,21 @@ fn is_skippable_staging_access_error(profile: &BrowserProfile, error: &anyhow::E
         && format!("{error:#}").contains("Safari History.db is not readable yet")
 }
 
-fn staging_access_skip_warning(profile: &BrowserProfile) -> String {
-    format!(
-        "Skipped `{}` because Safari History.db is not readable yet. On macOS, grant Full Disk Access before the next backup.",
-        profile.profile_id
+/// Records a Safari profile skipped for missing Full Disk Access.
+///
+/// The English sentence is FROZEN: `isFullDiskAccessIssueMessage` in the shell
+/// matches on its marker text to route the user to the FDA remediation notice.
+/// The parallel `safari-full-disk-access-skip` code is what the localized
+/// surfaces read, so both channels must keep describing the same skip.
+fn staging_access_skip_warning(profile: &BrowserProfile) -> BackupWarning {
+    BackupWarning::new(
+        "safari-full-disk-access-skip",
+        format!(
+            "Skipped `{}` because Safari History.db is not readable yet. On macOS, grant Full Disk Access before the next backup.",
+            profile.profile_id
+        ),
     )
+    .with_profile_id(profile.profile_id.clone())
 }
 
 pub(super) fn emit_backup_ingest_progress_if_changed(
@@ -652,12 +669,22 @@ pub(super) fn emit_backup_ingest_progress_if_changed(
     );
 }
 
-pub(super) fn source_evidence_rebuild_warning(error: anyhow::Error) -> String {
-    format!("Canonical backup completed, but the source-evidence archive needs a rebuild: {error}")
+pub(super) fn source_evidence_rebuild_warning(error: anyhow::Error) -> BackupWarning {
+    BackupWarning::new(
+        "source-evidence-rebuild-needed",
+        format!(
+            "Canonical backup completed, but the source-evidence archive needs a rebuild: {error}"
+        ),
+    )
+    .with_diagnostic(format!("{error}"))
 }
 
-pub(super) fn keyword_recall_rebuild_warning(error: anyhow::Error) -> String {
-    format!(
-        "Canonical backup completed, but the keyword-recall projection needs a rebuild: {error}"
+pub(super) fn keyword_recall_rebuild_warning(error: anyhow::Error) -> BackupWarning {
+    BackupWarning::new(
+        "search-projection-rebuild-needed",
+        format!(
+            "Canonical backup completed, but the keyword-recall projection needs a rebuild: {error}"
+        ),
     )
+    .with_diagnostic(format!("{error}"))
 }

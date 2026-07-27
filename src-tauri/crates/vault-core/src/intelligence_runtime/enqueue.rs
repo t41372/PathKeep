@@ -274,8 +274,9 @@ pub(crate) fn persist_deterministic_module_runtime_updates(
         connection.execute(
             "INSERT INTO deterministic_module_runtime
              (module_id, version, status, depends_on_json, derived_tables_json, last_run_id,
-              last_built_at, last_invalidated_at, stale_reason, notes_json, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+              last_built_at, last_invalidated_at, stale_reason, stale_reason_code, notes_json,
+              updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(module_id) DO UPDATE SET
                version = excluded.version,
                status = excluded.status,
@@ -285,6 +286,7 @@ pub(crate) fn persist_deterministic_module_runtime_updates(
                last_built_at = excluded.last_built_at,
                last_invalidated_at = excluded.last_invalidated_at,
                stale_reason = excluded.stale_reason,
+               stale_reason_code = excluded.stale_reason_code,
                notes_json = excluded.notes_json,
                updated_at = excluded.updated_at",
             params![
@@ -297,6 +299,7 @@ pub(crate) fn persist_deterministic_module_runtime_updates(
                 update.last_built_at,
                 update.last_invalidated_at,
                 update.stale_reason,
+                update.stale_reason_code,
                 serde_json::to_string(&update.notes)?,
                 now,
             ],
@@ -306,7 +309,14 @@ pub(crate) fn persist_deterministic_module_runtime_updates(
 }
 
 /// Marks every deterministic module as stale so the next rebuild can refresh them.
-pub fn mark_all_deterministic_modules_stale(connection: &Connection, reason: &str) -> Result<()> {
+///
+/// `reason_code` is the stable code the shell localizes; `reason` stays the
+/// diagnostic prose fallback for builds that ship no copy for the code.
+pub fn mark_all_deterministic_modules_stale(
+    connection: &Connection,
+    reason_code: &str,
+    reason: &str,
+) -> Result<()> {
     let now = now_rfc3339();
     let updates = built_in_deterministic_modules()
         .iter()
@@ -317,10 +327,11 @@ pub fn mark_all_deterministic_modules_stale(connection: &Connection, reason: &st
             last_built_at: None,
             last_invalidated_at: Some(now.clone()),
             stale_reason: Some(reason.to_string()),
-            notes: vec![
-                "Deterministic rebuild is required before these summaries are fresh again."
-                    .to_string(),
-            ],
+            stale_reason_code: Some(reason_code.to_string()),
+            notes: vec![crate::models::DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_MODULE_REBUILD_REQUIRED,
+                "Deterministic rebuild is required before these summaries are fresh again.",
+            )],
         })
         .collect::<Vec<_>>();
     persist_deterministic_module_runtime_updates(connection, &updates)

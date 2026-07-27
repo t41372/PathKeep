@@ -212,3 +212,35 @@ export function scheduleInstallTone(status: ScheduleStatus['installState']) {
   }
   return 'blocked' as const
 }
+
+/**
+ * Maps `APP_LOCK_NOTE_*` codes from `vault-core/src/models/app.rs` onto shipped
+ * Settings copy.
+ *
+ * Keyed by stable code — never by backend prose — so a punctuation edit in Rust
+ * cannot silently degrade zh copy back to English.
+ */
+const APP_LOCK_NOTE_KEY_BY_CODE: Record<string, string> = {
+  'ui-session-only': 'settings.appLockBoundaryBody',
+  'touch-id-available': 'settings.appLockTouchIdAvailable',
+  'touch-id-unavailable': 'settings.appLockTouchIdUnavailable',
+  'biometric-linux-passcode-only': 'settings.appLockBiometricLinuxPasscodeOnly',
+  'biometric-not-wired': 'settings.appLockBiometricUnavailable',
+}
+
+/**
+ * Resolves one App Lock degradation note into user-visible copy.
+ *
+ * Shared by the Settings App Lock section and the /lock route — both render
+ * `AppLockStatus.degradationNotes`. The raw English `note` stays the honest
+ * fallback for codes this build does not ship copy for, so a newer backend
+ * never renders an empty line.
+ */
+export function localizeAppLockDegradationNote(
+  note: string,
+  code: string | undefined,
+  t: (key: string) => string,
+): string {
+  const key = code ? APP_LOCK_NOTE_KEY_BY_CODE[code] : undefined
+  return key ? t(key) : note
+}

@@ -78,10 +78,78 @@ function localizeHabitType(
     : habitType.replaceAll('_', ' ')
 }
 
+/**
+ * Localize the trigger rule from the backend's STABLE CODE + structured params.
+ *
+ * This is the primary path. The panel used to recover the numbers it needed by regexing the backend's
+ * English prose — which forced every caller to speak English prose too (the Refind route literally
+ * composed `Refind score >= 3.2` just so this function could parse it back). Reading the code and its
+ * params removes that round trip entirely.
+ *
+ * Returns `null` when the payload carries no code, or a code this build has no copy for, so the caller
+ * falls back to `localizeTriggerRule`'s legacy prose matching.
+ */
+function localizeTriggerRuleFromCode(
+  explanation: Explanation,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): string | null {
+  switch (explanation.triggerRuleCode) {
+    case 'refind-score':
+      // The backend prose rendered the score with one decimal; keep that precision in the localized
+      // copy so the number the user reads matches the threshold the backend applied.
+      return t('explainRuleRefindScore', {
+        score: (explanation.triggerRuleScore ?? 0).toFixed(1),
+      })
+    case 'session-deep-dive':
+      return t('explainRuleSessionDeepDive')
+    case 'session-gap':
+      return t('explainRuleSessionGap', {
+        minutes: explanation.triggerRuleGapMinutes ?? 0,
+      })
+    case 'search-trail':
+      return t('explainRuleSearchTrail', {
+        query: explanation.triggerRuleQuery ?? '',
+      })
+    case 'query-family':
+      return t('explainRuleQueryFamily', {
+        query: explanation.triggerRuleQuery ?? '',
+      })
+    case 'reopened-investigation':
+      return t('explainRuleReopenedInvestigation')
+    case 'habit-pattern':
+      // The habit TYPE arrives as its persisted code, so `localizeHabitType` maps a real code instead
+      // of a fragment captured out of an English sentence.
+      return t('explainRuleHabitPattern', {
+        habit: localizeHabitType(explanation.triggerRuleHabitType ?? '', t),
+      })
+    case 'habit-pattern-interrupted':
+      return t('explainRuleHabitPatternInterrupted', {
+        habit: localizeHabitType(explanation.triggerRuleHabitType ?? '', t),
+      })
+    case 'path-flow':
+      return t('explainRulePathFlow')
+    case 'compare-set':
+      return t('explainRuleCompareSet')
+    default:
+      return null
+  }
+}
+
+/**
+ * LEGACY FALLBACK: recover the localized copy by matching the backend's English prose.
+ *
+ * Every rule the backend ships now carries a `triggerRuleCode`, so this is reached only for
+ * explanations produced by a build that predates the code field (and for an unknown future code, which
+ * still travels with its prose). New rules must ship a code instead of extending this ladder.
+ *
+ * `rule` is optional because `Explanation.triggerRule` is: a front-end-composed explanation supplies a
+ * code and no prose. An absent rule yields the empty string rather than matching anything.
+ */
 function localizeTriggerRule(
-  rule: string,
+  rule: string | undefined,
   t: (key: string, vars?: Record<string, string | number>) => string,
 ) {
+  if (!rule) return ''
   const refindMatch = /^Refind score >= ([\d.]+)$/.exec(rule)
   if (refindMatch) {
     return t('explainRuleRefindScore', {
@@ -96,11 +164,14 @@ function localizeTriggerRule(
     return t('explainRuleSessionDeepDive')
   }
 
-  if (
-    rule ===
-    'Visits were grouped into one session because adjacent gaps stayed within 30 minutes.'
-  ) {
-    return t('explainRuleSessionGap')
+  // The threshold is captured rather than hard-coded at 30 so an explanation persisted under a
+  // different `SESSION_GAP_MS` still localizes to the number the backend actually applied.
+  const sessionGapMatch =
+    /^Visits were grouped into one session because adjacent gaps stayed within (\d+) minutes\.$/.exec(
+      rule,
+    )
+  if (sessionGapMatch) {
+    return t('explainRuleSessionGap', { minutes: sessionGapMatch[1] })
   }
 
   const searchTrailMatch =
@@ -233,7 +304,10 @@ export function ExplainabilityPanel({
                   {t('explainRule')}
                 </span>
                 <span className="explainability-panel__rule-value">
-                  {localizeTriggerRule(data.triggerRule, t)}
+                  {/* Stable code + structured params first; the English-prose matcher is only a
+                      fallback for rules/payloads that carry no code yet. */}
+                  {localizeTriggerRuleFromCode(data, t) ??
+                    localizeTriggerRule(data.triggerRule, t)}
                 </span>
               </div>
 

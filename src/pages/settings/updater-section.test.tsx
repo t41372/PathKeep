@@ -78,7 +78,13 @@ describe('UpdaterSection', () => {
       </I18nProvider>,
     )
 
-    expect(screen.getByText('Ready to restart.')).toBeVisible()
+    // The installed phase renders phase-keyed catalog copy — never the
+    // backend's raw English transport message.
+    expect(
+      screen.getByText(
+        'PathKeep 0.2.0 is ready. Restart to finish switching versions.',
+      ),
+    ).toBeVisible()
     expect(screen.getByText('Downloaded 50 B of 100 B.')).toBeVisible()
     expect(screen.getByText('Important fix.')).toBeVisible()
 
@@ -127,5 +133,96 @@ describe('UpdaterSection', () => {
 
     expect(screen.getAllByText('Not available')).toHaveLength(4)
     expect(screen.getByText('Downloaded 0 B of 100 B.')).toBeVisible()
+  })
+
+  test('renders phase-keyed catalog copy for every backend-streamed install phase', () => {
+    const cases: {
+      phase: UpdaterSectionState['updateInstallState']['phase']
+      expected: string
+    }[] = [
+      { phase: 'downloading', expected: 'Downloading PathKeep 0.2.0…' },
+      { phase: 'installing', expected: 'Installing PathKeep 0.2.0…' },
+      {
+        phase: 'installed',
+        expected:
+          'PathKeep 0.2.0 is ready. Restart to finish switching versions.',
+      },
+      {
+        phase: 'uptodate',
+        expected: 'This build is already on the latest available release.',
+      },
+    ]
+
+    for (const { phase, expected } of cases) {
+      const view = render(
+        <I18nProvider>
+          <UpdaterSection
+            navItem={navItem}
+            state={state({
+              updateInstallState: {
+                phase,
+                version: '0.2.0',
+                downloadedBytes: 50,
+                contentLength: 100,
+                // The backend's raw English transport prose must never win
+                // over the phase-keyed catalog copy.
+                message: 'RAW BACKEND TRANSPORT PROSE',
+              },
+            })}
+          />
+        </I18nProvider>,
+      )
+
+      expect(screen.getByText(expected)).toBeVisible()
+      expect(screen.queryByText('RAW BACKEND TRANSPORT PROSE')).toBeNull()
+      view.unmount()
+    }
+  })
+
+  test('falls back to the already-localized message, then the boundary body, for non-streamed phases', () => {
+    const withMessage = render(
+      <I18nProvider>
+        <UpdaterSection
+          navItem={navItem}
+          state={state({
+            updateInstallState: {
+              phase: 'error',
+              version: null,
+              downloadedBytes: null,
+              contentLength: null,
+              // `error` copy is authored by the already-localized check flow
+              // (or is a diagnostic chain), so it passes through unchanged.
+              message: 'update_check failed: network unreachable',
+            },
+          })}
+        />
+      </I18nProvider>,
+    )
+    expect(
+      screen.getByText('update_check failed: network unreachable'),
+    ).toBeVisible()
+    withMessage.unmount()
+
+    render(
+      <I18nProvider>
+        <UpdaterSection
+          navItem={navItem}
+          state={state({
+            updateInstallState: {
+              phase: 'idle',
+              version: null,
+              downloadedBytes: null,
+              contentLength: null,
+              message: null,
+            },
+          })}
+        />
+      </I18nProvider>,
+    )
+    expect(
+      screen.getByText(
+        'Check the available version, read the notes, and install when you are ready. PathKeep restarts after the update.',
+      ),
+    ).toBeVisible()
   })
 })

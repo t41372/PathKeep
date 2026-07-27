@@ -97,10 +97,10 @@ describe('Topbar', () => {
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
     expect(
       screen.getByRole('button', {
-        name: 'Switch profile scope. Current: All profiles',
+        name: 'Switch browser scope. Current: All browsers',
       }),
     ).toBeVisible()
-    expect(screen.getByText('All profiles')).toBeVisible()
+    expect(screen.getByText('All browsers')).toBeVisible()
     expect(
       await screen.findByRole('button', { name: /Initialize first/ }),
     ).toBeVisible()
@@ -108,7 +108,7 @@ describe('Topbar', () => {
       document.querySelector('.topbar-right') as HTMLElement,
     ).getAllByRole('button')
     expect(rightButtons.at(-2)).toHaveAccessibleName(
-      'Switch profile scope. Current: All profiles',
+      'Switch browser scope. Current: All browsers',
     )
     expect(rightButtons.at(-1)).toHaveAccessibleName('Initialize first')
   })
@@ -511,18 +511,18 @@ describe('Topbar', () => {
     )
 
     await user.click(
-      screen.getByRole('button', { name: '1 unread notification(s)' }),
+      screen.getByRole('button', { name: '1 unread notification' }),
     )
 
     expect(markNotificationsRead).toHaveBeenCalled()
     expect(screen.getByText('Import complete')).toBeVisible()
     expect(screen.getByText('12 records imported.')).toBeVisible()
 
-    await user.click(screen.getByRole('button', { name: 'Open Jobs' }))
+    await user.click(screen.getByRole('button', { name: 'Open Activity' }))
     expect(screen.getByText('/jobs')).toBeVisible()
 
     await user.click(
-      screen.getByRole('button', { name: '1 unread notification(s)' }),
+      screen.getByRole('button', { name: '1 unread notification' }),
     )
     await user.click(
       screen.getByRole('button', { name: 'Dismiss notification' }),
@@ -553,7 +553,9 @@ describe('Topbar', () => {
           read: false,
         },
       ],
-      unreadNotificationCount: 1,
+      // Two unread, so this case also covers the plural aria-label. The
+      // singular pair is exercised by the queue test above.
+      unreadNotificationCount: 2,
       refreshKey: 0,
       refreshAppData: vi.fn().mockResolvedValue(undefined),
       refreshRuntimeStatus: vi.fn().mockResolvedValue({
@@ -605,7 +607,7 @@ describe('Topbar', () => {
     )
 
     await user.click(
-      screen.getByRole('button', { name: '1 unread notification(s)' }),
+      screen.getByRole('button', { name: '2 unread notifications' }),
     )
     expect(screen.getByText('Default notification')).toBeVisible()
     await user.click(

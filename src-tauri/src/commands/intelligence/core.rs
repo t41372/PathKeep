@@ -31,6 +31,8 @@
 #[cfg(not(test))]
 use super::super::blocking::run_blocking_command;
 #[cfg(not(test))]
+use crate::command_error::CommandError;
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
 use tauri::State;
@@ -41,7 +43,7 @@ use tauri::State;
 pub(crate) async fn get_sessions(
     request: vault_core::PagedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::SessionListResult, String> {
+) -> Result<vault_core::SessionListResult, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_sessions", move || {
         worker_bridge::get_sessions_impl(request, session_database_key.as_deref())
@@ -55,7 +57,7 @@ pub(crate) async fn get_sessions(
 pub(crate) async fn get_session_detail(
     session_id: String,
     state: State<'_, SessionState>,
-) -> Result<vault_core::SessionDetail, String> {
+) -> Result<vault_core::SessionDetail, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_session_detail", move || {
         worker_bridge::get_session_detail_impl(session_id, session_database_key.as_deref())
@@ -69,7 +71,7 @@ pub(crate) async fn get_session_detail(
 pub(crate) async fn get_search_trails(
     request: vault_core::SearchTrailQueryRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::TrailListResult, String> {
+) -> Result<vault_core::TrailListResult, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_search_trails", move || {
         worker_bridge::get_search_trails_impl(request, session_database_key.as_deref())
@@ -83,7 +85,7 @@ pub(crate) async fn get_search_trails(
 pub(crate) async fn get_trail_detail(
     trail_id: String,
     state: State<'_, SessionState>,
-) -> Result<vault_core::TrailDetail, String> {
+) -> Result<vault_core::TrailDetail, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_trail_detail", move || {
         worker_bridge::get_trail_detail_impl(trail_id, session_database_key.as_deref())
@@ -97,7 +99,7 @@ pub(crate) async fn get_trail_detail(
 pub(crate) async fn get_navigation_path(
     visit_id: i64,
     state: State<'_, SessionState>,
-) -> Result<vault_core::NavigationPath, String> {
+) -> Result<vault_core::NavigationPath, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_navigation_path", move || {
         worker_bridge::get_navigation_path_impl(visit_id, session_database_key.as_deref())
@@ -111,7 +113,7 @@ pub(crate) async fn get_navigation_path(
 pub(crate) async fn get_hub_pages(
     request: vault_core::TopSitesRequest,
     state: State<'_, SessionState>,
-) -> Result<Vec<vault_core::HubPage>, String> {
+) -> Result<Vec<vault_core::HubPage>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_hub_pages", move || {
         worker_bridge::get_hub_pages_impl(request, session_database_key.as_deref())
@@ -125,7 +127,8 @@ pub(crate) async fn get_hub_pages(
 pub(crate) async fn get_search_engine_ranking(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::EngineRanking>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::EngineRanking>>, CommandError>
+{
     let session_database_key = state.get_key();
     run_blocking_command("get_search_engine_ranking", move || {
         worker_bridge::get_search_engine_ranking_impl(request, session_database_key.as_deref())
@@ -139,7 +142,8 @@ pub(crate) async fn get_search_engine_ranking(
 pub(crate) async fn get_top_search_concepts(
     request: vault_core::TopSearchConceptsRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::SearchConcept>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::SearchConcept>>, CommandError>
+{
     let session_database_key = state.get_key();
     run_blocking_command("get_top_search_concepts", move || {
         worker_bridge::get_top_search_concepts_impl(request, session_database_key.as_deref())
@@ -153,7 +157,10 @@ pub(crate) async fn get_top_search_concepts(
 pub(crate) async fn get_search_queries(
     request: vault_core::SearchQueryListRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::SearchQueryListResult>, String> {
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<vault_core::SearchQueryListResult>,
+    CommandError,
+> {
     let session_database_key = state.get_key();
     run_blocking_command("get_search_queries", move || {
         worker_bridge::get_search_queries_impl(request, session_database_key.as_deref())
@@ -167,7 +174,8 @@ pub(crate) async fn get_search_queries(
 pub(crate) async fn get_query_families(
     request: vault_core::PagedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyResult>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyResult>, CommandError>
+{
     let session_database_key = state.get_key();
     run_blocking_command("get_query_families", move || {
         worker_bridge::get_query_families_impl(request, session_database_key.as_deref())
@@ -181,7 +189,8 @@ pub(crate) async fn get_query_families(
 pub(crate) async fn get_query_family_detail(
     request: vault_core::QueryFamilyDetailRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyDetail>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyDetail>, CommandError>
+{
     let session_database_key = state.get_key();
     run_blocking_command("get_query_family_detail", move || {
         worker_bridge::get_query_family_detail_impl(request, session_database_key.as_deref())
@@ -195,7 +204,7 @@ pub(crate) async fn get_query_family_detail(
 pub(crate) async fn get_top_sites(
     request: vault_core::TopSitesRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::TopSite>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::TopSite>>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_top_sites", move || {
         worker_bridge::get_top_sites_impl(request, session_database_key.as_deref())
@@ -209,7 +218,7 @@ pub(crate) async fn get_top_sites(
 pub(crate) async fn get_domain_trend(
     request: vault_core::DomainTrendRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::DomainTrend, String> {
+) -> Result<vault_core::DomainTrend, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_domain_trend", move || {
         worker_bridge::get_domain_trend_impl(request, session_database_key.as_deref())
@@ -223,7 +232,7 @@ pub(crate) async fn get_domain_trend(
 pub(crate) async fn get_refind_pages(
     request: vault_core::RefindPagesRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::RefindPage>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::RefindPage>>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_refind_pages", move || {
         worker_bridge::get_refind_pages_impl(request, session_database_key.as_deref())
@@ -237,7 +246,7 @@ pub(crate) async fn get_refind_pages(
 pub(crate) async fn get_refind_page_detail(
     request: vault_core::RefindPageDetailRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RefindPageDetail>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RefindPageDetail>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_refind_page_detail", move || {
         worker_bridge::get_refind_page_detail_impl(request, session_database_key.as_deref())
@@ -251,7 +260,7 @@ pub(crate) async fn get_refind_page_detail(
 pub(crate) async fn explain_refind(
     request: vault_core::ExplainRefindRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::RefindExplanation, String> {
+) -> Result<vault_core::RefindExplanation, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("explain_refind", move || {
         worker_bridge::explain_refind_impl(request, session_database_key.as_deref())
@@ -265,7 +274,7 @@ pub(crate) async fn explain_refind(
 pub(crate) async fn explain_entity(
     request: vault_core::EntityExplanationRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::Explanation, String> {
+) -> Result<vault_core::Explanation, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("explain_entity", move || {
         worker_bridge::explain_entity_impl(request, session_database_key.as_deref())
@@ -279,7 +288,7 @@ pub(crate) async fn explain_entity(
 pub(crate) async fn get_activity_mix(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::ActivityMix>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::ActivityMix>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_activity_mix", move || {
         worker_bridge::get_activity_mix_impl(request, session_database_key.as_deref())
@@ -293,7 +302,7 @@ pub(crate) async fn get_activity_mix(
 pub(crate) async fn get_activity_mix_trend(
     request: vault_core::GranularityDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::ActivityMixTrend, String> {
+) -> Result<vault_core::ActivityMixTrend, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_activity_mix_trend", move || {
         worker_bridge::get_activity_mix_trend_impl(request, session_database_key.as_deref())
@@ -307,7 +316,7 @@ pub(crate) async fn get_activity_mix_trend(
 pub(crate) async fn get_digest_summary(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DigestSummary>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DigestSummary>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_digest_summary", move || {
         worker_bridge::get_digest_summary_impl(request, session_database_key.as_deref())
@@ -321,7 +330,8 @@ pub(crate) async fn get_digest_summary(
 pub(crate) async fn get_stable_sources(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::StableSource>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::StableSource>>, CommandError>
+{
     let session_database_key = state.get_key();
     run_blocking_command("get_stable_sources", move || {
         worker_bridge::get_stable_sources_impl(request, session_database_key.as_deref())
@@ -335,7 +345,8 @@ pub(crate) async fn get_stable_sources(
 pub(crate) async fn get_search_effectiveness(
     request: vault_core::SearchEffectivenessRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::SearchEffectiveness>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::SearchEffectiveness>, CommandError>
+{
     let session_database_key = state.get_key();
     run_blocking_command("get_search_effectiveness", move || {
         worker_bridge::get_search_effectiveness_impl(request, session_database_key.as_deref())
@@ -349,7 +360,8 @@ pub(crate) async fn get_search_effectiveness(
 pub(crate) async fn get_friction_signals(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::FrictionSignal>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::FrictionSignal>>, CommandError>
+{
     let session_database_key = state.get_key();
     run_blocking_command("get_friction_signals", move || {
         worker_bridge::get_friction_signals_impl(request, session_database_key.as_deref())
@@ -363,8 +375,10 @@ pub(crate) async fn get_friction_signals(
 pub(crate) async fn get_reopened_investigations(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::ReopenedInvestigation>>, String>
-{
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<Vec<vault_core::ReopenedInvestigation>>,
+    CommandError,
+> {
     let session_database_key = state.get_key();
     run_blocking_command("get_reopened_investigations", move || {
         worker_bridge::get_reopened_investigations_impl(request, session_database_key.as_deref())
@@ -378,7 +392,7 @@ pub(crate) async fn get_reopened_investigations(
 pub(crate) async fn get_domain_deep_dive(
     request: vault_core::DomainDeepDiveRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DomainDeepDive>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DomainDeepDive>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_domain_deep_dive", move || {
         worker_bridge::get_domain_deep_dive_impl(request, session_database_key.as_deref())
@@ -392,7 +406,7 @@ pub(crate) async fn get_domain_deep_dive(
 pub(crate) async fn get_day_insights(
     request: vault_core::DayInsightsRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DayInsights>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DayInsights>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_day_insights", move || {
         worker_bridge::get_day_insights_impl(request, session_database_key.as_deref())
@@ -406,7 +420,7 @@ pub(crate) async fn get_day_insights(
 pub(crate) async fn get_browsing_rhythm(
     request: vault_core::CategoryFilteredDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RhythmHeatmap>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RhythmHeatmap>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_browsing_rhythm", move || {
         worker_bridge::get_browsing_rhythm_impl(request, session_database_key.as_deref())
@@ -420,7 +434,7 @@ pub(crate) async fn get_browsing_rhythm(
 pub(crate) async fn get_discovery_trend(
     request: vault_core::GranularityDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DiscoveryTrend>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DiscoveryTrend>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_discovery_trend", move || {
         worker_bridge::get_discovery_trend_impl(request, session_database_key.as_deref())
@@ -434,7 +448,8 @@ pub(crate) async fn get_discovery_trend(
 pub(crate) async fn get_on_this_day(
     profile_id: Option<String>,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::OnThisDayEntry>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::OnThisDayEntry>>, CommandError>
+{
     let session_database_key = state.get_key();
     run_blocking_command("get_on_this_day", move || {
         worker_bridge::get_on_this_day_impl(profile_id, session_database_key.as_deref())
@@ -448,7 +463,7 @@ pub(crate) async fn get_on_this_day(
 pub(crate) async fn get_breadth_index(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::BreadthIndex>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::BreadthIndex>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_breadth_index", move || {
         worker_bridge::get_breadth_index_impl(request, session_database_key.as_deref())
@@ -462,7 +477,8 @@ pub(crate) async fn get_breadth_index(
 pub(crate) async fn get_habit_patterns(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::HabitPattern>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::HabitPattern>>, CommandError>
+{
     let session_database_key = state.get_key();
     run_blocking_command("get_habit_patterns", move || {
         worker_bridge::get_habit_patterns_impl(request, session_database_key.as_deref())
@@ -476,7 +492,10 @@ pub(crate) async fn get_habit_patterns(
 pub(crate) async fn get_interrupted_habits(
     request: vault_core::ProfileScopedRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::InterruptedHabit>>, String> {
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<Vec<vault_core::InterruptedHabit>>,
+    CommandError,
+> {
     let session_database_key = state.get_key();
     run_blocking_command("get_interrupted_habits", move || {
         worker_bridge::get_interrupted_habits_impl(request, session_database_key.as_deref())
@@ -490,7 +509,7 @@ pub(crate) async fn get_interrupted_habits(
 pub(crate) async fn get_path_flows(
     request: vault_core::PathFlowRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::PathFlow>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::PathFlow>>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_path_flows", move || {
         worker_bridge::get_path_flows_impl(request, session_database_key.as_deref())
@@ -504,8 +523,10 @@ pub(crate) async fn get_path_flows(
 pub(crate) async fn get_observed_interactions(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::ObservedInteraction>>, String>
-{
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<Vec<vault_core::ObservedInteraction>>,
+    CommandError,
+> {
     let session_database_key = state.get_key();
     run_blocking_command("get_observed_interactions", move || {
         worker_bridge::get_observed_interactions_impl(request, session_database_key.as_deref())
@@ -519,7 +540,7 @@ pub(crate) async fn get_observed_interactions(
 pub(crate) async fn get_compare_sets(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::CompareSet>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::CompareSet>>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_compare_sets", move || {
         worker_bridge::get_compare_sets_impl(request, session_database_key.as_deref())
@@ -533,7 +554,7 @@ pub(crate) async fn get_compare_sets(
 pub(crate) async fn get_compare_set_detail(
     request: vault_core::CompareSetDetailRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::CompareSetDetail>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::CompareSetDetail>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_compare_set_detail", move || {
         worker_bridge::get_compare_set_detail_impl(request, session_database_key.as_deref())
@@ -547,7 +568,7 @@ pub(crate) async fn get_compare_set_detail(
 pub(crate) async fn get_multi_browser_diff(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::BrowserDiff>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::BrowserDiff>, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("get_multi_browser_diff", move || {
         worker_bridge::get_multi_browser_diff_impl(request, session_database_key.as_deref())

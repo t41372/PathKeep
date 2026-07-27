@@ -119,7 +119,7 @@ describe('i18n helpers', () => {
     }
   })
 
-  test('creates translators with interpolation, labels, and compatibility fallbacks', () => {
+  test('creates translators with interpolation, labels, and namespaced-key lookup', () => {
     const english = createTranslator('en')
     const simplified = createTranslator('zh-CN')
     const traditional = createTranslator('zh-TW')
@@ -127,9 +127,10 @@ describe('i18n helpers', () => {
     expect(english('dashboard.selectedProfiles', { count: 3 })).toBe(
       '3 selected profiles',
     )
-    expect(english('selectedProfiles', { count: 3 })).toBe(
-      '3 selected profiles',
-    )
+    // Bare leaf names are NOT aliased: an un-namespaced key must fall through
+    // to the key itself instead of silently resolving to whichever namespace
+    // flattened first.
+    expect(english('selectedProfiles', { count: 3 })).toBe('selectedProfiles')
     expect(simplified('import.revertBatch')).toBe('撤销导入')
     expect(traditional('import.revertBatch')).toBe('復原匯入')
     expect(languageLabel('system', 'en')).toBe('Follow system')

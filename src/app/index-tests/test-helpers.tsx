@@ -25,10 +25,10 @@ import { expect, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
 import { defaultExplorerBackgroundPrefetchPages } from '../../lib/explorer-preferences'
-import { createNamespaceTranslator, createTranslator } from '../../lib/i18n'
+import { createNamespaceTranslator } from '../../lib/i18n'
 import type { AppConfig } from '../../lib/types'
 
-export const commonT = createTranslator('en')
+export const commonT = createNamespaceTranslator('en', 'common')
 export const dashboardT = createNamespaceTranslator('en', 'dashboard')
 export const shellT = createNamespaceTranslator('en', 'shell')
 export const onboardingT = createNamespaceTranslator('en', 'onboarding')

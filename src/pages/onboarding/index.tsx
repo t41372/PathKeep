@@ -29,6 +29,7 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { backend } from '../../lib/backend-client'
 import { describeError } from '../../lib/errors'
+import { isFullDiskAccessError } from '../../lib/ipc/command-error'
 import {
   formatBuildRevisionLabel,
   formatBuildVersionTitle,
@@ -552,13 +553,7 @@ function formatOnboardingError(
   nextError: unknown,
   t: (key: string, params?: Record<string, string | number>) => string,
 ) {
-  if (
-    nextError instanceof Error &&
-    (nextError.message.includes('Full Disk Access') ||
-      nextError.message.includes('完全磁盘访问权限') ||
-      nextError.message.includes('完整磁碟取用權') ||
-      nextError.message.includes('Safari History.db'))
-  ) {
+  if (isFullDiskAccessError(nextError)) {
     return t('errorSafariNeedsFullDiskAccess')
   }
 

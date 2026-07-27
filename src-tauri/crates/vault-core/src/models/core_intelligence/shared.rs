@@ -74,9 +74,17 @@ pub struct CoreIntelligenceRebuildReport {
     pub affected_profiles: Option<Vec<String>>,
     pub dirty_visit_count: Option<usize>,
     pub dirty_date_keys: Option<Vec<String>>,
+    /// Diagnostic English prose; localize through [`Self::fallback_reason_code`].
     pub fallback_reason: Option<String>,
+    /// Stable `REBUILD_FALLBACK_*` code for [`Self::fallback_reason`].
+    #[serde(default)]
+    pub fallback_reason_code: Option<String>,
     pub stage_timings_ms: Option<CoreIntelligenceStageTimings>,
+    /// Diagnostic English prose, index-aligned with [`Self::note_details`].
     pub notes: Vec<String>,
+    /// Coded notes the shell localizes; see `DerivedRuntimeNote`.
+    #[serde(default)]
+    pub note_details: Vec<super::super::DerivedRuntimeNote>,
     pub last_run_at: String,
 }
 

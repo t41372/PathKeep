@@ -69,7 +69,10 @@ interface UseExplorerDataOptions {
   mode: ExplorerMode
   optionalAiAvailable: boolean
   view: ExplorerViewMode
-  persistRecentSearch: (params: RecentSearchEntry['params']) => void
+  persistRecentSearch: (
+    params: RecentSearchEntry['params'],
+    outcome?: { total: number; at: number },
+  ) => void
   refreshAppData: () => Promise<void>
   refreshRuntimeStatus: () => Promise<unknown>
   requestKey: string
@@ -77,6 +80,35 @@ interface UseExplorerDataOptions {
   semanticRequestKey: string
   setRecentSearches: Dispatch<SetStateAction<RecentSearchEntry[]>>
   start: string | null
+}
+
+/**
+ * Decides what `selectedId` should be after a fresh page of results lands.
+ *
+ * Why this exists: the data layer must never *create* a selection, only
+ * preserve one the user made. Falling back to `items[0]` looked harmless but
+ * was wrong twice over, and `index.tsx` already documents why at the
+ * `selectedEntryPool` derivation:
+ *
+ * 1. It painted the first card of every Browse load with the "selected"
+ *    emphasis even though the user never clicked it and no panel was open —
+ *    and the emphasis jumped to a new row on every filter change.
+ * 2. With the detail panel open on, say, page 5, any head-query re-run (a
+ *    `refreshKey` bump from a finished backup/import) rebound the OPEN panel
+ *    to a DIFFERENT record at the same scroll position. `onUpdateNotes` would
+ *    then flush an in-flight debounced note against the wrong URL.
+ *
+ * So: keep the selection if the row survived the new response, otherwise drop
+ * it. `index.tsx` owns granting selection (row clicks) and already auto-closes
+ * the panel when the selected entry leaves the rendered pool.
+ */
+function keepSelectionAlive(
+  current: number | null,
+  response: { items: readonly { id: number }[] },
+): number | null {
+  return current != null && response.items.some((item) => item.id === current)
+    ? current
+    : null
 }
 
 /**
@@ -348,11 +380,7 @@ export function useExplorerData({
             results: cachedResults,
             error: null,
           })
-          setSelectedId((current) =>
-            cachedResults.items.some((item) => item.id === current)
-              ? current
-              : (cachedResults.items[0]?.id ?? null),
-          )
+          setSelectedId((current) => keepSelectionAlive(current, cachedResults))
         })
         prefetchHistoryWindow(
           request.currentQuery,
@@ -374,28 +402,30 @@ export function useExplorerData({
           : await backend.queryHistory(request.currentQuery)
         if (cancelled) return
         storeHistoryCache(nextRequestKey, response)
-        request.persistRecentSearch({
-          q: request.currentQuery.q,
-          mode: request.mode,
-          view: request.view,
-          regex: request.currentQuery.regexMode ? '1' : null,
-          domain: request.currentQuery.domain,
-          profileId: request.currentQuery.profileId,
-          browserKind: request.currentQuery.browserKind,
-          start: request.start,
-          end: request.end,
-          sort: request.currentQuery.sort ?? 'newest',
-        })
+        request.persistRecentSearch(
+          {
+            q: request.currentQuery.q,
+            mode: request.mode,
+            view: request.view,
+            regex: request.currentQuery.regexMode ? '1' : null,
+            domain: request.currentQuery.domain,
+            profileId: request.currentQuery.profileId,
+            browserKind: request.currentQuery.browserKind,
+            start: request.start,
+            end: request.end,
+            sort: request.currentQuery.sort ?? 'newest',
+          },
+          // Record what the query actually returned so the Search empty
+          // state can caption the recent row honestly instead of the
+          // shipped `{count} results` template interpolating a guess.
+          { total: response.total, at: Date.now() },
+        )
         request.setRecentSearches(loadRecentSearches())
         await waitForNextPaint()
         if (cancelled) return
         startTransition(() => {
           setQueryState({ requestKey, results: response, error: null })
-          setSelectedId((current) =>
-            response.items.some((item) => item.id === current)
-              ? current
-              : (response.items[0]?.id ?? null),
-          )
+          setSelectedId((current) => keepSelectionAlive(current, response))
         })
         prefetchHistoryWindow(
           request.currentQuery,
@@ -455,8 +485,15 @@ export function useExplorerData({
           results: response,
           error: null,
         })
-        setSelectedId(
-          (current) => current ?? response.items[0]?.historyId ?? null,
+        // Same rule as the keyword branch (see `keepSelectionAlive`): the data
+        // layer never *creates* a selection, it only preserves one the user
+        // made. The ranked pool keys on `historyId`, so the membership test
+        // reads that field instead of `id`.
+        setSelectedId((current) =>
+          current != null &&
+          response.items.some((item) => item.historyId === current)
+            ? current
+            : null,
         )
       } catch (error) {
         if (cancelled) return

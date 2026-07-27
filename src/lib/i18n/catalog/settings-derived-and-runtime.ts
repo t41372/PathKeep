@@ -72,14 +72,9 @@ export const settingsDerivedAndRuntimeNamespace = {
     titleNormalizationDescription:
       'Cleans up page titles locally so duplicate tabs, redirects, and noisy suffixes collapse into clearer evidence labels.',
     readableContentRefetch: 'Readable content fetcher',
-    readableContentRefetchBody:
-      'Tracked for v0.3 and not available in v0.2.0. This future worker will revisit pages only after the feature is reliable enough to ship.',
     readableContentPlugin: 'Readable content fetcher',
     readableContentDescription:
       'Fetches site content for pages you already visited — a GitHub repo’s description and topics, or a short readable page summary — and enriches them locally. Optional and off by default; you turn it on under Site content, where it stays offline-first and contacts no site until you consent.',
-    readableContentDeferredBadge: 'Coming in v0.3',
-    readableContentDeferredTooltip:
-      'Webpage body fetching is coming in a future update.',
     visitDerivedFactsModule: 'Visit-derived facts',
     visitDerivedFactsModuleDescription:
       'Normalizes visit-level evidence, site dictionary fields, and search metadata before downstream rebuild stages run.',
@@ -128,10 +123,6 @@ export const settingsDerivedAndRuntimeNamespace = {
       'Refreshed dirty daily rollups for {profile}.',
     deterministicModuleDailyRollupsRebuilt:
       'Rebuilt all daily rollups for {profile}.',
-    deterministicModuleDailyRollupsManualRebuild:
-      'Manual full rebuild requested for daily rollups.',
-    deterministicModuleDailyRollupsVisibilityRegressed:
-      'Archive visibility regressed or source counters moved backwards for daily rollups.',
     deterministicModuleNoVisibleVisitsClearedStructural:
       'No visible visits remained for {profile}; cleared structural entities.',
     deterministicModuleStructuralUpToDate:
@@ -140,6 +131,36 @@ export const settingsDerivedAndRuntimeNamespace = {
       'Rebuilt structural tail entities for {profile}.',
     deterministicModuleStructuralRebuilt:
       'Rebuilt all structural entities for {profile}.',
+    deterministicModuleRebuildScopeEmpty:
+      'No visible visits matched the requested rebuild scope.',
+    deterministicModuleRebuildLegacyFallback:
+      'Completed a {jobKind} through the scoped debug fallback path.',
+    deterministicModuleRebuildCheckpointAware:
+      'Ran a checkpoint-aware rebuild for {profile}; each stage used its incremental path when a warm checkpoint was available.',
+    deterministicModuleRebuildCompleted: 'Completed a {jobKind}.',
+    deterministicModuleModulesInSync:
+      'Modules are in sync with the current derived data.',
+    deterministicModuleNeverBuilt:
+      'No deterministic rebuild has run yet for this module.',
+    deterministicModuleNoSuccessfulRebuild:
+      'No successful deterministic rebuild has been recorded yet.',
+    deterministicModuleDisabledNote: 'Disabled in Settings.',
+    deterministicModuleRebuildRequired:
+      'A deterministic rebuild is required before these summaries are fresh again.',
+    deterministicModuleVersionMismatch:
+      'The stored module version does not match the current built-in rule pack.',
+    deterministicModuleStaleVersionChanged:
+      'Module version changed since the last deterministic rebuild.',
+    deterministicModuleStaleMissingBuildTimestamp:
+      'The latest deterministic output has no build timestamp.',
+    deterministicModuleStaleArchiveDataChanged:
+      'Archive data changed and Core Intelligence refresh jobs were queued.',
+    deterministicModuleStaleVisibilityOrRollbackChanged:
+      'Archive visibility or rollback state changed after the last Core Intelligence rebuild.',
+    rebuildModeVisitDerive: 'visit-derived facts refresh',
+    rebuildModeDailyRollup: 'daily rollup refresh',
+    rebuildModeStructuralRebuild: 'structural entity rebuild',
+    rebuildModeFullRebuild: 'full rebuild',
     deterministicModuleStaleReason: 'Stale reason',
     deterministicModuleReady: 'Ready',
     deterministicModuleStale: 'Stale',
@@ -160,13 +181,12 @@ export const settingsDerivedAndRuntimeNamespace = {
     pluginLastError: 'Last error',
     networkAccess: 'Network',
     localOnly: 'Local only',
-    readableContentRefetchImpact: 'No webpage body text is fetched in v0.2.0.',
     disablePlugin: 'Disable',
     enablePlugin: 'Enable',
     runtimeRecentJobs: 'Recent runtime jobs',
-    runtimeQueueDetailsTitle: 'Runtime job details live in Background Jobs',
+    runtimeQueueDetailsTitle: 'Runtime job details live in Activity',
     runtimeQueueDetailsBody:
-      'Maintenance shows module and plugin settings plus rebuild controls. Retry, cancel, logs, and recent job walls stay on the Jobs page.',
+      'Maintenance shows module and plugin settings plus rebuild controls. Retry, cancel, logs, and recent job walls stay in Activity.',
     runtimeNoJobs:
       'Recent queue activity will appear here after a deterministic refresh.',
     deterministicRebuildJobLabel: 'Deterministic rebuild',
@@ -190,7 +210,7 @@ export const settingsDerivedAndRuntimeNamespace = {
       'Processed {visits} visits, refreshed {enriched} enriched rows, and created {cards} insight cards.',
     rebuildQueuedTitle: 'Rebuild queued',
     rebuildQueuedBody:
-      'Deterministic rebuild job #{jobId} is now in Background Jobs. Follow progress there while PathKeep refreshes cards and derived evidence.',
+      'Deterministic rebuild job #{jobId} is now in Activity. Follow progress there while PathKeep refreshes cards and derived evidence.',
     clearCompletedTitle: 'Data cleared',
     clearCompletedBody:
       'Cleared {visitDerivedFacts} visit-derived rows, {dailyRollups} daily rollup rows, {structural} structural rows, and {runtime} runtime rows. Your original history was not affected.',
@@ -215,7 +235,7 @@ export const settingsDerivedAndRuntimeNamespace = {
     derivedOnly: '可安全清除',
     derivedStateBoundaryTitle: '影响范围',
     derivedStateBoundaryBody:
-      '只会影响分析和洞察资料。你的原始历史纪录、稽核日志和复原功能都不会受影响。',
+      '只会影响分析和洞察数据。你的原始历史记录、审计日志和撤销记录都不会受影响。',
     firstPartyRuntimeTitle: '仅限内建插件',
     firstPartyRuntimeBody:
       'PathKeep 这里只运行自己的增强插件。第三方运行时访问会先保持关闭，直到我们安全支持它。',
@@ -230,7 +250,7 @@ export const settingsDerivedAndRuntimeNamespace = {
     searchRulesCustom: '自定义规则',
     searchRulesCustomCount: '{count} 条自定义规则',
     searchRulesCustomBody:
-      '自定义规则可让 PathKeep 识别站内搜索页面，而不用重新打开已接受的 route grammar。',
+      '自定义规则可让 PathKeep 识别站内搜索页面，而不用改动内置的网址识别规则。',
     searchRulesCustomEmpty: '还没有自定义搜索规则。',
     searchRulesEdit: '编辑规则',
     searchRulesDelete: '删除规则',
@@ -250,7 +270,7 @@ export const settingsDerivedAndRuntimeNamespace = {
     searchRulesDeleting: '正在删除搜索规则…',
     runtimeQueueTitle: '运行队列',
     runtimeQueueBody:
-      '完整重建会刷新卡片和派生证据。增强任务只补充可选资料，失败、重试或取消都不会改动原始历史纪录。',
+      '完整重建会刷新卡片和派生证据。增强任务只补充可选数据，失败、重试或取消都不会改动原始历史记录。',
     runtimeQueueSummary: '{queued} 个排队 / {running} 个运行 / {failed} 个失败',
     rebuildDerivedState: '重新生成',
     clearDerivedState: '清除所有',
@@ -259,31 +279,27 @@ export const settingsDerivedAndRuntimeNamespace = {
     titleNormalizationDescription:
       '在本地整理网页标题，让重复标签页、跳转页和多余尾码变成更清楚的证据标签。',
     readableContentRefetch: '网页可读内容抓取',
-    readableContentRefetchBody:
-      '已排入 v0.3，v0.2.0 暂不开放。这个未来任务会在足够可靠后，再重新访问页面并提取正文。',
     readableContentPlugin: '网页可读内容抓取',
     readableContentDescription:
       '为你已经访问过的页面抓取站点内容——GitHub 仓库的描述和主题，或网页的简短可读摘要——并在本机补充进去。可选，默认关闭；你可在「站点内容」里打开，它始终离线优先，在你同意前绝不会联系任何站点。',
-    readableContentDeferredBadge: 'v0.3 开放',
-    readableContentDeferredTooltip: '网页正文抓取会在后续版本开放。',
     visitDerivedFactsModule: '访问派生事实',
     visitDerivedFactsModuleDescription:
-      '先把 visit 级别的证据、站点词典字段和搜索元数据标准化，再交给后续重建阶段使用。',
+      '先把访问级别的证据、站点词典字段和搜索元数据标准化，再交给后续重建阶段使用。',
     dailyRollupsModule: '每日汇总',
     dailyRollupsModuleDescription:
-      '生成 domain、category、engine 和 digest summary 的日级 rollup。',
+      '生成域名、类别、搜索引擎和每日摘要的日级汇总。',
     sessionsModule: '会话',
     sessionsModuleDescription:
       '在不猜测隐藏停留时间的前提下，把相邻访问整理成浏览会话。',
     searchTrailsModule: '搜索轨迹',
     searchTrailsModuleDescription:
-      '根据标准化后的 visit 构建搜索轨迹、轨迹成员、搜索事件和查询家族。',
+      '根据标准化后的访问记录构建搜索轨迹、轨迹成员、搜索事件和查询家族。',
     refindPagesModule: '重访页面',
     refindPagesModuleDescription:
       '追踪那些反复帮助你回到同一项工作的页面与来源。',
     activityMixModule: '活动构成',
     activityMixModuleDescription:
-      '让 digest 指标与按周期比较的活动摘要持续跟每日 rollup 对齐。',
+      '让摘要指标与按周期比较的活动摘要持续跟每日汇总对齐。',
     searchEffectivenessModule: '搜索效果',
     searchEffectivenessModuleDescription:
       '解释哪些搜索轨迹会重新打开问题、收敛，或带来有用的后续结果。',
@@ -311,16 +327,38 @@ export const settingsDerivedAndRuntimeNamespace = {
     deterministicModuleDailyRollupsRefreshed:
       '已为 {profile} 刷新变更过的每日汇总。',
     deterministicModuleDailyRollupsRebuilt: '已为 {profile} 重建全部每日汇总。',
-    deterministicModuleDailyRollupsManualRebuild:
-      '已请求手动完整重建每日汇总。',
-    deterministicModuleDailyRollupsVisibilityRegressed:
-      '存档可见性回退，或每日汇总的来源计数出现倒退。',
     deterministicModuleNoVisibleVisitsClearedStructural:
       '{profile} 没有剩余可见访问，已清除结构化实体。',
     deterministicModuleStructuralUpToDate: '{profile} 的结构化实体已经是最新。',
     deterministicModuleStructuralTailRebuilt:
       '已为 {profile} 重建结构化尾部实体。',
     deterministicModuleStructuralRebuilt: '已为 {profile} 重建全部结构化实体。',
+    deterministicModuleRebuildScopeEmpty: '本次重建范围内没有可见访问记录。',
+    deterministicModuleRebuildLegacyFallback:
+      '已通过限定范围的调试回退路径完成一次{jobKind}。',
+    deterministicModuleRebuildCheckpointAware:
+      '已为 {profile} 执行基于检查点的重建；在检查点可用时，各阶段都走了增量路径。',
+    deterministicModuleRebuildCompleted: '已完成一次{jobKind}。',
+    deterministicModuleModulesInSync: '各模块与当前派生数据一致。',
+    deterministicModuleNeverBuilt: '这个模块还没有运行过确定性重建。',
+    deterministicModuleNoSuccessfulRebuild: '还没有记录到成功的确定性重建。',
+    deterministicModuleDisabledNote: '已在设置中关闭。',
+    deterministicModuleRebuildRequired:
+      '需要先执行一次确定性重建，这些摘要才会重新变新。',
+    deterministicModuleVersionMismatch:
+      '存储的模块版本与当前内置规则包不一致。',
+    deterministicModuleStaleVersionChanged:
+      '模块版本在上次确定性重建之后发生了变化。',
+    deterministicModuleStaleMissingBuildTimestamp:
+      '最新的确定性输出没有构建时间戳。',
+    deterministicModuleStaleArchiveDataChanged:
+      '存档数据发生变化，已排入 Core Intelligence 刷新任务。',
+    deterministicModuleStaleVisibilityOrRollbackChanged:
+      '上次 Core Intelligence 重建之后，存档可见性或回滚状态发生了变化。',
+    rebuildModeVisitDerive: '访问派生事实刷新',
+    rebuildModeDailyRollup: '每日汇总刷新',
+    rebuildModeStructuralRebuild: '结构化实体重建',
+    rebuildModeFullRebuild: '完整重建',
     deterministicModuleStaleReason: '过期原因',
     deterministicModuleReady: '已就绪',
     deterministicModuleStale: '已过期',
@@ -341,13 +379,12 @@ export const settingsDerivedAndRuntimeNamespace = {
     pluginLastError: '最近错误',
     networkAccess: '网络',
     localOnly: '仅本地',
-    readableContentRefetchImpact: 'v0.2.0 不会抓取网页正文。',
     disablePlugin: '关闭',
     enablePlugin: '开启',
     runtimeRecentJobs: '最近运行任务',
-    runtimeQueueDetailsTitle: '运行任务详情在后台任务页',
+    runtimeQueueDetailsTitle: '运行任务详情在活动页',
     runtimeQueueDetailsBody:
-      '维护页只显示模块 / 插件设置和重建控制。重试、取消、日志和最近任务列表统一留在后台任务页。',
+      '维护页只显示模块 / 插件设置和重建控制。重试、取消、日志和最近任务列表统一留在活动页。',
     runtimeNoJobs: '下一次确定性刷新后，这里会显示最近的队列活动。',
     deterministicRebuildJobLabel: '确定性重建',
     runtimeJobAttempt: '第 {attempt} 次尝试',
@@ -369,7 +406,7 @@ export const settingsDerivedAndRuntimeNamespace = {
       '处理了 {visits} 条浏览记录，刷新了 {enriched} 条增强数据，生成了 {cards} 张洞察卡片。',
     rebuildQueuedTitle: '重新生成已加入队列',
     rebuildQueuedBody:
-      '确定性重新生成任务 #{jobId} 已进入后台任务。PathKeep 会在后台刷新卡片和派生证据，你可以到 Jobs 页面查看进度。',
+      '确定性重新生成任务 #{jobId} 已进入活动页。PathKeep 会在后台刷新卡片和派生证据，你可以在那里跟进进度。',
     clearCompletedTitle: '数据已清除',
     clearCompletedBody:
       '清除了 {visitDerivedFacts} 条访问派生数据、{dailyRollups} 条每日汇总数据、{structural} 条结构化数据和 {runtime} 条运行时数据。原始历史记录未受影响。',
@@ -407,7 +444,7 @@ export const settingsDerivedAndRuntimeNamespace = {
     searchRulesCustom: '自訂規則',
     searchRulesCustomCount: '{count} 條自訂規則',
     searchRulesCustomBody:
-      '自訂規則可讓 PathKeep 辨識站內搜尋頁面，而不用重開已接受的 route grammar。',
+      '自訂規則可讓 PathKeep 辨識站內搜尋頁面，而不用改動內建的網址辨識規則。',
     searchRulesCustomEmpty: '還沒有自訂搜尋規則。',
     searchRulesEdit: '編輯規則',
     searchRulesDelete: '刪除規則',
@@ -427,7 +464,7 @@ export const settingsDerivedAndRuntimeNamespace = {
     searchRulesDeleting: '正在刪除搜尋規則…',
     runtimeQueueTitle: '執行佇列',
     runtimeQueueBody:
-      '完整重建會刷新卡片和衍生證據。增強工作只補充可選資料，失敗、重試或取消都不會改動原始歷史紀錄。',
+      '完整重建會重新整理卡片和衍生證據。增強工作只補充可選資料，失敗、重試或取消都不會改動原始歷史紀錄。',
     runtimeQueueSummary:
       '{queued} 個排隊 / {running} 個執行中 / {failed} 個失敗',
     rebuildDerivedState: '重新產生',
@@ -437,31 +474,27 @@ export const settingsDerivedAndRuntimeNamespace = {
     titleNormalizationDescription:
       '在本機整理網頁標題，讓重複分頁、跳轉頁和多餘尾碼變成更清楚的證據標籤。',
     readableContentRefetch: '網頁可讀內容擷取',
-    readableContentRefetchBody:
-      '已排入 v0.3，v0.2.0 暫不開放。這個未來工作會在足夠可靠後，再重新造訪頁面並提取正文。',
     readableContentPlugin: '網頁可讀內容擷取',
     readableContentDescription:
       '為你已經造訪過的頁面擷取網站內容——GitHub 儲存庫的描述和主題，或網頁的簡短可讀摘要——並在本機補充進去。可選，預設關閉；你可在「網站內容」裡打開，它始終離線優先，在你同意前絕不會聯絡任何網站。',
-    readableContentDeferredBadge: 'v0.3 開放',
-    readableContentDeferredTooltip: '網頁正文擷取會在後續版本開放。',
     visitDerivedFactsModule: '造訪衍生事實',
     visitDerivedFactsModuleDescription:
-      '先把 visit 層級的證據、站點詞典欄位與搜尋中繼資料標準化，再交給後續重建階段使用。',
+      '先把造訪層級的證據、站點詞典欄位與搜尋中繼資料標準化，再交給後續重建階段使用。',
     dailyRollupsModule: '每日彙總',
     dailyRollupsModuleDescription:
-      '產生 domain、category、engine 與 digest summary 的日級 rollup。',
+      '產生網域、類別、搜尋引擎與每日摘要的日級彙總。',
     sessionsModule: '工作階段',
     sessionsModuleDescription:
       '在不猜測隱藏停留時間的前提下，把相鄰造訪整理成瀏覽工作階段。',
     searchTrailsModule: '搜尋軌跡',
     searchTrailsModuleDescription:
-      '根據標準化後的 visit 建立搜尋軌跡、軌跡成員、搜尋事件與查詢家族。',
+      '根據標準化後的造訪紀錄建立搜尋軌跡、軌跡成員、搜尋事件與查詢家族。',
     refindPagesModule: '重訪頁面',
     refindPagesModuleDescription:
       '追蹤那些反覆幫助你回到同一項工作的頁面與來源。',
     activityMixModule: '活動構成',
     activityMixModuleDescription:
-      '讓 digest 指標與分期比較的活動摘要持續和每日 rollup 對齊。',
+      '讓摘要指標與分期比較的活動摘要持續和每日彙總對齊。',
     searchEffectivenessModule: '搜尋效果',
     searchEffectivenessModuleDescription:
       '解釋哪些搜尋軌跡會重新打開問題、收斂，或帶來有用的後續結果。',
@@ -480,25 +513,47 @@ export const settingsDerivedAndRuntimeNamespace = {
     deterministicModuleVisitFactsUpToDate:
       '{profile} 的造訪衍生事實已經是最新。',
     deterministicModuleVisitFactsRefreshed:
-      '已為 {profile} 增量刷新造訪衍生事實。',
+      '已為 {profile} 增量重新整理造訪衍生事實。',
     deterministicModuleVisitFactsRebuilt:
-      '已為 {profile} 用限定範圍的完整刷新重建造訪衍生事實。',
+      '已為 {profile} 用限定範圍的完整重新整理重建造訪衍生事實。',
     deterministicModuleNoVisibleVisitsClearedDailyRollups:
       '{profile} 沒有剩餘可見造訪，已清除每日彙總。',
     deterministicModuleDailyRollupsUpToDate: '{profile} 的每日彙總已經是最新。',
     deterministicModuleDailyRollupsRefreshed:
-      '已為 {profile} 刷新變更過的每日彙總。',
+      '已為 {profile} 重新整理變更過的每日彙總。',
     deterministicModuleDailyRollupsRebuilt: '已為 {profile} 重建全部每日彙總。',
-    deterministicModuleDailyRollupsManualRebuild:
-      '已要求手動完整重建每日彙總。',
-    deterministicModuleDailyRollupsVisibilityRegressed:
-      '封存可見性回退，或每日彙總的來源計數出現倒退。',
     deterministicModuleNoVisibleVisitsClearedStructural:
       '{profile} 沒有剩餘可見造訪，已清除結構化實體。',
     deterministicModuleStructuralUpToDate: '{profile} 的結構化實體已經是最新。',
     deterministicModuleStructuralTailRebuilt:
       '已為 {profile} 重建結構化尾端實體。',
     deterministicModuleStructuralRebuilt: '已為 {profile} 重建全部結構化實體。',
+    deterministicModuleRebuildScopeEmpty: '本次重建範圍內沒有可見造訪紀錄。',
+    deterministicModuleRebuildLegacyFallback:
+      '已透過限定範圍的除錯回退路徑完成一次{jobKind}。',
+    deterministicModuleRebuildCheckpointAware:
+      '已為 {profile} 執行基於檢查點的重建；在檢查點可用時，各階段都走了增量路徑。',
+    deterministicModuleRebuildCompleted: '已完成一次{jobKind}。',
+    deterministicModuleModulesInSync: '各模組與目前衍生資料一致。',
+    deterministicModuleNeverBuilt: '這個模組還沒有執行過確定性重建。',
+    deterministicModuleNoSuccessfulRebuild: '還沒有記錄到成功的確定性重建。',
+    deterministicModuleDisabledNote: '已在設定中關閉。',
+    deterministicModuleRebuildRequired:
+      '需要先執行一次確定性重建，這些摘要才會重新變新。',
+    deterministicModuleVersionMismatch:
+      '儲存的模組版本與目前內建規則包不一致。',
+    deterministicModuleStaleVersionChanged:
+      '模組版本在上次確定性重建之後發生了變化。',
+    deterministicModuleStaleMissingBuildTimestamp:
+      '最新的確定性輸出沒有建置時間戳。',
+    deterministicModuleStaleArchiveDataChanged:
+      '封存資料發生變化，已排入 Core Intelligence 重新整理工作。',
+    deterministicModuleStaleVisibilityOrRollbackChanged:
+      '上次 Core Intelligence 重建之後，封存可見性或回滾狀態發生了變化。',
+    rebuildModeVisitDerive: '造訪衍生事實重新整理',
+    rebuildModeDailyRollup: '每日彙總重新整理',
+    rebuildModeStructuralRebuild: '結構化實體重建',
+    rebuildModeFullRebuild: '完整重建',
     deterministicModuleStaleReason: '過期原因',
     deterministicModuleReady: '已就緒',
     deterministicModuleStale: '已過期',
@@ -519,13 +574,12 @@ export const settingsDerivedAndRuntimeNamespace = {
     pluginLastError: '最近錯誤',
     networkAccess: '網路',
     localOnly: '僅限本機',
-    readableContentRefetchImpact: 'v0.2.0 不會擷取網頁正文。',
     disablePlugin: '關閉',
     enablePlugin: '開啟',
     runtimeRecentJobs: '最近執行工作',
-    runtimeQueueDetailsTitle: '執行工作詳情在背景工作頁',
+    runtimeQueueDetailsTitle: '執行工作詳情在活動頁',
     runtimeQueueDetailsBody:
-      '維護頁只顯示模組 / 外掛設定和重建控制。重試、取消、日誌和最近工作列表統一留在背景工作頁。',
+      '維護頁只顯示模組 / 外掛設定和重建控制。重試、取消、日誌和最近工作列表統一留在活動頁。',
     runtimeNoJobs: '下一次確定性重新整理後，這裡會顯示最近的佇列活動。',
     deterministicRebuildJobLabel: '確定性重建',
     runtimeJobAttempt: '第 {attempt} 次嘗試',
@@ -547,7 +601,7 @@ export const settingsDerivedAndRuntimeNamespace = {
       '處理了 {visits} 筆瀏覽紀錄，重新整理了 {enriched} 筆增強資料，產生了 {cards} 張洞察卡片。',
     rebuildQueuedTitle: '重新產生已加入佇列',
     rebuildQueuedBody:
-      '確定性重新產生任務 #{jobId} 已進入背景工作。PathKeep 會在背景重新整理卡片和派生證據，你可以到 Jobs 頁面查看進度。',
+      '確定性重新產生任務 #{jobId} 已進入活動頁。PathKeep 會在背景重新整理卡片和派生證據，你可以在那裡追蹤進度。',
     clearCompletedTitle: '資料已清除',
     clearCompletedBody:
       '清除了 {visitDerivedFacts} 筆造訪衍生資料、{dailyRollups} 筆每日彙總資料、{structural} 筆結構化資料和 {runtime} 筆執行階段資料。原始歷史紀錄未受影響。',

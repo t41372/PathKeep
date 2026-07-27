@@ -149,12 +149,22 @@ export function useExplorerUrlState({
   )
 
   const persistRecentSearch = useCallback(
-    (params: RecentSearchEntry['params']) => {
+    (
+      params: RecentSearchEntry['params'],
+      /**
+       * What the query actually returned. Recorded so the Search empty state
+       * can caption each recent row honestly ("Keyword · 128 results · …")
+       * instead of interpolating a number nobody measured.
+       */
+      outcome?: { total: number; at: number },
+    ) => {
       const label = buildRecentSearchLabel(params)
       if (!label) return
 
       const nextEntry: RecentSearchEntry = {
         label,
+        total: outcome?.total,
+        at: outcome?.at,
         params: {
           ...params,
           sort: params.sort ?? 'newest',
@@ -264,6 +274,16 @@ export function useExplorerUrlState({
     setQueryInput(rawQuery)
   }, [rawQuery])
 
+  // Keep the page-jump draft in step with the page the URL actually shows.
+  // Without this the box keeps whatever the user last typed (or the initial
+  // "1") while First / Prev / Next / Last move the real page underneath it, so
+  // the pager would tell the user they are on a page they left three clicks
+  // ago. Keyed on the URL page only, so mid-typing re-renders never clobber the
+  // draft.
+  useEffect(() => {
+    setHistoryPageInput(String(explicitPage ?? 1))
+  }, [explicitPage])
+
   const browserKinds = buildExplorerBrowserKinds(selectedProfileIds)
   const activeFilters = buildExplorerActiveFilters({
     browserLabelForKind: browserLabel,
@@ -299,7 +319,40 @@ export function useExplorerUrlState({
   }
 
   /**
-   * Explains how update param works.
+   * Applies several URL params in ONE navigation.
+   *
+   * Every writer must go through a single `setSearchParams` call per user
+   * action. `searchParams` is the render-time snapshot, so two sequential
+   * `updateParam` calls both diff against the SAME stale value and the second
+   * navigation silently discards the first one's write. That is not
+   * theoretical: the search-mode toggle used to call `updateParam('mode', …)`
+   * followed by `updateParam('regex', …)`, which made the Smart tab
+   * unreachable (its `mode` write was overwritten) and made the Regex tab
+   * produce `mode=hybrid&regex=1`. The functional `setSearchParams(prev => …)`
+   * form does not help — react-router feeds it the same render-time value.
+   */
+  function updateParams(
+    patch: Record<string, string | null>,
+    options?: { resetPagination?: boolean },
+  ) {
+    const resetPagination = options?.resetPagination ?? true
+    const next = new URLSearchParams(searchParams)
+    for (const [key, value] of Object.entries(patch)) {
+      if (!value) next.delete(key)
+      else next.set(key, value)
+    }
+    if (resetPagination) {
+      next.delete('page')
+      next.delete('cursor')
+      next.delete('semanticCursor')
+      resetSemanticPagination()
+    }
+    setSearchParams(next)
+  }
+
+  /**
+   * Applies ONE URL param. Thin wrapper over [`updateParams`] — see its note on
+   * why callers that change more than one param must batch them.
    *
    * Keeping this as a named declaration makes the Explorer surface easier to review and test than burying the behavior inside another anonymous callback.
    */
@@ -308,17 +361,7 @@ export function useExplorerUrlState({
     value: string | null,
     options?: { resetPagination?: boolean },
   ) {
-    const resetPagination = options?.resetPagination ?? true
-    const next = new URLSearchParams(searchParams)
-    if (!value) next.delete(key)
-    else next.set(key, value)
-    if (resetPagination) {
-      next.delete('page')
-      next.delete('cursor')
-      next.delete('semanticCursor')
-      resetSemanticPagination()
-    }
-    setSearchParams(next)
+    updateParams({ [key]: value }, options)
   }
 
   /**
@@ -592,6 +635,7 @@ export function useExplorerUrlState({
     sort,
     start,
     updateParam,
+    updateParams,
     view,
   }
 }

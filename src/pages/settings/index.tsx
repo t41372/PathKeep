@@ -29,6 +29,7 @@ import { EmptyState } from '../../components/primitives/empty-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { useI18n } from '../../lib/i18n'
+import { isPaperQaLayoutEnabled } from '../../lib/paper-qa-layout'
 import { AiProvidersSection } from './ai-providers-section'
 import { AppearanceSection } from './appearance-section'
 import { ContentFetchSection } from './content-fetch-section'
@@ -70,7 +71,7 @@ export function SettingsPage() {
   } = useShellData()
   const { setLanguagePreference, t } = useI18n()
   const [searchParams] = useSearchParams()
-  const paperLayout = searchParams.get('layout') === 'paper'
+  const paperLayout = isPaperQaLayoutEnabled(searchParams)
   const routeState = useSettingsRouteState({
     appLockStatus,
     buildInfo,

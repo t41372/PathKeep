@@ -286,9 +286,12 @@ describe('SecuritySection', () => {
     expect(await screen.findByText('Saved')).toBeInTheDocument()
   })
 
-  test('toggling OFF still persists the opt-out when clearing the keychain fails', async () => {
-    // The keychain clear is best-effort: a rejection is swallowed so the
-    // remember=false flag still persists (no stuck "remembered" state).
+  test('toggling OFF aborts and reports when clearing the keychain fails', async () => {
+    // Turning this OFF is a promise that the password leaves the OS keychain.
+    // The clear used to be swallowed, so the flag persisted and a "Saved" chip
+    // flashed while the secret was still in the keychain — the app claiming
+    // success at exactly the thing the user asked for and did not get. A failed
+    // clear must now leave the setting alone and say what happened.
     vi.mocked(backend.keyringClearDatabaseKey).mockRejectedValueOnce(
       new Error('keychain clear boom'),
     )
@@ -303,13 +306,37 @@ describe('SecuritySection', () => {
 
     fireEvent.click(screen.getByTestId('keychain-remember-toggle'))
 
-    await waitFor(() =>
-      expect(saveConfig).toHaveBeenCalledWith(
-        expect.objectContaining({ rememberDatabaseKeyInKeyring: false }),
-        { quiet: true },
+    expect(
+      await screen.findByText('The saved password was not removed'),
+    ).toBeInTheDocument()
+    // The raw cause stays visible as a diagnostic the user can report.
+    expect(screen.getByText(/keychain clear boom/)).toBeInTheDocument()
+    // The opt-out must NOT have been persisted, and no success chip shown.
+    expect(saveConfig).not.toHaveBeenCalled()
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+  })
+
+  test('a failed save while turning ON shows no keychain-clear error', async () => {
+    // Turning ON never clears anything, so the keychain-specific copy would be
+    // a lie here. A failed write on this path surfaces through the shell's
+    // config-save channel instead, and the toggle must not flash "Saved".
+    const saveConfig = vi.fn().mockRejectedValue(new Error('disk full'))
+    renderSection(
+      snapshotFixture(
+        { available: true },
+        { rememberDatabaseKeyInKeyring: false },
       ),
+      { saveConfig },
     )
-    expect(await screen.findByText('Saved')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('keychain-remember-toggle'))
+
+    await waitFor(() => expect(saveConfig).toHaveBeenCalledTimes(1))
+    expect(backend.keyringClearDatabaseKey).not.toHaveBeenCalled()
+    expect(
+      screen.queryByText('The saved password was not removed'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
   })
 
   test('does not call keyringClearDatabaseKey when toggling ON', async () => {

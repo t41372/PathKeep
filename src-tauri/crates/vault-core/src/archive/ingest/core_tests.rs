@@ -319,11 +319,29 @@ fn skipped_profile_and_marker_helpers_cover_family_edges() {
     );
 
     let warnings = collect_skipped_profiles(&discovered, &selected);
-    assert!(warnings.iter().any(|warning| warning.contains("Full Disk Access")));
-    assert!(warnings.iter().any(|warning| warning.contains("History is missing")));
-    assert!(warnings.iter().any(|warning| warning.contains("edge:Default")));
-    assert!(warnings.iter().any(|warning| warning.contains("missing or unreadable")));
-    assert!(warnings.iter().any(|warning| warning.contains("chrome:Gone")));
+    assert!(warnings.iter().any(|warning| warning.message.contains("Full Disk Access")));
+    assert!(warnings.iter().any(|warning| warning.message.contains("History is missing")));
+    assert!(warnings.iter().any(|warning| warning.message.contains("edge:Default")));
+    assert!(warnings.iter().any(|warning| warning.message.contains("missing or unreadable")));
+    assert!(warnings.iter().any(|warning| warning.message.contains("chrome:Gone")));
+    // The code + typed-param channel: Safari FDA keeps its existing frozen
+    // code; the other skips carry the new enumerable codes with profile ids.
+    assert!(warnings.iter().any(|warning| {
+        warning.code == "safari-full-disk-access-skip"
+            && warning.profile_id.as_deref() == Some("safari:Default")
+    }));
+    assert!(warnings.iter().any(|warning| {
+        warning.code == "profile-history-unreadable-skip"
+            && warning.profile_id.as_deref() == Some("edge:Default")
+            && warning
+                .diagnostic
+                .as_deref()
+                .is_some_and(|diagnostic| diagnostic.contains("/profiles/edge/Default"))
+    }));
+    assert!(warnings.iter().any(|warning| {
+        warning.code == "profile-not-detected-skip"
+            && warning.profile_id.as_deref() == Some("chrome:Gone")
+    }));
 
     let firefox = profile("firefox", "firefox:Default");
     assert_eq!(url_last_visit_marker(&firefox, &parsed_url(7, 123)), 123);

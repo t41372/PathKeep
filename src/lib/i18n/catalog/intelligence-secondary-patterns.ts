@@ -221,7 +221,7 @@ export const intelligenceSecondaryPatternsNamespace = {
       '這些題目通常需要多次換詞，或隔幾天又回來繼續搜。',
     searchEffectivenessLag: '{days} 天後又回來搜',
     frictionTitle: '碰壁與高摩擦偵測',
-    frictionEmpty: '沒有檢測到碰壁信號。',
+    frictionEmpty: '沒有檢測到碰壁訊號。',
     frictionStrong: '強證據',
     frictionWeak: '弱證據',
     reopenedTitle: '反覆回來查的問題',

@@ -717,7 +717,7 @@ describe('ArchiveRecoveryScreen', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /restore from this snapshot/i }),
     )
-    const keyInput = screen.getByLabelText('Archive key')
+    const keyInput = screen.getByLabelText('Archive password')
     expect(keyInput).toBeInTheDocument()
     fireEvent.change(keyInput, { target: { value: 'the-key' } })
 
@@ -740,7 +740,7 @@ describe('ArchiveRecoveryScreen', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /restore from this snapshot/i }),
     )
-    expect(screen.queryByLabelText('Archive key')).toBeNull()
+    expect(screen.queryByLabelText('Archive password')).toBeNull()
   })
 
   test('encrypted confirm moves focus to the key field, not the destructive button', () => {
@@ -751,7 +751,9 @@ describe('ArchiveRecoveryScreen', () => {
       screen.getByRole('button', { name: /restore from this snapshot/i }),
     )
     // Focus lands on the field the user must fill, not the "Restore now" button.
-    expect(document.activeElement).toBe(screen.getByLabelText('Archive key'))
+    expect(document.activeElement).toBe(
+      screen.getByLabelText('Archive password'),
+    )
   })
 
   test('main panel exposes a persistent "Reveal logs" forward path', async () => {

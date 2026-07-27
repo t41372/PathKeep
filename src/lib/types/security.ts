@@ -57,7 +57,13 @@ export interface SecurityStatus {
   lastRekeyRunId?: number | null
   lastRekeySnapshotPath?: string | null
   keyringStatus: KeyringStatusReport
+  /** Diagnostic English prose; only rendered when a code has no catalog entry. */
   warnings: string[]
+  /**
+   * Stable warning codes aligned index-for-index with `warnings`. An entry is
+   * `''` when the backend is passing an opaque diagnostic through.
+   */
+  warningCodes?: string[]
 }
 
 /**
@@ -84,5 +90,12 @@ export interface RekeyPreview {
   snapshotPath: string
   tempDatabasePath: string
   steps: string[]
+  /** Diagnostic English prose; only rendered when a code has no catalog entry. */
   warnings: string[]
+  /**
+   * Stable warning codes aligned index-for-index with `warnings`, mirroring
+   * `SecurityStatus.warningCodes`. An entry is `''` when the backend is passing
+   * an opaque diagnostic through.
+   */
+  warningCodes?: string[]
 }

@@ -118,18 +118,52 @@ export interface BackupProfileSummary {
 }
 
 /**
+ * Names one non-fatal backup warning with a stable code and typed params.
+ *
+ * Why this exists: backup warnings land in the run ledger and are rendered on
+ * the Audit run-detail surface, so English-only prose meant a `zh` user read
+ * English. The code drives catalog lookup; `message` is the fallback and
+ * `diagnostic` is verbatim evidence. An empty `code` marks a deliberate
+ * diagnostic pass-through (staging fallback, git error) with no coded meaning.
+ */
+export interface BackupWarning {
+  code: string
+  message: string
+  /** Primary count: URLs due, URLs enqueued, cache rows removed, … */
+  count?: number | null
+  /** How many of `count` succeeded, for warnings reporting an attempt. */
+  succeeded?: number | null
+  /** Orphan blobs removed by a cache-hygiene pass. */
+  blobs?: number | null
+  /** Bytes reclaimed by a cache-hygiene pass. */
+  bytes?: number | null
+  jobId?: number | null
+  profileId?: string | null
+  diagnostic?: string | null
+}
+
+/**
  * Represents a completed report that the UI can review after a run finishes.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface BackupReport {
   dueSkipped: boolean
+  /** Stable machine-readable skip reason ('not-due' | 'write-lock'); UI copy keys on this. */
+  reasonCode?: string | null
+  /** Backend English narration for the skip; diagnostic fallback only. */
   reason?: string | null
   run?: BackupRunOverview | null
   profiles: BackupProfileSummary[]
   manifestPath?: string | null
   gitCommit?: string | null
+  /**
+   * Diagnostic English prose. `isFullDiskAccessIssueMessage` matches its Safari
+   * marker text, so this channel stays byte-stable.
+   */
   warnings: string[]
+  /** Coded mirror of `warnings`, index-aligned; absent on older payloads. */
+  warningDetails?: BackupWarning[]
 }
 
 /**
@@ -251,7 +285,10 @@ export interface RetentionBucket {
  */
 export interface RetentionPreview {
   buckets: RetentionBucket[]
+  /** Diagnostic English prose; only rendered when a code has no catalog entry. */
   warnings: string[]
+  /** Stable warning codes aligned index-for-index with `warnings`. */
+  warningCodes?: string[]
 }
 
 /**

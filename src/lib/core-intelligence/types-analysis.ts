@@ -318,10 +318,54 @@ export interface ExplainabilityFactor {
   contribution: number
 }
 
+/**
+ * Stable, locale-independent CODES for the rule that produced an entity.
+ *
+ * Mirrors the `Explanation::TRIGGER_RULE_*` constants in
+ * `vault-core/src/models/core_intelligence/analytics.rs`. The panel localizes from these codes plus
+ * the structured params on `Explanation`, so it never has to parse the English `triggerRule` prose
+ * to recover a number or an anchor query. `string & {}` keeps an unknown backend code assignable
+ * (it falls back to legacy prose matching) while still autocompleting the shipped set.
+ */
+export type ExplanationTriggerRuleCode =
+  | 'refind-score'
+  | 'session-deep-dive'
+  | 'session-gap'
+  | 'search-trail'
+  | 'query-family'
+  | 'reopened-investigation'
+  | 'habit-pattern'
+  | 'habit-pattern-interrupted'
+  | 'path-flow'
+  | 'compare-set'
+
 export interface Explanation {
   entityType: string
   entityId: string
-  triggerRule: string
+  /**
+   * English DIAGNOSTIC prose. OPTIONAL: every shipped backend rule now carries a
+   * `triggerRuleCode`, so a front-end-composed explanation (the Refind route hands the panel one
+   * directly) has no prose to supply and must not invent an English sentence just to fill this in.
+   * The UI renders from `triggerRuleCode`; this string is only matched as a fallback for payloads
+   * that predate the code (see `localizeTriggerRule`).
+   */
+  triggerRule?: string
+  /**
+   * Stable rule CODE (additive — absent on pre-code payloads). Typed loosely on purpose: a code the
+   * front end does not know must degrade to the legacy prose path rather than fail to parse.
+   */
+  triggerRuleCode?: ExplanationTriggerRuleCode | (string & {}) | null
+  /** Score threshold the entity crossed — paired with `refind-score`. */
+  triggerRuleScore?: number | null
+  /** Anchor query the rule keyed on — paired with `search-trail` and `query-family`. */
+  triggerRuleQuery?: string | null
+  /** Session-grouping gap threshold in minutes — paired with `session-gap`. */
+  triggerRuleGapMinutes?: number | null
+  /**
+   * Habit-cadence TYPE code (`daily_habit` / `weekly_habit` / `periodic_reference`) — paired with the
+   * two `habit-pattern*` codes. The raw code, localized by the panel's habit-type table.
+   */
+  triggerRuleHabitType?: string | null
   factors: ExplainabilityFactor[]
   participatingVisitIds: number[]
 }

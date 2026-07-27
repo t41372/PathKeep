@@ -19,6 +19,7 @@
 
 import type { ReactNode } from 'react'
 import type * as IntelligenceAiPresentation from '../../lib/intelligence-ai-presentation'
+import type * as ExplorerPaper from '../../components/explorer-paper'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -154,7 +155,12 @@ vi.mock('./panels/detail-panel', () => ({
   ExplorerDetailPanel: () => <div data-testid="detail-panel">detail</div>,
 }))
 
-vi.mock('../../components/explorer-paper', () => ({
+vi.mock('../../components/explorer-paper', async (importOriginal) => ({
+  // The view toggle is NOT stubbed: E3's regression test drives the real
+  // control through the real MemoryRouter and asserts the resulting URL, so a
+  // stub would test the stub rather than the entry point.
+  PaperViewToggle: (await importOriginal<typeof ExplorerPaper>())
+    .PaperViewToggle,
   PaperFilterStrip: (props: {
     onApply: (next: {
       domain: string
@@ -855,6 +861,7 @@ describe('ExplorerPage route shell', () => {
     const user = userEvent.setup()
     const setQueryInput = vi.fn()
     const updateParam = vi.fn()
+    const updateParams = vi.fn()
     const setSearchParams = vi.fn()
     const setSelectedId = vi.fn()
     useExplorerUrlStateMock.mockReturnValue(
@@ -862,6 +869,7 @@ describe('ExplorerPage route shell', () => {
         searchParams: new URLSearchParams('surface=search&q=initial'),
         setQueryInput,
         updateParam,
+        updateParams,
         setSearchParams,
       }),
     )
@@ -882,14 +890,17 @@ describe('ExplorerPage route shell', () => {
     expect(setQueryInput).toHaveBeenCalledWith('next-query')
     expect(updateParam).not.toHaveBeenCalledWith('q', 'next-query')
 
+    // Mode + regex MUST travel in ONE batched write. Two sequential
+    // single-key writes both diff against the stale render-time params, so
+    // the second silently discarded the first — which made the Smart tab
+    // unreachable and made Regex produce `mode=hybrid&regex=1`.
     await user.click(screen.getByTestId('paper-search-mode'))
-    expect(updateParam).toHaveBeenCalledWith('mode', 'hybrid')
-    expect(updateParam).toHaveBeenCalledWith('regex', '1')
+    expect(updateParams).toHaveBeenCalledWith({ mode: 'hybrid', regex: '1' })
+    expect(updateParam).not.toHaveBeenCalledWith('mode', 'hybrid')
 
     await user.click(screen.getByTestId('paper-search-mode-keyword'))
-    // keyword mode collapses back to the default (passes null on both).
-    expect(updateParam).toHaveBeenCalledWith('mode', null)
-    expect(updateParam).toHaveBeenCalledWith('regex', null)
+    // keyword mode collapses back to the default (null on both keys).
+    expect(updateParams).toHaveBeenCalledWith({ mode: null, regex: null })
 
     // Submit is the ONLY thing that writes `q` (the URL = the backend query).
     await user.click(screen.getByTestId('paper-search-submit'))
@@ -971,7 +982,7 @@ describe('ExplorerPage route shell', () => {
                   domain: 'tokio.rs',
                   visitedAt: '2026-05-16T10:00:00.000Z',
                   score: 0.92,
-                  matchReason: 'Lexical + semantic match',
+                  matchReason: 'lexical+semantic',
                 },
               ],
             },
@@ -1059,7 +1070,7 @@ describe('ExplorerPage route shell', () => {
                   domain: 'tokio.rs',
                   visitedAt: 'not-a-real-date',
                   score: 0.5,
-                  matchReason: 'Semantic match',
+                  matchReason: 'semantic',
                 },
               ],
             },
@@ -1512,8 +1523,85 @@ describe('ExplorerPage route shell', () => {
     )
   })
 
+  test('a Smart selection that is in neither pool resolves to no entry instead of binding the wrong record', () => {
+    // E1 follow-through: with the `items[0]` fallback gone, `selectedId` can
+    // legitimately outlive both the ranked pool and the keyword pool (a filter
+    // dropped the row, a refresh replaced the page). The route must resolve
+    // that to "no entry" — never to some other record under the same open
+    // panel.
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1', label: 'Local AI' })
+    aiStatusMetaMock.mockReturnValue({ label: 'Index ready', tone: 'success' })
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async runtime',
+        searchParams: new URLSearchParams('surface=search&q=async%20runtime'),
+        semanticQuery: { query: 'async runtime' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          selectedId: 999,
+          semanticState: {
+            error: null,
+            requestKey: options.semanticRequestKey,
+            results: {
+              total: 1,
+              providerId: 'embed-1',
+              model: 'text-embedding-3-small',
+              notes: [],
+              nextCursor: null,
+              items: [
+                {
+                  historyId: 501,
+                  profileId: 'chrome:Default',
+                  url: 'https://tokio.rs/internals',
+                  title: 'tokio internals',
+                  domain: 'tokio.rs',
+                  visitedAt: '2026-05-16T10:00:00.000Z',
+                  score: 0.92,
+                  matchReason: 'lexical+semantic',
+                },
+              ],
+            },
+          },
+        }),
+    )
+
+    renderExplorer()
+
+    expect(screen.getByTestId('paper-search-panel')).toBeInTheDocument()
+    // No detail mount: nothing was silently rebound to row 501.
+    expect(screen.queryByTestId('paper-detail-mount')).toBeNull()
+  })
+
+  test('the Starred hub suppresses the truncation notice while the aggregate count is untrustworthy', async () => {
+    // E2: the notice names a real total. If `get_star_counts` failed we have
+    // no trustworthy total, so the hub must stay silent rather than swap one
+    // invented number for another.
+    desktopCommandTransportAvailable.value = true
+    ;(backend.getStarCounts as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('archive locked'),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=starred'),
+      }),
+    )
+    renderExplorer()
+
+    await waitFor(() => expect(backend.getStarCounts).toHaveBeenCalled())
+    expect(screen.getByTestId('paper-starred-view')).toBeInTheDocument()
+    expect(screen.queryByTestId('paper-starred-truncated')).toBeNull()
+  })
+
   test('is:starred facet renders the TRUE starred set from list_stars with an honest total', async () => {
     const user = userEvent.setup()
+    // The aggregate count read only runs on the desktop transport; in
+    // browser-preview it is a trustworthy zero.
+    desktopCommandTransportAvailable.value = true
     // No starred pages → the facet shows an empty, honest result (0 entries,
     // 0 total), not a misleading slice of the loaded keyword page.
     useExplorerUrlStateMock.mockReturnValue(
@@ -1561,6 +1649,15 @@ describe('ExplorerPage route shell', () => {
         visitCount: 12,
       },
     ])
+    // E2: the reported total is now the AGGREGATE page count from
+    // `get_star_counts`, not the length of the loaded `list_stars` slice —
+    // that slice is capped, so its length announced "500 pages found" to a
+    // user with 700 stars. Domain stars stay out of the *page* facet, so the
+    // facet reads `urls`, not `urls + domains`.
+    ;(backend.getStarCounts as ReturnType<typeof vi.fn>).mockResolvedValue({
+      urls: 2,
+      domains: 1,
+    })
     useExplorerUrlStateMock.mockReturnValue(
       defaultUrlState({
         queryInput: 'is:starred',
@@ -1749,6 +1846,7 @@ describe('ExplorerPage route shell', () => {
     const user = userEvent.setup()
     const setSearchParams = vi.fn()
     const updateParam = vi.fn()
+    const updateParams = vi.fn()
     const clearAllFilters = vi.fn()
     useExplorerUrlStateMock.mockReturnValue(
       defaultUrlState({
@@ -1759,6 +1857,7 @@ describe('ExplorerPage route shell', () => {
         ),
         setSearchParams,
         updateParam,
+        updateParams,
       }),
     )
 

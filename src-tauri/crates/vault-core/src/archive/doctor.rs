@@ -33,11 +33,13 @@ pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Re
 
     let mut checks = Vec::new();
     checks.push(HealthCheck {
+        code: "config".to_string(),
         name: "Config".to_string(),
         ok: paths.config_path.exists(),
         detail: paths.config_path.display().to_string(),
     });
     checks.push(HealthCheck {
+        code: "browser-sources".to_string(),
         name: "Browser sources".to_string(),
         ok: !discovered_profiles.is_empty(),
         detail: if discovered_profiles.is_empty() {
@@ -50,11 +52,13 @@ pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Re
         },
     });
     checks.push(HealthCheck {
+        code: "archive-db".to_string(),
         name: "Archive DB".to_string(),
         ok: paths.archive_database_path.exists(),
         detail: paths.archive_database_path.display().to_string(),
     });
     checks.push(HealthCheck {
+        code: "archive-unlock".to_string(),
         name: "Archive Unlock".to_string(),
         ok: status.unlocked,
         detail: if matches!(config.archive_mode, ArchiveMode::Encrypted) {
@@ -67,6 +71,7 @@ pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Re
     if let Some(connection) = archive.as_ref() {
         create_schema(connection)?;
         checks.push(HealthCheck {
+            code: "schema-version".to_string(),
             name: "Schema version".to_string(),
             ok: current_version(connection)? >= 2,
             detail: format!("current canonical schema version is {}", current_version(connection)?),
@@ -224,7 +229,7 @@ pub fn repair_health_issues(
                 &paths.audit_repo_path,
                 "doctor repair import audit artifacts",
             );
-            notes.extend(git_warning);
+            notes.extend(git_warning.map(|warning| warning.message));
             git_commit
         } else {
             None
@@ -309,6 +314,7 @@ fn check_manifest_chain(connection: &Connection) -> Result<HealthCheck> {
         let (id, parent_id, hash, file_path) = row?;
         if previous_id.is_some() && parent_id != previous_id {
             return Ok(HealthCheck {
+                code: "manifest-chain".to_string(),
                 name: "Manifest chain".to_string(),
                 ok: false,
                 detail: format!("manifest {id} does not point to the previous manifest id"),
@@ -320,6 +326,7 @@ fn check_manifest_chain(connection: &Connection) -> Result<HealthCheck> {
             let recalculated = sha256_hex(content.as_bytes());
             if recalculated != hash {
                 return Ok(HealthCheck {
+                    code: "manifest-chain".to_string(),
                     name: "Manifest chain".to_string(),
                     ok: false,
                     detail: format!("manifest hash mismatch at run artifact {}", path),
@@ -331,6 +338,7 @@ fn check_manifest_chain(connection: &Connection) -> Result<HealthCheck> {
     }
 
     Ok(HealthCheck {
+        code: "manifest-chain".to_string(),
         name: "Manifest chain".to_string(),
         ok: true,
         detail: previous_hash.unwrap_or_else(|| "No manifest artifacts recorded yet.".to_string()),
@@ -353,11 +361,13 @@ fn check_snapshot_files(connection: &Connection) -> Result<HealthCheck> {
 
     Ok(match missing {
         Some(path) => HealthCheck {
+            code: "snapshot-artifacts".to_string(),
             name: "Snapshot artifacts".to_string(),
             ok: false,
             detail: format!("missing snapshot artifact {}", path),
         },
         None => HealthCheck {
+            code: "snapshot-artifacts".to_string(),
             name: "Snapshot artifacts".to_string(),
             ok: true,
             detail: "All recorded snapshot artifacts are present.".to_string(),
@@ -388,16 +398,19 @@ fn check_import_audit_artifacts(connection: &Connection) -> Result<HealthCheck> 
 
     Ok(match missing {
         Some((batch_id, Some(path))) => HealthCheck {
+            code: "import-audit-artifacts".to_string(),
             name: "Import audit artifacts".to_string(),
             ok: false,
             detail: format!("import batch {batch_id} points to a missing audit artifact at {path}"),
         },
         Some((batch_id, None)) => HealthCheck {
+            code: "import-audit-artifacts".to_string(),
             name: "Import audit artifacts".to_string(),
             ok: false,
             detail: format!("import batch {batch_id} does not have an audit artifact yet"),
         },
         None => HealthCheck {
+            code: "import-audit-artifacts".to_string(),
             name: "Import audit artifacts".to_string(),
             ok: true,
             detail: "All recorded import batches have readable audit artifacts.".to_string(),
@@ -420,6 +433,7 @@ fn check_broken_visibility(connection: &Connection) -> Result<HealthCheck> {
 
     Ok(if broken_visibility > 0 {
         HealthCheck {
+            code: "broken-visibility-references".to_string(),
             name: "Broken visibility references".to_string(),
             ok: false,
             detail: format!(
@@ -428,6 +442,7 @@ fn check_broken_visibility(connection: &Connection) -> Result<HealthCheck> {
         }
     } else {
         HealthCheck {
+            code: "broken-visibility-references".to_string(),
             name: "Broken visibility references".to_string(),
             ok: true,
             detail: "All hidden visit rows still point at a valid rollback run.".to_string(),
@@ -486,6 +501,7 @@ fn check_stale_derived_state(connection: &Connection) -> Result<HealthCheck> {
 
     Ok(if stale_details.is_empty() {
         HealthCheck {
+            code: "derived-state-freshness".to_string(),
             name: "Derived state freshness".to_string(),
             ok: true,
             detail: "Derived AI and Core Intelligence tables match the visible visit set."
@@ -493,6 +509,7 @@ fn check_stale_derived_state(connection: &Connection) -> Result<HealthCheck> {
         }
     } else {
         HealthCheck {
+            code: "derived-state-freshness".to_string(),
             name: "Derived state freshness".to_string(),
             ok: false,
             detail: stale_details.join(", "),
@@ -629,6 +646,7 @@ fn invalidate_insight_state(connection: &Connection) -> Result<usize> {
     crate::intelligence_runtime::ensure_intelligence_runtime_schema(connection)?;
     crate::intelligence_runtime::mark_all_deterministic_modules_stale(
         connection,
+        crate::models::DERIVED_STALE_VISIBILITY_OR_ROLLBACK_CHANGED,
         "Archive visibility or rollback state changed after the last Core Intelligence rebuild.",
     )?;
     Ok(cleared_rows)

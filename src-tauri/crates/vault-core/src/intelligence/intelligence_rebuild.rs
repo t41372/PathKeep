@@ -45,7 +45,10 @@ use crate::{
     intelligence_runtime::{
         DeterministicModuleRuntimeUpdate, persist_deterministic_module_runtime_updates,
     },
-    models::{AppConfig, CoreIntelligenceRebuildReport, CoreIntelligenceRebuildRequest},
+    models::{
+        AppConfig, CoreIntelligenceRebuildReport, CoreIntelligenceRebuildRequest,
+        DerivedRuntimeNote,
+    },
     utils::now_rfc3339,
 };
 use anyhow::{Context, Result};
@@ -145,7 +148,10 @@ where
     if profile_ids.is_empty() {
         clear_core_tables_for_job_kind(&connection, request.profile_id.as_deref(), job_kind)?;
         delete_stage_checkpoints(&connection, request.profile_id.as_deref())?;
-        let notes = vec!["No visible visits matched the requested rebuild scope.".to_string()];
+        let notes = vec![DerivedRuntimeNote::new(
+            crate::models::DERIVED_NOTE_REBUILD_SCOPE_EMPTY,
+            "No visible visits matched the requested rebuild scope.",
+        )];
         persist_ready_module_updates(
             &connection,
             run_id,
@@ -168,8 +174,10 @@ where
             dirty_visit_count: Some(0),
             dirty_date_keys: Some(Vec::new()),
             fallback_reason: None,
+            fallback_reason_code: None,
             stage_timings_ms: None,
-            notes,
+            notes: crate::models::derived_runtime_note_messages(&notes),
+            note_details: notes,
             last_run_at: computed_at,
         });
     }
@@ -256,8 +264,10 @@ where
         dirty_visit_count: aggregate.dirty_visit_count,
         dirty_date_keys: Some(aggregate.dirty_date_keys),
         fallback_reason: aggregate.fallback_reason,
+        fallback_reason_code: aggregate.fallback_reason_code,
         stage_timings_ms: aggregate.stage_timings_ms,
-        notes: aggregate.notes,
+        notes: crate::models::derived_runtime_note_messages(&aggregate.notes),
+        note_details: aggregate.notes,
         last_run_at: computed_at,
     })
 }
@@ -279,8 +289,13 @@ where
     ensure_core_intelligence_schema(&connection)?;
     let run_id = Utc::now().timestamp_millis();
     let computed_at = now_rfc3339();
-    let notes =
-        vec![format!("Completed a {} through the scoped debug fallback path.", job_kind.label())];
+    let notes = vec![
+        DerivedRuntimeNote::new(
+            crate::models::DERIVED_NOTE_REBUILD_LEGACY_FALLBACK,
+            format!("Completed a {} through the scoped debug fallback path.", job_kind.label()),
+        )
+        .with_job_kind(job_kind.job_type()),
+    ];
     let visits = load_visible_visits(&connection, request.profile_id.as_deref(), request.limit)?;
     if visits.is_empty() {
         clear_core_tables_for_job_kind(&connection, request.profile_id.as_deref(), job_kind)?;
@@ -289,7 +304,10 @@ where
             run_id,
             Some(computed_at.clone()),
             &job_kind.module_ids(),
-            &["No visible visits matched the requested rebuild scope.".to_string()],
+            &[DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_REBUILD_SCOPE_EMPTY,
+                "No visible visits matched the requested rebuild scope.",
+            )],
         )?;
         return Ok(CoreIntelligenceRebuildReport {
             run_id,
@@ -309,8 +327,12 @@ where
                 "Scoped debug rebuilds use the legacy full recompute path and do not advance incremental checkpoints."
                     .to_string(),
             ),
+            fallback_reason_code: Some(
+                crate::models::REBUILD_FALLBACK_LEGACY_DEBUG_REBUILD.to_string(),
+            ),
             stage_timings_ms: None,
-            notes,
+            notes: crate::models::derived_runtime_note_messages(&notes),
+            note_details: notes,
             last_run_at: computed_at,
         });
     }
@@ -422,8 +444,10 @@ where
             "Scoped debug rebuilds use the legacy full recompute path and do not advance incremental checkpoints."
                 .to_string(),
         ),
+        fallback_reason_code: Some(crate::models::REBUILD_FALLBACK_LEGACY_DEBUG_REBUILD.to_string()),
         stage_timings_ms: None,
-        notes,
+        notes: crate::models::derived_runtime_note_messages(&notes),
+        note_details: notes,
         last_run_at: computed_at,
     })
 }
@@ -465,6 +489,7 @@ pub(super) fn merge_stage_run_result(
     aggregate.dirty_date_keys.dedup();
     if aggregate.fallback_reason.is_none() {
         aggregate.fallback_reason = next.fallback_reason;
+        aggregate.fallback_reason_code = next.fallback_reason_code;
     }
     match (&mut aggregate.stage_timings_ms, next.stage_timings_ms) {
         (Some(current), Some(next)) => {
@@ -514,16 +539,28 @@ fn execute_full_rebuild_stages(
         structural_rebuild_ms,
         total_ms: visit_derive_ms + daily_rollup_ms + structural_rebuild_ms,
     });
-    combined.notes.push(format!(
-        "Ran checkpoint-aware Core Intelligence rebuild for {}; each stage used its incremental path when a warm checkpoint was available.",
-        profile_id
-    ));
+    combined.notes.push(
+        DerivedRuntimeNote::new(
+            crate::models::DERIVED_NOTE_REBUILD_CHECKPOINT_AWARE,
+            format!(
+                "Ran checkpoint-aware Core Intelligence rebuild for {}; each stage used its incremental path when a warm checkpoint was available.",
+                profile_id
+            ),
+        )
+        .with_profile_id(profile_id),
+    );
     Ok(combined)
 }
 
 fn ensure_stage_notes(aggregate: &mut StageRunResult, job_kind: RebuildMode) {
     if aggregate.notes.is_empty() {
-        aggregate.notes.push(format!("Completed a {}.", job_kind.label()));
+        aggregate.notes.push(
+            DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_REBUILD_COMPLETED,
+                format!("Completed a {}.", job_kind.label()),
+            )
+            .with_job_kind(job_kind.job_type()),
+        );
     }
 }
 
@@ -576,10 +613,13 @@ fn persist_ready_module_updates(
     run_id: i64,
     built_at: Option<String>,
     module_ids: &[&str],
-    notes: &[String],
+    notes: &[DerivedRuntimeNote],
 ) -> Result<()> {
     let shared_notes = if notes.is_empty() {
-        vec!["Core Intelligence modules are in sync with the current derived plane.".to_string()]
+        vec![DerivedRuntimeNote::new(
+            crate::models::DERIVED_NOTE_MODULES_IN_SYNC,
+            "Core Intelligence modules are in sync with the current derived plane.",
+        )]
     } else {
         notes.to_vec()
     };
@@ -595,7 +635,7 @@ fn module_update(
     module_id: &str,
     run_id: i64,
     built_at: Option<String>,
-    notes: &[String],
+    notes: &[DerivedRuntimeNote],
 ) -> DeterministicModuleRuntimeUpdate {
     DeterministicModuleRuntimeUpdate {
         module_id: module_id.to_string(),
@@ -604,6 +644,7 @@ fn module_update(
         last_built_at: built_at,
         last_invalidated_at: None,
         stale_reason: None,
+        stale_reason_code: None,
         notes: notes.to_vec(),
     }
 }
@@ -641,7 +682,10 @@ mod tests {
 
         let mut aggregate = StageRunResult::default();
         ensure_stage_notes(&mut aggregate, RebuildMode::DailyRollup);
-        assert_eq!(aggregate.notes, vec!["Completed a daily rollup refresh.".to_string()]);
+        assert_eq!(aggregate.notes.len(), 1);
+        assert_eq!(aggregate.notes[0].code, crate::models::DERIVED_NOTE_REBUILD_COMPLETED);
+        assert_eq!(aggregate.notes[0].job_kind.as_deref(), Some("daily-rollup"));
+        assert_eq!(aggregate.notes[0].message, "Completed a daily rollup refresh.");
 
         let connection = Connection::open_in_memory().expect("sqlite");
         ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
@@ -654,12 +698,16 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("notes json");
-        let notes = serde_json::from_str::<Vec<String>>(&notes_json).expect("notes parse");
+        // `notes_json` now persists the coded note channel, so the shell can
+        // localize a stored note without re-reading its English prose.
+        let notes = serde_json::from_str::<Vec<crate::models::DerivedRuntimeNote>>(&notes_json)
+            .expect("notes parse");
         assert_eq!(
             notes,
-            vec![
-                "Core Intelligence modules are in sync with the current derived plane.".to_string()
-            ]
+            vec![crate::models::DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_MODULES_IN_SYNC,
+                "Core Intelligence modules are in sync with the current derived plane.",
+            )]
         );
     }
 }

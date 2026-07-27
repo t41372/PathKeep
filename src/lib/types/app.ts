@@ -87,7 +87,10 @@ export interface AppLockStatus {
   lastUnlockedAt?: string | null
   recoveryHint?: string | null
   warnings: string[]
+  /** Diagnostic English prose; only rendered when a code has no catalog entry. */
   degradationNotes: string[]
+  /** Stable note codes aligned index-for-index with `degradationNotes`. */
+  degradationNoteCodes?: string[]
 }
 
 /**

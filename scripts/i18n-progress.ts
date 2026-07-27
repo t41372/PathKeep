@@ -39,7 +39,7 @@ interface MissingKeyIssue {
 }
 
 interface RawEnglishIssue {
-  language: Exclude<ResolvedLanguage, 'en'>
+  language: ResolvedLanguage
   key: string
   patternId: string
   value: string
@@ -47,6 +47,13 @@ interface RawEnglishIssue {
 
 const chineseLocales = ['zh-CN', 'zh-TW'] as const
 
+/**
+ * Blocks raw backend/debug English that leaked into the Chinese catalogs.
+ *
+ * Every entry here was an actual shipped leak, not a hypothetical: the gate is
+ * only useful if a regression is what turns it red, so keep the list tied to
+ * vocabulary the product has already decided not to show a Chinese reader.
+ */
 const blockedRawEnglishPatterns = [
   {
     id: 'full-disk-access-english',
@@ -95,6 +102,114 @@ const blockedRawEnglishPatterns = [
   {
     id: 'app-data-jargon',
     pattern: /\bapp data\b/i,
+  },
+  {
+    id: 'rollup-jargon',
+    pattern: /\brollups?\b/i,
+  },
+  {
+    id: 'digest-jargon',
+    pattern: /\bdigests?\b/i,
+  },
+  {
+    id: 'worker-jargon',
+    pattern: /\bworkers?\b/i,
+  },
+  {
+    id: 'payload-jargon',
+    pattern: /\bpayloads?\b/i,
+  },
+  {
+    id: 'schema-jargon',
+    pattern: /\bschemas?\b/i,
+  },
+  {
+    id: 'migration-jargon',
+    pattern: /\bmigrations?\b/i,
+  },
+  {
+    id: 'archive-wide-jargon',
+    pattern: /\barchive-wide\b/i,
+  },
+  {
+    id: 'route-grammar-jargon',
+    pattern: /\broute grammar\b/i,
+  },
+  {
+    id: 'enrichment-jargon',
+    pattern: /\benrichment\b/i,
+  },
+  {
+    id: 'trace-jargon',
+    pattern: /\btraces?\b/i,
+  },
+  {
+    id: 'visit-jargon',
+    pattern: /\bvisits?\b/i,
+  },
+  {
+    id: 'archive-jargon',
+    pattern: /\barchives?\b/i,
+  },
+  {
+    id: 'checkpoint-jargon',
+    pattern: /\bcheckpoints?\b/i,
+  },
+] as const
+
+/**
+ * Blocks implementation vocabulary on the English side of the catalog.
+ *
+ * Chinese leakage is easy to spot because the surrounding text is Chinese;
+ * English jargon hides in plain sight, so the terms the product has already
+ * renamed for users get a gate of their own rather than a style-guide note.
+ */
+const blockedEnglishJargonPatterns = [
+  {
+    id: 'en-shell-state-jargon',
+    pattern: /\bshell state\b/i,
+  },
+  {
+    id: 'en-append-only-jargon',
+    pattern: /\bappend-only\b/i,
+  },
+  {
+    id: 'en-app-data-jargon',
+    pattern: /\bapp data\b/i,
+  },
+  {
+    id: 'en-canonical-place-jargon',
+    pattern: /\bcanonical place\b/i,
+  },
+  {
+    id: 'en-profile-scope-jargon',
+    pattern: /\bprofile scope\b/i,
+  },
+  {
+    id: 'en-all-profiles-jargon',
+    pattern: /\ball profiles\b/i,
+  },
+  {
+    id: 'en-article-before-embedding',
+    pattern: /\ba embedding\b/i,
+  },
+] as const
+
+/**
+ * Blocks mainland-Chinese vocabulary and stale OS names from the `zh-TW` catalog.
+ *
+ * `zh-TW` had already converged on the Taiwanese term for each of these in
+ * other strings, so a single locale-scoped gate is what stops the mixed pairs
+ * from drifting back in one string at a time.
+ */
+const blockedTraditionalChinesePatterns = [
+  {
+    id: 'zh-tw-stale-full-disk-access-name',
+    pattern: /完全磁碟|磁碟存取權(?!限)/,
+  },
+  {
+    id: 'zh-tw-mainland-vocabulary',
+    pattern: /會話|視圖|訪問|信號|智能|卸載|刷新|決定性|語義/,
   },
 ] as const
 
@@ -152,10 +267,13 @@ for (const language of supportedLanguages) {
 
 const rawEnglishIssues: RawEnglishIssue[] = []
 
-for (const language of chineseLocales) {
+function collectIssues(
+  language: ResolvedLanguage,
+  patterns: ReadonlyArray<{ id: string; pattern: RegExp }>,
+) {
   for (const entry of flatCatalog[language]) {
     const visibleValue = removeInterpolationPlaceholders(entry.value)
-    for (const blocked of blockedRawEnglishPatterns) {
+    for (const blocked of patterns) {
       if (blocked.pattern.test(visibleValue)) {
         rawEnglishIssues.push({
           language,
@@ -167,6 +285,12 @@ for (const language of chineseLocales) {
     }
   }
 }
+
+for (const language of chineseLocales) {
+  collectIssues(language, blockedRawEnglishPatterns)
+}
+collectIssues('zh-TW', blockedTraditionalChinesePatterns)
+collectIssues('en', blockedEnglishJargonPatterns)
 
 const totalEnglishKeys = englishKeys.length
 const completeLocaleCount = supportedLanguages.filter(

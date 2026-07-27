@@ -69,7 +69,9 @@ export function SecurityPage() {
     status,
   } = useSecurityWorkflow({ refreshAppData, refreshKey, t })
   const localizedWarnings = status
-    ? status.warnings.map((warning) => localizeSecurityWarning(warning, t))
+    ? status.warnings.map((warning, index) =>
+        localizeSecurityWarning(status.warningCodes?.[index], warning, t),
+      )
     : []
 
   useEffect(() => {
@@ -191,7 +193,13 @@ export function SecurityPage() {
         busy={busy}
         handleExecuteRekey={handleExecuteRekey}
         handlePreviewRekey={handlePreviewRekey}
-        localizedWarning={(warning) => localizeSecurityWarning(warning, t)}
+        localizedWarning={(warning, code) =>
+          // Rekey preview warnings localize off `RekeyPreview.warningCodes`
+          // (index-aligned with `warnings`); uncoded or unknown-coded entries
+          // stay honest diagnostic prose instead of being guessed at by prose
+          // matching.
+          localizeSecurityWarning(code, warning, t)
+        }
         notice={notice}
         preview={preview}
         rekeyConfirmText={rekeyConfirmText}

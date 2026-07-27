@@ -87,14 +87,25 @@ pub fn commit_all(repo_path: &Path, message: &str) -> Result<Option<String>> {
 /// The artifact files are already durable on disk before this helper runs. A
 /// missing Git executable, a broken repository, or a local policy failure must
 /// not turn a completed backup/import into a failed data operation.
-pub fn commit_all_optional(repo_path: &Path, message: &str) -> (Option<String>, Option<String>) {
+pub fn commit_all_optional(
+    repo_path: &Path,
+    message: &str,
+) -> (Option<String>, Option<crate::models::BackupWarning>) {
     match commit_all(repo_path, message) {
         Ok(commit) => (commit, None),
         Err(error) => (
             None,
-            Some(format!(
-                "Audit artifacts were written, but the optional Git history step was skipped: {error}"
-            )),
+            // Coded so run ledgers localize the skip; the git error chain is
+            // evidence and stays verbatim in `diagnostic`.
+            Some(
+                crate::models::BackupWarning::new(
+                    "git-history-skipped",
+                    format!(
+                        "Audit artifacts were written, but the optional Git history step was skipped: {error}"
+                    ),
+                )
+                .with_diagnostic(format!("{error:#}")),
+            ),
         ),
     }
 }
@@ -234,6 +245,9 @@ mod tests {
         let (commit, warning) = commit_all_optional(&blocked_path, "noop");
 
         assert!(commit.is_none());
-        assert!(warning.expect("warning").contains("optional Git history step was skipped"));
+        let warning = warning.expect("warning");
+        assert!(warning.message.contains("optional Git history step was skipped"));
+        assert_eq!(warning.code, "git-history-skipped");
+        assert!(warning.diagnostic.is_some(), "the git error chain rides in `diagnostic`");
     }
 }

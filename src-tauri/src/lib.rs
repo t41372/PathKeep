@@ -14,6 +14,7 @@
 //! - App Lock session setup happens before the renderer starts issuing archive
 //!   reads.
 
+mod command_error;
 mod commands;
 #[cfg(feature = "devtools-bridge")]
 mod dev_ipc_bridge;

@@ -20,6 +20,7 @@
 //! - Source-evidence writes happen after canonical commit so archive visibility
 //!   is never half-written if source-evidence persistence fails.
 
+use super::inspect::{payload_parse_failed_note, skipped_missing_visit_time_note};
 use super::payload_import::{
     TakeoutPayloadImportContext, TakeoutPayloadProgress, import_supported_payload_with_progress,
     persist_takeout_source_evidence_plans, upsert_takeout_profile,
@@ -205,7 +206,7 @@ where
                     report.classification = "parse-error".to_string();
                     report.reason_code = Some("parse-error".to_string());
                     inspection.recognized_files.push(report);
-                    inspection.notes.push(format!("Could not parse {}: {}", file.path, error));
+                    inspection.push_note(payload_parse_failed_note(&file.path, &error));
                     return Err(error);
                 }
             };
@@ -226,9 +227,9 @@ where
             stats.duplicate_items += file_stats.stats.duplicate_items;
             source_evidence_plans.push(file_stats.source_evidence_plan);
             if file_stats.stats.skipped_items > 0 {
-                inspection.notes.push(format!(
-                    "Skipped {} records from {} because they were missing a visit timestamp.",
-                    file_stats.stats.skipped_items, file.path
+                inspection.push_note(skipped_missing_visit_time_note(
+                    file_stats.stats.skipped_items,
+                    &file.path,
                 ));
                 progress_log_lines.push(format!(
                     "Skipped {} record(s) without visit timestamps in {}.",
@@ -271,7 +272,7 @@ where
         Some(request.source_path.clone()),
         &progress_log_lines,
     );
-    inspection.notes.extend(
+    inspection.extend_notes(
         persist_takeout_source_evidence_plans(
             paths,
             config,
@@ -284,7 +285,7 @@ where
     );
     batches::finalize_import_batch(&archive, batch_id, &inspection)?;
     finalize_successful_import_run(&archive, run_id, batch_id, &inspection, &stats)?;
-    inspection.notes.extend(
+    inspection.extend_notes(
         refresh_search_projection_for_import_batch(paths, config, key, batch_id)
             .err()
             .map(takeout_keyword_recall_rebuild_note),
@@ -297,7 +298,7 @@ where
     inspection.preview_entries = detail.preview_entries;
     inspection.recognized_files = detail.recognized_files;
     inspection.quarantined_files = detail.quarantined_files;
-    inspection.notes = detail.notes;
+    inspection.replace_notes(detail.notes, detail.note_details);
     inspection.detected_locale = detail.detected_locale;
     inspection.preview_range_start = detail.preview_range_start;
     inspection.preview_range_end = detail.preview_range_end;
@@ -470,14 +471,22 @@ fn progress_log_level_for_phase(phase: &str) -> &'static str {
     }
 }
 
-pub(super) fn takeout_source_evidence_rebuild_note(error: anyhow::Error) -> String {
-    format!(
-        "Canonical Takeout import completed, but the source-evidence archive needs a rebuild: {error}"
+pub(super) fn takeout_source_evidence_rebuild_note(error: anyhow::Error) -> TakeoutNote {
+    TakeoutNote::new(
+        "takeout-source-evidence-rebuild-needed",
+        format!(
+            "Canonical Takeout import completed, but the source-evidence archive needs a rebuild: {error}"
+        ),
     )
+    .with_diagnostic(format!("{error}"))
 }
 
-pub(super) fn takeout_keyword_recall_rebuild_note(error: anyhow::Error) -> String {
-    format!("Import completed, but the keyword-recall projection needs a rebuild: {error}")
+pub(super) fn takeout_keyword_recall_rebuild_note(error: anyhow::Error) -> TakeoutNote {
+    TakeoutNote::new(
+        "search-projection-rebuild-needed",
+        format!("Import completed, but the keyword-recall projection needs a rebuild: {error}"),
+    )
+    .with_diagnostic(format!("{error}"))
 }
 
 /// Creates the running import ledger row before archive writes begin.

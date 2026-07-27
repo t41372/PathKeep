@@ -80,6 +80,14 @@ export type ShellErrorKind =
   | 'full-disk-access'
   | 'backup'
   | 'lock-required'
+  /**
+   * A durable config write failed. Kept distinct from `backup` because the
+   * remediation differs (there is nothing to retry from the shell) and because
+   * a config write that fails SILENTLY is a data-sovereignty lie: the toggle
+   * would keep showing the value the user picked while the backend still holds
+   * the old one.
+   */
+  | 'config-save'
   | null
 
 /**

@@ -23,6 +23,7 @@
 //! the worker/core query implementations; adapters here must not clone or cache
 //! large result sets.
 
+use crate::command_error::CommandError;
 use vault_core::{
     CategoryFilteredDateRangeRequest, CompareSetDetailRequest, DayInsightsRequest,
     DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest, ExplainRefindRequest,
@@ -39,7 +40,7 @@ use super::super::worker_result;
 pub(crate) fn get_sessions_impl(
     request: PagedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::SessionListResult, String> {
+) -> Result<vault_core::SessionListResult, CommandError> {
     worker_result(vault_worker::get_sessions(session_database_key, &request))
 }
 
@@ -48,7 +49,7 @@ pub(crate) fn get_sessions_impl(
 pub(crate) fn get_session_detail_impl(
     session_id: String,
     session_database_key: Option<&str>,
-) -> Result<vault_core::SessionDetail, String> {
+) -> Result<vault_core::SessionDetail, CommandError> {
     worker_result(vault_worker::get_session_detail(session_database_key, &session_id))
 }
 
@@ -57,7 +58,7 @@ pub(crate) fn get_session_detail_impl(
 pub(crate) fn get_search_trails_impl(
     request: SearchTrailQueryRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::TrailListResult, String> {
+) -> Result<vault_core::TrailListResult, CommandError> {
     worker_result(vault_worker::get_search_trails(session_database_key, &request))
 }
 
@@ -66,7 +67,7 @@ pub(crate) fn get_search_trails_impl(
 pub(crate) fn get_trail_detail_impl(
     trail_id: String,
     session_database_key: Option<&str>,
-) -> Result<vault_core::TrailDetail, String> {
+) -> Result<vault_core::TrailDetail, CommandError> {
     worker_result(vault_worker::get_trail_detail(session_database_key, &trail_id))
 }
 
@@ -75,7 +76,7 @@ pub(crate) fn get_trail_detail_impl(
 pub(crate) fn get_navigation_path_impl(
     visit_id: i64,
     session_database_key: Option<&str>,
-) -> Result<vault_core::NavigationPath, String> {
+) -> Result<vault_core::NavigationPath, CommandError> {
     worker_result(vault_worker::get_navigation_path(session_database_key, visit_id))
 }
 
@@ -84,7 +85,7 @@ pub(crate) fn get_navigation_path_impl(
 pub(crate) fn get_hub_pages_impl(
     request: TopSitesRequest,
     session_database_key: Option<&str>,
-) -> Result<Vec<vault_core::HubPage>, String> {
+) -> Result<Vec<vault_core::HubPage>, CommandError> {
     worker_result(vault_worker::get_hub_pages(session_database_key, &request))
 }
 
@@ -93,7 +94,8 @@ pub(crate) fn get_hub_pages_impl(
 pub(crate) fn get_search_engine_ranking_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::EngineRanking>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::EngineRanking>>, CommandError>
+{
     worker_result(vault_worker::get_search_engine_ranking(session_database_key, &request))
 }
 
@@ -102,7 +104,8 @@ pub(crate) fn get_search_engine_ranking_impl(
 pub(crate) fn get_top_search_concepts_impl(
     request: TopSearchConceptsRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::SearchConcept>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::SearchConcept>>, CommandError>
+{
     worker_result(vault_worker::get_top_search_concepts(session_database_key, &request))
 }
 
@@ -111,7 +114,10 @@ pub(crate) fn get_top_search_concepts_impl(
 pub(crate) fn get_search_queries_impl(
     request: SearchQueryListRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::SearchQueryListResult>, String> {
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<vault_core::SearchQueryListResult>,
+    CommandError,
+> {
     worker_result(vault_worker::get_search_queries(session_database_key, &request))
 }
 
@@ -120,7 +126,8 @@ pub(crate) fn get_search_queries_impl(
 pub(crate) fn get_query_families_impl(
     request: PagedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyResult>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyResult>, CommandError>
+{
     worker_result(vault_worker::get_query_families(session_database_key, &request))
 }
 
@@ -129,7 +136,8 @@ pub(crate) fn get_query_families_impl(
 pub(crate) fn get_query_family_detail_impl(
     request: QueryFamilyDetailRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyDetail>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyDetail>, CommandError>
+{
     worker_result(vault_worker::get_query_family_detail(session_database_key, &request))
 }
 
@@ -138,7 +146,7 @@ pub(crate) fn get_query_family_detail_impl(
 pub(crate) fn get_top_sites_impl(
     request: TopSitesRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::TopSite>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::TopSite>>, CommandError> {
     worker_result(vault_worker::get_top_sites(session_database_key, &request))
 }
 
@@ -147,7 +155,7 @@ pub(crate) fn get_top_sites_impl(
 pub(crate) fn get_domain_trend_impl(
     request: DomainTrendRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::DomainTrend, String> {
+) -> Result<vault_core::DomainTrend, CommandError> {
     worker_result(vault_worker::get_domain_trend(session_database_key, &request))
 }
 
@@ -156,7 +164,7 @@ pub(crate) fn get_domain_trend_impl(
 pub(crate) fn get_refind_pages_impl(
     request: RefindPagesRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::RefindPage>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::RefindPage>>, CommandError> {
     worker_result(vault_worker::get_refind_pages(session_database_key, &request))
 }
 
@@ -165,7 +173,7 @@ pub(crate) fn get_refind_pages_impl(
 pub(crate) fn get_refind_page_detail_impl(
     request: RefindPageDetailRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RefindPageDetail>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RefindPageDetail>, CommandError> {
     worker_result(vault_worker::get_refind_page_detail(session_database_key, &request))
 }
 
@@ -174,7 +182,7 @@ pub(crate) fn get_refind_page_detail_impl(
 pub(crate) fn explain_refind_impl(
     request: ExplainRefindRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::RefindExplanation, String> {
+) -> Result<vault_core::RefindExplanation, CommandError> {
     worker_result(vault_worker::explain_refind(session_database_key, &request))
 }
 
@@ -183,7 +191,7 @@ pub(crate) fn explain_refind_impl(
 pub(crate) fn explain_entity_impl(
     request: EntityExplanationRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::Explanation, String> {
+) -> Result<vault_core::Explanation, CommandError> {
     worker_result(vault_worker::explain_entity(session_database_key, &request))
 }
 
@@ -192,7 +200,7 @@ pub(crate) fn explain_entity_impl(
 pub(crate) fn get_activity_mix_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::ActivityMix>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::ActivityMix>, CommandError> {
     worker_result(vault_worker::get_activity_mix(session_database_key, &request))
 }
 
@@ -201,7 +209,7 @@ pub(crate) fn get_activity_mix_impl(
 pub(crate) fn get_activity_mix_trend_impl(
     request: GranularityDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::ActivityMixTrend, String> {
+) -> Result<vault_core::ActivityMixTrend, CommandError> {
     worker_result(vault_worker::get_activity_mix_trend(session_database_key, &request))
 }
 
@@ -210,7 +218,7 @@ pub(crate) fn get_activity_mix_trend_impl(
 pub(crate) fn get_digest_summary_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DigestSummary>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DigestSummary>, CommandError> {
     worker_result(vault_worker::get_digest_summary(session_database_key, &request))
 }
 
@@ -219,7 +227,8 @@ pub(crate) fn get_digest_summary_impl(
 pub(crate) fn get_stable_sources_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::StableSource>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::StableSource>>, CommandError>
+{
     worker_result(vault_worker::get_stable_sources(session_database_key, &request))
 }
 
@@ -228,7 +237,8 @@ pub(crate) fn get_stable_sources_impl(
 pub(crate) fn get_search_effectiveness_impl(
     request: SearchEffectivenessRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::SearchEffectiveness>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::SearchEffectiveness>, CommandError>
+{
     worker_result(vault_worker::get_search_effectiveness(session_database_key, &request))
 }
 
@@ -237,7 +247,8 @@ pub(crate) fn get_search_effectiveness_impl(
 pub(crate) fn get_friction_signals_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::FrictionSignal>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::FrictionSignal>>, CommandError>
+{
     worker_result(vault_worker::get_friction_signals(session_database_key, &request))
 }
 
@@ -246,8 +257,10 @@ pub(crate) fn get_friction_signals_impl(
 pub(crate) fn get_reopened_investigations_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::ReopenedInvestigation>>, String>
-{
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<Vec<vault_core::ReopenedInvestigation>>,
+    CommandError,
+> {
     worker_result(vault_worker::get_reopened_investigations(session_database_key, &request))
 }
 
@@ -256,7 +269,7 @@ pub(crate) fn get_reopened_investigations_impl(
 pub(crate) fn get_domain_deep_dive_impl(
     request: DomainDeepDiveRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DomainDeepDive>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DomainDeepDive>, CommandError> {
     worker_result(vault_worker::get_domain_deep_dive(session_database_key, &request))
 }
 
@@ -265,7 +278,7 @@ pub(crate) fn get_domain_deep_dive_impl(
 pub(crate) fn get_day_insights_impl(
     request: DayInsightsRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DayInsights>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DayInsights>, CommandError> {
     worker_result(vault_worker::get_day_insights(session_database_key, &request))
 }
 
@@ -274,7 +287,7 @@ pub(crate) fn get_day_insights_impl(
 pub(crate) fn get_browsing_rhythm_impl(
     request: CategoryFilteredDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RhythmHeatmap>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RhythmHeatmap>, CommandError> {
     worker_result(vault_worker::get_browsing_rhythm(session_database_key, &request))
 }
 
@@ -283,7 +296,7 @@ pub(crate) fn get_browsing_rhythm_impl(
 pub(crate) fn get_discovery_trend_impl(
     request: GranularityDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DiscoveryTrend>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DiscoveryTrend>, CommandError> {
     worker_result(vault_worker::get_discovery_trend(session_database_key, &request))
 }
 
@@ -292,7 +305,8 @@ pub(crate) fn get_discovery_trend_impl(
 pub(crate) fn get_on_this_day_impl(
     profile_id: Option<String>,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::OnThisDayEntry>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::OnThisDayEntry>>, CommandError>
+{
     worker_result(vault_worker::get_on_this_day(session_database_key, profile_id.as_deref()))
 }
 
@@ -301,7 +315,7 @@ pub(crate) fn get_on_this_day_impl(
 pub(crate) fn get_breadth_index_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::BreadthIndex>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::BreadthIndex>, CommandError> {
     worker_result(vault_worker::get_breadth_index(session_database_key, &request))
 }
 
@@ -310,7 +324,8 @@ pub(crate) fn get_breadth_index_impl(
 pub(crate) fn get_habit_patterns_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::HabitPattern>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::HabitPattern>>, CommandError>
+{
     worker_result(vault_worker::get_habit_patterns(session_database_key, &request))
 }
 
@@ -319,7 +334,10 @@ pub(crate) fn get_habit_patterns_impl(
 pub(crate) fn get_interrupted_habits_impl(
     request: ProfileScopedRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::InterruptedHabit>>, String> {
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<Vec<vault_core::InterruptedHabit>>,
+    CommandError,
+> {
     worker_result(vault_worker::get_interrupted_habits(session_database_key, &request))
 }
 
@@ -328,7 +346,7 @@ pub(crate) fn get_interrupted_habits_impl(
 pub(crate) fn get_path_flows_impl(
     request: PathFlowRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::PathFlow>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::PathFlow>>, CommandError> {
     worker_result(vault_worker::get_path_flows(session_database_key, &request))
 }
 
@@ -337,8 +355,10 @@ pub(crate) fn get_path_flows_impl(
 pub(crate) fn get_observed_interactions_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::ObservedInteraction>>, String>
-{
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<Vec<vault_core::ObservedInteraction>>,
+    CommandError,
+> {
     worker_result(vault_worker::get_observed_interactions(session_database_key, &request))
 }
 
@@ -347,7 +367,7 @@ pub(crate) fn get_observed_interactions_impl(
 pub(crate) fn get_compare_sets_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::CompareSet>>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::CompareSet>>, CommandError> {
     worker_result(vault_worker::get_compare_sets(session_database_key, &request))
 }
 
@@ -356,7 +376,7 @@ pub(crate) fn get_compare_sets_impl(
 pub(crate) fn get_compare_set_detail_impl(
     request: CompareSetDetailRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::CompareSetDetail>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::CompareSetDetail>, CommandError> {
     worker_result(vault_worker::get_compare_set_detail(session_database_key, &request))
 }
 
@@ -365,6 +385,6 @@ pub(crate) fn get_compare_set_detail_impl(
 pub(crate) fn get_multi_browser_diff_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::BrowserDiff>, String> {
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::BrowserDiff>, CommandError> {
     worker_result(vault_worker::get_multi_browser_diff(session_database_key, &request))
 }

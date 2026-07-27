@@ -21,6 +21,7 @@
 import { describe, expect, test } from 'vitest'
 import type {
   HealthReport,
+  TakeoutNote,
   ImportBatchDetail,
   ImportBatchOverview,
   ImportProgressEvent,
@@ -37,7 +38,10 @@ import {
   groupTakeoutFileReports,
   hasTakeoutReasonCode,
   importProgressValue,
+  healthCheckNameLabel,
+  localizedImportNoteLines,
   localizedImportNoteSummary,
+  localizedImportNoteText,
   localizedImportProgressDetail,
   localizedImportProgressLabel,
   localizedImportProgressLogLines,
@@ -517,7 +521,11 @@ describe('Import shared helpers', () => {
       }),
     ).toBeNull()
     expect(localizedImportNoteSummary(1200, t, 'en')).toBe(
-      'import.technicalNotesRecorded:{"count":"1,200"}',
+      'import.technicalNotesRecordedMany:{"count":"1,200"}',
+    )
+    // Copy fix: the summary shipped "note(s)" and now ships a plural pair.
+    expect(localizedImportNoteSummary(1, t, 'en')).toBe(
+      'import.technicalNotesRecordedOne:{"count":"1"}',
     )
   })
 
@@ -659,5 +667,238 @@ describe('Import shared helpers', () => {
         t,
       ),
     ).toContain('2026')
+  })
+
+  test('names every doctor check from its code and falls back to the raw name', () => {
+    const codes = [
+      ['config', 'import.doctorCheckConfig'],
+      ['browser-sources', 'import.doctorCheckBrowserSources'],
+      ['archive-db', 'import.doctorCheckArchiveDb'],
+      ['archive-unlock', 'import.doctorCheckArchiveUnlock'],
+      ['schema-version', 'import.doctorCheckSchemaVersion'],
+      ['manifest-chain', 'import.doctorCheckManifestChain'],
+      ['snapshot-artifacts', 'import.doctorCheckSnapshotArtifacts'],
+      ['import-audit-artifacts', 'import.doctorCheckImportAuditArtifacts'],
+      [
+        'broken-visibility-references',
+        'import.doctorCheckBrokenVisibilityReferences',
+      ],
+      ['derived-state-freshness', 'import.doctorCheckDerivedStateFreshness'],
+    ] as const
+
+    for (const [code, key] of codes) {
+      expect(healthCheckNameLabel({ code, name: 'English name' }, t)).toBe(key)
+    }
+
+    // A code the catalog does not know must still name the row.
+    expect(
+      healthCheckNameLabel({ code: 'future-check', name: 'Future check' }, t),
+    ).toBe('Future check')
+    expect(healthCheckNameLabel({ name: 'Legacy check' }, t)).toBe(
+      'Legacy check',
+    )
+  })
+
+  test('localizes coded import notes and hides notes with no catalog copy', () => {
+    const note = (overrides: Partial<TakeoutNote>): TakeoutNote => ({
+      code: 'skipped-missing-timestamp',
+      message: 'English fallback.',
+      ...overrides,
+    })
+
+    expect(
+      localizedImportNoteText(
+        note({ count: 1200, source: 'BrowserHistory.json' }),
+        t,
+        'en',
+      ),
+    ).toBe(
+      'import.noteSkippedMissingTimestampMany:{"count":"1,200","source":"BrowserHistory.json"}',
+    )
+    expect(
+      localizedImportNoteText(note({ code: 'no-importable-files' }), t, 'en'),
+    ).toBe('import.noteNoImportableFiles')
+    expect(
+      localizedImportNoteText(
+        note({
+          code: 'parse-failed',
+          source: 'Broken.json',
+          diagnostic: 'unexpected token',
+        }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteParseFailed:{"source":"Broken.json"} unexpected token')
+    expect(
+      localizedImportNoteText(
+        note({ code: 'browser-skipped-missing-url-row', count: 3 }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteBrowserSkippedMissingUrlRowMany:{"count":"3"}')
+    expect(
+      localizedImportNoteText(
+        note({ code: 'takeout-source-evidence-rebuild-needed' }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteTakeoutSourceEvidenceRebuildNeeded English fallback.')
+    expect(
+      localizedImportNoteText(
+        note({ code: 'browser-source-evidence-rebuild-needed' }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteBrowserSourceEvidenceRebuildNeeded English fallback.')
+    expect(
+      localizedImportNoteText(
+        note({ code: 'search-projection-rebuild-needed', diagnostic: 'boom' }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteSearchProjectionRebuildNeeded boom')
+    expect(
+      localizedImportNoteText(
+        note({ code: 'batch-revert-projection-rebuild-needed' }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteRevertProjectionRebuildNeeded English fallback.')
+    expect(
+      localizedImportNoteText(
+        note({ code: 'batch-restore-projection-rebuild-needed' }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteRestoreProjectionRebuildNeeded English fallback.')
+    expect(
+      localizedImportNoteText(
+        note({ code: 'batch-reverted', count: 5, at: '2026-04-21T10:00:00Z' }),
+        t,
+        'en',
+      ),
+    ).toBe(
+      'import.noteBatchRevertedMany:{"count":"5","at":"2026-04-21T10:00:00Z"}',
+    )
+    expect(
+      localizedImportNoteText(
+        note({
+          code: 'batch-restored',
+          count: 5,
+          at: '2026-04-21T10:00:00Z',
+          runId: 9,
+        }),
+        t,
+        'en',
+      ),
+    ).toBe(
+      'import.noteBatchRestoredMany:{"count":"5","at":"2026-04-21T10:00:00Z","runId":9}',
+    )
+    expect(
+      localizedImportNoteText(note({ code: 'batch-reverted' }), t, 'en'),
+    ).toBe('import.noteBatchRevertedMany:{"count":"0","at":""}')
+    expect(
+      localizedImportNoteText(note({ code: 'batch-restored' }), t, 'en'),
+    ).toBe('import.noteBatchRestoredMany:{"count":"0","at":"","runId":""}')
+    // Copy fix: each of these notes shipped "row(s)" and now ships a plural
+    // pair, so the count=1 side is asserted alongside the many side.
+    expect(
+      localizedImportNoteText(
+        note({ count: 1, source: 'BrowserHistory.json' }),
+        t,
+        'en',
+      ),
+    ).toBe(
+      'import.noteSkippedMissingTimestampOne:{"count":"1","source":"BrowserHistory.json"}',
+    )
+    expect(
+      localizedImportNoteText(
+        note({ code: 'browser-skipped-missing-url-row', count: 1 }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteBrowserSkippedMissingUrlRowOne:{"count":"1"}')
+    expect(
+      localizedImportNoteText(
+        note({ code: 'batch-reverted', count: 1, at: '2026-04-21T10:00:00Z' }),
+        t,
+        'en',
+      ),
+    ).toBe(
+      'import.noteBatchRevertedOne:{"count":"1","at":"2026-04-21T10:00:00Z"}',
+    )
+    expect(
+      localizedImportNoteText(
+        note({
+          code: 'batch-restored',
+          count: 1,
+          at: '2026-04-21T10:00:00Z',
+          runId: 9,
+        }),
+        t,
+        'en',
+      ),
+    ).toBe(
+      'import.noteBatchRestoredOne:{"count":"1","at":"2026-04-21T10:00:00Z","runId":9}',
+    )
+    expect(
+      localizedImportNoteText(note({ code: 'parser-missing-table' }), t, 'en'),
+    ).toBe('import.noteParserMissingTable English fallback.')
+    expect(
+      localizedImportNoteText(note({ code: 'parser-missing-source' }), t, 'en'),
+    ).toBe('import.noteParserMissingSource English fallback.')
+    expect(
+      localizedImportNoteText(
+        note({ code: 'parser-baseline-support' }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteParserBaselineSupport')
+    expect(
+      localizedImportNoteText(note({ code: 'parser-index-only' }), t, 'en'),
+    ).toBe('import.noteParserIndexOnly')
+    expect(
+      localizedImportNoteText(
+        note({
+          code: 'parser-missing-visit-time',
+          diagnostic: '12 rows had no visit_time',
+        }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteParserMissingVisitTime 12 rows had no visit_time')
+    expect(
+      localizedImportNoteText(
+        note({ code: 'parser-no-recognized-payload' }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteParserNoRecognizedPayload')
+    expect(
+      localizedImportNoteText(
+        note({ code: 'parser-source-warning', diagnostic: 'truncated page' }),
+        t,
+        'en',
+      ),
+    ).toBe('import.noteParserSourceWarning truncated page')
+    expect(
+      localizedImportNoteText(note({ code: 'parser-warning-3' }), t, 'en'),
+    ).toBeNull()
+    expect(
+      localizedImportNoteText(note({ code: '', source: '' }), t, 'en'),
+    ).toBeNull()
+
+    // Only notes with localized copy reach the panel; the count summary keeps
+    // the rest honest.
+    expect(localizedImportNoteLines(undefined, t, 'en')).toEqual([])
+    expect(
+      localizedImportNoteLines(
+        [note({ code: 'no-importable-files' }), note({ code: 'unknown' })],
+        t,
+        'en',
+      ),
+    ).toEqual([
+      { key: 'no-importable-files:0', text: 'import.noteNoImportableFiles' },
+    ])
   })
 })

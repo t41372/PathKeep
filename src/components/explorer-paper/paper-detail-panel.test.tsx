@@ -44,7 +44,8 @@ const COPY: PaperDetailPanelCopy = {
   titleHistoryLabel: 'Title history',
   notesPlaceholder: 'Why did this matter?',
   notesEmpty: 'Empty',
-  notesSavedLocally: 'Saved · local',
+  notesSaved: 'Saved',
+  notesSaving: 'Saving…',
   notesSaveError: 'Not saved · retry',
   notesCharSingular: '1 char',
   notesCharPlural: '{count} chars',
@@ -213,8 +214,9 @@ describe('PaperDetailPanel', () => {
 
     const alert = screen.getByRole('alert')
     expect(alert).toHaveTextContent('Not saved · retry')
-    // The misleading "Saved · local" hint must not appear when the write failed.
-    expect(screen.queryByText('Saved · local')).toBeNull()
+    // Neither settled state may appear when the write failed.
+    expect(screen.queryByTestId('paper-detail-notes-saved')).toBeNull()
+    expect(screen.queryByTestId('paper-detail-notes-saving')).toBeNull()
   })
 
   test('renders the visit-history sparkline rows', () => {
@@ -368,6 +370,86 @@ describe('PaperDetailPanel', () => {
       vi.advanceTimersByTime(400)
     })
     expect(onUpdateNotes).toHaveBeenCalledWith('Why I kept reading this')
+  })
+
+  test('notes hint reports Saving… while the write is debounced and Saved only once it lands', () => {
+    // Regression: the hint used to be `notesValue ? 'Saved · local' : ''`, so
+    // it claimed the note was persisted on the first keystroke — 400 ms before
+    // `onUpdateNotes` was even called. `savePending` was already tracked here
+    // but never rendered.
+    const onUpdateNotes = vi.fn()
+    // Mirrors the route: the annotation hook applies the write optimistically,
+    // so the `notes` prop follows the committed value.
+    const { rerender } = render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={onUpdateNotes}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        notesDebounceMs={400}
+      />,
+    )
+    const renderWithNotes = (notes: string) =>
+      rerender(
+        <PaperDetailPanel
+          entry={makeEntry()}
+          notes={notes}
+          tags={[]}
+          onClose={() => {}}
+          onUpdateNotes={onUpdateNotes}
+          onUpdateTags={() => {}}
+          copy={COPY}
+          notesDebounceMs={400}
+        />,
+      )
+
+    // Empty note, nothing written yet → neither hint.
+    expect(screen.queryByTestId('paper-detail-notes-saving')).toBeNull()
+    expect(screen.queryByTestId('paper-detail-notes-saved')).toBeNull()
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('paper-detail-notes'), {
+        target: { value: 'half a thought' },
+      })
+    })
+    expect(screen.getByTestId('paper-detail-notes-saving')).toHaveTextContent(
+      'Saving…',
+    )
+    expect(screen.queryByTestId('paper-detail-notes-saved')).toBeNull()
+    expect(onUpdateNotes).not.toHaveBeenCalled()
+
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+    expect(onUpdateNotes).toHaveBeenCalledWith('half a thought')
+    renderWithNotes('half a thought')
+    expect(screen.queryByTestId('paper-detail-notes-saving')).toBeNull()
+    expect(screen.getByTestId('paper-detail-notes-saved')).toHaveTextContent(
+      'Saved',
+    )
+  })
+
+  test('notes hint shows Saved immediately for an already-persisted note', () => {
+    render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes="loaded from the vault"
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        notesDebounceMs={400}
+      />,
+    )
+
+    expect(screen.getByTestId('paper-detail-notes-saved')).toHaveTextContent(
+      'Saved',
+    )
+    expect(screen.queryByTestId('paper-detail-notes-saving')).toBeNull()
   })
 
   test('notesDebounceMs of zero writes synchronously', () => {

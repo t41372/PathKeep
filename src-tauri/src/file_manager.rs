@@ -3,21 +3,23 @@
 //! The command facade keeps file-manager/URL opening isolated here so tests can
 //! exercise the wrapper without pulling in the whole command module.
 
+use crate::command_error::CommandError;
+
 /// Opens one local path through the platform launcher and returns the same path on success.
-pub(crate) fn open_path_in_file_manager_impl(path: String) -> Result<String, String> {
-    vault_platform::open_path_in_file_manager(path)
+pub(crate) fn open_path_in_file_manager_impl(path: String) -> Result<String, CommandError> {
+    Ok(vault_platform::open_path_in_file_manager(path)?)
 }
 
 /// Opens one trusted launcher URL through the platform launcher and returns it on success.
-pub(crate) fn open_external_url_impl(url: String) -> Result<String, String> {
-    vault_platform::open_external_url(url)
+pub(crate) fn open_external_url_impl(url: String) -> Result<String, CommandError> {
+    Ok(vault_platform::open_external_url(url)?)
 }
 
 /// Reveals the local log directory through the platform file manager, returning the revealed path.
 ///
 /// Resolves the log directory from the project paths so the user (and any bug report) can reach
 /// `logs/rust.log` in one click — diagnostics must never be a hidden, hand-typed path.
-pub(crate) fn reveal_logs_impl() -> Result<String, String> {
+pub(crate) fn reveal_logs_impl() -> Result<String, CommandError> {
     let paths = vault_core::project_paths().map_err(|error| error.to_string())?;
     open_path_in_file_manager_impl(paths.logs_dir.display().to_string())
 }
@@ -32,9 +34,9 @@ pub(crate) fn reveal_logs_impl() -> Result<String, String> {
 pub(crate) fn export_conversation_file_impl(
     target_path: String,
     contents: String,
-) -> Result<u64, String> {
+) -> Result<u64, CommandError> {
     if target_path.trim().is_empty() {
-        return Err("Export path is empty".to_string());
+        return Err(CommandError::internal("Export path is empty"));
     }
     std::fs::write(&target_path, contents.as_bytes())
         .map_err(|error| format!("Failed to write {target_path}: {error}"))?;
@@ -91,11 +93,11 @@ mod tests {
     fn wrapper_surfaces_validation_errors() {
         let error = open_path_in_file_manager_impl("/tmp/pathkeep-does-not-exist".to_string())
             .expect_err("missing path should fail");
-        assert!(error.contains("Path does not exist"));
+        assert!(error.message.contains("Path does not exist"));
 
         let error = open_external_url_impl("ftp://example.com/pathkeep".to_string())
             .expect_err("ftp urls should fail");
-        assert!(error.contains("macOS Full Disk Access settings URL"));
+        assert!(error.message.contains("macOS Full Disk Access settings URL"));
     }
 
     #[test]
@@ -111,7 +113,7 @@ mod tests {
         // reveal_logs_impl's path resolution.
         let error = reveal_logs_impl().expect_err("a missing logs dir should fail, not spawn");
         restore_env_var("CHB_PROJECT_ROOT", original.as_deref());
-        assert!(error.contains("Path does not exist"));
+        assert!(error.message.contains("Path does not exist"));
     }
 
     #[cfg(unix)]
@@ -190,7 +192,7 @@ mod tests {
     fn export_conversation_file_rejects_empty_path() {
         let error = export_conversation_file_impl("   ".to_string(), "x".to_string())
             .expect_err("empty path should fail");
-        assert!(error.contains("Export path is empty"));
+        assert!(error.message.contains("Export path is empty"));
     }
 
     #[test]
@@ -201,7 +203,7 @@ mod tests {
         let target = dir.path().join("missing-subdir").join("conversation.json");
         let error = export_conversation_file_impl(target.display().to_string(), "{}".to_string())
             .expect_err("write into a missing directory should fail");
-        assert!(error.contains("Failed to write"));
+        assert!(error.message.contains("Failed to write"));
     }
 
     #[test]

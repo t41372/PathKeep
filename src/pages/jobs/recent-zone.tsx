@@ -103,6 +103,12 @@ function RecentActivityRow({
   /* v8 ignore next 1 -- outcomeKey is always set for terminal-state activities in buildRecent */
   const outcomeLabel = activity.outcomeKey ?? 'outcomeSuccess'
 
+  // Localized copy when the backend sent a known code; the raw diagnostic
+  // sentence otherwise (never a blank line, never a guessed translation).
+  const fallbackReasonText = activity.fallbackReasonKey
+    ? jobsT(activity.fallbackReasonKey)
+    : activity.fallbackReason
+
   return (
     <div className="recent-row">
       <span className={`state-dot ${dotClass}`} aria-hidden="true" />
@@ -117,6 +123,11 @@ function RecentActivityRow({
         <Link className="recent-row__result-link" to={activity.resultLink}>
           {jobsT('viewResultLink')}
         </Link>
+      )}
+      {fallbackReasonText && (
+        <span className="recent-row__detail" role="note">
+          {fallbackReasonText}
+        </span>
       )}
     </div>
   )

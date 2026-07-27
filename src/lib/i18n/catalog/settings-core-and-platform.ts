@@ -136,6 +136,10 @@ export const settingsCoreAndPlatformNamespace = {
     linkPreviewsRebuildHint:
       'Sweeps up to {budget} of the most recently visited URLs without a cached preview (worker hard-caps any single pass at {cap}).',
     linkPreviewsRebuildSummary: 'Enqueued {enqueued}, succeeded {succeeded}.',
+    linkPreviewsRebuildBlockedDisabled:
+      'Turn link previews on to rebuild. With them off, PathKeep makes no preview requests at all.',
+    linkPreviewsRebuildBlockedModeOff:
+      'Switch fetching to On demand or Background to rebuild. “Off” means no requests anywhere, so PathKeep will not fetch previews even when you ask it to here.',
     linkPreviewsStatsLabel: 'Cache footprint',
     linkPreviewsStatsRows: '{rows} rows · {blobs} blobs · {bytes}',
     linkPreviewsStatsEmpty: 'No previews cached yet.',
@@ -188,7 +192,7 @@ export const settingsCoreAndPlatformNamespace = {
       'Review payloads and generated files before using them in trusted local tools. Raw JSON and code are bounded inside review panels.',
     integrationsUnavailableTitle: 'Integrations are temporarily unavailable',
     openJobsBody:
-      'Background Jobs remains the canonical place for runtime progress, retries, cancellation, and logs.',
+      'Activity is the place for runtime progress, retries, cancellation, and logs.',
     backToSettingsBody:
       'Return to everyday preferences such as language, browsers, privacy, AI providers, and saved backup configuration.',
     diagnosticsTitle: 'Support diagnostics',
@@ -221,7 +225,7 @@ export const settingsCoreAndPlatformNamespace = {
     appLock: 'APP LOCK',
     appLockBoundaryTitle: 'Session-only protection',
     appLockBoundaryBody:
-      'App Lock protects the desktop UI session only. Archive encryption remains a separate at-rest control, and shared profile scope stays a filter, not a separate partition.',
+      'App Lock protects the desktop UI session only. Archive encryption remains a separate at-rest control, and shared browser scope stays a filter, not a separate partition.',
     appLockEnabled: 'Enable App Lock',
     appLockStatus: 'Status',
     appLockStatusLocked: 'Locked',
@@ -232,6 +236,8 @@ export const settingsCoreAndPlatformNamespace = {
     appLockTouchId: 'Allow Touch ID unlock when available',
     appLockBiometricUnavailable:
       'Biometric unlock is not wired into this build yet, so passcode unlock stays required.',
+    appLockBiometricLinuxPasscodeOnly:
+      'Linux uses passcode-only App Lock in this build because biometric integration is not wired in yet.',
     appLockTouchIdUnavailable:
       'Touch ID is unavailable on this Mac right now, so passcode unlock stays required.',
     appLockTouchIdAvailable:
@@ -253,7 +259,7 @@ export const settingsCoreAndPlatformNamespace = {
       'Save an app lock passcode before enabling the lock. PathKeep does not treat an unchecked toggle as security.',
     appLockConfigPath: 'Config path',
     appLockLastUnlocked: 'Last unlocked',
-    archiveSecurity: 'ARCHIVE KEY',
+    archiveSecurity: 'ARCHIVE PASSWORD',
     baseUrlLabel: 'Base URL',
     embeddingModelLabel: 'Embedding model',
     llmModelLabel: 'Chat model',
@@ -290,7 +296,7 @@ export const settingsCoreAndPlatformNamespace = {
     loadingModules: '加载中…',
     archiveUnlockTitle: '请先解锁存档再检查设置',
     archiveUnlockBody:
-      'PathKeep 仍然可以检查定时备份和钥匙串状态，但其余设置需要先提供存档会话密钥。请先到安全页面解锁。',
+      'PathKeep 仍然可以检查定时备份和钥匙串状态，但其余设置需要先解锁存档。请先到安全页面输入密码。',
     unavailableTitle: '设置暂时不可用',
     unavailableBody:
       'PathKeep 当前无法加载这组设置检查界面。等主界面刷新完成后再试一次。',
@@ -332,13 +338,13 @@ export const settingsCoreAndPlatformNamespace = {
     groupDerivedData: '派生数据',
     groupDiagnostics: '诊断',
     groupExternalOutputs: '外部输出',
-    groupGeneratedArtifacts: '生成产物',
+    groupGeneratedArtifacts: '生成文件',
     externalReviewBadge: '仅复核',
     general: '通用',
-    generalDescription: '语言和 Explorer 性能偏好。',
+    generalDescription: '语言和浏览页性能偏好。',
     paperHeaderEyebrow: '偏好设置',
-    paperHeaderTitle: '在阅读之前,先安顿好这一页。',
-    paperHeaderSubtitle: '您的阅读环境与档案连接设置。所有更改都会自动保存。',
+    paperHeaderTitle: '在阅读之前，先安顿好这一页。',
+    paperHeaderSubtitle: '您的阅读环境与存档连接设置。所有更改都会自动保存。',
     paperJumpLabel: '跳转到',
     appearanceTitle: '外观',
     appearanceIntro:
@@ -369,7 +375,7 @@ export const settingsCoreAndPlatformNamespace = {
     // ── 链接预览（og:image 缓存）──
     linkPreviewsTitle: '链接预览',
     linkPreviewsIntro:
-      '卡片模式的 Browse 会在能取到 og:image 时抓取页面预览。字节缓存在本地、内容相同则只存一份；除了访问页面本身的 GET 之外，不会把数据传出本机。',
+      '浏览页的卡片模式会在能取到 og:image 时抓取页面预览。字节缓存在本地、内容相同则只存一份；除了访问页面本身的 GET 之外，不会把数据传出本机。',
     linkPreviewsFetchToggleLabel: '从网络抓取链接预览',
     linkPreviewsFetchToggleHint:
       '关闭后，卡片模式会退回 favicon 或域名色块；已经缓存的预览依然会显示。',
@@ -377,7 +383,7 @@ export const settingsCoreAndPlatformNamespace = {
     linkPreviewsFetchOff: '抓取已关闭',
     linkPreviewsFetchModeLabel: '抓取策略',
     linkPreviewsFetchModeHint:
-      '"后台" 模式：每次备份后扫描新访问 URL 预抓 + 重试暂时性失败。"按需" 仅在你滚到卡片时才抓。"关闭" 暂停抓取但保留缓存。',
+      '「后台」模式：每次备份后扫描新访问 URL 预抓 + 重试暂时性失败。「按需」仅在你滚到卡片时才抓。「关闭」暂停抓取但保留缓存。',
     linkPreviewsFetchModeOff: '关闭',
     linkPreviewsFetchModeOffHint: '完全不抓取。',
     linkPreviewsFetchModeOnDemand: '按需',
@@ -392,8 +398,12 @@ export const settingsCoreAndPlatformNamespace = {
     linkPreviewsPrefetchBudgetLabel: '每次备份预抓上限',
     linkPreviewsRebuildAction: '立即重建 ({budget})',
     linkPreviewsRebuildHint:
-      '扫描最近访问且尚未有预览的 URL，最多 {budget} 条（worker 单次硬上限 {cap}）。',
+      '扫描最近访问且尚未有预览的 URL，最多 {budget} 条（单次扫描的硬上限是 {cap} 条）。',
     linkPreviewsRebuildSummary: '入队 {enqueued} 条，成功 {succeeded} 条。',
+    linkPreviewsRebuildBlockedDisabled:
+      '先打开链接预览才能重建。关闭时，PathKeep 不会发出任何预览请求。',
+    linkPreviewsRebuildBlockedModeOff:
+      '先把抓取方式改为「按需」或「后台」才能重建。「关闭」意味着任何地方都不抓取，所以即使你在这里要求，PathKeep 也不会去取预览。',
     linkPreviewsStatsLabel: '缓存大小',
     linkPreviewsStatsRows: '{rows} 行 · {blobs} 个文件 · {bytes}',
     linkPreviewsStatsEmpty: '尚未缓存任何预览。',
@@ -419,7 +429,7 @@ export const settingsCoreAndPlatformNamespace = {
       'example.com\nbanking.example.org\n# 公司内网\nintranet.example.local',
     linkPreviewsCleanupModeLabel: '清理策略',
     linkPreviewsCleanupModeHint:
-      '"关闭" 保留全部预览；选择其他模式时 PathKeep 会在每日维护时自动按规则清理。',
+      '「关闭」保留全部预览；选择其他模式时 PathKeep 会在每日维护时自动按规则清理。',
     linkPreviewsCleanupModeOff: '关闭',
     linkPreviewsCleanupModeOffHint: '缓存不限制增长。',
     linkPreviewsCleanupModeTimeTtl: '按时长',
@@ -442,17 +452,17 @@ export const settingsCoreAndPlatformNamespace = {
     maintenanceUnavailableTitle: '维护暂时不可用',
     integrationsTitle: '集成',
     integrationsBody:
-      '在把载荷和生成文件交给受信任本地工具前，先在这里检查。原始 JSON 和代码会限制在可滚动的复核面板里。',
+      '在把内容和生成文件交给受信任本地工具前，先在这里检查。原始 JSON 和代码会限制在可滚动的复核面板里。',
     integrationsUnavailableTitle: '集成暂时不可用',
-    openJobsBody: '后台任务仍然负责运行进度、重试、取消和日志。',
+    openJobsBody: '活动页负责运行进度、重试、取消和日志。',
     backToSettingsBody:
       '回到语言、浏览器、隐私、AI 服务和已保存备份配置等日常偏好。',
     diagnosticsTitle: '支持诊断',
     diagnosticsBody:
-      '检查日志、崩溃报告或本地支持产物时，可以使用这些路径和构建信息。',
+      '检查日志、崩溃报告或本地支持文件时，可以使用这些路径和构建信息。',
     retentionTitle: '保留与清理',
     retentionDescription:
-      '先检查哪些本地文件现在可以清理。PathKeep 只有在你明确执行时才会删除这些工件。',
+      '先检查哪些本地文件现在可以清理。PathKeep 只有在你明确执行时才会删除这些文件。',
     retentionSelected: '已选择 {size}',
     retentionUnlockTitle: '清理前请先解锁存档',
     retentionUnlockBody:
@@ -465,7 +475,7 @@ export const settingsCoreAndPlatformNamespace = {
     retentionLoadingTitle: '正在加载清理预览',
     retentionRefresh: '刷新预览',
     retentionExecute: '清理所选内容',
-    retentionDeletedBytes: '已删除 {size} 的本地工件。',
+    retentionDeletedBytes: '已删除 {size} 的本地文件。',
     retentionDeletedFiles: '已移除 {count} 个文件或目录。',
     retentionOpenAudit: '打开清理复核',
     retentionNothingSelected: '请至少选择一个可清理项。',
@@ -476,7 +486,7 @@ export const settingsCoreAndPlatformNamespace = {
     appLock: '应用锁',
     appLockBoundaryTitle: '仅保护当前会话',
     appLockBoundaryBody:
-      '应用锁只保护桌面 UI 会话。归档加密仍然是独立的静态数据保护层，共享浏览器范围也仍只是筛选条件，不是单独分区。',
+      '应用锁只保护桌面 UI 会话。存档加密仍然是独立的静态数据保护层，共享浏览器范围也仍只是筛选条件，不是单独分区。',
     appLockEnabled: '启用应用锁',
     appLockStatus: '状态',
     appLockStatusLocked: '已锁定',
@@ -487,6 +497,8 @@ export const settingsCoreAndPlatformNamespace = {
     appLockTouchId: '在可用时允许 Touch ID 解锁',
     appLockBiometricUnavailable:
       '当前构建尚未接入生物识别，所以仍然必须使用密码解锁。',
+    appLockBiometricLinuxPasscodeOnly:
+      '当前构建在 Linux 上只支持密码应用锁，因为生物识别还没有接入。',
     appLockTouchIdUnavailable:
       '这台 Mac 当前无法使用 Touch ID，所以仍然必须使用密码解锁。',
     appLockTouchIdAvailable:
@@ -507,18 +519,18 @@ export const settingsCoreAndPlatformNamespace = {
       '启用应用锁前，必须先保存密码。PathKeep 不会把一个未配置完成的开关当成真实安全保护。',
     appLockConfigPath: '配置路径',
     appLockLastUnlocked: '上次解锁',
-    archiveSecurity: '存档密钥',
+    archiveSecurity: '存档密码',
     baseUrlLabel: 'Base URL',
     embeddingModelLabel: '向量模型',
     llmModelLabel: '对话模型',
     apiKeyLabel: 'API 密钥',
     interfaceLanguage: '语言',
     currentLanguage: '当前',
-    explorerBackgroundPrefetchPages: 'Explorer 后台预取',
+    explorerBackgroundPrefetchPages: '浏览页后台预取',
     explorerBackgroundPrefetchDisabled: '关闭',
     explorerBackgroundPrefetchOption: '每侧 {count} 页',
     explorerBackgroundPrefetchBody:
-      '当前 Explorer 页面显示出来后，PathKeep 可以在后台预热附近页面。数值越高，上一页和下一页切换会更顺，但也会增加后台读取。',
+      '当前浏览页显示出来后，PathKeep 可以在后台预热附近页面。数值越高，上一页和下一页切换会更顺，但也会增加后台读取。',
     dataDirectory: '数据文件夹',
     archiveDatabase: '存档数据库',
     auditRepository: '审计日志',
@@ -544,10 +556,10 @@ export const settingsCoreAndPlatformNamespace = {
     loadingModules: '載入中…',
     archiveUnlockTitle: '請先解鎖封存再檢查設定',
     archiveUnlockBody:
-      'PathKeep 仍然可以檢查定時備份和鑰匙圈狀態，但其餘設定需要先提供封存會話金鑰。請先到安全頁面解鎖。',
+      'PathKeep 仍然可以檢查定時備份和鑰匙圈狀態，但其餘設定需要先提供封存工作階段金鑰。請先到安全頁面解鎖。',
     unavailableTitle: '設定暫時無法使用',
     unavailableBody:
-      'PathKeep 目前無法載入這組設定檢查畫面。等主介面刷新完成後再試一次。',
+      'PathKeep 目前無法載入這組設定檢查畫面。等主介面重新整理完成後再試一次。',
     supportInspectionFailedTitle: 'PathKeep 無法檢查系統保護狀態',
     supportInspectionFailedBody:
       '定時備份或安全狀態無法取得，因此 PathKeep 不能宣稱這些保護正常。請重新偵測。診斷：',
@@ -556,8 +568,8 @@ export const settingsCoreAndPlatformNamespace = {
     browserProfilesBody: '選擇要備份的瀏覽器。只有勾選的瀏覽器會被納入封存。',
     browserAccessBlockedTitle: 'PathKeep 無法讀取你的瀏覽器設定檔',
     browserAccessBlockedBody:
-      'macOS 拒絕了對瀏覽器資料的存取，因此無法選擇設定檔，定時備份也無法保護它們。請授予 PathKeep 完整磁碟取用權，然後重新偵測。',
-    openFullDiskAccessSettings: '開啟完整磁碟取用權設定',
+      'macOS 拒絕了對瀏覽器資料的存取，因此無法選擇設定檔，定時備份也無法保護它們。請授予 PathKeep 完整磁碟取用權限，然後重新偵測。',
+    openFullDiskAccessSettings: '開啟完整磁碟取用權限設定',
     browserDiscoveryRecheck: '重新偵測',
     browserDiscoveryRechecking: '正在偵測…',
     browserDiscoveryFailedTitle: '瀏覽器偵測失敗',
@@ -586,10 +598,10 @@ export const settingsCoreAndPlatformNamespace = {
     groupDerivedData: '派生資料',
     groupDiagnostics: '診斷',
     groupExternalOutputs: '外部輸出',
-    groupGeneratedArtifacts: '生成產物',
+    groupGeneratedArtifacts: '生成檔案',
     externalReviewBadge: '僅複核',
     general: '一般',
-    generalDescription: '語言和 Explorer 效能偏好。',
+    generalDescription: '語言和瀏覽頁效能偏好。',
     paperHeaderEyebrow: '偏好設定',
     paperHeaderTitle: '在閱讀之前，先安頓好這一頁。',
     paperHeaderSubtitle: '您的閱讀環境與檔案連接設定。所有變更都會自動儲存。',
@@ -623,7 +635,7 @@ export const settingsCoreAndPlatformNamespace = {
     // ── 連結預覽（og:image 快取）──
     linkPreviewsTitle: '連結預覽',
     linkPreviewsIntro:
-      '卡片模式的 Browse 會在能取到 og:image 時擷取頁面預覽。位元組快取在本機、內容相同就只存一份；除了訪問頁面本身的 GET 之外，不會把資料傳出本機。',
+      '瀏覽頁的卡片模式會在能取到 og:image 時擷取頁面預覽。位元組快取在本機、內容相同就只存一份；除了造訪頁面本身的 GET 之外，不會把資料傳出本機。',
     linkPreviewsFetchToggleLabel: '從網路擷取連結預覽',
     linkPreviewsFetchToggleHint:
       '關閉之後，卡片模式會退回 favicon 或網域色塊；已經快取的預覽仍會顯示。',
@@ -631,7 +643,7 @@ export const settingsCoreAndPlatformNamespace = {
     linkPreviewsFetchOff: '擷取已關閉',
     linkPreviewsFetchModeLabel: '擷取策略',
     linkPreviewsFetchModeHint:
-      '「背景」模式：每次備份完掃描新訪問 URL 預抓 + 重試暫時性失敗。「按需」只在你滑到卡片時才抓。「關閉」暫停擷取但保留快取。',
+      '「背景」模式：每次備份完掃描新造訪 URL 預抓 + 重試暫時性失敗。「按需」只在你滑到卡片時才抓。「關閉」暫停擷取但保留快取。',
     linkPreviewsFetchModeOff: '關閉',
     linkPreviewsFetchModeOffHint: '完全不擷取。',
     linkPreviewsFetchModeOnDemand: '按需',
@@ -641,13 +653,17 @@ export const settingsCoreAndPlatformNamespace = {
       '按需 + 每次備份預抓 + 每日重試。推薦。',
     linkPreviewsBudgetsLabel: '每次備份預算',
     linkPreviewsBudgetsHint:
-      '限制每日重試和新訪問預抓單次入佇列的 URL 數量上限，避免短時間內大量對外請求。設為 0 即停用該項。',
+      '限制每日重試和新造訪預抓單次入佇列的 URL 數量上限，避免短時間內大量對外請求。設為 0 即停用該項。',
     linkPreviewsDailyRefetchBudgetLabel: '每日重試上限',
     linkPreviewsPrefetchBudgetLabel: '每次備份預抓上限',
     linkPreviewsRebuildAction: '立即重建 ({budget})',
     linkPreviewsRebuildHint:
-      '掃描最近訪問且尚未有預覽的 URL，最多 {budget} 條（worker 單次硬上限 {cap}）。',
+      '掃描最近造訪且尚未有預覽的 URL，最多 {budget} 條（單次掃描的硬上限是 {cap} 條）。',
     linkPreviewsRebuildSummary: '入佇列 {enqueued} 條，成功 {succeeded} 條。',
+    linkPreviewsRebuildBlockedDisabled:
+      '先開啟連結預覽才能重建。關閉時，PathKeep 不會發出任何預覽請求。',
+    linkPreviewsRebuildBlockedModeOff:
+      '先把抓取方式改為「按需」或「背景」才能重建。「關閉」代表任何地方都不抓取，所以即使你在這裡要求，PathKeep 也不會去取預覽。',
     linkPreviewsStatsLabel: '快取大小',
     linkPreviewsStatsRows: '{rows} 列 · {blobs} 個檔案 · {bytes}',
     linkPreviewsStatsEmpty: '尚未快取任何預覽。',
@@ -696,17 +712,17 @@ export const settingsCoreAndPlatformNamespace = {
     maintenanceUnavailableTitle: '維護暫時無法使用',
     integrationsTitle: '整合',
     integrationsBody:
-      '在把載荷和生成檔案交給受信任本地工具前，先在這裡檢查。原始 JSON 和程式碼會限制在可捲動的複核面板裡。',
+      '在把內容和生成檔案交給受信任本地工具前，先在這裡檢查。原始 JSON 和程式碼會限制在可捲動的複核面板裡。',
     integrationsUnavailableTitle: '整合暫時無法使用',
-    openJobsBody: '背景工作仍然負責執行進度、重試、取消和日誌。',
+    openJobsBody: '活動頁負責執行進度、重試、取消和日誌。',
     backToSettingsBody:
       '回到語言、瀏覽器、隱私、AI 服務和已保存備份設定等日常偏好。',
     diagnosticsTitle: '支援診斷',
     diagnosticsBody:
-      '檢查日誌、崩潰報告或本地支援產物時，可以使用這些路徑和建置資訊。',
+      '檢查日誌、崩潰報告或本地支援檔案時，可以使用這些路徑和建置資訊。',
     retentionTitle: '保留與清理',
     retentionDescription:
-      '先檢查哪些本地檔案現在可以清理。PathKeep 只有在你明確執行時才會刪除這些工件。',
+      '先檢查哪些本地檔案現在可以清理。PathKeep 只有在你明確執行時才會刪除這些檔案。',
     retentionSelected: '已選擇 {size}',
     retentionUnlockTitle: '清理前請先解鎖封存',
     retentionUnlockBody:
@@ -719,7 +735,7 @@ export const settingsCoreAndPlatformNamespace = {
     retentionLoadingTitle: '正在載入清理預覽',
     retentionRefresh: '重新整理預覽',
     retentionExecute: '清理所選內容',
-    retentionDeletedBytes: '已刪除 {size} 的本地工件。',
+    retentionDeletedBytes: '已刪除 {size} 的本地檔案。',
     retentionDeletedFiles: '已移除 {count} 個檔案或目錄。',
     retentionOpenAudit: '打開清理複核',
     retentionNothingSelected: '請至少選擇一個可清理項目。',
@@ -728,9 +744,9 @@ export const settingsCoreAndPlatformNamespace = {
     retentionExportPruneWarning:
       '清理匯出只會刪除 PathKeep 資料目錄下的本地檔案，遠端物件不會變更。',
     appLock: '應用鎖',
-    appLockBoundaryTitle: '僅保護目前會話',
+    appLockBoundaryTitle: '僅保護目前工作階段',
     appLockBoundaryBody:
-      '應用鎖只保護桌面 UI 會話。封存加密仍然是獨立的靜態資料保護層，共享瀏覽器範圍也仍只是篩選條件，不是獨立分區。',
+      '應用鎖只保護桌面 UI 工作階段。封存加密仍然是獨立的靜態資料保護層，共享瀏覽器範圍也仍只是篩選條件，不是獨立分區。',
     appLockEnabled: '啟用應用鎖',
     appLockStatus: '狀態',
     appLockStatusLocked: '已鎖定',
@@ -741,10 +757,12 @@ export const settingsCoreAndPlatformNamespace = {
     appLockTouchId: '可用時允許 Touch ID 解鎖',
     appLockBiometricUnavailable:
       '目前建置尚未接上生物辨識，所以仍然必須使用密碼解鎖。',
+    appLockBiometricLinuxPasscodeOnly:
+      '目前建置在 Linux 上只支援密碼應用鎖，因為生物辨識尚未接上。',
     appLockTouchIdUnavailable:
       '這台 Mac 目前無法使用 Touch ID，所以仍然必須使用密碼解鎖。',
     appLockTouchIdAvailable:
-      '這台 Mac 可以使用 Touch ID 解鎖目前的 PathKeep 會話。',
+      '這台 Mac 可以使用 Touch ID 解鎖目前的 PathKeep 工作階段。',
     appLockRecoveryHint: '恢復提示',
     appLockRecoveryHintPlaceholder: '鎖定畫面上顯示的可選提示',
     appLockPasscode: '密碼',
@@ -761,18 +779,18 @@ export const settingsCoreAndPlatformNamespace = {
       '啟用應用鎖前，必須先儲存密碼。PathKeep 不會把一個尚未設定完成的開關當成真正的安全保護。',
     appLockConfigPath: '設定路徑',
     appLockLastUnlocked: '上次解鎖',
-    archiveSecurity: '封存密鑰',
+    archiveSecurity: '封存密碼',
     baseUrlLabel: 'Base URL',
     embeddingModelLabel: '向量模型',
     llmModelLabel: '對話模型',
     apiKeyLabel: 'API 金鑰',
     interfaceLanguage: '語言',
     currentLanguage: '目前',
-    explorerBackgroundPrefetchPages: 'Explorer 背景預取',
+    explorerBackgroundPrefetchPages: '瀏覽頁背景預取',
     explorerBackgroundPrefetchDisabled: '關閉',
     explorerBackgroundPrefetchOption: '每側 {count} 頁',
     explorerBackgroundPrefetchBody:
-      '目前的 Explorer 頁面顯示出來後，PathKeep 可以在背景預熱附近頁面。數值越高，上一頁和下一頁切換會更順，但也會增加背景讀取。',
+      '目前的瀏覽頁顯示出來後，PathKeep 可以在背景預熱附近頁面。數值越高，上一頁和下一頁切換會更順，但也會增加背景讀取。',
     dataDirectory: '資料夾',
     archiveDatabase: '封存資料庫',
     auditRepository: '稽核日誌',

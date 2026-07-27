@@ -24,6 +24,7 @@ import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
+import { CommandInvokeError } from '../../lib/ipc/command-error'
 import type { ImportBatchDetail, ImportBatchOverview } from '../../lib/types'
 import { useImportReviewState } from './use-import-review-state'
 
@@ -441,5 +442,59 @@ describe('useImportReviewState', () => {
       await result.current.handleRepairHealth()
     })
     expect(result.current.actionError).toBe('repair failed')
+  })
+
+  test('classifies Full Disk Access failures from the backend code, not the message', async () => {
+    const refreshAppData = vi.fn().mockResolvedValue(undefined)
+    vi.spyOn(backend, 'previewImportBatch').mockResolvedValue(
+      detailFor(recentBatches[0]),
+    )
+
+    const { result } = renderHook(
+      () =>
+        useImportReviewState({
+          importResult: null,
+          recentImportBatches: recentBatches,
+          refreshAppData,
+          t: translate,
+        }),
+      { wrapper: createWrapper('/import?batch=1') },
+    )
+
+    await waitFor(() => expect(result.current.activeBatchDetail).not.toBeNull())
+    expect(result.current.actionErrorIsFullDiskAccess).toBe(false)
+
+    // The structured code is what opens the FDA remediation affordance…
+    act(() => {
+      result.current.reportActionError(
+        new CommandInvokeError(
+          'import_review_action failed: permission denied',
+          {
+            code: 'full-disk-access',
+          },
+        ),
+      )
+    })
+    expect(result.current.actionErrorIsFullDiskAccess).toBe(true)
+    expect(result.current.actionError).toContain('permission denied')
+
+    // …and an unclassified failure must NOT, even mid-session.
+    act(() => {
+      result.current.reportActionError(new Error('archive is busy'))
+    })
+    expect(result.current.actionErrorIsFullDiskAccess).toBe(false)
+
+    // Clearing resets both channels so a stale classification cannot linger.
+    act(() => {
+      result.current.reportActionError(
+        new CommandInvokeError('denied', { code: 'full-disk-access' }),
+      )
+    })
+    expect(result.current.actionErrorIsFullDiskAccess).toBe(true)
+    act(() => {
+      result.current.clearActionError()
+    })
+    expect(result.current.actionError).toBeNull()
+    expect(result.current.actionErrorIsFullDiskAccess).toBe(false)
   })
 })

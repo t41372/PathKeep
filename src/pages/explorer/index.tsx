@@ -36,6 +36,7 @@ import {
   historyFaviconLookupKey,
   historyOgImageLookupKey,
   isSearchResultUrl,
+  keywordPageSizeOptions,
 } from './helpers'
 import {
   profileIdLabel,
@@ -56,11 +57,13 @@ import { SessionGroupPanel } from './panels/session-group'
 import { TrailGroupPanel } from './panels/trail-group'
 import {
   buildPaperExplorerCopy,
+  buildPaperPaginationBarCopy,
   buildPaperStarredViewCopy,
 } from './paper-explorer-copy'
 import {
   PaperFilterStrip,
   PaperStarredView,
+  PaperViewToggle,
   type PaperFilterStripFormState,
   type PaperSearchMode,
 } from '../../components/explorer-paper'
@@ -85,7 +88,7 @@ import { hasDesktopCommandTransport } from '../../lib/runtime'
 import type { StarListItem } from '../../lib/backend-client'
 import type { HistoryEntry } from '../../lib/types/archive'
 import type { AiSearchResultItem } from '../../lib/types/intelligence'
-import type { ExplorerVisitSelection } from './types'
+import type { ExplorerViewMode, ExplorerVisitSelection } from './types'
 
 /**
  * Adapts a starred page (`list_stars` `url` item) into a `HistoryEntry` so the
@@ -181,23 +184,35 @@ export function ExplorerPage() {
     currentQuery,
     end,
     groupedDateRange,
+    handleFirstHistoryPage,
+    handleHistoryPageJump,
+    handleLastHistoryPage,
+    handleNextHistoryPage,
     handleNextSemanticPage,
+    handlePreviousHistoryPage,
     handlePreviousSemanticPage,
+    historyPageInput,
     mode,
+    pageSize,
     persistRecentSearch,
     profileId,
     queryInput,
     rawQuery,
+    recentSearches,
     regexMode,
     regexValid,
     searchParams,
     semanticQuery,
     semanticTrail,
+    setHistoryPageInput,
+    setHistoryPageSize,
     setQueryInput,
     setRecentSearches,
     setSearchParams,
+    setView,
     start,
     updateParam,
+    updateParams,
     view,
   } = useExplorerUrlState({
     activeProfileId,
@@ -594,6 +609,29 @@ export function ExplorerPage() {
     next.delete('surface')
     setSearchParams(next)
   }, [searchParams, setSearchParams])
+  // E3: the ONLY entry point to the Session / Trail views. Both branches have
+  // always rendered — with detail rails, explainability and ~600 lines of
+  // tests — but `setView` was never called from anywhere, so the two surfaces
+  // were reachable only by hand-typing `?view=session` / `?view=trail`.
+  // `setView` batches its `view` + default-window writes into one
+  // `setSearchParams`, which is why this calls it instead of `updateParam`.
+  const paperViewToggle = useMemo(
+    () => (
+      <PaperViewToggle<ExplorerViewMode>
+        value={view}
+        options={[
+          { value: 'time', label: explorerT('viewModeTime') },
+          { value: 'session', label: explorerT('viewModeSession') },
+          { value: 'trail', label: explorerT('viewModeTrail') },
+        ]}
+        onChange={setView}
+        ariaLabel={explorerT('viewModeLabel')}
+        testId="explorer-view-toggle"
+      />
+    ),
+    [explorerT, setView, view],
+  )
+
   const paperFilterStrip = useMemo(
     () => (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -608,11 +646,12 @@ export function ExplorerPage() {
           onApply={handleFilterStripApply}
           testId="paper-filter-strip"
         />
+        <div className="ml-auto flex items-center gap-2">{paperViewToggle}</div>
         <button
           type="button"
           onClick={openStarredHub}
           data-testid="explorer-open-starred"
-          className="border-border-light text-ink-muted hover:text-accent hover:border-accent ml-auto inline-flex items-center gap-1.5 rounded-paper border px-2.5 py-0.5 font-mono text-[10.5px] uppercase tracking-[0.08em] transition-colors"
+          className="border-border-light text-ink-muted hover:text-accent hover:border-accent inline-flex items-center gap-1.5 rounded-paper border px-2.5 py-0.5 font-mono text-[10.5px] uppercase tracking-[0.08em] transition-colors"
         >
           <svg
             viewBox="0 0 24 24"
@@ -657,6 +696,7 @@ export function ExplorerPage() {
       handleFilterStripRemove,
       language,
       openStarredHub,
+      paperViewToggle,
       profileOptions,
       starredCount.loaded,
       starredCount.total,
@@ -795,17 +835,21 @@ export function ExplorerPage() {
     [queryHasStarredFacet, starredSearchEntries, renderedTimeResults],
   )
   // Map the backend hybrid results into the shared paper result-row shape. The
-  // adapter stamps `matchReason` + a `scoreBand`-derived relevance pill and the
-  // real `historyId` so selecting a row opens the detail panel exactly like a
-  // keyword row. Pure/cheap (no network), so it can live in render.
+  // adapter stamps a LOCALIZED `matchReason` caption (resolved from the backend's
+  // stable match-reason CODE via the `explorer` catalog, never raw English) + a
+  // `scoreBand`-derived relevance pill and the real `historyId` so selecting a row
+  // opens the detail panel exactly like a keyword row. Pure/cheap (no network), so
+  // it can live in render.
   const rankedSearchEntries = useMemo(
     () =>
       semanticResults
-        ? buildPaperSearchRelevanceList(
-            semanticResults.items,
+        ? buildPaperSearchRelevanceList(semanticResults.items, {
             intelligenceT,
-            explorerT('paperSearchView.enrichmentSourceGeneric'),
-          )
+            explorerT,
+            enrichmentSourceLabel: explorerT(
+              'paperSearchView.enrichmentSourceGeneric',
+            ),
+          })
         : [],
     [semanticResults, intelligenceT, explorerT],
   )
@@ -906,6 +950,55 @@ export function ExplorerPage() {
           // I2: the honest total ranked count from `AiSearchResponse.total`, so
           // the summary can say "Page N · M ranked" instead of a bare ordinal.
           total: semanticResults.total,
+        }
+      : null
+  const searchPaginationCopy = useMemo(
+    () => buildPaperPaginationBarCopy(explorerT),
+    [explorerT],
+  )
+  // Offset pagination for the keyword / regex (day-grouped) search list.
+  //
+  // The backend already returns a real `page` / `pageCount` for these queries,
+  // and the search surface deliberately opts out of infinite scroll
+  // (`infiniteDisabled`), so without this descriptor the user only ever sees
+  // page 1 of the hit set while the header honestly reports the full total —
+  // the exact "12,431 pages found, 50 rendered, no way forward" defect.
+  // `docs/features/recall.md` requires the full first / prev / next / last +
+  // jump + rows-per-page set, mounted above AND below the list.
+  //
+  // Smart keeps its cursor pager (`smartPagination`) and `is:starred` reads the
+  // whole starred set from the hub in one shot, so neither gets this bar.
+  const keywordSearchResults =
+    paperSearchSurface && !smartSearchActive && !queryHasStarredFacet
+      ? renderedTimeResults
+      : null
+  const searchOffsetPagination =
+    keywordSearchResults && keywordSearchResults.pageCount > 0
+      ? {
+          page: keywordSearchResults.page,
+          pageCount: keywordSearchResults.pageCount,
+          total: keywordSearchResults.total,
+          loaded: keywordSearchResults.items.length,
+          pageSize,
+          pageSizeOptions: keywordPageSizeOptions,
+          pageInput: historyPageInput,
+          onPageInputChange: setHistoryPageInput,
+          onFirst: () => handleFirstHistoryPage(keywordSearchResults.page),
+          onPrevious: () =>
+            handlePreviousHistoryPage(keywordSearchResults.page),
+          onNext: () => handleNextHistoryPage(keywordSearchResults.page),
+          onLast: () =>
+            handleLastHistoryPage(
+              keywordSearchResults.page,
+              keywordSearchResults.pageCount,
+            ),
+          onJump: () =>
+            handleHistoryPageJump(
+              keywordSearchResults.page,
+              keywordSearchResults.pageCount,
+            ),
+          onChangePageSize: setHistoryPageSize,
+          copy: searchPaginationCopy,
         }
       : null
   // REACH-B B1: the in-surface CTA must reflect the LIVE queue truth, not a
@@ -1193,6 +1286,12 @@ export function ExplorerPage() {
           <PaperStarredView
             items={starredHub.items}
             loading={starredHub.loading}
+            // E2: `list_stars` has no cursor yet, so the hub shows a bounded
+            // prefix. Say so instead of letting the prefix pass for the whole
+            // set — the entry badge reads a real aggregate and the two numbers
+            // used to contradict each other on the same screen.
+            truncated={starredHub.truncated}
+            total={starredCount.loaded ? starredCount.total : null}
             sort={starredHub.sort}
             onSortChange={starredHub.setSort}
             onSelect={(item) => {
@@ -1228,17 +1327,26 @@ export function ExplorerPage() {
           regexMode={regexMode}
           entries={searchEntries}
           totalResults={
+            // `is:starred` reports the AGGREGATE starred total, not the length
+            // of the loaded slice. `starredSearchEntries` is a bounded prefix
+            // of the hub read model (see `useStarredHub`), so its length would
+            // announce "500 pages found" to a user with 700 stars. Fall back
+            // to the slice length only while the aggregate has not landed.
             queryHasStarredFacet
-              ? starredSearchEntries.length
+              ? starredCount.loaded
+                ? starredCount.urls
+                : starredSearchEntries.length
               : (renderedTimeResults?.total ?? 0)
           }
           language={language}
           explorerT={explorerT}
+          recentSearches={recentSearches}
           rankedEntries={rankedSearchEntries}
           aiLoading={semanticLoading}
           aiError={semanticError}
           aiNotes={smartNotes}
           pagination={smartPagination}
+          offsetPagination={searchOffsetPagination}
           relevanceScopeLine={smartScopeLine}
           smartAvailable={smartAvailable}
           onAskAssistant={(entry) => {
@@ -1307,8 +1415,13 @@ export function ExplorerPage() {
             // `submittedMode`, so a mode change only re-enables the Search
             // button and may surface the stale-results banner until the user
             // presses Search / Enter.
-            updateParam('mode', next.mode === 'keyword' ? null : next.mode)
-            updateParam('regex', next.regexMode ? '1' : null)
+            // ONE write: `mode` and `regex` must land in the same navigation.
+            // Two sequential `updateParam` calls both diff against the stale
+            // render-time params, so the second silently dropped the first.
+            updateParams({
+              mode: next.mode === 'keyword' ? null : next.mode,
+              regex: next.regexMode ? '1' : null,
+            })
           }}
           onSubmit={(query) => {
             // The single URL write for the query — the submit gate. Records the
@@ -1443,59 +1556,69 @@ export function ExplorerPage() {
           copy={buildPaperExplorerCopy(explorerT)}
           filterStripSlot={paperFilterStrip}
           resolveDayInsights={browseDayInsightsCache.resolve}
+          onDayVisible={browseDayInsightsCache.request}
           testId="explorer-paper-view"
         />
       ) : view === 'session' ? (
-        <div className="explorer-grid">
-          <div className="record-list">
-            <SessionGroupPanel
-              dateRange={groupedDateRange}
+        // The grouped views do not mount the contact sheet, so they carry
+        // their own copy of the view toggle — otherwise entering Session or
+        // Trail would be a one-way trip.
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center">{paperViewToggle}</div>
+          <div className="explorer-grid">
+            <div className="record-list">
+              <SessionGroupPanel
+                dateRange={groupedDateRange}
+                explorerT={explorerT}
+                intelligenceT={intelligenceT}
+                language={language}
+                onSelectVisit={(visit) =>
+                  setSelectedGroupedVisitState({
+                    key: groupedSelectionKey,
+                    visit,
+                  })
+                }
+                profileId={profileId}
+              />
+            </div>
+            <ExplorerDetailPanel
+              commonT={commonT}
               explorerT={explorerT}
+              handleVisit={handleVisit}
               intelligenceT={intelligenceT}
               language={language}
-              onSelectVisit={(visit) =>
-                setSelectedGroupedVisitState({
-                  key: groupedSelectionKey,
-                  visit,
-                })
-              }
-              profileId={profileId}
+              selectedVisit={selectedGroupedVisit}
             />
           </div>
-          <ExplorerDetailPanel
-            commonT={commonT}
-            explorerT={explorerT}
-            handleVisit={handleVisit}
-            intelligenceT={intelligenceT}
-            language={language}
-            selectedVisit={selectedGroupedVisit}
-          />
         </div>
       ) : view === 'trail' ? (
-        <div className="explorer-grid">
-          <div className="record-list">
-            <TrailGroupPanel
-              dateRange={groupedDateRange}
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center">{paperViewToggle}</div>
+          <div className="explorer-grid">
+            <div className="record-list">
+              <TrailGroupPanel
+                dateRange={groupedDateRange}
+                explorerT={explorerT}
+                intelligenceT={intelligenceT}
+                language={language}
+                onSelectVisit={(visit) =>
+                  setSelectedGroupedVisitState({
+                    key: groupedSelectionKey,
+                    visit,
+                  })
+                }
+                profileId={profileId}
+              />
+            </div>
+            <ExplorerDetailPanel
+              commonT={commonT}
               explorerT={explorerT}
+              handleVisit={handleVisit}
               intelligenceT={intelligenceT}
               language={language}
-              onSelectVisit={(visit) =>
-                setSelectedGroupedVisitState({
-                  key: groupedSelectionKey,
-                  visit,
-                })
-              }
-              profileId={profileId}
+              selectedVisit={selectedGroupedVisit}
             />
           </div>
-          <ExplorerDetailPanel
-            commonT={commonT}
-            explorerT={explorerT}
-            handleVisit={handleVisit}
-            intelligenceT={intelligenceT}
-            language={language}
-            selectedVisit={selectedGroupedVisit}
-          />
         </div>
       ) : null}
 

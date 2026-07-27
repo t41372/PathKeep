@@ -16,6 +16,8 @@
 #[cfg(not(test))]
 use super::blocking::run_blocking_command;
 #[cfg(not(test))]
+use crate::command_error::CommandError;
+#[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
 use tauri::{AppHandle, Emitter, State};
@@ -27,7 +29,7 @@ pub(crate) async fn ai_chat_send(
     app: AppHandle,
     request: vault_core::AiChatSendRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::AiChatSendAck, String> {
+) -> Result<vault_core::AiChatSendAck, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("ai_chat_send", move || {
         worker_bridge::ai_chat_send_impl(request, session_database_key.as_deref(), move |event| {
@@ -43,7 +45,7 @@ pub(crate) async fn ai_chat_send(
 pub(crate) async fn ai_chat_cancel(
     run_id: String,
     state: State<'_, SessionState>,
-) -> Result<vault_core::AiChatCancelResult, String> {
+) -> Result<vault_core::AiChatCancelResult, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("ai_chat_cancel", move || {
         worker_bridge::ai_chat_cancel_impl(run_id, session_database_key.as_deref())
@@ -59,7 +61,7 @@ pub(crate) async fn ai_chat_cancel(
 /// Reaching this command IS the explicit user consent action (pressing "Download model"); the
 /// first-class consent TOGGLE + provider-config UI is W-AI-9. The download runs off the UI thread
 /// and emits a terminal `Done`/`Error` so the renderer never hangs.
-pub(crate) async fn download_ai_embedding_model(app: AppHandle) -> Result<(), String> {
+pub(crate) async fn download_ai_embedding_model(app: AppHandle) -> Result<(), CommandError> {
     run_blocking_command("download_ai_embedding_model", move || {
         worker_bridge::download_ai_embedding_model_impl(move |event| {
             let _ = app.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event);
@@ -78,7 +80,7 @@ pub(crate) async fn download_ai_embedding_model(app: AppHandle) -> Result<(), St
 /// shares the cancel flag, so an in-flight download is cancelable via
 /// `cancel_ai_embedding_model_download`. Always emits a terminal `Done`/`Error` so the renderer never
 /// hangs.
-pub(crate) async fn download_static_embedding_model(app: AppHandle) -> Result<(), String> {
+pub(crate) async fn download_static_embedding_model(app: AppHandle) -> Result<(), CommandError> {
     run_blocking_command("download_static_embedding_model", move || {
         worker_bridge::download_static_embedding_model_impl(move |event| {
             let _ = app.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event);
@@ -90,7 +92,7 @@ pub(crate) async fn download_static_embedding_model(app: AppHandle) -> Result<()
 #[cfg(not(test))]
 #[tauri::command]
 /// Requests cancellation of any in-flight in-app embedding model download.
-pub(crate) async fn cancel_ai_embedding_model_download() -> Result<(), String> {
+pub(crate) async fn cancel_ai_embedding_model_download() -> Result<(), CommandError> {
     run_blocking_command("cancel_ai_embedding_model_download", || {
         worker_bridge::cancel_model_download_impl()
     })

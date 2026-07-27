@@ -113,31 +113,43 @@ fn biometric_available(state: AppLockBiometricState) -> bool {
     matches!(state, AppLockBiometricState::TouchIdAvailable)
 }
 
-fn biometric_note(state: AppLockBiometricState) -> Option<String> {
+/// Returns the biometric degradation note for the current build as a
+/// `(stable code, diagnostic English prose)` pair.
+///
+/// The code is what Settings localizes against; the prose only survives as a
+/// fallback so an older shell still shows something truthful.
+fn biometric_note(state: AppLockBiometricState) -> Option<(&'static str, String)> {
     biometric_note_for_platform(state, cfg!(target_os = "linux"))
 }
 
-fn biometric_note_for_platform(state: AppLockBiometricState, linux: bool) -> Option<String> {
+fn biometric_note_for_platform(
+    state: AppLockBiometricState,
+    linux: bool,
+) -> Option<(&'static str, String)> {
     match state {
-        AppLockBiometricState::TouchIdAvailable => Some(
+        AppLockBiometricState::TouchIdAvailable => Some((
+            crate::models::APP_LOCK_NOTE_TOUCH_ID_AVAILABLE,
             "Touch ID is available on this Mac and can unlock the current PathKeep session."
                 .to_string(),
-        ),
-        AppLockBiometricState::TouchIdUnavailable => Some(
+        )),
+        AppLockBiometricState::TouchIdUnavailable => Some((
+            crate::models::APP_LOCK_NOTE_TOUCH_ID_UNAVAILABLE,
             "Touch ID is unavailable on this Mac right now, so PathKeep falls back to the app-lock passcode."
                 .to_string(),
-        ),
+        )),
         AppLockBiometricState::Unsupported => {
             if linux {
-                Some(
+                Some((
+                    crate::models::APP_LOCK_NOTE_BIOMETRIC_LINUX_PASSCODE_ONLY,
                     "Linux currently uses passcode-only app lock because biometric integration is not wired into this build."
                         .to_string(),
-                )
+                ))
             } else {
-                Some(
+                Some((
+                    crate::models::APP_LOCK_NOTE_BIOMETRIC_NOT_WIRED,
                     "Biometric unlock is reserved for future platform integration; this build currently falls back to the app-lock passcode."
                         .to_string(),
-                )
+                ))
             }
         }
     }
@@ -189,6 +201,7 @@ pub fn app_lock_status_with_biometric(
         "App Lock only protects the PathKeep UI session. Archive encryption still protects data at rest."
             .to_string(),
     ];
+    let mut degradation_note_codes = vec![crate::models::APP_LOCK_NOTE_UI_SESSION_ONLY.to_string()];
     if config.app_lock.enabled
         && config.app_lock.passcode_enabled
         && !config.app_lock.passcode_configured
@@ -198,11 +211,12 @@ pub fn app_lock_status_with_biometric(
         );
     }
 
-    if let Some(note) = biometric_note(biometric_state) {
+    if let Some((code, note)) = biometric_note(biometric_state) {
         if config.app_lock.biometric_enabled && !biometric_available(biometric_state) {
             warnings.push(note.clone());
         }
         degradation_notes.push(note);
+        degradation_note_codes.push(code.to_string());
     }
 
     Ok(AppLockStatus {
@@ -221,6 +235,7 @@ pub fn app_lock_status_with_biometric(
         recovery_hint: config.app_lock.recovery_hint.clone(),
         warnings,
         degradation_notes,
+        degradation_note_codes,
     })
 }
 
@@ -726,16 +741,29 @@ mod tests {
         assert!(
             status.degradation_notes.iter().any(|note| note.contains("Touch ID is unavailable"))
         );
-        assert!(
-            biometric_note_for_platform(AppLockBiometricState::Unsupported, true)
-                .expect("linux note")
-                .contains("Linux currently uses passcode-only")
+        // The code channel is what Settings localizes against, so it must stay
+        // index-aligned with the diagnostic prose.
+        assert_eq!(status.degradation_notes.len(), status.degradation_note_codes.len());
+        assert_eq!(
+            status.degradation_note_codes,
+            vec![
+                crate::models::APP_LOCK_NOTE_UI_SESSION_ONLY.to_string(),
+                crate::models::APP_LOCK_NOTE_TOUCH_ID_UNAVAILABLE.to_string(),
+            ]
         );
-        assert!(
+        let linux_note =
+            biometric_note_for_platform(AppLockBiometricState::Unsupported, true).expect("linux");
+        assert_eq!(linux_note.0, crate::models::APP_LOCK_NOTE_BIOMETRIC_LINUX_PASSCODE_ONLY);
+        assert!(linux_note.1.contains("Linux currently uses passcode-only"));
+        let unsupported_note =
             biometric_note_for_platform(AppLockBiometricState::Unsupported, false)
-                .expect("generic unsupported note")
-                .contains("future platform integration")
-        );
+                .expect("generic unsupported note");
+        assert_eq!(unsupported_note.0, crate::models::APP_LOCK_NOTE_BIOMETRIC_NOT_WIRED);
+        assert!(unsupported_note.1.contains("future platform integration"));
+        let available_note =
+            biometric_note_for_platform(AppLockBiometricState::TouchIdAvailable, false)
+                .expect("touch id available note");
+        assert_eq!(available_note.0, crate::models::APP_LOCK_NOTE_TOUCH_ID_AVAILABLE);
 
         let unavailable_unlock = unlock_app_session_with_biometric(
             &paths,

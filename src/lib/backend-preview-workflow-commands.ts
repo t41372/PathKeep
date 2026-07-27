@@ -247,14 +247,16 @@ export function handlePreviewWorkflowCommand<T>(
         generatedAt: new Date().toISOString(),
         checks: [
           {
-            name: 'import-artifacts',
+            code: 'import-audit-artifacts',
+            name: 'Import audit artifacts',
             ok: state.snapshot.recentImportBatches.length > 0,
             detail: state.snapshot.recentImportBatches.length
               ? 'Import batch audit artifacts are present and reviewable.'
               : 'No import batches have been created yet.',
           },
           {
-            name: 'visibility-state',
+            code: 'broken-visibility-references',
+            name: 'Broken visibility references',
             ok: !state.snapshot.recentImportBatches.some(
               (batch) => batch.status === 'reverted',
             ),

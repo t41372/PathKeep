@@ -32,6 +32,7 @@ use super::{
     load_archive_source_profile_id, load_seen_domains, local_date_key, persist_visit_derived_facts,
     unique_date_keys, visit_from_row,
 };
+use crate::models::DerivedRuntimeNote;
 use anyhow::Result;
 use rusqlite::{Connection, params};
 use std::collections::{BTreeSet, HashSet};
@@ -66,31 +67,51 @@ pub(super) fn execute_visit_derive_stage(
         return Ok(StageRunResult {
             execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
             affected_profiles: vec![profile_id.to_string()],
-            notes: vec![format!(
-                "No visible visits remained for {profile_id}; cleared visit-derived facts."
-            )],
+            notes: vec![
+                DerivedRuntimeNote::new(
+                    crate::models::DERIVED_NOTE_VISIT_FACTS_CLEARED_NO_VISITS,
+                    format!(
+                        "No visible visits remained for {profile_id}; cleared visit-derived facts."
+                    ),
+                )
+                .with_profile_id(profile_id),
+            ],
             ..StageRunResult::default()
         });
     }
 
+    let mut fallback_reason_code: Option<String> = None;
     let mut fallback_reason = if force_full {
+        fallback_reason_code =
+            Some(crate::models::REBUILD_FALLBACK_VISIT_DERIVE_MANUAL_FULL_REBUILD.to_string());
         Some("Manual full rebuild requested for visit-derived facts.".to_string())
     } else {
         None
     };
     if !force_full {
         match checkpoint.as_ref() {
-            None => fallback_reason =
-                Some("No visit-derived checkpoint was recorded for this profile yet.".to_string()),
+            None => {
+                fallback_reason = Some(
+                    "No visit-derived checkpoint was recorded for this profile yet.".to_string(),
+                );
+                fallback_reason_code =
+                    Some(crate::models::REBUILD_FALLBACK_VISIT_DERIVE_NO_CHECKPOINT.to_string());
+            }
             Some(checkpoint) if checkpoint.stage_version != current_version => {
-                fallback_reason =
-                    Some("Visit-derived rules changed since the last successful rebuild.".to_string())
+                fallback_reason = Some(
+                    "Visit-derived rules changed since the last successful rebuild.".to_string(),
+                );
+                fallback_reason_code =
+                    Some(crate::models::REBUILD_FALLBACK_VISIT_DERIVE_RULES_CHANGED.to_string());
             }
             Some(checkpoint) if watermark_regressed(watermark, &checkpoint.source_watermark) => {
                 fallback_reason = Some(
                     "Archive visibility regressed or source counters moved backwards for visit-derived facts."
                         .to_string(),
-                )
+                );
+                fallback_reason_code = Some(
+                    crate::models::REBUILD_FALLBACK_VISIT_DERIVE_VISIBILITY_REGRESSED.to_string(),
+                );
             }
             _ => {}
         }
@@ -118,7 +139,13 @@ pub(super) fn execute_visit_derive_stage(
         return Ok(StageRunResult {
             execution_mode: Some(StageExecutionMode::Noop.as_str().to_string()),
             affected_profiles: vec![profile_id.to_string()],
-            notes: vec![format!("Visit-derived facts for {profile_id} were already up to date.")],
+            notes: vec![
+                DerivedRuntimeNote::new(
+                    crate::models::DERIVED_NOTE_VISIT_FACTS_UP_TO_DATE,
+                    format!("Visit-derived facts for {profile_id} were already up to date."),
+                )
+                .with_profile_id(profile_id),
+            ],
             ..StageRunResult::default()
         });
     }
@@ -160,6 +187,8 @@ pub(super) fn execute_visit_derive_stage(
                     "Visit-derived delta rows no longer matched the current archive watermark."
                         .to_string(),
                 );
+                fallback_reason_code =
+                    Some(crate::models::REBUILD_FALLBACK_VISIT_DERIVE_DELTA_MISMATCH.to_string());
                 clear_core_tables_for_job_kind(
                     connection,
                     Some(profile_id),
@@ -219,10 +248,19 @@ pub(super) fn execute_visit_derive_stage(
         dirty_visit_count: Some(dirty_visit_count),
         dirty_date_keys,
         fallback_reason: fallback_reason.clone(),
+        fallback_reason_code,
         notes: vec![if execution_mode == StageExecutionMode::Incremental {
-            format!("Incrementally refreshed visit-derived facts for {profile_id}.")
+            DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_VISIT_FACTS_REFRESHED,
+                format!("Incrementally refreshed visit-derived facts for {profile_id}."),
+            )
+            .with_profile_id(profile_id)
         } else {
-            format!("Rebuilt visit-derived facts for {profile_id} with a scoped full refresh.")
+            DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_VISIT_FACTS_REBUILT,
+                format!("Rebuilt visit-derived facts for {profile_id} with a scoped full refresh."),
+            )
+            .with_profile_id(profile_id)
         }],
         ..StageRunResult::default()
     })

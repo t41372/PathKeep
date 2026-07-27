@@ -476,7 +476,7 @@ describe('SnapshotRestoreSection', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /restore from this snapshot/i }),
     )
-    const keyInput = screen.getByLabelText('Archive key')
+    const keyInput = screen.getByLabelText('Archive password')
     expect(keyInput).toBeInTheDocument()
     fireEvent.change(keyInput, { target: { value: 'settings-key' } })
 
@@ -506,6 +506,6 @@ describe('SnapshotRestoreSection', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /restore from this snapshot/i }),
     )
-    expect(screen.queryByLabelText('Archive key')).toBeNull()
+    expect(screen.queryByLabelText('Archive password')).toBeNull()
   })
 })

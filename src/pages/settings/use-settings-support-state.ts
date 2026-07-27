@@ -184,7 +184,12 @@ export function useSettingsSupportState({
     return () => {
       cancelled = true
     }
-  }, [snapshot?.config.preferredLanguage])
+    // `refreshKey` is a REQUIRED dependency, not decoration: the failure callout
+    // this effect raises carries a "Check again" button whose only action is
+    // `refreshAppData()`, which does nothing but bump `refreshKey`. Without it
+    // here the retry was inert and the callout could only be cleared by
+    // changing the interface language.
+  }, [refreshKey, snapshot?.config.preferredLanguage])
 
   useEffect(() => {
     if (!snapshot) {

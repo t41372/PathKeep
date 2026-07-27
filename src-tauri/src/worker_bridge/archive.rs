@@ -1,5 +1,6 @@
 //! Worker-bridge helpers for archive, backup, export, and repair flows.
 
+use crate::command_error::CommandError;
 use crate::session::{SessionState, session_key, update_session_key};
 use vault_core::{AppConfig, ExportRequest, HistoryQuery};
 use vault_worker::RekeyRequest;
@@ -18,7 +19,7 @@ pub(crate) fn initialize_archive_with_progress_impl(
     database_key: Option<String>,
     state: &SessionState,
     report_progress: impl FnMut(vault_core::ArchiveUpgradeProgress),
-) -> Result<vault_core::AppSnapshot, String> {
+) -> Result<vault_core::AppSnapshot, CommandError> {
     let snapshot = worker_result(vault_worker::initialize_archive_database_with_progress(
         &config,
         database_key.as_deref(),
@@ -32,7 +33,7 @@ pub(crate) fn initialize_archive_with_progress_impl(
 /// decide whether to show the upgrade screen at all.
 pub(crate) fn assess_archive_upgrade_impl(
     session_database_key: Option<&str>,
-) -> Result<vault_core::ArchiveUpgradeAssessment, String> {
+) -> Result<vault_core::ArchiveUpgradeAssessment, CommandError> {
     worker_result(vault_worker::assess_archive_upgrade(session_database_key))
 }
 
@@ -40,7 +41,7 @@ pub(crate) fn assess_archive_upgrade_impl(
 pub(crate) fn rekey_archive_impl(
     request: RekeyRequest,
     state: &SessionState,
-) -> Result<vault_core::AppSnapshot, String> {
+) -> Result<vault_core::AppSnapshot, CommandError> {
     let old_key = session_key(state);
     let snapshot =
         worker_result(vault_worker::rekey_archive_database(old_key.as_deref(), &request))?;
@@ -53,7 +54,7 @@ pub(crate) fn rekey_archive_impl(
 /// session key. Safe no-op when already consistent.
 pub(crate) fn reconcile_archive_encryption_impl(
     state: &SessionState,
-) -> Result<vault_core::ReconcileReport, String> {
+) -> Result<vault_core::ReconcileReport, CommandError> {
     worker_result(vault_worker::reconcile_archive_encryption(session_key(state).as_deref()))
 }
 
@@ -61,7 +62,7 @@ pub(crate) fn reconcile_archive_encryption_impl(
 pub(crate) fn preview_rekey_archive_impl(
     request: RekeyRequest,
     state: &SessionState,
-) -> Result<vault_core::RekeyPreview, String> {
+) -> Result<vault_core::RekeyPreview, CommandError> {
     worker_result(vault_worker::preview_rekey_archive(session_key(state).as_deref(), &request))
 }
 
@@ -70,7 +71,7 @@ pub(crate) fn preview_rekey_archive_impl(
 pub(crate) fn preview_snapshot_restore_impl(
     request: vault_core::SnapshotRestoreRequest,
     state: &SessionState,
-) -> Result<vault_core::SnapshotRestorePreview, String> {
+) -> Result<vault_core::SnapshotRestorePreview, CommandError> {
     worker_result(vault_worker::preview_snapshot_restore_plan(
         session_key(state).as_deref(),
         &request,
@@ -82,13 +83,14 @@ pub(crate) fn preview_snapshot_restore_impl(
 pub(crate) fn run_snapshot_restore_impl(
     request: vault_core::SnapshotRestoreRequest,
     state: &SessionState,
-) -> Result<vault_core::BackupReport, String> {
+) -> Result<vault_core::BackupReport, CommandError> {
     worker_result(vault_worker::run_snapshot_restore_plan(session_key(state).as_deref(), &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]
 /// Lists verified full-archive safety snapshots for the recovery GUI (keyless FS scan).
-pub(crate) fn list_recovery_snapshots_impl() -> Result<Vec<vault_core::RecoverySnapshot>, String> {
+pub(crate) fn list_recovery_snapshots_impl()
+-> Result<Vec<vault_core::RecoverySnapshot>, CommandError> {
     worker_result(vault_worker::list_recovery_snapshots())
 }
 
@@ -102,7 +104,7 @@ pub(crate) fn run_full_archive_restore_impl(
     request: vault_core::SnapshotRestoreRequest,
     key: Option<String>,
     state: &SessionState,
-) -> Result<vault_core::FullArchiveRestoreReport, String> {
+) -> Result<vault_core::FullArchiveRestoreReport, CommandError> {
     let effective_key = key.or_else(|| session_key(state));
     worker_result(vault_worker::run_full_archive_restore(effective_key.as_deref(), &request))
 }
@@ -111,7 +113,7 @@ pub(crate) fn run_full_archive_restore_impl(
 /// Previews the current retention-prune plan.
 pub(crate) fn preview_retention_prune_impl(
     state: &SessionState,
-) -> Result<vault_core::RetentionPreview, String> {
+) -> Result<vault_core::RetentionPreview, CommandError> {
     worker_result(vault_worker::preview_retention_plan(session_key(state).as_deref()))
 }
 
@@ -120,7 +122,7 @@ pub(crate) fn preview_retention_prune_impl(
 pub(crate) fn run_retention_prune_impl(
     request: vault_core::RetentionPruneRequest,
     state: &SessionState,
-) -> Result<vault_core::RetentionPruneResult, String> {
+) -> Result<vault_core::RetentionPruneResult, CommandError> {
     worker_result(vault_worker::run_retention_plan(session_key(state).as_deref(), &request))
 }
 
@@ -129,7 +131,7 @@ pub(crate) fn run_backup_now_impl(
     due_only: bool,
     session_database_key: Option<&str>,
     report_progress: impl FnMut(vault_core::BackupProgressEvent),
-) -> Result<vault_core::BackupReport, String> {
+) -> Result<vault_core::BackupReport, CommandError> {
     worker_result(vault_worker::run_backup_now_with_progress(
         session_database_key,
         due_only,
@@ -141,7 +143,7 @@ pub(crate) fn run_backup_now_impl(
 pub(crate) fn query_history_impl(
     query: HistoryQuery,
     session_database_key: Option<&str>,
-) -> Result<vault_core::HistoryQueryResponse, String> {
+) -> Result<vault_core::HistoryQueryResponse, CommandError> {
     worker_result(vault_worker::query_history(session_database_key, query))
 }
 
@@ -151,7 +153,7 @@ pub(crate) fn query_history_impl(
 pub(crate) fn load_history_favicons_impl(
     entries: Vec<vault_core::HistoryFaviconLookupEntry>,
     session_database_key: Option<&str>,
-) -> Result<Vec<vault_core::HistoryFaviconLookupResult>, String> {
+) -> Result<Vec<vault_core::HistoryFaviconLookupResult>, CommandError> {
     worker_result(vault_worker::load_history_favicons(session_database_key, entries))
 }
 
@@ -160,7 +162,7 @@ pub(crate) fn load_history_favicons_impl(
 pub(crate) fn load_history_og_images_impl(
     entries: Vec<vault_core::HistoryOgImageLookupEntry>,
     session_database_key: Option<&str>,
-) -> Result<Vec<vault_core::HistoryOgImageLookupResult>, String> {
+) -> Result<Vec<vault_core::HistoryOgImageLookupResult>, CommandError> {
     worker_result(vault_worker::load_history_og_images(session_database_key, entries))
 }
 
@@ -169,7 +171,7 @@ pub(crate) fn load_history_og_images_impl(
 pub(crate) fn mark_og_images_shown_impl(
     urls: Vec<String>,
     session_database_key: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     worker_result(vault_worker::mark_og_images_shown(session_database_key, urls))
 }
 
@@ -187,11 +189,11 @@ pub(crate) fn mark_og_images_shown_impl(
 pub(crate) fn refetch_og_images_impl(
     urls: Vec<String>,
     session_database_key: Option<&str>,
-) -> Result<u32, String> {
+) -> Result<u32, CommandError> {
     match vault_worker::effective_og_image_fetch_mode() {
         Ok(vault_core::OgImageFetchMode::Off) => return Ok(0),
         Ok(_) => {}
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(CommandError::classified(format!("{error:#}"))),
     }
     worker_result(vault_worker::refetch_og_images(session_database_key, urls))
 }
@@ -204,7 +206,7 @@ pub(crate) fn refetch_og_images_impl(
 pub(crate) fn prefetch_og_images_impl(
     budget: u32,
     session_database_key: Option<&str>,
-) -> Result<(u32, u32), String> {
+) -> Result<(u32, u32), CommandError> {
     worker_result(vault_worker::prefetch_og_images_on_demand(session_database_key, budget))
 }
 
@@ -212,7 +214,7 @@ pub(crate) fn prefetch_og_images_impl(
 /// Reports the current og:image cache footprint to Settings → Storage.
 pub(crate) fn og_image_storage_stats_impl(
     session_database_key: Option<&str>,
-) -> Result<vault_core::OgImageStorageStats, String> {
+) -> Result<vault_core::OgImageStorageStats, CommandError> {
     worker_result(vault_worker::og_image_storage_stats(session_database_key))
 }
 
@@ -220,7 +222,7 @@ pub(crate) fn og_image_storage_stats_impl(
 /// Reports og:image coverage (share of web pages with a preview) to Settings.
 pub(crate) fn og_image_coverage_stats_impl(
     session_database_key: Option<&str>,
-) -> Result<vault_core::OgImageCoverageStats, String> {
+) -> Result<vault_core::OgImageCoverageStats, CommandError> {
     worker_result(vault_worker::og_image_coverage_stats(session_database_key))
 }
 
@@ -228,7 +230,7 @@ pub(crate) fn og_image_coverage_stats_impl(
 /// Empties both og:image cache tables (behind the Settings confirm dialog).
 pub(crate) fn clear_og_image_cache_impl(
     session_database_key: Option<&str>,
-) -> Result<vault_core::OgImageCleanupReport, String> {
+) -> Result<vault_core::OgImageCleanupReport, CommandError> {
     worker_result(vault_worker::clear_og_image_cache(session_database_key))
 }
 
@@ -236,7 +238,7 @@ pub(crate) fn clear_og_image_cache_impl(
 /// Runs one eviction pass using the user's configured cleanup mode.
 pub(crate) fn run_og_image_cleanup_impl(
     session_database_key: Option<&str>,
-) -> Result<vault_core::OgImageCleanupReport, String> {
+) -> Result<vault_core::OgImageCleanupReport, CommandError> {
     worker_result(vault_worker::run_og_image_cleanup(session_database_key))
 }
 
@@ -244,7 +246,7 @@ pub(crate) fn run_og_image_cleanup_impl(
 /// Loads the dashboard snapshot for the current archive.
 pub(crate) fn dashboard_snapshot_impl(
     session_database_key: Option<&str>,
-) -> Result<vault_core::DashboardSnapshot, String> {
+) -> Result<vault_core::DashboardSnapshot, CommandError> {
     worker_result(vault_worker::dashboard_snapshot(session_database_key))
 }
 
@@ -253,7 +255,7 @@ pub(crate) fn dashboard_snapshot_impl(
 pub(crate) fn browse_day_insights_impl(
     session_database_key: Option<&str>,
     request: vault_core::BrowseDayInsightsRequest,
-) -> Result<vault_core::BrowseDayInsights, String> {
+) -> Result<vault_core::BrowseDayInsights, CommandError> {
     worker_result(vault_worker::browse_day_insights(session_database_key, request))
 }
 
@@ -262,7 +264,7 @@ pub(crate) fn browse_day_insights_impl(
 pub(crate) fn audit_run_detail_impl(
     run_id: i64,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AuditRunDetail, String> {
+) -> Result<vault_core::AuditRunDetail, CommandError> {
     worker_result(vault_worker::audit_run_detail(session_database_key, run_id))
 }
 
@@ -270,14 +272,14 @@ pub(crate) fn audit_run_detail_impl(
 pub(crate) fn export_history_impl(
     request: ExportRequest,
     session_database_key: Option<&str>,
-) -> Result<vault_core::ExportResult, String> {
+) -> Result<vault_core::ExportResult, CommandError> {
     worker_result(vault_worker::export_query(session_database_key, request))
 }
 
 /// Runs the archive doctor read path through the worker.
 pub(crate) fn doctor_report_impl(
     session_database_key: Option<&str>,
-) -> Result<vault_core::HealthReport, String> {
+) -> Result<vault_core::HealthReport, CommandError> {
     worker_result(vault_worker::doctor_report(session_database_key))
 }
 
@@ -285,6 +287,6 @@ pub(crate) fn doctor_report_impl(
 /// Applies conservative repair steps for doctor-detected health issues.
 pub(crate) fn repair_health_impl(
     session_database_key: Option<&str>,
-) -> Result<vault_core::HealthRepairReport, String> {
+) -> Result<vault_core::HealthRepairReport, CommandError> {
     worker_result(vault_worker::repair_health(session_database_key))
 }

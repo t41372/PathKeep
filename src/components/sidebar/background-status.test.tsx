@@ -215,6 +215,7 @@ describe('SidebarBackgroundStatus', () => {
         state: 'running',
         title: 'Import Google Takeout',
         detail: 'Writing archive records',
+        detailOrigin: 'shell',
         startedAt: '2026-04-27T10:00:00.000Z',
         updatedAt: '2026-04-27T10:01:00.000Z',
         finishedAt: null,
@@ -235,6 +236,40 @@ describe('SidebarBackgroundStatus', () => {
     })
   })
 
+  test('localizes a backend phase detail instead of showing raw transport prose', () => {
+    renderStatus(idleRuntimeStatus(), {
+      activeArchiveTask: {
+        id: 'task-backup',
+        kind: 'backup',
+        state: 'running',
+        title: 'Manual backup',
+        // Backend transport prose — the sidebar must render the phase-keyed
+        // catalog copy, not this untranslated string.
+        detail: 'staging chrome profile 1/3',
+        detailOrigin: 'backend',
+        phase: 'stage-profile',
+        startedAt: '2026-04-27T10:00:00.000Z',
+        updatedAt: '2026-04-27T10:01:00.000Z',
+        finishedAt: null,
+        // No progressLabel yet, so the detail line IS the narration.
+        progressLabel: null,
+        progressValue: 40,
+        logEntries: [],
+      },
+    })
+
+    expectStatus({
+      actionHref: '/jobs',
+      actionLabel: 'Activity',
+      detail: 'Copying browser history into the staging area.',
+      indeterminate: false,
+      summary: 'Manual backup',
+      tone: 'running',
+      width: '40%',
+    })
+    expect(screen.queryByText('staging chrome profile 1/3')).toBeNull()
+  })
+
   test('shows active archive writes without known progress as indeterminate', () => {
     renderStatus(idleRuntimeStatus(), {
       activeArchiveTask: {
@@ -243,6 +278,7 @@ describe('SidebarBackgroundStatus', () => {
         state: 'running',
         title: 'Import Google Takeout',
         detail: null,
+        detailOrigin: 'shell',
         startedAt: '2026-04-27T10:00:00.000Z',
         updatedAt: '2026-04-27T10:01:00.000Z',
         finishedAt: null,
@@ -255,7 +291,7 @@ describe('SidebarBackgroundStatus', () => {
     expectStatus({
       actionHref: '/jobs',
       actionLabel: 'Activity',
-      detail: 'Open Jobs',
+      detail: 'Open Activity',
       indeterminate: true,
       summary: 'Import Google Takeout',
       tone: 'running',
@@ -298,7 +334,7 @@ describe('SidebarBackgroundStatus', () => {
       actionLabel: 'Activity',
       detail: 'Running',
       indeterminate: true,
-      summary: 'Open Jobs',
+      summary: 'Open Activity',
       tone: 'queued',
       width: '28%',
     })
@@ -327,7 +363,7 @@ describe('SidebarBackgroundStatus', () => {
     expectStatus({
       actionHref: '/jobs',
       actionLabel: 'Activity',
-      detail: 'Open Jobs',
+      detail: 'Open Activity',
       indeterminate: false,
       summary: '3 queued',
       tone: 'queued',
@@ -355,7 +391,7 @@ describe('SidebarBackgroundStatus', () => {
     expectStatus({
       actionHref: '/jobs',
       actionLabel: 'Activity',
-      detail: 'Open Jobs',
+      detail: 'Open Activity',
       indeterminate: true,
       summary: '1 running · 0 queued',
       tone: 'running',
@@ -383,7 +419,7 @@ describe('SidebarBackgroundStatus', () => {
     expectStatus({
       actionHref: '/jobs',
       actionLabel: 'Activity',
-      detail: 'Open Jobs',
+      detail: 'Open Activity',
       indeterminate: false,
       summary: '1 need review',
       tone: 'warning',
@@ -411,7 +447,7 @@ describe('SidebarBackgroundStatus', () => {
     expectStatus({
       actionHref: '/jobs',
       actionLabel: 'Activity',
-      detail: 'Open Jobs',
+      detail: 'Open Activity',
       indeterminate: false,
       summary: '4 queued · paused',
       tone: 'paused',
@@ -438,7 +474,7 @@ describe('SidebarBackgroundStatus', () => {
     expectStatus({
       actionHref: '/jobs',
       actionLabel: 'Activity',
-      detail: 'Open Jobs',
+      detail: 'Open Activity',
       indeterminate: true,
       summary: '1 running · 0 queued',
       tone: 'running',
@@ -472,7 +508,7 @@ describe('SidebarBackgroundStatus', () => {
     expectStatus({
       actionHref: '/jobs',
       actionLabel: 'Activity',
-      detail: 'Open Jobs',
+      detail: 'Open Activity',
       indeterminate: false,
       summary: '3 need review',
       tone: 'warning',
@@ -502,7 +538,7 @@ describe('SidebarBackgroundStatus', () => {
     expectStatus({
       actionHref: '/jobs',
       actionLabel: 'Activity',
-      detail: 'Open Jobs',
+      detail: 'Open Activity',
       indeterminate: false,
       summary: '3 queued',
       tone: 'queued',
@@ -525,7 +561,7 @@ describe('SidebarBackgroundStatus', () => {
     expectStatus({
       actionHref: '/jobs',
       actionLabel: 'Activity',
-      detail: 'Open Jobs',
+      detail: 'Open Activity',
       indeterminate: false,
       summary: '3 need review',
       tone: 'warning',
@@ -665,7 +701,7 @@ describe('SidebarBackgroundStatus', () => {
     expectStatus({
       actionHref: '/jobs',
       actionLabel: 'Activity',
-      detail: 'Open Jobs',
+      detail: 'Open Activity',
       indeterminate: false,
       summary: '1 running · 0 queued',
       tone: 'running',
@@ -944,7 +980,7 @@ describe('SidebarBackgroundStatus', () => {
     expectStatus({
       actionHref: '/jobs',
       actionLabel: 'Activity',
-      detail: 'Open Jobs',
+      detail: 'Open Activity',
       indeterminate: false,
       summary: '2 queued',
       tone: 'queued',

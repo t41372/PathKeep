@@ -59,7 +59,7 @@ export const securityNamespaceCatalog = {
     currentDatabaseKeyPlaceholder: 'Enter your password',
     currentDatabaseKeyRequired: 'Enter your current password.',
     archiveUnlockFailed:
-      'That key did not unlock this archive. Check the password or saved key, then try again.',
+      'That password did not unlock this archive. Retype it, or use the one saved in your keychain.',
     encryptedArchiveNeedsPasswordWarning:
       'Unlock this encrypted archive with its current password before reviewing history or audit data.',
     rememberKeyNeedsKeychainWarning:
@@ -84,12 +84,15 @@ export const securityNamespaceCatalog = {
     backToUnlockAria: 'Go back to the unlock form',
     rememberOnThisDevice: 'Remember on this device',
     rememberOnThisDeviceNamed: 'Remember on this device ({backend})',
-    keychainSectionTitle: 'ARCHIVE KEY',
+    keychainSectionTitle: 'ARCHIVE PASSWORD',
     keychainToggleLabel: 'Remember password on this device',
     keychainToggleHelp:
       'Saves your archive password to the system keychain. Future sessions unlock automatically without a prompt.',
     keychainStatusStored: 'Stored in {backend}',
     keychainStatusNotStored: 'Not stored',
+    keychainClearFailedTitle: 'The saved password was not removed',
+    keychainClearFailed:
+      'PathKeep could not remove the archive password from this machine\u2019s keychain, so the setting was left unchanged. Try again, or remove the PathKeep entry from the system keychain yourself.',
     keychainStatusUnavailable: 'System keychain unavailable',
     rekeyTitle: 'CHANGE ENCRYPTION',
     previewBeforeExecute: 'Preview changes first',
@@ -102,6 +105,12 @@ export const securityNamespaceCatalog = {
     executeRekey: 'Apply changes',
     rekeyConfirmLabel: 'Type "confirm" to switch to plaintext',
     rekeyConfirmPlaceholder: 'confirm',
+    rekeyArchiveLockedWarning:
+      'The archive is currently locked. Unlock it before applying this change.',
+    rekeyNewKeyRequiredWarning:
+      'Switching to encrypted needs a new password before the change can be applied.',
+    rekeySameModeRewriteWarning:
+      'The new mode matches the current mode, so the archive will still be rewritten as a password rotation or validation pass.',
     mode: 'MODE',
     snapshot: 'BACKUP',
     temporaryDatabase: 'TEMP',
@@ -137,7 +146,7 @@ export const securityNamespaceCatalog = {
     currentDatabaseKeyPlaceholder: '输入密码',
     currentDatabaseKeyRequired: '请输入当前密码。',
     archiveUnlockFailed:
-      '这把钥匙还不能解锁这个存档。请检查密码或已保存的钥匙后再试一次。',
+      '这个密码打不开这个存档。请重新输入，或改用系统钥匙串里保存的那个密码。',
     encryptedArchiveNeedsPasswordWarning:
       '请先用当前密码解锁这个加密存档，再查看历史记录或审计数据。',
     rememberKeyNeedsKeychainWarning:
@@ -159,11 +168,14 @@ export const securityNamespaceCatalog = {
     backToUnlockAria: '返回解锁表单',
     rememberOnThisDevice: '在此设备上记住',
     rememberOnThisDeviceNamed: '在此设备上记住（{backend}）',
-    keychainSectionTitle: '存档密钥',
+    keychainSectionTitle: '存档密码',
     keychainToggleLabel: '在此设备上记住密码',
     keychainToggleHelp: '将密码保存到系统钥匙串，以后启动时无需再次输入。',
     keychainStatusStored: '已保存到 {backend}',
     keychainStatusNotStored: '未保存',
+    keychainClearFailedTitle: '没有移除已保存的密码',
+    keychainClearFailed:
+      'PathKeep 无法把存档密码从这台设备的钥匙串中移除，因此这项设置保持原样。请重试，或自己在系统钥匙串里删除 PathKeep 的条目。',
     keychainStatusUnavailable: '系统钥匙串不可用',
     rekeyTitle: '修改加密',
     previewBeforeExecute: '先预览变更',
@@ -174,8 +186,14 @@ export const securityNamespaceCatalog = {
     storeNewKey: '修改后保存新密码到钥匙串',
     previewRekey: '预览变更',
     executeRekey: '确认修改',
-    rekeyConfirmLabel: '输入 "confirm" 以切换为明文模式',
+    rekeyConfirmLabel: '输入「confirm」以切换为明文模式',
     rekeyConfirmPlaceholder: 'confirm',
+    rekeyArchiveLockedWarning:
+      '存档目前处于锁定状态。请先解锁，再应用这项修改。',
+    rekeyNewKeyRequiredWarning:
+      '切换到加密模式需要先设置新密码，然后才能应用修改。',
+    rekeySameModeRewriteWarning:
+      '新模式与当前模式相同，存档仍会整体重写，相当于一次密码轮换或校验。',
     mode: '模式',
     snapshot: '备份',
     temporaryDatabase: '临时',
@@ -211,7 +229,7 @@ export const securityNamespaceCatalog = {
     currentDatabaseKeyPlaceholder: '輸入密碼',
     currentDatabaseKeyRequired: '請輸入目前密碼。',
     archiveUnlockFailed:
-      '這把鑰匙還不能解鎖這個封存。請檢查密碼或已儲存的鑰匙後再試一次。',
+      '這個密碼打不開這個封存。請重新輸入，或改用系統鑰匙圈裡儲存的那組密碼。',
     encryptedArchiveNeedsPasswordWarning:
       '請先用目前密碼解鎖這個加密封存，再查看歷史記錄或稽核資料。',
     rememberKeyNeedsKeychainWarning:
@@ -233,11 +251,14 @@ export const securityNamespaceCatalog = {
     backToUnlockAria: '返回解鎖表單',
     rememberOnThisDevice: '在此裝置上記住',
     rememberOnThisDeviceNamed: '在此裝置上記住（{backend}）',
-    keychainSectionTitle: '封存密鑰',
+    keychainSectionTitle: '封存密碼',
     keychainToggleLabel: '在此裝置上記住密碼',
     keychainToggleHelp: '將密碼儲存到系統鑰匙圈，之後啟動時不需再次輸入。',
     keychainStatusStored: '已儲存至 {backend}',
     keychainStatusNotStored: '尚未儲存',
+    keychainClearFailedTitle: '沒有移除已儲存的密碼',
+    keychainClearFailed:
+      'PathKeep 無法把封存密碼從這台裝置的鑰匙圈中移除，因此這項設定保持原樣。請重試，或自己在系統鑰匙圈裡刪除 PathKeep 的項目。',
     keychainStatusUnavailable: '系統鑰匙圈不可用',
     rekeyTitle: '修改加密',
     previewBeforeExecute: '先預覽變更',
@@ -248,8 +269,14 @@ export const securityNamespaceCatalog = {
     storeNewKey: '修改後儲存新密碼到鑰匙圈',
     previewRekey: '預覽變更',
     executeRekey: '確認修改',
-    rekeyConfirmLabel: '輸入 "confirm" 以切換為明文模式',
+    rekeyConfirmLabel: '輸入「confirm」以切換為明文模式',
     rekeyConfirmPlaceholder: 'confirm',
+    rekeyArchiveLockedWarning:
+      '封存目前處於鎖定狀態。請先解鎖，再套用這項修改。',
+    rekeyNewKeyRequiredWarning:
+      '切換到加密模式需要先設定新密碼，然後才能套用修改。',
+    rekeySameModeRewriteWarning:
+      '新模式與目前模式相同，封存仍會整體重寫，相當於一次密碼輪換或驗證。',
     mode: '模式',
     snapshot: '備份',
     temporaryDatabase: '暫存',

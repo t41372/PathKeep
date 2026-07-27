@@ -160,6 +160,111 @@ describe('useExplorerOgImages', () => {
     ])
   })
 
+  test('marks only newly-seen URLs as shown when infinite scroll grows the visible list', async () => {
+    // E6 regression. `visibleUrls` is head + every accumulated infinite-scroll
+    // page (up to MAX_ACCUMULATED_PAGES = 500 pages), and the old effect
+    // re-enqueued the WHOLE accumulated array on each page load — a 25 000
+    // element IPC payload per scroll tick at the ceiling, re-marking rows that
+    // had been marked seconds earlier. The flush must be a delta.
+    vi.useFakeTimers()
+    vi.spyOn(backend, 'loadHistoryOgImages').mockResolvedValue([])
+    const markSpy = vi.spyOn(backend, 'markOgImagesShown').mockResolvedValue()
+
+    const pageOne = [
+      historyEntry(1, 'https://example.com/a'),
+      historyEntry(2, 'https://example.com/b'),
+    ]
+    const { rerender } = renderHook(
+      ({ items }: { items: HistoryEntry[] }) =>
+        useExplorerOgImages({
+          cacheToken: 1,
+          loading: false,
+          results: historyResponse(items),
+        }),
+      { initialProps: { items: pageOne } },
+    )
+
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(markSpy).toHaveBeenCalledTimes(1)
+    expect([...markSpy.mock.calls[0][0]].sort()).toEqual([
+      'https://example.com/a',
+      'https://example.com/b',
+    ])
+
+    // Next infinite-scroll page: the accumulated list now carries page 1 too.
+    markSpy.mockClear()
+    rerender({
+      items: [...pageOne, historyEntry(3, 'https://example.com/c')],
+    })
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(markSpy).toHaveBeenCalledTimes(1)
+    // Only the delta — /a and /b are NOT re-sent.
+    expect(markSpy.mock.calls[0][0]).toEqual(['https://example.com/c'])
+
+    // A re-render that adds nothing new must not call the backend at all.
+    markSpy.mockClear()
+    rerender({
+      items: [...pageOne, historyEntry(3, 'https://example.com/c')],
+    })
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(markSpy).not.toHaveBeenCalled()
+
+    // A cache-token rotation (backup/import finished) resets the memo, so the
+    // LRU signal is re-sent against the fresh archive state.
+    markSpy.mockClear()
+    const { rerender: rerenderToken } = renderHook(
+      ({ cacheToken }: { cacheToken: number }) =>
+        useExplorerOgImages({
+          cacheToken,
+          loading: false,
+          results: historyResponse(pageOne),
+        }),
+      { initialProps: { cacheToken: 5 } },
+    )
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(markSpy).toHaveBeenCalledTimes(1)
+    markSpy.mockClear()
+    rerenderToken({ cacheToken: 6 })
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(markSpy).toHaveBeenCalledTimes(1)
+    expect([...markSpy.mock.calls[0][0]].sort()).toEqual([
+      'https://example.com/a',
+      'https://example.com/b',
+    ])
+  })
+
+  test('caps one mark-shown flush and picks up the remainder on the next tick', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(backend, 'loadHistoryOgImages').mockResolvedValue([])
+    const markSpy = vi.spyOn(backend, 'markOgImagesShown').mockResolvedValue()
+
+    // 250 distinct URLs > the 200-per-flush cap.
+    const items = Array.from({ length: 250 }, (_, index) =>
+      historyEntry(index + 1, `https://example.com/p${index}`),
+    )
+    const { rerender } = renderHook(
+      ({ token }: { token: number }) =>
+        useExplorerOgImages({
+          cacheToken: token,
+          loading: false,
+          results: historyResponse(items),
+        }),
+      { initialProps: { token: 1 } },
+    )
+
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(markSpy).toHaveBeenCalledTimes(1)
+    expect(markSpy.mock.calls[0][0]).toHaveLength(200)
+
+    // Any subsequent effect run drains the remaining 50 — nothing is lost, the
+    // work is just spread across ticks instead of one jumbo IPC payload.
+    markSpy.mockClear()
+    rerender({ token: 1 })
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(markSpy).toHaveBeenCalledTimes(1)
+    expect(markSpy.mock.calls[0][0]).toHaveLength(50)
+  })
+
   test('returns an empty cache while the cache token rotates', () => {
     vi.spyOn(backend, 'loadHistoryOgImages').mockResolvedValue([])
     vi.spyOn(backend, 'markOgImagesShown').mockResolvedValue()

@@ -1,5 +1,6 @@
 //! Worker-bridge helpers for app bootstrap and session controls.
 
+use crate::command_error::CommandError;
 use crate::{
     PRODUCT_DISPLAY_NAME,
     session::{SessionState, update_session_key},
@@ -22,27 +23,21 @@ pub(crate) fn app_build_info_impl() -> vault_core::AppBuildInfo {
 /// Loads the current worker-composed desktop snapshot.
 pub(crate) fn app_snapshot_impl(
     session_database_key: Option<&str>,
-) -> Result<vault_core::AppSnapshot, String> {
+) -> Result<vault_core::AppSnapshot, CommandError> {
     worker_result(vault_worker::app_snapshot(session_database_key))
 }
 
 /// Persists app config and returns the refreshed snapshot.
-pub(crate) fn save_config_impl(
-    config: AppConfig,
-    session_database_key: Option<&str>,
-) -> Result<vault_core::AppSnapshot, String> {
-    worker_result(vault_worker::save_user_config(&config, session_database_key))
-}
-
-/// Persists a config delta using the caller's snapshot as its concurrency base.
-/// Kept beside the legacy full-replace helper because non-UI worker callers do
-/// not have a shell snapshot and intentionally retain their explicit behavior.
-#[cfg_attr(test, allow(dead_code))]
+///
+/// `base_config` is the snapshot the caller edited. When present, the worker
+/// applies only the caller's delta so a stale full config cannot erase a
+/// preference that landed after the caller took its snapshot; `None` keeps the
+/// full-replace semantics non-UI callers (which have no shell snapshot) want.
 pub(crate) fn save_config_with_base_impl(
     config: AppConfig,
     base_config: Option<AppConfig>,
     session_database_key: Option<&str>,
-) -> Result<vault_core::AppSnapshot, String> {
+) -> Result<vault_core::AppSnapshot, CommandError> {
     worker_result(vault_worker::save_user_config_with_base(
         &config,
         base_config.as_ref(),
@@ -54,17 +49,17 @@ pub(crate) fn save_config_with_base_impl(
 pub(crate) fn set_session_database_key_impl(
     database_key: String,
     state: &SessionState,
-) -> Result<(), String> {
-    update_session_key(state, Some(database_key))
+) -> Result<(), CommandError> {
+    Ok(update_session_key(state, Some(database_key))?)
 }
 
 /// Clears the session-only database key from the in-process Tauri state.
-pub(crate) fn clear_session_database_key_impl(state: &SessionState) -> Result<(), String> {
-    update_session_key(state, None)
+pub(crate) fn clear_session_database_key_impl(state: &SessionState) -> Result<(), CommandError> {
+    Ok(update_session_key(state, None)?)
 }
 #[cfg_attr(test, allow(dead_code))]
 /// Loads the current App Lock status from the worker layer.
-pub(crate) fn app_lock_status_impl() -> Result<vault_core::AppLockStatus, String> {
+pub(crate) fn app_lock_status_impl() -> Result<vault_core::AppLockStatus, CommandError> {
     worker_result(vault_worker::load_app_lock_status())
 }
 
@@ -72,13 +67,13 @@ pub(crate) fn app_lock_status_impl() -> Result<vault_core::AppLockStatus, String
 /// Configures the App Lock passcode and returns the updated lock state.
 pub(crate) fn set_app_lock_passcode_impl(
     request: SetAppLockPasscodeRequest,
-) -> Result<vault_core::AppLockStatus, String> {
+) -> Result<vault_core::AppLockStatus, CommandError> {
     worker_result(vault_worker::configure_app_lock_passcode(&request))
 }
 
 #[cfg_attr(test, allow(dead_code))]
 /// Removes the App Lock passcode and returns the updated lock state.
-pub(crate) fn clear_app_lock_passcode_impl() -> Result<vault_core::AppLockStatus, String> {
+pub(crate) fn clear_app_lock_passcode_impl() -> Result<vault_core::AppLockStatus, CommandError> {
     worker_result(vault_worker::remove_app_lock_passcode())
 }
 
@@ -86,7 +81,7 @@ pub(crate) fn clear_app_lock_passcode_impl() -> Result<vault_core::AppLockStatus
 /// Locks the current UI session for the supplied reason, if any.
 pub(crate) fn lock_app_session_impl(
     reason: Option<String>,
-) -> Result<vault_core::AppLockStatus, String> {
+) -> Result<vault_core::AppLockStatus, CommandError> {
     worker_result(vault_worker::lock_app_ui_session(reason.as_deref()))
 }
 
@@ -94,6 +89,6 @@ pub(crate) fn lock_app_session_impl(
 /// Unlocks the current UI session through the worker contract.
 pub(crate) fn unlock_app_session_impl(
     request: UnlockAppSessionRequest,
-) -> Result<vault_core::AppLockStatus, String> {
+) -> Result<vault_core::AppLockStatus, CommandError> {
     worker_result(vault_worker::unlock_app_ui_session(&request))
 }

@@ -143,6 +143,7 @@ use crate::{
         HealthRepairReport, HealthReport, HistoryEntry, HistoryQuery, HistoryQueryResponse,
         RecoverySnapshot, RetentionBucket, RetentionPreview, RetentionPruneRequest,
         RetentionPruneResult, SnapshotRestorePreview, SnapshotRestoreRequest, StorageSummary,
+        backup_warning_messages,
     },
     utils::{
         file_sha256_hex, filesystem_safe_path_segment, identifier_from_filesystem_segment,
@@ -181,7 +182,6 @@ JOIN source_profiles
 WHERE visits.reverted_at IS NULL
   AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
   AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
-  AND (:query IS NULL OR urls.url LIKE '%' || :query || '%' OR IFNULL(urls.title, '') LIKE '%' || :query || '%')
   AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
   AND NOT EXISTS (SELECT 1 FROM temp.history_required_sites AS advanced_filter WHERE LOWER(urls.url) NOT LIKE '%' || advanced_filter.value || '%')
   AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_sites AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%')
@@ -235,7 +235,6 @@ JOIN source_profiles
 WHERE visits.reverted_at IS NULL
   AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
   AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
-  AND (:query IS NULL OR urls.url LIKE '%' || :query || '%' OR IFNULL(urls.title, '') LIKE '%' || :query || '%')
   AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
   AND NOT EXISTS (SELECT 1 FROM temp.history_required_sites AS advanced_filter WHERE LOWER(urls.url) NOT LIKE '%' || advanced_filter.value || '%')
   AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_sites AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%')

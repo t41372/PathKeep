@@ -148,6 +148,37 @@ function aiJobToActivity(job: AiQueueJob): Activity | null {
   }
 }
 
+/**
+ * Maps `REBUILD_FALLBACK_*` codes from
+ * `vault-core/src/models/intelligence.rs` onto jobs-namespace copy.
+ *
+ * Keyed by stable code, never by backend prose; an unknown code renders the
+ * artifact's raw diagnostic sentence instead of a guessed translation.
+ */
+const FALLBACK_REASON_KEY_BY_CODE: Record<string, string> = {
+  'visit-derive-manual-full-rebuild':
+    'fallbackReasonVisitDeriveManualFullRebuild',
+  'visit-derive-no-checkpoint': 'fallbackReasonVisitDeriveNoCheckpoint',
+  'visit-derive-rules-changed': 'fallbackReasonVisitDeriveRulesChanged',
+  'visit-derive-visibility-regressed':
+    'fallbackReasonVisitDeriveVisibilityRegressed',
+  'visit-derive-delta-mismatch': 'fallbackReasonVisitDeriveDeltaMismatch',
+  'daily-rollup-manual-full-rebuild':
+    'fallbackReasonDailyRollupManualFullRebuild',
+  'daily-rollup-no-checkpoint': 'fallbackReasonDailyRollupNoCheckpoint',
+  'daily-rollup-rules-changed': 'fallbackReasonDailyRollupRulesChanged',
+  'daily-rollup-visibility-regressed':
+    'fallbackReasonDailyRollupVisibilityRegressed',
+  'daily-rollup-delta-mismatch': 'fallbackReasonDailyRollupDeltaMismatch',
+  'structural-manual-full-rebuild': 'fallbackReasonStructuralManualFullRebuild',
+  'structural-no-checkpoint': 'fallbackReasonStructuralNoCheckpoint',
+  'structural-rules-changed': 'fallbackReasonStructuralRulesChanged',
+  'structural-visibility-regressed':
+    'fallbackReasonStructuralVisibilityRegressed',
+  'structural-delta-mismatch': 'fallbackReasonStructuralDeltaMismatch',
+  'legacy-debug-rebuild': 'fallbackReasonLegacyDebugRebuild',
+}
+
 function runtimeJobToActivity(job: IntelligenceJobOverview): Activity {
   const jobType = job.jobType.toLowerCase()
   let kind: ActivityKind
@@ -195,6 +226,10 @@ function runtimeJobToActivity(job: IntelligenceJobOverview): Activity {
       taskNameKey = 'taskContentFetch'
   }
 
+  const fallbackReasonKey = job.fallbackReasonCode
+    ? FALLBACK_REASON_KEY_BY_CODE[job.fallbackReasonCode]
+    : undefined
+
   return {
     id: `runtime-job-${job.id}`,
     kind,
@@ -206,6 +241,8 @@ function runtimeJobToActivity(job: IntelligenceJobOverview): Activity {
     runtimeJobId: job.id,
     cancellable: job.cancellable,
     outcomeKey: terminalOutcomeKey(state),
+    fallbackReasonKey,
+    fallbackReason: job.fallbackReason ?? undefined,
   }
 }
 

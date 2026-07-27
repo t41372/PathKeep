@@ -37,7 +37,13 @@ import type {
   ImportBatchDetail,
   ImportBatchOverview,
 } from '../../lib/types'
-import { formatTakeoutLayoutLabel, formatTakeoutPreviewRange } from './shared'
+import {
+  formatTakeoutLayoutLabel,
+  formatTakeoutPreviewRange,
+  healthCheckNameLabel,
+  localizedImportNoteLines,
+  localizedImportNoteSummary,
+} from './shared'
 
 /**
  * Props for the extracted Import review panels.
@@ -143,6 +149,26 @@ export function ImportReviewPanels({
               noPreviewEntriesLabel={t('import.noPreviewRows')}
               previewStatusLabel={(status) => t(importBatchStatusKey(status))}
             />
+            {activeBatchDetail.notes.length > 0 && (
+              <div className="inline-note-list dim">
+                <div>
+                  {localizedImportNoteSummary(
+                    activeBatchDetail.notes.length,
+                    t,
+                    language,
+                  )}
+                </div>
+                {localizedImportNoteLines(
+                  activeBatchDetail.noteDetails,
+                  t,
+                  language,
+                ).map((note) => (
+                  <div key={note.key} className="mono-support">
+                    {note.text}
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="wizard-actions">
               <button
                 className="btn-secondary"
@@ -307,10 +333,11 @@ export function ImportReviewPanels({
                       >
                         {healthReport.checks.map((check) => (
                           <StatusCallout
-                            key={check.name}
+                            key={check.code || check.name}
                             tone={healthCheckStatusTone(check.ok)}
-                            title={`${t(healthCheckStatusKey(check.ok))} — ${check.name}`}
+                            title={`${t(healthCheckStatusKey(check.ok))} — ${healthCheckNameLabel(check, t)}`}
                             body={check.detail}
+                            bodyTone="diagnostic"
                           />
                         ))}
                       </div>

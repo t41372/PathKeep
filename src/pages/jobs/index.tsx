@@ -73,6 +73,7 @@ function staleArchiveRunTask(
     state: 'stale',
     title: jobsT('archiveTaskStaleTitle'),
     detail: jobsT('archiveTaskStaleBody'),
+    detailOrigin: 'shell',
     startedAt: run.startedAt,
     updatedAt: run.finishedAt ?? run.startedAt,
     finishedAt: run.finishedAt ?? null,
@@ -94,6 +95,7 @@ function staleArchiveRunTask(
         level: 'warning',
         code: 'archive.stale',
         message: jobsT('archiveTaskStaleBody'),
+        origin: 'shell',
       },
     ],
     resultLink: `/audit?run=${run.id}`,
@@ -494,7 +496,12 @@ export function JobsPage() {
       {queuePaused && queueCounts.queued > 0 && (
         <StatusCallout
           tone="warning"
-          title={jobsT('pausedQueueCallout', { count: queueCounts.queued })}
+          title={jobsT(
+            queueCounts.queued === 1
+              ? 'pausedQueueCalloutOne'
+              : 'pausedQueueCalloutMany',
+            { count: queueCounts.queued },
+          )}
           body={jobsT('pausedQueueBody')}
         />
       )}

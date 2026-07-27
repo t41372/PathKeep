@@ -29,6 +29,7 @@ import {
 } from '../../app/shell-data-context'
 import { backend } from '../../lib/backend-client'
 import { I18nProvider } from '../../lib/i18n'
+import { CommandInvokeError } from '../../lib/ipc/command-error'
 import type { AppLockStatus, UnlockAppSessionRequest } from '../../lib/types'
 import { LockPage } from './index'
 
@@ -132,6 +133,73 @@ describe('LockPage', () => {
     ).toBeVisible()
   })
 
+  test('localizes a coded biometric unlock failure off its stable code', async () => {
+    const user = userEvent.setup()
+    const unlockAppSession = vi.fn().mockRejectedValue(
+      new CommandInvokeError(
+        'Touch ID is available on this Mac, but no fingerprints are enrolled. Use the app lock passcode instead.',
+        {
+          code: 'biometric-not-enrolled',
+          actionHint: 'use-app-lock-passcode',
+        },
+      ),
+    )
+    renderLock({
+      appLockStatus: lockStatusFixture({
+        biometricAvailable: true,
+        biometricEnabled: true,
+        biometricState: 'touch-id-available',
+      }),
+      unlockAppSession,
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Use Touch ID' }))
+
+    expect(
+      await screen.findByText(
+        'PathKeep could not unlock the current app session.',
+      ),
+    ).toBeVisible()
+    // The route localizes off the code channel, never off the backend prose.
+    expect(
+      screen.getByText(
+        'No biometric credentials are enrolled on this device. Use the app lock passcode instead.',
+      ),
+    ).toBeVisible()
+    expect(
+      screen.queryByText(/no fingerprints are enrolled/),
+    ).not.toBeInTheDocument()
+  })
+
+  test('keeps uncoded and unknown-coded unlock failures as verbatim diagnostic prose', async () => {
+    const user = userEvent.setup()
+    const unlockAppSession = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new CommandInvokeError('The app lock passcode did not match.'),
+      )
+      .mockRejectedValueOnce(
+        new CommandInvokeError('A newer backend failure sentence.', {
+          code: 'biometric-some-future-code',
+        }),
+      )
+    renderLock({
+      appLockStatus: lockStatusFixture(),
+      unlockAppSession,
+    })
+
+    await user.type(screen.getByLabelText('Passcode'), '0000')
+    await user.click(screen.getByRole('button', { name: 'Unlock' }))
+    expect(
+      await screen.findByText('The app lock passcode did not match.'),
+    ).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Unlock' }))
+    expect(
+      await screen.findByText('A newer backend failure sentence.'),
+    ).toBeVisible()
+  })
+
   test('renders shell error, generic biometric fallback, and empty optional notes', () => {
     renderLock({
       appLockStatus: lockStatusFixture({
@@ -155,7 +223,7 @@ describe('LockPage', () => {
     ).toBeVisible()
     expect(
       screen.getByText(
-        'PathKeep does not offer a fake recovery flow here. Open the config path and follow the support guidance if you need to reset the UI session lock.',
+        'The passcode cannot be reset from this screen, and your history is not lost — the app lock only guards this window. Open the config path and follow the support guidance to clear the lock.',
       ),
     ).toBeVisible()
     expect(

@@ -232,8 +232,27 @@ describe('DataMigrationSection', () => {
     ).toBeInTheDocument()
     const preview_panel = screen.getByTestId('settings-migration-preview')
     expect(preview_panel).toHaveTextContent('/tmp/bundle.pathkeep')
-    expect(preview_panel).toHaveTextContent('will apply 2 forward migration')
+    expect(preview_panel).toHaveTextContent('will apply 2 forward updates')
     expect(preview_panel).toHaveTextContent('vault.hold')
+  })
+
+  // Copy fix: the descriptor shipped "migration(s)" and now ships a plural
+  // pair, so the single-update side needs its own case.
+  test('import preview uses the singular descriptor for one forward update', async () => {
+    dialogOpenMock.mockResolvedValue('/tmp/bundle.pathkeep')
+    vi.spyOn(backend, 'previewAppDataImport').mockResolvedValue(
+      mockPreview({ schemaUpToDate: false, migrationsToApply: [13] }),
+    )
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-import'))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-migration-preview')).toBeVisible(),
+    )
+    expect(screen.getByTestId('settings-migration-preview')).toHaveTextContent(
+      'will apply 1 forward update',
+    )
   })
 
   test('import apply happy path renders success banner with migrations + bak notice', async () => {
@@ -576,7 +595,7 @@ describe('DataMigrationSection', () => {
   test('source-key-required error swaps the apply banner copy and keeps the panel mounted for retry', async () => {
     // Backend signals `source_archive_key required` when the bundle is
     // encrypted but no key was passed. The frontend matches on the
-    // typed prefix and renders the dedicated "Source archive key
+    // typed prefix and renders the dedicated "Source archive password
     // required" copy instead of the generic "Import failed" banner.
     dialogOpenMock.mockResolvedValue('/tmp/encrypted.pathkeep')
     vi.spyOn(backend, 'previewAppDataImport').mockResolvedValue(
@@ -617,7 +636,7 @@ describe('DataMigrationSection', () => {
       ).toBeVisible(),
     )
     const banner = screen.getByTestId('settings-migration-apply-error')
-    expect(banner).toHaveTextContent('Source archive key required')
+    expect(banner).toHaveTextContent('Source archive password required')
     // Preview panel + source-key input still mounted so the user can
     // edit the key and click confirm again.
     expect(screen.getByTestId('settings-migration-preview')).toBeInTheDocument()
@@ -663,6 +682,6 @@ describe('DataMigrationSection', () => {
       ).toBeVisible(),
     )
     const banner = screen.getByTestId('settings-migration-apply-error')
-    expect(banner).toHaveTextContent('Source archive key is incorrect')
+    expect(banner).toHaveTextContent('Source archive password is incorrect')
   })
 })

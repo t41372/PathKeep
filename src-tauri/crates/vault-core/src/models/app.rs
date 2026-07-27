@@ -106,8 +106,31 @@ pub struct AppLockStatus {
     pub last_unlocked_at: Option<String>,
     pub recovery_hint: Option<String>,
     pub warnings: Vec<String>,
+    /// Diagnostic English prose kept only as the last-resort fallback when a
+    /// note carries no code this build knows how to localize.
     pub degradation_notes: Vec<String>,
+    /// Stable note codes aligned index-for-index with [`Self::degradation_notes`].
+    ///
+    /// This exists so Settings never matches on backend English sentences to
+    /// localize the App Lock boundary copy.
+    #[serde(default)]
+    pub degradation_note_codes: Vec<String>,
 }
+
+/// Stable code for "App Lock only guards the UI session, not data at rest".
+pub const APP_LOCK_NOTE_UI_SESSION_ONLY: &str = "ui-session-only";
+
+/// Stable code for "Touch ID can unlock this session".
+pub const APP_LOCK_NOTE_TOUCH_ID_AVAILABLE: &str = "touch-id-available";
+
+/// Stable code for "Touch ID exists but cannot be used right now".
+pub const APP_LOCK_NOTE_TOUCH_ID_UNAVAILABLE: &str = "touch-id-unavailable";
+
+/// Stable code for "this Linux build is passcode-only".
+pub const APP_LOCK_NOTE_BIOMETRIC_LINUX_PASSCODE_ONLY: &str = "biometric-linux-passcode-only";
+
+/// Stable code for "biometric unlock is not wired into this build".
+pub const APP_LOCK_NOTE_BIOMETRIC_NOT_WIRED: &str = "biometric-not-wired";
 
 /// Unlock request payload sent from the shell to the worker.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

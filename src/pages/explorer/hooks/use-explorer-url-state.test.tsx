@@ -74,6 +74,59 @@ describe('useExplorerUrlState', () => {
     )
   })
 
+  test('applies a multi-key patch in ONE navigation so no write is discarded', async () => {
+    // Regression for the search-mode toggle: two sequential single-key writes
+    // both diff against the stale render-time params, so the second navigation
+    // silently dropped the first. That made the Smart tab unreachable (its
+    // `mode` write vanished) and made the Regex tab land on the impossible
+    // `mode=hybrid&regex=1`. Driven against the REAL MemoryRouter, because a
+    // mocked hook can only prove intent, never the resulting URL.
+    const { result } = renderExplorerUrlState('/explorer?q=rust')
+
+    act(() => {
+      result.current.updateParams({ mode: 'hybrid', regex: null })
+    })
+    await waitFor(() =>
+      expect(result.current.searchParams.get('mode')).toBe('hybrid'),
+    )
+    expect(result.current.searchParams.get('regex')).toBeNull()
+    expect(result.current.searchParams.get('q')).toBe('rust')
+
+    act(() => {
+      result.current.updateParams({ mode: null, regex: '1' })
+    })
+    await waitFor(() =>
+      expect(result.current.searchParams.get('regex')).toBe('1'),
+    )
+    expect(result.current.searchParams.get('mode')).toBeNull()
+
+    // The single-key wrapper still behaves like the batch form.
+    act(() => {
+      result.current.updateParam('regex', null)
+    })
+    await waitFor(() =>
+      expect(result.current.searchParams.get('regex')).toBeNull(),
+    )
+  })
+
+  test('sequential single-key writes would clobber each other (why batching exists)', async () => {
+    // Pins the react-router behaviour the batch API works around: both calls
+    // build from the same render-time `searchParams`, so only the last one
+    // survives. If react-router ever changes this, the batch contract above
+    // stays correct and THIS test is the one that should be revisited.
+    const { result } = renderExplorerUrlState('/explorer?q=rust')
+
+    act(() => {
+      result.current.updateParam('mode', 'hybrid')
+      result.current.updateParam('regex', null)
+    })
+
+    await waitFor(() =>
+      expect(result.current.searchParams.get('q')).toBe('rust'),
+    )
+    expect(result.current.searchParams.get('mode')).toBeNull()
+  })
+
   test('derives route params and updates history view pagination controls', async () => {
     const { result } = renderExplorerUrlState(
       '/explorer?q=%5B&regex=1&mode=keyword&view=session&profileId=chrome%3ADefault&browserKind=chrome&start=2026-04-01&end=2026-04-20&page=3&pageSize=100&cursor=c1&semanticCursor=s1',
@@ -186,17 +239,22 @@ describe('useExplorerUrlState', () => {
     expect(result.current.searchParams.get('semanticCursor')).toBe('s1')
 
     act(() => {
-      result.current.persistRecentSearch({
-        q: 'sqlite',
-        mode: 'semantic',
-        view: 'time',
-        domain: 'example.com',
-        profileId: 'chrome:Default',
-        browserKind: 'chrome',
-        start: '2026-04-01',
-        end: '2026-04-20',
-        regex: '1',
-      })
+      result.current.persistRecentSearch(
+        {
+          q: 'sqlite',
+          mode: 'semantic',
+          view: 'time',
+          domain: 'example.com',
+          profileId: 'chrome:Default',
+          browserKind: 'chrome',
+          start: '2026-04-01',
+          end: '2026-04-20',
+          regex: '1',
+        },
+        // E4: what the query actually returned, so the Search empty state can
+        // caption the row honestly rather than interpolating a made-up count.
+        { total: 128, at: 1_777_000_000_000 },
+      )
     })
     expect(
       JSON.parse(window.localStorage.getItem(recentSearchesStorageKey) ?? '[]'),
@@ -205,6 +263,8 @@ describe('useExplorerUrlState', () => {
         // L-2: the unified "Smart" vocabulary covers the legacy `semantic` alias.
         label:
           'Smart · Enabled · sqlite · example.com · Chrome · Default · Chrome · Apr 1 - Apr 20',
+        total: 128,
+        at: 1_777_000_000_000,
         params: expect.objectContaining({ q: 'sqlite', sort: 'newest' }),
       }),
     ])

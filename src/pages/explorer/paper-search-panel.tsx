@@ -21,7 +21,9 @@ import {
   PaperSearchView,
   type PaperSearchHeroFilter,
   type PaperSearchMode,
+  type PaperSearchRecent,
   type PaperSearchResultEntry,
+  type PaperSearchViewOffsetPagination,
   type PaperSearchViewPagination,
 } from '@/components/explorer-paper'
 import { StatusCallout } from '@/components/primitives/status-callout'
@@ -38,7 +40,7 @@ import {
   paperSearchModeFromExplorerState,
 } from './paper-search-helpers'
 import { getDomainAbbr, getDomainColor } from './paper/domain-color'
-import type { ExplorerMode } from './types'
+import type { ExplorerMode, RecentSearchEntry } from './types'
 
 export interface PaperSearchPanelAboveResultsCallout {
   tone: 'info' | 'blocked' | 'warning'
@@ -82,6 +84,13 @@ export interface PaperSearchPanelProps {
   /** Prev/next cursor pagination for the relevance list. */
   pagination?: PaperSearchViewPagination | null
   /**
+   * Offset pagination for the day-grouped keyword / regex list. The two
+   * pagination models stay separate on purpose (cursor vs. page number) —
+   * see `PaperSearchViewOffsetPagination`. Whichever layout is inactive gets
+   * `null` so a stale descriptor can never leak into the other list.
+   */
+  offsetPagination?: PaperSearchViewOffsetPagination | null
+  /**
    * I3: pre-formatted scope / freshness micro-line for the ranked header
    * (index coverage + last-indexed). `null` when there is nothing honest to say.
    */
@@ -115,6 +124,12 @@ export interface PaperSearchPanelProps {
   onSelectEntry: (id: number) => void
   /** Jump back to PaperExplorerView centred on the result's day. */
   onSeeInContext: (entry: PaperSearchResultEntry, dayDate: string) => void
+  /**
+   * Recent searches persisted by `useExplorerUrlState`. Rendered in the
+   * empty state so the writes that hook has always made are finally read
+   * back; clicking one re-runs it through the normal submit path.
+   */
+  recentSearches?: readonly RecentSearchEntry[]
   /** Optional star provider forwarded to each search result row. */
   entryStar?: {
     isStarred: (url: string) => boolean
@@ -138,6 +153,7 @@ export function PaperSearchPanel({
   aiError = null,
   aiNotes,
   pagination = null,
+  offsetPagination = null,
   relevanceScopeLine = null,
   smartAvailable = true,
   onAskAssistant,
@@ -150,6 +166,7 @@ export function PaperSearchPanel({
   staleResultsMode = null,
   onSelectEntry,
   onSeeInContext,
+  recentSearches,
   entryStar,
 }: PaperSearchPanelProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -246,6 +263,31 @@ export function PaperSearchPanel({
     [appendFilterOperator],
   )
 
+  const recent = useMemo(
+    () => toPaperSearchRecents(recentSearches, language),
+    [recentSearches, language],
+  )
+
+  // Re-running a recent search goes through the SAME submit path a typed
+  // query takes (`onQueryChange` then `onSubmit`) rather than a second
+  // bespoke route — so URL state, the stale-results banner, and the
+  // recent-search write-back all stay consistent.
+  const handleRunRecent = useCallback(
+    (entry: PaperSearchRecent) => {
+      // `entry.q` is the adapted row's own (trimmed, non-empty) query — see
+      // `toPaperSearchRecents`. Reading it straight off the row instead of
+      // looking the source entry back up keeps this total: there is no
+      // "recent row with no matching entry" state to guard against.
+      const nextMode = explorerStateFromPaperSearchMode(entry.mode)
+      if (nextMode.mode !== mode || nextMode.regexMode !== regexMode) {
+        onModeChange(nextMode)
+      }
+      onQueryChange(entry.q)
+      onSubmit(entry.q)
+    },
+    [mode, regexMode, onModeChange, onQueryChange, onSubmit],
+  )
+
   return (
     <PaperSearchView
       query={query}
@@ -268,6 +310,7 @@ export function PaperSearchPanel({
       aiError={aiError}
       aiNotes={aiNotes}
       pagination={isRelevance ? pagination : null}
+      offsetPagination={isRelevance ? null : offsetPagination}
       relevanceScopeLine={isRelevance ? relevanceScopeLine : null}
       smartAvailable={smartAvailable}
       onAskAssistant={onAskAssistant}
@@ -283,6 +326,8 @@ export function PaperSearchPanel({
       onAddTagFilter={handleAddTagFilter}
       onAddNoteFilter={handleAddNoteFilter}
       onSubmit={onSubmit}
+      recent={recent}
+      onRunRecent={handleRunRecent}
       isSearching={isSearching}
       submitDisabled={searchSubmitDisabled}
       staleMode={staleResultsMode}
@@ -308,4 +353,55 @@ export function PaperSearchPanel({
       testId="explorer-paper-search-view"
     />
   )
+}
+
+/**
+ * Stable identity for one persisted recent search. The stored entries carry no
+ * id of their own, and two entries can share a query text with different
+ * filters, so the id has to be derived from the whole params bag.
+ */
+function recentSearchId(entry: RecentSearchEntry): string {
+  return JSON.stringify(entry.params)
+}
+
+/**
+ * Adapts persisted recent searches into the empty state's row shape.
+ *
+ * Entries with no query text are dropped: the empty state's row renders the
+ * query as its primary label, and a filters-only recall has nothing to show
+ * there. `count` / `when` are omitted (not faked) for entries persisted before
+ * those were recorded — the row then uses the brief caption.
+ */
+function toPaperSearchRecents(
+  entries: readonly RecentSearchEntry[] | undefined,
+  language: string,
+): PaperSearchRecent[] {
+  if (!entries?.length) return []
+  return entries
+    .filter((entry) => Boolean(entry.params.q?.trim()))
+    .map((entry) => ({
+      id: recentSearchId(entry),
+      q: entry.params.q!.trim(),
+      mode: paperSearchModeFromExplorerState(
+        entry.params.mode ?? 'keyword',
+        entry.params.regex === '1',
+      ),
+      count: entry.total,
+      when:
+        entry.at === undefined
+          ? undefined
+          : formatRecentWhen(entry.at, language),
+    }))
+}
+
+/**
+ * Formats a recent-search timestamp for the row caption. Uses the shared
+ * locale so the caption matches the rest of the surface rather than the
+ * host's default.
+ */
+function formatRecentWhen(epochMs: number, language: string): string {
+  return new Date(epochMs).toLocaleDateString(language, {
+    month: 'short',
+    day: 'numeric',
+  })
 }

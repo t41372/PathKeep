@@ -21,7 +21,12 @@
  */
 
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { TaskProgressCard } from '../../components/progress'
+import {
+  TaskProgressCard,
+  localizeShellTaskForDisplay,
+  taskKindLabel,
+  taskStateLabel,
+} from '../../components/progress'
 import { PreviewEntryList } from '../../components/review'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../../lib/i18n'
@@ -41,6 +46,7 @@ import {
   hasTakeoutReasonCode,
   type ImportMethod,
   type ImportWizardStepDefinition,
+  localizedImportNoteLines,
   localizedImportNoteSummary,
   takeoutFileGroupBodyKey,
   takeoutFileGroupTitleKey,
@@ -255,9 +261,12 @@ export function ImportWizardPanel({
                   )}
                 </span>
                 <span className="mono-support">
-                  {t('import.ignoredFilesInline', {
-                    count: ignoredFileCount.toLocaleString(language),
-                  })}
+                  {t(
+                    ignoredFileCount === 1
+                      ? 'import.ignoredFilesInlineOne'
+                      : 'import.ignoredFilesInlineMany',
+                    { count: ignoredFileCount.toLocaleString(language) },
+                  )}
                 </span>
               </div>
 
@@ -369,6 +378,15 @@ export function ImportWizardPanel({
                       language,
                     )}
                   </div>
+                  {localizedImportNoteLines(
+                    inspection.noteDetails,
+                    t,
+                    language,
+                  ).map((note) => (
+                    <div key={note.key} className="mono-support">
+                      {note.text}
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -446,7 +464,7 @@ export function ImportWizardPanel({
             <>
               {importTask ? (
                 <TaskProgressCard
-                  task={importTask}
+                  task={localizeShellTaskForDisplay(importTask, t)}
                   language={language}
                   labels={{
                     started: t('jobs.archiveTaskStarted'),
@@ -454,6 +472,8 @@ export function ImportWizardPanel({
                     records: t('jobs.archiveTaskRecords'),
                     console: t('jobs.archiveTaskConsole'),
                     noLogs: t('jobs.archiveTaskNoLogs'),
+                    kind: taskKindLabel(importTask.kind, t),
+                    state: taskStateLabel(importTask.state, t),
                   }}
                   actions={
                     <Link className="btn-secondary" to="/jobs">

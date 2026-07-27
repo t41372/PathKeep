@@ -71,6 +71,14 @@ export interface SemanticQueryState {
  */
 export interface RecentSearchEntry {
   label?: string
+  /**
+   * Result total the query returned the last time it ran. Optional because
+   * entries persisted before this field existed are still loadable; the
+   * empty-state row renders a reduced caption rather than inventing a count.
+   */
+  total?: number
+  /** Epoch ms of the last run. Optional for the same back-compat reason. */
+  at?: number
   params: {
     q?: string | null
     mode?: ExplorerMode | null

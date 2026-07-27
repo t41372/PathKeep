@@ -14,12 +14,14 @@
  */
 
 import { describe, expect, test } from 'vitest'
+import { createTranslator } from './i18n'
 import {
   archiveModeKey,
   auditSeverity,
   auditSeverityKey,
   auditSeverityTone,
   healthCheckStatusKey,
+  localizeAppLockDegradationNote,
   healthCheckStatusTone,
   importBatchStatusKey,
   importBatchStatusTone,
@@ -126,5 +128,42 @@ describe('trust review helpers', () => {
     expect(scheduleInstallTone('mismatch')).toBe('warning')
     expect(scheduleInstallTone('permission-warning')).toBe('blocked')
     expect(scheduleInstallTone('legacy-install-detected')).toBe('blocked')
+  })
+
+  test('localizes every shipped App Lock degradation note code', () => {
+    const t = createTranslator('en')
+    const cases: Record<string, string> = {
+      'ui-session-only': 'settings.appLockBoundaryBody',
+      'touch-id-available': 'settings.appLockTouchIdAvailable',
+      'touch-id-unavailable': 'settings.appLockTouchIdUnavailable',
+      'biometric-linux-passcode-only':
+        'settings.appLockBiometricLinuxPasscodeOnly',
+      'biometric-not-wired': 'settings.appLockBiometricUnavailable',
+    }
+
+    for (const [code, key] of Object.entries(cases)) {
+      const localized = localizeAppLockDegradationNote(
+        'RAW BACKEND NOTE PROSE',
+        code,
+        t,
+      )
+      // Real catalog copy — not the key echoed back, not the backend prose.
+      expect(localized).toBe(t(key))
+      expect(localized).not.toBe(key)
+      expect(localized).not.toBe('RAW BACKEND NOTE PROSE')
+    }
+
+    // A note from a newer backend degrades to its honest English prose instead
+    // of rendering an empty line.
+    expect(
+      localizeAppLockDegradationNote('A note from a newer build', 'future', t),
+    ).toBe('A note from a newer build')
+    expect(
+      localizeAppLockDegradationNote(
+        'A note with no code at all',
+        undefined,
+        t,
+      ),
+    ).toBe('A note with no code at all')
   })
 })

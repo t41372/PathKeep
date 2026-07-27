@@ -14,7 +14,12 @@ function openDisclosure() {
 const COPY = {
   topDomainsTitle: 'Top domains',
   activityTitle: 'Activity',
-  hourlyTitle: '24-hour activity',
+  // Deliberately NOT the English default. The sparkline's accessible name used
+  // to be a hard-coded English literal, and the old assertion
+  // (`getByRole('img', { name: '24-hour activity' })`) passed either way, which
+  // is what let the i18n violation ship. A non-English value here means the
+  // assertion below can only pass if the label really comes from `copy`.
+  hourlyTitle: '24 小時活動',
   pagesLabel: 'Pages',
   typedLabel: 'Typed',
   linksLabel: 'Links',
@@ -80,8 +85,10 @@ describe('PaperDayInsights', () => {
     expect(pagesRow.textContent).toContain('12')
     expect(screen.getByText('3 sessions')).toBeVisible()
     expect(screen.getByText('4 domains')).toBeVisible()
-    // svg renders with role=img, through the shared Sparkline primitive
-    const sparkline = screen.getByRole('img', { name: '24-hour activity' })
+    // svg renders with role=img, through the shared Sparkline primitive. Its
+    // accessible name must be the localized `copy.hourlyTitle`, not a literal.
+    expect(screen.getByText(COPY.hourlyTitle)).toBeVisible()
+    const sparkline = screen.getByRole('img', { name: COPY.hourlyTitle })
     expect(sparkline).toBeInTheDocument()
     // Only hour 10 (the one non-zero bucket) gets a marker dot; the other
     // 23 zero-visit hours stay bare.

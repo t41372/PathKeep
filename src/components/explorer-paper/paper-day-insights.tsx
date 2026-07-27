@@ -165,7 +165,7 @@ export function PaperDayInsights({
       </DayInsightsColumn>
 
       <DayInsightsColumn eyebrow={copy.hourlyTitle}>
-        <HourlySparkline insights={insights} />
+        <HourlySparkline insights={insights} ariaLabel={copy.hourlyTitle} />
         <div className="mt-1 flex justify-between text-[11.5px] text-ink-secondary">
           <span>
             {copy.sessionsTemplate.replace(
@@ -361,7 +361,19 @@ const HOURLY_TICK_HOURS = [0, 6, 12, 18, 23]
  * 0/6/12/18/23 hour ticks along the bottom. Skips dots that would crowd a
  * tiny chart — only non-empty hours light up.
  */
-function HourlySparkline({ insights }: { insights: DayInsights }) {
+function HourlySparkline({
+  insights,
+  ariaLabel,
+}: {
+  insights: DayInsights
+  /**
+   * Localized accessible name for the chart. Previously hard-coded to the
+   * English "24-hour activity", which broke the i18n shipping contract for
+   * every screen-reader user outside `en`. Supplied by `copy.hourlyTitle`,
+   * the same string the visible column eyebrow renders.
+   */
+  ariaLabel: string
+}) {
   const { hourBuckets } = insights
   const markers = hourBuckets
     .map((count, hour) => ({ count, hour }))
@@ -370,7 +382,7 @@ function HourlySparkline({ insights }: { insights: DayInsights }) {
   return (
     <Sparkline
       values={hourBuckets}
-      ariaLabel="24-hour activity"
+      ariaLabel={ariaLabel}
       width={220}
       height={36}
       paddingX={10}

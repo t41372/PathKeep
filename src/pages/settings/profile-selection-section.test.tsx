@@ -159,6 +159,69 @@ describe('ProfileSelectionSection', () => {
     expect(onOpenFullDiskAccessSettings).toHaveBeenCalledOnce()
     expect(onRecheck).toHaveBeenCalledOnce()
   })
+
+  test('surfaces a discovery failure with its raw diagnostic and an in-flight recheck', () => {
+    render(
+      <I18nProvider>
+        <ProfileSelectionSection
+          navItem={navItem}
+          state={{
+            discoveryError: 'refresh_browser_discovery: EPERM opening Library',
+            discoveryState: 'discovery-error',
+            profiles: [],
+            rechecking: true,
+            saving: false,
+            selectedIds: new Set(),
+            onOpenFullDiskAccessSettings: vi.fn().mockResolvedValue(undefined),
+            onRecheck: vi.fn().mockResolvedValue(undefined),
+            onToggleProfile: vi.fn().mockResolvedValue(undefined),
+          }}
+        />
+      </I18nProvider>,
+    )
+
+    expect(screen.getByText('Browser detection failed')).toBeVisible()
+    // The raw backend diagnostic stays visible — the user is also the bug
+    // reporter, so the failure must not collapse into generic copy.
+    expect(
+      screen.getByText('refresh_browser_discovery: EPERM opening Library'),
+    ).toBeVisible()
+    // An in-flight recheck disables the button and swaps to the busy label.
+    const recheck = screen.getByRole('button', { name: 'Checking…' })
+    expect(recheck).toBeDisabled()
+  })
+
+  test('offers a recheck when discovery succeeded but found no profiles', async () => {
+    const user = userEvent.setup()
+    const onRecheck = vi.fn().mockResolvedValue(undefined)
+
+    render(
+      <I18nProvider>
+        <ProfileSelectionSection
+          navItem={navItem}
+          state={{
+            discoveryError: null,
+            discoveryState: 'empty',
+            profiles: [],
+            rechecking: false,
+            saving: false,
+            selectedIds: new Set(),
+            onOpenFullDiskAccessSettings: vi.fn().mockResolvedValue(undefined),
+            onRecheck,
+            onToggleProfile: vi.fn().mockResolvedValue(undefined),
+          }}
+        />
+      </I18nProvider>,
+    )
+
+    expect(screen.getByText('No browser profiles found')).toBeVisible()
+    // An empty result is informational, not an alert — no permission wall copy.
+    expect(
+      screen.queryByText('PathKeep cannot read your browser profiles'),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Check again' }))
+    expect(onRecheck).toHaveBeenCalledOnce()
+  })
 })
 
 function createProfile(

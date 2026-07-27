@@ -240,7 +240,8 @@ fn run_snapshot_restore_locked(
         profiles: vec![profile_summary],
         manifest_path: Some(manifest_path.display().to_string()),
         git_commit,
-        warnings,
+        warnings: backup_warning_messages(&warnings),
+        warning_details: warnings,
     })
 }
 
@@ -622,6 +623,10 @@ pub fn preview_retention(
             "Pruning snapshots removes saved restore checkpoints from future Audit review. Manifest and run summaries stay in place.".to_string(),
             "Export pruning only removes local files under the PathKeep data directory. Remote objects are unchanged.".to_string(),
         ],
+        warning_codes: vec![
+            crate::models::RETENTION_WARNING_SNAPSHOT_PRUNE_REMOVES_CHECKPOINTS.to_string(),
+            crate::models::RETENTION_WARNING_EXPORT_PRUNE_LOCAL_ONLY.to_string(),
+        ],
     })
 }
 
@@ -759,7 +764,9 @@ fn run_retention_prune_locked(
             &paths.audit_repo_path,
             &format!("retention prune run {run_id}"),
         );
-        warnings.extend(git_warning);
+        // The retention channel is prose-only; the coded copy of this warning
+        // ships on backup/restore runs.
+        warnings.extend(git_warning.map(|warning| warning.message));
     }
     connection.execute(
         "UPDATE runs

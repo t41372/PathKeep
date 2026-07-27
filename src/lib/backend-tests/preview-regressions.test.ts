@@ -51,11 +51,13 @@ describe('backend facade preview regressions', () => {
     await expect(backend.doctor()).resolves.toMatchObject({
       checks: [
         expect.objectContaining({
-          name: 'import-artifacts',
+          code: 'import-audit-artifacts',
+          name: 'Import audit artifacts',
           ok: false,
         }),
         expect.objectContaining({
-          name: 'visibility-state',
+          code: 'broken-visibility-references',
+          name: 'Broken visibility references',
           ok: true,
         }),
       ],

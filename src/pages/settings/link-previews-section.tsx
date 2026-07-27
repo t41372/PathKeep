@@ -108,6 +108,15 @@ export function LinkPreviewsSection({
 
   const settings = snapshot?.config.ogImage ?? DEFAULT_OG_IMAGE_SETTINGS
   const fetchEnabled = settings.fetchEnabled
+  // Rebuild egresses regardless of `fetchMode` (the worker treats a click as an
+  // explicit policy override), so the UI must not offer it while the user has
+  // chosen a mode that promises no fetching at all.
+  const rebuildBlockedReason = !fetchEnabled
+    ? t('settings.linkPreviewsRebuildBlockedDisabled')
+    : settings.fetchMode === 'off'
+      ? t('settings.linkPreviewsRebuildBlockedModeOff')
+      : null
+  const rebuildAvailable = rebuildBlockedReason === null
   const cleanup = settings.cleanup
   const selectedModeId = modeId(cleanup)
 
@@ -593,16 +602,28 @@ export function LinkPreviewsSection({
 
         <Field label={t('settings.linkPreviewsCleanupLabel')}>
           <div className="flex flex-wrap items-center gap-2">
+            {/*
+              Rebuild is an explicit, budgeted prefetch sweep — the worker
+              deliberately overrides `fetchMode` for it. That override is fine
+              for On-demand, but NOT for Off: the mode's own hint promises "no
+              fetching anywhere", and a button on the same card that fetches up
+              to REBUILD_DEFAULT_BUDGET URLs from sites the user visited would
+              make the app lie about its egress. So Off blocks the control and
+              says why, rather than silently honouring the click.
+            */}
             <Button
               type="button"
               variant="accent"
-              disabled={pendingAction !== null || !fetchEnabled}
+              disabled={pendingAction !== null || !rebuildAvailable}
               onClick={() => void onRebuildNow()}
               data-testid="link-previews-rebuild-now"
-              title={t('settings.linkPreviewsRebuildHint', {
-                budget: String(REBUILD_DEFAULT_BUDGET),
-                cap: String(REBUILD_MAX_BUDGET),
-              })}
+              title={
+                rebuildBlockedReason ??
+                t('settings.linkPreviewsRebuildHint', {
+                  budget: String(REBUILD_DEFAULT_BUDGET),
+                  cap: String(REBUILD_MAX_BUDGET),
+                })
+              }
             >
               {t('settings.linkPreviewsRebuildAction', {
                 budget: String(REBUILD_DEFAULT_BUDGET),

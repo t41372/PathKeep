@@ -4,7 +4,7 @@
  * @module pages/security
  *
  * ## Responsibilities
- * - Keep warning localization explicit and testable.
+ * - Keep code-driven warning localization explicit and testable.
  * - Define the small route-local types reused by split Security owners.
  *
  * ## Not responsible for
@@ -37,48 +37,34 @@ export type SecurityTranslate = (
 ) => string
 
 /**
- * Converts backend-originated warning strings into shipped Security copy so users never see raw English transport text.
+ * Maps `SECURITY_WARNING_*` and `REKEY_WARNING_*` codes from
+ * `vault-core/src/models/security.rs` onto shipped Security copy.
  *
- * This exists because the backend still reports a few stable warning messages in English. The route needs one
- * honest mapping layer that preserves unknown warnings instead of hiding them, while keeping the known trust-
- * critical cases localized and user-facing.
+ * The lookup is keyed by stable code — never by backend prose — so editing an
+ * English sentence in Rust can no longer silently degrade zh copy to English.
+ */
+const SECURITY_WARNING_KEY_BY_CODE: Record<string, string> = {
+  'encrypted-needs-password': 'security.encryptedArchiveNeedsPasswordWarning',
+  'remember-key-no-keyring': 'security.rememberKeyNeedsKeychainWarning',
+  'remembered-key-missing': 'security.rememberedKeyMissingWarning',
+  'archive-locked': 'security.rekeyArchiveLockedWarning',
+  'new-key-required': 'security.rekeyNewKeyRequiredWarning',
+  'same-mode-rewrite': 'security.rekeySameModeRewriteWarning',
+}
+
+/**
+ * Converts one coded backend warning into shipped Security copy.
+ *
+ * This exists because the backend still reports warning prose in English for
+ * diagnostics. `code` is the stable identity the route localizes against;
+ * `rawWarning` stays the honest fallback so an uncoded or newer warning is
+ * surfaced verbatim instead of disappearing.
  */
 export function localizeSecurityWarning(
-  warning: string,
+  code: string | undefined,
+  rawWarning: string,
   t: SecurityTranslate,
 ): string {
-  const normalizedWarning = warning.trim()
-
-  switch (normalizedWarning) {
-    case 'database key is required for encrypted archives':
-      return t('security.encryptedArchiveNeedsPasswordWarning')
-    case 'Archive is configured to remember the database key, but no native keyring backend is available on this machine.':
-      return t('security.rememberKeyNeedsKeychainWarning')
-    case 'Archive is encrypted, but the database key is not currently stored in the system keyring.':
-      return t('security.rememberedKeyMissingWarning')
-  }
-
-  if (
-    normalizedWarning.includes(
-      'database key is required for encrypted archives',
-    )
-  ) {
-    return t('security.encryptedArchiveNeedsPasswordWarning')
-  }
-  if (
-    normalizedWarning.includes(
-      'no native keyring backend is available on this machine',
-    )
-  ) {
-    return t('security.rememberKeyNeedsKeychainWarning')
-  }
-  if (
-    normalizedWarning.includes(
-      'database key is not currently stored in the system keyring',
-    )
-  ) {
-    return t('security.rememberedKeyMissingWarning')
-  }
-
-  return warning
+  const key = code ? SECURITY_WARNING_KEY_BY_CODE[code] : undefined
+  return key ? t(key) : rawWarning
 }

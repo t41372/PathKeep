@@ -2547,8 +2547,12 @@ fn backup_progress_and_warning_helpers_preserve_failure_contracts() {
         super::backup::source_evidence_rebuild_warning(anyhow::anyhow!("source offline"));
     let search_warning =
         super::backup::keyword_recall_rebuild_warning(anyhow::anyhow!("search offline"));
-    assert!(source_warning.contains("source-evidence archive"));
-    assert!(search_warning.contains("keyword-recall projection"));
+    assert_eq!(source_warning.code, "source-evidence-rebuild-needed");
+    assert!(source_warning.message.contains("source-evidence archive"));
+    assert_eq!(source_warning.diagnostic.as_deref(), Some("source offline"));
+    assert_eq!(search_warning.code, "search-projection-rebuild-needed");
+    assert!(search_warning.message.contains("keyword-recall projection"));
+    assert_eq!(search_warning.diagnostic.as_deref(), Some("search offline"));
 }
 
 #[test]
@@ -2874,7 +2878,43 @@ fn doctor_detects_missing_snapshot_artifacts() {
         .expect("insert missing snapshot");
 
     let report = doctor(&paths, &config, None).expect("doctor");
-    assert!(report.checks.iter().any(|check| check.name == "Snapshot artifacts" && !check.ok));
+    assert!(report.checks.iter().any(|check| {
+        check.code == "snapshot-artifacts" && check.name == "Snapshot artifacts" && !check.ok
+    }));
+}
+
+#[test]
+fn doctor_labels_every_check_with_a_stable_kebab_code() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let report = doctor(&paths, &config, None).expect("doctor");
+    assert!(!report.checks.is_empty());
+    for check in &report.checks {
+        assert!(!check.code.is_empty(), "check {} is missing a code", check.name);
+        assert!(
+            check.code.chars().all(|character| character.is_ascii_lowercase() || character == '-'),
+            "check code {} is not kebab-case",
+            check.code
+        );
+    }
+    let codes = report.checks.iter().map(|check| check.code.as_str()).collect::<Vec<_>>();
+    for expected in [
+        "config",
+        "browser-sources",
+        "archive-db",
+        "archive-unlock",
+        "schema-version",
+        "manifest-chain",
+        "snapshot-artifacts",
+        "import-audit-artifacts",
+        "broken-visibility-references",
+        "derived-state-freshness",
+    ] {
+        assert!(codes.contains(&expected), "doctor report is missing check code {expected}");
+    }
 }
 
 #[test]
@@ -2914,7 +2954,8 @@ fn doctor_detects_manifest_parent_and_hash_damage() {
 
     let parent_report = doctor(&parent_paths, &config, None).expect("doctor parent");
     assert!(parent_report.checks.iter().any(|check| {
-        check.name == "Manifest chain"
+        check.code == "manifest-chain"
+            && check.name == "Manifest chain"
             && !check.ok
             && check.detail.contains("does not point to the previous manifest")
     }));
@@ -2945,7 +2986,8 @@ fn doctor_detects_manifest_parent_and_hash_damage() {
 
     let hash_report = doctor(&hash_paths, &config, None).expect("doctor hash");
     assert!(hash_report.checks.iter().any(|check| {
-        check.name == "Manifest chain"
+        check.code == "manifest-chain"
+            && check.name == "Manifest chain"
             && !check.ok
             && check.detail.contains("manifest hash mismatch")
     }));
@@ -2969,7 +3011,8 @@ fn doctor_detects_import_batches_without_audit_artifacts() {
 
     let report = doctor(&paths, &config, None).expect("doctor");
     assert!(report.checks.iter().any(|check| {
-        check.name == "Import audit artifacts"
+        check.code == "import-audit-artifacts"
+            && check.name == "Import audit artifacts"
             && !check.ok
             && check.detail.contains("does not have an audit artifact")
     }));
@@ -3051,11 +3094,21 @@ fn doctor_repair_restores_missing_import_artifacts_visibility_and_derived_state(
         .expect("insert stale visit-derived facts");
 
     let report = doctor(&paths, &config, None).expect("doctor before repair");
-    assert!(report.checks.iter().any(|check| check.name == "Import audit artifacts" && !check.ok));
-    assert!(
-        report.checks.iter().any(|check| check.name == "Broken visibility references" && !check.ok)
-    );
-    assert!(report.checks.iter().any(|check| check.name == "Derived state freshness" && !check.ok));
+    assert!(report.checks.iter().any(|check| {
+        check.code == "import-audit-artifacts"
+            && check.name == "Import audit artifacts"
+            && !check.ok
+    }));
+    assert!(report.checks.iter().any(|check| {
+        check.code == "broken-visibility-references"
+            && check.name == "Broken visibility references"
+            && !check.ok
+    }));
+    assert!(report.checks.iter().any(|check| {
+        check.code == "derived-state-freshness"
+            && check.name == "Derived state freshness"
+            && !check.ok
+    }));
 
     let repair = repair_health_issues(&paths, &config, None).expect("repair health");
     assert!(repair.run_id.is_some());
@@ -3555,6 +3608,16 @@ fn retention_preview_and_prune_clear_local_artifacts_and_record_a_run() {
     let preview = preview_retention(&paths, &config, None).expect("preview retention");
     assert!(preview.buckets.iter().any(|bucket| bucket.id == "snapshots" && bucket.bytes > 0));
     assert!(preview.buckets.iter().any(|bucket| bucket.id == "exports" && bucket.bytes > 0));
+    // The code channel is what Settings localizes against, so it must stay
+    // index-aligned with the diagnostic prose.
+    assert_eq!(preview.warnings.len(), preview.warning_codes.len());
+    assert_eq!(
+        preview.warning_codes,
+        vec![
+            crate::models::RETENTION_WARNING_SNAPSHOT_PRUNE_REMOVES_CHECKPOINTS.to_string(),
+            crate::models::RETENTION_WARNING_EXPORT_PRUNE_LOCAL_ONLY.to_string(),
+        ]
+    );
 
     let result = run_retention_prune(
         &paths,
@@ -4308,6 +4371,7 @@ fn run_support_failed_runs_and_due_windows_stay_truthful() {
                 new_downloads: 0,
                 checkpoint_created: true,
                 notes: vec!["partial".to_string()],
+                note_details: Vec::new(),
             },
             BackupProfileSummary {
                 profile_id: "profile-b".to_string(),
@@ -4316,9 +4380,10 @@ fn run_support_failed_runs_and_due_windows_stay_truthful() {
                 new_downloads: 1,
                 checkpoint_created: false,
                 notes: Vec::new(),
+                note_details: Vec::new(),
             },
         ],
-        &["warning".to_string()],
+        &[crate::models::BackupWarning::opaque("warning")],
         &anyhow::anyhow!("fixture failure"),
     )
     .expect("finalize failed run");
@@ -4332,14 +4397,32 @@ fn run_support_failed_runs_and_due_windows_stay_truthful() {
             )
             .expect("failed run row");
     let stats: serde_json::Value = serde_json::from_str(&stats_json).expect("stats json");
-    let warnings: Vec<String> = serde_json::from_str(&warnings_json).expect("warnings json");
+    // Backup runs now persist coded warnings, so the ledger stores objects and
+    // the read path is what flattens them back to the message channel.
+    let warnings = super::read_models::decode_run_warnings(Some(&warnings_json));
     assert_eq!(status, "failed");
     assert_eq!(stats["profilesProcessed"], 2);
     assert_eq!(stats["newVisits"], 5);
     assert_eq!(stats["newUrls"], 3);
     assert_eq!(stats["newDownloads"], 1);
-    assert_eq!(warnings, vec!["warning"]);
+    assert_eq!(crate::models::backup_warning_messages(&warnings), vec!["warning"]);
+    assert_eq!(warnings[0].code, "");
     assert!(error_message.contains("fixture failure"));
+
+    // Ledger rows written before warning code-ification stored bare strings, and
+    // non-backup run types still do. Both shapes must stay readable or Audit
+    // would silently drop warnings that are already on disk.
+    assert!(super::read_models::decode_run_warnings(None).is_empty());
+    assert!(super::read_models::decode_run_warnings(Some("not json")).is_empty());
+    assert!(super::read_models::decode_run_warnings(Some("{}")).is_empty());
+    let mixed = super::read_models::decode_run_warnings(Some(
+        r#"["legacy string", {"code":"og-cleanup-failed","message":"cleanup failed"}, 7]"#,
+    ));
+    assert_eq!(mixed.len(), 2);
+    assert_eq!(mixed[0].code, "");
+    assert_eq!(mixed[0].message, "legacy string");
+    assert_eq!(mixed[1].code, "og-cleanup-failed");
+    assert_eq!(mixed[1].message, "cleanup failed");
 
     let now = chrono::Utc::now();
     let recent = now - chrono::Duration::hours(2);

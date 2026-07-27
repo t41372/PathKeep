@@ -61,6 +61,7 @@ describe('task progress components', () => {
             code: 'import.complete',
             sourceLabel: 'Chrome Default',
             message: 'Import complete',
+            origin: 'shell' as const,
           },
         ]}
       />,
@@ -83,6 +84,7 @@ describe('task progress components', () => {
             code: 'import.start',
             sourceLabel: null,
             message: 'Starting import',
+            origin: 'shell' as const,
           },
         ]}
       />,
@@ -101,6 +103,8 @@ describe('task progress components', () => {
           records: 'records',
           console: 'Console',
           noLogs: 'No logs yet',
+          kind: 'import',
+          state: 'running',
         }}
         actions={<button type="button">Open result</button>}
       />,
@@ -136,6 +140,8 @@ describe('task progress components', () => {
           records: 'records',
           console: 'Console',
           noLogs: 'No logs yet',
+          kind: 'import',
+          state: 'running',
         }}
       />,
     )
@@ -164,6 +170,8 @@ describe('task progress components', () => {
           records: 'records',
           console: 'Console',
           noLogs: 'No logs yet',
+          kind: 'import',
+          state: 'running',
         }}
       />,
     )
@@ -188,6 +196,8 @@ describe('task progress components', () => {
           records: 'records',
           console: 'Console',
           noLogs: 'No logs yet',
+          kind: 'import',
+          state: 'running',
         }}
       />,
     )
@@ -204,6 +214,7 @@ function taskFixture(): ShellTask {
     state: 'running',
     title: 'Import Chrome',
     detail: 'Writing archive records',
+    detailOrigin: 'shell',
     startedAt: '2026-04-27T10:00:00.000Z',
     updatedAt: '2026-04-27T10:01:00.000Z',
     finishedAt: null,
@@ -226,6 +237,7 @@ function taskFixture(): ShellTask {
         code: 'import.records',
         sourceLabel: 'Chrome Default',
         message: 'Writing archive records',
+        origin: 'shell' as const,
       },
     ],
     resultLink: null,

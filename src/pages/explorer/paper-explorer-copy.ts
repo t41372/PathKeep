@@ -19,6 +19,7 @@ import type {
   PaperDetailPanelCopy,
   PaperEnrichedContentCopy,
   PaperIntelligenceViewCopy,
+  PaperPaginationBarCopy,
   PaperSearchViewCopy,
   PaperStarredViewCopy,
 } from '@/components/explorer-paper'
@@ -165,7 +166,8 @@ export function buildPaperDetailPanelCopy(
     titleHistoryLabel: t('paperBrowse.detailTitleHistory'),
     notesPlaceholder: t('paperBrowse.detailNotesPlaceholder'),
     notesEmpty: t('paperBrowse.detailNotesEmpty'),
-    notesSavedLocally: t('paperBrowse.detailNotesSavedLocally'),
+    notesSaved: t('paperBrowse.detailNotesSaved'),
+    notesSaving: t('paperBrowse.detailNotesSaving'),
     notesSaveError: t('paperBrowse.detailNotesSaveError'),
     notesCharSingular: t('paperBrowse.detailNotesCharSingular'),
     notesCharPlural: t('paperBrowse.detailNotesCharPlural'),
@@ -223,6 +225,7 @@ export function buildPaperStarredViewCopy(
     emptyTitle: t('star.hubEmptyTitle'),
     emptyBody: t('star.hubEmptyBody'),
     emptyCta: t('star.hubEmptyCta'),
+    truncated: t('star.hubTruncated'),
     visitCountTemplate: t('star.hubVisitCount'),
     starAction: t('star.starAction'),
     unstarAction: t('star.unstarAction'),
@@ -318,6 +321,14 @@ export function buildPaperSearchViewCopy(
       tryAskingHeading: t('paperSearchView.emptyTryAskingHeading'),
       recentHeading: t('paperSearchView.emptyRecentHeading'),
       recentMeta: t('paperSearchView.emptyRecentMeta'),
+      recentMetaBrief: t('paperSearchView.emptyRecentMetaBrief'),
+      // Same localized display names the stale-results banner uses, so the
+      // internal mode token never reaches the screen.
+      modeNames: {
+        keyword: t('paperSearchView.heroStaleModeKeyword'),
+        regex: t('paperSearchView.heroStaleModeRegex'),
+        smart: t('paperSearchView.heroStaleModeSmart'),
+      },
       footer: t('paperSearchView.emptyFooter'),
       smartPrompt: t('paperSearchView.emptySmartPrompt'),
     },
@@ -340,5 +351,34 @@ export function buildPaperSearchViewCopy(
       moreAvailable: t('paperSearchView.relevanceMoreAvailable'),
       endOfResults: t('paperSearchView.relevanceEndOfResults'),
     },
+  }
+}
+
+/**
+ * Bundle the offset-pagination bar strings for the keyword / regex search
+ * results.
+ *
+ * Deliberately reuses the long-standing generic Explorer pagination keys
+ * (`firstPage` / `previousPage` / `nextPage` / `lastPage` / `jumpToPage` /
+ * `pageNumberLabel` / `pageCountSummary` / `resultsSummary` / `pageSizeLabel` /
+ * `pageSizeOption`) rather than minting a parallel `paperSearchView.*` set —
+ * they already ship in all three locales and a second vocabulary for the same
+ * concept is how pagination copy drifts apart between surfaces.
+ */
+export function buildPaperPaginationBarCopy(
+  t: ExplorerTranslator,
+): PaperPaginationBarCopy {
+  return {
+    navLabel: t('paperSearchView.paginationNavAria'),
+    first: t('firstPage'),
+    previous: t('previousPage'),
+    next: t('nextPage'),
+    last: t('lastPage'),
+    jump: t('jumpToPage'),
+    pageInputLabel: t('pageNumberLabel'),
+    pageSummary: t('pageCountSummary'),
+    resultsSummary: t('resultsSummary'),
+    pageSizeLabel: t('pageSizeLabel'),
+    pageSizeOption: t('pageSizeOption'),
   }
 }

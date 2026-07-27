@@ -884,7 +884,13 @@ fn stage_profile_snapshot_recovers_a_hot_journal_for_the_chromium_parser() {
 
     // The degraded staging path was recorded as a run warning, not swallowed.
     assert_eq!(staged.warnings.len(), 1, "the recovered-copy fallback must be reported");
-    assert!(staged.warnings[0].contains("chrome:Default"), "the warning names the profile");
+    assert!(staged.warnings[0].message.contains("chrome:Default"), "the warning names the profile");
+    assert_eq!(staged.warnings[0].code, "staging-fallback-recovered-copy");
+    assert_eq!(staged.warnings[0].profile_id.as_deref(), Some("chrome:Default"));
+    assert!(
+        staged.warnings[0].diagnostic.is_some(),
+        "the snapshot failure reason rides in `diagnostic`"
+    );
 
     // The production read path opens the recovered copy and parses the last
     // committed state — no SQLITE_READONLY_ROLLBACK, in-flight write rolled back.
@@ -942,9 +948,16 @@ fn stage_profile_snapshot_reports_a_favicons_fallback_as_a_warning() {
     let staged = stage_profile_snapshot(&paths, &profile).expect("stage profile");
     assert_eq!(staged.warnings.len(), 1, "the favicons fallback must be the only warning");
     assert!(
-        staged.warnings[0].contains("Favicons"),
+        staged.warnings[0].message.contains("Favicons"),
         "the warning must name the Favicons source: {}",
+        staged.warnings[0].message
+    );
+    assert!(
         staged.warnings[0]
+            .diagnostic
+            .as_deref()
+            .is_some_and(|diagnostic| diagnostic.contains("Favicons")),
+        "the diagnostic names the degraded source"
     );
 }
 

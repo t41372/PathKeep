@@ -67,6 +67,10 @@ pub fn explain_entity(
                 entity_type: "refind_page".to_string(),
                 entity_id: explanation.canonical_url.clone(),
                 trigger_rule: format!("Refind score >= {:.1}", explanation.refind_score),
+                trigger_rule_code: Some(Explanation::TRIGGER_RULE_REFIND_SCORE.to_string()),
+                // The score travels STRUCTURALLY so the panel interpolates it into localized copy
+                // instead of regexing it back out of the prose above.
+                trigger_rule_score: Some(explanation.refind_score),
                 factors: explanation
                     .factors
                     .into_iter()
@@ -78,6 +82,7 @@ pub fn explain_entity(
                     })
                     .collect(),
                 participating_visit_ids: explanation.visit_ids,
+                ..Default::default()
             })
         }
         "reopened_investigation" => explain_reopened_investigation(&connection, &request.entity_id),
@@ -134,6 +139,9 @@ fn explain_session(connection: &Connection, session_id: &str) -> Result<Explanat
         )
         .unwrap_or(0);
     let duration_minutes = ((last_visit_ms - first_visit_ms).max(0) as f32) / 60_000.0;
+    // Both the prose and the localized copy quote the ONE grouping threshold the structural builder
+    // actually applies (`SESSION_GAP_MS`), so the stated number can never drift from the behavior.
+    let gap_minutes = super::SESSION_GAP_MS / 60_000;
     Ok(Explanation {
         entity_type: "session".to_string(),
         entity_id: session_id.to_string(),
@@ -141,9 +149,20 @@ fn explain_session(connection: &Connection, session_id: &str) -> Result<Explanat
             "Deep dive session matched the navigation-depth, domain-count, and visit-count thresholds."
                 .to_string()
         } else {
-            "Visits were grouped into one session because adjacent gaps stayed within 30 minutes."
-                .to_string()
+            format!(
+                "Visits were grouped into one session because adjacent gaps stayed within {gap_minutes} minutes."
+            )
         },
+        trigger_rule_code: Some(
+            if is_deep_dive {
+                Explanation::TRIGGER_RULE_SESSION_DEEP_DIVE
+            } else {
+                Explanation::TRIGGER_RULE_SESSION_GAP
+            }
+            .to_string(),
+        ),
+        // Only the gap rule quotes a threshold; the deep-dive rule names no number.
+        trigger_rule_gap_minutes: (!is_deep_dive).then_some(gap_minutes),
         factors: vec![
             explainability_factor("visit_count", visit_count as f32, 1.0, visit_count as f32),
             explainability_factor(
@@ -172,6 +191,7 @@ fn explain_session(connection: &Connection, session_id: &str) -> Result<Explanat
             ),
         ],
         participating_visit_ids: visit_ids,
+        ..Default::default()
     })
 }
 
@@ -213,6 +233,10 @@ fn explain_search_trail(connection: &Connection, trail_id: &str) -> Result<Expla
             "Search trail anchored by '{}' and extended through navigation ancestry within the session window.",
             initial_query
         ),
+        trigger_rule_code: Some(Explanation::TRIGGER_RULE_SEARCH_TRAIL.to_string()),
+        // The anchor query travels STRUCTURALLY: quoting it inside prose forced the panel to re-parse
+        // its own quote characters, which broke on any query containing them.
+        trigger_rule_query: Some(initial_query.clone()),
         factors: vec![
             explainability_factor("visit_count", visit_count as f32, 1.0, visit_count as f32),
             explainability_factor(
@@ -225,6 +249,7 @@ fn explain_search_trail(connection: &Connection, trail_id: &str) -> Result<Expla
             explainability_factor("landing_detected", landing_score, 0.5, landing_score * 0.5),
         ],
         participating_visit_ids: visit_ids,
+        ..Default::default()
     })
 }
 
@@ -260,6 +285,10 @@ fn explain_query_family(connection: &Connection, family_id: &str) -> Result<Expl
             "Queries were merged into one family because their Jaccard or containment similarity matched '{}'.",
             anchor_query
         ),
+        trigger_rule_code: Some(Explanation::TRIGGER_RULE_QUERY_FAMILY.to_string()),
+        // Structural anchor query: quoting it inside prose forced the panel to re-parse its own quote
+        // characters, which broke on any anchor containing them.
+        trigger_rule_query: Some(anchor_query.clone()),
         factors: vec![
             explainability_factor("member_count", member_count as f32, 1.0, member_count as f32),
             explainability_factor(
@@ -270,6 +299,7 @@ fn explain_query_family(connection: &Connection, family_id: &str) -> Result<Expl
             ),
         ],
         participating_visit_ids: visit_ids,
+        ..Default::default()
     })
 }
 
@@ -323,6 +353,7 @@ fn explain_reopened_investigation(
         entity_id: investigation_id.to_string(),
         trigger_rule: "This investigation reopened because the same anchor reappeared across distinct days or repeated deterministic evidence."
             .to_string(),
+        trigger_rule_code: Some(Explanation::TRIGGER_RULE_REOPENED_INVESTIGATION.to_string()),
         factors: vec![
             explainability_factor(
                 "occurrence_count",
@@ -338,6 +369,7 @@ fn explain_reopened_investigation(
             ),
         ],
         participating_visit_ids,
+        ..Default::default()
     })
 }
 
@@ -376,6 +408,17 @@ fn explain_habit_pattern(connection: &Connection, entity_id: &str) -> Result<Exp
         } else {
             format!("{} cadence was detected from repeated cross-day visits.", habit_type)
         },
+        trigger_rule_code: Some(
+            if is_interrupted {
+                Explanation::TRIGGER_RULE_HABIT_PATTERN_INTERRUPTED
+            } else {
+                Explanation::TRIGGER_RULE_HABIT_PATTERN
+            }
+            .to_string(),
+        ),
+        // The habit TYPE code travels structurally; the front end owns its localized name, so it no
+        // longer has to capture the name from the sentence with a regex.
+        trigger_rule_habit_type: Some(habit_type.clone()),
         factors: vec![
             explainability_factor("visit_count", visit_count as f32, 1.0, visit_count as f32),
             explainability_factor(
@@ -393,6 +436,7 @@ fn explain_habit_pattern(connection: &Connection, entity_id: &str) -> Result<Exp
             ),
         ],
         participating_visit_ids: visit_ids,
+        ..Default::default()
     })
 }
 
@@ -418,6 +462,7 @@ fn explain_path_flow(connection: &Connection, entity_id: &str) -> Result<Explana
         entity_type: "path_flow".to_string(),
         entity_id: entity_id.to_string(),
         trigger_rule: "This flow pattern recurs across session-local domain n-grams.".to_string(),
+        trigger_rule_code: Some(Explanation::TRIGGER_RULE_PATH_FLOW.to_string()),
         factors: vec![
             explainability_factor("step_count", step_count as f32, 0.6, step_count as f32 * 0.6),
             explainability_factor(
@@ -428,6 +473,7 @@ fn explain_path_flow(connection: &Connection, entity_id: &str) -> Result<Explana
             ),
         ],
         participating_visit_ids,
+        ..Default::default()
     })
 }
 
@@ -477,6 +523,7 @@ fn explain_compare_set(connection: &Connection, entity_id: &str) -> Result<Expla
         trigger_rule:
             "This compare set alternated between multiple comparable pages within one search trail."
                 .to_string(),
+        trigger_rule_code: Some(Explanation::TRIGGER_RULE_COMPARE_SET.to_string()),
         factors: vec![
             explainability_factor(
                 "page_count",
@@ -498,6 +545,7 @@ fn explain_compare_set(connection: &Connection, entity_id: &str) -> Result<Expla
             ),
         ],
         participating_visit_ids,
+        ..Default::default()
     })
 }
 
@@ -610,16 +658,44 @@ mod tests {
         let deep_session = explain_session(&connection, "session-1").expect("deep session");
         assert!(deep_session.trigger_rule.contains("Deep dive"));
         assert_eq!(deep_session.participating_visit_ids, vec![1, 2, 3, 4]);
+        // The stable CODE is what the localized panel renders from; the deep-dive rule names no
+        // threshold, so it must NOT carry the gap param.
+        assert_eq!(
+            deep_session.trigger_rule_code.as_deref(),
+            Some(Explanation::TRIGGER_RULE_SESSION_DEEP_DIVE)
+        );
+        assert_eq!(deep_session.trigger_rule_gap_minutes, None);
 
         let shallow_session = explain_session(&connection, "session-2").expect("shallow session");
         assert!(shallow_session.trigger_rule.contains("30 minutes"));
+        assert_eq!(
+            shallow_session.trigger_rule_code.as_deref(),
+            Some(Explanation::TRIGGER_RULE_SESSION_GAP)
+        );
+        // The gap threshold travels as a NUMBER derived from `SESSION_GAP_MS`, so the copy never
+        // hard-codes a value the grouper could change out from under it.
+        assert_eq!(
+            shallow_session.trigger_rule_gap_minutes,
+            Some(super::super::SESSION_GAP_MS / 60_000)
+        );
 
         let trail = explain_search_trail(&connection, "trail-1").expect("trail explanation");
         assert_eq!(trail.participating_visit_ids, vec![1, 2, 3]);
         assert!(trail.factors.iter().any(|factor| factor.label == "landing_detected"));
+        assert_eq!(
+            trail.trigger_rule_code.as_deref(),
+            Some(Explanation::TRIGGER_RULE_SEARCH_TRAIL)
+        );
+        // The anchor query travels structurally, so the panel never re-parses quote characters.
+        assert_eq!(trail.trigger_rule_query.as_deref(), Some("pathkeep coverage"));
 
         let family = explain_query_family(&connection, "family-1").expect("family explanation");
         assert_eq!(family.participating_visit_ids, vec![1, 4]);
+        assert_eq!(
+            family.trigger_rule_code.as_deref(),
+            Some(Explanation::TRIGGER_RULE_QUERY_FAMILY)
+        );
+        assert_eq!(family.trigger_rule_query.as_deref(), Some("pathkeep coverage"));
 
         let reopened_query =
             explain_reopened_investigation(&connection, "reopened-query").expect("reopened query");
@@ -630,20 +706,47 @@ mod tests {
         let reopened_other =
             explain_reopened_investigation(&connection, "reopened-other").expect("reopened other");
         assert!(reopened_other.participating_visit_ids.is_empty());
+        // Every reopened-investigation shape shares one parameterless rule code.
+        for reopened in [&reopened_query, &reopened_reference, &reopened_other] {
+            assert_eq!(
+                reopened.trigger_rule_code.as_deref(),
+                Some(Explanation::TRIGGER_RULE_REOPENED_INVESTIGATION)
+            );
+        }
 
         let interrupted =
             explain_habit_pattern(&connection, "p1::docs.com").expect("habit explanation");
         assert!(interrupted.trigger_rule.contains("interruption"));
+        // The two habit variants are DISTINCT codes, and the habit TYPE travels as its persisted code
+        // so the front end never has to capture the name out of the sentence.
+        assert_eq!(
+            interrupted.trigger_rule_code.as_deref(),
+            Some(Explanation::TRIGGER_RULE_HABIT_PATTERN_INTERRUPTED)
+        );
+        assert_eq!(interrupted.trigger_rule_habit_type.as_deref(), Some("weekly"));
         let active = explain_habit_pattern(&connection, "p1::quiet.example").expect("active habit");
         assert!(active.trigger_rule.contains("cross-day"));
+        assert_eq!(
+            active.trigger_rule_code.as_deref(),
+            Some(Explanation::TRIGGER_RULE_HABIT_PATTERN)
+        );
+        assert_eq!(active.trigger_rule_habit_type.as_deref(), Some("daily"));
 
         let path_flow =
             explain_path_flow(&connection, "p1::2::search.com → docs.com").expect("path flow");
         assert_eq!(path_flow.participating_visit_ids, vec![1, 2]);
+        assert_eq!(
+            path_flow.trigger_rule_code.as_deref(),
+            Some(Explanation::TRIGGER_RULE_PATH_FLOW)
+        );
 
         let compare =
             explain_compare_set(&connection, "compare:trail-1:article").expect("compare set");
         assert_eq!(compare.participating_visit_ids, vec![2, 3]);
+        assert_eq!(
+            compare.trigger_rule_code.as_deref(),
+            Some(Explanation::TRIGGER_RULE_COMPARE_SET)
+        );
         assert!(compare.factors.iter().any(|factor| factor.label == "alternation_count"));
         assert!(explain_compare_set(&connection, "compare:trail-1:missing").is_err());
     }

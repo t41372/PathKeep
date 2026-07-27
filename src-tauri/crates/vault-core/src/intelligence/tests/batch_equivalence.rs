@@ -594,7 +594,9 @@ fn structural_stage_helpers_cover_noop_delta_and_dirty_windows() {
     .expect("empty structural stage");
     assert_eq!(empty_report.execution_mode.as_deref(), Some("noop"));
     assert_eq!(empty_report.affected_profiles, vec!["empty-profile"]);
-    assert!(empty_report.notes[0].contains("No visible visits remained"));
+    assert_eq!(empty_report.notes[0].code, "structural-cleared-no-visits");
+    assert_eq!(empty_report.notes[0].profile_id.as_deref(), Some("empty-profile"));
+    assert!(empty_report.notes[0].message.contains("No visible visits remained"));
 }
 
 /// Regression coverage for visit derive fallback matches clean full rebuild across batches.
