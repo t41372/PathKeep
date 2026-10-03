@@ -565,6 +565,76 @@ mod tests {
     use super::*;
 
     #[test]
+    fn digest_counts_distinct_domains_and_estimates_active_time_per_window() {
+        let connection = Connection::open_in_memory().expect("sqlite");
+        ensure_core_intelligence_schema(&connection).expect("schema");
+        let request = ScopedDateRangeRequest {
+            date_range: DateRange {
+                start: "2026-03-08".to_string(),
+                end: "2026-03-14".to_string(),
+            },
+            profile_id: None,
+        };
+        let (start_ms, _) = date_range_bounds(&request.date_range).expect("bounds");
+        let previous = previous_date_range(&request.date_range).expect("previous range");
+        let (previous_start_ms, _) = date_range_bounds(&previous).expect("previous bounds");
+
+        let rollup = |date: &str, profile: &str, domain: &str| {
+            connection
+                .execute(
+                    "INSERT INTO domain_daily_rollups (date_key, profile_id, registrable_domain,
+                       domain_category, visit_count, search_count, new_domain_visits, unique_urls)
+                     VALUES (?1, ?2, ?3, 'reference', 3, 0, 0, 1)",
+                    params![date, profile, domain],
+                )
+                .expect("rollup row");
+        };
+        // The same domain on two days and in two profiles is still one domain.
+        rollup("2026-03-08", "chrome:Default", "docs.rs");
+        rollup("2026-03-09", "chrome:Default", "docs.rs");
+        rollup("2026-03-09", "firefox:dev", "docs.rs");
+        rollup("2026-03-14", "chrome:Default", "github.com");
+        rollup("2026-03-03", "chrome:Default", "example.com");
+
+        let session = |id: &str, first_ms: i64, span_ms: i64, visits: i64| {
+            connection
+                .execute(
+                    "INSERT INTO sessions (session_id, profile_id, first_visit_ms, last_visit_ms,
+                       visit_count, search_count, domain_count, computed_at)
+                     VALUES (?1, 'chrome:Default', ?2, ?3, ?4, 0, 1, 'now')",
+                    params![id, first_ms, first_ms + span_ms, visits],
+                )
+                .expect("session row");
+        };
+        let minute = 60_000;
+        // A single visit has no span, so it is credited the one-minute last-page allowance.
+        session("single", start_ms + minute, 0, 1);
+        // Ten minutes across three visits: the span plus the last page, under the 15-minute cap.
+        session("short", start_ms + 60 * minute, 10 * minute, 3);
+        // Two hours across two visits is a tab left open: capped at five minutes per visit.
+        session("idle-tab", start_ms + 300 * minute, 120 * minute, 2);
+        session("last-week", previous_start_ms + minute, 4 * minute, 5);
+
+        let digest = get_digest_summary_with_connection(&connection, &request).expect("digest");
+        assert_eq!(digest.distinct_domains.value, 2);
+        assert_eq!(digest.distinct_domains.previous_value, Some(1));
+        assert_eq!(digest.active_time_ms.value, (1 + 11 + 10) * minute);
+        assert_eq!(digest.active_time_ms.previous_value, Some(5 * minute));
+        assert_eq!(digest.active_time_ms.trend, "up");
+
+        let scoped = get_digest_summary_with_connection(
+            &connection,
+            &ScopedDateRangeRequest {
+                profile_id: Some("firefox:dev".to_string()),
+                ..request.clone()
+            },
+        )
+        .expect("profile digest");
+        assert_eq!(scoped.distinct_domains.value, 1);
+        assert_eq!(scoped.active_time_ms.value, 0);
+    }
+
+    #[test]
     fn friction_signals_cover_reformulation_and_bounce_rows() {
         let connection = Connection::open_in_memory().expect("sqlite");
         ensure_core_intelligence_schema(&connection).expect("schema");

@@ -251,6 +251,23 @@ pub(crate) fn dashboard_snapshot_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads per-source visit counts and date spans for Home and History.
+pub(crate) fn source_stats_impl(
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::SourceStats>, CommandError> {
+    worker_result(vault_worker::source_stats(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Loads the History detail panel data for one exact URL.
+pub(crate) fn url_detail_impl(
+    url: &str,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::UrlDetail, CommandError> {
+    worker_result(vault_worker::url_detail(session_database_key, url))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Aggregates one local-day Browse insights panel from the full archive.
 pub(crate) fn browse_day_insights_impl(
     session_database_key: Option<&str>,

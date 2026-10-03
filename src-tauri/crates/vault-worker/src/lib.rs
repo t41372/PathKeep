@@ -51,7 +51,7 @@ pub use self::{
         preview_retention_plan, preview_snapshot_restore_plan, query_history, refetch_og_images,
         repair_health, restore_import_batch_detail, revert_import_batch_detail, run_backup_now,
         run_backup_now_with_progress, run_full_archive_restore, run_og_image_cleanup,
-        run_retention_plan, run_snapshot_restore_plan,
+        run_retention_plan, run_snapshot_restore_plan, source_stats, url_detail,
     },
     cli::run_worker_cli,
     intelligence::{

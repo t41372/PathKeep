@@ -144,6 +144,57 @@ fn dispatch_initialize_archive_bootstraps_the_archive_and_drives_the_upgrade_rep
     }
 }
 
+#[test]
+fn dispatch_source_stats_and_url_detail_return_the_frontend_shapes() {
+    // History and Home call these two through the bridge in browser mode and E2E. The payload
+    // field names here are the ones `src/lib/backend-client/{sources,url-detail}.ts` send and read.
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = dir.path().join("chrome-user-data");
+    std::fs::create_dir_all(&chrome_root).expect("chrome root");
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(dispatch_command(
+        &state,
+        "initialize_archive",
+        json!({ "config": test_config(), "databaseKey": null }),
+    ))
+    .expect("initialize archive");
+
+    let stats = ready_block_on(dispatch_command(&state, "load_source_stats", json!({})))
+        .expect("load_source_stats over the bridge");
+    assert_eq!(stats, json!([]), "a fresh archive has no source profiles yet");
+
+    let detail = ready_block_on(dispatch_command(
+        &state,
+        "get_url_detail",
+        json!({ "url": "https://example.com/never-visited" }),
+    ))
+    .expect("get_url_detail over the bridge");
+    assert_eq!(detail["url"], json!("https://example.com/never-visited"));
+    assert_eq!(detail["domain"], json!("example.com"));
+    assert_eq!(detail["totalVisits"], json!(0));
+    assert_eq!(detail["firstVisitAt"], Value::Null);
+    assert_eq!(detail["browsers"], json!([]));
+    assert_eq!(detail["weeklyVisits"].as_array().map(Vec::len), Some(12));
+    assert!(detail["weeklyVisits"][0]["weekStart"].is_string());
+
+    let missing_url = ready_block_on(dispatch_command(&state, "get_url_detail", json!({})))
+        .expect_err("get_url_detail without a url must be rejected");
+    assert!(missing_url.message.contains("url"), "got: {}", missing_url.message);
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
+}
+
 #[tokio::test]
 async fn blocking_join_failures_report_the_command_without_a_remediation_code() {
     // A worker thread that panics must not vanish: the bridge names the command
@@ -425,6 +476,8 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             profile_id: None,
         }),
     );
+    dispatch_for_coverage(&state, "load_source_stats", json!({}));
+    dispatch_for_coverage(&state, "get_url_detail", json!({ "url": "https://example.com/" }));
     dispatch_for_coverage(&state, "load_audit_run_detail", json!({ "runId": 1 }));
     // Data Migration (Settings → Export / Import) — every arm runs through
     // `worker_bridge::migration` and the wrappers must surface even when

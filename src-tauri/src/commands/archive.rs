@@ -346,6 +346,33 @@ pub(crate) async fn load_dashboard_snapshot(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads per-source visit counts and date spans, off the UI thread.
+pub(crate) async fn load_source_stats(
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::SourceStats>, CommandError> {
+    let key = state.get_key();
+    run_blocking_command("load_source_stats", move || {
+        worker_bridge::source_stats_impl(key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Loads the History detail panel data for one URL, off the UI thread.
+pub(crate) async fn get_url_detail(
+    url: String,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::UrlDetail, CommandError> {
+    let key = state.get_key();
+    run_blocking_command("get_url_detail", move || {
+        worker_bridge::url_detail_impl(&url, key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Aggregates one local-day Browse insights panel from the full archive
 /// (sparkline, top domains, top URLs, search queries, activity tallies,
 /// session stats), off the UI thread. Replaces the previous scroll-coupled

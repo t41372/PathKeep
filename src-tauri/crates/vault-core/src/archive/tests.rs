@@ -69,7 +69,7 @@ fn assert_archive_integrity_ok(connection: &Connection) {
     assert_eq!(status, "ok", "the archive must be structurally consistent after a crash");
 }
 
-fn seed_chrome_fixture(root: &Path) -> PathBuf {
+pub(super) fn seed_chrome_fixture(root: &Path) -> PathBuf {
     let chrome_root = root.join("chrome-user-data");
     let profile_dir = chrome_root.join("Default");
     fs::create_dir_all(&profile_dir).expect("create profile dir");
@@ -553,6 +553,70 @@ fn plain_browse_history_query_leaves_enrichment_excerpt_none() {
         browse.items.iter().all(|entry| entry.enrichment_excerpt.is_none()),
         "browse rows must never carry an enrichment excerpt"
     );
+}
+
+#[test]
+fn uncounted_history_pages_walk_the_same_rows_as_counted_pages() {
+    // History's infinite list sends `includeTotal: false` so a page never pays an archive-wide
+    // COUNT. Walking with the cursor must still reach every row exactly once and stop cleanly.
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+
+    let walk = |q: Option<&str>| {
+        let mut seen = Vec::new();
+        let mut cursor = None;
+        loop {
+            let page = list_history(
+                &paths,
+                &config,
+                None,
+                HistoryQuery {
+                    q: q.map(str::to_string),
+                    limit: Some(3),
+                    cursor: cursor.clone(),
+                    include_total: Some(false),
+                    ..HistoryQuery::default()
+                },
+            )
+            .expect("uncounted page");
+            assert!(!page.total_exact, "an uncounted page must say its total is not exact");
+            assert_eq!(page.total, page.items.len(), "the total is only this page's size");
+            assert_eq!(page.has_previous, cursor.is_some());
+            seen.extend(page.items.iter().map(|entry| entry.url.clone()));
+            if !page.has_next {
+                assert!(page.next_cursor.is_none());
+                break seen;
+            }
+            cursor = Some(page.next_cursor.expect("a page with more rows carries a cursor"));
+        }
+    };
+
+    let counted = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { limit: Some(50), ..HistoryQuery::default() },
+    )
+    .expect("counted browse");
+    assert!(counted.total_exact);
+    let browse = walk(None);
+    assert_eq!(browse, counted.items.iter().map(|entry| entry.url.clone()).collect::<Vec<_>>());
+
+    let keyword = walk(Some("example"));
+    let counted_keyword = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("example".to_string()), limit: Some(50), ..HistoryQuery::default() },
+    )
+    .expect("counted keyword");
+    assert_eq!(keyword.len(), counted_keyword.total);
+    let mut unique = keyword.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), keyword.len(), "no row may appear on two pages");
 }
 
 #[test]

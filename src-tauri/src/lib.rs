@@ -144,6 +144,8 @@ fn run_app() -> Result<()> {
             apply_app_data_import,
             load_dashboard_snapshot,
             get_browse_day_insights,
+            load_source_stats,
+            get_url_detail,
             load_audit_run_detail,
             export_history,
             inspect_takeout,

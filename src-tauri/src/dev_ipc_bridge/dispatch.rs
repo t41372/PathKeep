@@ -324,6 +324,16 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 payload.request,
             )?)
         }
+        "load_source_stats" => {
+            json_value!(worker_bridge::source_stats_impl(session_key(&state.session).as_deref())?)
+        }
+        "get_url_detail" => {
+            let payload = parse_payload::<UrlPayload>(payload)?;
+            json_value!(worker_bridge::url_detail_impl(
+                &payload.url,
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "load_audit_run_detail" => {
             let payload = parse_payload::<RunIdPayload>(payload)?;
             json_value!(worker_bridge::audit_run_detail_impl(

@@ -281,13 +281,16 @@ pub(crate) fn ensure_core_intelligence_schema(connection: &Connection) -> Result
     Ok(())
 }
 
+/// Session, search-trail and re-find row counts, in that order.
+type DerivedRowCounts = (usize, usize, usize);
+
 /// Session, search-trail and re-find row counts for [`intelligence_status`].
 ///
 /// App snapshots ask for these on every refresh, and `COUNT(*)` walks each table, which is
 /// seconds on a large archive. The counts only change when the file changes, so the result is
 /// reused until the database or its WAL is touched.
-fn derived_row_counts(connection: &Connection, database: &Path) -> Result<(usize, usize, usize)> {
-    static CACHE: OnceLock<Mutex<HashMap<String, (SqliteFileStamp, (usize, usize, usize))>>> =
+fn derived_row_counts(connection: &Connection, database: &Path) -> Result<DerivedRowCounts> {
+    static CACHE: OnceLock<Mutex<HashMap<String, (SqliteFileStamp, DerivedRowCounts)>>> =
         OnceLock::new();
     let key = database.display().to_string();
     let stamp = sqlite_file_stamp(database);

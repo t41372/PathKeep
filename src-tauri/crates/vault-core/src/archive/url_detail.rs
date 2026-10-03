@@ -195,7 +195,7 @@ mod tests {
                  INSERT INTO visits (url_id, visit_time_ms, visit_time_iso, source_profile_id, created_by_run_id, reverted_at) VALUES
                    (1, {a}, '', 1, 1, NULL),
                    (1, {b}, '', 1, 1, NULL),
-                   (2, {c}, '', 2, 1, NULL),
+                   (1, {c}, '', 1, 1, NULL),
                    (2, {d}, '', 2, 1, NULL),
                    (1, {e}, '', 1, 1, '2026-01-01T00:00:00Z');",
                 a = ms(this_monday, 0),
@@ -214,6 +214,7 @@ mod tests {
         assert_eq!(detail.weekly_visits[0].week_start, "2026-07-13");
         let counts: Vec<i64> = detail.weekly_visits.iter().map(|week| week.visits).collect();
         assert_eq!(counts, vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2]);
+        // Chrome recorded three of the four visible visits, so it is listed first.
         assert_eq!(detail.browsers, vec!["Google Chrome", "Firefox"]);
         assert_eq!(detail.title.as_deref(), Some("A"));
         assert_eq!(detail.domain, "example.com");
