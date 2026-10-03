@@ -76,7 +76,11 @@ function StatCard({
           {value}
         </span>
       )}
-      <span className="text-xs text-muted-foreground">{sub}</span>
+      {loading ? (
+        <Skeleton className="h-3.5 w-24" />
+      ) : (
+        <span className="text-xs text-muted-foreground">{sub}</span>
+      )}
     </Link>
   )
 }
@@ -111,7 +115,8 @@ function StatCards() {
         label={t('home.stats.saved')}
         value={format.number(data?.totalVisits ?? 0)}
         sub={t('home.stats.savedSub', { count: thisWeek })}
-        loading={dashboard.isPending}
+        // "N new this week" comes from the trend; wait for both.
+        loading={dashboard.isPending || trend.isPending}
       />
       <StatCard
         to="/insights"
