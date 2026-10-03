@@ -31,33 +31,39 @@ async function backUp(page: Page, expected: RegExp) {
   await page.goto('/#/backup')
   await page.getByRole('button', { name: 'Back up now' }).first().click()
   const latest = page
-    .locator('section, div')
-    .filter({ has: page.getByRole('heading', { name: 'Recent runs' }) })
-    .last()
+    .getByRole('heading', { name: 'Recent runs' })
+    .locator('xpath=ancestor::*[.//li][1]')
     .getByRole('listitem')
     .first()
   await expect(latest).toContainText(expected, { timeout: 60_000 })
 }
 
-async function searchCount(page: Page) {
+/** Searches History for the test page and waits for exactly `expected` hits. */
+async function expectSearchHits(page: Page, expected: number) {
   await page.goto('/#/history')
   await page.getByRole('searchbox', { name: 'Search history' }).fill(NEW_TITLE)
-  const count = page.getByText(/^[\d,]+ results? · Full text$|^Nothing found$/)
-  await expect(count).toBeVisible()
-  const text = await count.innerText()
-  return text === 'Nothing found' ? 0 : Number(text.replace(/[^\d]/g, ''))
+  const header = page.getByText(/results? · Full text$|^Nothing found$/)
+  await expect
+    .poll(async () => {
+      const text = await header.innerText().catch(() => '')
+      if (text === 'Nothing found') return 0
+      return /^[\d,]+ results? ·/.test(text)
+        ? Number(text.replace(/[^\d]/g, ''))
+        : Number.NaN
+    })
+    .toBe(expected)
 }
 
 test('new visits arrive with the next backup; a paused source waits', async ({
   page,
 }) => {
   const { files } = fixture()
-  expect(await searchCount(page)).toBe(0)
+  await expectSearchHits(page, 0)
 
   appendChromeVisits(files['chrome:Default'], visitsNow(3))
   appendFirefoxVisits(files['firefox:k3x9.default-release'], visitsNow(2))
-  await backUp(page, /\b5 new visits\b/)
-  expect(await searchCount(page)).toBe(5)
+  await backUp(page, /\b5 new visits/)
+  await expectSearchHits(page, 5)
 
   // Pause Firefox, browse some more in it, back up: nothing new.
   await page.goto('/#/backup')
@@ -70,13 +76,13 @@ test('new visits arrive with the next backup; a paused source waits', async ({
     files['firefox:k3x9.default-release'],
     visitsNow(4, 1_000),
   )
-  await backUp(page, /\b0 new visits\b/)
-  expect(await searchCount(page)).toBe(5)
+  await backUp(page, /\b0 new visits/)
+  await expectSearchHits(page, 5)
 
   // Turn it back on: exactly the four waiting visits come in.
   await page.goto('/#/backup')
   await firefox.click()
   await expect(firefox).toBeChecked()
-  await backUp(page, /\b4 new visits\b/)
-  expect(await searchCount(page)).toBe(9)
+  await backUp(page, /\b4 new visits/)
+  await expectSearchHits(page, 9)
 })

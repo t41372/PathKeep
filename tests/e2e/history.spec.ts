@@ -7,7 +7,7 @@
  * profile's visits, the detail panel counts visits across browsers, and a
  * star and note survive a reload.
  */
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import {
   archivedVisits,
   backend,
@@ -19,16 +19,43 @@ import {
 const PAGE_URL = 'https://news.ycombinator.com/item?id=41502281'
 const PAGE_TITLE = 'Hacker News · Why I left tokio'
 
-function resultCount(page: Page, mode: string) {
-  return page.getByText(new RegExp(`^[\\d,]+ results? · ${mode}$`))
+/**
+ * Waits until the result header shows `expected` exactly, then records the
+ * pair. The header first says "100+ results" from the first page and fills
+ * in the exact total when the separate count query lands, so a single read
+ * would race it.
+ */
+async function expectResults(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  mode: string,
+  expected: number,
+) {
+  const header = page.getByText(new RegExp(`results? · ${mode}$`))
+  let actual = Number.NaN
+  await expect
+    .poll(async () => {
+      const text = await header.innerText().catch(() => '')
+      actual = /^[\d,]+ results? ·/.test(text) ? parseCount(text) : Number.NaN
+      return actual
+    })
+    .toBe(expected)
+  await expectCount(testInfo, name, actual, expected)
 }
+
+const results = (page: Page) =>
+  page.getByRole('listbox', { name: 'History results' }).getByRole('option')
 
 test('search finds every visit to a page, and nothing else', async ({
   page,
 }, testInfo) => {
-  const expected = archivedVisits().filter(
-    (visit) => visit.url === PAGE_URL,
-  ).length
+  const visitsToPage = (id?: string) =>
+    (id
+      ? fixture().visitsByProfile[id as 'firefox:k3x9.default-release']
+      : archivedVisits()
+    ).filter((visit) => visit.url === PAGE_URL).length
+  const expected = visitsToPage()
   expect(expected, 'the fixture must contain the page').toBeGreaterThan(1)
 
   await page.goto('/#/history')
@@ -36,35 +63,21 @@ test('search finds every visit to a page, and nothing else', async ({
 
   // Every word of the title has to match; "tokio" alone matches many pages.
   await search.fill('why I left tokio')
-  const fullText = resultCount(page, 'Full text')
-  await expect(fullText).toBeVisible()
-  await expectCount(
+  await expectResults(
+    page,
     testInfo,
     'full-text matches',
-    parseCount(await fullText.innerText()),
+    'Full text',
     expected,
   )
-  const rows = page
-    .getByRole('list', { name: 'History results' })
-    .getByRole('listitem')
-  await expect(rows.first()).toContainText(PAGE_TITLE)
+  await expect(results(page).first()).toContainText(PAGE_TITLE)
 
   // Regex over the URL: the escaped `?` must not turn into a wildcard.
   await page.getByRole('radio', { name: 'Regex' }).click()
   await search.fill('item\\?id=41502281$')
-  const regex = resultCount(page, 'Regex')
-  await expect(regex).toBeVisible()
-  await expectCount(
-    testInfo,
-    'regex matches',
-    parseCount(await regex.innerText()),
-    expected,
-  )
+  await expectResults(page, testInfo, 'regex matches', 'Regex', expected)
 
   // Only Firefox's visits to the same page.
-  const firefoxVisits = fixture().visitsByProfile[
-    'firefox:k3x9.default-release'
-  ].filter((visit) => visit.url === PAGE_URL).length
   await page.getByRole('button', { name: /All browsers/ }).click()
   await page
     .getByRole('menuitemcheckbox', { name: /^Firefox/ })
@@ -72,14 +85,12 @@ test('search finds every visit to a page, and nothing else', async ({
     .first()
     .click()
   await page.keyboard.press('Escape')
-  await expect(regex).toHaveText(
-    new RegExp(`^${firefoxVisits.toLocaleString('en-US')} results? · Regex$`),
-  )
-  await expectCount(
+  await expectResults(
+    page,
     testInfo,
     'regex matches in Firefox only',
-    parseCount(await regex.innerText()),
-    firefoxVisits,
+    'Regex',
+    visitsToPage('firefox:k3x9.default-release'),
   )
 })
 
@@ -94,16 +105,9 @@ test('a starred page keeps its note after a reload', async ({
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill('why I left tokio')
-  await page
-    .getByRole('list', { name: 'History results' })
-    .getByText(PAGE_TITLE)
-    .first()
-    .click()
+  await results(page).filter({ hasText: PAGE_TITLE }).first().click()
 
-  const detail = page
-    .getByRole('complementary', { name: 'Page details' })
-    .or(page.getByRole('region', { name: 'Page details' }))
-    .first()
+  const detail = page.getByRole('complementary', { name: 'Page details' })
   await expect(detail).toContainText(PAGE_URL)
   const visitsStat = detail.getByText('Total visits').locator('..')
   await expect(visitsStat).toContainText(/\d/)
@@ -133,7 +137,7 @@ test('a starred page keeps its note after a reload', async ({
     .toBe('read again before the runtime rewrite')
 
   await page.reload()
-  await page.getByRole('radio', { name: /^Starred/ }).click()
+  await page.getByRole('tab', { name: /^Starred/ }).click()
   const starred = page.getByRole('main')
   await expect(starred).toContainText(PAGE_TITLE)
   await expect(starred).toContainText('read again before the runtime rewrite')

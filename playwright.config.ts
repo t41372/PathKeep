@@ -108,9 +108,13 @@ export default defineConfig({
     baseURL: bridge.devServerUrl,
     viewport: { width: 1440, height: 900 },
     locale: 'en-US',
-    trace: 'on',
+    // 'on' hangs after a passing test (Playwright 1.59 on Node 26: the
+    // worker stalls until the test timeout once the trace is zipped). Failed
+    // tests still get a full trace; passing ones keep screenshots and the
+    // expected/actual attachments.
+    trace: 'retain-on-failure',
     screenshot: 'on',
-    video: 'retain-on-failure',
+    video: 'off',
     launchOptions: {
       executablePath:
         process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,

@@ -83,7 +83,7 @@ export function DetailPanel({
   }
 
   return (
-    <div
+    <aside
       className="flex h-full w-80 flex-col gap-[18px] overflow-y-auto p-6"
       aria-label={t('history.detail.label')}
     >
@@ -173,6 +173,6 @@ export function DetailPanel({
         url={target.url}
         profileId={target.profileId}
       />
-    </div>
+    </aside>
   )
 }

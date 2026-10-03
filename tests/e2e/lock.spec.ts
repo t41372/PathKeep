@@ -48,5 +48,5 @@ test('the passcode from Settings locks and unlocks PathKeep', async ({
   await expect(
     page.getByRole('heading', { name: 'PathKeep is locked' }),
   ).toBeHidden()
-  await expect(page.getByRole('navigation')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Security' })).toBeVisible()
 })

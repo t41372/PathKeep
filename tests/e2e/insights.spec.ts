@@ -33,9 +33,8 @@ test('top sites for the last 30 days match the archive', async ({
 
   await page.goto('/#/insights?range=d30')
   const card = page
-    .locator('section, div')
-    .filter({ has: page.getByRole('heading', { name: 'Top sites' }) })
-    .last()
+    .getByRole('heading', { name: 'Top sites' })
+    .locator('xpath=ancestor::*[.//ul][1]')
   // Stale sections say so and poll; wait for real rows.
   const firstRow = card.getByRole('listitem').first()
   await expect(firstRow).toBeVisible({ timeout: 60_000 })
