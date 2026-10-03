@@ -1,6 +1,7 @@
 /**
  * Runs a manual backup and reports progress. Lives above the router so Home,
- * Backup and the command palette share one run and one progress state.
+ * Backup, the command palette and onboarding share one run and one progress
+ * state.
  */
 import {
   createContext,
@@ -21,11 +22,22 @@ import { useI18n } from '@/lib/i18n'
 import { queryClient, queryKeys } from '@/lib/query'
 import type { BackupProgressEvent, BackupReport } from '@/lib/types'
 
+/** What a run ended with, for callers that show the result in place. */
+export type BackupOutcome =
+  | { ok: true; report: BackupReport }
+  | { ok: false; error: unknown }
+
+interface RunOptions {
+  /** Onboarding shows the result itself, so it turns the toasts off. */
+  toast?: boolean
+}
+
 interface BackupRunnerValue {
   running: boolean
   progress: BackupProgressEvent | null
   lastReport: BackupReport | null
-  run: () => Promise<void>
+  /** Resolves to null when a run is already in progress. */
+  run: (options?: RunOptions) => Promise<BackupOutcome | null>
 }
 
 const BackupRunnerContext = createContext<BackupRunnerValue | null>(null)
@@ -45,37 +57,46 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
   const [lastReport, setLastReport] = useState<BackupReport | null>(null)
   const runningRef = useRef(false)
 
-  const run = useCallback(async () => {
-    if (runningRef.current) return
-    runningRef.current = true
-    setRunning(true)
-    setProgress(null)
-    const unsubscribe = await subscribeToBackupProgress(setProgress)
-    try {
-      const report = await archiveClient.runBackupNow(false)
-      setLastReport(report)
-      const added = report.run?.newVisits ?? 0
-      toast.success(
-        added > 0
-          ? t('shell.backup.done', { count: added })
-          : t('shell.backup.doneNothingNew'),
-      )
-      await refreshAfterArchiveChange()
-    } catch (error) {
-      toast.error(t('shell.backup.failed'), {
-        description: isFullDiskAccessError(error)
-          ? t('shell.backup.fullDiskAccess')
-          : describeError(error, 'run_backup_now'),
-        duration: 10_000,
-      })
-      await refreshAfterArchiveChange().catch(() => undefined)
-    } finally {
-      unsubscribe?.()
-      runningRef.current = false
-      setRunning(false)
+  const run = useCallback(
+    async ({ toast: notify = true }: RunOptions = {}) => {
+      if (runningRef.current) return null
+      runningRef.current = true
+      setRunning(true)
       setProgress(null)
-    }
-  }, [t])
+      const unsubscribe = await subscribeToBackupProgress(setProgress)
+      try {
+        const report = await archiveClient.runBackupNow(false)
+        setLastReport(report)
+        const added = report.run?.newVisits ?? 0
+        if (notify) {
+          toast.success(
+            added > 0
+              ? t('shell.backup.done', { count: added })
+              : t('shell.backup.doneNothingNew'),
+          )
+        }
+        await refreshAfterArchiveChange()
+        return { ok: true, report } as const
+      } catch (error) {
+        if (notify) {
+          toast.error(t('shell.backup.failed'), {
+            description: isFullDiskAccessError(error)
+              ? t('shell.backup.fullDiskAccess')
+              : describeError(error, 'run_backup_now'),
+            duration: 10_000,
+          })
+        }
+        await refreshAfterArchiveChange().catch(() => undefined)
+        return { ok: false, error } as const
+      } finally {
+        unsubscribe?.()
+        runningRef.current = false
+        setRunning(false)
+        setProgress(null)
+      }
+    },
+    [t],
+  )
 
   const value = useMemo(
     () => ({ running, progress, lastReport, run }),
