@@ -110,15 +110,14 @@ export default defineConfig({
     screenshot: 'on',
     video: 'retain-on-failure',
     launchOptions: {
-      // Chromium's sandbox fails inside the macOS app sandbox some agents run in.
-      args: process.platform === 'darwin' ? ['--single-process'] : [],
       executablePath:
         process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
     },
   },
   webServer: {
     command: `${headlessLinux ? 'xvfb-run -a ' : ''}bun run desktop:dev:bridge`,
-    url: bridge.devServerUrl,
+    // Vite is up long before the Rust backend; wait for the backend.
+    url: `${bridge.devIpcUrl}/health`,
     reuseExistingServer: false,
     // A cold debug build of the backend takes several minutes.
     timeout: 900_000,

@@ -61,7 +61,7 @@ test('onboarding sets up an encrypted archive and backs up the chosen browsers',
   await page.getByRole('radio', { name: /^Encrypt/ }).click()
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
   await page.getByLabel('Confirm password').fill(PASSWORD)
-  const keychain = page.getByRole('checkbox', { name: /keychain/i })
+  const keychain = page.getByRole('switch', { name: /keychain/i })
   if (!(await keychain.isChecked())) await keychain.click()
   await page.getByRole('button', { name: 'Continue' }).click()
 
@@ -96,11 +96,12 @@ test('onboarding sets up an encrypted archive and backs up the chosen browsers',
       rememberDatabaseKeyInKeyring: boolean
       selectedProfileIds: string[]
     }
-    archiveStatus: { encryptionMode: string; unlocked: boolean }
+    archiveStatus: { encrypted: boolean; unlocked: boolean }
   }>('app_snapshot')
-  expect(snapshot.archiveStatus.encryptionMode.toLowerCase()).toContain(
-    'encrypt',
-  )
+  expect(snapshot.archiveStatus).toMatchObject({
+    encrypted: true,
+    unlocked: true,
+  })
   expect(snapshot.config.rememberDatabaseKeyInKeyring).toBe(true)
   expect([...snapshot.config.selectedProfileIds].sort()).toEqual([
     'chrome:Default',
@@ -113,7 +114,8 @@ test('onboarding sets up an encrypted archive and backs up the chosen browsers',
 
   await page.getByRole('button', { name: 'Open PathKeep' }).click()
   const saved = page.getByRole('link', { name: /Saved visits/ })
-  await expect(saved).toContainText(/\d/)
+  // The value is a skeleton until the dashboard loads; wait for the number.
+  await expect(saved).toHaveText(/Saved visits\s*[\d,]+\s*[\d,]+ new this week/)
   const savedText =
     (await saved.innerText()).match(/Saved visits\s+([\d,]+)/)?.[1] ?? ''
   await expectCount(
