@@ -43,6 +43,7 @@ export interface FinishState {
   current: Stage | null
   /** Finished or skipped. */
   completed: Stage[]
+  skipped: Stage[]
   error: { stage: Stage; message: string } | null
   report: BackupReport | null
 }
@@ -51,6 +52,7 @@ const idle: FinishState = {
   status: 'idle',
   current: null,
   completed: [],
+  skipped: [],
   error: null,
   report: null,
 }
@@ -201,6 +203,10 @@ export function useFinishSetup(draft: Draft, stages: Stage[]) {
         return
       }
     }
+    setState((current) => ({
+      ...current,
+      skipped: [...current.skipped, stage],
+    }))
     await runFrom([...state.completed, stage])
   }, [runFrom, save, state.completed, state.error])
 

@@ -80,7 +80,7 @@ export function EncryptionStep({
               value={draft.password}
               placeholder={t('onboarding.encryption.passwordHint')}
               onChange={(event) => onChange({ password: event.target.value })}
-              className="h-[38px] bg-background dark:bg-popover"
+              className="h-[38px] bg-popover"
             />
           </div>
           <div
@@ -118,7 +118,7 @@ export function EncryptionStep({
               aria-invalid={mismatch}
               aria-describedby={mismatch ? 'onboarding-mismatch' : undefined}
               onChange={(event) => onChange({ confirm: event.target.value })}
-              className="h-[38px] bg-background dark:bg-popover"
+              className="h-[38px] bg-popover"
             />
             {mismatch && (
               <span

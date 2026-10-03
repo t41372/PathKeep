@@ -57,7 +57,7 @@ export function StorageStep({ selected }: { selected: string[] }) {
         </h2>
         <div className="flex gap-2">
           <div
-            className="flex h-9 min-w-0 flex-1 items-center truncate rounded-lg border bg-background px-3 font-mono text-[13px] dark:bg-popover"
+            className="flex h-9 min-w-0 flex-1 items-center truncate rounded-lg border bg-popover px-3 font-mono text-[13px]"
             title={root}
           >
             <span className="truncate">{root}</span>

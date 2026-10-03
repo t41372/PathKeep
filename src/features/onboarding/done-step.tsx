@@ -9,6 +9,7 @@ import {
   Folder,
   Globe,
   Lock,
+  Minus,
   RefreshCw,
   Sparkles,
   X,
@@ -148,19 +149,21 @@ function Summary({ draft, keychain }: { draft: Draft; keychain: boolean }) {
 
 function StageRow({ stage, finish }: { stage: Stage; finish: FinishState }) {
   const { t } = useI18n()
-  const state = finish.completed.includes(stage)
-    ? 'done'
-    : finish.current === stage
-      ? finish.status === 'failed'
-        ? 'failed'
-        : 'running'
-      : 'pending'
+  const state = finish.skipped.includes(stage)
+    ? 'skipped'
+    : finish.completed.includes(stage)
+      ? 'done'
+      : finish.current === stage
+        ? finish.status === 'failed'
+          ? 'failed'
+          : 'running'
+        : 'pending'
 
   return (
     <li
       className={cn(
         'flex items-center gap-2.5 text-[13px] transition-colors duration-200',
-        state === 'pending' && 'text-muted-foreground',
+        (state === 'pending' || state === 'skipped') && 'text-muted-foreground',
       )}
     >
       <span className="flex size-[18px] shrink-0 items-center justify-center">
@@ -174,11 +177,15 @@ function StageRow({ stage, finish }: { stage: Stage; finish: FinishState }) {
           <span className="flex size-[18px] items-center justify-center rounded-full bg-destructive text-white">
             <X className="size-3" strokeWidth={3} aria-hidden />
           </span>
+        ) : state === 'skipped' ? (
+          <Minus className="size-3.5" strokeWidth={2.5} aria-hidden />
         ) : (
           <span className="size-3 rounded-full border-[1.5px] border-border" />
         )}
       </span>
-      <span>{t(`onboarding.done.stages.${stage}`)}</span>
+      <span className={cn(state === 'skipped' && 'line-through')}>
+        {t(`onboarding.done.stages.${stage}`)}
+      </span>
       <span className="sr-only">
         {t(`onboarding.done.stageState.${state}`)}
       </span>
@@ -206,11 +213,13 @@ function Result({ draft, finish }: { draft: Draft; finish: FinishState }) {
           {t('onboarding.done.safariSkipped')}
         </span>
       )}
-      {draft.ai === 'local' && finish.completed.includes('ai') && (
-        <span className="text-muted-foreground">
-          {t('onboarding.done.localAi')}
-        </span>
-      )}
+      {draft.ai === 'local' &&
+        finish.completed.includes('ai') &&
+        !finish.skipped.includes('ai') && (
+          <span className="text-muted-foreground">
+            {t('onboarding.done.localAi')}
+          </span>
+        )}
     </div>
   )
 }
