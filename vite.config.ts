@@ -34,6 +34,10 @@ export default defineConfig({
         '**/src-tauri/target/**',
         '**/var/playwright/**',
         '**/cargo-target/**',
+        // Agent worktrees and the design prototypes are full of HTML that
+        // would otherwise trigger page reloads.
+        '**/.claude/**',
+        '**/docs/**',
       ],
     },
   },
