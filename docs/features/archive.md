@@ -4,6 +4,42 @@
 
 ---
 
+## 0. 2026-10 介面對照
+
+M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為不變；提到舊頁面的地方，對照如下（畫面細節見 [screens-and-nav.md](../design/screens-and-nav.md)）：
+
+| 舊頁面 / 名稱                                              | 現在在哪裡                                                                                        |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Dashboard                                                  | Home                                                                                              |
+| Explorer                                                   | History                                                                                           |
+| Onboarding 的 profile / storage / security / schedule 步驟 | Onboarding 七步：歡迎、瀏覽器、存放位置、加密、排程、AI、完成                                     |
+| Scheduled Backup Settings（Schedule）                      | Backup → 自動備份卡                                                                               |
+| Import（Takeout）                                          | Backup → 匯入卡（含近期匯入的復原 / 還原）                                                        |
+| Import（Browser Direct）                                   | 沒有介面。`inspect_browser_history` / `import_browser_history` 與 typed client 還在，前端沒有呼叫 |
+| Audit Ledger / run detail                                  | Backup → 最近執行，點一列開側邊 sheet                                                             |
+| Jobs、sidebar footer 的背景工作條                          | 沒有。手動備份進度在 Backup 頂端的進度卡與備份按鈕上；Takeout 匯入進度在匯入卡內                  |
+| Security                                                   | Settings → Security                                                                               |
+| Settings → Data migration                                  | Settings → Storage →「搬到另一台電腦」（`.pathkeep` 檔）                                          |
+| Settings → Data →「刪除所有資料」                          | Settings → Storage →「刪除所有資料」                                                              |
+| Maintenance（retention、doctor、更新、log）                | Settings → Storage「釋放空間」；Settings → About 的「檢查存檔」、更新、記錄檔                     |
+| App Lock 面板                                              | Settings → Security 的「App Lock」分組                                                            |
+
+### 已接受要求中 2026-10 介面沒有做到的
+
+以下要求沒有被改掉，只是新介面還沒做到；要補還是要改需求，需要用戶決定：
+
+- §1 Onboarding 沒有「離開設定」：archive 建立前沒有主畫面可去，關掉 app 下次回到 onboarding（瀏覽器選擇已存）。
+- §1 / §3 Browser Direct 匯入沒有介面入口。
+- §2 排程：Backup 卡只有每小時 / 每 6 小時 / 每天 / 關；沒有自訂分鐘間隔（其他值只以文字顯示）、沒有在安裝前顯示 plist / XML / service 檔（只有 onboarding 第 5 步會顯示）、沒有手動安裝路徑以外的 Verify 區塊（偵測到的檔案、檢查項、最近一次 apply / remove 結果）。選「關」即移除排程。
+- §3 匯入後的 Jobs / sidebar 進度與「第二個寫入任務連到現有任務」：沒有 Jobs 頁；手動備份由 `BackupRunnerProvider` 保證同時只有一個。
+- §4 匯出：只有整個歷史一個檔，沒有 profile / 時間 / domain / query 篩選。
+- §5 rekey 後的 review（run id、安全副本路徑）只在 Backup → 最近執行的 sheet 裡看得到 run，沒有安全副本路徑的開啟 / 複製動作。
+- §6 Audit：沒有 manifest / artifact 路徑的開啟 / 複製、沒有 `Summary / Artifacts / Warnings` 分頁、沒有 snapshot_restore（checkpoint replay）的介面；Settings 不顯示 log / crash report 路徑，只有「顯示記錄檔資料夾」。
+- §7 Settings 的 enrichment / derived-state 面板（plugin 版本、queue、freshness、clear derived state）沒有介面；只有 Settings → General 的兩個開關與 Settings → About 的「重建洞察」。
+- §8 App Lock：見 [app-lock-panel-tradeoff.md](../design/app-lock-panel-tradeoff.md)，**待用戶決定**。
+
+---
+
 ## 1. 增量備份
 
 **作為**用戶，**我想要**定期自動備份我所有瀏覽器的歷史紀錄，**以便**我的歷史紀錄不會因為瀏覽器的過期策略而丟失。
@@ -12,7 +48,7 @@
 
 - 支援自動發現本機安裝的瀏覽器和 profiles。
   - 對外公開承諾目前包含 `Google Chrome`、`Microsoft Edge` / `Microsoft Edge Dev`、`Firefox`、macOS 上的 `ChatGPT Atlas` browser-history profile、macOS 上的 `Perplexity Comet` browser-history profile，以及 macOS 上已授權 Full Disk Access 的 `Safari` 基礎支持。
-  - `Google Chrome` 與 `Microsoft Edge` 的 `Favicons` sidecar 屬正式 backup 範圍；Explorer row / detail 目前會顯示 archive 中已保存的 exact-page favicon。
+  - `Google Chrome` 與 `Microsoft Edge` 的 `Favicons` sidecar 屬正式 backup 範圍；History 的列表與詳情面板會顯示 archive 中已保存的 favicon（沒有時顯示網域首字母色塊）。
   - `Microsoft Edge` / `Microsoft Edge Dev` 使用 Chromium parser；discovery 進入的 profile 必須保留 Edge product metadata，不能在 archive/source-profile 或 Browser Direct review 中退回 generic `Google Chrome`。
   - `Firefox` 使用 `places.sqlite` history-only baseline；backup 與 Browser Direct 都要保留 visits / URLs、source evidence、batch rollback / restore，但不偽造 Favicons、downloads 或 keyword-search sidecars。
   - `ChatGPT Atlas` 只承諾 browser-history profile：`~/Library/Application Support/com.openai.atlas/browser-data/host/<profile>/History` 與 Chromium sidecars such as `Favicons`；不得導入 Atlas workspace data、chats、tabs、bookmarks 或 suggestions。
@@ -34,7 +70,7 @@
   4. 無法讀取的 profile 仍保留在 onboarding / dashboard 清單中，並附帶權限或支援限制說明。
 - Staging / raw-source checkpoint 的實際檔案或目錄名稱不得直接使用 raw `profile_id`；`firefox:default-release`、`chrome:Default` 這類 ID 必須在檔案系統邊界轉成可逆的 Windows-safe path segment，archive metadata / UI / selected profile contract 則繼續保留原始 ID。
 - M1 的 day-one onboarding 必須先把 storage path、browser detection、security choice、schedule preview 和 first backup boundary 全部展示出來，再允許任何 mutating run。
-- Onboarding 的 schedule step 必須能選擇備份間隔，並讓使用者明確選擇「setup 完成時安裝 native schedule」或「先跳過」。Install happy path 在 archive 初始化 / keyring setup 完成後才呼叫既有 `apply_schedule`；skip path 只前進並提示 `System -> Scheduled Backup Settings`，不得呼叫 `apply_schedule`、`remove_schedule`、`repair_schedule` 或其他 scheduler mutation。
+- Onboarding 的 schedule step 必須能選擇備份間隔，並讓使用者明確選擇「setup 完成時安裝 native schedule」或「先跳過」。Install happy path 在 archive 初始化 / keyring setup 完成後才呼叫既有 `apply_schedule`；skip path（2026-10：排程步驟的「略過」或選「手動」）只前進，之後可在 Backup → 自動備份開啟，不得呼叫 `apply_schedule`、`remove_schedule`、`repair_schedule` 或其他 scheduler mutation。
 - Onboarding / Dashboard 的 profile boundary surface 必須誠實顯示 browser-retention reality：本地瀏覽器歷史可能在 PathKeep 下次 backup 前就被瀏覽器策略或使用者清除；只有成功寫進 archive 之後，PathKeep 才提供 append-only 的長期保存。
 - Onboarding 不是陷阱頁：使用者可以在 setup 中途明確退出，PathKeep 會保留目前已選的 archive 選項，之後可從 Dashboard / Settings 回來繼續。
 - Onboarding / first import 的 execute step 必須先讓 overlay repaint，再開始真正的 archive init / import / backup work；背景計算再重，也不能把 loading 動畫整段凍住到最後一幀才一次補完。
@@ -210,7 +246,7 @@ Settings → General 的兩個開關。
 
 ### 整機資料遷移（Export / Import）
 
-PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者要把整個 archive 從一台機器搬到另一台，走 Settings → Data migration 的 `.pathkeep-bundle` 流程：
+PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者要把整個 archive 從一台機器搬到另一台，走 Settings → Storage →「搬到另一台電腦」的 bundle 流程（後端稱 `.pathkeep-bundle`，介面預設檔名是 `pathkeep-<日期>.pathkeep`）：
 
 - **Export**：把當前 project tree（config、archive databases via `sqlcipher_export`、derived projections、audit ledger、raw snapshots、intelligence / semantic sidecars）打包成單一 `.pathkeep-bundle` zip。Manifest 含 `formatVersion`、`appVersion`、`archiveSchemaVersion`、`archiveMode`、每個 file 的 `sha256` / `sizeBytes`，外加獨立 sha256 sidecar 做反竄改。
 - **Import → Preview → Apply** PME：Preview 驗 manifest sha256、refuse newer-than-this-binary 的 archive schema；Apply 需 explicit `confirmOverwrite=true`，extract 到 staging 後 per-file sha256 再驗、把現有 target subtree 移到 `.bak-<timestamp>` sibling、atomic-swap 進去，再對 imported archive 跑 forward schema migrations。
@@ -219,7 +255,7 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 
 ### 刪除所有資料（Delete all data）
 
-Settings → Data 的「刪除所有資料」走 PME：`preview_wipe_all_data` 列出每個會刪的路徑與大小、總位元組、archive 可見 visit 數（取最近一次成功 backup 快取的總數，不跑 `COUNT(*)`）、以及系統 keychain 裡是否存有 archive key；`wipe_all_data` 只接受字面上的 `"DELETE"`，否則拒絕且什麼都不刪。App Lock 鎖定時兩者都拒絕。
+Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data` 列出每個會刪的路徑與大小、總位元組、archive 可見 visit 數（取最近一次成功 backup 快取的總數，不跑 `COUNT(*)`）、以及系統 keychain 裡是否存有 archive key；`wipe_all_data` 只接受字面上的 `"DELETE"`，否則拒絕且什麼都不刪。App Lock 鎖定時兩者都拒絕。
 
 - **會刪**：`archive/` 內所有檔案（archive / source-evidence DB 與 WAL/SHM、import 留下的 `*.bak-*`、rekey/restore/import marker），`derived/`（search、intelligence、AI 向量、agent 對話）、`sidecars/`、`raw-snapshots/`、`staging/`、`quarantine/`、`audit/`、`exports/`、`models/`（下載的 embedding 模型）、`integrations/`，app root 的 `*.bak-*`、App Lock 狀態與 passcode 檔、Stronghold `vault.hold` 與 salt、`config.json`；keychain 的 archive key 與每個 AI provider API key。
 - **保留**：`logs/`、`diagnostics/`（刪除失敗時唯一的紀錄；不含 visit 資料）、`schedule/` 與已安裝的系統排程（移除排程是 Backup 自己的 PME；沒有 config 時排程執行會停在 "archive has not been initialized"）、`archive/.pk-archive-write.lock`（跨程序鎖的 inode，刪掉會讓兩個程序各鎖一個檔）。使用者的瀏覽器 profile 永遠不碰：所有目標都是 app root 底下的固定路徑。
@@ -383,3 +419,4 @@ Settings → Data 的「刪除所有資料」走 PME：`preview_wipe_all_data` �
 
 - 畫面與導航結構 → `docs/design/screens-and-nav.md` §App Lock
 - 決策記錄 → `docs/architecture/decisions/005-app-lock-session-boundary.md`
+- 2026-10 介面（Settings → Security 的 App Lock 分組、`src/app/shell/lock-screen.tsx`）只做了開關、passcode 更改 / 移除、自動鎖定與立即鎖定；biometric 開關與 Touch ID 解鎖、recovery hint、config 路徑、上次解鎖時間都沒有。選項與建議見 [app-lock-panel-tradeoff.md](../design/app-lock-panel-tradeoff.md)，**待用戶決定**；本節要求在決定前不變。

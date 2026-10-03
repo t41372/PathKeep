@@ -4,6 +4,40 @@
 
 ---
 
+## 0. 2026-10 介面
+
+M18 redesign（2026-10-02）後，下文的「Explorer」就是 **History**（`src/features/history/`），「Audit Ledger」是 **Backup → 最近執行**。後端的搜尋、分頁、favicon 與回滾行為不變。畫面細節見 [screens-and-nav.md](../design/screens-and-nav.md)。
+
+### 現在的 History
+
+- **三個視圖**：時間線（依天分組，同一天內相隔 30 分鐘以上切成 session）、網站（所選範圍內最常去的 200 個網站，點一個切回時間線並篩選）、已加星（頁面與整個網站，附筆記預覽）。搜尋時改為結果列表。
+- **搜尋框**：一個輸入框，打字 250 ms 後才寫進 URL 並查詢。三種方式：
+  - **全文**（預設）：`query_history`，依相關度排序；§1 的進階語法（`site:`、`-詞`、`"片語"`、`OR`、`intitle:`、`inurl:`、`filetype:`、`after:` / `before:`、`note:` / `tag:`）照樣由後端解析，但介面沒有語法速查。
+  - **Regex**：`query_history` 加 `regexMode`，依時間新到舊。把查詢用 `/…/` 包起來時，不管選了哪種方式都當 regex。前端先用 JavaScript `RegExp` 檢查，不合法就顯示「正規表示式無效」且不送出。
+  - **語意**：`search_ai_history`（AI 搜尋），只有 `ai.enabled`、`semanticIndexEnabled` 都開而且索引就緒時可選；否則自動退回全文，並提示去 Settings → AI。後端只能依網域篩選，日期與瀏覽器篩選在前端對已載入的結果做。
+- **篩選**：日期（今天、昨天、最近 7 天、最近 30 天、自訂起訖日）、瀏覽器（依瀏覽器種類，不是單一 profile）、網站（從網站視圖或 Insights 帶入的 chip）。全部寫在 URL（`date`、`browser`、`domain`），可一鍵清除。
+- **列表**：虛擬化、固定列高；cursor 分頁，捲到接近底部自動載下一頁（每頁 100 筆，語意每頁 50 筆）。結果數先顯示「100+」，旁邊另一個 `limit: 1, includeTotal: true` 的查詢算完精確總數後再換成精確數字。
+- **詳情面板**：標題、網址；在瀏覽器打開、加星 / 取消、複製連結；總瀏覽次數、第一次與最近一次瀏覽、來源瀏覽器（`get_url_detail`）；最近 12 週每週瀏覽數；同一 session 的其他頁面；備註。
+- **鍵盤**：↑↓ 移動選取、Enter 在瀏覽器打開、Esc 關閉面板。
+- **回滾**：介面上只有 Takeout 匯入批次能「復原」與「還原」（Backup → 匯入卡的近期匯入）。
+
+### 已接受要求中 2026-10 介面沒有做到的
+
+以下要求沒有被改掉，只是新介面沒做；要補還是改需求，需要用戶決定：
+
+- §1 互動式時間軸 rail（拖動、年 → 月 → 週 → 天縮放、密度可視化、輸入日期跳轉、回到今天）。現在只有日期篩選。
+- §1 分頁列（「第 N / 共 M 頁」、跳頁、每頁筆數、偏好保存）與 Settings 的背景預取窗口。現在是連續捲動，見 [ui-review-guardrails.md](../design/ui-review-guardrails.md) §8。
+- §1 進階語法的 hover / focus 速查浮窗。
+- §1 Regex 方言以 Rust `regex` crate 為準、在 UI 先擋 look-around / backreference：現在用 JS `RegExp` 檢查，Rust 不接受的語法會送到後端，顯示成「搜尋沒有執行成功」。
+- §1 依頁面類型、來源途徑、run / 匯入批次篩選；依單一 profile 篩選（現在只能依瀏覽器種類）。
+- §1 單條記錄的可選顯示欄位（訪問次數、來源途徑、分類、provenance、metadata versions…）與其設定。
+- §1 詳情面板的 typed count、來源途徑與 referrer、provenance（run id）、標題歷史版本與 diff。
+- §1 從 History 直接匯出目前篩選結果（Settings → Storage 只能匯出整個歷史）。
+- §2 Audit Ledger 的 run timeline 篩選、與上一筆的 summary delta、展開預覽某次 run 寫入的記錄、回滾 / 取消回滾**備份** run（現在只有匯入批次能復原）、archive 快照的手動觸發。Settings → Storage「從安全副本還原」可列出並還原整個 archive 快照。
+- 同一頁面被重訪很多次時，搜尋結果會被同一網址洗版（2026-10-02 試跑記下，見 STATUS）。
+
+---
+
 ## 1. 歷史紀錄瀏覽器
 
 **作為**用戶，**我想要**用直覺的方式瀏覽和搜尋我的所有歷史紀錄，**以便**能快速找到過去看過的內容。
