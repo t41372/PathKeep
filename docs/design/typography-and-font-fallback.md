@@ -1,11 +1,8 @@
 # Typography And Font Fallback Strategy
 
 > 2026-04-10 first closeout (v0.2 brutalist phase).
-> **Updated 2026-05-20** for the v0.3 paper redesign: three-font system
-> (`--font-serif` Newsreader + `--font-sans` system + `--font-mono`
-> JetBrains Mono), bundled Latin subsets, Settings → Appearance "system
-> fonts only" override. The CJK fallback contract from the v0.2 phase
-> (system stack for non-Latin scripts) carries forward unchanged.
+> 2026-05-20 v0.3 paper redesign：Newsreader / 系統 sans / JetBrains Mono 三套字體（已隨舊前端退役）。
+> **2026-10-02 更新（M18 redesign）**：只剩兩套字體 Geist / Geist Mono，經 `@fontsource-variable` 打包；沒有 serif，也沒有「只用系統字體」開關。CJK 仍交給系統字體。
 
 ---
 
@@ -71,46 +68,45 @@ PathKeep 是本地優先、跨 macOS / Windows / Linux 的桌面 app。它目前
 
 ## 決策
 
-PathKeep 採 **方案 C + bundled Latin (paper redesign 升級)**。
+PathKeep 採 **B + C**：Latin 用打包的 Geist variable font，其他 script 交給系統字體；monospace 只給 code-like 內容。
 
-### v0.2 contract (carried over)
+### 2026-10 現行做法
 
-- `zh-CN` / `zh-TW` 透過 `:root:lang(...)` 提升 PingFang / Microsoft YaHei / Microsoft JhengHei / Noto CJK 類字體的優先級。CJK 永遠走系統字體。
-- `html[lang]` 必須在首屏與 runtime locale 切換時同步更新。
+- 兩套字體，定義在 `src/index.css` 的 `@theme inline`：
+  - `--font-sans`：`'Geist Variable', 'PingFang TC', 'PingFang SC', 'Noto Sans TC', 'Noto Sans SC', 'Microsoft JhengHei', system-ui, sans-serif`。所有 UI 文字、標題、按鈕。
+  - `--font-mono`：`'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace`。只用在路徑、指令、版本號、排程檔內容、MCP 指令這類 code-like 內容。
+- 字體檔由 `@fontsource-variable/geist` 與 `@fontsource-variable/geist-mono` 打包（`src/index.css` 頂部 `@import`），只含 Latin。沒有 runtime 網路字體。
+- Geist 沒有 CJK 字形，中文直接落到上面列的系統字體。
+- `html[lang]` 在 `src/main.tsx` 首屏設定，語言切換時由 `src/lib/i18n/provider.tsx` 更新。
+- 數字對齊用 `.tabular`（`font-variant-numeric: tabular-nums`），不是 mono。
+- 舊的 `--font-serif`、`data-fonts="system"` 與 legacy alias 都已隨舊前端刪除。
 
-### v0.3 paper redesign (additions)
+### 已知缺口
 
-- 三套字體 tokens（取代舊的 `--font-ui` / `--font-body` / `--font-code`）：
-  - `--font-serif` `'Newsreader', Georgia, serif` — 編輯體 headings、敘述體 body、Dashboard / On This Day / Settings hero copy。
-  - `--font-sans` 系統 sans stack — UI chrome、按鈕、列表標題、密集 labels、status bar。
-  - `--font-mono` `'JetBrains Mono', ui-monospace, SFMono-Regular, monospace` — path / ID / command / mono badge / heatmap labels。
-- Bundled Latin subsets via `@fontsource/newsreader` and `@fontsource/jetbrains-mono`. **No runtime Google Fonts import**, no CDN dependency.
-- Settings → Appearance "Fonts" 提供 `bundled`（預設）與 `system` 兩段切換。`data-fonts="system"` 在 `<html>` 上會 swap to system fallback stack on the fly。
-- 舊 `--font-ui` / `--font-body` / `--font-code` 仍以 legacy alias 形式存在 (`tokens.css` 底部)，直到所有 v0.2 routes 改寫完成後一併刪除。新 UI 不得再寫這些別名。
+- v0.2 的 `:root:lang(zh-CN)` / `:root:lang(zh-TW)` 覆寫沒有搬過來。現在兩種中文共用同一條 stack，先 `PingFang TC` 後 `PingFang SC`，所以 macOS 上的 zh-CN 介面會用 PingFang TC 的字形顯示簡體字；Windows 只列了 `Microsoft JhengHei`，沒有 `Microsoft YaHei`。修法是在 `src/index.css` 依 `:lang()` 調整兩種中文的字體順序。
 
 ---
 
 ## 風險與緩解
 
-- Linux 某些發行版若缺少 Noto：由 `Ubuntu` / `Cantarell` / generic `sans-serif` 續接；若未來某個 locale 出現真實 QA 問題，再加 script-aware override，而不是預先手寫 180 份 map
-- 未來若需要更一致的 Latin 品牌感：只允許 **本地打包** 的小型 Latin font asset，且必須先做 bundle-size / license review；不可回到 runtime network fonts
-- 既有 shell CSS 還留有大量 `--font-mono` 引用：本次先以 token alias 讓 UI 立即可讀，後續如有大規模 shell refactor，再逐步改名到 `--font-ui`
+- Linux 某些發行版若缺少 Noto：由 generic `system-ui` / `sans-serif` 續接；若未來某個 locale 出現真實 QA 問題，再加 script-aware override，而不是預先手寫 180 份 map
+- 打包字體只允許本地 Latin variable font，新增前要先看 bundle size 與 license；不可回到 runtime network fonts
 
 ---
 
 ## 實作要求
 
-- `src/styles/tokens.css` 是字體 stack 的 source of truth
+- `src/index.css`（`--font-sans` / `--font-mono`）是字體 stack 的 source of truth
 - `src/main.tsx` 與 `src/lib/i18n/provider.tsx` 必須在首屏與 runtime 保持 `document.documentElement.lang` 正確
-- 新 UI copy / labels / badges 不得再預設使用 monospace；只有 code-like content 才能用 `.mono`
+- 新 UI copy / labels / badges 不得預設使用 monospace；只有 code-like content 才能用 `font-mono`
 
 ---
 
 ## 參考
 
-- MDN variable fonts guide：說明 variable font 可把多個 variations 收進單一檔案，通常比多個靜態字體檔更省；若未來需要自帶 Latin font，可優先走這個方向  
+- MDN variable fonts guide：說明 variable font 可把多個 variations 收進單一檔案，通常比多個靜態字體檔更省  
   <https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Fonts/Variable_fonts>
 - W3C i18n language declaration note：`lang` 會影響 text processing 與 automatic font assignment  
   <https://www.w3.org/TR/2007/NOTE-i18n-html-tech-lang-20070412/>
-- Fontsource variable font docs：若未來需要自帶本地字體，採 self-hosted package / asset，而不是 runtime CDN import  
+- Fontsource variable font docs：自帶本地字體採 self-hosted package，而不是 runtime CDN import  
   <https://fontsource.org/docs/getting-started/variable>

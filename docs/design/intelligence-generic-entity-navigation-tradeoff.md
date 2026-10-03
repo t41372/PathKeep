@@ -1,5 +1,7 @@
 # Intelligence Generic Entity Navigation Trade-off
 
+> **2026-10-02 註記：** 本文描述 2026-10 之前的介面（Intelligence、Explorer、Jobs、Maintenance 等舊頁面已在 M18 redesign 刪除），留作紀錄，不再是現行規格。現行畫面見 [screens-and-nav.md](screens-and-nav.md)。
+
 > **狀態：Accepted**
 > **日期：2026-04-19**
 > **範圍：** `/intelligence` overview、`/intelligence/query-family/:familyId`、`/intelligence/refind/:canonicalUrl`、`/intelligence/session/:sessionId`、`/intelligence/trail/:trailId`，以及 Explorer / Integrations external outputs / shared entity CTA

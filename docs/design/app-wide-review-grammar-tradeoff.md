@@ -1,5 +1,7 @@
 # App-Wide Review Grammar And Single-Source Map Trade-off
 
+> **2026-10-02 註記：** 本文描述 2026-10 之前的介面（Intelligence、Explorer、Jobs、Maintenance 等舊頁面已在 M18 redesign 刪除），留作紀錄，不再是現行規格。現行畫面見 [screens-and-nav.md](screens-and-nav.md)。
+
 > **狀態：Accepted**
 > **日期：2026-04-19**
 > **範圍：** M11 的 app-wide review / PME / diagnostics grammar inventory、`src/lib/intelligence.ts` ownership split、dev IPC mirror / worker pass-through inventory，以及 M12 seed boundary

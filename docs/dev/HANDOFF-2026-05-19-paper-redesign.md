@@ -1,5 +1,7 @@
 # HANDOFF — Paper Redesign + og:image Work (2026-05-19)
 
+> **2026-10-02 note:** This describes the retired Paper redesign. The frontend it talks about was replaced in M18 (`docs/design/prototype-2026-10/`, [screens-and-nav.md](../design/screens-and-nav.md)). Kept for the record.
+
 > Hand-off document for an AI coding agent picking up this branch on a
 > different machine. Read this end-to-end before touching the code. It
 > covers: original ask, decisions made, current state per commit, all

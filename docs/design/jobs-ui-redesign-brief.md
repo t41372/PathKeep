@@ -1,5 +1,7 @@
 # Jobs UI Redesign Brief
 
+> **2026-10-02 註記：** 本文描述 2026-10 之前的介面（Intelligence、Explorer、Jobs、Maintenance 等舊頁面已在 M18 redesign 刪除），留作紀錄，不再是現行規格。現行畫面見 [screens-and-nav.md](screens-and-nav.md)。
+
 > 這份 brief 是給設計師重做 `Jobs` 介面的輸入文件。  
 > 目標不是把它做得更像監控後台，而是把它做成一個使用者能快速 triage、快速判斷、快速處理的 review surface。
 
