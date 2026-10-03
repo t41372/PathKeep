@@ -31,7 +31,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 **模塊小、職責清**：組件單一職責，大數據必虛擬化，業務邏輯不洩漏進 UI。檔案行數硬門檻與巨型檔案清單見 `repo-baseline.md`；重構 > 1000 行的檔案先做「審查階段」（架構地圖 / 拆分方案 / E2E 覆蓋確認）再動代碼。
 
-**受保護的入口**：`src/main.tsx` 與 `src/lib/ipc/bridge.ts` 是 desktop contract / IPC 入口，改動需對齊既有 contract。`src/lib/backend.ts` 是凍結的 legacy / browser-preview fixture，不擴展其 contract。
+**受保護的入口**：`src/main.tsx` 與 `src/lib/ipc/bridge.ts` 是 desktop contract / IPC 入口，改動需對齊既有 contract。前端只透過 `src/lib/backend-client/` 的 typed client 呼叫後端；沒有 browser-preview 假後端。
 
 **測試是契約**：權威 gate 是 `bun run check`，具體規則見 `quality-matrix.md`。不跑 mutation test，也不強制 100% 覆蓋率；測試以 E2E 為主：
 
@@ -97,7 +97,8 @@ bun run check:slow                        # supply-chain audit + platform tests
 bun run desktop:dev                       # Tauri 桌面 app
 bun run build                             # TS + Vite bundle
 bun run verify                            # check + desktop release rehearsal
-bun run test:e2e:desktop-bridge           # E2E（真實 Rust 後端）；產物在 artifacts/e2e/
+bun run test:e2e                          # E2E（真實 Rust 後端）；產物在 artifacts/e2e/
+bun run dev:demo                          # 真實 app + 合成瀏覽器資料（--first-run --fresh 從 onboarding 開始）
 bun run test:unit                         # Vitest（少量，非主要手段）
 bun run format                            # Prettier
 ```

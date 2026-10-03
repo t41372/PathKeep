@@ -16,13 +16,17 @@ It runs, in order:
 2. `bun run build`
 3. `bun run check:rust`: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --workspace`
 4. `bun run release:check`: updater URLs, Windows bundle config, WebView2 mode, support links
-5. `bun run test:e2e:desktop-bridge`: the E2E suite
+5. `bun run test:e2e`: the E2E suite
 
 There is no coverage threshold and no mutation testing. A green run means the features the E2E suite exercises work, so that suite has to exercise real scenarios.
 
 ## E2E Suite
 
-`playwright.desktop-bridge.config.ts` starts `scripts/pathkeep-dev-desktop-bridge.mjs`, which runs the Rust backend with the `devtools-bridge` feature next to the Vite dev server. The tests open the frontend in Chrome and talk to real Rust command handlers. Fixtures are a synthetic Chrome profile in a temp directory, with real SQLite files.
+`playwright.config.ts` starts `scripts/pathkeep-dev-desktop-bridge.mjs`, which runs the debug Rust backend with the `devtools-bridge` feature next to the Vite dev server. The tests open the frontend in Chrome and talk to real Rust command handlers.
+
+Each run writes seeded synthetic browser profiles (two Chrome, one Firefox, real SQLite history files, about 21,000 visits over 14 months) to a temp folder, with the archive, keyring and project root next to them. `tests/e2e/support/fixture.ts` reads the same data, so expected numbers are computed from it rather than typed into the specs. The keyring is a file in that folder: debug builds honor `CHB_TEST_KEYRING_DIR`, release builds ignore it.
+
+The specs run in order on one archive (see `projects` in the config): `first-run` (onboarding, first backup) → `read` (search, insights) → `change` (new visits, paused source, app lock) → `wipe` (delete all data).
 
 Writing E2E tests:
 
@@ -33,13 +37,14 @@ Writing E2E tests:
 
 ### Artifacts
 
-Every run, pass or fail, ends with an artifact in `artifacts/e2e/<config>/`:
+Every run, pass or fail, ends with an artifact in `artifacts/e2e/`:
 
-- `report/index.html`: HTML report
+- `fixture.json`: the data the run used (seed, `now`, every visit per profile)
+- `report/index.html`: HTML report; each check attaches the `{ expected, actual }` pair it compared
 - `results.json`: results for every test
 - `test-results/`: traces, screenshots, videos
 
-`<config>` is `desktop-bridge` for the gate and `preview` for the browser-only run. The folder is not committed; CI uploads it as `e2e-artifacts`. See [artifacts/e2e/README.md](./artifacts/e2e/README.md) for how to open reports and traces.
+To repeat a run with the same data, pass its `now`: `PATHKEEP_E2E_NOW=<now> bun run test:e2e`. The folder is not committed; CI uploads it as `e2e-artifacts`. See [artifacts/e2e/README.md](./artifacts/e2e/README.md) for how to open reports and traces.
 
 ## Other Commands
 
@@ -47,8 +52,9 @@ Every run, pass or fail, ends with an artifact in `artifacts/e2e/<config>/`:
 bun run check:base           # format, lint, i18n, typecheck, Rust checks (no build, no E2E)
 bun run check:slow           # supply-chain audit + host-matched platform tests
 bun run verify               # check + debug desktop build, for release rehearsal
-bun run test:e2e             # browser-preview Playwright, not part of the gate
-bun run test:e2e:desktop-bridge:headed
+bun run test:e2e:headed      # watch the suite drive the app
+bun run dev:demo             # the real app on the same synthetic data, for trying things by hand
+bun run dev:demo -- --first-run --fresh   # ...starting at onboarding
 bun run test:unit            # Vitest; passes when there are no tests
 bun run test:desktop-bridge:rust
 ```
@@ -58,7 +64,7 @@ Unit tests are the exception. Use one only when something has to be tested in is
 ## Honest Boundaries
 
 - A focused command does not replace `bun run check`.
-- Browser-preview Playwright (`bun run test:e2e`) is not part of the gate and does not verify native scheduler install, keyring integration, signing, notarization, or filesystem side effects. Windows Task Scheduler apply/status/remove must still be accepted on a real Windows host or VM even though the Rust unit slice uses a stubbed `schtasks` runner.
+- The E2E suite does not install a real schedule, write the real keychain, sign, notarize, or check the native window. It picks "Manual" in onboarding so it never touches launchd. Windows Task Scheduler apply/status/remove must still be accepted on a real Windows host or VM even though the Rust unit slice uses a stubbed `schtasks` runner.
 - `bun run release:check` proves the release config still permits unsigned Windows installers and keeps WebView2 in download-bootstrapper mode; it does not prove a specific Windows host can launch the installer.
 - The GitHub `Windows Test Binary` workflow builds an unsigned Windows app and uploads a short-lived workflow artifact for QA handoff without updating public release assets. It still needs real Windows test-machine validation for install, first launch, scheduler apply/status/remove, and upgrade behavior.
 - GitHub-hosted Windows runners currently validate the desktop surface with `desktop:build:debug`, `vault-platform` native-host tests, and the updater E2E path. The `pathkeep-desktop` Rust test binary for updater/file-manager facades is skipped on Windows CI because the hosted runner fails before the test harness starts with a loader-level `STATUS_ENTRYPOINT_NOT_FOUND`; macOS/Linux still run those Rust facade tests.

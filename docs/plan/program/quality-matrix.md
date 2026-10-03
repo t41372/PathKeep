@@ -10,16 +10,16 @@
 
 `bun run check` 是唯一的 per-commit gate，本地與 GitHub `CI` workflow 跑同一條。依序執行：
 
-| 步驟               | Command                           | 保護什麼                                                                  |
-| ------------------ | --------------------------------- | ------------------------------------------------------------------------- |
-| Format             | `bun run format:check`            | Prettier                                                                  |
-| Lint               | `bun run lint`                    | ESLint（`--max-warnings 0`）                                              |
-| i18n               | `bun run check:i18n`              | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                     |
-| Typecheck          | `bun run typecheck`               | `tsc -b`                                                                  |
-| Build              | `bun run build`                   | TypeScript + Vite bundle                                                  |
-| Rust               | `bun run check:rust`              | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace` |
-| Release config     | `bun run release:check`           | updater URL、Windows bundle、WebView2、support link 不得漂移              |
-| Desktop-bridge E2E | `bun run test:e2e:desktop-bridge` | 真實 Rust 後端 + Vite 前端 + Playwright，見下                             |
+| 步驟           | Command                 | 保護什麼                                                                  |
+| -------------- | ----------------------- | ------------------------------------------------------------------------- |
+| Format         | `bun run format:check`  | Prettier                                                                  |
+| Lint           | `bun run lint`          | ESLint（`--max-warnings 0`）                                              |
+| i18n           | `bun run check:i18n`    | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                     |
+| Typecheck      | `bun run typecheck`     | `tsc -b`                                                                  |
+| Build          | `bun run build`         | TypeScript + Vite bundle                                                  |
+| Rust           | `bun run check:rust`    | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace` |
+| Release config | `bun run release:check` | updater URL、Windows bundle、WebView2、support link 不得漂移              |
+| E2E            | `bun run test:e2e`      | 真實 Rust 後端 + Vite 前端 + Playwright，見下                             |
 
 `bun run check:base` 是不含 build 與 E2E 的快速 triage（`check:js` + `check:rust`），不能代替 `check`。
 
@@ -27,39 +27,41 @@
 
 E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的：
 
-- `playwright.desktop-bridge.config.ts` 透過 `scripts/pathkeep-dev-desktop-bridge.mjs` 啟動帶 `devtools-bridge` feature 的 Rust 後端與 Vite 前端，Playwright 驅動真正的畫面。
-- 測資是臨時目錄裡的合成 Chrome profile（真實 SQLite `History`），archive、keyring、project root 都在該目錄內；cargo target 放在 `var/playwright/desktop-bridge/cargo-target` 以便重用編譯快取。
+- `playwright.config.ts` 透過 `scripts/pathkeep-dev-desktop-bridge.mjs` 啟動帶 `devtools-bridge` feature 的 debug Rust 後端與 Vite 前端，Playwright 驅動真正的畫面。
+- 測資是臨時目錄裡的合成瀏覽器 profile（兩個 Chrome、一個 Firefox，真實 SQLite，seed 固定，`scripts/fixtures/synthetic-browsers.mjs`），archive、keyring、project root 都在該目錄內；cargo target 放在 `var/playwright/desktop-bridge/cargo-target` 以便重用編譯快取。
+- 預期數字一律由測資算出（`tests/e2e/support/fixture.ts`），不在 spec 裡手寫。
+- spec 依序跑在同一個 archive 上：`first-run` → `read` → `change` → `wipe`（見 config 的 `projects`）。
 - 不替後端寫假實作。需要 seam 的地方只 seam 在最外層 transport，真正的 compute、decode、I/O 留在被測的 build 裡。
 - 新功能至少一條從真實入口出發的 medium-to-hard 場景：使用者做 X，觀察到 Y；要有「負 → 正」斷言（改動前找不到，改動後找得到）。
 
 ### Artifact
 
-每次跑完（不論通過與否）都留下可驗證、可重複的產物，位置固定為 `artifacts/e2e/<config>/`（`desktop-bridge` 或 `preview`）：
+每次跑完（不論通過與否）都留下可驗證、可重複的產物，位置固定為 `artifacts/e2e/`：
 
-- `report/index.html`：HTML report
+- `fixture.json`：這次用的測資（seed、`now`、每個 profile 的每條訪問）；`PATHKEEP_E2E_NOW=<now> bun run test:e2e` 用同一份資料重跑
+- `report/index.html`：HTML report，每個檢查都附上比對的 `{ expected, actual }`
 - `results.json`：每個 test 的結果
 - `test-results/`：trace、screenshot、失敗時的 video
 
-`scripts/run-playwright.mjs` 結束時會印出這個路徑。該資料夾不進 git（見 `artifacts/e2e/README.md`）；CI 以 `if: always()` 上傳成 `e2e-artifacts`。重現同一條 run 的方法：`bun run test:e2e:desktop-bridge`，或加 `-g "<test 名稱>"` 只跑單一條。
+`scripts/run-playwright.mjs` 結束時會印出這個路徑。該資料夾不進 git（見 `artifacts/e2e/README.md`）；CI 以 `if: always()` 上傳成 `e2e-artifacts`。重現同一條 run：`PATHKEEP_E2E_NOW=<fixture.json 的 now> bun run test:e2e`。
 
 ## Slow / Optional
 
 不在 `bun run check` 內，但要在 CI 或 release 前跑：
 
-| Command                                                   | 用途                                                                                                 |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `bun run check:slow`                                      | `check:supply-chain` + `check:platform`                                                              |
-| `bun run check:supply-chain`                              | `cargo audit` + `cargo deny`（需要網路與對應 cargo 工具）；CI 另有獨立步驟                           |
-| `bun run check:platform`                                  | host-matched keyring / scheduler / launcher / updater native 測試，含 debug desktop build            |
-| `bun run verify`                                          | `check` + `desktop:build:debug`；release / milestone closeout 的本地預演                             |
-| `bun run test:e2e`                                        | browser-preview Playwright（`playwright.config.ts`），只看 UI 路由；不是 desktop truth，不在 gate 內 |
-| `bun run test:desktop-bridge:rust`                        | bridge dispatcher 的 Rust 測試（帶 `devtools-bridge` feature）                                       |
-| `bun run test:unit`                                       | Vitest；沒有測試時直接通過。少量、隔離的測試用，不在 gate 內                                         |
-| GitHub `Platform Native` / `Native Dependencies` workflow | manual / path-triggered，見各 workflow                                                               |
+| Command                                                   | 用途                                                                                      |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `bun run check:slow`                                      | `check:supply-chain` + `check:platform`                                                   |
+| `bun run check:supply-chain`                              | `cargo audit` + `cargo deny`（需要網路與對應 cargo 工具）；CI 另有獨立步驟                |
+| `bun run check:platform`                                  | host-matched keyring / scheduler / launcher / updater native 測試，含 debug desktop build |
+| `bun run verify`                                          | `check` + `desktop:build:debug`；release / milestone closeout 的本地預演                  |
+| `bun run test:desktop-bridge:rust`                        | bridge dispatcher 的 Rust 測試（帶 `devtools-bridge` feature）                            |
+| `bun run test:unit`                                       | Vitest；沒有測試時直接通過。少量、隔離的測試用，不在 gate 內                              |
+| GitHub `Platform Native` / `Native Dependencies` workflow | manual / path-triggered，見各 workflow                                                    |
 
 ## Honest Boundaries
 
-- desktop-bridge E2E 證明前端能透過 dev-only localhost bridge 打到真實 Rust command façade。它不是 Tauri WebView / plugin guest API（Stronghold、updater progress events）的最終驗收；那些要在真實 Tauri 視窗驗證。
+- E2E 證明前端能透過 dev-only localhost bridge 打到真實 Rust command façade。它不安裝真的排程（onboarding 選 Manual），也不寫真的系統 keychain。它不是 Tauri WebView / plugin guest API（Stronghold、updater progress events）的最終驗收；那些要在真實 Tauri 視窗驗證。
 - 原生 scheduler、keyring、簽名、公證與檔案系統副作用要靠 `check:platform`、Rust 測試與真實主機驗收。Windows Task Scheduler apply / status / remove 仍需要真實 Windows 主機。
 - `release:check` 只證明 release config 還允許 unsigned Windows installer 與 WebView2 download bootstrapper，不證明特定主機能裝起來。
 - 沒有 coverage 數字。看到綠燈不代表功能被測過：review 時問「使用者實際操作有沒有一條 E2E 從真實入口斷言預期結果？」答不出就不算 ship-ready。
