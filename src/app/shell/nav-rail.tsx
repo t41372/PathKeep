@@ -33,6 +33,7 @@ import {
   useI18n,
   type MessageKey,
 } from '@/lib/i18n'
+import { useChooseLanguage } from '@/lib/queries/language'
 import { hasMacOverlayTitlebar } from '@/lib/runtime'
 import { useTheme } from '@/lib/theme'
 import type { LanguagePreference } from '@/lib/types'
@@ -111,7 +112,8 @@ export function NavRail({
   onOpenPalette: () => void
   onLock: () => void
 }) {
-  const { t, preference, setPreference, language } = useI18n()
+  const { t, preference, language } = useI18n()
+  const chooseLanguage = useChooseLanguage()
   const { resolved, setPreference: setTheme } = useTheme()
   const overlayTitlebar = hasMacOverlayTitlebar()
 
@@ -153,7 +155,7 @@ export function NavRail({
           <DropdownMenuRadioGroup
             value={preference}
             onValueChange={(value) =>
-              setPreference(value as LanguagePreference)
+              chooseLanguage(value as LanguagePreference)
             }
           >
             <DropdownMenuRadioItem value="system">

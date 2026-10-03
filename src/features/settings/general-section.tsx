@@ -8,12 +8,12 @@ import {
   SettingsSection,
 } from '@/components/app/setting-row'
 import { languageNames, supportedLanguages, useI18n } from '@/lib/i18n'
+import { useChooseLanguage } from '@/lib/queries/language'
 import { useTheme, type ThemePreference } from '@/lib/theme'
 import type { LanguagePreference } from '@/lib/types'
 import { DesktopRows } from './desktop-rows'
 import { OnlineRows } from './online-rows'
 import { RowSelect } from './row-select'
-import { useSaveSetting } from './use-save-setting'
 
 export function GeneralSection() {
   const { t } = useI18n()
@@ -32,16 +32,9 @@ export function GeneralSection() {
 }
 
 function LanguageRow() {
-  const { t, preference, setPreference } = useI18n()
-  const { save } = useSaveSetting()
-
-  // The interface switches at once; the config copy is what the scheduler and
-  // worker read for their notifications.
-  const choose = (value: string) => {
-    const next = value as LanguagePreference
-    setPreference(next)
-    void save((config) => ({ ...config, preferredLanguage: next }))
-  }
+  const { t, preference } = useI18n()
+  const chooseLanguage = useChooseLanguage()
+  const choose = (value: string) => chooseLanguage(value as LanguagePreference)
 
   return (
     <SettingRow
