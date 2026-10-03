@@ -93,7 +93,10 @@ function KeychainForm({ onClose }: { onClose: () => void }) {
           />
         </div>
         {store.error && (
-          <p role="alert" className="text-[13px] text-destructive">
+          <p
+            role="alert"
+            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+          >
             {t('settings.security.keychain.saveFailed', {
               message: describeError(store.error, 'keyring_store_database_key'),
             })}

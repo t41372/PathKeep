@@ -27,15 +27,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { archiveClient } from '@/lib/backend-client/archive'
 import { explorerClient } from '@/lib/backend-client/explorer'
-import { supportClient } from '@/lib/backend-client/support'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { queryKeys } from '@/lib/query'
 import { useSnapshot } from '@/lib/queries/app'
-import { isMacOsHost } from '@/lib/runtime'
 import type { ExportFormat } from '@/lib/types'
 import { FreeSpaceDialog } from './free-space-dialog'
 import { MoveDialog } from './move-dialogs'
 import { RestoreDialog } from './restore-dialog'
+import { reveal, revealLabelKey } from './reveal'
 import { RowSelect } from './row-select'
 import { UsageCard } from './usage-card'
 import { WipeDialog } from './wipe-dialog'
@@ -125,14 +125,6 @@ export function StorageSection() {
   )
 }
 
-function showInFileManager(path: string, failed: string) {
-  return supportClient.openPathInFileManager(path).catch((error) =>
-    toast.error(failed, {
-      description: describeError(error, 'open_path_in_file_manager'),
-    }),
-  )
-}
-
 function LocationRow() {
   const { t } = useI18n()
   const root = useSnapshot().directories.appRoot
@@ -145,14 +137,10 @@ function LocationRow() {
           size="sm"
           variant="outline"
           onClick={() =>
-            void showInFileManager(root, t('settingsStorage.location.failed'))
+            void reveal(root, t('settingsStorage.location.failed'))
           }
         >
-          {t(
-            isMacOsHost()
-              ? 'settingsStorage.location.showFinder'
-              : 'settingsStorage.location.show',
-          )}
+          {t(revealLabelKey())}
         </Button>
       }
     />
@@ -243,21 +231,21 @@ const exportFormats: ExportFormat[] = ['html', 'markdown', 'text', 'jsonl']
 
 function ExportRow() {
   const { t } = useI18n()
+  const client = useQueryClient()
   const [kind, setKind] = useState<ExportFormat>('html')
   const run = useMutation({
     mutationFn: () => archiveClient.exportHistory({ query: {}, format: kind }),
-    onSuccess: (result) =>
+    onSuccess: (result) => {
+      void client.invalidateQueries({ queryKey: queryKeys.dashboard })
       toast.success(t('settingsStorage.export.done', { count: result.count }), {
         description: result.path,
         action: {
-          label: t('settingsStorage.location.show'),
+          label: t(revealLabelKey()),
           onClick: () =>
-            void showInFileManager(
-              result.path,
-              t('settingsStorage.location.failed'),
-            ),
+            void reveal(result.path, t('settingsStorage.location.failed')),
         },
-      }),
+      })
+    },
     onError: (error) =>
       toast.error(t('settingsStorage.export.failed'), {
         description: describeError(error, 'export_history'),

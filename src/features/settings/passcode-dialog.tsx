@@ -106,7 +106,10 @@ function PasscodeForm({
           disabled={save.isPending}
         />
         {save.error && (
-          <p role="alert" className="text-[13px] text-destructive">
+          <p
+            role="alert"
+            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+          >
             {t('settings.security.passcode.saveFailed', {
               message: describeError(save.error, 'set_app_lock_passcode'),
             })}

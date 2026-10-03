@@ -29,7 +29,7 @@ export function SettingRow({
             {title}
           </label>
           {description && (
-            <div className="text-[13px] leading-[1.45] break-words text-muted-foreground">
+            <div className="text-[13px] leading-[1.45] [overflow-wrap:anywhere] text-muted-foreground">
               {description}
             </div>
           )}

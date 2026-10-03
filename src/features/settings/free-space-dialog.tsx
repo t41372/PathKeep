@@ -106,7 +106,10 @@ function FreeSpaceForm({ onClose }: { onClose: () => void }) {
           <Skeleton className="h-11 w-full" />
         </div>
       ) : preview.isError ? (
-        <p role="alert" className="text-[13px] text-destructive">
+        <p
+          role="alert"
+          className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+        >
           {t('settingsStorage.freeSpace.loadFailed', {
             message: describeError(preview.error, 'preview_retention_prune'),
           })}
@@ -158,7 +161,10 @@ function FreeSpaceForm({ onClose }: { onClose: () => void }) {
       )}
 
       {prune.error && (
-        <p role="alert" className="text-[13px] text-destructive">
+        <p
+          role="alert"
+          className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+        >
           {t('settingsStorage.freeSpace.failed', {
             message: describeError(prune.error, 'run_retention_prune'),
           })}

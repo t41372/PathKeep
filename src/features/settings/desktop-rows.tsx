@@ -123,7 +123,10 @@ function DesktopSwitch({
       }
     >
       {error && (
-        <p role="alert" className="text-[13px] text-destructive">
+        <p
+          role="alert"
+          className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+        >
           {t('settings.general.desktop.changeFailed', { message: error })}
         </p>
       )}

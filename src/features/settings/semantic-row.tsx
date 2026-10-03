@@ -83,7 +83,10 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
 
   if (index.error) {
     return (
-      <p role="alert" className="text-[13px] text-destructive">
+      <p
+        role="alert"
+        className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+      >
         {t('settingsAi.semantic.failed', { message: index.error })}
       </p>
     )

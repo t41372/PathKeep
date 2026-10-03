@@ -87,7 +87,10 @@ function WipeForm({ onClose }: { onClose: () => void }) {
             <Skeleton className="h-24 w-full" />
           </div>
         ) : preview.isError ? (
-          <p role="alert" className="text-[13px] text-destructive">
+          <p
+            role="alert"
+            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+          >
             {t('settingsStorage.wipe.previewFailed', {
               message: describeError(preview.error, 'preview_wipe_all_data'),
             })}
@@ -138,7 +141,10 @@ function WipeForm({ onClose }: { onClose: () => void }) {
         )}
 
         {wipe.error && (
-          <p role="alert" className="text-[13px] text-destructive">
+          <p
+            role="alert"
+            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+          >
             {t('settingsStorage.wipe.failed', {
               message: describeError(wipe.error, 'wipe_all_data'),
             })}

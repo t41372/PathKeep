@@ -25,13 +25,13 @@ import {
   migrationClient,
   type ImportPreview,
 } from '@/lib/backend-client/migration'
-import { supportClient } from '@/lib/backend-client/support'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import { hasTauriGuestApi } from '@/lib/runtime'
 import { Notice } from './notice'
 import { BUNDLE_EXTENSION, PathField } from './path-field'
+import { reveal, revealLabelKey } from './reveal'
 
 type Mode = 'export' | 'import'
 
@@ -91,9 +91,12 @@ function ExportForm({ onClose }: { onClose: () => void }) {
         {
           description: bundle.bundlePath,
           action: {
-            label: t('settingsStorage.location.show'),
+            label: t(revealLabelKey()),
             onClick: () =>
-              void supportClient.openPathInFileManager(bundle.bundlePath),
+              void reveal(
+                bundle.bundlePath,
+                t('settingsStorage.location.failed'),
+              ),
           },
         },
       )
@@ -137,7 +140,10 @@ function ExportForm({ onClose }: { onClose: () => void }) {
           </div>
         )}
         {run.error && (
-          <p role="alert" className="text-[13px] text-destructive">
+          <p
+            role="alert"
+            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+          >
             {t('settingsStorage.move.exportFailed', {
               message: describeError(run.error, 'export_app_data'),
             })}
@@ -257,7 +263,10 @@ function ImportForm({ onClose }: { onClose: () => void }) {
         )}
 
         {(check.error ?? apply.error) && (
-          <p role="alert" className="text-[13px] text-destructive">
+          <p
+            role="alert"
+            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+          >
             {wrongPassword
               ? t('settingsStorage.move.wrongPassword')
               : t(

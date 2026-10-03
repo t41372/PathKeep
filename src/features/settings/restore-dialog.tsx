@@ -100,7 +100,10 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
           <Skeleton className="h-12 w-full" />
         </div>
       ) : list.isError ? (
-        <p role="alert" className="text-[13px] text-destructive">
+        <p
+          role="alert"
+          className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+        >
           {t('settingsStorage.restore.loadFailed', {
             message: describeError(list.error, 'list_recovery_snapshots'),
           })}
@@ -174,7 +177,10 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
       )}
 
       {restore.error && (
-        <p role="alert" className="text-[13px] text-destructive">
+        <p
+          role="alert"
+          className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+        >
           {t('settingsStorage.restore.failed', {
             message: describeError(restore.error, 'run_full_archive_restore'),
           })}

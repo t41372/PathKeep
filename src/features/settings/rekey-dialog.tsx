@@ -164,7 +164,10 @@ function RekeyFlow({
         )}
 
         {error && (
-          <p role="alert" className="text-[13px] text-destructive">
+          <p
+            role="alert"
+            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+          >
             {t(
               run.error
                 ? 'settings.security.rekey.failed'
