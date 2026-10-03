@@ -16,6 +16,8 @@
 
 mod command_error;
 mod commands;
+#[cfg_attr(test, allow(dead_code))]
+mod desktop_integration;
 #[cfg(feature = "devtools-bridge")]
 mod dev_ipc_bridge;
 mod file_manager;
@@ -31,8 +33,6 @@ use commands::*;
 #[cfg(not(test))]
 use session::SessionState;
 use std::io::Write;
-#[cfg(not(test))]
-use tauri_plugin_autostart::MacosLauncher;
 #[cfg(not(test))]
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
@@ -72,9 +72,18 @@ fn run_app() -> Result<()> {
     #[cfg(feature = "devtools-bridge")]
     let dev_bridge_handle = dev_ipc_bridge::maybe_launch(dev_bridge_state.clone())?;
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--windowed"])))
-        .plugin(tauri_plugin_dialog::init())
+    let launched_at_login =
+        std::env::args().any(|argument| argument == desktop_integration::LAUNCHED_AT_LOGIN_ARG);
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    // macOS writes its own login LaunchAgent; see `vault_platform::login_item`.
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.plugin(
+        tauri_plugin_autostart::Builder::new()
+            .app_name(PRODUCT_DISPLAY_NAME)
+            .arg(desktop_integration::LAUNCHED_AT_LOGIN_ARG)
+            .build(),
+    );
+    builder
         .setup(move |app| {
             let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
             vault_core::config::ensure_paths(&paths).map_err(tauri::Error::Anyhow)?;
@@ -94,6 +103,8 @@ fn run_app() -> Result<()> {
                 tauri_plugin_stronghold::Builder::with_argon2(&paths.stronghold_salt_path).build(),
             )?;
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            // Shows the window, unless this is a login launch into the menu bar.
+            desktop_integration::setup(app.handle(), &config, launched_at_login);
             #[cfg(feature = "devtools-bridge")]
             if let Some(bridge) = &dev_bridge_handle {
                 bridge.attach_app(app.handle().clone()).map_err(tauri::Error::Anyhow)?;
@@ -101,6 +112,7 @@ fn run_app() -> Result<()> {
             Ok(())
         })
         .manage(session_state)
+        .on_window_event(desktop_integration::on_window_event)
         .invoke_handler(tauri::generate_handler![
             app_build_info,
             app_snapshot,
@@ -261,9 +273,19 @@ fn run_app() -> Result<()> {
             export_conversation_file,
             check_for_app_update,
             download_and_install_app_update,
-            relaunch_after_update
+            relaunch_after_update,
+            get_desktop_integration,
+            set_launch_at_login,
+            set_menu_bar_icon
         ])
-        .run(tauri::generate_context!())?;
+        .build(tauri::generate_context!())?
+        .run(|_app, _event| {
+            // Clicking the Dock icon brings back a window hidden to the menu bar.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                desktop_integration::show_main_window(_app);
+            }
+        });
     Ok(())
 }
 

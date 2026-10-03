@@ -409,3 +409,10 @@ pub(super) struct ContentFetchNowPayload {
 pub(super) struct ContentFetchWorkingSetPayload {
     pub(super) limit: Option<u32>,
 }
+
+/// Carries the on/off switch for `set_launch_at_login` / `set_menu_bar_icon`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct EnabledPayload {
+    pub(super) enabled: bool,
+}

@@ -57,6 +57,34 @@
 - 新 preview / execute 流程要直接對齊 PME
 - 新 long-running 操作要以 unified `runs` ledger 為中心回報狀態
 
+## Open at login 與選單列圖示（2026-10）
+
+三個命令，Tauri 與 dev bridge 都有註冊，回傳值都是呼叫後 OS 實際的狀態：
+
+| 命令                      | 參數                   | 回傳                 |
+| ------------------------- | ---------------------- | -------------------- |
+| `get_desktop_integration` | —                      | `DesktopIntegration` |
+| `set_launch_at_login`     | `{ enabled: boolean }` | `DesktopIntegration` |
+| `set_menu_bar_icon`       | `{ enabled: boolean }` | `DesktopIntegration` |
+
+`DesktopIntegration = { launchAtLogin, menuBarIcon, launchAtLoginSupported, menuBarIconSupported }`。
+
+- `launchAtLogin` 讀 OS 的登入項目，不存在 config。macOS 用 PathKeep 自己的 LaunchAgent（`vault_platform::login_item`，經 `/usr/bin/open` 啟動，避開 macOS 26 的 Launch Constraint kill）；Windows / Linux 用 `tauri-plugin-autostart`。webview 不再有 `autostart:*` capability，只能走這三個命令。
+- `menuBarIcon` 是「圖示現在在不在」；偏好存 `AppConfig.menuBarIcon`。`set_menu_bar_icon` 先改圖示再存 config，存失敗就把圖示改回去並回錯。`save_config` 存完也會讓圖示與選單語言跟上 config。
+- `menuBarIconSupported`：macOS / Windows 恆為 true；Linux 需要能載入 libappindicator，且 session bus 上有 `org.kde.StatusNotifierWatcher`（問不到時不擋）。不支援時 `set_menu_bar_icon(true)` 回錯。
+- 事件：`pathkeep://open-command-palette`（選單「搜尋歷史…」，無 payload）；`pathkeep://backup-finished`（任何 app 內備份結束，`{ source: "app" | "menu-bar", report?, error? }`）。`run_backup_now` 與選單的「立即備份」走同一條 `desktop_integration::run_backup`，`pathkeep://backup-progress` 不變。dev bridge 的 `run_backup_now` 在 app 已啟動時也走這條路徑。
+- 登入啟動帶 `--launched-at-login`。主視窗在 `tauri.conf.json` 設為 `visible: false`，由 setup 決定是否顯示：只有「登入啟動 + 圖示開著」時不顯示。圖示開著時關視窗只是隱藏。細節與理由見 `docs/features/archive.md` §2「開機啟動與選單列圖示」。
+
+## Debug 平台沙盒（2026-10）
+
+Debug build（`tauri dev`、`bun run dev:demo`、desktop-bridge E2E）設定 `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR` 時，排程與開機啟動的 OS 狀態改寫到該目錄的檔案，不呼叫 `launchctl` / `schtasks` / 登入項目 API：
+
+- `LaunchAgents/`：排程 plist；`launchd-loaded/<label>`：代表「已 loaded」的標記檔。
+- `TaskScheduler/<label>.xml`：Windows 排程。
+- `login-items/com.yi-ting.pathkeep.login.plist`：開機啟動（所有 OS 都用這個格式記錄）。
+
+Plan 產生、plist / XML 內容、audit 與 status 解析照常執行。每次 apply / remove / repair / status 只解析一次沙盒設定，同一個操作不會混用真實與沙盒。Release build 忽略此變數（與 `PATHKEEP_PLATFORM_TEST_KEYRING_DIR` 相同）；舊的 `PATHKEEP_PLATFORM_TEST_LAUNCH_AGENTS_DIR` 也改成只在 debug build 生效。Linux 排程本來就只給手動步驟，沙盒對它沒有作用。可能的失效方式與對應測試列在 `vault-platform/src/sandbox.rs` 檔頭。`scripts/dev-demo.mjs` 與 `playwright.desktop-bridge.config.ts` 都會設定它。
+
 ## Dev Automation Mirror（2026-04-10 / `WORK-QC-H`）
 
 - repo 現在有一條 **feature-gated** `devtools-bridge` local mirror：`bun run desktop:dev:bridge` 會在保留 Tauri desktop runtime 的前提下，把現行 typed command surface 映射到 localhost，讓 Chrome / Playwright / CDP 能從真正的 Rust façade 讀資料與觸發命令。

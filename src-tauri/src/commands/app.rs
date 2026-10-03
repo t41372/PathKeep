@@ -35,14 +35,20 @@ pub(crate) async fn app_snapshot(
 #[cfg(not(test))]
 #[tauri::command]
 /// Persists user config changes and returns the refreshed desktop snapshot, off the UI thread.
+///
+/// Also brings the menu bar menu in line with the saved config (language, icon on/off).
 pub(crate) async fn save_config(
+    app: tauri::AppHandle,
     config: vault_core::AppConfig,
     base_config: Option<vault_core::AppConfig>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
     let key = state.get_key();
     run_blocking_command("save_config", move || {
-        worker_bridge::save_config_with_base_impl(config, base_config, key.as_deref())
+        let snapshot =
+            worker_bridge::save_config_with_base_impl(config, base_config, key.as_deref())?;
+        crate::desktop_integration::config_saved(&app, &snapshot.config);
+        Ok(snapshot)
     })
     .await
 }

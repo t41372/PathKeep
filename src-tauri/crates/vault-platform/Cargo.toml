@@ -27,6 +27,12 @@ windows-native-keyring-store = "0.5.1"
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 dbus-secret-service-keyring-store = { version = "0.3.3", features = ["crypto-rust", "vendored"] }
 
+# Menu bar icon support probe. Both crates are already in the Linux build
+# (dbus through the keyring store), so this adds no new crate.
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus = "0.9.11"
+libc.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
 

@@ -108,9 +108,25 @@
 - Dashboard / Settings / Schedule 必須共享平台 capability 與 troubleshooting 語法，至少能清楚暴露 manual-review、mismatch、legacy install、permission warning 等狀態，並直接引導回排程頁修復。
 - Settings 的 independent support inspections（schedule / keyring / security）失敗時，必須在 Settings 本身留下可見 failure + retry，不能用 `null` status 偽裝成沒有問題。
 - Schedule 的 Verify surface 必須直接列出 install state、detected files、typed issues、verification checks、latest audit artifact 與最近一次 apply / remove / repair 結果，避免 verify 只剩一段模糊狀態字串或 raw backend English warning。
-- App 的「開機啟動」（autostart）和備份排程是兩件分開的事。
+- App 的「開機啟動」（autostart）和備份排程是兩件分開的事。排程靠 `pathkeep-worker`，app 沒開也會跑；開機啟動只是讓 app 本身在登入時出現在選單列，見下方「開機啟動與選單列圖示」。
 - 2026-04-29 scheduled-backup state-machine truth：如果 macOS 存在 known pre-rename LaunchAgent（`dev.codex.pathkeep.backup` 或 `dev.codex.browser-history-backup.backup`），status 必須顯示 typed `legacy-launch-agent` issue 並把 UI 映射到 `INSTALLED_WARN`，讓使用者選擇一鍵修復或手動修復；不得把它顯示成 canonical installed，也不得因 canonical `com.yi-ting.pathkeep.backup` 缺失而直接顯示普通 `NOT_INSTALLED`。
 - 2026-04-29 live repair follow-up：macOS canonical `com.yi-ting.pathkeep.backup` 如果仍 loaded 但 plist 已缺失，status 必須顯示 typed `macos-plist-missing-loaded` error 並映射到 `INSTALLED_ERROR`，提供 reinstall / remove / diagnostics，不得把 loaded-but-uneditable scheduler 當成普通未安裝。macOS remove / repair 必須用 `launchctl bootout gui/$UID/<label>` service target，才能移除沒有 plist 檔但仍留在 launchd 內的 canonical 或 known legacy jobs。
+
+### 開機啟動與選單列圖示（2026-10）
+
+Settings → General 的兩個開關。
+
+- **開機時啟動**：登入時啟動 PathKeep。是否已註冊只看 OS（登入項目），PathKeep 的 config 不另存一份。
+  - macOS：PathKeep 自己寫 `~/Library/LaunchAgents/com.yi-ting.pathkeep.login.plist`，內容是 `/usr/bin/open -g -a PathKeep.app --args --launched-at-login`。不用 `tauri-plugin-autostart` 的 LaunchAgent，因為它讓 launchd 直接執行 app 內的 GUI binary，macOS 26 會以 Launch Constraint Violation 殺掉（排程備份在 `167d1aa8` 修過同一個問題）。不呼叫 `launchctl`，下次登入才生效。App 搬家後，下次啟動會把 plist 改指到新位置。
+  - Windows / Linux：`tauri-plugin-autostart`（登錄檔 `Run` 值 / XDG autostart `.desktop`），同樣帶 `--launched-at-login`。
+- **選單列圖示**：macOS 選單列 / Windows、Linux 系統匣。偏好存在 `AppConfig.menuBarIcon`（預設關），下次啟動照設定還原。選單：備份狀態（不可點）、立即備份、搜尋歷史…、打開 PathKeep、分隔線、結束 PathKeep。文字跟隨 `preferredLanguage`；「跟隨系統」時讀 OS 語言（與前端 `detectSystemLanguage` 同規則）。
+  - 狀態行：備份中… / N 分鐘前已備份 / 備份失敗 / 還沒有備份過 / 尚未設定 / 暫時無法讀取備份狀態。來源是 app 內的備份（視窗或選單觸發，走同一條路徑）、啟動時讀一次 archive 的最後成功時間，以及每 5 分鐘讀一次排程備份 ledger（sidecar 在另一個 process 跑）。相對時間每分鐘重畫，不做 I/O。
+  - 「搜尋歷史…」打開視窗並送出 `pathkeep://open-command-palette`，由前端打開 ⌘K。
+  - 任何 app 內備份結束都送出 `pathkeep://backup-finished`（`{ source: "app" | "menu-bar", report?, error? }`），讓視窗在選單觸發的備份後刷新。
+  - Linux 需要 libappindicator 與面板上的 StatusNotifier host（GNOME 預設沒有）；缺任一個時 `menuBarIconSupported` 為 false。
+- **登入啟動時的行為**：選單列圖示開著 → 不開視窗，只在選單列出現（設定文案「登入時在選單列運行」）。圖示關著 → 照常開視窗；Windows / Linux 沒有 Dock，隱藏又沒圖示等於用戶找不到 app。
+- **關閉視窗**：圖示開著 → 視窗隱藏，app 留在選單列（「結束 PathKeep」或 ⌘Q 才結束）。圖示關著 → 關視窗就結束 app，與之前一致。關掉圖示時若視窗是隱藏的，會把視窗叫回來。macOS 點 Dock 圖示會叫回隱藏的視窗。
+- 已知缺口：Windows / Linux 沒有 single-instance，app 隱藏在系統匣時再從開始選單啟動會開第二個 process。
 
 ### 平台注意事項
 

@@ -175,6 +175,9 @@ pub(crate) async fn run_retention_prune(
 #[cfg(not(test))]
 #[tauri::command]
 /// Starts a backup run and streams progress events back to the renderer.
+///
+/// Shares one path with the menu bar's "Back up now", so the menu's status
+/// line and `pathkeep://backup-finished` cover backups started here too.
 pub(crate) async fn run_backup_now(
     app: AppHandle,
     due_only: bool,
@@ -182,9 +185,12 @@ pub(crate) async fn run_backup_now(
 ) -> Result<vault_core::BackupReport, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("run_backup_now", move || {
-        worker_bridge::run_backup_now_impl(due_only, session_database_key.as_deref(), |event| {
-            let _ = app.emit("pathkeep://backup-progress", &event);
-        })
+        crate::desktop_integration::run_backup(
+            &app,
+            crate::desktop_integration::BackupSource::App,
+            due_only,
+            session_database_key.as_deref(),
+        )
     })
     .await
 }

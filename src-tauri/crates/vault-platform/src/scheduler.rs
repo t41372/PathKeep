@@ -153,7 +153,8 @@ fn is_dedicated_worker(path: &Path) -> bool {
     path.file_stem().and_then(|value| value.to_str()) == Some("pathkeep-worker")
 }
 
-fn enclosing_app_bundle(path: &Path) -> Option<&Path> {
+/// Returns the innermost `.app` directory containing `path`, if any.
+pub(crate) fn enclosing_app_bundle(path: &Path) -> Option<&Path> {
     path.ancestors()
         .skip(1)
         .find(|ancestor| ancestor.extension().and_then(|value| value.to_str()) == Some("app"))

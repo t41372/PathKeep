@@ -1093,3 +1093,55 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
     }
 }
+
+/// The Settings toggles over the bridge, with the debug sandbox catching the
+/// login item. The icon is only switched off here: switching it on would put
+/// a real icon in the test machine's menu bar.
+#[test]
+fn dispatch_command_drives_desktop_integration_inside_the_sandbox() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let sandbox = dir.path().join("os-sandbox");
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path().join("project"));
+        std::env::set_var(vault_platform::SANDBOX_DIR_ENV, &sandbox);
+    }
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .expect("mock app");
+    let state = DevIpcBridgeState::with_app(
+        app.handle().clone(),
+        SessionState::default(),
+        DEFAULT_DEV_IPC_BRIDGE_PORT,
+    );
+    let dispatch = |command: &str, payload: Value| {
+        ready_block_on(dispatch_command(&state, command, payload)).expect(command)
+    };
+    let login_plist =
+        sandbox.join("login-items").join(format!("{}.plist", vault_platform::LOGIN_ITEM_LABEL));
+
+    let initial = dispatch("get_desktop_integration", json!({}));
+    let enabled = dispatch("set_launch_at_login", json!({ "enabled": true }));
+    let plist_written = login_plist.is_file();
+    let disabled = dispatch("set_launch_at_login", json!({ "enabled": false }));
+    let icon_off = dispatch("set_menu_bar_icon", json!({ "enabled": false }));
+    let config = vault_core::load_config(&vault_core::project_paths().expect("paths"));
+    let bad_payload = ready_block_on(dispatch_command(&state, "set_menu_bar_icon", json!({})));
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(vault_platform::SANDBOX_DIR_ENV);
+    }
+
+    assert_eq!(initial["launchAtLogin"], false);
+    assert_eq!(initial["menuBarIcon"], false);
+    assert_eq!(initial["launchAtLoginSupported"], true);
+    assert!(initial["menuBarIconSupported"].is_boolean());
+    assert_eq!(enabled["launchAtLogin"], true);
+    assert!(plist_written, "the login item belongs in the sandbox");
+    assert_eq!(disabled["launchAtLogin"], false);
+    assert!(!login_plist.exists());
+    assert_eq!(icon_off["menuBarIcon"], false);
+    assert!(!config.expect("config").menu_bar_icon);
+    assert!(bad_payload.is_err(), "`enabled` is required");
+}

@@ -25,7 +25,7 @@
 //! off-main-thread command contracts.
 
 use crate::command_error::CommandError;
-use crate::{file_manager, session::session_key, updater, worker_bridge};
+use crate::{desktop_integration, file_manager, session::session_key, updater, worker_bridge};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use vault_core::{
@@ -70,11 +70,16 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "app_lock_status" => json_value!(worker_bridge::app_lock_status_impl()?),
         "save_config" => {
             let payload = parse_payload::<WrappedConfigPayload>(payload)?;
-            json_value!(worker_bridge::save_config_with_base_impl(
+            let snapshot = worker_bridge::save_config_with_base_impl(
                 payload.config,
                 payload.base_config,
-                session_key(&state.session).as_deref()
-            )?)
+                session_key(&state.session).as_deref(),
+            )?;
+            // Same follow-up as the Tauri command: menu language and icon.
+            if let Ok(app) = require_app_handle(state) {
+                desktop_integration::config_saved(&app, &snapshot.config);
+            }
+            json_value!(snapshot)
         }
         "preview_wipe_all_data" => {
             json_value!(worker_bridge::preview_wipe_all_data_impl(
@@ -174,7 +179,8 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "run_backup_now" => {
             let payload = parse_payload::<RunBackupPayload>(payload)?;
             let key = session_key(&state.session);
-            json_value!(backup_now_off_thread(payload.due_only, key).await?)
+            let app = require_app_handle(state).ok();
+            json_value!(backup_now_off_thread(app, payload.due_only, key).await?)
         }
         "query_history" => {
             let payload = parse_payload::<QueryHistoryPayload>(payload)?;
@@ -1022,6 +1028,35 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let app = require_app_handle(state)?;
             json_value!(updater::relaunch_after_update(app))
         }
+        "get_desktop_integration" => {
+            let app = require_app_handle(state)?;
+            json_value!(
+                desktop_integration_off_thread("get_desktop_integration", move || {
+                    desktop_integration::desktop_integration(&app)
+                })
+                .await?
+            )
+        }
+        "set_launch_at_login" => {
+            let app = require_app_handle(state)?;
+            let payload = parse_payload::<EnabledPayload>(payload)?;
+            json_value!(
+                desktop_integration_off_thread("set_launch_at_login", move || {
+                    desktop_integration::set_launch_at_login(&app, payload.enabled)
+                })
+                .await?
+            )
+        }
+        "set_menu_bar_icon" => {
+            let app = require_app_handle(state)?;
+            let payload = parse_payload::<EnabledPayload>(payload)?;
+            json_value!(
+                desktop_integration_off_thread("set_menu_bar_icon", move || {
+                    desktop_integration::set_menu_bar_icon(&app, payload.enabled)
+                })
+                .await?
+            )
+        }
         other => Err(CommandError::internal(format!(
             "PathKeep dev IPC bridge does not recognize desktop command \"{other}\"."
         ))),
@@ -1066,19 +1101,40 @@ fn join_failure<T>(command: &str, error: tokio::task::JoinError) -> Result<T, Co
 /// dev IPC bridge must mirror it. Without this hop the dev-IPC HTTP
 /// server thread crashes mid-response and the client sees a
 /// `socket hang up` with no body.
+///
+/// With a live app it takes the same path as the Tauri command, so the menu
+/// bar status follows bridge-started backups too.
 async fn backup_now_off_thread(
+    app: Option<DevIpcAppHandle>,
     due_only: bool,
     key: Option<String>,
 ) -> Result<vault_core::BackupReport, CommandError> {
-    tokio::task::spawn_blocking(move || {
-        worker_bridge::run_backup_now_impl(
+    tokio::task::spawn_blocking(move || match app {
+        Some(app) => desktop_integration::run_backup(
+            &app,
+            desktop_integration::BackupSource::App,
+            due_only,
+            key.as_deref(),
+        ),
+        None => worker_bridge::run_backup_now_impl(
             due_only,
             key.as_deref(),
             std::mem::drop::<vault_core::BackupProgressEvent>,
-        )
+        ),
     })
     .await
     .unwrap_or_else(|error| join_failure("run_backup_now", error))
+}
+
+/// Hops a desktop-integration command onto the blocking pool: it touches
+/// login items and config, and its tray calls wait for the main thread.
+async fn desktop_integration_off_thread(
+    command: &'static str,
+    task: impl FnOnce() -> Result<desktop_integration::DesktopIntegration, CommandError>
+    + Send
+    + 'static,
+) -> Result<desktop_integration::DesktopIntegration, CommandError> {
+    tokio::task::spawn_blocking(task).await.unwrap_or_else(|error| join_failure(command, error))
 }
 
 /// Hops `test_ai_provider_connection_impl` onto the tokio blocking
