@@ -201,6 +201,16 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 - **明確排除**（surfaced to UI via `EXPORT_EXCLUSIONS_DOC`）：`vault.hold` / `stronghold-salt.txt`（App Lock secrets 留在來源機）、`logs/`、`diagnostics/`、`schedule/`（platform-specific scheduler artifacts）、`staging/`、`quarantine/`、`exports/`（避免遞迴打包先前 bundle）。
 - 加密 archive 的 bundle 保留來源 key（透過 `sqlcipher_export` 寫進去）。目標機使用者需用同一把 key 解鎖；之後可以走既有的 Settings → Security 重 key 流程改鑰。
 
+### 刪除所有資料（Delete all data）
+
+Settings → Data 的「刪除所有資料」走 PME：`preview_wipe_all_data` 列出每個會刪的路徑與大小、總位元組、archive 可見 visit 數（取最近一次成功 backup 快取的總數，不跑 `COUNT(*)`）、以及系統 keychain 裡是否存有 archive key；`wipe_all_data` 只接受字面上的 `"DELETE"`，否則拒絕且什麼都不刪。App Lock 鎖定時兩者都拒絕。
+
+- **會刪**：`archive/` 內所有檔案（archive / source-evidence DB 與 WAL/SHM、import 留下的 `*.bak-*`、rekey/restore/import marker），`derived/`（search、intelligence、AI 向量、agent 對話）、`sidecars/`、`raw-snapshots/`、`staging/`、`quarantine/`、`audit/`、`exports/`、`models/`（下載的 embedding 模型）、`integrations/`，app root 的 `*.bak-*`、App Lock 狀態與 passcode 檔、Stronghold `vault.hold` 與 salt、`config.json`；keychain 的 archive key 與每個 AI provider API key。
+- **保留**：`logs/`、`diagnostics/`（刪除失敗時唯一的紀錄；不含 visit 資料）、`schedule/` 與已安裝的系統排程（移除排程是 Backup 自己的 PME；沒有 config 時排程執行會停在 "archive has not been initialized"）、`archive/.pk-archive-write.lock`（跨程序鎖的 inode，刪掉會讓兩個程序各鎖一個檔）。使用者的瀏覽器 profile 永遠不碰：所有目標都是 app root 底下的固定路徑。
+- **順序**：取得 in-process gate 與跨程序 write lock → 寫 `.pk-wipe-in-progress.json` marker（含要清的 provider id）→ 刪 `config.json`（所有背景 worker 迴圈在下一次檢查時停）→ 要求執行中的 AI / intelligence job 停止、取消 chat 與模型下載、等背景 worker 結束（最多 30 秒）→ 刪檔 → 清 keychain → 刪 marker。執行後 `app_snapshot` 回報 not initialized，前端導回 onboarding；desktop session key 一併清除。
+- **中斷**：marker 存在代表刪除未完成。啟動時（Tauri setup）與 `initialize_archive` 開頭會先把它做完，onboarding 不可能重新打開半刪的 archive。
+- 實作與失效模式清單見 `src-tauri/crates/vault-core/src/archive/wipe.rs` 檔頭。
+
 舊版基於 S3 的 cloud backup 已在 2026-05-25 移除（feedback-2026-05-25 §2.2），所有 `preview_remote_backup` / `run_remote_backup` / `verify_remote_backup` / `store_s3_credentials` / `clear_s3_credentials` command、`RemoteBackupConfig` schema 與相關 Settings UI 一併刪除。
 
 ---

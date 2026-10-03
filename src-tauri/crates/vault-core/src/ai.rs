@@ -102,6 +102,7 @@ pub use self::agent_tools::{
 pub use self::chat_stream::{
     deregister_run as deregister_ai_chat_run, drive_chat_stream as drive_ai_chat_stream,
     register_run as register_ai_chat_run, request_cancel as request_ai_chat_cancel,
+    request_cancel_all as request_cancel_all_ai_chat_runs,
 };
 pub use self::code_mode::{
     CodeOutcome, HostCallRecord, LimitsHit, MAX_FETCH_IDS, MAX_GUEST_MEMORY_BYTES, MAX_HOST_CALLS,

@@ -94,6 +94,27 @@ pub struct UrlDetail {
     pub weekly_visits: Vec<UrlWeeklyVisits>,
 }
 
+/// One file or folder that "Delete all data" removes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WipeItem {
+    pub path: String,
+    /// Size on disk; folders are summed recursively.
+    pub bytes: u64,
+}
+
+/// What "Delete all data" would remove, shown before the user types the confirmation word.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WipePreview {
+    pub items: Vec<WipeItem>,
+    pub total_bytes: u64,
+    /// Visible visits in the archive, from the last backup's cached totals when available.
+    pub visit_count: i64,
+    /// True when an archive key is stored in the system keychain and will be removed too.
+    pub clears_keychain: bool,
+}
+
 /// Compact run-ledger summary used in lists and dashboards.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

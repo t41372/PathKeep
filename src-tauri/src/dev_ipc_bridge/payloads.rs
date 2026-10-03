@@ -256,6 +256,13 @@ pub(super) struct PathPayload {
     pub(super) path: String,
 }
 
+/// Carries the word the user typed to confirm "Delete all data".
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct WipeConfirmationPayload {
+    pub(super) confirmation: String,
+}
+
 /// Carries an external URL to the desktop launcher helper.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

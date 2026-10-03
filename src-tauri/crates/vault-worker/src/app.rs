@@ -370,6 +370,9 @@ pub fn initialize_archive_database_with_progress<F>(
 where
     F: FnMut(ArchiveUpgradeProgress),
 {
+    // A wipe cut short must finish before this writes a new config, or onboarding would reopen
+    // the half-deleted archive.
+    crate::data_wipe::finish_interrupted_data_wipe()?;
     let paths = vault_core::project_paths()?;
     let mut next_config = config.clone();
     hydrate_derived_config_state(&mut next_config);

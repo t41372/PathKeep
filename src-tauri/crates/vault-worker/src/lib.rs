@@ -18,6 +18,7 @@ mod app;
 mod archive_flows;
 mod cli;
 mod context;
+mod data_wipe;
 mod intelligence;
 mod job_runtime;
 mod mcp;
@@ -54,6 +55,9 @@ pub use self::{
         run_retention_plan, run_snapshot_restore_plan, source_stats, url_detail,
     },
     cli::run_worker_cli,
+    data_wipe::{
+        WIPE_CONFIRMATION_WORD, finish_interrupted_data_wipe, preview_data_wipe, wipe_all_data,
+    },
     intelligence::{
         ai_chat_cancel, ai_chat_send, ask_ai_assistant, build_ai_index_now,
         build_intelligence_local_host, cancel_ai_job, cancel_intelligence_job_now,

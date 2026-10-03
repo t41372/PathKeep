@@ -32,7 +32,7 @@ mod section_queries;
 use crate::context::load_unlocked_config;
 use anyhow::Result;
 use chrono::Local;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use vault_core::{
     ActivityMix, ActivityMixTrend, AppConfig, BreadthIndex, BrowserDiff,
     CategoryFilteredDateRangeRequest, CompareSet, CompareSetDetail, CompareSetDetailRequest,
@@ -109,6 +109,20 @@ pub use self::section_queries::{
 static AI_QUEUE_ACTIVE_WORKERS: AtomicUsize = AtomicUsize::new(0);
 static INTELLIGENCE_PRIORITY_WORKERS: AtomicUsize = AtomicUsize::new(0);
 static INTELLIGENCE_ENRICHMENT_WORKERS: AtomicUsize = AtomicUsize::new(0);
+
+/// Queue workers running in this process: AI queue, both intelligence lanes and content fetch.
+/// "Delete all data" waits for this to reach zero before removing the databases they write.
+pub(crate) fn running_background_workers() -> usize {
+    [
+        &AI_QUEUE_ACTIVE_WORKERS,
+        &INTELLIGENCE_PRIORITY_WORKERS,
+        &INTELLIGENCE_ENRICHMENT_WORKERS,
+        &content_fetch::CONTENT_FETCH_WORKERS,
+    ]
+    .iter()
+    .map(|workers| workers.load(Ordering::Acquire))
+    .sum()
+}
 
 /// Opens the unlocked project context required by deterministic intelligence reads.
 ///

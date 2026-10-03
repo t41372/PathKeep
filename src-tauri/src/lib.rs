@@ -80,6 +80,11 @@ fn run_app() -> Result<()> {
             vault_core::config::ensure_paths(&paths).map_err(tauri::Error::Anyhow)?;
             install_panic_hook(&paths);
             app.handle().plugin(build_logging_plugin(&paths))?;
+            // Before anything reads the config: a wipe the user confirmed but a crash cut short
+            // is finished now. A failure is logged, not fatal; onboarding retries it.
+            if let Err(error) = vault_worker::finish_interrupted_data_wipe() {
+                log::error!(target: "pathkeep::data_wipe", "could not finish an interrupted data wipe: {error:#}");
+            }
             let mut config = vault_core::load_config(&paths).map_err(tauri::Error::Anyhow)?;
             vault_core::hydrate_app_lock_config(&paths, &mut config)
                 .map_err(tauri::Error::Anyhow)?;
@@ -101,6 +106,8 @@ fn run_app() -> Result<()> {
             app_snapshot,
             app_lock_status,
             save_config,
+            preview_wipe_all_data,
+            wipe_all_data,
             initialize_archive,
             assess_archive_upgrade,
             preview_rekey_archive,

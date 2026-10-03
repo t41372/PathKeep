@@ -49,6 +49,34 @@ pub(crate) async fn save_config(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Lists what "Delete all data" would remove, with sizes, off the UI thread.
+pub(crate) async fn preview_wipe_all_data(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::WipePreview, CommandError> {
+    let key = state.get_key();
+    run_blocking_command("preview_wipe_all_data", move || {
+        worker_bridge::preview_wipe_all_data_impl(key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Deletes all PathKeep data once `confirmation` is the literal word "DELETE", off the UI thread.
+/// The next `app_snapshot` reports the app as not initialized.
+pub(crate) async fn wipe_all_data(
+    confirmation: String,
+    state: State<'_, SessionState>,
+) -> Result<(), CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("wipe_all_data", move || {
+        worker_bridge::wipe_all_data_impl(&confirmation, &session)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Stores a session-only archive key without touching native keyrings.
 pub(crate) fn set_session_database_key(
     database_key: String,

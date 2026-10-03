@@ -195,6 +195,68 @@ fn dispatch_source_stats_and_url_detail_return_the_frontend_shapes() {
     }
 }
 
+#[test]
+fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = dir.path().join("chrome-user-data");
+    std::fs::create_dir_all(&chrome_root).expect("chrome root");
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path().join("app"));
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(dispatch_command(
+        &state,
+        "initialize_archive",
+        json!({ "config": test_config(), "databaseKey": null }),
+    ))
+    .expect("initialize archive");
+    ready_block_on(dispatch_command(
+        &state,
+        "set_session_database_key",
+        json!({ "databaseKey": "session-key" }),
+    ))
+    .expect("session key");
+
+    let preview = ready_block_on(dispatch_command(&state, "preview_wipe_all_data", json!({})))
+        .expect("preview over the bridge");
+    assert_eq!(preview["visitCount"], json!(0));
+    assert!(preview["totalBytes"].as_u64().is_some_and(|bytes| bytes > 0));
+    assert!(preview["clearsKeychain"].is_boolean());
+    assert!(preview["items"][0]["path"].is_string() && preview["items"][0]["bytes"].is_u64());
+
+    let refused = ready_block_on(dispatch_command(
+        &state,
+        "wipe_all_data",
+        json!({ "confirmation": "delete" }),
+    ))
+    .expect_err("a lowercase word must be refused");
+    assert!(refused.message.contains("DELETE"), "{}", refused.message);
+    assert_eq!(session_key(&state.session), Some("session-key".to_string()));
+
+    let wiped = ready_block_on(dispatch_command(
+        &state,
+        "wipe_all_data",
+        json!({ "confirmation": "DELETE" }),
+    ))
+    .expect("wipe over the bridge");
+    assert_eq!(wiped, Value::Null);
+    assert_eq!(session_key(&state.session), None, "the stale archive key must be forgotten");
+    let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({})))
+        .expect("snapshot after wipe");
+    assert_eq!(snapshot["config"]["initialized"], json!(false));
+    assert_eq!(snapshot["archiveStatus"]["initialized"], json!(false));
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
+}
+
 #[tokio::test]
 async fn blocking_join_failures_report_the_command_without_a_remediation_code() {
     // A worker thread that panics must not vanish: the bridge names the command
@@ -476,6 +538,9 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             profile_id: None,
         }),
     );
+    dispatch_for_coverage(&state, "preview_wipe_all_data", json!({}));
+    // The wrong word keeps the rest of this walk running against an intact archive.
+    dispatch_for_coverage(&state, "wipe_all_data", json!({ "confirmation": "no" }));
     dispatch_for_coverage(&state, "load_source_stats", json!({}));
     dispatch_for_coverage(&state, "get_url_detail", json!({ "url": "https://example.com/" }));
     dispatch_for_coverage(&state, "load_audit_run_detail", json!({ "runId": 1 }));
