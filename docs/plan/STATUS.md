@@ -25,7 +25,7 @@
     - [x] 1. 改 gate：刪 mutation / coverage gate，AGENTS.md 加新規則，quality-matrix / TESTING 改寫，E2E artifact 設定
     - [ ] 2. 後端：補齊前端已在呼叫的命令、IPC 性能修復、刪死命令，結論寫進 `docs/architecture/`
     - [x] 3. 新前端地基：tokens、窗口外殼 + nav rail、i18n、主題、shadcn 組件、數據層
-    - [ ] 4. 頁面：Home ✓、History ✓、Insights ✓、Ask ✓、Backup ✓、Lock ✓、Command palette ✓、**Settings ✗、Onboarding ✗**
+    - [ ] 4. 頁面：Home ✓、History ✓、Insights ✓、Ask ✓、Backup ✓、Lock ✓、Command palette ✓、Onboarding ✓（`bun run dev:demo -- --first-run --fresh`）、**Settings ✗**
     - [ ] 5. 刪舊前端殘留和沒人用的後端命令
     - [ ] 6. E2E：在 desktop bridge（真 Rust 後端）上跑中高難度場景，產出 artifact（現有 `tests/e2e/*` 仍針對舊 UI，要重寫）
     - [ ] 7. 文檔同步（features / design / architecture）、CHANGELOG、`bun run check` 全綠
