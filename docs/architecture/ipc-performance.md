@@ -13,7 +13,7 @@ PATHKEEP_ARCHIVE_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=14400000 \
   --test archive_scale_bench --release -- --nocapture
 ```
 
-`PATHKEEP_ARCHIVE_BENCH_SECTIONS=reads,doctor,encrypted` runs only the named sections. The doctor section first fills the intelligence tables with synthetic derived rows (the archive has none of its own). Calls that matter for memory also print the peak Rust heap (a counting allocator in the benchmark binary) and SQLite's own peak (`sqlite3_memory_highwater`), each measured from the start of the call.
+`PATHKEEP_ARCHIVE_BENCH_SECTIONS=reads,doctor,searches,encrypted` runs only the named sections. The doctor and searches sections first fill the intelligence tables with synthetic rows (the archive has none of its own): one derived row per visit for the doctor, and a search event for every eighth visit (1.8M at 14.4M, 5,000 distinct queries, skewed so a few are common) for searches. Calls that matter for memory also print the peak Rust heap (a counting allocator in the benchmark binary) and SQLite's own peak (`sqlite3_memory_highwater`), each measured from the start of the call.
 
 Machine: Apple Silicon, 18 cores, 64 GB, SSD, release build. That is far faster than the target, so read the before/after ratios, not the absolute times. Each figure is the median of 5 to 20 calls in a warm process (the archive was already opened once).
 
@@ -104,15 +104,36 @@ Fix: each check is now `NOT EXISTS (SELECT 1 FROM archive.visits WHERE visits.id
 
 Measured at 14.4M visits with one derived row per visit plus 1,000 stale ones, and a trail member for every eighth visit. Both query shapes ran in the same process against the same database (median of 3; "SQLite memory" is SQLite's own peak above the start of the call, from `sqlite3_memory_highwater`):
 
-| stale-row count                               | time before | time after | SQLite memory before | after |
-| --------------------------------------------- | ----------- | ---------- | -------------------- | ----- |
-| `visit_derived_facts` (14.4M rows)            | 2.25 s      | 2.45 s     | 321 MiB              | 0     |
-| `search_trail_members` (1.8M rows)            | 1.08 s      | 0.47 s     | 166 MiB              | 0     |
-| whole `doctor` report, after (all checks)     |             | 3.4 s      |                      |       |
+| stale-row count                           | time before | time after | SQLite memory before | after |
+| ----------------------------------------- | ----------- | ---------- | -------------------- | ----- |
+| `visit_derived_facts` (14.4M rows)        | 2.25 s      | 2.45 s     | 321 MiB              | 0     |
+| `search_trail_members` (1.8M rows)        | 1.08 s      | 0.47 s     | 166 MiB              | 0     |
+| whole `doctor` report, after (all checks) |             | 3.4 s      |                      |       |
 
 The time for a table with one row per visit stays about the same: both shapes still read every derived row and touch every visit once. What changes is memory: the old shape held a temporary index whose size grows with the archive (321 MiB at 14.4M, on an 8 GB target), the new one holds nothing. On tables much smaller than the visit table the new shape is also faster, because it no longer reads all 14.4M visits to build the list.
 
 Left alone: the "broken visibility" check (`visits.reverted_at IS NOT NULL` joined to `runs`) scans the whole visits table, 0.4 s at 14.4M. No index covers hidden visits; a partial index `WHERE reverted_at IS NOT NULL` would make it near-free, but needs an archive migration. `reverted_by_run_id NOT IN (SELECT id FROM runs)` in repair stays as it is: `runs` has one row per backup.
+
+### 7. Insights "Frequent searches" counted all-time totals
+
+The card summed `memberCount` of the query families that overlapped the range. A family's member count covers its whole history, so a query could show 100 next to a "Searches" figure of 74 for the same 30 days. Search events carry no time of their own, so the only range-scoped way to count them was to join each one to `archive.visits`, as `get_search_queries` and `get_top_search_concepts` still do.
+
+Fix: intelligence migration 9 stores each search event's `visit_time_ms` and adds `idx_search_events_kind_time (query_kind, visit_time_ms)`; the rebuild writes the time with every new event. The new read `get_frequent_searches` counts keyword search events inside the range, grouped by normalized query across engines, and the card uses it. The plan seeks the range in that index, then groups the matches in a temporary B-tree, so the work grows with the searches in the range, not with the archive. A plan test (`the_range_read_walks_the_kind_and_time_index`) holds that.
+
+At 14.4M visits with 1.8M search events (median of 5):
+
+| `get_frequent_searches`, top 10                | time   | SQLite memory |
+| ---------------------------------------------- | ------ | ------------- |
+| 7 days                                         | 2.5 ms | 1.2 MiB       |
+| 30 days                                        | 9.6 ms | 4.9 MiB       |
+| 90 days                                        | 30 ms  | 15 MiB        |
+| 365 days                                       | 145 ms | 59 MiB        |
+| same count joined to `archive.visits`, 30 days | 440 ms |               |
+| same count joined to `archive.visits`, 1 year  | 559 ms |               |
+
+The joined shape scans every search event whatever the range. A covering index that also holds `normalized_query` and `raw_query` cut the one-year read to 95 ms in a trial; not worth a second copy of every query.
+
+One-time cost: the migration fills in the time for existing events with one `UPDATE` against the archive, then builds the index. At 14.4M visits that took 2.2 s with the archive in the page cache and 9.4 s on the first run after the archive was generated (cold cache). Intelligence migrations run lazily, on the first intelligence read after an upgrade (not behind the "Upgrading your archive" screen), off the UI thread; that read and any that start beside it wait for it. Because several reads start at once, migrations now run under a process-wide lock. Without it every concurrent read would try to apply the pending migration, and the late ones could fail on SQLite's 5 s busy timeout or on the duplicate version row.
 
 ## Other reads
 

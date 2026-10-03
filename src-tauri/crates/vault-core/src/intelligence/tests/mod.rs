@@ -20,6 +20,7 @@
 
 mod batch_equivalence;
 mod fixtures;
+mod frequent_searches;
 mod schema_overview;
 mod stage_rebuild;
 mod structural_incremental;

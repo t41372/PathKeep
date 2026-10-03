@@ -58,6 +58,22 @@ pub struct EngineRanking {
     pub search_count: i64,
 }
 
+/// One query the user searched for, counted over a date range.
+///
+/// Exists because query families carry all-time member counts; Insights needs counts that add up
+/// to no more than the "Searches" figure for the same range.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FrequentSearch {
+    /// The most recent spelling the user typed, for display and for searching History.
+    pub query: String,
+    /// The grouping key: lower-cased, whitespace-collapsed query text.
+    pub normalized_query: String,
+    /// Keyword searches for this query inside the range, across every search engine.
+    pub search_count: i64,
+    pub last_searched_at: String,
+}
+
 /// Search term aggregate used by top-concept surfaces.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

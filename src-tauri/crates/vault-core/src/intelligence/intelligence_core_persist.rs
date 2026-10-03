@@ -202,8 +202,8 @@ pub(super) fn persist_core_state_for_job_kind(
     for event in search_events {
         tx.execute(
             "INSERT INTO search_events
-             (visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind, trail_id, computed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             (visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind, trail_id, computed_at, visit_time_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 event.visit_id,
                 event.profile_id,
@@ -213,6 +213,7 @@ pub(super) fn persist_core_state_for_job_kind(
                 event.query_kind.as_str(),
                 event.trail_id,
                 computed_at,
+                event.visit_time_ms,
             ],
         )?;
         if event.query_kind.is_keyword() {

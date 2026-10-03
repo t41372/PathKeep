@@ -12,8 +12,8 @@ import type {
   DateRange,
   DigestSummary,
   DiscoveryTrend,
+  FrequentSearch,
   OnThisDayEntry,
-  QueryFamilyResult,
   RefindPage,
   ReopenedInvestigation,
   RhythmHeatmap,
@@ -68,10 +68,10 @@ export const insightsClient = {
     section<SearchConcept[]>('get_top_search_concepts', {
       request: { ...scope, limit },
     }),
-  /** Pages are zero-based, like every paged intelligence command. */
-  queryFamilies: (scope: Scope, pageSize = 200) =>
-    section<QueryFamilyResult>('get_query_families', {
-      request: { ...scope, page: 0, pageSize },
+  /** Most searched queries, counted inside the range and merged across engines. */
+  frequentSearches: (scope: Scope, limit = 10) =>
+    section<FrequentSearch[]>('get_frequent_searches', {
+      request: { ...scope, limit },
     }),
   refindPages: (scope: Scope, limit = 8) =>
     section<RefindPage[]>('get_refind_pages', { request: { ...scope, limit } }),

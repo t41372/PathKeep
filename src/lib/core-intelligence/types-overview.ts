@@ -163,6 +163,20 @@ export interface EngineRanking {
   searchCount: number
 }
 
+/**
+ * One query and how often it was searched inside the requested date range
+ * (`get_frequent_searches`). Counts are range-scoped, unlike query families.
+ */
+export interface FrequentSearch {
+  /** The most recent spelling the user typed. */
+  query: string
+  /** Lower-cased, whitespace-collapsed grouping key. */
+  normalizedQuery: string
+  /** Keyword searches inside the range, across every search engine. */
+  searchCount: number
+  lastSearchedAt: string
+}
+
 /** Token frequency for word cloud */
 export interface SearchConcept {
   term: string

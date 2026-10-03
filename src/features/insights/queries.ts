@@ -82,27 +82,21 @@ export function useRhythm(range: RangeId) {
 }
 
 /**
- * Most frequent searches as the user typed them. Query families come back
- * per search engine and in no useful order, so merge by text and sort.
+ * Most frequent searches in the range, shown as the user last typed them.
+ * The counts cover the selected range only, so they never exceed the
+ * "Searches" figure above them.
  */
 export function useFrequentSearches(range: RangeId, limit = 10) {
   return useQuery({
-    queryKey: key(range, 'searches'),
+    queryKey: key(range, 'searches', limit),
     queryFn: async () => {
-      const result = await insightsClient.queryFamilies(scope(range))
-      const counts = new Map<string, number>()
-      for (const family of result.data.families) {
-        counts.set(
-          family.anchorQuery,
-          (counts.get(family.anchorQuery) ?? 0) + family.memberCount,
-        )
-      }
+      const result = await insightsClient.frequentSearches(scope(range), limit)
       return {
         meta: result.meta,
-        data: [...counts]
-          .map(([query, count]) => ({ query, count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, limit),
+        data: result.data.map((entry) => ({
+          query: entry.query,
+          count: entry.searchCount,
+        })),
       }
     },
     placeholderData: keepPrevious,

@@ -77,6 +77,16 @@ pub struct DomainTrendRequest {
     pub date_range: DateRange,
 }
 
+/// Request shape for the most frequent searches in a date range.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FrequentSearchesRequest {
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+    /// How many queries to return; defaults to 10, capped at 100.
+    pub limit: Option<u32>,
+}
+
 /// Request shape for top search concepts.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

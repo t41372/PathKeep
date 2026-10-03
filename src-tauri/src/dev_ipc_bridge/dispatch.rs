@@ -32,14 +32,14 @@ use vault_core::{
     AiChatSendRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiSearchRequest,
     CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
     DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest,
-    ExplainRefindRequest, FrontendErrorReportRequest, GranularityDateRangeRequest,
-    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, ListAgentConversationsRequest,
-    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest,
-    RefindPageDetailRequest, RefindPagesRequest, RenameAgentConversationRequest,
-    RetentionPruneRequest, SaveAgentConversationRequest, ScopedDateRangeRequest,
-    SearchEffectivenessRequest, SearchEngineRuleInput, SearchQueryListRequest,
-    SearchTrailQueryRequest, SetAppLockPasscodeRequest, SnapshotRestoreRequest,
-    TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
+    ExplainRefindRequest, FrequentSearchesRequest, FrontendErrorReportRequest,
+    GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest,
+    ListAgentConversationsRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
+    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest,
+    RenameAgentConversationRequest, RetentionPruneRequest, SaveAgentConversationRequest,
+    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchEngineRuleInput,
+    SearchQueryListRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
+    SnapshotRestoreRequest, TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -716,6 +716,13 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "get_top_search_concepts" => {
             let payload = parse_payload::<WrappedRequest<TopSearchConceptsRequest>>(payload)?;
             json_value!(worker_bridge::get_top_search_concepts_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_frequent_searches" => {
+            let payload = parse_payload::<WrappedRequest<FrequentSearchesRequest>>(payload)?;
+            json_value!(worker_bridge::get_frequent_searches_impl(
                 payload.request,
                 session_key(&state.session).as_deref()
             )?)

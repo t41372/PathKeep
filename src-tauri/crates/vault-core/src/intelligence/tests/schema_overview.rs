@@ -181,10 +181,11 @@ fn ensure_core_intelligence_schema_records_versioned_migrations() {
     let migration_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
         .expect("migration count");
-    assert_eq!(migration_count, 8);
+    assert_eq!(migration_count, 9);
     assert!(has_index(&connection, "idx_vdf_profile_visit_id"));
     assert!(has_index(&connection, "idx_search_trails_profile_time_trail"));
     assert!(has_index(&connection, "idx_search_events_profile_visit"));
+    assert!(has_index(&connection, "idx_search_events_kind_time"));
     assert!(has_index(&connection, "idx_search_events_profile_kind"));
     assert!(has_table(&connection, "intelligence_overview_snapshots"));
     assert!(!has_table(&connection, "insight_cards"));

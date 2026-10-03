@@ -226,6 +226,7 @@ fn run_app() -> Result<()> {
             upsert_search_engine_rule,
             delete_search_engine_rule,
             get_top_search_concepts,
+            get_frequent_searches,
             get_search_queries,
             get_query_families,
             get_query_family_detail,

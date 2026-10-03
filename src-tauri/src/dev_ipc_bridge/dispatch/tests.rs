@@ -36,15 +36,16 @@ use vault_core::{
     AppConfig, AppUpdateInstallRequest, ArchiveMode, BrowserHistoryImportRequest,
     CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
     DateRange, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
-    EntityExplanationRequest, ExportFormat, ExportRequest, FrontendErrorReportRequest,
-    GeneratedFile, GranularityDateRangeRequest, HistoryFaviconLookupEntry, HistoryQuery,
-    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, ListAgentConversationsRequest,
-    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest,
-    RefindPageDetailRequest, RefindPagesRequest, RenameAgentConversationRequest,
-    RetentionPruneRequest, SaveAgentConversationRequest, SchedulePlan, ScopedDateRangeRequest,
-    SearchEffectivenessRequest, SearchEngineRuleInput, SearchQueryListRequest,
-    SearchTrailQueryRequest, SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest,
-    TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
+    EntityExplanationRequest, ExportFormat, ExportRequest, FrequentSearchesRequest,
+    FrontendErrorReportRequest, GeneratedFile, GranularityDateRangeRequest,
+    HistoryFaviconLookupEntry, HistoryQuery, IntelligenceEmbedCardsRequest,
+    IntelligenceLocalHostRequest, ListAgentConversationsRequest, PagedDateRangeRequest,
+    PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest, RefindPageDetailRequest,
+    RefindPagesRequest, RenameAgentConversationRequest, RetentionPruneRequest,
+    SaveAgentConversationRequest, SchedulePlan, ScopedDateRangeRequest, SearchEffectivenessRequest,
+    SearchEngineRuleInput, SearchQueryListRequest, SearchTrailQueryRequest,
+    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest,
+    TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -900,6 +901,15 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_top_search_concepts",
         wrapped(TopSearchConceptsRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            limit: Some(10),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_frequent_searches",
+        wrapped(FrequentSearchesRequest {
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(10),

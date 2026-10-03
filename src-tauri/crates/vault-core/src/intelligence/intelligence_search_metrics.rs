@@ -2,8 +2,8 @@
 //! reads.
 //!
 //! ## Responsibilities
-//! - Serve engine-ranking and keyword-concept read models that the overview and
-//!   search UI share.
+//! - Serve engine-ranking, keyword-concept and frequent-search read models that the overview,
+//!   Insights and search UI share.
 //! - Own the Settings-facing search-engine rule CRUD surface.
 //! - Keep search-metric SQL separate from the heavier recent-query and
 //!   query-family loaders.
@@ -27,15 +27,15 @@
 
 use super::{
     date_range_bounds, display_name_for_search_engine_with_map, ensure_core_intelligence_schema,
-    load_search_engine_display_names,
+    load_search_engine_display_names, rfc3339_from_millis,
 };
 use super::{delete_search_engine_rule, list_search_engine_rules, upsert_search_engine_rule};
 use crate::{
     archive::open_intelligence_connection,
     config::ProjectPaths,
     models::{
-        AppConfig, EngineRanking, ScopedDateRangeRequest, SearchConcept, SearchEngineRule,
-        SearchEngineRuleInput, TopSearchConceptsRequest,
+        AppConfig, EngineRanking, FrequentSearch, FrequentSearchesRequest, ScopedDateRangeRequest,
+        SearchConcept, SearchEngineRule, SearchEngineRuleInput, TopSearchConceptsRequest,
     },
 };
 use anyhow::Result;
@@ -123,6 +123,67 @@ pub fn delete_search_engine_rule_for_settings(
     ensure_core_intelligence_schema(&connection)?;
     delete_search_engine_rule(&connection, rule_id)
 }
+
+/// Largest `limit` [`get_frequent_searches`] accepts.
+const FREQUENT_SEARCHES_MAX_LIMIT: u32 = 100;
+
+/// Returns the queries searched most often inside one date range, counted from the search
+/// events in that range and grouped by normalized query across search engines.
+///
+/// Only keyword searches count (navigational ones such as "github" are left out), so the counts
+/// add up to no more than the digest's search total for the same range.
+///
+/// Cost: walks `idx_search_events_kind_time` over the keyword searches in the range, then groups
+/// them; it never reads search events outside the range. Numbers in
+/// `docs/architecture/ipc-performance.md`.
+pub fn get_frequent_searches(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &FrequentSearchesRequest,
+) -> Result<Vec<FrequentSearch>> {
+    let connection = open_intelligence_connection(paths, config, key)?;
+    ensure_core_intelligence_schema(&connection)?;
+    get_frequent_searches_with_connection(&connection, request)
+}
+
+pub(super) fn get_frequent_searches_with_connection(
+    connection: &Connection,
+    request: &FrequentSearchesRequest,
+) -> Result<Vec<FrequentSearch>> {
+    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let limit = request.limit.unwrap_or(10).clamp(1, FREQUENT_SEARCHES_MAX_LIMIT);
+    // `raw_query` is a bare column next to `MAX(visit_time_ms)`, so SQLite takes it from the
+    // newest event in each group: the spelling the user typed most recently.
+    let mut statement = connection.prepare(FREQUENT_SEARCHES_SQL)?;
+    statement
+        .query_map(
+            params![start_ms, end_ms, request.profile_id.as_deref(), i64::from(limit)],
+            |row| {
+                Ok(FrequentSearch {
+                    normalized_query: row.get(0)?,
+                    query: row.get(1)?,
+                    search_count: row.get(2)?,
+                    last_searched_at: rfc3339_from_millis(row.get(3)?),
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+pub(super) const FREQUENT_SEARCHES_SQL: &str = "SELECT normalized_query,
+            raw_query,
+            COUNT(*) AS search_count,
+            MAX(visit_time_ms)
+     FROM search_events
+     WHERE query_kind = 'keyword'
+       AND visit_time_ms >= ?1
+       AND visit_time_ms < ?2
+       AND (?3 IS NULL OR profile_id = ?3)
+     GROUP BY normalized_query
+     ORDER BY search_count DESC, normalized_query ASC
+     LIMIT ?4";
 
 /// Returns top keyword concepts for one date range without leaking
 /// navigational-noise queries back into the UI.
