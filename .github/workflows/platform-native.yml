@@ -30,7 +30,7 @@ jobs:
       - name: Run macOS platform-native checks
         run: bun run check:platform
       - name: Run desktop bridge truth gate
-        run: bun run test:e2e:desktop-bridge
+        run: bun run test:e2e
 
   platform-linux:
     runs-on: ubuntu-latest

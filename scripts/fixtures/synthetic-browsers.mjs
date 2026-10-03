@@ -207,6 +207,22 @@ export function generateVisits({
 
 function writeChromeHistory(file, visits) {
   const db = new DatabaseSync(file)
+  createChromeSchema(db)
+  insertChromeVisits(db, visits)
+  db.close()
+}
+
+/**
+ * Adds visits to an existing synthetic Chrome profile, the way a browser
+ * session would between two backups. E2E uses it to prove incremental backup.
+ */
+export function appendChromeVisits(file, visits) {
+  const db = new DatabaseSync(file)
+  insertChromeVisits(db, visits)
+  db.close()
+}
+
+function createChromeSchema(db) {
   db.exec(`
     CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT NOT NULL, title TEXT, visit_count INTEGER NOT NULL,
       typed_count INTEGER NOT NULL, last_visit_time INTEGER NOT NULL, hidden INTEGER NOT NULL);
@@ -219,7 +235,19 @@ function writeChromeHistory(file, visits) {
     CREATE INDEX visits_url_index ON visits(url);
     CREATE INDEX visits_time_index ON visits(visit_time);
   `)
-  const urlIds = new Map()
+}
+
+function insertChromeVisits(db, visits) {
+  const urlIds = new Map(
+    db
+      .prepare('SELECT id, url FROM urls')
+      .all()
+      .map((row) => [row.url, row.id]),
+  )
+  const nextUrlId = () =>
+    Number(
+      db.prepare('SELECT COALESCE(MAX(id), 0) + 1 AS id FROM urls').get().id,
+    )
   const insertUrl = db.prepare(
     'INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden) VALUES (?, ?, ?, 0, 0, 0, 0)',
   )
@@ -236,7 +264,7 @@ function writeChromeHistory(file, visits) {
   for (const visit of visits) {
     let id = urlIds.get(visit.url)
     if (id === undefined) {
-      id = urlIds.size + 1
+      id = nextUrlId()
       urlIds.set(visit.url, id)
       insertUrl.run(id, visit.url, visit.title)
       if (visit.term) insertTerm.run(id, visit.term, visit.term.toLowerCase())
@@ -252,7 +280,6 @@ function writeChromeHistory(file, visits) {
     bump.run(visit.typed ? 1 : 0, time, id)
   }
   db.exec('COMMIT')
-  db.close()
 }
 
 function writeFirefoxPlaces(file, visits) {
@@ -264,7 +291,29 @@ function writeFirefoxPlaces(file, visits) {
     CREATE INDEX moz_historyvisits_place_index ON moz_historyvisits(place_id);
     CREATE INDEX moz_historyvisits_date_index ON moz_historyvisits(visit_date);
   `)
-  const ids = new Map()
+  insertFirefoxVisits(db, visits)
+  db.close()
+}
+
+/** Firefox counterpart of {@link appendChromeVisits}. */
+export function appendFirefoxVisits(file, visits) {
+  const db = new DatabaseSync(file)
+  insertFirefoxVisits(db, visits)
+  db.close()
+}
+
+function insertFirefoxVisits(db, visits) {
+  const ids = new Map(
+    db
+      .prepare('SELECT id, url FROM moz_places')
+      .all()
+      .map((row) => [row.url, row.id]),
+  )
+  const nextId = () =>
+    Number(
+      db.prepare('SELECT COALESCE(MAX(id), 0) + 1 AS id FROM moz_places').get()
+        .id,
+    )
   const insertPlace = db.prepare(
     'INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date) VALUES (?, ?, ?, 0, 0, 0)',
   )
@@ -278,7 +327,7 @@ function writeFirefoxPlaces(file, visits) {
   for (const visit of visits) {
     let id = ids.get(visit.url)
     if (id === undefined) {
-      id = ids.size + 1
+      id = nextId()
       ids.set(visit.url, id)
       insertPlace.run(id, visit.url, visit.title)
     }
@@ -287,7 +336,6 @@ function writeFirefoxPlaces(file, visits) {
     bump.run(time, id)
   }
   db.exec('COMMIT')
-  db.close()
 }
 
 /**
@@ -342,6 +390,21 @@ export function writeSyntheticBrowsers(
   return {
     chromeUserDataRoot: chromeRoot,
     firefoxProfilesRoot: firefoxRoot,
+    /** Every visit written, per profile id as PathKeep names it. */
+    visitsByProfile: {
+      'chrome:Default': personal,
+      'chrome:Profile 1': work,
+      'firefox:k3x9.default-release': firefox,
+    },
+    files: {
+      'chrome:Default': path.join(chromeRoot, 'Default', 'History'),
+      'chrome:Profile 1': path.join(chromeRoot, 'Profile 1', 'History'),
+      'firefox:k3x9.default-release': path.join(
+        firefoxRoot,
+        'k3x9.default-release',
+        'places.sqlite',
+      ),
+    },
     counts: {
       total: all.length,
       personal: personal.length,

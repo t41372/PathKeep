@@ -7,12 +7,8 @@ const require = createRequire(import.meta.url)
 const playwrightCliPath = require.resolve('@playwright/test/cli')
 
 const args = process.argv.slice(2)
-const configFlag = args.indexOf('--config')
-const configFile = configFlag === -1 ? '' : (args[configFlag + 1] ?? '')
-// Mirrors the `artifactsDir` each playwright config writes to.
-const artifactsDir = `artifacts/e2e/${
-  configFile.match(/^playwright\.(.+)\.config\.ts$/)?.[1] ?? 'preview'
-}`
+// Mirrors `artifactsDir` in playwright.config.ts.
+const artifactsDir = 'artifacts/e2e'
 
 const env = { ...process.env }
 
