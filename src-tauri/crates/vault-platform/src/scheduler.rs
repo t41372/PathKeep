@@ -7,6 +7,8 @@
 mod audit;
 mod linux;
 mod macos;
+#[cfg(test)]
+mod sandbox_tests;
 mod windows;
 
 use crate::{host_capability::current_platform_name, test_support::schedule_label};
@@ -36,6 +38,42 @@ const TEST_SCHTASKS_MODE_ENV: &str = "PATHKEEP_TEST_SCHTASKS_MODE";
 const TEST_SCHTASKS_QUERY_XML_ENV: &str = "PATHKEEP_TEST_SCHTASKS_QUERY_XML";
 const LEGACY_MACOS_SCHEDULE_LABELS: &[&str] =
     &["dev.codex.pathkeep.backup", "dev.codex.browser-history-backup.backup"];
+
+/// Where one scheduler operation sends its OS side effects.
+///
+/// Apply, remove, repair and status resolve this once and pass it down, so
+/// every OS touchpoint in one operation goes to the same place. See
+/// `crate::sandbox` for why the sandbox exists.
+#[derive(Debug, Clone)]
+pub(super) enum SchedulerHost {
+    /// The real `launchctl` / `schtasks` (the env-driven stubs under `cfg(test)`).
+    Native,
+    /// Files under the debug sandbox directory; no process is spawned.
+    Sandbox(PathBuf),
+}
+
+impl SchedulerHost {
+    fn resolve() -> Self {
+        crate::sandbox::sandbox_dir().map_or(Self::Native, Self::Sandbox)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Calls that reached the native scheduler layer on this thread.
+    static NATIVE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Records that a native scheduler call happened, so sandbox tests can assert none did.
+pub(super) fn count_native_call() {
+    #[cfg(test)]
+    NATIVE_CALLS.with(|calls| calls.set(calls.get() + 1));
+}
+
+#[cfg(test)]
+pub(super) fn native_call_count() -> usize {
+    NATIVE_CALLS.with(std::cell::Cell::get)
+}
 
 /// Builds a preview-only native schedule plan for the requested platform.
 pub fn preview_schedule(
@@ -123,24 +161,26 @@ fn enclosing_app_bundle(path: &Path) -> Option<&Path> {
 
 /// Applies a previously previewed native schedule plan when the platform supports it.
 pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
+    let host = SchedulerHost::resolve();
     if plan.platform == "windows" {
-        return windows::apply_windows_schedule(plan, paths);
+        return windows::apply_windows_schedule(&host, plan, paths);
     }
     if plan.platform != "macos" {
         return Ok(unsupported_action(plan, "Apply"));
     }
-    macos::apply_macos_schedule(plan, paths)
+    macos::apply_macos_schedule(&host, plan, paths)
 }
 
 /// Removes a previously applied native schedule plan when the platform supports it.
 pub fn remove_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
+    let host = SchedulerHost::resolve();
     if plan.platform == "windows" {
-        return windows::remove_windows_schedule(plan, paths);
+        return windows::remove_windows_schedule(&host, plan, paths);
     }
     if plan.platform != "macos" {
         return Ok(unsupported_action(plan, "Remove"));
     }
-    macos::remove_macos_schedule(plan, paths)
+    macos::remove_macos_schedule(&host, plan, paths)
 }
 
 /// Repairs user-confirmed scheduler problems that PathKeep knows how to fix.
@@ -148,7 +188,7 @@ pub fn repair_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Appl
     if plan.platform != "macos" {
         return Ok(unsupported_action(plan, "Repair"));
     }
-    macos::repair_macos_schedule(plan, paths)
+    macos::repair_macos_schedule(&SchedulerHost::resolve(), plan, paths)
 }
 
 /// Reports install/due-state information for the native scheduler plan.
@@ -159,6 +199,7 @@ pub fn schedule_status(
     params: &ScheduleParameters,
 ) -> Result<ScheduleStatus> {
     let plan = preview_schedule(platform, executable_path, paths, params)?;
+    let host = SchedulerHost::resolve();
     let mut status = ScheduleStatus {
         platform: plan.platform.clone(),
         label: plan.label.clone(),
@@ -178,7 +219,7 @@ pub fn schedule_status(
     };
 
     if plan.platform == "windows" {
-        return windows::windows_schedule_status(&plan, status);
+        return windows::windows_schedule_status(&host, &plan, status);
     }
 
     if plan.platform != "macos" {
@@ -199,7 +240,7 @@ pub fn schedule_status(
         });
         return Ok(status);
     }
-    macos::macos_schedule_status(&plan, status)
+    macos::macos_schedule_status(&host, &plan, status)
 }
 
 fn unsupported_action(plan: &SchedulePlan, action: &str) -> ApplyResult {

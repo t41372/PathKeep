@@ -45,7 +45,13 @@ pub fn schedule_label() -> String {
 }
 
 /// Returns an override for the macOS LaunchAgents directory when tests provide one.
+///
+/// Debug builds only, like the keyring redirect: a release build must always
+/// install into the real `~/Library/LaunchAgents`.
 pub(crate) fn launch_agents_dir_override() -> Option<PathBuf> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
     std::env::var_os(TEST_LAUNCH_AGENTS_DIR_ENV)
         .or_else(|| std::env::var_os(LEGACY_TEST_LAUNCH_AGENTS_DIR_ENV))
         .map(PathBuf::from)

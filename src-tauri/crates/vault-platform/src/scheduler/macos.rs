@@ -14,6 +14,9 @@
 //!
 //! ## Dependencies
 //! - `launchctl` and `id -u` in production.
+//! - A file-backed launchd emulator when the debug sandbox is active
+//!   (`crate::sandbox`): plists go to `<sandbox>/LaunchAgents`, and a marker
+//!   file per label under `<sandbox>/launchd-loaded` stands in for "loaded".
 //! - `crate::test_support` environment overrides for deterministic tests.
 //! - `audit` for apply/remove/repair audit artifacts.
 //!
@@ -39,9 +42,10 @@ use vault_core::{
 };
 
 use super::{
-    LEGACY_MACOS_SCHEDULE_LABELS, ScheduleParameters, audit, format_interval_label,
-    interval_minutes_from_hours, interval_seconds_from_hours,
+    LEGACY_MACOS_SCHEDULE_LABELS, ScheduleParameters, SchedulerHost, audit, count_native_call,
+    format_interval_label, interval_minutes_from_hours, interval_seconds_from_hours,
 };
+use crate::sandbox::{LAUNCH_AGENTS_SUBDIR, LAUNCHD_LOADED_SUBDIR};
 use crate::test_support::launch_agents_dir_override;
 #[cfg(any(test, coverage))]
 use crate::test_support::launchctl_stub_success;
@@ -249,10 +253,11 @@ fn enclosing_app_bundle(executable_path: &Path) -> Option<PathBuf> {
 }
 
 pub(super) fn apply_macos_schedule(
+    host: &SchedulerHost,
     plan: &SchedulePlan,
     paths: &ProjectPaths,
 ) -> Result<ApplyResult> {
-    let launch_agents_dir = launch_agents_dir()?;
+    let launch_agents_dir = host.launch_agents_dir()?;
     fs::create_dir_all(&launch_agents_dir)?;
 
     let mut written_files = Vec::new();
@@ -263,10 +268,10 @@ pub(super) fn apply_macos_schedule(
         written_files.push(target_path.display().to_string());
     }
 
-    let uid = scheduler_uid()?;
+    let uid = host.launchd_uid()?;
     let plist_path =
         written_files.first().context("missing plist file for macOS schedule apply")?.clone();
-    let bootstrap = bootstrap_launch_agent(&uid, &plan.label, &plist_path)?;
+    let bootstrap = host.bootstrap_launch_agent(&uid, &plan.label, &plist_path)?;
     let audit_path =
         audit::write_macos_apply_audit(paths, plan, &plist_path, &bootstrap.status_description)?;
 
@@ -299,15 +304,16 @@ pub(super) fn apply_macos_schedule(
 }
 
 pub(super) fn remove_macos_schedule(
+    host: &SchedulerHost,
     plan: &SchedulePlan,
     paths: &ProjectPaths,
 ) -> Result<ApplyResult> {
-    let launch_agents_dir = launch_agents_dir()?;
+    let launch_agents_dir = host.launch_agents_dir()?;
     fs::create_dir_all(&launch_agents_dir)?;
 
-    let uid = scheduler_uid()?;
+    let uid = host.launchd_uid()?;
     let current_path = generated_plist_target_path(plan, &launch_agents_dir)?;
-    let current_unload = bootout_launch_agent(&uid, &plan.label)?;
+    let current_unload = host.bootout_launch_agent(&uid, &plan.label)?;
 
     let mut removed_files = Vec::new();
     if current_path.exists() {
@@ -345,18 +351,19 @@ pub(super) fn remove_macos_schedule(
 }
 
 pub(super) fn repair_macos_schedule(
+    host: &SchedulerHost,
     plan: &SchedulePlan,
     paths: &ProjectPaths,
 ) -> Result<ApplyResult> {
-    let launch_agents_dir = launch_agents_dir()?;
+    let launch_agents_dir = host.launch_agents_dir()?;
     fs::create_dir_all(&launch_agents_dir)?;
-    let uid = scheduler_uid()?;
-    let legacy_agents = detect_legacy_macos_launch_agents(&launch_agents_dir);
+    let uid = host.launchd_uid()?;
+    let legacy_agents = detect_legacy_macos_launch_agents(host, &launch_agents_dir);
     let mut removed_files = Vec::new();
     let mut launchctl = Vec::new();
 
     for agent in legacy_agents {
-        let unload = bootout_launch_agent(&uid, agent.label)?;
+        let unload = host.bootout_launch_agent(&uid, agent.label)?;
         launchctl.push(unload.status_description);
         if agent.file_present && agent.path.exists() {
             fs::remove_file(&agent.path)?;
@@ -392,10 +399,11 @@ pub(super) fn repair_macos_schedule(
 }
 
 pub(super) fn macos_schedule_status(
+    host: &SchedulerHost,
     plan: &SchedulePlan,
     mut status: ScheduleStatus,
 ) -> Result<ScheduleStatus> {
-    let launch_agents_dir = launch_agents_dir()?;
+    let launch_agents_dir = host.launch_agents_dir()?;
     let target_path = generated_plist_target_path(plan, &launch_agents_dir)?;
 
     if target_path.exists() {
@@ -403,7 +411,7 @@ pub(super) fn macos_schedule_status(
         match fs::read_to_string(&target_path) {
             Ok(contents) => {
                 if contents == plan.generated_files[0].contents {
-                    if macos_launch_agent_loaded(&plan.label) {
+                    if host.launch_agent_loaded(&plan.label) {
                         status.install_state = "installed".to_string();
                         status.verification_checks.push(verification_check(
                             "macos-launch-agent-loaded",
@@ -475,7 +483,7 @@ pub(super) fn macos_schedule_status(
                 });
             }
         }
-    } else if macos_launch_agent_loaded(&plan.label) {
+    } else if host.launch_agent_loaded(&plan.label) {
         status.install_state = "permission-warning".to_string();
         status.issues.push(ScheduleIssue {
             code: "macos-plist-missing-loaded".to_string(),
@@ -511,7 +519,7 @@ pub(super) fn macos_schedule_status(
         ));
     }
 
-    let legacy_agents = detect_legacy_macos_launch_agents(&launch_agents_dir);
+    let legacy_agents = detect_legacy_macos_launch_agents(host, &launch_agents_dir);
     if !legacy_agents.is_empty() {
         status.detected_files.extend(legacy_agents.iter().map(LegacyLaunchAgent::detected_value));
         status.install_state = "legacy-install-detected".to_string();
@@ -567,14 +575,24 @@ impl LegacyLaunchAgent {
     }
 }
 
-fn detect_legacy_macos_launch_agents(launch_agents_dir: &Path) -> Vec<LegacyLaunchAgent> {
+fn detect_legacy_macos_launch_agents(
+    host: &SchedulerHost,
+    launch_agents_dir: &Path,
+) -> Vec<LegacyLaunchAgent> {
     LEGACY_MACOS_SCHEDULE_LABELS
         .iter()
         .copied()
         .filter_map(|label| {
             let path = launch_agents_dir.join(format!("{label}.plist"));
             let file_present = path.exists();
-            let loaded = launch_agents_dir_override().is_none() && macos_launch_agent_loaded(label);
+            // A bare LaunchAgents override (older tests) only redirects files,
+            // so asking the real launchd about legacy labels would mix sources.
+            let loaded = match host {
+                SchedulerHost::Native => {
+                    launch_agents_dir_override().is_none() && host.launch_agent_loaded(label)
+                }
+                SchedulerHost::Sandbox(_) => host.launch_agent_loaded(label),
+            };
             (file_present || loaded).then_some(LegacyLaunchAgent {
                 label,
                 path,
@@ -593,7 +611,7 @@ fn generated_plist_target_path(plan: &SchedulePlan, launch_agents_dir: &Path) ->
 }
 
 #[cfg(not(any(test, coverage)))]
-fn launch_agents_dir() -> Result<PathBuf> {
+fn native_launch_agents_dir() -> Result<PathBuf> {
     if let Some(path) = launch_agents_dir_override() {
         return Ok(path);
     }
@@ -601,25 +619,25 @@ fn launch_agents_dir() -> Result<PathBuf> {
 }
 
 #[cfg(any(test, coverage))]
-fn launch_agents_dir() -> Result<PathBuf> {
+fn native_launch_agents_dir() -> Result<PathBuf> {
     Ok(launch_agents_dir_override()
         .unwrap_or_else(|| std::env::temp_dir().join("pathkeep-launch-agents")))
 }
 
 #[cfg(not(any(test, coverage)))]
-fn scheduler_uid() -> Result<String> {
+fn native_scheduler_uid() -> Result<String> {
     let uid = Command::new("id").arg("-u").output().context("running id -u")?;
     Ok(String::from_utf8_lossy(&uid.stdout).trim().to_string())
 }
 
 #[cfg(any(test, coverage))]
-fn scheduler_uid() -> Result<String> {
+fn native_scheduler_uid() -> Result<String> {
     Ok("501".to_string())
 }
 
 #[cfg(not(any(test, coverage)))]
-fn macos_launch_agent_loaded(label: &str) -> bool {
-    let Ok(uid) = scheduler_uid() else {
+fn native_launch_agent_loaded(label: &str) -> bool {
+    let Ok(uid) = native_scheduler_uid() else {
         return false;
     };
     Command::new("launchctl")
@@ -630,7 +648,7 @@ fn macos_launch_agent_loaded(label: &str) -> bool {
 }
 
 #[cfg(any(test, coverage))]
-fn macos_launch_agent_loaded(label: &str) -> bool {
+fn native_launch_agent_loaded(label: &str) -> bool {
     std::env::var(TEST_LAUNCHCTL_LOADED_LABELS_ENV)
         .ok()
         .map(|labels| labels.split(',').any(|candidate| candidate == label))
@@ -677,13 +695,17 @@ fn describe_launchctl_output(action: &str, target: &str, output: &Output) -> Str
 }
 
 #[cfg(not(any(test, coverage)))]
-fn bootstrap_launch_agent(uid: &str, label: &str, plist_path: &str) -> Result<LaunchctlOutcome> {
-    let bootout = bootout_launch_agent(uid, label)?;
+fn native_bootstrap_launch_agent(
+    uid: &str,
+    label: &str,
+    plist_path: &str,
+) -> Result<LaunchctlOutcome> {
+    let bootout = native_bootout_launch_agent(uid, label)?;
     // A failed bootout is normally harmless when no previous service exists.
     // It is NOT harmless when the old service is still loaded: writing a new
     // plist then reporting bootstrap success leaves the user in an endless
     // "reinstall" / mismatch loop. Preserve the exact launchctl evidence.
-    if !bootout.success && macos_launch_agent_loaded(label) {
+    if !bootout.success && native_launch_agent_loaded(label) {
         return Ok(LaunchctlOutcome {
             success: false,
             status_description: format!(
@@ -703,7 +725,11 @@ fn bootstrap_launch_agent(uid: &str, label: &str, plist_path: &str) -> Result<La
 }
 
 #[cfg(any(test, coverage))]
-fn bootstrap_launch_agent(uid: &str, label: &str, plist_path: &str) -> Result<LaunchctlOutcome> {
+fn native_bootstrap_launch_agent(
+    uid: &str,
+    label: &str,
+    plist_path: &str,
+) -> Result<LaunchctlOutcome> {
     let success = launchctl_stub_success();
     if success {
         update_stub_loaded_label(label, true);
@@ -715,7 +741,7 @@ fn bootstrap_launch_agent(uid: &str, label: &str, plist_path: &str) -> Result<La
 }
 
 #[cfg(not(any(test, coverage)))]
-fn bootout_launch_agent(uid: &str, label: &str) -> Result<LaunchctlOutcome> {
+fn native_bootout_launch_agent(uid: &str, label: &str) -> Result<LaunchctlOutcome> {
     let target = format!("gui/{uid}/{label}");
     let output = Command::new("launchctl")
         .args(["bootout", &target])
@@ -728,7 +754,7 @@ fn bootout_launch_agent(uid: &str, label: &str) -> Result<LaunchctlOutcome> {
 }
 
 #[cfg(any(test, coverage))]
-fn bootout_launch_agent(uid: &str, label: &str) -> Result<LaunchctlOutcome> {
+fn native_bootout_launch_agent(uid: &str, label: &str) -> Result<LaunchctlOutcome> {
     let success = launchctl_stub_success();
     if success {
         update_stub_loaded_label(label, false);
@@ -739,6 +765,111 @@ fn bootout_launch_agent(uid: &str, label: &str) -> Result<LaunchctlOutcome> {
 struct LaunchctlOutcome {
     success: bool,
     status_description: String,
+}
+
+/// launchd access for one scheduler operation: native, or the sandbox emulator.
+impl SchedulerHost {
+    fn launch_agents_dir(&self) -> Result<PathBuf> {
+        match self {
+            Self::Native => native_launch_agents_dir(),
+            Self::Sandbox(root) => Ok(root.join(LAUNCH_AGENTS_SUBDIR)),
+        }
+    }
+
+    fn launchd_uid(&self) -> Result<String> {
+        match self {
+            Self::Native => {
+                count_native_call();
+                native_scheduler_uid()
+            }
+            Self::Sandbox(_) => Ok("sandbox".to_string()),
+        }
+    }
+
+    fn launch_agent_loaded(&self, label: &str) -> bool {
+        match self {
+            Self::Native => {
+                count_native_call();
+                native_launch_agent_loaded(label)
+            }
+            Self::Sandbox(root) => sandbox_loaded_marker(root, label).is_file(),
+        }
+    }
+
+    fn bootstrap_launch_agent(
+        &self,
+        uid: &str,
+        label: &str,
+        plist_path: &str,
+    ) -> Result<LaunchctlOutcome> {
+        match self {
+            Self::Native => {
+                count_native_call();
+                native_bootstrap_launch_agent(uid, label, plist_path)
+            }
+            Self::Sandbox(root) => sandbox_bootstrap_launch_agent(root, label, plist_path),
+        }
+    }
+
+    fn bootout_launch_agent(&self, uid: &str, label: &str) -> Result<LaunchctlOutcome> {
+        match self {
+            Self::Native => {
+                count_native_call();
+                native_bootout_launch_agent(uid, label)
+            }
+            Self::Sandbox(root) => sandbox_bootout_launch_agent(root, label),
+        }
+    }
+}
+
+fn sandbox_loaded_marker(root: &Path, label: &str) -> PathBuf {
+    root.join(LAUNCHD_LOADED_SUBDIR).join(label)
+}
+
+/// Emulates `launchctl bootstrap`: the plist must parse and carry the label,
+/// as launchd requires, and the label then counts as loaded until booted out.
+fn sandbox_bootstrap_launch_agent(
+    root: &Path,
+    label: &str,
+    plist_path: &str,
+) -> Result<LaunchctlOutcome> {
+    let plist_label = plist::Value::from_file(plist_path).ok().and_then(|value| {
+        value
+            .as_dictionary()
+            .and_then(|dict| dict.get("Label"))
+            .and_then(plist::Value::as_string)
+            .map(str::to_string)
+    });
+    if plist_label.as_deref() != Some(label) {
+        return Ok(LaunchctlOutcome {
+            success: false,
+            status_description: format!(
+                "sandbox bootstrap {plist_path}: not a launchd plist with Label {label}"
+            ),
+        });
+    }
+    let marker = sandbox_loaded_marker(root, label);
+    super::ensure_parent_dir(&marker)?;
+    fs::write(&marker, plist_path)
+        .with_context(|| format!("writing sandbox launchd marker {}", marker.display()))?;
+    Ok(LaunchctlOutcome {
+        success: true,
+        status_description: format!("sandbox bootstrap {label} {plist_path}"),
+    })
+}
+
+/// Emulates `launchctl bootout`, which fails when the label is not loaded.
+fn sandbox_bootout_launch_agent(root: &Path, label: &str) -> Result<LaunchctlOutcome> {
+    let marker = sandbox_loaded_marker(root, label);
+    if !marker.is_file() {
+        return Ok(LaunchctlOutcome {
+            success: false,
+            status_description: format!("sandbox bootout {label}: no such process"),
+        });
+    }
+    fs::remove_file(&marker)
+        .with_context(|| format!("removing sandbox launchd marker {}", marker.display()))?;
+    Ok(LaunchctlOutcome { success: true, status_description: format!("sandbox bootout {label}") })
 }
 
 fn verification_check(

@@ -62,6 +62,9 @@ const env = {
   CHB_CHROME_USER_DATA_DIR: browsers.chromeUserDataRoot,
   CHB_FIREFOX_PROFILES_DIR: browsers.firefoxProfilesRoot,
   CHB_SAFARI_ROOT: emptySafari,
+  // Debug builds keep schedule and login-item state here instead of the
+  // real launchd / Task Scheduler / login items.
+  PATHKEEP_PLATFORM_TEST_SANDBOX_DIR: path.join(demoRoot, 'os-sandbox'),
   CHB_TEST_KEYRING_DIR: keyringRoot,
   // A separate scheduler label, so the demo never replaces the real
   // PathKeep LaunchAgent. Installing the schedule still talks to the real
