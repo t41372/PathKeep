@@ -68,9 +68,10 @@ export const insightsClient = {
     section<SearchConcept[]>('get_top_search_concepts', {
       request: { ...scope, limit },
     }),
+  /** Pages are zero-based, like every paged intelligence command. */
   queryFamilies: (scope: Scope, pageSize = 200) =>
     section<QueryFamilyResult>('get_query_families', {
-      request: { ...scope, page: 1, pageSize },
+      request: { ...scope, page: 0, pageSize },
     }),
   refindPages: (scope: Scope, limit = 8) =>
     section<RefindPage[]>('get_refind_pages', { request: { ...scope, limit } }),
@@ -80,11 +81,18 @@ export const insightsClient = {
     }),
 }
 
+/** True while the background job that refreshes this section is running. */
+export function isStale(
+  result: { meta: { state: string } | null } | undefined,
+) {
+  return result?.meta?.state === 'stale'
+}
+
 /** Keeps polling a section while its background refresh is still running. */
 export function pollWhileStale(query: {
-  state: { data?: Section<unknown> }
+  state: { data?: { meta: { state: string } | null } }
 }): number | false {
-  return query.state.data?.meta?.state === 'stale' ? 5_000 : false
+  return isStale(query.state.data) ? 5_000 : false
 }
 
 /** `YYYY-MM-DD` in local time, the format every insights command expects. */

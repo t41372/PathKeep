@@ -76,6 +76,7 @@ export function TrendCard() {
             tickLine={false}
             axisLine={false}
             interval={6}
+            padding={{ left: 14, right: 14 }}
             tickFormatter={(value: string) =>
               format.monthDay(`${value}T00:00:00`)
             }

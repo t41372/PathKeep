@@ -59,6 +59,7 @@ export function useDailyActivity(range: RangeId) {
       }
     },
     placeholderData: keepPrevious,
+    refetchInterval: pollWhileStale,
   })
 }
 
@@ -67,6 +68,7 @@ export function useTopSites(range: RangeId) {
     queryKey: key(range, 'top-sites'),
     queryFn: () => insightsClient.topSites(scope(range), 6),
     placeholderData: keepPrevious,
+    refetchInterval: pollWhileStale,
   })
 }
 
@@ -75,6 +77,7 @@ export function useRhythm(range: RangeId) {
     queryKey: key(range, 'rhythm'),
     queryFn: () => insightsClient.rhythm(scope(range)),
     placeholderData: keepPrevious,
+    refetchInterval: pollWhileStale,
   })
 }
 
@@ -94,12 +97,16 @@ export function useFrequentSearches(range: RangeId, limit = 10) {
           (counts.get(family.anchorQuery) ?? 0) + family.memberCount,
         )
       }
-      return [...counts]
-        .map(([query, count]) => ({ query, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, limit)
+      return {
+        meta: result.meta,
+        data: [...counts]
+          .map(([query, count]) => ({ query, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, limit),
+      }
     },
     placeholderData: keepPrevious,
+    refetchInterval: pollWhileStale,
   })
 }
 
@@ -108,5 +115,6 @@ export function useRefindPages(range: RangeId) {
     queryKey: key(range, 'refind'),
     queryFn: () => insightsClient.refindPages(scope(range), 5),
     placeholderData: keepPrevious,
+    refetchInterval: pollWhileStale,
   })
 }

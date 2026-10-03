@@ -8,6 +8,7 @@ import { heatLevel } from '@/components/app/heat-level'
 import { Heatmap, type HeatCell } from '@/components/app/heatmap'
 import { SectionCard } from '@/components/app/section-card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { isStale } from '@/lib/backend-client/insights'
 import { cn } from '@/lib/cn'
 import type { KpiMetric } from '@/lib/core-intelligence/types'
 import {
@@ -208,7 +209,9 @@ export function TopSitesCard({ range }: { range: RangeId }) {
         <ListSkeleton rows={6} />
       ) : items.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {t('insights.topSites.empty')}
+          {t(
+            isStale(sites.data) ? 'insights.stale' : 'insights.topSites.empty',
+          )}
         </p>
       ) : (
         <ul className="flex flex-col gap-1.5">
@@ -300,7 +303,7 @@ export function SearchesAndRefindCard({ range }: { range: RangeId }) {
   const format = useFormat()
   const searches = useFrequentSearches(range)
   const refind = useRefindPages(range)
-  const concepts = searches.data ?? []
+  const concepts = searches.data?.data ?? []
   const pages = refind.data?.data ?? []
 
   return (
@@ -309,7 +312,11 @@ export function SearchesAndRefindCard({ range }: { range: RangeId }) {
         <ListSkeleton rows={2} />
       ) : concepts.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {t('insights.searches.empty')}
+          {t(
+            isStale(searches.data)
+              ? 'insights.stale'
+              : 'insights.searches.empty',
+          )}
         </p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
@@ -334,7 +341,7 @@ export function SearchesAndRefindCard({ range }: { range: RangeId }) {
         <ListSkeleton rows={3} />
       ) : pages.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {t('insights.refind.empty')}
+          {t(isStale(refind.data) ? 'insights.stale' : 'insights.refind.empty')}
         </p>
       ) : (
         <ul className="-mx-2 flex flex-col">
