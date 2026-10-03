@@ -66,10 +66,8 @@ const env = {
   // real launchd / Task Scheduler / login items.
   PATHKEEP_PLATFORM_TEST_SANDBOX_DIR: path.join(demoRoot, 'os-sandbox'),
   CHB_TEST_KEYRING_DIR: keyringRoot,
-  // A separate scheduler label, so the demo never replaces the real
-  // PathKeep LaunchAgent. Installing the schedule still talks to the real
-  // launchd, and the job it loads would not see CHB_PROJECT_ROOT, so leave
-  // automatic backup off when trying the demo.
+  // A label of its own as well, so even a sandbox mix-up could never touch
+  // the real PathKeep LaunchAgent.
   PATHKEEP_PLATFORM_TEST_SCHEDULE_LABEL: 'com.yi-ting.pathkeep.demo.backup',
   CARGO_TARGET_DIR:
     process.env.CARGO_TARGET_DIR ??
