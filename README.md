@@ -111,7 +111,7 @@ The question is no longer whether you can extract meaning from decades of histor
 
 PathKeep runs quietly on your machine and **incrementally backs up browsing history from all your browsers** on a schedule. On macOS and Windows, scheduled backup installs and runs automatically; on Linux, you generate the systemd files in-app and enable the timer manually. If your archive is encrypted, save the password to the system keychain so the background worker can unlock it — otherwise scheduled runs will fail silently. PathKeep never reads live browser databases directly; instead, it stages safe copies, deduplicates, and appends to a local archive that you fully own and control.
 
-On top of that archive, PathKeep gives you powerful recall (full-text search, regex, timeline, filters, export) and deterministic Core Intelligence from local archive facts. Semantic search, the AI assistant, MCP, and other AI-backed surfaces are v0.3 roadmap items, not v0.2.0 promises.
+On top of that archive, PathKeep gives you powerful recall (full-text search, regex, timeline, filters, export) and deterministic Core Intelligence from local archive facts. Semantic search, the Ask assistant and an MCP server are there too; they are optional and off until you turn them on.
 
 > Use Chrome with Google Sync enabled? PathKeep supports **Google Takeout import**, letting you recover extended history (often ~18 months, depending on your Google account settings) instead of just the local ~3 months.
 
@@ -121,13 +121,13 @@ On top of that archive, PathKeep gives you powerful recall (full-text search, re
 
 Download the latest release from [GitHub Releases](https://github.com/t41372/PathKeep/releases).
 
-- **macOS:** open the `.dmg`, move `PathKeep.app` to `/Applications`, then open it. Safari Browser Direct import requires granting Full Disk Access to PathKeep before scanning Safari history.
+- **macOS:** open the `.dmg`, move `PathKeep.app` to `/Applications`, then open it. Backing up Safari requires granting Full Disk Access to PathKeep before it can read Safari history.
 - **Windows:** install the unsigned `.msi` or `-setup.exe` release package. Windows will show `Unknown Publisher`, and SmartScreen may require **More info -> Run anyway** until PathKeep has publisher reputation. Scheduled backups use Windows Task Scheduler. The installer uses the WebView2 download bootstrapper when the runtime is missing, so first install may need internet access; Windows Server Core / headless Server environments are not valid GUI acceptance hosts.
 - **Linux:** Support is on the way. Build from source if you want to try it out right now. ~~install the `.AppImage`, `.deb`, or `.rpm` artifact. Linux scheduled-backup support is still preview/manual-review because desktop keyring and `systemd --user` behavior varies by distribution.~~
 
 ## Uninstall
 
-- Remove any installed schedule from **System -> Scheduled Backup Settings**.
+- Remove the installed schedule by setting **Backup → Automatic backup** to **Off**. (Settings → Storage → Delete all data does not remove it.)
 - Quit PathKeep, then delete the app or uninstall it with your OS package manager.
 - Optional local data removal: delete the PathKeep app-data directory only if you also want to remove the archive, config, audit artifacts, and derived indexes. On macOS that directory is `~/Library/Application Support/com.yi-ting.pathkeep`.
 
@@ -140,7 +140,7 @@ PathKeep is organized around three functional pillars, built in order of priorit
 ```
 ┌─────────────────────────────────────────────────────┐
 │               INTELLIGENCE                          │
-│   Core insights now · AI surfaces on v0.3 roadmap  │
+│   Local insights · Optional AI (Ask, semantic)     │
 ├─────────────────────────────────────────────────────┤
 │               RECALL                                │
 │   Full-text search · Timeline · Filters · Export   │
@@ -169,20 +169,20 @@ Finding what you've seen before, across years of history.
 
 - **Full-text search** — FTS5-powered keyword search across URLs, titles, and search terms
 - **Regex search** — optional regex mode for advanced pattern matching, post-filtered on canonical results
-- **Interactive timeline** — year → month → day drill-down with density visualization and virtual scrolling for millions of records
-- **Composite filters** — by browser, profile, domain, time range, page type, visit source, or import batch
-- **Export** — filtered result sets exportable to HTML, Markdown, plain text, or JSONL
+- **Timeline** — every visit grouped by day and browsing session, in a virtualized list that stays fast with millions of records
+- **Filters** — by date (presets or a custom range), browser and site
+- **Starred pages and notes** — star a page or a whole site, and write a note you can search later
+- **Export** — your whole history to HTML, Markdown, plain text, or JSONL
 
 ### Intelligence
 
-Understanding your browsing patterns, built on top of a solid archive. **AI features are deferred for v0.2.0** — PathKeep works from local archive facts without any AI provider.
+Understanding your browsing patterns, built on top of a solid archive. Everything here works without an AI provider.
 
-- **Deterministic insights** — browsing rhythm calendar heatmap, search activity, domain deep-dive, sessions, search trails, query families, refind pages, activity mix, and periodic summaries — all computed from archive facts, no AI required
-- **Semantic search** — deferred to the v0.3 roadmap; v0.2.0 ships keyword and regex recall only
-- **AI assistant** — deferred to the v0.3 roadmap until provider, retrieval, evidence, and lock-state flows are truth-tested
-- **MCP server** — deferred to the v0.3 roadmap; v0.2.0 does not expose browsing history to external AI tools
-- **Insight cards** — topic timelines, task/thread detection, browsing rhythm, explore-vs-exploit patterns, source effectiveness, and contrastive summaries from deterministic local models
-- **Remote backup** — Preview → Manual → Execute flow for S3-compatible remote bundles, with checksum and restore-readiness verification
+- **Insights** — page visits, distinct sites, searches and active time over 7 days to a year; daily activity, top sites, a weekday × hour rhythm, frequent searches, and pages you keep reopening — all computed locally from archive facts
+- **Home** — a year calendar heatmap, On this day, and topics you keep coming back to
+- **Semantic search** — optional; downloads a small model once and builds the index on your computer
+- **Ask** — optional chat over your history, with a local model (Ollama, LM Studio) or a provider you configure; answers cite the pages they used
+- **MCP server** — optional, read-only, localhost only, off by default
 
 ---
 
@@ -201,27 +201,28 @@ Implemented browsers appear in discovery and archive data but are not yet in the
 
 ## Platform Support
 
-| Platform | Status  | Notes                                                                                        |
-| -------- | ------- | -------------------------------------------------------------------------------------------- |
-| macOS    | Primary | Signed / notarized builds; Touch ID session unlock; Safari support requires Full Disk Access |
-| Windows  | Preview | Unsigned MSI / NSIS installers; `Unknown Publisher` is expected; Task Scheduler supported    |
-| Linux    | Preview | AppImage / `.deb` / `.rpm` builds available; keyring behavior varies by desktop environment  |
+| Platform | Status  | Notes                                                                                       |
+| -------- | ------- | ------------------------------------------------------------------------------------------- |
+| macOS    | Primary | Signed / notarized builds; Safari support requires Full Disk Access                         |
+| Windows  | Preview | Unsigned MSI / NSIS installers; `Unknown Publisher` is expected; Task Scheduler supported   |
+| Linux    | Preview | AppImage / `.deb` / `.rpm` builds available; keyring behavior varies by desktop environment |
 
 ---
 
 ## Tech Stack
 
-| Layer             | Choice                                                          | Why                                              |
-| ----------------- | --------------------------------------------------------------- | ------------------------------------------------ |
-| Desktop framework | Tauri 2                                                         | Cross-platform, Rust core, lightweight           |
-| Core logic        | Rust workspace (`vault-core`, `vault-worker`, `vault-platform`) | High performance, safe, cross-platform           |
-| Browser parsing   | `browser-history-parser` (standalone Rust crate)                | Reusable, community-publishable parser           |
-| Frontend          | React 19 + TypeScript + Vite                                    | Modern, type-safe                                |
-| Toolchain         | Bun                                                             | Package management and scripts                   |
-| Canonical storage | SQLite (optional SQLCipher encryption)                          | 20-year durability, local-first                  |
-| Full-text search  | SQLite FTS5                                                     | Core recall, no external service                 |
-| Vector / semantic | Deferred for v0.2.0                                             | Future replaceable sidecar, not in default build |
-| AI inference      | Deferred for v0.2.0                                             | Future user-configured providers                 |
+| Layer             | Choice                                                          | Why                                           |
+| ----------------- | --------------------------------------------------------------- | --------------------------------------------- |
+| Desktop framework | Tauri 2                                                         | Cross-platform, Rust core, lightweight        |
+| Core logic        | Rust workspace (`vault-core`, `vault-worker`, `vault-platform`) | High performance, safe, cross-platform        |
+| Browser parsing   | `browser-history-parser` (standalone Rust crate)                | Reusable, community-publishable parser        |
+| Frontend          | React 19 + TypeScript + Vite                                    | Modern, type-safe                             |
+| Toolchain         | Bun                                                             | Package management and scripts                |
+| Canonical storage | SQLite (optional SQLCipher encryption)                          | 20-year durability, local-first               |
+| Full-text search  | SQLite FTS5                                                     | Core recall, no external service              |
+| Frontend UI       | shadcn/ui + Tailwind CSS 4, EvilCharts (Recharts)               | Accessible primitives, one token set          |
+| Vector / semantic | Own flat vector index in a rebuildable sidecar                  | Optional, off by default, no external service |
+| AI inference      | Ollama / LM Studio or your own provider; built-in embeddings    | Optional, user-configured                     |
 
 ---
 
@@ -248,8 +249,9 @@ sudo apt-get install -y \
 
 ```bash
 bun install
-bun run dev              # Browser-only Vite preview (127.0.0.1:1420)
 bun run desktop:dev      # Full Tauri desktop app
+bun run dev:demo         # Real backend + synthetic browser data, open 127.0.0.1:1420 in a browser
+                         # (--first-run --fresh starts on onboarding)
 ```
 
 ### Build
@@ -264,9 +266,9 @@ bun run desktop:build    # Release desktop bundle
 ## Quality & Testing
 
 ```bash
-bun run check            # Lint, build, Rust checks, and the desktop-bridge E2E suite
+bun run check            # Lint, build, Rust checks, and the E2E suite
 bun run build            # TypeScript + Vite bundle
-bun run test:e2e:desktop-bridge # E2E against the real Rust backend
+bun run test:e2e         # E2E against the real Rust backend; artifacts in artifacts/e2e/
 bun run test:unit        # Vitest (few tests, E2E is the primary mechanism)
 bun run verify           # check + debug desktop build rehearsal
 ```
