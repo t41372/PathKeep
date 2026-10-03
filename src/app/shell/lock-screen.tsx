@@ -58,10 +58,7 @@ export function LockScreen({ kind }: { kind: 'app' | 'archive' }) {
           {t(kind === 'app' ? 'shell.lock.appBody' : 'shell.lock.archiveBody')}
         </p>
         <div
-          className={cn(
-            'mt-2 flex w-full gap-2',
-            failed && 'animate-[shake_0.3s]',
-          )}
+          className={cn('mt-2 flex w-full gap-2', failed && 'animate-shake')}
         >
           <Input
             ref={inputRef}

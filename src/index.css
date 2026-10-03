@@ -118,9 +118,9 @@
 }
 
 @theme inline {
-  --font-sans:
-    'Geist Variable', 'PingFang TC', 'PingFang SC', 'Noto Sans TC',
-    'Noto Sans SC', 'Microsoft JhengHei', system-ui, sans-serif;
+  /* Latin from Geist; Han glyphs from the system font for the interface
+     language (see the :lang rules below), Traditional by default. */
+  --font-sans: 'Geist Variable', var(--font-han), system-ui, sans-serif;
   --font-mono:
     'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
@@ -172,6 +172,29 @@
   --shadow-card: var(--shadow-card);
   --shadow-float: var(--shadow-float);
 
+  --animate-shake: shake 300ms ease-in-out;
+  @keyframes shake {
+    20%,
+    60% {
+      transform: translateX(-6px);
+    }
+    40%,
+    80% {
+      transform: translateX(6px);
+    }
+  }
+
+  /* A segment sliding across a bar whose progress is unknown. */
+  --animate-indeterminate: indeterminate 1.4s ease-in-out infinite;
+  @keyframes indeterminate {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
+    }
+  }
+
   --animate-rise: rise 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
   @keyframes rise {
     from {
@@ -182,6 +205,30 @@
       opacity: 1;
       transform: none;
     }
+  }
+}
+
+:root {
+  --font-han:
+    'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang SC',
+    'Noto Sans SC', 'Microsoft YaHei';
+}
+:root:lang(zh-CN) {
+  --font-han:
+    'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', 'PingFang TC',
+    'Noto Sans TC', 'Microsoft JhengHei';
+}
+
+/* "Reduce motion" turns off pulses, slides and transitions everywhere;
+   state is always also shown in text or colour. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

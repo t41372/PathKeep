@@ -49,7 +49,7 @@ export function ProgressCard() {
         <div
           className={
             percent == null
-              ? 'h-full w-1/3 animate-pulse rounded-full bg-brand'
+              ? 'h-full w-1/3 animate-indeterminate rounded-full bg-brand'
               : 'h-full rounded-full bg-brand transition-[width] duration-300'
           }
           style={

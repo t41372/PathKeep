@@ -176,7 +176,9 @@ function Importing({
         <div
           className={cn(
             'h-full rounded-full bg-brand',
-            percent == null ? 'w-1/3 animate-pulse' : 'transition-[width]',
+            percent == null
+              ? 'w-1/3 animate-indeterminate'
+              : 'transition-[width]',
           )}
           style={
             percent == null

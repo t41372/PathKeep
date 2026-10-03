@@ -197,7 +197,6 @@ function ProgressLine({
       <Progress
         value={value === undefined ? undefined : Math.round(value * 100)}
         aria-label={label}
-        className={value === undefined ? 'animate-pulse' : undefined}
       />
     </div>
   )
