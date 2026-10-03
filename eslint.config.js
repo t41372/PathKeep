@@ -12,12 +12,10 @@ const tsconfigRootDir = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig([
   globalIgnores([
-    'coverage',
-    '**/coverage',
     'dist',
     'playwright-report',
+    'artifacts/e2e',
     'reports',
-    '.stryker-tmp',
     '.claude',
     'src-tauri/target',
     'src-tauri/**/target',

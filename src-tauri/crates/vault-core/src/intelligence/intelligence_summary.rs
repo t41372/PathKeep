@@ -171,6 +171,14 @@ pub(crate) fn get_digest_summary_with_connection(
         count_deep_dive_sessions(connection, &request.date_range, request.profile_id.as_deref())?;
     let previous_deep =
         count_deep_dive_sessions(connection, &previous_range, request.profile_id.as_deref())?;
+    let current_domains =
+        count_distinct_domains(connection, &request.date_range, request.profile_id.as_deref())?;
+    let previous_domains =
+        count_distinct_domains(connection, &previous_range, request.profile_id.as_deref())?;
+    let current_active =
+        estimate_active_time_ms(connection, &request.date_range, request.profile_id.as_deref())?;
+    let previous_active =
+        estimate_active_time_ms(connection, &previous_range, request.profile_id.as_deref())?;
     let current_refind = super::count_refind_pages_in_range(
         connection,
         &request.date_range,
@@ -188,6 +196,8 @@ pub(crate) fn get_digest_summary_with_connection(
         new_domains: build_kpi(current.new_domains, previous.new_domains),
         deep_read_pages: build_kpi(current_deep, previous_deep),
         refind_pages: build_kpi(current_refind, previous_refind),
+        distinct_domains: build_kpi(current_domains, previous_domains),
+        active_time_ms: build_kpi(current_active, previous_active),
     })
 }
 
@@ -491,6 +501,60 @@ fn count_deep_dive_sessions(
                AND first_visit_ms >= ?2
                AND first_visit_ms < ?3",
             params![profile_id, start_ms, end_ms],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+}
+
+fn count_distinct_domains(
+    connection: &Connection,
+    range: &DateRange,
+    profile_id: Option<&str>,
+) -> Result<i64> {
+    connection
+        .query_row(
+            "SELECT COUNT(DISTINCT registrable_domain)
+             FROM domain_daily_rollups
+             WHERE (?1 IS NULL OR profile_id = ?1)
+               AND date_key >= ?2
+               AND date_key <= ?3",
+            params![profile_id, range.start, range.end],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+}
+
+/// Longest dwell credited to one visit when estimating active time.
+const ACTIVE_TIME_PER_VISIT_CAP_MS: i64 = 5 * 60_000;
+/// Time credited for the page a session ended on, which has no later visit to measure against.
+const ACTIVE_TIME_LAST_PAGE_MS: i64 = 60_000;
+
+/// Estimates active browsing time from session spans.
+///
+/// Browsers record visit durations unevenly (Safari and Firefox mostly leave them empty), so the
+/// estimate uses the sessions table instead: each session counts its first-to-last-visit span plus
+/// one minute for the final page, and never more than five minutes per visit so a tab left open
+/// inside a session does not inflate the total. Sessions are counted in the window they start in.
+fn estimate_active_time_ms(
+    connection: &Connection,
+    range: &DateRange,
+    profile_id: Option<&str>,
+) -> Result<i64> {
+    let (start_ms, end_ms) = date_range_bounds(range)?;
+    connection
+        .query_row(
+            "SELECT COALESCE(SUM(MIN(last_visit_ms - first_visit_ms + ?4, visit_count * ?5)), 0)
+             FROM sessions
+             WHERE (?1 IS NULL OR profile_id = ?1)
+               AND first_visit_ms >= ?2
+               AND first_visit_ms < ?3",
+            params![
+                profile_id,
+                start_ms,
+                end_ms,
+                ACTIVE_TIME_LAST_PAGE_MS,
+                ACTIVE_TIME_PER_VISIT_CAP_MS
+            ],
             |row| row.get(0),
         )
         .map_err(Into::into)

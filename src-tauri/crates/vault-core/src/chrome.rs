@@ -121,5 +121,21 @@ const FIREFOX_BROWSERS: [FirefoxBrowserDefinition; 4] = [
     FirefoxBrowserDefinition { key: "waterfox", name: "Waterfox" },
 ];
 
+/// User-visible browser name for a persisted `browser_kind`, matching discovery's `browser_name`.
+pub fn browser_display_name(browser_kind: &str) -> String {
+    let known = CHROMIUM_BROWSERS
+        .iter()
+        .find(|definition| definition.key == browser_kind)
+        .map(|definition| definition.name)
+        .or_else(|| {
+            FIREFOX_BROWSERS
+                .iter()
+                .find(|definition| definition.key == browser_kind)
+                .map(|definition| definition.name)
+        })
+        .or((browser_kind == "safari").then_some("Safari"));
+    known.map_or_else(|| browser_kind.to_string(), str::to_string)
+}
+
 #[cfg(test)]
 mod tests;

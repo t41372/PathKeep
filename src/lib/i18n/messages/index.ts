@@ -1,0 +1,45 @@
+/**
+ * Assembles the per-feature catalogs. Each feature owns one file with all
+ * three languages side by side, so a copy change is reviewed in one place.
+ */
+import type { MessagePath, ResolvedLanguage } from '../define'
+import { ask } from './ask'
+import { backup } from './backup'
+import { common } from './common'
+import { history } from './history'
+import { home } from './home'
+import { insights } from './insights'
+import { onboarding } from './onboarding'
+import { settings } from './settings'
+import { settingsAi } from './settings-ai'
+import { shell } from './shell'
+
+const namespaces = {
+  common,
+  shell,
+  home,
+  history,
+  insights,
+  ask,
+  backup,
+  settings,
+  settingsAi,
+  onboarding,
+}
+
+type Namespaces = typeof namespaces
+type Catalog = { [N in keyof Namespaces]: Namespaces[N]['en'] }
+
+function pick(lang: ResolvedLanguage) {
+  return Object.fromEntries(
+    Object.entries(namespaces).map(([name, ns]) => [name, ns[lang]]),
+  ) as unknown as Catalog
+}
+
+export const messages: Record<ResolvedLanguage, Catalog> = {
+  en: pick('en'),
+  'zh-CN': pick('zh-CN'),
+  'zh-TW': pick('zh-TW'),
+}
+
+export type MessageKey = MessagePath<Catalog>

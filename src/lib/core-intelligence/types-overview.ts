@@ -52,6 +52,10 @@ export interface DigestSummary {
   newDomains: KpiMetric
   deepReadPages: KpiMetric
   refindPages: KpiMetric
+  /** Distinct registrable domains visited in the range. */
+  distinctDomains: KpiMetric
+  /** Estimated time spent actively browsing, in milliseconds. */
+  activeTimeMs: KpiMetric
 }
 
 /** First-band `/intelligence` payload used to keep route entry responsive. */

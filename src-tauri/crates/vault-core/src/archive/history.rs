@@ -48,8 +48,8 @@ pub use self::og_images::{
     run_cleanup as run_og_image_cleanup, storage_stats as og_image_storage_stats, upsert_og_image,
 };
 use self::pagination::{
-    HistoryCursor, build_history_response, build_lexical_history_response, normalize_history_sort,
-    page_count, parse_history_cursor,
+    HistoryCursor, build_history_response, build_lexical_history_response,
+    build_uncounted_history_response, normalize_history_sort, page_count, parse_history_cursor,
 };
 
 const LIST_HISTORY_LEXICAL_SQL: &str = r#"
@@ -321,6 +321,7 @@ pub fn list_history(
     let browser_kind = query.browser_kind.clone();
     let raw_q = query.q.clone().filter(|value| !value.trim().is_empty());
     let regex_mode = query.regex_mode.unwrap_or(false);
+    let include_total = query.include_total.unwrap_or(true);
     let parsed_query = if regex_mode {
         ParsedHistorySearchQuery::default()
     } else {
@@ -374,6 +375,7 @@ pub fn list_history(
     if let Some(lexical_query) = lexical_query {
         return list_history_with_lexical_search(
             &connection,
+            include_total,
             limit,
             limit_usize,
             requested_page,
@@ -393,6 +395,7 @@ pub fn list_history(
 
     list_history_with_sql(
         &connection,
+        include_total,
         limit,
         limit_usize,
         requested_page,
@@ -643,6 +646,7 @@ pub(super) fn list_history_with_regex_capped_for_test(
 #[allow(clippy::too_many_arguments)]
 fn list_history_with_lexical_search(
     connection: &Connection,
+    include_total: bool,
     limit: u32,
     limit_usize: usize,
     requested_page: Option<usize>,
@@ -656,25 +660,30 @@ fn list_history_with_lexical_search(
     lexical_query: LexicalQuery,
 ) -> Result<HistoryQueryResponse> {
     let fuzzy_query = lexical_query.fuzzy_query.clone();
-    let total: usize = connection
-        .query_row(
-            COUNT_HISTORY_LEXICAL_SQL,
-            named_params! {
-                ":termsFtsQuery": lexical_query.terms_query.clone(),
-                ":trigramFtsQuery": lexical_query.trigram_query.clone(),
-                ":profileId": profile_id.clone(),
-                ":browserKind": browser_kind.clone(),
-                ":domainPattern": domain_pattern.clone(),
-                ":startTimeMs": start_time_ms,
-                ":endTimeMs": end_time_ms,
-            },
-            |row| row.get::<_, i64>(0),
-        )?
-        .try_into()
-        .expect("history count fits in usize");
+    let total: Option<usize> = if include_total {
+        let count: usize = connection
+            .query_row(
+                COUNT_HISTORY_LEXICAL_SQL,
+                named_params! {
+                    ":termsFtsQuery": lexical_query.terms_query.clone(),
+                    ":trigramFtsQuery": lexical_query.trigram_query.clone(),
+                    ":profileId": profile_id.clone(),
+                    ":browserKind": browser_kind.clone(),
+                    ":domainPattern": domain_pattern.clone(),
+                    ":startTimeMs": start_time_ms,
+                    ":endTimeMs": end_time_ms,
+                },
+                |row| row.get::<_, i64>(0),
+            )?
+            .try_into()
+            .expect("history count fits in usize");
+        Some(count)
+    } else {
+        None
+    };
 
-    if total == 0
-        && let Some(fuzzy_query) = fuzzy_query
+    if total == Some(0)
+        && let Some(fuzzy_query) = fuzzy_query.clone()
     {
         return list_history_with_fuzzy_fallback(
             connection,
@@ -692,10 +701,17 @@ fn list_history_with_lexical_search(
     }
 
     let mut statement = connection.prepare(LIST_HISTORY_LEXICAL_SQL)?;
-    let normalized_page_count = page_count(total, limit_usize);
-    let page = requested_page.unwrap_or(1).min(normalized_page_count);
+    let page = match total {
+        Some(total) => requested_page.unwrap_or(1).min(page_count(total, limit_usize)),
+        None => requested_page.unwrap_or(1),
+    };
     let start_index = page.saturating_sub(1) * limit_usize;
-    let page_limit = if requested_page.is_some() { i64::from(limit) } else { i64::from(limit) + 1 };
+    // Without a total, always read one extra row so `has_next` needs no count query.
+    let page_limit = if requested_page.is_some() && total.is_some() {
+        i64::from(limit)
+    } else {
+        i64::from(limit) + 1
+    };
     let page_offset =
         if requested_page.is_some() { i64::try_from(start_index).unwrap_or(i64::MAX) } else { 0 };
     let chronological_cursor =
@@ -712,12 +728,12 @@ fn list_history_with_lexical_search(
         named_params! {
             ":termsFtsQuery": lexical_query.terms_query,
             ":trigramFtsQuery": lexical_query.trigram_query,
-            ":profileId": profile_id,
-            ":browserKind": browser_kind,
-            ":domainPattern": domain_pattern,
+            ":profileId": profile_id.clone(),
+            ":browserKind": browser_kind.clone(),
+            ":domainPattern": domain_pattern.clone(),
             ":startTimeMs": start_time_ms,
             ":endTimeMs": end_time_ms,
-            ":sort": sort,
+            ":sort": sort.clone(),
             ":cursorVisitTime": if requested_page.is_some() { Option::<i64>::None } else { cursor_visit_time },
             ":cursorId": if requested_page.is_some() { Option::<i64>::None } else { cursor_id },
             ":cursorScore": if requested_page.is_some() { Option::<f64>::None } else { cursor_score },
@@ -726,27 +742,53 @@ fn list_history_with_lexical_search(
         },
         history_entry_with_score_from_row,
     )?;
-    let scored_items = if requested_page.is_some() {
-        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    let mut scored_items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_more = scored_items.len() > limit_usize;
+    if requested_page.is_none() || total.is_none() {
+        scored_items.truncate(limit_usize);
+    }
+    let response_start_index = if requested_page.is_some() {
+        start_index
+    } else if chronological_cursor.is_some() || relevance_cursor.is_some() {
+        limit_usize
     } else {
-        let mut window_items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        if window_items.len() > limit_usize {
-            window_items.truncate(limit_usize);
+        0
+    };
+
+    let Some(total) = total else {
+        // An empty first page with no total to consult may still deserve typo-tolerant recall.
+        if scored_items.is_empty()
+            && response_start_index == 0
+            && let Some(fuzzy_query) = fuzzy_query
+        {
+            return list_history_with_fuzzy_fallback(
+                connection,
+                limit_usize,
+                requested_page,
+                profile_id,
+                browser_kind,
+                domain_pattern,
+                start_time_ms,
+                end_time_ms,
+                sort,
+                cursor,
+                fuzzy_query,
+            );
         }
-        window_items
+        return Ok(build_uncounted_history_response(
+            limit_usize,
+            response_start_index,
+            has_more,
+            scored_items,
+            &sort,
+        ));
     };
 
     Ok(build_lexical_history_response(
         total,
         limit_usize,
         page,
-        if requested_page.is_some() {
-            start_index
-        } else if chronological_cursor.is_some() || relevance_cursor.is_some() {
-            limit_usize
-        } else {
-            0
-        },
+        response_start_index,
         scored_items,
         &sort,
     ))
@@ -866,6 +908,7 @@ fn fuzzy_start_index(
 #[allow(clippy::too_many_arguments)]
 fn list_history_with_sql(
     connection: &Connection,
+    include_total: bool,
     limit: u32,
     limit_usize: usize,
     requested_page: Option<usize>,
@@ -879,26 +922,38 @@ fn list_history_with_sql(
     cursor_visit_time: i64,
     cursor_id: i64,
 ) -> Result<HistoryQueryResponse> {
-    let total: usize = connection
-        .query_row(
-            COUNT_HISTORY_SQL,
-            named_params! {
-                ":profileId": profile_id.clone(),
-                ":browserKind": browser_kind.clone(),
-                ":domainPattern": domain_pattern.clone(),
-                ":startTimeMs": start_time_ms,
-                ":endTimeMs": end_time_ms,
-            },
-            |row| row.get::<_, i64>(0),
-        )?
-        .try_into()
-        .expect("history count fits in usize");
+    let total: Option<usize> = if include_total {
+        let count: usize = connection
+            .query_row(
+                COUNT_HISTORY_SQL,
+                named_params! {
+                    ":profileId": profile_id.clone(),
+                    ":browserKind": browser_kind.clone(),
+                    ":domainPattern": domain_pattern.clone(),
+                    ":startTimeMs": start_time_ms,
+                    ":endTimeMs": end_time_ms,
+                },
+                |row| row.get::<_, i64>(0),
+            )?
+            .try_into()
+            .expect("history count fits in usize");
+        Some(count)
+    } else {
+        None
+    };
 
     let mut statement = connection.prepare(LIST_HISTORY_SQL)?;
-    let normalized_page_count = page_count(total, limit_usize);
-    let page = requested_page.unwrap_or(1).min(normalized_page_count);
+    let page = match total {
+        Some(total) => requested_page.unwrap_or(1).min(page_count(total, limit_usize)),
+        None => requested_page.unwrap_or(1),
+    };
     let start_index = page.saturating_sub(1) * limit_usize;
-    let page_limit = if requested_page.is_some() { i64::from(limit) } else { i64::from(limit) + 1 };
+    // Without a total, always read one extra row so `has_next` needs no count query.
+    let page_limit = if requested_page.is_some() && total.is_some() {
+        i64::from(limit)
+    } else {
+        i64::from(limit) + 1
+    };
     let page_offset =
         if requested_page.is_some() { i64::try_from(start_index).unwrap_or(i64::MAX) } else { 0 };
     let rows = statement.query_map(
@@ -916,29 +971,31 @@ fn list_history_with_sql(
         },
         history_entry_from_row,
     )?;
-    let items = if requested_page.is_some() {
-        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_more = items.len() > limit_usize;
+    if requested_page.is_none() || total.is_none() {
+        items.truncate(limit_usize);
+    }
+    let response_start_index = if requested_page.is_some() {
+        start_index
+    } else if cursor.is_some() {
+        limit_usize
     } else {
-        let mut window_items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        if window_items.len() > limit_usize {
-            window_items.truncate(limit_usize);
-        }
-        window_items
+        0
     };
 
-    Ok(build_history_response(
-        total,
-        limit_usize,
-        page,
-        if requested_page.is_some() {
-            start_index
-        } else if cursor.is_some() {
-            limit_usize
-        } else {
-            0
-        },
-        items,
-    ))
+    match total {
+        Some(total) => {
+            Ok(build_history_response(total, limit_usize, page, response_start_index, items))
+        }
+        None => Ok(build_uncounted_history_response(
+            limit_usize,
+            response_start_index,
+            has_more,
+            items.into_iter().map(|entry| (entry, 0.0)).collect(),
+            "newest",
+        )),
+    }
 }
 
 /// Shapes one SQL row into the Explorer-facing history entry model.

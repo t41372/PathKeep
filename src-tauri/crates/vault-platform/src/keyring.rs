@@ -12,8 +12,12 @@ use apple_native_keyring_store::keychain::Store as NativeKeyringStore;
 use dbus_secret_service_keyring_store::Store as NativeKeyringStore;
 #[cfg(not(coverage))]
 use keyring_core::{Entry, get_default_store, set_default_store};
-#[cfg(all(not(coverage), target_os = "macos"))]
-use std::collections::HashMap;
+#[cfg(not(coverage))]
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
+};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -23,6 +27,22 @@ use vault_core::KeyringStatusReport;
 use windows_native_keyring_store::Store as NativeKeyringStore;
 
 const KEYRING_DATABASE_USER: &str = "database-key";
+
+/// How long a native keychain "is a key stored?" answer is reused. Settings and every config load
+/// ask once per AI provider, and an OS keychain round trip can take tens of milliseconds.
+#[cfg(not(coverage))]
+const PROVIDER_KEY_SAVED_TTL: Duration = Duration::from_secs(60);
+
+#[cfg(not(coverage))]
+fn provider_key_saved_cache() -> &'static Mutex<HashMap<String, (bool, Instant)>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, (bool, Instant)>>> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+#[cfg(not(coverage))]
+fn forget_provider_key_saved(user: &str) {
+    provider_key_saved_cache().lock().expect("provider key cache lock").remove(user);
+}
 
 fn provider_keyring_user(provider_id: &str) -> String {
     format!("ai-provider::{provider_id}")
@@ -234,7 +254,9 @@ pub fn keyring_set_provider_api_key(provider_id: &str, api_key: &str) -> Result<
 
     ensure_native_keyring_store()?;
     let entry = keyring_entry(&user)?;
-    entry.set_password(api_key)?;
+    let result = entry.set_password(api_key);
+    forget_provider_key_saved(&user);
+    result?;
     Ok(())
 }
 
@@ -256,6 +278,7 @@ pub fn keyring_clear_provider_api_key(provider_id: &str) -> Result<()> {
     ensure_native_keyring_store().ok();
     let entry = keyring_entry(&user)?;
     let _ = entry.delete_credential();
+    forget_provider_key_saved(&user);
     Ok(())
 }
 
@@ -273,7 +296,15 @@ pub fn provider_api_key_saved(provider_id: &str) -> bool {
             return test_keyring_path(&path, &user).exists();
         }
 
-        keyring_entry_exists_for_service(&keyring_service(), &user)
+        let cache = provider_key_saved_cache();
+        if let Some((saved, at)) = cache.lock().expect("provider key cache lock").get(&user)
+            && at.elapsed() < PROVIDER_KEY_SAVED_TTL
+        {
+            return *saved;
+        }
+        let saved = keyring_entry_exists_for_service(&keyring_service(), &user);
+        cache.lock().expect("provider key cache lock").insert(user, (saved, Instant::now()));
+        saved
     }
 }
 

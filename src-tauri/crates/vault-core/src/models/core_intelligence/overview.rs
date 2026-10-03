@@ -42,6 +42,10 @@ pub struct DigestSummary {
     pub new_domains: KpiMetric,
     pub deep_read_pages: KpiMetric,
     pub refind_pages: KpiMetric,
+    /// Distinct registrable domains visited in the window.
+    pub distinct_domains: KpiMetric,
+    /// Estimated time spent actively browsing, in milliseconds.
+    pub active_time_ms: KpiMetric,
 }
 
 /// Batched first-band `/intelligence` payload used to avoid foreground IPC fan-out.

@@ -1,62 +1,212 @@
-/**
- * Global stylesheet entry. The order below matters:
- * 1. tokens.css declares every CSS variable used downstream.
- * 2. fonts.css pulls bundled Newsreader + JetBrains Mono Latin subsets.
- * 3. tailwind.css is the Tailwind v4 entry; its @theme reads from tokens.css.
- * 4. paper.css adds materiality layers (noise, vignette, animations) on top.
- * 5. app.css is the legacy v0.2 shell stylesheet, retained until every page is
- *    rewritten into the paper redesign; it consumes the compatibility aliases
- *    defined at the bottom of tokens.css.
+/*
+ * Global styles. The palette comes from the 2026-10 prototype
+ * (docs/design/prototype-2026-10) and is exposed through the variable names
+ * shadcn/ui expects, so stock components pick it up without overrides.
  */
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
 
-@import './styles/tokens.css';
-@import './styles/fonts.css';
-@import './styles/tailwind.css';
-@import './styles/paper.css';
-@import './styles/app.css';
+@custom-variant dark (&:is(.dark *));
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+:root {
+  --radius: 0.75rem;
+
+  --wall: radial-gradient(
+    120% 90% at 20% 10%,
+    #dfe9f7 0%,
+    #e9eef6 40%,
+    #f7e6dc 85%,
+    #f3d9cb 100%
+  );
+  --window: rgb(250 250 252 / 0.62);
+  --panel: rgb(255 255 255 / 0.66);
+
+  --background: #f6f6f8;
+  --foreground: #0a0a0b;
+  --card: rgb(255 255 255 / 0.78);
+  --card-foreground: #0a0a0b;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0b;
+  --primary: #18181b;
+  --primary-foreground: #fafafa;
+  --secondary: rgb(15 15 30 / 0.045);
+  --secondary-foreground: #18181b;
+  --muted: rgb(15 15 30 / 0.045);
+  --muted-foreground: #6b6b74;
+  --accent: rgb(15 15 30 / 0.06);
+  --accent-foreground: #0a0a0b;
+  --destructive: oklch(0.6 0.2 25);
+  --border: rgb(15 15 30 / 0.08);
+  --input: rgb(15 15 30 / 0.12);
+  --ring: oklch(0.7 0.17 48 / 0.55);
+
+  --brand: oklch(0.7 0.17 48);
+  --brand-soft: oklch(0.7 0.17 48 / 0.12);
+  --blue: oklch(0.62 0.15 252);
+  --green: oklch(0.62 0.15 150);
+  --violet: oklch(0.62 0.15 300);
+  --red: oklch(0.6 0.2 25);
+
+  --heat-0: rgb(15 15 30 / 0.06);
+  --heat-1: oklch(0.9 0.05 52);
+  --heat-2: oklch(0.82 0.1 50);
+  --heat-3: oklch(0.74 0.15 48);
+  --heat-4: oklch(0.64 0.18 44);
+
+  --chart-1: var(--brand);
+  --chart-2: var(--blue);
+  --chart-3: var(--green);
+  --chart-4: var(--violet);
+  --chart-5: var(--red);
+
+  --shadow-card: 0 1px 2px rgb(15 15 30 / 0.06), 0 1px 1px rgb(15 15 30 / 0.03);
+  --shadow-float:
+    0 12px 32px rgb(15 15 30 / 0.14), 0 2px 6px rgb(15 15 30 / 0.06);
+  --user-bubble: #18181b;
+  --user-bubble-foreground: #fafafa;
 }
 
-html {
-  font-size: 15px;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+.dark {
+  --wall: radial-gradient(
+    120% 90% at 30% 10%,
+    #2a2840 0%,
+    #1a1a2a 45%,
+    #1f1622 80%,
+    #2a1a1c 100%
+  );
+  --window: rgb(24 24 34 / 0.62);
+  --panel: rgb(30 30 42 / 0.55);
+
+  --background: #17171f;
+  --foreground: #f4f4f5;
+  --card: rgb(255 255 255 / 0.055);
+  --card-foreground: #f4f4f5;
+  --popover: #22222e;
+  --popover-foreground: #f4f4f5;
+  --primary: #f4f4f5;
+  --primary-foreground: #18181b;
+  --secondary: rgb(255 255 255 / 0.05);
+  --secondary-foreground: #f4f4f5;
+  --muted: rgb(255 255 255 / 0.05);
+  --muted-foreground: #a1a1aa;
+  --accent: rgb(255 255 255 / 0.07);
+  --accent-foreground: #f4f4f5;
+  --destructive: oklch(0.68 0.18 25);
+  --border: rgb(255 255 255 / 0.08);
+  --input: rgb(255 255 255 / 0.12);
+  --ring: oklch(0.74 0.16 50 / 0.55);
+
+  --brand: oklch(0.74 0.16 50);
+  --brand-soft: oklch(0.74 0.16 50 / 0.16);
+  --blue: oklch(0.72 0.13 252);
+  --green: oklch(0.72 0.13 150);
+  --violet: oklch(0.72 0.13 300);
+  --red: oklch(0.68 0.18 25);
+
+  --heat-0: rgb(255 255 255 / 0.06);
+  --heat-1: oklch(0.38 0.07 48);
+  --heat-2: oklch(0.5 0.11 48);
+  --heat-3: oklch(0.62 0.15 48);
+  --heat-4: oklch(0.76 0.16 52);
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-float: 0 16px 40px rgb(0 0 0 / 0.45);
+  --user-bubble: #f4f4f5;
+  --user-bubble-foreground: #18181b;
 }
 
-html,
-body,
-#root {
-  height: 100%;
-  margin: 0;
-  overflow: hidden;
-  overscroll-behavior: none;
+@theme inline {
+  --font-sans:
+    'Geist Variable', 'PingFang TC', 'PingFang SC', 'Noto Sans TC',
+    'Noto Sans SC', 'Microsoft JhengHei', system-ui, sans-serif;
+  --font-mono:
+    'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-window: var(--window);
+  --color-panel: var(--panel);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-blue: var(--blue);
+  --color-green: var(--green);
+  --color-violet: var(--violet);
+  --color-red: var(--red);
+  --color-heat-0: var(--heat-0);
+  --color-heat-1: var(--heat-1);
+  --color-heat-2: var(--heat-2);
+  --color-heat-3: var(--heat-3);
+  --color-heat-4: var(--heat-4);
+  --color-user-bubble: var(--user-bubble);
+  --color-user-bubble-foreground: var(--user-bubble-foreground);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-float: var(--shadow-float);
+
+  --animate-rise: rise 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
 
-body {
-  font-family: var(--font-sans);
-  line-height: 1.5;
-  background: var(--bg-page);
-  color: var(--ink);
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-
-button {
-  cursor: pointer;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  body {
+    @apply text-foreground font-sans antialiased;
+    background: var(--wall);
+    font-size: 14px;
+    font-synthesis: none;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection {
+    background: var(--brand-soft);
+  }
 }

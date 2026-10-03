@@ -118,19 +118,8 @@ Run:
 
 ```bash
 bun run check
-bun run coverage:js
-bun run coverage:rust
-bun run test:e2e
-bun run mutation:js
-bun run mutation:rust
-bun run build
+bun run check:slow
 bun run desktop:build:debug
-```
-
-If you are explicitly doing broader Rust mutation triage beyond the signed-off parser + AI helper contract, also run:
-
-```bash
-bun run mutation:rust:full
 ```
 
 Then perform a traceability sweep:

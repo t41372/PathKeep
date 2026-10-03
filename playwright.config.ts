@@ -13,18 +13,28 @@ const linuxExecutableOverride =
   process.env.PLAYWRIGHT_CHROME_EXECUTABLE_PATH ||
   undefined
 
+// Every run leaves the same set of artifacts in `artifacts/e2e/<name>/`:
+// `report/` (HTML), `results.json`, and `test-results/` (traces, screenshots,
+// videos). The folder is gitignored; CI uploads it.
+const artifactsDir = 'artifacts/e2e/preview'
+
 export default defineConfig({
   testDir: './tests/e2e',
   testIgnore: 'desktop-bridge.spec.ts',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI
-    ? [['github'], ['html', { open: 'never' }]]
-    : [['list']],
+  outputDir: `${artifactsDir}/test-results`,
+  reporter: [
+    process.env.CI ? ['github'] : ['list'],
+    ['html', { open: 'never', outputFolder: `${artifactsDir}/report` }],
+    ['json', { outputFile: `${artifactsDir}/results.json` }],
+  ],
   use: {
     baseURL: 'http://127.0.0.1:1420',
-    trace: 'retain-on-failure',
+    trace: 'on',
+    screenshot: 'on',
+    video: 'retain-on-failure',
   },
   webServer: {
     command: 'bun run dev',

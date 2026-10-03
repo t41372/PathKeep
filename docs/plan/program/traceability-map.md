@@ -47,16 +47,16 @@
 
 > `WORK-QC-C` 起，traceability 不再只停在「哪份 docs 對應哪份計劃」；每個主要 work package 還要能指出目前真正的驗收入口。
 
-| Work package / surface                     | 主要驗收入口                                                                | 補充 gate / evidence                                                                                          |
-| ------------------------------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Desktop entry + typed IPC contract         | `bun run check:desktop-contract`                                            | `src/main.test.tsx`、`src/lib/ipc/bridge.test.ts`                                                             |
-| Shell / trust-critical product flows       | `bun run test:unit:product-flows`                                           | `src/app/index.test.tsx`、`src/pages/trust-flows.test.tsx`、`tests/e2e/shell.spec.ts`                         |
-| Parser crate                               | `cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-parser` | `bun run mutation:rust` 的 parser contract                                                                    |
-| Canonical archive / import / doctor        | `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core`             | canonical ingest、doctor、takeout rollback / restore acceptance-style Rust tests                              |
-| Worker orchestration / schedule / security | `cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --lib`     | `cargo test --manifest-path src-tauri/Cargo.toml -p pathkeep-desktop --lib`、`src/pages/trust-flows.test.tsx` |
-| Intelligence / insights / assistant        | `src/pages/intelligence-surfaces.test.tsx`                                  | `src/lib/intelligence.test.ts`、`bun run mutation:rust` 的 AI status/helper contract                          |
-| Release-style desktop truth                | `bun run verify`                                                            | `bun run desktop:build:debug`、[quality-matrix.md](quality-matrix.md)、M4 release / support runbook           |
-| Support / docs / truthfulness closeout     | milestone README + source docs 回寫                                         | [repo-baseline.md](repo-baseline.md)、[quality-matrix.md](quality-matrix.md)、M1 / M4 acceptance matrix       |
+| Work package / surface                     | 主要驗收入口                                                                | 補充 gate / evidence                                                                                           |
+| ------------------------------------------ | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Desktop entry + typed IPC contract         | `bun run test:e2e:desktop-bridge`                                           | `tests/e2e/desktop-bridge.spec.ts`、`bun run test:desktop-bridge:rust`                                         |
+| Shell / trust-critical product flows       | `bun run test:e2e:desktop-bridge`                                           | `tests/e2e/desktop-bridge.spec.ts`；artifact 在 `artifacts/e2e/desktop-bridge/`                                |
+| Parser crate                               | `cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-parser` | Rust parser fixtures 與 `cargo test` 斷言                                                                      |
+| Canonical archive / import / doctor        | `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core`             | canonical ingest、doctor、takeout rollback / restore acceptance-style Rust tests                               |
+| Worker orchestration / schedule / security | `cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --lib`     | `cargo test --manifest-path src-tauri/Cargo.toml -p pathkeep-desktop --lib`、`bun run test:e2e:desktop-bridge` |
+| Intelligence / insights / assistant        | `bun run test:e2e:desktop-bridge`                                           | `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core` 的 AI status/helper 測試                       |
+| Release-style desktop truth                | `bun run verify`                                                            | `bun run desktop:build:debug`、[quality-matrix.md](quality-matrix.md)、M4 release / support runbook            |
+| Support / docs / truthfulness closeout     | milestone README + source docs 回寫                                         | [repo-baseline.md](repo-baseline.md)、[quality-matrix.md](quality-matrix.md)、M1 / M4 acceptance matrix        |
 
 ---
 

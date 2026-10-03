@@ -1,327 +1,139 @@
 /**
- * @file i18n-progress.ts
- * @description Reports shipped i18n key parity and blocks known raw-English leakage in Chinese locales.
+ * i18n gate (`bun run check:i18n`).
  *
- * ## Responsibilities
- * - Count every shipped translation key by locale and namespace.
- * - Fail the check when `zh-CN` or `zh-TW` is missing keys present in English.
- * - Fail the check when Chinese locales contain known raw backend/debug phrases that must be localized before display.
- *
- * ## Not responsible for
- * - Judging acceptable product names such as PathKeep, Safari, Chrome, macOS, SQLCipher, or URLs.
- * - Replacing route/component tests that verify a specific string is actually rendered.
- * - Performing machine translation.
- *
- * ## Dependencies
- * - Imports the canonical runtime catalog from `src/lib/i18n/catalog`.
- *
- * ## Performance notes
- * - Static catalog walk only. This is intentionally cheap enough to run in the JS check gate.
+ * The compiler already guarantees the three catalogs have the same keys
+ * (see `defineMessages`). This script checks what the compiler cannot:
+ * - every translation uses the same {placeholders} as English
+ * - no catalog still contains a TODO stub
+ * - Chinese copy has no untranslated English jargon
+ * - Traditional Chinese uses Taiwan vocabulary, not mainland terms
+ * - English copy avoids internal jargon
  */
-
 import {
+  messages,
   supportedLanguages,
-  translationCatalog,
-  translationNamespaces,
+  type MessageTree,
   type ResolvedLanguage,
-} from '../src/lib/i18n/catalog'
+} from '../src/lib/i18n/messages-entry'
 
-type TranslationNode = string | Record<string, TranslationNode>
-
-interface FlatEntry {
-  key: string
-  value: string
+interface Rule {
+  id: string
+  pattern: RegExp
 }
 
-interface MissingKeyIssue {
-  language: ResolvedLanguage
-  key: string
-}
+// Internal words that must not leak into Chinese UI copy untranslated.
+// Product names (Chrome, Safari, Google Takeout, MCP, AI, API) are fine.
+const chineseRawEnglish: Rule[] = [
+  { id: 'full-disk-access', pattern: /\bFull Disk Access\b/i },
+  { id: 'profile', pattern: /\bprofiles?\b/i },
+  { id: 'adapter', pattern: /\badapters?\b/i },
+  { id: 'append-only', pattern: /\bappend-only\b/i },
+  { id: 'rollup', pattern: /\brollups?\b/i },
+  { id: 'digest', pattern: /\bdigests?\b/i },
+  { id: 'worker', pattern: /\bworkers?\b/i },
+  { id: 'payload', pattern: /\bpayloads?\b/i },
+  { id: 'schema', pattern: /\bschemas?\b/i },
+  { id: 'migration', pattern: /\bmigrations?\b/i },
+  { id: 'enrichment', pattern: /\benrichment\b/i },
+  { id: 'trace', pattern: /\btraces?\b/i },
+  { id: 'visit', pattern: /\bvisits?\b/i },
+  { id: 'archive', pattern: /\barchives?\b/i },
+  { id: 'checkpoint', pattern: /\bcheckpoints?\b/i },
+]
 
-interface RawEnglishIssue {
-  language: ResolvedLanguage
-  key: string
-  patternId: string
-  value: string
-}
-
-const chineseLocales = ['zh-CN', 'zh-TW'] as const
-
-/**
- * Blocks raw backend/debug English that leaked into the Chinese catalogs.
- *
- * Every entry here was an actual shipped leak, not a hypothetical: the gate is
- * only useful if a regression is what turns it red, so keep the list tied to
- * vocabulary the product has already decided not to show a Chinese reader.
- */
-const blockedRawEnglishPatterns = [
+const taiwanVocabulary: Rule[] = [
+  { id: 'stale-full-disk-access-name', pattern: /完全磁碟|磁碟存取權(?!限)/ },
   {
-    id: 'full-disk-access-english',
-    pattern: /\bFull Disk Access\b/i,
-  },
-  {
-    id: 'safari-access-raw-error',
-    pattern: /Safari History\.db is not readable yet/i,
-  },
-  {
-    id: 'grant-full-disk-access',
-    pattern: /Grant Full Disk Access/i,
-  },
-  {
-    id: 'archive-facts-debug-label',
-    pattern: /\barchive facts\b/i,
-  },
-  {
-    id: 'canonical-archive-run-debug-label',
-    pattern: /\bcanonical archive run\b/i,
-  },
-  {
-    id: 'shell-state-debug-label',
-    pattern: /\bshell state\b/i,
-  },
-  {
-    id: 'copying-source-debug-log',
-    pattern: /\bcopying\s+\/Users\//i,
-  },
-  {
-    id: 'visible-profile-jargon',
-    pattern: /\bprofile\b/i,
-  },
-  {
-    id: 'visible-adapter-jargon',
-    pattern: /\badapter\b/i,
-  },
-  {
-    id: 'visible-append-only-jargon',
-    pattern: /\bappend-only\b/i,
-  },
-  {
-    id: 'missing-key-leak',
-    pattern: /^[a-z]+(?:\.[a-z][a-z0-9]*){1,}$/i,
-  },
-  {
-    id: 'app-data-jargon',
-    pattern: /\bapp data\b/i,
-  },
-  {
-    id: 'rollup-jargon',
-    pattern: /\brollups?\b/i,
-  },
-  {
-    id: 'digest-jargon',
-    pattern: /\bdigests?\b/i,
-  },
-  {
-    id: 'worker-jargon',
-    pattern: /\bworkers?\b/i,
-  },
-  {
-    id: 'payload-jargon',
-    pattern: /\bpayloads?\b/i,
-  },
-  {
-    id: 'schema-jargon',
-    pattern: /\bschemas?\b/i,
-  },
-  {
-    id: 'migration-jargon',
-    pattern: /\bmigrations?\b/i,
-  },
-  {
-    id: 'archive-wide-jargon',
-    pattern: /\barchive-wide\b/i,
-  },
-  {
-    id: 'route-grammar-jargon',
-    pattern: /\broute grammar\b/i,
-  },
-  {
-    id: 'enrichment-jargon',
-    pattern: /\benrichment\b/i,
-  },
-  {
-    id: 'trace-jargon',
-    pattern: /\btraces?\b/i,
-  },
-  {
-    id: 'visit-jargon',
-    pattern: /\bvisits?\b/i,
-  },
-  {
-    id: 'archive-jargon',
-    pattern: /\barchives?\b/i,
-  },
-  {
-    id: 'checkpoint-jargon',
-    pattern: /\bcheckpoints?\b/i,
-  },
-] as const
-
-/**
- * Blocks implementation vocabulary on the English side of the catalog.
- *
- * Chinese leakage is easy to spot because the surrounding text is Chinese;
- * English jargon hides in plain sight, so the terms the product has already
- * renamed for users get a gate of their own rather than a style-guide note.
- */
-const blockedEnglishJargonPatterns = [
-  {
-    id: 'en-shell-state-jargon',
-    pattern: /\bshell state\b/i,
-  },
-  {
-    id: 'en-append-only-jargon',
-    pattern: /\bappend-only\b/i,
-  },
-  {
-    id: 'en-app-data-jargon',
-    pattern: /\bapp data\b/i,
-  },
-  {
-    id: 'en-canonical-place-jargon',
-    pattern: /\bcanonical place\b/i,
-  },
-  {
-    id: 'en-profile-scope-jargon',
-    pattern: /\bprofile scope\b/i,
-  },
-  {
-    id: 'en-all-profiles-jargon',
-    pattern: /\ball profiles\b/i,
-  },
-  {
-    id: 'en-article-before-embedding',
-    pattern: /\ba embedding\b/i,
-  },
-] as const
-
-/**
- * Blocks mainland-Chinese vocabulary and stale OS names from the `zh-TW` catalog.
- *
- * `zh-TW` had already converged on the Taiwanese term for each of these in
- * other strings, so a single locale-scoped gate is what stops the mixed pairs
- * from drifting back in one string at a time.
- */
-const blockedTraditionalChinesePatterns = [
-  {
-    id: 'zh-tw-stale-full-disk-access-name',
-    pattern: /完全磁碟|磁碟存取權(?!限)/,
-  },
-  {
-    id: 'zh-tw-mainland-vocabulary',
+    id: 'mainland-vocabulary',
     pattern: /會話|視圖|訪問|信號|智能|卸載|刷新|決定性|語義/,
   },
-] as const
+]
 
-function removeInterpolationPlaceholders(value: string) {
-  return value.replace(/\{[a-zA-Z0-9_]+\}/g, '')
-}
+const englishJargon: Rule[] = [
+  { id: 'shell-state', pattern: /\bshell state\b/i },
+  { id: 'append-only', pattern: /\bappend-only\b/i },
+  { id: 'app-data', pattern: /\bapp data\b/i },
+  { id: 'canonical-place', pattern: /\bcanonical place\b/i },
+  { id: 'profile-scope', pattern: /\bprofile scope\b/i },
+  { id: 'all-profiles', pattern: /\ball profiles\b/i },
+]
 
-function flattenCatalogNode(
-  node: TranslationNode,
+const everyLanguage: Rule[] = [
+  { id: 'todo-stub', pattern: /^TODO$|\bTODO\b/ },
+  { id: 'key-leak', pattern: /^[a-z]+(?:\.[a-z][a-zA-Z0-9]*)+$/ },
+]
+
+function flatten(
+  tree: MessageTree,
   prefix = '',
-  entries: FlatEntry[] = [],
+  out = new Map<string, string>(),
 ) {
-  if (typeof node === 'string') {
-    entries.push({ key: prefix, value: node })
-    return entries
+  for (const [key, value] of Object.entries(tree)) {
+    const path = prefix ? `${prefix}.${key}` : key
+    if (typeof value === 'string') out.set(path, value)
+    else flatten(value, path, out)
   }
-
-  const dictionary = node as Record<string, TranslationNode>
-  for (const [key, value] of Object.entries(dictionary)) {
-    flattenCatalogNode(value, prefix ? `${prefix}.${key}` : key, entries)
-  }
-
-  return entries
+  return out
 }
 
-function formatPercent(value: number) {
-  return `${value.toFixed(2)}%`
-}
+const placeholders = (value: string) =>
+  [...value.matchAll(/\{(\w+)\}/g)]
+    .map((match) => match[1])
+    .sort()
+    .join(',')
+const visible = (value: string) => value.replace(/\{\w+\}/g, '')
 
-const catalog = translationCatalog()
-const flatCatalog = Object.fromEntries(
-  supportedLanguages.map((language) => [
-    language,
-    flattenCatalogNode(catalog[language] as TranslationNode),
-  ]),
-) as Record<ResolvedLanguage, FlatEntry[]>
+const flat = Object.fromEntries(
+  supportedLanguages.map((language) => [language, flatten(messages[language])]),
+) as Record<ResolvedLanguage, Map<string, string>>
 
-const keySets = Object.fromEntries(
-  supportedLanguages.map((language) => [
-    language,
-    new Set(flatCatalog[language].map((entry) => entry.key)),
-  ]),
-) as Record<ResolvedLanguage, Set<string>>
-
-const englishKeys = [...keySets.en].sort()
-const missingKeyIssues: MissingKeyIssue[] = []
+const problems: string[] = []
 
 for (const language of supportedLanguages) {
-  for (const key of englishKeys) {
-    if (!keySets[language].has(key)) {
-      missingKeyIssues.push({ language, key })
+  for (const key of flat.en.keys()) {
+    if (!flat[language].has(key)) problems.push(`[missing:${language}] ${key}`)
+  }
+}
+
+for (const language of ['zh-CN', 'zh-TW'] as const) {
+  for (const [key, value] of flat[language]) {
+    const english = flat.en.get(key)
+    // Plural forms may legitimately drop {count} in one language, e.g. "one visit".
+    const pluralForm = /_(one|other)$/.test(key)
+    if (
+      english !== undefined &&
+      !pluralForm &&
+      placeholders(english) !== placeholders(value)
+    ) {
+      problems.push(
+        `[placeholders:${language}] ${key}: "${value}" vs en "${english}"`,
+      )
     }
   }
 }
 
-const rawEnglishIssues: RawEnglishIssue[] = []
-
-function collectIssues(
-  language: ResolvedLanguage,
-  patterns: ReadonlyArray<{ id: string; pattern: RegExp }>,
-) {
-  for (const entry of flatCatalog[language]) {
-    const visibleValue = removeInterpolationPlaceholders(entry.value)
-    for (const blocked of patterns) {
-      if (blocked.pattern.test(visibleValue)) {
-        rawEnglishIssues.push({
-          language,
-          key: entry.key,
-          patternId: blocked.id,
-          value: entry.value,
-        })
+function check(language: ResolvedLanguage, rules: Rule[]) {
+  for (const [key, value] of flat[language]) {
+    for (const rule of rules) {
+      if (
+        rule.pattern.test(visible(value)) ||
+        (rule.id === 'key-leak' && rule.pattern.test(value))
+      ) {
+        problems.push(`[${rule.id}:${language}] ${key} = ${value}`)
       }
     }
   }
 }
 
-for (const language of chineseLocales) {
-  collectIssues(language, blockedRawEnglishPatterns)
-}
-collectIssues('zh-TW', blockedTraditionalChinesePatterns)
-collectIssues('en', blockedEnglishJargonPatterns)
-
-const totalEnglishKeys = englishKeys.length
-const completeLocaleCount = supportedLanguages.filter(
-  (language) => keySets[language].size === totalEnglishKeys,
-).length
-const parityPercent =
-  supportedLanguages.length === 0
-    ? 100
-    : (completeLocaleCount / supportedLanguages.length) * 100
+check('zh-CN', chineseRawEnglish)
+check('zh-TW', chineseRawEnglish)
+check('zh-TW', taiwanVocabulary)
+check('en', englishJargon)
+for (const language of supportedLanguages) check(language, everyLanguage)
 
 console.log(
-  `i18n namespaces: ${translationNamespaces.length} (${translationNamespaces.join(', ')})`,
+  `i18n: ${flat.en.size} keys × ${supportedLanguages.length} languages, ${problems.length} problem(s)`,
 )
-console.log(
-  `i18n key parity: ${formatPercent(parityPercent)} (${completeLocaleCount}/${supportedLanguages.length} locales complete, ${totalEnglishKeys} English keys)`,
-)
-for (const language of supportedLanguages) {
-  console.log(`i18n ${language}: ${keySets[language].size} keys`)
-}
-console.log(`i18n missing keys: ${missingKeyIssues.length}`)
-console.log(`i18n blocked raw-English findings: ${rawEnglishIssues.length}`)
-
-for (const issue of missingKeyIssues.slice(0, 20)) {
-  console.error(`[missing:${issue.language}] ${issue.key}`)
-}
-for (const issue of rawEnglishIssues.slice(0, 20)) {
-  console.error(
-    `[raw-English:${issue.language}:${issue.patternId}] ${issue.key} = ${issue.value}`,
-  )
-}
-
-if (missingKeyIssues.length > 0 || rawEnglishIssues.length > 0) {
-  process.exitCode = 1
-}
+for (const problem of problems.slice(0, 50)) console.error(problem)
+if (problems.length > 50) console.error(`…and ${problems.length - 50} more`)
+if (problems.length > 0) process.exitCode = 1

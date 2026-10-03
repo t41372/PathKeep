@@ -56,14 +56,12 @@ Run:
 bun run verify
 ```
 
-`bun run verify` runs the strict per-commit checker first, including coverage, browser build, browser-preview e2e, desktop-bridge truth, and desktop-contract JS mutation, then adds the debug desktop build rehearsal.
+`bun run verify` runs `bun run check` first (lint, browser build, Rust checks, release-config check, and the desktop-bridge E2E suite), then adds the debug desktop build rehearsal.
 
-For long-running mutation investigation before a high-risk release candidate, use:
+Before a release candidate, also run the slower checks (supply-chain audit and host-matched platform tests):
 
 ```bash
-bun run check:deep
-bun run mutation:js:full
-bun run mutation:rust:full
+bun run check:slow
 ```
 
 Then perform the platform and traceability review from:

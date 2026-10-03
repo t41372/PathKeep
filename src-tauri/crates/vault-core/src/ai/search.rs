@@ -1592,6 +1592,8 @@ pub(super) fn lexical_history_results(
             page: None,
             cursor: None,
             regex_mode: Some(false),
+            // Callers re-rank a bounded recall pool; the match count is never read.
+            include_total: Some(false),
         },
     )
 }

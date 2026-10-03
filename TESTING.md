@@ -1,92 +1,68 @@
 # Testing
 
-PathKeep has multiple quality surfaces. This file exists so we do not confuse a focused triage helper with the signed-off checker.
+E2E tests are how we prove features. They run against the real app: a Rust backend, the real frontend, and Playwright driving it. The authoritative gate is defined in [docs/plan/program/quality-matrix.md](./docs/plan/program/quality-matrix.md); this file is the short version.
 
-## Mainline Blocking Path
+## The Gate
 
-Run this before merging normal changes:
+Run this before merging:
 
 ```bash
 bun run check
 ```
 
-`bun run check` is the authoritative per-commit checker. It runs:
+It runs, in order:
 
-- `bun run check:base`: formatting, linting, i18n checks, type checking, unit tests, desktop-contract checks, Rust checks, supply-chain audit, host-matched platform checks, and release-config drift checks.
-- `bun run coverage:js`: 100% statement / branch / function / line coverage for active frontend runtime source under `src/**/*.{ts,tsx}`.
-- `bun run coverage:rust`: 100% line + function coverage for full `src-tauri/**/src/*.rs` workspace source.
-- `bun run build`: TypeScript compile + Vite browser bundle.
-- `bun run test:e2e`: browser-preview Playwright smoke.
-- `bun run test:e2e:desktop-bridge:truth`: Chrome + Playwright smoke against the feature-gated Rust desktop command bridge.
-- `bun run check:mutation`: 100% desktop-contract JS mutation score for `src/main.tsx` and `src/lib/ipc/bridge.ts`.
+1. `bun run format:check`, `lint`, `check:i18n`, `typecheck`
+2. `bun run build`
+3. `bun run check:rust`: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --workspace`
+4. `bun run release:check`: updater URLs, Windows bundle config, WebView2 mode, support links
+5. `bun run test:e2e:desktop-bridge`: the E2E suite
 
-## Deep Checks And Release Checks
+There is no coverage threshold and no mutation testing. A green run means the features the E2E suite exercises work, so that suite has to exercise real scenarios.
 
-Use these for release rehearsal and focused triage:
+## E2E Suite
+
+`playwright.desktop-bridge.config.ts` starts `scripts/pathkeep-dev-desktop-bridge.mjs`, which runs the Rust backend with the `devtools-bridge` feature next to the Vite dev server. The tests open the frontend in Chrome and talk to real Rust command handlers. Fixtures are a synthetic Chrome profile in a temp directory, with real SQLite files.
+
+Writing E2E tests:
+
+- Pick a medium-to-hard scenario, not the simplest one that passes. A half-built feature usually passes the happy path.
+- Go through the same entry point a user would. Do not mock the backend; if a seam is unavoidable, put it at the outermost transport and keep the real compute and I/O under test.
+- Assert the negative before the positive (not found before the change, found after).
+- Write the test from the intended behavior before or alongside the code, not from what the code happens to do afterwards.
+
+### Artifacts
+
+Every run, pass or fail, ends with an artifact in `artifacts/e2e/<config>/`:
+
+- `report/index.html`: HTML report
+- `results.json`: results for every test
+- `test-results/`: traces, screenshots, videos
+
+`<config>` is `desktop-bridge` for the gate and `preview` for the browser-only run. The folder is not committed; CI uploads it as `e2e-artifacts`. See [artifacts/e2e/README.md](./artifacts/e2e/README.md) for how to open reports and traces.
+
+## Other Commands
 
 ```bash
-bun run verify
-bun run check:base
-bun run release:check
-bun run coverage:js
-bun run coverage:rust
-bun run mutation:js
-bun run mutation:js:full
-bun run mutation:rust
-bun run check:deep
+bun run check:base           # format, lint, i18n, typecheck, Rust checks (no build, no E2E)
+bun run check:slow           # supply-chain audit + host-matched platform tests
+bun run verify               # check + debug desktop build, for release rehearsal
+bun run test:e2e             # browser-preview Playwright, not part of the gate
+bun run test:e2e:desktop-bridge:headed
+bun run test:unit            # Vitest; passes when there are no tests
 bun run test:desktop-bridge:rust
-bun run test:e2e:desktop-bridge
 ```
 
-`bun run verify` runs the release-style local sweep:
-
-- `bun run check`
-- `bun run desktop:build:debug`
-
-What they mean:
-
-- `bun run check:base`: fast static/unit/native triage path; it is not a signed-off merge gate by itself.
-- `bun run release:check`: focused release config guard for updater URLs, unsigned Windows installer workflow, WebView2 download-bootstrapper mode, and support-link drift.
-- `bun run mutation:js`: desktop-contract Stryker gate used by `bun run check`.
-- `bun run mutation:js:full`: active frontend runtime Stryker sweep for manual / scheduled deep checks.
-- `bun run mutation:rust`: whole-workspace cargo-mutants deep sweep. Surviving mutants are failures unless a narrow equivalent/inapplicable exclusion is documented with evidence.
-- `bun run check:deep`: `bun run check` plus full JS/Rust mutation sweeps. It is intentionally long-running and not required before every commit.
-- `bun run test:desktop-bridge:rust`: targeted Rust unit coverage for the feature-gated dev desktop bridge command dispatcher.
-- `bun run test:e2e:desktop-bridge`: Chrome + Playwright smoke that drives the frontend through the dev-only desktop command bridge and proves browser automation can reach real Rust responses.
-
-## Full Mutation Deep-Sweep Recipe
-
-Use this only when `WORK-QA-GATE-B` is explicitly scheduled:
-
-1. Start from a green `bun run check`.
-2. Run `bun run mutation:js:full`; fix survivors with tests or product-code repairs, and only annotate narrow equivalent/inapplicable mutants with a reason.
-3. Before Rust mutation, fix the cargo-mutants copy-sandbox fixture contract if the Safari reference database path still fails in the copied tree.
-4. Run `bun run mutation:rust:full`, or shard the same command with `cargo mutants --shard n/m` and merge the survivor list.
-5. Update [docs/plan/program/quality-matrix.md](./docs/plan/program/quality-matrix.md), this file, and [docs/plan/CHANGELOG.md](./docs/plan/CHANGELOG.md) with actual runtime, survivor closeout, and any narrow equivalent evidence.
-
-## Focused Commands
-
-```bash
-bun run test:unit
-bun run test:unit:desktop-contract
-bun run coverage:js:desktop-contract
-bun run check:js
-bun run check:rust
-bun run release:check
-bun run mutation:js:desktop-contract
-bun run mutation:js:full
-bun run mutation:rust:quality
-```
+Unit tests are the exception. Use one only when something has to be tested in isolation, and write down every way it could fail before writing the code.
 
 ## Honest Boundaries
 
-- Focused helpers do not replace `bun run check`.
-- The desktop-contract slice only protects `src/main.tsx` and `src/lib/ipc/bridge.ts`.
-- Browser-preview e2e does not verify native scheduler install, keyring integration, signing, notarization, or filesystem side effects. Windows Task Scheduler apply/status/remove must still be accepted on a real Windows host or VM even though the Rust unit slice uses a stubbed `schtasks` runner.
+- A focused command does not replace `bun run check`.
+- Browser-preview Playwright (`bun run test:e2e`) is not part of the gate and does not verify native scheduler install, keyring integration, signing, notarization, or filesystem side effects. Windows Task Scheduler apply/status/remove must still be accepted on a real Windows host or VM even though the Rust unit slice uses a stubbed `schtasks` runner.
 - `bun run release:check` proves the release config still permits unsigned Windows installers and keeps WebView2 in download-bootstrapper mode; it does not prove a specific Windows host can launch the installer.
 - The GitHub `Windows Test Binary` workflow builds an unsigned Windows app and uploads a short-lived workflow artifact for QA handoff without updating public release assets. It still needs real Windows test-machine validation for install, first launch, scheduler apply/status/remove, and upgrade behavior.
-- GitHub-hosted Windows runners currently validate the desktop surface with `desktop:build:debug`, `vault-platform` native-host tests, and frontend updater coverage. The `pathkeep-desktop` Rust test binary for updater/file-manager facades is skipped on Windows CI because the hosted runner fails before the test harness starts with a loader-level `STATUS_ENTRYPOINT_NOT_FOUND`; macOS/Linux still run those Rust facade tests.
-- Chrome desktop-bridge smoke verifies the typed desktop command facade from a real browser, but it still does not magically grant every Tauri guest API to Chrome. Treat it as an agent/dev-loop surface, not the final WebView plugin truth.
+- GitHub-hosted Windows runners currently validate the desktop surface with `desktop:build:debug`, `vault-platform` native-host tests, and the updater E2E path. The `pathkeep-desktop` Rust test binary for updater/file-manager facades is skipped on Windows CI because the hosted runner fails before the test harness starts with a loader-level `STATUS_ENTRYPOINT_NOT_FOUND`; macOS/Linux still run those Rust facade tests.
+- The desktop-bridge E2E suite verifies the typed desktop command facade from a real browser, but it still does not magically grant every Tauri guest API to Chrome. Treat it as an agent/dev-loop surface, not the final WebView plugin truth.
 - Platform validation for macOS / Windows / Linux lives in [RELEASE.md](./RELEASE.md) and [docs/plan/m4-full-polish/release-readiness-runbook.md](./docs/plan/m4-full-polish/release-readiness-runbook.md).
 - User-facing support diagnostics and redaction rules live in [SUPPORT.md](./SUPPORT.md).
 
@@ -119,7 +95,6 @@ Focused browser / scheduler release-blocker gates:
 - `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core comet -- --nocapture`
 - `cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-parser safari -- --nocapture`
 - `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core browser_history -- --nocapture`
-- `bun run test:unit -- src/pages/import/index.test.tsx src/pages/trust-flows/import-flows.test.tsx src/pages/trust-flows/schedule-flows.test.tsx src/pages/onboarding/shared.test.ts src/lib/browser-icons.test.tsx src/lib/i18n.test.ts`
 
 Additional adapters may keep shipping as implementation coverage, but they stay out of public promise copy until the same recipe is documented for them.
 
@@ -128,6 +103,7 @@ Additional adapters may keep shipping as implementation coverage, but they stay 
 Use this order for release rehearsal:
 
 1. `bun run check`
-2. `bun run verify`
+2. `bun run check:slow`
+3. `bun run verify`
 
 If the change touches packaging, release workflow, platform guidance, or troubleshooting copy, also perform the traceability sweep in [RELEASE.md](./RELEASE.md).

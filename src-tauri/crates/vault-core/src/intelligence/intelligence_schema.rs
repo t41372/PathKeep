@@ -37,11 +37,13 @@ use crate::{
     enrichment::ensure_visit_content_enrichment_schema,
     intelligence_catalog::RebuildMode,
     models::{AppConfig, ClearDerivedIntelligenceReport, IntelligenceStatus},
-    utils::now_rfc3339,
+    utils::{SqliteFileStamp, now_rfc3339, sqlite_file_stamp},
 };
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
 /// Defines one ordered intelligence-plane schema migration.
 #[derive(Clone, Copy)]
@@ -279,6 +281,32 @@ pub(crate) fn ensure_core_intelligence_schema(connection: &Connection) -> Result
     Ok(())
 }
 
+/// Session, search-trail and re-find row counts for [`intelligence_status`].
+///
+/// App snapshots ask for these on every refresh, and `COUNT(*)` walks each table, which is
+/// seconds on a large archive. The counts only change when the file changes, so the result is
+/// reused until the database or its WAL is touched.
+fn derived_row_counts(connection: &Connection, database: &Path) -> Result<(usize, usize, usize)> {
+    static CACHE: OnceLock<Mutex<HashMap<String, (SqliteFileStamp, (usize, usize, usize))>>> =
+        OnceLock::new();
+    let key = database.display().to_string();
+    let stamp = sqlite_file_stamp(database);
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some((cached_stamp, counts)) = cache.lock().expect("row count cache lock").get(&key)
+        && *cached_stamp == stamp
+        && stamp.0.is_some()
+    {
+        return Ok(*counts);
+    }
+    let counts = (
+        table_row_count(connection, "sessions")?,
+        table_row_count(connection, "search_trails")?,
+        table_row_count(connection, "refind_pages")?,
+    );
+    cache.lock().expect("row count cache lock").insert(key, (stamp, counts));
+    Ok(counts)
+}
+
 /// Reports whether deterministic Core Intelligence has materialized enough
 /// state to serve the top-level `/intelligence` route.
 pub fn intelligence_status(
@@ -287,10 +315,8 @@ pub fn intelligence_status(
     key: Option<&str>,
 ) -> Result<IntelligenceStatus> {
     let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    let session_count = table_row_count(&connection, "sessions")?;
-    let trail_count = table_row_count(&connection, "search_trails")?;
-    let refind_count = table_row_count(&connection, "refind_pages")?;
+    let (session_count, trail_count, refind_count) =
+        derived_row_counts(&connection, &paths.intelligence_database_path)?;
     let last_run_at = connection
         .query_row(
             "SELECT MAX(updated_at) FROM intelligence_jobs

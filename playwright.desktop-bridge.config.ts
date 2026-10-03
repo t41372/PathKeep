@@ -254,18 +254,28 @@ const desktopBridgeCommand =
     ? `PATHKEEP_DEV_SERVER_PORT=${desktopBridgeEnv.devServerPort} PATHKEEP_DEV_IPC_PORT=${desktopBridgeEnv.devIpcPort} xvfb-run -a bun run desktop:dev:bridge`
     : `PATHKEEP_DEV_SERVER_PORT=${desktopBridgeEnv.devServerPort} PATHKEEP_DEV_IPC_PORT=${desktopBridgeEnv.devIpcPort} bun run desktop:dev:bridge`
 
+// Every run leaves the same set of artifacts in `artifacts/e2e/<name>/`:
+// `report/` (HTML), `results.json`, and `test-results/` (traces, screenshots,
+// videos). The folder is gitignored; CI uploads it.
+const artifactsDir = 'artifacts/e2e/desktop-bridge'
+
 export default defineConfig({
   testDir: './tests/e2e',
   testMatch: 'desktop-bridge.spec.ts',
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI
-    ? [['github'], ['html', { open: 'never' }]]
-    : [['list']],
+  outputDir: `${artifactsDir}/test-results`,
+  reporter: [
+    process.env.CI ? ['github'] : ['list'],
+    ['html', { open: 'never', outputFolder: `${artifactsDir}/report` }],
+    ['json', { outputFile: `${artifactsDir}/results.json` }],
+  ],
   use: {
     baseURL: desktopBridgeEnv.devServerUrl,
-    trace: 'retain-on-failure',
+    trace: 'on',
+    screenshot: 'on',
+    video: 'retain-on-failure',
   },
   webServer: {
     command: desktopBridgeCommand,

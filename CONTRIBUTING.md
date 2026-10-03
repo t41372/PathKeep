@@ -31,8 +31,7 @@ Recommended Rust setup:
 ```bash
 rustup toolchain install 1.94.1 \
   --component clippy \
-  --component rustfmt \
-  --component llvm-tools-preview
+  --component rustfmt
 rustup override set 1.94.1
 ```
 
@@ -80,9 +79,8 @@ bun run verify
 ## Code And Docs Expectations
 
 - Keep commits reviewable and logically scoped.
-- Prefer colocated tests for new or substantially rewritten modules.
+- Prove features with E2E tests against the real app, not with mocks. See [TESTING.md](./TESTING.md).
 - Keep the docs truthful. If the UI or workflow no longer matches `README`, `RELEASE`, `TROUBLESHOOTING`, or the `docs/` source tree, update them in the same branch.
-- Do not claim the desktop-contract gate covers the entire UI.
 - Do not ship fake security affordances while platform research is still unresolved.
 
 ## Commit Style
@@ -94,7 +92,7 @@ Examples:
 - `feat(settings): expose build and archive diagnostics`
 - `build(release): add release manifest preflight`
 - `docs(release): add platform validation runbook`
-- `test(app): cover settings diagnostics metadata`
+- `test(e2e): cover backup restore after a failed import`
 
 ## Pull Request Checklist
 

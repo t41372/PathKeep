@@ -1,5 +1,7 @@
 <div align="center">
 
+<img alt="PathKeep" src="docs/design/brand-icon/source/icon-1024.png" width="112" />
+
 # PathKeep - Keep the path you've walked
 
 <img alt="Screenshot 2026-07-19 at 5 16 16 PM" src="https://github.com/user-attachments/assets/e587cee0-a68b-4c9b-97c7-acc31b27d4d0" />
@@ -14,12 +16,6 @@
 </a>
 <a href="https://github.com/t41372/PathKeep/actions/workflows/release.yml">
   <img alt="Release" src="https://github.com/t41372/PathKeep/actions/workflows/release.yml/badge.svg?branch=main" />
-</a>
-<a href="https://github.com/t41372/PathKeep/actions/workflows/mutation.yml">
-  <img alt="Mutation" src="https://github.com/t41372/PathKeep/actions/workflows/mutation.yml/badge.svg?branch=main" />
-</a>
-<a href="https://app.codecov.io/github/t41372/PathKeep">
-  <img alt="Codecov" src="https://codecov.io/github/t41372/PathKeep/branch/main/graph/badge.svg" />
 </a>
 <br />
 <a href="https://github.com/t41372/PathKeep/releases">
@@ -234,7 +230,7 @@ Implemented browsers appear in discovery and archive data but are not yet in the
 ### Prerequisites
 
 - [Bun](https://bun.sh)
-- Rust `1.94.1` with `clippy`, `rustfmt`, and `llvm-tools-preview`
+- Rust `1.94.1` with `clippy` and `rustfmt`
 - Git
 - [Tauri 2 platform prerequisites](https://v2.tauri.app/distribute/)
 
@@ -268,19 +264,14 @@ bun run desktop:build    # Release desktop bundle
 ## Quality & Testing
 
 ```bash
-bun run check            # All mainline quality gates
+bun run check            # Lint, build, Rust checks, and the desktop-bridge E2E suite
 bun run build            # TypeScript + Vite bundle
-bun run test:unit        # Vitest unit tests
-bun run test:e2e         # Playwright end-to-end tests
-bun run coverage:js      # JS coverage gate
-bun run coverage:rust    # Rust coverage gate
-bun run mutation:js      # Desktop-contract JS mutation gate
-bun run mutation:js:full # Full JS mutation deep sweep
-bun run mutation:rust    # Full Rust mutation deep sweep
+bun run test:e2e:desktop-bridge # E2E against the real Rust backend
+bun run test:unit        # Vitest (few tests, E2E is the primary mechanism)
 bun run verify           # check + debug desktop build rehearsal
 ```
 
-For the full gate matrix, deep checks, and release signoff commands, see [TESTING.md](./TESTING.md).
+For the gate definition, E2E artifacts, and release signoff commands, see [TESTING.md](./TESTING.md).
 
 ---
 

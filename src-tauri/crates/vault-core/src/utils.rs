@@ -13,6 +13,7 @@ use std::{
     fs::File,
     io::{BufReader, Read},
     path::Path,
+    time::SystemTime,
 };
 
 const CHROME_UNIX_EPOCH_OFFSET_MICROS: i64 = 11_644_473_600_000_000;
@@ -21,6 +22,23 @@ const WINDOWS_RESERVED_FILE_NAMES: [&str; 25] = [
     "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7",
     "LPT8", "LPT9",
 ];
+
+/// Change marker for a SQLite database in WAL mode: modification time and size of the main file
+/// and of its `-wal` file.
+pub(crate) type SqliteFileStamp = (Option<SystemTime>, u64, Option<SystemTime>, u64);
+
+/// Reads the [`SqliteFileStamp`] of `database`. Derived counts that only move when the database is
+/// written can be cached against it instead of re-running a table scan.
+pub(crate) fn sqlite_file_stamp(database: &Path) -> SqliteFileStamp {
+    let stat = |path: &Path| {
+        std::fs::metadata(path).map(|meta| (meta.modified().ok(), meta.len())).unwrap_or((None, 0))
+    };
+    let mut wal = database.as_os_str().to_owned();
+    wal.push("-wal");
+    let (main_time, main_len) = stat(database);
+    let (wal_time, wal_len) = stat(Path::new(&wal));
+    (main_time, main_len, wal_time, wal_len)
+}
 
 /// Returns the current UTC timestamp in RFC3339 form.
 pub fn now_rfc3339() -> String {

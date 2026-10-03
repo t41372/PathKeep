@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css">
+<style>
+html,body{margin:0;height:100%;}
+body{font-family:Geist,"PingFang TC","Noto Sans TC",system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+a{color:inherit;}a:hover{opacity:.8;}
+[data-theme="light"]{--wall:radial-gradient(120% 90% at 20% 10%,#dfe9f7 0%,#e9eef6 40%,#f7e6dc 85%,#f3d9cb 100%);--window:rgba(250,250,252,.62);--panel:rgba(255,255,255,.7);--card:rgba(255,255,255,.8);--card-solid:#fff;--fg:#0a0a0b;--muted-fg:#6b6b74;--border:rgba(15,15,30,.08);--muted:rgba(15,15,30,.045);--primary:#18181b;--primary-fg:#fafafa;--brand:oklch(0.7 0.17 48);--brand-soft:oklch(0.7 0.17 48 / .12);--green:oklch(0.62 0.15 150);--blue:oklch(0.62 0.15 252);--shadow:0 1px 2px rgba(15,15,30,.06);}
+[data-theme="dark"]{--wall:radial-gradient(120% 90% at 30% 10%,#2a2840 0%,#1a1a2a 45%,#1f1622 80%,#2a1a1c 100%);--window:rgba(24,24,34,.62);--panel:rgba(30,30,42,.55);--card:rgba(255,255,255,.055);--card-solid:#22222e;--fg:#f4f4f5;--muted-fg:#a1a1aa;--border:rgba(255,255,255,.08);--muted:rgba(255,255,255,.05);--primary:#f4f4f5;--primary-fg:#18181b;--brand:oklch(0.74 0.16 50);--brand-soft:oklch(0.74 0.16 50 / .16);--green:oklch(0.72 0.13 150);--blue:oklch(0.72 0.13 252);--shadow:0 1px 2px rgba(0,0,0,.3);}
+</style>
+</helmet>
+<div data-theme="{{ theme }}" style="position:fixed;inset:0;background:var(--wall);color:var(--fg);font-size:14px;display:flex;padding:24px;box-sizing:border-box;">
+<div style="flex:1;min-width:0;display:flex;background:var(--window);backdrop-filter:blur(40px) saturate(1.4);-webkit-backdrop-filter:blur(40px) saturate(1.4);border:1px solid var(--border);border-radius:16px;box-shadow:0 30px 80px rgba(20,20,40,.18);overflow:hidden;">
+
+<aside style="width:260px;flex-shrink:0;display:flex;flex-direction:column;padding:16px 20px 20px;gap:4px;">
+<div style="display:flex;gap:7px;margin-bottom:28px;"><span style="width:12px;height:12px;border-radius:50%;background:#ff5f57;"></span><span style="width:12px;height:12px;border-radius:50%;background:#febc2e;"></span><span style="width:12px;height:12px;border-radius:50%;background:#28c840;"></span></div>
+<div style="display:flex;align-items:center;gap:10px;padding:0 8px 24px;"><img src="assets/pathkeep-mark.svg" alt="" style="width:28px;height:28px;"><span style="font-weight:600;font-size:16px;letter-spacing:-.01em;">PathKeep</span></div>
+<sc-for list="{{ steps }}" as="st" hint-placeholder-count="7">
+<button onClick="{{ st.go }}" style="display:flex;align-items:center;gap:12px;height:40px;padding:0 10px;border:0;border-radius:10px;background:{{ st.bg }};box-shadow:{{ st.shadow }};color:{{ st.color }};font:500 14px Geist,'PingFang TC',sans-serif;cursor:pointer;text-align:left;">
+<span style="width:22px;height:22px;border-radius:50%;border:1.5px solid {{ st.ring }};background:{{ st.dotBg }};color:{{ st.dotFg }};display:flex;align-items:center;justify-content:center;font:600 11px 'Geist Mono',monospace;flex-shrink:0;"><i class="{{ st.icon }}" style="font-size:12px;"></i>{{ st.num }}</span>{{ st.label }}
+</button>
+</sc-for>
+<div style="flex:1;"></div>
+<div style="display:flex;gap:6px;">
+<button onClick="{{ toggleLang }}" style="height:30px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--muted-fg);font:500 12px Geist,sans-serif;cursor:pointer;">{{ langLabel }}</button>
+<button onClick="{{ toggleTheme }}" style="width:32px;height:30px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--muted-fg);cursor:pointer;"><i class="{{ themeIcon }}"></i></button>
+</div>
+</aside>
+
+<main style="flex:1;min-width:0;margin:10px 10px 10px 0;background:var(--panel);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;">
+<div style="height:3px;background:var(--muted);"><div style="height:100%;width:{{ progress }};background:var(--brand);transition:width .3s;"></div></div>
+<div style="flex:1;overflow:auto;display:flex;">
+<div style="width:100%;max-width:620px;margin:auto;padding:48px 40px;display:flex;flex-direction:column;gap:24px;box-sizing:border-box;">
+<div style="display:flex;flex-direction:column;gap:10px;">
+<span style="font:500 12px 'Geist Mono',monospace;color:var(--brand);">{{ stepEyebrow }}</span>
+<h1 style="margin:0;font-size:32px;font-weight:600;letter-spacing:-.025em;line-height:1.15;text-wrap:pretty;">{{ cur.title }}</h1>
+<p style="margin:0;font-size:15px;line-height:1.6;color:var(--muted-fg);text-wrap:pretty;">{{ cur.desc }}</p>
+</div>
+
+<sc-if value="{{ is.welcome }}" hint-placeholder-val="{{ true }}">
+<div style="border:1px solid var(--border);border-radius:12px;background:var(--card);padding:20px;display:flex;flex-direction:column;gap:14px;">
+<span style="font-size:13px;color:var(--muted-fg);">{{ t.retention_title }}</span>
+<sc-for list="{{ retention }}" as="r" hint-placeholder-count="4">
+<div style="display:flex;align-items:center;gap:12px;">
+<img src="{{ r.icon }}" alt="" style="width:20px;height:20px;"><span style="width:80px;font-size:13px;">{{ r.name }}</span>
+<span style="flex:1;height:8px;border-radius:4px;background:var(--muted);overflow:hidden;"><span style="display:block;height:100%;width:{{ r.pct }};background:var(--fg);opacity:.75;border-radius:4px;"></span></span>
+<span style="width:96px;text-align:right;font:12px 'Geist Mono',monospace;color:var(--muted-fg);">{{ r.keep }}</span>
+</div>
+</sc-for>
+<div style="display:flex;align-items:center;gap:12px;padding-top:10px;border-top:1px solid var(--border);">
+<img src="assets/pathkeep-mark.svg" alt="" style="width:20px;height:20px;"><span style="width:80px;font-size:13px;font-weight:600;">PathKeep</span>
+<span style="flex:1;height:8px;border-radius:4px;background:var(--brand);"></span>
+<span style="width:96px;text-align:right;font:500 12px 'Geist Mono',monospace;color:var(--brand);">{{ t.forever }}</span>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">
+<sc-for list="{{ promises }}" as="p" hint-placeholder-count="3">
+<div style="display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:10px;background:var(--muted);"><i class="{{ p.icon }}" style="font-size:18px;"></i><span style="font-weight:500;font-size:13px;">{{ p.title }}</span><span style="font-size:12px;color:var(--muted-fg);line-height:1.45;">{{ p.desc }}</span></div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.browsers }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden;">
+<sc-for list="{{ browsers }}" as="b" hint-placeholder-count="5">
+<button onClick="{{ b.toggle }}" style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;border:0;border-bottom:1px solid var(--border);background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;">
+<span style="width:18px;height:18px;border-radius:5px;border:1.5px solid {{ b.boxBorder }};background:{{ b.boxBg }};color:var(--primary-fg);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="{{ b.check }}" style="font-size:12px;"></i></span>
+<img src="{{ b.icon }}" alt="" style="width:28px;height:28px;">
+<span style="flex:1;display:flex;flex-direction:column;gap:2px;"><span style="font-weight:500;">{{ b.name }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ b.meta }}</span></span>
+<span style="font:12px 'Geist Mono',monospace;color:var(--muted-fg);">{{ b.count }}</span>
+</button>
+</sc-for>
+</div>
+<sc-if value="{{ safariOn }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:12px;background:var(--brand-soft);">
+<i class="icon-shield-alert" style="font-size:18px;color:var(--brand);margin-top:1px;"></i>
+<div style="flex:1;display:flex;flex-direction:column;gap:4px;"><span style="font-weight:500;">{{ t.fda_title }}</span><span style="font-size:13px;color:var(--muted-fg);line-height:1.5;">{{ t.fda_desc }}</span></div>
+<button style="height:30px;padding:0 12px;border:0;border-radius:8px;background:var(--primary);color:var(--primary-fg);font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;flex-shrink:0;">{{ t.fda_btn }}</button>
+</div>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{ is.storage }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px solid var(--border);border-radius:12px;background:var(--card);padding:18px;display:flex;flex-direction:column;gap:14px;">
+<span style="font-size:13px;font-weight:500;">{{ t.location }}</span>
+<div style="display:flex;gap:8px;"><div style="flex:1;height:36px;display:flex;align-items:center;padding:0 12px;border:1px solid var(--border);border-radius:8px;background:var(--card-solid);font:13px 'Geist Mono',monospace;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">~/Library/Application Support/PathKeep</div><button style="height:36px;padding:0 12px;border:1px solid var(--border);border-radius:8px;background:var(--card-solid);color:var(--fg);font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ t.change }}</button></div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">
+<sc-for list="{{ estimates }}" as="e" hint-placeholder-count="3">
+<div style="display:flex;flex-direction:column;gap:4px;padding:14px;border-radius:10px;border:1px solid var(--border);background:var(--card);"><span style="font-size:12px;color:var(--muted-fg);">{{ e.k }}</span><span style="font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;">{{ e.v }}</span></div>
+</sc-for>
+</div>
+<span style="font-size:13px;color:var(--muted-fg);line-height:1.5;">{{ t.storage_note }}</span>
+</sc-if>
+
+<sc-if value="{{ is.security }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+<sc-for list="{{ encOptions }}" as="o" hint-placeholder-count="2">
+<button onClick="{{ o.go }}" style="display:flex;flex-direction:column;gap:6px;padding:16px;border-radius:12px;border:1.5px solid {{ o.border }};background:var(--card);color:inherit;font:inherit;text-align:left;cursor:pointer;"><i class="{{ o.icon }}" style="font-size:18px;"></i><span style="font-weight:500;">{{ o.title }}</span><span style="font-size:12px;color:var(--muted-fg);line-height:1.45;">{{ o.desc }}</span></button>
+</sc-for>
+</div>
+<sc-if value="{{ encrypt }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:12px;">
+<label style="display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:500;">{{ t.password }}<input type="password" value="{{ pw }}" onChange="{{ onPw }}" placeholder="{{ t.pw_ph }}" style="height:38px;padding:0 12px;border:1px solid var(--border);border-radius:8px;background:var(--card-solid);color:var(--fg);font:14px Geist,sans-serif;outline:none;"></label>
+<div style="display:flex;gap:4px;"><span style="flex:1;height:4px;border-radius:2px;background:{{ strength.c1 }};"></span><span style="flex:1;height:4px;border-radius:2px;background:{{ strength.c2 }};"></span><span style="flex:1;height:4px;border-radius:2px;background:{{ strength.c3 }};"></span><span style="flex:1;height:4px;border-radius:2px;background:{{ strength.c4 }};"></span></div>
+<span style="font-size:12px;color:var(--muted-fg);margin-top:-6px;">{{ strength.label }}</span>
+<label style="display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:500;">{{ t.confirm }}<input type="password" value="{{ pw2 }}" onChange="{{ onPw2 }}" style="height:38px;padding:0 12px;border:1px solid {{ pw2Border }};border-radius:8px;background:var(--card-solid);color:var(--fg);font:14px Geist,sans-serif;outline:none;"></label>
+<button onClick="{{ toggleKeychain }}" style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:var(--card);color:inherit;font:inherit;text-align:left;cursor:pointer;">
+<span style="display:flex;flex-direction:column;gap:3px;"><span style="font-weight:500;">{{ t.keychain }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ t.keychain_desc }}</span></span>
+<span style="width:34px;height:20px;border-radius:999px;background:{{ kc.track }};position:relative;flex-shrink:0;"><span style="position:absolute;top:2px;left:{{ kc.knob }};width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:left .15s;"></span></span>
+</button>
+</div>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{ is.schedule }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:8px;">
+<sc-for list="{{ intervals }}" as="iv" hint-placeholder-count="4">
+<button onClick="{{ iv.go }}" style="display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;border:1.5px solid {{ iv.border }};background:var(--card);color:inherit;font:inherit;text-align:left;cursor:pointer;">
+<span style="width:18px;height:18px;border-radius:50%;border:1.5px solid {{ iv.border }};display:flex;align-items:center;justify-content:center;flex-shrink:0;"><span style="width:8px;height:8px;border-radius:50%;background:{{ iv.dot }};"></span></span>
+<span style="flex:1;display:flex;flex-direction:column;gap:2px;"><span style="font-weight:500;">{{ iv.title }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ iv.desc }}</span></span>
+<sc-if value="{{ iv.rec }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:6px;background:var(--brand-soft);color:var(--brand);">{{ t.recommended }}</span></sc-if>
+</button>
+</sc-for>
+</div>
+<div style="display:flex;gap:10px;align-items:center;font-size:13px;color:var(--muted-fg);"><i class="icon-info" style="font-size:15px;"></i>{{ t.schedule_note }}</div>
+</sc-if>
+
+<sc-if value="{{ is.ai }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:8px;">
+<sc-for list="{{ aiOptions }}" as="o" hint-placeholder-count="3">
+<button onClick="{{ o.go }}" style="display:flex;align-items:flex-start;gap:14px;padding:16px;border-radius:12px;border:1.5px solid {{ o.border }};background:var(--card);color:inherit;font:inherit;text-align:left;cursor:pointer;">
+<i class="{{ o.icon }}" style="font-size:18px;margin-top:1px;"></i>
+<span style="flex:1;display:flex;flex-direction:column;gap:3px;"><span style="font-weight:500;">{{ o.title }}</span><span style="font-size:12px;color:var(--muted-fg);line-height:1.5;">{{ o.desc }}</span></span>
+<span style="font:12px 'Geist Mono',monospace;color:var(--muted-fg);">{{ o.size }}</span>
+</button>
+</sc-for>
+</div>
+<span style="font-size:13px;color:var(--muted-fg);">{{ t.ai_note }}</span>
+</sc-if>
+
+<sc-if value="{{ is.ready }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden;">
+<sc-for list="{{ summary }}" as="sm" hint-placeholder-count="5">
+<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;"><i class="{{ sm.icon }}" style="font-size:16px;color:var(--muted-fg);"></i><span style="width:110px;color:var(--muted-fg);">{{ sm.k }}</span><span style="flex:1;font-weight:500;">{{ sm.v }}</span></div>
+</sc-for>
+</div>
+<sc-if value="{{ running }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:8px;">
+<div style="display:flex;justify-content:space-between;font-size:13px;"><span>{{ runLabel }}</span><span style="font-family:'Geist Mono',monospace;color:var(--muted-fg);">{{ runPct }}</span></div>
+<div style="height:6px;border-radius:3px;background:var(--muted);overflow:hidden;"><div style="height:100%;width:{{ runPct }};background:var(--brand);transition:width .2s;"></div></div>
+</div>
+</sc-if>
+</sc-if>
+
+<div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;">
+<button onClick="{{ back }}" style="height:38px;padding:0 14px;border:0;border-radius:8px;background:transparent;color:{{ backColor }};font:500 14px Geist,'PingFang TC',sans-serif;cursor:pointer;display:flex;align-items:center;gap:6px;"><i class="icon-arrow-left" style="font-size:15px;"></i>{{ t.back }}</button>
+<div style="display:flex;gap:8px;">
+<sc-if value="{{ canSkip }}" hint-placeholder-val="{{ false }}"><button onClick="{{ next }}" style="height:38px;padding:0 14px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--fg);font:500 14px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ t.skip }}</button></sc-if>
+<button onClick="{{ next }}" style="height:38px;padding:0 18px;border:0;border-radius:8px;background:var(--primary);color:var(--primary-fg);font:500 14px Geist,'PingFang TC',sans-serif;cursor:pointer;display:flex;align-items:center;gap:6px;opacity:{{ nextOpacity }};">{{ nextLabel }}<i class="icon-arrow-right" style="font-size:15px;"></i></button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;},&quot;lang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;zh&quot;,&quot;en&quot;],&quot;default&quot;:&quot;zh&quot;,&quot;tsType&quot;:&quot;'zh'|'en'&quot;},&quot;startStep&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;min&quot;:0,&quot;max&quot;:6,&quot;default&quot;:0,&quot;tsType&quot;:&quot;number&quot;}}">
+const T={
+zh:{steps:['歡迎','選擇瀏覽器','存放位置','加密','自動備份','AI','完成'],
+welcome:['你的瀏覽器正在刪掉你的歷史','Chrome、Edge、Arc 等 Chromium 瀏覽器預設只保留約 90 天。PathKeep 在本機替你永久保存，之後可以搜尋、回顧和分析。'],
+browsers:['要備份哪些瀏覽器？','我們在這台 Mac 上找到了以下瀏覽器。之後可以在「備份」裡隨時調整。'],
+storage:['存檔放在哪裡','存檔是一個本機資料庫，不會上傳到任何地方。'],
+security:['要不要加密？','加密後，沒有密碼就打不開存檔。密碼丟了無法找回。'],
+schedule:['多久備份一次？','PathKeep 會安裝一個系統排程，在背景運行，不需要開著視窗。'],
+ai:['要開啟 AI 功能嗎？','預設關閉。開啟後可以用自然語言搜尋，也可以問助理。'],
+ready:['都設定好了','接下來會做第一次完整備份，之後就是增量的。'],
+retention_title:'瀏覽器預設保留多久',forever:'永久',
+promises:[['icon-hard-drive','只在本機','不上傳，不需要帳號'],['icon-copy','不碰原檔','先複製，再增量追加'],['icon-search','可以搜尋','全文、正則、時間線']],
+fda_title:'Safari 需要「完全磁碟存取權限」',fda_desc:'打開系統設定 → 隱私權與安全性，把 PathKeep 加進去。不給也可以，會先跳過 Safari。',fda_btn:'打開設定',
+location:'存檔位置',change:'更改…',storage_note:'估算基於目前選擇的瀏覽器。之後每天大約增加 1–3 MB。',
+enc_on:['加密','AES-256，需要密碼解鎖'],enc_off:['不加密','打開更快，靠系統帳號保護'],
+password:'密碼',pw_ph:'至少 10 個字元',confirm:'再輸入一次',keychain:'存到 macOS 鑰匙圈',keychain_desc:'背景備份需要它解鎖存檔，否則會靜默失敗',
+weak:'太短',ok:'還可以',good:'不錯',strong:'很強',
+iv:[['1h','每小時','幾乎不會漏掉任何記錄',true],['6h','每 6 小時','適合不常開電腦的人',false],['1d','每天一次','早上 9 點，錯過了會在開機時補上',false],['off','手動','只在你點「立即備份」時運行',false]],
+recommended:'推薦',schedule_note:'macOS 使用 launchd；Windows 使用工作排程器。',
+ai_opts:[['off','icon-circle-off','先不用','只用全文和正則搜尋，什麼都不下載。',''],['local','icon-cpu','本機語義搜尋','在這台 Mac 上建立向量索引，完全離線。','≈ 90 MB'],['provider','icon-plug','連接 AI 服務','Ollama、OpenAI 或 Anthropic。只有你提問時才會傳送相關片段。','']],
+ai_note:'可以之後在「設定 → AI」更改。',
+sum:['瀏覽器','存放位置','加密','自動備份','AI'],
+back:'上一步',skip:'跳過',next:'繼續',start:'開始設定',finish:'開始第一次備份',enter:'進入 PathKeep',running:'正在備份…',done:'完成，共保存 1,115,934 條記錄',
+estimates:[['瀏覽記錄','1.12M'],['預計大小','≈ 1.4 GB'],['首次備份','≈ 3 分鐘']],off:'關閉',on:'已開啟',none:'不加密'},
+en:{steps:['Welcome','Browsers','Storage','Encryption','Schedule','AI','Done'],
+welcome:['Your browser is deleting your history','Chrome, Edge, Arc and other Chromium browsers keep about 90 days by default. PathKeep keeps it forever on this Mac, so you can search, revisit and analyze it later.'],
+browsers:['Which browsers should we back up?','We found these on this Mac. You can change this later in Backup.'],
+storage:['Where should the archive live?','The archive is a local database. Nothing is uploaded.'],
+security:['Encrypt the archive?','Without the password, the archive can’t be opened. A lost password can’t be recovered.'],
+schedule:['How often should we back up?','PathKeep installs a system schedule that runs in the background, window closed or not.'],
+ai:['Turn on AI features?','Off by default. When on, you can search in plain language and ask the assistant.'],
+ready:['You’re all set','Next is the first full backup. After that, it’s incremental.'],
+retention_title:'How long browsers keep history by default',forever:'Forever',
+promises:[['icon-hard-drive','Local only','No upload, no account'],['icon-copy','Never touches originals','Copies first, then appends'],['icon-search','Searchable','Full text, regex, timeline']],
+fda_title:'Safari needs Full Disk Access',fda_desc:'Open System Settings → Privacy & Security and add PathKeep. You can skip this; Safari will be left out for now.',fda_btn:'Open Settings',
+location:'Archive location',change:'Change…',storage_note:'Estimated from the browsers you picked. Expect about 1–3 MB more per day.',
+enc_on:['Encrypt','AES-256, unlock with a password'],enc_off:['Don’t encrypt','Opens faster, protected by your macOS account'],
+password:'Password',pw_ph:'At least 10 characters',confirm:'Confirm password',keychain:'Save to macOS Keychain',keychain_desc:'Background backups need it to unlock. Without it they fail silently.',
+weak:'Too short',ok:'Okay',good:'Good',strong:'Strong',
+iv:[['1h','Every hour','Rarely misses anything',true],['6h','Every 6 hours','If your Mac is often asleep',false],['1d','Once a day','9:00 AM, catches up at login if missed',false],['off','Manual','Only when you press Back up now',false]],
+recommended:'Recommended',schedule_note:'Uses launchd on macOS and Task Scheduler on Windows.',
+ai_opts:[['off','icon-circle-off','Not now','Full-text and regex search only. Nothing is downloaded.',''],['local','icon-cpu','Local semantic search','Builds a vector index on this Mac. Fully offline.','≈ 90 MB'],['provider','icon-plug','Connect a provider','Ollama, OpenAI or Anthropic. Only the relevant snippets are sent when you ask.','']],
+ai_note:'You can change this later in Settings → AI.',
+sum:['Browsers','Location','Encryption','Schedule','AI'],
+back:'Back',skip:'Skip',next:'Continue',start:'Get started',finish:'Start first backup',enter:'Open PathKeep',running:'Backing up…',done:'Done. 1,115,934 visits saved',
+estimates:[['Visits','1.12M'],['Estimated size','≈ 1.4 GB'],['First backup','≈ 3 min']],off:'Off',on:'On',none:'Not encrypted'}};
+const KEYS=['welcome','browsers','storage','security','schedule','ai','ready'];
+const BR=[['chrome','Google Chrome','assets/browsers/chrome.png','Default, Work',412038],['arc','Arc','assets/browsers/arc.png','Personal',388120],['safari','Safari','assets/browsers/safari.png','Default',201544],['firefox','Firefox','assets/browsers/firefox.svg','default-release',96002],['edge','Microsoft Edge','assets/browsers/edge.png','Default',18230]];
+class Component extends DCLogic{
+  state={step:this.props.startStep??0,theme:null,lang:null,sel:{chrome:true,arc:true,safari:true,firefox:true,edge:false},encrypt:true,pw:'',pw2:'',keychain:true,interval:'1h',ai:'off',running:false,runP:0};
+  componentWillUnmount(){clearInterval(this.timer);}
+  sw(on){return{track:on?'var(--primary)':'var(--muted)',knob:on?'16px':'2px'};}
+  renderVals(){
+    const s=this.state;const theme=s.theme??this.props.theme??'light';const lang=s.lang??this.props.lang??'zh';const t=T[lang];const zh=lang==='zh';
+    const key=KEYS[s.step];const is={};KEYS.forEach(k=>is[k]=k===key);
+    const steps=t.steps.map((label,i)=>{const done=i<s.step,a=i===s.step;return{label,num:done?'':String(i+1),icon:done?'icon-check':'',bg:a?'var(--card-solid)':'transparent',shadow:a?'var(--shadow)':'none',color:a||done?'var(--fg)':'var(--muted-fg)',ring:done?'var(--primary)':a?'var(--fg)':'var(--border)',dotBg:done?'var(--primary)':'transparent',dotFg:done?'var(--primary-fg)':'inherit',go:()=>i<=s.step&&!s.running&&this.setState({step:i})};});
+    const pw=s.pw;const score=pw.length===0?0:pw.length<10?1:(/[0-9]/.test(pw)&&/[A-Z]/.test(pw)?(pw.length>=14?4:3):2);
+    const sc=['var(--muted)','oklch(0.62 0.2 25)','oklch(0.75 0.15 80)','var(--green)','var(--green)'];
+    const strength={label:score?[t.weak,t.weak,t.ok,t.good,t.strong][score]:'\u00a0'};[1,2,3,4].forEach(n=>strength['c'+n]=n<=score?sc[score]:'var(--muted)');
+    const pwValid=!s.encrypt||(score>=2&&s.pw===s.pw2);
+    const selCount=Object.values(s.sel).filter(Boolean).length;
+    const canNext=key==='security'?pwValid:key==='browsers'?selCount>0:true;
+    const last=s.step===KEYS.length-1;
+    const next=()=>{if(!canNext)return;if(last){if(s.runP>=100){window.location.href='PathKeep%20App.dc.html';return;}if(s.running)return;this.setState({running:true,runP:0});this.timer=setInterval(()=>this.setState(st=>{const p=Math.min(100,st.runP+4);if(p>=100)clearInterval(this.timer);return{runP:p};}),120);return;}this.setState({step:s.step+1});};
+    const ivL=t.iv.find(x=>x[0]===s.interval);const aiL=t.ai_opts.find(x=>x[0]===s.ai);
+    return{
+      t,theme,is,steps,cur:{title:t[key][0],desc:t[key][1]},stepEyebrow:`${String(s.step+1).padStart(2,'0')} / 07`,progress:((s.step+1)/7*100)+'%',
+      langLabel:zh?'English':'中文',themeIcon:theme==='dark'?'icon-sun':'icon-moon',toggleTheme:()=>this.setState({theme:theme==='dark'?'light':'dark'}),toggleLang:()=>this.setState({lang:zh?'en':'zh'}),
+      retention:[['Chrome','assets/browsers/chrome.png',zh?'約 90 天':'~90 days',8],['Arc','assets/browsers/arc.png',zh?'約 90 天':'~90 days',8],['Safari','assets/browsers/safari.png',zh?'1 年':'1 year',32],['Firefox','assets/browsers/firefox.svg',zh?'看容量':'By size',55]].map(([name,icon,keep,p])=>({name,icon,keep,pct:p+'%'})),
+      promises:t.promises.map(([icon,title,desc])=>({icon,title,desc})),
+      browsers:BR.map(([k,name,icon,prof,n])=>{const on=s.sel[k];return{name,icon,meta:prof+(k==='safari'?(zh?' · 需要權限':' · needs permission'):''),count:n.toLocaleString(),boxBorder:on?'var(--primary)':'var(--border)',boxBg:on?'var(--primary)':'transparent',check:on?'icon-check':'',toggle:()=>this.setState(st=>({sel:{...st.sel,[k]:!st.sel[k]}}))};}),
+      safariOn:s.sel.safari,estimates:t.estimates.map(([k,v])=>({k,v})),
+      encOptions:[[true,'icon-lock',t.enc_on],[false,'icon-lock-open',t.enc_off]].map(([v,icon,[title,desc]])=>({icon,title,desc,border:s.encrypt===v?'var(--fg)':'var(--border)',go:()=>this.setState({encrypt:v})})),
+      encrypt:s.encrypt,pw:s.pw,pw2:s.pw2,onPw:(e)=>this.setState({pw:e.target.value}),onPw2:(e)=>this.setState({pw2:e.target.value}),strength,pw2Border:s.pw2&&s.pw2!==s.pw?'oklch(0.62 0.2 25)':'var(--border)',
+      kc:this.sw(s.keychain),toggleKeychain:()=>this.setState({keychain:!s.keychain}),
+      intervals:t.iv.map(([k,title,desc,rec])=>({title,desc,rec,border:s.interval===k?'var(--fg)':'var(--border)',dot:s.interval===k?'var(--fg)':'transparent',go:()=>this.setState({interval:k})})),
+      aiOptions:t.ai_opts.map(([k,icon,title,desc,size])=>({icon,title,desc,size,border:s.ai===k?'var(--fg)':'var(--border)',go:()=>this.setState({ai:k})})),
+      summary:[['icon-globe',t.sum[0],BR.filter(b=>s.sel[b[0]]).map(b=>b[1]).join(', ')],['icon-folder',t.sum[1],'~/Library/Application Support/PathKeep'],['icon-lock',t.sum[2],s.encrypt?(t.on+' · AES-256'+(s.keychain?(zh?' · 鑰匙圈':' · Keychain'):'')):t.none],['icon-refresh-cw',t.sum[3],ivL[1]],['icon-sparkles',t.sum[4],aiL[2]]].map(([icon,k,v])=>({icon,k,v})),
+      running:s.running,runPct:s.runP+'%',runLabel:s.runP>=100?t.done:t.running,
+      back:()=>s.step>0&&!s.running&&this.setState({step:s.step-1}),backColor:s.step>0?'var(--fg)':'transparent',
+      canSkip:key==='ai'||key==='schedule',next,nextOpacity:canNext?1:.4,
+      nextLabel:s.step===0?t.start:last?(s.runP>=100?t.enter:t.finish):t.next
+    };
+  }
+}
+</script>
+</body>
+</html>

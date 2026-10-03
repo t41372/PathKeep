@@ -29,11 +29,17 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 **供應鏈信任**：新依賴需用戶授權，除非 GitHub stars > 6k、維護者高信譽、或由知名組織維護。不滿足門檻先寫風險評估等批准。
 
-**模塊小、職責清**：組件單一職責，大數據必虛擬化，業務邏輯不洩漏進 UI。檔案行數硬門檻與巨型檔案清單見 `repo-baseline.md`；重構 > 1000 行的檔案先做「審查階段」（架構地圖 / 拆分方案 / 測試覆蓋確認）再動代碼。
+**模塊小、職責清**：組件單一職責，大數據必虛擬化，業務邏輯不洩漏進 UI。檔案行數硬門檻與巨型檔案清單見 `repo-baseline.md`；重構 > 1000 行的檔案先做「審查階段」（架構地圖 / 拆分方案 / E2E 覆蓋確認）再動代碼。
 
-**受保護的入口**：`src/main.tsx` 與 `src/lib/ipc/bridge.ts` 是 desktop contract / IPC 入口，受 mutation gate 保護，改動需對齊既有 contract。`src/lib/backend.ts` 是凍結的 legacy / browser-preview fixture，不擴展其 contract。
+**受保護的入口**：`src/main.tsx` 與 `src/lib/ipc/bridge.ts` 是 desktop contract / IPC 入口，改動需對齊既有 contract。`src/lib/backend.ts` 是凍結的 legacy / browser-preview fixture，不擴展其 contract。
 
-**測試是契約**：權威 gate 是 `bun run check`，具體規則見 `quality-matrix.md`。
+**測試是契約**：權威 gate 是 `bun run check`，具體規則見 `quality-matrix.md`。不跑 mutation test，也不強制 100% 覆蓋率；測試以 E2E 為主：
+
+- **E2E tests prove features.** Prefer them as the only testing mechanism, and use them to verify complex features in the real app. Pick a medium-to-hard scenario, not the simplest one that passes, because a half-built feature usually passes the happy path.
+- **Test the real thing, not a spherical chicken.** Tests run in a separate environment that is otherwise real. An idealized mock lets every test pass while the product breaks the moment someone opens it.
+- **Every E2E run ends with a verifiable, repeatable artifact.**
+- **Don't write unit tests after the code.** Tests written afterward encode what the code does, not what it should do. When something truly has to be tested in isolation, first write down every way it could fail, then write the code.
+- **Written for the people who maintain it.** Our code is read and maintained by people for years. Keep the architecture elegant, the code clean, and the whole system easy to maintain. Text, whether in docs, comments, or the UI, says things plainly, the way a person would. No AI slop.
 
 **文檔跟著代碼走**：改功能更新 `docs/features/`，新技術決策更新 `docs/architecture/`。新模塊交付時附 doc comments——檔頭標明職責邊界（Responsibilities / Not responsible for），exported 符號說「為什麼存在」而非「做了什麼」。
 
@@ -86,13 +92,13 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 ```sh
 bun run check                             # 權威 per-commit gate
-bun run check:base                        # 快速 triage
-bun run check:deep                        # check + full mutation sweep
+bun run check:base                        # 快速 triage（無 build / E2E）
+bun run check:slow                        # supply-chain audit + platform tests
 bun run desktop:dev                       # Tauri 桌面 app
 bun run build                             # TS + Vite bundle
 bun run verify                            # check + desktop release rehearsal
-bun run test:unit | test:e2e              # Vitest / Playwright
-bun run coverage:js | coverage:rust       # 100% coverage gate
+bun run test:e2e:desktop-bridge           # E2E（真實 Rust 後端）；產物在 artifacts/e2e/
+bun run test:unit                         # Vitest（少量，非主要手段）
 bun run format                            # Prettier
 ```
 
