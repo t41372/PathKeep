@@ -10,6 +10,7 @@
  * Not responsible for: rendering those states (see `app/shell/`), or any
  * per-screen data.
  */
+import { useQuery } from '@tanstack/react-query'
 import {
   createContext,
   useCallback,
@@ -57,6 +58,11 @@ interface SessionValue {
   unlockArchive: (password: string, remember: boolean) => Promise<void>
   /** Called by onboarding, upgrade and recovery once the archive is usable. */
   enter: (snapshot: AppSnapshot) => void
+  /**
+   * Boots again from nothing, as on a fresh launch. Used after all data was
+   * deleted, which leaves the app uninitialized and so lands on onboarding.
+   */
+  restart: () => Promise<void>
 }
 
 const SessionContext = createContext<SessionValue | null>(null)
@@ -228,7 +234,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const unlockApp = useCallback(
     async (passcode: string) => {
-      await appClient.unlockAppSession({ passcode })
+      await appClient.unlockAppSession({ passcode, useBiometric: false })
       await refresh()
     },
     [refresh],
@@ -251,6 +257,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [refresh],
   )
 
+  const restart = useCallback(async () => {
+    // Nothing cached may survive: it describes an archive that is gone.
+    queryClient.clear()
+    triedKeyring.current = false
+    upgradeChecked.current = false
+    setRecovery(null)
+    setUpgrade(null)
+    setPhase('booting')
+    await refresh()
+  }, [refresh])
+
   useIdleLock(phase === 'ready', toLocked)
 
   const value = useMemo<SessionValue>(
@@ -265,6 +282,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       unlockApp,
       unlockArchive,
       enter,
+      restart,
     }),
     [
       phase,
@@ -277,6 +295,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       unlockApp,
       unlockArchive,
       enter,
+      restart,
     ],
   )
 
@@ -290,13 +309,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
  * a single coarse interval checks it, so mouse movement costs nothing.
  */
 function useIdleLock(active: boolean, onLocked: () => void) {
+  // Subscribes to the cached snapshot without ever fetching it, so a timeout
+  // changed in Settings takes effect at once instead of after a relaunch.
+  const { data: status } = useQuery({
+    queryKey: queryKeys.snapshot,
+    queryFn: appClient.getSnapshot,
+    enabled: false,
+    staleTime: Infinity,
+    select: (snapshot: AppSnapshot) => snapshot.appLockStatus,
+  })
+  const minutes = status?.enabled ? status.idleTimeoutMinutes : 0
+
   useEffect(() => {
-    if (!active) return
-    const status = queryClient.getQueryData<AppSnapshot>(
-      queryKeys.snapshot,
-    )?.appLockStatus
-    const minutes = status?.enabled ? status.idleTimeoutMinutes : 0
-    if (!minutes || minutes <= 0) return
+    if (!active || !minutes || minutes <= 0) return
 
     let lastActivity = Date.now()
     const touch = () => {
@@ -318,7 +343,7 @@ function useIdleLock(active: boolean, onLocked: () => void) {
       window.clearInterval(timer)
       events.forEach((name) => window.removeEventListener(name, touch))
     }
-  }, [active, onLocked])
+  }, [active, minutes, onLocked])
 }
 
 export function useSession() {
