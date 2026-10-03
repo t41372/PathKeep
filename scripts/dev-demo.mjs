@@ -7,6 +7,9 @@
  *   bun run dev:demo -- --backend path/to/pathkeep-desktop
  *                               # skip cargo: run a prebuilt debug backend
  *                               # (its pathkeep-worker must sit next to it)
+ *   bun run dev:demo -- --first-run --fresh
+ *                               # leave the archive uninitialized, so the
+ *                               # app opens on onboarding (E2E uses this)
  *
  * Steps: write synthetic Chrome/Firefox profiles, start the Tauri backend
  * with the dev IPC bridge (under xvfb on headless Linux), then initialize
@@ -26,6 +29,7 @@ const repoRoot = path.resolve(
 )
 const demoRoot = path.join(repoRoot, 'var', 'demo')
 const fresh = process.argv.includes('--fresh')
+const firstRun = process.argv.includes('--first-run')
 const backendFlag = process.argv.indexOf('--backend')
 const prebuiltBackend =
   backendFlag >= 0 ? path.resolve(process.argv[backendFlag + 1] ?? '') : null
@@ -59,6 +63,11 @@ const env = {
   CHB_FIREFOX_PROFILES_DIR: browsers.firefoxProfilesRoot,
   CHB_SAFARI_ROOT: emptySafari,
   CHB_TEST_KEYRING_DIR: keyringRoot,
+  // A separate scheduler label, so the demo never replaces the real
+  // PathKeep LaunchAgent. Installing the schedule still talks to the real
+  // launchd, and the job it loads would not see CHB_PROJECT_ROOT, so leave
+  // automatic backup off when trying the demo.
+  PATHKEEP_PLATFORM_TEST_SCHEDULE_LABEL: 'com.yi-ting.pathkeep.demo.backup',
   CARGO_TARGET_DIR:
     process.env.CARGO_TARGET_DIR ??
     path.join(repoRoot, 'var', 'playwright', 'desktop-bridge', 'cargo-target'),
@@ -129,7 +138,13 @@ async function waitForBridge() {
 
 await waitForBridge()
 const snapshot = await invoke('app_snapshot')
-if (!snapshot.config.initialized) {
+if (firstRun) {
+  if (snapshot.config.initialized) {
+    console.warn(
+      'The demo archive is already set up. Add --fresh to see onboarding.',
+    )
+  }
+} else if (!snapshot.config.initialized) {
   const selectedProfileIds = snapshot.browserProfiles
     // The Firefox override also matches Floorp, LibreWolf etc.; keep one copy.
     .filter(
