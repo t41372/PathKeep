@@ -152,7 +152,7 @@ export const settingsStorage = defineMessages({
     wipe: {
       rowTitle: 'Delete all data',
       rowDescription:
-        'Archive, indexes and snapshots are removed. This cannot be undone.',
+        'Archive, indexes, snapshots and exports are removed. This cannot be undone.',
       action: 'Delete…',
       title: 'Delete all data?',
       intro: 'PathKeep removes everything it stored and starts over.',
@@ -160,7 +160,7 @@ export const settingsStorage = defineMessages({
       summary: '{visits} and {size} of files will be deleted:',
       keychain: 'The archive password saved in the keychain is removed too.',
       final:
-        'This cannot be undone. Export or move your data first if you might want it.',
+        'This cannot be undone. Export or move your data first if you might want it. Automatic backup stays installed until you turn it off in Backup.',
       typeWord: 'Type {word} to confirm',
       confirm: 'Delete forever',
       failed: 'Nothing was deleted. {message}',
@@ -308,14 +308,15 @@ export const settingsStorage = defineMessages({
     },
     wipe: {
       rowTitle: '删除所有数据',
-      rowDescription: '存档、索引和快照都会被删除，无法恢复。',
+      rowDescription: '存档、索引、快照和导出文件都会被删除，无法恢复。',
       action: '删除…',
       title: '要删除所有数据吗？',
       intro: 'PathKeep 会删除它保存的一切，然后从头开始。',
       previewFailed: '无法检查将被删除的内容。{message}',
       summary: '将删除 {visits}，共 {size} 的文件：',
       keychain: '保存在钥匙串里的存档密码也会被删除。',
-      final: '此操作无法撤销。如果以后可能还需要，请先导出或迁移你的数据。',
+      final:
+        '此操作无法撤销。如果以后可能还需要，请先导出或迁移你的数据。自动备份会保留，要停用请到「备份」关闭。',
       typeWord: '输入 {word} 以确认',
       confirm: '永久删除',
       failed: '没有删除任何内容。{message}',
@@ -463,14 +464,15 @@ export const settingsStorage = defineMessages({
     },
     wipe: {
       rowTitle: '刪除所有資料',
-      rowDescription: '存檔、索引和快照都會被刪除，無法復原。',
+      rowDescription: '存檔、索引、快照和匯出檔案都會被刪除，無法復原。',
       action: '刪除…',
       title: '要刪除所有資料嗎？',
       intro: 'PathKeep 會刪除它儲存的一切，然後從頭開始。',
       previewFailed: '無法檢查將被刪除的內容。{message}',
       summary: '將刪除 {visits}，共 {size} 的檔案：',
       keychain: '存在鑰匙圈裡的存檔密碼也會被刪除。',
-      final: '此操作無法復原。如果之後可能還需要，請先匯出或搬移你的資料。',
+      final:
+        '此操作無法復原。如果之後可能還需要，請先匯出或搬移你的資料。自動備份會保留，要停用請到「備份」關閉。',
       typeWord: '輸入 {word} 以確認',
       confirm: '永久刪除',
       failed: '沒有刪除任何內容。{message}',
