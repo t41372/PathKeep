@@ -4,12 +4,7 @@
     "target": "ES2023",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "types": [
-      "node",
-      "vitest/globals",
-      "@testing-library/jest-dom",
-      "vite/client"
-    ],
+    "types": ["node", "vitest/globals", "vite/client"],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,

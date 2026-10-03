@@ -155,7 +155,7 @@ async function buildBundle() {
   for (const [manifestKey, manifestEntry] of Object.entries(manifest)) {
     if (
       !manifestEntry.isDynamicEntry ||
-      !manifestKey.startsWith('src/pages/')
+      !manifestKey.startsWith('src/features/')
     ) {
       continue
     }
