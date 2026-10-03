@@ -48,12 +48,17 @@ pub(super) fn should_discover_chromium_definition(
     !overrides_active || definition.key == "chrome"
 }
 
-/// Decides whether Firefox discovery should run under the current override state.
-pub(super) fn should_discover_firefox(
+/// Decides whether one Firefox-family browser is discovered under the current override state.
+///
+/// `CHB_FIREFOX_PROFILES_DIR` stands in for Firefox only, the way the Chrome override stands in for
+/// Chrome only. When the forks shared it, each reported the same synthetic profile and one Firefox
+/// fixture was archived four times.
+pub(super) fn should_discover_firefox_definition(
     overrides_active: bool,
     firefox_override_active: bool,
+    definition: FirefoxBrowserDefinition,
 ) -> bool {
-    !overrides_active || firefox_override_active
+    !overrides_active || (firefox_override_active && definition.key == "firefox")
 }
 
 /// Decides whether Safari discovery should run under the current override state.
@@ -189,7 +194,9 @@ pub(super) fn windows_data_dirs() -> Result<Vec<PathBuf>> {
 pub(super) fn firefox_root_candidates(
     definition: FirefoxBrowserDefinition,
 ) -> Result<Vec<PathBuf>> {
-    if let Some(path) = std::env::var_os(FIREFOX_PROFILES_OVERRIDE_ENV) {
+    if definition.key == "firefox"
+        && let Some(path) = std::env::var_os(FIREFOX_PROFILES_OVERRIDE_ENV)
+    {
         return Ok(vec![PathBuf::from(path)]);
     }
 

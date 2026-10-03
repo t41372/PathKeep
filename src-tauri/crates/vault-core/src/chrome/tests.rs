@@ -87,6 +87,80 @@ fn discover_profiles_supports_firefox_and_safari_overrides() {
 }
 
 #[test]
+fn a_firefox_override_does_not_make_the_forks_report_its_profiles() {
+    // dev:demo and E2E point CHB_FIREFOX_PROFILES_DIR at one synthetic profile. LibreWolf, Floorp
+    // and Waterfox used to resolve to that same root, so a first backup archived it four times.
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let original_chrome = std::env::var_os(CHROME_USER_DATA_OVERRIDE_ENV);
+    let original_firefox = std::env::var_os(FIREFOX_PROFILES_OVERRIDE_ENV);
+    let original_safari = std::env::var_os(SAFARI_ROOT_OVERRIDE_ENV);
+    let original_home = std::env::var_os("HOME");
+    let firefox_root = dir.path().join("firefox").join("Profiles");
+    let profile = firefox_root.join("abcd.default-release");
+    fs::create_dir_all(&profile).expect("profile dir");
+    fs::write(profile.join("places.sqlite"), b"sqlite").expect("places");
+    unsafe {
+        std::env::set_var(FIREFOX_PROFILES_OVERRIDE_ENV, &firefox_root);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(SAFARI_ROOT_OVERRIDE_ENV);
+        std::env::set_var("HOME", dir.path().join("home"));
+    }
+
+    let firefox_family: Vec<String> = discover_profiles()
+        .expect("discover")
+        .into_iter()
+        .filter(|profile| profile.browser_family == "firefox")
+        .map(|profile| profile.profile_id)
+        .collect();
+    let forks: Vec<_> =
+        FIREFOX_BROWSERS.into_iter().filter(|definition| definition.key != "firefox").collect();
+    let fork_roots: Vec<Vec<PathBuf>> =
+        forks.iter().map(|fork| firefox_root_candidates(*fork).expect("fork roots")).collect();
+
+    restore_test_env_var(CHROME_USER_DATA_OVERRIDE_ENV, original_chrome.as_deref());
+    restore_test_env_var(FIREFOX_PROFILES_OVERRIDE_ENV, original_firefox.as_deref());
+    restore_test_env_var(SAFARI_ROOT_OVERRIDE_ENV, original_safari.as_deref());
+    restore_test_env_var("HOME", original_home.as_deref());
+
+    assert_eq!(firefox_family, vec!["firefox:abcd.default-release".to_string()]);
+    for (fork, roots) in forks.iter().zip(fork_roots) {
+        assert!(!roots.contains(&firefox_root), "{} resolved to the Firefox override", fork.key);
+    }
+}
+
+#[test]
+fn no_two_browsers_share_a_default_profile_root() {
+    // On a real machine each browser must look in its own folder, or one profile would be archived
+    // under several browser names. Compared case-insensitively for macOS and Windows file systems.
+    type PerPlatform = (Vec<&'static str>, Vec<&'static str>, Vec<&'static str>);
+    let roots: Vec<(&str, PerPlatform)> = CHROMIUM_BROWSERS
+        .iter()
+        .map(|definition| (definition.key, chromium_relative_paths(definition.key)))
+        .chain(
+            FIREFOX_BROWSERS
+                .iter()
+                .map(|definition| (definition.key, firefox_relative_paths(definition.key))),
+        )
+        .collect();
+    for platform in 0..3 {
+        let mut seen = std::collections::BTreeMap::new();
+        for (key, per_platform) in &roots {
+            let paths = match platform {
+                0 => &per_platform.0,
+                1 => &per_platform.1,
+                _ => &per_platform.2,
+            };
+            for path in paths {
+                if let Some(other) = seen.insert(path.to_ascii_lowercase(), *key) {
+                    panic!("{key} and {other} share the profile root {path}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn firefox_profile_name_parser_handles_relative_and_absolute_paths() {
     let dir = tempdir().expect("tempdir");
     let profiles_root = dir.path().join("Profiles");
@@ -492,9 +566,12 @@ fn discovery_selection_helpers_cover_single_override_states() {
     assert!(should_discover_chromium_definition(true, chrome_definition));
     assert!(!should_discover_chromium_definition(true, edge_definition));
 
-    assert!(should_discover_firefox(false, false));
-    assert!(!should_discover_firefox(true, false));
-    assert!(should_discover_firefox(true, true));
+    let [firefox, librewolf, ..] = FIREFOX_BROWSERS;
+    assert!(should_discover_firefox_definition(false, false, firefox));
+    assert!(should_discover_firefox_definition(false, false, librewolf));
+    assert!(!should_discover_firefox_definition(true, false, firefox));
+    assert!(should_discover_firefox_definition(true, true, firefox));
+    assert!(!should_discover_firefox_definition(true, true, librewolf));
 
     assert!(should_discover_safari(false, false));
     assert!(!should_discover_safari(true, false));

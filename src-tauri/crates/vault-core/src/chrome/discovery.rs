@@ -7,8 +7,8 @@
 use super::paths::{
     chromium_override_active, chromium_root_candidates, default_safari_root,
     discovery_overrides_active_with, firefox_override_active, firefox_root_candidates,
-    safari_override_active, should_discover_chromium_definition, should_discover_firefox,
-    should_discover_safari,
+    safari_override_active, should_discover_chromium_definition,
+    should_discover_firefox_definition, should_discover_safari,
 };
 use super::staging::profile_storage_bytes;
 use super::*;
@@ -31,8 +31,9 @@ pub fn discover_profiles() -> Result<Vec<BrowserProfile>> {
         }
         profiles.extend(discover_chromium_profiles(definition)?);
     }
-    if should_discover_firefox(overrides_active, firefox_override_active) {
-        for definition in FIREFOX_BROWSERS {
+    for definition in FIREFOX_BROWSERS {
+        if should_discover_firefox_definition(overrides_active, firefox_override_active, definition)
+        {
             profiles.extend(discover_firefox_profiles(definition)?);
         }
     }
