@@ -283,6 +283,7 @@ export function RhythmCard({ range }: { range: RangeId }) {
         <div className="overflow-x-auto">
           <Heatmap
             columns={columns}
+            label={t('insights.rhythm.subtitle')}
             cellSize={16}
             gap={3}
             rowLabels={weekdays}

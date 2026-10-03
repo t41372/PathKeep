@@ -274,6 +274,7 @@ export function YearCard() {
         ) : (
           <Heatmap
             columns={columns}
+            label={`${t('home.year.title')} · ${year}`}
             onCellClick={(date) => navigate(`/history?date=${date}`)}
           />
         )}

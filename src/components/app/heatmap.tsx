@@ -7,8 +7,21 @@
  * instead of one per cell: a year view has 371 cells. It is portalled to the
  * body with fixed coordinates, so the card's rounded, clipped edge can't cut
  * it off, and it flips below the cell when there is no room above.
+ *
+ * Keyboard: the grid is one tab stop. Arrow keys move to the nearest day in
+ * that direction, Enter or Space opens it, and focus shows the same tooltip
+ * as hovering. Each day is labelled for screen readers.
  */
-import { memo, useCallback, useEffect, useState, type MouseEvent } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/cn'
 
@@ -40,7 +53,16 @@ interface HeatmapProps {
   rowLabels?: (string | null)[]
   columnLabels?: (string | null)[]
   onCellClick?: (key: string) => void
+  /** What the grid shows, for screen readers ("Visits per day in 2026"). */
+  label: string
   className?: string
+}
+
+const moves: Record<string, [number, number]> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
 }
 
 /** Space the tooltip needs above a cell before it flips below. */
@@ -53,6 +75,7 @@ export const Heatmap = memo(function Heatmap({
   rowLabels,
   columnLabels,
   onCellClick,
+  label,
   className,
 }: HeatmapProps) {
   const [hover, setHover] = useState<{
@@ -63,10 +86,24 @@ export const Heatmap = memo(function Heatmap({
     below: boolean
   } | null>(null)
 
-  const onMove = useCallback((event: MouseEvent) => {
-    const target = (event.target as HTMLElement).closest<HTMLElement>(
-      '[data-cell]',
+  // Where each day sits, and which one holds the tab stop: the latest day,
+  // so a keyboard user starts at today rather than at last January.
+  const { position, lastKey } = useMemo(() => {
+    const position = new Map<string, [number, number]>()
+    let lastKey: string | null = null
+    columns.forEach((column, x) =>
+      column.forEach((cell, y) => {
+        if (cell.empty) return
+        position.set(cell.key, [x, y])
+        lastKey = cell.key
+      }),
     )
+    return { position, lastKey }
+  }, [columns])
+  const [focusKey, setFocusKey] = useState<string | null>(null)
+  const tabStop = focusKey && position.has(focusKey) ? focusKey : lastKey
+
+  const showFor = useCallback((target: HTMLElement | null) => {
     if (!target?.dataset.label) {
       setHover(null)
       return
@@ -80,6 +117,55 @@ export const Heatmap = memo(function Heatmap({
       below,
     })
   }, [])
+
+  const onMove = useCallback(
+    (event: MouseEvent) =>
+      showFor(
+        (event.target as HTMLElement).closest<HTMLElement>('[data-cell]'),
+      ),
+    [showFor],
+  )
+
+  const onFocus = useCallback(
+    (event: FocusEvent) => {
+      const target = event.target as HTMLElement
+      if (target.dataset.cell) setFocusKey(target.dataset.cell)
+      showFor(target)
+    },
+    [showFor],
+  )
+
+  const onKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      const key = (event.target as HTMLElement).dataset.cell
+      if (!key) return
+      if ((event.key === 'Enter' || event.key === ' ') && onCellClick) {
+        event.preventDefault()
+        onCellClick(key)
+        return
+      }
+      const move = moves[event.key]
+      const from = position.get(key)
+      if (!move || !from) return
+      event.preventDefault()
+      // Walk in that direction to the next real day, skipping padding.
+      let [x, y] = from
+      for (;;) {
+        x += move[0]
+        y += move[1]
+        const column = columns[x]
+        if (!column || y < 0 || y >= column.length) return
+        const cell = column[y]
+        if (!cell.empty) {
+          event.currentTarget
+            .querySelector<HTMLElement>(`[data-cell="${cell.key}"]`)
+            ?.focus()
+          return
+        }
+      }
+    },
+    [columns, onCellClick, position],
+  )
 
   // Fixed coordinates go stale when anything scrolls; drop the tooltip.
   useEffect(() => {
@@ -119,11 +205,16 @@ export const Heatmap = memo(function Heatmap({
           </div>
         )}
         <div
+          role="group"
+          aria-label={label}
           className="flex"
           style={{ gap }}
           onMouseMove={onMove}
           onMouseLeave={() => setHover(null)}
           onClick={onClick}
+          onFocus={onFocus}
+          onBlur={() => setHover(null)}
+          onKeyDown={onKeyDown}
         >
           {columns.map((column, columnIndex) => (
             <div key={columnIndex} className="flex flex-col" style={{ gap }}>
@@ -138,8 +229,11 @@ export const Heatmap = memo(function Heatmap({
                     key={cell.key}
                     data-cell={cell.key}
                     data-label={cell.label}
+                    role={onCellClick ? 'button' : 'img'}
+                    aria-label={cell.label}
+                    tabIndex={cell.key === tabStop ? 0 : -1}
                     className={cn(
-                      'rounded-[3px] transition-transform duration-100 hover:scale-125',
+                      'rounded-[3px] transition-transform duration-100 outline-none hover:scale-125 focus-visible:scale-125 focus-visible:ring-2 focus-visible:ring-ring',
                       levelClass[cell.level],
                       onCellClick && 'cursor-pointer',
                     )}
