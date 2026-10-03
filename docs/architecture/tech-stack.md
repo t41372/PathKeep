@@ -6,25 +6,30 @@
 
 ## 技術棧
 
-| 層面             | 選型                                                           | 理由                                                                                                                 |
-| ---------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 桌面框架         | Tauri 2                                                        | 跨平台、Rust 核心、輕量級                                                                                            |
-| 核心邏輯         | Rust workspace（vault-core, vault-worker, vault-platform）     | 高性能、安全、跨平台                                                                                                 |
-| 瀏覽器解析       | `browser-history-parser` — 計劃獨立發布的 Rust crate           | 通用的瀏覽器歷史紀錄解析，可供社區使用                                                                               |
-| 前端             | React 19 + TypeScript + Vite                                   | 現代前端、型別安全                                                                                                   |
-| 工具鏈           | Bun                                                            | JS 側的包管理與腳本                                                                                                  |
-| C / C++ 原生依賴 | vcpkg manifest mode                                            | 產品 native libraries 必須 project-scoped、pinned baseline、repo-local install，不靠全局 Homebrew / apt / pkg-config |
-| 本地瀏覽器驗證   | Chrome + Playwright + feature-gated desktop bridge             | 讓 AI agent / local QA 直接在瀏覽器驗證真實 Rust command surface                                                     |
-| 數據存儲         | SQLite storage planes（可選 SQLCipher 加密 canonical archive） | 本地優先、20 年持久性                                                                                                |
-| Secret storage   | `keyring-core` + platform-native stores                        | 保持 native keyring truth，避免把多餘的 fallback runtime 打進桌面 binary                                             |
-| 全文搜尋         | SQLite FTS5 + ICU4X / OpenCC-asset lexical analyzer            | 核心召回能力，不依賴外部服務；CJK gram / substring / bounded typo 召回不上 embedding                                 |
-| 向量 / 語義檢索  | 自製 `FlatVectorIndex`（binary-recall → int8-rescore）         | hand-rolled flat 向量盤（`derived/vectors/`），不引入 LanceDB；optional、consent-gated（AI redesign 2026 交付）      |
-| Embedding 引擎   | model2vec static base + candle Qwen3 quality tier              | in-app 純 Rust 推理；content-hash dedup；opt-in Apple-Silicon Metal GPU tier（off-by-default `metal` cargo feature） |
-| AI 框架          | rig.rs（external transport）+ 自有 trait 邊界                  | rig 藏進 `LlmProvider`/`EmbeddingProvider` adapter；in-app embedding / vector / agent harness / code-mode 為自有實作 |
-| 對外 AI 介面     | rmcp（localhost stdio MCP server）                             | opt-in、hard-default-OFF、read-only、audited；對外暴露同一條 bounded search                                          |
-| 沙箱             | Wasmtime + Javy（code-mode）                                   | LLM 生成 JS 在零 ambient 權限沙箱跑只讀查詢；default-enabled，沙箱本身即安全邊界                                     |
-| AI 推理          | 本地推理（Ollama / LM Studio / in-app candle）或雲端 API       | 可選、可配置；in-app candle embedding 不依賴外部 server                                                              |
-| 審計             | 本地 audit artifacts + optional Git history                    | 審計檔案不依賴使用者電腦安裝 Git；Git 可用時才提供額外可追溯性                                                       |
+| 層面             | 選型                                                                                                | 理由                                                                                                                    |
+| ---------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 桌面框架         | Tauri 2                                                                                             | 跨平台、Rust 核心、輕量級                                                                                               |
+| 核心邏輯         | Rust workspace（vault-core, vault-worker, vault-platform）                                          | 高性能、安全、跨平台                                                                                                    |
+| 瀏覽器解析       | `browser-history-parser` — 計劃獨立發布的 Rust crate                                                | 通用的瀏覽器歷史紀錄解析，可供社區使用                                                                                  |
+| 前端             | React 19 + TypeScript + Vite                                                                        | 現代前端、型別安全                                                                                                      |
+| UI 元件 / 樣式   | shadcn/ui（Radix）+ Tailwind CSS 4 + `tw-animate-css`                                               | 2026-10 redesign 起；元件以 registry 原樣放在 `src/components/ui/`，token 在 `src/index.css`                            |
+| 圖表             | EvilCharts（Recharts 3）+ 自製 heatmap                                                              | 用戶 2026-10 指定；EvilCharts 放在 `src/components/evilcharts/`，heatmap 在 `src/components/app/heatmap.tsx`            |
+| 前端資料與互動   | TanStack Query + TanStack Virtual、react-router（hash）、cmdk、sonner、react-day-picker、streamdown | 查詢快取與統一失效、大列表虛擬化、⌘K、toast、日期範圍、Ask 的串流 markdown（`motion` 只給 EvilCharts 用）               |
+| 字體             | Geist / Geist Mono（`@fontsource-variable`）                                                        | 打包 Latin variable font，CJK 交給系統；見 [typography-and-font-fallback.md](../design/typography-and-font-fallback.md) |
+| 圖示             | lucide-react                                                                                        | shadcn 預設                                                                                                             |
+| 工具鏈           | Bun                                                                                                 | JS 側的包管理與腳本                                                                                                     |
+| C / C++ 原生依賴 | vcpkg manifest mode                                                                                 | 產品 native libraries 必須 project-scoped、pinned baseline、repo-local install，不靠全局 Homebrew / apt / pkg-config    |
+| 本地瀏覽器驗證   | Chrome + Playwright + feature-gated desktop bridge                                                  | 讓 AI agent / local QA 直接在瀏覽器驗證真實 Rust command surface                                                        |
+| 數據存儲         | SQLite storage planes（可選 SQLCipher 加密 canonical archive）                                      | 本地優先、20 年持久性                                                                                                   |
+| Secret storage   | `keyring-core` + platform-native stores                                                             | 保持 native keyring truth，避免把多餘的 fallback runtime 打進桌面 binary                                                |
+| 全文搜尋         | SQLite FTS5 + ICU4X / OpenCC-asset lexical analyzer                                                 | 核心召回能力，不依賴外部服務；CJK gram / substring / bounded typo 召回不上 embedding                                    |
+| 向量 / 語義檢索  | 自製 `FlatVectorIndex`（binary-recall → int8-rescore）                                              | hand-rolled flat 向量盤（`derived/vectors/`），不引入 LanceDB；optional、consent-gated（AI redesign 2026 交付）         |
+| Embedding 引擎   | model2vec static base + candle Qwen3 quality tier                                                   | in-app 純 Rust 推理；content-hash dedup；opt-in Apple-Silicon Metal GPU tier（off-by-default `metal` cargo feature）    |
+| AI 框架          | rig.rs（external transport）+ 自有 trait 邊界                                                       | rig 藏進 `LlmProvider`/`EmbeddingProvider` adapter；in-app embedding / vector / agent harness / code-mode 為自有實作    |
+| 對外 AI 介面     | rmcp（localhost stdio MCP server）                                                                  | opt-in、hard-default-OFF、read-only、audited；對外暴露同一條 bounded search                                             |
+| 沙箱             | Wasmtime + Javy（code-mode）                                                                        | LLM 生成 JS 在零 ambient 權限沙箱跑只讀查詢；default-enabled，沙箱本身即安全邊界                                        |
+| AI 推理          | 本地推理（Ollama / LM Studio / in-app candle）或雲端 API                                            | 可選、可配置；in-app candle embedding 不依賴外部 server                                                                 |
+| 審計             | 本地 audit artifacts + optional Git history                                                         | 審計檔案不依賴使用者電腦安裝 Git；Git 可用時才提供額外可追溯性                                                          |
 
 ## 數據庫分層架構
 
@@ -85,6 +90,9 @@
 
 - `devtools-bridge` 是 **開發期 feature-gated surface**，只在 `bun run desktop:dev:bridge` 或 `tauri dev --features devtools-bridge` 時啟用。
 - 這條 bridge 只把 typed desktop command facade 鏡射到 localhost，方便 Chrome / Playwright / CDP 調試；它不是 shipping API，也不應被當成 plugin sandbox 或 remote control surface。
+- 2026-10 起沒有 browser-preview 假後端。瀏覽器裡驗證 UI 用 `bun run dev:demo`（debug 後端 + dev bridge + 合成 Chrome×2 / Firefox 歷史，`--first-run --fresh` 從 onboarding 開始）；E2E 用 `bun run test:e2e`，同樣跑在真後端上，產物在 `artifacts/e2e/`。dev bridge 下沒有選單列圖示，也收不到 `pathkeep://` 桌面事件。
+
+2026-10 desktop integration note：開機時啟動、選單列 / 系統匣圖示與 `pathkeep://open-command-palette`、`pathkeep://backup-finished` 兩個事件見 [desktop-command-surface.md](desktop-command-surface.md)「Open at login 與選單列圖示（2026-10）」。
 
 ## Module Boundary
 
