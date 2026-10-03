@@ -25,7 +25,7 @@
     - [x] 1. 改 gate：刪 mutation / coverage gate，AGENTS.md 加新規則，quality-matrix / TESTING 改寫，E2E artifact 設定
     - [ ] 2. 後端：補齊前端已在呼叫的命令、IPC 性能修復、刪死命令，結論寫進 `docs/architecture/`
     - [x] 3. 新前端地基：tokens、窗口外殼 + nav rail、i18n、主題、shadcn 組件、數據層
-    - [ ] 4. 頁面：Home ✓、History ✓、Insights ✓、Ask ✓、Backup ✓、Lock ✓、Command palette ✓、Onboarding ✓（`bun run dev:demo -- --first-run --fresh`）、**Settings ✗**
+    - [ ] 4. 頁面：Home ✓、History ✓、Insights ✓、Ask ✓、Backup ✓、Lock ✓、Command palette ✓、Onboarding ✓（`bun run dev:demo -- --first-run --fresh`）、Settings ✓（General / Security / AI / Storage / About；舊設定的取捨見 commit `2f6f5880`）
     - [ ] 5. 刪舊前端殘留和沒人用的後端命令
     - [ ] 6. E2E：在 desktop bridge（真 Rust 後端）上跑中高難度場景，產出 artifact（現有 `tests/e2e/*` 仍針對舊 UI，要重寫）
     - [ ] 7. 文檔同步（features / design / architecture）、CHANGELOG、`bun run check` 全綠
@@ -38,6 +38,8 @@
     - History 搜尋把同一頁的每一次訪問都列出來，重訪多的頁面會把其他結果擠掉（搜 "tokio"：前 2,000 多條全是同一頁）。要後端給 `query_history` 加「同一網址收成一行」的選項，前端顯示「N 次訪問」。
     - Insights「常搜尋」的次數是整個 query family 的歷史總數，不受日期範圍限制（會大於同範圍的搜尋 KPI）。要後端給一個按範圍統計的命令。
     - **排程器沒有沙盒**：debug build 的 keyring 會被 `CHB_TEST_KEYRING_DIR` 導到檔案，但 launchd / Task Scheduler 沒有對應的導向，dev:demo 和 E2E 會讀到（apply 時會改到）使用者真實的 LaunchAgent。E2E 動排程之前要先補一個只在 debug 生效的沙盒（label + LaunchAgents 目錄 + 不呼叫真的 launchctl）。
+    - `export_history` 先把整個結果集載入記憶體再寫檔，1440 萬條會撐爆 8 GB；`doctor_report` / `repair_health` 用 `visit_id NOT IN (SELECT id FROM archive.visits …)`。兩者都要改成串流 / anti-join。
+    - 已接受文檔與新 UI 不一致：`docs/features/archive.md` §8 與 `docs/design/screens-and-nav.md` 要求 App Lock 面板有 Touch ID 開關、recovery hint、config 路徑、上次解鎖時間，新 Settings 沒做（新鎖屏沒有生物辨識路徑）。step 7 要嘛補上、要嘛寫 trade-off 給用戶決定。
     - 合成 Firefox profile 被 Floorp / LibreWolf / Waterfox 也各認了一次（都顯示 `default-release`），疑似 Gecko 系 adapter 共用 `CHB_FIREFOX_PROFILES_DIR`。
   - 試跑：`bun run dev:demo`（真後端 + 合成 Chrome×2 / Firefox archive），瀏覽器開 http://127.0.0.1:1420。
 
