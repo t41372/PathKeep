@@ -70,6 +70,13 @@ export function TrendCard() {
           className="h-full aspect-auto"
           curveType="monotone"
         >
+          {/* The prototype's fill is stronger than evilcharts' built-in fade. */}
+          <defs>
+            <linearGradient id="home-trend-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.35} />
+              <stop offset="100%" stopColor="var(--brand)" stopOpacity={0} />
+            </linearGradient>
+          </defs>
           <EvilAreaChart.Grid vertical={false} strokeDasharray="3 4" />
           <EvilAreaChart.XAxis
             dataKey="dateKey"
@@ -88,6 +95,7 @@ export function TrendCard() {
             variant="gradient"
             strokeVariant="solid"
             strokeWidth={2}
+            areaProps={{ dataKey: 'visits', fill: 'url(#home-trend-fill)' }}
           >
             <EvilAreaChart.ActiveDot variant="colored-border" />
           </EvilAreaChart.Area>
