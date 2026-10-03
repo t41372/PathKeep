@@ -34,7 +34,7 @@
 3. **Backup → 來源、進度卡、最近執行**：一列一個 profile / run，屬 review 表格。
 4. **Settings 的設定列**：內容欄本身只有 680 px，列是全寬的。
 
-除此之外（Home 的統計卡、30 天趨勢、On this day、常回來的主題、來源；Insights 的所有卡片；Backup 的自動備份與匯入卡）都在兩欄或自動欄寬的 grid 裡，窄於 900 px 才變單欄。
+除此之外（Home 的統計卡、30 天趨勢、On this day、常回來的主題、來源；Insights 的所有卡片；Backup 的自動備份與匯入卡）都在兩欄或自動欄寬的 grid 裡；Home 與 Insights 窄於 900 px、Backup 窄於 1024 px（Tailwind `lg`）時變單欄。
 
 想把新卡片加進白名單，先在本節寫下理由：**它為什麼不是 summary card，而是必須橫向展開的 workbench surface。**
 
