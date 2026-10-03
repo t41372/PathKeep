@@ -21,6 +21,10 @@
 //! run while holding [`DesktopIntegrationState`]'s lock. So that lock must
 //! never be taken on the main thread after setup: the commands are async,
 //! and the menu click handler hands its work to another thread.
+//!
+//! The tray handle itself is created and dropped only on the main thread
+//! (`tray.rs`); AppKit traps when a status item is torn down anywhere else.
+//! Off the main thread, ask [`icon_shown`] instead of `tray_by_id`.
 
 mod copy;
 mod login_item;
@@ -37,7 +41,7 @@ use vault_core::AppConfig;
 use crate::{command_error::CommandError, session::SessionState};
 use copy::MenuLanguage;
 use status::{ArchiveReadiness, BackupStatus, read_backup_status_from_disk};
-use tray::{TRAY_ID, TrayMenu};
+use tray::TrayMenu;
 
 // Used by `lib.rs` and the commands, which are compiled out of unit tests.
 #[cfg_attr(test, allow(unused_imports))]
@@ -104,6 +108,13 @@ pub(crate) fn update_status<R: Runtime>(
     });
 }
 
+/// Whether the icon is on screen. Off the main thread, ask this rather than
+/// `tray_by_id`: its handle wraps an `Rc` that is not safe to clone or drop
+/// there.
+fn icon_shown<R: Runtime>(app: &AppHandle<R>) -> bool {
+    with_state(app, |state| state.menu.is_some())
+}
+
 fn menu_language(config: &AppConfig) -> MenuLanguage {
     MenuLanguage::resolve(&config.preferred_language, &vault_platform::preferred_ui_languages())
 }
@@ -111,13 +122,12 @@ fn menu_language(config: &AppConfig) -> MenuLanguage {
 /// Launch-time setup, called from `lib.rs` before the window is shown.
 pub(crate) fn setup<R: Runtime>(app: &AppHandle<R>, config: &AppConfig, launched_at_login: bool) {
     with_state(app, |state| state.language = menu_language(config));
-    let icon_shown = config.menu_bar_icon
+    let shown = config.menu_bar_icon
         && show_icon(app)
             .inspect_err(|error| log::warn!("menu bar icon: {}", error.message))
             .is_ok();
-    if !window::start_hidden(launched_at_login, icon_shown) {
-        window::show_main_window(app);
-    }
+    let has_dock = cfg!(target_os = "macos");
+    window::apply_startup_window(app, window::startup_window(launched_at_login, shown, has_dock));
     if let Err(error) = login_item::refresh() {
         log::warn!("could not update the login item: {error:#}");
     }
@@ -127,7 +137,7 @@ pub(crate) fn setup<R: Runtime>(app: &AppHandle<R>, config: &AppConfig, launched
         refresh_status_from_disk(&app);
         for tick in 1u32.. {
             std::thread::sleep(RELABEL_INTERVAL);
-            if app.tray_by_id(TRAY_ID).is_none() {
+            if !icon_shown(&app) {
                 continue;
             }
             if tick % LEDGER_EVERY_N_RELABELS == 0 {
@@ -162,12 +172,12 @@ fn refresh_status_from_disk<R: Runtime>(app: &AppHandle<R>) {
 /// Keeps the menu in step after Settings saves the config: language, and the
 /// icon itself if the saved value differs from what is on screen.
 pub(crate) fn config_saved<R: Runtime>(app: &AppHandle<R>, config: &AppConfig) {
-    let icon_shown = app.tray_by_id(TRAY_ID).is_some();
-    if config.menu_bar_icon && !icon_shown {
+    let shown = icon_shown(app);
+    if config.menu_bar_icon && !shown {
         if let Err(error) = show_icon(app) {
             log::warn!("menu bar icon: {}", error.message);
         }
-    } else if !config.menu_bar_icon && icon_shown {
+    } else if !config.menu_bar_icon && shown {
         hide_icon(app);
     }
     with_state(app, |state| {
@@ -177,7 +187,7 @@ pub(crate) fn config_saved<R: Runtime>(app: &AppHandle<R>, config: &AppConfig) {
 }
 
 fn show_icon<R: Runtime>(app: &AppHandle<R>) -> Result<(), CommandError> {
-    if app.tray_by_id(TRAY_ID).is_some() {
+    if icon_shown(app) {
         return Ok(());
     }
     if !vault_platform::menu_bar_icon_supported() {
@@ -209,7 +219,7 @@ pub(crate) fn desktop_integration<R: Runtime>(
         launch_at_login: login_item::enabled(app).map_err(|error| {
             CommandError::internal(format!("reading the login item: {error:#}"))
         })?,
-        menu_bar_icon: app.tray_by_id(TRAY_ID).is_some(),
+        menu_bar_icon: icon_shown(app),
         launch_at_login_supported: true,
         menu_bar_icon_supported: vault_platform::menu_bar_icon_supported(),
     })
@@ -232,7 +242,7 @@ pub(crate) fn set_menu_bar_icon<R: Runtime>(
     app: &AppHandle<R>,
     enabled: bool,
 ) -> Result<DesktopIntegration, CommandError> {
-    let was_shown = app.tray_by_id(TRAY_ID).is_some();
+    let was_shown = icon_shown(app);
     if enabled {
         show_icon(app)?;
     } else {

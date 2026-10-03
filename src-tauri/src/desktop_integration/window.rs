@@ -2,10 +2,15 @@
 //!
 //! Rules:
 //! - The window starts hidden (`"visible": false` in `tauri.conf.json`) and
-//!   setup shows it, except after a login launch with the menu bar icon on.
-//!   That launch runs in the menu bar only, as the Settings copy promises.
-//! - A login launch with the icon off shows the window as usual: on Windows
-//!   and Linux nothing else would let the user reach a hidden app.
+//!   setup decides what to do with it.
+//! - A normal launch shows it.
+//! - A login launch never puts the window in front of the user:
+//!   - with the menu bar icon on, it stays hidden — the app runs in the menu
+//!     bar only, as the Settings copy promises;
+//!   - with the icon off on macOS, it stays hidden too; the Dock icon is
+//!     there, and clicking it brings the window back (`RunEvent::Reopen`);
+//!   - with the icon off on Windows / Linux, it opens minimized, because a
+//!     hidden window with no tray icon and no Dock could not be reached.
 //! - With the icon on, closing the window hides it; the app keeps running in
 //!   the menu bar. With the icon off, closing the window quits, as before.
 //!
@@ -22,9 +27,40 @@ use super::tray::TRAY_ID;
 /// Label of the main window in `tauri.conf.json`.
 pub(crate) const MAIN_WINDOW: &str = "main";
 
-/// Whether the main window should start hidden.
-pub(crate) fn start_hidden(launched_at_login: bool, menu_bar_icon_shown: bool) -> bool {
-    launched_at_login && menu_bar_icon_shown
+/// What setup does with the (initially hidden) main window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StartupWindow {
+    Show,
+    StayHidden,
+    Minimized,
+}
+
+/// Applies the startup rules in the module header.
+pub(crate) fn startup_window(
+    launched_at_login: bool,
+    menu_bar_icon_shown: bool,
+    has_dock: bool,
+) -> StartupWindow {
+    match (launched_at_login, menu_bar_icon_shown || has_dock) {
+        (false, _) => StartupWindow::Show,
+        (true, true) => StartupWindow::StayHidden,
+        (true, false) => StartupWindow::Minimized,
+    }
+}
+
+/// Carries out [`startup_window`] for this launch.
+pub(crate) fn apply_startup_window<R: Runtime>(app: &AppHandle<R>, startup: StartupWindow) {
+    match startup {
+        StartupWindow::Show => show_main_window(app),
+        StartupWindow::StayHidden => {}
+        StartupWindow::Minimized => {
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+                let _ = window.minimize();
+                let _ = window.show();
+                let _ = window.minimize();
+            }
+        }
+    }
 }
 
 /// Shows, un-minimizes and focuses the main window.
@@ -49,13 +85,15 @@ pub(crate) fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEven
 
 #[cfg(test)]
 mod tests {
-    use super::start_hidden;
+    use super::{StartupWindow::*, startup_window};
 
     #[test]
-    fn only_a_login_launch_with_the_icon_starts_hidden() {
-        assert!(start_hidden(true, true));
-        assert!(!start_hidden(true, false), "no icon: the window is the only way in");
-        assert!(!start_hidden(false, true));
-        assert!(!start_hidden(false, false));
+    fn a_login_launch_never_puts_the_window_in_front() {
+        // (launched at login, icon shown, has a Dock)
+        assert_eq!(startup_window(false, false, false), Show);
+        assert_eq!(startup_window(false, true, true), Show);
+        assert_eq!(startup_window(true, true, false), StayHidden);
+        assert_eq!(startup_window(true, false, true), StayHidden, "macOS: the Dock brings it back");
+        assert_eq!(startup_window(true, false, false), Minimized, "otherwise unreachable");
     }
 }

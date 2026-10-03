@@ -57,7 +57,15 @@ impl<R: Runtime> TrayMenu<R> {
 }
 
 /// Creates the icon. The caller renders the labels right after.
+///
+/// The tray handle wraps an `Rc` and an AppKit status item, so it is built
+/// and its handle dropped on the main thread; this waits for that.
 pub(crate) fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<TrayMenu<R>> {
+    let handle = app.clone();
+    on_main_thread(app, move || build(&handle)).unwrap_or(Err(tauri::Error::FailedToReceiveMessage))
+}
+
+fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<TrayMenu<R>> {
     let item = |id: &str, enabled: bool| MenuItem::with_id(app, id, "", enabled, None::<&str>);
     let menu = TrayMenu {
         status: item(ITEM_STATUS, false)?,
@@ -105,9 +113,27 @@ pub(crate) fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<TrayMenu<R
 }
 
 /// Removes the icon if it exists.
+///
+/// Dropping the handle is what takes the icon off the menu bar, and AppKit
+/// traps (SIGTRAP) when a status item is torn down off the main thread, so
+/// the drop happens there. Waits for it, so callers can report the new state.
 pub(crate) fn remove<R: Runtime>(app: &AppHandle<R>) {
-    // Dropping the returned handle is what takes the icon off the menu bar.
-    drop(app.remove_tray_by_id(TRAY_ID));
+    let handle = app.clone();
+    on_main_thread(app, move || drop(handle.remove_tray_by_id(TRAY_ID)));
+}
+
+/// Runs `task` on the main thread and waits for its result. On the main
+/// thread itself Tauri runs it inline. `None` if it could not be run.
+fn on_main_thread<R: Runtime, T: Send + 'static>(
+    app: &AppHandle<R>,
+    task: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = sender.send(task());
+    })
+    .ok()?;
+    receiver.recv_timeout(std::time::Duration::from_secs(5)).ok()
 }
 
 fn icon() -> Image<'static> {

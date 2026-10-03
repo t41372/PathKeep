@@ -124,7 +124,7 @@ Settings → General 的兩個開關。
   - 「搜尋歷史…」打開視窗並送出 `pathkeep://open-command-palette`，由前端打開 ⌘K。
   - 任何 app 內備份結束都送出 `pathkeep://backup-finished`（`{ source: "app" | "menu-bar", report?, error? }`），讓視窗在選單觸發的備份後刷新。
   - Linux 需要 libappindicator 與面板上的 StatusNotifier host（GNOME 預設沒有）；缺任一個時 `menuBarIconSupported` 為 false。
-- **登入啟動時的行為**：選單列圖示開著 → 不開視窗，只在選單列出現（設定文案「登入時在選單列運行」）。圖示關著 → 照常開視窗；Windows / Linux 沒有 Dock，隱藏又沒圖示等於用戶找不到 app。
+- **登入啟動時的行為**：登入啟動永遠不把視窗推到用戶面前。選單列圖示開著 → 不開視窗，只在選單列出現（設定文案「登入時在選單列運行」）。圖示關著：macOS 同樣不開視窗，Dock 圖示還在，點它就叫出視窗；Windows / Linux 以最小化開在工作列，因為沒有 Dock，隱藏又沒圖示等於用戶找不到 app。
 - **關閉視窗**：圖示開著 → 視窗隱藏，app 留在選單列（「結束 PathKeep」或 ⌘Q 才結束）。圖示關著 → 關視窗就結束 app，與之前一致。關掉圖示時若視窗是隱藏的，會把視窗叫回來。macOS 點 Dock 圖示會叫回隱藏的視窗。
 - 已知缺口：Windows / Linux 沒有 single-instance，app 隱藏在系統匣時再從開始選單啟動會開第二個 process。
 

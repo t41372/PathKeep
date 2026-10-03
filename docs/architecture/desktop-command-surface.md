@@ -73,7 +73,7 @@
 - `menuBarIcon` 是「圖示現在在不在」；偏好存 `AppConfig.menuBarIcon`。`set_menu_bar_icon` 先改圖示再存 config，存失敗就把圖示改回去並回錯。`save_config` 存完也會讓圖示與選單語言跟上 config。
 - `menuBarIconSupported`：macOS / Windows 恆為 true；Linux 需要能載入 libappindicator，且 session bus 上有 `org.kde.StatusNotifierWatcher`（問不到時不擋）。不支援時 `set_menu_bar_icon(true)` 回錯。
 - 事件：`pathkeep://open-command-palette`（選單「搜尋歷史…」，無 payload）；`pathkeep://backup-finished`（任何 app 內備份結束，`{ source: "app" | "menu-bar", report?, error? }`）。`run_backup_now` 與選單的「立即備份」走同一條 `desktop_integration::run_backup`，`pathkeep://backup-progress` 不變。dev bridge 的 `run_backup_now` 在 app 已啟動時也走這條路徑。
-- 登入啟動帶 `--launched-at-login`。主視窗在 `tauri.conf.json` 設為 `visible: false`，由 setup 決定是否顯示：只有「登入啟動 + 圖示開著」時不顯示。圖示開著時關視窗只是隱藏。細節與理由見 `docs/features/archive.md` §2「開機啟動與選單列圖示」。
+- 登入啟動帶 `--launched-at-login`。主視窗在 `tauri.conf.json` 設為 `visible: false`，由 setup 決定：一般啟動顯示；登入啟動時保持隱藏（圖示開著，或 macOS 有 Dock 可叫回），Windows / Linux 沒圖示時以最小化開啟。圖示開著時關視窗只是隱藏。細節與理由見 `docs/features/archive.md` §2「開機啟動與選單列圖示」。
 
 ## Debug 平台沙盒（2026-10）
 
