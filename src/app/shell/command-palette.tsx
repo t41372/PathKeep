@@ -82,7 +82,7 @@ export function CommandPalette({
   }
   const go = (to: string) => {
     close()
-    navigate(to)
+    void navigate(to)
   }
 
   const groups = useMemo(() => {

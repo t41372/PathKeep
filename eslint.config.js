@@ -21,6 +21,8 @@ export default defineConfig([
     'src-tauri/**/target',
     'var',
     'test-results',
+    'coverage',
+    'src-tauri/coverage',
   ]),
   {
     files: ['**/*.{ts,tsx}'],
@@ -78,6 +80,31 @@ export default defineConfig([
   // about HMR ergonomics rather than correctness — relax it for this directory.
   {
     files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+  // evilcharts is installed from its shadcn registry and kept as shipped, so
+  // `shadcn add` can update it. Its loose Recharts typing is not ours to fix.
+  {
+    files: ['src/components/evilcharts/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+      '@typescript-eslint/no-base-to-string': 'off',
+      '@typescript-eslint/restrict-template-expressions': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+    },
+  },
+  // Context modules export their provider and its hook side by side. Editing
+  // one of them costs a full reload instead of a hot update, which is fine.
+  {
+    files: [
+      'src/app/backup-runner.tsx',
+      'src/app/router.tsx',
+      'src/app/session.tsx',
+      'src/lib/i18n/provider.tsx',
+      'src/lib/theme.tsx',
+    ],
     rules: {
       'react-refresh/only-export-components': 'off',
     },

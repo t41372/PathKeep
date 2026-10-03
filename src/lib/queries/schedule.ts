@@ -29,7 +29,9 @@ export function nextScheduledBackup(
   const last = status.lastSuccessfulBackupAt
     ? Date.parse(status.lastSuccessfulBackupAt)
     : NaN
-  const due = Number.isFinite(last) ? last + status.dueAfterHours * 3_600_000 : now
+  const due = Number.isFinite(last)
+    ? last + status.dueAfterHours * 3_600_000
+    : now
   if (due > now) return new Date(due)
   const step = Math.max(status.checkIntervalHours, 1) * 3_600_000
   return new Date(Math.ceil(now / step) * step)

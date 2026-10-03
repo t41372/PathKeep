@@ -197,9 +197,10 @@ export function YearCard() {
   const years = trend.data?.data.availableYears ?? [currentYear]
   const earliest = Math.min(currentYear, ...years)
 
+  const points = trend.data?.data.points
   const { columns, total, busiest } = useMemo(() => {
     const counts = new Map(
-      points.map((point) => [point.dateKey, point.totalVisits]),
+      (points ?? []).map((point) => [point.dateKey, point.totalVisits]),
     )
     let best: { dateKey: string; visits: number } | null = null
     let sum = 0
@@ -219,7 +220,7 @@ export function YearCard() {
       total: sum,
       busiest: best,
     }
-  }, [trend.data, year, t, format])
+  }, [points, year, t, format])
 
   return (
     <SectionCard

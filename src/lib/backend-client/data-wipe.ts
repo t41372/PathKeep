@@ -16,5 +16,6 @@ export interface WipePreview {
 export const dataWipeClient = {
   preview: () => call<WipePreview>('preview_wipe_all_data'),
   /** `confirmation` must be the literal string "DELETE". */
-  execute: (confirmation: string) => call<void>('wipe_all_data', { confirmation }),
+  execute: (confirmation: string) =>
+    call<void>('wipe_all_data', { confirmation }),
 }

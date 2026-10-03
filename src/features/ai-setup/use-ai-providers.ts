@@ -98,7 +98,11 @@ export function useAiProviders() {
         }
         return config
       })
-      setReports(({ [providerId]: _gone, ...rest }) => rest)
+      setReports((reports) => {
+        const next = { ...reports }
+        delete next[providerId]
+        return next
+      })
     },
     [save],
   )

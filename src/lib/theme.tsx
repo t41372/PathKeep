@@ -20,7 +20,8 @@ const darkQuery = '(prefers-color-scheme: dark)'
 export function readStoredTheme(): ThemePreference {
   try {
     const value = localStorage.getItem(STORAGE_KEY)
-    if (value === 'light' || value === 'dark' || value === 'system') return value
+    if (value === 'light' || value === 'dark' || value === 'system')
+      return value
   } catch {
     // Fall through to the default.
   }

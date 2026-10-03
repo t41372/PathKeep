@@ -63,11 +63,18 @@ const SessionContext = createContext<SessionValue | null>(null)
 const RECOVERY_PREFIX = 'archive_recovery_required: '
 
 function parseRecoveryReport(error: unknown): ArchiveRecoveryReport | null {
-  const message = error instanceof Error ? error.message : String(error ?? '')
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : ''
   const at = message.indexOf(RECOVERY_PREFIX)
   if (at < 0) return null
   try {
-    return JSON.parse(message.slice(at + RECOVERY_PREFIX.length))
+    return JSON.parse(
+      message.slice(at + RECOVERY_PREFIX.length),
+    ) as ArchiveRecoveryReport
   } catch {
     return null
   }

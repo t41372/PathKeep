@@ -1,19 +1,19 @@
-import { cn } from "@/lib/cn";
-import * as React from "react";
+import { cn } from '@/lib/cn'
+import * as React from 'react'
 
-export type DotVariant = "default" | "border" | "colored-border";
+export type DotVariant = 'default' | 'border' | 'colored-border'
 
 type ChartDotProps = {
-  cx?: number;
-  cy?: number;
-  dataKey: string;
-  chartId: string;
-  className?: string;
-  fillOpacity?: number;
-  type?: DotVariant;
+  cx?: number
+  cy?: number
+  dataKey: string
+  chartId: string
+  className?: string
+  fillOpacity?: number
+  type?: DotVariant
   /** Optional SVG <mask> id — lets the dot share an area's intro reveal wipe. */
-  maskId?: string;
-};
+  maskId?: string
+}
 
 const ChartDot = React.memo(function ChartDot({
   cx,
@@ -22,16 +22,16 @@ const ChartDot = React.memo(function ChartDot({
   chartId,
   className,
   fillOpacity = 1,
-  type = "default",
+  type = 'default',
   maskId,
 }: ChartDotProps) {
-  const dotId = React.useId().replace(/:/g, "");
-  const gradientUrl = `url(#${chartId}-colors-${String(dataKey)})`;
+  const dotId = React.useId().replace(/:/g, '')
+  const gradientUrl = `url(#${chartId}-colors-${String(dataKey)})`
 
-  if (cx === undefined || cy === undefined) return null;
+  if (cx === undefined || cy === undefined) return null
 
   switch (type) {
-    case "border":
+    case 'border':
       return (
         <PrimaryBorderDot
           cx={cx}
@@ -42,8 +42,8 @@ const ChartDot = React.memo(function ChartDot({
           className={className}
           maskId={maskId}
         />
-      );
-    case "colored-border":
+      )
+    case 'colored-border':
       return (
         <ColoredBorderDot
           cx={cx}
@@ -54,7 +54,7 @@ const ChartDot = React.memo(function ChartDot({
           className={className}
           maskId={maskId}
         />
-      );
+      )
     default:
       return (
         <DefaultDot
@@ -66,23 +66,31 @@ const ChartDot = React.memo(function ChartDot({
           className={className}
           maskId={maskId}
         />
-      );
+      )
   }
-});
+})
 
 type DotVariantProps = {
-  cx: number;
-  cy: number;
-  dotId: string;
-  fillOpacity: number;
-  gradientUrl: string;
-  className?: string;
-  maskId?: string;
-};
+  cx: number
+  cy: number
+  dotId: string
+  fillOpacity: number
+  gradientUrl: string
+  className?: string
+  maskId?: string
+}
 
 const DefaultDot = React.memo(
-  ({ cx, cy, dotId, fillOpacity, gradientUrl, className, maskId }: DotVariantProps) => {
-    const r = 3;
+  ({
+    cx,
+    cy,
+    dotId,
+    fillOpacity,
+    gradientUrl,
+    className,
+    maskId,
+  }: DotVariantProps) => {
+    const r = 3
     return (
       <g className={className} mask={maskId ? `url(#${maskId})` : undefined}>
         <defs>
@@ -101,18 +109,29 @@ const DefaultDot = React.memo(
           clipPath={`url(#dot-clip-${dotId})`}
         />
       </g>
-    );
+    )
   },
-);
+)
 
-DefaultDot.displayName = "DefaultDot";
+DefaultDot.displayName = 'DefaultDot'
 
 const PrimaryBorderDot = React.memo(
-  ({ cx, cy, dotId, fillOpacity, gradientUrl, className, maskId }: DotVariantProps) => {
-    const r = 6;
-    const strokeWidth = 5;
+  ({
+    cx,
+    cy,
+    dotId,
+    fillOpacity,
+    gradientUrl,
+    className,
+    maskId,
+  }: DotVariantProps) => {
+    const r = 6
+    const strokeWidth = 5
     return (
-      <g className={cn(className, "text-background")} mask={maskId ? `url(#${maskId})` : undefined}>
+      <g
+        className={cn(className, 'text-background')}
+        mask={maskId ? `url(#${maskId})` : undefined}
+      >
         <defs>
           <clipPath id={`dot-clip-${dotId}`}>
             <circle cx={cx} cy={cy} r={r} />
@@ -136,18 +155,29 @@ const PrimaryBorderDot = React.memo(
           </clipPath>
         </defs>
       </g>
-    );
+    )
   },
-);
+)
 
-PrimaryBorderDot.displayName = "PrimaryBorderDot";
+PrimaryBorderDot.displayName = 'PrimaryBorderDot'
 
 const ColoredBorderDot = React.memo(
-  ({ cx, cy, dotId, fillOpacity, gradientUrl, className, maskId }: DotVariantProps) => {
-    const r = 3;
-    const strokeWidth = 1;
+  ({
+    cx,
+    cy,
+    dotId,
+    fillOpacity,
+    gradientUrl,
+    className,
+    maskId,
+  }: DotVariantProps) => {
+    const r = 3
+    const strokeWidth = 1
     return (
-      <g className={cn(className, "text-background")} mask={maskId ? `url(#${maskId})` : undefined}>
+      <g
+        className={cn(className, 'text-background')}
+        mask={maskId ? `url(#${maskId})` : undefined}
+      >
         <defs>
           <clipPath id={`dot-clip-${dotId}`}>
             <circle cx={cx} cy={cy} r={r + strokeWidth / 2} />
@@ -166,10 +196,10 @@ const ColoredBorderDot = React.memo(
         {/* Inner solid fill */}
         <circle cx={cx} cy={cy} r={r - strokeWidth / 2} fill="currentColor" />
       </g>
-    );
+    )
   },
-);
+)
 
-ColoredBorderDot.displayName = "ColoredBorderDot";
+ColoredBorderDot.displayName = 'ColoredBorderDot'
 
-export { ChartDot };
+export { ChartDot }
