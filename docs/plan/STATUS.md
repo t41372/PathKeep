@@ -31,7 +31,7 @@
     - [ ] 7. 文檔同步（features / design / architecture）、CHANGELOG、`bun run check` 全綠
   - 已知缺口（2026-10-02 盤點）：
     - 前端呼叫但 Rust 沒註冊的命令：`load_source_stats`、`get_url_detail`（`vault-core` 已有實作）、`preview_wipe_all_data` / `wipe_all_data`（沒有實作）。
-    - Settings 的「開機時啟動」「選單列圖示」在後端沒有對應（沒有 tray、沒有 autostart）。
+    - Settings 的「開機時啟動」「選單列圖示」在後端沒有對應（沒有 tray、沒有 autostart）。用戶 2026-10-02 決定：直接補做（`tauri-plugin-autostart` + Tauri 內建 tray，命令 `get_desktop_integration` / `set_launch_at_login` / `set_menu_bar_icon`，前端契約在 `src/lib/backend-client/desktop.ts`）。
     - IPC 性能問題（尚未修）：每次開 archive 都對 search DB 做一次寫交易 + `COUNT(*)`（search DB 無 WAL）；每個命令都重讀 config；`query_history` 每頁一次精確 `COUNT(*)`（已加 `includeTotal`）；`app_snapshot` 一次開約 5 次 DB。已修：keychain 查詢快取 60 秒。
     - 打包時 Recharts 被併成一個名叫 `heatmap` 的 546 kB chunk（Home 和 Insights 共用、lazy load），不算問題。
   - 2026-10-02 試跑時記下、還沒修的：
