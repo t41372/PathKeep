@@ -279,15 +279,19 @@ export function YearCard() {
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span className="tabular">
-          {t('home.year.summary', {
-            total: format.number(total),
-            year: String(year),
-          })}
-          {busiest &&
-            busiest.visits > 0 &&
-            ` · ${t('home.year.busiest', { date: format.monthDay(`${busiest.dateKey}T00:00:00`) })}`}
-        </span>
+        {trend.isPending ? (
+          <Skeleton className="h-3.5 w-48" />
+        ) : (
+          <span className="tabular">
+            {t('home.year.summary', {
+              total: format.number(total),
+              year: String(year),
+            })}
+            {busiest &&
+              busiest.visits > 0 &&
+              ` · ${t('home.year.busiest', { date: format.monthDay(`${busiest.dateKey}T00:00:00`) })}`}
+          </span>
+        )}
         <HeatLegend less={t('common.less')} more={t('common.more')} />
       </div>
     </SectionCard>
