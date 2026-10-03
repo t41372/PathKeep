@@ -33,7 +33,12 @@
     - 前端呼叫但 Rust 沒註冊的命令：`load_source_stats`、`get_url_detail`（`vault-core` 已有實作）、`preview_wipe_all_data` / `wipe_all_data`（沒有實作）。
     - Settings 的「開機時啟動」「選單列圖示」在後端沒有對應（沒有 tray、沒有 autostart）。
     - IPC 性能問題（尚未修）：每次開 archive 都對 search DB 做一次寫交易 + `COUNT(*)`（search DB 無 WAL）；每個命令都重讀 config；`query_history` 每頁一次精確 `COUNT(*)`（已加 `includeTotal`）；`app_snapshot` 一次開約 5 次 DB。已修：keychain 查詢快取 60 秒。
-    - `heatmap` chunk 546 kB。
+    - 打包時 Recharts 被併成一個名叫 `heatmap` 的 546 kB chunk（Home 和 Insights 共用、lazy load），不算問題。
+  - 2026-10-02 試跑時記下、還沒修的：
+    - History 搜尋把同一頁的每一次訪問都列出來，重訪多的頁面會把其他結果擠掉（搜 "tokio"：前 2,000 多條全是同一頁）。要後端給 `query_history` 加「同一網址收成一行」的選項，前端顯示「N 次訪問」。
+    - Insights「常搜尋」的次數是整個 query family 的歷史總數，不受日期範圍限制（會大於同範圍的搜尋 KPI）。要後端給一個按範圍統計的命令。
+    - **排程器沒有沙盒**：debug build 的 keyring 會被 `CHB_TEST_KEYRING_DIR` 導到檔案，但 launchd / Task Scheduler 沒有對應的導向，dev:demo 和 E2E 會讀到（apply 時會改到）使用者真實的 LaunchAgent。E2E 動排程之前要先補一個只在 debug 生效的沙盒（label + LaunchAgents 目錄 + 不呼叫真的 launchctl）。
+    - 合成 Firefox profile 被 Floorp / LibreWolf / Waterfox 也各認了一次（都顯示 `default-release`），疑似 Gecko 系 adapter 共用 `CHB_FIREFOX_PROFILES_DIR`。
   - 試跑：`bun run dev:demo`（真後端 + 合成 Chrome×2 / Firefox archive），瀏覽器開 http://127.0.0.1:1420。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
