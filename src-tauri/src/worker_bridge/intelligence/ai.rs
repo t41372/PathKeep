@@ -25,11 +25,11 @@
 use crate::command_error::CommandError;
 use vault_core::{
     AgentConversationDetail, AgentConversationListResponse, AgentConversationSummary,
-    AiAssistantRequest, AiChatSendRequest, AiChatStreamEvent, AiIndexRequest,
-    AiProviderConnectionTestRequest, AiProviderSecretInput, AiSearchRequest,
-    ContentFetchNowRequest, ContentFetchNowResult, ContentFetchSettings,
-    DeleteAgentConversationResult, ListAgentConversationsRequest, ModelDownloadProgressEvent,
-    RenameAgentConversationRequest, SaveAgentConversationRequest, VisitEnrichmentRecord,
+    AiChatSendRequest, AiChatStreamEvent, AiIndexRequest, AiProviderConnectionTestRequest,
+    AiProviderSecretInput, AiSearchRequest, ContentFetchNowRequest, ContentFetchNowResult,
+    ContentFetchSettings, DeleteAgentConversationResult, ListAgentConversationsRequest,
+    ModelDownloadProgressEvent, RenameAgentConversationRequest, SaveAgentConversationRequest,
+    VisitEnrichmentRecord,
 };
 
 use super::super::worker_result;
@@ -94,15 +94,6 @@ pub(crate) fn cancel_ai_job_impl(
     worker_result(vault_worker::cancel_ai_job(session_database_key, job_id))
 }
 
-#[cfg_attr(test, allow(dead_code))]
-/// Loads the persisted assistant result for a queue-backed AI job.
-pub(crate) fn load_ai_assistant_job_impl(
-    job_id: i64,
-    session_database_key: Option<&str>,
-) -> Result<vault_core::AiAssistantResponse, CommandError> {
-    worker_result(vault_worker::load_ai_assistant_job(session_database_key, job_id))
-}
-
 /// Builds or refreshes the semantic index right away.
 pub(crate) fn build_ai_index_impl(
     request: AiIndexRequest,
@@ -137,14 +128,6 @@ pub(crate) fn search_ai_history_impl(
     worker_result(vault_worker::search_ai_history(session_database_key, &request))
 }
 
-/// Answers one question with first-party assistant tooling and citations.
-pub(crate) fn ask_ai_assistant_impl(
-    request: AiAssistantRequest,
-    session_database_key: Option<&str>,
-) -> Result<vault_core::AiAssistantResponse, CommandError> {
-    worker_result(vault_worker::ask_ai_assistant(session_database_key, &request))
-}
-
 /// Previews the generated MCP and skill integration artifacts.
 pub(crate) fn preview_ai_integrations_impl()
 -> Result<vault_core::AiIntegrationPreview, CommandError> {
@@ -174,18 +157,6 @@ pub(crate) fn ai_chat_cancel_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AiChatCancelResult, CommandError> {
     worker_result(vault_worker::ai_chat_cancel(session_database_key, &run_id))
-}
-
-#[cfg_attr(test, allow(dead_code))]
-/// Starts the consent-gated in-app embedding model download; progress reaches the UI via `emit`.
-///
-/// `emit` wraps `AppHandle::emit("pathkeep://model-download-progress", ...)`; it must be
-/// `Send + 'static` so the worker's background download thread can own it (W-AI-4b §C.5).
-pub(crate) fn download_ai_embedding_model_impl<E>(emit: E) -> Result<(), CommandError>
-where
-    E: Fn(ModelDownloadProgressEvent) + Send + 'static,
-{
-    worker_result(vault_worker::download_ai_embedding_model(emit))
 }
 
 #[cfg_attr(test, allow(dead_code))]

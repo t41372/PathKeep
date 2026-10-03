@@ -141,20 +141,6 @@ pub(crate) async fn cancel_ai_job(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Loads the persisted assistant result for one queue-backed job, off the UI thread.
-pub(crate) async fn load_ai_assistant_job(
-    job_id: i64,
-    state: State<'_, SessionState>,
-) -> Result<vault_core::AiAssistantResponse, CommandError> {
-    let key = state.get_key();
-    run_blocking_command("load_ai_assistant_job", move || {
-        worker_bridge::load_ai_assistant_job_impl(job_id, key.as_deref())
-    })
-    .await
-}
-
-#[cfg(not(test))]
-#[tauri::command]
 /// Builds or refreshes the semantic index, off the UI thread.
 pub(crate) async fn build_ai_index(
     request: vault_core::AiIndexRequest,
@@ -213,23 +199,6 @@ pub(crate) async fn search_ai_history(
     let key = state.get_key();
     run_blocking_command("search_ai_history", move || {
         worker_bridge::search_ai_history_impl(request, key.as_deref())
-    })
-    .await
-}
-
-#[cfg(not(test))]
-#[tauri::command]
-/// Asks the first-party assistant to answer a question with archive citations, off the UI thread.
-///
-/// The assistant runs an LLM agent loop (multiple network round-trips), so it must stay on the
-/// blocking pool.
-pub(crate) async fn ask_ai_assistant(
-    request: vault_core::AiAssistantRequest,
-    state: State<'_, SessionState>,
-) -> Result<vault_core::AiAssistantResponse, CommandError> {
-    let key = state.get_key();
-    run_blocking_command("ask_ai_assistant", move || {
-        worker_bridge::ask_ai_assistant_impl(request, key.as_deref())
     })
     .await
 }

@@ -62,7 +62,7 @@ pub use self::{
         ai_chat_cancel, ai_chat_send, ask_ai_assistant, build_ai_index_now,
         build_intelligence_local_host, cancel_ai_job, cancel_intelligence_job_now,
         cancel_model_download, content_fetch_now, content_fetch_settings, delete_ai_conversation,
-        delete_search_engine_rule, download_ai_embedding_model, download_static_embedding_model,
+        delete_search_engine_rule, download_static_embedding_model,
         enqueue_content_fetch_working_set, estimate_reembed_now, explain_entity, explain_refind,
         get_activity_mix, get_activity_mix_trend, get_breadth_index, get_browsing_rhythm,
         get_compare_set_detail, get_compare_sets, get_day_insights, get_digest_summary,

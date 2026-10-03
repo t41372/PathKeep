@@ -139,8 +139,6 @@ export const backend = {
   buildAiIndex: intelligenceClient.buildIndex,
   estimateReembed: intelligenceClient.estimateReembed,
   searchAiHistory: intelligenceClient.searchHistory,
-  askAiAssistant: intelligenceClient.askAssistant,
-  loadAiAssistantJob: intelligenceClient.getAssistantJob,
   sendAiChat: intelligenceClient.sendChat,
   cancelAiChat: intelligenceClient.cancelChat,
   saveAiConversation: intelligenceClient.saveConversation,

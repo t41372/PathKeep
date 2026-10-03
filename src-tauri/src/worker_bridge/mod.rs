@@ -426,36 +426,6 @@ mod tests {
         .expect("ai search");
         assert_eq!(ai_search.total, 2);
 
-        // OPTIONAL key: even with NO stored provider key (the key was cleared above), the
-        // assistant must NOT bail on PathKeep's own "store an API key" precondition — a key is not
-        // a prerequisite. This crate links the REAL (non-stub) vault-core, so the outcome is
-        // mode-dependent: under the coverage stub the run completes; against the real default
-        // OpenAI endpoint the PROVIDER answers with its own 401. Either way is acceptable; the ONLY
-        // forbidden outcome is our removed synthetic precondition. (Before the fix this bailed with
-        // "store an API key" before any provider was even contacted.)
-        match ask_ai_assistant_impl(
-            AiAssistantRequest {
-                question: "What did I visit?".to_string(),
-                profile_id: None,
-                domain: None,
-            },
-            session_key(&session).as_deref(),
-        ) {
-            Ok(response) => {
-                // Stub path: the keyless run proceeds to a completed answer end to end.
-                assert_eq!(response.state, "completed");
-                assert!(!response.answer.is_empty(), "keyless assistant answers: {response:?}");
-            }
-            Err(error) => {
-                // Real-network path: only a PROVIDER-returned error may block — never PathKeep's
-                // own missing-key precondition.
-                assert!(
-                    !error.message.contains("store an API key"),
-                    "must not pre-empt on a missing key; got: {error}"
-                );
-            }
-        }
-
         let preview = preview_ai_integrations_impl().expect("preview ai integrations");
         assert!(preview.mcp_command.contains("mcp-server"));
 
@@ -882,9 +852,6 @@ mod tests {
         let cancel = cancel_ai_job_impl(999, session_key(&session).as_deref())
             .expect_err("missing ai job should not cancel");
         assert!(cancel.message.contains("999"));
-        let assistant_job = load_ai_assistant_job_impl(999, session_key(&session).as_deref())
-            .expect_err("missing assistant job should not load");
-        assert!(assistant_job.message.contains("999"));
 
         let intelligence_run = run_core_intelligence_now_impl(
             vault_core::CoreIntelligenceRebuildRequest::default(),

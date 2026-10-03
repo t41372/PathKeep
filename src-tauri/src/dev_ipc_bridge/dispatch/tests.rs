@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 use std::future::Future;
 use tempfile::tempdir;
 use vault_core::{
-    AgentMessage, AiAssistantRequest, AiChatMessage, AiChatRole, AiChatSendRequest, AiIndexRequest,
+    AgentMessage, AiChatMessage, AiChatRole, AiChatSendRequest, AiIndexRequest,
     AiProviderConnectionTestRequest, AiProviderPurpose, AiProviderSecretInput, AiSearchRequest,
     AppConfig, AppUpdateInstallRequest, ArchiveMode, BrowserHistoryImportRequest,
     CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
@@ -695,7 +695,6 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(&state, "run_ai_queue_jobs", json!({ "maxJobs": 1 }));
     dispatch_for_coverage(&state, "replay_ai_job", json!({ "jobId": 999 }));
     dispatch_for_coverage(&state, "cancel_ai_job", json!({ "jobId": 999 }));
-    dispatch_for_coverage(&state, "load_ai_assistant_job", json!({ "jobId": 999 }));
     dispatch_for_coverage(&state, "build_ai_index", wrapped(AiIndexRequest::default()));
     dispatch_for_coverage(&state, "reset_ai_index_build", wrapped(AiIndexRequest::default()));
     dispatch_for_coverage(
@@ -715,15 +714,6 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     );
     dispatch_for_coverage(
         &state,
-        "ask_ai_assistant",
-        wrapped(AiAssistantRequest {
-            question: "What did I visit?".to_string(),
-            profile_id: None,
-            domain: None,
-        }),
-    );
-    dispatch_for_coverage(
-        &state,
         "ai_chat_send",
         wrapped(AiChatSendRequest {
             provider_id: None,
@@ -737,7 +727,6 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         }),
     );
     dispatch_for_coverage(&state, "ai_chat_cancel", json!({ "runId": "chat-missing" }));
-    dispatch_for_coverage(&state, "download_ai_embedding_model", json!({}));
     dispatch_for_coverage(&state, "download_static_embedding_model", json!({}));
     dispatch_for_coverage(&state, "cancel_ai_embedding_model_download", json!({}));
     dispatch_for_coverage(

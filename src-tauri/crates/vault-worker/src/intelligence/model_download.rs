@@ -11,26 +11,22 @@
 //!
 //! ## Not responsible for
 //! - emitting Tauri events directly (the desktop command supplies the `emit` sink closure)
-//! - the consent TOGGLE / provider-config UI — that is W-AI-9 scope. This module is the documented
-//!   seam: it is the FIRST production caller of `ensure_model_downloaded` (closing the W-AI-4b S4
-//!   "no production caller" gap), reachable from the `download_ai_embedding_model` Tauri command,
-//!   so the download path is exercised end-to-end rather than shipped as dead code. The W-AI-9 UI
-//!   only has to call this command once the user flips the consent toggle.
+//! - the consent UI. The `download_static_embedding_model` command is the only caller; the heavier
+//!   Candle-tier download command was removed in 2026-10 because no frontend called it.
 //!
 //! ## Why consent stays honored
 //! The command always passes `consented = true` ONLY because reaching this code IS the explicit
 //! user action (pressing "Download model"); vault-core still refuses to touch the network unless
 //! the model is absent, and never auto-downloads on its own (the selector degrades instead of
-//! fetching). The toggle that gates the button is W-AI-9.
+//! fetching).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
 use vault_core::{
-    DEFAULT_CANDLE_MODEL_FILES, DEFAULT_CANDLE_MODEL_REPO, DEFAULT_STATIC_MODEL_FILES,
-    DEFAULT_STATIC_MODEL_REPO, ModelDownloadProgress, ModelDownloadProgressEvent,
-    ensure_model_downloaded,
+    DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, ModelDownloadProgress,
+    ModelDownloadProgressEvent, ensure_model_downloaded,
 };
 
 /// A single live download's cancellation flag, so a second "Download" press or a navigate-away can
@@ -84,51 +80,14 @@ where
     }
 }
 
-/// Starts the consent-gated default in-app embedding model download on a background thread.
-///
-/// Returns immediately after spawning; the caller (desktop command) subscribes to
-/// [`vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT`] for per-file progress and the terminal
-/// `Done`/`Error`. The `emit` sink is the desktop `AppHandle::emit` wrapper; it must be
-/// `Send + 'static` so the background thread can own it. Resets the cancel flag on start so a prior
-/// cancellation never aborts a fresh run.
-///
-/// TODO(W-AI-9): expose a per-repo/quant variant + the consent toggle + provider-config UI. For
-/// W-AI-4b this fetches the single default model (`DEFAULT_CANDLE_MODEL_REPO` @ `DEFAULT_CANDLE_QUANT`).
-#[cfg(not(coverage))]
-pub fn download_ai_embedding_model<E>(emit: E) -> Result<()>
-where
-    E: Fn(ModelDownloadProgressEvent) + Send + 'static,
-{
-    let cancel = cancel_flag().clone();
-    cancel.store(false, Ordering::SeqCst);
-    std::thread::Builder::new()
-        .name("pathkeep-model-download".to_string())
-        .spawn(move || run_download(emit, cancel))
-        .map_err(|error| anyhow::anyhow!("spawning model download thread: {error}"))?;
-    Ok(())
-}
-
-/// Coverage stub: runs the download synchronously (no thread) so the bridge + emit + terminal events
-/// are exercised at 100% coverage without a background thread the harness cannot join. Same call
-/// graph as the real path (reset cancel → run → terminal event).
-#[cfg(coverage)]
-pub fn download_ai_embedding_model<E>(emit: E) -> Result<()>
-where
-    E: Fn(ModelDownloadProgressEvent) + Send + 'static,
-{
-    let cancel = cancel_flag().clone();
-    cancel.store(false, Ordering::SeqCst);
-    run_download(emit, cancel);
-    Ok(())
-}
-
 /// Starts the consent-gated in-app STATIC (Tier-0) embedding model download on a background thread (F1).
 ///
-/// Mirrors [`download_ai_embedding_model`] but targets the always-on static model
-/// ([`DEFAULT_STATIC_MODEL_REPO`]) the built-in static provider loads — reusing the SAME
-/// SHA-256-verified [`ensure_model_downloaded`] path. This is the FE's "Download local model" action
-/// for the static tier; reaching it IS the explicit consent. Returns immediately after spawning;
+/// Targets the always-on static model ([`DEFAULT_STATIC_MODEL_REPO`]) the built-in static provider
+/// loads, through the SHA-256-verified [`ensure_model_downloaded`] path. This is the FE's "Download
+/// local model" action; reaching it IS the explicit consent. Returns immediately after spawning;
 /// progress + the terminal `Done`/`Error` reach the UI on [`vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT`].
+/// The `emit` sink must be `Send + 'static` so the background thread can own it. Resets the cancel
+/// flag on start so a prior cancellation never aborts a fresh run.
 #[cfg(not(coverage))]
 pub fn download_static_embedding_model<E>(emit: E) -> Result<()>
 where
@@ -168,23 +127,6 @@ where
         cancel,
     );
     Ok(())
-}
-
-/// The download body: resolves the project paths + default model, then downloads + emits a terminal.
-///
-/// Thin wrapper over [`run_download_for`] that supplies the production target (`project_paths()` +
-/// the default repo/manifest).
-fn run_download<E>(emit: E, cancel: Arc<AtomicBool>)
-where
-    E: Fn(ModelDownloadProgressEvent) + Send,
-{
-    run_download_for(
-        vault_core::project_paths(),
-        DEFAULT_CANDLE_MODEL_REPO,
-        DEFAULT_CANDLE_MODEL_FILES,
-        emit,
-        cancel,
-    );
 }
 
 /// Downloads using a `Result<ProjectPaths>` so BOTH the path-resolution failure AND success arms are
@@ -288,38 +230,16 @@ mod tests {
     }
 
     #[test]
-    fn run_download_resolves_paths_and_always_emits_a_terminal() {
-        // Drives the production `run_download` (real `project_paths()` + default model). The cancel
-        // flag is pre-SET so that — IF the default model is absent and a fetch would be needed —
-        // `ensure_model_downloaded` bails at the before-first-file cancel check rather than touching
-        // the network (keeps the unit test offline + deterministic). The point under test is that
-        // `run_download` resolves paths and ALWAYS emits exactly one terminal so a subscriber keyed
-        // on the event never hangs; we assert only that the LAST event is terminal.
-        let events: Arc<Mutex<Vec<ModelDownloadProgressEvent>>> = Arc::new(Mutex::new(Vec::new()));
-        let cancel = Arc::new(AtomicBool::new(true));
-        run_download(collect(&events), cancel);
-        let recorded = events.lock().expect("events");
-        let last = recorded.last().expect("a terminal event");
-        assert!(
-            matches!(
-                last,
-                ModelDownloadProgressEvent::Done | ModelDownloadProgressEvent::Error { .. }
-            ),
-            "the download body must always emit a terminal event, got {last:?}"
-        );
-    }
-
-    #[test]
     fn run_download_for_emits_error_when_path_resolution_fails() {
-        // Drives the path-resolution FAILURE arm of `run_download_for` (which the production
-        // `run_download` cannot hit on a normal machine, since `project_paths()` succeeds) by passing
-        // an `Err`. Must emit exactly one terminal Error so a subscriber never hangs.
+        // Drives the path-resolution FAILURE arm of `run_download_for` (which production cannot hit
+        // on a normal machine, since `project_paths()` succeeds) by passing an `Err`. Must emit
+        // exactly one terminal Error so a subscriber never hangs.
         let events: Arc<Mutex<Vec<ModelDownloadProgressEvent>>> = Arc::new(Mutex::new(Vec::new()));
         let cancel = Arc::new(AtomicBool::new(false));
         run_download_for(
             Err(anyhow::anyhow!("no unlocked project context")),
-            DEFAULT_CANDLE_MODEL_REPO,
-            DEFAULT_CANDLE_MODEL_FILES,
+            DEFAULT_STATIC_MODEL_REPO,
+            DEFAULT_STATIC_MODEL_FILES,
             collect(&events),
             cancel,
         );

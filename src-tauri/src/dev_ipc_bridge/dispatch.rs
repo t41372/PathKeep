@@ -29,17 +29,17 @@ use crate::{file_manager, session::session_key, updater, worker_bridge};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use vault_core::{
-    AiAssistantRequest, AiChatSendRequest, AiIndexRequest, AiProviderConnectionTestRequest,
-    AiSearchRequest, CategoryFilteredDateRangeRequest, CompareSetDetailRequest,
-    CoreIntelligenceRebuildRequest, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
-    EntityExplanationRequest, ExplainRefindRequest, FrontendErrorReportRequest,
-    GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest,
-    ListAgentConversationsRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
-    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest,
-    RenameAgentConversationRequest, RetentionPruneRequest, SaveAgentConversationRequest,
-    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchEngineRuleInput,
-    SearchQueryListRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
-    SnapshotRestoreRequest, TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
+    AiChatSendRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiSearchRequest,
+    CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
+    DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest,
+    ExplainRefindRequest, FrontendErrorReportRequest, GranularityDateRangeRequest,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, ListAgentConversationsRequest,
+    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest,
+    RefindPageDetailRequest, RefindPagesRequest, RenameAgentConversationRequest,
+    RetentionPruneRequest, SaveAgentConversationRequest, ScopedDateRangeRequest,
+    SearchEffectivenessRequest, SearchEngineRuleInput, SearchQueryListRequest,
+    SearchTrailQueryRequest, SetAppLockPasscodeRequest, SnapshotRestoreRequest,
+    TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -510,13 +510,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
-        "load_ai_assistant_job" => {
-            let payload = parse_payload::<JobIdPayload>(payload)?;
-            json_value!(worker_bridge::load_ai_assistant_job_impl(
-                payload.job_id,
-                session_key(&state.session).as_deref()
-            )?)
-        }
         "build_ai_index" => {
             let payload = parse_payload::<WrappedRequest<AiIndexRequest>>(payload)?;
             json_value!(worker_bridge::build_ai_index_impl(
@@ -540,16 +533,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let key = session_key(&state.session);
             json_value!(search_ai_history_off_thread(payload.request, key).await?)
         }
-        "ask_ai_assistant" => {
-            // When `job_queue_paused=false`, `ask_ai_assistant` runs the
-            // assistant job synchronously and reaches `block_on` via
-            // `complete_claimed_assistant_job`. The paused path is safe
-            // (it only stages the job), but we wrap unconditionally so
-            // the panic cannot fire on a config flip.
-            let payload = parse_payload::<WrappedRequest<AiAssistantRequest>>(payload)?;
-            let key = session_key(&state.session);
-            json_value!(ask_ai_assistant_off_thread(payload.request, key).await?)
-        }
         "ai_chat_send" => {
             // `ai_chat_send` resolves config + provider SYNCHRONOUSLY on the calling
             // thread (blocking keyring/file IO), then spawns a background thread that
@@ -569,15 +552,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
-        "download_ai_embedding_model" => {
-            // Spawns a background download thread off the worker; the dev HTTP bridge does NOT
-            // deliver Tauri events, so the progress emit sink is a documented no-op here (progress
-            // only flows under real Tauri). The `Ok(())` ack is still verifiable.
-            json_value!(download_ai_embedding_model_off_thread().await?)
-        }
         "download_static_embedding_model" => {
-            // Same posture as `download_ai_embedding_model`: spawns a background download thread off the
-            // worker; the dev HTTP bridge does NOT deliver Tauri events so the progress sink is a no-op.
+            // Spawns a background download thread off the worker; the dev HTTP bridge does NOT
+            // deliver Tauri events, so the progress sink is a no-op. The `Ok(())` ack is still
+            // verifiable.
             json_value!(download_static_embedding_model_off_thread().await?)
         }
         "cancel_ai_embedding_model_download" => {
@@ -1150,22 +1128,6 @@ async fn search_ai_history_off_thread(
     .unwrap_or_else(|error| join_failure("search_ai_history", error))
 }
 
-/// Hops `ask_ai_assistant_impl` onto the tokio blocking thread pool.
-/// When `job_queue_paused=false`, the assistant job runs synchronously
-/// and reaches `block_on` via `complete_claimed_assistant_job`. The
-/// paused path is safe (it only stages the job) but we wrap
-/// unconditionally so the panic cannot fire on a config flip.
-async fn ask_ai_assistant_off_thread(
-    request: vault_core::AiAssistantRequest,
-    key: Option<String>,
-) -> Result<vault_core::AiAssistantResponse, CommandError> {
-    tokio::task::spawn_blocking(move || {
-        worker_bridge::ask_ai_assistant_impl(request, key.as_deref())
-    })
-    .await
-    .unwrap_or_else(|error| join_failure("ask_ai_assistant", error))
-}
-
 /// Hops `ai_chat_send_impl` onto the tokio blocking thread pool. The worker
 /// resolves config + provider synchronously (blocking keyring/file IO) and then
 /// spawns the streaming thread, which creates its own scoped runtime; that
@@ -1186,22 +1148,9 @@ async fn ai_chat_send_off_thread(
     .unwrap_or_else(|error| join_failure("ai_chat_send", error))
 }
 
-/// Hops `download_ai_embedding_model_impl` onto the tokio blocking thread pool. The worker spawns
-/// the actual download thread; the emit sink is dropped because the dev HTTP bridge does not deliver
-/// Tauri events (progress only flows under real Tauri).
-async fn download_ai_embedding_model_off_thread() -> Result<(), CommandError> {
-    tokio::task::spawn_blocking(move || {
-        worker_bridge::download_ai_embedding_model_impl(
-            std::mem::drop::<vault_core::ModelDownloadProgressEvent>,
-        )
-    })
-    .await
-    .unwrap_or_else(|error| join_failure("download_ai_embedding_model", error))
-}
-
-/// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). Same posture
-/// as the heavy-tier download above: the worker spawns the actual download thread and the emit sink is
-/// dropped (the dev HTTP bridge does not deliver Tauri events).
+/// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). The worker
+/// spawns the actual download thread; the emit sink is dropped because the dev HTTP bridge does not
+/// deliver Tauri events (progress only flows under real Tauri).
 async fn download_static_embedding_model_off_thread() -> Result<(), CommandError> {
     tokio::task::spawn_blocking(move || {
         worker_bridge::download_static_embedding_model_impl(

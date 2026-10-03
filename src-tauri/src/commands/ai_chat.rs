@@ -55,23 +55,6 @@ pub(crate) async fn ai_chat_cancel(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Starts the consent-gated in-app embedding model download; progress arrives on
-/// `pathkeep://model-download-progress` (W-AI-4b §C.5).
-///
-/// Reaching this command IS the explicit user consent action (pressing "Download model"); the
-/// first-class consent TOGGLE + provider-config UI is W-AI-9. The download runs off the UI thread
-/// and emits a terminal `Done`/`Error` so the renderer never hangs.
-pub(crate) async fn download_ai_embedding_model(app: AppHandle) -> Result<(), CommandError> {
-    run_blocking_command("download_ai_embedding_model", move || {
-        worker_bridge::download_ai_embedding_model_impl(move |event| {
-            let _ = app.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event);
-        })
-    })
-    .await
-}
-
-#[cfg(not(test))]
-#[tauri::command]
 /// Starts the consent-gated in-app STATIC (Tier-0) embedding model download (F1); progress arrives on
 /// `pathkeep://model-download-progress`.
 ///

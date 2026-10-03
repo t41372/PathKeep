@@ -74,9 +74,7 @@ pub use self::content_fetch::{
     content_fetch_now, content_fetch_settings, enqueue_content_fetch_working_set,
     list_visit_enrichment, set_content_fetch_settings,
 };
-pub use self::model_download::{
-    cancel_model_download, download_ai_embedding_model, download_static_embedding_model,
-};
+pub use self::model_download::{cancel_model_download, download_static_embedding_model};
 pub use self::route_queries::{
     delete_search_engine_rule, explain_entity, explain_refind, get_domain_trend, get_hub_pages,
     get_intelligence_primary_overview, get_navigation_path, get_query_families,
