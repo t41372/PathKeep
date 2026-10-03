@@ -11,7 +11,9 @@ import { home } from './home'
 import { insights } from './insights'
 import { onboarding } from './onboarding'
 import { settings } from './settings'
+import { settingsAbout } from './settings-about'
 import { settingsAi } from './settings-ai'
+import { settingsStorage } from './settings-storage'
 import { shell } from './shell'
 
 const namespaces = {
@@ -24,6 +26,8 @@ const namespaces = {
   backup,
   settings,
   settingsAi,
+  settingsStorage,
+  settingsAbout,
   onboarding,
 }
 

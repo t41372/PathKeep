@@ -19,9 +19,9 @@ export function SettingRow({
   htmlFor?: string
 }) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3.5 shadow-card">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex min-w-0 flex-col gap-0.5">
+    <div className="flex flex-col gap-3 rounded-xl border bg-card px-[18px] py-4 shadow-card">
+      <div className="flex items-center justify-between gap-5">
+        <div className="flex min-w-0 flex-col gap-[3px]">
           <label
             htmlFor={htmlFor}
             className={cn('font-medium', danger && 'text-destructive')}
@@ -29,10 +29,14 @@ export function SettingRow({
             {title}
           </label>
           {description && (
-            <p className="text-[13px] text-muted-foreground">{description}</p>
+            <div className="text-[13px] leading-[1.45] break-words text-muted-foreground">
+              {description}
+            </div>
           )}
         </div>
-        {control && <div className="shrink-0">{control}</div>}
+        {control && (
+          <div className="flex shrink-0 items-center gap-2">{control}</div>
+        )}
       </div>
       {children}
     </div>
@@ -48,9 +52,25 @@ export function SettingsSection({
   children: ReactNode
 }) {
   return (
-    <section className="flex max-w-[560px] flex-col gap-2.5">
+    <section className="flex flex-col gap-3">
       <h2 className="mb-2 text-xl font-semibold tracking-tight">{title}</h2>
       {children}
     </section>
+  )
+}
+
+/** A quiet label that splits a long section into groups. */
+export function SettingsGroup({
+  title,
+  note,
+}: {
+  title: ReactNode
+  note?: ReactNode
+}) {
+  return (
+    <div className="mt-3 flex flex-col gap-0.5 px-1">
+      <h3 className="text-[13px] font-medium text-muted-foreground">{title}</h3>
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
+    </div>
   )
 }
