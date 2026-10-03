@@ -44,7 +44,7 @@ export function WelcomeStep() {
                   style={{ width: row.width }}
                 />
               </span>
-              <span className="w-24 text-right font-mono text-xs text-muted-foreground">
+              <span className="w-24 text-right font-mono text-xs whitespace-nowrap text-muted-foreground">
                 {t(row.keep)}
               </span>
             </li>

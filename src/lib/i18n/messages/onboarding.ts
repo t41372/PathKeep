@@ -57,7 +57,7 @@ export const onboarding = defineMessages({
       retentionTitle: 'How long browsers keep history by default',
       days90: '~90 days',
       year: '1 year',
-      bySize: 'Depends on size',
+      bySize: 'By size',
       forever: 'Forever',
       local: { title: 'Local only', body: 'No upload, no account' },
       originals: {
