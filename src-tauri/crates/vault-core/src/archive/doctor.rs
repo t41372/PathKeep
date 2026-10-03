@@ -112,43 +112,9 @@ pub fn repair_health_issues(
         )?
         .max(0) as usize;
     let stale_ai_embeddings = count_stale_ai_embeddings(&intelligence)?;
-    let stale_insight_state = if table_exists(&intelligence, "search_trail_members")?
-        || table_exists(&intelligence, "visit_derived_facts")?
-    {
-        let stale_members = if table_exists(&intelligence, "search_trail_members")? {
-            intelligence
-                .query_row(
-                    "SELECT COUNT(*)
-                     FROM search_trail_members
-                     WHERE visit_id NOT IN (
-                       SELECT id FROM archive.visits WHERE reverted_at IS NULL
-                     )",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )?
-                .max(0) as usize
-        } else {
-            0
-        };
-        let stale_features = if table_exists(&intelligence, "visit_derived_facts")? {
-            intelligence
-                .query_row(
-                    "SELECT COUNT(*)
-                     FROM visit_derived_facts
-                     WHERE visit_id NOT IN (
-                       SELECT id FROM archive.visits WHERE reverted_at IS NULL
-                     )",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )?
-                .max(0) as usize
-        } else {
-            0
-        };
-        stale_members + stale_features
-    } else {
-        0
-    };
+    let stale_insight_state =
+        count_rows_without_visible_visit(&intelligence, "search_trail_members", "visit_id")?
+            + count_rows_without_visible_visit(&intelligence, "visit_derived_facts", "visit_id")?;
 
     if missing_import_audits.is_empty()
         && broken_visibility_rows == 0
@@ -454,48 +420,14 @@ fn check_broken_visibility(connection: &Connection) -> Result<HealthCheck> {
 fn check_stale_derived_state(connection: &Connection) -> Result<HealthCheck> {
     let mut stale_details = Vec::new();
 
-    if table_exists(connection, "ai_embeddings")? {
-        let stale_embeddings: i64 = connection.query_row(
-            "SELECT COUNT(*)
-             FROM ai_embeddings
-             WHERE history_id NOT IN (
-               SELECT id FROM archive.visits WHERE reverted_at IS NULL
-             )",
-            [],
-            |row| row.get(0),
-        )?;
-        if stale_embeddings > 0 {
-            stale_details.push(format!("{stale_embeddings} stale AI embeddings"));
-        }
-    }
-
-    if table_exists(connection, "search_trail_members")? {
-        let stale_members: i64 = connection.query_row(
-            "SELECT COUNT(*)
-             FROM search_trail_members
-             WHERE visit_id NOT IN (
-               SELECT id FROM archive.visits WHERE reverted_at IS NULL
-             )",
-            [],
-            |row| row.get(0),
-        )?;
-        if stale_members > 0 {
-            stale_details.push(format!("{stale_members} stale search trail members"));
-        }
-    }
-
-    if table_exists(connection, "visit_derived_facts")? {
-        let stale_features: i64 = connection.query_row(
-            "SELECT COUNT(*)
-             FROM visit_derived_facts
-             WHERE visit_id NOT IN (
-               SELECT id FROM archive.visits WHERE reverted_at IS NULL
-             )",
-            [],
-            |row| row.get(0),
-        )?;
-        if stale_features > 0 {
-            stale_details.push(format!("{stale_features} stale visit-derived-fact rows"));
+    for (table, column, label) in [
+        ("ai_embeddings", "history_id", "stale AI embeddings"),
+        ("search_trail_members", "visit_id", "stale search trail members"),
+        ("visit_derived_facts", "visit_id", "stale visit-derived-fact rows"),
+    ] {
+        let stale = count_rows_without_visible_visit(connection, table, column)?;
+        if stale > 0 {
+            stale_details.push(format!("{stale} {label}"));
         }
     }
 
@@ -527,23 +459,41 @@ fn table_exists(connection: &Connection, table_name: &str) -> Result<bool> {
     Ok(table_count > 0)
 }
 
-fn count_stale_ai_embeddings(intelligence: &Connection) -> Result<usize> {
-    if table_exists(intelligence, "ai_embeddings")? {
-        intelligence
-            .query_row(
-                "SELECT COUNT(*)
-                 FROM ai_embeddings
-                 WHERE history_id NOT IN (
-                   SELECT id FROM archive.visits WHERE reverted_at IS NULL
-                 )",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .map(|count| count.max(0) as usize)
-            .map_err(Into::into)
-    } else {
-        Ok(0)
+/// Counts rows of a derived `table` whose `column` no longer points at a visible visit (the
+/// visit was rolled back or is gone). A missing table counts as clean: AI and intelligence tables
+/// only exist once those features have run.
+///
+/// The check is a correlated `NOT EXISTS`, so SQLite looks each row's visit up by primary key.
+/// The `NOT IN (SELECT id FROM archive.visits WHERE reverted_at IS NULL)` it replaced first
+/// copied every visible visit id into a temporary index on each call: 14.4M ids at the product
+/// target. Numbers in `docs/architecture/ipc-performance.md`.
+fn count_rows_without_visible_visit(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+) -> Result<usize> {
+    if !table_exists(connection, table)? {
+        return Ok(0);
     }
+    let count: i64 =
+        connection
+            .query_row(&rows_without_visible_visit_sql(table, column), [], |row| row.get(0))?;
+    Ok(count.max(0) as usize)
+}
+
+fn rows_without_visible_visit_sql(table: &str, column: &str) -> String {
+    format!(
+        "SELECT COUNT(*)
+         FROM {table}
+         WHERE NOT EXISTS (
+           SELECT 1 FROM archive.visits AS visits
+           WHERE visits.id = {table}.{column} AND visits.reverted_at IS NULL
+         )"
+    )
+}
+
+fn count_stale_ai_embeddings(intelligence: &Connection) -> Result<usize> {
+    count_rows_without_visible_visit(intelligence, "ai_embeddings", "history_id")
 }
 
 fn clear_stale_ai_embeddings(intelligence: &Connection) -> Result<usize> {
@@ -551,8 +501,9 @@ fn clear_stale_ai_embeddings(intelligence: &Connection) -> Result<usize> {
         intelligence
             .execute(
                 "DELETE FROM ai_embeddings
-                 WHERE history_id NOT IN (
-                   SELECT id FROM archive.visits WHERE reverted_at IS NULL
+                 WHERE NOT EXISTS (
+                   SELECT 1 FROM archive.visits AS visits
+                   WHERE visits.id = ai_embeddings.history_id AND visits.reverted_at IS NULL
                  )",
                 [],
             )
@@ -654,8 +605,80 @@ fn invalidate_insight_state(connection: &Connection) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{clear_stale_ai_embeddings, count_stale_ai_embeddings, table_exists};
+    use super::{
+        clear_stale_ai_embeddings, count_rows_without_visible_visit, count_stale_ai_embeddings,
+        rows_without_visible_visit_sql, table_exists,
+    };
+    use crate::{
+        archive::{open_archive_connection, open_intelligence_connection},
+        config::project_paths_with_root,
+        models::AppConfig,
+    };
     use rusqlite::Connection;
+
+    /// A derived row is stale when its visit is hidden (rolled back) or gone. A visible visit
+    /// must never count: repair clears every intelligence table when anything is stale.
+    #[test]
+    fn stale_rows_are_the_ones_whose_visit_is_hidden_or_missing() {
+        let connection = Connection::open_in_memory().expect("sqlite");
+        connection
+            .execute_batch(
+                "ATTACH DATABASE ':memory:' AS archive;
+                 CREATE TABLE archive.visits (id INTEGER PRIMARY KEY, reverted_at TEXT);
+                 INSERT INTO archive.visits (id, reverted_at) VALUES (1, NULL), (2, '2026-01-01');
+                 CREATE TABLE visit_derived_facts (visit_id INTEGER PRIMARY KEY);
+                 INSERT INTO visit_derived_facts (visit_id) VALUES (1), (2), (3);
+                 CREATE TABLE ai_embeddings (history_id INTEGER, provider_id TEXT);
+                 INSERT INTO ai_embeddings (history_id, provider_id) VALUES (1, 'p'), (2, 'p'), (3, 'p');",
+            )
+            .expect("fixture");
+
+        assert_eq!(
+            count_rows_without_visible_visit(&connection, "visit_derived_facts", "visit_id")
+                .expect("count"),
+            2
+        );
+        assert_eq!(count_stale_ai_embeddings(&connection).expect("count embeddings"), 2);
+        assert_eq!(clear_stale_ai_embeddings(&connection).expect("clear"), 2);
+        let kept: i64 = connection
+            .query_row("SELECT history_id FROM ai_embeddings", [], |row| row.get(0))
+            .expect("the visible visit's embedding is kept");
+        assert_eq!(kept, 1);
+    }
+
+    /// At 14.4M visits the old `NOT IN (SELECT id FROM archive.visits WHERE reverted_at IS NULL)`
+    /// built a temporary index of every visible id on each call. The check must look visits up
+    /// by primary key instead.
+    #[test]
+    fn stale_row_checks_look_visits_up_by_primary_key() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig::default();
+        drop(open_archive_connection(&paths, &config, None).expect("archive"));
+        let intelligence = open_intelligence_connection(&paths, &config, None).expect("open");
+        for (table, column) in [
+            ("ai_embeddings", "history_id"),
+            ("search_trail_members", "visit_id"),
+            ("visit_derived_facts", "visit_id"),
+        ] {
+            let plan = intelligence
+                .prepare(&format!(
+                    "EXPLAIN QUERY PLAN {}",
+                    rows_without_visible_visit_sql(table, column)
+                ))
+                .expect("plan")
+                .query_map([], |row| row.get::<_, String>(3))
+                .expect("plan rows")
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .expect("plan text")
+                .join("\n");
+            assert!(
+                plan.contains("SEARCH visits USING INTEGER PRIMARY KEY")
+                    && !plan.contains("LIST SUBQUERY"),
+                "{table} must probe visits by id, got:\n{plan}"
+            );
+        }
+    }
 
     #[test]
     fn stale_ai_embedding_helpers_treat_missing_optional_table_as_clean() {

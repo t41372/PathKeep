@@ -137,8 +137,9 @@ pub(in crate::ai) fn collect_stale_history_ids(
          FROM ai_embeddings
          WHERE provider_id = ?1
            AND model = ?2
-           AND history_id NOT IN (
-             SELECT id FROM archive.visits WHERE reverted_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM archive.visits AS visits
+             WHERE visits.id = ai_embeddings.history_id AND visits.reverted_at IS NULL
            )",
     )?;
     statement

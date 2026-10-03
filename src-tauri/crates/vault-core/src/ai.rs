@@ -339,7 +339,9 @@ const AI_SCHEMA_SQL: &str = r#"
 
 const CLEAR_PROVIDER_EMBEDDINGS_SQL: &str =
     "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2";
-const DELETE_STALE_EMBEDDINGS_SQL: &str = "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2 AND history_id NOT IN (SELECT id FROM archive.visits WHERE reverted_at IS NULL)";
+/// Correlated `NOT EXISTS` so each row is checked by a primary-key lookup; a `NOT IN` subquery
+/// would first copy every visible visit id into a temporary index.
+const DELETE_STALE_EMBEDDINGS_SQL: &str = "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2 AND NOT EXISTS (SELECT 1 FROM archive.visits AS visits WHERE visits.id = ai_embeddings.history_id AND visits.reverted_at IS NULL)";
 const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
 const INSERT_ASSISTANT_RUN_SQL: &str = "INSERT INTO ai_assistant_runs (run_id, question, answer, provider_id, embedding_provider_id, citations_json, notes_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
 const AI_QUEUE_RECENT_LIMIT: usize = 8;
