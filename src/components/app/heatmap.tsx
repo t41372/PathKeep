@@ -4,9 +4,12 @@
  * fixed-data dither demo, so this is a small grid of our own.
  *
  * One tooltip is shared by the whole grid (event delegation on the container)
- * instead of one per cell: a year view has 371 cells.
+ * instead of one per cell: a year view has 371 cells. It is portalled to the
+ * body with fixed coordinates, so the card's rounded, clipped edge can't cut
+ * it off, and it flips below the cell when there is no room above.
  */
-import { memo, useCallback, useRef, useState, type MouseEvent } from 'react'
+import { memo, useCallback, useEffect, useState, type MouseEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/cn'
 
 import type { HeatLevel } from './heat-level'
@@ -40,6 +43,9 @@ interface HeatmapProps {
   className?: string
 }
 
+/** Space the tooltip needs above a cell before it flips below. */
+const TOOLTIP_ROOM = 40
+
 export const Heatmap = memo(function Heatmap({
   columns,
   cellSize = 13,
@@ -49,30 +55,39 @@ export const Heatmap = memo(function Heatmap({
   onCellClick,
   className,
 }: HeatmapProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
   const [hover, setHover] = useState<{
     label: string
     x: number
+    /** Edge of the cell the tooltip sits against, in viewport pixels. */
     y: number
+    below: boolean
   } | null>(null)
 
   const onMove = useCallback((event: MouseEvent) => {
     const target = (event.target as HTMLElement).closest<HTMLElement>(
       '[data-cell]',
     )
-    const container = containerRef.current
-    if (!target || !container || !target.dataset.label) {
+    if (!target?.dataset.label) {
       setHover(null)
       return
     }
     const box = target.getBoundingClientRect()
-    const origin = container.getBoundingClientRect()
+    const below = box.top < TOOLTIP_ROOM
     setHover({
       label: target.dataset.label,
-      x: box.left - origin.left + box.width / 2,
-      y: box.top - origin.top,
+      x: box.left + box.width / 2,
+      y: below ? box.bottom : box.top,
+      below,
     })
   }, [])
+
+  // Fixed coordinates go stale when anything scrolls; drop the tooltip.
+  useEffect(() => {
+    if (!hover) return
+    const hide = () => setHover(null)
+    window.addEventListener('scroll', hide, { capture: true, passive: true })
+    return () => window.removeEventListener('scroll', hide, { capture: true })
+  }, [hover])
 
   const onClick = useCallback(
     (event: MouseEvent) => {
@@ -85,7 +100,7 @@ export const Heatmap = memo(function Heatmap({
   )
 
   return (
-    <div className={cn('relative', className)} ref={containerRef}>
+    <div className={className}>
       <div className="flex" style={{ gap }}>
         {rowLabels && (
           <div
@@ -160,15 +175,23 @@ export const Heatmap = memo(function Heatmap({
           ))}
         </div>
       )}
-      {hover && (
-        <div
-          role="tooltip"
-          className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-md border bg-popover px-2 py-1 text-xs whitespace-nowrap text-popover-foreground shadow-float"
-          style={{ left: hover.x, top: hover.y - 6 }}
-        >
-          {hover.label}
-        </div>
-      )}
+      {hover &&
+        createPortal(
+          <div
+            role="tooltip"
+            className={cn(
+              'pointer-events-none fixed z-50 -translate-x-1/2 rounded-md border bg-popover px-2 py-1 text-xs whitespace-nowrap text-popover-foreground shadow-float',
+              !hover.below && '-translate-y-full',
+            )}
+            style={{
+              left: hover.x,
+              top: hover.below ? hover.y + 6 : hover.y - 6,
+            }}
+          >
+            {hover.label}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 })
