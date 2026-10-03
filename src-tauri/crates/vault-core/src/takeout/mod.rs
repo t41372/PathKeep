@@ -24,6 +24,7 @@
 //!   per-file work explicit.
 
 mod batch_review;
+pub(crate) use self::batch_review::import_batches_from;
 mod batches;
 mod browser_history;
 mod import_flow;

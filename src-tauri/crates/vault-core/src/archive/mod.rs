@@ -36,6 +36,7 @@ mod ingest;
 mod intelligence_projection;
 mod maintenance;
 mod read_models;
+pub(crate) use self::read_models::{archive_status_from_open, recent_runs_from};
 mod run_support;
 mod schema;
 mod search_lexical;
@@ -172,7 +173,16 @@ use std::{
 };
 use tempfile::tempdir;
 
-const LIST_HISTORY_SQL: &str = r#"
+/// The History list query in one sort direction.
+///
+/// Time and cursor bounds are plain comparisons, never `:x IS NULL OR ...`, so SQLite can seek
+/// `idx_visits_visible_time_id` (migration 016) and stop after one page instead of sorting every
+/// visible visit. Callers bind sentinels for "no bound": see [`list_history_bounds`]. The two
+/// directions share one body so the filters cannot drift apart.
+macro_rules! list_history_sql {
+    ($cursor_comparison:literal, $direction:literal) => {
+        concat!(
+            r#"
 SELECT
   visits.id,
   source_profiles.profile_key,
@@ -206,33 +216,43 @@ WHERE visits.reverted_at IS NULL
   AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_tags AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_tags WHERE url_tags.url = urls.url AND LOWER(url_tags.tag) = advanced_filter.value))
   AND NOT EXISTS (SELECT 1 FROM temp.history_required_notes AS advanced_filter WHERE NOT EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
   AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_notes AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
-  AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
-  AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
-  AND (
-    :cursorVisitTime IS NULL
-    OR (
-      :sort = 'oldest'
-      AND (
-        visits.visit_time_ms > :cursorVisitTime
-        OR (visits.visit_time_ms = :cursorVisitTime AND visits.id > :cursorId)
-      )
-    )
-    OR (
-      :sort != 'oldest'
-      AND (
-        visits.visit_time_ms < :cursorVisitTime
-        OR (visits.visit_time_ms = :cursorVisitTime AND visits.id < :cursorId)
-      )
-    )
-  )
-ORDER BY
-  CASE WHEN :sort = 'oldest' THEN visits.visit_time_ms END ASC,
-  CASE WHEN :sort = 'oldest' THEN visits.id END ASC,
-  CASE WHEN :sort != 'oldest' THEN visits.visit_time_ms END DESC,
-  CASE WHEN :sort != 'oldest' THEN visits.id END DESC
-LIMIT :pageLimit
-OFFSET :pageOffset
-"#;
+  AND visits.visit_time_ms >= :startTimeMs
+  AND visits.visit_time_ms <= :endTimeMs
+  AND (visits.visit_time_ms, visits.id) "#,
+            $cursor_comparison,
+            " (:cursorVisitTime, :cursorId)\nORDER BY visits.visit_time_ms ",
+            $direction,
+            ", visits.id ",
+            $direction,
+            "\nLIMIT :pageLimit\nOFFSET :pageOffset\n"
+        )
+    };
+}
+
+const LIST_HISTORY_NEWEST_SQL: &str = list_history_sql!("<", "DESC");
+const LIST_HISTORY_OLDEST_SQL: &str = list_history_sql!(">", "ASC");
+
+/// The list query for a sort order; anything but `"oldest"` reads newest first.
+fn list_history_sql(sort: &str) -> &'static str {
+    if sort == "oldest" { LIST_HISTORY_OLDEST_SQL } else { LIST_HISTORY_NEWEST_SQL }
+}
+
+/// Binds "no bound" as sentinels the list query can compare against: the time range opens to the
+/// full `i64` span and a missing cursor starts before the first row in the sort direction.
+/// Returns `(start, end, cursor_time, cursor_id)`.
+fn list_history_bounds(
+    sort: &str,
+    start_time_ms: Option<i64>,
+    end_time_ms: Option<i64>,
+    cursor: Option<(i64, i64)>,
+) -> (i64, i64, i64, i64) {
+    let (cursor_time, cursor_id) = cursor.unwrap_or(if sort == "oldest" {
+        (i64::MIN, i64::MIN)
+    } else {
+        (i64::MAX, i64::MAX)
+    });
+    (start_time_ms.unwrap_or(i64::MIN), end_time_ms.unwrap_or(i64::MAX), cursor_time, cursor_id)
+}
 
 const COUNT_HISTORY_SQL: &str = r#"
 SELECT COUNT(*)

@@ -317,9 +317,16 @@ pub fn intelligence_status(
     config: &AppConfig,
     key: Option<&str>,
 ) -> Result<IntelligenceStatus> {
-    let connection = open_intelligence_connection(paths, config, key)?;
+    intelligence_status_from(paths, &open_intelligence_connection(paths, config, key)?)
+}
+
+/// Reads the derived-intelligence status from an open intelligence connection.
+pub(crate) fn intelligence_status_from(
+    paths: &ProjectPaths,
+    connection: &Connection,
+) -> Result<IntelligenceStatus> {
     let (session_count, trail_count, refind_count) =
-        derived_row_counts(&connection, &paths.intelligence_database_path)?;
+        derived_row_counts(connection, &paths.intelligence_database_path)?;
     let last_run_at = connection
         .query_row(
             "SELECT MAX(updated_at) FROM intelligence_jobs

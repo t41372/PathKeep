@@ -32,8 +32,15 @@ pub fn load_import_batches(
         return Ok(Vec::new());
     }
 
-    let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
+    import_batches_from(&open_archive_connection(paths, config, key)?)
+}
+
+/// Reads the 16 newest import batches from an open archive.
+///
+/// No `create_schema` here: `open_archive_connection` already bootstraps the schema once per
+/// process, and running it again took a `BEGIN IMMEDIATE` write lock on every app snapshot, which
+/// waited out the 5 s busy timeout and failed the snapshot whenever a backup was writing.
+pub(crate) fn import_batches_from(connection: &Connection) -> Result<Vec<ImportBatchOverview>> {
     const LOAD_IMPORT_BATCHES_SQL: &str = "SELECT id, source_kind, source_path, profile_id, created_at, imported_at, reverted_at, status, summary_json, audit_path, git_commit, (SELECT COUNT(*) FROM visits WHERE import_batch_id = import_batches.id AND reverted_at IS NULL) AS visible_items FROM import_batches ORDER BY id DESC LIMIT 16";
     let mut statement = connection.prepare(LOAD_IMPORT_BATCHES_SQL)?;
     let rows = statement.query_map([], |row: &Row<'_>| {

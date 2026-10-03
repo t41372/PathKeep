@@ -11,7 +11,7 @@
 //! docs already describe.
 
 use crate::context::{
-    current_app_lock_biometric_state, derive_ai_status, derive_intelligence_status,
+    current_app_lock_biometric_state, degrade_ai_status, degrade_intelligence_status,
     hydrate_derived_config_state, load_hydrated_config, load_unlocked_config,
     resolved_app_lock_status,
 };
@@ -22,10 +22,9 @@ use vault_core::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, AppConfig, AppSnapshot, ArchiveMode, ArchiveRecoveryReport,
     ArchiveUpgradeAssessment, ArchiveUpgradeProgress, DISCOVERY_ISSUE_DISCOVERY_ERROR,
     DISCOVERY_ISSUE_FULL_DISK_ACCESS, LaunchRecovery, ReconcileReport, RuntimeDiagnostics,
-    archive_status, ensure_app_lock_unlocked, ensure_archive_initialized_with_progress,
-    full_disk_access_applies, hydrate_app_lock_config, is_permission_denied, load_config,
-    load_import_batches, load_recent_runs, recover_archive_on_launch, rekey_archive, save_config,
-    validate_app_lock_config_with_biometric,
+    ensure_app_lock_unlocked, ensure_archive_initialized_with_progress, full_disk_access_applies,
+    hydrate_app_lock_config, is_permission_denied, load_config, load_snapshot_reads,
+    recover_archive_on_launch, rekey_archive, save_config, validate_app_lock_config_with_biometric,
 };
 use vault_platform::{
     FullDiskAccessProbe, discover_browser_profiles, keyring_status, probe_full_disk_access,
@@ -162,22 +161,11 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let browser_discovery = snapshot_browser_profiles();
-    let archive_status = archive_status(&paths, &config, session_database_key)?;
-    let ai_status = derive_ai_status(&paths, &config, session_database_key);
-    let intelligence_status = derive_intelligence_status(&paths, &config, session_database_key);
-    let can_read_archive_ledger = archive_status.initialized && archive_status.unlocked;
-    let recent_runs = if can_read_archive_ledger {
-        load_recent_runs(&paths, &config, session_database_key)
-            .context("loading the recent run ledger for the app snapshot")?
-    } else {
-        Vec::new()
-    };
-    let recent_import_batches = if can_read_archive_ledger {
-        load_import_batches(&paths, &config, session_database_key)
-            .context("loading the recent import ledger for the app snapshot")?
-    } else {
-        Vec::new()
-    };
+    // One archive open and one intelligence open for everything below; each open of an encrypted
+    // archive derives its key again.
+    let reads = load_snapshot_reads(&paths, &config, session_database_key)?;
+    let ai_status = degrade_ai_status(&config, reads.ai_status);
+    let intelligence_status = degrade_intelligence_status(reads.intelligence_status);
     let app_lock_status = resolved_app_lock_status(&paths, &config)?;
     let runtime_diagnostics = snapshot_runtime_diagnostics(&paths);
 
@@ -206,15 +194,15 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         },
         runtime_diagnostics,
         config,
-        archive_status,
+        archive_status: reads.archive_status,
         app_lock_status,
         keyring_status: keyring_status(),
         ai_status,
         intelligence_status,
         browser_profiles: browser_discovery.profiles,
         browser_discovery_issue: browser_discovery.issue,
-        recent_runs,
-        recent_import_batches,
+        recent_runs: reads.recent_runs,
+        recent_import_batches: reads.recent_import_batches,
     })
 }
 

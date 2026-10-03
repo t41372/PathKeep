@@ -36,6 +36,7 @@ mod intelligence_sections;
 pub mod migration;
 pub mod models;
 pub mod schedule_attempts;
+mod snapshot_reads;
 pub mod stars;
 pub mod takeout;
 pub mod utils;
@@ -152,6 +153,7 @@ pub use schedule_attempts::{
 /// Re-export of the two `secrecy` symbols callers need to construct/expose
 /// [`AiProviderRuntime`] secrets without taking their own direct dependency on the crate.
 pub use secrecy::{ExposeSecret, SecretString};
+pub use snapshot_reads::{SnapshotReads, load_snapshot_reads};
 pub use stars::{
     StarredMatcher, is_starred_batch, list_stars, load_starred_matcher, set_star, star_counts,
     starred_history_ids, unset_star,

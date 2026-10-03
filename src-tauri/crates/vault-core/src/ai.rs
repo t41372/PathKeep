@@ -24,6 +24,7 @@ mod llm;
 mod narrative;
 mod provider;
 mod read_model;
+pub(crate) use self::read_model::ai_index_status_from;
 mod reverse_visit_map;
 mod search;
 mod traits;

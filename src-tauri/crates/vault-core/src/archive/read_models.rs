@@ -58,6 +58,18 @@ pub fn archive_status(
     key: Option<&str>,
 ) -> Result<ArchiveStatus> {
     ensure_paths(paths)?;
+    let opened = (config.initialized && paths.archive_database_path.exists())
+        .then(|| open_archive_connection(paths, config, key));
+    archive_status_from_open(paths, config, opened.as_ref())
+}
+
+/// Builds the archive status from an open the caller already attempted (`None` when the archive
+/// is not initialized), so the app snapshot can reuse that connection for its other reads.
+pub(crate) fn archive_status_from_open(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    opened: Option<&Result<Connection>>,
+) -> Result<ArchiveStatus> {
     let mut status = ArchiveStatus {
         initialized: config.initialized && paths.archive_database_path.exists(),
         encrypted: matches!(config.archive_mode, ArchiveMode::Encrypted),
@@ -71,7 +83,7 @@ pub fn archive_status(
         return Ok(status);
     }
 
-    match open_archive_connection(paths, config, key) {
+    match opened.context("an initialized archive needs an open attempt")? {
         Ok(connection) => {
             status.unlocked = true;
             status.last_successful_backup_at = connection
@@ -103,7 +115,11 @@ pub fn load_recent_runs(
         return Ok(Vec::new());
     }
 
-    let connection = open_archive_connection(paths, config, key)?;
+    recent_runs_from(&open_archive_connection(paths, config, key)?)
+}
+
+/// Reads the recent run overview list from an open archive.
+pub(crate) fn recent_runs_from(connection: &Connection) -> Result<Vec<BackupRunOverview>> {
     let mut statement = connection.prepare(RECENT_RUNS_SQL)?;
     let rows = statement.query_map([], backup_run_overview_from_row)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

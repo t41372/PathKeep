@@ -282,7 +282,7 @@ fn upgrade_v020_plaintext_archive_migrates_cleanly() {
 
     // 4. Archive is at head, intact, and lossless.
     let conn = open_archive_connection(&paths, &cfg, None).expect("post-upgrade open");
-    assert_eq!(current_version(&conn).expect("post-upgrade version"), 15);
+    assert_eq!(current_version(&conn).expect("post-upgrade version"), 16);
     assert_eq!(
         current_version(&conn).expect("post-upgrade version"),
         max_schema_version(),
@@ -291,7 +291,7 @@ fn upgrade_v020_plaintext_archive_migrates_cleanly() {
     let migration_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
         .expect("count post-upgrade migrations");
-    assert_eq!(migration_count, 15);
+    assert_eq!(migration_count, 16);
     let integrity: String = conn
         .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
         .expect("integrity check");
@@ -454,7 +454,7 @@ fn assess_archive_upgrade_reports_pending_then_clears_after_upgrade() {
     let schema = phase_total(ArchiveUpgradePhase::SchemaMigration);
     assert!(schema.pending);
     assert!(schema.streamed, "the schema phase emits live progress");
-    assert_eq!(schema.estimated_total, 5, "migrations 011..=015 are pending from v10");
+    assert_eq!(schema.estimated_total, 6, "migrations 011..=016 are pending from v10");
     let backfill = phase_total(ArchiveUpgradePhase::RegistrableDomainBackfill);
     assert!(backfill.pending);
     assert!(backfill.streamed, "the backfill phase emits live progress");
@@ -592,13 +592,13 @@ fn upgrade_v020_with_progress_streams_phases_and_migrates_cleanly() {
         "exactly one terminal done event"
     );
 
-    // Schema-migration phase: ordinal step progress climbing to 5/5 (011..=015).
+    // Schema-migration phase: ordinal step progress climbing to 6/6 (011..=016).
     let schema: Vec<_> =
         events.iter().filter(|e| e.phase == ArchiveUpgradePhase::SchemaMigration).collect();
     assert!(!schema.is_empty(), "the schema-migration phase must emit progress");
     assert_eq!(schema.first().unwrap().processed, 0, "schema progress starts at 0, not a jump");
-    assert_eq!(schema.last().unwrap().processed, 5, "all 5 pending migrations are applied");
-    assert_eq!(schema.last().unwrap().total, 5);
+    assert_eq!(schema.last().unwrap().processed, 6, "all 6 pending migrations are applied");
+    assert_eq!(schema.last().unwrap().total, 6);
     assert!(
         schema.windows(2).all(|pair| pair[0].processed <= pair[1].processed),
         "schema step progress is monotonic"
@@ -628,7 +628,7 @@ fn upgrade_v020_with_progress_streams_phases_and_migrates_cleanly() {
 
     // ── And the archive still migrated correctly (mirrors the loss-free regression). ──
     let conn = open_archive_connection(&paths, &cfg, None).expect("post-upgrade open");
-    assert_eq!(current_version(&conn).expect("post-upgrade version"), 15);
+    assert_eq!(current_version(&conn).expect("post-upgrade version"), 16);
     assert_eq!(current_version(&conn).expect("version"), max_schema_version());
     let integrity: String = conn
         .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))

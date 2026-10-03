@@ -167,7 +167,7 @@ const FUZZY_CANDIDATE_VISIT_LIMIT: i64 = 400;
 ///
 /// Regex recall cannot be served by any index — an arbitrary pattern forces a
 /// linear scan with a per-row match in Rust. The previous implementation bound
-/// `LIST_HISTORY_SQL` to `:pageLimit = -1`, which streamed the *entire* visits
+/// the list query to `:pageLimit = -1`, which streamed the *entire* visits
 /// table into a `Vec<HistoryEntry>` before filtering: on the 14.4M-row target
 /// archive that is multiple gigabytes of allocation and a multi-second freeze
 /// before the first row reaches the user.
@@ -547,16 +547,17 @@ fn list_history_with_regex_capped(
     scan_cap: usize,
 ) -> Result<HistoryQueryResponse> {
     let scan_limit = i64::try_from(scan_cap).unwrap_or(i64::MAX);
-    let mut statement = connection.prepare(LIST_HISTORY_SQL)?;
+    let (start_bound, end_bound, cursor_visit_time, cursor_id) =
+        list_history_bounds(&sort, start_time_ms, end_time_ms, None);
+    let mut statement = connection.prepare(list_history_sql(&sort))?;
     let mut rows = statement.query(named_params! {
         ":profileId": profile_id,
         ":browserKind": browser_kind,
         ":domainPattern": domain_pattern,
-        ":startTimeMs": start_time_ms,
-        ":endTimeMs": end_time_ms,
-        ":sort": sort,
-        ":cursorVisitTime": Option::<i64>::None,
-        ":cursorId": Option::<i64>::None,
+        ":startTimeMs": start_bound,
+        ":endTimeMs": end_bound,
+        ":cursorVisitTime": cursor_visit_time,
+        ":cursorId": cursor_id,
         ":pageLimit": scan_limit,
         ":pageOffset": 0i64,
     })?;
@@ -621,7 +622,7 @@ pub(super) fn list_history_with_regex_capped_for_test(
         .case_insensitive(true)
         .build()
         .with_context(|| format!("invalid regex pattern `{pattern}`"))?;
-    // LIST_HISTORY_SQL references the advanced-filter temp tables, which
+    // The list query references the advanced-filter temp tables, which
     // `list_history` materializes before dispatching to the regex path. Regex
     // mode contributes no advanced filters, so seed the empty default set here
     // to mirror the production preconditions.
@@ -942,7 +943,7 @@ fn list_history_with_sql(
         None
     };
 
-    let mut statement = connection.prepare(LIST_HISTORY_SQL)?;
+    let mut statement = connection.prepare(list_history_sql(&sort))?;
     let page = match total {
         Some(total) => requested_page.unwrap_or(1).min(page_count(total, limit_usize)),
         None => requested_page.unwrap_or(1),
@@ -956,16 +957,20 @@ fn list_history_with_sql(
     };
     let page_offset =
         if requested_page.is_some() { i64::try_from(start_index).unwrap_or(i64::MAX) } else { 0 };
+    let page_cursor =
+        (requested_page.is_none() && cursor.is_some()).then_some((cursor_visit_time, cursor_id));
+    let (start_bound, end_bound, cursor_time_bound, cursor_id_bound) =
+        list_history_bounds(&sort, start_time_ms, end_time_ms, page_cursor);
+    let cursor_bound = (cursor_time_bound, cursor_id_bound);
     let rows = statement.query_map(
         named_params! {
             ":profileId": profile_id,
             ":browserKind": browser_kind,
             ":domainPattern": domain_pattern,
-            ":startTimeMs": start_time_ms,
-            ":endTimeMs": end_time_ms,
-            ":sort": sort,
-            ":cursorVisitTime": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_visit_time) },
-            ":cursorId": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_id) },
+            ":startTimeMs": start_bound,
+            ":endTimeMs": end_bound,
+            ":cursorVisitTime": cursor_bound.0,
+            ":cursorId": cursor_bound.1,
             ":pageLimit": page_limit,
             ":pageOffset": page_offset,
         },
@@ -1122,5 +1127,55 @@ mod excerpt_tests {
         assert_eq!(capped.chars().count(), ENRICHMENT_EXCERPT_MAX_CHARS);
         assert!(capped.ends_with('…'));
         assert!(!capped.ends_with(" …"), "the trailing space must be trimmed before the ellipsis");
+    }
+}
+
+#[cfg(test)]
+mod list_plan_tests {
+    use super::*;
+    use crate::config::project_paths_with_root;
+
+    #[test]
+    fn the_history_list_walks_the_time_index_instead_of_sorting() {
+        // Sorting every visible visit to return one page took ~0.9 s at 1M visits. Both sort
+        // directions, with and without a cursor, must read `idx_visits_visible_time_id` in order.
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let connection =
+            open_archive_connection(&paths, &AppConfig::default(), None).expect("open archive");
+        prepare_advanced_search_filters(&connection, &ParsedHistorySearchQuery::default())
+            .expect("filter tables");
+        for sort in ["newest", "oldest"] {
+            for cursor in [None, Some((1_700_000_000_000, 42))] {
+                let (start, end, cursor_time, cursor_id) =
+                    list_history_bounds(sort, None, None, cursor);
+                let mut statement = connection
+                    .prepare(&format!("EXPLAIN QUERY PLAN {}", list_history_sql(sort)))
+                    .expect("plan");
+                let plan = statement
+                    .query_map(
+                        named_params! {
+                            ":profileId": Option::<String>::None,
+                            ":browserKind": Option::<String>::None,
+                            ":domainPattern": Option::<String>::None,
+                            ":startTimeMs": start,
+                            ":endTimeMs": end,
+                            ":cursorVisitTime": cursor_time,
+                            ":cursorId": cursor_id,
+                            ":pageLimit": 101,
+                            ":pageOffset": 0,
+                        },
+                        |row| row.get::<_, String>(3),
+                    )
+                    .expect("plan rows")
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .expect("plan text")
+                    .join("\n");
+                assert!(
+                    plan.contains("idx_visits_visible_time_id") && !plan.contains("TEMP B-TREE"),
+                    "{sort} with cursor {cursor:?} must walk the time index, got:\n{plan}"
+                );
+            }
+        }
     }
 }
