@@ -40,6 +40,7 @@ function prepareFixture() {
     projectRoot: path.join(root, 'project-root'),
     keyring: path.join(root, 'keyring'),
     noSafari: path.join(root, 'no-safari'),
+    osSandbox: path.join(root, 'os-sandbox'),
   }
   for (const dir of Object.values(dirs)) mkdirSync(dir, { recursive: true })
 
@@ -58,8 +59,9 @@ function prepareFixture() {
     CHB_FIREFOX_PROFILES_DIR: browsers.firefoxProfilesRoot,
     CHB_SAFARI_ROOT: dirs.noSafari,
     CHB_TEST_KEYRING_DIR: dirs.keyring,
-    // Never replace the real PathKeep LaunchAgent from a test run.
-    PATHKEEP_PLATFORM_TEST_SCHEDULE_LABEL: 'com.yi-ting.pathkeep.e2e.backup',
+    // Schedules and login items go to files here, never to the real
+    // launchd / Task Scheduler. Debug builds only; release ignores it.
+    PATHKEEP_PLATFORM_TEST_SANDBOX_DIR: dirs.osSandbox,
     // Keep the build cache between runs; a cold Rust build takes minutes.
     CARGO_TARGET_DIR:
       process.env.CARGO_TARGET_DIR ??

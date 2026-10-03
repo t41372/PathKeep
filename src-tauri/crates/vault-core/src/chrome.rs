@@ -44,8 +44,8 @@ use self::{
         chromium_relative_paths, current_chromium_relative_paths, current_firefox_relative_paths,
         default_chrome_user_data_dir, default_safari_root, discovery_overrides_active,
         discovery_overrides_active_with, firefox_relative_paths, firefox_root_candidates,
-        should_discover_chromium_definition, should_discover_firefox, should_discover_safari,
-        windows_data_dirs,
+        should_discover_chromium_definition, should_discover_firefox_definition,
+        should_discover_safari, windows_data_dirs,
     },
     staging::{copy_database_with_sidecars, recover_staged_database},
 };
