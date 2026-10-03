@@ -162,9 +162,6 @@ pub struct AppConfig {
     pub selected_profile_ids: Vec<String>,
     pub git_enabled: bool,
     pub remember_database_key_in_keyring: bool,
-    /// Unused. "Open at login" is read from the OS login item instead
-    /// (`get_desktop_integration`); kept so older config files still load.
-    pub app_autostart: bool,
     /// Whether the menu bar / system tray icon is shown. Restored at launch.
     pub menu_bar_icon: bool,
     pub explorer_background_prefetch_pages: u64,
@@ -268,7 +265,6 @@ impl Default for AppConfig {
             selected_profile_ids: Vec::new(),
             git_enabled: true,
             remember_database_key_in_keyring: false,
-            app_autostart: false,
             menu_bar_icon: false,
             explorer_background_prefetch_pages: DEFAULT_EXPLORER_BACKGROUND_PREFETCH_PAGES,
             app_lock: AppLockConfig::default(),

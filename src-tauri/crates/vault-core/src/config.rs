@@ -300,6 +300,30 @@ mod tests {
         assert!(error.to_string().contains("parsing config json"));
     }
 
+    /// Config files written before a field was removed still carry it. Loading must ignore
+    /// it rather than fail (which would look like a corrupt config), and the next save must
+    /// drop it. `appAutostart` was removed in 2026-10; open-at-login now lives in the OS.
+    #[test]
+    fn load_config_ignores_removed_fields_and_save_drops_them() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        fs::write(
+            &paths.config_path,
+            r#"{ "initialized": true, "appAutostart": true, "menuBarIcon": true, "checkpointDays": 7 }"#,
+        )
+        .expect("write old config");
+
+        let loaded = load_config(&paths).expect("old config with a removed field loads");
+        assert!(loaded.initialized);
+        assert!(loaded.menu_bar_icon);
+        assert_eq!(loaded.checkpoint_days, 7);
+
+        save_config(&paths, &loaded).expect("save");
+        let saved = fs::read_to_string(&paths.config_path).expect("read saved config");
+        assert!(!saved.contains("appAutostart"), "removed field written back: {saved}");
+        assert!(saved.contains("\"menuBarIcon\": true"));
+    }
+
     #[test]
     fn load_config_accepts_legacy_lowercase_archive_mode_values() {
         let dir = tempdir().expect("tempdir");
