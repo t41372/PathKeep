@@ -70,8 +70,19 @@ export function CommandPalette({
 
   const visits = useQuery({
     queryKey: [...queryKeys.archiveData, 'palette', term],
-    queryFn: () =>
-      explorerClient.queryHistory({ q: term, limit: 6, sort: 'relevance' }),
+    // One row per page: a page visited ten times should not fill the list.
+    queryFn: async () => {
+      const page = await explorerClient.queryHistory({
+        q: term,
+        limit: 30,
+        sort: 'relevance',
+        includeTotal: false,
+      })
+      const seen = new Set<string>()
+      return page.items
+        .filter((visit) => !seen.has(visit.url) && seen.add(visit.url))
+        .slice(0, 6)
+    },
     enabled: open && term.length >= 2,
     staleTime: 30_000,
   })
@@ -167,7 +178,7 @@ export function CommandPalette({
         )}
         {term.length >= 2 && (
           <CommandGroup heading={t('shell.palette.visits')}>
-            {(visits.data?.items ?? []).map((visit) => (
+            {(visits.data ?? []).map((visit) => (
               <CommandItem
                 key={visit.id}
                 value={`visit:${visit.id}`}

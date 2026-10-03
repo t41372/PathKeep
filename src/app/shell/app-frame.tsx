@@ -2,16 +2,26 @@
  * The window: nav rail on the left, the active screen in a rounded panel on
  * the right, plus the global shortcuts (⌘K palette, ⌘L lock).
  */
-import { useEffect, useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { Outlet, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
+import { useI18n } from '@/lib/i18n'
 import { useSession } from '../session'
 import { CommandPalette } from './command-palette'
 import { NavRail } from './nav-rail'
 
 export function AppFrame() {
+  const { t } = useI18n()
   const session = useSession()
+  const navigate = useNavigate()
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const lock = () => void session.lock()
+  const lock = useCallback(() => {
+    void session.lock().then((locked) => {
+      if (locked) return
+      toast(t('shell.lock.needsPasscode'))
+      void navigate('/settings/security')
+    })
+  }, [session, navigate, t])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -22,12 +32,12 @@ export function AppFrame() {
         setPaletteOpen((open) => !open)
       } else if (key === 'l') {
         event.preventDefault()
-        void session.lock()
+        lock()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [session])
+  }, [lock])
 
   return (
     <div className="flex h-full bg-window backdrop-blur-[40px] backdrop-saturate-[1.4]">

@@ -51,7 +51,8 @@ interface SessionValue {
   recovery: ArchiveRecoveryReport | null
   upgrade: ArchiveUpgradeAssessment | null
   refresh: () => Promise<void>
-  lock: () => Promise<void>
+  /** Resolves to false when there is no passcode, so nothing was locked. */
+  lock: () => Promise<boolean>
   unlockApp: (passcode: string) => Promise<void>
   unlockArchive: (password: string, remember: boolean) => Promise<void>
   /** Called by onboarding, upgrade and recovery once the archive is usable. */
@@ -216,8 +217,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [refresh])
 
   const lock = useCallback(async () => {
-    await appClient.lockAppSession('manual')
+    const status = await appClient.lockAppSession('manual')
+    queryClient.setQueryData(queryKeys.lockStatus, status)
+    // Without a passcode the backend leaves the session unlocked. Showing the
+    // lock screen anyway would ask for a passcode that does not exist.
+    if (!status.locked) return false
     toLocked()
+    return true
   }, [toLocked])
 
   const unlockApp = useCallback(
@@ -305,7 +311,7 @@ function useIdleLock(active: boolean, onLocked: () => void) {
       window.clearInterval(timer)
       void appClient
         .lockAppSession('idle-timeout')
-        .then(onLocked)
+        .then((status) => status.locked && onLocked())
         .catch(() => undefined)
     }, 15_000)
     return () => {

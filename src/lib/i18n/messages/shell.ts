@@ -59,6 +59,7 @@ export const shell = defineMessages({
       remember: 'Remember in the system keychain',
       wrong: 'That did not work. Check it and try again.',
       unlocking: 'Unlocking…',
+      needsPasscode: 'Set a passcode first, then PathKeep can lock.',
     },
     boot: {
       loading: 'Opening your archive…',
@@ -150,6 +151,7 @@ export const shell = defineMessages({
       remember: '保存到系统钥匙串',
       wrong: '密码不对，请检查后重试。',
       unlocking: '正在解锁…',
+      needsPasscode: '先设置一个密码，PathKeep 才能锁定。',
     },
     boot: {
       loading: '正在打开存档…',
@@ -240,6 +242,7 @@ export const shell = defineMessages({
       remember: '存到系統鑰匙圈',
       wrong: '密碼不對，請檢查後再試一次。',
       unlocking: '正在解鎖…',
+      needsPasscode: '先設定一組密碼，PathKeep 才能鎖定。',
     },
     boot: {
       loading: '正在打開存檔…',
