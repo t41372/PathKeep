@@ -31,6 +31,7 @@ export const settings = defineMessages({
       },
       desktop: {
         title: 'Open at login and menu bar icon',
+        trayTitle: 'Open at login and tray icon',
         loadFailed: 'PathKeep could not read these settings. {message}',
         changeFailed: 'Could not change this. {message}',
         login: {
@@ -201,6 +202,7 @@ export const settings = defineMessages({
       },
       desktop: {
         title: '登录时启动和菜单栏图标',
+        trayTitle: '登录时启动和托盘图标',
         loadFailed: 'PathKeep 无法读取这些设置。{message}',
         changeFailed: '无法更改。{message}',
         login: {
@@ -362,6 +364,7 @@ export const settings = defineMessages({
       },
       desktop: {
         title: '登入時啟動和選單列圖示',
+        trayTitle: '登入時啟動和系統匣圖示',
         loadFailed: 'PathKeep 無法讀取這些設定。{message}',
         changeFailed: '無法變更。{message}',
         login: {

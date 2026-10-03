@@ -37,7 +37,11 @@ export function DesktopRows() {
   if (query.isError) {
     return (
       <SettingRow
-        title={t('settings.general.desktop.title')}
+        title={t(
+          isMacOsHost()
+            ? 'settings.general.desktop.title'
+            : 'settings.general.desktop.trayTitle',
+        )}
         description={
           <span className="text-destructive">
             {t('settings.general.desktop.loadFailed', {
