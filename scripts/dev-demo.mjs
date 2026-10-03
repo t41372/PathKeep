@@ -109,7 +109,10 @@ if (prebuiltBackend) {
   start(...underDisplay('bun', ['run', 'desktop:dev:bridge']))
 }
 for (const signal of ['SIGINT', 'SIGTERM'])
-  process.on(signal, () => child.kill(signal))
+  process.on(signal, () => {
+    for (const child of children) child.kill(signal)
+    process.exit(0)
+  })
 
 async function invoke(name, payload = {}) {
   const response = await fetch(`${bridge.devIpcUrl}/commands/${name}`, {
