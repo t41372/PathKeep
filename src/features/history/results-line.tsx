@@ -43,7 +43,8 @@ export function ResultsLine({
   // a count next to them would describe rows that are not there yet.
   if (list.isPlaceholder) return null
   const modeLabel = t(`history.modes.${search.mode}`)
-  // Until the count lands, describe what is loaded: exact once every page is in.
+  // Until the count lands, describe what is loaded: exact once every page is
+  // in, unless those pages came from a window of the matches.
   const totals =
     list.totals ??
     (list.isPending || items.length === 0 || list.hasNextPage
@@ -54,7 +55,18 @@ export function ResultsLine({
             search.mode === 'semantic'
               ? null
               : items.reduce((sum, item) => sum + (item.visitCount ?? 0), 0),
+          windowed: list.windowed,
         })
+  if (totals?.windowed) {
+    return (
+      <>
+        {t('history.results.pagesMore', {
+          count: totals.pages,
+          mode: modeLabel,
+        })}
+      </>
+    )
+  }
   if (!totals) {
     return items.length > 0 ? (
       <>

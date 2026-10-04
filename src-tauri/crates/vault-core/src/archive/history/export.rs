@@ -114,12 +114,13 @@ fn write_export(
     let target_path = paths.exports_dir.join(file_name);
     let mut count = 0;
     let mut rows_written = 0;
+    let mut windowed = false;
     let result = atomic_durable_write_with(&target_path, |writer| {
         let mut buffer = BufWriter::with_capacity(EXPORT_BUFFER_BYTES, writer);
         let mut counted = CountedWriter { writer: &mut buffer, bytes: 0, checked_at: 0, job };
         let render_result: Result<()> = (|| {
             let mut export = ExportWriter::new(&mut counted, &format)?;
-            walk_history_for_export(&connection, request.query, job, |item| {
+            windowed = walk_history_for_export(&connection, request.query, job, |item| {
                 if let Some(delay) = crate::test_support::export_row_delay() {
                     std::thread::sleep(delay);
                 }
@@ -148,7 +149,7 @@ fn write_export(
     })
     .with_context(|| format!("writing {}", target_path.display()));
     result?;
-    Ok(ExportResult { format, path: target_path.display().to_string(), count })
+    Ok(ExportResult { format, path: target_path.display().to_string(), count, windowed })
 }
 
 fn check_cancel(job: Option<&Arc<ExportJob>>) -> Result<()> {
@@ -190,12 +191,15 @@ impl Write for CountedWriter<'_> {
 
 /// Ordinary browse exports stream one statement in existing time/id order. Search retains the
 /// shared cursor reader on this same connection, including its bounded regex/fuzzy semantics.
+///
+/// Returns true when a keyword search was windowed (`grouped/window.rs`): the export then holds
+/// the most recently archived matches only, and `ExportResult::windowed` says so.
 fn walk_history_for_export(
     connection: &Connection,
     query: HistoryQuery,
     job: Option<&Arc<ExportJob>>,
     mut visit: impl FnMut(&HistoryEntry) -> Result<()>,
-) -> Result<()> {
+) -> Result<bool> {
     if query.q.as_ref().is_none_or(|q| q.trim().is_empty()) {
         prepare_advanced_search_filters(connection, &ParsedHistorySearchQuery::default())?;
         let sort = query.sort.as_deref().unwrap_or("newest");
@@ -213,22 +217,24 @@ fn walk_history_for_export(
             check_cancel(job)?;
             visit(&history_entry_from_row(row)?)?;
         }
-        return Ok(());
+        return Ok(false);
     }
     let mut query = query;
     query.page = None;
     query.cursor = None;
     query.limit = Some(EXPORT_PAGE_SIZE);
     query.include_total = Some(false);
+    let mut windowed = false;
     loop {
         check_cancel(job)?;
         let page = list_history_on_connection(connection, query.clone())?;
+        windowed |= page.windowed;
         for item in &page.items {
             check_cancel(job)?;
             visit(item)?;
         }
         let Some(cursor) = page.next_cursor else {
-            return Ok(());
+            return Ok(windowed);
         };
         query.cursor = Some(cursor);
     }

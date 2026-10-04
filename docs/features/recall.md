@@ -13,10 +13,12 @@ M18 redesign（2026-10-02）後，下文的「Explorer」就是 **History**（`s
 - **三個視圖**：時間線（依天分組，同一天內相隔 30 分鐘以上切成 session）、網站（所選範圍內最常去的 200 個網站，每列帶該網站最近一頁的連結預覽縮圖，點一個切回時間線並篩選）、已加星（頁面與整個網站，附連結預覽縮圖、最多三個標籤與筆記預覽）。搜尋時改為結果列表，同一頁面只列一行並標出符合的瀏覽次數。
 - **搜尋框**：一個輸入框，打字 250 ms 後才寫進 URL 並查詢。三種方式：
   - **全文**（預設）：`query_history`（`groupByUrl`），依相關度排序；§1 的進階語法（`site:`、`-詞`、`"片語"`、`OR`、`intitle:`、`inurl:`、`filetype:`、`after:` / `before:`、`note:` / `tag:`）由後端解析。搜尋框裡的「?」（點擊、鍵盤或滑鼠停留）打開語法速查（`search-help.tsx`）：每個運算子一個例子，點一下就填進搜尋框並切回全文；日期例子固定是上個月。只有 `tag:` 而沒有關鍵字的搜尋從 `url_tags` 找候選，不掃整個 `urls`（[ipc-performance.md](../architecture/ipc-performance.md) §6）。
+    - **排序窗口**：一個詞（或只有運算子的搜尋）在篩選之內命中超過 25,000 個網址時，只排序、分組、計數最近封存的 25,000 個（`oldest` 排序取最早封存的）。回應帶 `windowed: true`、`totalExact: false`，結果數顯示「25,000+ 個頁面」這類下限，下面多一行「沒有為每個結果排序，只排了最近保存的那些。再加一個詞可以縮小範圍。」。篩選（瀏覽器、profile、日期、網域、`site:` 等）先於窗口；窗口邊界寫進 cursor，翻頁期間有新備份也不會跳行或重複。未超過的詞結果與以前完全一樣。只有 `tag:` 的搜尋不走窗口（標籤集是手寫的、很小）。實作與失效模式見 `vault-core/src/archive/history/grouped/window.rs`，數字見 [ipc-performance.md](../architecture/ipc-performance.md) §6。
+    - 其他呼叫者：AI 搜尋（混合與依日期排序）在被窗口截斷時多一個 `lexicalWindowed` 註記（給模型的英文說明，MCP `search-history` 的 `notes` 也帶），`export_history` 的結果多 `windowed`；⌘K 只列前 6 個頁面、不顯示數字，不受影響。
   - **Regex**：`query_history` 加 `regexMode`，依時間新到舊。把查詢用 `/…/` 包起來時，不管選了哪種方式都當 regex。前端用 Rust `regex` 的規則檢查（`regex-dialect.ts`：群組、巢狀字元類、跳脫字元、重複次數），擋下 look-around、反向參照、atomic / 條件群組、Rust 不認得的跳脫字元與不是重複次數的 `{`，用白話說明哪裡不支援，不送出查詢，畫面保留上一批結果（淡化）。不再用 JavaScript `RegExp`：它會擋下 Rust 接受的寫法（`a++`、`(?i)`、`(?P<name>…)`）。檢查器與後端共用一張案例表（`regex-dialect-cases.json`；Rust 測試 `regex_dialect_cases` 與 vitest 各跑一次）。只有編譯時才知道的錯誤（不存在的 Unicode 屬性、反向範圍、大小上限）仍會送到後端，畫面顯示「這個正規表示式無法執行」與 Rust 的訊息，不再是「搜尋沒有執行成功」。
   - **語意**：`search_ai_history`（AI 搜尋），只有 `ai.enabled`、`semanticIndexEnabled` 都開而且索引就緒時可選；否則自動退回全文。不可選時，按鈕的提示與結果數下方一行說明原因（未開啟、建立中、等待建立、已暫停、索引是空的、建立失敗、無法使用、archive 未設定），並連到 Settings → AI；可用時同一行寫出 provider 與模型、已索引頁數、更新時間，索引過期時提示去重建。後端只能依網域篩選，日期與瀏覽器篩選在前端對已載入的結果做。
 - **篩選**：日期（今天、昨天、最近 7 天、最近 30 天、自訂起訖日）、瀏覽器（依瀏覽器種類，不是單一 profile）、網站（從網站視圖或 Insights 帶入的 chip）。全部寫在 URL（`date`、`browser`、`domain`），可一鍵清除。
-- **列表**：虛擬化、固定列高；cursor 分頁，捲到接近底部自動載下一頁（每頁 100 筆，語意每頁 50 筆）。結果數先顯示「100+」，旁邊另一個 `limit: 1, includeTotal: true` 的查詢算完精確總數後再換成精確數字。
+- **列表**：虛擬化、固定列高；cursor 分頁，捲到接近底部自動載下一頁（每頁 100 筆，語意每頁 50 筆）。結果數先顯示「100+」，旁邊另一個 `limit: 1, includeTotal: true` 的查詢算完精確總數後再換成精確數字；全文搜尋被窗口截斷時一直是「N+」。
 - **詳情面板**：標題、網址；在瀏覽器打開、加星 / 取消、複製連結；連結預覽（og:image，固定 1.91 : 1 的框，見 [og-images.md](og-images.md) §4）；總瀏覽次數、第一次與最近一次瀏覽、來源瀏覽器（`get_url_detail`）；最近 12 週每週瀏覽數；同一 session 的其他頁面；標籤（點標籤就搜尋 `tag:名稱`，見 [annotations.md](annotations.md) §4）；備註。
 - **鍵盤**：↑↓ 移動選取、Enter 在瀏覽器打開、Esc 關閉面板。
 - **回滾**：介面上只有 Takeout 匯入批次能「復原」與「還原」（Backup → 匯入卡的近期匯入）。

@@ -737,6 +737,8 @@ export type AiSearchNote =
   | { code: 'configDriftFingerprint' }
   | { code: 'stale'; reason: AiSemanticStaleness }
   | { code: 'providerResolutionFailed'; reason: string }
+  /** The keyword matched more pages than one search ranks; only a window of them was searched. */
+  | { code: 'lexicalWindowed' }
 
 export interface AiSearchResponse {
   total: number

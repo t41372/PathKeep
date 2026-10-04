@@ -76,13 +76,20 @@ export interface SearchTotals {
   pages: number
   /** Matching visits; unknown for semantic search, which returns pages only. */
   visits: number | null
+  /**
+   * The word matched more pages than one search ranks, so only the most
+   * recently archived ones were ranked and counted: `pages` is "at least".
+   */
+  windowed: boolean
 }
 
 /** The pages of a visit list, flattened. */
 export interface VisitList {
   items: VisitItem[]
-  /** Exact search totals when known; always null for the timeline. */
+  /** Search totals once counted; always null for the timeline. */
   totals: SearchTotals | null
+  /** A loaded page of a full-text search came from a window of the matches. */
+  windowed: boolean
   isPending: boolean
   isPlaceholder: boolean
   error: Error | null
@@ -180,8 +187,11 @@ export function useVisitList(
     totals: semantic
       ? clientFiltered || semanticTotal === undefined
         ? null
-        : { pages: semanticTotal, visits: null }
+        : { pages: semanticTotal, visits: null, windowed: false }
       : totals,
+    windowed:
+      !semantic &&
+      (lexical.data?.pages.some((page) => page.windowed === true) ?? false),
     isPending: (lexicalEnabled || (enabled && semantic)) && active.isPending,
     isPlaceholder: active.isPlaceholderData,
     error: active.error,
@@ -209,8 +219,13 @@ function useSearchTotals(
       }),
   })
   const response = query.data
-  if (!response?.totalExact) return null
-  return { pages: response.total, visits: response.totalVisits ?? null }
+  const windowed = response?.windowed === true
+  if (!response || !(response.totalExact || windowed)) return null
+  return {
+    pages: response.total,
+    visits: response.totalVisits ?? null,
+    windowed,
+  }
 }
 
 export interface BrowserOption {

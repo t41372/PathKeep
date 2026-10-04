@@ -349,6 +349,13 @@ export default function HistoryPage() {
                 active={search.mode === 'semantic'}
               />
             )}
+          {searching &&
+            !search.regexError &&
+            (list.totals?.windowed || list.windowed) && (
+              <p className="px-7 pb-1.5 text-[13px] text-muted-foreground">
+                {t('history.results.windowed')}
+              </p>
+            )}
           {showList ? (
             listContent()
           ) : params.view === 'sites' ? (

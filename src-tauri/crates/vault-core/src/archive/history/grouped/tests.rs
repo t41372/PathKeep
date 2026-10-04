@@ -329,12 +329,25 @@ fn keyword_pages_read_visits_through_the_url_time_index() {
         open_archive_connection(&archive.paths, &archive.config, None).expect("open archive");
     prepare_advanced_search_filters(&connection, &ParsedHistorySearchQuery::default())
         .expect("filter tables");
-    for sql in [KEYWORD_PAGES_SQL, KEYWORD_PAGE_TOTALS_SQL] {
+    connection
+        .execute_batch(
+            "CREATE TEMP TABLE history_ranked_urls (url_id INTEGER PRIMARY KEY, score REAL NOT NULL);
+             CREATE TEMP TABLE history_window_scope (url_id INTEGER PRIMARY KEY);",
+        )
+        .expect("ranked urls table");
+    for sql in [
+        RANKED_PAGES_SQL,
+        RANKED_PAGE_TOTALS_SQL,
+        window::TERMS_NEWEST_SQL,
+        LIST_HISTORY_LEXICAL_SQL,
+        COUNT_HISTORY_LEXICAL_SQL,
+    ] {
         let mut statement =
             connection.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).expect("plan statement");
-        for name in [":termsFtsQuery", ":trigramFtsQuery"] {
-            bind(&mut statement, name, &"tokio").expect("bind");
-        }
+        bind(&mut statement, ":ftsQuery", &"tokio").expect("bind");
+        bind(&mut statement, ":lowUrlId", &i64::MIN).expect("bind");
+        bind(&mut statement, ":highUrlId", &i64::MAX).expect("bind");
+        bind(&mut statement, ":scanLimit", &50_001).expect("bind");
         for name in [":profileId", ":browserKind", ":domainPattern", ":cursorScore", ":cursorUrl"] {
             bind(&mut statement, name, &Option::<String>::None).expect("bind");
         }
@@ -351,6 +364,10 @@ fn keyword_pages_read_visits_through_the_url_time_index() {
         let plan = plan.join("\n");
         assert!(plan.contains("idx_visits_visible_url_time"), "visits by url and time:\n{plan}");
         assert!(!plan.contains("SCAN visits"), "no scan of every visit:\n{plan}");
+        if sql == window::TERMS_NEWEST_SQL {
+            // The index hands out matches in `url_id` order; a sort would rank every match again.
+            assert!(!plan.contains("TEMP B-TREE"), "the window scan does not sort:\n{plan}");
+        }
     }
 }
 
@@ -359,6 +376,218 @@ fn url_filters_match_the_visit_list() {
     for sql in [LIST_HISTORY_LEXICAL_SQL, list_history_sql("newest"), list_history_sql("oldest")] {
         assert!(sql.contains(page_url_filters!()), "the URL filters drifted from the visit list");
     }
+}
+
+// The keyword window (`window.rs`): one test per failure mode in its header. The window cap is a
+// parameter of `list_history_with_window`, so a cap of 3 stands in for the production 50,000.
+
+impl Archive {
+    fn capped(&self, query: HistoryQuery, cap: usize) -> HistoryQueryResponse {
+        list_history_with_window(&self.paths, &self.config, None, query, cap)
+            .expect("windowed search")
+    }
+
+    /// Every row, `limit` at a time, calling `between` after each page.
+    fn walk_capped(
+        &self,
+        query: HistoryQuery,
+        limit: u32,
+        cap: usize,
+        mut between: impl FnMut(&Self),
+    ) -> Vec<HistoryEntry> {
+        let mut rows = Vec::new();
+        let mut cursor = None;
+        loop {
+            let page = self.capped(
+                HistoryQuery {
+                    include_total: Some(false),
+                    limit: Some(limit),
+                    cursor: cursor.clone(),
+                    ..query.clone()
+                },
+                cap,
+            );
+            rows.extend(page.items);
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break rows,
+            }
+            between(self);
+            assert!(rows.len() < 1_000, "the cursor walk does not end");
+        }
+    }
+}
+
+/// "tokio page" archived as url 1 to 5 (one visit each at `1_000 * id`, url 1 in Firefox), and a
+/// page without the word.
+fn five_tokio_pages() -> Archive {
+    let archive = Archive::new();
+    for id in 1..=5 {
+        let profile = if id == 1 { FIREFOX } else { CHROME };
+        archive.url(id, profile, &format!("https://p{id}.test/"), "tokio page", &[1_000 * id]);
+    }
+    archive.url(6, CHROME, "https://other.test/", "unrelated", &[6_000]);
+    archive.index();
+    archive
+}
+
+fn tokio(sort: &str, grouped: bool) -> HistoryQuery {
+    HistoryQuery {
+        q: Some("tokio".into()),
+        sort: Some(sort.into()),
+        group_by_url: Some(grouped),
+        include_total: Some(true),
+        limit: Some(100),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_term_under_the_cap_returns_exactly_what_it_did_before() {
+    let archive = five_tokio_pages();
+    for grouped in [true, false] {
+        for sort in ["relevance", "newest", "oldest"] {
+            let roomy = archive.capped(tokio(sort, grouped), 1_000);
+            let tight = archive.capped(tokio(sort, grouped), 5);
+            assert_eq!(urls(&tight.items), urls(&roomy.items), "{sort} grouped={grouped}");
+            assert_eq!(roomy.items.len(), 5, "{sort} grouped={grouped}");
+            for response in [&roomy, &tight] {
+                assert!(!response.windowed, "{sort} grouped={grouped}");
+                assert!(response.total_exact, "{sort} grouped={grouped}");
+                assert_eq!(response.total, 5, "{sort} grouped={grouped}");
+            }
+        }
+    }
+    let rare = archive.capped(HistoryQuery { q: Some("unrelated".into()), ..tokio("", true) }, 1);
+    assert_eq!(urls(&rare.items), ["https://other.test/"]);
+    assert!(!rare.windowed && rare.total_exact, "one match fits a cap of one");
+}
+
+#[test]
+fn a_term_over_the_cap_ranks_only_the_most_recently_archived_matches() {
+    let archive = five_tokio_pages();
+    let newest = archive.capped(tokio("newest", true), 3);
+    assert_eq!(urls(&newest.items), ["https://p5.test/", "https://p4.test/", "https://p3.test/"]);
+    assert!(newest.windowed);
+
+    let visits = archive.capped(tokio("relevance", false), 3);
+    assert!(visits.windowed, "the visit list is windowed too");
+    let mut listed = urls(&visits.items);
+    listed.sort_unstable();
+    assert_eq!(listed, ["https://p3.test/", "https://p4.test/", "https://p5.test/"]);
+
+    let oldest = archive.capped(tokio("oldest", true), 3);
+    assert_eq!(
+        urls(&oldest.items),
+        ["https://p1.test/", "https://p2.test/", "https://p3.test/"],
+        "oldest order windows the least recently archived matches"
+    );
+
+    let operators =
+        archive.capped(HistoryQuery { q: Some("site:test".into()), ..tokio("newest", true) }, 2);
+    assert!(operators.windowed, "operator-only searches are windowed the same way");
+    assert_eq!(urls(&operators.items), ["https://other.test/", "https://p5.test/"]);
+}
+
+#[test]
+fn the_best_match_survives_when_the_term_fits_the_window() {
+    let archive = Archive::new();
+    archive
+        .url(1, CHROME, "https://best.test/", "tokio tokio tokio", &[1_000])
+        .url(2, CHROME, "https://p2.test/", "tokio and many other words in a long title", &[2_000])
+        .url(3, CHROME, "https://p3.test/", "tokio and many other words in a long title", &[3_000])
+        .index();
+    let fits = archive.capped(tokio("relevance", true), 3);
+    assert!(!fits.windowed);
+    assert_eq!(fits.items[0].url, "https://best.test/");
+
+    // One URL past the cap, the oldest archived falls out, and the response says so.
+    let over = archive.capped(tokio("relevance", true), 2);
+    assert!(over.windowed && !over.total_exact);
+    assert!(!urls(&over.items).contains(&"https://best.test/"));
+}
+
+#[test]
+fn a_windowed_count_never_claims_exactness_and_matches_the_rows() {
+    let archive = five_tokio_pages();
+    for grouped in [true, false] {
+        let counted = archive.capped(tokio("relevance", grouped), 3);
+        assert!(counted.windowed, "grouped={grouped}");
+        assert!(!counted.total_exact, "grouped={grouped}: a windowed total is a lower bound");
+        assert_eq!(counted.total, 3, "grouped={grouped}");
+        let walked = archive.walk_capped(tokio("relevance", grouped), 1, 3, |_| {});
+        assert_eq!(walked.len(), counted.total, "grouped={grouped}");
+        if grouped {
+            let visits: u64 = walked.iter().map(|row| row.visit_count.unwrap_or(0)).sum();
+            assert_eq!(Some(visits as usize), counted.total_visits);
+        }
+    }
+}
+
+#[test]
+fn cursor_pages_keep_the_window_when_a_backup_lands_between_them() {
+    let archive = five_tokio_pages();
+    for sort in ["relevance", "newest", "oldest"] {
+        for grouped in [true, false] {
+            let all = archive.capped(tokio(sort, grouped), 3);
+            let walked = archive.walk_capped(tokio(sort, grouped), 1, 3, |_| {});
+            assert_eq!(urls(&walked), urls(&all.items), "{sort} grouped={grouped}");
+        }
+    }
+
+    // A newer matching page archived after the first page would move an unpinned window past
+    // url 3; the pinned window keeps url 3 and also shows the new page, visited long ago.
+    let archive = five_tokio_pages();
+    let mut added = false;
+    let walked = archive.walk_capped(tokio("newest", true), 1, 3, |archive| {
+        if !added {
+            archive.url(7, CHROME, "https://p7.test/", "tokio page", &[500]);
+            archive.index();
+            added = true;
+        }
+    });
+    assert_eq!(
+        urls(&walked),
+        ["https://p5.test/", "https://p4.test/", "https://p3.test/", "https://p7.test/"]
+    );
+}
+
+#[test]
+fn filters_choose_the_window_instead_of_trimming_it() {
+    let archive = five_tokio_pages();
+    // Both ways of testing a date range: the URLs visited in it, and a probe per match.
+    for (scope, grouped) in [(i64::MAX, true), (i64::MAX, false), (0, true), (0, false)] {
+        window::SCOPE_MAX_VISITS_FOR_TEST.with(|max| max.set(scope));
+        let early = archive
+            .capped(HistoryQuery { end_time_ms: Some(1_500), ..tokio("relevance", grouped) }, 3);
+        assert_eq!(urls(&early.items), ["https://p1.test/"], "grouped={grouped}");
+        assert!(!early.windowed && early.total_exact, "grouped={grouped}");
+
+        let firefox = archive.capped(
+            HistoryQuery { browser_kind: Some("firefox".into()), ..tokio("relevance", grouped) },
+            3,
+        );
+        assert_eq!(urls(&firefox.items), ["https://p1.test/"], "grouped={grouped}");
+
+        let domain = archive.capped(
+            HistoryQuery { domain: Some("p2.test".into()), ..tokio("relevance", grouped) },
+            1,
+        );
+        assert_eq!(urls(&domain.items), ["https://p2.test/"], "grouped={grouped}");
+        assert!(!domain.windowed, "grouped={grouped}");
+
+        // Four pages visited by 4,500 and a cap of two: the window is the newest two of those
+        // four, never pages visited later.
+        let before = archive
+            .capped(HistoryQuery { end_time_ms: Some(4_500), ..tokio("newest", grouped) }, 2);
+        assert!(before.windowed, "scope={scope} grouped={grouped}");
+        assert_eq!(
+            urls(&before.items),
+            ["https://p4.test/", "https://p3.test/"],
+            "scope={scope} grouped={grouped}"
+        );
+    }
+    window::SCOPE_MAX_VISITS_FOR_TEST.with(|max| max.set(i64::MAX));
 }
 
 impl Archive {

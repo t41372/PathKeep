@@ -614,6 +614,9 @@ pub(super) async fn search_history_internal(
     // English `notes` strings on the response are derived from these codes for the MODEL-facing
     // agent-tool path + the persisted run trace, never rendered raw to the user.
     let mut note_codes: Vec<AiSearchNote> = Vec::new();
+    if lexical.windowed {
+        note_codes.push(AiSearchNote::LexicalWindowed);
+    }
     let mut provider_id = "lexical-fallback".to_string();
     let mut model = "none".to_string();
     let mut semantic_hits: Vec<AiSearchEntry> = Vec::new();
@@ -899,13 +902,18 @@ fn date_ordered_response(
     let has_more = can_page || beyond_window;
     // Model-facing note (this path is model-only, like the match reason) when the timeline continues past
     // the retrievable window — tells the agent to narrow rather than believe the page is the whole set.
-    let notes = if beyond_window {
+    let mut notes = if beyond_window {
         vec![format!(
             "Reached the {DATE_ORDERED_WINDOW_CAP}-row retrieval cap for this query; more matches exist beyond it — narrow the date range or add filters to see the rest."
         )]
     } else {
         Vec::new()
     };
+    // A windowed keyword is not the whole timeline: `total` counts the window, and the first or last
+    // occurrence may lie outside it, so the agent is told rather than trusting the order.
+    let note_codes =
+        if lexical.windowed { vec![AiSearchNote::LexicalWindowed] } else { Vec::new() };
+    notes.extend(note_codes.iter().map(AiSearchNote::model_facing_text));
 
     Ok(AiSearchResponse {
         total,
@@ -913,7 +921,7 @@ fn date_ordered_response(
         model: "none".to_string(),
         items: page,
         notes,
-        note_codes: Vec::new(),
+        note_codes,
         next_cursor,
         applied_limit: Some(applied_limit),
         has_more,

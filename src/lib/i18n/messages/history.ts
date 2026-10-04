@@ -52,6 +52,8 @@ export const history = defineMessages({
       pagesAndVisits: '{pages} · {visits} · {mode}',
       pages: '{pages} · {mode}',
       pagesMore: '{count}+ pages · {mode}',
+      windowed:
+        'Not every match was ranked, only the most recently saved ones. Add a word to narrow the search.',
       relevance: 'Relevance {percent}',
       listLabel: 'History results',
       timelineLabel: 'History timeline',
@@ -162,6 +164,8 @@ export const history = defineMessages({
       pagesAndVisits: '找到 {pages} · {visits} · {mode}',
       pages: '找到 {pages} · {mode}',
       pagesMore: '找到 {count}+ 个页面 · {mode}',
+      windowed:
+        '没有为每个结果排序，只排了最近保存的那些。再加一个词可以缩小范围。',
       relevance: '相关度 {percent}',
       listLabel: '历史搜索结果',
       timelineLabel: '历史时间线',
@@ -272,6 +276,8 @@ export const history = defineMessages({
       pagesAndVisits: '找到 {pages} · {visits} · {mode}',
       pages: '找到 {pages} · {mode}',
       pagesMore: '找到 {count}+ 個頁面 · {mode}',
+      windowed:
+        '沒有為每個結果排序，只排了最近儲存的那些。再加一個詞可以縮小範圍。',
       relevance: '相關度 {percent}',
       listLabel: '歷史搜尋結果',
       timelineLabel: '歷史時間線',

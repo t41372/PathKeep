@@ -814,15 +814,22 @@ pub struct HistoryEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryQueryResponse {
-    /// Exact match count, or the size of this page when `total_exact` is false.
+    /// Exact match count; the size of this page when the caller skipped the count; or, when
+    /// `windowed`, the matches inside the window (a lower bound).
     pub total: usize,
-    /// False when the caller asked for `include_total: false`.
+    /// False when the caller asked for `include_total: false`, or when `windowed`.
     #[serde(default = "default_total_exact")]
     pub total_exact: bool,
-    /// For `group_by_url` queries with an exact total: the matching visits across all `total`
-    /// pages. `None` otherwise.
+    /// For `group_by_url` queries with a total: the matching visits across all `total` pages.
+    /// `None` otherwise.
     #[serde(default)]
     pub total_visits: Option<usize>,
+    /// True when a keyword search matched more pages than one search ranks: only the most recently
+    /// archived matching pages inside the filters (the window) were ranked, listed and counted, so
+    /// `total` is "at least" and some older matches are not in the list. Adding a word or a filter
+    /// narrows the search under the window. See `archive/history/keyword_window.rs`.
+    #[serde(default)]
+    pub windowed: bool,
     pub items: Vec<HistoryEntry>,
     pub page: usize,
     pub page_size: usize,
@@ -842,6 +849,7 @@ impl Default for HistoryQueryResponse {
             total: 0,
             total_exact: true,
             total_visits: None,
+            windowed: false,
             items: Vec::new(),
             page: 1,
             page_size: 0,
@@ -877,6 +885,10 @@ pub struct ExportResult {
     pub format: ExportFormat,
     pub path: String,
     pub count: usize,
+    /// True when the export's keyword matched more pages than one search ranks, so only the
+    /// window of most recently archived matches was exported (`HistoryQueryResponse::windowed`).
+    #[serde(default)]
+    pub windowed: bool,
 }
 
 /// Pollable lifecycle of an export; finishing protects the durable publication barrier.

@@ -58,26 +58,14 @@ use self::pagination::{
     build_uncounted_history_response, normalize_history_sort, page_count, parse_history_cursor,
 };
 
+/// Visits of the matching URLs, which `grouped::window::rank_matching_urls` collected (with their
+/// scores, inside the window) into `temp.history_ranked_urls` first.
+///
+/// `CROSS JOIN` fixes the join order: the temp table has no statistics, and without it SQLite may
+/// walk every visit in time order and probe the table instead of reading each ranked URL's visits.
 const LIST_HISTORY_LEXICAL_SQL: &str = r#"
-WITH search_matches AS (
-  SELECT
-    rowid AS url_id,
-    bm25(history_search_terms, 6.0, 12.0, 4.0, 5.0, 10.0, 4.0, 2.0, 7.0, 9.0, 6.0) AS score
-  FROM search.history_search_terms
-  WHERE :termsFtsQuery IS NOT NULL
-    AND history_search_terms MATCH :termsFtsQuery
-  UNION ALL
-  SELECT
-    rowid AS url_id,
-    bm25(history_search_trigram, 1.0) + 0.35 AS score
-  FROM search.history_search_trigram
-  WHERE :trigramFtsQuery IS NOT NULL
-    AND history_search_trigram MATCH :trigramFtsQuery
-),
-ranked_urls AS (
-  SELECT url_id, MIN(score) AS score
-  FROM search_matches
-  GROUP BY url_id
+WITH ranked_urls AS (
+  SELECT url_id, score FROM temp.history_ranked_urls
 )
 SELECT
   visits.id,
@@ -94,13 +82,13 @@ SELECT
   -- scored, so surfacing it costs ONE extra projection-keyed lookup per result, never an N+1.
   search_documents.enrichment_text,
   ranked_urls.score
-FROM visits
-JOIN urls
-  ON urls.id = visits.url_id
+FROM ranked_urls
+CROSS JOIN urls
+  ON urls.id = ranked_urls.url_id
+CROSS JOIN visits
+  ON visits.url_id = urls.id
 JOIN source_profiles
   ON source_profiles.id = visits.source_profile_id
-JOIN ranked_urls
-  ON ranked_urls.url_id = urls.id
 LEFT JOIN search.search_documents
   ON search_documents.url_id = urls.id
 WHERE visits.reverted_at IS NULL
@@ -265,31 +253,19 @@ ORDER BY
 LIMIT :candidateVisitLimit
 "#;
 
+/// Counts the visits of the ranked URLs, so a windowed search counts only its window.
 const COUNT_HISTORY_LEXICAL_SQL: &str = r#"
-WITH search_matches AS (
-  SELECT rowid AS url_id
-  FROM search.history_search_terms
-  WHERE :termsFtsQuery IS NOT NULL
-    AND history_search_terms MATCH :termsFtsQuery
-  UNION
-  SELECT rowid AS url_id
-  FROM search.history_search_trigram
-  WHERE :trigramFtsQuery IS NOT NULL
-    AND history_search_trigram MATCH :trigramFtsQuery
-),
-ranked_urls AS (
-  SELECT url_id
-  FROM search_matches
-  GROUP BY url_id
+WITH ranked_urls AS (
+  SELECT url_id FROM temp.history_ranked_urls
 )
 SELECT COUNT(*)
-FROM visits
-JOIN urls
-  ON urls.id = visits.url_id
+FROM ranked_urls
+CROSS JOIN urls
+  ON urls.id = ranked_urls.url_id
+CROSS JOIN visits
+  ON visits.url_id = urls.id
 JOIN source_profiles
   ON source_profiles.id = visits.source_profile_id
-JOIN ranked_urls
-  ON ranked_urls.url_id = urls.id
 WHERE visits.reverted_at IS NULL
   AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
   AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
@@ -331,14 +307,34 @@ pub fn list_history(
     key: Option<&str>,
     query: HistoryQuery,
 ) -> Result<HistoryQueryResponse> {
+    list_history_with_window(paths, config, key, query, grouped::window::keyword_window_cap())
+}
+
+/// [`list_history`] with the keyword window cap as a parameter, so tests can hit the window with a
+/// handful of rows.
+fn list_history_with_window(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    query: HistoryQuery,
+    window_cap: usize,
+) -> Result<HistoryQueryResponse> {
     let connection = open_archive_connection(paths, config, key)?;
-    list_history_on_connection(&connection, query)
+    list_history_on_connection_with_window(&connection, query, window_cap)
 }
 
 // Export reuses this dispatch on its one connection; recall paths and filters stay shared.
 fn list_history_on_connection(
     connection: &Connection,
     query: HistoryQuery,
+) -> Result<HistoryQueryResponse> {
+    list_history_on_connection_with_window(connection, query, grouped::window::keyword_window_cap())
+}
+
+fn list_history_on_connection_with_window(
+    connection: &Connection,
+    query: HistoryQuery,
+    window_cap: usize,
 ) -> Result<HistoryQueryResponse> {
     let limit = query.limit.unwrap_or(150).clamp(1, 1_000);
     let limit_usize = limit as usize;
@@ -393,6 +389,7 @@ fn list_history_on_connection(
                 cursor,
                 include_total,
                 lexical_query,
+                window_cap,
             ),
             // Words that analyze to nothing searchable match nothing, as in the visit list.
             (None, None) if q.is_some() => Ok(HistoryQueryResponse::default()),
@@ -411,11 +408,13 @@ fn list_history_on_connection(
                 limit_usize,
                 cursor,
                 include_total,
+                window_cap,
             ),
         };
     }
 
-    let cursor = parse_history_cursor(query.cursor.as_deref());
+    let (window_edge, visit_cursor) = grouped::window::split_cursor(query.cursor.as_deref());
+    let cursor = parse_history_cursor(visit_cursor);
 
     if let Some(regex) = regex {
         return list_history_with_regex(
@@ -452,6 +451,7 @@ fn list_history_on_connection(
             sort,
             cursor,
             lexical_query,
+            LexicalWindow { edge: window_edge, cap: window_cap },
         );
     }
 
@@ -705,7 +705,13 @@ pub(super) fn list_history_with_regex_capped_for_test(
     )
 }
 
-/// Runs normalized FTS-backed keyword recall.
+/// The keyword window of one visit-list request: the cap, and the edge a cursor pinned.
+struct LexicalWindow {
+    edge: Option<grouped::window::WindowEdge>,
+    cap: usize,
+}
+
+/// Runs normalized FTS-backed keyword recall over the matches `rank_matching_urls` keeps.
 #[allow(clippy::too_many_arguments)]
 fn list_history_with_lexical_search(
     connection: &Connection,
@@ -721,15 +727,28 @@ fn list_history_with_lexical_search(
     sort: String,
     cursor: Option<HistoryCursor>,
     lexical_query: LexicalQuery,
+    window: LexicalWindow,
 ) -> Result<HistoryQueryResponse> {
+    let ranked = grouped::window::rank_matching_urls(
+        connection,
+        grouped::window::Matching::Words(&lexical_query),
+        &grouped::PageFilters {
+            profile_id: profile_id.clone(),
+            browser_kind: browser_kind.clone(),
+            domain_pattern: domain_pattern.clone(),
+            start_time_ms,
+            end_time_ms,
+        },
+        &sort,
+        window.edge,
+        window.cap,
+    )?;
     let fuzzy_query = lexical_query.fuzzy_query.clone();
     let total: Option<usize> = if include_total {
         let count: usize = connection
             .query_row(
                 COUNT_HISTORY_LEXICAL_SQL,
                 named_params! {
-                    ":termsFtsQuery": lexical_query.terms_query.clone(),
-                    ":trigramFtsQuery": lexical_query.trigram_query.clone(),
                     ":profileId": profile_id.clone(),
                     ":browserKind": browser_kind.clone(),
                     ":domainPattern": domain_pattern.clone(),
@@ -789,8 +808,6 @@ fn list_history_with_lexical_search(
     let cursor_score = relevance_cursor.map(|(score, _, _)| score);
     let rows = statement.query_map(
         named_params! {
-            ":termsFtsQuery": lexical_query.terms_query,
-            ":trigramFtsQuery": lexical_query.trigram_query,
             ":profileId": profile_id.clone(),
             ":browserKind": browser_kind.clone(),
             ":domainPattern": domain_pattern.clone(),
@@ -838,23 +855,23 @@ fn list_history_with_lexical_search(
                 fuzzy_query,
             );
         }
-        return Ok(build_uncounted_history_response(
+        return Ok(ranked.label(build_uncounted_history_response(
             limit_usize,
             response_start_index,
             has_more,
             scored_items,
             &sort,
-        ));
+        )));
     };
 
-    Ok(build_lexical_history_response(
+    Ok(ranked.label(build_lexical_history_response(
         total,
         limit_usize,
         page,
         response_start_index,
         scored_items,
         &sort,
-    ))
+    )))
 }
 
 /// Runs Latin typo tolerance over a bounded trigram candidate set.

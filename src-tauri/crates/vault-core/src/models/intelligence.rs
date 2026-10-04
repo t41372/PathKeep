@@ -1632,6 +1632,9 @@ pub enum AiSearchNote {
     /// localized "semantic unavailable: {reason}" sentence instead of receiving pre-baked English.
     #[serde(rename_all = "camelCase")]
     ProviderResolutionFailed { reason: String },
+    /// The keyword matched more pages than one search ranks, so only a window of them was searched
+    /// (`HistoryQueryResponse::windowed`); older matches can be missing.
+    LexicalWindowed,
 }
 
 impl AiSearchNote {
@@ -1662,6 +1665,9 @@ impl AiSearchNote {
             AiSearchNote::Stale { reason } => reason.model_facing_text().to_string(),
             AiSearchNote::ProviderResolutionFailed { reason } => {
                 format!("Semantic retrieval is unavailable right now: {reason}. Showing lexical results only.")
+            }
+            AiSearchNote::LexicalWindowed => {
+                "This keyword matched more pages than one search ranks, so only part of them was searched: the most recently archived matching pages (the least recently archived for oldest-first order). Some matches are missing; add a word or a date range to reach them.".to_string()
             }
         }
     }

@@ -74,23 +74,46 @@ The part of config loading that is slow is the system keychain lookup for "is an
 
 Already addressed in the redesign import: `includeTotal: false` skips the count and reads one extra row to know whether there is a next page. The infinite History list uses it; only the search total asks for the count. A test (`uncounted_history_pages_walk_the_same_rows_as_counted_pages`) checks that uncounted cursor pages return the same rows as a counted query, once each.
 
-### 6. History search lists pages, not visits (`groupByUrl`)
+### 6. Search over a common word walked every match
 
-Searching listed every matching visit, so one page visited thousands of times filled the list. Search now asks `query_history` with `groupByUrl: true`: one row per URL with its visit count (`vault-core/src/archive/history/grouped.rs`). Matching `url_id`s are aggregated through `idx_visits_visible_url_time` (count, newest visit), folded into pages with window functions, and only the page window is sorted. A plan test fails if the visit lookups stop using that index or scan `visits`.
+Search asks `query_history` with `groupByUrl: true`: one row per URL with its visit count (`vault-core/src/archive/history/grouped.rs`). Until this change, ranking, grouping and the exact count all walked the full match set: both FTS tables scored every matching document with `bm25`, every matching `url_id` was aggregated over its visits, and the totals ran it all again. A word in every one of the 3.6M titles ("topic") took 10.5 s for the first page and 26.6 s for the History header's count.
 
-Measured on the same 14.4M archive, `limit: 100`, the "before" column with the code before this change and the rest in a second run. Other builds were running on the machine during both runs, so the same unchanged query ("visits" rows) came out 973 ms in the first run and 1,341 ms in the second; compare within a run.
+Fix (`vault-core/src/archive/history/grouped/window.rs`): the matching `url_id`s are collected first into `temp.history_ranked_urls`, which the visit list, the page list and the totals then read instead of the search index. Each index is read in `url_id` order and stops after 25,001 URLs that have a visible visit inside the browser, profile, date and URL filters. A word under the cap is ranked whole, exactly as before. Above it, only the 25,000 most recently archived matching URLs (the least recently archived for `oldest` order) are ranked, listed and counted; the response says `windowed: true` with `totalExact: false`, the header shows "25,000+ pages" and one line saying not every match was ranked and that another word narrows it. What is bounded now:
 
-| 14.4M visits                  | visits, first run (before) | visits, second run | pages, second run |
-| ----------------------------- | -------------------------- | ------------------ | ----------------- |
-| "topic 42", first page        | 973 ms                     | 1,341 ms           | 811 ms            |
-| "topic 42", with exact totals | 1,857 ms                   | 2,085 ms           | 1,656 ms          |
-| "topic 42", second page       |                            |                    | 832 ms            |
-| rare term, first page         | 50 ms                      | 74 ms              | 79 ms             |
-| rare term, with exact totals  | 54 ms                      | 72 ms              | 158 ms            |
-| "topic" (every page), first   |                            | 25.0 s             | 10.2 s            |
-| "topic" (every page), totals  |                            | 68.0 s             | 24.9 s            |
+- the scan, at `cap + 1` qualifying URLs per index (one visit-index probe each);
+- relevance scores, at one per ranked URL; when the term index alone passes the cap, a URL both indexes match keeps its term score, so the trigram index's posting list is not read just to reorder the window (recorded in the cursor so later pages score the same way);
+- grouping, sorting and both totals, at the window: the count stops at the cap instead of counting everything;
+- a narrow date range: when it holds at most 250,000 visits, its URLs are collected first (`temp.history_window_scope`) and matches are tested against them instead of probing each match's visits.
 
-"topic 42" is in one title in 500 (7,200 pages, about 29,000 visits); the rare term is one page with a handful of visits; "topic" is in every one of the 3.6M titles. Grouped totals run the match twice (once for the totals, once for the rows), which is why the rare term's exact-totals call doubles; the UI runs that call beside the list, not before it. A cursor page costs the same as the first page: the match and the aggregation run again, only the cut moves.
+The window's edge is written into the cursor (`w…|`), so later pages read the same window even if a backup lands between them. Filters choose the window, never trim it afterwards. Why "most recently archived" and not "most recently visited": an FTS index can hand out matches in `url_id` order without scoring them all, but it has no visit-time order, and testing the newest visits one by one against the index costs 20 to 70 µs per visit (measured with a correlated `MATCH … AND rowid = ?` probe). The trade-off is that a page archived long ago and still visited today can fall outside the window of a word on more than 25,000 pages.
+
+Measured on the 14.4M archive (`PATHKEEP_ARCHIVE_BENCH_ONLY=search`), `limit: 100`, median of 3 to 5 calls. The machine was shared with several builds throughout (load average 15 to 40), so the same unchanged query moved by up to 50% between runs; read the ratios. "pages" is the History list (`groupByUrl`, no total), "count" the header's `limit: 1, includeTotal: true` call, "visits" the visit list (export, AI tools) with and without the total.
+
+| 14.4M visits                             | before   | after  |
+| ---------------------------------------- | -------- | ------ |
+| rare term, pages, first page             | 51 ms    | 73 ms  |
+| rare term, count                         | 104 ms   | 73 ms  |
+| "topic 421" (6,853 pages, exact), pages  |          | 346 ms |
+| "topic 421", count                       |          | 368 ms |
+| "topic 42" (73,731 pages), pages         | 704 ms   | 304 ms |
+| "topic 42", count                        | 1,336 ms | 349 ms |
+| "topic 42", visits with total            | 2,582 ms | 537 ms |
+| "topic" (every title), pages, first page | 10.5 s   | 288 ms |
+| "topic", pages, second page by cursor    | 11.2 s   | 295 ms |
+| "topic", count                           | 26.6 s   | 318 ms |
+| "topic", visits, first page              | 30.6 s   | 338 ms |
+| "topic", visits with total               | 60.5 s   | 415 ms |
+| "topic", visits newest-first (AI tools)  | 29.4 s   | 337 ms |
+| "topic", last 7 days, pages              | 5.6 s    | 727 ms |
+| "topic", last 7 days, count              | 16.8 s   | 799 ms |
+| "topic", first year, pages               | 7.5 s    | 399 ms |
+| "topic", first year, count               | 20.1 s   | 424 ms |
+
+"topic 42" matches about 90,000 URLs once the prefix and trigram matches of "42" are counted, so it is now windowed (25,000 of its 73,731 pages); "topic 421" (about 18,000 URLs) is the medium term that still ranks whole. The rare term costs about 20 ms more than before: the index is now read newest-first and probed per match, a fixed cost for a one-row result. A second run of the old code stalled on the first "topic 421" case (5 repetitions of the visit list with its total) for 25 minutes and was stopped; the cause was not investigated.
+
+Choosing the cap: with "topic", the first page costs about 200 ms fixed (the posting lists, read for the matches and for the relevance weight) plus about 4 µs per ranked URL. In the same run the first page took 290 ms at 25,000 and 390 ms at 50,000 (1.0 s and 0.73 s with the one-week filter). The target machine is several times slower, so 25,000 keeps the worst common word near half a second there; it is still 250 screens of results.
+
+A plan test (`keyword_pages_read_visits_through_the_url_time_index`) fails if the page list, the totals, the visit list or the window scan stop reading visits through `idx_visits_visible_url_time`, scan `visits`, or if the window scan sorts. Tests for each failure mode (a rare term windowed, the best match dropped, counts claiming exactness, cursor pages skipping or repeating across the window edge, filters applied after the window) are in `grouped/tests.rs`.
 
 Regex search groups the same bounded window the visit list scans (the newest 50,000 visits inside the filters), so its counts cover that window. Semantic search already returned one row per page; its header shows pages only.
 
@@ -195,7 +218,7 @@ Generating the 14.4M archive took 208 s for the rows and 47 s to project 3.6M se
 
 ## Open risks
 
-- Keyword search over a common term is about 0.8 s for the first page of grouped results at 14.4M (1.7 s with totals), and a word in every page title takes 10 s (25 s with totals). It runs off the UI thread, but the list waits for it. Both FTS tables match and rank every document before a page is cut, then every matching `url_id` is aggregated. For "topic" the term-table match alone is 60 ms and aggregating all 14.4M visits by `url_id` is about 1 s (sqlite3 CLI on the same file), so most of the 10 s is ranking, the trigram match and folding 3.6M URLs; that split is not measured yet. Cutting the match by score before aggregating is the next thing to look at.
+- Keyword search over a word on more than 25,000 pages ranks only the most recently archived 25,000 (§6). A word that matches many pages but few inside a narrow filter still reads matches until it fills the window: "topic" with a one-week filter is 0.7 s here. The rare-term path is about 20 ms slower than before.
 - `load_source_stats` recounts each profile after every backup (294 ms at 14.4M). It is cached until the archive file changes and runs off the UI thread.
 - `keyring_status()` on every `app_snapshot` is unmeasured (see 4).
 - A whole-archive export at 14.4M is a long job (66 minutes measured with a cold cache). Memory stays flat, but Settings shows only a spinner until it finishes: there is no progress or cancel yet. Keeping one archive connection for the whole walk, instead of reopening it per page, is the first thing to try.

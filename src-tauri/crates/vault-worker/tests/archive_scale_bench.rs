@@ -27,10 +27,11 @@
 //! `PATHKEEP_ARCHIVE_BENCH_DIR` keeps the generated archive between runs (generation at 14.4M
 //! takes minutes); without it a temp directory is used and removed.
 //!
-//! `PATHKEEP_ARCHIVE_BENCH_SECTIONS` picks sections, comma-separated: `reads`, `doctor`,
-//! `searches`, `export`, `encrypted`, `encrypted-export`. All but `encrypted-export` run when it
-//! is unset; that one seeds a second full-size archive, encrypted, and exports it, because
-//! SQLCipher decrypts every page the export reads.
+//! `PATHKEEP_ARCHIVE_BENCH_SECTIONS` picks sections, comma-separated: `reads`, `search`
+//! (keyword search at three frequencies), `doctor`, `searches`, `export`, `encrypted`,
+//! `encrypted-export`. All but `encrypted-export` run when it is unset; that one seeds a second
+//! full-size archive, encrypted, and exports it, because SQLCipher decrypts every page the export
+//! reads.
 //! `PATHKEEP_ARCHIVE_BENCH_EXPORT_FORMATS` (default `jsonl,html`) picks the export formats; each
 //! export file is deleted after it is measured.
 //!
@@ -85,10 +86,10 @@ fn archive_scale_bench() {
     println!("\n# archive_scale_bench: {visits} visits\n");
     let plain_root = base.join(format!("plain-{visits}"));
     // Seeding takes minutes and gigabytes at 14.4M, so only when a plaintext section runs.
-    if ["reads", "doctor", "searches", "export"].into_iter().any(wants) {
+    if ["reads", "search", "doctor", "searches", "export"].into_iter().any(wants) {
         let plain = seeded_archive(&plain_root, visits, None);
         if wants("reads") {
-            bench_plaintext(&plain_root, &plain, visits);
+            bench_plaintext(&plain_root, &plain);
         }
         if wants("doctor") {
             seeded_derived_rows(&plain_root, &plain);
@@ -99,6 +100,12 @@ fn archive_scale_bench() {
         }
         if wants("export") {
             bench_export(&plain_root, &plain, None);
+        }
+        if wants("search") {
+            let paths = project_paths_with_root(&plain_root);
+            unsafe { std::env::set_var("CHB_PROJECT_ROOT", &plain_root) };
+            drop(open_archive_connection(&paths, &plain, None).expect("first open"));
+            bench_search(&paths, &plain, visits);
         }
     }
 
@@ -207,7 +214,7 @@ fn import_batch_visibility_scale_bench() {
     }
 }
 
-fn bench_plaintext(root: &Path, config: &AppConfig, visits: u64) {
+fn bench_plaintext(root: &Path, config: &AppConfig) {
     let paths = project_paths_with_root(root);
     unsafe { std::env::set_var("CHB_PROJECT_ROOT", root) };
 
@@ -269,44 +276,8 @@ fn bench_plaintext(root: &Path, config: &AppConfig, visits: u64) {
     report("browse, first page, no total", 5, || {
         vault_core::list_history(&paths, config, None, page(None, false)).expect("query");
     });
+    // Keyword search has its own section (`search`).
 
-    // "topic 42" is in one page title in 500 (7,200 pages at 14.4M); the rare term is one page in
-    // the middle of the id range with a handful of visits; "topic" is in every title.
-    let rare = format!("page {}", (visits / 4).max(1) / 3 + 1);
-    for (label, q, runs) in [
-        ("keyword \"topic 42\"", "topic 42", 5),
-        ("rare keyword", rare.as_str(), 5),
-        ("\"topic\"", "topic", 1),
-    ] {
-        let grouped = |include_total: bool| HistoryQuery {
-            group_by_url: Some(true),
-            ..page(Some(q), include_total)
-        };
-        report(&format!("{label}, visits, first page, exact total"), runs, || {
-            vault_core::list_history(&paths, config, None, page(Some(q), true)).expect("query");
-        });
-        report(&format!("{label}, visits, first page, no total"), runs, || {
-            vault_core::list_history(&paths, config, None, page(Some(q), false)).expect("query");
-        });
-        report(&format!("{label}, pages, first page, exact totals"), runs, || {
-            vault_core::list_history(&paths, config, None, grouped(true)).expect("query");
-        });
-        let first = vault_core::list_history(&paths, config, None, grouped(false)).expect("query");
-        report(&format!("{label}, pages, first page, no total"), runs, || {
-            vault_core::list_history(&paths, config, None, grouped(false)).expect("query");
-        });
-        if first.next_cursor.is_some() {
-            report(&format!("{label}, pages, second page by cursor"), runs, || {
-                vault_core::list_history(
-                    &paths,
-                    config,
-                    None,
-                    HistoryQuery { cursor: first.next_cursor.clone(), ..grouped(false) },
-                )
-                .expect("query");
-            });
-        }
-    }
     let mut cursor = None;
     for _ in 0..50 {
         let response = vault_core::list_history(
@@ -561,6 +532,93 @@ fn query_plan(connection: &Connection, sql: &str) -> String {
         .map(|row| format!("    {}", row.expect("plan row")))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Keyword search at three frequencies, with and without a date filter, the way the History screen
+/// and the AI tools ask for it.
+fn bench_search(paths: &ProjectPaths, config: &AppConfig, visits: u64) {
+    let page = |q: Option<&str>, include_total: bool| HistoryQuery {
+        q: q.map(str::to_string),
+        limit: Some(100),
+        include_total: Some(include_total),
+        ..HistoryQuery::default()
+    };
+    // "topic 421" matches about 18,000 URLs (titles with "topic 421" and the prefix matches of
+    // "421"); "topic 42" is in one title in 500 but with the prefix and trigram matches of "42"
+    // about 90,000 URLs match; the rare term is one page in the middle of the id range with a
+    // handful of visits; "topic" is in every title.
+    let rare = format!("page {}", (visits / 4).max(1) / 3 + 1);
+    let last_week = (START_MS + SPAN_MS - 7 * 86_400_000, START_MS + SPAN_MS);
+    let first_year = (START_MS, START_MS + 365 * 86_400_000);
+    for (label, q, runs, dates) in [
+        ("keyword \"topic 421\"", "topic 421", 5, None),
+        ("keyword \"topic 42\"", "topic 42", 5, None),
+        ("rare keyword", rare.as_str(), 5, None),
+        ("\"topic\"", "topic", 3, None),
+        ("\"topic\", last 7 days", "topic", 3, Some(last_week)),
+        ("\"topic\", first year", "topic", 3, Some(first_year)),
+    ] {
+        let search = |include_total: bool| HistoryQuery {
+            start_time_ms: dates.map(|(start, _)| start),
+            end_time_ms: dates.map(|(_, end)| end),
+            ..page(Some(q), include_total)
+        };
+        let grouped = |include_total: bool| HistoryQuery {
+            group_by_url: Some(true),
+            ..search(include_total)
+        };
+        report(&format!("{label}, visits, first page, exact total"), runs, || {
+            vault_core::list_history(paths, config, None, search(true)).expect("query");
+        });
+        report(&format!("{label}, visits, first page, no total"), runs, || {
+            vault_core::list_history(paths, config, None, search(false)).expect("query");
+        });
+        report(&format!("{label}, visits newest-first, no total"), runs, || {
+            vault_core::list_history(
+                paths,
+                config,
+                None,
+                HistoryQuery { sort: Some("newest".into()), ..search(false) },
+            )
+            .expect("query");
+        });
+        report(&format!("{label}, pages, first page, no total"), runs, || {
+            vault_core::list_history(paths, config, None, grouped(false)).expect("query");
+        });
+        // The History header's count: the same search with `limit: 1` and the totals.
+        report(&format!("{label}, pages, totals (limit 1)"), runs, || {
+            vault_core::list_history(
+                paths,
+                config,
+                None,
+                HistoryQuery { limit: Some(1), ..grouped(true) },
+            )
+            .expect("query");
+        });
+        let first = vault_core::list_history(paths, config, None, grouped(false)).expect("query");
+        let totals = vault_core::list_history(
+            paths,
+            config,
+            None,
+            HistoryQuery { limit: Some(1), ..grouped(true) },
+        )
+        .expect("query");
+        println!(
+            "|   {label}: {} pages, {:?} visits, exact: {}",
+            totals.total, totals.total_visits, totals.total_exact
+        );
+        if first.next_cursor.is_some() {
+            report(&format!("{label}, pages, second page by cursor"), runs, || {
+                vault_core::list_history(
+                    paths,
+                    config,
+                    None,
+                    HistoryQuery { cursor: first.next_cursor.clone(), ..grouped(false) },
+                )
+                .expect("query");
+            });
+        }
+    }
 }
 
 fn bench_encrypted(root: &Path, config: &AppConfig) {

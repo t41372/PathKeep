@@ -498,12 +498,14 @@ export interface OgImageSettings {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface HistoryQueryResponse {
-  /** Matching rows (pages when grouped), or only this page's size when `totalExact` is false. */
+  /** Matching rows (pages when grouped); only this page's size when the count was skipped; or, when `windowed`, the matches inside the window (a lower bound). */
   total: number
-  /** False when the query was sent with `includeTotal: false`. */
+  /** False when the query was sent with `includeTotal: false`, or when `windowed`. */
   totalExact: boolean
-  /** Grouped queries with an exact total: matching visits across all pages. */
+  /** Grouped queries with a total: matching visits across all pages. */
   totalVisits?: number | null
+  /** The search matched more pages than one search ranks: only the most recently archived matches were ranked, listed and counted. */
+  windowed?: boolean
   items: HistoryEntry[]
   page: number
   pageSize: number
@@ -552,6 +554,8 @@ export interface ExportResult {
   format: ExportFormat
   path: string
   count: number
+  /** The keyword matched more pages than one search ranks; only the window of most recently archived matches was exported. */
+  windowed?: boolean
 }
 
 /**
