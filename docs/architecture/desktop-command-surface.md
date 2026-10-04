@@ -151,7 +151,7 @@ Removed, after checking `src/`, the MCP server (`vault-worker/src/mcp.rs`: `sear
 - `ask_ai_assistant`, `load_ai_assistant_job`: the Ask page streams through `ai_chat_send`. The queue still drains and replays assistant jobs already stored, so `vault_worker::ask_ai_assistant` and the assistant job type stay.
 - `download_ai_embedding_model`: the Candle-tier model download. No frontend calls it; `download_static_embedding_model` is the one the AI setup uses.
 
-Insights' drill-ins and pattern cards (2026-10) call: `get_day_insights`, `get_sessions`, `get_session_detail`, `get_search_queries`, `get_domain_deep_dive`, `get_query_family_detail`, `get_trail_detail`, `get_refind_page_detail`, `get_breadth_index`, `get_habit_patterns`, `get_multi_browser_diff` (plus `get_url_detail` from History). Changes made so they hold at 14.4M visits and say true things:
+Insights' drill-ins and pattern cards (2026-10) call: `get_day_insights`, `get_sessions`, `get_session_detail`, `get_search_queries`, `get_query_families`, `get_domain_deep_dive`, `get_query_family_detail`, `get_trail_detail`, `get_refind_page_detail`, `get_breadth_index`, `get_habit_patterns`, `get_multi_browser_diff` (plus `get_url_detail` from History). Changes made so they hold at 14.4M visits and say true things:
 
 - `get_sessions` seeks `idx_sessions_profile_time` (`profile_id IN` the archive's profile keys, `first_visit_ms` from a day before the range); `(?1 IS NULL OR profile_id = ?1)` scanned every session for one day's list. A session that started more than a day before the range and ran into it is listed only from its first day.
 - `get_session_detail` reads the session's profile first and looks visits up by `(profile_id, session_id)`; `session_id` alone scanned every derived visit row.

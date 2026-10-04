@@ -86,6 +86,11 @@ export const insightsClient = {
     section<FrequentSearch[]>('get_frequent_searches', {
       request: { ...scope, limit },
     }),
+  /** Pages are zero-based, like every paged intelligence command. */
+  queryFamilies: (scope: Scope, pageSize = 200) =>
+    section<QueryFamilyResult>('get_query_families', {
+      request: { ...scope, page: 0, pageSize },
+    }),
   refindPages: (scope: Scope, limit = 8) =>
     section<RefindPage[]>('get_refind_pages', { request: { ...scope, limit } }),
   reopenedInvestigations: (scope: Scope) =>
