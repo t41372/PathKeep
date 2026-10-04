@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { annotationsClient } from '@/lib/backend-client/annotations'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
+import { invalidateSearches } from './queries'
 
 const SAVE_DELAY_MS = 800
 const SAVED_VISIBLE_MS = 2000
@@ -47,6 +48,7 @@ export function NoteField({
       saved.current = value
       client.setQueryData(['annotations', 'url', url], annotation)
       void client.invalidateQueries({ queryKey: ['annotations', 'list'] })
+      invalidateSearches(client)
       setState('saved')
       clearTimeout(fade.current)
       fade.current = setTimeout(() => setState('idle'), SAVED_VISIBLE_MS)

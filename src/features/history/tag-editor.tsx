@@ -14,6 +14,7 @@ import { useCallback, useRef, useState, type KeyboardEvent } from 'react'
 import { annotationsClient } from '@/lib/backend-client/annotations'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
+import { invalidateSearches } from './queries'
 import { addTags, type TagProblem } from './tags'
 
 export function TagField({
@@ -51,6 +52,7 @@ export function TagField({
           saved.current = annotation.tags
           client.setQueryData(['annotations', 'url', url], annotation)
           void client.invalidateQueries({ queryKey: ['annotations', 'list'] })
+          invalidateSearches(client)
         } catch {
           setTags(saved.current)
           setProblem('saveFailed')

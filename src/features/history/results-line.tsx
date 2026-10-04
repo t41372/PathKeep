@@ -39,6 +39,9 @@ export function ResultsLine({
   const { t } = useI18n()
   if (search.regexError) return <RegexProblemText problem={search.regexError} />
 
+  // The rows on screen are the previous list, kept while the new one loads;
+  // a count next to them would describe rows that are not there yet.
+  if (list.isPlaceholder) return null
   const modeLabel = t(`history.modes.${search.mode}`)
   // Until the count lands, describe what is loaded: exact once every page is in.
   const totals =

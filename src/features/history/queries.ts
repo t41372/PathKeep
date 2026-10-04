@@ -7,6 +7,7 @@ import {
   keepPreviousData,
   useInfiniteQuery,
   useQuery,
+  type QueryClient,
 } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { annotationsClient } from '@/lib/backend-client/annotations'
@@ -32,6 +33,16 @@ const key = (...parts: unknown[]) => [
   'history',
   ...parts,
 ]
+
+/**
+ * Search reads the user's notes and tags (full text, `note:`, `tag:`), so a
+ * saved note or tag makes cached results stale; without this a `tag:` search
+ * run before tagging would keep showing nothing for five minutes.
+ */
+export function invalidateSearches(client: QueryClient) {
+  void client.invalidateQueries({ queryKey: key('list') })
+  void client.invalidateQueries({ queryKey: key('search-total') })
+}
 
 const PAGE_SIZE = 100
 const SEMANTIC_PAGE_SIZE = 50
