@@ -83,7 +83,7 @@ export async function invokeCommand<TResponse>(
   const bridgeUrl = resolveDevIpcBridgeUrl()
   if (!bridgeUrl) {
     throw new Error(
-      `PathKeep desktop command "${command}" is unavailable in browser preview mode.`,
+      `PathKeep desktop command "${command}" needs the desktop app or the dev bridge; neither is attached.`,
     )
   }
 

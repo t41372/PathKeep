@@ -30,7 +30,7 @@
  * - `./model-download` for the progress subscription + the shared in-flight latch.
  */
 
-import { backend } from '../backend-client'
+import { intelligenceClient } from '../backend-client/intelligence'
 import {
   markModelDownloadSettled,
   markModelDownloadStarted,
@@ -58,7 +58,7 @@ export const MODEL_DOWNLOAD_IDLE_TIMEOUT_MS = 120_000
  */
 export async function runLocalSemanticSetup(): Promise<void> {
   await ensureStaticModelDownloaded()
-  await backend.buildAiIndex({
+  await intelligenceClient.buildIndex({
     fullRebuild: true,
     clearOnly: false,
     scope: 'full',
@@ -140,13 +140,15 @@ async function ensureStaticModelDownloaded(): Promise<void> {
     // The command spawns a background thread and returns immediately; the real terminal outcome still
     // arrives on the channel. A command-level rejection is itself terminal, so route it through the
     // same single-settle latch.
-    backend.downloadStaticEmbeddingModel().catch((error: unknown) => {
-      settle(() =>
-        rejectDownload(
-          error instanceof Error ? error : new Error(String(error)),
-        ),
-      )
-    })
+    intelligenceClient
+      .downloadStaticEmbeddingModel()
+      .catch((error: unknown) => {
+        settle(() =>
+          rejectDownload(
+            error instanceof Error ? error : new Error(String(error)),
+          ),
+        )
+      })
   }
 
   try {

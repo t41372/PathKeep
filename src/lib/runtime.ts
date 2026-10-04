@@ -1,5 +1,5 @@
 /**
- * This module detects whether the front-end is running inside Tauri, the browser desktop bridge, or the lightweight browser preview.
+ * This module detects whether the front-end is running inside Tauri, in a browser attached to the dev desktop bridge, or in a plain browser with no backend at all (where every command fails and the app shows its "could not start" screen).
  *
  * Why this file exists:
  * - Files in `src/lib/` are where UI policy becomes testable without inflating every route component.
@@ -26,7 +26,7 @@ import { isTauri } from '@tauri-apps/api/core'
  *
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
-export type AppRuntime = 'tauri' | 'browser-desktop-bridge' | 'browser-preview'
+export type AppRuntime = 'tauri' | 'browser-desktop-bridge' | 'browser-only'
 
 export const DEV_IPC_URL_ENV = 'VITE_PATHKEEP_DEV_IPC_URL'
 
@@ -55,7 +55,7 @@ function hasTauriLocation() {
  *
  * Tauri v2 can provide a working `window.__TAURI_INTERNALS__` bridge even when
  * `globalThis.isTauri` is falsy, so real desktop sessions must treat that as a
- * first-class signal instead of falling back to preview fixtures.
+ * first-class signal, not fall through to the no-backend state.
  */
 function resolveTauriInternals(): TauriInternalsShape | null {
   const candidate = (
@@ -111,7 +111,7 @@ export function resolveAppRuntime(): AppRuntime {
     return 'tauri'
   }
 
-  return resolveDevIpcBridgeUrl() ? 'browser-desktop-bridge' : 'browser-preview'
+  return resolveDevIpcBridgeUrl() ? 'browser-desktop-bridge' : 'browser-only'
 }
 
 /**
@@ -120,7 +120,7 @@ export function resolveAppRuntime(): AppRuntime {
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 export function hasDesktopCommandTransport() {
-  return resolveAppRuntime() !== 'browser-preview'
+  return resolveAppRuntime() !== 'browser-only'
 }
 
 /**
@@ -158,7 +158,7 @@ export function isMacOsHost() {
  *   extends under the ~28px title strip so the app background shows through
  *   instead of an opaque black bar. The shell must then reserve clearance for
  *   the traffic lights and the title strip — but ONLY when that overlay is
- *   actually present (real desktop window on macOS). In the browser preview,
+ *   actually present (real desktop window on macOS). In a plain browser,
  *   on Windows, and on Linux there is no overlay, so no offset is applied.
  *
  * Windows/Linux note: `titleBarStyle` is ignored off macOS, so those platforms
