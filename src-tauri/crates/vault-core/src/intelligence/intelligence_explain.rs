@@ -62,6 +62,7 @@ pub fn explain_entity(
             let explanation = super::intelligence_refind::build_refind_explanation(
                 &connection,
                 &request.entity_id,
+                None,
             )?;
             Ok(Explanation {
                 entity_type: "refind_page".to_string(),

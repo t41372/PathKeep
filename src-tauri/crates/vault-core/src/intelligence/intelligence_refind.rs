@@ -126,13 +126,25 @@ pub(super) fn get_refind_pages_with_connection(
     request: &RefindPagesRequest,
 ) -> Result<Vec<RefindPage>> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    // Rows are per profile. Without a profile filter, keep one row per page
+    // (its best-scoring profile) so a page re-found in three browsers is not
+    // listed three times.
     let mut statement = connection.prepare(
-        "SELECT canonical_url, url, title, registrable_domain, cross_day_count, trail_count,
-                search_arrival_count, typed_revisit_count, refind_score, first_seen_ms, last_seen_ms
-         FROM refind_pages
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND last_seen_ms >= ?2
-           AND first_seen_ms < ?3
+        "SELECT profile_id, canonical_url, url, title, registrable_domain, cross_day_count, trail_count,
+                search_arrival_count, typed_revisit_count, refind_score, first_seen_ms, last_seen_ms,
+                profile_count
+         FROM (
+           SELECT *,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY canonical_url ORDER BY refind_score DESC, last_seen_ms DESC, profile_id ASC
+                  ) AS profile_rank,
+                  COUNT(*) OVER (PARTITION BY canonical_url) AS profile_count
+           FROM refind_pages
+           WHERE (?1 IS NULL OR profile_id = ?1)
+             AND last_seen_ms >= ?2
+             AND first_seen_ms < ?3
+         )
+         WHERE profile_rank = 1
          ORDER BY refind_score DESC, last_seen_ms DESC
          LIMIT ?4",
     )?;
@@ -144,7 +156,7 @@ pub(super) fn get_refind_pages_with_connection(
                 end_ms,
                 request.limit.unwrap_or(20).max(1) as i64
             ],
-            |row| refind_page_from_row_with_offset(row, 0),
+            refind_page_from_row,
         )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
@@ -161,8 +173,10 @@ pub fn get_refind_page_detail(
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-    let (profile_id, page) = load_refind_page_detail_row(&connection, request)?;
-    let explanation = build_refind_explanation(&connection, &page.canonical_url)?;
+    let page = load_refind_page_detail_row(&connection, request)?;
+    let profile_id = page.profile_id.clone();
+    let explanation =
+        build_refind_explanation(&connection, &page.canonical_url, Some(&profile_id))?;
     let recent_days = load_refind_recent_days(&connection, &explanation.visit_ids)?;
     let related_trails = load_refind_related_trails(
         &connection,
@@ -184,23 +198,27 @@ pub fn explain_refind(
 ) -> Result<RefindExplanation> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
-    build_refind_explanation(&connection, &request.canonical_url)
+    build_refind_explanation(&connection, &request.canonical_url, None)
 }
 
 /// Decodes the persisted refind evidence payload for one canonical URL instead
-/// of recomputing the score from archive facts at request time.
+/// of recomputing the score from archive facts at request time. With a
+/// profile, the evidence is that profile's row (the one the caller shows);
+/// without one, the best-scoring profile's.
 pub(super) fn build_refind_explanation(
     connection: &Connection,
     canonical_url: &str,
+    profile_id: Option<&str>,
 ) -> Result<RefindExplanation> {
     let (canonical_url, refind_score, evidence_json) = connection
         .query_row(
             "SELECT canonical_url, refind_score, evidence_json
              FROM refind_pages
              WHERE canonical_url = ?1
+               AND (?2 IS NULL OR profile_id = ?2)
              ORDER BY refind_score DESC
              LIMIT 1",
-            [canonical_url],
+            params![canonical_url, profile_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?, row.get::<_, String>(2)?)),
         )
         .optional()?
@@ -237,12 +255,16 @@ pub(super) fn build_refind_explanation(
 fn load_refind_page_detail_row(
     connection: &Connection,
     request: &RefindPageDetailRequest,
-) -> Result<(String, RefindPage)> {
+) -> Result<RefindPage> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     connection
         .query_row(
             "SELECT profile_id, canonical_url, url, title, registrable_domain, cross_day_count, trail_count,
-                    search_arrival_count, typed_revisit_count, refind_score, first_seen_ms, last_seen_ms
+                    search_arrival_count, typed_revisit_count, refind_score, first_seen_ms, last_seen_ms,
+                    (SELECT COUNT(*) FROM refind_pages AS other
+                     WHERE other.canonical_url = refind_pages.canonical_url
+                       AND other.last_seen_ms >= ?3
+                       AND other.first_seen_ms < ?4)
              FROM refind_pages
              WHERE canonical_url = ?1
                AND (?2 IS NULL OR profile_id = ?2)
@@ -251,7 +273,7 @@ fn load_refind_page_detail_row(
              ORDER BY refind_score DESC, last_seen_ms DESC
              LIMIT 1",
             params![request.canonical_url, request.profile_id.as_deref(), start_ms, end_ms],
-            |row| Ok((row.get::<_, String>(0)?, refind_page_from_row_with_offset(row, 1)?)),
+            refind_page_from_row,
         )
         .optional()?
         .with_context(|| format!("refind page {} was not found", request.canonical_url))
@@ -338,19 +360,21 @@ fn load_refind_related_trails(
 
 /// Rehydrates a `RefindPage` from a shared SQL projection where some callers
 /// prepend `profile_id` ahead of the canonical refind columns.
-fn refind_page_from_row_with_offset(row: &Row<'_>, offset: usize) -> rusqlite::Result<RefindPage> {
+fn refind_page_from_row(row: &Row<'_>) -> rusqlite::Result<RefindPage> {
     Ok(RefindPage {
-        canonical_url: row.get(offset)?,
-        url: row.get(offset + 1)?,
-        title: row.get(offset + 2)?,
-        registrable_domain: row.get(offset + 3)?,
-        cross_day_count: row.get(offset + 4)?,
-        trail_count: row.get(offset + 5)?,
-        search_arrival_count: row.get(offset + 6)?,
-        typed_revisit_count: row.get(offset + 7)?,
-        refind_score: row.get(offset + 8)?,
-        first_seen_at: rfc3339_from_millis(row.get(offset + 9)?),
-        last_seen_at: rfc3339_from_millis(row.get(offset + 10)?),
+        profile_id: row.get(0)?,
+        canonical_url: row.get(1)?,
+        url: row.get(2)?,
+        title: row.get(3)?,
+        registrable_domain: row.get(4)?,
+        cross_day_count: row.get(5)?,
+        trail_count: row.get(6)?,
+        search_arrival_count: row.get(7)?,
+        typed_revisit_count: row.get(8)?,
+        refind_score: row.get(9)?,
+        first_seen_at: rfc3339_from_millis(row.get(10)?),
+        last_seen_at: rfc3339_from_millis(row.get(11)?),
+        profile_count: row.get(12)?,
     })
 }
 

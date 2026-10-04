@@ -20,12 +20,12 @@
 //! so route reads do not regress into repeated database opens on large archives.
 
 use super::super::{
-    SearchQueryKind, VisitRecord, explain_refind, get_browsing_rhythm, get_day_insights,
-    get_discovery_trend, get_domain_deep_dive, get_hub_pages, get_intelligence_primary_overview,
+    SearchQueryKind, explain_refind, get_browsing_rhythm, get_day_insights, get_discovery_trend,
+    get_domain_deep_dive, get_hub_pages, get_intelligence_primary_overview,
     get_intelligence_secondary_overview, get_navigation_path, get_on_this_day,
     get_query_family_detail, get_refind_page_detail, get_refind_pages, get_search_queries,
     get_top_search_concepts, get_top_sites,
-    intelligence_domain::{build_domain_flows, path_from_url},
+    intelligence_domain::path_from_url,
     intelligence_rebuild::run_core_intelligence,
     intelligence_schema::{
         count_core_intelligence_job_triggers, ensure_core_intelligence_schema,
@@ -64,41 +64,6 @@ use crate::{
 use chrono::{Datelike, Local, TimeZone};
 use rusqlite::{Connection, params};
 use std::collections::HashSet;
-
-fn domain_visit_record(
-    visit_id: i64,
-    registrable_domain: &str,
-    session_id: Option<&str>,
-) -> VisitRecord {
-    VisitRecord {
-        visit_id,
-        profile_id: "chrome:Default".to_string(),
-        source_profile_id: 1,
-        source_visit_id: visit_id,
-        source_url_id: visit_id + 100,
-        url: format!("https://{registrable_domain}/page-{visit_id}"),
-        title: Some(format!("Page {visit_id}")),
-        visit_time_ms: 1711929600000 + visit_id,
-        from_visit: Some(visit_id - 1),
-        transition_type: Some(1),
-        external_referrer_url: None,
-        canonical_url: format!("https://{registrable_domain}/page-{visit_id}"),
-        registrable_domain: registrable_domain.to_string(),
-        domain_category: "reference".to_string(),
-        page_category: "article".to_string(),
-        search_engine: None,
-        search_query: None,
-        is_new_domain: false,
-        is_search_event: false,
-        evidence_tier: "deterministic".to_string(),
-        taxonomy_source: "rules".to_string(),
-        taxonomy_pack: None,
-        taxonomy_version: None,
-        display_name: Some(registrable_domain.to_string()),
-        session_id: session_id.map(str::to_string),
-        trail_id: None,
-    }
-}
 
 fn has_table(connection: &Connection, table_name: &str) -> bool {
     connection
@@ -181,7 +146,8 @@ fn ensure_core_intelligence_schema_records_versioned_migrations() {
     let migration_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
         .expect("migration count");
-    assert_eq!(migration_count, 9);
+    assert_eq!(migration_count, 10);
+    assert!(has_index(&connection, "idx_search_events_profile_query"));
     assert!(has_index(&connection, "idx_vdf_profile_visit_id"));
     assert!(has_index(&connection, "idx_search_trails_profile_time_trail"));
     assert!(has_index(&connection, "idx_search_events_profile_visit"));
@@ -810,22 +776,6 @@ fn domain_calendar_rhythm_and_flow_helpers_cover_multi_visit_edges() {
     assert_eq!(path_from_url("https://example.com/a/b?c=1"), "/a/b?c=1");
     assert_eq!(path_from_url("not-a-url"), "/");
 
-    let (referrers, exits) = build_domain_flows(&[
-        domain_visit_record(10, "search.example", Some("session-a")),
-        domain_visit_record(11, "github.com", Some("session-a")),
-        domain_visit_record(12, "docs.rs", Some("session-a")),
-        domain_visit_record(13, "calendar.example", Some("session-b")),
-        domain_visit_record(14, "github.com", Some("session-b")),
-    ]);
-    assert_eq!(
-        referrers.iter().map(|stat| stat.domain.as_str()).collect::<Vec<_>>(),
-        vec!["calendar.example", "github.com", "search.example",]
-    );
-    assert_eq!(
-        exits.iter().map(|stat| stat.domain.as_str()).collect::<Vec<_>>(),
-        vec!["github.com", "docs.rs"]
-    );
-
     let root = tempfile::tempdir().expect("tempdir");
     let paths = project_paths_with_root(root.path());
     let config = AppConfig {
@@ -887,8 +837,16 @@ fn domain_calendar_rhythm_and_flow_helpers_cover_multi_visit_edges() {
     )
     .expect("github domain deep dive");
     assert_eq!(domain.total_visits, 4);
-    assert!(domain.top_pages.iter().any(|page| page.path == "/example/repo/pulls/44"));
-    assert_eq!(domain.arrival_breakdown.link, 3);
+    let pull = domain
+        .top_pages
+        .iter()
+        .find(|page| page.path == "/example/repo/pulls/44")
+        .expect("the pull request page is listed");
+    assert_eq!(pull.url, "https://github.com/example/repo/pulls/44");
+    assert_eq!(pull.title.as_deref(), Some("Pull Request 44"));
+    assert_eq!(pull.visit_count, 1);
+    assert_eq!(domain.top_pages.iter().map(|page| page.visit_count).sum::<i64>(), 4);
+    assert_eq!(domain.page_count, domain.top_pages.len() as i64);
     assert_eq!(domain.visit_trend.iter().map(|point| point.visit_count).sum::<i64>(), 4);
 
     let rhythm = get_browsing_rhythm(

@@ -99,7 +99,22 @@ const INTELLIGENCE_MIGRATIONS: &[IntelligenceMigrationSpec] = &[
         name: "search-event-time",
         apply: apply_search_event_time_migration,
     },
+    IntelligenceMigrationSpec {
+        version: 10,
+        name: "search-events-query-index",
+        apply: apply_search_events_query_index_migration,
+    },
 ];
+
+/// Lets a search's detail find every time it was searched by its normalized
+/// text with an index seek, instead of decoding every trail in the range.
+fn apply_search_events_query_index_migration(connection: &Connection) -> Result<()> {
+    connection.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_search_events_profile_query
+           ON search_events(profile_id, normalized_query);",
+    )?;
+    Ok(())
+}
 
 /// W-ENRICH-1 (migration "015" in the doc-06 naming, applied on the INTELLIGENCE plane where the
 /// `visit_content_enrichments` table actually lives — see the module note below): adds

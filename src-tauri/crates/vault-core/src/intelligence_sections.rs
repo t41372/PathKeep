@@ -173,8 +173,8 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
     },
     CoreIntelligenceSectionDescriptor {
         id: "habits",
-        module_ids: &["domain-deep-dive"],
-        source_tables: &["habit_patterns"],
+        module_ids: &["daily-rollups"],
+        source_tables: &["domain_daily_rollups", "urls"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
         notes: &[],
@@ -256,13 +256,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
     CoreIntelligenceSectionDescriptor {
         id: "domain-deep-dive",
         module_ids: &["daily-rollups", "search-trails", "domain-deep-dive"],
-        source_tables: &[
-            "visit_derived_facts",
-            "domain_daily_rollups",
-            "search_trails",
-            "habit_patterns",
-            "path_flows",
-        ],
+        source_tables: &["domain_daily_rollups", "urls", "visits", "search_trails"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
         notes: &[],

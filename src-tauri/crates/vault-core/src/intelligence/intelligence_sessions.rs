@@ -102,28 +102,34 @@ pub fn get_session_detail(
 ) -> Result<SessionDetail> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
-    let session = connection
+    // The profile id comes along so the visit and trail lookups below can
+    // use the profile-led indexes; `session_id` alone scans every derived
+    // visit row (14.4M on a large archive).
+    let (profile_id, session) = connection
         .query_row(
-            "SELECT session_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title
+            "SELECT profile_id, session_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title
              FROM sessions WHERE session_id = ?1",
             [session_id],
             |row| {
-                Ok(SessionSummary {
-                    session_id: row.get(0)?,
-                    first_visit_ms: row.get(1)?,
-                    last_visit_ms: row.get(2)?,
-                    visit_count: row.get(3)?,
-                    search_count: row.get(4)?,
-                    domain_count: row.get(5)?,
-                    is_deep_dive: row.get::<_, i64>(6)? != 0,
-                    auto_title: row.get(7)?,
-                })
+                Ok((
+                    row.get::<_, String>(0)?,
+                    SessionSummary {
+                        session_id: row.get(1)?,
+                        first_visit_ms: row.get(2)?,
+                        last_visit_ms: row.get(3)?,
+                        visit_count: row.get(4)?,
+                        search_count: row.get(5)?,
+                        domain_count: row.get(6)?,
+                        is_deep_dive: row.get::<_, i64>(7)? != 0,
+                        auto_title: row.get(8)?,
+                    },
+                ))
             },
         )
         .optional()?
         .with_context(|| format!("session {session_id} was not found"))?;
-    let visits = load_session_visits(&connection, session_id)?;
-    let trails = load_session_trails(&connection, session_id)?;
+    let visits = load_session_visits(&connection, &profile_id, session_id)?;
+    let trails = load_session_trails(&connection, &profile_id, &session)?;
     Ok(SessionDetail { session, visits, trails })
 }
 
@@ -227,7 +233,11 @@ pub fn get_trail_detail(
 }
 
 /// Loads all ordered visits that the given deterministic session references.
-fn load_session_visits(connection: &Connection, session_id: &str) -> Result<Vec<SessionVisit>> {
+fn load_session_visits(
+    connection: &Connection,
+    profile_id: &str,
+    session_id: &str,
+) -> Result<Vec<SessionVisit>> {
     let mut statement = connection.prepare(
         "SELECT visits.id, urls.url, urls.title, visit_derived_facts.registrable_domain, visits.visit_time_ms,
                 visit_derived_facts.is_search_event, visit_derived_facts.search_query,
@@ -235,11 +245,12 @@ fn load_session_visits(connection: &Connection, session_id: &str) -> Result<Vec<
          FROM visit_derived_facts
          JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
          JOIN archive.urls AS urls ON urls.id = visits.url_id
-         WHERE visit_derived_facts.session_id = ?1
+         WHERE visit_derived_facts.profile_id = ?1
+           AND visit_derived_facts.session_id = ?2
          ORDER BY visits.visit_time_ms ASC, visits.id ASC",
     )?;
     statement
-        .query_map([session_id], |row| {
+        .query_map(params![profile_id, session_id], |row| {
             Ok(SessionVisit {
                 visit_id: row.get(0)?,
                 url: row.get(1)?,
@@ -257,17 +268,27 @@ fn load_session_visits(connection: &Connection, session_id: &str) -> Result<Vec<
         .map_err(Into::into)
 }
 
-/// Loads all persisted trails that belong to one session.
-fn load_session_trails(connection: &Connection, session_id: &str) -> Result<Vec<TrailSummary>> {
+/// Loads all persisted trails that belong to one session. A trail starts
+/// inside its session, so the session's time span bounds the index range.
+fn load_session_trails(
+    connection: &Connection,
+    profile_id: &str,
+    session: &SessionSummary,
+) -> Result<Vec<TrailSummary>> {
     let mut statement = connection.prepare(
         "SELECT trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
                 landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
          FROM search_trails
-         WHERE session_id = ?1
+         WHERE profile_id = ?1
+           AND first_visit_ms BETWEEN ?2 AND ?3
+           AND session_id = ?4
          ORDER BY first_visit_ms ASC, trail_id ASC",
     )?;
     statement
-        .query_map([session_id], trail_summary_from_row)?
+        .query_map(
+            params![profile_id, session.first_visit_ms, session.last_visit_ms, session.session_id],
+            trail_summary_from_row,
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }

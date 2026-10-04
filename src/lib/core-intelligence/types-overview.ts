@@ -269,6 +269,10 @@ export interface QueryFamilyDetail {
 // ---------------------------------------------------------------------------
 
 export interface RefindPage {
+  /** The browser profile this row was scored in; scores are per profile. */
+  profileId: string
+  /** How many profiles re-found the page. Archive-wide lists keep one row per page. */
+  profileCount: number
   canonicalUrl: string
   url: string
   title?: string | null

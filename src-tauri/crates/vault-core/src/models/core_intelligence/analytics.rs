@@ -22,34 +22,31 @@
 use super::reads::{DomainTrendPoint, SessionSummary, TrailSummary};
 use serde::{Deserialize, Serialize};
 
-/// Arrival-channel counts for one domain deep dive.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ArrivalBreakdown {
-    pub search: i64,
-    pub link: i64,
-    pub typed: i64,
-    pub other: i64,
-}
-
-/// Top page row inside a domain deep dive.
+/// One page on a site inside a domain deep dive: a URL string and its
+/// visits in the window, across every selected profile.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DomainPageStat {
+    pub url: String,
+    pub title: Option<String>,
+    /// The URL without scheme and host, for display.
     pub path: String,
     pub visit_count: i64,
 }
 
-/// Inbound/outbound domain flow row inside a domain deep dive.
+/// A search whose trail ended on the site, with how often it did in the
+/// window.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct DomainFlowStat {
-    pub domain: String,
-    pub display_name: Option<String>,
+pub struct DomainSearchStat {
+    pub query: String,
     pub count: i64,
 }
 
 /// Full read model for one registrable-domain deep dive.
+///
+/// Totals, active days and the trend come from `domain_daily_rollups`, the
+/// same rows Top sites reads, so the numbers agree with it.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DomainDeepDive {
@@ -58,11 +55,15 @@ pub struct DomainDeepDive {
     pub domain_category: String,
     pub total_visits: i64,
     pub active_days: i64,
-    pub trail_count: i64,
-    pub arrival_breakdown: ArrivalBreakdown,
+    /// Distinct URLs on the site visited in the window.
+    pub page_count: i64,
+    /// Searches whose trail landed on this site in the window.
+    pub landing_search_count: i64,
+    /// Most visited URLs, at most 10.
     pub top_pages: Vec<DomainPageStat>,
-    pub top_referrers: Vec<DomainFlowStat>,
-    pub top_exits: Vec<DomainFlowStat>,
+    /// Searches that most often landed here, at most 8.
+    pub landing_searches: Vec<DomainSearchStat>,
+    /// Visits per local day; days without visits are left out.
     pub visit_trend: Vec<DomainTrendPoint>,
 }
 
