@@ -13,6 +13,7 @@ import { localDateKey } from '@/lib/backend-client/insights'
 import { BrowserIcon } from '@/lib/browser-icons'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { dayPath, pagePath, searchPath } from '@/features/insights/links'
 import { dailySeries, useBrowserSummaries } from './home-data'
 import {
   useOnThisDay,
@@ -286,7 +287,7 @@ export function YearCard() {
           <Heatmap
             columns={columns}
             label={`${t('home.year.title')} · ${year}`}
-            onCellClick={(date) => navigate(`/history?date=${date}`)}
+            onCellClick={(date) => void navigate(dayPath(date))}
           />
         )}
       </div>
@@ -353,7 +354,11 @@ export function ThreadsCard() {
           {items.map((thread, index) => (
             <li key={thread.investigationId}>
               <Link
-                to={`/history?q=${encodeURIComponent(thread.anchorLabel)}`}
+                to={
+                  thread.anchorType === 'query_family'
+                    ? searchPath(thread.anchorLabel, 'd90')
+                    : pagePath(thread.anchorId, 'd90')
+                }
                 className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted"
               >
                 <span

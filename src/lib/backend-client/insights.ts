@@ -8,17 +8,30 @@
  */
 import type {
   ActivityMixTrend,
+  BreadthIndex,
+  BrowserDiff,
   CoreIntelligenceSectionMeta,
   DateRange,
+  DayInsights,
   DigestSummary,
   DiscoveryTrend,
+  DomainDeepDive,
   FrequentSearch,
+  HabitPattern,
   OnThisDayEntry,
+  QueryFamilyDetail,
+  QueryFamilyResult,
   RefindPage,
+  RefindPageDetail,
   ReopenedInvestigation,
   RhythmHeatmap,
   SearchConcept,
+  SearchQueryListResult,
+  SearchQuerySort,
+  SessionDetail,
+  SessionListResult,
   TopSite,
+  TrailDetail,
 } from '../core-intelligence/types'
 import { call } from './shared'
 
@@ -79,6 +92,57 @@ export const insightsClient = {
     section<ReopenedInvestigation[]>('get_reopened_investigations', {
       request: scope,
     }),
+
+  // Drill-ins. Detail reads are bounded by one entity; see
+  // docs/architecture/desktop-command-surface.md for what each one reads.
+
+  /** One local calendar day: KPIs against the day before, hours, top sites. */
+  day: (date: string) =>
+    section<DayInsights>('get_day_insights', { request: { date } }),
+  /** Browsing sessions that overlap the range, newest first. */
+  sessions: (scope: Scope, pageSize = 50) =>
+    call<SessionListResult>('get_sessions', {
+      request: { ...scope, page: 0, pageSize },
+    }),
+  sessionDetail: (sessionId: string) =>
+    call<SessionDetail>('get_session_detail', { sessionId }),
+  /** Searches made in the range, one row per distinct query and engine. */
+  searchQueries: (
+    scope: Scope,
+    options: { sort?: SearchQuerySort; pageSize?: number } = {},
+  ) =>
+    section<SearchQueryListResult>('get_search_queries', {
+      request: {
+        ...scope,
+        sort: options.sort ?? 'newest',
+        page: 0,
+        pageSize: options.pageSize ?? 50,
+      },
+    }),
+  site: (domain: string, scope: Scope) =>
+    section<DomainDeepDive>('get_domain_deep_dive', {
+      request: { ...scope, registrableDomain: domain },
+    }),
+  queryFamilyDetail: (familyId: string, scope: Scope) =>
+    section<QueryFamilyDetail>('get_query_family_detail', {
+      request: { ...scope, familyId },
+    }),
+  trailDetail: (trailId: string) =>
+    call<TrailDetail>('get_trail_detail', { trailId }),
+  refindPageDetail: (canonicalUrl: string, scope: Scope) =>
+    section<RefindPageDetail>('get_refind_page_detail', {
+      request: { ...scope, canonicalUrl },
+    }),
+
+  // Patterns on the Insights screen.
+
+  breadth: (scope: Scope) =>
+    section<BreadthIndex>('get_breadth_index', { request: scope }),
+  habits: (scope: Scope) =>
+    section<HabitPattern[]>('get_habit_patterns', { request: scope }),
+  /** Per browser profile; ignores `profileId`. */
+  browsers: (scope: Scope) =>
+    section<BrowserDiff>('get_multi_browser_diff', { request: scope }),
 }
 
 /** True while the background job that refreshes this section is running. */
