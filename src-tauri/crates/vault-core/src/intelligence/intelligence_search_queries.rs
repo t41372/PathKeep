@@ -38,7 +38,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, Row, params};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 /// Returns the paged recent-search surface, with exact-query dedupe and
 /// family/trail context attached to each row.
@@ -316,8 +316,12 @@ pub(super) fn get_query_families_with_connection(
     Ok(QueryFamilyResult { families, total, page: request.page, page_size: request.page_size })
 }
 
-/// Loads one query family plus a bounded set of related trails that reference
-/// the same normalized queries.
+/// Loads one query family plus its eight most recent trails in the window.
+///
+/// The trails are found through the family's search events
+/// (`idx_search_events_profile_query`), each joined to its visit for the time
+/// window, so the cost follows how often the family was searched, not how
+/// many trails the profile has.
 pub fn get_query_family_detail(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -328,27 +332,42 @@ pub fn get_query_family_detail(
     ensure_core_intelligence_schema(&connection)?;
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let (profile_id, family) = load_query_family_detail_row(&connection, request)?;
-    let normalized_queries =
-        family.queries.iter().map(|query| normalize_query(query)).collect::<HashSet<_>>();
-    let mut statement = connection.prepare(
+    let normalized_queries = family
+        .queries
+        .iter()
+        .map(|query| normalize_query(query))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    if normalized_queries.is_empty() {
+        return Ok(QueryFamilyDetail { family, related_trails: Vec::new() });
+    }
+    let placeholders =
+        std::iter::repeat_n("?", normalized_queries.len()).collect::<Vec<_>>().join(", ");
+    let sql = format!(
         "SELECT trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
                 landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
          FROM search_trails
-         WHERE profile_id = ?1
-           AND last_visit_ms >= ?2
-           AND first_visit_ms < ?3
-         ORDER BY last_visit_ms DESC, trail_id DESC",
-    )?;
+         WHERE trail_id IN (
+           SELECT search_events.trail_id
+           FROM search_events
+           JOIN archive.visits AS visits ON visits.id = search_events.visit_id
+           WHERE search_events.profile_id = ?
+             AND search_events.normalized_query IN ({placeholders})
+             AND search_events.trail_id IS NOT NULL
+             AND visits.visit_time_ms >= ?
+             AND visits.visit_time_ms < ?
+         )
+         ORDER BY last_visit_ms DESC, trail_id DESC
+         LIMIT 8"
+    );
+    let mut statement = connection.prepare(&sql)?;
+    let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
+        .chain(normalized_queries.iter().map(|query| query as &dyn rusqlite::ToSql))
+        .chain([&start_ms as &dyn rusqlite::ToSql, &end_ms as &dyn rusqlite::ToSql]);
     let related_trails = statement
-        .query_map(params![profile_id, start_ms, end_ms], trail_summary_from_row)?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .into_iter()
-        .filter(|trail| {
-            trail.queries.iter().any(|query| normalized_queries.contains(&normalize_query(query)))
-                || normalized_queries.contains(&normalize_query(&trail.initial_query))
-        })
-        .take(8)
-        .collect::<Vec<_>>();
+        .query_map(rusqlite::params_from_iter(params), trail_summary_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(QueryFamilyDetail { family, related_trails })
 }
 

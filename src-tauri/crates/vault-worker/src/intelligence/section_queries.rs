@@ -399,13 +399,7 @@ fn search_effectiveness_is_empty(data: &SearchEffectiveness) -> bool {
 }
 
 fn domain_deep_dive_is_empty(data: &DomainDeepDive) -> bool {
-    data.total_visits == 0
-        && data.active_days == 0
-        && data.trail_count == 0
-        && data.top_pages.is_empty()
-        && data.top_referrers.is_empty()
-        && data.top_exits.is_empty()
-        && data.visit_trend.is_empty()
+    data.total_visits == 0 && data.top_pages.is_empty() && data.visit_trend.is_empty()
 }
 
 fn compare_set_detail_is_empty(data: &CompareSetDetail) -> bool {

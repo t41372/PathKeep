@@ -7,9 +7,7 @@
 //! - common path flows
 //! - browser-reported interaction metrics
 
-use super::{
-    date_range_bounds, ensure_core_intelligence_schema, local_date_key, rfc3339_from_millis,
-};
+use super::{date_range_bounds, ensure_core_intelligence_schema, rfc3339_from_millis};
 use crate::{
     archive::{open_intelligence_connection, open_source_evidence_connection},
     config::ProjectPaths,
@@ -101,32 +99,69 @@ pub fn get_habit_patterns(
     get_habit_patterns_with_connection(&connection, request)
 }
 
+/// Habits only need the local days each site was visited on, which is what
+/// `domain_daily_rollups` stores, so this never reads visit rows: a one-year
+/// window is one row per site per active day. The exact time of the last
+/// visit is looked up only for sites with enough active days: their URLs
+/// through `idx_urls_registrable_domain`, then each URL's newest visit before
+/// the end of the last active day through `idx_visits_visible_url_time`.
 pub(crate) fn get_habit_patterns_with_connection(
     connection: &Connection,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<HabitPattern>> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (_, end_ms) = date_range_bounds(&request.date_range)?;
     let mut statement = connection.prepare(
-        "SELECT visit_derived_facts.registrable_domain, visits.visit_time_ms
-         FROM visit_derived_facts
-         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
-         WHERE (?1 IS NULL OR visit_derived_facts.profile_id = ?1)
-           AND visits.visit_time_ms >= ?2
-           AND visits.visit_time_ms < ?3
-         ORDER BY visit_derived_facts.registrable_domain ASC, visits.visit_time_ms ASC, visits.id ASC",
+        "SELECT registrable_domain, date_key
+         FROM domain_daily_rollups
+         WHERE (?1 IS NULL OR profile_id = ?1)
+           AND date_key >= ?2
+           AND date_key <= ?3
+           AND visit_count > 0
+         GROUP BY registrable_domain, date_key",
     )?;
     let rows = statement
-        .query_map(params![request.profile_id.as_deref(), start_ms, end_ms], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })?
+        .query_map(
+            params![
+                request.profile_id.as_deref(),
+                request.date_range.start,
+                request.date_range.end
+            ],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
     let mut by_domain = HashMap::<String, DomainSeries>::new();
-    for (domain, visit_time_ms) in rows {
-        let entry = by_domain.entry(domain).or_default();
-        let day = NaiveDate::parse_from_str(&local_date_key(visit_time_ms), "%Y-%m-%d")?;
-        entry.days.insert(day);
-        entry.last_visited_ms = entry.last_visited_ms.max(visit_time_ms);
+    for (domain, date_key) in rows {
+        let day = NaiveDate::parse_from_str(&date_key, "%Y-%m-%d")?;
+        by_domain.entry(domain).or_default().days.insert(day);
+    }
+    // A site must have at least five active days to be a habit; skip the
+    // last-visit lookup for the rest.
+    by_domain.retain(|_, series| series.days.len() >= 5);
+    let mut last_visit = connection.prepare(
+        "SELECT MAX(visits.visit_time_ms)
+         FROM archive.urls AS urls
+         JOIN archive.visits AS visits
+           ON visits.url_id = urls.id
+          AND visits.reverted_at IS NULL
+          AND visits.visit_time_ms < ?2
+         WHERE urls.registrable_domain = ?1
+           AND (?3 IS NULL OR urls.source_profile_id IN (
+                 SELECT id FROM archive.source_profiles WHERE profile_key = ?3))",
+    )?;
+    for (domain, series) in by_domain.iter_mut() {
+        let last_day_end = series
+            .days
+            .last()
+            .and_then(|day| day.succ_opt())
+            .map(local_midnight_ms)
+            .unwrap_or(end_ms);
+        series.last_visited_ms = last_visit
+            .query_row(
+                params![domain, last_day_end.min(end_ms), request.profile_id.as_deref()],
+                |row| row.get::<_, Option<i64>>(0),
+            )?
+            .unwrap_or(last_day_end - 1);
     }
 
     let mut habits = by_domain
@@ -140,6 +175,14 @@ pub(crate) fn get_habit_patterns_with_connection(
 
     habits.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
     Ok(habits.into_iter().map(|(_, _, pattern)| pattern).collect())
+}
+
+/// Local midnight at the start of `day`, in Unix milliseconds.
+fn local_midnight_ms(day: NaiveDate) -> i64 {
+    day.and_hms_opt(0, 0, 0)
+        .and_then(|naive| naive.and_local_timezone(Local).earliest())
+        .map(|local| local.timestamp_millis())
+        .unwrap_or_default()
 }
 
 pub fn get_interrupted_habits(
@@ -769,7 +812,14 @@ mod tests {
         assert_eq!(empty.breadth_score, 0.0);
 
         let habits = get_habit_patterns_with_connection(&connection, &scoped).expect("habits");
-        assert!(habits.iter().any(|habit| habit.registrable_domain == "weekly.example"));
+        let weekly = habits
+            .iter()
+            .find(|habit| habit.registrable_domain == "weekly.example")
+            .expect("weekly habit");
+        assert_eq!(weekly.habit_type, "weekly_habit");
+        assert_eq!(weekly.visit_count, 5, "active days, from the rollups");
+        assert_eq!(weekly.last_visited_at, rfc3339_from_millis(day_ms(29)));
+        assert!(!habits.iter().any(|habit| habit.registrable_domain == "docs.example"));
 
         let interrupted = get_interrupted_habits_with_connection(
             &connection,
@@ -974,7 +1024,9 @@ mod tests {
                 CREATE TABLE archive.urls (
                     id INTEGER PRIMARY KEY,
                     url TEXT NOT NULL,
-                    title TEXT
+                    title TEXT,
+                    registrable_domain TEXT,
+                    source_profile_id INTEGER
                 );
                 CREATE TABLE archive.source_profiles (
                     id INTEGER PRIMARY KEY,
@@ -1068,6 +1120,26 @@ mod tests {
                 params![visit_id, domain, session_id],
             )
             .expect("fact");
+        // Habits read the per-day rollups and the URL's last visit, the way
+        // a rebuild leaves them.
+        connection
+            .execute(
+                "INSERT INTO domain_daily_rollups
+                 (profile_id, date_key, registrable_domain, visit_count)
+                 VALUES ('chrome:Default', ?1, ?2, 1)",
+                params![format!("2026-04-{day:02}"), domain],
+            )
+            .expect("rollup");
+        connection
+            .execute(
+                "INSERT INTO archive.urls (id, url, registrable_domain, source_profile_id)
+                 VALUES (?1, ?2, ?3, 1)",
+                params![visit_id, format!("https://{domain}/{visit_id}"), domain],
+            )
+            .expect("url");
+        connection
+            .execute("UPDATE archive.visits SET url_id = ?1 WHERE id = ?1", params![visit_id])
+            .expect("visit url");
     }
 
     fn seed_interrupted_habits(connection: &Connection) {

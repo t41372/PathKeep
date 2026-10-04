@@ -5,10 +5,11 @@ import {
   lastDays,
   pollWhileStale,
 } from '@/lib/backend-client/insights'
+import type { ReopenedInvestigation } from '@/lib/core-intelligence/types'
 import { queryKeys } from '@/lib/query'
+import { rangeDays, type RangeId } from './range'
 
-export const rangeDays = { d7: 7, d30: 30, d90: 90, y1: 365 } as const
-export type RangeId = keyof typeof rangeDays
+export { rangeDays, type RangeId }
 
 const key = (range: RangeId, ...parts: unknown[]) => [
   ...queryKeys.archiveData,
@@ -108,6 +109,76 @@ export function useRefindPages(range: RangeId) {
   return useQuery({
     queryKey: key(range, 'refind'),
     queryFn: () => insightsClient.refindPages(scope(range), 5),
+    placeholderData: keepPrevious,
+    refetchInterval: pollWhileStale,
+  })
+}
+
+/**
+ * Pages and searches the user came back to on several days. Rows are per
+ * browser profile; keep one per anchor (the one seen most).
+ */
+export function useThreads(range: RangeId, limit = 6) {
+  return useQuery({
+    queryKey: key(range, 'threads'),
+    queryFn: async () => {
+      const result = await insightsClient.reopenedInvestigations(scope(range))
+      const byAnchor = new Map<string, ReopenedInvestigation>()
+      for (const item of result.data) {
+        const anchor = `${item.anchorType}:${item.anchorId}:${item.anchorLabel}`
+        const kept = byAnchor.get(anchor)
+        if (!kept || item.occurrenceCount > kept.occurrenceCount) {
+          byAnchor.set(anchor, item)
+        }
+      }
+      return {
+        meta: result.meta,
+        data: [...byAnchor.values()]
+          .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
+          .slice(0, limit),
+      }
+    },
+    placeholderData: keepPrevious,
+    refetchInterval: pollWhileStale,
+  })
+}
+
+export function useBreadth(range: RangeId) {
+  return useQuery({
+    queryKey: key(range, 'breadth'),
+    queryFn: () => insightsClient.breadth(scope(range)),
+    placeholderData: keepPrevious,
+    refetchInterval: pollWhileStale,
+  })
+}
+
+/** Sites visited on a regular rhythm; stopped ones first. */
+export function useHabits(range: RangeId, limit = 6) {
+  return useQuery({
+    queryKey: key(range, 'habits'),
+    queryFn: async () => {
+      const result = await insightsClient.habits(scope(range))
+      return {
+        meta: result.meta,
+        total: result.data.length,
+        data: [...result.data]
+          .sort(
+            (a, b) =>
+              Number(b.isInterrupted) - Number(a.isInterrupted) ||
+              b.visitCount - a.visitCount,
+          )
+          .slice(0, limit),
+      }
+    },
+    placeholderData: keepPrevious,
+    refetchInterval: pollWhileStale,
+  })
+}
+
+export function useBrowsers(range: RangeId) {
+  return useQuery({
+    queryKey: key(range, 'browsers'),
+    queryFn: () => insightsClient.browsers(scope(range)),
     placeholderData: keepPrevious,
     refetchInterval: pollWhileStale,
   })

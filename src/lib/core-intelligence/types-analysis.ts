@@ -26,35 +26,38 @@ import type { SessionSummary, TrailSummary } from './types-navigation'
 // 4.1 Domain Deep Dive (網站深度分析)
 // ---------------------------------------------------------------------------
 
+/**
+ * One site over a window. Totals, active days and the trend come from the
+ * same daily rollups as Top sites, so the numbers agree with it.
+ */
 export interface DomainDeepDive {
   registrableDomain: string
   displayName?: string | null
   domainCategory: string
   totalVisits: number
   activeDays: number
-  trailCount: number
-  arrivalBreakdown: ArrivalBreakdown
+  /** Distinct URLs on the site visited in the window. */
+  pageCount: number
+  /** Searches whose trail landed on this site in the window. */
+  landingSearchCount: number
+  /** At most 10, most visited first. */
   topPages: DomainPageStat[]
-  topReferrers: DomainFlowStat[]
-  topExits: DomainFlowStat[]
+  /** At most 8, most frequent first. */
+  landingSearches: DomainSearchStat[]
+  /** Days without visits are left out. */
   visitTrend: DomainTrendPoint[]
 }
 
-export interface ArrivalBreakdown {
-  search: number
-  link: number
-  typed: number
-  other: number
-}
-
 export interface DomainPageStat {
+  url: string
+  title?: string | null
+  /** The URL without scheme and host. */
   path: string
   visitCount: number
 }
 
-export interface DomainFlowStat {
-  domain: string
-  displayName?: string | null
+export interface DomainSearchStat {
+  query: string
   count: number
 }
 

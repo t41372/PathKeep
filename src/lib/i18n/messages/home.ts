@@ -42,7 +42,7 @@ export const home = defineMessages({
     },
     year: {
       title: 'Your year',
-      subtitle: 'Each square is a day. Click one to open it in History.',
+      subtitle: 'Each square is a day. Click one to see that day.',
       previous: 'Previous year',
       next: 'Next year',
       summary: '{total} visits in {year}',
@@ -105,7 +105,7 @@ export const home = defineMessages({
     },
     year: {
       title: '一年的浏览',
-      subtitle: '每格是一天，点一下在历史中打开那天',
+      subtitle: '每格是一天，点一下查看那天',
       previous: '上一年',
       next: '下一年',
       summary: '{year} 年共 {total} 次浏览',
@@ -168,7 +168,7 @@ export const home = defineMessages({
     },
     year: {
       title: '一年的瀏覽',
-      subtitle: '每格是一天，點一下在歷史中打開那天',
+      subtitle: '每格是一天，點一下查看那天',
       previous: '上一年',
       next: '下一年',
       summary: '{year} 年共 {total} 次瀏覽',

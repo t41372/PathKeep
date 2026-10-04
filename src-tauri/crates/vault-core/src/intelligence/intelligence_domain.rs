@@ -18,32 +18,36 @@
 //!   intelligence plane plus archive visit/url joins.
 //!
 //! ## Performance notes
-//! - Deep-dive requests load the bounded visit slice for one domain and one
-//!   date range only; they do not scan every domain in the archive.
+//! - Deep-dive requests never load visit rows into Rust. Totals and the trend
+//!   come from `domain_daily_rollups`; top pages seek the site's URLs through
+//!   `idx_urls_registrable_domain` and count each URL's visits in the window
+//!   through `idx_visits_visible_url_time`; landing searches read
+//!   `search_trails` through its profile-and-time index. The cost grows with
+//!   the site's own URLs and visits in the window, not with the archive.
 //! - Discovery trend collapses dates after SQL aggregation so the Rust side
 //!   never materializes visit-level rows for charting.
 
 use super::{
-    VisitRecord, collapse_date_key, date_range_bounds, display_name_for_domain,
-    ensure_core_intelligence_schema, local_date_key, local_datetime_from_millis,
+    collapse_date_key, date_range_bounds, display_name_for_domain, ensure_core_intelligence_schema,
+    local_datetime_from_millis,
 };
 use crate::{
     archive::open_intelligence_connection,
     config::ProjectPaths,
     models::{
-        AppConfig, ArrivalBreakdown, CategoryFilteredDateRangeRequest, DiscoveryTrend,
-        DiscoveryTrendPoint, DomainDeepDive, DomainDeepDiveRequest, DomainFlowStat, DomainPageStat,
-        DomainTrend, DomainTrendPoint, DomainTrendRequest, OnThisDayEntry, RhythmHeatmap,
-        RhythmHeatmapCell,
+        AppConfig, CategoryFilteredDateRangeRequest, DiscoveryTrend, DiscoveryTrendPoint,
+        DomainDeepDive, DomainDeepDiveRequest, DomainPageStat, DomainSearchStat, DomainTrend,
+        DomainTrendPoint, DomainTrendRequest, OnThisDayEntry, RhythmHeatmap, RhythmHeatmapCell,
     },
 };
 use anyhow::Result;
 use chrono::{Datelike, Local, Timelike};
 use rusqlite::{Connection, params};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
-/// Builds the domain detail page from a bounded visit slice so the frontend can
-/// explain how one domain was revisited, entered, and exited in a window.
+/// Builds the site detail page: how much one registrable domain was visited
+/// in a window, on which days, which of its pages, and which searches ended
+/// there. Everything is aggregated in SQL; see the module performance notes.
 pub fn get_domain_deep_dive(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -53,71 +57,119 @@ pub fn get_domain_deep_dive(
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-    let visits = load_domain_visits(
-        &connection,
-        &request.registrable_domain,
-        request.profile_id.as_deref(),
-        start_ms,
-        end_ms,
+    let domain = request.registrable_domain.as_str();
+    let profile_id = request.profile_id.as_deref();
+
+    let mut trend_statement = connection.prepare(
+        "SELECT date_key, SUM(visit_count), MIN(domain_category)
+         FROM domain_daily_rollups
+         WHERE registrable_domain = ?1
+           AND date_key >= ?2
+           AND date_key <= ?3
+           AND (?4 IS NULL OR profile_id = ?4)
+         GROUP BY date_key
+         ORDER BY date_key ASC",
     )?;
-    let total_visits = visits.len() as i64;
-    let active_days = visits
-        .iter()
-        .map(|visit| local_date_key(visit.visit_time_ms))
-        .collect::<HashSet<_>>()
-        .len() as i64;
-    let trail_count =
-        visits.iter().filter_map(|visit| visit.trail_id.clone()).collect::<HashSet<_>>().len()
-            as i64;
-    let arrival_breakdown = ArrivalBreakdown {
-        search: visits.iter().filter(|visit| visit.trail_id.is_some()).count() as i64,
-        link: visits.iter().filter(|visit| visit.from_visit.is_some()).count() as i64,
-        typed: visits
-            .iter()
-            .filter(|visit| visit.from_visit.is_none() && visit.trail_id.is_none())
-            .count() as i64,
-        other: 0,
-    };
-    let top_pages = visits
-        .iter()
-        .fold(HashMap::<String, i64>::new(), |mut acc, visit| {
-            *acc.entry(path_from_url(&visit.url)).or_default() += 1;
-            acc
+    let mut domain_category: Option<String> = None;
+    let visit_trend = trend_statement
+        .query_map(
+            params![domain, request.date_range.start, request.date_range.end, profile_id],
+            |row| {
+                Ok((
+                    DomainTrendPoint { date_key: row.get(0)?, visit_count: row.get(1)? },
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )?
+        .map(|row| {
+            row.map(|(point, category)| {
+                domain_category.get_or_insert(category);
+                point
+            })
         })
-        .into_iter()
-        .map(|(path, visit_count)| DomainPageStat { path, visit_count })
-        .collect::<Vec<_>>();
-    let mut top_pages = top_pages;
-    top_pages.sort_by(|left, right| {
-        right.visit_count.cmp(&left.visit_count).then_with(|| left.path.cmp(&right.path))
-    });
-    top_pages.truncate(10);
-    let (top_referrers, top_exits) = build_domain_flows(&visits);
-    let visit_trend = get_domain_trend(
-        paths,
-        config,
-        key,
-        &DomainTrendRequest {
-            registrable_domain: request.registrable_domain.clone(),
-            date_range: request.date_range.clone(),
-        },
-    )?
-    .points;
-    let domain_category = visits
-        .first()
-        .map(|visit| visit.domain_category.clone())
-        .unwrap_or_else(|| "unknown".to_string());
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let total_visits = visit_trend.iter().map(|point| point.visit_count).sum::<i64>();
+    let active_days = visit_trend.len() as i64;
+
+    // URL rows are per profile, so the same page in two browsers is grouped
+    // by its URL string.
+    let mut pages_statement = connection.prepare(
+        "SELECT url, title, visits, COUNT(*) OVER ()
+         FROM (
+           SELECT urls.url AS url, MAX(urls.title) AS title, COUNT(visits.id) AS visits
+           FROM archive.urls AS urls
+           JOIN archive.visits AS visits
+             ON visits.url_id = urls.id
+            AND visits.reverted_at IS NULL
+            AND visits.visit_time_ms >= ?2
+            AND visits.visit_time_ms < ?3
+           WHERE urls.registrable_domain = ?1
+             AND (?4 IS NULL OR urls.source_profile_id IN (
+                   SELECT id FROM archive.source_profiles WHERE profile_key = ?4))
+           GROUP BY urls.url
+         )
+         ORDER BY visits DESC, url ASC
+         LIMIT 10",
+    )?;
+    let mut page_count = 0_i64;
+    let top_pages = pages_statement
+        .query_map(params![domain, start_ms, end_ms, profile_id], |row| {
+            Ok((
+                DomainPageStat {
+                    path: path_from_url(&row.get::<_, String>(0)?),
+                    url: row.get(0)?,
+                    title: row.get(1)?,
+                    visit_count: row.get(2)?,
+                },
+                row.get::<_, i64>(3)?,
+            ))
+        })?
+        .map(|row| {
+            row.map(|(page, total)| {
+                page_count = total;
+                page
+            })
+        })
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    // `profile_id IN (...)` instead of `?4 IS NULL OR profile_id = ?4` so the
+    // profile-and-time index applies with or without a profile filter.
+    let mut searches_statement = connection.prepare(
+        "SELECT initial_query, COUNT(*) AS landings, SUM(COUNT(*)) OVER ()
+         FROM search_trails
+         WHERE profile_id IN (
+                 SELECT profile_key FROM archive.source_profiles
+                 WHERE profile_key IS NOT NULL AND (?4 IS NULL OR profile_key = ?4))
+           AND first_visit_ms >= ?2
+           AND first_visit_ms < ?3
+           AND landing_domain = ?1
+         GROUP BY initial_query
+         ORDER BY landings DESC, initial_query ASC
+         LIMIT 8",
+    )?;
+    let mut landing_search_count = 0_i64;
+    let landing_searches = searches_statement
+        .query_map(params![domain, start_ms, end_ms, profile_id], |row| {
+            Ok((DomainSearchStat { query: row.get(0)?, count: row.get(1)? }, row.get::<_, i64>(2)?))
+        })?
+        .map(|row| {
+            row.map(|(search, total)| {
+                landing_search_count = total;
+                search
+            })
+        })
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
     Ok(DomainDeepDive {
-        registrable_domain: request.registrable_domain.clone(),
-        display_name: display_name_for_domain(&request.registrable_domain),
-        domain_category,
+        registrable_domain: domain.to_string(),
+        display_name: display_name_for_domain(domain),
+        domain_category: domain_category.unwrap_or_else(|| "unknown".to_string()),
         total_visits,
         active_days,
-        trail_count,
-        arrival_breakdown,
+        page_count,
+        landing_search_count,
         top_pages,
-        top_referrers,
-        top_exits,
+        landing_searches,
         visit_trend,
     })
 }
@@ -336,104 +388,6 @@ pub fn get_domain_trend(
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(DomainTrend { registrable_domain: request.registrable_domain.clone(), points })
-}
-
-/// Loads the bounded canonical visit slice for one registrable domain and one
-/// date window.
-pub(super) fn load_domain_visits(
-    connection: &Connection,
-    domain: &str,
-    profile_id: Option<&str>,
-    start_ms: i64,
-    end_ms: i64,
-) -> Result<Vec<VisitRecord>> {
-    let mut statement = connection.prepare(
-        "SELECT visits.id, visit_derived_facts.profile_id, visits.source_profile_id, CAST(visits.source_visit_id AS INTEGER),
-                urls.id, urls.url, urls.title, visits.visit_time_ms, visits.from_visit, visits.transition_type,
-                visits.external_referrer_url, visit_derived_facts.canonical_url, visit_derived_facts.registrable_domain,
-                visit_derived_facts.domain_category, visit_derived_facts.page_category, visit_derived_facts.search_engine,
-                visit_derived_facts.search_query, visit_derived_facts.is_new_domain, visit_derived_facts.is_search_event,
-                visit_derived_facts.evidence_tier, visit_derived_facts.taxonomy_source, visit_derived_facts.taxonomy_pack,
-                visit_derived_facts.taxonomy_version, visit_derived_facts.session_id, visit_derived_facts.trail_id
-         FROM visit_derived_facts
-         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
-         JOIN archive.urls AS urls ON urls.id = visits.url_id
-         WHERE visit_derived_facts.registrable_domain = ?1
-           AND visits.reverted_at IS NULL
-           AND (?2 IS NULL OR visit_derived_facts.profile_id = ?2)
-           AND visits.visit_time_ms >= ?3
-           AND visits.visit_time_ms < ?4
-         ORDER BY visits.visit_time_ms ASC, visits.id ASC",
-    )?;
-    statement
-        .query_map(params![domain, profile_id, start_ms, end_ms], |row| {
-            Ok(VisitRecord {
-                visit_id: row.get(0)?,
-                profile_id: row.get(1)?,
-                source_profile_id: row.get(2)?,
-                source_visit_id: row.get(3)?,
-                source_url_id: row.get(4)?,
-                url: row.get(5)?,
-                title: row.get(6)?,
-                visit_time_ms: row.get(7)?,
-                from_visit: row.get(8)?,
-                transition_type: row.get(9)?,
-                external_referrer_url: row.get(10)?,
-                canonical_url: row.get(11)?,
-                registrable_domain: row.get(12)?,
-                domain_category: row.get(13)?,
-                page_category: row.get(14)?,
-                search_engine: row.get(15)?,
-                search_query: row.get(16)?,
-                is_new_domain: row.get::<_, i64>(17)? != 0,
-                is_search_event: row.get::<_, i64>(18)? != 0,
-                evidence_tier: row.get(19)?,
-                taxonomy_source: row.get(20)?,
-                taxonomy_pack: row.get(21)?,
-                taxonomy_version: row.get(22)?,
-                display_name: display_name_for_domain(domain),
-                session_id: row.get(23)?,
-                trail_id: row.get(24)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-/// Summarizes cross-domain flows into and out of the current domain within one
-/// ordered visit slice.
-pub(super) fn build_domain_flows(
-    visits: &[VisitRecord],
-) -> (Vec<DomainFlowStat>, Vec<DomainFlowStat>) {
-    let mut referrers = HashMap::<String, i64>::new();
-    let mut exits = HashMap::<String, i64>::new();
-    for pair in visits.windows(2) {
-        let left = &pair[0];
-        let right = &pair[1];
-        if left.session_id != right.session_id {
-            continue;
-        }
-        if left.registrable_domain != right.registrable_domain {
-            *referrers.entry(left.registrable_domain.clone()).or_default() += 1;
-            *exits.entry(right.registrable_domain.clone()).or_default() += 1;
-        }
-    }
-    let map_to_stats = |input: HashMap<String, i64>| {
-        let mut stats = input
-            .into_iter()
-            .map(|(domain, count)| DomainFlowStat {
-                display_name: display_name_for_domain(&domain),
-                domain,
-                count,
-            })
-            .collect::<Vec<_>>();
-        stats.sort_by(|left, right| {
-            right.count.cmp(&left.count).then_with(|| left.domain.cmp(&right.domain))
-        });
-        stats.truncate(10);
-        stats
-    };
-    (map_to_stats(referrers), map_to_stats(exits))
 }
 
 /// Extracts the URL path portion used by the domain detail top-pages summary.

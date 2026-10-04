@@ -55,8 +55,9 @@ pub(super) fn append_fixture_visit(
         .execute(
             "INSERT INTO urls (
                 id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
-                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at
-             ) VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 1, ?6, 0, ?7, '2026-04-14T00:00:00Z')",
+                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at,
+                registrable_domain
+             ) VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 1, ?6, 0, ?7, '2026-04-14T00:00:00Z', ?8)",
             rusqlite::params![
                 url_id,
                 url,
@@ -64,7 +65,8 @@ pub(super) fn append_fixture_visit(
                 visit_time_ms,
                 visit_time_iso.to_rfc3339(),
                 url_id + 100,
-                format!("hash-{visit_id}")
+                format!("hash-{visit_id}"),
+                crate::visit_taxonomy::registrable_domain_for_url(url)
             ],
         )
         .expect("insert url");
@@ -241,10 +243,11 @@ pub(super) fn seed_core_intelligence_fixture(connection: &Connection) {
         .execute(
             "INSERT INTO urls (
                 id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
-                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at
+                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at,
+                registrable_domain
              ) VALUES
-             (1, 'https://www.google.com/search?q=sqlite+wal', 'sqlite wal - Google Search', 1, 0, 1, '1970-01-01T00:00:00Z', 1, '1970-01-01T00:00:00Z', 1, 1, 11, 0, 'hash-1', '2026-04-14T00:00:00Z'),
-             (2, 'https://github.com/example/repo/issues/42', 'Issue 42', 2, 1, 2, '1970-01-01T00:00:02Z', 86400002, '1970-01-02T00:00:00Z', 1, 1, 12, 0, 'hash-2', '2026-04-14T00:00:00Z')",
+             (1, 'https://www.google.com/search?q=sqlite+wal', 'sqlite wal - Google Search', 1, 0, 1, '1970-01-01T00:00:00Z', 1, '1970-01-01T00:00:00Z', 1, 1, 11, 0, 'hash-1', '2026-04-14T00:00:00Z', 'google.com'),
+             (2, 'https://github.com/example/repo/issues/42', 'Issue 42', 2, 1, 2, '1970-01-01T00:00:02Z', 86400002, '1970-01-02T00:00:00Z', 1, 1, 12, 0, 'hash-2', '2026-04-14T00:00:00Z', 'github.com')",
             [],
         )
         .expect("urls");
@@ -278,12 +281,13 @@ pub(super) fn seed_search_keyword_noise_fixture(connection: &Connection) {
         .execute(
             "INSERT INTO urls (
                 id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
-                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at
+                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at,
+                registrable_domain
              ) VALUES
-             (3, 'https://www.google.com/search?q=https%3A%2F%2Fasu.edu', 'asu.edu - Google Search', 1, 0, 1711929720000, '2024-04-01T00:02:00Z', 1711929720000, '2024-04-01T00:02:00Z', 1, 1, 13, 0, 'hash-3', '2026-04-14T00:00:00Z'),
-             (4, 'https://asu.edu/', 'Arizona State University', 1, 0, 1711929780000, '2024-04-01T00:03:00Z', 1711929780000, '2024-04-01T00:03:00Z', 1, 1, 14, 0, 'hash-4', '2026-04-14T00:00:00Z'),
-             (5, 'https://github.com/search?q=pathkeep+sqlite', 'Repository search results', 1, 0, 1711929840000, '2024-04-01T00:04:00Z', 1711929840000, '2024-04-01T00:04:00Z', 1, 1, 15, 0, 'hash-5', '2026-04-14T00:00:00Z'),
-             (6, 'https://github.com/example/pathkeep', 'PathKeep repo', 1, 0, 1711929900000, '2024-04-01T00:05:00Z', 1711929900000, '2024-04-01T00:05:00Z', 1, 1, 16, 0, 'hash-6', '2026-04-14T00:00:00Z')",
+             (3, 'https://www.google.com/search?q=https%3A%2F%2Fasu.edu', 'asu.edu - Google Search', 1, 0, 1711929720000, '2024-04-01T00:02:00Z', 1711929720000, '2024-04-01T00:02:00Z', 1, 1, 13, 0, 'hash-3', '2026-04-14T00:00:00Z', 'google.com'),
+             (4, 'https://asu.edu/', 'Arizona State University', 1, 0, 1711929780000, '2024-04-01T00:03:00Z', 1711929780000, '2024-04-01T00:03:00Z', 1, 1, 14, 0, 'hash-4', '2026-04-14T00:00:00Z', 'asu.edu'),
+             (5, 'https://github.com/search?q=pathkeep+sqlite', 'Repository search results', 1, 0, 1711929840000, '2024-04-01T00:04:00Z', 1711929840000, '2024-04-01T00:04:00Z', 1, 1, 15, 0, 'hash-5', '2026-04-14T00:00:00Z', 'github.com'),
+             (6, 'https://github.com/example/pathkeep', 'PathKeep repo', 1, 0, 1711929900000, '2024-04-01T00:05:00Z', 1711929900000, '2024-04-01T00:05:00Z', 1, 1, 16, 0, 'hash-6', '2026-04-14T00:00:00Z', 'github.com')",
             [],
         )
         .expect("extra urls");

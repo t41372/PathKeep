@@ -47,6 +47,22 @@ export function createAppRouter() {
           element: screen(() => import('@/features/insights/insights-page')),
         },
         {
+          path: 'insights/day/:date',
+          element: screen(() => import('@/features/insights/day-page')),
+        },
+        {
+          path: 'insights/site/:domain',
+          element: screen(() => import('@/features/insights/site-page')),
+        },
+        {
+          path: 'insights/search/:query',
+          element: screen(() => import('@/features/insights/search-page')),
+        },
+        {
+          path: 'insights/page/:url',
+          element: screen(() => import('@/features/insights/page-page')),
+        },
+        {
           path: 'ask',
           element: screen(() => import('@/features/ask/ask-page')),
         },

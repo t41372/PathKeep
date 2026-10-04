@@ -165,6 +165,14 @@ pub struct QueryFamilyDetail {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RefindPage {
+    /// The browser profile this row was scored in. Re-find scores are kept
+    /// per profile: the same page re-found in two browsers is two rows.
+    #[serde(default)]
+    pub profile_id: String,
+    /// How many profiles re-found this page. Archive-wide lists keep one row
+    /// per page (the highest score) and report the rest here.
+    #[serde(default = "one")]
+    pub profile_count: i64,
     pub canonical_url: String,
     pub url: String,
     pub title: Option<String>,
@@ -176,6 +184,10 @@ pub struct RefindPage {
     pub refind_score: f32,
     pub first_seen_at: String,
     pub last_seen_at: String,
+}
+
+fn one() -> i64 {
+    1
 }
 
 /// One factor contributing to a refind score explanation.
