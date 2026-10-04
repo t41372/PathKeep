@@ -2,6 +2,11 @@
  * Set or change the app lock passcode (`set_app_lock_passcode`). Setting one
  * for the first time also turns app lock on, since that is why the user
  * asked for it.
+ *
+ * The optional hint is stored with the passcode and shown by "Forgot
+ * passcode?" on the lock screen. The backend stores exactly the hint each
+ * request carries, so changing the passcode starts from the saved hint;
+ * leaving it out would erase it.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -15,11 +20,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { appClient } from '@/lib/backend-client/app'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
+import { useSnapshot } from '@/lib/queries/app'
 import { emptySecret, secretProblem, type NewSecret } from './new-secret'
 import { NewSecretFields } from './new-secret-fields'
 
@@ -49,12 +57,17 @@ function PasscodeForm({
 }) {
   const { t } = useI18n()
   const client = useQueryClient()
+  const savedHint = useSnapshot().appLockStatus.recoveryHint ?? ''
   const [secret, setSecret] = useState<NewSecret>(emptySecret)
+  const [hint, setHint] = useState(mode === 'change' ? savedHint : '')
   const ready = secretProblem(secret, PASSCODE_MIN_LENGTH) === null
 
   const save = useMutation({
     mutationFn: async () => {
-      await appClient.setAppLockPasscode({ passcode: secret.value })
+      await appClient.setAppLockPasscode({
+        passcode: secret.value,
+        recoveryHint: hint.trim() || null,
+      })
       let snapshot = await appClient.getSnapshot()
       if (!snapshot.config.appLock.enabled) {
         const next = structuredClone(snapshot.config)
@@ -105,6 +118,21 @@ function PasscodeForm({
           onChange={setSecret}
           disabled={save.isPending}
         />
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="passcode-hint">
+            {t('settings.security.passcode.hintLabel')}
+          </Label>
+          <Input
+            id="passcode-hint"
+            value={hint}
+            autoComplete="off"
+            disabled={save.isPending}
+            onChange={(event) => setHint(event.target.value)}
+          />
+          <p className="text-[13px] text-muted-foreground">
+            {t('settings.security.passcode.hintNote')}
+          </p>
+        </div>
         {save.error && (
           <p
             role="alert"

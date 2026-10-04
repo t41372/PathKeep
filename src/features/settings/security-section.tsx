@@ -158,7 +158,9 @@ function AppLockRows() {
   const [passcode, setPasscode] = useState<'set' | 'change' | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const lock = snapshot.config.appLock
-  const hasPasscode = snapshot.appLockStatus.passcodeConfigured
+  const status = snapshot.appLockStatus
+  const hasPasscode = status.passcodeConfigured
+  const hint = status.recoveryHint?.trim()
 
   const toggle = (next: boolean) => {
     if (next && !hasPasscode) return setPasscode('set')
@@ -206,7 +208,11 @@ function AppLockRows() {
       {hasPasscode && (
         <SettingRow
           title={t('settings.security.passcode.title')}
-          description={t('settings.security.passcode.description')}
+          description={
+            hint
+              ? t('settings.security.passcode.withHint', { hint })
+              : t('settings.security.passcode.description')
+          }
           control={
             <>
               <Button
@@ -230,6 +236,12 @@ function AppLockRows() {
       )}
       {lock.enabled && (
         <>
+          {status.biometricState !== 'unsupported' && (
+            <TouchIdRow
+              enabled={lock.biometricEnabled}
+              available={status.biometricAvailable}
+            />
+          )}
           <SettingRow
             title={t('settings.security.autoLock.title')}
             description={t('settings.security.autoLock.description')}
@@ -293,5 +305,45 @@ function AppLockRows() {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  )
+}
+
+/**
+ * Touch ID for app lock (macOS only; elsewhere the backend reports
+ * `unsupported` and the row is not shown). While Touch ID is unavailable it
+ * can still be turned off, but not on: the backend would refuse.
+ */
+function TouchIdRow({
+  enabled,
+  available,
+}: {
+  enabled: boolean
+  available: boolean
+}) {
+  const { t } = useI18n()
+  const { save, saving } = useSaveSetting()
+  return (
+    <SettingRow
+      title={t('settings.security.touchId.title')}
+      description={t(
+        available
+          ? 'settings.security.touchId.description'
+          : 'settings.security.touchId.unavailable',
+      )}
+      htmlFor="settings-touch-id"
+      control={
+        <Switch
+          id="settings-touch-id"
+          checked={enabled}
+          disabled={saving || (!available && !enabled)}
+          onCheckedChange={(next) =>
+            void save((config) => {
+              config.appLock.biometricEnabled = next
+              return config
+            })
+          }
+        />
+      }
+    />
   )
 }

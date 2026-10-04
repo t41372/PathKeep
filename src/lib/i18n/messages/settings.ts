@@ -160,6 +160,15 @@ export const settings = defineMessages({
           'App lock turns off. Your archive and its password are not affected.',
         removed: 'Passcode removed. App lock is off.',
         removeFailed: 'Could not remove the passcode',
+        withHint: 'Used to unlock PathKeep. Hint: {hint}',
+        hintLabel: 'Hint (optional)',
+        hintNote:
+          'Shown on the lock screen if you forget the passcode. Anyone at this computer can read it, so don’t write the passcode itself.',
+      },
+      touchId: {
+        title: 'Touch ID',
+        description: 'Unlock PathKeep with your fingerprint',
+        unavailable: 'Touch ID isn’t available on this Mac right now',
       },
       autoLock: {
         title: 'Auto-lock',
@@ -322,6 +331,15 @@ export const settings = defineMessages({
         removeBody: '应用锁会关闭。你的存档和存档密码不受影响。',
         removed: '应用密码已移除，应用锁已关闭。',
         removeFailed: '无法移除应用密码',
+        withHint: '用来解锁 PathKeep。提示：{hint}',
+        hintLabel: '提示（可选）',
+        hintNote:
+          '忘记应用密码时会显示在锁定画面上。这台电脑前的任何人都看得到，别直接写下密码。',
+      },
+      touchId: {
+        title: '触控 ID',
+        description: '用指纹解锁 PathKeep',
+        unavailable: '这台 Mac 现在用不了触控 ID',
       },
       autoLock: {
         title: '自动锁定',
@@ -485,6 +503,15 @@ export const settings = defineMessages({
         removeBody: 'App 鎖定會關閉。你的存檔和存檔密碼不受影響。',
         removed: 'App 密碼已移除，App 鎖定已關閉。',
         removeFailed: '無法移除 App 密碼',
+        withHint: '用來解鎖 PathKeep。提示：{hint}',
+        hintLabel: '提示（選填）',
+        hintNote:
+          '忘記 App 密碼時會顯示在鎖定畫面上。這台電腦前的任何人都看得到，別直接寫下密碼。',
+      },
+      touchId: {
+        title: 'Touch ID',
+        description: '用指紋解鎖 PathKeep',
+        unavailable: '這台 Mac 現在無法使用 Touch ID',
       },
       autoLock: {
         title: '自動鎖定',
