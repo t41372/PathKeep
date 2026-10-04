@@ -48,6 +48,14 @@ pub const ERROR_CODE_BIOMETRIC_TURNED_OFF: &str = "biometric-turned-off";
 /// user (mismatch, interruption, expiry, or timeout). Retry or use passcode.
 pub const ERROR_CODE_BIOMETRIC_FAILED: &str = "biometric-failed";
 
+/// Machine-readable code: a request to change or remove archive encryption
+/// came without the archive's current password.
+pub const ERROR_CODE_ARCHIVE_PASSWORD_REQUIRED: &str = "archive-password-required";
+
+/// Machine-readable code: the current archive password given to change or
+/// remove encryption does not open the archive.
+pub const ERROR_CODE_ARCHIVE_PASSWORD_WRONG: &str = "archive-password-wrong";
+
 /// Action hint: the frontend should surface its "open Full Disk Access
 /// settings" repair affordance.
 pub const ACTION_HINT_OPEN_FULL_DISK_ACCESS: &str = "open-full-disk-access-settings";
@@ -119,6 +127,10 @@ impl CommandError {
 ///   (`"The app lock passcode did not match."`) is deliberately NEVER
 ///   classified: it is a user input error, and coding it (especially as
 ///   lock-required) would loop the unlock gate on itself.
+/// - a rekey refused for a missing or wrong current archive password carries
+///   the sentences exported by `vault-worker`'s `current_password` module.
+///   Neither is lock-required: the archive is open; the person only has to
+///   show they know its password.
 fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str>) {
     if message.contains("Full Disk Access")
         || message.contains("Safari History.db is not readable yet")
@@ -132,6 +144,12 @@ fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str
     }
     if let Some(code) = classify_biometric_message(message) {
         return (Some(code), Some(ACTION_HINT_USE_PASSCODE));
+    }
+    if message.contains(vault_worker::REKEY_CURRENT_PASSWORD_WRONG) {
+        return (Some(ERROR_CODE_ARCHIVE_PASSWORD_WRONG), None);
+    }
+    if message.contains(vault_worker::REKEY_CURRENT_PASSWORD_REQUIRED) {
+        return (Some(ERROR_CODE_ARCHIVE_PASSWORD_REQUIRED), None);
     }
     (None, None)
 }
@@ -218,6 +236,19 @@ mod tests {
                 .to_string(),
         );
         assert_eq!(app_lock.code.as_deref(), Some(ERROR_CODE_LOCK_REQUIRED));
+    }
+
+    #[test]
+    fn classifies_rekey_current_password_refusals_without_the_unlock_gate() {
+        let wrong =
+            CommandError::classified(vault_worker::REKEY_CURRENT_PASSWORD_WRONG.to_string());
+        assert_eq!(wrong.code.as_deref(), Some(ERROR_CODE_ARCHIVE_PASSWORD_WRONG));
+        assert_eq!(wrong.action_hint, None);
+
+        let missing =
+            CommandError::classified(vault_worker::REKEY_CURRENT_PASSWORD_REQUIRED.to_string());
+        assert_eq!(missing.code.as_deref(), Some(ERROR_CODE_ARCHIVE_PASSWORD_REQUIRED));
+        assert_eq!(missing.action_hint, None);
     }
 
     #[test]

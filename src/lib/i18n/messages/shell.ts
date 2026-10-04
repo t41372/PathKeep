@@ -60,6 +60,20 @@ export const shell = defineMessages({
       wrong: 'That did not work. Check it and try again.',
       unlocking: 'Unlocking…',
       needsPasscode: 'Set a passcode first, then PathKeep can lock.',
+      touchId: 'Unlock with Touch ID',
+      touchIdUnavailable:
+        'Touch ID isn’t available right now. Use your passcode.',
+      touchIdFailed: 'Touch ID didn’t unlock PathKeep. Use your passcode.',
+      forgot: 'Forgot passcode?',
+      hint: 'Your hint:',
+      noHint: 'No hint was saved with this passcode.',
+      onlyWindow:
+        'App lock only guards this window. Your archive and its password are not affected.',
+      turnOff:
+        'To turn it off, quit PathKeep, open config.json in this folder, change "enabled": true under "appLock" to false, and open PathKeep again.',
+      showFolderMac: 'Show in Finder',
+      showFolder: 'Show folder',
+      showFolderFailed: 'Could not open the folder',
     },
     boot: {
       loading: 'Opening your archive…',
@@ -152,6 +166,18 @@ export const shell = defineMessages({
       wrong: '密码不对，请检查后重试。',
       unlocking: '正在解锁…',
       needsPasscode: '先设置一个密码，PathKeep 才能锁定。',
+      touchId: '用触控 ID 解锁',
+      touchIdUnavailable: '触控 ID 现在用不了，请输入密码。',
+      touchIdFailed: '触控 ID 没能解锁 PathKeep，请输入密码。',
+      forgot: '忘记密码？',
+      hint: '你的提示：',
+      noHint: '这个密码没有保存提示。',
+      onlyWindow: '应用锁只挡住这个窗口，你的存档和存档密码不受影响。',
+      turnOff:
+        '要关闭应用锁：退出 PathKeep，打开这个文件夹里的 config.json，把 "appLock" 下的 "enabled": true 改成 false，再重新打开 PathKeep。',
+      showFolderMac: '在访达中显示',
+      showFolder: '打开文件夹',
+      showFolderFailed: '无法打开文件夹',
     },
     boot: {
       loading: '正在打开存档…',
@@ -243,6 +269,18 @@ export const shell = defineMessages({
       wrong: '密碼不對，請檢查後再試一次。',
       unlocking: '正在解鎖…',
       needsPasscode: '先設定一組密碼，PathKeep 才能鎖定。',
+      touchId: '用 Touch ID 解鎖',
+      touchIdUnavailable: 'Touch ID 現在無法使用，請輸入密碼。',
+      touchIdFailed: 'Touch ID 沒能解鎖 PathKeep，請輸入密碼。',
+      forgot: '忘記密碼？',
+      hint: '你的提示：',
+      noHint: '這組密碼沒有儲存提示。',
+      onlyWindow: 'App 鎖定只擋住這個視窗，你的存檔和存檔密碼不受影響。',
+      turnOff:
+        '要關閉 App 鎖定：結束 PathKeep，開啟這個資料夾裡的 config.json，把 "appLock" 下的 "enabled": true 改成 false，再重新開啟 PathKeep。',
+      showFolderMac: '在 Finder 中顯示',
+      showFolder: '開啟資料夾',
+      showFolderFailed: '無法開啟資料夾',
     },
     boot: {
       loading: '正在打開存檔…',

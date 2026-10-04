@@ -1423,10 +1423,11 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
     assert_eq!(security.mode, "plaintext");
     assert!(security.initialized);
 
-    let rekey_preview = preview_rekey_archive(
-        None,
-        &RekeyRequest { new_mode: ArchiveMode::Encrypted, new_key: None },
-    )
+    let rekey_preview = preview_rekey_archive(&RekeyRequest {
+        new_mode: ArchiveMode::Encrypted,
+        new_key: None,
+        current_key: None,
+    })
     .expect("preview rekey");
     assert!(rekey_preview.requires_new_key);
     assert!(rekey_preview.snapshot_path.contains("raw-snapshots/rekey"));
@@ -1445,10 +1446,11 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
             .iter()
             .any(|code| code == vault_core::REKEY_WARNING_NEW_KEY_REQUIRED)
     );
-    let same_mode_rekey_preview = preview_rekey_archive(
-        None,
-        &RekeyRequest { new_mode: ArchiveMode::Plaintext, new_key: None },
-    )
+    let same_mode_rekey_preview = preview_rekey_archive(&RekeyRequest {
+        new_mode: ArchiveMode::Plaintext,
+        new_key: None,
+        current_key: None,
+    })
     .expect("same-mode rekey preview");
     assert!(
         same_mode_rekey_preview
@@ -1488,10 +1490,11 @@ fn security_status_reports_uninitialized_archive_mode() {
     }
 
     let security = security_status(None).expect("uninitialized security status");
-    let preview_error = preview_rekey_archive(
-        None,
-        &RekeyRequest { new_mode: ArchiveMode::Encrypted, new_key: Some("next".to_string()) },
-    )
+    let preview_error = preview_rekey_archive(&RekeyRequest {
+        new_mode: ArchiveMode::Encrypted,
+        new_key: Some("next".to_string()),
+        current_key: None,
+    })
     .expect_err("uninitialized archive cannot preview rekey");
     assert!(preview_error.to_string().contains("initialize the archive"));
 
@@ -3177,13 +3180,11 @@ fn security_status_keeps_last_rekey_review_visible_when_archive_is_locked() {
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save config");
 
-    rekey_archive_database(
-        None,
-        &RekeyRequest {
-            new_mode: ArchiveMode::Encrypted,
-            new_key: Some("vault-passphrase".to_string()),
-        },
-    )
+    rekey_archive_database(&RekeyRequest {
+        new_mode: ArchiveMode::Encrypted,
+        new_key: Some("vault-passphrase".to_string()),
+        current_key: None,
+    })
     .expect("rekey archive");
 
     let security = security_status(None).expect("security status while locked");
@@ -3196,19 +3197,67 @@ fn security_status_keeps_last_rekey_review_visible_when_archive_is_locked() {
             .as_deref()
             .is_some_and(|path| path.contains("archive-before-rekey"))
     );
-    let locked_preview = preview_rekey_archive(
-        None,
-        &RekeyRequest { new_mode: ArchiveMode::Plaintext, new_key: None },
-    )
-    .expect("locked rekey preview");
-    assert!(locked_preview.warnings.iter().any(|warning| { warning.contains("currently locked") }));
-    assert_eq!(locked_preview.warnings.len(), locked_preview.warning_codes.len());
-    assert!(
-        locked_preview
-            .warning_codes
-            .iter()
-            .any(|code| code == vault_core::REKEY_WARNING_ARCHIVE_LOCKED)
-    );
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+    }
+}
+
+/// Failure modes 1–3 of `current_password` at the worker entry points both
+/// transports call: a wrong or missing current password changes nothing, and
+/// the right one rekeys so that only the new password opens the archive.
+#[test]
+fn rekey_requires_the_current_password_of_an_encrypted_archive() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = chrome_user_data_fixture(dir.path());
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
+    let old = "correct horse battery";
+    let new = "staple's «new» 密碼";
+    let config = AppConfig { archive_mode: ArchiveMode::Encrypted, ..initialized_config() };
+    initialize_archive_database(&config, Some(old)).expect("initialize encrypted archive");
+    let paths = project_paths().expect("project paths");
+    let archive_bytes = || fs::read(&paths.archive_database_path).expect("read archive");
+    let before = archive_bytes();
+
+    let change = |current: Option<&str>| RekeyRequest {
+        new_mode: ArchiveMode::Encrypted,
+        new_key: Some(new.to_string()),
+        current_key: current.map(str::to_string),
+    };
+    let decrypt = |current: Option<&str>| RekeyRequest {
+        new_mode: ArchiveMode::Plaintext,
+        new_key: None,
+        current_key: current.map(str::to_string),
+    };
+    for request in [change(Some("wrong password")), decrypt(Some("wrong password"))] {
+        let preview = preview_rekey_archive(&request).expect_err("preview refuses");
+        assert_eq!(format!("{preview:#}"), crate::REKEY_CURRENT_PASSWORD_WRONG);
+        let execute = rekey_archive_database(&request).expect_err("rekey refuses");
+        assert_eq!(format!("{execute:#}"), crate::REKEY_CURRENT_PASSWORD_WRONG);
+    }
+    for request in [change(None), decrypt(None)] {
+        let execute = rekey_archive_database(&request).expect_err("rekey refuses");
+        assert_eq!(format!("{execute:#}"), crate::REKEY_CURRENT_PASSWORD_REQUIRED);
+    }
+    assert_eq!(archive_bytes(), before, "a refused rekey must not touch the archive");
+    assert!(vault_core::archive_key_opens(&paths, old).expect("old password check"));
+
+    preview_rekey_archive(&change(Some(old))).expect("preview with the right password");
+    let snapshot = rekey_archive_database(&change(Some(old))).expect("rekey");
+    assert!(snapshot.archive_status.encrypted && snapshot.archive_status.unlocked);
+    assert!(vault_core::archive_key_opens(&paths, new).expect("new password check"));
+    assert!(!vault_core::archive_key_opens(&paths, old).expect("old password check"));
+
+    // The old password no longer counts as the current one.
+    let error = rekey_archive_database(&decrypt(Some(old))).expect_err("old password refused");
+    assert_eq!(format!("{error:#}"), crate::REKEY_CURRENT_PASSWORD_WRONG);
+    let plain = rekey_archive_database(&decrypt(Some(new))).expect("decrypt");
+    assert!(!plain.archive_status.encrypted && plain.archive_status.unlocked);
 
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

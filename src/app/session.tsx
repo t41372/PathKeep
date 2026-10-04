@@ -4,7 +4,8 @@
  * Responsibilities:
  * - Decide which full-screen state the app is in: locked, archive locked,
  *   recovery, upgrade, onboarding or ready.
- * - Unlock (app passcode or archive password), lock, and idle auto-lock.
+ * - Unlock (app passcode, Touch ID or archive password), lock, and idle
+ *   auto-lock.
  * - Seed the query cache with the snapshot so screens never fetch it again.
  *
  * Not responsible for: rendering those states (see `app/shell/`), or any
@@ -55,6 +56,8 @@ interface SessionValue {
   /** Resolves to false when there is no passcode, so nothing was locked. */
   lock: () => Promise<boolean>
   unlockApp: (passcode: string) => Promise<void>
+  /** Shows the system Touch ID prompt; the backend refuses it when Settings turned it off. */
+  unlockWithTouchId: () => Promise<void>
   unlockArchive: (password: string, remember: boolean) => Promise<void>
   /** Called by onboarding, upgrade and recovery once the archive is usable. */
   enter: (snapshot: AppSnapshot) => void
@@ -240,6 +243,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [refresh],
   )
 
+  const unlockWithTouchId = useCallback(async () => {
+    await appClient.unlockAppSession({ passcode: null, useBiometric: true })
+    await refresh()
+  }, [refresh])
+
   const unlockArchive = useCallback(
     async (password: string, remember: boolean) => {
       await appClient.setSessionDatabaseKey(password)
@@ -280,6 +288,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       refresh,
       lock,
       unlockApp,
+      unlockWithTouchId,
       unlockArchive,
       enter,
       restart,
@@ -293,6 +302,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       refresh,
       lock,
       unlockApp,
+      unlockWithTouchId,
       unlockArchive,
       enter,
       restart,

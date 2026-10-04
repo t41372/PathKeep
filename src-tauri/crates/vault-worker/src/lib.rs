@@ -18,6 +18,7 @@ mod app;
 mod archive_flows;
 mod cli;
 mod context;
+mod current_password;
 mod data_wipe;
 mod intelligence;
 mod job_runtime;
@@ -56,6 +57,7 @@ pub use self::{
         run_snapshot_restore_plan, source_stats, url_detail,
     },
     cli::run_worker_cli,
+    current_password::{REKEY_CURRENT_PASSWORD_REQUIRED, REKEY_CURRENT_PASSWORD_WRONG},
     data_wipe::{
         WIPE_CONFIRMATION_WORD, finish_interrupted_data_wipe, preview_data_wipe, wipe_all_data,
     },

@@ -99,9 +99,13 @@ export const settings = defineMessages({
         },
         intro: {
           encrypt: 'Choose a password. You’ll need it to open your history.',
-          change: 'Choose a new password. The old one stops working.',
-          decrypt: 'PathKeep will store your history without encryption.',
+          change:
+            'Enter the current password, then choose a new one. The old one stops working.',
+          decrypt:
+            'Enter the current password. PathKeep will then store your history without encryption.',
         },
+        currentPassword: 'Current password',
+        wrongCurrent: 'That is not the current password. Nothing was changed.',
         newPassword: 'New password',
         keepInKeychain: 'Save it in the system keychain',
         noReset:
@@ -115,9 +119,6 @@ export const settings = defineMessages({
         },
         plainWarning:
           'Anyone who can read your files will be able to read your history.',
-        warning: {
-          'archive-locked': 'The archive is locked. Unlock it first.',
-        },
         run: {
           encrypt: 'Encrypt',
           change: 'Change password',
@@ -159,6 +160,15 @@ export const settings = defineMessages({
           'App lock turns off. Your archive and its password are not affected.',
         removed: 'Passcode removed. App lock is off.',
         removeFailed: 'Could not remove the passcode',
+        withHint: 'Used to unlock PathKeep. Hint: {hint}',
+        hintLabel: 'Hint (optional)',
+        hintNote:
+          'Shown on the lock screen if you forget the passcode. Anyone at this computer can read it, so don’t write the passcode itself.',
+      },
+      touchId: {
+        title: 'Touch ID',
+        description: 'Unlock PathKeep with your fingerprint',
+        unavailable: 'Touch ID isn’t available on this Mac right now',
       },
       autoLock: {
         title: 'Auto-lock',
@@ -266,9 +276,11 @@ export const settings = defineMessages({
         },
         intro: {
           encrypt: '设置一个密码，以后打开你的历史需要用到它。',
-          change: '设置新密码，旧密码会失效。',
-          decrypt: 'PathKeep 会以不加密的方式保存你的历史。',
+          change: '先输入当前密码，再设置新密码。旧密码会失效。',
+          decrypt: '先输入当前密码，PathKeep 会改以不加密的方式保存你的历史。',
         },
+        currentPassword: '当前密码',
+        wrongCurrent: '这不是当前密码，存档没有改动。',
         newPassword: '新密码',
         keepInKeychain: '存到系统钥匙串',
         noReset:
@@ -281,9 +293,6 @@ export const settings = defineMessages({
           swap: '只有每一步都成功，新文件才会替换旧文件。副本会保留，需要时可以退回。',
         },
         plainWarning: '能读取你文件的人都能看到你的历史。',
-        warning: {
-          'archive-locked': '存档已锁定，请先解锁。',
-        },
         run: {
           encrypt: '加密',
           change: '更改密码',
@@ -322,6 +331,15 @@ export const settings = defineMessages({
         removeBody: '应用锁会关闭。你的存档和存档密码不受影响。',
         removed: '应用密码已移除，应用锁已关闭。',
         removeFailed: '无法移除应用密码',
+        withHint: '用来解锁 PathKeep。提示：{hint}',
+        hintLabel: '提示（可选）',
+        hintNote:
+          '忘记应用密码时会显示在锁定画面上。这台电脑前的任何人都看得到，别直接写下密码。',
+      },
+      touchId: {
+        title: '触控 ID',
+        description: '用指纹解锁 PathKeep',
+        unavailable: '这台 Mac 现在用不了触控 ID',
       },
       autoLock: {
         title: '自动锁定',
@@ -429,9 +447,12 @@ export const settings = defineMessages({
         },
         intro: {
           encrypt: '設定一組密碼，之後開啟你的歷史需要用到它。',
-          change: '設定新密碼，舊密碼會失效。',
-          decrypt: 'PathKeep 會以不加密的方式儲存你的歷史。',
+          change: '先輸入目前的密碼，再設定新密碼。舊密碼會失效。',
+          decrypt:
+            '先輸入目前的密碼，PathKeep 會改以不加密的方式儲存你的歷史。',
         },
+        currentPassword: '目前的密碼',
+        wrongCurrent: '這不是目前的密碼，存檔沒有變動。',
         newPassword: '新密碼',
         keepInKeychain: '存到系統鑰匙圈',
         noReset:
@@ -444,9 +465,6 @@ export const settings = defineMessages({
           swap: '只有每一步都成功，新檔案才會取代舊檔案。副本會保留，需要時可以退回。',
         },
         plainWarning: '能讀取你檔案的人都能看到你的歷史。',
-        warning: {
-          'archive-locked': '存檔已鎖定，請先解鎖。',
-        },
         run: {
           encrypt: '加密',
           change: '更改密碼',
@@ -485,6 +503,15 @@ export const settings = defineMessages({
         removeBody: 'App 鎖定會關閉。你的存檔和存檔密碼不受影響。',
         removed: 'App 密碼已移除，App 鎖定已關閉。',
         removeFailed: '無法移除 App 密碼',
+        withHint: '用來解鎖 PathKeep。提示：{hint}',
+        hintLabel: '提示（選填）',
+        hintNote:
+          '忘記 App 密碼時會顯示在鎖定畫面上。這台電腦前的任何人都看得到，別直接寫下密碼。',
+      },
+      touchId: {
+        title: 'Touch ID',
+        description: '用指紋解鎖 PathKeep',
+        unavailable: '這台 Mac 現在無法使用 Touch ID',
       },
       autoLock: {
         title: '自動鎖定',

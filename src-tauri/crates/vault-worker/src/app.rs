@@ -24,7 +24,7 @@ use vault_core::{
     DISCOVERY_ISSUE_FULL_DISK_ACCESS, LaunchRecovery, ReconcileReport, RuntimeDiagnostics,
     ensure_app_lock_unlocked, ensure_archive_initialized_with_progress, full_disk_access_applies,
     hydrate_app_lock_config, is_permission_denied, load_config, load_snapshot_reads,
-    recover_archive_on_launch, rekey_archive, save_config, validate_app_lock_config_with_biometric,
+    recover_archive_on_launch, rekey_archive, save_config, validate_app_lock_change,
 };
 use vault_platform::{
     FullDiskAccessProbe, discover_browser_profiles, keyring_status, probe_full_disk_access,
@@ -35,13 +35,33 @@ use vault_platform::{
 /// The worker keeps this as a simple transport struct: it describes the target
 /// archive mode plus the optional new key material, while the actual
 /// preview/execute semantics stay in `vault-core`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Debug` is written by hand so the keys never reach a log line.
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RekeyRequest {
     /// The archive mode to end up with after the rewrite finishes.
     pub new_mode: ArchiveMode,
     /// The new database key when the target mode is encrypted.
     pub new_key: Option<String>,
+    /// The archive's current password. Required whenever the archive is
+    /// encrypted (changing the password or decrypting), so that someone at an
+    /// unlocked window cannot take the archive over; ignored for a plaintext
+    /// archive, which has none. See [`crate::current_password`].
+    #[serde(default)]
+    pub current_key: Option<String>,
+}
+
+impl std::fmt::Debug for RekeyRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let redacted = |key: &Option<String>| key.as_ref().map(|_| "<redacted>");
+        formatter
+            .debug_struct("RekeyRequest")
+            .field("new_mode", &self.new_mode)
+            .field("new_key", &redacted(&self.new_key))
+            .field("current_key", &redacted(&self.current_key))
+            .finish()
+    }
 }
 
 fn snapshot_runtime_diagnostics(paths: &vault_core::ProjectPaths) -> RuntimeDiagnostics {
@@ -236,8 +256,9 @@ pub fn save_user_config_with_base(
     };
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
-    validate_app_lock_config_with_biometric(
+    validate_app_lock_change(
         &paths,
+        &previous_config,
         &next_config,
         current_app_lock_biometric_state(),
     )?;
@@ -362,11 +383,14 @@ where
     // the half-deleted archive.
     crate::data_wipe::finish_interrupted_data_wipe()?;
     let paths = vault_core::project_paths()?;
+    // Only to tell whether Touch ID is being turned on; a first run has no config yet.
+    let previous_config = load_hydrated_config(&paths).unwrap_or_default();
     let mut next_config = config.clone();
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
-    validate_app_lock_config_with_biometric(
+    validate_app_lock_change(
         &paths,
+        &previous_config,
         &next_config,
         current_app_lock_biometric_state(),
     )?;
@@ -428,12 +452,13 @@ pub fn parse_archive_recovery_required(message: &str) -> Option<ArchiveRecoveryR
 }
 
 /// Executes a rekey/mode-switch request and returns the post-rewrite snapshot.
-pub fn rekey_archive_database(
-    old_key: Option<&str>,
-    request: &RekeyRequest,
-) -> Result<AppSnapshot> {
+///
+/// The archive is opened with the request's verified current password, never
+/// with a key the caller merely holds (see [`crate::current_password`]).
+pub fn rekey_archive_database(request: &RekeyRequest) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
+    let old_key = crate::current_password::verified_current_key(&paths, &config, request)?;
     rekey_archive(&paths, &config, old_key, request.new_mode.clone(), request.new_key.as_deref())?;
     let mut next_config = config;
     next_config.archive_mode = request.new_mode.clone();

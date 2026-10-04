@@ -15,6 +15,7 @@ export function NewSecretFields({
   minLength,
   onChange,
   disabled,
+  autoFocus = true,
 }: {
   idPrefix: string
   label: string
@@ -22,6 +23,8 @@ export function NewSecretFields({
   minLength: number
   onChange: (secret: NewSecret) => void
   disabled?: boolean
+  /** Off when a field above it (the current password) takes focus first. */
+  autoFocus?: boolean
 }) {
   const { t } = useI18n()
   const problem = secretProblem(secret, minLength)
@@ -41,7 +44,7 @@ export function NewSecretFields({
           id={`${idPrefix}-new`}
           type="password"
           autoComplete="new-password"
-          autoFocus
+          autoFocus={autoFocus}
           disabled={disabled}
           value={secret.value}
           onChange={(event) =>

@@ -122,18 +122,20 @@ Settings → General 開啟後出現在 macOS 選單列（Windows / Linux 系統
 
 ## App Lock 畫面與導航規則
 
-> **2026-10 實作與下列已接受要求不一致。** 新的 Settings → Security 沒有 biometric 開關、recovery hint、config 路徑與上次解鎖時間；新的鎖定畫面沒有 Touch ID、沒有 config 路徑與 recovery 動作；鎖定也不是 `/lock` 路由，而是 session 狀態 `app-locked`（效果相同：主畫面完全不渲染）。要補上還是改需求，選項與建議見 [app-lock-panel-tradeoff.md](app-lock-panel-tradeoff.md)，**待用戶決定**。以下要求在決定之前不變。
+> 2026-10-04 依 [app-lock-panel-tradeoff.md](app-lock-panel-tradeoff.md) 選項 B 改寫（用戶決定）：保留 Touch ID 與「忘記密碼？」，拿掉 config 路徑列、上次解鎖時間、鎖定原因，以及非 macOS 的生物辨識說明。
 
-- App Lock 是獨立的 utility route（`/lock`），不常駐 sidebar。
+- 鎖定不是路由，而是 session 狀態 `app-locked`（`src/app/session.tsx`）：主 shell 完全不渲染，只渲染 `src/app/shell/lock-screen.tsx`。
 - 啟動時若 App Lock 已啟用，PathKeep 先顯示 lock screen，通過驗證後才載入主 shell。
-- 閒置逾時（idle timeout）觸發時，自動導向 `/lock`，主 shell chrome 完全不渲染。
-- Topbar 在 App Lock 已啟用時提供 `Lock now` 動作；手動鎖定也走同一個 `/lock` route。
-- Lock screen 顯示 PathKeep branding、鎖定原因、config path、上次解鎖時間、passcode input、recovery hint callout，以及打開 config path 的 recovery 動作。
-- 若平台是 macOS 且 Touch ID 目前不可用，lock screen 仍顯示 Touch ID CTA / note，但按鈕必須 disabled，並明講會回退到 passcode。
-- 若使用者已在 Settings 關閉 biometric unlock，lock screen 不得再顯示 Touch ID / biometric CTA；capability 可用不代表可以繞過設定直接解鎖。
-- 若平台不是 macOS，lock screen 繼續顯示 generic biometric honesty copy，不假裝有 native parity。
+- 閒置逾時（idle timeout）觸發時同樣進入 `app-locked`。
+- `⌘L` / `Ctrl+L` 與 Settings →「立即鎖定」手動鎖定；沒有 passcode 時不鎖，改帶到 Settings → Security 先設定。
+- Lock screen 顯示 PathKeep branding、標題、一句說明、passcode input 與輸錯提示。
+- 使用者在 Settings 開了 Touch ID（只有 macOS 會出現這個開關）時，lock screen 有「用 Touch ID 解鎖」按鈕；Touch ID 暫時不可用時按鈕停用並說明改用 passcode；取消系統提示不顯示錯誤。關掉 Touch ID 時不顯示按鈕，後端也拒絕生物辨識解鎖。
+- 非 macOS 不顯示任何生物辨識控制項或說明。
+- 「忘記密碼？」展開顯示 recovery hint（沒存就說沒存）、一句「App Lock 只擋住這個視窗，archive 與其密碼不受影響」、怎麼關掉 App Lock（關掉 PathKeep，把 `config.json` 的 `appLock.enabled` 改成 `false` 再打開）、config 路徑與「在 Finder 中顯示」。沒有重設按鈕。
+- lock screen 自己向後端讀 lock status（鎖定時允許），因為鎖定會清空前端查詢快取。
 - 鎖定狀態下不僅 UI 隱藏，後端 query 與 MCP history query 也必須被阻擋 — 避免透過 dev tools / MCP 繞過。
-- Settings 的 App Lock panel：enable / disable toggle、idle timeout duration、biometric toggle、passcode set / update / clear、recovery hint、`Lock now`、config path、last unlocked timestamp。
+- Settings → Security 的 App Lock 分組：開關、passcode 更改 / 移除（passcode 列顯示目前的 hint）、passcode 對話框裡可選的 hint（更改時帶入已存的 hint）、Touch ID 開關（macOS；不可用時不能打開但能關掉）、自動鎖定時間、立即鎖定。
+- Settings → Security 的 archive 分組：更改密碼與關閉加密都先要求輸入目前的密碼，錯了就說「這不是目前的密碼，存檔沒有變動」並停在第一步。
 - manual update check / install（release availability、notes、install progress、restart CTA）屬於 Maintenance。
 - App Lock 與 archive encryption 是**獨立的兩層保護**：App Lock 保護 UI session，encryption 保護資料庫檔案。兩者可獨立啟用。
 - 設計規格 → `docs/features/archive.md` §8

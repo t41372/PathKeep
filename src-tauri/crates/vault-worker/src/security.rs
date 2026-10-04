@@ -320,28 +320,23 @@ fn biometric_authentication_error(message: String) -> anyhow::Error {
 }
 
 /// Previews the archive rewrite that a rekey/mode switch would perform.
-pub fn preview_rekey_archive(
-    session_database_key: Option<&str>,
-    request: &RekeyRequest,
-) -> Result<vault_core::RekeyPreview> {
+///
+/// Checks the current password exactly as the rekey will (see
+/// [`crate::current_password`]), so a wrong one is refused on the first step
+/// instead of after the user has read the plan.
+pub fn preview_rekey_archive(request: &RekeyRequest) -> Result<vault_core::RekeyPreview> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let archive = archive_status(&paths, &config, session_database_key)?;
-    if !archive.initialized || !paths.archive_database_path.exists() {
+    if !config.initialized || !paths.archive_database_path.exists() {
         anyhow::bail!("initialize the archive before previewing a rekey operation");
     }
+    crate::current_password::verified_current_key(&paths, &config, request)?;
 
     // Warnings and codes stay index-aligned (the `SecurityStatus::warning_codes`
     // template): the shell localizes off the stable code and only falls back to
     // the English prose for codes it does not ship copy for.
     let mut warnings = Vec::new();
     let mut warning_codes = Vec::new();
-    if archive.encrypted && !archive.unlocked {
-        warnings.push(
-            "The archive is currently locked. Unlock it before executing the rekey.".to_string(),
-        );
-        warning_codes.push(vault_core::REKEY_WARNING_ARCHIVE_LOCKED.to_string());
-    }
     if matches!(request.new_mode, ArchiveMode::Encrypted) && request.new_key.is_none() {
         warnings.push(
             "Encrypted rekey requires a new database key before execute can run.".to_string(),
