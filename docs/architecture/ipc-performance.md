@@ -111,3 +111,14 @@ Generating the 14.4M archive took 208 s for the rows and 47 s to project 3.6M se
 - `load_source_stats` recounts each profile after every backup (294 ms at 14.4M). It is cached until the archive file changes and runs off the UI thread.
 - `keyring_status()` on every `app_snapshot` is unmeasured (see 4).
 - Numbers come from a machine several times faster than the target. The fixes change the shape of the work (one page instead of a sort over every visit, two key derivations instead of five), which holds on slower hardware, but absolute times there will be higher.
+
+## Import-batch revert / restore (2026-10-04)
+
+Release build on Apple Silicon; five alternating revert/restore calls in a warm process on the same plaintext archive: 1,000,000 visits, 250,000 URL rows, a 10,000-visit batch touching 9,724 URLs. Before uses the full rebuild; after seeks through at most 1,000 batch visits per statement and refreshes their URLs, keeping every chunk and both FTS mirrors in one search transaction after the canonical commit. The query plan uses `idx_visits_import_batch_id (import_batch_id=? AND rowid>?)` and URL primary-key lookups. Existing enrichment, notes and tags survive; visibility still comes from canonical visits. Existing archive-total counts and batch review remain in these end-to-end timings.
+
+| Operation | Before median / max | After median / max |
+| --- | --- | --- |
+| `revert_import_batch` | 2,731.70 / 2,858.21 ms | 740.43 / 843.83 ms |
+| `restore_import_batch` | 2,722.40 / 2,745.52 ms | 732.25 / 860.27 ms |
+
+Reproduce with `export CARGO_TARGET_DIR=$PWD/.cargo-target`, then `PATHKEEP_IMPORT_BATCH_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=1000000 PATHKEEP_ARCHIVE_BENCH_DIR=$PWD/.batch-revert-bench cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --test archive_scale_bench --release import_batch_visibility_scale_bench -- --nocapture`. The synthetic archive was created inside the checkout and deleted after both measurements. These numbers do not measure the 14.4M target or encrypted archives.

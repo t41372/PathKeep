@@ -16,13 +16,20 @@
 //!
 //! ## Performance notes
 //! - Batch review queries are bounded and preview-limited.
-//! - Revert/restore rebuild the search projection after visibility changes so
-//!   recall stays honest.
+//! - Revert/restore refresh only batch URLs in bounded chunks after visibility
+//!   changes; all chunks share one search transaction.
 
 use super::batch_review::{load_import_batch_detail, load_import_batch_record};
 use super::*;
 
 /// Reverts one import batch by hiding its visits from the visible archive surface.
+///
+/// Failure modes guarded by the batch-scoped search refresh:
+/// - Shared URLs must retain visits from other batches and regular backups.
+/// - Restored visits must participate in keyword recall again.
+/// - A crash must not commit only part of the projection: all chunks share one
+///   search transaction after the existing canonical transaction commits.
+/// - Batch size must not determine memory use: each read covers at most 1,000 URLs.
 pub fn revert_import_batch(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -101,17 +108,25 @@ pub fn revert_import_batch(
         }),
     )?;
     transaction.commit()?;
-    let rebuild_warning = rebuild_search_projection(paths, config, key)
-        .err()
-        .map(|error| import_batch_projection_warning("Revert", error));
+    let projection_warning =
+        refresh_search_projection_for_import_batch(paths, config, key, batch_id)
+            .err()
+            .map(|error| import_batch_projection_warning("Revert", error));
 
     ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("reverted"))?;
     let mut detail = preview_import_batch(paths, config, key, batch_id)?;
-    append_import_batch_projection_warning(&mut detail, rebuild_warning);
+    append_import_batch_projection_warning(&mut detail, projection_warning);
     Ok(detail)
 }
 
 /// Restores a previously reverted import batch to the visible archive surface.
+///
+/// Failure modes guarded by the batch-scoped search refresh:
+/// - Shared URLs must retain visits from other batches and regular backups.
+/// - Restored visits must participate in keyword recall again.
+/// - A crash must not commit only part of the projection: all chunks share one
+///   search transaction after the existing canonical transaction commits.
+/// - Batch size must not determine memory use: each read covers at most 1,000 URLs.
 pub fn restore_import_batch(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -193,13 +208,14 @@ pub fn restore_import_batch(
         }),
     )?;
     transaction.commit()?;
-    let rebuild_warning = rebuild_search_projection(paths, config, key)
-        .err()
-        .map(|error| import_batch_projection_warning("Restore", error));
+    let projection_warning =
+        refresh_search_projection_for_import_batch(paths, config, key, batch_id)
+            .err()
+            .map(|error| import_batch_projection_warning("Restore", error));
 
     ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("restored"))?;
     let mut detail = preview_import_batch(paths, config, key, batch_id)?;
-    append_import_batch_projection_warning(&mut detail, rebuild_warning);
+    append_import_batch_projection_warning(&mut detail, projection_warning);
     Ok(detail)
 }
 
@@ -530,3 +546,7 @@ mod tests {
         assert_eq!(detail.note_details[0].code, "batch-restore-projection-rebuild-needed");
     }
 }
+
+#[cfg(test)]
+#[path = "batch_search_tests.rs"]
+mod search_tests;

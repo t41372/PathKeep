@@ -76,6 +76,85 @@ fn archive_scale_bench() {
     bench_encrypted(&encrypted_root, &encrypted);
 }
 
+/// Compares full-rebuild and incremental batch visibility changes on the same seeded archive.
+/// Run with PATHKEEP_IMPORT_BATCH_BENCH=1 and PATHKEEP_ARCHIVE_BENCH_DIR inside the checkout.
+#[test]
+fn import_batch_visibility_scale_bench() {
+    if std::env::var("PATHKEEP_IMPORT_BATCH_BENCH").as_deref() != Ok("1") {
+        return;
+    }
+    let visits = std::env::var("PATHKEEP_ARCHIVE_BENCH_VISITS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(1_000_000);
+    assert!(visits >= 1_000_000);
+    let temp = tempfile::tempdir_in(std::env::current_dir().expect("checkout"))
+        .expect("temporary benchmark directory");
+    let base = std::env::var_os("PATHKEEP_ARCHIVE_BENCH_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| temp.path().to_path_buf());
+    let root = base.join(format!("plain-{visits}"));
+    let mut config = seeded_archive(&root, visits, None);
+    config.git_enabled = false;
+    let paths = project_paths_with_root(&root);
+    save_config(&paths, &config).expect("benchmark config");
+    let mut archive = open_archive_connection(&paths, &config, None).expect("archive");
+    let transaction = archive.transaction().expect("batch transaction");
+    transaction
+        .execute(
+            "INSERT INTO import_batches (source_kind, source_path, profile_id, created_at,
+           imported_at, status, summary_json)
+         VALUES ('browser-history', '/bench', 'chrome:Default', '2026-01-01T00:00:00Z',
+           '2026-01-01T00:00:00Z', 'imported', '{\"importedItems\":10000}')",
+            [],
+        )
+        .expect("benchmark batch");
+    let batch_id = transaction.last_insert_rowid();
+    transaction
+        .execute(
+            "UPDATE visits SET import_batch_id = ?1
+         WHERE id IN (SELECT id FROM visits ORDER BY id DESC LIMIT 10000)",
+            [batch_id],
+        )
+        .expect("batch visits");
+    let affected: i64 = transaction
+        .query_row(
+            "SELECT COUNT(DISTINCT url_id) FROM visits WHERE import_batch_id = ?1",
+            [batch_id],
+            |row| row.get(0),
+        )
+        .expect("affected URLs");
+    transaction.commit().expect("batch commit");
+    drop(archive);
+    println!("\n## import batch visibility: {visits} visits, 10000 in batch, {affected} URLs");
+    let mut revert_samples = Vec::new();
+    let mut restore_samples = Vec::new();
+    for _ in 0..5 {
+        let started = Instant::now();
+        let detail =
+            vault_core::revert_import_batch(&paths, &config, None, batch_id).expect("revert batch");
+        revert_samples.push(started.elapsed());
+        assert_eq!(detail.batch.status, "reverted");
+        assert!(!detail.note_details.iter().any(|note| note.code.contains("rebuild-needed")));
+        let started = Instant::now();
+        let detail = vault_core::restore_import_batch(&paths, &config, None, batch_id)
+            .expect("restore batch");
+        restore_samples.push(started.elapsed());
+        assert_eq!(detail.batch.status, "imported");
+        assert!(!detail.note_details.iter().any(|note| note.code.contains("rebuild-needed")));
+    }
+    for (label, mut samples) in
+        [("revert_import_batch", revert_samples), ("restore_import_batch", restore_samples)]
+    {
+        samples.sort();
+        println!(
+            "| {label} | median {:.2} ms | max {:.2} ms |",
+            samples[2].as_secs_f64() * 1000.0,
+            samples[4].as_secs_f64() * 1000.0
+        );
+    }
+}
+
 fn bench_plaintext(root: &Path, config: &AppConfig, visits: u64) {
     let paths = project_paths_with_root(root);
     unsafe { std::env::set_var("CHB_PROJECT_ROOT", root) };
