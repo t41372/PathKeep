@@ -18,8 +18,6 @@ export const history = defineMessages({
       full: 'Full text',
       regex: 'Regex',
       semantic: 'Semantic',
-      semanticOff:
-        'Semantic search isn’t set up yet. Turn it on in Settings → AI.',
       invalidRegex: 'Invalid regex',
     },
     date: {
@@ -130,7 +128,6 @@ export const history = defineMessages({
       full: '全文',
       regex: '正则',
       semantic: '语义',
-      semanticOff: '还没有设置语义搜索。可以在“设置 → AI”里开启。',
       invalidRegex: '正则表达式无效',
     },
     date: {
@@ -241,7 +238,6 @@ export const history = defineMessages({
       full: '全文',
       regex: '正規',
       semantic: '語意',
-      semanticOff: '尚未設定語意搜尋。可以在「設定 → AI」中開啟。',
       invalidRegex: '正規表示式無效',
     },
     date: {

@@ -7,13 +7,11 @@
  * Not responsible for: row rendering, data fetching details or the panel's
  * contents (see the sibling files).
  */
-import { TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
-import { useSnapshot } from '@/lib/queries/app'
 import { DetailPanel } from './detail-panel'
 import { HistoryToolbar } from './history-toolbar'
 import { openInBrowser } from './open-link'
@@ -35,6 +33,9 @@ import {
 import { useBrowserCatalog, useStarCounts, useVisitList } from './queries'
 import { SitesView } from './sites-view'
 import { StarredView } from './starred-view'
+import { ResultsLine } from './results-line'
+import { useSemanticInfo, useSemanticReasonText } from './semantic-info'
+import { SemanticNote } from './semantic-status'
 import { StateMessage } from './state-message'
 import { tagQuery } from './tags'
 import { buildTimeline, visitRows, type TimelineRow } from './timeline-model'
@@ -43,6 +44,11 @@ import { useStars } from './use-stars'
 import { VisitRows } from './visit-rows'
 
 const SEARCH_DEBOUNCE_MS = 250
+
+/** The backend could not compile the pattern (something the dialect check does not catch). */
+function isRegexError(error: Error) {
+  return /invalid regex pattern|regex parse error/i.test(error.message)
+}
 
 /**
  * The query box. Typing is held locally and debounced into the URL; with
@@ -64,7 +70,6 @@ function useSearchDraft(q: string, commit: (q: string) => void) {
 
 export default function HistoryPage() {
   const { t } = useI18n()
-  const snapshot = useSnapshot()
   const { params, update } = useHistoryParams()
   const catalog = useBrowserCatalog()
   const starCounts = useStarCounts()
@@ -72,9 +77,9 @@ export default function HistoryPage() {
   const commitQuery = useCallback((q: string) => update({ q }), [update])
   const { value: draft, setDraft } = useSearchDraft(params.q, commitQuery)
 
-  const ai = snapshot.config.ai
-  const semanticAvailable =
-    ai.enabled && ai.semanticIndexEnabled && snapshot.aiStatus.ready
+  const semantic = useSemanticInfo()
+  const semanticAvailable = semantic.available
+  const semanticReasonText = useSemanticReasonText(semantic)
   const search = useMemo(
     () => resolveSearch(params.q, params.mode, semanticAvailable),
     [params.q, params.mode, semanticAvailable],
@@ -205,7 +210,6 @@ export default function HistoryPage() {
   )
   const clearFilters = () => update({ date: null, browser: null, domain: null })
 
-  const modeLabel = t(`history.modes.${search.mode}`)
   const starredCount = starCounts.data
     ? starCounts.data.urls + starCounts.data.domains
     : null
@@ -214,49 +218,21 @@ export default function HistoryPage() {
         ?.profileIds ?? null)
     : null
 
-  const resultsLine = (() => {
-    if (!searching) return null
-    if (search.regexError) {
+  const listContent = () => {
+    // A refused regex keeps the previous results on screen, dimmed.
+    if (search.regexError && items.length === 0) return null
+    if (list.isPending) return <StateMessage loading />
+    if (list.error && search.mode === 'regex' && isRegexError(list.error)) {
       return (
-        <span className="flex items-center gap-1.5 text-destructive">
-          <TriangleAlert className="size-3.5" aria-hidden />
-          {t('history.modes.invalidRegex')}
-        </span>
+        <StateMessage
+          icon="search"
+          title={t('historySearch.regex.backendTitle')}
+          body={t('historySearch.regex.backendBody', {
+            message: list.error.message,
+          })}
+        />
       )
     }
-    // Until the count lands, describe what is loaded: exact once every page is in.
-    const totals =
-      list.totals ??
-      (list.isPending || items.length === 0 || hasNextPage
-        ? null
-        : {
-            pages: items.length,
-            visits:
-              search.mode === 'semantic'
-                ? null
-                : items.reduce((sum, item) => sum + (item.visitCount ?? 0), 0),
-          })
-    if (!totals) {
-      return items.length > 0
-        ? t('history.results.pagesMore', {
-            count: items.length,
-            mode: modeLabel,
-          })
-        : null
-    }
-    const pages = t('common.pages', { count: totals.pages })
-    return totals.visits === null
-      ? t('history.results.pages', { pages, mode: modeLabel })
-      : t('history.results.pagesAndVisits', {
-          pages,
-          visits: t('common.visits', { count: totals.visits }),
-          mode: modeLabel,
-        })
-  })()
-
-  const listContent = () => {
-    if (search.regexError) return null
-    if (list.isPending) return <StateMessage loading />
     if (list.error) {
       return (
         <StateMessage
@@ -322,7 +298,7 @@ export default function HistoryPage() {
         onEndReached={onEndReached}
         scrollToIndex={scrollIndex}
         resetKey={resetKey}
-        dimmed={list.isPlaceholder}
+        dimmed={list.isPlaceholder || search.regexError !== null}
       />
     )
   }
@@ -348,18 +324,31 @@ export default function HistoryPage() {
         mode={search.mode}
         onMode={(mode: SearchMode) => update({ mode })}
         semanticAvailable={semanticAvailable}
-        invalidRegex={search.regexError}
+        semanticOffReason={semanticReasonText}
+        invalidRegex={search.regexError !== null}
+        onExample={(query) => {
+          setDraft(query)
+          // Operators are full-text syntax; a /regex/ example works in any mode.
+          if (!query.startsWith('/')) update({ mode: 'full' })
+        }}
       />
       <div className="flex min-h-0 flex-1">
         <section className="flex min-w-0 flex-1 flex-col">
-          {resultsLine && (
+          {searching && (
             <p
-              className="px-7 pt-3.5 pb-1.5 text-[13px] text-muted-foreground"
+              className="min-h-[38px] px-7 pt-3.5 pb-1.5 text-[13px] text-muted-foreground"
               aria-live="polite"
             >
-              {resultsLine}
+              <ResultsLine search={search} list={list} items={items} />
             </p>
           )}
+          {searching &&
+            (search.mode === 'semantic' || params.mode === 'semantic') && (
+              <SemanticNote
+                info={semantic}
+                active={search.mode === 'semantic'}
+              />
+            )}
           {showList ? (
             listContent()
           ) : params.view === 'sites' ? (
