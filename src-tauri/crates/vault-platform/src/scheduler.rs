@@ -53,8 +53,19 @@ pub(super) enum SchedulerHost {
 }
 
 impl SchedulerHost {
-    fn resolve() -> Self {
-        crate::sandbox::sandbox_dir().map_or(Self::Native, Self::Sandbox)
+    /// Picks the sandbox when it is on, otherwise the real scheduler, which a
+    /// debug run with a moved project root is not allowed to reach
+    /// (see `crate::sandbox::ensure_native_os_allowed`).
+    ///
+    /// Only the platforms that call a native scheduler resolve a host; the
+    /// manual-only Linux path never does, so it keeps working under the guard.
+    fn resolve(platform: &str) -> Result<Self> {
+        if let Some(dir) = crate::sandbox::sandbox_dir() {
+            return Ok(Self::Sandbox(dir));
+        }
+        let service = if platform == "windows" { "Task Scheduler" } else { "launchd scheduler" };
+        crate::sandbox::ensure_native_os_allowed(service)?;
+        Ok(Self::Native)
     }
 }
 
@@ -162,26 +173,24 @@ pub(crate) fn enclosing_app_bundle(path: &Path) -> Option<&Path> {
 
 /// Applies a previously previewed native schedule plan when the platform supports it.
 pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
-    let host = SchedulerHost::resolve();
     if plan.platform == "windows" {
-        return windows::apply_windows_schedule(&host, plan, paths);
+        return windows::apply_windows_schedule(&SchedulerHost::resolve("windows")?, plan, paths);
     }
     if plan.platform != "macos" {
         return Ok(unsupported_action(plan, "Apply"));
     }
-    macos::apply_macos_schedule(&host, plan, paths)
+    macos::apply_macos_schedule(&SchedulerHost::resolve("macos")?, plan, paths)
 }
 
 /// Removes a previously applied native schedule plan when the platform supports it.
 pub fn remove_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
-    let host = SchedulerHost::resolve();
     if plan.platform == "windows" {
-        return windows::remove_windows_schedule(&host, plan, paths);
+        return windows::remove_windows_schedule(&SchedulerHost::resolve("windows")?, plan, paths);
     }
     if plan.platform != "macos" {
         return Ok(unsupported_action(plan, "Remove"));
     }
-    macos::remove_macos_schedule(&host, plan, paths)
+    macos::remove_macos_schedule(&SchedulerHost::resolve("macos")?, plan, paths)
 }
 
 /// Repairs user-confirmed scheduler problems that PathKeep knows how to fix.
@@ -189,7 +198,7 @@ pub fn repair_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Appl
     if plan.platform != "macos" {
         return Ok(unsupported_action(plan, "Repair"));
     }
-    macos::repair_macos_schedule(&SchedulerHost::resolve(), plan, paths)
+    macos::repair_macos_schedule(&SchedulerHost::resolve("macos")?, plan, paths)
 }
 
 /// Reports install/due-state information for the native scheduler plan.
@@ -200,7 +209,6 @@ pub fn schedule_status(
     params: &ScheduleParameters,
 ) -> Result<ScheduleStatus> {
     let plan = preview_schedule(platform, executable_path, paths, params)?;
-    let host = SchedulerHost::resolve();
     let mut status = ScheduleStatus {
         platform: plan.platform.clone(),
         label: plan.label.clone(),
@@ -220,7 +228,11 @@ pub fn schedule_status(
     };
 
     if plan.platform == "windows" {
-        return windows::windows_schedule_status(&host, &plan, status);
+        return windows::windows_schedule_status(
+            &SchedulerHost::resolve("windows")?,
+            &plan,
+            status,
+        );
     }
 
     if plan.platform != "macos" {
@@ -241,7 +253,7 @@ pub fn schedule_status(
         });
         return Ok(status);
     }
-    macos::macos_schedule_status(&host, &plan, status)
+    macos::macos_schedule_status(&SchedulerHost::resolve("macos")?, &plan, status)
 }
 
 fn unsupported_action(plan: &SchedulePlan, action: &str) -> ApplyResult {

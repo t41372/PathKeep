@@ -262,7 +262,7 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 - **順序**：查排程狀態並產生移除用的 plan（此時 config 還在）→ 取得 in-process gate 與跨程序 write lock → 寫 `.pk-wipe-in-progress.json` marker（含要清的 provider id 與排程 plan）→ 刪 `config.json`（所有背景 worker 迴圈在下一次檢查時停）→ 要求執行中的 AI / intelligence job 停止、取消 chat 與模型下載、等背景 worker 結束（最多 30 秒）→ 刪檔 → 清 keychain → 走排程器既有的 remove 路徑移除自動備份 → 刪 marker。執行後 `app_snapshot` 回報 not initialized，前端導回 onboarding；desktop session key 一併清除。
 - **排程移除失敗**：排在檔案之後，失敗時資料已經刪完。不讓整個刪除失敗：app 仍是 not initialized，marker 照樣刪（留著會讓每次啟動與每次 onboarding 重跑刪除，OS 不讓移除的 task 會永遠擋住設定），`WipeReport.scheduleError` 帶原因；對話框先顯示「資料已刪除，但自動備份沒能移除…設定完成後到「備份」關閉」，按「繼續」才回 onboarding。
 - **中斷**：marker 存在代表刪除未完成。啟動時（Tauri setup）與 `initialize_archive` 開頭會先把它做完（包含 marker 裡記下的排程），onboarding 不可能重新打開半刪的 archive。
-- **測試與開發**：debug build 設了 `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR` 時排程讀寫沙盒檔案；Rust 測試與 E2E 都在沙盒裡裝一個排程再刪除，確認不留下任何 task。沒設沙盒的 debug build（例如直接 `tauri dev`）跟正式版一樣操作真的排程器；測試裡呼叫 wipe 一定要先設沙盒。
+- **測試與開發**：debug build 設了 `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR` 時排程讀寫沙盒檔案；Rust 測試與 E2E 都在沙盒裡裝一個排程再刪除，確認不留下任何 task。沒設沙盒的 debug build（例如直接 `tauri dev`）跟正式版一樣操作真的排程器；但 debug build 若用 `CHB_PROJECT_ROOT` 改了 project root 卻沒設沙盒，排程（macOS / Windows 的狀態、安裝、移除、修復）與開機啟動一律拒絕並回報要設哪個變數，不會讀到或改到開發者自己的 LaunchAgent / Task Scheduler / 登入項目（Linux 只有手動設定，不受影響）。測試裡呼叫 wipe 一定要先設沙盒。
 - 實作與失效模式清單見 `src-tauri/crates/vault-core/src/archive/wipe.rs` 檔頭。
 
 舊版基於 S3 的 cloud backup 已在 2026-05-25 移除（feedback-2026-05-25 §2.2），所有 `preview_remote_backup` / `run_remote_backup` / `verify_remote_backup` / `store_s3_credentials` / `clear_s3_credentials` command、`RemoteBackupConfig` schema 與相關 Settings UI 一併刪除。

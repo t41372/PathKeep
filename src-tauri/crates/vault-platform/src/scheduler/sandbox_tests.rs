@@ -189,3 +189,47 @@ fn release_builds_ignore_the_sandbox_for_scheduler_calls() {
     assert_eq!(native_call_count(), before + 2, "release must use the native scheduler");
     assert!(!sandbox.exists(), "release wrote into the sandbox");
 }
+
+/// A run that moved its project root but forgot the sandbox must not read or
+/// change the real scheduler or login item (`crate::sandbox` failure mode 7).
+#[test]
+#[cfg(debug_assertions)]
+fn moved_project_root_without_a_sandbox_never_reaches_the_native_scheduler() {
+    use crate::sandbox::PROJECT_ROOT_OVERRIDE_ENV;
+    let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let project = dir.path().join("project");
+    // Decoy: if status fell through to the older override, it would read here.
+    let decoy_agents = dir.path().join("decoy-agents");
+    let original_sandbox = std::env::var_os(SANDBOX_DIR_ENV);
+    unsafe { std::env::remove_var(SANDBOX_DIR_ENV) };
+    let _env = EnvVars::set(&[
+        (PROJECT_ROOT_OVERRIDE_ENV, project.as_os_str()),
+        (TEST_LAUNCH_AGENTS_DIR_ENV, decoy_agents.as_os_str()),
+    ]);
+    let paths = vault_core::config::project_paths_with_root(&project);
+    let executable = Path::new("/tmp/pathkeep-desktop");
+    let native_calls_before = native_call_count();
+
+    let plan = preview_schedule(Some("macos"), executable, &paths, &params()).expect("preview");
+    let refused = [
+        schedule_status(Some("macos"), executable, &paths, &params()).map(|_| ()),
+        schedule_status(Some("windows"), executable, &paths, &params()).map(|_| ()),
+        apply_schedule(&plan, &paths).map(|_| ()),
+        remove_schedule(&plan, &paths).map(|_| ()),
+        repair_schedule(&plan, &paths).map(|_| ()),
+        crate::login_item::login_item_store().map(|_| ()),
+    ];
+    // Linux setup is manual: nothing native is touched, so status still works.
+    let linux = schedule_status(Some("linux"), executable, &paths, &params());
+    restore_env_var(SANDBOX_DIR_ENV, original_sandbox.as_deref());
+
+    for result in refused {
+        let message = result.expect_err("must refuse").to_string();
+        assert!(message.contains(SANDBOX_DIR_ENV), "{message}");
+    }
+    assert_eq!(linux.expect("linux status").install_state, "manual-review");
+    assert!(!decoy_agents.exists(), "status read a LaunchAgents folder");
+    assert!(!paths.audit_repo_path.join("scheduler").exists(), "an audit file was written");
+    assert_eq!(native_call_count(), native_calls_before, "a native scheduler call happened");
+}

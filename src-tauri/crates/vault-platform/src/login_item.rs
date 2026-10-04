@@ -28,7 +28,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::sandbox::{LOGIN_ITEMS_SUBDIR, sandbox_dir};
+use crate::sandbox::{LOGIN_ITEMS_SUBDIR, ensure_native_os_allowed, sandbox_dir};
 
 /// Argument the login item passes, so the app knows it was started at login.
 pub const LAUNCHED_AT_LOGIN_ARG: &str = "--launched-at-login";
@@ -44,10 +44,15 @@ pub struct LoginItemStore {
 
 /// Returns where the login item lives, or `None` when the caller should use
 /// the platform's own mechanism (Windows / Linux outside the sandbox).
+///
+/// Errors in a debug build whose project root is moved but has no sandbox,
+/// before either the real LaunchAgents folder or the autostart plugin is
+/// reached (see `crate::sandbox::ensure_native_os_allowed`).
 pub fn login_item_store() -> Result<Option<LoginItemStore>> {
     if let Some(sandbox) = sandbox_dir() {
         return Ok(Some(LoginItemStore::at(sandbox.join(LOGIN_ITEMS_SUBDIR))));
     }
+    ensure_native_os_allowed("login items")?;
     native_login_item_store()
 }
 
