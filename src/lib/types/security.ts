@@ -37,6 +37,13 @@ export interface KeyringStatusReport {
 export interface RekeyRequest {
   newMode: ArchiveMode
   newKey?: string | null
+  /**
+   * The archive's current password. The backend refuses to change the
+   * password of, or decrypt, an encrypted archive without it
+   * (`archive-password-required` / `archive-password-wrong`); a plaintext
+   * archive has none, so encrypting one leaves it out.
+   */
+  currentKey?: string | null
 }
 
 /**

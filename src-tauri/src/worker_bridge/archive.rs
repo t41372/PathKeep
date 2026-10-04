@@ -38,13 +38,16 @@ pub(crate) fn assess_archive_upgrade_impl(
 }
 
 /// Rekeys the archive and updates the cached session key to the new key.
+///
+/// The session key is deliberately not passed down: the worker opens the
+/// archive with the request's current password once it has proved that
+/// password opens the file, so holding an unlocked session is not enough to
+/// change or remove the archive's encryption.
 pub(crate) fn rekey_archive_impl(
     request: RekeyRequest,
     state: &SessionState,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    let old_key = session_key(state);
-    let snapshot =
-        worker_result(vault_worker::rekey_archive_database(old_key.as_deref(), &request))?;
+    let snapshot = worker_result(vault_worker::rekey_archive_database(&request))?;
     update_session_key(state, request.new_key)?;
     Ok(snapshot)
 }
@@ -58,12 +61,12 @@ pub(crate) fn reconcile_archive_encryption_impl(
     worker_result(vault_worker::reconcile_archive_encryption(session_key(state).as_deref()))
 }
 
-/// Previews the impact of an archive rekey/mode switch.
+/// Previews the impact of an archive rekey/mode switch, refusing a wrong
+/// current password the same way the rekey would.
 pub(crate) fn preview_rekey_archive_impl(
     request: RekeyRequest,
-    state: &SessionState,
 ) -> Result<vault_core::RekeyPreview, CommandError> {
-    worker_result(vault_worker::preview_rekey_archive(session_key(state).as_deref(), &request))
+    worker_result(vault_worker::preview_rekey_archive(&request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

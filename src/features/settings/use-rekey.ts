@@ -20,10 +20,23 @@ export type RekeyMode = 'encrypt' | 'change' | 'decrypt'
 /** Same rule onboarding uses for a new archive password. */
 export const ARCHIVE_PASSWORD_MIN_LENGTH = 10
 
-export function rekeyRequest(mode: RekeyMode, password: string): RekeyRequest {
+/** What the user typed: the new password, and the current one unless encrypting. */
+export interface RekeySecrets {
+  password: string
+  current: string
+}
+
+/** Only changing and decrypting send the current password; a plaintext archive has none. */
+export const needsCurrentPassword = (mode: RekeyMode) => mode !== 'encrypt'
+
+export function rekeyRequest(
+  mode: RekeyMode,
+  { password, current }: RekeySecrets,
+): RekeyRequest {
+  const currentKey = needsCurrentPassword(mode) ? current : null
   return mode === 'decrypt'
-    ? { newMode: 'Plaintext', newKey: null }
-    : { newMode: 'Encrypted', newKey: password }
+    ? { newMode: 'Plaintext', newKey: null, currentKey }
+    : { newMode: 'Encrypted', newKey: password, currentKey }
 }
 
 export interface RekeyOutcome {
@@ -37,13 +50,14 @@ export function useRekey() {
   return useCallback(
     async (
       mode: RekeyMode,
-      password: string,
+      secrets: RekeySecrets,
       keepInKeychain: boolean,
     ): Promise<RekeyOutcome> => {
+      const { password } = secrets
       // Let the busy state paint before the long rewrite starts.
       await waitForNextPaint()
       const snapshot = await securityClient.executeRekey(
-        rekeyRequest(mode, password),
+        rekeyRequest(mode, secrets),
       )
       client.setQueryData(queryKeys.snapshot, snapshot)
 

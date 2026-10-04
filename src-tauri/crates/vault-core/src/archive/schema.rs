@@ -171,6 +171,38 @@ pub(crate) fn apply_cipher_key(connection: &Connection, key: &str) -> Result<()>
     Ok(())
 }
 
+/// Whether `key` decrypts the canonical encrypted archive on disk.
+///
+/// Exists so a caller can prove it knows the archive password before an
+/// operation that would replace or remove it (rekey, decrypt). The file is the
+/// only authority: a key held in memory or in the keychain says nothing about
+/// what the file accepts. Reads one page (the schema) and writes nothing, so it
+/// stays cheap at 14.4M visits; the cost is SQLCipher's fixed key derivation,
+/// which is the same for every candidate and never compares password bytes.
+///
+/// Returns `Ok(false)` only for SQLCipher's "not a database" answer, which is
+/// what a wrong key produces. Any other failure (missing file, busy, I/O) is an
+/// error, so it is never mistaken for a wrong password.
+pub fn archive_key_opens(paths: &ProjectPaths, key: &str) -> Result<bool> {
+    if !paths.archive_database_path.exists() {
+        anyhow::bail!("archive database does not exist");
+    }
+    let connection = Connection::open(&paths.archive_database_path)
+        .with_context(|| format!("opening {}", paths.archive_database_path.display()))?;
+    connection.busy_timeout(StdDuration::from_secs(5))?;
+    apply_cipher_key(&connection, key)?;
+    match connection.query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get::<_, i64>(0))
+    {
+        Ok(_) => Ok(true),
+        Err(rusqlite::Error::SqliteFailure(error, _))
+            if error.code == rusqlite::ErrorCode::NotADatabase =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error).context("reading the archive to check its password"),
+    }
+}
+
 /// Exports the current archive database to a portable file path.
 pub(crate) fn export_archive_database(
     source: &Connection,

@@ -35,13 +35,33 @@ use vault_platform::{
 /// The worker keeps this as a simple transport struct: it describes the target
 /// archive mode plus the optional new key material, while the actual
 /// preview/execute semantics stay in `vault-core`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Debug` is written by hand so the keys never reach a log line.
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RekeyRequest {
     /// The archive mode to end up with after the rewrite finishes.
     pub new_mode: ArchiveMode,
     /// The new database key when the target mode is encrypted.
     pub new_key: Option<String>,
+    /// The archive's current password. Required whenever the archive is
+    /// encrypted (changing the password or decrypting), so that someone at an
+    /// unlocked window cannot take the archive over; ignored for a plaintext
+    /// archive, which has none. See [`crate::current_password`].
+    #[serde(default)]
+    pub current_key: Option<String>,
+}
+
+impl std::fmt::Debug for RekeyRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let redacted = |key: &Option<String>| key.as_ref().map(|_| "<redacted>");
+        formatter
+            .debug_struct("RekeyRequest")
+            .field("new_mode", &self.new_mode)
+            .field("new_key", &redacted(&self.new_key))
+            .field("current_key", &redacted(&self.current_key))
+            .finish()
+    }
 }
 
 fn snapshot_runtime_diagnostics(paths: &vault_core::ProjectPaths) -> RuntimeDiagnostics {
@@ -428,12 +448,13 @@ pub fn parse_archive_recovery_required(message: &str) -> Option<ArchiveRecoveryR
 }
 
 /// Executes a rekey/mode-switch request and returns the post-rewrite snapshot.
-pub fn rekey_archive_database(
-    old_key: Option<&str>,
-    request: &RekeyRequest,
-) -> Result<AppSnapshot> {
+///
+/// The archive is opened with the request's verified current password, never
+/// with a key the caller merely holds (see [`crate::current_password`]).
+pub fn rekey_archive_database(request: &RekeyRequest) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
+    let old_key = crate::current_password::verified_current_key(&paths, &config, request)?;
     rekey_archive(&paths, &config, old_key, request.new_mode.clone(), request.new_key.as_deref())?;
     let mut next_config = config;
     next_config.archive_mode = request.new_mode.clone();

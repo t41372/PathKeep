@@ -116,7 +116,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "preview_rekey_archive" => {
             let payload = parse_payload::<WrappedRequest<RekeyRequest>>(payload)?;
-            json_value!(worker_bridge::preview_rekey_archive_impl(payload.request, &state.session)?)
+            json_value!(worker_bridge::preview_rekey_archive_impl(payload.request)?)
         }
         "rekey_archive" => {
             let payload = parse_payload::<WrappedRequest<RekeyRequest>>(payload)?;

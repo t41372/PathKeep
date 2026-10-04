@@ -74,9 +74,6 @@ pub struct RekeyPreview {
     pub warning_codes: Vec<String>,
 }
 
-/// Stable code for "the archive is locked; unlock before executing the rekey".
-pub const REKEY_WARNING_ARCHIVE_LOCKED: &str = "archive-locked";
-
 /// Stable code for "an encrypted rekey still needs its new database key".
 pub const REKEY_WARNING_NEW_KEY_REQUIRED: &str = "new-key-required";
 

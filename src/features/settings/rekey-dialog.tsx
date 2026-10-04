@@ -2,6 +2,10 @@
  * Encrypt, change the password of, or decrypt the archive. Three steps:
  * choose the new password (or confirm decrypting), see what will happen
  * (`preview_rekey_archive`), then run it (`rekey_archive`).
+ *
+ * Changing the password and decrypting first ask for the current password;
+ * the backend checks it against the archive file on both steps, so an
+ * unlocked window alone cannot take the archive over.
  */
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -16,11 +20,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { securityClient } from '@/lib/backend-client/security'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
+import { commandErrorCode } from '@/lib/ipc/command-error'
 import { useSnapshot } from '@/lib/queries/app'
 import type { RekeyPreview } from '@/lib/types'
 import { emptySecret, secretProblem, type NewSecret } from './new-secret'
@@ -28,16 +34,22 @@ import { NewSecretFields } from './new-secret-fields'
 import { Notice } from './notice'
 import {
   ARCHIVE_PASSWORD_MIN_LENGTH,
+  needsCurrentPassword,
   rekeyRequest,
   useRekey,
   type RekeyMode,
 } from './use-rekey'
 
-const knownWarnings = [
-  'archive-locked',
-  'new-key-required',
-  'same-mode-rewrite',
+/** Backend codes for a missing or wrong current password (`command_error.rs`). */
+const currentPasswordCodes = [
+  'archive-password-required',
+  'archive-password-wrong',
 ] as const
+
+const isCurrentPasswordError = (error: unknown) =>
+  currentPasswordCodes.includes(
+    commandErrorCode(error) as (typeof currentPasswordCodes)[number],
+  )
 
 export function RekeyDialog({
   mode,
@@ -64,25 +76,28 @@ function RekeyFlow({
   const snapshot = useSnapshot()
   const keyring = snapshot.keyringStatus
   const rekey = useRekey()
+  const [current, setCurrent] = useState('')
   const [secret, setSecret] = useState<NewSecret>(emptySecret)
   const [keep, setKeep] = useState(
     keyring.available && (mode === 'encrypt' || keyring.storedSecret),
   )
   const [preview, setPreview] = useState<RekeyPreview | null>(null)
 
+  const needsCurrent = needsCurrentPassword(mode)
   const needsPassword = mode !== 'decrypt'
-  const passwordReady =
-    !needsPassword ||
-    secretProblem(secret, ARCHIVE_PASSWORD_MIN_LENGTH) === null
+  const ready =
+    (!needsCurrent || current.length > 0) &&
+    (!needsPassword ||
+      secretProblem(secret, ARCHIVE_PASSWORD_MIN_LENGTH) === null)
+  const secrets = { password: secret.value, current }
 
   const load = useMutation({
-    mutationFn: () =>
-      securityClient.previewRekey(rekeyRequest(mode, secret.value)),
+    mutationFn: () => securityClient.previewRekey(rekeyRequest(mode, secrets)),
     onSuccess: setPreview,
   })
 
   const run = useMutation({
-    mutationFn: () => rekey(mode, secret.value, keep),
+    mutationFn: () => rekey(mode, secrets, keep),
     onSuccess: ({ keychainFailed }) => {
       toast.success(t(`settings.security.rekey.done.${mode}`))
       if (keychainFailed) {
@@ -90,10 +105,14 @@ function RekeyFlow({
       }
       onClose()
     },
+    // The password check runs on the first step; if it fails here the user
+    // has to fix the password there.
+    onError: (error) => isCurrentPasswordError(error) && setPreview(null),
   })
 
   const busy = load.isPending || run.isPending
   const error = load.error ?? run.error
+  const wrongCurrent = error !== null && isCurrentPasswordError(error)
 
   return (
     <DialogContent
@@ -108,7 +127,7 @@ function RekeyFlow({
           event.preventDefault()
           if (busy) return
           if (!preview) {
-            if (passwordReady) load.mutate()
+            if (ready) load.mutate()
           } else {
             run.mutate()
           }
@@ -123,6 +142,31 @@ function RekeyFlow({
           </DialogDescription>
         </DialogHeader>
 
+        {!preview && needsCurrent && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="rekey-current">
+              {t('settings.security.rekey.currentPassword')}
+            </Label>
+            <Input
+              id="rekey-current"
+              type="password"
+              autoComplete="current-password"
+              autoFocus
+              disabled={busy}
+              value={current}
+              aria-invalid={wrongCurrent}
+              aria-describedby={wrongCurrent ? 'rekey-error' : undefined}
+              onChange={(event) => {
+                setCurrent(event.target.value)
+                if (wrongCurrent) {
+                  load.reset()
+                  run.reset()
+                }
+              }}
+            />
+          </div>
+        )}
+
         {!preview && needsPassword && (
           <>
             <NewSecretFields
@@ -132,6 +176,7 @@ function RekeyFlow({
               minLength={ARCHIVE_PASSWORD_MIN_LENGTH}
               onChange={setSecret}
               disabled={busy}
+              autoFocus={!needsCurrent}
             />
             {keyring.available && (
               <div className="flex items-center gap-2">
@@ -165,15 +210,18 @@ function RekeyFlow({
 
         {error && (
           <p
+            id="rekey-error"
             role="alert"
             className="text-[13px] [overflow-wrap:anywhere] text-destructive"
           >
-            {t(
-              run.error
-                ? 'settings.security.rekey.failed'
-                : 'settings.security.rekey.previewFailed',
-              { message: describeError(error) },
-            )}
+            {wrongCurrent
+              ? t('settings.security.rekey.wrongCurrent')
+              : t(
+                  run.error
+                    ? 'settings.security.rekey.failed'
+                    : 'settings.security.rekey.previewFailed',
+                  { message: describeError(error) },
+                )}
           </p>
         )}
 
@@ -200,7 +248,7 @@ function RekeyFlow({
           <Button
             type="submit"
             variant={preview && mode === 'decrypt' ? 'destructive' : 'default'}
-            disabled={busy || !passwordReady}
+            disabled={busy || !ready}
           >
             {busy && <Spinner />}
             {preview
@@ -222,14 +270,14 @@ function PreviewSteps({
 }) {
   const { t } = useI18n()
   const codes = preview.warningCodes ?? []
-  const warnings = preview.warnings.map((prose, index) => {
-    const code = codes[index]
-    // "Enter a new password" can't happen here: the form already required one.
-    if (code === 'new-key-required' || code === 'same-mode-rewrite') return null
-    return knownWarnings.includes(code as (typeof knownWarnings)[number])
-      ? t(`settings.security.rekey.warning.${code as 'archive-locked'}`)
-      : prose
-  })
+  // "Enter a new password" can't happen here: the form already required one.
+  // A same-mode rewrite is what changing the password is. Anything else the
+  // backend adds later is shown as it wrote it.
+  const warnings = preview.warnings.filter(
+    (_, index) =>
+      codes[index] !== 'new-key-required' &&
+      codes[index] !== 'same-mode-rewrite',
+  )
 
   return (
     <div className="flex flex-col gap-3">
@@ -257,14 +305,11 @@ function PreviewSteps({
           {t('settings.security.rekey.plainWarning')}
         </Notice>
       )}
-      {warnings.map(
-        (warning, index) =>
-          warning && (
-            <Notice key={index} tone="warning">
-              {warning}
-            </Notice>
-          ),
-      )}
+      {warnings.map((warning, index) => (
+        <Notice key={index} tone="warning">
+          {warning}
+        </Notice>
+      ))}
     </div>
   )
 }

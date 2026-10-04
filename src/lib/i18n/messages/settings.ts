@@ -99,9 +99,13 @@ export const settings = defineMessages({
         },
         intro: {
           encrypt: 'Choose a password. You’ll need it to open your history.',
-          change: 'Choose a new password. The old one stops working.',
-          decrypt: 'PathKeep will store your history without encryption.',
+          change:
+            'Enter the current password, then choose a new one. The old one stops working.',
+          decrypt:
+            'Enter the current password. PathKeep will then store your history without encryption.',
         },
+        currentPassword: 'Current password',
+        wrongCurrent: 'That is not the current password. Nothing was changed.',
         newPassword: 'New password',
         keepInKeychain: 'Save it in the system keychain',
         noReset:
@@ -115,9 +119,6 @@ export const settings = defineMessages({
         },
         plainWarning:
           'Anyone who can read your files will be able to read your history.',
-        warning: {
-          'archive-locked': 'The archive is locked. Unlock it first.',
-        },
         run: {
           encrypt: 'Encrypt',
           change: 'Change password',
@@ -266,9 +267,11 @@ export const settings = defineMessages({
         },
         intro: {
           encrypt: '设置一个密码，以后打开你的历史需要用到它。',
-          change: '设置新密码，旧密码会失效。',
-          decrypt: 'PathKeep 会以不加密的方式保存你的历史。',
+          change: '先输入当前密码，再设置新密码。旧密码会失效。',
+          decrypt: '先输入当前密码，PathKeep 会改以不加密的方式保存你的历史。',
         },
+        currentPassword: '当前密码',
+        wrongCurrent: '这不是当前密码，存档没有改动。',
         newPassword: '新密码',
         keepInKeychain: '存到系统钥匙串',
         noReset:
@@ -281,9 +284,6 @@ export const settings = defineMessages({
           swap: '只有每一步都成功，新文件才会替换旧文件。副本会保留，需要时可以退回。',
         },
         plainWarning: '能读取你文件的人都能看到你的历史。',
-        warning: {
-          'archive-locked': '存档已锁定，请先解锁。',
-        },
         run: {
           encrypt: '加密',
           change: '更改密码',
@@ -429,9 +429,12 @@ export const settings = defineMessages({
         },
         intro: {
           encrypt: '設定一組密碼，之後開啟你的歷史需要用到它。',
-          change: '設定新密碼，舊密碼會失效。',
-          decrypt: 'PathKeep 會以不加密的方式儲存你的歷史。',
+          change: '先輸入目前的密碼，再設定新密碼。舊密碼會失效。',
+          decrypt:
+            '先輸入目前的密碼，PathKeep 會改以不加密的方式儲存你的歷史。',
         },
+        currentPassword: '目前的密碼',
+        wrongCurrent: '這不是目前的密碼，存檔沒有變動。',
         newPassword: '新密碼',
         keepInKeychain: '存到系統鑰匙圈',
         noReset:
@@ -444,9 +447,6 @@ export const settings = defineMessages({
           swap: '只有每一步都成功，新檔案才會取代舊檔案。副本會保留，需要時可以退回。',
         },
         plainWarning: '能讀取你檔案的人都能看到你的歷史。',
-        warning: {
-          'archive-locked': '存檔已鎖定，請先解鎖。',
-        },
         run: {
           encrypt: '加密',
           change: '更改密碼',

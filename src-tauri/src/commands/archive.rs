@@ -82,11 +82,9 @@ pub(crate) async fn reconcile_archive_encryption(
 /// Previews the archive rekey plan before any encryption-mode mutation happens, off the UI thread.
 pub(crate) async fn preview_rekey_archive(
     request: RekeyRequest,
-    state: State<'_, SessionState>,
 ) -> Result<vault_core::RekeyPreview, CommandError> {
-    let session = state.inner().clone();
     run_blocking_command("preview_rekey_archive", move || {
-        worker_bridge::preview_rekey_archive_impl(request, &session)
+        worker_bridge::preview_rekey_archive_impl(request)
     })
     .await
 }

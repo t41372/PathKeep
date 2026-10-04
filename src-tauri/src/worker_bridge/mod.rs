@@ -727,16 +727,18 @@ mod tests {
         );
         let _ = get_multi_browser_diff_impl(scoped, session_key(&session).as_deref());
 
-        let rekey_preview = preview_rekey_archive_impl(
-            RekeyRequest { new_mode: ArchiveMode::Encrypted, new_key: None },
-            &session,
-        )
+        let rekey_preview = preview_rekey_archive_impl(RekeyRequest {
+            new_mode: ArchiveMode::Encrypted,
+            new_key: None,
+            current_key: None,
+        })
         .expect("preview rekey archive");
         assert!(rekey_preview.requires_new_key);
         let rekeyed_snapshot = rekey_archive_impl(
             RekeyRequest {
                 new_mode: ArchiveMode::Encrypted,
                 new_key: Some("vault-passphrase".to_string()),
+                current_key: None,
             },
             &session,
         )

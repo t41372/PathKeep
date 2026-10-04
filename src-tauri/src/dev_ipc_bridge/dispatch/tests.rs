@@ -283,6 +283,73 @@ async fn blocking_join_failures_report_the_command_without_a_remediation_code() 
     assert_eq!(failure.retry_hint, None);
 }
 
+#[test]
+fn dispatch_rekey_cannot_borrow_the_session_key_instead_of_the_current_password() {
+    // The dev bridge is the path an automation (or anyone with the localhost port) uses.
+    // Holding an unlocked session must not be enough to change or remove the encryption:
+    // a wrong or missing `currentKey` is refused even though the session holds the right
+    // key, and the right `currentKey` works even when the session holds none.
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = dir.path().join("chrome-user-data");
+    std::fs::create_dir_all(&chrome_root).expect("chrome root");
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
+    }
+    let password = "correct horse battery";
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    let config = AppConfig { archive_mode: ArchiveMode::Encrypted, ..test_config() };
+    ready_block_on(dispatch_command(
+        &state,
+        "initialize_archive",
+        json!({ "config": config, "databaseKey": password }),
+    ))
+    .expect("initialize encrypted archive");
+    assert_eq!(session_key(&state.session).as_deref(), Some(password));
+
+    let refusals = [
+        ("preview_rekey_archive", json!({ "newMode": "Plaintext", "newKey": null })),
+        ("rekey_archive", json!({ "newMode": "Plaintext", "newKey": null })),
+        (
+            "rekey_archive",
+            json!({ "newMode": "Encrypted", "newKey": "intruder password", "currentKey": "guess" }),
+        ),
+    ];
+    for (command, request) in refusals {
+        let error =
+            ready_block_on(dispatch_command(&state, command, json!({ "request": request })))
+                .expect_err("refused without the current password");
+        let expected = if request.get("currentKey").is_some() {
+            crate::command_error::ERROR_CODE_ARCHIVE_PASSWORD_WRONG
+        } else {
+            crate::command_error::ERROR_CODE_ARCHIVE_PASSWORD_REQUIRED
+        };
+        assert_eq!(error.code.as_deref(), Some(expected), "{command}: {}", error.message);
+        assert!(!error.message.contains("intruder password") && !error.message.contains("guess"));
+    }
+    assert_eq!(session_key(&state.session).as_deref(), Some(password));
+
+    ready_block_on(dispatch_command(&state, "clear_session_database_key", json!({})))
+        .expect("clear session key");
+    let snapshot = ready_block_on(dispatch_command(
+        &state,
+        "rekey_archive",
+        json!({ "request": { "newMode": "Encrypted", "newKey": "next password", "currentKey": password } }),
+    ))
+    .expect("the right current password works without a session key");
+    assert_eq!(snapshot["archiveStatus"]["unlocked"], json!(true));
+    assert_eq!(session_key(&state.session).as_deref(), Some("next password"));
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
+}
+
 fn wrapped<T: Serialize>(request: T) -> Value {
     json!({ "request": request })
 }
@@ -458,7 +525,11 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(
         &state,
         "preview_rekey_archive",
-        wrapped(RekeyRequest { new_mode: ArchiveMode::Encrypted, new_key: None }),
+        wrapped(RekeyRequest {
+            new_mode: ArchiveMode::Encrypted,
+            new_key: None,
+            current_key: None,
+        }),
     );
     dispatch_for_coverage(
         &state,
@@ -466,6 +537,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         wrapped(RekeyRequest {
             new_mode: ArchiveMode::Encrypted,
             new_key: Some("dispatch-passphrase".to_string()),
+            current_key: None,
         }),
     );
     dispatch_for_coverage(
