@@ -170,6 +170,32 @@ pub fn validate_app_lock_config_with_biometric(
     config: &AppConfig,
     biometric_state: AppLockBiometricState,
 ) -> Result<()> {
+    validate_app_lock(paths, config, Some(biometric_state))
+}
+
+/// Validates a config about to replace `previous`.
+///
+/// Exists because Touch ID can be unavailable for a while after it was turned
+/// on (a closed MacBook lid, too many failed tries). Availability is checked
+/// only when the switch goes from off to on; afterwards an unrelated Settings
+/// change must still save, and unlocking already falls back to the passcode
+/// with its own message when Touch ID cannot be used.
+pub fn validate_app_lock_change(
+    paths: &ProjectPaths,
+    previous: &AppConfig,
+    next: &AppConfig,
+    biometric_state: AppLockBiometricState,
+) -> Result<()> {
+    let turning_on = next.app_lock.biometric_enabled && !previous.app_lock.biometric_enabled;
+    validate_app_lock(paths, next, turning_on.then_some(biometric_state))
+}
+
+/// `biometric_state` is `None` when Touch ID availability must not be checked.
+fn validate_app_lock(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    biometric_state: Option<AppLockBiometricState>,
+) -> Result<()> {
     if !config.app_lock.enabled {
         return Ok(());
     }
@@ -178,8 +204,11 @@ pub fn validate_app_lock_config_with_biometric(
         bail!("Enable a passcode before turning on App Lock in this build.");
     }
 
-    if config.app_lock.biometric_enabled && !biometric_available(biometric_state) {
-        bail!(biometric_unavailable_error(biometric_state));
+    if let Some(state) = biometric_state
+        && config.app_lock.biometric_enabled
+        && !biometric_available(state)
+    {
+        bail!(biometric_unavailable_error(state));
     }
 
     if config.app_lock.passcode_enabled && load_app_lock_secret(paths)?.is_none() {
@@ -635,6 +664,104 @@ mod tests {
         )
         .expect_err("biometric disabled");
         assert!(disabled.to_string().contains("turned off in Settings"));
+    }
+
+    /// Touch ID cannot run in the headless E2E browser, so its rules are proven here:
+    /// the switch can only be turned on while Touch ID works, a Mac that later loses
+    /// Touch ID (lid closed) can still save other settings, and an unavailable Touch ID
+    /// never reaches the system prompt.
+    #[test]
+    fn touch_id_is_checked_when_turned_on_and_never_prompts_while_unavailable() {
+        let paths = temp_paths();
+        let mut off = AppConfig {
+            initialized: true,
+            app_lock: AppLockConfig { enabled: true, ..AppLockConfig::default() },
+            ..AppConfig::default()
+        };
+        set_app_lock_passcode(
+            &paths,
+            &mut off,
+            &SetAppLockPasscodeRequest { passcode: "2468".to_string(), recovery_hint: None },
+        )
+        .expect("set passcode");
+        let mut on = off.clone();
+        on.app_lock.biometric_enabled = true;
+
+        let refused =
+            validate_app_lock_change(&paths, &off, &on, AppLockBiometricState::TouchIdUnavailable)
+                .expect_err("cannot turn on Touch ID while it is unavailable");
+        assert!(refused.to_string().contains("Touch ID is unavailable"));
+        validate_app_lock_change(&paths, &off, &on, AppLockBiometricState::TouchIdAvailable)
+            .expect("turn on while available");
+
+        let mut other_change = on.clone();
+        other_change.app_lock.idle_timeout_minutes = 15;
+        validate_app_lock_change(
+            &paths,
+            &on,
+            &other_change,
+            AppLockBiometricState::TouchIdUnavailable,
+        )
+        .expect("an unrelated change saves while Touch ID is away");
+        validate_app_lock_change(&paths, &on, &off, AppLockBiometricState::Unsupported)
+            .expect("turning it off always works");
+
+        lock_app_session(&paths, &on, Some("manual")).expect("lock");
+        let mut prompted = false;
+        let error = unlock_app_session_with_biometric(
+            &paths,
+            &on,
+            &UnlockAppSessionRequest { passcode: None, use_biometric: true },
+            AppLockBiometricState::TouchIdUnavailable,
+            || {
+                prompted = true;
+                Ok(())
+            },
+        )
+        .expect_err("unavailable Touch ID does not unlock");
+        assert!(!prompted, "the system prompt must not run while Touch ID is unavailable");
+        assert!(error.to_string().contains("Use the app lock passcode instead"));
+        let still_locked =
+            app_lock_status_with_biometric(&paths, &on, AppLockBiometricState::TouchIdUnavailable)
+                .expect("status");
+        assert!(still_locked.locked);
+    }
+
+    /// The lock screen reads the hint from the status while locked; changing the
+    /// passcode stores whatever hint the request carries, so the Settings dialog
+    /// sends the old one back unless the user edits it.
+    #[test]
+    fn the_recovery_hint_is_readable_while_locked_and_follows_each_passcode_save() {
+        let paths = temp_paths();
+        let mut config = AppConfig {
+            initialized: true,
+            app_lock: AppLockConfig { enabled: true, ..AppLockConfig::default() },
+            ..AppConfig::default()
+        };
+        let save = |config: &mut AppConfig, hint: Option<&str>| {
+            set_app_lock_passcode(
+                &paths,
+                config,
+                &SetAppLockPasscodeRequest {
+                    passcode: "2468".to_string(),
+                    recovery_hint: hint.map(str::to_string),
+                },
+            )
+            .expect("set passcode")
+        };
+        save(&mut config, Some("  the blue door  "));
+        lock_app_session(&paths, &config, Some("manual")).expect("lock");
+        let mut reloaded = config.clone();
+        hydrate_app_lock_config(&paths, &mut reloaded).expect("hydrate");
+        let locked = app_lock_status(&paths, &reloaded).expect("status while locked");
+        assert!(locked.locked);
+        assert_eq!(locked.recovery_hint.as_deref(), Some("the blue door"));
+
+        assert_eq!(
+            save(&mut config, Some("the blue door")).recovery_hint.as_deref(),
+            Some("the blue door")
+        );
+        assert_eq!(save(&mut config, Some("   ")).recovery_hint, None);
     }
 
     #[test]

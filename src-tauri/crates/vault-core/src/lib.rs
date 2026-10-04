@@ -91,7 +91,7 @@ pub use app_lock::{
     app_lock_status, app_lock_status_with_biometric, clear_app_lock_passcode,
     ensure_app_lock_unlocked, hydrate_app_lock_config, initialize_app_lock_session,
     lock_app_session, set_app_lock_passcode, unlock_app_session, unlock_app_session_with_biometric,
-    validate_app_lock_config, validate_app_lock_config_with_biometric,
+    validate_app_lock_change, validate_app_lock_config, validate_app_lock_config_with_biometric,
 };
 pub use archive::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, ArchiveRecoveryKind, ArchiveRecoveryReport,

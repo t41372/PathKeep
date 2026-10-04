@@ -24,7 +24,7 @@ use vault_core::{
     DISCOVERY_ISSUE_FULL_DISK_ACCESS, LaunchRecovery, ReconcileReport, RuntimeDiagnostics,
     ensure_app_lock_unlocked, ensure_archive_initialized_with_progress, full_disk_access_applies,
     hydrate_app_lock_config, is_permission_denied, load_config, load_snapshot_reads,
-    recover_archive_on_launch, rekey_archive, save_config, validate_app_lock_config_with_biometric,
+    recover_archive_on_launch, rekey_archive, save_config, validate_app_lock_change,
 };
 use vault_platform::{
     FullDiskAccessProbe, discover_browser_profiles, keyring_status, probe_full_disk_access,
@@ -256,8 +256,9 @@ pub fn save_user_config_with_base(
     };
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
-    validate_app_lock_config_with_biometric(
+    validate_app_lock_change(
         &paths,
+        &previous_config,
         &next_config,
         current_app_lock_biometric_state(),
     )?;
@@ -382,11 +383,14 @@ where
     // the half-deleted archive.
     crate::data_wipe::finish_interrupted_data_wipe()?;
     let paths = vault_core::project_paths()?;
+    // Only to tell whether Touch ID is being turned on; a first run has no config yet.
+    let previous_config = load_hydrated_config(&paths).unwrap_or_default();
     let mut next_config = config.clone();
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
-    validate_app_lock_config_with_biometric(
+    validate_app_lock_change(
         &paths,
+        &previous_config,
         &next_config,
         current_app_lock_biometric_state(),
     )?;
