@@ -691,19 +691,19 @@ impl AgentTool for IntelligenceReportTool {
                     anyhow::bail!("the `domain` argument is required for the domain_trend report");
                 }
             }
-            IntelReport::DayInsights => {
-                if parsed.start_date.as_deref().unwrap_or("").trim().is_empty() {
-                    anyhow::bail!(
-                        "the `start_date` argument is required for the day_insights report (use it as the target date)"
-                    );
-                }
+            IntelReport::DayInsights
+                if parsed.start_date.as_deref().unwrap_or("").trim().is_empty() =>
+            {
+                anyhow::bail!(
+                    "the `start_date` argument is required for the day_insights report (use it as the target date)"
+                );
             }
-            IntelReport::SessionDetail => {
-                if parsed.session_id.as_deref().unwrap_or("").trim().is_empty() {
-                    anyhow::bail!(
-                        "the `session_id` argument is required for the session_detail report (use the sessionId from a sessions report row)"
-                    );
-                }
+            IntelReport::SessionDetail
+                if parsed.session_id.as_deref().unwrap_or("").trim().is_empty() =>
+            {
+                anyhow::bail!(
+                    "the `session_id` argument is required for the session_detail report (use the sessionId from a sessions report row)"
+                );
             }
             _ => {}
         }

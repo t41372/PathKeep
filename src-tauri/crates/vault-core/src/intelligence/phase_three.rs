@@ -298,7 +298,7 @@ pub(crate) fn get_observed_interactions_with_connection(
     let source_evidence = open_source_evidence_connection(paths, config, key)?;
     let evidence = load_engagement_evidence(&source_evidence, &visits)?;
     let mut interactions = observed_interactions_from_visits(visits, &evidence);
-    interactions.sort_by(|left, right| right.visit_id.cmp(&left.visit_id));
+    interactions.sort_by_key(|interaction| std::cmp::Reverse(interaction.visit_id));
     Ok(interactions)
 }
 

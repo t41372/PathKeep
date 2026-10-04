@@ -23,7 +23,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: dtolnay/rust-toolchain@1.96.0
 
       - uses: taiki-e/install-action@v2
         with:

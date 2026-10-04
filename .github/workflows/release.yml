@@ -208,11 +208,11 @@ jobs:
 
       - name: Install Rust toolchain
         if: matrix.rust_targets == ''
-        uses: dtolnay/rust-toolchain@1.94.1
+        uses: dtolnay/rust-toolchain@1.96.0
 
       - name: Install Rust toolchain with target
         if: matrix.rust_targets != ''
-        uses: dtolnay/rust-toolchain@1.94.1
+        uses: dtolnay/rust-toolchain@1.96.0
         with:
           targets: ${{ matrix.rust_targets }}
 
