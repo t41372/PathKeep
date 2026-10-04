@@ -28,7 +28,9 @@
 //! takes minutes); without it a temp directory is used and removed.
 //!
 //! `PATHKEEP_ARCHIVE_BENCH_SECTIONS` picks sections, comma-separated: `reads`, `doctor`,
-//! `searches`, `export`, `encrypted`. All of them run when it is unset.
+//! `searches`, `export`, `encrypted`, `encrypted-export`. All but `encrypted-export` run when it
+//! is unset; that one seeds a second full-size archive, encrypted, and exports it, because
+//! SQLCipher decrypts every page the export reads.
 //! `PATHKEEP_ARCHIVE_BENCH_EXPORT_FORMATS` (default `jsonl,html`) picks the export formats; each
 //! export file is deleted after it is measured.
 //!
@@ -82,19 +84,22 @@ fn archive_scale_bench() {
 
     println!("\n# archive_scale_bench: {visits} visits\n");
     let plain_root = base.join(format!("plain-{visits}"));
-    let plain = seeded_archive(&plain_root, visits, None);
-    if wants("reads") {
-        bench_plaintext(&plain_root, &plain, visits);
-    }
-    if wants("doctor") {
-        seeded_derived_rows(&plain_root, &plain);
-        bench_doctor(&plain_root, &plain);
-    }
-    if wants("searches") {
-        bench_frequent_searches(&plain_root, &plain);
-    }
-    if wants("export") {
-        bench_export(&plain_root, &plain);
+    // Seeding takes minutes and gigabytes at 14.4M, so only when a plaintext section runs.
+    if ["reads", "doctor", "searches", "export"].into_iter().any(wants) {
+        let plain = seeded_archive(&plain_root, visits, None);
+        if wants("reads") {
+            bench_plaintext(&plain_root, &plain, visits);
+        }
+        if wants("doctor") {
+            seeded_derived_rows(&plain_root, &plain);
+            bench_doctor(&plain_root, &plain);
+        }
+        if wants("searches") {
+            bench_frequent_searches(&plain_root, &plain);
+        }
+        if wants("export") {
+            bench_export(&plain_root, &plain, None);
+        }
     }
 
     if wants("encrypted") {
@@ -102,6 +107,18 @@ fn archive_scale_bench() {
         let encrypted = seeded_archive(&encrypted_root, 100_000, Some("bench-key"));
         bench_encrypted(&encrypted_root, &encrypted);
     }
+    if named("encrypted-export") {
+        let root = base.join(format!("encrypted-{visits}"));
+        let encrypted = seeded_archive(&root, visits, Some("bench-key"));
+        bench_export(&root, &encrypted, Some("bench-key"));
+    }
+}
+
+/// True only when `PATHKEEP_ARCHIVE_BENCH_SECTIONS` names `section`: for sections too costly to
+/// run by default.
+fn named(section: &str) -> bool {
+    std::env::var("PATHKEEP_ARCHIVE_BENCH_SECTIONS")
+        .is_ok_and(|sections| sections.split(',').any(|name| name.trim() == section))
 }
 
 /// True when `PATHKEEP_ARCHIVE_BENCH_SECTIONS` is unset or names `section`.
@@ -477,11 +494,12 @@ fn bench_frequent_searches(root: &Path, config: &AppConfig) {
     }
 }
 
-fn bench_export(root: &Path, config: &AppConfig) {
+fn bench_export(root: &Path, config: &AppConfig, key: Option<&str>) {
     use vault_core::{ExportFormat, ExportRequest};
     let paths = project_paths_with_root(root);
     unsafe { std::env::set_var("CHB_PROJECT_ROOT", root) };
-    println!("\n## export_history, whole archive");
+    let kind = if key.is_some() { "encrypted" } else { "plaintext" };
+    println!("\n## export_history, whole {kind} archive");
     // Export walks History in 1,000-row cursor pages; a page's cost decides the whole walk.
     let mut cursor = None;
     for page in 1..=20 {
@@ -489,7 +507,7 @@ fn bench_export(root: &Path, config: &AppConfig) {
         let response = vault_core::list_history(
             &paths,
             config,
-            None,
+            key,
             HistoryQuery {
                 limit: Some(1_000),
                 include_total: Some(false),
@@ -518,7 +536,7 @@ fn bench_export(root: &Path, config: &AppConfig) {
             let result = vault_core::export_history(
                 &paths,
                 config,
-                None,
+                key,
                 ExportRequest {
                     export_id: None,
                     query: HistoryQuery::default(),
