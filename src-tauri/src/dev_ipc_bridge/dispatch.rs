@@ -25,21 +25,21 @@
 //! off-main-thread command contracts.
 
 use crate::command_error::CommandError;
-use crate::{file_manager, session::session_key, updater, worker_bridge};
+use crate::{desktop_integration, file_manager, session::session_key, updater, worker_bridge};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use vault_core::{
-    AiAssistantRequest, AiChatSendRequest, AiIndexRequest, AiProviderConnectionTestRequest,
-    AiSearchRequest, CategoryFilteredDateRangeRequest, CompareSetDetailRequest,
-    CoreIntelligenceRebuildRequest, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
-    EntityExplanationRequest, ExplainRefindRequest, FrontendErrorReportRequest,
-    GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest,
-    ListAgentConversationsRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
-    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest,
-    RenameAgentConversationRequest, RetentionPruneRequest, SaveAgentConversationRequest,
-    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchEngineRuleInput,
-    SearchQueryListRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
-    SnapshotRestoreRequest, TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
+    AiChatSendRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiSearchRequest,
+    CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
+    DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest,
+    ExplainRefindRequest, FrontendErrorReportRequest, GranularityDateRangeRequest,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, ListAgentConversationsRequest,
+    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest,
+    RefindPageDetailRequest, RefindPagesRequest, RenameAgentConversationRequest,
+    RetentionPruneRequest, SaveAgentConversationRequest, ScopedDateRangeRequest,
+    SearchEffectivenessRequest, SearchEngineRuleInput, SearchQueryListRequest,
+    SearchTrailQueryRequest, SetAppLockPasscodeRequest, SnapshotRestoreRequest,
+    TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -70,11 +70,32 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "app_lock_status" => json_value!(worker_bridge::app_lock_status_impl()?),
         "save_config" => {
             let payload = parse_payload::<WrappedConfigPayload>(payload)?;
-            json_value!(worker_bridge::save_config_with_base_impl(
+            let snapshot = worker_bridge::save_config_with_base_impl(
                 payload.config,
                 payload.base_config,
+                session_key(&state.session).as_deref(),
+            )?;
+            // Same follow-up as the Tauri command: menu language and icon.
+            if let Ok(app) = require_app_handle(state) {
+                desktop_integration::config_saved(&app, &snapshot.config);
+            }
+            json_value!(snapshot)
+        }
+        "preview_wipe_all_data" => {
+            json_value!(worker_bridge::preview_wipe_all_data_impl(
                 session_key(&state.session).as_deref()
             )?)
+        }
+        "wipe_all_data" => {
+            let payload = parse_payload::<WipeConfirmationPayload>(payload)?;
+            // Waits for background workers, so it must not hold an async worker thread.
+            let session = state.session.clone();
+            tokio::task::spawn_blocking(move || {
+                worker_bridge::wipe_all_data_impl(&payload.confirmation, &session)
+            })
+            .await
+            .unwrap_or_else(|error| join_failure("wipe_all_data", error))?;
+            Ok(Value::Null)
         }
         "initialize_archive" => {
             let payload = parse_payload::<InitializeArchivePayload>(payload)?;
@@ -158,7 +179,8 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "run_backup_now" => {
             let payload = parse_payload::<RunBackupPayload>(payload)?;
             let key = session_key(&state.session);
-            json_value!(backup_now_off_thread(payload.due_only, key).await?)
+            let app = require_app_handle(state).ok();
+            json_value!(backup_now_off_thread(app, payload.due_only, key).await?)
         }
         "query_history" => {
             let payload = parse_payload::<QueryHistoryPayload>(payload)?;
@@ -324,6 +346,16 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 payload.request,
             )?)
         }
+        "load_source_stats" => {
+            json_value!(worker_bridge::source_stats_impl(session_key(&state.session).as_deref())?)
+        }
+        "get_url_detail" => {
+            let payload = parse_payload::<UrlPayload>(payload)?;
+            json_value!(worker_bridge::url_detail_impl(
+                &payload.url,
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "load_audit_run_detail" => {
             let payload = parse_payload::<RunIdPayload>(payload)?;
             json_value!(worker_bridge::audit_run_detail_impl(
@@ -484,13 +516,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
-        "load_ai_assistant_job" => {
-            let payload = parse_payload::<JobIdPayload>(payload)?;
-            json_value!(worker_bridge::load_ai_assistant_job_impl(
-                payload.job_id,
-                session_key(&state.session).as_deref()
-            )?)
-        }
         "build_ai_index" => {
             let payload = parse_payload::<WrappedRequest<AiIndexRequest>>(payload)?;
             json_value!(worker_bridge::build_ai_index_impl(
@@ -514,16 +539,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let key = session_key(&state.session);
             json_value!(search_ai_history_off_thread(payload.request, key).await?)
         }
-        "ask_ai_assistant" => {
-            // When `job_queue_paused=false`, `ask_ai_assistant` runs the
-            // assistant job synchronously and reaches `block_on` via
-            // `complete_claimed_assistant_job`. The paused path is safe
-            // (it only stages the job), but we wrap unconditionally so
-            // the panic cannot fire on a config flip.
-            let payload = parse_payload::<WrappedRequest<AiAssistantRequest>>(payload)?;
-            let key = session_key(&state.session);
-            json_value!(ask_ai_assistant_off_thread(payload.request, key).await?)
-        }
         "ai_chat_send" => {
             // `ai_chat_send` resolves config + provider SYNCHRONOUSLY on the calling
             // thread (blocking keyring/file IO), then spawns a background thread that
@@ -543,15 +558,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
-        "download_ai_embedding_model" => {
-            // Spawns a background download thread off the worker; the dev HTTP bridge does NOT
-            // deliver Tauri events, so the progress emit sink is a documented no-op here (progress
-            // only flows under real Tauri). The `Ok(())` ack is still verifiable.
-            json_value!(download_ai_embedding_model_off_thread().await?)
-        }
         "download_static_embedding_model" => {
-            // Same posture as `download_ai_embedding_model`: spawns a background download thread off the
-            // worker; the dev HTTP bridge does NOT deliver Tauri events so the progress sink is a no-op.
+            // Spawns a background download thread off the worker; the dev HTTP bridge does NOT
+            // deliver Tauri events, so the progress sink is a no-op. The `Ok(())` ack is still
+            // verifiable.
             json_value!(download_static_embedding_model_off_thread().await?)
         }
         "cancel_ai_embedding_model_download" => {
@@ -1018,6 +1028,35 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let app = require_app_handle(state)?;
             json_value!(updater::relaunch_after_update(app))
         }
+        "get_desktop_integration" => {
+            let app = require_app_handle(state)?;
+            json_value!(
+                desktop_integration_off_thread("get_desktop_integration", move || {
+                    desktop_integration::desktop_integration(&app)
+                })
+                .await?
+            )
+        }
+        "set_launch_at_login" => {
+            let app = require_app_handle(state)?;
+            let payload = parse_payload::<EnabledPayload>(payload)?;
+            json_value!(
+                desktop_integration_off_thread("set_launch_at_login", move || {
+                    desktop_integration::set_launch_at_login(&app, payload.enabled)
+                })
+                .await?
+            )
+        }
+        "set_menu_bar_icon" => {
+            let app = require_app_handle(state)?;
+            let payload = parse_payload::<EnabledPayload>(payload)?;
+            json_value!(
+                desktop_integration_off_thread("set_menu_bar_icon", move || {
+                    desktop_integration::set_menu_bar_icon(&app, payload.enabled)
+                })
+                .await?
+            )
+        }
         other => Err(CommandError::internal(format!(
             "PathKeep dev IPC bridge does not recognize desktop command \"{other}\"."
         ))),
@@ -1062,19 +1101,40 @@ fn join_failure<T>(command: &str, error: tokio::task::JoinError) -> Result<T, Co
 /// dev IPC bridge must mirror it. Without this hop the dev-IPC HTTP
 /// server thread crashes mid-response and the client sees a
 /// `socket hang up` with no body.
+///
+/// With a live app it takes the same path as the Tauri command, so the menu
+/// bar status follows bridge-started backups too.
 async fn backup_now_off_thread(
+    app: Option<DevIpcAppHandle>,
     due_only: bool,
     key: Option<String>,
 ) -> Result<vault_core::BackupReport, CommandError> {
-    tokio::task::spawn_blocking(move || {
-        worker_bridge::run_backup_now_impl(
+    tokio::task::spawn_blocking(move || match app {
+        Some(app) => desktop_integration::run_backup(
+            &app,
+            desktop_integration::BackupSource::App,
+            due_only,
+            key.as_deref(),
+        ),
+        None => worker_bridge::run_backup_now_impl(
             due_only,
             key.as_deref(),
             std::mem::drop::<vault_core::BackupProgressEvent>,
-        )
+        ),
     })
     .await
     .unwrap_or_else(|error| join_failure("run_backup_now", error))
+}
+
+/// Hops a desktop-integration command onto the blocking pool: it touches
+/// login items and config, and its tray calls wait for the main thread.
+async fn desktop_integration_off_thread(
+    command: &'static str,
+    task: impl FnOnce() -> Result<desktop_integration::DesktopIntegration, CommandError>
+    + Send
+    + 'static,
+) -> Result<desktop_integration::DesktopIntegration, CommandError> {
+    tokio::task::spawn_blocking(task).await.unwrap_or_else(|error| join_failure(command, error))
 }
 
 /// Hops `test_ai_provider_connection_impl` onto the tokio blocking
@@ -1124,22 +1184,6 @@ async fn search_ai_history_off_thread(
     .unwrap_or_else(|error| join_failure("search_ai_history", error))
 }
 
-/// Hops `ask_ai_assistant_impl` onto the tokio blocking thread pool.
-/// When `job_queue_paused=false`, the assistant job runs synchronously
-/// and reaches `block_on` via `complete_claimed_assistant_job`. The
-/// paused path is safe (it only stages the job) but we wrap
-/// unconditionally so the panic cannot fire on a config flip.
-async fn ask_ai_assistant_off_thread(
-    request: vault_core::AiAssistantRequest,
-    key: Option<String>,
-) -> Result<vault_core::AiAssistantResponse, CommandError> {
-    tokio::task::spawn_blocking(move || {
-        worker_bridge::ask_ai_assistant_impl(request, key.as_deref())
-    })
-    .await
-    .unwrap_or_else(|error| join_failure("ask_ai_assistant", error))
-}
-
 /// Hops `ai_chat_send_impl` onto the tokio blocking thread pool. The worker
 /// resolves config + provider synchronously (blocking keyring/file IO) and then
 /// spawns the streaming thread, which creates its own scoped runtime; that
@@ -1160,22 +1204,9 @@ async fn ai_chat_send_off_thread(
     .unwrap_or_else(|error| join_failure("ai_chat_send", error))
 }
 
-/// Hops `download_ai_embedding_model_impl` onto the tokio blocking thread pool. The worker spawns
-/// the actual download thread; the emit sink is dropped because the dev HTTP bridge does not deliver
-/// Tauri events (progress only flows under real Tauri).
-async fn download_ai_embedding_model_off_thread() -> Result<(), CommandError> {
-    tokio::task::spawn_blocking(move || {
-        worker_bridge::download_ai_embedding_model_impl(
-            std::mem::drop::<vault_core::ModelDownloadProgressEvent>,
-        )
-    })
-    .await
-    .unwrap_or_else(|error| join_failure("download_ai_embedding_model", error))
-}
-
-/// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). Same posture
-/// as the heavy-tier download above: the worker spawns the actual download thread and the emit sink is
-/// dropped (the dev HTTP bridge does not deliver Tauri events).
+/// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). The worker
+/// spawns the actual download thread; the emit sink is dropped because the dev HTTP bridge does not
+/// deliver Tauri events (progress only flows under real Tauri).
 async fn download_static_embedding_model_off_thread() -> Result<(), CommandError> {
     tokio::task::spawn_blocking(move || {
         worker_bridge::download_static_embedding_model_impl(

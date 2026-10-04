@@ -175,6 +175,9 @@ pub(crate) async fn run_retention_prune(
 #[cfg(not(test))]
 #[tauri::command]
 /// Starts a backup run and streams progress events back to the renderer.
+///
+/// Shares one path with the menu bar's "Back up now", so the menu's status
+/// line and `pathkeep://backup-finished` cover backups started here too.
 pub(crate) async fn run_backup_now(
     app: AppHandle,
     due_only: bool,
@@ -182,9 +185,12 @@ pub(crate) async fn run_backup_now(
 ) -> Result<vault_core::BackupReport, CommandError> {
     let session_database_key = state.get_key();
     run_blocking_command("run_backup_now", move || {
-        worker_bridge::run_backup_now_impl(due_only, session_database_key.as_deref(), |event| {
-            let _ = app.emit("pathkeep://backup-progress", &event);
-        })
+        crate::desktop_integration::run_backup(
+            &app,
+            crate::desktop_integration::BackupSource::App,
+            due_only,
+            session_database_key.as_deref(),
+        )
     })
     .await
 }
@@ -340,6 +346,33 @@ pub(crate) async fn load_dashboard_snapshot(
     let key = state.get_key();
     run_blocking_command("load_dashboard_snapshot", move || {
         worker_bridge::dashboard_snapshot_impl(key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Loads per-source visit counts and date spans, off the UI thread.
+pub(crate) async fn load_source_stats(
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::SourceStats>, CommandError> {
+    let key = state.get_key();
+    run_blocking_command("load_source_stats", move || {
+        worker_bridge::source_stats_impl(key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Loads the History detail panel data for one URL, off the UI thread.
+pub(crate) async fn get_url_detail(
+    url: String,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::UrlDetail, CommandError> {
+    let key = state.get_key();
+    run_blocking_command("get_url_detail", move || {
+        worker_bridge::url_detail_impl(&url, key.as_deref())
     })
     .await
 }

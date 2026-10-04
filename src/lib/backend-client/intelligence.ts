@@ -17,8 +17,6 @@ import type {
   AgentConversationDetail,
   AgentConversationListResponse,
   AgentConversationSummary,
-  AiAssistantRequest,
-  AiAssistantResponse,
   AiChatCancelResult,
   AiChatSendAck,
   AiChatSendRequest,
@@ -77,10 +75,6 @@ export const intelligenceClient = {
     call<ReembedEstimate>('estimate_reembed', { scope }),
   searchHistory: (request: AiSearchRequest) =>
     call<AiSearchResponse>('search_ai_history', { request }),
-  askAssistant: (request: AiAssistantRequest) =>
-    call<AiAssistantResponse>('ask_ai_assistant', { request }),
-  getAssistantJob: (jobId: number) =>
-    call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
   sendChat: (request: AiChatSendRequest) =>
     call<AiChatSendAck>('ai_chat_send', { request }),
   cancelChat: (runId: string) =>

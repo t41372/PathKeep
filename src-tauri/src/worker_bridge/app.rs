@@ -27,6 +27,26 @@ pub(crate) fn app_snapshot_impl(
     worker_result(vault_worker::app_snapshot(session_database_key))
 }
 
+#[cfg_attr(test, allow(dead_code))]
+/// Lists what "Delete all data" would remove.
+pub(crate) fn preview_wipe_all_data_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::WipePreview, CommandError> {
+    worker_result(vault_worker::preview_data_wipe(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Deletes all PathKeep data and forgets the session's archive key, which now opens nothing.
+pub(crate) fn wipe_all_data_impl(
+    confirmation: &str,
+    state: &SessionState,
+) -> Result<(), CommandError> {
+    let key = state.get_key();
+    worker_result(vault_worker::wipe_all_data(confirmation, key.as_deref()))?;
+    update_session_key(state, None)?;
+    Ok(())
+}
+
 /// Persists app config and returns the refreshed snapshot.
 ///
 /// `base_config` is the snapshot the caller edited. When present, the worker

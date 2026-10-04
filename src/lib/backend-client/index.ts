@@ -19,6 +19,7 @@ export * from './archive'
 export * from './audit'
 export * from './content-enrichment'
 export * from './dashboard'
+export * from './desktop'
 export * from './explorer'
 export * from './import'
 export * from './intelligence'
@@ -138,8 +139,6 @@ export const backend = {
   buildAiIndex: intelligenceClient.buildIndex,
   estimateReembed: intelligenceClient.estimateReembed,
   searchAiHistory: intelligenceClient.searchHistory,
-  askAiAssistant: intelligenceClient.askAssistant,
-  loadAiAssistantJob: intelligenceClient.getAssistantJob,
   sendAiChat: intelligenceClient.sendChat,
   cancelAiChat: intelligenceClient.cancelChat,
   saveAiConversation: intelligenceClient.saveConversation,

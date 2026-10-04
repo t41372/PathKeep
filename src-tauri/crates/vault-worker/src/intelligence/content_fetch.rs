@@ -36,7 +36,7 @@ use vault_core::{
 /// Only the production [`spawn_content_fetch_drain`] (the real worker pool) needs it; the coverage
 /// build drives the lane inline (no pool), so it is `#[cfg(not(coverage))]` to stay dead-code clean.
 #[cfg(not(coverage))]
-static CONTENT_FETCH_WORKERS: AtomicUsize = AtomicUsize::new(0);
+pub(super) static CONTENT_FETCH_WORKERS: AtomicUsize = AtomicUsize::new(0);
 
 /// Default bulk-enqueue cap for the working-set-prioritized content fetch (bounded, 06 §5).
 const DEFAULT_WORKING_SET_ENQUEUE_LIMIT: usize = 2_000;

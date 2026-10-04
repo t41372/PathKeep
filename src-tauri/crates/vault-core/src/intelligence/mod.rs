@@ -23,6 +23,7 @@ mod intelligence_overview_snapshot;
 mod intelligence_rebuild;
 mod intelligence_refind;
 mod intelligence_schema;
+pub(crate) use self::intelligence_schema::intelligence_status_from;
 mod intelligence_schema_sql;
 mod intelligence_search_metrics;
 mod intelligence_search_queries;

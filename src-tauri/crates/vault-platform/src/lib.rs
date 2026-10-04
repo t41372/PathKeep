@@ -14,6 +14,8 @@ mod full_disk_access;
 mod host_capability;
 mod keyring;
 mod launcher;
+mod locale;
+mod login_item;
 mod sandbox;
 mod scheduler;
 pub mod test_support;
@@ -27,7 +29,7 @@ pub use full_disk_access::{
     FullDiskAccessProbe, probe_full_disk_access, probe_full_disk_access_at,
 };
 /// Returns the normalized platform name used in schedule and diagnostics UIs.
-pub use host_capability::current_platform_name;
+pub use host_capability::{current_platform_name, menu_bar_icon_supported};
 /// Native keyring operations used for database keys and AI provider secrets.
 pub use keyring::{
     keyring_clear_database_key, keyring_clear_provider_api_key, keyring_get_database_key,
@@ -36,8 +38,15 @@ pub use keyring::{
 };
 /// Opens URLs and filesystem paths using the host shell.
 pub use launcher::{open_external_url, open_path_in_file_manager};
+/// The OS's preferred UI languages, for native menus drawn outside the webview.
+pub use locale::preferred_ui_languages;
+/// "Open at login" as a LaunchAgent (macOS, and the debug sandbox everywhere).
+pub use login_item::{
+    LAUNCHED_AT_LOGIN_ARG, LOGIN_ITEM_LABEL, LoginItemStore, login_item_program_arguments,
+    login_item_store,
+};
 /// Debug-only redirect of scheduler and login-item state into a directory.
-pub use sandbox::{LOGIN_ITEMS_SUBDIR, SANDBOX_DIR_ENV, sandbox_dir};
+pub use sandbox::{SANDBOX_DIR_ENV, sandbox_dir};
 /// Preview/apply/remove schedule adapters backed by the native scheduler.
 pub use scheduler::{
     ScheduleParameters, apply_schedule, preview_schedule, remove_schedule, repair_schedule,

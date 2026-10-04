@@ -23,7 +23,7 @@ use vault_core::{
     AiIndexStatus, AiProviderConfig, AiProviderPurpose, AiProviderRuntime, AiSearchNote,
     AiSearchResponse, AppConfig, AppLockStatus, IntelligenceStatus, SecretString, ai_index_status,
     ai_queue, app_lock_status_with_biometric, archive, ensure_app_lock_unlocked,
-    hydrate_app_lock_config, intelligence_status, load_config,
+    hydrate_app_lock_config, load_config,
 };
 use vault_platform::{
     app_lock_biometric_state, keyring_get_provider_api_key, provider_api_key_saved,
@@ -103,7 +103,15 @@ pub(crate) fn derive_ai_status(
     config: &AppConfig,
     session_database_key: Option<&str>,
 ) -> AiIndexStatus {
-    match ai_index_status(paths, config, session_database_key) {
+    degrade_ai_status(config, ai_index_status(paths, config, session_database_key))
+}
+
+/// Turns a failed semantic-index read into a status that carries the reason as a warning.
+pub(crate) fn degrade_ai_status(
+    config: &AppConfig,
+    status: Result<AiIndexStatus>,
+) -> AiIndexStatus {
+    match status {
         Ok(status) => status,
         Err(error) => AiIndexStatus {
             enabled: config.ai.enabled,
@@ -118,13 +126,11 @@ pub(crate) fn derive_ai_status(
     }
 }
 
-/// Loads the derived-intelligence read model, degrading to a warning on error.
-pub(crate) fn derive_intelligence_status(
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
+/// Turns a failed derived-intelligence read into a status that carries the reason as a warning.
+pub(crate) fn degrade_intelligence_status(
+    status: Result<IntelligenceStatus>,
 ) -> IntelligenceStatus {
-    match intelligence_status(paths, config, session_database_key) {
+    match status {
         Ok(status) => status,
         Err(error) => {
             IntelligenceStatus { warning: Some(error.to_string()), ..IntelligenceStatus::default() }

@@ -63,6 +63,16 @@ pub fn request_cancel(run_id: &str) -> bool {
     }
 }
 
+/// Requests cooperative cancellation of every live run, e.g. before "Delete all data" removes the
+/// conversation store under them. Returns how many runs were asked to stop.
+pub fn request_cancel_all() -> usize {
+    let runs = registry().lock().expect("ai chat run registry poisoned");
+    for token in runs.values() {
+        token.store(true, Ordering::SeqCst);
+    }
+    runs.len()
+}
+
 /// Returns the number of live runs (test/diagnostic helper).
 #[cfg(test)]
 pub fn live_run_count() -> usize {

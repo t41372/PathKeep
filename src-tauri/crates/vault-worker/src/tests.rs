@@ -3510,3 +3510,65 @@ fn run_full_archive_restore_worker_fn_revives_a_broken_archive() {
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
     restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
 }
+
+#[test]
+fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = chrome_user_data_fixture(dir.path());
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let original_chrome = std::env::var_os(CHROME_USER_DATA_OVERRIDE_ENV);
+    let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    let app_root = dir.path().join("app");
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &app_root);
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
+    }
+    let browser_history = fs::read(chrome_root.join("Default").join("History")).expect("history");
+
+    let config = configured_ai_config();
+    initialize_archive_database(&config, None).expect("initialize");
+    vault_platform::keyring_set_database_key("archive-key").expect("store archive key");
+    keyring_set_provider_api_key("llm-primary", "sk-test").expect("store provider key");
+    // A manual backup starts the intelligence queue workers in the background; the wipe has to
+    // stop them before it deletes the databases they write.
+    let backup = run_backup_now(None, false).expect("backup");
+    assert_eq!(backup.run.expect("run").new_visits, 1);
+
+    let preview = preview_data_wipe(None).expect("preview");
+    assert_eq!(preview.visit_count, 1);
+    assert!(preview.clears_keychain);
+    assert!(preview.items.iter().any(|item| item.path.ends_with("history-vault.sqlite")));
+
+    for wrong in ["", "delete", "DELETE ", "Delete"] {
+        let error = wipe_all_data(wrong, None).expect_err("only the exact word is accepted");
+        assert!(error.to_string().contains("DELETE"), "{error:#}");
+    }
+    assert!(app_snapshot(None).expect("snapshot").archive_status.initialized, "nothing deleted");
+
+    wipe_all_data(WIPE_CONFIRMATION_WORD, None).expect("wipe");
+    assert_eq!(crate::intelligence::running_background_workers(), 0);
+    let snapshot = app_snapshot(None).expect("snapshot after wipe");
+    assert!(!snapshot.config.initialized);
+    assert!(!snapshot.archive_status.initialized);
+    assert!(!snapshot.keyring_status.stored_secret, "the archive key must leave the keychain");
+    assert!(!provider_api_key_saved("llm-primary"), "provider keys must leave the keychain");
+    assert_eq!(
+        fs::read(chrome_root.join("Default").join("History")).expect("history after"),
+        browser_history,
+        "the browser's own history must be untouched"
+    );
+
+    wipe_all_data(WIPE_CONFIRMATION_WORD, None).expect("a second wipe is a no-op");
+    assert!(!finish_interrupted_data_wipe().expect("nothing interrupted"));
+
+    // Onboarding again works in the same process.
+    initialize_archive_database(&initialized_config(), None).expect("initialize again");
+    let again = run_backup_now(None, false).expect("backup again");
+    assert_eq!(again.run.expect("run").new_visits, 1);
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
+    restore_env_var(CHROME_USER_DATA_OVERRIDE_ENV, original_chrome.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+}

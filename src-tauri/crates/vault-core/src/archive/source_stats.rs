@@ -8,8 +8,11 @@
 //!
 //! ## Performance notes
 //! - `idx_visits_visible_profile_time_id` is partial (`reverted_at IS NULL`) and starts with
-//!   `(source_profile_id, visit_time_ms)`. Per profile, the count is a covering-index range scan
-//!   and the first/last visit are single index seeks, so no visit row is ever read.
+//!   `(source_profile_id, visit_time_ms)`, so the per-profile count walks only that profile's
+//!   visible visits.
+//! - The first/last visit are index seeks on `(source_profile_id, visit_time_ms)`. SQLite may pick
+//!   either that partial index or `idx_visits_profile_time`; with the latter it reads visit rows
+//!   from the end of the range until one is not reverted, which is one row in practice.
 //! - A count over 14.4M visits still walks every index entry. The result is cached against the
 //!   archive's file stamp, so it is recomputed only after a backup, import, or revert writes.
 
@@ -159,16 +162,27 @@ pub(super) mod tests {
         let (_root, paths, config) = seeded_archive();
         let connection =
             super::super::open_archive_connection(&paths, &config, None).expect("open");
-        for sql in [
-            "SELECT COUNT(*) FROM visits WHERE source_profile_id = 1 AND reverted_at IS NULL",
-            "SELECT MIN(visit_time_ms) FROM visits WHERE source_profile_id = 1 AND reverted_at IS NULL",
-        ] {
-            let plan: String = connection
+        let plan = |sql: &str| -> String {
+            connection
                 .query_row(&format!("EXPLAIN QUERY PLAN {sql}"), [], |row| row.get(3))
-                .expect("plan");
+                .expect("plan")
+        };
+        let count =
+            plan("SELECT COUNT(*) FROM visits WHERE source_profile_id = 1 AND reverted_at IS NULL");
+        assert!(
+            count.contains("idx_visits_visible_profile_time_id"),
+            "the count must use the partial visible-visit index, got: {count}"
+        );
+        for bound in ["MIN", "MAX"] {
+            let seek = plan(&format!(
+                "SELECT {bound}(visit_time_ms) FROM visits
+                 WHERE source_profile_id = 1 AND reverted_at IS NULL"
+            ));
             assert!(
-                plan.contains("idx_visits_visible_profile_time_id"),
-                "{sql} must use the covering partial index, got: {plan}"
+                seek.contains("USING")
+                    && seek.contains("INDEX")
+                    && seek.contains("source_profile_id=?"),
+                "{bound} must seek a (source_profile_id, visit_time_ms) index, got: {seek}"
             );
         }
     }

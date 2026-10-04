@@ -752,6 +752,21 @@ pub fn dashboard_snapshot(session_database_key: Option<&str>) -> Result<Dashboar
     load_dashboard_snapshot(&paths, &config, session_database_key)
 }
 
+/// Loads per-source visit counts and date spans. Discovery in the app snapshot only knows file
+/// sizes, so Home and History ask for this separately.
+pub fn source_stats(session_database_key: Option<&str>) -> Result<Vec<vault_core::SourceStats>> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    vault_core::load_source_stats(&paths, &config, session_database_key)
+}
+
+/// Loads the History detail panel data for one exact URL.
+pub fn url_detail(session_database_key: Option<&str>, url: &str) -> Result<vault_core::UrlDetail> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    vault_core::get_url_detail(&paths, &config, session_database_key, url)
+}
+
 /// Aggregates one local-calendar day's Browse-side insights (sparkline,
 /// top domains, top URLs, search queries, activity tallies, session
 /// stats) from the canonical archive. Replaces the previous client-side

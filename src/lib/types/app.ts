@@ -129,7 +129,10 @@ export interface AppConfig {
   selectedProfileIds: string[]
   gitEnabled: boolean
   rememberDatabaseKeyInKeyring: boolean
+  /** Unused: "Open at login" comes from `get_desktop_integration`. */
   appAutostart: boolean
+  /** Backing field for the menu bar icon; change it with `set_menu_bar_icon`. */
+  menuBarIcon: boolean
   explorerBackgroundPrefetchPages: number
   appLock: AppLockConfig
   enrichment: EnrichmentSettings

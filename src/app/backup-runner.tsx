@@ -7,6 +7,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -18,6 +19,7 @@ import { archiveClient } from '@/lib/backend-client/archive'
 import { describeError } from '@/lib/errors'
 import { isFullDiskAccessError } from '@/lib/ipc/command-error'
 import { subscribeToBackupProgress } from '@/lib/ipc/backup-progress'
+import { subscribeToBackupFinished } from '@/lib/ipc/desktop-events'
 import { useI18n } from '@/lib/i18n'
 import { queryClient, queryKeys } from '@/lib/query'
 import type { BackupProgressEvent, BackupReport } from '@/lib/types'
@@ -57,6 +59,44 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
   const [lastReport, setLastReport] = useState<BackupReport | null>(null)
   const runningRef = useRef(false)
 
+  const announceDone = useCallback(
+    (report: BackupReport) => {
+      const added = report.run?.newVisits ?? 0
+      toast.success(
+        added > 0
+          ? t('shell.backup.done', { count: added })
+          : t('shell.backup.doneNothingNew'),
+      )
+    },
+    [t],
+  )
+  const announceFailed = useCallback(
+    (error: unknown) => {
+      toast.error(t('shell.backup.failed'), {
+        description: isFullDiskAccessError(error)
+          ? t('shell.backup.fullDiskAccess')
+          : describeError(error, 'run_backup_now'),
+        duration: 10_000,
+      })
+    },
+    [t],
+  )
+
+  // A backup started from the menu bar icon: show it like our own runs.
+  useEffect(() => {
+    const unsubscribe = subscribeToBackupFinished((event) => {
+      if (event.source !== 'menu-bar') return
+      if (event.report) {
+        setLastReport(event.report)
+        announceDone(event.report)
+      } else {
+        announceFailed(event.error)
+      }
+      void refreshAfterArchiveChange().catch(() => undefined)
+    })
+    return () => void unsubscribe.then((stop) => stop())
+  }, [announceDone, announceFailed])
+
   const run = useCallback(
     async ({ toast: notify = true }: RunOptions = {}) => {
       if (runningRef.current) return null
@@ -67,25 +107,11 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
       try {
         const report = await archiveClient.runBackupNow(false)
         setLastReport(report)
-        const added = report.run?.newVisits ?? 0
-        if (notify) {
-          toast.success(
-            added > 0
-              ? t('shell.backup.done', { count: added })
-              : t('shell.backup.doneNothingNew'),
-          )
-        }
+        if (notify) announceDone(report)
         await refreshAfterArchiveChange()
         return { ok: true, report } as const
       } catch (error) {
-        if (notify) {
-          toast.error(t('shell.backup.failed'), {
-            description: isFullDiskAccessError(error)
-              ? t('shell.backup.fullDiskAccess')
-              : describeError(error, 'run_backup_now'),
-            duration: 10_000,
-          })
-        }
+        if (notify) announceFailed(error)
         await refreshAfterArchiveChange().catch(() => undefined)
         return { ok: false, error } as const
       } finally {
@@ -95,7 +121,7 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
         setProgress(null)
       }
     },
-    [t],
+    [announceDone, announceFailed],
   )
 
   const value = useMemo(

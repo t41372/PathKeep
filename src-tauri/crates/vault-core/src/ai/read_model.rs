@@ -52,16 +52,25 @@ pub fn ai_index_status(
         });
     }
 
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_ai_schema(&connection)?;
+    ai_index_status_from(paths, config, &open_intelligence_connection(paths, config, key)?)
+}
+
+/// Reads the semantic-index status from an open intelligence connection. The caller has already
+/// checked that the archive is initialized.
+pub(crate) fn ai_index_status_from(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    connection: &Connection,
+) -> Result<AiIndexStatus> {
+    ensure_ai_schema(connection)?;
     let queue_status = ai_queue::load_ai_queue_status(
-        &connection,
+        connection,
         config.ai.job_queue_paused,
         config.ai.job_queue_concurrency,
         AI_QUEUE_RECENT_LIMIT,
     )?;
     let index_queue_counts = ai_queue::load_queue_job_counts(
-        &connection,
+        connection,
         &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear],
     )?;
 
@@ -71,7 +80,7 @@ pub fn ai_index_status(
         provider_readiness
             .selected_model
             .as_deref()
-            .map(|model| load_index_ledger(&connection, provider_id, model))
+            .map(|model| load_index_ledger(connection, provider_id, model))
             .transpose()?
             .unwrap_or_default()
     } else {
@@ -80,7 +89,7 @@ pub fn ai_index_status(
     let indexed_items = if let Some((provider_id, model)) =
         provider_id.as_deref().zip(provider_readiness.selected_model.as_deref())
     {
-        provider_embedding_count(&connection, provider_id, model)?
+        provider_embedding_count(connection, provider_id, model)?
     } else {
         0
     };
@@ -101,14 +110,14 @@ pub fn ai_index_status(
     let vectors_missing =
         provider_readiness.available && indexed_items > 0 && semantic_vector_count == 0;
     let semantic_sidecar_bytes = ai_sidecar::sidecar_storage_bytes(paths);
-    let semantic_metadata_bytes = ai_embeddings_storage_bytes(&connection)?;
-    let estimated_embedding_tokens = ai_embedding_token_estimate(&connection)?;
+    let semantic_metadata_bytes = ai_embeddings_storage_bytes(connection)?;
+    let estimated_embedding_tokens = ai_embedding_token_estimate(connection)?;
     let staleness_reason = provider_id
         .as_deref()
         .zip(provider_readiness.selected_model.as_deref())
         .map(|(provider_id, model)| {
             semantic_index_staleness_reason(
-                &connection,
+                connection,
                 provider_id,
                 model,
                 ledger.source_watermark,

@@ -145,7 +145,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 /// Retention / cleanup MUST skip `.pk-*` dotfiles: deleting and recreating this
 /// file defeats the lock (two inodes, two winners). See the module-level
 /// "sentinel lock file must never be deleted" note.
-const ARCHIVE_WRITE_LOCK_FILE: &str = ".pk-archive-write.lock";
+pub(crate) const ARCHIVE_WRITE_LOCK_FILE: &str = ".pk-archive-write.lock";
 
 /// How long the blocking / interruptible acquire sleeps between non-blocking
 /// attempts. Short enough that cancellation and "lock just freed" feel instant,

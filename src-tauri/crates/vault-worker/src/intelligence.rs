@@ -32,7 +32,7 @@ mod section_queries;
 use crate::context::load_unlocked_config;
 use anyhow::Result;
 use chrono::Local;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use vault_core::{
     ActivityMix, ActivityMixTrend, AppConfig, BreadthIndex, BrowserDiff,
     CategoryFilteredDateRangeRequest, CompareSet, CompareSetDetail, CompareSetDetailRequest,
@@ -74,9 +74,7 @@ pub use self::content_fetch::{
     content_fetch_now, content_fetch_settings, enqueue_content_fetch_working_set,
     list_visit_enrichment, set_content_fetch_settings,
 };
-pub use self::model_download::{
-    cancel_model_download, download_ai_embedding_model, download_static_embedding_model,
-};
+pub use self::model_download::{cancel_model_download, download_static_embedding_model};
 pub use self::route_queries::{
     delete_search_engine_rule, explain_entity, explain_refind, get_domain_trend, get_hub_pages,
     get_intelligence_primary_overview, get_navigation_path, get_query_families,
@@ -109,6 +107,20 @@ pub use self::section_queries::{
 static AI_QUEUE_ACTIVE_WORKERS: AtomicUsize = AtomicUsize::new(0);
 static INTELLIGENCE_PRIORITY_WORKERS: AtomicUsize = AtomicUsize::new(0);
 static INTELLIGENCE_ENRICHMENT_WORKERS: AtomicUsize = AtomicUsize::new(0);
+
+/// Queue workers running in this process: AI queue, both intelligence lanes and content fetch.
+/// "Delete all data" waits for this to reach zero before removing the databases they write.
+pub(crate) fn running_background_workers() -> usize {
+    [
+        &AI_QUEUE_ACTIVE_WORKERS,
+        &INTELLIGENCE_PRIORITY_WORKERS,
+        &INTELLIGENCE_ENRICHMENT_WORKERS,
+        &content_fetch::CONTENT_FETCH_WORKERS,
+    ]
+    .iter()
+    .map(|workers| workers.load(Ordering::Acquire))
+    .sum()
+}
 
 /// Opens the unlocked project context required by deterministic intelligence reads.
 ///

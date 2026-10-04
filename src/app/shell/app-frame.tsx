@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useI18n } from '@/lib/i18n'
+import { subscribeToOpenCommandPalette } from '@/lib/ipc/desktop-events'
 import { useSession } from '../session'
 import { CommandPalette } from './command-palette'
 import { NavRail } from './nav-rail'
@@ -38,6 +39,14 @@ export function AppFrame() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [lock])
+
+  // "Search history…" in the menu bar icon's menu.
+  useEffect(() => {
+    const unsubscribe = subscribeToOpenCommandPalette(() =>
+      setPaletteOpen(true),
+    )
+    return () => void unsubscribe.then((stop) => stop())
+  }, [])
 
   return (
     <div className="flex h-full bg-window backdrop-blur-[40px] backdrop-saturate-[1.4]">

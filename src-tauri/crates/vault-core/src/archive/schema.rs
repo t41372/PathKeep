@@ -54,6 +54,8 @@ const MIGRATION_013_URLS_LAST_VISIT_INDEX_SQL: &str =
 const MIGRATION_014_STARS_SQL: &str = include_str!("../migrations/014_stars.sql");
 const MIGRATION_015_URLS_REGISTRABLE_DOMAIN_SQL: &str =
     include_str!("../migrations/015_urls_registrable_domain.sql");
+const MIGRATION_016_VISIBLE_TIME_INDEX_SQL: &str =
+    include_str!("../migrations/016_visible_time_index.sql");
 const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
 const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
 
@@ -97,6 +99,7 @@ const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 13, sql: MIGRATION_013_URLS_LAST_VISIT_INDEX_SQL },
     MigrationSpec { version: 14, sql: MIGRATION_014_STARS_SQL },
     MigrationSpec { version: 15, sql: MIGRATION_015_URLS_REGISTRABLE_DOMAIN_SQL },
+    MigrationSpec { version: 16, sql: MIGRATION_016_VISIBLE_TIME_INDEX_SQL },
 ];
 
 /// Opens the canonical archive connection in plaintext or encrypted mode.
@@ -503,14 +506,15 @@ pub fn assess_archive_upgrade(
         0
     };
 
-    // Registrable-domain backfill: sized ONLY on a version-behind schema, where
-    // the `015` column is still to be added and its ALTER leaves EVERY existing
-    // row NULL to backfill (estimate = all urls). At head we report it not-pending
+    // Registrable-domain backfill: sized ONLY when the `015` column is still to
+    // be added, since its ALTER leaves EVERY existing row NULL to backfill
+    // (estimate = all urls). A schema already past 015 (say, only the 016 index
+    // pending) has nothing to backfill. At head we report it not-pending
     // WITHOUT the O(corpus) `WHERE registrable_domain IS NULL` scan — whose
     // predicate can't use the partial index (015 §) — on every launch; a rare
     // "quit mid-backfill at head" straggler is still completed, with its own
     // progress, by the real `ensure_archive_initialized`.
-    let backfill_total = if schema_pending { url_total } else { 0 };
+    let backfill_total = if current < 15 { url_total } else { 0 };
     let backfill_pending = backfill_total > 0;
     let reprojection_total = if reprojection_pending { url_total } else { 0 };
 
@@ -833,7 +837,7 @@ mod tests {
 
         create_schema(&connection).expect("create schema");
 
-        assert_eq!(current_version(&connection).expect("schema version"), 15);
+        assert_eq!(current_version(&connection).expect("schema version"), 16);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
         assert!(has_table(&connection, "profile_watermarks"));
@@ -881,7 +885,7 @@ mod tests {
         let count = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
-        assert_eq!(count, 15);
+        assert_eq!(count, 16);
     }
 
     #[test]
@@ -1040,7 +1044,7 @@ mod tests {
 
         // The full ledger lands v15 AND runs the backfill via create_schema.
         create_schema(&connection).expect("upgrade to v15 + backfill");
-        assert_eq!(current_version(&connection).expect("post version"), 15);
+        assert_eq!(current_version(&connection).expect("post version"), 16);
         assert!(has_index(&connection, "idx_urls_registrable_domain"));
 
         let bbc: String = connection
@@ -1212,7 +1216,7 @@ mod tests {
 
         assert_eq!(current_version(&connection).expect("initial version"), 0);
         create_schema(&connection).expect("create schema");
-        assert_eq!(current_version(&connection).expect("migrated version"), 15);
+        assert_eq!(current_version(&connection).expect("migrated version"), 16);
     }
 
     #[test]
@@ -1263,7 +1267,7 @@ mod tests {
             }
 
             for join in joins {
-                assert_eq!(join.join().expect("thread join"), 15);
+                assert_eq!(join.join().expect("thread join"), 16);
             }
         });
 

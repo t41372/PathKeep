@@ -592,8 +592,17 @@ pub(super) async fn search_history_internal(
     // honest `has_more` and lets a strong older match legitimately enter the page.
     // The relevance/hybrid path always pulls the lexical recall pool newest-first (the historical
     // order it then RRF-fuses + re-ranks by score); the date-ordered `sort` values never reach here.
-    let lexical =
-        lexical_history_results(paths, config, key, request, query, facet_starred, true, "newest")?;
+    let lexical = lexical_history_results(
+        paths,
+        config,
+        key,
+        request,
+        query,
+        facet_starred,
+        true,
+        "newest",
+        false,
+    )?;
     let lexical_ranked: Vec<&HistoryEntry> = lexical
         .items
         .iter()
@@ -736,8 +745,17 @@ fn recent_visits_response(
     // H3 — over-fetch ONE probe row beyond `limit` from the recency source: the previous call fetched
     // only `base_limit == limit` rows, so the `.take(limit + 1)` below was a NO-OP and `has_more` was
     // ALWAYS false on the common agent "list recent" path. The probe makes `has_more` honest.
-    let recent =
-        lexical_history_results(paths, config, key, request, "", facet_starred, true, "newest")?;
+    let recent = lexical_history_results(
+        paths,
+        config,
+        key,
+        request,
+        "",
+        facet_starred,
+        true,
+        "newest",
+        false,
+    )?;
     // Collect one more than `limit` to detect `has_more`.
     let ranked: Vec<AiSearchEntry> = recent
         .items
@@ -840,6 +858,7 @@ fn date_ordered_response(
         facet_starred,
         false,
         sort.list_history_sort(),
+        true,
     )?;
 
     // Apply the `is:starred` post-filter (the date order is preserved by the filter), then map to search
@@ -1542,6 +1561,10 @@ pub(super) fn record_assistant_run(
 /// `list_history` (its frozen multi-path FTS/regex/SQL contract) is too invasive for this fix; the
 /// expanded pool covers the realistic case (a handful of starred pages within a generous recency window)
 /// and degrades honestly rather than hard-truncating to the newest `limit`.
+///
+/// `include_total` asks `list_history` for the exact match count. Only the date-ordered agent path
+/// reports it; the re-ranking paths pass `false` and skip the count.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn lexical_history_results(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -1551,6 +1574,7 @@ pub(super) fn lexical_history_results(
     starred_only: bool,
     over_fetch_for_has_more: bool,
     sort: &str,
+    include_total: bool,
 ) -> Result<crate::models::HistoryQueryResponse> {
     let base_limit = request.limit.unwrap_or(12).max(1);
     // The desired page size (`base_limit`) plus, when the caller will compute `has_more` from this pool,
@@ -1592,8 +1616,9 @@ pub(super) fn lexical_history_results(
             page: None,
             cursor: None,
             regex_mode: Some(false),
-            // Callers re-rank a bounded recall pool; the match count is never read.
-            include_total: Some(false),
+            // Only the date-ordered agent path reports the true match count; the re-ranking paths
+            // never read it, and skipping it saves a full count of the matches.
+            include_total: Some(include_total),
         },
     )
 }

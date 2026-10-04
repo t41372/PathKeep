@@ -19,9 +19,10 @@
 //! - Name the sub-directory each emulated service keeps its state in.
 //!
 //! ## Not responsible for
-//! - Emulating a service. `scheduler/macos.rs` (launchd), `scheduler/windows.rs`
-//!   (Task Scheduler) and the desktop crate's login-item module own their
-//!   emulators. The Linux scheduler is manual-only and calls nothing.
+//! - Emulating a service. `scheduler/macos.rs` (launchd),
+//!   `scheduler/windows.rs` (Task Scheduler) and `login_item.rs` (open at
+//!   login) own their emulators. The Linux scheduler is manual-only and
+//!   calls nothing.
 //! - The keyring redirect (`PATHKEEP_PLATFORM_TEST_KEYRING_DIR`), which is set
 //!   separately.
 //!
@@ -43,6 +44,10 @@
 //!    is plain files; tests read it back through separate calls.
 //! 5. An empty value treated as "sandbox in the current directory". Guard:
 //!    blank values count as unset.
+//! 6. "Open at login" on Windows / Linux still reaching the autostart plugin.
+//!    Guard: `login_item_store()` returns the sandbox store on every OS
+//!    before it considers the platform, and the desktop crate only falls back
+//!    to the plugin when that returns `None`.
 
 use std::{ffi::OsString, path::PathBuf};
 
@@ -55,13 +60,13 @@ pub(crate) const LAUNCH_AGENTS_SUBDIR: &str = "LaunchAgents";
 pub(crate) const LAUNCHD_LOADED_SUBDIR: &str = "launchd-loaded";
 /// Sub-directory holding one XML file per registered Task Scheduler task.
 pub(crate) const TASK_SCHEDULER_SUBDIR: &str = "TaskScheduler";
-/// Sub-directory the desktop crate uses for emulated login items.
-pub const LOGIN_ITEMS_SUBDIR: &str = "login-items";
+/// Sub-directory holding the login item plist (`crate::login_item`).
+pub(crate) const LOGIN_ITEMS_SUBDIR: &str = "login-items";
 
 /// Returns the sandbox directory when this is a debug build and the variable is set.
 ///
-/// Callers outside this crate (the desktop login item) use this instead of
-/// reading the variable themselves, so there is one debug gate to audit.
+/// Everything that honours the sandbox goes through this, so there is one
+/// debug gate to audit.
 pub fn sandbox_dir() -> Option<PathBuf> {
     sandbox_dir_with_policy(cfg!(debug_assertions), std::env::var_os(SANDBOX_DIR_ENV))
 }

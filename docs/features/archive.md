@@ -108,9 +108,25 @@
 - Dashboard / Settings / Schedule 必須共享平台 capability 與 troubleshooting 語法，至少能清楚暴露 manual-review、mismatch、legacy install、permission warning 等狀態，並直接引導回排程頁修復。
 - Settings 的 independent support inspections（schedule / keyring / security）失敗時，必須在 Settings 本身留下可見 failure + retry，不能用 `null` status 偽裝成沒有問題。
 - Schedule 的 Verify surface 必須直接列出 install state、detected files、typed issues、verification checks、latest audit artifact 與最近一次 apply / remove / repair 結果，避免 verify 只剩一段模糊狀態字串或 raw backend English warning。
-- App 的「開機啟動」（autostart）和備份排程是兩件分開的事。
+- App 的「開機啟動」（autostart）和備份排程是兩件分開的事。排程靠 `pathkeep-worker`，app 沒開也會跑；開機啟動只是讓 app 本身在登入時出現在選單列，見下方「開機啟動與選單列圖示」。
 - 2026-04-29 scheduled-backup state-machine truth：如果 macOS 存在 known pre-rename LaunchAgent（`dev.codex.pathkeep.backup` 或 `dev.codex.browser-history-backup.backup`），status 必須顯示 typed `legacy-launch-agent` issue 並把 UI 映射到 `INSTALLED_WARN`，讓使用者選擇一鍵修復或手動修復；不得把它顯示成 canonical installed，也不得因 canonical `com.yi-ting.pathkeep.backup` 缺失而直接顯示普通 `NOT_INSTALLED`。
 - 2026-04-29 live repair follow-up：macOS canonical `com.yi-ting.pathkeep.backup` 如果仍 loaded 但 plist 已缺失，status 必須顯示 typed `macos-plist-missing-loaded` error 並映射到 `INSTALLED_ERROR`，提供 reinstall / remove / diagnostics，不得把 loaded-but-uneditable scheduler 當成普通未安裝。macOS remove / repair 必須用 `launchctl bootout gui/$UID/<label>` service target，才能移除沒有 plist 檔但仍留在 launchd 內的 canonical 或 known legacy jobs。
+
+### 開機啟動與選單列圖示（2026-10）
+
+Settings → General 的兩個開關。
+
+- **開機時啟動**：登入時啟動 PathKeep。是否已註冊只看 OS（登入項目），PathKeep 的 config 不另存一份。
+  - macOS：PathKeep 自己寫 `~/Library/LaunchAgents/com.yi-ting.pathkeep.login.plist`，內容是 `/usr/bin/open -g -a PathKeep.app --args --launched-at-login`。不用 `tauri-plugin-autostart` 的 LaunchAgent，因為它讓 launchd 直接執行 app 內的 GUI binary，macOS 26 會以 Launch Constraint Violation 殺掉（排程備份在 `167d1aa8` 修過同一個問題）。不呼叫 `launchctl`，下次登入才生效。App 搬家後，下次啟動會把 plist 改指到新位置。
+  - Windows / Linux：`tauri-plugin-autostart`（登錄檔 `Run` 值 / XDG autostart `.desktop`），同樣帶 `--launched-at-login`。
+- **選單列圖示**：macOS 選單列 / Windows、Linux 系統匣。偏好存在 `AppConfig.menuBarIcon`（預設關），下次啟動照設定還原。選單：備份狀態（不可點）、立即備份、搜尋歷史…、打開 PathKeep、分隔線、結束 PathKeep。文字跟隨 `preferredLanguage`；「跟隨系統」時讀 OS 語言（與前端 `detectSystemLanguage` 同規則）。
+  - 狀態行：備份中… / N 分鐘前已備份 / 備份失敗 / 還沒有備份過 / 尚未設定 / 暫時無法讀取備份狀態。來源是 app 內的備份（視窗或選單觸發，走同一條路徑）、啟動時讀一次 archive 的最後成功時間，以及每 5 分鐘讀一次排程備份 ledger（sidecar 在另一個 process 跑）。相對時間每分鐘重畫，不做 I/O。
+  - 「搜尋歷史…」打開視窗並送出 `pathkeep://open-command-palette`，由前端打開 ⌘K。
+  - 任何 app 內備份結束都送出 `pathkeep://backup-finished`（`{ source: "app" | "menu-bar", report?, error? }`），讓視窗在選單觸發的備份後刷新。
+  - Linux 需要 libappindicator 與面板上的 StatusNotifier host（GNOME 預設沒有）；缺任一個時 `menuBarIconSupported` 為 false。
+- **登入啟動時的行為**：登入啟動永遠不把視窗推到用戶面前。選單列圖示開著 → 不開視窗，只在選單列出現（設定文案「登入時在選單列運行」）。圖示關著：macOS 同樣不開視窗，Dock 圖示還在，點它就叫出視窗；Windows / Linux 以最小化開在工作列，因為沒有 Dock，隱藏又沒圖示等於用戶找不到 app。
+- **關閉視窗**：圖示開著 → 視窗隱藏，app 留在選單列（「結束 PathKeep」或 ⌘Q 才結束）。圖示關著 → 關視窗就結束 app，與之前一致。關掉圖示時若視窗是隱藏的，會把視窗叫回來。macOS 點 Dock 圖示會叫回隱藏的視窗。
+- 已知缺口：Windows / Linux 沒有 single-instance，app 隱藏在系統匣時再從開始選單啟動會開第二個 process。
 
 ### 平台注意事項
 
@@ -200,6 +216,16 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 - **Import → Preview → Apply** PME：Preview 驗 manifest sha256、refuse newer-than-this-binary 的 archive schema；Apply 需 explicit `confirmOverwrite=true`，extract 到 staging 後 per-file sha256 再驗、把現有 target subtree 移到 `.bak-<timestamp>` sibling、atomic-swap 進去，再對 imported archive 跑 forward schema migrations。
 - **明確排除**（surfaced to UI via `EXPORT_EXCLUSIONS_DOC`）：`vault.hold` / `stronghold-salt.txt`（App Lock secrets 留在來源機）、`logs/`、`diagnostics/`、`schedule/`（platform-specific scheduler artifacts）、`staging/`、`quarantine/`、`exports/`（避免遞迴打包先前 bundle）。
 - 加密 archive 的 bundle 保留來源 key（透過 `sqlcipher_export` 寫進去）。目標機使用者需用同一把 key 解鎖；之後可以走既有的 Settings → Security 重 key 流程改鑰。
+
+### 刪除所有資料（Delete all data）
+
+Settings → Data 的「刪除所有資料」走 PME：`preview_wipe_all_data` 列出每個會刪的路徑與大小、總位元組、archive 可見 visit 數（取最近一次成功 backup 快取的總數，不跑 `COUNT(*)`）、以及系統 keychain 裡是否存有 archive key；`wipe_all_data` 只接受字面上的 `"DELETE"`，否則拒絕且什麼都不刪。App Lock 鎖定時兩者都拒絕。
+
+- **會刪**：`archive/` 內所有檔案（archive / source-evidence DB 與 WAL/SHM、import 留下的 `*.bak-*`、rekey/restore/import marker），`derived/`（search、intelligence、AI 向量、agent 對話）、`sidecars/`、`raw-snapshots/`、`staging/`、`quarantine/`、`audit/`、`exports/`、`models/`（下載的 embedding 模型）、`integrations/`，app root 的 `*.bak-*`、App Lock 狀態與 passcode 檔、Stronghold `vault.hold` 與 salt、`config.json`；keychain 的 archive key 與每個 AI provider API key。
+- **保留**：`logs/`、`diagnostics/`（刪除失敗時唯一的紀錄；不含 visit 資料）、`schedule/` 與已安裝的系統排程（移除排程是 Backup 自己的 PME；沒有 config 時排程執行會停在 "archive has not been initialized"）、`archive/.pk-archive-write.lock`（跨程序鎖的 inode，刪掉會讓兩個程序各鎖一個檔）。使用者的瀏覽器 profile 永遠不碰：所有目標都是 app root 底下的固定路徑。
+- **順序**：取得 in-process gate 與跨程序 write lock → 寫 `.pk-wipe-in-progress.json` marker（含要清的 provider id）→ 刪 `config.json`（所有背景 worker 迴圈在下一次檢查時停）→ 要求執行中的 AI / intelligence job 停止、取消 chat 與模型下載、等背景 worker 結束（最多 30 秒）→ 刪檔 → 清 keychain → 刪 marker。執行後 `app_snapshot` 回報 not initialized，前端導回 onboarding；desktop session key 一併清除。
+- **中斷**：marker 存在代表刪除未完成。啟動時（Tauri setup）與 `initialize_archive` 開頭會先把它做完，onboarding 不可能重新打開半刪的 archive。
+- 實作與失效模式清單見 `src-tauri/crates/vault-core/src/archive/wipe.rs` 檔頭。
 
 舊版基於 S3 的 cloud backup 已在 2026-05-25 移除（feedback-2026-05-25 §2.2），所有 `preview_remote_backup` / `run_remote_backup` / `verify_remote_backup` / `store_s3_credentials` / `clear_s3_credentials` command、`RemoteBackupConfig` schema 與相關 Settings UI 一併刪除。
 

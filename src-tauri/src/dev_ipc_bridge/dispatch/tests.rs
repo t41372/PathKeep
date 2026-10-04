@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 use std::future::Future;
 use tempfile::tempdir;
 use vault_core::{
-    AgentMessage, AiAssistantRequest, AiChatMessage, AiChatRole, AiChatSendRequest, AiIndexRequest,
+    AgentMessage, AiChatMessage, AiChatRole, AiChatSendRequest, AiIndexRequest,
     AiProviderConnectionTestRequest, AiProviderPurpose, AiProviderSecretInput, AiSearchRequest,
     AppConfig, AppUpdateInstallRequest, ArchiveMode, BrowserHistoryImportRequest,
     CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
@@ -136,6 +136,119 @@ fn dispatch_initialize_archive_bootstraps_the_archive_and_drives_the_upgrade_rep
     // change what a freshly created plaintext archive reports. The bootstrap
     // claim above is the contract this test owns; app-lock and path-resolution
     // behavior are covered by the worker-bridge and config suites.
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
+}
+
+#[test]
+fn dispatch_source_stats_and_url_detail_return_the_frontend_shapes() {
+    // History and Home call these two through the bridge in browser mode and E2E. The payload
+    // field names here are the ones `src/lib/backend-client/{sources,url-detail}.ts` send and read.
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = dir.path().join("chrome-user-data");
+    std::fs::create_dir_all(&chrome_root).expect("chrome root");
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(dispatch_command(
+        &state,
+        "initialize_archive",
+        json!({ "config": test_config(), "databaseKey": null }),
+    ))
+    .expect("initialize archive");
+
+    let stats = ready_block_on(dispatch_command(&state, "load_source_stats", json!({})))
+        .expect("load_source_stats over the bridge");
+    assert_eq!(stats, json!([]), "a fresh archive has no source profiles yet");
+
+    let detail = ready_block_on(dispatch_command(
+        &state,
+        "get_url_detail",
+        json!({ "url": "https://example.com/never-visited" }),
+    ))
+    .expect("get_url_detail over the bridge");
+    assert_eq!(detail["url"], json!("https://example.com/never-visited"));
+    assert_eq!(detail["domain"], json!("example.com"));
+    assert_eq!(detail["totalVisits"], json!(0));
+    assert_eq!(detail["firstVisitAt"], Value::Null);
+    assert_eq!(detail["browsers"], json!([]));
+    assert_eq!(detail["weeklyVisits"].as_array().map(Vec::len), Some(12));
+    assert!(detail["weeklyVisits"][0]["weekStart"].is_string());
+
+    let missing_url = ready_block_on(dispatch_command(&state, "get_url_detail", json!({})))
+        .expect_err("get_url_detail without a url must be rejected");
+    assert!(missing_url.message.contains("url"), "got: {}", missing_url.message);
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
+}
+
+#[test]
+fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = dir.path().join("chrome-user-data");
+    std::fs::create_dir_all(&chrome_root).expect("chrome root");
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path().join("app"));
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(dispatch_command(
+        &state,
+        "initialize_archive",
+        json!({ "config": test_config(), "databaseKey": null }),
+    ))
+    .expect("initialize archive");
+    ready_block_on(dispatch_command(
+        &state,
+        "set_session_database_key",
+        json!({ "databaseKey": "session-key" }),
+    ))
+    .expect("session key");
+
+    let preview = ready_block_on(dispatch_command(&state, "preview_wipe_all_data", json!({})))
+        .expect("preview over the bridge");
+    assert_eq!(preview["visitCount"], json!(0));
+    assert!(preview["totalBytes"].as_u64().is_some_and(|bytes| bytes > 0));
+    assert!(preview["clearsKeychain"].is_boolean());
+    assert!(preview["items"][0]["path"].is_string() && preview["items"][0]["bytes"].is_u64());
+
+    let refused = ready_block_on(dispatch_command(
+        &state,
+        "wipe_all_data",
+        json!({ "confirmation": "delete" }),
+    ))
+    .expect_err("a lowercase word must be refused");
+    assert!(refused.message.contains("DELETE"), "{}", refused.message);
+    assert_eq!(session_key(&state.session), Some("session-key".to_string()));
+
+    let wiped = ready_block_on(dispatch_command(
+        &state,
+        "wipe_all_data",
+        json!({ "confirmation": "DELETE" }),
+    ))
+    .expect("wipe over the bridge");
+    assert_eq!(wiped, Value::Null);
+    assert_eq!(session_key(&state.session), None, "the stale archive key must be forgotten");
+    let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({})))
+        .expect("snapshot after wipe");
+    assert_eq!(snapshot["config"]["initialized"], json!(false));
+    assert_eq!(snapshot["archiveStatus"]["initialized"], json!(false));
 
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
@@ -425,6 +538,11 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             profile_id: None,
         }),
     );
+    dispatch_for_coverage(&state, "preview_wipe_all_data", json!({}));
+    // The wrong word keeps the rest of this walk running against an intact archive.
+    dispatch_for_coverage(&state, "wipe_all_data", json!({ "confirmation": "no" }));
+    dispatch_for_coverage(&state, "load_source_stats", json!({}));
+    dispatch_for_coverage(&state, "get_url_detail", json!({ "url": "https://example.com/" }));
     dispatch_for_coverage(&state, "load_audit_run_detail", json!({ "runId": 1 }));
     // Data Migration (Settings → Export / Import) — every arm runs through
     // `worker_bridge::migration` and the wrappers must surface even when
@@ -577,7 +695,6 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(&state, "run_ai_queue_jobs", json!({ "maxJobs": 1 }));
     dispatch_for_coverage(&state, "replay_ai_job", json!({ "jobId": 999 }));
     dispatch_for_coverage(&state, "cancel_ai_job", json!({ "jobId": 999 }));
-    dispatch_for_coverage(&state, "load_ai_assistant_job", json!({ "jobId": 999 }));
     dispatch_for_coverage(&state, "build_ai_index", wrapped(AiIndexRequest::default()));
     dispatch_for_coverage(&state, "reset_ai_index_build", wrapped(AiIndexRequest::default()));
     dispatch_for_coverage(
@@ -597,15 +714,6 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     );
     dispatch_for_coverage(
         &state,
-        "ask_ai_assistant",
-        wrapped(AiAssistantRequest {
-            question: "What did I visit?".to_string(),
-            profile_id: None,
-            domain: None,
-        }),
-    );
-    dispatch_for_coverage(
-        &state,
         "ai_chat_send",
         wrapped(AiChatSendRequest {
             provider_id: None,
@@ -619,7 +727,6 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         }),
     );
     dispatch_for_coverage(&state, "ai_chat_cancel", json!({ "runId": "chat-missing" }));
-    dispatch_for_coverage(&state, "download_ai_embedding_model", json!({}));
     dispatch_for_coverage(&state, "download_static_embedding_model", json!({}));
     dispatch_for_coverage(&state, "cancel_ai_embedding_model_download", json!({}));
     dispatch_for_coverage(
@@ -985,4 +1092,56 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
         std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
     }
+}
+
+/// The Settings toggles over the bridge, with the debug sandbox catching the
+/// login item. The icon is only switched off here: switching it on would put
+/// a real icon in the test machine's menu bar.
+#[test]
+fn dispatch_command_drives_desktop_integration_inside_the_sandbox() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let sandbox = dir.path().join("os-sandbox");
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path().join("project"));
+        std::env::set_var(vault_platform::SANDBOX_DIR_ENV, &sandbox);
+    }
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .expect("mock app");
+    let state = DevIpcBridgeState::with_app(
+        app.handle().clone(),
+        SessionState::default(),
+        DEFAULT_DEV_IPC_BRIDGE_PORT,
+    );
+    let dispatch = |command: &str, payload: Value| {
+        ready_block_on(dispatch_command(&state, command, payload)).expect(command)
+    };
+    let login_plist =
+        sandbox.join("login-items").join(format!("{}.plist", vault_platform::LOGIN_ITEM_LABEL));
+
+    let initial = dispatch("get_desktop_integration", json!({}));
+    let enabled = dispatch("set_launch_at_login", json!({ "enabled": true }));
+    let plist_written = login_plist.is_file();
+    let disabled = dispatch("set_launch_at_login", json!({ "enabled": false }));
+    let icon_off = dispatch("set_menu_bar_icon", json!({ "enabled": false }));
+    let config = vault_core::load_config(&vault_core::project_paths().expect("paths"));
+    let bad_payload = ready_block_on(dispatch_command(&state, "set_menu_bar_icon", json!({})));
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(vault_platform::SANDBOX_DIR_ENV);
+    }
+
+    assert_eq!(initial["launchAtLogin"], false);
+    assert_eq!(initial["menuBarIcon"], false);
+    assert_eq!(initial["launchAtLoginSupported"], true);
+    assert!(initial["menuBarIconSupported"].is_boolean());
+    assert_eq!(enabled["launchAtLogin"], true);
+    assert!(plist_written, "the login item belongs in the sandbox");
+    assert_eq!(disabled["launchAtLogin"], false);
+    assert!(!login_plist.exists());
+    assert_eq!(icon_off["menuBarIcon"], false);
+    assert!(!config.expect("config").menu_bar_icon);
+    assert!(bad_payload.is_err(), "`enabled` is required");
 }

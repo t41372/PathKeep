@@ -221,4 +221,5 @@
 - **設定頁面應顯示各類資產的磁碟佔用**：core archive、search projection、intelligence projection、semantic / blob sidecars、快照等，讓用戶清楚知道空間花在哪裡，以及最近的增長趨勢。
 - 產品層的 storage analytics summary 現在先分成兩個 top-level bucket：`core history`（`history-vault.sqlite` + `source-evidence.sqlite`）與 `other data`（search / intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files）。這是給 Dashboard / Intelligence / Settings 共用的使用者心智，不改變底層 storage planes。
 - 更細的 storage detail 仍保留到 detail surface：`core history` 可再拆成 canonical archive / source evidence；`other data` 可再拆成 search projection、intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files。更細的 per-plugin / per-model accounting 仍可在後續里程碑再補。
+- **跨 profile 的時間序列表要有自己的索引**。History 列表按時間讀所有 profile 的可見 visit；migration 016 的 `idx_visits_visible_time_id (visit_time_ms, id) WHERE reverted_at IS NULL` 讓第一頁與 cursor 頁只讀約一頁的索引條目，而不是先排序全部 visit（量測與代價見 [ipc-performance.md](ipc-performance.md)）。
 - **快照必須有保留上限**。一個 100 GB 的 archive 保留 8 份快照就是 800 GB。預設保留最近 4-8 個 archive 快照，用戶可調。
