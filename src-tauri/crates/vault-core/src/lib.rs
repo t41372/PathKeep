@@ -39,6 +39,7 @@ pub mod schedule_attempts;
 mod snapshot_reads;
 pub mod stars;
 pub mod takeout;
+pub mod test_support;
 pub mod utils;
 pub mod visit_taxonomy;
 

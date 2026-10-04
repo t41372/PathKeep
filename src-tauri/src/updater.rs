@@ -37,6 +37,14 @@ pub(crate) async fn check_for_app_update<R: Runtime>(app: AppHandle<R>) -> AppUp
     let checked_at = now_iso();
     let current_version = app.package_info().version.to_string();
 
+    if vault_core::test_support::network_is_blocked() {
+        return check_failure(
+            checked_at,
+            Some(current_version),
+            std::io::Error::from(std::io::ErrorKind::NetworkUnreachable).to_string(),
+        );
+    }
+
     let updater = match updater_for_handle(&app) {
         Ok(updater) => updater,
         Err(error) => {
@@ -449,6 +457,51 @@ fn emit_update_progress<R: Runtime>(_app: &AppHandle<R>, _state: AppUpdateInstal
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(coverage))]
+    #[tokio::test]
+    async fn network_switch_blocks_update_check_without_connecting() {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        // Do not mutate the process environment while other updater tests run.
+        if std::env::var_os("PATHKEEP_NETWORK_TEST_CHILD").is_none() {
+            let status = std::process::Command::new(std::env::current_exe().expect("test binary"))
+                .args([
+                    "--exact",
+                    "updater::tests::network_switch_blocks_update_check_without_connecting",
+                    "--nocapture",
+                ])
+                .env("PATHKEEP_NETWORK_TEST_CHILD", "1")
+                .env("PATHKEEP_TEST_BLOCK_NETWORK", "1")
+                .env_remove(TEST_UPDATER_ENDPOINTS_ENV)
+                .status()
+                .expect("isolated updater test");
+            assert!(status.success());
+            return;
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        listener.set_nonblocking(true).expect("nonblocking listener");
+        let endpoint = format!("http://{}/latest.json", listener.local_addr().unwrap());
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.config_mut().plugins.0.insert(
+            "updater".to_string(),
+            serde_json::json!({ "pubkey": "test-public-key", "endpoints": [endpoint], "dangerousInsecureTransportProtocol": true }),
+        );
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .build(context)
+            .expect("mock app");
+        let result = check_for_app_update(app.handle().clone()).await;
+        assert!(!result.availability.available);
+        assert!(result.availability.supported);
+        assert!(result.pending_update.is_none());
+        assert_eq!(
+            result.availability.error,
+            Some(std::io::Error::from(std::io::ErrorKind::NetworkUnreachable).to_string())
+        );
+        assert_eq!(listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    }
 
     #[test]
     fn runtime_updater_endpoint_override_parses_csv_values() {

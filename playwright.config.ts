@@ -63,6 +63,7 @@ function prepareFixture() {
     // Schedules and login items go to files here, never to the real
     // launchd / Task Scheduler. Debug builds only; release ignores it.
     PATHKEEP_PLATFORM_TEST_SANDBOX_DIR: dirs.osSandbox,
+    PATHKEEP_TEST_BLOCK_NETWORK: '1',
     // Keep the build cache between runs; a cold Rust build takes minutes.
     CARGO_TARGET_DIR:
       process.env.CARGO_TARGET_DIR ??

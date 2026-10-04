@@ -150,6 +150,21 @@ pub(crate) fn run_content_fetch_with_fetcher(
     // defensively to generic-readable rather than panicking if the registry ever drops its fallback.
     let extractor = resolve_extractor(&payload.url)
         .unwrap_or_else(|| Box::new(super::extractors::GenericReadableExtractor));
+    // Avoid DNS and rate-limit deferrals as well as the actual HTML/API requests.
+    if crate::test_support::network_is_blocked() {
+        return ContentFetchResult {
+            content_source: extractor.id().to_string(),
+            enrichment: failure_enrichment(
+                extractor.as_ref(),
+                &payload.url,
+                "blocked",
+                None,
+                "The page URL is not https or resolves to a non-public address.",
+            ),
+            refetch_after: None,
+            egress_host: url_domain(&payload.url),
+        };
+    }
     let (enrichment, egress_host) = fetch_and_extract(fetcher, extractor.as_ref(), &payload.url);
     let refetch_after = default_enrichment_refetch_after_for_status(&enrichment.status);
     ContentFetchResult {
@@ -460,7 +475,10 @@ pub(crate) fn execute_content_fetch_job_with_fetcher(
     // non-https job must not burn a token, and the stored row must carry the RESOLVED extractor's
     // `content_source` + `extractor_version` so `content_fetch_job_due` matches it and the working set
     // stops re-enqueuing it (a "blocked-content" source would never match → infinite re-enqueue).
-    if !job.payload.url.starts_with("https://") || url_target_is_blocked(&job.payload.url) {
+    if crate::test_support::network_is_blocked()
+        || !job.payload.url.starts_with("https://")
+        || url_target_is_blocked(&job.payload.url)
+    {
         let extractor = resolve_extractor(&job.payload.url)
             .unwrap_or_else(|| Box::new(super::extractors::GenericReadableExtractor));
         let blocked = EnrichmentResult {
@@ -645,6 +663,14 @@ impl SharedClientFetcher {
 
 impl Fetcher for SharedClientFetcher {
     fn fetch_html(&self, url: &str) -> FetchOutcome {
+        if crate::test_support::network_is_blocked() {
+            return FetchOutcome::Failed {
+                status: "blocked".to_string(),
+                http_status: None,
+                detail: "The page URL is not https or resolves to a non-public address."
+                    .to_string(),
+            };
+        }
         use reqwest::header::{ACCEPT, CONTENT_TYPE};
         let response = match self.client.get(url).header(ACCEPT, "text/html").send() {
             Ok(response) => response,
@@ -698,6 +724,14 @@ impl Fetcher for SharedClientFetcher {
     }
 
     fn fetch_json(&self, url: &str, cap: usize) -> FetchOutcome {
+        if crate::test_support::network_is_blocked() {
+            return FetchOutcome::Failed {
+                status: "blocked".to_string(),
+                http_status: None,
+                detail: "The page URL is not https or resolves to a non-public address."
+                    .to_string(),
+            };
+        }
         use reqwest::header::ACCEPT;
         let response = match self.client.get(url).header(ACCEPT, "application/json").send() {
             Ok(response) => response,
@@ -1135,6 +1169,79 @@ mod tests {
 
     fn shared_fetcher() -> SharedClientFetcher {
         SharedClientFetcher::new().expect("shared client")
+    }
+
+    #[test]
+    fn network_switch_blocks_content_fetch_without_connecting() {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        if !crate::test_support::network_test_child() {
+            crate::test_support::run_network_test(
+                "enrichment::content_fetch::tests::network_switch_blocks_content_fetch_without_connecting",
+                Some("1"),
+            );
+            return;
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        listener.set_nonblocking(true).expect("nonblocking listener");
+        let url = format!("http://{}/article", listener.local_addr().unwrap());
+        let fetcher = shared_fetcher();
+        for outcome in [fetcher.fetch_html(&url), fetcher.fetch_json(&url, 1024)] {
+            match outcome {
+                FetchOutcome::Failed { status, http_status, .. } => {
+                    assert_eq!(status, "blocked");
+                    assert!(http_status.is_none());
+                }
+                other => panic!("expected blocked, got {other:?}"),
+            }
+        }
+        assert_eq!(listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+
+        // Even an exhausted API budget must produce a terminal blocked result,
+        // rather than deferring a job that will never be allowed to fetch.
+        for _ in 0..100 {
+            let _ = rate_limit::acquire_host_token("api.github.com");
+        }
+        let result =
+            run_content_fetch_with_fetcher(&fetcher, &payload("https://github.com/o/r", 1));
+        assert_eq!(result.content_source, "github-repo");
+        assert_eq!(result.enrichment.status, "blocked");
+        assert!(result.refetch_after.is_none());
+
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        ensure_paths(&paths).expect("paths");
+        let connection =
+            Connection::open(&paths.intelligence_database_path).expect("intelligence db");
+        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+        crate::enrichment::ensure_visit_content_enrichment_schema(&connection)
+            .expect("enrich schema");
+        let job_id = enqueue_content_fetch_job(&connection, &payload("https://github.com/o/r", 1))
+            .expect("enqueue");
+        assert_eq!(
+            execute_content_fetch_job_with_fetcher(
+                &paths,
+                &connection,
+                &consenting_config(),
+                job_id,
+                &fetcher
+            )
+            .expect("execute"),
+            ContentFetchJobOutcome::Ran,
+        );
+        let state: String = connection
+            .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [job_id], |row| {
+                row.get(0)
+            })
+            .expect("job state");
+        assert_eq!(state, "succeeded");
+        let (status, refetch): (String, Option<String>) = connection.query_row(
+            "SELECT fetch_status, refetch_after FROM visit_content_enrichments WHERE history_id = 1 AND content_source = 'github-repo'", [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).expect("stored blocked result");
+        assert_eq!(status, "blocked");
+        assert!(refetch.is_none());
     }
 
     #[test]
