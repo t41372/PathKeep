@@ -106,9 +106,17 @@ export function useRuntimeJobActions() {
   })
   const cancel = useMutation({
     mutationFn: intelligenceClient.cancelRuntimeJob,
-    onSuccess: (snapshot) => {
+    onSuccess: (snapshot, jobId) => {
       store(snapshot)
-      toast.success(t('settingsBackground.cancelled'))
+      // A running job only gets a stop request; its worker ends it shortly.
+      const stillRunning = snapshot.recentJobs.some(
+        (job) => job.id === jobId && job.state === 'running',
+      )
+      toast.success(
+        stillRunning
+          ? t('settingsBackground.stopRequested')
+          : t('settingsBackground.cancelled'),
+      )
     },
     onError: (error) => failed(error, 'cancel_intelligence_job'),
   })
@@ -131,9 +139,13 @@ export function useAiJobActions() {
   })
   const cancel = useMutation({
     mutationFn: intelligenceClient.cancelJob,
-    onSuccess: () => {
+    onSuccess: (job) => {
       void refresh()
-      toast.success(t('settingsBackground.cancelled'))
+      toast.success(
+        job.state === 'running'
+          ? t('settingsBackground.stopRequested')
+          : t('settingsBackground.cancelled'),
+      )
     },
     onError: (error) => failed(error, 'cancel_ai_job'),
   })

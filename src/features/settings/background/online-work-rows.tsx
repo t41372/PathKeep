@@ -8,9 +8,20 @@
  * Not responsible for the fetching itself.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { SettingRow } from '@/components/app/setting-row'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -149,6 +160,7 @@ export function LinkPreviewsRow() {
   const client = useQueryClient()
   const og = useSnapshot().config.ogImage
   const { save, saving } = useSaveSetting()
+  const [confirm, setConfirm] = useState(false)
   const on = Boolean(og?.fetchEnabled && og.fetchMode !== 'off')
   // Counting is a full pass over the archive's pages: read once per visit,
   // never polled.
@@ -261,7 +273,7 @@ export function LinkPreviewsRow() {
               size="sm"
               variant="outline"
               disabled={clean.isPending}
-              onClick={() => clean.mutate()}
+              onClick={() => setConfirm(true)}
             >
               {clean.isPending && <Spinner />}
               {t('settingsBackground.previews.clean')}
@@ -269,6 +281,26 @@ export function LinkPreviewsRow() {
           </div>
         </div>
       )}
+      <AlertDialog open={confirm} onOpenChange={setConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('settingsBackground.previews.cleanTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('settingsBackground.previews.cleanBody', {
+                rule: t(`settingsBackground.previews.keep.${keep}`),
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => clean.mutate()}>
+              {t('settingsBackground.previews.clean')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SettingRow>
   )
 }
