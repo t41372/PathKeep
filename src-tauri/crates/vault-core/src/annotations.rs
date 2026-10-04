@@ -32,7 +32,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 /// Maximum notes body the backend accepts in a single write. Keeps a single
 /// runaway paste from bloating the row past the SQLite payload limits.
@@ -128,6 +128,22 @@ pub fn replace_tags(
     // transaction so either the new tag list lands or nothing changes.
     {
         let tx = connection.transaction().context("opening replace_tags transaction")?;
+        // Tags that survive the replacement keep when (and from which profile) they were first
+        // added, so the list keeps the order the user built it in instead of re-sorting
+        // alphabetically on every edit (all rows of one write share a timestamp).
+        let kept: HashMap<String, (String, Option<String>)> = {
+            let mut statement =
+                tx.prepare("SELECT tag, created_at, source_profile FROM url_tags WHERE url = ?1")?;
+            statement
+                .query_map(params![request.url], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?.to_lowercase(),
+                        (row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?),
+                    ))
+                })?
+                .collect::<rusqlite::Result<_>>()
+                .context("reading url_tags before replacement")?
+        };
         tx.execute("DELETE FROM url_tags WHERE url = ?1", params![request.url])
             .context("clearing url_tags for replacement")?;
         if !normalized.is_empty() {
@@ -136,8 +152,12 @@ pub fn replace_tags(
                    VALUES(?1, ?2, ?3, ?4)"#,
             )?;
             for tag in &normalized {
+                let (created_at, source_profile) = kept
+                    .get(&tag.to_lowercase())
+                    .cloned()
+                    .unwrap_or_else(|| (now.clone(), request.source_profile.clone()));
                 statement
-                    .execute(params![request.url, tag, now, request.source_profile])
+                    .execute(params![request.url, tag, created_at, source_profile])
                     .with_context(|| format!("inserting url_tags row for `{tag}`"))?;
             }
         }
@@ -378,6 +398,35 @@ mod tests {
         .unwrap();
         let after = get_annotation(&paths, &config, None, url).unwrap();
         assert!(after.is_none());
+    }
+
+    #[test]
+    fn replace_tags_keeps_the_order_tags_were_added_in() {
+        let paths = make_paths("tag-order");
+        let config = plaintext_config();
+        ensure_schema(&paths, &config);
+        let url = "https://example.com/ordered";
+        let write = |tags: &[&str]| {
+            replace_tags(
+                &paths,
+                &config,
+                None,
+                ReplaceTagsRequest {
+                    url: url.into(),
+                    tags: tags.iter().map(|tag| tag.to_string()).collect(),
+                    source_profile: None,
+                },
+            )
+            .unwrap()
+            .tags
+        };
+        assert_eq!(write(&["zebra"]), vec!["zebra"]);
+        // A moment later, so the second write's timestamp is newer.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        // "apple" sorts first alphabetically but was added last, so it stays last.
+        assert_eq!(write(&["zebra", "apple"]), vec!["zebra", "apple"]);
+        // Removing one tag leaves the other where it was.
+        assert_eq!(write(&["apple"]), vec!["apple"]);
     }
 
     #[test]

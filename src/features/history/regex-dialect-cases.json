@@ -1,0 +1,242 @@
+[
+  {
+    "pattern": "item\\?id=41502281$",
+    "accepted": true
+  },
+  {
+    "pattern": "tok(io|yo)",
+    "accepted": true
+  },
+  {
+    "pattern": "a++",
+    "accepted": true
+  },
+  {
+    "pattern": "x**",
+    "accepted": true
+  },
+  {
+    "pattern": "(?i)Tokio",
+    "accepted": true
+  },
+  {
+    "pattern": "(?P<n>a)",
+    "accepted": true
+  },
+  {
+    "pattern": "(?<name>a)",
+    "accepted": true
+  },
+  {
+    "pattern": "a{2,}",
+    "accepted": true
+  },
+  {
+    "pattern": "a{ 2 }",
+    "accepted": true
+  },
+  {
+    "pattern": "x}",
+    "accepted": true
+  },
+  {
+    "pattern": "\\{",
+    "accepted": true
+  },
+  {
+    "pattern": "[]a]",
+    "accepted": true
+  },
+  {
+    "pattern": "[^]a]",
+    "accepted": true
+  },
+  {
+    "pattern": "[a[b]]",
+    "accepted": true
+  },
+  {
+    "pattern": "[[:alpha:]]",
+    "accepted": true
+  },
+  {
+    "pattern": "\\p{Greek}",
+    "accepted": true
+  },
+  {
+    "pattern": "\\pL",
+    "accepted": true
+  },
+  {
+    "pattern": "\\x{41}",
+    "accepted": true
+  },
+  {
+    "pattern": "\\u{41}",
+    "accepted": true
+  },
+  {
+    "pattern": "\\U0001F600",
+    "accepted": true
+  },
+  {
+    "pattern": "\\b{start}",
+    "accepted": true
+  },
+  {
+    "pattern": "\\<word\\>",
+    "accepted": true
+  },
+  {
+    "pattern": "\\_",
+    "accepted": true
+  },
+  {
+    "pattern": "\\-",
+    "accepted": true
+  },
+  {
+    "pattern": "\\/",
+    "accepted": true
+  },
+  {
+    "pattern": "a{2}+",
+    "accepted": true
+  },
+  {
+    "pattern": "a*?",
+    "accepted": true
+  },
+  {
+    "pattern": "\\d{2}",
+    "accepted": true
+  },
+  {
+    "pattern": "(?:)",
+    "accepted": true
+  },
+  {
+    "pattern": "a|",
+    "accepted": true
+  },
+  {
+    "pattern": "tok(?=io)",
+    "accepted": false
+  },
+  {
+    "pattern": "(?<!a)b",
+    "accepted": false
+  },
+  {
+    "pattern": "(?<=a)b",
+    "accepted": false
+  },
+  {
+    "pattern": "(a)\\1",
+    "accepted": false
+  },
+  {
+    "pattern": "\\k<n>",
+    "accepted": false
+  },
+  {
+    "pattern": "(?>a)",
+    "accepted": false
+  },
+  {
+    "pattern": "(?#x)",
+    "accepted": false
+  },
+  {
+    "pattern": "(?P=n)",
+    "accepted": false
+  },
+  {
+    "pattern": "(?)",
+    "accepted": false
+  },
+  {
+    "pattern": "\\cA",
+    "accepted": false
+  },
+  {
+    "pattern": "\\0",
+    "accepted": false
+  },
+  {
+    "pattern": "\\e",
+    "accepted": false
+  },
+  {
+    "pattern": "\\y",
+    "accepted": false
+  },
+  {
+    "pattern": "\\Z",
+    "accepted": false
+  },
+  {
+    "pattern": "a{",
+    "accepted": false
+  },
+  {
+    "pattern": "a{x}",
+    "accepted": false
+  },
+  {
+    "pattern": "a{,5}",
+    "accepted": false
+  },
+  {
+    "pattern": "{",
+    "accepted": false
+  },
+  {
+    "pattern": "*a",
+    "accepted": false
+  },
+  {
+    "pattern": "[]",
+    "accepted": false
+  },
+  {
+    "pattern": "[[]",
+    "accepted": false
+  },
+  {
+    "pattern": "(a",
+    "accepted": false
+  },
+  {
+    "pattern": "a)",
+    "accepted": false
+  },
+  {
+    "pattern": "\\x4",
+    "accepted": false
+  },
+  {
+    "pattern": "\\u12",
+    "accepted": false
+  },
+  {
+    "pattern": "[\\b]",
+    "accepted": false
+  },
+  {
+    "pattern": "[\\1]",
+    "accepted": false
+  },
+  {
+    "pattern": "\\pq",
+    "accepted": false
+  },
+  {
+    "pattern": "\\x{ 41 }",
+    "accepted": false
+  },
+  {
+    "pattern": "\\b{+(}",
+    "accepted": false
+  }
+]

@@ -4,8 +4,9 @@
 //! each matching URL appears once: its most recent matching visit, plus how many visits matched.
 //!
 //! ## Responsibilities
-//! - Keyword (FTS), fuzzy-fallback, operator-only and regex search, grouped by URL string, with the
-//!   same browser, profile, date, domain and `site:`-style filters as the visit list.
+//! - Keyword (FTS), fuzzy-fallback, operator-only (starting from the tagged URLs when `tag:` is
+//!   present) and regex search, grouped by URL string, with the same browser, profile, date,
+//!   domain and `site:`-style filters as the visit list.
 //! - Cursor paging over pages, and the totals: matching pages and matching visits.
 //!
 //! ## Not responsible for
@@ -36,6 +37,8 @@
 //! 7. The URL filters here drift from the visit list's. They are the same text, checked by a test.
 //! 8. Regex counts. Regex reads the newest `REGEX_SCAN_CAP` visits, like the visit list, so its
 //!    counts cover that window; archives under the cap get exact counts.
+//! 9. A `tag:` search that starts from every URL. Tag-only searches start from `url_tags`; a plan
+//!    test requires `urls` to be read through `idx_urls_url`, never scanned.
 //!
 //! ## Performance notes
 //! - Keyword search costs one FTS match plus one index range per matching `url_id`; the sort runs
@@ -105,6 +108,25 @@ macro_rules! fuzzy_ranked_urls {
 macro_rules! every_url {
     () => {
         "ranked_urls AS (SELECT id AS url_id, 0.0 AS score FROM urls)"
+    };
+}
+
+/// Tag-only searches (`tag:rust`, maybe with other operators but no words): only the URLs that
+/// carry one of the required tags, found through `url_tags` (user-authored, small) and
+/// `idx_urls_url`, instead of every URL in the archive. The page filters still require every
+/// listed tag, so several `tag:` operators keep their AND meaning.
+macro_rules! tagged_urls {
+    () => {
+        r#"ranked_urls AS (
+  SELECT urls.id AS url_id, 0.0 AS score
+  FROM urls
+  WHERE urls.url IN (
+    SELECT url_tags.url
+    FROM url_tags
+    JOIN temp.history_required_tags AS required_tag
+      ON LOWER(url_tags.tag) = required_tag.value
+  )
+)"#
     };
 }
 
@@ -233,6 +255,8 @@ const FUZZY_PAGES_SQL: &str = page_list!(fuzzy_ranked_urls!());
 const FUZZY_PAGE_TOTALS_SQL: &str = page_totals!(fuzzy_ranked_urls!());
 const OPERATOR_PAGES_SQL: &str = page_list!(every_url!());
 const OPERATOR_PAGE_TOTALS_SQL: &str = page_totals!(every_url!());
+const TAGGED_PAGES_SQL: &str = page_list!(tagged_urls!());
+const TAGGED_PAGE_TOTALS_SQL: &str = page_totals!(tagged_urls!());
 
 /// Trigram candidates for the typo-tolerant fallback, with the fields the Rust scorer reads.
 const FUZZY_URL_CANDIDATES_SQL: &str = r#"
@@ -304,6 +328,28 @@ pub(super) fn list_operator_pages(
     let pages = SqlPages {
         list_sql: OPERATOR_PAGES_SQL,
         totals_sql: OPERATOR_PAGE_TOTALS_SQL,
+        terms_query: None,
+        trigram_query: None,
+    };
+    let totals = if include_total { Some(pages.totals(connection, filters)?) } else { None };
+    pages.page(connection, filters, sort, limit, parse_page_cursor(cursor).as_ref(), totals)
+}
+
+/// Operator-only pages when a `tag:` operator is present: the candidates are the tagged URLs.
+///
+/// Costs one pass over `url_tags` plus an index range per tagged URL, so a tag filter stays fast
+/// however large the archive is (the generic operator path starts from every URL).
+pub(super) fn list_tagged_pages(
+    connection: &Connection,
+    filters: &PageFilters,
+    sort: &str,
+    limit: usize,
+    cursor: Option<&str>,
+    include_total: bool,
+) -> Result<HistoryQueryResponse> {
+    let pages = SqlPages {
+        list_sql: TAGGED_PAGES_SQL,
+        totals_sql: TAGGED_PAGE_TOTALS_SQL,
         terms_query: None,
         trigram_query: None,
     };

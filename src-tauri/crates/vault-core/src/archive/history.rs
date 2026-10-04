@@ -310,6 +310,18 @@ WHERE visits.reverted_at IS NULL
   AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
 "#;
 
+/// Compiles a History regex: Rust `regex` syntax, case-insensitive.
+///
+/// The one place the dialect is decided. The History screen checks patterns against the same
+/// rules before sending them (`src/features/history/regex-dialect.ts`); the shared case table
+/// `regex_dialect_cases` keeps the two in step.
+pub(crate) fn build_history_regex(pattern: &str) -> Result<regex::Regex> {
+    RegexBuilder::new(pattern)
+        .case_insensitive(true)
+        .build()
+        .with_context(|| format!("invalid regex pattern `{pattern}`"))
+}
+
 /// Queries visible history rows with pagination, FTS, and regex support.
 pub fn list_history(
     paths: &ProjectPaths,
@@ -336,18 +348,7 @@ pub fn list_history(
     let end_time_ms = min_optional_i64(query.end_time_ms, parsed_query.before_ms);
     let q = if regex_mode { raw_q.clone() } else { parsed_query.keyword_text.clone() };
     let lexical_query = q.as_deref().and_then(analyze_query);
-    let regex = if regex_mode {
-        q.as_ref()
-            .map(|value| {
-                RegexBuilder::new(value)
-                    .case_insensitive(true)
-                    .build()
-                    .with_context(|| format!("invalid regex pattern `{value}`"))
-            })
-            .transpose()?
-    } else {
-        None
-    };
+    let regex = if regex_mode { q.as_deref().map(build_history_regex).transpose()? } else { None };
     let domain_pattern = query
         .domain
         .clone()
@@ -385,6 +386,14 @@ pub fn list_history(
             ),
             // Words that analyze to nothing searchable match nothing, as in the visit list.
             (None, None) if q.is_some() => Ok(HistoryQueryResponse::default()),
+            (None, None) if !parsed_query.required_tags.is_empty() => grouped::list_tagged_pages(
+                &connection,
+                &filters,
+                &sort,
+                limit_usize,
+                cursor,
+                include_total,
+            ),
             (None, None) => grouped::list_operator_pages(
                 &connection,
                 &filters,
@@ -664,10 +673,7 @@ pub(super) fn list_history_with_regex_capped_for_test(
     pattern: &str,
     scan_cap: usize,
 ) -> Result<HistoryQueryResponse> {
-    let regex = RegexBuilder::new(pattern)
-        .case_insensitive(true)
-        .build()
-        .with_context(|| format!("invalid regex pattern `{pattern}`"))?;
+    let regex = build_history_regex(pattern)?;
     // The list query references the advanced-filter temp tables, which
     // `list_history` materializes before dispatching to the regex path. Regex
     // mode contributes no advanced filters, so seed the empty default set here
@@ -1223,6 +1229,28 @@ mod list_plan_tests {
                     "{sort} with cursor {cursor:?} must walk the time index, got:\n{plan}"
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod regex_dialect_cases {
+    use super::build_history_regex;
+
+    /// The patterns the History screen's dialect check is tested against, with whether Rust
+    /// accepts each. If a `regex` upgrade changes a verdict, this fails and the screen's check
+    /// (`regex-dialect.ts`) has to follow.
+    const CASES: &str =
+        include_str!("../../../../../src/features/history/regex-dialect-cases.json");
+
+    #[test]
+    fn the_screen_and_the_backend_agree_on_the_regex_dialect() {
+        let cases: Vec<serde_json::Value> = serde_json::from_str(CASES).expect("case table");
+        assert!(cases.len() > 40, "the case table went missing");
+        for case in cases {
+            let pattern = case["pattern"].as_str().expect("pattern");
+            let accepted = case["accepted"].as_bool().expect("accepted");
+            assert_eq!(build_history_regex(pattern).is_ok(), accepted, "pattern {pattern:?}");
         }
     }
 }
