@@ -67,7 +67,12 @@ export function KpiTile({
   const format = useFormat()
   const change = metric?.changePercent
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-xl border bg-card px-4 py-3.5 shadow-card">
+    <div
+      role="group"
+      aria-label={label}
+      aria-busy={loading}
+      className="flex min-w-0 flex-col gap-1 rounded-xl border bg-card px-4 py-3.5 shadow-card"
+    >
       <span className="text-[13px] text-muted-foreground">{label}</span>
       {loading ? (
         <Skeleton className="my-1 h-6 w-24" />
