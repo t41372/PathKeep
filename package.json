@@ -40,7 +40,7 @@
     "check:platform": "node scripts/run-platform-checks.mjs",
     "check:slow": "bun run check:supply-chain && bun run check:platform",
     "check:js": "bun run format:check && bun run lint && bun run check:i18n && bun run typecheck",
-    "check:rust": "bun run fmt:rust && bun run lint:rust && bun run test:rust",
+    "check:rust": "bun run fmt:rust && bun run prepare:worker-sidecar --profile debug && bun run lint:rust && bun run test:rust",
     "check:base": "bun run check:js && bun run check:rust",
     "check": "bun run check:js && bun run build && bun run check:rust && bun run release:check && bun run test:e2e",
     "docs:llm": "bun scripts/build-llm-txt.mjs",
