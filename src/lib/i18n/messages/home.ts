@@ -64,11 +64,6 @@ export const home = defineMessages({
       paused: 'Paused',
       empty: 'No browsers are being backed up yet.',
     },
-    updating: 'Updating after the last backup…',
-    empty: {
-      title: 'Nothing here yet',
-      body: 'Run your first backup and your history will show up here.',
-    },
   },
   'zh-CN': {
     greetingMorning: '早上好',
@@ -132,11 +127,6 @@ export const home = defineMessages({
       paused: '已暂停',
       empty: '还没有在备份任何浏览器。',
     },
-    updating: '正在根据上次备份更新…',
-    empty: {
-      title: '这里还是空的',
-      body: '做一次备份，你的历史就会出现在这里。',
-    },
   },
   'zh-TW': {
     greetingMorning: '早安',
@@ -199,11 +189,6 @@ export const home = defineMessages({
       manage: '管理',
       paused: '已暫停',
       empty: '還沒有在備份任何瀏覽器。',
-    },
-    updating: '正在根據上次備份更新…',
-    empty: {
-      title: '這裡還是空的',
-      body: '做一次備份，你的歷史就會出現在這裡。',
     },
   },
 })

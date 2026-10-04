@@ -6,7 +6,7 @@ import { EvilAreaChart } from '@/components/evilcharts/charts/recharts-area-char
 import type { ChartConfig } from '@/components/evilcharts/ui/recharts-chart'
 import { heatLevel } from '@/components/app/heat-level'
 import { Heatmap, HeatLegend, type HeatCell } from '@/components/app/heatmap'
-import { SectionCard } from '@/components/app/section-card'
+import { CardError, SectionCard } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { localDateKey } from '@/lib/backend-client/insights'
@@ -62,44 +62,48 @@ export function TrendCard() {
       }
     >
       <div className="h-[210px]">
-        <EvilAreaChart
-          data={series}
-          config={config}
-          xDataKey="dateKey"
-          isLoading={trend.isPending}
-          className="h-full aspect-auto"
-          curveType="monotone"
-        >
-          {/* The prototype's fill is stronger than evilcharts' built-in fade. */}
-          <defs>
-            <linearGradient id="home-trend-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.35} />
-              <stop offset="100%" stopColor="var(--brand)" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <EvilAreaChart.Grid vertical={false} strokeDasharray="3 4" />
-          <EvilAreaChart.XAxis
-            dataKey="dateKey"
-            tickLine={false}
-            axisLine={false}
-            interval={6}
-            padding={{ left: 14, right: 14 }}
-            tickFormatter={(value: string) =>
-              format.monthDay(`${value}T00:00:00`)
-            }
-            className="font-mono"
-          />
-          <EvilAreaChart.Tooltip />
-          <EvilAreaChart.Area
-            dataKey="visits"
-            variant="gradient"
-            strokeVariant="solid"
-            strokeWidth={2}
-            areaProps={{ dataKey: 'visits', fill: 'url(#home-trend-fill)' }}
+        {trend.isError ? (
+          <CardError error={trend.error} onRetry={() => void trend.refetch()} />
+        ) : (
+          <EvilAreaChart
+            data={series}
+            config={config}
+            xDataKey="dateKey"
+            isLoading={trend.isPending}
+            className="h-full aspect-auto"
+            curveType="monotone"
           >
-            <EvilAreaChart.ActiveDot variant="colored-border" />
-          </EvilAreaChart.Area>
-        </EvilAreaChart>
+            {/* The prototype's fill is stronger than evilcharts' built-in fade. */}
+            <defs>
+              <linearGradient id="home-trend-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="var(--brand)" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <EvilAreaChart.Grid vertical={false} strokeDasharray="3 4" />
+            <EvilAreaChart.XAxis
+              dataKey="dateKey"
+              tickLine={false}
+              axisLine={false}
+              interval={6}
+              padding={{ left: 14, right: 14 }}
+              tickFormatter={(value: string) =>
+                format.monthDay(`${value}T00:00:00`)
+              }
+              className="font-mono"
+            />
+            <EvilAreaChart.Tooltip />
+            <EvilAreaChart.Area
+              dataKey="visits"
+              variant="gradient"
+              strokeVariant="solid"
+              strokeWidth={2}
+              areaProps={{ dataKey: 'visits', fill: 'url(#home-trend-fill)' }}
+            >
+              <EvilAreaChart.ActiveDot variant="colored-border" />
+            </EvilAreaChart.Area>
+          </EvilAreaChart>
+        )}
       </div>
     </SectionCard>
   )
@@ -120,7 +124,12 @@ export function OnThisDayCard() {
         date: format.monthDay(new Date()),
       })}
     >
-      {onThisDay.isPending ? (
+      {onThisDay.isError ? (
+        <CardError
+          error={onThisDay.error}
+          onRetry={() => void onThisDay.refetch()}
+        />
+      ) : onThisDay.isPending ? (
         <div className="flex flex-col gap-3">
           {[0, 1, 2].map((index) => (
             <Skeleton key={index} className="h-10" />
@@ -269,7 +278,9 @@ export function YearCard() {
           trend.isFetching && 'opacity-60',
         )}
       >
-        {trend.isPending ? (
+        {trend.isError ? (
+          <CardError error={trend.error} onRetry={() => void trend.refetch()} />
+        ) : trend.isPending ? (
           <Skeleton className="h-[110px] w-full" />
         ) : (
           <Heatmap
@@ -322,7 +333,12 @@ export function ThreadsCard() {
         </Link>
       }
     >
-      {threads.isPending ? (
+      {threads.isError ? (
+        <CardError
+          error={threads.error}
+          onRetry={() => void threads.refetch()}
+        />
+      ) : threads.isPending ? (
         <div className="flex flex-col gap-3">
           {[0, 1, 2, 3].map((index) => (
             <Skeleton key={index} className="h-9" />

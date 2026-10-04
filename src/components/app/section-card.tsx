@@ -1,6 +1,35 @@
 /** The prototype's card: title, optional subtitle and action, then content. */
 import type { ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
+import { describeError } from '@/lib/errors'
+import { useI18n } from '@/lib/i18n'
+
+/**
+ * What a card shows when its query failed. Without it a failed card looks
+ * exactly like an empty one, which tells the user something false.
+ */
+export function CardError({
+  error,
+  onRetry,
+}: {
+  error: unknown
+  onRetry: () => void
+}) {
+  const { t } = useI18n()
+  return (
+    <div
+      role="alert"
+      className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
+      title={describeError(error)}
+    >
+      {t('common.loadFailed')}
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        {t('common.retry')}
+      </Button>
+    </div>
+  )
+}
 
 export function SectionCard({
   title,
