@@ -72,6 +72,26 @@ The part of config loading that is slow is the system keychain lookup for "is an
 
 Already addressed in the redesign import: `includeTotal: false` skips the count and reads one extra row to know whether there is a next page. The infinite History list uses it; only the search total asks for the count. A test (`uncounted_history_pages_walk_the_same_rows_as_counted_pages`) checks that uncounted cursor pages return the same rows as a counted query, once each.
 
+### 6. History search lists pages, not visits (`groupByUrl`)
+
+Searching listed every matching visit, so one page visited thousands of times filled the list. Search now asks `query_history` with `groupByUrl: true`: one row per URL with its visit count (`vault-core/src/archive/history/grouped.rs`). Matching `url_id`s are aggregated through `idx_visits_visible_url_time` (count, newest visit), folded into pages with window functions, and only the page window is sorted. A plan test fails if the visit lookups stop using that index or scan `visits`.
+
+Measured on the same 14.4M archive, `limit: 100`, the "before" column with the code before this change and the rest in a second run. Other builds were running on the machine during both runs, so the same unchanged query ("visits" rows) came out 973 ms in the first run and 1,341 ms in the second; compare within a run.
+
+| 14.4M visits                  | visits, first run (before) | visits, second run | pages, second run |
+| ----------------------------- | -------------------------- | ------------------ | ----------------- |
+| "topic 42", first page        | 973 ms                     | 1,341 ms           | 811 ms            |
+| "topic 42", with exact totals | 1,857 ms                   | 2,085 ms           | 1,656 ms          |
+| "topic 42", second page       |                            |                    | 832 ms            |
+| rare term, first page         | 50 ms                      | 74 ms              | 79 ms             |
+| rare term, with exact totals  | 54 ms                      | 72 ms              | 158 ms            |
+| "topic" (every page), first   |                            | 25.0 s             | 10.2 s            |
+| "topic" (every page), totals  |                            | 68.0 s             | 24.9 s            |
+
+"topic 42" is in one title in 500 (7,200 pages, about 29,000 visits); the rare term is one page with a handful of visits; "topic" is in every one of the 3.6M titles. Grouped totals run the match twice (once for the totals, once for the rows), which is why the rare term's exact-totals call doubles; the UI runs that call beside the list, not before it. A cursor page costs the same as the first page: the match and the aggregation run again, only the cut moves.
+
+Regex search groups the same bounded window the visit list scans (the newest 50,000 visits inside the filters), so its counts cover that window. Semantic search already returned one row per page; its header shows pages only.
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |
@@ -85,7 +105,7 @@ Generating the 14.4M archive took 208 s for the rows and 47 s to project 3.6M se
 
 ## Open risks
 
-- Keyword search over a common term is about 1.1 s for the first page at 14.4M (2.1 s for its total). It runs off the UI thread, but the list waits for it. The lexical path ranks every match before returning a page; that is the next thing to look at.
+- Keyword search over a common term is about 0.8 s for the first page of grouped results at 14.4M (1.7 s with totals), and a word in every page title takes 10 s (25 s with totals). It runs off the UI thread, but the list waits for it. Both FTS tables match and rank every document before a page is cut, then every matching `url_id` is aggregated. For "topic" the term-table match alone is 60 ms and aggregating all 14.4M visits by `url_id` is about 1 s (sqlite3 CLI on the same file), so most of the 10 s is ranking, the trigram match and folding 3.6M URLs; that split is not measured yet. Cutting the match by score before aggregating is the next thing to look at.
 - `load_source_stats` recounts each profile after every backup (294 ms at 14.4M). It is cached until the archive file changes and runs off the UI thread.
 - `keyring_status()` on every `app_snapshot` is unmeasured (see 4).
 - Numbers come from a machine several times faster than the target. The fixes change the shape of the work (one page instead of a sort over every visit, two key derivations instead of five), which holds on slower hardware, but absolute times there will be higher.
