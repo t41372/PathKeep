@@ -153,7 +153,12 @@ test('a starred page keeps its note after a reload', async ({
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill('why I left tokio')
-  await results(page).filter({ hasText: PAGE_TITLE }).click()
+  // Until the search lands the list is still the timeline, which can show
+  // this page twice near the top (two visits yesterday, say).
+  const row = results(page).filter({ hasText: PAGE_TITLE })
+  await expect(row).toHaveCount(1)
+  await expect(row).toContainText(/\d visits?/)
+  await row.click()
 
   const detail = page.getByRole('complementary', { name: 'Page details' })
   await expect(detail).toContainText(PAGE_URL)
