@@ -10,7 +10,7 @@ use crate::{
 };
 use browser_history_parser::{ContextEvidence, NativeEntity, TypedEvidenceBatch};
 use rusqlite::Connection;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use tempfile::tempdir;
 
 const TEST_CHROME_USER_DATA_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
@@ -1990,6 +1990,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         &config,
         None,
         ExportRequest {
+            export_id: None,
             query: HistoryQuery {
                 q: Some("archive".to_string()),
                 limit: Some(1),
@@ -2006,6 +2007,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         &config,
         None,
         ExportRequest {
+            export_id: None,
             query: HistoryQuery { q: Some("archive".to_string()), ..HistoryQuery::default() },
             format: ExportFormat::Html,
         },
@@ -2020,6 +2022,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         &config,
         None,
         ExportRequest {
+            export_id: None,
             query: HistoryQuery { q: Some("archive".to_string()), ..HistoryQuery::default() },
             format: ExportFormat::Markdown,
         },
@@ -2032,6 +2035,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         &config,
         None,
         ExportRequest {
+            export_id: None,
             query: HistoryQuery { q: Some("archive".to_string()), ..HistoryQuery::default() },
             format: ExportFormat::Text,
         },
@@ -2107,6 +2111,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         &config,
         None,
         ExportRequest {
+            export_id: None,
             query: HistoryQuery {
                 domain: Some("bulk.example".to_string()),
                 ..HistoryQuery::default()
@@ -2116,6 +2121,17 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     )
     .expect("export multi-page history");
     assert_eq!(bulk_export.count, 1001);
+    // Rows are streamed page by page: the 1,001 rows cross a page boundary, and each must be
+    // written exactly once.
+    let bulk_lines = fs::read_to_string(&bulk_export.path).expect("read bulk export");
+    let bulk_ids = bulk_lines
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).expect("json line")["id"].clone()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(bulk_ids.len(), 1001);
+    assert_eq!(bulk_ids.iter().map(|id| id.to_string()).collect::<HashSet<_>>().len(), 1001);
 
     let report_again = run_backup(&paths, &config, None, false).expect("rerun backup");
     assert_eq!(report_again.run.as_ref().expect("run").new_visits, 0);

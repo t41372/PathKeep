@@ -133,8 +133,9 @@ pub use self::{
     doctor::{doctor, repair_health_issues},
     history::{
         BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
-        BrowseDayTopUrl, export_history, get_browse_day_insights, list_history,
-        load_history_favicons, og_images, og_images_fetch,
+        BrowseDayTopUrl, ExportCancelled, cancel_export, export_history, get_browse_day_insights,
+        get_export_progress, list_history, load_history_favicons, og_images, og_images_fetch,
+        record_export_failure,
     },
     maintenance::{
         preview_retention, preview_snapshot_restore, rekey_archive,

@@ -365,10 +365,22 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "export_history" => {
             let payload = parse_payload::<ExportPayload>(payload)?;
-            json_value!(worker_bridge::export_history_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            let key = session_key(&state.session);
+            // Keep the runtime free to serve polling/cancellation during a long export.
+            let result = tokio::task::spawn_blocking(move || {
+                worker_bridge::export_history_impl(payload.request, key.as_deref())
+            })
+            .await
+            .unwrap_or_else(|error| join_failure("export_history", error))?;
+            json_value!(result)
+        }
+        "get_export_progress" => {
+            let payload = parse_payload::<ExportIdPayload>(payload)?;
+            json_value!(worker_bridge::get_export_progress_impl(&payload.export_id))
+        }
+        "cancel_export" => {
+            let payload = parse_payload::<ExportIdPayload>(payload)?;
+            json_value!(worker_bridge::cancel_export_impl(&payload.export_id))
         }
         "inspect_takeout" => {
             let payload = parse_payload::<TakeoutPayload>(payload)?;

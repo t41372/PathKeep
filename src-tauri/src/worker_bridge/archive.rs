@@ -293,7 +293,28 @@ pub(crate) fn export_history_impl(
     request: ExportRequest,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::ExportResult, CommandError> {
-    worker_result(vault_worker::export_query(session_database_key, request))
+    let result = vault_worker::export_query(session_database_key, request);
+    if let Err(error) = &result {
+        if error.downcast_ref::<vault_core::ExportCancelled>().is_some() {
+            return Err(CommandError {
+                message: format!("{error:#}"),
+                code: Some("export-cancelled".to_string()),
+                action_hint: None,
+                retry_hint: None,
+            });
+        }
+    }
+    worker_result(result)
+}
+
+/// Polls process-local export state without archive I/O.
+pub(crate) fn get_export_progress_impl(export_id: &str) -> Option<vault_core::ExportProgress> {
+    vault_core::get_export_progress(export_id)
+}
+
+/// Requests cancellation through the same registry the in-process worker uses.
+pub(crate) fn cancel_export_impl(export_id: &str) -> bool {
+    vault_core::cancel_export(export_id)
 }
 
 /// Runs the archive doctor read path through the worker.

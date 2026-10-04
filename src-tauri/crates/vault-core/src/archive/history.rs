@@ -36,7 +36,9 @@ pub use self::day_insights::{
     BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
     BrowseDayTopUrl, get_browse_day_insights,
 };
-pub use self::export::export_history;
+pub use self::export::{
+    ExportCancelled, cancel_export, export_history, get_export_progress, record_export_failure,
+};
 pub use self::favicons::load_history_favicons;
 // og_images functions are re-exported via the `og_images` module path so the
 // worker and Tauri command crates can address them as
@@ -330,6 +332,14 @@ pub fn list_history(
     query: HistoryQuery,
 ) -> Result<HistoryQueryResponse> {
     let connection = open_archive_connection(paths, config, key)?;
+    list_history_on_connection(&connection, query)
+}
+
+// Export reuses this dispatch on its one connection; recall paths and filters stay shared.
+fn list_history_on_connection(
+    connection: &Connection,
+    query: HistoryQuery,
+) -> Result<HistoryQueryResponse> {
     let limit = query.limit.unwrap_or(150).clamp(1, 1_000);
     let limit_usize = limit as usize;
     let requested_page = query.page.map(|page| usize::try_from(page.max(1)).unwrap_or(usize::MAX));
@@ -343,7 +353,7 @@ pub fn list_history(
     } else {
         raw_q.as_deref().map(parse_history_search_query).unwrap_or_default()
     };
-    prepare_advanced_search_filters(&connection, &parsed_query)?;
+    prepare_advanced_search_filters(connection, &parsed_query)?;
     let start_time_ms = max_optional_i64(query.start_time_ms, parsed_query.after_ms);
     let end_time_ms = min_optional_i64(query.end_time_ms, parsed_query.before_ms);
     let q = if regex_mode { raw_q.clone() } else { parsed_query.keyword_text.clone() };
@@ -367,7 +377,7 @@ pub fn list_history(
         let cursor = query.cursor.as_deref();
         return match (regex, lexical_query) {
             (Some(regex), _) => grouped::list_regex_pages(
-                &connection,
+                connection,
                 &filters,
                 &sort,
                 limit_usize,
@@ -376,7 +386,7 @@ pub fn list_history(
                 REGEX_SCAN_CAP,
             ),
             (None, Some(lexical_query)) => grouped::list_keyword_pages(
-                &connection,
+                connection,
                 &filters,
                 &sort,
                 limit_usize,
@@ -387,7 +397,7 @@ pub fn list_history(
             // Words that analyze to nothing searchable match nothing, as in the visit list.
             (None, None) if q.is_some() => Ok(HistoryQueryResponse::default()),
             (None, None) if !parsed_query.required_tags.is_empty() => grouped::list_tagged_pages(
-                &connection,
+                connection,
                 &filters,
                 &sort,
                 limit_usize,
@@ -395,7 +405,7 @@ pub fn list_history(
                 include_total,
             ),
             (None, None) => grouped::list_operator_pages(
-                &connection,
+                connection,
                 &filters,
                 &sort,
                 limit_usize,
@@ -409,7 +419,7 @@ pub fn list_history(
 
     if let Some(regex) = regex {
         return list_history_with_regex(
-            &connection,
+            connection,
             limit_usize,
             requested_page,
             profile_id,
@@ -429,7 +439,7 @@ pub fn list_history(
 
     if let Some(lexical_query) = lexical_query {
         return list_history_with_lexical_search(
-            &connection,
+            connection,
             include_total,
             limit,
             limit_usize,
@@ -449,7 +459,7 @@ pub fn list_history(
         cursor.and_then(HistoryCursor::chronological).unwrap_or((0, 0));
 
     list_history_with_sql(
-        &connection,
+        connection,
         include_total,
         limit,
         limit_usize,

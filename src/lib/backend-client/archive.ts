@@ -19,6 +19,7 @@ import type {
   ArchiveUpgradeAssessment,
   BackupReport,
   ExportRequest,
+  ExportProgress,
   ExportResult,
   FullArchiveRestoreReport,
   RecoverySnapshot,
@@ -55,6 +56,10 @@ export const archiveClient = {
     call<RetentionPruneResult>('run_retention_prune', { request }),
   exportHistory: (request: ExportRequest) =>
     call<ExportResult>('export_history', { request }),
+  getExportProgress: (exportId: string) =>
+    call<ExportProgress | null>('get_export_progress', { exportId }),
+  cancelExport: (exportId: string) =>
+    call<boolean>('cancel_export', { exportId }),
   listRecoverySnapshots: () =>
     call<RecoverySnapshot[]>('list_recovery_snapshots'),
   runFullArchiveRestore: (

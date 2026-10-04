@@ -14,6 +14,9 @@ function Progress({
         'relative h-2 w-full overflow-hidden rounded-full bg-primary/20',
         className,
       )}
+      // Radix reads the value for aria-valuenow; without it screen readers
+      // hear an indeterminate bar even while it visibly fills.
+      value={value}
       {...props}
     >
       {value == null ? (

@@ -13,7 +13,7 @@ PATHKEEP_ARCHIVE_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=14400000 \
   --test archive_scale_bench --release -- --nocapture
 ```
 
-`PATHKEEP_ARCHIVE_BENCH_SECTIONS=reads,doctor,searches,encrypted` runs only the named sections. The doctor and searches sections first fill the intelligence tables with synthetic rows (the archive has none of its own): one derived row per visit for the doctor, and a search event for every eighth visit (1.8M at 14.4M, 5,000 distinct queries, skewed so a few are common) for searches. Calls that matter for memory also print the peak Rust heap (a counting allocator in the benchmark binary) and SQLite's own peak (`sqlite3_memory_highwater`), each measured from the start of the call.
+`PATHKEEP_ARCHIVE_BENCH_SECTIONS=reads,doctor,searches,export,encrypted` runs only the named sections (`PATHKEEP_ARCHIVE_BENCH_EXPORT_FORMATS` picks export formats; each file is deleted after it is measured). The doctor and searches sections first fill the intelligence tables with synthetic rows (the archive has none of its own): one derived row per visit for the doctor, and a search event for every eighth visit (1.8M at 14.4M, 5,000 distinct queries, skewed so a few are common) for searches. Calls that matter for memory also print the peak Rust heap (a counting allocator in the benchmark binary) and SQLite's own peak (`sqlite3_memory_highwater`), each measured from the start of the call.
 
 Machine: Apple Silicon, 18 cores, 64 GB, SSD, release build. That is far faster than the target, so read the before/after ratios, not the absolute times. Each figure is the median of 5 to 20 calls in a warm process (the archive was already opened once).
 
@@ -96,7 +96,7 @@ Regex search groups the same bounded window the visit list scans (the newest 50,
 
 Operator-only searches (`site:docs.rs` with no words) start from every row of `urls`, so they cost like the "every page" row above. The History tag chips made one of them common, `tag:name`, so a search whose operators include `tag:` and whose words are empty starts from the tagged URLs instead (`url_tags`, then `idx_urls_url`, then the visit index per URL): its cost follows the number of tagged pages, not the archive. A plan test (`tag_pages_start_from_the_tagged_urls_not_every_url`) fails if `urls` or `visits` is scanned. Not measured at 14.4M; with tens of tagged pages it is a handful of index lookups. Other operator-only searches (`site:` alone, `-word` alone) still scan; they are typed rarely and were left as they are.
 
-### 6. The doctor copied every visible visit id into memory
+### 7. The doctor copied every visible visit id into memory
 
 `doctor_report` and `repair_health` found derived rows that point at a hidden or missing visit with `visit_id NOT IN (SELECT id FROM archive.visits WHERE reverted_at IS NULL)`. SQLite runs that subquery once and stores every visible id in a temporary index (`LIST SUBQUERY` in the plan). It did this for `visit_derived_facts`, `search_trail_members` and `ai_embeddings`, and the AI indexer did it again to find stale embeddings.
 
@@ -114,7 +114,7 @@ The time for a table with one row per visit stays about the same: both shapes st
 
 Left alone: the "broken visibility" check (`visits.reverted_at IS NOT NULL` joined to `runs`) scans the whole visits table, 0.4 s at 14.4M. No index covers hidden visits; a partial index `WHERE reverted_at IS NOT NULL` would make it near-free, but needs an archive migration. `reverted_by_run_id NOT IN (SELECT id FROM runs)` in repair stays as it is: `runs` has one row per backup.
 
-### 7. Insights "Frequent searches" counted all-time totals
+### 8. Insights "Frequent searches" counted all-time totals
 
 The card summed `memberCount` of the query families that overlapped the range. A family's member count covers its whole history, so a query could show 100 next to a "Searches" figure of 74 for the same 30 days. Search events carry no time of their own, so the only range-scoped way to count them was to join each one to `archive.visits`, as `get_search_queries` and `get_top_search_concepts` still do.
 
@@ -135,6 +135,53 @@ The joined shape scans every search event whatever the range. A covering index t
 
 One-time cost: the migration fills in the time for existing events with one `UPDATE` against the archive, then builds the index. At 14.4M visits that took 2.2 s with the archive in the page cache and 9.4 s on the first run after the archive was generated (cold cache). Intelligence migrations run lazily, on the first intelligence read after an upgrade (not behind the "Upgrading your archive" screen), off the UI thread; that read and any that start beside it wait for it. Because several reads start at once, migrations now run under a process-wide lock. Without it every concurrent read would try to apply the pending migration, and the late ones could fail on SQLite's 5 s busy timeout or on the duplicate version row.
 
+### 9. `export_history` held the whole archive in memory
+
+Settings exports the whole archive. `export_history` walked History in 1,000-row pages, but collected every row into one `Vec`, rendered all of them into one `String` (JSON Lines built a second `Vec<String>` first) and only then wrote the file. Peak heap grew by about 1.2 GB per million visits for JSON Lines and 0.9 GB for HTML, so a 14.4M archive needed roughly 13 to 17 GB on an 8 GB machine.
+
+Fix: each page is written to the file as it arrives and then dropped. The file is still written atomically: `durable_io::atomic_durable_write_with` streams into a buffered same-directory temp, then does the usual `F_FULLFSYNC` → rename → directory fsync; if the walk fails (archive locked, disk full) the temp is deleted and no partial export appears. The bytes are the same as before (a test pins every format). Temps left by an export that was killed are swept from the exports folder once they are an hour old; a fresh one may belong to an export still running.
+
+Peak Rust heap above the start of the call ("heap", from the benchmark's counting allocator), whole archive, one run each on a shared machine:
+
+| `export_history`, 1M visits | time before | time after | heap before | heap after | file    |
+| --------------------------- | ----------- | ---------- | ----------- | ---------- | ------- |
+| JSON Lines                  | 16 to 27 s  | 17 to 28 s | 1,201 MiB   | 0.6 MiB    | 325 MiB |
+| HTML                        | 15 to 16 s  | 18 s       | 891 MiB     | 0.6 MiB    | 176 MiB |
+
+Time did not change in any way that rises above the noise on this machine (other jobs were running; the same build varied by 10 s between runs). It is the page walk: about 5 ms per 1,000-row page at 14.4M with a warm cache, and much more when the archive is not in the OS cache, because each row looks up its URL in a table far larger than SQLite's page cache.
+
+At 14.4M visits the whole-archive JSON Lines export finished: 14.4M rows, a 4.7 GB file, peak Rust heap +0.6 MiB, SQLite +78 MiB (its page caches), resident size about 92 MiB throughout. It took 66 minutes on a freshly generated archive that was not in the OS cache, with other jobs on the machine; warm, a page costs about 5 ms, which puts the walk alone near 75 s. The old code was stopped after 21 minutes with about a million rows collected and 1.2 GB resident and growing. In an earlier attempt the disk filled up after 2.3 GB: the export failed with "No space left on device", its temp was deleted and no partial file was left.
+
+The follow-up export path (2026-10-04) opens the archive once for the whole request. The old cursor already sought `(visit_time_ms, id)` through the visible-time index; OFFSET was always zero. Reopening every 1,000 rows discarded SQLite's page cache and mapping and repeated archive/search initialization and advanced-filter table setup. Encrypted archives also repeated SQLCipher key derivation. Ordinary time-sorted exports now stream one statement, using the shared filters, ordering and row hydration; search exports retain the shared keyset readers on that same connection, including existing grouped/regex/fuzzy behavior. The unchanged format renderer writes through a fixed 256 KiB buffer. SQLite keeps its fixed cache and export-only temporary B-trees spill to disk instead of consuming archive-sized memory.
+
+Re-measured on this checkout with the same export-only release benchmark. The baseline is the page-streaming implementation at `5c7d108c` (its benchmark binary was preserved before editing); the follow-up uses one connection. Plaintext, whole-archive JSON Lines, one run each:
+
+| Visits | Time before            | Time after | Peak Rust heap before → after | Peak SQLite before → after | Artifact  |
+| ------ | ---------------------- | ---------- | ----------------------------- | -------------------------- | --------- |
+| 1M     | 20.17 s                | 3.22 s     | +0.6 → +0.3 MiB               | +0.4 → +0.4 MiB            | 325 MiB   |
+| 14.4M  | 3,090.59 s (51.51 min) | 40.17 s    | +0.7 → +0.3 MiB               | +77.8 → +77.8 MiB          | 4,744 MiB |
+
+The 14.4M export wrote all 14,400,000 rows, about 77 times faster in this run, with the same artifact size. Memory figures are per-call allocation peaks above the starting point, from the benchmark's Rust allocator and SQLite counters; they do not include mapped-file residency or OS file cache. The sandbox denied `/usr/bin/time -l`'s system-counter query, so no new process RSS figure is reported. A previous follow-up run at 1M was 3.04 s. Timings exclude fixture seeding/compilation and include rendering, buffered writes, durable publication and output removal. The 14.4M baseline followed fixture generation (499.8 s to seed, 80.0 s to project), with builds/tests also running during part of the export; the follow-up reused that archive after those jobs finished. OS cache and competing work were not controlled, so these are observed end-to-end results, separate from the historical 66-minute run above.
+
+Reproduce from the checkout with `export CARGO_TARGET_DIR=$PWD/.cargo-target`, then `PATHKEEP_ARCHIVE_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=14400000 PATHKEEP_ARCHIVE_BENCH_DIR=$PWD/.export-bench PATHKEEP_ARCHIVE_BENCH_SECTIONS=export PATHKEEP_ARCHIVE_BENCH_EXPORT_FORMATS=jsonl cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --test archive_scale_bench --release archive_scale_bench -- --nocapture` (use `1000000` for 1M). Archives were kept below the disk budget and deleted after both measurements.
+
+**Encrypted, 14.4M visits** (2026-10-04, after the change; `PATHKEEP_ARCHIVE_BENCH_SECTIONS=encrypted-export`, which seeds a separate SQLCipher archive with the same rows): JSON Lines took 113.8 s for the same 14,400,000 rows and 4,744 MiB, peak Rust heap +0.3 MiB, SQLite +77.8 MiB. A 1,000-row page cost 52–61 ms. The load average was 19 during the run (another agent was building and running E2E), so the gap to the plaintext 40 s is partly load, not only decryption; the two runs were not taken side by side. No before figure exists for encrypted archives: the old code re-derived the key every 1,000 rows, so it was slower than its plaintext 51 minutes. On the 4-core target machine expect several minutes for a full encrypted export, which is why Settings shows progress and a Stop button.
+
+Optional `exportId` enables polling through `get_export_progress` and cancellation through `cancel_export`, on Tauri and the dev bridge. Totals come from recent successful runs' cached stats, never a pre-export count: they estimate the archive, also when the query is filtered. Progress counts rendered rows/bytes, with updates every 128 rows or 64 KiB. Cancellation checks every row and every 64 KiB write chunk; SQLite's progress handler checks every 1,000 VM operations, including queries that have not yielded a row. The cancellation/publication barrier shares the job lock: accepted cancellation removes the temp and returns `export-cancelled`; after state becomes `finishing`, cancellation returns false. Flush, durable sync and atomic publication then lead to `done` or `failed`. There are at most 64 tracked jobs; finished entries expire after five minutes or are evicted at capacity. Different ids own separate counters/stop flags and unique artifact names.
+
+Regression coverage compares exported bytes with the previous independent-page walk for every format, both sort directions, filters, keyword/regex/grouped recall and empty results. It also exercises cancellation while writing and inside a large SQL batch, large-field chunk checks, failed setup/query/publication state, concurrent ids, registry expiry/capacity, and allocator-measured heap bounds at two archive sizes. The reproducible export-only benchmark uses `PATHKEEP_ARCHIVE_BENCH_SECTIONS=export PATHKEEP_ARCHIVE_BENCH_EXPORT_FORMATS=jsonl`; generated archives and output files are removed after measurement.
+
+### 10. Undoing an import rebuilt the whole search index
+
+Release build on Apple Silicon; five alternating revert/restore calls in a warm process on the same plaintext archive: 1,000,000 visits, 250,000 URL rows, a 10,000-visit batch touching 9,724 URLs. Before uses the full rebuild; after seeks through at most 1,000 batch visits per statement and refreshes their URLs, keeping every chunk and both FTS mirrors in one search transaction after the canonical commit. The query plan uses `idx_visits_import_batch_id (import_batch_id=? AND rowid>?)` and URL primary-key lookups. Existing enrichment, notes and tags survive; visibility still comes from canonical visits. Existing archive-total counts and batch review remain in these end-to-end timings.
+
+| Operation              | Before median / max    | After median / max |
+| ---------------------- | ---------------------- | ------------------ |
+| `revert_import_batch`  | 2,731.70 / 2,858.21 ms | 740.43 / 843.83 ms |
+| `restore_import_batch` | 2,722.40 / 2,745.52 ms | 732.25 / 860.27 ms |
+
+Reproduce with `export CARGO_TARGET_DIR=$PWD/.cargo-target`, then `PATHKEEP_IMPORT_BATCH_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=1000000 PATHKEEP_ARCHIVE_BENCH_DIR=$PWD/.batch-revert-bench cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --test archive_scale_bench --release import_batch_visibility_scale_bench -- --nocapture`. The synthetic archive was created inside the checkout and deleted after both measurements. These numbers do not measure the 14.4M target or encrypted archives.
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |
@@ -151,15 +198,5 @@ Generating the 14.4M archive took 208 s for the rows and 47 s to project 3.6M se
 - Keyword search over a common term is about 0.8 s for the first page of grouped results at 14.4M (1.7 s with totals), and a word in every page title takes 10 s (25 s with totals). It runs off the UI thread, but the list waits for it. Both FTS tables match and rank every document before a page is cut, then every matching `url_id` is aggregated. For "topic" the term-table match alone is 60 ms and aggregating all 14.4M visits by `url_id` is about 1 s (sqlite3 CLI on the same file), so most of the 10 s is ranking, the trigram match and folding 3.6M URLs; that split is not measured yet. Cutting the match by score before aggregating is the next thing to look at.
 - `load_source_stats` recounts each profile after every backup (294 ms at 14.4M). It is cached until the archive file changes and runs off the UI thread.
 - `keyring_status()` on every `app_snapshot` is unmeasured (see 4).
+- A whole-archive export at 14.4M is a long job (66 minutes measured with a cold cache). Memory stays flat, but Settings shows only a spinner until it finishes: there is no progress or cancel yet. Keeping one archive connection for the whole walk, instead of reopening it per page, is the first thing to try.
 - Numbers come from a machine several times faster than the target. The fixes change the shape of the work (one page instead of a sort over every visit, two key derivations instead of five), which holds on slower hardware, but absolute times there will be higher.
-
-## Import-batch revert / restore (2026-10-04)
-
-Release build on Apple Silicon; five alternating revert/restore calls in a warm process on the same plaintext archive: 1,000,000 visits, 250,000 URL rows, a 10,000-visit batch touching 9,724 URLs. Before uses the full rebuild; after seeks through at most 1,000 batch visits per statement and refreshes their URLs, keeping every chunk and both FTS mirrors in one search transaction after the canonical commit. The query plan uses `idx_visits_import_batch_id (import_batch_id=? AND rowid>?)` and URL primary-key lookups. Existing enrichment, notes and tags survive; visibility still comes from canonical visits. Existing archive-total counts and batch review remain in these end-to-end timings.
-
-| Operation | Before median / max | After median / max |
-| --- | --- | --- |
-| `revert_import_batch` | 2,731.70 / 2,858.21 ms | 740.43 / 843.83 ms |
-| `restore_import_batch` | 2,722.40 / 2,745.52 ms | 732.25 / 860.27 ms |
-
-Reproduce with `export CARGO_TARGET_DIR=$PWD/.cargo-target`, then `PATHKEEP_IMPORT_BATCH_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=1000000 PATHKEEP_ARCHIVE_BENCH_DIR=$PWD/.batch-revert-bench cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --test archive_scale_bench --release import_batch_visibility_scale_bench -- --nocapture`. The synthetic archive was created inside the checkout and deleted after both measurements. These numbers do not measure the 14.4M target or encrypted archives.

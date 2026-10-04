@@ -25,18 +25,15 @@ import {
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import { archiveClient } from '@/lib/backend-client/archive'
 import { explorerClient } from '@/lib/backend-client/explorer'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
-import { queryKeys } from '@/lib/query'
 import { useSnapshot } from '@/lib/queries/app'
-import type { ExportFormat } from '@/lib/types'
+import { ExportRow } from './export-row'
 import { FreeSpaceDialog } from './free-space-dialog'
 import { MoveDialog } from './move-dialogs'
 import { RestoreDialog } from './restore-dialog'
 import { reveal, revealLabelKey } from './reveal'
-import { RowSelect } from './row-select'
 import { UsageCard } from './usage-card'
 import { WipeDialog } from './wipe-dialog'
 
@@ -223,70 +220,6 @@ function PreviewCacheRow() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </SettingRow>
-  )
-}
-
-const exportFormats: ExportFormat[] = ['html', 'markdown', 'text', 'jsonl']
-
-function ExportRow() {
-  const { t } = useI18n()
-  const client = useQueryClient()
-  const [kind, setKind] = useState<ExportFormat>('html')
-  const run = useMutation({
-    mutationFn: () => archiveClient.exportHistory({ query: {}, format: kind }),
-    onSuccess: (result) => {
-      void client.invalidateQueries({ queryKey: queryKeys.dashboard })
-      toast.success(t('settingsStorage.export.done', { count: result.count }), {
-        description: result.path,
-        action: {
-          label: t(revealLabelKey()),
-          onClick: () =>
-            void reveal(result.path, t('settingsStorage.location.failed')),
-        },
-      })
-    },
-    onError: (error) =>
-      toast.error(t('settingsStorage.export.failed'), {
-        description: describeError(error, 'export_history'),
-      }),
-  })
-
-  return (
-    <SettingRow
-      title={t('settingsStorage.export.title')}
-      description={t('settingsStorage.export.description')}
-      control={
-        <>
-          <RowSelect
-            value={kind}
-            label={t('settingsStorage.export.format')}
-            disabled={run.isPending}
-            onChange={(value) => setKind(value as ExportFormat)}
-            options={exportFormats.map((value) => ({
-              value,
-              label: t(`settingsStorage.export.formats.${value}`),
-            }))}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={run.isPending}
-            onClick={() => run.mutate()}
-          >
-            {run.isPending && <Spinner />}
-            {run.isPending
-              ? t('settingsStorage.export.running')
-              : t('settingsStorage.export.action')}
-          </Button>
-        </>
-      }
-    >
-      {run.isPending && (
-        <p role="status" className="text-[13px] text-muted-foreground">
-          {t('settingsStorage.export.wait')}
-        </p>
-      )}
     </SettingRow>
   )
 }

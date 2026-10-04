@@ -1352,7 +1352,11 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
 
     let exported = export_query(
         None,
-        ExportRequest { query: HistoryQuery::default(), format: ExportFormat::Text },
+        ExportRequest {
+            export_id: None,
+            query: HistoryQuery::default(),
+            format: ExportFormat::Text,
+        },
     )
     .expect("export history");
     assert_eq!(exported.count, 1);

@@ -526,8 +526,21 @@ export type ExportFormat = 'html' | 'markdown' | 'text' | 'jsonl'
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface ExportRequest {
+  exportId?: string
   query: HistoryQuery
   format: ExportFormat
+}
+
+/** Pollable in-memory export state, retained briefly after completion. */
+export interface ExportProgress {
+  exportId: string
+  state: 'running' | 'finishing' | 'done' | 'cancelled' | 'failed'
+  rowsWritten: number
+  /** Cached archive-wide estimate, including when the export has filters. */
+  totalRows: number | null
+  bytesWritten: number
+  startedAt: string
+  error: string | null
 }
 
 /**

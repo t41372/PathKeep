@@ -167,6 +167,8 @@ fn run_app() -> Result<()> {
             get_url_detail,
             load_audit_run_detail,
             export_history,
+            get_export_progress,
+            cancel_export,
             inspect_takeout,
             import_takeout,
             inspect_browser_history,

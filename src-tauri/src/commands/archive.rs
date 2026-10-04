@@ -422,6 +422,20 @@ pub(crate) async fn export_history(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Polls export state without waiting for the blocking export command.
+pub(crate) fn get_export_progress(export_id: String) -> Option<vault_core::ExportProgress> {
+    worker_bridge::get_export_progress_impl(&export_id)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Stops a running export before its durable publication barrier.
+pub(crate) fn cancel_export(export_id: String) -> bool {
+    worker_bridge::cancel_export_impl(&export_id)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Runs the archive doctor read path without mutating canonical facts, off the UI thread.
 pub(crate) async fn doctor_report(
     state: State<'_, SessionState>,
