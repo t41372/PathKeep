@@ -28,9 +28,10 @@ export default defineConfig({
         '**/var/playwright/**',
         '**/cargo-target/**',
         // Agent worktrees and the design prototypes are full of HTML that
-        // would otherwise trigger page reloads.
-        '**/.claude/**',
-        '**/docs/**',
+        // would otherwise trigger page reloads. Anchored to this checkout, so
+        // a dev server started inside a worktree still sees its own files.
+        path.join(rootDir, '.claude/**'),
+        path.join(rootDir, 'docs/**'),
       ],
     },
   },
