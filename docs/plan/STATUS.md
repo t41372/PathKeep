@@ -39,6 +39,7 @@
     - 打包時 Recharts 被併成一個名叫 `heatmap` 的 546 kB chunk（Home 和 Insights 共用、lazy load），不算問題。
   - 2026-10-02 試跑時記下、還沒修的：
     - History 搜尋把同一頁的每一次訪問都列出來，重訪多的頁面會把其他結果擠掉。用戶 2026-10-02 決定：搜尋結果按網址收成一行。已做（`groupByUrl`，`22f11a5e`）；「topic」這種每頁都中的詞第一頁在 14.4M 仍要約 10 s（精確總數約 25 s）。2026-10-04 決定 release 前要修：排序 / 分組只在最新的有限窗口內做、總數超過上限顯示「N+」並在 UI 說明。進行中。
+    - Regex 搜尋只掃最新的 50,000 筆訪問，計數卻像是精確的（14.4M 時只覆蓋約 0.35%）。決定：regex 要涵蓋整個 archive——按時間往回分段掃、每段有時間上限、捲動或「繼續搜尋」接著掃，全部掃完前計數標成「N+（目前為止）」並寫明掃到哪天。進行中。
     - Insights「常搜尋」的次數是整個 query family 的歷史總數，不受日期範圍限制（會大於同範圍的搜尋 KPI）。要後端給一個按範圍統計的命令。
     - ~~排程器沒有沙盒~~：已補 `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR`（只在 debug build 生效），dev:demo 與 E2E 都會設。E2E 現在仍選 Manual，之後可以補一條真的安裝 / 移除排程的場景。
     - `export_history` 先把整個結果集載入記憶體再寫檔，1440 萬條會撐爆 8 GB；`doctor_report` / `repair_health` 用 `visit_id NOT IN (SELECT id FROM archive.visits …)`。兩者都要改成串流 / anti-join。
