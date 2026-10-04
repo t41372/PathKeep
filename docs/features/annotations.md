@@ -2,7 +2,7 @@
 
 > v0.3 paper redesign 引入的使用者可手寫資料。讓詳情面板寫下的 notes 與 tags
 > 進入 canonical archive，跨 session、跨備份、跨 restore 保存下來。
-> 2026-10 起筆記在 History 詳情面板；標籤目前沒有介面（見 §4）。
+> 2026-10 起筆記與標籤都在 History 詳情面板（見 §4）。
 
 ---
 
@@ -23,7 +23,7 @@
 - 每網址一段 notes 文字（最長 16 KiB），與一組 tags（最多 64 個，每個最長 64 bytes）。
 - Notes / tags 都跟 URL 綁定，不是 visit ID — 同一個頁面下次訪問仍會帶出上次寫的內容。
 - Audit 時間戳（`created_at` / `updated_at`）與寫入時的 `source_profile`（純記錄用途）。
-- Tags 在持久化前會被 trim、case-insensitive de-dupe，並依寫入時間升冪排序回傳。
+- Tags 在持久化前會被 trim、case-insensitive de-dupe，並依第一次加上的時間升冪排序回傳（`replace_tags` 會保留沒被移除的標籤原本的 `created_at` 與 `source_profile`，所以清單維持使用者加入的順序；同一次寫入的新標籤時間相同，依字母排）。
 - 提供 list / search API 給未來的 annotations browse / 匯出流程。
 
 ### 不在範圍
@@ -107,8 +107,16 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
   （`src/features/history/queries.ts`），讀取失敗會說「無法載入備註」。
 - **已加星**視圖用 `useAnnotationList()`（`list_url_annotations`，上限 2000 筆）在每列
   顯示筆記預覽。
-- **標籤**：後端與 client 都在，但 2026-10 介面沒有任何地方讀寫標籤
-  （`replaceUrlTags` 沒有呼叫者）。
+- **標籤**：詳情面板備註上方的標籤列（`src/features/history/tag-editor.tsx`）。
+  輸入後按 Enter 或逗號新增（可一次貼上逗號分隔的多個）；輸入框空著時按 Backspace 移到最後一個標籤，
+  在標籤上按 Backspace / Delete 移除，←/→ 在標籤與輸入框之間移動；每個標籤也有「移除」按鈕。
+  每次變更都用 `replace_url_tags` 存整組，寫入依序執行；前端先套用與後端相同的規則
+  （trim、大小寫不分去重、最多 64 個、每個最多 64 bytes，`tags.ts`），超過時就地說明而不送出；
+  寫入失敗會退回上次存好的那組並說明。點標籤本身會把 History 搜尋改成 `tag:名稱`
+  （有空白或引號時加引號，例如 `tag:"e2e fts"`），切回全文。
+  **已加星**每列顯示最多三個標籤（多的寫 +N），資料來自同一個 `list_url_annotations`。
+  標籤與備註共用一次 `get_url_annotation` 讀取，載入中與讀取失敗只顯示一次
+  （`annotation-section.tsx`）。依 §2，介面不推薦既有標籤。
 - 沒有 localStorage 備援，也沒有 browser-preview 版本；舊的 `useLocalAnnotations`、
   `use-desktop-annotations.ts` 與「Saved · local」字樣已隨舊前端刪除。
 
@@ -128,6 +136,5 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
 
 ## 6. 後續 backlog
 
-- 標籤的介面（2026-10 redesign 沒有做）。
 - Notes export / import（含 CSV 與 markdown）。
 - Tag aliasing / canonical tag list 由 Settings 管理（先做使用者觀察再設計）。

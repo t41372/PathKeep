@@ -29,7 +29,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變�
 
 2026-10 介面沒有做到、但下文仍要求的（待用戶決定補或改）：
 
-- §1 semantic / hybrid 顯示目前的 provider / model / index state：History 只有「語意」一個選項，不顯示模型與索引狀態（狀態在 Settings → AI）。沒有獨立的 hybrid 選項。
+- §1 沒有獨立的 hybrid 選項（History 只有「語意」）。provider / model / index state 已在 History 顯示（2026-10-04）：語意搜尋可用時結果數下方寫出 provider 與模型、已索引頁數、更新時間與是否過期；不可用時按鈕提示與同一行說明原因（`disabled`、`rebuilding`、`queued`、`paused`、`empty`、`failed`、`degraded`、`blocked`）並說明現在是全文結果，連到 Settings → AI。
 - §2 assistant 的 `queued` / `insufficient-evidence` 狀態與 `jobId` / `runId` 顯示、共享 profile scope、seeded prompt 以外的修復入口。Ask 有四個範例問題與「去 Settings → AI」。
 - §3 Integrations 的 generated-artifact review（MCP JSON、skill markdown、consent summary）。
 - §4 Insights 的 V1 洞察卡（Periodic Summaries、Topic Timeline、Threads、Open Loops、Explore vs Exploit、Source Role Map、Query Ladder、Contrastive Summary）、evidence / freshness badge、scope 標示：2026-10 Insights 只有上表六張卡。對應的 32 個 intelligence 讀取命令仍在，前端沒有呼叫，清單見 [desktop-command-surface.md](../architecture/desktop-command-surface.md) §2026-10。

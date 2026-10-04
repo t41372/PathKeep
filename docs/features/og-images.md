@@ -3,8 +3,8 @@
 > v0.3 paper redesign 引入的 Browse 卡片模式視覺。讓每張 card 顯示頁面真正的 og:image
 > 社交卡，而非僅僅 favicon 或 domain 色塊；圖片以 byte-identical dedup 儲存，使用者可
 > 隨時關掉 fetch、清空快取，或設定 LRU / 大小 / 時間驅動的自動清理。
-> **2026-10 註記**：卡片模式已隨舊前端刪除，現在的介面不顯示 og:image，只剩開關與清除快取
-> （§4）。後端（§3）不變。
+> **2026-10 註記**：卡片模式已隨舊前端刪除。用戶 2026-10-04 決定繼續抓取並在介面顯示：
+> History 詳情面板的預覽卡、已加星與網站列的縮圖（§4）。後端（§3）不變。
 
 ---
 
@@ -135,27 +135,48 @@ data-sovereignty)`、無 Referer、connect 8 s / total 12 s、最多 1 次 redir
 
 ## 4. 前端（2026-10 redesign 之後）
 
-2026-10 的介面**不顯示** og:image。History 只有列表（沒有卡片模式），列與詳情面板只用
-favicon 或網域首字母色塊；沒有任何畫面呼叫 `loadHistoryOgImages` 或 `markOgImagesShown`。
-介面上只剩兩個控制：
+用戶 2026-10-04 決定：**繼續抓取，並在介面顯示**。History 有三個地方顯示 og:image：
+
+- **詳情面板的預覽卡**（`src/features/history/link-preview.tsx` 的 `LinkPreview`）：標題列與動作按鈕下方、
+  統計上方，固定 1.91 : 1、圓角、有邊框的框。從第一次繪製就是這個大小，圖片到了、或確定沒有圖，
+  周圍都不會移動。狀態與文案：
+  - 讀取中：網站圖示與網域的佔位，輕微脈動（`prefers-reduced-motion` 時不動）。
+  - `pending`（從沒抓過）且設定允許抓取：打開面板時對這一頁呼叫一次 `trigger_og_image_refetch`
+    （每頁每個 session 最多一次），期間寫「正在從 {網域} 取得預覽圖…」，結束後重讀。
+  - `ok`：圖片 `object-cover` 淡入；解碼完成才回報 `mark_og_images_shown`。
+  - `missing`：「這個頁面沒有提供預覽圖」；`blocked`：「這個網站的預覽圖已被封鎖」。
+  - `http://` 頁面：「只會為 HTTPS 頁面下載預覽圖」。
+  - 其他失敗（`http_error`、`parse_error`、`too_large`、`unsupported_mime`、圖片解碼失敗）：
+    「無法取得預覽圖」與「重試」（使用者明確要求才再抓一次）。
+  - 設定關閉抓取（`fetchEnabled` 為 false 或 `fetchMode` 為 `off`）而且沒有快取：「連結預覽已關閉」與
+    「去開啟」（連到 Settings → General）。已快取的圖仍會顯示，那不需要網路。
+- **已加星**與**網站**每列的縮圖（`PreviewThumb`，64 × 36）：有已存的圖就顯示，否則同一個框裡顯示網站圖示。
+  網站列用該網站最近一頁的網址。**列只讀不抓**：捲動清單不會對網站發出任何請求，
+  新頁面的圖靠備份後的 Background 預抓或打開詳情面板時那一次抓取。
+- **載入**（`src/features/history/og-image-store.ts`）：`load_history_og_images` 每批 8 個網址、
+  60 ms 合併一次（圖片以 data URL 傳回，數百 KB 一張，批次放大會讓 IPC 傳數十 MB）；
+  依網址快取約 120 筆，超過時淘汰最舊、而且沒有元件正在顯示的；`mark_og_images_shown` 每 2 秒批次送一次。
+  時間線與搜尋結果列不載入預覽圖，列表維持毫秒級。
+
+設定入口不變：
 
 - **Settings → General →「連結預覽」開關**（`src/features/settings/online-rows.tsx`）：
   寫 `AppConfig.ogImage.fetchEnabled`；打開時若 `fetchMode` 是 `off`，同時改成
   `background`。說明文字：「下載每頁提供的預覽圖，網站會看到一個來自你電腦的請求」。
-  同一組「線上」分組註明：只有連結預覽與網頁摘要會連到網站。
 - **Settings → Storage →「連結預覽圖」**（`src/features/settings/storage-section.tsx`）：
-  顯示 `get_og_image_storage_stats` 的張數與大小，「清除…」確認後呼叫
-  `clear_og_image_cache`。沒有 Run cleanup、沒有清理策略選擇、沒有 per-domain blocklist 介面。
+  張數與大小，「清除…」確認後呼叫 `clear_og_image_cache`。沒有 Run cleanup、清理策略選擇、
+  per-domain blocklist 介面。
 
-`src/lib/backend-client/explorer.ts` 仍保有 6 個 typed methods
-（`loadHistoryOgImages` / `markOgImagesShown` / `triggerOgImageRefetch` /
-`getOgImageStorageStats` / `clearOgImageCache` / `runOgImageCleanup`），介面只用到
-`getOgImageStorageStats` 與 `clearOgImageCache`。
+`src/lib/backend-client/explorer.ts` 的 typed methods 中，`loadHistoryOgImages`、`markOgImagesShown`、
+`triggerOgImageRefetch`、`getOgImageStorageStats`、`clearOgImageCache` 有呼叫者；
+`prefetchOgImages`、`getOgImageCoverageStats`、`runOgImageCleanup` 目前沒有。
 
-**已知問題（待決定）**：後端預設 `fetch_enabled: true`、`fetch_mode: background`，所以
-每次備份後仍會向造訪過的網站下載預覽圖，但 2026-10 介面既不顯示這些圖，onboarding 也不再
-告知這件事（舊的 Ready 步 egress 披露已隨舊前端刪除）。使用者唯一能發現它的地方是
-Settings → General 的開關。要嘛把預設改成關、要嘛恢復顯示並在 onboarding 告知，需要用戶決定。
+**仍未處理**：onboarding 沒有告知預設會向造訪過的網站下載預覽圖（舊 Ready 步的 egress 披露已隨舊前端刪除），
+唯一的入口是 Settings → General 的開關。這屬於 onboarding，本次沒有改。
+
+E2E（`tests/e2e/history-tools.spec.ts`）量測預覽框在讀取中與最終狀態的大小一致、最終狀態與後端記錄的
+`fetch_status` 相符，並在傳輸層把一頁的回應換成一張 PNG，確認圖片畫出且回報 `mark_og_images_shown`；
+後端回傳 data URL 的路徑由 `load_og_images_collapses_duplicate_urls_via_tempdir_archive` 測試。
 
 ## 5. 與其他系統的互動
 
@@ -165,7 +186,7 @@ Settings → General 的開關。要嘛把預設改成關、要嘛恢復顯示�
 - **Schedule tick**：未來在 `schedule.rs` daily tick 接上 `run_og_image_cleanup`，
   在使用者選了 Time / Size / LRU 模式時自動回收；目前 `Off` 模式下 tick 仍跑一次
   orphan-blob GC，量級忽略不計。
-- **顯示**：2026-10 起沒有任何畫面顯示 og:image（見 §4）；背景抓取仍照設定進行。
+- **顯示**：History 詳情面板、已加星與網站列（見 §4）；背景抓取照設定進行。
 
 ## 6. 後續 backlog
 

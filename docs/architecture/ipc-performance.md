@@ -92,6 +92,8 @@ Measured on the same 14.4M archive, `limit: 100`, the "before" column with the c
 
 Regex search groups the same bounded window the visit list scans (the newest 50,000 visits inside the filters), so its counts cover that window. Semantic search already returned one row per page; its header shows pages only.
 
+Operator-only searches (`site:docs.rs` with no words) start from every row of `urls`, so they cost like the "every page" row above. The History tag chips made one of them common, `tag:name`, so a search whose operators include `tag:` and whose words are empty starts from the tagged URLs instead (`url_tags`, then `idx_urls_url`, then the visit index per URL): its cost follows the number of tagged pages, not the archive. A plan test (`tag_pages_start_from_the_tagged_urls_not_every_url`) fails if `urls` or `visits` is scanned. Not measured at 14.4M; with tens of tagged pages it is a handful of index lookups. Other operator-only searches (`site:` alone, `-word` alone) still scan; they are typed rarely and were left as they are.
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |
