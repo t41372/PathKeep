@@ -272,8 +272,13 @@ pub(super) fn apply_macos_schedule(
     let plist_path =
         written_files.first().context("missing plist file for macOS schedule apply")?.clone();
     let bootstrap = host.bootstrap_launch_agent(&uid, &plan.label, &plist_path)?;
-    let audit_path =
-        audit::write_macos_apply_audit(paths, plan, &plist_path, &bootstrap.status_description)?;
+    let audit_path = audit::write_macos_apply_audit(
+        paths,
+        plan,
+        &plist_path,
+        &bootstrap.status_description,
+        bootstrap.success,
+    )?;
 
     Ok(ApplyResult {
         applied: bootstrap.success,
@@ -322,8 +327,14 @@ pub(super) fn remove_macos_schedule(
     }
 
     let launchctl = vec![current_unload.status_description.clone()];
-    let audit_path = audit::write_macos_remove_audit(paths, plan, &removed_files, &launchctl)?;
     let applied = !removed_files.is_empty();
+    let audit_path = audit::write_macos_remove_audit(
+        paths,
+        plan,
+        &removed_files,
+        &launchctl,
+        applied || current_unload.success,
+    )?;
 
     Ok(ApplyResult {
         applied,

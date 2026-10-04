@@ -384,7 +384,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "inspect_browser_history" => {
             let payload = parse_payload::<BrowserHistoryPayload>(payload)?;
-            json_value!(worker_bridge::inspect_browser_history_impl(payload.request)?)
+            json_value!(worker_bridge::inspect_browser_history_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
         }
         "import_browser_history" => {
             let payload = parse_payload::<BrowserHistoryPayload>(payload)?;
@@ -416,8 +419,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "preview_schedule" => {
-            let payload = parse_payload::<PlatformPayload>(payload)?;
-            json_value!(worker_bridge::preview_schedule_impl(payload.platform)?)
+            let payload = parse_payload::<SchedulePreviewPayload>(payload)?;
+            json_value!(worker_bridge::preview_schedule_impl(
+                payload.platform,
+                payload.due_after_hours
+            )?)
         }
         "schedule_status" => {
             let payload = parse_payload::<PlatformPayload>(payload)?;

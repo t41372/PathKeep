@@ -29,8 +29,9 @@ pub(crate) fn import_takeout_impl(
 /// Inspects one local browser history database without mutating the archive.
 pub(crate) fn inspect_browser_history_impl(
     request: BrowserHistoryImportRequest,
+    session_database_key: Option<&str>,
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
-    worker_result(vault_worker::inspect_browser_history_source(&request))
+    worker_result(vault_worker::inspect_browser_history_source(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

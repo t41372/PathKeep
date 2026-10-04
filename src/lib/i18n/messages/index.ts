@@ -5,6 +5,9 @@
 import type { MessagePath, ResolvedLanguage } from '../define'
 import { ask } from './ask'
 import { backup } from './backup'
+import { backupImport } from './backup-import'
+import { backupRuns } from './backup-runs'
+import { backupSchedule } from './backup-schedule'
 import { common } from './common'
 import { history } from './history'
 import { home } from './home'
@@ -25,6 +28,9 @@ const namespaces = {
   insights,
   ask,
   backup,
+  backupSchedule,
+  backupImport,
+  backupRuns,
   settings,
   settingsAi,
   settingsBackground,

@@ -827,11 +827,16 @@ pub fn inspect_takeout_source(request: &TakeoutRequest) -> Result<TakeoutInspect
 }
 
 /// Inspects one local browser history database without mutating the archive.
+///
+/// Reads the archive (hence App Lock and the session key) only to count the
+/// visits it already holds, so the preview can say how many are new.
 pub fn inspect_browser_history_source(
+    session_database_key: Option<&str>,
     request: &BrowserHistoryImportRequest,
 ) -> Result<TakeoutInspection> {
     let paths = vault_core::project_paths()?;
-    inspect_browser_history(&paths, request)
+    let config = load_unlocked_config(&paths)?;
+    inspect_browser_history(&paths, Some((&config, session_database_key)), request)
 }
 
 /// Imports a Takeout source into the canonical archive.

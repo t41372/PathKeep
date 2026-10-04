@@ -20,6 +20,32 @@ export async function pickTakeoutFile(title: string): Promise<string | null> {
   return typeof picked === 'string' ? picked : null
 }
 
+/** Any file (Chrome's `History` has no extension) or, with `directory`, a profile folder. */
+export async function pickBrowserHistory(
+  title: string,
+  directory: boolean,
+): Promise<string | null> {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const picked = await open({ title, multiple: false, directory })
+  return typeof picked === 'string' ? picked : null
+}
+
+const browserHistoryFiles = new Set(['history', 'history.db', 'places.sqlite'])
+
+/**
+ * Which import a dropped path belongs to. Browser files have fixed names or
+ * end in `.sqlite` / `.db`; a
+ * `.zip`, a `.json` or a folder with "takeout" in its name is a Takeout
+ * export; any other folder is taken to be a browser profile.
+ */
+export function dropTarget(path: string): 'takeout' | 'browser' {
+  const name = path.split(/[\\/]/).filter(Boolean).pop()?.toLowerCase() ?? ''
+  if (browserHistoryFiles.has(name) || /\.(sqlite|db)$/.test(name))
+    return 'browser'
+  if (/\.(zip|json)$/.test(name) || name.includes('takeout')) return 'takeout'
+  return /\.[a-z0-9]+$/.test(name) ? 'takeout' : 'browser'
+}
+
 /** Reports the first dropped path anywhere on the window while `enabled`. */
 export function useWindowFileDrop(
   onDrop: (path: string) => void,

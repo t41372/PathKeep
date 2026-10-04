@@ -282,7 +282,11 @@ function insertChromeVisits(db, visits) {
   db.exec('COMMIT')
 }
 
-function writeFirefoxPlaces(file, visits) {
+/**
+ * Writes a new Firefox `places.sqlite` with `visits`. Also used on its own,
+ * e.g. as a file to import through Browser Direct.
+ */
+export function writeFirefoxPlaces(file, visits) {
   const db = new DatabaseSync(file)
   db.exec(`
     CREATE TABLE moz_places (id INTEGER PRIMARY KEY, url TEXT NOT NULL, title TEXT, visit_count INTEGER, hidden INTEGER, last_visit_date INTEGER);
