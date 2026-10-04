@@ -48,7 +48,7 @@
     - E2E 偶發失敗（2026-10-04 見過一次，重跑通過）：`history.spec`「a starred page keeps its note after a reload」輸入搜尋後立刻點結果，那一刻列表有兩列同標題（之後只剩一列），strict mode 報錯。疑似舊查詢的結果還在畫面上，屬 History 範圍，未修。
     - ~~合成 Firefox profile 被 Floorp / LibreWolf / Waterfox 各認一次~~：已修，override 只套用在 Firefox。
     - Home「一年的瀏覽」載入中會先顯示「0 次瀏覽」。
-  - 2026-10-04 用戶：「UI 本身就缺很多東西，prototype 做得很寬泛，很多細節沒做出來，你補上就行。」連結預覽：繼續抓、在 UI 顯示。依此分五條平行補齊（進行中）：Security（App Lock B + 改密碼驗證）、History（預覽圖、標籤、搜尋語法說明、Rust regex 方言、語意狀態）、Backup（自訂排程間隔、安裝前顯示檔案、Verify、Browser Direct 匯入、匯入批次回滾、執行詳情、排程沙盒防呆）、Settings（背景工作、derived state、搜尋 tuning、診斷）、Insights（day / site / 搜尋家族 / 重找頁面 drill-in 與 V1 洞察卡）。每條都要附 E2E。
+  - 2026-10-04 用戶：「UI 本身就缺很多東西，prototype 做得很寬泛，很多細節沒做出來，你補上就行。」連結預覽：繼續抓、在 UI 顯示。五條平行補齊**都已合併**：Security（App Lock 方案 B、改密碼要驗證目前密碼）、History（預覽圖、標籤、搜尋語法說明、Rust regex 方言、語意狀態）、Backup（自訂間隔、安裝前顯示檔案、Verify、Browser Direct 匯入、匯入批次復原 / 還原、執行詳情、排程沙盒防呆）、Settings → Background work（佇列、derived state、搜尋排序、診斷）、Insights（day / site / search / page drill-in 與四張規律卡）。合併後全套 E2E 24/24 綠、Rust 全部測試通過（2026-10-04）。另外合併：匯入復原改成只刷新該批網址（Codex）、2026 RustSec 公告清掉並升 Rust 1.96（Codex + 主 agent）、Playwright 1.63（每次都留 trace）、匯出串流、常搜尋按範圍統計。
   - 2026-10-04 Backup 補完時記下、還沒修的：
     - `revert_import_batch` / `restore_import_batch` 每次都同步 `rebuild_search_projection` 整個搜尋投影；1440 萬條時一次復原要重建全部索引。應改成只刷新該批影響的 URL（匯入時已經這樣做）。
     - `vite.config.ts` 的 `server.watch.ignored` 含 `**/.claude/**`，在 `.claude/worktrees/` 裡開的 dev server 看不到任何檔案變更（要重開才生效）。
