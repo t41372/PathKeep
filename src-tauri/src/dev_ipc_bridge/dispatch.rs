@@ -90,12 +90,12 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<WipeConfirmationPayload>(payload)?;
             // Waits for background workers, so it must not hold an async worker thread.
             let session = state.session.clone();
-            tokio::task::spawn_blocking(move || {
+            let report = tokio::task::spawn_blocking(move || {
                 worker_bridge::wipe_all_data_impl(&payload.confirmation, &session)
             })
             .await
             .unwrap_or_else(|error| join_failure("wipe_all_data", error))?;
-            Ok(Value::Null)
+            json_value!(report)
         }
         "initialize_archive" => {
             let payload = parse_payload::<InitializeArchivePayload>(payload)?;

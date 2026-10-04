@@ -40,11 +40,11 @@ pub(crate) fn preview_wipe_all_data_impl(
 pub(crate) fn wipe_all_data_impl(
     confirmation: &str,
     state: &SessionState,
-) -> Result<(), CommandError> {
+) -> Result<vault_core::WipeReport, CommandError> {
     let key = state.get_key();
-    worker_result(vault_worker::wipe_all_data(confirmation, key.as_deref()))?;
+    let report = worker_result(vault_worker::wipe_all_data(confirmation, key.as_deref()))?;
     update_session_key(state, None)?;
-    Ok(())
+    Ok(report)
 }
 
 /// Persists app config and returns the refreshed snapshot.

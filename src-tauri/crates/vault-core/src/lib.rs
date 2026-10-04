@@ -96,7 +96,7 @@ pub use app_lock::{
 pub use archive::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, ArchiveRecoveryKind, ArchiveRecoveryReport,
     BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
-    BrowseDayTopUrl, LaunchRecovery, ReconcileReport, WipeSecrets, archive_status,
+    BrowseDayTopUrl, LaunchRecovery, ReconcileReport, WipeOutsideState, archive_status,
     assess_archive_upgrade, data_wipe_interrupted, doctor, ensure_archive_initialized,
     ensure_archive_initialized_with_progress, export_history, finish_interrupted_data_wipe,
     get_browse_day_insights, get_url_detail, list_history, list_recovery_snapshots,

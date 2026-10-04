@@ -113,6 +113,23 @@ pub struct WipePreview {
     pub visit_count: i64,
     /// True when an archive key is stored in the system keychain and will be removed too.
     pub clears_keychain: bool,
+    /// True when an automatic backup is installed in the OS scheduler; the wipe removes it after
+    /// the files.
+    #[serde(default)]
+    pub removes_schedule: bool,
+    /// What the scheduler reports installed: the LaunchAgent file, or the Task Scheduler task.
+    #[serde(default)]
+    pub schedule_items: Vec<String>,
+}
+
+/// What "Delete all data" did besides deleting the files, which it always does when it returns.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WipeReport {
+    /// True when an installed automatic backup was removed.
+    pub schedule_removed: bool,
+    /// Why removing the installed automatic backup failed. It is still installed.
+    pub schedule_error: Option<String>,
 }
 
 /// Compact run-ledger summary used in lists and dashboards.

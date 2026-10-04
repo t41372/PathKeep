@@ -255,12 +255,14 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 
 ### 刪除所有資料（Delete all data）
 
-Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data` 列出每個會刪的路徑與大小、總位元組、archive 可見 visit 數（取最近一次成功 backup 快取的總數，不跑 `COUNT(*)`）、以及系統 keychain 裡是否存有 archive key；`wipe_all_data` 只接受字面上的 `"DELETE"`，否則拒絕且什麼都不刪。App Lock 鎖定時兩者都拒絕。
+Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data` 列出每個會刪的路徑與大小、總位元組、archive 可見 visit 數（取最近一次成功 backup 快取的總數，不跑 `COUNT(*)`）、系統 keychain 裡是否存有 archive key，以及是否裝了自動備份（`removesSchedule`，`scheduleItems` 是排程器自己回報的已安裝項目：macOS 的 LaunchAgent plist 路徑、Windows 的 `Task Scheduler:<label>`）；`wipe_all_data` 只接受字面上的 `"DELETE"`，否則拒絕且什麼都不刪，成功時回傳 `WipeReport { scheduleRemoved, scheduleError }`。App Lock 鎖定時兩者都拒絕。
 
-- **會刪**：`archive/` 內所有檔案（archive / source-evidence DB 與 WAL/SHM、import 留下的 `*.bak-*`、rekey/restore/import marker），`derived/`（search、intelligence、AI 向量、agent 對話）、`sidecars/`、`raw-snapshots/`、`staging/`、`quarantine/`、`audit/`、`exports/`、`models/`（下載的 embedding 模型）、`integrations/`，app root 的 `*.bak-*`、App Lock 狀態與 passcode 檔、Stronghold `vault.hold` 與 salt、`config.json`；keychain 的 archive key 與每個 AI provider API key。
-- **保留**：`logs/`、`diagnostics/`（刪除失敗時唯一的紀錄；不含 visit 資料）、`schedule/` 與已安裝的系統排程（移除排程是 Backup 自己的 PME；沒有 config 時排程執行會停在 "archive has not been initialized"）、`archive/.pk-archive-write.lock`（跨程序鎖的 inode，刪掉會讓兩個程序各鎖一個檔）。使用者的瀏覽器 profile 永遠不碰：所有目標都是 app root 底下的固定路徑。
-- **順序**：取得 in-process gate 與跨程序 write lock → 寫 `.pk-wipe-in-progress.json` marker（含要清的 provider id）→ 刪 `config.json`（所有背景 worker 迴圈在下一次檢查時停）→ 要求執行中的 AI / intelligence job 停止、取消 chat 與模型下載、等背景 worker 結束（最多 30 秒）→ 刪檔 → 清 keychain → 刪 marker。執行後 `app_snapshot` 回報 not initialized，前端導回 onboarding；desktop session key 一併清除。
-- **中斷**：marker 存在代表刪除未完成。啟動時（Tauri setup）與 `initialize_archive` 開頭會先把它做完，onboarding 不可能重新打開半刪的 archive。
+- **會刪**：`archive/` 內所有檔案（archive / source-evidence DB 與 WAL/SHM、import 留下的 `*.bak-*`、rekey/restore/import marker），`derived/`（search、intelligence、AI 向量、agent 對話）、`sidecars/`、`raw-snapshots/`、`staging/`、`quarantine/`、`audit/`、`exports/`、`models/`（下載的 embedding 模型）、`integrations/`、`schedule/`（排程執行的 log 與嘗試紀錄），app root 的 `*.bak-*`、App Lock 狀態與 passcode 檔、Stronghold `vault.hold` 與 salt、`config.json`；keychain 的 archive key 與每個 AI provider API key；**已安裝的自動備份**（用戶 2026-10-02 決定：留著它只會每次執行都失敗在 "archive has not been initialized"）。排程狀態為 installed / mismatch / permission-warning 時才移除；Linux 只有手動設定、舊 label 的安裝（`legacy-install-detected`）走 Backup 的修復，都不碰。
+- **保留**：`logs/`、`diagnostics/`（刪除失敗時唯一的紀錄；不含 visit 資料）、移除排程時排程器自己寫的 `audit/scheduler/remove-<時間>.json`（只記 task 名稱與移除的檔案）、`archive/.pk-archive-write.lock`（跨程序鎖的 inode，刪掉會讓兩個程序各鎖一個檔）。使用者的瀏覽器 profile 永遠不碰：所有目標都是 app root 底下的固定路徑。
+- **順序**：查排程狀態並產生移除用的 plan（此時 config 還在）→ 取得 in-process gate 與跨程序 write lock → 寫 `.pk-wipe-in-progress.json` marker（含要清的 provider id 與排程 plan）→ 刪 `config.json`（所有背景 worker 迴圈在下一次檢查時停）→ 要求執行中的 AI / intelligence job 停止、取消 chat 與模型下載、等背景 worker 結束（最多 30 秒）→ 刪檔 → 清 keychain → 走排程器既有的 remove 路徑移除自動備份 → 刪 marker。執行後 `app_snapshot` 回報 not initialized，前端導回 onboarding；desktop session key 一併清除。
+- **排程移除失敗**：排在檔案之後，失敗時資料已經刪完。不讓整個刪除失敗：app 仍是 not initialized，marker 照樣刪（留著會讓每次啟動與每次 onboarding 重跑刪除，OS 不讓移除的 task 會永遠擋住設定），`WipeReport.scheduleError` 帶原因；對話框先顯示「資料已刪除，但自動備份沒能移除…設定完成後到「備份」關閉」，按「繼續」才回 onboarding。
+- **中斷**：marker 存在代表刪除未完成。啟動時（Tauri setup）與 `initialize_archive` 開頭會先把它做完（包含 marker 裡記下的排程），onboarding 不可能重新打開半刪的 archive。
+- **測試與開發**：debug build 設了 `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR` 時排程讀寫沙盒檔案；Rust 測試與 E2E 都在沙盒裡裝一個排程再刪除，確認不留下任何 task。沒設沙盒的 debug build（例如直接 `tauri dev`）跟正式版一樣操作真的排程器；測試裡呼叫 wipe 一定要先設沙盒。
 - 實作與失效模式清單見 `src-tauri/crates/vault-core/src/archive/wipe.rs` 檔頭。
 
 舊版基於 S3 的 cloud backup 已在 2026-05-25 移除（feedback-2026-05-25 §2.2），所有 `preview_remote_backup` / `run_remote_backup` / `verify_remote_backup` / `store_s3_credentials` / `clear_s3_credentials` command、`RemoteBackupConfig` schema 與相關 Settings UI 一併刪除。

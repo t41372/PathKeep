@@ -205,6 +205,8 @@ fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path().join("app"));
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
+        // The wipe asks the OS scheduler what is installed; never the developer's real one.
+        std::env::set_var(vault_platform::SANDBOX_DIR_ENV, dir.path().join("os-sandbox"));
     }
     let state =
         DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
@@ -226,6 +228,8 @@ fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session
     assert_eq!(preview["visitCount"], json!(0));
     assert!(preview["totalBytes"].as_u64().is_some_and(|bytes| bytes > 0));
     assert!(preview["clearsKeychain"].is_boolean());
+    assert_eq!(preview["removesSchedule"], json!(false));
+    assert_eq!(preview["scheduleItems"], json!([]));
     assert!(preview["items"][0]["path"].is_string() && preview["items"][0]["bytes"].is_u64());
 
     let refused = ready_block_on(dispatch_command(
@@ -243,7 +247,7 @@ fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session
         json!({ "confirmation": "DELETE" }),
     ))
     .expect("wipe over the bridge");
-    assert_eq!(wiped, Value::Null);
+    assert_eq!(wiped, json!({ "scheduleRemoved": false, "scheduleError": null }));
     assert_eq!(session_key(&state.session), None, "the stale archive key must be forgotten");
     let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({})))
         .expect("snapshot after wipe");
@@ -254,6 +258,7 @@ fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
         std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
         std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        std::env::remove_var(vault_platform::SANDBOX_DIR_ENV);
     }
 }
 

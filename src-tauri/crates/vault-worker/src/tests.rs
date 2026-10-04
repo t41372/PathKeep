@@ -3519,11 +3519,14 @@ fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
     let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
     let original_chrome = std::env::var_os(CHROME_USER_DATA_OVERRIDE_ENV);
     let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    let original_sandbox = std::env::var_os(vault_platform::SANDBOX_DIR_ENV);
     let app_root = dir.path().join("app");
     unsafe {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
+        // The wipe asks the OS scheduler what is installed; never the developer's real one.
+        std::env::set_var(vault_platform::SANDBOX_DIR_ENV, dir.path().join("os-sandbox"));
     }
     let browser_history = fs::read(chrome_root.join("Default").join("History")).expect("history");
 
@@ -3547,7 +3550,8 @@ fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
     }
     assert!(app_snapshot(None).expect("snapshot").archive_status.initialized, "nothing deleted");
 
-    wipe_all_data(WIPE_CONFIRMATION_WORD, None).expect("wipe");
+    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, None).expect("wipe");
+    assert_eq!(report, vault_core::WipeReport::default(), "no automatic backup was installed");
     assert_eq!(crate::intelligence::running_background_workers(), 0);
     let snapshot = app_snapshot(None).expect("snapshot after wipe");
     assert!(!snapshot.config.initialized);
@@ -3571,4 +3575,84 @@ fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
     restore_env_var(CHROME_USER_DATA_OVERRIDE_ENV, original_chrome.as_deref());
     restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+    restore_env_var(vault_platform::SANDBOX_DIR_ENV, original_sandbox.as_deref());
+}
+
+/// "Delete all data" removes an installed automatic backup, through the real scheduler code with
+/// the debug sandbox standing in for launchd / Task Scheduler. Linux only has manual setup.
+#[test]
+#[cfg(all(debug_assertions, any(target_os = "macos", target_os = "windows")))]
+fn delete_all_data_removes_the_installed_automatic_backup() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let sandbox = dir.path().join("os-sandbox");
+    let app_root = dir.path().join("app");
+    let saved: Vec<_> = [
+        PROJECT_ROOT_OVERRIDE_ENV,
+        CHROME_USER_DATA_OVERRIDE_ENV,
+        TEST_KEYRING_OVERRIDE_ENV,
+        vault_platform::SANDBOX_DIR_ENV,
+    ]
+    .into_iter()
+    .map(|name| (name, std::env::var_os(name)))
+    .collect();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &app_root);
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, dir.path().join("no-browsers"));
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
+        std::env::set_var(vault_platform::SANDBOX_DIR_ENV, &sandbox);
+    }
+    let files_under = |root: &Path| -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() { pending.push(path) } else { found.push(path) }
+            }
+        }
+        found
+    };
+
+    initialize_archive_database(&initialized_config(), None).expect("initialize");
+    let plan = preview_schedule_plan(None, None).expect("plan");
+    assert!(apply_schedule_plan(&plan).expect("install").applied);
+    assert_eq!(schedule_status(None, None, None).expect("status").install_state, "installed");
+    let installed = files_under(&sandbox);
+    assert!(!installed.is_empty(), "the sandbox holds the installed task");
+
+    let preview = preview_data_wipe(None).expect("preview");
+    assert!(preview.removes_schedule);
+    assert!(!preview.schedule_items.is_empty());
+    for item in &preview.schedule_items {
+        assert!(
+            Path::new(item).starts_with(&sandbox) || item.starts_with("Task Scheduler:"),
+            "{item} is not the sandboxed task"
+        );
+    }
+
+    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, None).expect("wipe");
+    assert_eq!(report, vault_core::WipeReport { schedule_removed: true, schedule_error: None });
+    assert_eq!(files_under(&sandbox), Vec::<PathBuf>::new(), "no task is left in the OS");
+    assert_eq!(
+        schedule_status(None, None, None).expect("status after the wipe").install_state,
+        "not-installed"
+    );
+    assert!(!app_snapshot(None).expect("snapshot").config.initialized);
+    // The scheduler's record of the removal is the only thing written after the files went.
+    for left in files_under(&app_root.join("audit")) {
+        assert!(
+            left.parent().is_some_and(|parent| parent.ends_with("scheduler"))
+                && left
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with("remove-")),
+            "{} was left in audit/",
+            left.display()
+        );
+    }
+    assert!(!app_root.join("schedule").join("attempts").exists());
+
+    for (name, value) in saved {
+        restore_env_var(name, value.as_deref());
+    }
 }
