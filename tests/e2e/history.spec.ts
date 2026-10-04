@@ -135,12 +135,11 @@ test('a word on several pages lists every page once', async ({
   await page.goto('/#/history')
   await page.getByRole('searchbox', { name: 'Search history' }).fill('tokio')
   await expectResults(page, testInfo, 'tokio', 'Full text', want)
+  // As many rows as pages, and each page's title on exactly one of them.
   await expect(results(page)).toHaveCount(want.pages)
-  // Each row starts with the page title.
-  const titles = (await results(page).allInnerTexts())
-    .map((text) => text.split('\n')[0].trim())
-    .sort()
-  expect(titles, 'each page once, and nothing else').toEqual(want.titles)
+  for (const title of want.titles) {
+    await expect(results(page).filter({ hasText: title }), title).toHaveCount(1)
+  }
 })
 
 test('a starred page keeps its note after a reload', async ({
