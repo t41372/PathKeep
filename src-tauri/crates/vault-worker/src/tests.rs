@@ -1357,11 +1357,11 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
     .expect("export history");
     assert_eq!(exported.count, 1);
 
-    let preview = preview_schedule_plan(Some("windows"), Some(PathBuf::from("/tmp/bhb")))
+    let preview = preview_schedule_plan(Some("windows"), Some(PathBuf::from("/tmp/bhb")), None)
         .expect("preview schedule");
     assert_eq!(preview.platform, "windows");
     assert!(preview.apply_supported);
-    let linux_preview = preview_schedule_plan(Some("linux"), Some(PathBuf::from("/tmp/bhb")))
+    let linux_preview = preview_schedule_plan(Some("linux"), Some(PathBuf::from("/tmp/bhb")), None)
         .expect("preview linux schedule");
     let applied = apply_schedule_plan(&linux_preview).expect("apply schedule");
     assert!(!applied.applied);
@@ -1387,8 +1387,8 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
         browser_name: Some("Chrome".to_string()),
         profile_name: Some("Default".to_string()),
     };
-    let browser_history_preview =
-        inspect_browser_history_source(&browser_history_request).expect("inspect browser history");
+    let browser_history_preview = inspect_browser_history_source(None, &browser_history_request)
+        .expect("inspect browser history");
     assert_eq!(browser_history_preview.candidate_items, 1);
     let browser_history_import = import_browser_history_source(None, &browser_history_request)
         .expect("dry-run browser import");
@@ -3615,7 +3615,7 @@ fn delete_all_data_removes_the_installed_automatic_backup() {
     };
 
     initialize_archive_database(&initialized_config(), None).expect("initialize");
-    let plan = preview_schedule_plan(None, None).expect("plan");
+    let plan = preview_schedule_plan(None, None, None).expect("plan");
     assert!(apply_schedule_plan(&plan).expect("install").applied);
     assert_eq!(schedule_status(None, None, None).expect("status").install_state, "installed");
     let installed = files_under(&sandbox);

@@ -223,6 +223,7 @@ pub fn schedule_status(
         manual_step_details: plan.manual_step_details.clone(),
         manual_steps: plan.manual_steps.clone(),
         audit_path: audit::latest_schedule_audit_path(paths),
+        last_action: audit::latest_schedule_action(paths),
         checked_at: Some(Utc::now().to_rfc3339()),
         ..ScheduleStatus::default()
     };

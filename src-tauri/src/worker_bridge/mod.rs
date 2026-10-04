@@ -429,12 +429,14 @@ mod tests {
         let preview = preview_ai_integrations_impl().expect("preview ai integrations");
         assert!(preview.mcp_command.contains("mcp-server"));
 
-        let plan = preview_schedule_impl(Some("linux".to_string())).expect("schedule preview");
+        let plan =
+            preview_schedule_impl(Some("linux".to_string()), None).expect("schedule preview");
         assert_eq!(plan.platform, "linux");
         let applied = apply_schedule_impl(plan).expect("apply schedule");
         assert!(!applied.applied);
         let removed = remove_schedule_impl(
-            preview_schedule_impl(Some("linux".to_string())).expect("schedule preview for remove"),
+            preview_schedule_impl(Some("linux".to_string()), None)
+                .expect("schedule preview for remove"),
         )
         .expect("remove schedule");
         assert!(!removed.applied);

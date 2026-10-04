@@ -5,11 +5,13 @@ use vault_core::SchedulePlan;
 
 use super::worker_result;
 
-/// Previews the native schedule plan for one platform.
+/// Previews the native schedule plan for one platform, optionally for an
+/// interval that is not saved yet.
 pub(crate) fn preview_schedule_impl(
     platform: Option<String>,
+    due_after_hours: Option<f64>,
 ) -> Result<SchedulePlan, CommandError> {
-    worker_result(vault_worker::preview_schedule_plan(platform.as_deref(), None))
+    worker_result(vault_worker::preview_schedule_plan(platform.as_deref(), None, due_after_hours))
 }
 
 /// Applies one previously previewed native schedule plan.

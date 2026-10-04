@@ -240,6 +240,7 @@ fn inspect_browser_history_previews_safari_database() {
     let fixture_path = write_safari_history_db(dir.path());
     let inspection = inspect_browser_history(
         &sample_paths(dir.path()),
+        None,
         &browser_history_request(&fixture_path, true, "safari", "safari:reference"),
     )
     .expect("inspect safari browser history");
@@ -623,9 +624,61 @@ fn inspect_browser_history_reports_safari_access_guidance_for_unreadable_files()
     let source = dir.path().join("History.db");
     let error = inspect_browser_history(
         &sample_paths(dir.path()),
+        None,
         &browser_history_request(&source, true, "safari", "safari:blocked"),
     )
     .expect_err("missing safari db should explain access");
 
     assert!(format!("{error:#}").contains("Full Disk Access"));
+}
+
+/// The preview says how many visits an import would add: it checks the archive
+/// for the same source profile, and the import then adds exactly that many.
+#[test]
+fn inspect_browser_history_counts_visits_the_archive_already_has() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let profile_dir = dir.path().join("FirefoxProfile");
+    std::fs::create_dir_all(&profile_dir).expect("profile dir");
+    let source = write_firefox_history_db(&profile_dir);
+    let preview = browser_history_request(&source, true, "firefox", "firefox:Probe");
+    let import = browser_history_request(&source, false, "firefox", "firefox:Probe");
+
+    // Nothing archived yet: every visit is new.
+    let fresh = inspect_browser_history(&paths, Some((&config, None)), &preview).expect("fresh");
+    assert_eq!((fresh.candidate_items, fresh.duplicate_items), (2, 0));
+    assert!(fresh.preview_entries.iter().all(|entry| entry.status == "candidate"));
+    import_browser_history(&paths, &config, None, &import).expect("first import");
+
+    // One more visit in the browser: the preview sees 1 new, 2 already archived.
+    let connection = Connection::open(&source).expect("open firefox db");
+    connection
+        .execute(
+            "INSERT INTO moz_historyvisits (id, place_id, visit_date, from_visit, visit_type)
+             VALUES (3, 2, 1744146005000000, NULL, 1)",
+            [],
+        )
+        .expect("append visit");
+    drop(connection);
+    let again = inspect_browser_history(&paths, Some((&config, None)), &preview).expect("again");
+    assert_eq!((again.candidate_items, again.duplicate_items), (3, 2));
+    assert_eq!(again.preview_entries.iter().filter(|entry| entry.status == "duplicate").count(), 2);
+    // Without the archive nothing is compared.
+    let blind = inspect_browser_history(&paths, None, &preview).expect("blind");
+    assert_eq!(blind.duplicate_items, 0);
+
+    let second = import_browser_history(&paths, &config, None, &import).expect("second import");
+    assert_eq!(second.imported_items, again.candidate_items - again.duplicate_items);
+    assert_eq!(second.duplicate_items, again.duplicate_items);
+
+    // Another profile id is another source: nothing counts as a duplicate.
+    let other = browser_history_request(&source, true, "firefox", "firefox:Other");
+    let other = inspect_browser_history(&paths, Some((&config, None)), &other).expect("other");
+    assert_eq!((other.candidate_items, other.duplicate_items), (3, 0));
 }

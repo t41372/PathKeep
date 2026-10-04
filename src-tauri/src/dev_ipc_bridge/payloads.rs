@@ -151,6 +151,15 @@ pub(super) struct PlatformPayload {
     pub(super) platform: Option<String>,
 }
 
+/// Schedule preview input: the platform plus an interval that is not saved yet.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SchedulePreviewPayload {
+    pub(super) platform: Option<String>,
+    #[serde(default)]
+    pub(super) due_after_hours: Option<f64>,
+}
+
 /// Carries the reviewed schedule plan into apply/remove commands.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

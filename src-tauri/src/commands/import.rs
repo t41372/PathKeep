@@ -41,9 +41,11 @@ pub(crate) async fn import_takeout(
 /// Inspects a local browser history database without importing it.
 pub(crate) async fn inspect_browser_history(
     request: vault_core::BrowserHistoryImportRequest,
+    state: State<'_, SessionState>,
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
+    let session_database_key = state.get_key();
     run_blocking_command("inspect_browser_history", move || {
-        worker_bridge::inspect_browser_history_impl(request)
+        worker_bridge::inspect_browser_history_impl(request, session_database_key.as_deref())
     })
     .await
 }

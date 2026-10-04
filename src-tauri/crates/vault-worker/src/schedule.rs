@@ -16,12 +16,21 @@ use vault_platform::{
 };
 
 /// Builds a platform-specific schedule plan without installing anything.
+///
+/// `due_after_hours` previews another interval than the saved one, so the UI
+/// can show the exact file for an interval before the user commits to it.
+/// Nothing is saved: the caller saves the interval only when the user
+/// confirms, and then applies the plan it showed.
 pub fn preview_schedule_plan(
     platform: Option<&str>,
     executable_path: Option<PathBuf>,
+    due_after_hours: Option<f64>,
 ) -> Result<SchedulePlan> {
     let paths = vault_core::project_paths()?;
-    let config = load_config(&paths)?;
+    let mut config = load_config(&paths)?;
+    if let Some(hours) = due_after_hours {
+        config.due_after_hours = validated_due_after_hours(hours)?;
+    }
     let executable = executable_path
         .or_else(|| std::env::current_exe().ok())
         .context("resolving executable path for schedule preview")?;
@@ -34,6 +43,21 @@ pub fn preview_schedule_plan(
             check_interval_hours: native_schedule_interval_hours(&config),
         },
     )
+}
+
+/// Longest interval the schedule preview accepts: 30 days.
+pub const MAX_DUE_AFTER_HOURS: f64 = 30.0 * 24.0;
+
+/// Rounds a requested interval to whole minutes and rejects values the
+/// scheduler cannot express (under one minute, over 30 days, not a number).
+fn validated_due_after_hours(hours: f64) -> Result<f64> {
+    let minutes = (hours * 60.0).round();
+    if !(1.0..=MAX_DUE_AFTER_HOURS * 60.0).contains(&minutes) {
+        anyhow::bail!(
+            "the backup interval must be between 1 minute and 30 days, got {hours} hours"
+        );
+    }
+    Ok(minutes / 60.0)
 }
 
 /// Applies a native schedule plan.
@@ -126,7 +150,21 @@ pub(crate) fn native_schedule_interval_hours(config: &vault_core::AppConfig) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::{native_schedule_interval_hours, schedule_attempt_issue};
+    use super::{
+        native_schedule_interval_hours, schedule_attempt_issue, validated_due_after_hours,
+    };
+
+    #[test]
+    fn preview_interval_is_whole_minutes_between_one_minute_and_thirty_days() {
+        assert_eq!(validated_due_after_hours(1.5).expect("90 minutes"), 1.5);
+        assert_eq!(validated_due_after_hours(1.0 / 60.0).expect("1 minute"), 1.0 / 60.0);
+        // 100 seconds rounds to 2 minutes.
+        assert_eq!(validated_due_after_hours(100.0 / 3600.0).expect("rounded"), 2.0 / 60.0);
+        assert_eq!(validated_due_after_hours(720.0).expect("30 days"), 720.0);
+        for invalid in [0.0, 0.004, -1.0, 720.5, f64::NAN, f64::INFINITY] {
+            assert!(validated_due_after_hours(invalid).is_err(), "{invalid} must be rejected");
+        }
+    }
     use vault_core::AppConfig;
 
     #[test]

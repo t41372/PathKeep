@@ -4,6 +4,9 @@
 //! - Stage local browser SQLite databases before parser access.
 //! - Inspect and import Chrome/Safari history databases through the browser
 //!   parser contract instead of the Takeout payload contract.
+//! - Tell the preview how many visits the archive already holds for the same
+//!   source profile, using the same two unique keys the import's
+//!   `INSERT OR IGNORE` hits, so "N new" in the preview is what the import adds.
 //! - Reuse import-batch review, source evidence, rollback, and search refresh
 //!   surfaces so Browser Direct has the same trust workflow as Takeout.
 //!
@@ -20,6 +23,12 @@
 //! ## Performance notes
 //! - Canonical URL/visit rows stream into the archive transaction in parser
 //!   batches, while preview keeps only the first bounded set of rows.
+//! - The preview's duplicate check runs per parser batch as indexed `IN (...)`
+//!   lookups of at most [`DUPLICATE_PROBE_CHUNK`] keys, on the
+//!   `(source_profile_id, source_visit_id)` and
+//!   `(source_profile_id, event_fingerprint)` unique indexes. Fingerprints are
+//!   hashed only for visits the id lookup did not find. Memory stays bounded
+//!   by one parser batch.
 
 use super::{
     batches::{self, ImportBatchSource},
@@ -39,13 +48,116 @@ mod staging;
 
 const BROWSER_DIRECT_SOURCE_KIND: &str = "browser-history";
 
-#[derive(Debug, Default)]
+/// Keys per `IN (...)` lookup; well under SQLite's bound-parameter limit.
+const DUPLICATE_PROBE_CHUNK: usize = 500;
+
+/// Finds which parsed visits an import would skip because the archive already
+/// has them for this source profile.
+///
+/// Exists so the Browser Direct preview can show "N new, M already in your
+/// archive" before anything is written. It checks the same two unique keys as
+/// the import's `INSERT OR IGNORE`: the browser's own visit id, then the event
+/// fingerprint. Two visits inside one file that share a fingerprint are not
+/// detected here (the import keeps one); browsers do not write those.
+struct ArchiveDuplicateProbe {
+    connection: Connection,
+    source_profile_id: i64,
+    source_kind: &'static str,
+}
+
+impl ArchiveDuplicateProbe {
+    /// `None` when there is no archive yet or it has never seen this profile,
+    /// in which case every visit is new.
+    fn open(
+        paths: &ProjectPaths,
+        archive: Option<(&AppConfig, Option<&str>)>,
+        staged: &StagedBrowserHistorySource,
+    ) -> Result<Option<Self>> {
+        let Some((config, key)) = archive else {
+            return Ok(None);
+        };
+        if !config.initialized || !paths.archive_database_path.exists() {
+            return Ok(None);
+        }
+        let connection = open_archive_connection(paths, config, key)?;
+        let source_profile_id = connection
+            .query_row(
+                "SELECT id FROM source_profiles WHERE profile_key = ?1",
+                [&staged.profile_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        Ok(source_profile_id.map(|source_profile_id| Self {
+            connection,
+            source_profile_id,
+            source_kind: staged.family.source_kind(),
+        }))
+    }
+
+    /// One flag per visit: whether the archive already holds it.
+    fn existing(&self, batch: &[ParsedVisit]) -> Result<Vec<bool>> {
+        let mut flags = Vec::with_capacity(batch.len());
+        for chunk in batch.chunks(DUPLICATE_PROBE_CHUNK) {
+            let ids =
+                chunk.iter().map(|visit| visit.source_visit_id.to_string()).collect::<Vec<_>>();
+            let found_ids = self.matching("source_visit_id", &ids)?;
+            let mut chunk_flags = ids.iter().map(|id| found_ids.contains(id)).collect::<Vec<_>>();
+            let missing =
+                (0..chunk_flags.len()).filter(|&index| !chunk_flags[index]).collect::<Vec<_>>();
+            if !missing.is_empty() {
+                let fingerprints = missing
+                    .iter()
+                    .map(|&index| {
+                        let visit = &chunk[index];
+                        visit_event_fingerprint(
+                            self.source_kind,
+                            &visit.url,
+                            visit.visit_time_ms,
+                            visit.title.as_deref(),
+                            visit.transition,
+                            visit.app_id.as_deref(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let found_fingerprints = self.matching("event_fingerprint", &fingerprints)?;
+                for (index, fingerprint) in missing.into_iter().zip(&fingerprints) {
+                    chunk_flags[index] = found_fingerprints.contains(fingerprint);
+                }
+            }
+            flags.extend(chunk_flags);
+        }
+        Ok(flags)
+    }
+
+    /// Values of `column` among `values` that this profile's visits already use.
+    fn matching(
+        &self,
+        column: &'static str,
+        values: &[String],
+    ) -> Result<std::collections::HashSet<String>> {
+        let placeholders = vec!["?"; values.len()].join(",");
+        let sql = format!(
+            "SELECT {column} FROM visits WHERE source_profile_id = ? AND {column} IN ({placeholders})"
+        );
+        let mut statement = self.connection.prepare_cached(&sql)?;
+        let parameters = std::iter::once(&self.source_profile_id as &dyn rusqlite::ToSql)
+            .chain(values.iter().map(|value| value as &dyn rusqlite::ToSql));
+        let rows = statement
+            .query_map(rusqlite::params_from_iter(parameters), |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows)
+    }
+}
+
+#[derive(Default)]
 struct BrowserPreviewCollector {
     preview_entries: Vec<TakeoutPreviewEntry>,
     candidate_items: usize,
+    duplicate_items: usize,
     url_count: usize,
     preview_range: PreviewRangeSummary,
     source_path: String,
+    duplicates: Option<ArchiveDuplicateProbe>,
 }
 
 impl HistoryBatchConsumer for BrowserPreviewCollector {
@@ -58,7 +170,12 @@ impl HistoryBatchConsumer for BrowserPreviewCollector {
 
     fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
         self.candidate_items += batch.len();
-        for visit in batch {
+        let existing = match &self.duplicates {
+            Some(probe) => probe.existing(&batch)?,
+            None => vec![false; batch.len()],
+        };
+        self.duplicate_items += existing.iter().filter(|found| **found).count();
+        for (visit, already_archived) in batch.into_iter().zip(existing) {
             merge_preview_range(
                 &mut self.preview_range,
                 Some(&visit.visit_time_iso),
@@ -73,7 +190,7 @@ impl HistoryBatchConsumer for BrowserPreviewCollector {
                 title: visit.title,
                 visited_at: visit.visit_time_iso,
                 source_visit_id: visit.source_visit_id,
-                status: "candidate".to_string(),
+                status: if already_archived { "duplicate" } else { "candidate" }.to_string(),
             });
         }
         Ok(())
@@ -351,14 +468,22 @@ impl HistoryBatchConsumer for BrowserHistoryArchiveConsumer<'_> {
 }
 
 /// Inspects one local browser history database without mutating the archive.
+///
+/// With `archive` (the config and key of an initialized archive) the result's
+/// `duplicate_items` counts the visits the archive already holds for this
+/// source profile, and preview entries carry `status: "duplicate"` for them;
+/// `candidate_items - duplicate_items` is what an import would add. Without
+/// it, nothing is compared and `duplicate_items` is 0.
 pub fn inspect_browser_history(
     paths: &ProjectPaths,
+    archive: Option<(&AppConfig, Option<&str>)>,
     request: &BrowserHistoryImportRequest,
 ) -> Result<TakeoutInspection> {
     ensure_paths(paths)?;
     let staged = stage_browser_history_source(paths, request)?;
     let mut collector = BrowserPreviewCollector {
         source_path: staged.requested_path.display().to_string(),
+        duplicates: ArchiveDuplicateProbe::open(paths, archive, &staged)?,
         ..BrowserPreviewCollector::default()
     };
     let streamed = stream_browser_history(&staged, &mut collector)?;
@@ -376,7 +501,7 @@ pub fn inspect_browser_history(
         quarantined_files: Vec::new(),
         candidate_items: collector.candidate_items,
         imported_items: 0,
-        duplicate_items: 0,
+        duplicate_items: collector.duplicate_items,
         preview_entries: collector.preview_entries,
         import_batch: None,
         notes,
@@ -410,7 +535,7 @@ where
 {
     ensure_paths(paths)?;
     if request.dry_run {
-        return inspect_browser_history(paths, request);
+        return inspect_browser_history(paths, Some((config, key)), request);
     }
     if !config.initialized {
         anyhow::bail!("archive must be initialized before importing browser history data")
