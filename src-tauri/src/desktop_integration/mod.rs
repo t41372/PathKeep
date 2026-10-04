@@ -49,7 +49,10 @@ pub(crate) use login_item::LAUNCHED_AT_LOGIN_ARG;
 #[cfg_attr(test, allow(unused_imports))]
 pub(crate) use status::{BackupSource, run_backup};
 #[cfg_attr(test, allow(unused_imports))]
-pub(crate) use window::{on_window_event, show_main_window};
+pub(crate) use window::on_window_event;
+// Only the macOS Dock "reopen" handler in lib.rs needs it from outside.
+#[cfg(all(target_os = "macos", not(test)))]
+pub(crate) use window::show_main_window;
 
 /// How often the "12 min ago" text is redrawn (no I/O).
 const RELABEL_INTERVAL: Duration = Duration::from_secs(60);
