@@ -69,9 +69,21 @@ const fields: FieldSpec[] = [
 
 type Values = Record<Field, number>
 
+/**
+ * The backend stores the weights as f32 and widens them to f64 on the way
+ * out (0.3 arrives as 0.30000001192…); six significant digits is the f32's
+ * real precision and gives back what the user typed.
+ */
+function fromBackend(value: number) {
+  return Number(value.toPrecision(6))
+}
+
 function savedValues(ai: AiSettings): Values {
   return Object.fromEntries(
-    fields.map((spec) => [spec.field, ai[spec.field] ?? spec.fallback]),
+    fields.map((spec) => [
+      spec.field,
+      fromBackend(ai[spec.field] ?? spec.fallback),
+    ]),
   ) as Values
 }
 
