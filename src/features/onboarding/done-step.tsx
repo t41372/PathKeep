@@ -14,6 +14,7 @@ import {
   Sparkles,
   X,
   type LucideIcon,
+  Earth,
 } from 'lucide-react'
 import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
@@ -122,6 +123,13 @@ function Summary({ draft, keychain }: { draft: Draft; keychain: boolean }) {
       icon: Sparkles,
       label: t('onboarding.done.ai'),
       value: t(`onboarding.ai.${draft.ai}.title`),
+    },
+    // Link previews are fetched from each site by default; say so before the
+    // first backup starts them, not only in Settings.
+    {
+      icon: Earth,
+      label: t('onboarding.done.online'),
+      value: t('onboarding.done.onlineValue'),
     },
   ]
 
