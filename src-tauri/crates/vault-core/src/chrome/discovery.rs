@@ -69,10 +69,11 @@ pub(super) fn discover_chromium_profiles(
         let info_cache = read_chromium_info_cache(&root).unwrap_or_default();
 
         if info_cache.is_empty() {
-            profiles.extend(
-                fallback_chromium_profiles(definition, &root, chrome_version.as_deref())?
-                    .into_iter(),
-            );
+            profiles.extend(fallback_chromium_profiles(
+                definition,
+                &root,
+                chrome_version.as_deref(),
+            )?);
             continue;
         }
 

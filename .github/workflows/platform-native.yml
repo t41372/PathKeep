@@ -12,7 +12,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: dtolnay/rust-toolchain@1.96.0
       - uses: taiki-e/install-action@v2
         with:
           tool: protoc
@@ -57,7 +57,7 @@ jobs:
             gnome-keyring \
             systemd \
             wget
-      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: dtolnay/rust-toolchain@1.96.0
       - uses: taiki-e/install-action@v2
         with:
           tool: protoc
@@ -77,7 +77,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: dtolnay/rust-toolchain@1.96.0
       - uses: taiki-e/install-action@v2
         with:
           tool: protoc
