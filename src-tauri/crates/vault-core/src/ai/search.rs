@@ -1487,6 +1487,7 @@ fn load_visit_rows(
                     .get::<_, Option<String>>(6)?
                     .as_deref()
                     .and_then(cap_enrichment_excerpt),
+                visit_count: None,
             })
         })?;
         for entry in mapped {
@@ -1619,6 +1620,7 @@ pub(super) fn lexical_history_results(
             // Only the date-ordered agent path reports the true match count; the re-ranking paths
             // never read it, and skipping it saves a full count of the matches.
             include_total: Some(include_total),
+            group_by_url: None,
         },
     )
 }

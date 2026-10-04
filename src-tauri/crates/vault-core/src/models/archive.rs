@@ -626,6 +626,12 @@ pub struct HistoryQuery {
     /// matching visit, which is seconds on a 14M-row archive.
     #[serde(default)]
     pub include_total: Option<bool>,
+    /// `Some(true)` returns one row per page (URL) instead of one per visit: the page's most recent
+    /// matching visit, with `visit_count` set to how many visits matched. Only applies with search
+    /// text (keyword or regex); browsing without text always lists visits. Pages are read with
+    /// `cursor`; `page` is ignored.
+    #[serde(default)]
+    pub group_by_url: Option<bool>,
 }
 
 impl Default for HistoryQuery {
@@ -644,6 +650,7 @@ impl Default for HistoryQuery {
             cursor: None,
             regex_mode: Some(false),
             include_total: None,
+            group_by_url: None,
         }
     }
 }
@@ -780,6 +787,10 @@ pub struct HistoryEntry {
     /// payloads (and preview fixtures) that omit it deserializable.
     #[serde(default)]
     pub enrichment_excerpt: Option<String>,
+    /// Set only on rows of a `group_by_url` query: how many visits to this page matched the
+    /// search and filters. The row itself is the most recent of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visit_count: Option<u64>,
 }
 
 /// Paginated history-query response.
@@ -791,6 +802,10 @@ pub struct HistoryQueryResponse {
     /// False when the caller asked for `include_total: false`.
     #[serde(default = "default_total_exact")]
     pub total_exact: bool,
+    /// For `group_by_url` queries with an exact total: the matching visits across all `total`
+    /// pages. `None` otherwise.
+    #[serde(default)]
+    pub total_visits: Option<usize>,
     pub items: Vec<HistoryEntry>,
     pub page: usize,
     pub page_size: usize,
@@ -809,6 +824,7 @@ impl Default for HistoryQueryResponse {
         Self {
             total: 0,
             total_exact: true,
+            total_visits: None,
             items: Vec::new(),
             page: 1,
             page_size: 0,

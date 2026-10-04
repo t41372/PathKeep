@@ -69,14 +69,14 @@ fn archive_scale_bench() {
     println!("\n# archive_scale_bench: {visits} visits\n");
     let plain_root = base.join(format!("plain-{visits}"));
     let plain = seeded_archive(&plain_root, visits, None);
-    bench_plaintext(&plain_root, &plain);
+    bench_plaintext(&plain_root, &plain, visits);
 
     let encrypted_root = base.join("encrypted-100000");
     let encrypted = seeded_archive(&encrypted_root, 100_000, Some("bench-key"));
     bench_encrypted(&encrypted_root, &encrypted);
 }
 
-fn bench_plaintext(root: &Path, config: &AppConfig) {
+fn bench_plaintext(root: &Path, config: &AppConfig, visits: u64) {
     let paths = project_paths_with_root(root);
     unsafe { std::env::set_var("CHB_PROJECT_ROOT", root) };
 
@@ -132,13 +132,49 @@ fn bench_plaintext(root: &Path, config: &AppConfig) {
         include_total: Some(include_total),
         ..HistoryQuery::default()
     };
-    for (label, q) in [("browse", None), ("keyword \"topic 42\"", Some("topic 42"))] {
-        report(&format!("{label}, first page, exact total"), 5, || {
-            vault_core::list_history(&paths, config, None, page(q, true)).expect("query");
+    report("browse, first page, exact total", 5, || {
+        vault_core::list_history(&paths, config, None, page(None, true)).expect("query");
+    });
+    report("browse, first page, no total", 5, || {
+        vault_core::list_history(&paths, config, None, page(None, false)).expect("query");
+    });
+
+    // "topic 42" is in one page title in 500 (7,200 pages at 14.4M); the rare term is one page in
+    // the middle of the id range with a handful of visits; "topic" is in every title.
+    let rare = format!("page {}", (visits / 4).max(1) / 3 + 1);
+    for (label, q, runs) in [
+        ("keyword \"topic 42\"", "topic 42", 5),
+        ("rare keyword", rare.as_str(), 5),
+        ("\"topic\"", "topic", 1),
+    ] {
+        let grouped = |include_total: bool| HistoryQuery {
+            group_by_url: Some(true),
+            ..page(Some(q), include_total)
+        };
+        report(&format!("{label}, visits, first page, exact total"), runs, || {
+            vault_core::list_history(&paths, config, None, page(Some(q), true)).expect("query");
         });
-        report(&format!("{label}, first page, no total"), 5, || {
-            vault_core::list_history(&paths, config, None, page(q, false)).expect("query");
+        report(&format!("{label}, visits, first page, no total"), runs, || {
+            vault_core::list_history(&paths, config, None, page(Some(q), false)).expect("query");
         });
+        report(&format!("{label}, pages, first page, exact totals"), runs, || {
+            vault_core::list_history(&paths, config, None, grouped(true)).expect("query");
+        });
+        let first = vault_core::list_history(&paths, config, None, grouped(false)).expect("query");
+        report(&format!("{label}, pages, first page, no total"), runs, || {
+            vault_core::list_history(&paths, config, None, grouped(false)).expect("query");
+        });
+        if first.next_cursor.is_some() {
+            report(&format!("{label}, pages, second page by cursor"), runs, || {
+                vault_core::list_history(
+                    &paths,
+                    config,
+                    None,
+                    HistoryQuery { cursor: first.next_cursor.clone(), ..grouped(false) },
+                )
+                .expect("query");
+            });
+        }
     }
     let mut cursor = None;
     for _ in 0..50 {
