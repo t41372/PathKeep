@@ -27,10 +27,10 @@ use crate::command_error::CommandError;
 use vault_core::{
     CategoryFilteredDateRangeRequest, CompareSetDetailRequest, DayInsightsRequest,
     DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest, ExplainRefindRequest,
-    GranularityDateRangeRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
-    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, ScopedDateRangeRequest,
-    SearchEffectivenessRequest, SearchQueryListRequest, SearchTrailQueryRequest,
-    TopSearchConceptsRequest, TopSitesRequest,
+    FrequentSearchesRequest, GranularityDateRangeRequest, PagedDateRangeRequest, PathFlowRequest,
+    ProfileScopedRequest, QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest,
+    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchQueryListRequest,
+    SearchTrailQueryRequest, TopSearchConceptsRequest, TopSitesRequest,
 };
 
 use super::super::worker_result;
@@ -107,6 +107,16 @@ pub(crate) fn get_top_search_concepts_impl(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::SearchConcept>>, CommandError>
 {
     worker_result(vault_worker::get_top_search_concepts(session_database_key, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Loads the most frequent searches in a date range, counted inside that range.
+pub(crate) fn get_frequent_searches_impl(
+    request: FrequentSearchesRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::FrequentSearch>>, CommandError>
+{
+    worker_result(vault_worker::get_frequent_searches(session_database_key, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

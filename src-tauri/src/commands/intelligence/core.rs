@@ -153,6 +153,21 @@ pub(crate) async fn get_top_search_concepts(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the most frequent searches in a date range off the UI thread.
+pub(crate) async fn get_frequent_searches(
+    request: vault_core::FrequentSearchesRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::FrequentSearch>>, CommandError>
+{
+    let session_database_key = state.get_key();
+    run_blocking_command("get_frequent_searches", move || {
+        worker_bridge::get_frequent_searches_impl(request, session_database_key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads normalized search-query rows for the requested list scope off the UI thread.
 pub(crate) async fn get_search_queries(
     request: vault_core::SearchQueryListRequest,

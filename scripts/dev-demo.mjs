@@ -65,6 +65,7 @@ const env = {
   // Debug builds keep schedule and login-item state here instead of the
   // real launchd / Task Scheduler / login items.
   PATHKEEP_PLATFORM_TEST_SANDBOX_DIR: path.join(demoRoot, 'os-sandbox'),
+  PATHKEEP_TEST_BLOCK_NETWORK: '1',
   CHB_TEST_KEYRING_DIR: keyringRoot,
   // A label of its own as well, so even a sandbox mix-up could never touch
   // the real PathKeep LaunchAgent.

@@ -113,8 +113,9 @@ pub use self::intelligence_schema::{
     preview_derived_intelligence_clear,
 };
 pub use self::intelligence_search_metrics::{
-    delete_search_engine_rule_for_settings, get_search_engine_ranking, get_top_search_concepts,
-    list_search_engine_rules_for_settings, upsert_search_engine_rule_for_settings,
+    delete_search_engine_rule_for_settings, get_frequent_searches, get_search_engine_ranking,
+    get_top_search_concepts, list_search_engine_rules_for_settings,
+    upsert_search_engine_rule_for_settings,
 };
 pub use self::intelligence_search_queries::{
     get_query_families, get_query_family_detail, get_search_queries,

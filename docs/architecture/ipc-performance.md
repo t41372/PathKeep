@@ -13,6 +13,8 @@ PATHKEEP_ARCHIVE_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=14400000 \
   --test archive_scale_bench --release -- --nocapture
 ```
 
+`PATHKEEP_ARCHIVE_BENCH_SECTIONS=reads,doctor,searches,encrypted` runs only the named sections. The doctor and searches sections first fill the intelligence tables with synthetic rows (the archive has none of its own): one derived row per visit for the doctor, and a search event for every eighth visit (1.8M at 14.4M, 5,000 distinct queries, skewed so a few are common) for searches. Calls that matter for memory also print the peak Rust heap (a counting allocator in the benchmark binary) and SQLite's own peak (`sqlite3_memory_highwater`), each measured from the start of the call.
+
 Machine: Apple Silicon, 18 cores, 64 GB, SSD, release build. That is far faster than the target, so read the before/after ratios, not the absolute times. Each figure is the median of 5 to 20 calls in a warm process (the archive was already opened once).
 
 "Before" is the code at `redesign/v0.4` before this work (`13223bd6`); "after" is with the changes below. The benchmark was run before and after at 1M visits and after at 14.4M. The 14.4M "before" figures for removed queries were timed directly on the same database file: Python's `sqlite3` (SQLite 3.53) for the old browse query, and the benchmark itself for the old search count.
@@ -94,6 +96,45 @@ Regex search groups the same bounded window the visit list scans (the newest 50,
 
 Operator-only searches (`site:docs.rs` with no words) start from every row of `urls`, so they cost like the "every page" row above. The History tag chips made one of them common, `tag:name`, so a search whose operators include `tag:` and whose words are empty starts from the tagged URLs instead (`url_tags`, then `idx_urls_url`, then the visit index per URL): its cost follows the number of tagged pages, not the archive. A plan test (`tag_pages_start_from_the_tagged_urls_not_every_url`) fails if `urls` or `visits` is scanned. Not measured at 14.4M; with tens of tagged pages it is a handful of index lookups. Other operator-only searches (`site:` alone, `-word` alone) still scan; they are typed rarely and were left as they are.
 
+### 6. The doctor copied every visible visit id into memory
+
+`doctor_report` and `repair_health` found derived rows that point at a hidden or missing visit with `visit_id NOT IN (SELECT id FROM archive.visits WHERE reverted_at IS NULL)`. SQLite runs that subquery once and stores every visible id in a temporary index (`LIST SUBQUERY` in the plan). It did this for `visit_derived_facts`, `search_trail_members` and `ai_embeddings`, and the AI indexer did it again to find stale embeddings.
+
+Fix: each check is now `NOT EXISTS (SELECT 1 FROM archive.visits WHERE visits.id = t.visit_id AND visits.reverted_at IS NULL)`, which looks each row's visit up by primary key (`SEARCH visits USING INTEGER PRIMARY KEY`). The same rewrite went into the AI stale-embedding delete and lookup (`ai.rs`, `ai/indexing/candidates.rs`) and the og:image orphan-blob sweep (`og_image_blobs` against the indexed `og_images.image_blob_hash`). A plan test (`stale_row_checks_look_visits_up_by_primary_key`) fails if the doctor checks go back to a materialized list.
+
+Measured at 14.4M visits with one derived row per visit plus 1,000 stale ones, and a trail member for every eighth visit. Both query shapes ran in the same process against the same database (median of 3; "SQLite memory" is SQLite's own peak above the start of the call, from `sqlite3_memory_highwater`):
+
+| stale-row count                           | time before | time after | SQLite memory before | after |
+| ----------------------------------------- | ----------- | ---------- | -------------------- | ----- |
+| `visit_derived_facts` (14.4M rows)        | 2.25 s      | 2.45 s     | 321 MiB              | 0     |
+| `search_trail_members` (1.8M rows)        | 1.08 s      | 0.47 s     | 166 MiB              | 0     |
+| whole `doctor` report, after (all checks) |             | 3.4 s      |                      |       |
+
+The time for a table with one row per visit stays about the same: both shapes still read every derived row and touch every visit once. What changes is memory: the old shape held a temporary index whose size grows with the archive (321 MiB at 14.4M, on an 8 GB target), the new one holds nothing. On tables much smaller than the visit table the new shape is also faster, because it no longer reads all 14.4M visits to build the list.
+
+Left alone: the "broken visibility" check (`visits.reverted_at IS NOT NULL` joined to `runs`) scans the whole visits table, 0.4 s at 14.4M. No index covers hidden visits; a partial index `WHERE reverted_at IS NOT NULL` would make it near-free, but needs an archive migration. `reverted_by_run_id NOT IN (SELECT id FROM runs)` in repair stays as it is: `runs` has one row per backup.
+
+### 7. Insights "Frequent searches" counted all-time totals
+
+The card summed `memberCount` of the query families that overlapped the range. A family's member count covers its whole history, so a query could show 100 next to a "Searches" figure of 74 for the same 30 days. Search events carry no time of their own, so the only range-scoped way to count them was to join each one to `archive.visits`, as `get_search_queries` and `get_top_search_concepts` still do.
+
+Fix: intelligence migration 9 stores each search event's `visit_time_ms` and adds `idx_search_events_kind_time (query_kind, visit_time_ms)`; the rebuild writes the time with every new event. The new read `get_frequent_searches` counts keyword search events inside the range, grouped by normalized query across engines, and the card uses it. The plan seeks the range in that index, then groups the matches in a temporary B-tree, so the work grows with the searches in the range, not with the archive. A plan test (`the_range_read_walks_the_kind_and_time_index`) holds that.
+
+At 14.4M visits with 1.8M search events (median of 5):
+
+| `get_frequent_searches`, top 10                | time   | SQLite memory |
+| ---------------------------------------------- | ------ | ------------- |
+| 7 days                                         | 2.5 ms | 1.2 MiB       |
+| 30 days                                        | 9.6 ms | 4.9 MiB       |
+| 90 days                                        | 30 ms  | 15 MiB        |
+| 365 days                                       | 145 ms | 59 MiB        |
+| same count joined to `archive.visits`, 30 days | 440 ms |               |
+| same count joined to `archive.visits`, 1 year  | 559 ms |               |
+
+The joined shape scans every search event whatever the range. A covering index that also holds `normalized_query` and `raw_query` cut the one-year read to 95 ms in a trial; not worth a second copy of every query.
+
+One-time cost: the migration fills in the time for existing events with one `UPDATE` against the archive, then builds the index. At 14.4M visits that took 2.2 s with the archive in the page cache and 9.4 s on the first run after the archive was generated (cold cache). Intelligence migrations run lazily, on the first intelligence read after an upgrade (not behind the "Upgrading your archive" screen), off the UI thread; that read and any that start beside it wait for it. Because several reads start at once, migrations now run under a process-wide lock. Without it every concurrent read would try to apply the pending migration, and the late ones could fail on SQLite's 5 s busy timeout or on the duplicate version row.
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |
@@ -111,3 +152,14 @@ Generating the 14.4M archive took 208 s for the rows and 47 s to project 3.6M se
 - `load_source_stats` recounts each profile after every backup (294 ms at 14.4M). It is cached until the archive file changes and runs off the UI thread.
 - `keyring_status()` on every `app_snapshot` is unmeasured (see 4).
 - Numbers come from a machine several times faster than the target. The fixes change the shape of the work (one page instead of a sort over every visit, two key derivations instead of five), which holds on slower hardware, but absolute times there will be higher.
+
+## Import-batch revert / restore (2026-10-04)
+
+Release build on Apple Silicon; five alternating revert/restore calls in a warm process on the same plaintext archive: 1,000,000 visits, 250,000 URL rows, a 10,000-visit batch touching 9,724 URLs. Before uses the full rebuild; after seeks through at most 1,000 batch visits per statement and refreshes their URLs, keeping every chunk and both FTS mirrors in one search transaction after the canonical commit. The query plan uses `idx_visits_import_batch_id (import_batch_id=? AND rowid>?)` and URL primary-key lookups. Existing enrichment, notes and tags survive; visibility still comes from canonical visits. Existing archive-total counts and batch review remain in these end-to-end timings.
+
+| Operation | Before median / max | After median / max |
+| --- | --- | --- |
+| `revert_import_batch` | 2,731.70 / 2,858.21 ms | 740.43 / 843.83 ms |
+| `restore_import_batch` | 2,722.40 / 2,745.52 ms | 732.25 / 860.27 ms |
+
+Reproduce with `export CARGO_TARGET_DIR=$PWD/.cargo-target`, then `PATHKEEP_IMPORT_BATCH_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=1000000 PATHKEEP_ARCHIVE_BENCH_DIR=$PWD/.batch-revert-bench cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --test archive_scale_bench --release import_batch_visibility_scale_bench -- --nocapture`. The synthetic archive was created inside the checkout and deleted after both measurements. These numbers do not measure the 14.4M target or encrypted archives.

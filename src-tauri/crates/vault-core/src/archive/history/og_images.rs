@@ -546,10 +546,9 @@ fn collect_orphan_blobs(connection: &Connection) -> Result<i64> {
     let deleted = connection
         .execute(
             "DELETE FROM og_image_blobs
-             WHERE blob_hash NOT IN (
-               SELECT image_blob_hash
-               FROM og_images
-               WHERE image_blob_hash IS NOT NULL
+             WHERE NOT EXISTS (
+               SELECT 1 FROM og_images
+               WHERE og_images.image_blob_hash = og_image_blobs.blob_hash
              )",
             [],
         )

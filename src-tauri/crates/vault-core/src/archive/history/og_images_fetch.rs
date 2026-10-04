@@ -315,6 +315,10 @@ pub fn ok_outcome_for_test(
 
 /// One pass through the fetch pipeline.
 pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
+    // Check before the SSRF guard, which may resolve the page host through DNS.
+    if crate::test_support::network_is_blocked() {
+        return blocked_outcome(page_url);
+    }
     if !page_url.starts_with("https://") {
         return FetchedOgImage {
             page_host: nonempty_host(page_url),
@@ -398,6 +402,10 @@ fn fetch_og_image_for_pipeline(
     bilibili_api_base: Option<&str>,
     guard_image_hosts: bool,
 ) -> FetchedOgImage {
+    // Also covers the HTTP test seams and the synthesized image/API branches.
+    if crate::test_support::network_is_blocked() {
+        return blocked_outcome(page_url);
+    }
     let mut outcome = FetchedOgImage {
         page_host: nonempty_host(page_url),
         source_og_url: None,
@@ -711,7 +719,9 @@ fn nonempty_host(page_url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::og_images::{list_urls_due_for_refetch, upsert_og_image};
     use super::*;
+    use crate::test_support::{network_test_child, run_network_test};
 
     fn html_with_og_image(image_url: &str) -> String {
         format!(
@@ -720,6 +730,62 @@ mod tests {
               <meta name="twitter:image" content="https://wrong.example.com/twitter.png">
             </head><body>page body</body></html>"#,
         )
+    }
+
+    #[test]
+    fn network_switch_blocks_og_fetch_without_connecting() {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        if !network_test_child() {
+            run_network_test(
+                "archive::history::og_images_fetch::tests::network_switch_blocks_og_fetch_without_connecting",
+                Some("1"),
+            );
+            return;
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        listener.set_nonblocking(true).expect("nonblocking listener");
+        let url = format!("http://{}/page", listener.local_addr().unwrap());
+        let client = build_fetch_client().expect("client");
+        // The HTTP seam bypasses the normal HTTPS/private-host guard, so only
+        // the switch can prevent this request from reaching the listener.
+        let outcome = fetch_og_image_for_unchecked(&client, &url);
+        assert_eq!(outcome.fetch_status(), fetch_status::BLOCKED);
+        assert_eq!(fetch_og_image_for(&client, &url).fetch_status(), fetch_status::BLOCKED);
+        assert_eq!(listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    }
+
+    #[test]
+    fn network_blocked_og_fetch_is_not_requeued() {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        if !network_test_child() {
+            run_network_test(
+                "archive::history::og_images_fetch::tests::network_blocked_og_fetch_is_not_requeued",
+                Some("1"),
+            );
+            return;
+        }
+        let connection = rusqlite::Connection::open_in_memory().expect("archive");
+        crate::archive::schema::create_schema(&connection).expect("schema");
+        let page_url = "https://network-switch-test.invalid/article";
+        // Replace a previously retryable row, as the worker would during a retry.
+        let previous =
+            FetchedOgImage { fetch_status: fetch_status::HTTP_ERROR, ..blocked_outcome(page_url) };
+        upsert_og_image(&connection, &previous.as_insert(page_url, Some("2000-01-01T00:00:00Z")))
+            .expect("retryable row");
+        assert_eq!(list_urls_due_for_refetch(&connection, 10).unwrap(), [page_url]);
+
+        let client = build_fetch_client().expect("client");
+        let outcome = fetch_og_image_for(&client, page_url);
+        assert_eq!(outcome.fetch_status(), fetch_status::BLOCKED);
+        let refetch_after = default_refetch_after_for_status(outcome.fetch_status());
+        assert!(refetch_after.is_none());
+        upsert_og_image(&connection, &outcome.as_insert(page_url, refetch_after.as_deref()))
+            .expect("blocked row");
+        assert!(list_urls_due_for_refetch(&connection, 10).unwrap().is_empty());
     }
 
     #[test]

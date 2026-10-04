@@ -84,8 +84,8 @@ impl<'tx> StructuralTailPersist<'tx> {
             )?,
             search_event_statement: tx.prepare(
                 "INSERT INTO search_events
-                 (visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind, trail_id, computed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 (visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind, trail_id, computed_at, visit_time_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             )?,
             search_event_kind_statement: tx.prepare(
                 "UPDATE search_events SET query_kind = ?2 WHERE visit_id = ?1",
@@ -179,6 +179,7 @@ impl<'tx> StructuralTailPersist<'tx> {
             event.query_kind.as_str(),
             event.trail_id,
             computed_at,
+            event.visit_time_ms,
         ])?;
         if event.query_kind.is_keyword() {
             for term in

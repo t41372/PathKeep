@@ -722,18 +722,43 @@ fn enrichment_text_for_index(summary: Option<&str>, extraction_json: Option<&str
     parts.join(" \u{2022} ")
 }
 
+/// Keeps import/revert/restore recall equivalent to a rebuild without scanning all URLs.
+///
+/// Failure modes guarded here:
+/// - A URL shared with another batch or regular backup must not disappear. Like
+///   a full rebuild, retain its document; canonical visits decide visibility.
+/// - Restored visits must be searchable, including existing enrichment, notes
+///   and tags. Read affected URLs even when all their batch visits are hidden.
+/// - A crash mid-refresh must not install a partial projection. Keep all chunks
+///   and both FTS mirrors in one SQLite transaction, using the existing separate
+///   canonical-commit / derived-refresh boundary and rebuild warning on failure.
+///   No canonical files or at-rest config are swapped by this operation.
+/// - Memory must not grow with batch size. Seek through at most 1,000 visits per
+///   statement (therefore at most 1,000 URLs), not a DISTINCT over the whole batch.
+///   Deduplicate within each chunk; URLs repeated across chunks are safe to refresh again.
+///
+/// A read transaction keeps the canonical snapshot stable across chunks. The
+/// existing batch index includes the rowid, so the visit cursor needs no new index.
 pub(crate) fn refresh_search_projection_for_import_batch(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
     import_batch_id: i64,
 ) -> Result<()> {
+    const VISITS_PER_CHUNK: i64 = 1_000;
+
     ensure_search_projection_bootstrapped(paths)?;
-    let archive = open_archive_connection(paths, config, key)?;
+    let mut archive = open_archive_connection(paths, config, key)?;
+    let snapshot = archive.transaction()?;
     let mut search = open_search_connection(paths)?;
     let transaction = search.transaction()?;
-    let mut statement = archive.prepare(
-        "SELECT DISTINCT
+    let mut statement = snapshot.prepare(
+        "WITH batch_chunk AS MATERIALIZED (
+           SELECT id, url_id FROM visits
+           WHERE import_batch_id = ?1 AND id > ?2
+           ORDER BY id LIMIT ?3
+         )
+         SELECT
            urls.id,
            urls.url,
            COALESCE(urls.title, ''),
@@ -746,21 +771,33 @@ pub(crate) fn refresh_search_projection_for_import_batch(
                  AND search_terms.reverted_at IS NULL
              ),
              ''
-           )
-         FROM visits
-         JOIN urls ON urls.id = visits.url_id
-         WHERE visits.import_batch_id = ?1",
+           ),
+           (SELECT MAX(id) FROM batch_chunk)
+         FROM urls
+         WHERE urls.id IN (SELECT url_id FROM batch_chunk)",
     )?;
-    let mut rows = statement.query(params![import_batch_id])?;
-    while let Some(row) = rows.next()? {
-        refresh_search_document(
-            &transaction,
-            row.get::<_, i64>(0)?,
-            &row.get::<_, String>(1)?,
-            &row.get::<_, String>(2)?,
-            &row.get::<_, String>(3)?,
-        )?;
+    let mut last_visit_id = 0;
+    loop {
+        let mut rows =
+            statement.query(params![import_batch_id, last_visit_id, VISITS_PER_CHUNK])?;
+        let mut next_visit_id = last_visit_id;
+        while let Some(row) = rows.next()? {
+            refresh_search_document(
+                &transaction,
+                row.get::<_, i64>(0)?,
+                &row.get::<_, String>(1)?,
+                &row.get::<_, String>(2)?,
+                &row.get::<_, String>(3)?,
+            )?;
+            next_visit_id = row.get(4)?;
+        }
+        if next_visit_id == last_visit_id {
+            break;
+        }
+        last_visit_id = next_visit_id;
+        crate::fault_inject::checkpoint("search.import_batch.after_chunk")?;
     }
+    crate::fault_inject::checkpoint("search.import_batch.before_commit")?;
     transaction.commit()?;
     Ok(())
 }

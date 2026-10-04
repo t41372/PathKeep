@@ -24,6 +24,8 @@ There is no coverage threshold and no mutation testing. A green run means the fe
 
 `playwright.config.ts` starts `scripts/pathkeep-dev-desktop-bridge.mjs`, which runs the debug Rust backend with the `devtools-bridge` feature next to the Vite dev server. The tests open the frontend in Chrome and talk to real Rust command handlers.
 
+The E2E suite and `dev:demo` set `PATHKEEP_TEST_BLOCK_NETWORK=1` to block the backend's outbound link-preview, page-content, and app-update fetches before any connection or DNS lookup. These paths return their existing blocked or network-unavailable outcomes; blocked link previews are not queued for retry. Only exactly `1` enables the switch in debug builds; release builds ignore it. Explicit user-requested AI provider calls are unaffected.
+
 Each run writes seeded synthetic browser profiles (two Chrome, one Firefox, real SQLite history files, about 21,000 visits over 14 months) to a temp folder, with the archive, keyring and project root next to them. `tests/e2e/support/fixture.ts` reads the same data, so expected numbers are computed from it rather than typed into the specs. The keyring is a file in that folder: debug builds honor `CHB_TEST_KEYRING_DIR`, release builds ignore it.
 
 The specs run in order on one archive (see `projects` in the config): `first-run` (onboarding, first backup) → `read` (search, search tools and tags, insights) → `change` (new visits, paused source, custom-interval schedule install / verify / remove, Browser Direct import / undo / restore, app lock and its hint, archive password change, background work) → `wipe` (delete all data).

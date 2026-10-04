@@ -94,6 +94,11 @@ const INTELLIGENCE_MIGRATIONS: &[IntelligenceMigrationSpec] = &[
         name: "content-enrichment-w-enrich",
         apply: apply_content_enrichment_w_enrich_migration,
     },
+    IntelligenceMigrationSpec {
+        version: 9,
+        name: "search-event-time",
+        apply: apply_search_event_time_migration,
+    },
 ];
 
 /// W-ENRICH-1 (migration "015" in the doc-06 naming, applied on the INTELLIGENCE plane where the
@@ -152,6 +157,57 @@ fn apply_search_query_kind_migration(connection: &Connection) -> Result<()> {
         [],
     )?;
     backfill_search_event_query_kinds(connection)
+}
+
+/// Stores each search event's visit time on the event and indexes it with the query kind, so a
+/// date-range read over searches walks that index instead of joining every search event to
+/// `archive.visits` (see `get_frequent_searches`).
+///
+/// Existing rows are backfilled from the attached archive in one statement. Events whose visit is
+/// gone keep a NULL time and drop out of range reads, which is right: they are stale. A connection
+/// without the archive attached (some unit tests) skips the backfill.
+fn apply_search_event_time_migration(connection: &Connection) -> Result<()> {
+    if !table_has_column(connection, "search_events", "visit_time_ms")? {
+        connection.execute("ALTER TABLE search_events ADD COLUMN visit_time_ms INTEGER", [])?;
+    }
+    if archive_visits_attached(connection)? {
+        connection.execute(
+            "UPDATE search_events
+             SET visit_time_ms = (
+               SELECT visits.visit_time_ms FROM archive.visits AS visits
+               WHERE visits.id = search_events.visit_id
+             )
+             WHERE visit_time_ms IS NULL",
+            [],
+        )?;
+    }
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_search_events_kind_time
+         ON search_events(query_kind, visit_time_ms)",
+        [],
+    )?;
+    Ok(())
+}
+
+/// True when the canonical archive is attached as `archive` and has its visits table.
+fn archive_visits_attached(connection: &Connection) -> Result<bool> {
+    let attached = connection
+        .prepare("PRAGMA database_list")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .iter()
+        .any(|name| name == "archive");
+    if !attached {
+        return Ok(false);
+    }
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM archive.sqlite_master WHERE type = 'table' AND name = 'visits'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
 }
 
 /// Adds the extra composite indexes required by streamed batch rebuilds.
@@ -226,7 +282,15 @@ fn load_applied_intelligence_migrations(connection: &Connection) -> Result<BTree
 }
 
 /// Applies every pending intelligence-plane migration in version order.
+///
+/// Every intelligence read calls this, and Insights issues several reads at once. A migration
+/// with a backfill (version 9 takes seconds at 14.4M visits) would otherwise run in each of
+/// them: the late ones wait on SQLite's write lock past the busy timeout, or apply the
+/// migration again and fail on the duplicate version row. The lock makes one caller apply it
+/// while the others wait, then read the applied set and find nothing to do.
 fn run_core_intelligence_migrations(connection: &Connection) -> Result<()> {
+    static MIGRATION_LOCK: Mutex<()> = Mutex::new(());
+    let _serialized = MIGRATION_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let applied = load_applied_intelligence_migrations(connection)?;
     for migration in INTELLIGENCE_MIGRATIONS {
         if applied.contains(&migration.version) {

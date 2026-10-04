@@ -534,7 +534,7 @@ fn explain_entity_and_provider_snapshots_build_from_core_intelligence_tables() {
     let migration_count: i64 = intelligence
         .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
         .expect("migration count");
-    assert_eq!(migration_count, 8);
+    assert_eq!(migration_count, 9);
 }
 
 /// Regression coverage for visit derive stage processes only new visible visits.

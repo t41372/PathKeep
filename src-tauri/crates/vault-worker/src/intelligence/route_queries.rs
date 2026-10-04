@@ -163,6 +163,22 @@ pub fn get_top_search_concepts(
     )
 }
 
+/// Loads the most frequent searches in a date range, with counts scoped to that range.
+pub fn get_frequent_searches(
+    session_database_key: Option<&str>,
+    request: &FrequentSearchesRequest,
+) -> Result<CoreIntelligenceSectionResult<Vec<FrequentSearch>>> {
+    with_core_intelligence_section(
+        session_database_key,
+        "search-activity",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        |paths, config| {
+            intelligence::get_frequent_searches(paths, config, session_database_key, request)
+        },
+        |data| data.is_empty(),
+    )
+}
+
 /// Loads the paginated search-query table used by the search activity surface.
 pub fn get_search_queries(
     session_database_key: Option<&str>,

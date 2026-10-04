@@ -63,6 +63,7 @@ function prepareFixture() {
     // Schedules and login items go to files here, never to the real
     // launchd / Task Scheduler. Debug builds only; release ignores it.
     PATHKEEP_PLATFORM_TEST_SANDBOX_DIR: dirs.osSandbox,
+    PATHKEEP_TEST_BLOCK_NETWORK: '1',
     // Keep the build cache between runs; a cold Rust build takes minutes.
     CARGO_TARGET_DIR:
       process.env.CARGO_TARGET_DIR ??
@@ -109,11 +110,7 @@ export default defineConfig({
     baseURL: bridge.devServerUrl,
     viewport: { width: 1440, height: 900 },
     locale: 'en-US',
-    // 'on' hangs after a passing test (Playwright 1.59 on Node 26: the
-    // worker stalls until the test timeout once the trace is zipped). Failed
-    // tests still get a full trace; passing ones keep screenshots and the
-    // expected/actual attachments.
-    trace: 'retain-on-failure',
+    trace: 'on',
     screenshot: 'on',
     video: 'off',
     launchOptions: {
