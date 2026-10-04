@@ -7,6 +7,9 @@
 //! - FTS-backed keyword recall
 //! - manual regex post-filtering
 //!
+//! Searches can also return one row per page instead of one per visit (`group_by_url`); that
+//! lives in `grouped`.
+//!
 //! The accepted product contract is that only visible facts participate in
 //! recall/export. Hidden/reverted rows stay out of these surfaces, and regex is
 //! a slower manual path instead of pretending to be the default fast query
@@ -19,6 +22,7 @@ use super::*;
 pub mod day_insights;
 mod export;
 mod favicons;
+mod grouped;
 // `net_guard` is the SSRF guard reused by W-ENRICH-1's content-fetch egress (06 §2b: every page URL
 // AND every API sub-resource is checked). Promoted to `pub(crate)` so the enrichment plane can reach
 // `url_target_is_blocked` through the same chokepoint og:image fetching uses.
@@ -350,6 +354,48 @@ pub fn list_history(
         .filter(|value| !value.trim().is_empty())
         .map(|value| format!("%{value}%"));
     let sort = normalize_history_sort(query.sort.as_deref(), q.is_some(), lexical_query.is_some());
+
+    if query.group_by_url.unwrap_or(false) && raw_q.is_some() {
+        let filters = grouped::PageFilters {
+            profile_id,
+            browser_kind,
+            domain_pattern,
+            start_time_ms,
+            end_time_ms,
+        };
+        let cursor = query.cursor.as_deref();
+        return match (regex, lexical_query) {
+            (Some(regex), _) => grouped::list_regex_pages(
+                &connection,
+                &filters,
+                &sort,
+                limit_usize,
+                cursor,
+                &regex,
+                REGEX_SCAN_CAP,
+            ),
+            (None, Some(lexical_query)) => grouped::list_keyword_pages(
+                &connection,
+                &filters,
+                &sort,
+                limit_usize,
+                cursor,
+                include_total,
+                lexical_query,
+            ),
+            // Words that analyze to nothing searchable match nothing, as in the visit list.
+            (None, None) if q.is_some() => Ok(HistoryQueryResponse::default()),
+            (None, None) => grouped::list_operator_pages(
+                &connection,
+                &filters,
+                &sort,
+                limit_usize,
+                cursor,
+                include_total,
+            ),
+        };
+    }
+
     let cursor = parse_history_cursor(query.cursor.as_deref());
 
     if let Some(regex) = regex {
@@ -1029,6 +1075,7 @@ pub(super) fn history_entry_from_row(row: &Row<'_>) -> rusqlite::Result<HistoryE
         // `None`. Only the lexical-search reader attaches one (see `history_entry_with_score_from_row`),
         // so the Explorer affordance stays suppressed outside keyword search.
         enrichment_excerpt: None,
+        visit_count: None,
     })
 }
 

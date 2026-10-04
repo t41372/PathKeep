@@ -11,6 +11,11 @@ export interface VisitItem {
   visitTime: number
   /** 0–1 relevance, semantic results only. */
   score?: number
+  /**
+   * Full-text and regex results list each page once: the row is the page's
+   * newest matching visit and this is how many visits matched.
+   */
+  visitCount?: number
 }
 
 /** What the detail panel shows: a visit, or a starred page that has no visit row. */

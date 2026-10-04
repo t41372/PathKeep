@@ -216,16 +216,34 @@ export default function HistoryPage() {
         </span>
       )
     }
-    if (list.total !== null)
-      return t('history.results.count', { count: list.total, mode: modeLabel })
-    if (list.isPending || items.length === 0) return null
-    return t(
-      hasNextPage ? 'history.results.countMore' : 'history.results.count',
-      {
-        count: items.length,
-        mode: modeLabel,
-      },
-    )
+    // Until the count lands, describe what is loaded: exact once every page is in.
+    const totals =
+      list.totals ??
+      (list.isPending || items.length === 0 || hasNextPage
+        ? null
+        : {
+            pages: items.length,
+            visits:
+              search.mode === 'semantic'
+                ? null
+                : items.reduce((sum, item) => sum + (item.visitCount ?? 0), 0),
+          })
+    if (!totals) {
+      return items.length > 0
+        ? t('history.results.pagesMore', {
+            count: items.length,
+            mode: modeLabel,
+          })
+        : null
+    }
+    const pages = t('common.pages', { count: totals.pages })
+    return totals.visits === null
+      ? t('history.results.pages', { pages, mode: modeLabel })
+      : t('history.results.pagesAndVisits', {
+          pages,
+          visits: t('common.visits', { count: totals.visits }),
+          mode: modeLabel,
+        })
   })()
 
   const listContent = () => {

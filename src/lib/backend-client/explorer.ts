@@ -85,6 +85,14 @@ export interface BrowseDayInsights {
 export const explorerClient = {
   queryHistory: (query: HistoryQuery) =>
     call<HistoryQueryResponse>('query_history', { query }),
+  /**
+   * Search results with one row per page (URL): each item is the page's
+   * newest matching visit with `visitCount` set. Needs `q`.
+   */
+  searchPages: (query: Omit<HistoryQuery, 'groupByUrl' | 'page'>) =>
+    call<HistoryQueryResponse>('query_history', {
+      query: { ...query, groupByUrl: true },
+    }),
   loadHistoryFavicons: (entries: HistoryFaviconLookupEntry[]) =>
     call<HistoryFaviconLookupResult[]>('load_history_favicons', { entries }),
   loadHistoryOgImages: (entries: HistoryOgImageLookupEntry[]) =>

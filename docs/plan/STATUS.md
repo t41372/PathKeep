@@ -31,14 +31,14 @@
     - [ ] 7. 文檔同步（features / design / architecture）、CHANGELOG、`bun run check` 全綠
   - 已知缺口（2026-10-02 盤點）：
     - ~~前端呼叫但 Rust 沒註冊的命令~~：已補（`load_source_stats`、`get_url_detail`、`preview_wipe_all_data` / `wipe_all_data`），Tauri 與 dev bridge 都有。
-    - ~~開機時啟動、選單列圖示~~：已做（用戶 2026-10-02 決定補做）。macOS 實機看過；**Windows / Linux 的 tray、登入啟動、語言偵測從沒編譯過**，release 前要在 CI（Linux 跑 `bun run check`、Windows 手動跑 Platform Native workflow）或實機上編譯並點過一次。
+    - ~~開機時啟動、選單列圖示~~：已做（用戶 2026-10-02 決定補做）。macOS 實機看過；**Windows / Linux 的 tray、登入啟動、語言偵測從沒編譯過**。2026-10-02 已推上 `origin/redesign/v0.4` 並手動觸發 CI 與 Platform Native workflow；編譯過了之後仍要在實機上點過一次。
     - ~~IPC 性能問題~~：已修並量測（14.4M：History 列表第一頁約 26 s → 1.9 ms；加密 `app_snapshot` 237 → 97 ms），見 `docs/architecture/ipc-performance.md`。剩下：常見詞的關鍵字搜尋第一頁 14.4M 約 1.1 s；`app_snapshot` 每次查 keychain 未量測。
-    - 「刪除所有資料」會保留已安裝的自動備份排程（文案已寫明）。要不要讓刪除也一併移除排程，待用戶決定。
+    - 「刪除所有資料」會保留已安裝的自動備份排程。用戶 2026-10-02 決定：刪除時一併移除排程（預覽要寫明）。進行中。
     - 前端 `HistoryQueryResponse` 型別（`src/lib/types/archive.ts`）缺 `totalExact`，`history/queries.ts` 目前用交集型別補。
-    - 30 多個前端未用的 intelligence 讀取命令保留待第 5 步決定，清單見 `desktop-command-surface.md` §2026-10。
+    - 30 多個前端未用的 intelligence 讀取命令：用戶 2026-10-02 決定保留，留給 Insights 之後擴充（清單見 `desktop-command-surface.md` §2026-10）。`vercel.json`（browser-only 預覽站）已刪。
     - 打包時 Recharts 被併成一個名叫 `heatmap` 的 546 kB chunk（Home 和 Insights 共用、lazy load），不算問題。
   - 2026-10-02 試跑時記下、還沒修的：
-    - History 搜尋把同一頁的每一次訪問都列出來，重訪多的頁面會把其他結果擠掉（搜 "tokio"：前 2,000 多條全是同一頁）。要後端給 `query_history` 加「同一網址收成一行」的選項，前端顯示「N 次訪問」。
+    - History 搜尋把同一頁的每一次訪問都列出來，重訪多的頁面會把其他結果擠掉。用戶 2026-10-02 決定：搜尋結果按網址收成一行（顯示 N 次訪問），Timeline 仍列每次訪問。進行中。
     - Insights「常搜尋」的次數是整個 query family 的歷史總數，不受日期範圍限制（會大於同範圍的搜尋 KPI）。要後端給一個按範圍統計的命令。
     - ~~排程器沒有沙盒~~：已補 `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR`（只在 debug build 生效），dev:demo 與 E2E 都會設。E2E 現在仍選 Manual，之後可以補一條真的安裝 / 移除排程的場景。
     - `export_history` 先把整個結果集載入記憶體再寫檔，1440 萬條會撐爆 8 GB；`doctor_report` / `repair_health` 用 `visit_id NOT IN (SELECT id FROM archive.visits …)`。兩者都要改成串流 / anti-join。

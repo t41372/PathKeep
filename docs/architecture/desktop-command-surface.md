@@ -125,12 +125,14 @@ Plan 產生、plist / XML 內容、audit 與 status 解析照常執行。每次 
 
 Added for the shadcn frontend. Each is a Tauri command (off the UI thread) and a dev IPC bridge route, so browser-mode dev and E2E reach the same Rust code.
 
-| Command                 | Payload            | Returns         | Notes                                                                                                                                 |
-| ----------------------- | ------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `load_source_stats`     | none               | `SourceStats[]` | Visits and first/last visit per source profile. Cached against the archive file stamp.                                                |
-| `get_url_detail`        | `{ url }`          | `UrlDetail`     | Exact-URL totals, recording browsers, 12 Monday-start weeks.                                                                          |
-| `preview_wipe_all_data` | none               | `WipePreview`   | Every path "Delete all data" removes, sizes, cached visit count, `clearsKeychain`.                                                    |
-| `wipe_all_data`         | `{ confirmation }` | `null`          | Refuses anything but `"DELETE"` and refuses while App Lock is locked. Scope, order and crash recovery: `docs/features/archive.md` §4. |
+| Command                 | Payload            | Returns         | Notes                                                                                                                                                                                                                                      |
+| ----------------------- | ------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `load_source_stats`     | none               | `SourceStats[]` | Visits and first/last visit per source profile. Cached against the archive file stamp.                                                                                                                                                     |
+| `get_url_detail`        | `{ url }`          | `UrlDetail`     | Exact-URL totals, recording browsers, 12 Monday-start weeks.                                                                                                                                                                               |
+| `preview_wipe_all_data` | none               | `WipePreview`   | Every path "Delete all data" removes, sizes, cached visit count, `clearsKeychain`, `removesSchedule` + `scheduleItems` (installed automatic backup).                                                                                       |
+| `wipe_all_data`         | `{ confirmation }` | `WipeReport`    | Refuses anything but `"DELETE"` and refuses while App Lock is locked. Removes an installed automatic backup last; `{ scheduleRemoved, scheduleError }` says how that went. Scope, order and crash recovery: `docs/features/archive.md` §4. |
+
+`query_history` also takes `groupByUrl: true` (with search text): one row per URL string instead of per visit, each the page's newest matching visit with `visitCount`, `totalVisits` beside the page `total`, cursor paging only. History search and the ⌘K palette use it (`explorerClient.searchPages`); the timeline does not. Contract and failure modes: `vault-core/src/archive/history/grouped.rs`; cost: `ipc-performance.md` §6.
 
 Removed, after checking `src/`, the MCP server (`vault-worker/src/mcp.rs`: `search_history`, `archive_status`, `usage_guide` only), the worker CLI, `scripts/` and `tests/`:
 

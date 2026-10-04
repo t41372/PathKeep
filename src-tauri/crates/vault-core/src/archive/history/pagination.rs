@@ -102,6 +102,7 @@ pub(super) fn build_history_response(
     HistoryQueryResponse {
         total,
         total_exact: true,
+        total_visits: None,
         page: normalized_page,
         page_size: normalized_page_size,
         page_count: normalized_page_count,
@@ -138,6 +139,7 @@ pub(super) fn build_uncounted_history_response(
     HistoryQueryResponse {
         total: items.len(),
         total_exact: false,
+        total_visits: None,
         page: 1,
         page_size: page_size.max(1),
         page_count: 1,
@@ -178,6 +180,7 @@ pub(super) fn build_lexical_history_response(
     HistoryQueryResponse {
         total,
         total_exact: true,
+        total_visits: None,
         page: normalized_page,
         page_size: normalized_page_size,
         page_count: normalized_page_count,
@@ -196,4 +199,83 @@ fn encode_history_cursor(entry: &HistoryEntry) -> String {
 /// Encodes one scored history row into the relevance cursor form.
 fn encode_relevance_history_cursor(entry: &HistoryEntry, score: f64) -> String {
     format!("r|{score}|{}|{}", entry.visit_time, entry.id)
+}
+
+/// Where a list of pages (`group_by_url`) stopped: the sort key of its last row.
+///
+/// Pages sort by relevance score (relevance only), then by their most recent matching visit, then
+/// by URL. The URL is unique per row, so two pages with the same score and time are never skipped
+/// or repeated.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct PageCursor {
+    /// `None` unless the list is sorted by relevance.
+    pub score: Option<f64>,
+    pub last_time: i64,
+    pub url: String,
+}
+
+impl PageCursor {
+    /// True when a page with this sort key comes after the cursor in `sort` order.
+    pub(super) fn precedes(&self, sort: &str, score: f64, last_time: i64, url: &str) -> bool {
+        let after = |time_after: bool| {
+            time_after || (last_time == self.last_time && url > self.url.as_str())
+        };
+        match sort {
+            "oldest" => after(last_time > self.last_time),
+            "newest" => after(last_time < self.last_time),
+            _ => self.score.is_some_and(|cursor_score| {
+                score > cursor_score || (score == cursor_score && after(last_time < self.last_time))
+            }),
+        }
+    }
+}
+
+/// Parses a page cursor (`p|<score>|<time>|<url>`). Visit cursors are not page cursors.
+pub(super) fn parse_page_cursor(raw: Option<&str>) -> Option<PageCursor> {
+    let mut parts = raw?.strip_prefix("p|")?.splitn(3, '|');
+    let score = match parts.next()? {
+        "" => None,
+        value => Some(value.parse().ok()?),
+    };
+    Some(PageCursor {
+        score,
+        last_time: parts.next()?.parse().ok()?,
+        url: parts.next()?.to_string(),
+    })
+}
+
+/// Builds the response for one page of a `group_by_url` query.
+///
+/// Each row is a page's most recent matching visit with `visit_count` set, paired with the page's
+/// relevance score. `totals` is `(pages, visits)` when they were counted.
+pub(super) fn build_page_response(
+    page_size: usize,
+    after_cursor: bool,
+    has_more: bool,
+    rows: Vec<(HistoryEntry, f64)>,
+    sort: &str,
+    totals: Option<(usize, usize)>,
+) -> HistoryQueryResponse {
+    let next_cursor = has_more
+        .then(|| {
+            rows.last().map(|(entry, score)| {
+                let score = if sort == "relevance" { score.to_string() } else { String::new() };
+                format!("p|{score}|{}|{}", entry.visit_time, entry.url)
+            })
+        })
+        .flatten();
+    let items: Vec<HistoryEntry> = rows.into_iter().map(|(entry, _)| entry).collect();
+    let page_size = page_size.max(1);
+    HistoryQueryResponse {
+        total: totals.map_or(items.len(), |(pages, _)| pages),
+        total_exact: totals.is_some(),
+        total_visits: totals.map(|(_, visits)| visits),
+        page: 1,
+        page_size,
+        page_count: totals.map_or(1, |(pages, _)| page_count(pages, page_size)),
+        has_previous: after_cursor,
+        has_next: has_more,
+        next_cursor,
+        items,
+    }
 }

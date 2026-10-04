@@ -72,16 +72,13 @@ export function CommandPalette({
     queryKey: [...queryKeys.archiveData, 'palette', term],
     // One row per page: a page visited ten times should not fill the list.
     queryFn: async () => {
-      const page = await explorerClient.queryHistory({
+      const page = await explorerClient.searchPages({
         q: term,
-        limit: 30,
+        limit: 6,
         sort: 'relevance',
         includeTotal: false,
       })
-      const seen = new Set<string>()
       return page.items
-        .filter((visit) => !seen.has(visit.url) && seen.add(visit.url))
-        .slice(0, 6)
     },
     enabled: open && term.length >= 2,
     staleTime: 30_000,

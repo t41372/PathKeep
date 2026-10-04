@@ -93,6 +93,7 @@ fn collect_history_for_export(
     Ok(HistoryQueryResponse {
         total: items.len(),
         total_exact: true,
+        total_visits: None,
         page: 1,
         page_size: items.len(),
         page_count: 1,
@@ -212,6 +213,7 @@ mod tests {
             source_visit_id: 0,
             app_id: None,
             enrichment_excerpt: None,
+            visit_count: None,
         }
     }
 
