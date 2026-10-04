@@ -53,7 +53,6 @@ export const backup = defineMessages({
       sixHours: 'Every 6h',
       daily: 'Daily',
       off: 'Off',
-      custom: 'Backs up when the last backup is more than {hours} hours old.',
       next: 'Next run',
       scheduler: 'Scheduler',
       state: {
@@ -65,10 +64,7 @@ export const backup = defineMessages({
         manual: 'manual setup',
       },
       turnedOff: 'Automatic backup is off',
-      changed: 'Automatic backup set to {frequency}',
-      changeFailed: 'Could not change automatic backup',
       repaired: 'The scheduler is repaired',
-      repairFailed: 'Could not repair the scheduler',
       attention: {
         title: 'The scheduler needs attention',
         mismatch:
@@ -122,11 +118,6 @@ export const backup = defineMessages({
         undone: 'Undone. Hidden from your history.',
         undo: 'Undo',
         restore: 'Restore',
-        undoTitle: 'Undo this import?',
-        undoBody_one:
-          'The visit it added will be hidden from your history. Nothing is deleted, and you can restore the import later.',
-        undoBody_other:
-          'The {count} visits it added will be hidden from your history. Nothing is deleted, and you can restore the import later.',
         undoConfirm: 'Undo import',
         revertDone: 'Import undone',
         revertFailed: 'Could not undo the import',
@@ -164,7 +155,6 @@ export const backup = defineMessages({
         newPages: 'New pages',
         sources: 'Sources',
         error: 'Error',
-        warnings: 'Warnings',
         noWarnings: 'No warnings.',
       },
     },
@@ -221,7 +211,6 @@ export const backup = defineMessages({
       sixHours: '每 6 小时',
       daily: '每天',
       off: '关闭',
-      custom: '距离上次备份超过 {hours} 小时后会自动备份。',
       next: '下次运行',
       scheduler: '调度器',
       state: {
@@ -233,10 +222,7 @@ export const backup = defineMessages({
         manual: '需手动设置',
       },
       turnedOff: '自动备份已关闭',
-      changed: '自动备份已设为{frequency}',
-      changeFailed: '无法更改自动备份',
       repaired: '调度器已修复',
-      repairFailed: '无法修复调度器',
       attention: {
         title: '调度器需要处理',
         mismatch:
@@ -287,11 +273,6 @@ export const backup = defineMessages({
         undone: '已撤销，不再显示在历史中。',
         undo: '撤销',
         restore: '恢复',
-        undoTitle: '撤销这次导入？',
-        undoBody_one:
-          '它新增的 {count} 条浏览记录会从历史中隐藏。不会删除任何内容，之后可以恢复这次导入。',
-        undoBody_other:
-          '它新增的 {count} 条浏览记录会从历史中隐藏。不会删除任何内容，之后可以恢复这次导入。',
         undoConfirm: '撤销导入',
         revertDone: '已撤销导入',
         revertFailed: '无法撤销导入',
@@ -329,7 +310,6 @@ export const backup = defineMessages({
         newPages: '新增页面',
         sources: '来源',
         error: '错误',
-        warnings: '警告',
         noWarnings: '没有警告。',
       },
     },
@@ -386,7 +366,6 @@ export const backup = defineMessages({
       sixHours: '每 6 小時',
       daily: '每天',
       off: '關閉',
-      custom: '距離上次備份超過 {hours} 小時後會自動備份。',
       next: '下次執行',
       scheduler: '排程器',
       state: {
@@ -398,10 +377,7 @@ export const backup = defineMessages({
         manual: '需手動設定',
       },
       turnedOff: '自動備份已關閉',
-      changed: '自動備份已設為{frequency}',
-      changeFailed: '無法變更自動備份',
       repaired: '排程器已修復',
-      repairFailed: '無法修復排程器',
       attention: {
         title: '排程器需要處理',
         mismatch:
@@ -452,11 +428,6 @@ export const backup = defineMessages({
         undone: '已復原，不再顯示在歷史中。',
         undo: '復原',
         restore: '還原',
-        undoTitle: '復原這次匯入？',
-        undoBody_one:
-          '它新增的 {count} 筆瀏覽記錄會從歷史中隱藏。不會刪除任何內容，之後可以還原這次匯入。',
-        undoBody_other:
-          '它新增的 {count} 筆瀏覽記錄會從歷史中隱藏。不會刪除任何內容，之後可以還原這次匯入。',
         undoConfirm: '復原匯入',
         revertDone: '已復原匯入',
         revertFailed: '無法復原匯入',
@@ -494,7 +465,6 @@ export const backup = defineMessages({
         newPages: '新增頁面',
         sources: '來源',
         error: '錯誤',
-        warnings: '警告',
         noWarnings: '沒有警告。',
       },
     },

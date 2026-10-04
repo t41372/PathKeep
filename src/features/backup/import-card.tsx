@@ -1,7 +1,9 @@
 /**
  * Import: bring in a Google Takeout export. Follows preview → confirm →
  * import, so nothing is written until the user has seen what was found.
- * Earlier imports are listed underneath with undo.
+ * Earlier imports (of any kind) are in the Recent imports card. The state
+ * and the window-wide drop live in the page, which routes each drop to this
+ * card or the browser-file card.
  */
 import { FileArchive, Loader2 } from 'lucide-react'
 import { useState } from 'react'
@@ -14,13 +16,8 @@ import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import type { TakeoutInspection } from '@/lib/types'
-import {
-  canUseNativeFiles,
-  pickTakeoutFile,
-  useWindowFileDrop,
-} from './file-drop'
-import { ImportBatches } from './import-batches'
-import { useTakeoutImport, type ImportState } from './use-takeout-import'
+import { canUseNativeFiles, pickTakeoutFile } from './file-drop'
+import type { ImportState, useTakeoutImport } from './use-takeout-import'
 
 const baseName = (path: string) =>
   path.split(/[\\/]/).filter(Boolean).pop() ?? path
@@ -191,14 +188,16 @@ function Importing({
   )
 }
 
-export function ImportCard() {
+export function ImportCard({
+  takeout,
+  hovering,
+}: {
+  takeout: ReturnType<typeof useTakeoutImport>
+  hovering: boolean
+}) {
   const { t } = useI18n()
   const backup = useBackupRunner()
-  const { state, inspect, confirm, reset } = useTakeoutImport()
-  const hovering = useWindowFileDrop(
-    (path) => void inspect(path),
-    state.step === 'idle' && !backup.running,
-  )
+  const { state, inspect, confirm, reset } = takeout
 
   return (
     <SectionCard
@@ -272,7 +271,6 @@ export function ImportCard() {
           </div>
         </>
       )}
-      <ImportBatches />
     </SectionCard>
   )
 }

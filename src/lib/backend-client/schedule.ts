@@ -22,8 +22,9 @@ import { call } from './shared'
  * The backend-client layer exists to keep command names, transport, and route code decoupled, so focused declarations here are intentional.
  */
 export const scheduleClient = {
-  previewInstall: (platform?: string) =>
-    call<SchedulePlan>('preview_schedule', { platform }),
+  /** `dueAfterHours` previews an interval without saving it. */
+  previewInstall: (platform?: string, dueAfterHours?: number) =>
+    call<SchedulePlan>('preview_schedule', { platform, dueAfterHours }),
   getStatus: (platform?: string) =>
     call<ScheduleStatus>('schedule_status', { platform }),
   applyInstall: (plan: SchedulePlan) =>

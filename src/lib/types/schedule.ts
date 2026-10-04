@@ -102,11 +102,16 @@ export interface ScheduleVerificationCheck {
  * removal without reusing transient button state as source of truth.
  */
 export interface ScheduleLastAction {
+  /** `apply`, `remove` or `repair`. */
   action: string
+  /** `ok`, `failed`, or `unknown` for records older than the outcome field. */
   status: string
+  /** Scheduler output, diagnostics only. */
   message: string
   at: string
   auditPath?: string | null
+  /** Files the action wrote or removed (`Task Scheduler:<label>` for a task). */
+  files?: string[]
 }
 
 /**

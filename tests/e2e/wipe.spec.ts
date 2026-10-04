@@ -64,6 +64,11 @@ test('delete all data previews, deletes, and returns to onboarding', async ({
     await page.goto('/#/backup')
     await unlockIfLocked(page)
     await page.getByRole('radio', { name: 'Daily' }).click()
+    // Turning it on shows the file first; nothing is installed until Install.
+    await page
+      .getByRole('dialog', { name: 'Turn on automatic backup' })
+      .getByRole('button', { name: 'Install' })
+      .click()
     await expect.poll(installState).toBe('installed')
     expect(sandboxedSchedulerFiles()).not.toEqual([])
   }

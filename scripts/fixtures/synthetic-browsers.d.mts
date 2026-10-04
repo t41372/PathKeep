@@ -41,3 +41,6 @@ export function appendFirefoxVisits(
   file: string,
   visits: SyntheticVisit[],
 ): void
+
+/** Creates a new Firefox places.sqlite holding `visits`. */
+export function writeFirefoxPlaces(file: string, visits: SyntheticVisit[]): void
