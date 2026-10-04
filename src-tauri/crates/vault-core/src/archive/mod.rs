@@ -105,7 +105,7 @@ pub(crate) use self::source_evidence_builder::{
 pub use self::source_stats::load_source_stats;
 pub use self::url_detail::get_url_detail;
 pub use self::wipe::{
-    WipeSecrets, data_wipe_interrupted, finish_interrupted_data_wipe, preview_data_wipe,
+    WipeOutsideState, data_wipe_interrupted, finish_interrupted_data_wipe, preview_data_wipe,
     request_running_jobs_stop, wipe_all_data,
 };
 // The cross-process archive write lock (W: serialize every destructive archive op so the

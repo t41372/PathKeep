@@ -24,6 +24,13 @@ interface Fixture {
   seed: number
   visitsByProfile: Record<ProfileId, SyntheticVisit[]>
   files: Record<ProfileId, string>
+  /** Folders the backend runs against; `osSandbox` stands in for launchd / Task Scheduler. */
+  dirs: {
+    projectRoot: string
+    keyring: string
+    noSafari: string
+    osSandbox: string
+  }
 }
 
 let cached: Fixture | null = null

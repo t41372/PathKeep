@@ -114,7 +114,8 @@ fn schedule_attempt_issue(issue: vault_core::ScheduledBackupHealthIssue) -> Sche
     }
 }
 
-fn native_schedule_interval_hours(config: &vault_core::AppConfig) -> f64 {
+/// How often the native scheduler wakes: the backup interval, capped at the health-check interval.
+pub(crate) fn native_schedule_interval_hours(config: &vault_core::AppConfig) -> f64 {
     let configured_check_interval = config.schedule_check_interval_hours as f64;
     if config.due_after_hours.is_finite() && config.due_after_hours > 0.0 {
         config.due_after_hours.min(configured_check_interval)

@@ -1,7 +1,9 @@
 /**
  * Delete all data: shows exactly what goes (`preview_wipe_all_data`), asks
  * for the word DELETE, deletes (`wipe_all_data`), then restarts the session,
- * which lands on onboarding because nothing is set up any more.
+ * which lands on onboarding because nothing is set up any more. If the
+ * automatic backup could not be removed, the dialog says so first and
+ * restarts when the user continues.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -55,10 +57,39 @@ function WipeForm({ onClose }: { onClose: () => void }) {
 
   const wipe = useMutation({
     mutationFn: () => dataWipeClient.execute(typed),
-    onSuccess: () => session.restart(),
+    // A failed schedule removal is shown first; the user restarts from there.
+    onSuccess: (report) =>
+      report.scheduleError ? undefined : session.restart(),
   })
 
   const ready = preview.isSuccess && typed === CONFIRMATION_WORD
+  const scheduleError = wipe.data?.scheduleError
+
+  if (scheduleError) {
+    // The data is gone; only the OS task is left. Say so, then start over.
+    return (
+      <DialogContent
+        className="sm:max-w-md"
+        showCloseButton={false}
+        onInteractOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => event.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>{t('settingsStorage.wipe.title')}</DialogTitle>
+          <DialogDescription className="[overflow-wrap:anywhere]">
+            {t('settingsStorage.wipe.scheduleFailed', {
+              message: scheduleError,
+            })}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button onClick={() => void session.restart()}>
+            {t('common.continue')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    )
+  }
 
   return (
     <DialogContent
@@ -119,6 +150,18 @@ function WipeForm({ onClose }: { onClose: () => void }) {
               <p className="text-[13px] text-muted-foreground">
                 {t('settingsStorage.wipe.keychain')}
               </p>
+            )}
+            {preview.data.removesSchedule && (
+              <div className="flex flex-col gap-1.5 text-[13px] text-muted-foreground">
+                <p>{t('settingsStorage.wipe.schedule')}</p>
+                <ul className="rounded-lg bg-muted p-2.5 font-mono text-xs">
+                  {preview.data.scheduleItems.map((item) => (
+                    <li key={item} className="break-all">
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             <Notice tone="warning">{t('settingsStorage.wipe.final')}</Notice>
             <div className="flex flex-col gap-1.5">

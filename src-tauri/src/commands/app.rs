@@ -69,11 +69,12 @@ pub(crate) async fn preview_wipe_all_data(
 #[cfg(not(test))]
 #[tauri::command]
 /// Deletes all PathKeep data once `confirmation` is the literal word "DELETE", off the UI thread.
-/// The next `app_snapshot` reports the app as not initialized.
+/// The next `app_snapshot` reports the app as not initialized. The report says whether an
+/// installed automatic backup was removed, or why it could not be.
 pub(crate) async fn wipe_all_data(
     confirmation: String,
     state: State<'_, SessionState>,
-) -> Result<(), CommandError> {
+) -> Result<vault_core::WipeReport, CommandError> {
     let session = state.inner().clone();
     run_blocking_command("wipe_all_data", move || {
         worker_bridge::wipe_all_data_impl(&confirmation, &session)

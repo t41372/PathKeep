@@ -8,8 +8,9 @@
 //!   crash or power loss finishes on the next launch instead of leaving half an archive behind.
 //!
 //! ## Not responsible for
-//! - The confirmation word, keychain entries, stopping background workers and the in-memory
-//!   session key. `vault-worker` owns those and passes the platform steps in as closures.
+//! - The confirmation word, keychain entries, the OS backup task, stopping background workers and
+//!   the in-memory session key. `vault-worker` owns those and passes the platform steps in as
+//!   closures.
 //! - The user's browser profiles. Nothing here reads a browser path: every target is a fixed path
 //!   under [`ProjectPaths::app_root`].
 //!
@@ -19,18 +20,28 @@
 //!   markers.
 //! - `derived/` (search, intelligence, AI vectors, agent conversations), `sidecars/`,
 //!   `raw-snapshots/`, `staging/`, `quarantine/`, `audit/` (run ledger and manifests), `exports/`,
-//!   `models/` (downloaded embedding models) and `integrations/`.
+//!   `models/` (downloaded embedding models), `integrations/` and `schedule/` (scheduled-run logs
+//!   and attempt history).
 //! - Import backstops in the app root, the App Lock state and passcode files, the Stronghold vault
 //!   and its salt, and `config.json`.
+//! - Outside the app root, through the caller's closures: the archive key and AI provider keys in
+//!   the keychain, and an installed automatic backup (LaunchAgent or Task Scheduler task).
 //!
 //! ## What stays, and why
 //! - `logs/` and `diagnostics/`. The log plugin keeps `rust.log` open, and if a wipe fails the logs
 //!   are the only record of why. They hold no visit rows.
-//! - `schedule/` and an installed OS backup task. Removing a LaunchAgent or scheduled task is its
-//!   own preview-and-apply flow, and test and dev runs share the OS scheduler with the user's real
-//!   install. With no config, a scheduled run stops at "archive has not been initialized".
+//! - `audit/scheduler/remove-<time>.json`, when an automatic backup was removed. The scheduler
+//!   writes this record of the removal after `audit/` is gone; it names the task, nothing else.
 //! - `archive/.pk-archive-write.lock`. Other processes lock that file's inode; deleting it would
 //!   let a second process lock a new file while the first still holds the old one.
+//!
+//! ## Order
+//! Gate and write lock, marker, `config.json`, `quiesce`, the files, the keychain, the automatic
+//! backup, the marker. The task goes after the files so that a removal that fails cannot keep any
+//! history on disk. A failed removal does not fail the wipe: the data is gone, the app is not
+//! initialized, and the [`WipeReport`] says what is still installed so the UI can tell the user.
+//! The marker is removed anyway; keeping it would rerun the whole wipe at every launch and before
+//! every onboarding, and a task the OS will not let PathKeep remove would block setup for good.
 //!
 //! ## Ways this can go wrong, and what guards each
 //! 1. A browser profile gets touched. Targets come only from `ProjectPaths`; the test runs a real
@@ -50,6 +61,10 @@
 //! 7. Stale in-process caches make the next archive in the same process skip its bootstrap. Each
 //!    cache already re-checks that its file exists (or has its schema table) before trusting
 //!    itself; the test builds, backs up and searches a new archive in the same process.
+//! 8. The automatic backup survives and fails every run with "archive has not been initialized".
+//!    Its plan is taken before `config.json` goes and saved in the marker, so an interrupted wipe
+//!    removes it on the next launch too; `vault-worker` tests install a sandboxed task and check it
+//!    is gone.
 //!
 //! ## Performance notes
 //! - The preview takes the visit count from the last backup's cached totals; it only counts rows
@@ -63,7 +78,7 @@ use super::{
 use crate::{
     config::ProjectPaths,
     durable_io::{atomic_durable_write, remove_file_durably},
-    models::{AppConfig, WipeItem, WipePreview},
+    models::{AppConfig, SchedulePlan, WipeItem, WipePreview, WipeReport},
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -75,18 +90,21 @@ use std::{
 /// Marker file in the app root that exists exactly while a wipe is unfinished.
 const WIPE_MARKER_FILE: &str = ".pk-wipe-in-progress.json";
 
-/// Keychain entries a wipe must clear, saved in the marker because `config.json` (where the
-/// provider list lives) is the first thing the wipe deletes.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// What a wipe clears outside the app root, saved in the marker because `config.json` (where the
+/// provider list and the schedule settings live) is the first thing the wipe deletes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WipeSecrets {
-    /// Every configured AI provider id, LLM and embedding.
+pub struct WipeOutsideState {
+    /// Every configured AI provider id, LLM and embedding, whose API key may be in the keychain.
     pub provider_ids: Vec<String>,
+    /// The installed automatic backup to remove, planned while the config was still there.
+    #[serde(default)]
+    pub schedule: Option<SchedulePlan>,
 }
 
-impl WipeSecrets {
-    /// Collects the AI provider ids whose API keys may be in the keychain.
-    pub fn from_config(config: &AppConfig) -> Self {
+impl WipeOutsideState {
+    /// Collects the AI provider ids from `config`; `schedule` is the installed task, if any.
+    pub fn from_config(config: &AppConfig, schedule: Option<SchedulePlan>) -> Self {
         let provider_ids = config
             .ai
             .llm_providers
@@ -94,13 +112,14 @@ impl WipeSecrets {
             .chain(&config.ai.embedding_providers)
             .map(|provider| provider.id.clone())
             .collect();
-        Self { provider_ids }
+        Self { provider_ids, schedule }
     }
 }
 
 /// Lists what "Delete all data" would remove, with sizes and the visible visit count.
 ///
-/// `clears_keychain` is left `false`; the caller fills it from the platform keychain.
+/// `clears_keychain`, `removes_schedule` and `schedule_items` are left empty; the caller fills them
+/// from the platform keychain and scheduler.
 pub fn preview_data_wipe(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -120,28 +139,31 @@ pub fn preview_data_wipe(
         total_bytes: items.iter().map(|item| item.bytes).sum(),
         items,
         visit_count,
-        clears_keychain: false,
+        ..WipePreview::default()
     })
 }
 
 /// Deletes everything [`preview_data_wipe`] lists, leaving PathKeep not initialized.
 ///
 /// `quiesce` runs after `config.json` is gone and before anything else is deleted; it should stop
-/// background work. `clear_secrets` runs after the files are gone. Both run under the write lock.
+/// background work. `clear_secrets` runs after the files are gone, then `remove_schedule` when
+/// `outside` names an installed task. All run under the write lock; see the module docs for the
+/// order and for why a failed schedule removal is reported instead of failing the wipe.
 pub fn wipe_all_data(
     paths: &ProjectPaths,
-    secrets: &WipeSecrets,
+    outside: &WipeOutsideState,
     quiesce: impl FnOnce() -> Result<()>,
-    clear_secrets: impl FnOnce(&WipeSecrets) -> Result<()>,
-) -> Result<()> {
+    clear_secrets: impl FnOnce(&WipeOutsideState) -> Result<()>,
+    remove_schedule: impl FnOnce(&SchedulePlan) -> Result<()>,
+) -> Result<WipeReport> {
     let _gate = ArchiveOpGate::acquire(paths);
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
     fs::create_dir_all(&paths.app_root)
         .with_context(|| format!("creating {}", paths.app_root.display()))?;
-    let marker = serde_json::to_vec(secrets).context("serializing the wipe marker")?;
+    let marker = serde_json::to_vec(outside).context("serializing the wipe marker")?;
     atomic_durable_write(&wipe_marker_path(paths), &marker).context("writing the wipe marker")?;
-    run_wipe(paths, secrets, quiesce, clear_secrets)
+    run_wipe(paths, outside, quiesce, clear_secrets, remove_schedule)
 }
 
 /// Asks running AI and intelligence queue jobs to stop at their next checkpoint.
@@ -170,37 +192,38 @@ pub fn data_wipe_interrupted(paths: &ProjectPaths) -> bool {
     wipe_marker_path(paths).exists()
 }
 
-/// Finishes a wipe that a crash or failure cut short. Returns whether there was one.
+/// Finishes a wipe that a crash or failure cut short. `None` when there was none.
 ///
 /// The user already confirmed it, so this runs without asking again. An unreadable marker still
-/// finishes the file deletion; only the provider keys it would have named stay in the keychain.
+/// finishes the file deletion; only the provider keys and the task it would have named are left.
 pub fn finish_interrupted_data_wipe(
     paths: &ProjectPaths,
     quiesce: impl FnOnce() -> Result<()>,
-    clear_secrets: impl FnOnce(&WipeSecrets) -> Result<()>,
-) -> Result<bool> {
+    clear_secrets: impl FnOnce(&WipeOutsideState) -> Result<()>,
+    remove_schedule: impl FnOnce(&SchedulePlan) -> Result<()>,
+) -> Result<Option<WipeReport>> {
     let marker_path = wipe_marker_path(paths);
     if !marker_path.exists() {
-        return Ok(false);
+        return Ok(None);
     }
     let _gate = ArchiveOpGate::acquire(paths);
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
-    let secrets = fs::read(&marker_path)
+    let outside = fs::read(&marker_path)
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<WipeSecrets>(&bytes).ok())
+        .and_then(|bytes| serde_json::from_slice::<WipeOutsideState>(&bytes).ok())
         .unwrap_or_default();
-    run_wipe(paths, &secrets, quiesce, clear_secrets)?;
-    Ok(true)
+    run_wipe(paths, &outside, quiesce, clear_secrets, remove_schedule).map(Some)
 }
 
 /// The deletion itself. Callers hold the gate and the write lock and have written the marker.
 fn run_wipe(
     paths: &ProjectPaths,
-    secrets: &WipeSecrets,
+    outside: &WipeOutsideState,
     quiesce: impl FnOnce() -> Result<()>,
-    clear_secrets: impl FnOnce(&WipeSecrets) -> Result<()>,
-) -> Result<()> {
+    clear_secrets: impl FnOnce(&WipeOutsideState) -> Result<()>,
+    remove_schedule: impl FnOnce(&SchedulePlan) -> Result<()>,
+) -> Result<WipeReport> {
     remove_file_durably(&paths.config_path).context("removing the configuration")?;
     quiesce()?;
 
@@ -216,8 +239,19 @@ fn run_wipe(
         anyhow::bail!("could not remove {}", failures.join("; "));
     }
 
-    clear_secrets(secrets)?;
-    remove_file_durably(&wipe_marker_path(paths)).context("removing the wipe marker")
+    clear_secrets(outside)?;
+
+    let report = match &outside.schedule {
+        None => WipeReport::default(),
+        Some(plan) => match remove_schedule(plan) {
+            Ok(()) => WipeReport { schedule_removed: true, schedule_error: None },
+            Err(error) => {
+                WipeReport { schedule_removed: false, schedule_error: Some(format!("{error:#}")) }
+            }
+        },
+    };
+    remove_file_durably(&wipe_marker_path(paths)).context("removing the wipe marker")?;
+    Ok(report)
 }
 
 /// Every existing path the wipe removes. See the module docs for what is left alone.
@@ -242,6 +276,7 @@ fn wipe_targets(paths: &ProjectPaths) -> Result<Vec<PathBuf>> {
         paths.exports_dir.clone(),
         paths.models_dir.clone(),
         paths.app_root.join("integrations"),
+        paths.schedule_dir.clone(),
         paths.app_root.join("app-lock-state.json"),
         paths.app_root.join("app-lock-passcode.json"),
         paths.stronghold_path.clone(),

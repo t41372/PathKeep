@@ -159,8 +159,11 @@ export const settingsStorage = defineMessages({
       previewFailed: 'Could not check what would be deleted. {message}',
       summary: '{visits} and {size} of files will be deleted:',
       keychain: 'The archive password saved in the keychain is removed too.',
+      schedule: 'Automatic backup is turned off and removed from the system:',
       final:
-        'This cannot be undone. Export or move your data first if you might want it. Automatic backup stays installed until you turn it off in Backup.',
+        'This cannot be undone. Export or move your data first if you might want it.',
+      scheduleFailed:
+        'Your data is deleted, but automatic backup could not be removed. {message} Turn it off in Backup after setup.',
       typeWord: 'Type {word} to confirm',
       confirm: 'Delete forever',
       failed: 'Nothing was deleted. {message}',
@@ -315,8 +318,10 @@ export const settingsStorage = defineMessages({
       previewFailed: '无法检查将被删除的内容。{message}',
       summary: '将删除 {visits}，共 {size} 的文件：',
       keychain: '保存在钥匙串里的存档密码也会被删除。',
-      final:
-        '此操作无法撤销。如果以后可能还需要，请先导出或迁移你的数据。自动备份会保留，要停用请到「备份」关闭。',
+      schedule: '自动备份也会关闭，并从系统中移除：',
+      final: '此操作无法撤销。如果以后可能还需要，请先导出或迁移你的数据。',
+      scheduleFailed:
+        '数据已删除，但自动备份没能移除。{message} 设置完成后，请到「备份」关闭它。',
       typeWord: '输入 {word} 以确认',
       confirm: '永久删除',
       failed: '没有删除任何内容。{message}',
@@ -471,8 +476,10 @@ export const settingsStorage = defineMessages({
       previewFailed: '無法檢查將被刪除的內容。{message}',
       summary: '將刪除 {visits}，共 {size} 的檔案：',
       keychain: '存在鑰匙圈裡的存檔密碼也會被刪除。',
-      final:
-        '此操作無法復原。如果之後可能還需要，請先匯出或搬移你的資料。自動備份會保留，要停用請到「備份」關閉。',
+      schedule: '自動備份也會關閉，並從系統中移除：',
+      final: '此操作無法復原。如果之後可能還需要，請先匯出或搬移你的資料。',
+      scheduleFailed:
+        '資料已刪除，但自動備份沒能移除。{message} 設定完成後，請到「備份」關閉它。',
       typeWord: '輸入 {word} 以確認',
       confirm: '永久刪除',
       failed: '沒有刪除任何內容。{message}',
