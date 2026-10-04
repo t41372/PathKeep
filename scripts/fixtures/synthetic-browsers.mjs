@@ -202,7 +202,16 @@ export function generateVisits({
       }
     }
   }
-  return visits.sort((a, b) => a.at - b.at)
+  // Two sessions can start in the same minute and produce the same visit
+  // twice. A browser never records two visits at the same instant, and
+  // PathKeep counts identical visits once, so keep every timestamp unique.
+  visits.sort((a, b) => a.at - b.at)
+  for (let index = 1; index < visits.length; index += 1) {
+    if (visits[index].at <= visits[index - 1].at) {
+      visits[index].at = visits[index - 1].at + 1_000
+    }
+  }
+  return visits.filter((visit) => visit.at <= now)
 }
 
 function writeChromeHistory(file, visits) {
