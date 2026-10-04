@@ -11,7 +11,8 @@
  *
  * Projects run in order, because they share one backend and one archive:
  * first-run (onboarding) → read (history, insights; nothing changes) →
- * change (background work, new visits, schedule, imports, lock) → wipe (delete everything).
+ * change (background work, new visits, schedule, imports, lock, archive
+ * password) → wipe (delete everything).
  */
 import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -144,6 +145,7 @@ export default defineConfig({
         'schedule.spec.ts',
         'browser-import.spec.ts',
         'lock.spec.ts',
+        'security.spec.ts',
       ],
       'read',
     ),
