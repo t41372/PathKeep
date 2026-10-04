@@ -96,7 +96,7 @@ Regex search groups the same bounded window the visit list scans (the newest 50,
 
 Operator-only searches (`site:docs.rs` with no words) start from every row of `urls`, so they cost like the "every page" row above. The History tag chips made one of them common, `tag:name`, so a search whose operators include `tag:` and whose words are empty starts from the tagged URLs instead (`url_tags`, then `idx_urls_url`, then the visit index per URL): its cost follows the number of tagged pages, not the archive. A plan test (`tag_pages_start_from_the_tagged_urls_not_every_url`) fails if `urls` or `visits` is scanned. Not measured at 14.4M; with tens of tagged pages it is a handful of index lookups. Other operator-only searches (`site:` alone, `-word` alone) still scan; they are typed rarely and were left as they are.
 
-### 6. The doctor copied every visible visit id into memory
+### 7. The doctor copied every visible visit id into memory
 
 `doctor_report` and `repair_health` found derived rows that point at a hidden or missing visit with `visit_id NOT IN (SELECT id FROM archive.visits WHERE reverted_at IS NULL)`. SQLite runs that subquery once and stores every visible id in a temporary index (`LIST SUBQUERY` in the plan). It did this for `visit_derived_facts`, `search_trail_members` and `ai_embeddings`, and the AI indexer did it again to find stale embeddings.
 
@@ -114,7 +114,7 @@ The time for a table with one row per visit stays about the same: both shapes st
 
 Left alone: the "broken visibility" check (`visits.reverted_at IS NOT NULL` joined to `runs`) scans the whole visits table, 0.4 s at 14.4M. No index covers hidden visits; a partial index `WHERE reverted_at IS NOT NULL` would make it near-free, but needs an archive migration. `reverted_by_run_id NOT IN (SELECT id FROM runs)` in repair stays as it is: `runs` has one row per backup.
 
-### 7. Insights "Frequent searches" counted all-time totals
+### 8. Insights "Frequent searches" counted all-time totals
 
 The card summed `memberCount` of the query families that overlapped the range. A family's member count covers its whole history, so a query could show 100 next to a "Searches" figure of 74 for the same 30 days. Search events carry no time of their own, so the only range-scoped way to count them was to join each one to `archive.visits`, as `get_search_queries` and `get_top_search_concepts` still do.
 
@@ -135,7 +135,7 @@ The joined shape scans every search event whatever the range. A covering index t
 
 One-time cost: the migration fills in the time for existing events with one `UPDATE` against the archive, then builds the index. At 14.4M visits that took 2.2 s with the archive in the page cache and 9.4 s on the first run after the archive was generated (cold cache). Intelligence migrations run lazily, on the first intelligence read after an upgrade (not behind the "Upgrading your archive" screen), off the UI thread; that read and any that start beside it wait for it. Because several reads start at once, migrations now run under a process-wide lock. Without it every concurrent read would try to apply the pending migration, and the late ones could fail on SQLite's 5 s busy timeout or on the duplicate version row.
 
-### 8. `export_history` held the whole archive in memory
+### 9. `export_history` held the whole archive in memory
 
 Settings exports the whole archive. `export_history` walked History in 1,000-row pages, but collected every row into one `Vec`, rendered all of them into one `String` (JSON Lines built a second `Vec<String>` first) and only then wrote the file. Peak heap grew by about 1.2 GB per million visits for JSON Lines and 0.9 GB for HTML, so a 14.4M archive needed roughly 13 to 17 GB on an 8 GB machine.
 
@@ -151,6 +151,17 @@ Peak Rust heap above the start of the call ("heap", from the benchmark's countin
 Time did not change in any way that rises above the noise on this machine (other jobs were running; the same build varied by 10 s between runs). It is the page walk: about 5 ms per 1,000-row page at 14.4M with a warm cache, and much more when the archive is not in the OS cache, because each row looks up its URL in a table far larger than SQLite's page cache.
 
 At 14.4M visits the whole-archive JSON Lines export finished: 14.4M rows, a 4.7 GB file, peak Rust heap +0.6 MiB, SQLite +78 MiB (its page caches), resident size about 92 MiB throughout. It took 66 minutes on a freshly generated archive that was not in the OS cache, with other jobs on the machine; warm, a page costs about 5 ms, which puts the walk alone near 75 s. The old code was stopped after 21 minutes with about a million rows collected and 1.2 GB resident and growing. In an earlier attempt the disk filled up after 2.3 GB: the export failed with "No space left on device", its temp was deleted and no partial file was left.
+
+### 10. Undoing an import rebuilt the whole search index
+
+Release build on Apple Silicon; five alternating revert/restore calls in a warm process on the same plaintext archive: 1,000,000 visits, 250,000 URL rows, a 10,000-visit batch touching 9,724 URLs. Before uses the full rebuild; after seeks through at most 1,000 batch visits per statement and refreshes their URLs, keeping every chunk and both FTS mirrors in one search transaction after the canonical commit. The query plan uses `idx_visits_import_batch_id (import_batch_id=? AND rowid>?)` and URL primary-key lookups. Existing enrichment, notes and tags survive; visibility still comes from canonical visits. Existing archive-total counts and batch review remain in these end-to-end timings.
+
+| Operation              | Before median / max    | After median / max |
+| ---------------------- | ---------------------- | ------------------ |
+| `revert_import_batch`  | 2,731.70 / 2,858.21 ms | 740.43 / 843.83 ms |
+| `restore_import_batch` | 2,722.40 / 2,745.52 ms | 732.25 / 860.27 ms |
+
+Reproduce with `export CARGO_TARGET_DIR=$PWD/.cargo-target`, then `PATHKEEP_IMPORT_BATCH_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=1000000 PATHKEEP_ARCHIVE_BENCH_DIR=$PWD/.batch-revert-bench cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --test archive_scale_bench --release import_batch_visibility_scale_bench -- --nocapture`. The synthetic archive was created inside the checkout and deleted after both measurements. These numbers do not measure the 14.4M target or encrypted archives.
 
 ## Other reads
 
@@ -170,14 +181,3 @@ Generating the 14.4M archive took 208 s for the rows and 47 s to project 3.6M se
 - `keyring_status()` on every `app_snapshot` is unmeasured (see 4).
 - A whole-archive export at 14.4M is a long job (66 minutes measured with a cold cache). Memory stays flat, but Settings shows only a spinner until it finishes: there is no progress or cancel yet. Keeping one archive connection for the whole walk, instead of reopening it per page, is the first thing to try.
 - Numbers come from a machine several times faster than the target. The fixes change the shape of the work (one page instead of a sort over every visit, two key derivations instead of five), which holds on slower hardware, but absolute times there will be higher.
-
-## Import-batch revert / restore (2026-10-04)
-
-Release build on Apple Silicon; five alternating revert/restore calls in a warm process on the same plaintext archive: 1,000,000 visits, 250,000 URL rows, a 10,000-visit batch touching 9,724 URLs. Before uses the full rebuild; after seeks through at most 1,000 batch visits per statement and refreshes their URLs, keeping every chunk and both FTS mirrors in one search transaction after the canonical commit. The query plan uses `idx_visits_import_batch_id (import_batch_id=? AND rowid>?)` and URL primary-key lookups. Existing enrichment, notes and tags survive; visibility still comes from canonical visits. Existing archive-total counts and batch review remain in these end-to-end timings.
-
-| Operation | Before median / max | After median / max |
-| --- | --- | --- |
-| `revert_import_batch` | 2,731.70 / 2,858.21 ms | 740.43 / 843.83 ms |
-| `restore_import_batch` | 2,722.40 / 2,745.52 ms | 732.25 / 860.27 ms |
-
-Reproduce with `export CARGO_TARGET_DIR=$PWD/.cargo-target`, then `PATHKEEP_IMPORT_BATCH_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=1000000 PATHKEEP_ARCHIVE_BENCH_DIR=$PWD/.batch-revert-bench cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --test archive_scale_bench --release import_batch_visibility_scale_bench -- --nocapture`. The synthetic archive was created inside the checkout and deleted after both measurements. These numbers do not measure the 14.4M target or encrypted archives.
