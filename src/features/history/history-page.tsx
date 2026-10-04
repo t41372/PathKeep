@@ -36,6 +36,7 @@ import { useBrowserCatalog, useStarCounts, useVisitList } from './queries'
 import { SitesView } from './sites-view'
 import { StarredView } from './starred-view'
 import { StateMessage } from './state-message'
+import { tagQuery } from './tags'
 import { buildTimeline, visitRows, type TimelineRow } from './timeline-model'
 import { useListKeys } from './use-list-keys'
 import { useStars } from './use-stars'
@@ -192,6 +193,13 @@ export default function HistoryPage() {
     (domain: string) => {
       setDraft(null)
       update({ view: 'timeline', domain, q: '' })
+    },
+    [setDraft, update],
+  )
+  const filterByTag = useCallback(
+    (tag: string) => {
+      setDraft(null)
+      update({ q: tagQuery(tag), mode: 'full' })
     },
     [setDraft, update],
   )
@@ -395,6 +403,7 @@ export default function HistoryPage() {
                   )
                 }
                 onSelectMate={select}
+                onFilterTag={filterByTag}
               />
             )}
           </div>

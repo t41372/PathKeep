@@ -1,24 +1,22 @@
 /**
  * The detail panel's note box. Edits save on their own after a pause, and any
- * pending edit is written when the panel moves to another page.
+ * pending edit is written when the panel moves to another page. Loading and
+ * load errors are handled by `AnnotationSection`.
  */
 import { useQueryClient } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { annotationsClient } from '@/lib/backend-client/annotations'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
-import { useUrlAnnotation } from './queries'
 
 const SAVE_DELAY_MS = 800
 const SAVED_VISIBLE_MS = 2000
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
-function NoteField({
+export function NoteField({
   url,
   profileId,
   initial,
@@ -106,53 +104,5 @@ function NoteField({
         className="min-h-[72px] resize-y bg-card"
       />
     </div>
-  )
-}
-
-export function NoteEditor({
-  url,
-  profileId,
-}: {
-  url: string
-  profileId?: string
-}) {
-  const { t } = useI18n()
-  const annotation = useUrlAnnotation(url)
-
-  if (annotation.isPending) {
-    return (
-      <div className="flex flex-col gap-1.5">
-        <span className="text-xs text-muted-foreground">
-          {t('history.detail.note')}
-        </span>
-        <Skeleton className="h-[72px] w-full rounded-md" />
-      </div>
-    )
-  }
-  if (annotation.isError) {
-    return (
-      <div className="flex flex-col items-start gap-1.5">
-        <span className="text-xs text-muted-foreground">
-          {t('history.detail.note')}
-        </span>
-        <p className="text-[13px] text-muted-foreground">
-          {t('history.detail.noteLoadFailed')}
-        </p>
-        <Button
-          variant="outline"
-          size="xs"
-          onClick={() => void annotation.refetch()}
-        >
-          {t('common.retry')}
-        </Button>
-      </div>
-    )
-  }
-  return (
-    <NoteField
-      url={url}
-      profileId={profileId}
-      initial={annotation.data?.notes ?? ''}
-    />
   )
 }

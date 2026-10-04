@@ -1,25 +1,31 @@
-/** Starred: pages and whole sites the user has starred, with a note preview where there is one. */
+/**
+ * Starred: pages and whole sites the user has starred, each with its link
+ * preview (or site icon), its tags and a note preview where there is one.
+ */
 import { Star } from 'lucide-react'
 import { useCallback, useMemo } from 'react'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
+import type { UrlAnnotation } from '@/lib/backend-client/annotations'
 import type { StarListItem } from '@/lib/backend-client/stars'
 import type { DetailTarget } from './history-types'
-import { SiteIcon } from './site-icon'
+import { PreviewThumb } from './link-preview'
 import { StateMessage } from './state-message'
 import { useAnnotationList, useLatestVisit, useStarList } from './queries'
 import { VirtualRows } from './virtual-rows'
 
 const ROW_HEIGHT = 62
+/** Tags shown on a row before "+N". */
+const ROW_TAGS = 3
 
 function StarRow({
   item,
-  note,
+  annotation,
   selected,
   onPick,
 }: {
   item: StarListItem
-  note: string | undefined
+  annotation: UrlAnnotation | undefined
   selected: boolean
   onPick: (item: StarListItem) => void
 }) {
@@ -40,7 +46,8 @@ function StarRow({
   const title = isSite ? item.domain : item.title.trim() || item.entityKey
   const detail = isSite
     ? t('common.visits', { count: item.visitCount })
-    : note?.trim() || item.entityKey
+    : annotation?.notes.trim() || item.entityKey
+  const tags = isSite ? [] : (annotation?.tags ?? [])
 
   return (
     <button
@@ -57,14 +64,29 @@ function StarRow({
         className="size-[15px] shrink-0 fill-brand text-brand"
         aria-hidden
       />
-      <SiteIcon
+      <PreviewThumb
+        url={isSite ? (latest.data?.url ?? null) : item.entityKey}
         domain={item.domain}
         lookup={lookup}
-        className="size-6 text-xs"
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate font-medium">{title}</span>
-        <span className="truncate text-xs text-muted-foreground">{detail}</span>
+        <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          {tags.slice(0, ROW_TAGS).map((tag) => (
+            <span
+              key={tag}
+              className="max-w-[120px] shrink-0 truncate rounded bg-brand-soft px-1.5 py-px text-[11px] text-foreground"
+            >
+              #{tag}
+            </span>
+          ))}
+          {tags.length > ROW_TAGS && (
+            <span className="shrink-0 text-[11px]">
+              {t('historyPage.tags.more', { count: tags.length - ROW_TAGS })}
+            </span>
+          )}
+          <span className="min-w-0 truncate">{detail}</span>
+        </span>
       </span>
       <span className="shrink-0 text-xs text-muted-foreground">
         {isSite ? t('history.starred.wholeSite') : item.domain}
@@ -85,11 +107,8 @@ export function StarredView({
   const { t } = useI18n()
   const stars = useStarList()
   const annotations = useAnnotationList()
-  const notes = useMemo(
-    () =>
-      new Map(
-        (annotations.data ?? []).map((entry) => [entry.url, entry.notes]),
-      ),
+  const byUrl = useMemo(
+    () => new Map((annotations.data ?? []).map((entry) => [entry.url, entry])),
     [annotations.data],
   )
 
@@ -114,12 +133,12 @@ export function StarredView({
     (item: StarListItem) => (
       <StarRow
         item={item}
-        note={notes.get(item.entityKey)}
+        annotation={byUrl.get(item.entityKey)}
         selected={item.entityKind === 'url' && item.entityKey === selectedUrl}
         onPick={onPick}
       />
     ),
-    [notes, selectedUrl, onPick],
+    [byUrl, selectedUrl, onPick],
   )
 
   if (stars.isPending) return <StateMessage loading />

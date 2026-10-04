@@ -111,7 +111,6 @@ export const history = defineMessages({
       noteSaving: 'Saving…',
       noteSaved: 'Saved',
       noteFailed: 'Couldn’t save the note',
-      noteLoadFailed: 'Couldn’t load the note',
     },
   },
   'zh-CN': {
@@ -223,7 +222,6 @@ export const history = defineMessages({
       noteSaving: '正在保存…',
       noteSaved: '已保存',
       noteFailed: '没能保存备注',
-      noteLoadFailed: '没能加载备注',
     },
   },
   'zh-TW': {
@@ -335,7 +333,6 @@ export const history = defineMessages({
       noteSaving: '正在儲存…',
       noteSaved: '已儲存',
       noteFailed: '無法儲存備註',
-      noteLoadFailed: '無法載入備註',
     },
   },
 })
