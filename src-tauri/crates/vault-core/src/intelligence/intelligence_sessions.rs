@@ -36,6 +36,10 @@ use crate::{
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
+/// How far before a range a session may start and still be read as
+/// overlapping it; see `get_sessions`.
+const SESSION_LOOKBACK_MS: i64 = 86_400_000;
+
 /// Returns one page of deterministic sessions for the requested scope and date
 /// range.
 pub fn get_sessions(
@@ -47,24 +51,37 @@ pub fn get_sessions(
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    // Sessions that overlap the range. `profile_id IN (...)` with a bound on
+    // `first_visit_ms` lets `idx_sessions_profile_time` seek instead of
+    // scanning every session. A session that started before the range still
+    // overlaps it if it ran into it, so the lower bound reaches back a day; a
+    // session (visits less than 30 minutes apart) longer than that is listed
+    // only from the day it started.
+    let longest_session_ms = SESSION_LOOKBACK_MS;
     let total: i64 = connection.query_row(
         "SELECT COUNT(*)
          FROM sessions
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND last_visit_ms >= ?2
-           AND first_visit_ms < ?3",
-        params![request.profile_id.as_deref(), start_ms, end_ms],
+         WHERE profile_id IN (
+                 SELECT profile_key FROM archive.source_profiles
+                 WHERE profile_key IS NOT NULL AND (?1 IS NULL OR profile_key = ?1))
+           AND first_visit_ms >= ?2 - ?4
+           AND first_visit_ms < ?3
+           AND last_visit_ms >= ?2",
+        params![request.profile_id.as_deref(), start_ms, end_ms, longest_session_ms],
         |row| row.get(0),
     )?;
     let offset = request.page.saturating_mul(request.page_size.max(1)) as i64;
     let mut statement = connection.prepare(
         "SELECT session_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title
          FROM sessions
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND last_visit_ms >= ?2
+         WHERE profile_id IN (
+                 SELECT profile_key FROM archive.source_profiles
+                 WHERE profile_key IS NOT NULL AND (?1 IS NULL OR profile_key = ?1))
+           AND first_visit_ms >= ?2 - ?4
            AND first_visit_ms < ?3
+           AND last_visit_ms >= ?2
          ORDER BY first_visit_ms DESC, session_id DESC
-         LIMIT ?4 OFFSET ?5",
+         LIMIT ?5 OFFSET ?6",
     )?;
     let sessions = statement
         .query_map(
@@ -72,6 +89,7 @@ pub fn get_sessions(
                 request.profile_id.as_deref(),
                 start_ms,
                 end_ms,
+                longest_session_ms,
                 request.page_size.max(1) as i64,
                 offset
             ],

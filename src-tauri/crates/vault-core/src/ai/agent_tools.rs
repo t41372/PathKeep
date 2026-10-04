@@ -2268,6 +2268,16 @@ mod tests {
                 .expect("open intelligence");
         crate::intelligence::ensure_core_intelligence_schema(&connection)
             .expect("ensure core intelligence schema");
+        // Intelligence rows carry the source profile's key, and session reads
+        // seek by the archive's profiles, as after a real backup.
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO archive.source_profiles
+                   (browser_kind, profile_name, profile_path, discovered_at, profile_key)
+                 VALUES ('chrome', 'Default', '/tmp/chrome/Default', '2026-04-14T00:00:00Z', 'chrome:Default')",
+                [],
+            )
+            .expect("seed source profile");
         connection
             .execute(
                 "INSERT INTO sessions
