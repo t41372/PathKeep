@@ -10,14 +10,14 @@ M18 redesign（2026-10-02）後，下文的「Explorer」就是 **History**（`s
 
 ### 現在的 History
 
-- **三個視圖**：時間線（依天分組，同一天內相隔 30 分鐘以上切成 session）、網站（所選範圍內最常去的 200 個網站，點一個切回時間線並篩選）、已加星（頁面與整個網站，附筆記預覽）。搜尋時改為結果列表。
+- **三個視圖**：時間線（依天分組，同一天內相隔 30 分鐘以上切成 session）、網站（所選範圍內最常去的 200 個網站，每列帶該網站最近一頁的連結預覽縮圖，點一個切回時間線並篩選）、已加星（頁面與整個網站，附連結預覽縮圖、最多三個標籤與筆記預覽）。搜尋時改為結果列表，同一頁面只列一行並標出符合的瀏覽次數。
 - **搜尋框**：一個輸入框，打字 250 ms 後才寫進 URL 並查詢。三種方式：
-  - **全文**（預設）：`query_history`，依相關度排序；§1 的進階語法（`site:`、`-詞`、`"片語"`、`OR`、`intitle:`、`inurl:`、`filetype:`、`after:` / `before:`、`note:` / `tag:`）照樣由後端解析，但介面沒有語法速查。
-  - **Regex**：`query_history` 加 `regexMode`，依時間新到舊。把查詢用 `/…/` 包起來時，不管選了哪種方式都當 regex。前端先用 JavaScript `RegExp` 檢查，不合法就顯示「正規表示式無效」且不送出。
-  - **語意**：`search_ai_history`（AI 搜尋），只有 `ai.enabled`、`semanticIndexEnabled` 都開而且索引就緒時可選；否則自動退回全文，並提示去 Settings → AI。後端只能依網域篩選，日期與瀏覽器篩選在前端對已載入的結果做。
+  - **全文**（預設）：`query_history`（`groupByUrl`），依相關度排序；§1 的進階語法（`site:`、`-詞`、`"片語"`、`OR`、`intitle:`、`inurl:`、`filetype:`、`after:` / `before:`、`note:` / `tag:`）由後端解析。搜尋框裡的「?」（點擊、鍵盤或滑鼠停留）打開語法速查（`search-help.tsx`）：每個運算子一個例子，點一下就填進搜尋框並切回全文；日期例子固定是上個月。只有 `tag:` 而沒有關鍵字的搜尋從 `url_tags` 找候選，不掃整個 `urls`（[ipc-performance.md](../architecture/ipc-performance.md) §6）。
+  - **Regex**：`query_history` 加 `regexMode`，依時間新到舊。把查詢用 `/…/` 包起來時，不管選了哪種方式都當 regex。前端用 Rust `regex` 的規則檢查（`regex-dialect.ts`：群組、巢狀字元類、跳脫字元、重複次數），擋下 look-around、反向參照、atomic / 條件群組、Rust 不認得的跳脫字元與不是重複次數的 `{`，用白話說明哪裡不支援，不送出查詢，畫面保留上一批結果（淡化）。不再用 JavaScript `RegExp`：它會擋下 Rust 接受的寫法（`a++`、`(?i)`、`(?P<name>…)`）。檢查器與後端共用一張案例表（`regex-dialect-cases.json`；Rust 測試 `regex_dialect_cases` 與 vitest 各跑一次）。只有編譯時才知道的錯誤（不存在的 Unicode 屬性、反向範圍、大小上限）仍會送到後端，畫面顯示「這個正規表示式無法執行」與 Rust 的訊息，不再是「搜尋沒有執行成功」。
+  - **語意**：`search_ai_history`（AI 搜尋），只有 `ai.enabled`、`semanticIndexEnabled` 都開而且索引就緒時可選；否則自動退回全文。不可選時，按鈕的提示與結果數下方一行說明原因（未開啟、建立中、等待建立、已暫停、索引是空的、建立失敗、無法使用、archive 未設定），並連到 Settings → AI；可用時同一行寫出 provider 與模型、已索引頁數、更新時間，索引過期時提示去重建。後端只能依網域篩選，日期與瀏覽器篩選在前端對已載入的結果做。
 - **篩選**：日期（今天、昨天、最近 7 天、最近 30 天、自訂起訖日）、瀏覽器（依瀏覽器種類，不是單一 profile）、網站（從網站視圖或 Insights 帶入的 chip）。全部寫在 URL（`date`、`browser`、`domain`），可一鍵清除。
 - **列表**：虛擬化、固定列高；cursor 分頁，捲到接近底部自動載下一頁（每頁 100 筆，語意每頁 50 筆）。結果數先顯示「100+」，旁邊另一個 `limit: 1, includeTotal: true` 的查詢算完精確總數後再換成精確數字。
-- **詳情面板**：標題、網址；在瀏覽器打開、加星 / 取消、複製連結；總瀏覽次數、第一次與最近一次瀏覽、來源瀏覽器（`get_url_detail`）；最近 12 週每週瀏覽數；同一 session 的其他頁面；備註。
+- **詳情面板**：標題、網址；在瀏覽器打開、加星 / 取消、複製連結；連結預覽（og:image，固定 1.91 : 1 的框，見 [og-images.md](og-images.md) §4）；總瀏覽次數、第一次與最近一次瀏覽、來源瀏覽器（`get_url_detail`）；最近 12 週每週瀏覽數；同一 session 的其他頁面；標籤（點標籤就搜尋 `tag:名稱`，見 [annotations.md](annotations.md) §4）；備註。
 - **鍵盤**：↑↓ 移動選取、Enter 在瀏覽器打開、Esc 關閉面板。
 - **回滾**：介面上只有 Takeout 匯入批次能「復原」與「還原」（Backup → 匯入卡的近期匯入）。
 
@@ -27,14 +27,11 @@ M18 redesign（2026-10-02）後，下文的「Explorer」就是 **History**（`s
 
 - §1 互動式時間軸 rail（拖動、年 → 月 → 週 → 天縮放、密度可視化、輸入日期跳轉、回到今天）。現在只有日期篩選。
 - §1 分頁列（「第 N / 共 M 頁」、跳頁、每頁筆數、偏好保存）與 Settings 的背景預取窗口。現在是連續捲動，見 [ui-review-guardrails.md](../design/ui-review-guardrails.md) §8。
-- §1 進階語法的 hover / focus 速查浮窗。
-- §1 Regex 方言以 Rust `regex` crate 為準、在 UI 先擋 look-around / backreference：現在用 JS `RegExp` 檢查，Rust 不接受的語法會送到後端，顯示成「搜尋沒有執行成功」。
 - §1 依頁面類型、來源途徑、run / 匯入批次篩選；依單一 profile 篩選（現在只能依瀏覽器種類）。
 - §1 單條記錄的可選顯示欄位（訪問次數、來源途徑、分類、provenance、metadata versions…）與其設定。
 - §1 詳情面板的 typed count、來源途徑與 referrer、provenance（run id）、標題歷史版本與 diff。
 - §1 從 History 直接匯出目前篩選結果（Settings → Storage 只能匯出整個歷史）。
 - §2 Audit Ledger 的 run timeline 篩選、與上一筆的 summary delta、展開預覽某次 run 寫入的記錄、回滾 / 取消回滾**備份** run（現在只有匯入批次能復原）、archive 快照的手動觸發。Settings → Storage「從安全副本還原」可列出並還原整個 archive 快照。
-- 同一頁面被重訪很多次時，搜尋結果會被同一網址洗版（2026-10-02 試跑記下，見 STATUS）。
 
 ---
 

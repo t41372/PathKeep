@@ -1,6 +1,7 @@
 /**
  * The right-hand panel for the selected page: title and URL, open / star /
- * copy, visit stats, the same-session list and the note.
+ * copy, the link preview, visit stats, the same-session list, tags and the
+ * note.
  *
  * Responsible for: layout and the three actions.
  * Not responsible for: choosing the selection or loading lists.
@@ -17,7 +18,8 @@ import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { DetailStats } from './detail-stats'
 import type { DetailTarget, VisitItem } from './history-types'
-import { NoteEditor } from './note-editor'
+import { AnnotationSection } from './annotation-section'
+import { LinkPreview } from './link-preview'
 import { openInBrowser } from './open-link'
 import { SiteIcon } from './site-icon'
 
@@ -28,6 +30,8 @@ interface Props {
   onClose: () => void
   onToggleStar: () => void
   onSelectMate: (item: VisitItem) => void
+  /** Filters History to pages carrying this tag. */
+  onFilterTag: (tag: string) => void
 }
 
 function IconAction({
@@ -69,6 +73,7 @@ export function DetailPanel({
   onClose,
   onToggleStar,
   onSelectMate,
+  onFilterTag,
 }: Props) {
   const { t } = useI18n()
   const format = useFormat()
@@ -138,6 +143,13 @@ export function DetailPanel({
         </IconAction>
       </div>
 
+      <LinkPreview
+        key={`preview:${target.url}`}
+        url={target.url}
+        domain={target.domain}
+        title={target.title?.trim() || target.domain}
+      />
+
       <DetailStats key={`stats:${target.url}`} url={target.url} />
 
       {sessionMates.length > 0 && (
@@ -168,10 +180,11 @@ export function DetailPanel({
         </div>
       )}
 
-      <NoteEditor
-        key={`note:${target.url}`}
+      <AnnotationSection
+        key={`annotations:${target.url}`}
         url={target.url}
         profileId={target.profileId}
+        onFilterTag={onFilterTag}
       />
     </aside>
   )

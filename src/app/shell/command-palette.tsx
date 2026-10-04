@@ -174,7 +174,7 @@ export function CommandPalette({
           </CommandGroup>
         )}
         {term.length >= 2 && (
-          <CommandGroup heading={t('shell.palette.visits')}>
+          <CommandGroup heading={t('shell.palette.pageResults')}>
             {(visits.data ?? []).map((visit) => (
               <CommandItem
                 key={visit.id}

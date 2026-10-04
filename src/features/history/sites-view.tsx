@@ -1,4 +1,7 @@
-/** Sites: the busiest sites for the current date and browser filter. Clicking one filters the timeline. */
+/**
+ * Sites: the busiest sites for the current date and browser filter, each with
+ * the link preview of its latest page. Clicking one filters the timeline.
+ */
 import { ChevronRight } from 'lucide-react'
 import { useCallback, useMemo } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -6,7 +9,7 @@ import { useFormat, useI18n } from '@/lib/i18n'
 import type { DayRange } from './history-params'
 import { type HistoryFilters } from './history-types'
 import { StateMessage } from './state-message'
-import { SiteIcon } from './site-icon'
+import { PreviewThumb } from './link-preview'
 import { useLatestVisit, useTopSites, type SiteCount } from './queries'
 import { VirtualRows } from './virtual-rows'
 
@@ -49,10 +52,10 @@ function SiteRow({
       onClick={() => onPick(site.domain)}
       className="flex h-full w-full items-center gap-3.5 border-b px-2.5 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
     >
-      <SiteIcon
+      <PreviewThumb
+        url={latest.data?.url ?? null}
         domain={site.domain}
         lookup={lookup}
-        className="size-7 rounded-[7px] text-[13px]"
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate font-medium">{site.domain}</span>

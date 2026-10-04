@@ -1318,7 +1318,12 @@ mod tests {
         .expect("load og images");
         assert_eq!(results.len(), 2);
         let p_hit = results.iter().find(|r| r.url == "https://example.com/p").expect("p result");
-        assert!(p_hit.og_image.is_some());
+        // The History detail panel and row thumbnails render this data URL as-is.
+        assert_eq!(p_hit.fetch_status, "ok");
+        assert_eq!(
+            p_hit.og_image.as_ref().map(|image| image.data_url.as_str()),
+            Some("data:image/png;base64,iVBORw0KGgoB")
+        );
         let q_miss = results.iter().find(|r| r.url == "https://example.com/q").expect("q result");
         assert!(q_miss.og_image.is_none());
         assert_eq!(q_miss.fetch_status, "pending");

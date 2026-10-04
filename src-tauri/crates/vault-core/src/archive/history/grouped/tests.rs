@@ -360,3 +360,78 @@ fn url_filters_match_the_visit_list() {
         assert!(sql.contains(page_url_filters!()), "the URL filters drifted from the visit list");
     }
 }
+
+impl Archive {
+    fn tag(&self, url: &str, tag: &str) -> &Self {
+        let connection = open_archive_connection(&self.paths, &self.config, None).expect("open");
+        connection
+            .execute(
+                "INSERT INTO url_tags (url, tag, created_at) VALUES (?1, ?2, '2026-05-01T00:00:00Z')",
+                params![url, tag],
+            )
+            .expect("tag");
+        self
+    }
+}
+
+#[test]
+fn tag_searches_list_only_pages_carrying_every_tag() {
+    let archive = Archive::new();
+    archive
+        .url(1, CHROME, "https://tokio.rs/blog", "Tokio blog", &[1_000, 2_000])
+        .url(2, FIREFOX, "https://tokio.rs/blog", "Tokio blog", &[3_000])
+        .url(3, CHROME, "https://docs.rs/smol", "smol", &[4_000])
+        .url(4, CHROME, "https://example.test/", "Example", &[5_000])
+        .index();
+    archive
+        .tag("https://tokio.rs/blog", "Rust")
+        .tag("https://tokio.rs/blog", "async runtime")
+        .tag("https://docs.rs/smol", "rust");
+
+    // Case-insensitive, one row per page, every browser's visits counted.
+    let rust = archive.words("tag:rust");
+    assert_eq!(urls(&rust.items), ["https://docs.rs/smol", "https://tokio.rs/blog"]);
+    assert_eq!(rust.total, 2);
+    assert_eq!(rust.total_visits, Some(4));
+    // Two tags mean both; a quoted tag keeps its space.
+    let both = archive.words("tag:rust tag:\"async runtime\"");
+    assert_eq!(urls(&both.items), ["https://tokio.rs/blog"]);
+    assert_eq!(both.items[0].visit_count, Some(3));
+    // Other operators still apply on top of the tag.
+    assert_eq!(urls(&archive.words("tag:rust site:docs.rs").items), ["https://docs.rs/smol"]);
+    assert_eq!(
+        urls(&archive.words("tag:rust -tag:\"async runtime\"").items),
+        ["https://docs.rs/smol"]
+    );
+    assert!(archive.words("tag:missing").items.is_empty());
+}
+
+#[test]
+fn tag_pages_start_from_the_tagged_urls_not_every_url() {
+    let archive = Archive::new();
+    let connection =
+        open_archive_connection(&archive.paths, &archive.config, None).expect("open archive");
+    prepare_advanced_search_filters(&connection, &ParsedHistorySearchQuery::default())
+        .expect("filter tables");
+    for sql in [TAGGED_PAGES_SQL, TAGGED_PAGE_TOTALS_SQL] {
+        let mut statement =
+            connection.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).expect("plan statement");
+        for name in [":profileId", ":browserKind", ":domainPattern", ":cursorScore", ":cursorUrl"] {
+            bind(&mut statement, name, &Option::<String>::None).expect("bind");
+        }
+        bind(&mut statement, ":cursorTime", &Option::<i64>::None).expect("bind");
+        bind(&mut statement, ":startTimeMs", &i64::MIN).expect("bind");
+        bind(&mut statement, ":endTimeMs", &i64::MAX).expect("bind");
+        bind(&mut statement, ":sort", &"newest").expect("bind");
+        bind(&mut statement, ":pageLimit", &101).expect("bind");
+        let mut rows = statement.raw_query();
+        let mut plan = Vec::new();
+        while let Some(row) = rows.next().expect("plan row") {
+            plan.push(row.get::<_, String>(3).expect("plan detail"));
+        }
+        let plan = plan.join("\n");
+        assert!(plan.contains("idx_urls_url"), "urls by address:\n{plan}");
+        assert!(!plan.contains("SCAN urls"), "no scan of every url:\n{plan}");
+        assert!(!plan.contains("SCAN visits"), "no scan of every visit:\n{plan}");
+    }
+}

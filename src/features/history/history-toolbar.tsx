@@ -25,6 +25,7 @@ import { useFormat, useI18n } from '@/lib/i18n'
 import { DateFilterButton } from './date-filter'
 import type { HistoryView, SearchMode } from './history-params'
 import type { BrowserOption } from './queries'
+import { SearchHelp } from './search-help'
 
 const shortcut =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
@@ -50,7 +51,11 @@ interface Props {
   mode: SearchMode
   onMode: (mode: SearchMode) => void
   semanticAvailable: boolean
+  /** Why semantic search is unavailable, for the disabled toggle's tooltip. */
+  semanticOffReason: string | null
   invalidRegex: boolean
+  /** A cheat-sheet example was picked: put it in the search box. */
+  onExample: (query: string) => void
 }
 
 function BrowserFilter({
@@ -118,7 +123,8 @@ function ModeToggle({
   mode,
   onMode,
   semanticAvailable,
-}: Pick<Props, 'mode' | 'onMode' | 'semanticAvailable'>) {
+  semanticOffReason,
+}: Pick<Props, 'mode' | 'onMode' | 'semanticAvailable' | 'semanticOffReason'>) {
   const { t } = useI18n()
   const item =
     'h-7 rounded-full border px-2.5 text-xs font-medium text-muted-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground'
@@ -151,7 +157,9 @@ function ModeToggle({
           </span>
         </TooltipTrigger>
         {!semanticAvailable && (
-          <TooltipContent>{t('history.modes.semanticOff')}</TooltipContent>
+          <TooltipContent className="max-w-[260px]">
+            {semanticOffReason} {t('historySearch.semantic.whereToFix')}
+          </TooltipContent>
         )}
       </Tooltip>
     </ToggleGroup>
@@ -175,9 +183,9 @@ export function HistoryToolbar(props: Props) {
             placeholder={t('history.search.placeholder')}
             aria-label={t('history.search.label')}
             aria-invalid={props.invalidRegex || undefined}
-            className="h-10 rounded-[10px] bg-card pr-[110px] pl-[38px] shadow-card [&::-webkit-search-cancel-button]:hidden"
+            className="h-10 rounded-[10px] bg-card pr-[140px] pl-[38px] shadow-card [&::-webkit-search-cancel-button]:hidden"
           />
-          <div className="absolute right-2.5 flex items-center gap-2">
+          <div className="absolute right-2.5 flex items-center gap-1.5">
             {draft && (
               <button
                 type="button"
@@ -188,6 +196,7 @@ export function HistoryToolbar(props: Props) {
                 <X className="size-3" />
               </button>
             )}
+            <SearchHelp onPick={props.onExample} />
             <kbd className="pointer-events-none rounded-[5px] border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
               {shortcut}
             </kbd>
@@ -258,6 +267,7 @@ export function HistoryToolbar(props: Props) {
             mode={props.mode}
             onMode={props.onMode}
             semanticAvailable={props.semanticAvailable}
+            semanticOffReason={props.semanticOffReason}
           />
         )}
       </div>

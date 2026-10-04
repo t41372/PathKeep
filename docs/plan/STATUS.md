@@ -27,7 +27,7 @@
     - [x] 3. 新前端地基：tokens、窗口外殼 + nav rail、i18n、主題、shadcn 組件、數據層
     - [x] 4. 頁面：Home ✓、History ✓、Insights ✓、Ask ✓、Backup ✓、Lock ✓、Command palette ✓、Onboarding ✓（`bun run dev:demo -- --first-run --fresh`）、Settings ✓（General / Security / AI / Storage / About；舊設定的取捨見 commit `2f6f5880`）
     - [x] 5. 刪舊前端殘留和沒人用的後端命令（`5edf5645`；32 個 intelligence 讀取命令依用戶決定保留給 Insights）
-    - [x] 6. E2E：`bun run test:e2e`，7 條場景在真 Rust 後端上全綠（first-run → read → change → wipe），產物在 `artifacts/e2e/`
+    - [x] 6. E2E：`bun run test:e2e`，在真 Rust 後端上全綠（first-run → read → change → wipe），產物在 `artifacts/e2e/`；2026-10-04 Security 分支跑過時是 10 條場景
     - [ ] 7. 文檔同步（features / design / architecture）、CHANGELOG、`bun run check` 全綠
   - 已知缺口（2026-10-02 盤點）：
     - ~~前端呼叫但 Rust 沒註冊的命令~~：已補（`load_source_stats`、`get_url_detail`、`preview_wipe_all_data` / `wipe_all_data`），Tauri 與 dev bridge 都有。
@@ -43,8 +43,9 @@
     - Insights「常搜尋」的次數是整個 query family 的歷史總數，不受日期範圍限制（會大於同範圍的搜尋 KPI）。要後端給一個按範圍統計的命令。
     - ~~排程器沒有沙盒~~：已補 `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR`（只在 debug build 生效），dev:demo 與 E2E 都會設。E2E 的 onboarding 仍選 Manual；`schedule.spec`（2026-10-04）在沙盒裡裝自訂間隔、核對檔案、移除。改了 project root 卻沒設沙盒的 debug run 會被排程器拒絕。
     - `export_history` 先把整個結果集載入記憶體再寫檔，1440 萬條會撐爆 8 GB；`doctor_report` / `repair_health` 用 `visit_id NOT IN (SELECT id FROM archive.visits …)`。兩者都要改成串流 / anti-join。
-    - App Lock：用戶 2026-10-04 選 trade-off 文檔的方案 B（Touch ID 開關與解鎖、recovery hint、「忘記密碼？」；不做 config 路徑與上次解鎖時間）。進行中。
-    - 改 archive 密碼 / 關閉加密不需要目前密碼（任何人在已解鎖的視窗都能重新加密或解密）。決定：後端驗證目前密碼。進行中。
+    - ~~App Lock 面板與已接受文檔不一致~~：用戶 2026-10-04 選 trade-off 選項 B，已做（Touch ID 開關與解鎖、passcode hint、鎖屏「忘記密碼？」；不做 config 路徑列與上次解鎖時間），文檔已改。
+    - ~~更改 archive 密碼 / 關閉加密不需要目前的密碼~~：已修（2026-10-04），後端用目前的密碼實際打開 archive 驗證，dev bridge 也繞不過。
+    - E2E 偶發失敗（2026-10-04 見過一次，重跑通過）：`history.spec`「a starred page keeps its note after a reload」輸入搜尋後立刻點結果，那一刻列表有兩列同標題（之後只剩一列），strict mode 報錯。疑似舊查詢的結果還在畫面上，屬 History 範圍，未修。
     - ~~合成 Firefox profile 被 Floorp / LibreWolf / Waterfox 各認一次~~：已修，override 只套用在 Firefox。
     - Home「一年的瀏覽」載入中會先顯示「0 次瀏覽」。
   - 2026-10-04 用戶：「UI 本身就缺很多東西，prototype 做得很寬泛，很多細節沒做出來，你補上就行。」連結預覽：繼續抓、在 UI 顯示。依此分五條平行補齊（進行中）：Security（App Lock B + 改密碼驗證）、History（預覽圖、標籤、搜尋語法說明、Rust regex 方言、語意狀態）、Backup（自訂排程間隔、安裝前顯示檔案、Verify、Browser Direct 匯入、匯入批次回滾、執行詳情、排程沙盒防呆）、Settings（背景工作、derived state、搜尋 tuning、診斷）、Insights（day / site / 搜尋家族 / 重找頁面 drill-in 與 V1 洞察卡）。每條都要附 E2E。

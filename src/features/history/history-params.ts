@@ -9,6 +9,7 @@
 import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { localDateKey } from '@/lib/backend-client/insights'
+import { checkRustRegex, type RegexProblem } from './regex-dialect'
 
 export type HistoryView = 'timeline' | 'sites' | 'starred'
 export type SearchMode = 'full' | 'regex' | 'semantic'
@@ -167,16 +168,8 @@ export interface SearchSpec {
   mode: SearchMode
   /** The text sent to the backend: the regex body when in regex mode. */
   pattern: string
-  regexError: boolean
-}
-
-function validRegex(pattern: string) {
-  try {
-    new RegExp(pattern, 'i')
-    return true
-  } catch {
-    return false
-  }
+  /** Why the backend's regex dialect (Rust) would refuse the pattern; the search is not sent. */
+  regexError: RegexProblem | null
 }
 
 /** A query wrapped in slashes is a regex whatever the mode toggle says. */
@@ -197,6 +190,6 @@ export function resolveSearch(
     text,
     mode: effective,
     pattern,
-    regexError: Boolean(text) && effective === 'regex' && !validRegex(pattern),
+    regexError: text && effective === 'regex' ? checkRustRegex(pattern) : null,
   }
 }

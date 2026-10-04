@@ -131,7 +131,11 @@ export default defineConfig({
   },
   projects: [
     project('first-run', ['first-run.spec.ts']),
-    project('read', ['history.spec.ts', 'insights.spec.ts'], 'first-run'),
+    project(
+      'read',
+      ['history.spec.ts', 'history-tools.spec.ts', 'insights.spec.ts'],
+      'first-run',
+    ),
     project(
       'change',
       [

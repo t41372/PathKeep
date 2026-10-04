@@ -10,6 +10,8 @@ import { backupRuns } from './backup-runs'
 import { backupSchedule } from './backup-schedule'
 import { common } from './common'
 import { history } from './history'
+import { historyPage } from './history-page'
+import { historySearch } from './history-search'
 import { home } from './home'
 import { insights } from './insights'
 import { onboarding } from './onboarding'
@@ -25,6 +27,8 @@ const namespaces = {
   shell,
   home,
   history,
+  historyPage,
+  historySearch,
   insights,
   ask,
   backup,
