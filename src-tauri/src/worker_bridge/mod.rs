@@ -323,6 +323,7 @@ mod tests {
 
         let export = export_history_impl(
             ExportRequest {
+                export_id: None,
                 query: HistoryQuery::default(),
                 format: vault_core::ExportFormat::Jsonl,
             },

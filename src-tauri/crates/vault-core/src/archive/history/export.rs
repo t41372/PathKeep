@@ -7,47 +7,98 @@
 //!
 //! ## Not responsible for
 //! - Choosing which history rows are visible.
-//! - Running SQL or lexical recall directly.
+//! - Defining history filters or lexical recall semantics.
 //!
 //! ## Dependencies
-//! - The public history facade for cursor-based page walking.
+//! - Shared history SQL, hydration and recall dispatch.
 //! - `durable_io` for the temp-file-then-rename write.
 //! - Archive export models and the configured project exports directory.
 //!
 //! ## Performance notes
-//! - Rows are written as each 1,000-row page arrives, so memory holds one page and the write
-//!   buffer, whatever the archive size. Holding every row first needed several GB at 14.4M
-//!   visits; numbers in `docs/architecture/ipc-performance.md`.
-//! - Each page is a cursor query over the visible-time index, so the walk is linear in the
-//!   number of exported rows.
+//! - Ordinary exports stream one statement; search exports hold one bounded recall page.
+//! - One archive connection retains its fixed SQLite cache for the entire walk.
+//! - A 256 KiB write buffer never grows with archive size; see ipc-performance.md §9.
 
-use super::list_history;
+mod progress;
+#[cfg(test)]
+mod regression_tests;
+
+use super::{history_entry_from_row, list_history_on_connection, prepare_advanced_search_filters};
 use crate::{
+    archive::{
+        list_history_bounds, list_history_sql, open_archive_connection,
+        read_models::load_cached_archive_totals, search_query::ParsedHistorySearchQuery,
+    },
     config::ProjectPaths,
     durable_io::{atomic_durable_write_with, sweep_temps_older_than},
     models::{AppConfig, ExportFormat, ExportRequest, ExportResult, HistoryEntry, HistoryQuery},
     utils::now_rfc3339,
 };
 use anyhow::{Context, Result};
-use std::{fs, io::Write, time::Duration};
+use progress::ExportJob;
+pub use progress::{ExportCancelled, cancel_export, get_export_progress, record_export_failure};
+use rusqlite::{Connection, named_params};
+use std::{
+    fs,
+    io::{BufWriter, Write},
+    sync::Arc,
+    time::Duration,
+};
 
-/// Rows fetched per history page while exporting (the most `list_history` returns).
 const EXPORT_PAGE_SIZE: u32 = 1_000;
-
-/// An export temp untouched this long belongs to an export that was killed, not one in progress.
+const EXPORT_BUFFER_BYTES: usize = 256 * 1024;
+const PROGRESS_ROW_CHUNK: usize = 128;
+const WRITE_CHECK_BYTES: u64 = 64 * 1024;
 const ABANDONED_EXPORT_AGE: Duration = Duration::from_secs(60 * 60);
 
-/// Lets the archive export command reuse the exact history visibility contract
-/// as Explorer while producing a durable local artifact.
+/// Produces the same history artifact with one archive connection and bounded buffers.
 pub fn export_history(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
     request: ExportRequest,
 ) -> Result<ExportResult> {
+    let job = ExportJob::start(request.export_id.as_deref())?;
+    let result = write_export(paths, config, key, request, job.as_ref()).map_err(|error| {
+        // Includes early setup failures as well as SQLite's generic SQLITE_INTERRUPT.
+        if job.as_ref().is_some_and(|job| job.is_cancelled()) {
+            ExportCancelled.into()
+        } else {
+            error
+        }
+    });
+    if let Some(job) = job {
+        job.complete(&result);
+    }
+    result
+}
+
+fn write_export(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: ExportRequest,
+    job: Option<&Arc<ExportJob>>,
+) -> Result<ExportResult> {
+    check_cancel(job)?;
     fs::create_dir_all(&paths.exports_dir)?;
-    // A killed export leaves its temp behind, and at full archive size that is gigabytes.
     sweep_temps_older_than(&paths.exports_dir, ABANDONED_EXPORT_AGE)?;
+    let connection = open_archive_connection(paths, config, key)?;
+    // Search ranking/grouping may need temporary B-trees: spill rather than grow with history.
+    connection.pragma_update(None, "temp_store", "FILE")?;
+    if let Some(job) = job {
+        job.total(
+            // Legacy runs may have NULL or malformed stats. An advisory estimate must not
+            // prevent an export; the actual row walk still reports archive/read failures.
+            load_cached_archive_totals(&connection)
+                .ok()
+                .flatten()
+                .map(|totals| totals.total_visits as u64),
+        );
+        let job = Arc::clone(job);
+        // Also interrupt expensive filtering/sorting before SQLite yields its first row.
+        connection.progress_handler(1_000, Some(move || job.is_cancelled()))?;
+    }
     let format = request.format;
     let extension = match format {
         ExportFormat::Html => "html",
@@ -55,66 +106,141 @@ pub fn export_history(
         ExportFormat::Text => "txt",
         ExportFormat::Jsonl => "jsonl",
     };
-    let file_name = format!("export-{}.{}", now_rfc3339().replace(':', "-"), extension);
+    // A unique suffix prevents concurrent exports (even without ids) overwriting each other.
+    let mut artifact_id = [0u8; 16];
+    getrandom::fill(&mut artifact_id).context("export artifact id")?;
+    let artifact_id = hex::encode(artifact_id);
+    let file_name = format!("export-{}-{artifact_id}.{extension}", now_rfc3339().replace(':', "-"));
     let target_path = paths.exports_dir.join(file_name);
     let mut count = 0;
-    atomic_durable_write_with(&target_path, |writer| {
-        let mut export = ExportWriter::new(writer, &format)?;
-        walk_history_for_export(paths, config, key, request.query, |item| export.item(item))?;
-        count = export.finish()?;
+    let mut rows_written = 0;
+    let result = atomic_durable_write_with(&target_path, |writer| {
+        let mut buffer = BufWriter::with_capacity(EXPORT_BUFFER_BYTES, writer);
+        let mut counted = CountedWriter { writer: &mut buffer, bytes: 0, checked_at: 0, job };
+        let render_result: Result<()> = (|| {
+            let mut export = ExportWriter::new(&mut counted, &format)?;
+            walk_history_for_export(&connection, request.query, job, |item| {
+                check_cancel(job)?;
+                export.item(item)?;
+                rows_written = export.count as u64;
+                if export.count % PROGRESS_ROW_CHUNK == 0 {
+                    if let Some(job) = job {
+                        job.update(export.count as u64, export.writer.bytes);
+                    }
+                }
+                Ok(())
+            })?;
+            count = export.finish()?;
+            Ok(())
+        })();
+        if let Some(job) = job {
+            job.update(rows_written, counted.bytes);
+        }
+        render_result?;
+        if let Some(job) = job {
+            job.finishing()?;
+        }
+        buffer.flush()?;
         Ok(())
     })
-    .with_context(|| format!("writing {}", target_path.display()))?;
+    .with_context(|| format!("writing {}", target_path.display()));
+    result?;
     Ok(ExportResult { format, path: target_path.display().to_string(), count })
 }
 
-/// Pages through every visible match for `query` and hands each row to `visit`, one page in
-/// memory at a time.
-///
-/// Note: in regex recall mode the underlying `list_history` path scans a bounded
-/// window (`REGEX_SCAN_CAP`, 50k rows) rather than the whole visits table, so a
-/// regex export with more than ~50k matches emits only the matches inside that
-/// window. This is the same bound the Browse/Search surfaces honour and is
-/// strictly safer than the former unbounded scan (which would OOM on a large
-/// archive before producing any output); narrow the date/profile/domain filter
-/// to export a regex result set larger than the window.
+fn check_cancel(job: Option<&Arc<ExportJob>>) -> Result<()> {
+    if let Some(job) = job {
+        job.check()?;
+    }
+    Ok(())
+}
+
+/// Counts rendered bytes without materializing a formatted row; checks unusually large rows
+/// every 64 KiB as well as the row checks in the walker.
+struct CountedWriter<'a> {
+    writer: &'a mut dyn Write,
+    bytes: u64,
+    checked_at: u64,
+    job: Option<&'a Arc<ExportJob>>,
+}
+
+impl Write for CountedWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.bytes - self.checked_at >= WRITE_CHECK_BYTES {
+            self.checked_at = self.bytes;
+            if let Some(job) = self.job {
+                job.bytes(self.bytes);
+            }
+            if self.job.is_some_and(|job| job.is_cancelled()) {
+                return Err(std::io::Error::other(ExportCancelled));
+            }
+        }
+        // Split an unusually large field too: one write may otherwise exceed the chunk bound.
+        let written = self.writer.write(&bytes[..bytes.len().min(WRITE_CHECK_BYTES as usize)])?;
+        self.bytes += written as u64;
+        Ok(written)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+}
+
+/// Ordinary browse exports stream one statement in existing time/id order. Search retains the
+/// shared cursor reader on this same connection, including its bounded regex/fuzzy semantics.
 fn walk_history_for_export(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    connection: &Connection,
     query: HistoryQuery,
+    job: Option<&Arc<ExportJob>>,
     mut visit: impl FnMut(&HistoryEntry) -> Result<()>,
 ) -> Result<()> {
-    let mut export_query = query;
-    // Export should always walk the full visible result set, not stay pinned to
-    // whichever UI page happened to be open when the user clicked export.
-    export_query.page = None;
-    export_query.cursor = None;
-    export_query.limit = Some(EXPORT_PAGE_SIZE);
-    export_query.include_total = Some(false);
-
+    if query.q.as_ref().is_none_or(|q| q.trim().is_empty()) {
+        prepare_advanced_search_filters(connection, &ParsedHistorySearchQuery::default())?;
+        let sort = query.sort.as_deref().unwrap_or("newest");
+        let (start, end, time, id) =
+            list_history_bounds(sort, query.start_time_ms, query.end_time_ms, None);
+        // LIMIT -1 with OFFSET 0 streams every row from the start of the keyset walk.
+        let mut statement = connection.prepare(list_history_sql(sort))?;
+        let mut rows = statement.query(named_params! {
+            ":profileId": query.profile_id, ":browserKind": query.browser_kind,
+            ":domainPattern": query.domain.filter(|value| !value.trim().is_empty()).map(|value| format!("%{value}%")),
+            ":startTimeMs": start, ":endTimeMs": end, ":cursorVisitTime": time,
+            ":cursorId": id, ":pageLimit": -1i64, ":pageOffset": 0i64,
+        })?;
+        while let Some(row) = rows.next()? {
+            check_cancel(job)?;
+            visit(&history_entry_from_row(row)?)?;
+        }
+        return Ok(());
+    }
+    let mut query = query;
+    query.page = None;
+    query.cursor = None;
+    query.limit = Some(EXPORT_PAGE_SIZE);
+    query.include_total = Some(false);
     loop {
-        let page = list_history(paths, config, key, export_query.clone())?;
+        check_cancel(job)?;
+        let page = list_history_on_connection(connection, query.clone())?;
         for item in &page.items {
+            check_cancel(job)?;
             visit(item)?;
         }
-        let Some(next_cursor) = page.next_cursor else {
+        let Some(cursor) = page.next_cursor else {
             return Ok(());
         };
-        export_query.cursor = Some(next_cursor);
+        query.cursor = Some(cursor);
     }
 }
 
 /// Writes one export format row by row: an opening, the rows separated by newlines, a closing.
 /// The output is byte-for-byte what joining all rendered rows used to produce.
-struct ExportWriter<'a> {
-    writer: &'a mut dyn Write,
+struct ExportWriter<'a, W: Write + ?Sized> {
+    writer: &'a mut W,
     format: &'a ExportFormat,
     count: usize,
 }
 
-impl<'a> ExportWriter<'a> {
-    fn new(writer: &'a mut dyn Write, format: &'a ExportFormat) -> Result<Self> {
+impl<'a, W: Write> ExportWriter<'a, W> {
+    fn new(writer: &'a mut W, format: &'a ExportFormat) -> Result<Self> {
         if matches!(format, ExportFormat::Html) {
             writer.write_all(b"<html><body>")?;
         }

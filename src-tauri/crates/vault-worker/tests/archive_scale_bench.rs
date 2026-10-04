@@ -519,7 +519,11 @@ fn bench_export(root: &Path, config: &AppConfig) {
                 &paths,
                 config,
                 None,
-                ExportRequest { query: HistoryQuery::default(), format: format.clone() },
+                ExportRequest {
+                    export_id: None,
+                    query: HistoryQuery::default(),
+                    format: format.clone(),
+                },
             )
             .expect("export");
             let bytes = std::fs::metadata(&result.path).expect("export file").len();
@@ -684,7 +688,7 @@ fn report(label: &str, iterations: usize, mut call: impl FnMut()) {
 /// Like [`report`], plus the peak memory above the starting point: Rust heap (counted by
 /// [`CountingAllocator`]) and SQLite's own allocations (page cache, temporary indexes, sorters),
 /// which do not go through the Rust allocator.
-fn report_memory(label: &str, iterations: usize, mut call: impl FnMut()) {
+fn report_memory(label: &str, iterations: usize, mut call: impl FnMut()) -> (usize, i64) {
     let mut samples = Vec::with_capacity(iterations);
     let mut peak_heap = 0usize;
     let mut peak_sqlite = 0i64;
@@ -710,6 +714,7 @@ fn report_memory(label: &str, iterations: usize, mut call: impl FnMut()) {
         mib(peak_heap as f64),
         mib(peak_sqlite as f64),
     );
+    (peak_heap, peak_sqlite)
 }
 
 static HEAP_CURRENT: AtomicUsize = AtomicUsize::new(0);
@@ -761,3 +766,40 @@ unsafe impl GlobalAlloc for CountingAllocator {
 
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
+
+/// Failure mode (f): use the real export and allocator, comparing two archive sizes in an
+/// otherwise idle integration-test process. This guards against collecting rows/strings again.
+#[test]
+fn export_heap_stays_bounded_as_archive_grows() {
+    // Large opt-in benchmarks run alone so their allocator measurements remain comparable.
+    if std::env::var("PATHKEEP_ARCHIVE_BENCH").as_deref() == Ok("1")
+        || std::env::var("PATHKEEP_IMPORT_BATCH_BENCH").as_deref() == Ok("1")
+    {
+        return;
+    }
+    let root = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
+    let mut peaks = Vec::new();
+    for visits in [10_000, 100_000] {
+        let archive_root = root.path().join(format!("bounded-{visits}"));
+        let config = seeded_archive(&archive_root, visits, None);
+        let paths = project_paths_with_root(&archive_root);
+        let (heap, _) = report_memory("bounded export heap", 1, || {
+            let result = vault_core::export_history(
+                &paths,
+                &config,
+                None,
+                vault_core::ExportRequest {
+                    export_id: None,
+                    query: HistoryQuery::default(),
+                    format: vault_core::ExportFormat::Jsonl,
+                },
+            )
+            .unwrap();
+            assert_eq!(result.count as u64, visits);
+            std::fs::remove_file(result.path).unwrap();
+        });
+        assert!(heap < 2 * 1024 * 1024, "export allocated {heap} bytes above baseline");
+        peaks.push(heap);
+    }
+    assert!(peaks[1] <= peaks[0] + 256 * 1024, "export heap grew with archive size: {peaks:?}");
+}

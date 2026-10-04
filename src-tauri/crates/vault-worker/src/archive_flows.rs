@@ -797,8 +797,18 @@ pub fn export_query(
     session_database_key: Option<&str>,
     request: ExportRequest,
 ) -> Result<vault_core::ExportResult> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
+    let preflight = (|| {
+        let paths = vault_core::project_paths()?;
+        let config = load_unlocked_config(&paths)?;
+        Ok((paths, config))
+    })();
+    let (paths, config) = match preflight {
+        Ok(context) => context,
+        Err(error) => {
+            vault_core::record_export_failure(request.export_id.as_deref(), &error);
+            return Err(error);
+        }
+    };
     export_history(&paths, &config, session_database_key, request)
 }
 

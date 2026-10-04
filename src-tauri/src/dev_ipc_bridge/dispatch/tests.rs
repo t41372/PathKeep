@@ -722,7 +722,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(
         &state,
         "export_history",
-        json!({ "request": ExportRequest { query: HistoryQuery::default(), format: ExportFormat::Jsonl } }),
+        json!({ "request": ExportRequest { export_id: None, query: HistoryQuery::default(), format: ExportFormat::Jsonl } }),
     );
     dispatch_for_coverage(&state, "inspect_takeout", json!({ "request": takeout.clone() }));
     dispatch_for_coverage(&state, "import_takeout", json!({ "request": takeout }));
@@ -1232,4 +1232,127 @@ fn dispatch_command_drives_desktop_integration_inside_the_sandbox() {
     assert_eq!(icon_off["menuBarIcon"], false);
     assert!(!config.expect("config").menu_bar_icon);
     assert!(bad_payload.is_err(), "`enabled` is required");
+}
+
+#[test]
+fn dispatch_export_progress_and_cancel_work_while_export_is_running() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+    }
+    let paths = vault_core::project_paths_with_root(root.path());
+    let config = test_config();
+    vault_core::save_config(&paths, &config).unwrap();
+    let archive = vault_core::archive::open_archive_connection(&paths, &config, None).unwrap();
+    archive.execute_batch(
+        "BEGIN;
+         INSERT INTO runs (id, run_type, trigger, started_at, status, due_only)
+         VALUES (1, 'backup', 'manual', '', 'success', 0);
+         INSERT INTO source_profiles
+           (id, browser_kind, profile_name, profile_path, discovered_at, enabled, profile_key)
+         VALUES (1, 'chrome', 'Default', '/fixture', '', 1, 'chrome:Default');
+         INSERT INTO urls
+           (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso,
+            last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden)
+         VALUES (1, 'https://example.com/', 'Export', 0, 0, 0, '', 0, '', 1, 1, 1, 0);
+         WITH RECURSIVE ids(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM ids WHERE id < 100000)
+         INSERT INTO visits (url_id, source_visit_id, visit_time_ms, visit_time_iso,
+           source_profile_id, created_by_run_id)
+         SELECT 1, CAST(id AS TEXT), 1700000000000 + id, '', 1, 1 FROM ids;
+         COMMIT;"
+    ).unwrap();
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(async {
+        assert_eq!(
+            dispatch_command(&state, "get_export_progress", json!({"exportId":"bridge-unknown"}))
+                .await
+                .unwrap(),
+            Value::Null
+        );
+        assert_eq!(
+            dispatch_command(&state, "cancel_export", json!({"exportId":"bridge-unknown"}))
+                .await
+                .unwrap(),
+            json!(false)
+        );
+        let export = dispatch_command(
+            &state,
+            "export_history",
+            json!({"request": {"query": {}, "format":"jsonl", "exportId":"bridge-cancel"}}),
+        );
+        let poll = async {
+            let started = std::time::Instant::now();
+            loop {
+                let progress = dispatch_command(
+                    &state,
+                    "get_export_progress",
+                    json!({"exportId":"bridge-cancel"}),
+                )
+                .await
+                .unwrap();
+                assert_ne!(progress["state"], "failed", "export failed before rows: {progress}");
+                if progress["rowsWritten"].as_u64().is_some_and(|rows| rows >= 128) {
+                    assert_eq!(progress["state"], "running");
+                    assert!(progress["bytesWritten"].as_u64().unwrap() > 0);
+                    break;
+                }
+                assert!(started.elapsed() < std::time::Duration::from_secs(5));
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+            assert_eq!(
+                dispatch_command(&state, "cancel_export", json!({"exportId":"bridge-cancel"}))
+                    .await
+                    .unwrap(),
+                json!(true)
+            );
+        };
+        let (result, ()) = tokio::join!(export, poll);
+        assert_eq!(result.unwrap_err().code.as_deref(), Some("export-cancelled"));
+        let progress =
+            dispatch_command(&state, "get_export_progress", json!({"exportId":"bridge-cancel"}))
+                .await
+                .unwrap();
+        assert_eq!(progress["exportId"], "bridge-cancel");
+        assert_eq!(progress["state"], "cancelled");
+        assert!(progress["startedAt"].as_str().is_some());
+        assert!(progress["error"].as_str().unwrap().contains("export-cancelled"));
+        assert_eq!(std::fs::read_dir(&paths.exports_dir).unwrap().count(), 0);
+        let done = dispatch_command(&state, "export_history", json!({"request":{"query":{"domain":"missing.example"}, "format":"html", "exportId":"bridge-done"}})).await.unwrap();
+        assert_eq!(done["count"], 0);
+        let progress =
+            dispatch_command(&state, "get_export_progress", json!({"exportId":"bridge-done"}))
+                .await
+                .unwrap();
+        assert_eq!(progress["state"], "done");
+        assert_eq!(progress["bytesWritten"], 26);
+        assert_eq!(progress["totalRows"], Value::Null);
+        assert_eq!(
+            dispatch_command(&state, "cancel_export", json!({"exportId":"bridge-done"}))
+                .await
+                .unwrap(),
+            json!(false)
+        );
+        // A worker preflight failure must also be pollable, before the core export starts.
+        std::fs::write(&paths.config_path, b"invalid config").unwrap();
+        assert!(
+            dispatch_command(
+                &state,
+                "export_history",
+                json!({"request":{"query":{}, "format":"jsonl", "exportId":"bridge-preflight"}})
+            )
+            .await
+            .is_err()
+        );
+        let progress =
+            dispatch_command(&state, "get_export_progress", json!({"exportId":"bridge-preflight"}))
+                .await
+                .unwrap();
+        assert_eq!(progress["state"], "failed");
+        assert!(progress["error"].as_str().is_some());
+    });
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+    }
 }

@@ -122,6 +122,13 @@ pub(super) struct ExportPayload {
     pub(super) request: ExportRequest,
 }
 
+/// Identifies a caller-owned export job for polling and cancellation.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ExportIdPayload {
+    pub(super) export_id: String,
+}
+
 /// Carries Google Takeout scan or import options through the dev mirror.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

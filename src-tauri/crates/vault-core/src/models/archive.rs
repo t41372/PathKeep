@@ -865,6 +865,8 @@ pub enum ExportFormat {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportRequest {
+    #[serde(default)]
+    pub export_id: Option<String>,
     pub query: HistoryQuery,
     pub format: ExportFormat,
 }
@@ -875,4 +877,29 @@ pub struct ExportResult {
     pub format: ExportFormat,
     pub path: String,
     pub count: usize,
+}
+
+/// Pollable lifecycle of an export; finishing protects the durable publication barrier.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportState {
+    Running,
+    Finishing,
+    Done,
+    Cancelled,
+    Failed,
+}
+
+/// Small in-memory snapshot shared by Tauri and the polling-only dev bridge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportProgress {
+    pub export_id: String,
+    pub state: ExportState,
+    pub rows_written: u64,
+    /// Cached archive-wide estimate, also for filtered exports; never a pre-export COUNT(*).
+    pub total_rows: Option<u64>,
+    pub bytes_written: u64,
+    pub started_at: String,
+    pub error: Option<String>,
 }

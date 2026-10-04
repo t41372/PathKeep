@@ -1990,6 +1990,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         &config,
         None,
         ExportRequest {
+            export_id: None,
             query: HistoryQuery {
                 q: Some("archive".to_string()),
                 limit: Some(1),
@@ -2006,6 +2007,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         &config,
         None,
         ExportRequest {
+            export_id: None,
             query: HistoryQuery { q: Some("archive".to_string()), ..HistoryQuery::default() },
             format: ExportFormat::Html,
         },
@@ -2020,6 +2022,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         &config,
         None,
         ExportRequest {
+            export_id: None,
             query: HistoryQuery { q: Some("archive".to_string()), ..HistoryQuery::default() },
             format: ExportFormat::Markdown,
         },
@@ -2032,6 +2035,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         &config,
         None,
         ExportRequest {
+            export_id: None,
             query: HistoryQuery { q: Some("archive".to_string()), ..HistoryQuery::default() },
             format: ExportFormat::Text,
         },
@@ -2107,6 +2111,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         &config,
         None,
         ExportRequest {
+            export_id: None,
             query: HistoryQuery {
                 domain: Some("bulk.example".to_string()),
                 ..HistoryQuery::default()
