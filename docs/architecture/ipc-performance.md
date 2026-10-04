@@ -150,7 +150,7 @@ Peak Rust heap above the start of the call ("heap", from the benchmark's countin
 
 Time did not change in any way that rises above the noise on this machine (other jobs were running; the same build varied by 10 s between runs). It is the page walk: about 5 ms per 1,000-row page at 14.4M with a warm cache, and much more when the archive is not in the OS cache, because each row looks up its URL in a table far larger than SQLite's page cache.
 
-At 14.4M visits: the old code was stopped after 21 minutes with about a million rows collected and 1.2 GB resident, still growing. The streaming export ran with a resident size of 91 MiB after writing 2.3 GB of JSON Lines (about 7M rows), when the disk filled up; the export failed with "No space left on device", its temp was deleted and the exports folder was left empty. A complete 14.4M export was not measured: the volume did not have room for the 4.6 GB file at the time.
+At 14.4M visits the whole-archive JSON Lines export finished: 14.4M rows, a 4.7 GB file, peak Rust heap +0.6 MiB, SQLite +78 MiB (its page caches), resident size about 92 MiB throughout. It took 66 minutes on a freshly generated archive that was not in the OS cache, with other jobs on the machine; warm, a page costs about 5 ms, which puts the walk alone near 75 s. The old code was stopped after 21 minutes with about a million rows collected and 1.2 GB resident and growing. In an earlier attempt the disk filled up after 2.3 GB: the export failed with "No space left on device", its temp was deleted and no partial file was left.
 
 ## Other reads
 
@@ -168,7 +168,7 @@ Generating the 14.4M archive took 208 s for the rows and 47 s to project 3.6M se
 - Keyword search over a common term is about 0.8 s for the first page of grouped results at 14.4M (1.7 s with totals), and a word in every page title takes 10 s (25 s with totals). It runs off the UI thread, but the list waits for it. Both FTS tables match and rank every document before a page is cut, then every matching `url_id` is aggregated. For "topic" the term-table match alone is 60 ms and aggregating all 14.4M visits by `url_id` is about 1 s (sqlite3 CLI on the same file), so most of the 10 s is ranking, the trigram match and folding 3.6M URLs; that split is not measured yet. Cutting the match by score before aggregating is the next thing to look at.
 - `load_source_stats` recounts each profile after every backup (294 ms at 14.4M). It is cached until the archive file changes and runs off the UI thread.
 - `keyring_status()` on every `app_snapshot` is unmeasured (see 4).
-- A whole-archive export at 14.4M is a long job (tens of minutes when the archive is not cached). Memory stays flat, but Settings shows only a spinner until it finishes: there is no progress or cancel yet.
+- A whole-archive export at 14.4M is a long job (66 minutes measured with a cold cache). Memory stays flat, but Settings shows only a spinner until it finishes: there is no progress or cancel yet. Keeping one archive connection for the whole walk, instead of reopening it per page, is the first thing to try.
 - Numbers come from a machine several times faster than the target. The fixes change the shape of the work (one page instead of a sort over every visit, two key derivations instead of five), which holds on slower hardware, but absolute times there will be higher.
 
 ## Import-batch revert / restore (2026-10-04)
