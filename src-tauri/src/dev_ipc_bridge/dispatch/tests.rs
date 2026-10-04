@@ -669,6 +669,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(&state, "repair_schedule", json!({ "plan": schedule_plan() }));
     dispatch_for_coverage(&state, "doctor_report", json!({}));
     dispatch_for_coverage(&state, "repair_health", json!({}));
+    dispatch_for_coverage(&state, "preview_clear_derived_intelligence", json!({}));
     dispatch_for_coverage(&state, "clear_derived_intelligence", json!({}));
     dispatch_for_coverage(&state, "keyring_status", json!({}));
     dispatch_for_coverage(&state, "security_status", json!({}));

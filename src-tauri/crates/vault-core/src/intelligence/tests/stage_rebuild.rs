@@ -28,7 +28,8 @@ use super::super::{
     },
     intelligence_schema::{
         clear_derived_intelligence_state, count_core_intelligence_job_triggers,
-        count_core_intelligence_jobs, sum_table_row_counts, table_row_count,
+        count_core_intelligence_jobs, preview_derived_intelligence_clear, sum_table_row_counts,
+        table_row_count,
     },
     intelligence_shared::local_date_key,
 };
@@ -120,6 +121,23 @@ fn clear_derived_intelligence_state_reports_canonical_group_counts() {
             .expect("stage checkpoints")
         + count_core_intelligence_jobs(&intelligence).expect("runtime jobs")
         + count_core_intelligence_job_triggers(&intelligence).expect("runtime triggers");
+    drop(intelligence);
+
+    // The preview reports exactly what the clear will remove, and removes nothing itself.
+    let preview =
+        preview_derived_intelligence_clear(&paths, &config, None).expect("preview derived clear");
+    assert!(expected_runtime > 0, "the seeded job gives the preview something to count");
+    assert_eq!(preview.cleared_visit_derived_fact_rows, expected_visit_derived);
+    assert_eq!(preview.cleared_daily_rollup_rows, expected_daily_rollups);
+    assert_eq!(preview.cleared_structural_rows, expected_structural);
+    assert_eq!(preview.cleared_runtime_rows, expected_runtime);
+    let intelligence =
+        open_intelligence_connection(&paths, &config, None).expect("runtime after preview");
+    assert_eq!(
+        table_row_count(&intelligence, "visit_derived_facts").expect("visit facts"),
+        expected_visit_derived
+    );
+    assert_eq!(count_core_intelligence_jobs(&intelligence).expect("runtime jobs"), 1);
     drop(intelligence);
 
     let report =

@@ -40,6 +40,14 @@ pub(crate) fn clear_derived_intelligence_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Counts the rows "clear derived state" would remove, so Settings can preview it.
+pub(crate) fn preview_clear_derived_intelligence_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::ClearDerivedIntelligenceReport, CommandError> {
+    worker_result(vault_worker::preview_clear_derived_intelligence(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Rebuilds Core Intelligence immediately.
 pub(crate) fn run_core_intelligence_now_impl(
     request: CoreIntelligenceRebuildRequest,

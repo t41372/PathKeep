@@ -181,6 +181,7 @@ fn run_app() -> Result<()> {
             schedule_status,
             doctor_report,
             repair_health,
+            preview_clear_derived_intelligence,
             clear_derived_intelligence,
             keyring_status,
             security_status,
