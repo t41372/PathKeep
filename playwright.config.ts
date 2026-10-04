@@ -109,11 +109,7 @@ export default defineConfig({
     baseURL: bridge.devServerUrl,
     viewport: { width: 1440, height: 900 },
     locale: 'en-US',
-    // 'on' hangs after a passing test (Playwright 1.59 on Node 26: the
-    // worker stalls until the test timeout once the trace is zipped). Failed
-    // tests still get a full trace; passing ones keep screenshots and the
-    // expected/actual attachments.
-    trace: 'retain-on-failure',
+    trace: 'on',
     screenshot: 'on',
     video: 'off',
     launchOptions: {
