@@ -53,6 +53,7 @@
     - `revert_import_batch` / `restore_import_batch` 每次都同步 `rebuild_search_projection` 整個搜尋投影；1440 萬條時一次復原要重建全部索引。應改成只刷新該批影響的 URL（匯入時已經這樣做）。
     - `vite.config.ts` 的 `server.watch.ignored` 含 `**/.claude/**`，在 `.claude/worktrees/` 裡開的 dev server 看不到任何檔案變更（要重開才生效）。
     - 自訂排程間隔上限 30 天是新加的限制（archive.md §2 原文只寫最短 1 分鐘）。
+  - 匯出歷史在 14.4M 要約 66 分鐘（每秒約 3,600 筆），Settings 沒有進度也不能取消。決定（2026-10-04）release 前要修：後端單一連線 + keyset 分頁、目標幾分鐘內；加 `exportId`、`get_export_progress`（輪詢，dev bridge 也能用）、`cancel_export`；前端顯示進度與取消，附 E2E。後端交給 Codex，進行中。
   - 試跑：`bun run dev:demo`（真後端 + 合成 Chrome×2 / Firefox archive），瀏覽器開 http://127.0.0.1:1420。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
