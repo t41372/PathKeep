@@ -1,7 +1,8 @@
 /**
  * Settings → AI: local semantic search, the assistant's AI service, MCP
- * access for outside tools, and rebuilding the search index. Everything here
- * is optional; PathKeep works without any of it.
+ * access for outside tools, rebuilding the search index, and how search by
+ * meaning ranks results. Everything here is optional; PathKeep works
+ * without any of it.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Check, Copy } from 'lucide-react'
@@ -28,6 +29,7 @@ import { useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import type { AiSettings } from '@/lib/types'
 import { ProviderRow } from './provider-row'
+import { SearchTuningRow } from './search-tuning-row'
 import { SemanticRow, type SemanticIndex } from './semantic-row'
 import { useSaveSetting } from './use-save-setting'
 
@@ -43,6 +45,7 @@ export function AiSection() {
       <ProviderRow />
       <McpRow />
       <RebuildRow index={index} />
+      <SearchTuningRow />
     </SettingsSection>
   )
 }

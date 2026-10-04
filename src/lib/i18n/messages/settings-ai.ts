@@ -117,6 +117,34 @@ export const settingsAi = defineMessages({
       started: 'Rebuilding the search index.',
       failed: 'Could not start the rebuild. {message}',
     },
+    tuning: {
+      title: 'Search ranking',
+      description:
+        'How searching by meaning in History orders results. It blends two lists, pages whose words match and pages whose meaning matches, then lifts starred pages a little.',
+      needsSemantic:
+        'Used only when local semantic search is on. You can still set it now.',
+      k: {
+        label: 'Rank smoothing',
+        help: 'How much the first few results of each list count over the rest. Lower lets the very top matches win; higher blends both lists more evenly.',
+      },
+      lexical: {
+        label: 'Word matches',
+        help: 'How much pages containing your exact words count. 0 ignores them.',
+      },
+      semantic: {
+        label: 'Meaning matches',
+        help: 'How much pages about the same idea count, even without your words. 0 ignores them.',
+      },
+      starred: {
+        label: 'Starred boost',
+        help: 'How far starred pages move up. Kept small so a starred page never beats a much better match.',
+      },
+      range: 'Default {value} · from {min} to {max}',
+      invalid: 'Enter a number from {min} to {max}.',
+      save: 'Save',
+      reset: 'Reset to defaults',
+      saved: 'Search ranking saved.',
+    },
   },
   'zh-CN': {
     title: 'AI',
@@ -230,6 +258,33 @@ export const settingsAi = defineMessages({
       started: '正在重建搜索索引。',
       failed: '无法开始重建。{message}',
     },
+    tuning: {
+      title: '搜索排序',
+      description:
+        '在“历史”中按意思搜索时，结果如何排序。它会合并两份列表：文字相符的网页和意思相近的网页，再把加星的网页稍微往前排。',
+      needsSemantic: '只在开启本机语意搜索时使用。现在也可以先设置。',
+      k: {
+        label: '排名平滑',
+        help: '每份列表前几名比其余结果重要多少。数值越小，最前面的结果越占优势；越大，两份列表混合得越平均。',
+      },
+      lexical: {
+        label: '文字相符',
+        help: '包含你输入文字的网页占多少分量。0 表示不计入。',
+      },
+      semantic: {
+        label: '意思相近',
+        help: '主题相同但不一定含有你输入文字的网页占多少分量。0 表示不计入。',
+      },
+      starred: {
+        label: '加星网页加分',
+        help: '加星的网页往前排多少。数值保持得很小，加星的网页不会压过明显更相关的结果。',
+      },
+      range: '默认 {value} · 范围 {min} 到 {max}',
+      invalid: '请输入 {min} 到 {max} 之间的数字。',
+      save: '保存',
+      reset: '恢复默认值',
+      saved: '搜索排序已保存。',
+    },
   },
   'zh-TW': {
     title: 'AI',
@@ -342,6 +397,33 @@ export const settingsAi = defineMessages({
       confirm: '重建',
       started: '正在重建搜尋索引。',
       failed: '無法開始重建。{message}',
+    },
+    tuning: {
+      title: '搜尋排序',
+      description:
+        '在「歷史」中依意思搜尋時，結果如何排序。它會合併兩份清單：文字相符的網頁和意思相近的網頁，再把加星的網頁稍微往前排。',
+      needsSemantic: '只在開啟本機語意搜尋時使用。現在也可以先設定。',
+      k: {
+        label: '排名平滑',
+        help: '每份清單前幾名比其餘結果重要多少。數值越小，最前面的結果越占優勢；越大，兩份清單混合得越平均。',
+      },
+      lexical: {
+        label: '文字相符',
+        help: '包含你輸入文字的網頁占多少分量。0 表示不計入。',
+      },
+      semantic: {
+        label: '意思相近',
+        help: '主題相同但不一定含有你輸入文字的網頁占多少分量。0 表示不計入。',
+      },
+      starred: {
+        label: '加星網頁加分',
+        help: '加星的網頁往前排多少。數值保持得很小，加星的網頁不會壓過明顯更相關的結果。',
+      },
+      range: '預設 {value} · 範圍 {min} 到 {max}',
+      invalid: '請輸入 {min} 到 {max} 之間的數字。',
+      save: '儲存',
+      reset: '恢復預設值',
+      saved: '搜尋排序已儲存。',
     },
   },
 })
