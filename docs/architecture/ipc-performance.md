@@ -115,7 +115,27 @@ Choosing the cap: with "topic", the first page costs about 200 ms fixed (the pos
 
 A plan test (`keyword_pages_read_visits_through_the_url_time_index`) fails if the page list, the totals, the visit list or the window scan stop reading visits through `idx_visits_visible_url_time`, scan `visits`, or if the window scan sorts. Tests for each failure mode (a rare term windowed, the best match dropped, counts claiming exactness, cursor pages skipping or repeating across the window edge, filters applied after the window) are in `grouped/tests.rs`.
 
-Regex search groups the same bounded window the visit list scans (the newest 50,000 visits inside the filters), so its counts cover that window. Semantic search already returned one row per page; its header shows pages only.
+Semantic search already returned one row per page; its header shows pages only.
+
+### 7. Regex searched only the newest 50,000 visits
+
+A regex cannot use an index, so regex search read the newest 50,000 visits inside the filters and matched each URL and title in Rust, and reported counts for that window as if exact. At 14.4M visits that is 0.35% of the archive: a regex for a page last visited a few weeks back silently found nothing.
+
+Fix (`vault-core/src/archive/history/regex_scan.rs`): each request scans newest-first from where the last one stopped, for at most 200 ms (a 4M-row backstop), and returns the matches, a cursor at the last visit it consumed (`x|time|id`), and `regexScan: { scannedToMs, complete }`. Scrolling the list continues the scan; the list also asks for the next chunk by itself until it has a page of rows, then shows "Keep searching" (or "Stop" while it runs) next to "48+ pages so far · searched back to Mar 2025". Counts say "so far" until `complete`; `totalExact` is true only when one response scanned the whole filtered range. A grouped row counts the visits of its own chunk, and the History list adds up rows of the same page. Browser, profile, date and domain filters are conditions of the scan query, so a date filter bounds the scan. Nothing runs between chunks: the cursor is the whole state, and an abandoned search is simply not continued. The scan query carries only the domain filter (regex mode has no `site:`-style operators), matches on borrowed text and builds a row only for a match, and bounds its time range by the cursor so each chunk seeks instead of re-reading what earlier chunks covered (without that bound the walk was quadratic: a whole-archive scan did not finish in 10 minutes).
+
+Measured on the same 14.4M archive (`PATHKEEP_ARCHIVE_BENCH_ONLY=regex`, under `/usr/bin/time -l`), grouped, `limit: 100`:
+
+| 14.4M visits                                               | after                             |
+| ---------------------------------------------------------- | --------------------------------- |
+| rare regex (one URL, 7 visits), first chunk                | 204 ms, about 155,000 visits      |
+| rare regex, whole archive                                  | 18.9 s, 93 chunks                 |
+| common regex (`topic 4\d\d$`, one title in 5), first chunk | 2 ms (the page fills at once)     |
+| common regex, whole archive by cursor                      | 59.7 s, 28,811 chunks of 100 rows |
+| peak memory of the process for both walks                  | 92 MB footprint, 362 MB RSS       |
+
+Before, the same rare regex answered in one call, after reading 50,000 visits, with nothing found. The per-request overhead (opening the archive, preparing the query) is about 2 ms, which is why a common regex walked to the end costs more than a rare one: the list never does that, it stops at a page of rows until the user scrolls. Memory per request is at most `limit + 1` matched visits, or `limit` pages plus one map entry each.
+
+Tests for each failure mode (a match older than the first chunk, rows repeated or skipped at chunk edges, a partial count shown as final, a scan left running, filters applied after the regex, the regex dialect) and a plan test (the scan walks `idx_visits_visible_time_id` without sorting) are in `regex_scan/tests.rs`. E2E runs with `PATHKEEP_DEBUG_REGEX_CHUNK_ROWS=2000` (debug builds only), so the fixture's 21,000 visits take about eleven chunks and `search-limits.spec.ts` proves the oldest visits of a page are counted.
 
 Operator-only searches (`site:docs.rs` with no words) start from every row of `urls`, so they cost like the "every page" row above. The History tag chips made one of them common, `tag:name`, so a search whose operators include `tag:` and whose words are empty starts from the tagged URLs instead (`url_tags`, then `idx_urls_url`, then the visit index per URL): its cost follows the number of tagged pages, not the archive. A plan test (`tag_pages_start_from_the_tagged_urls_not_every_url`) fails if `urls` or `visits` is scanned. Not measured at 14.4M; with tens of tagged pages it is a handful of index lookups. Other operator-only searches (`site:` alone, `-word` alone) still scan; they are typed rarely and were left as they are.
 

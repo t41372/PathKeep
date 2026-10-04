@@ -104,6 +104,7 @@ pub(super) fn build_history_response(
         total_exact: true,
         total_visits: None,
         windowed: false,
+        regex_scan: None,
         page: normalized_page,
         page_size: normalized_page_size,
         page_count: normalized_page_count,
@@ -142,6 +143,7 @@ pub(super) fn build_uncounted_history_response(
         total_exact: false,
         total_visits: None,
         windowed: false,
+        regex_scan: None,
         page: 1,
         page_size: page_size.max(1),
         page_count: 1,
@@ -184,6 +186,7 @@ pub(super) fn build_lexical_history_response(
         total_exact: true,
         total_visits: None,
         windowed: false,
+        regex_scan: None,
         page: normalized_page,
         page_size: normalized_page_size,
         page_count: normalized_page_count,
@@ -215,22 +218,6 @@ pub(super) struct PageCursor {
     pub score: Option<f64>,
     pub last_time: i64,
     pub url: String,
-}
-
-impl PageCursor {
-    /// True when a page with this sort key comes after the cursor in `sort` order.
-    pub(super) fn precedes(&self, sort: &str, score: f64, last_time: i64, url: &str) -> bool {
-        let after = |time_after: bool| {
-            time_after || (last_time == self.last_time && url > self.url.as_str())
-        };
-        match sort {
-            "oldest" => after(last_time > self.last_time),
-            "newest" => after(last_time < self.last_time),
-            _ => self.score.is_some_and(|cursor_score| {
-                score > cursor_score || (score == cursor_score && after(last_time < self.last_time))
-            }),
-        }
-    }
 }
 
 /// Parses a page cursor (`p|<score>|<time>|<url>`). Visit cursors are not page cursors.
@@ -274,6 +261,7 @@ pub(super) fn build_page_response(
         total_exact: totals.is_some(),
         total_visits: totals.map(|(_, visits)| visits),
         windowed: false,
+        regex_scan: None,
         page: 1,
         page_size,
         page_count: totals.map_or(1, |(pages, _)| page_count(pages, page_size)),

@@ -4,9 +4,9 @@
 //! each matching URL appears once: its most recent matching visit, plus how many visits matched.
 //!
 //! ## Responsibilities
-//! - Keyword (FTS), fuzzy-fallback, operator-only (starting from the tagged URLs when `tag:` is
-//!   present) and regex search, grouped by URL string, with the same browser, profile, date,
-//!   domain and `site:`-style filters as the visit list.
+//! - Keyword (FTS), fuzzy-fallback and operator-only search (starting from the tagged URLs when
+//!   `tag:` is present), grouped by URL string, with the same browser, profile, date, domain and
+//!   `site:`-style filters as the visit list. Regex grouping lives in `regex_scan`.
 //! - Cursor paging over pages, and the totals: matching pages and matching visits.
 //!
 //! ## Not responsible for
@@ -35,8 +35,8 @@
 //! 6. Work that grows with every visit in the archive instead of with the matches. A plan test
 //!    requires the visit lookups to use `idx_visits_visible_url_time` and never scan `visits`.
 //! 7. The URL filters here drift from the visit list's. They are the same text, checked by a test.
-//! 8. Regex counts. Regex reads the newest `REGEX_SCAN_CAP` visits, like the visit list, so its
-//!    counts cover that window; archives under the cap get exact counts.
+//! 8. Regex rows. Regex is scanned in chunks (`regex_scan`); a grouped row counts the visits of its
+//!    chunk, and a page met again in a later chunk comes back as another row for the list to add up.
 //! 9. A `tag:` search that starts from every URL. Tag-only searches start from `url_tags`; a plan
 //!    test requires `urls` to be read through `idx_urls_url`, never scanned. A tag set is written
 //!    by hand and small, so tag searches are not windowed.
@@ -471,78 +471,5 @@ fn page_row(row: &Row<'_>) -> rusqlite::Result<(HistoryEntry, f64)> {
     Ok((entry, row.get(10)?))
 }
 
-/// One page of regex results, grouped from the same bounded scan the visit list uses.
-///
-/// Regex cannot use an index, so it reads the newest (or oldest) `scan_cap` visible visits inside
-/// the filters and matches each URL and title in Rust. Counts and totals cover that window.
-pub(super) fn list_regex_pages(
-    connection: &Connection,
-    filters: &PageFilters,
-    sort: &str,
-    limit: usize,
-    cursor: Option<&str>,
-    regex: &regex::Regex,
-    scan_cap: usize,
-) -> Result<HistoryQueryResponse> {
-    let cursor = parse_page_cursor(cursor);
-    let (start_bound, end_bound, cursor_visit_time, cursor_id) =
-        list_history_bounds(sort, filters.start_time_ms, filters.end_time_ms, None);
-    let mut statement = connection.prepare(list_history_sql(sort))?;
-    let mut rows = statement.query(named_params! {
-        ":profileId": filters.profile_id,
-        ":browserKind": filters.browser_kind,
-        ":domainPattern": filters.domain_pattern,
-        ":startTimeMs": start_bound,
-        ":endTimeMs": end_bound,
-        ":cursorVisitTime": cursor_visit_time,
-        ":cursorId": cursor_id,
-        ":pageLimit": i64::try_from(scan_cap).unwrap_or(i64::MAX),
-        ":pageOffset": 0i64,
-    })?;
-    let mut pages: std::collections::HashMap<String, HistoryEntry> =
-        std::collections::HashMap::new();
-    let mut visits = 0usize;
-    while let Some(row) = rows.next()? {
-        let entry = history_entry_from_row(row)?;
-        if !(regex.is_match(&entry.url)
-            || entry.title.as_ref().is_some_and(|title| regex.is_match(title)))
-        {
-            continue;
-        }
-        visits += 1;
-        match pages.get_mut(&entry.url) {
-            Some(page) => {
-                let count = page.visit_count.unwrap_or(0) + 1;
-                if (entry.visit_time, entry.id) > (page.visit_time, page.id) {
-                    *page = entry;
-                }
-                page.visit_count = Some(count);
-            }
-            None => {
-                pages.insert(entry.url.clone(), HistoryEntry { visit_count: Some(1), ..entry });
-            }
-        }
-    }
-    let mut pages: Vec<HistoryEntry> = pages.into_values().collect();
-    pages.sort_by(|left, right| {
-        let by_time = if sort == "oldest" {
-            left.visit_time.cmp(&right.visit_time)
-        } else {
-            right.visit_time.cmp(&left.visit_time)
-        };
-        by_time.then_with(|| left.url.cmp(&right.url))
-    });
-    let totals = (pages.len(), visits);
-    let start = cursor.as_ref().map_or(0, |cursor| {
-        pages
-            .iter()
-            .position(|page| cursor.precedes(sort, 0.0, page.visit_time, &page.url))
-            .unwrap_or(pages.len())
-    });
-    let has_more = pages.len() > start + limit;
-    let rows = pages.into_iter().skip(start).take(limit).map(|page| (page, 0.0)).collect();
-    Ok(build_page_response(limit, cursor.is_some(), has_more, rows, sort, Some(totals)))
-}
-
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

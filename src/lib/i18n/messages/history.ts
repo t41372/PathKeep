@@ -54,6 +54,10 @@ export const history = defineMessages({
       pagesMore: '{count}+ pages · {mode}',
       windowed:
         'Not every match was ranked, only the most recently saved ones. Add a word to narrow the search.',
+      regexStarting: 'Searching every visit…',
+      regexProgress: '{count}+ pages so far · searched back to {date}',
+      keepSearching: 'Keep searching',
+      stopSearching: 'Stop',
       relevance: 'Relevance {percent}',
       listLabel: 'History results',
       timelineLabel: 'History timeline',
@@ -166,6 +170,10 @@ export const history = defineMessages({
       pagesMore: '找到 {count}+ 个页面 · {mode}',
       windowed:
         '没有为每个结果排序，只排了最近保存的那些。再加一个词可以缩小范围。',
+      regexStarting: '正在搜索所有访问记录…',
+      regexProgress: '目前找到 {count}+ 个页面 · 已搜索到 {date}',
+      keepSearching: '继续搜索',
+      stopSearching: '停止',
       relevance: '相关度 {percent}',
       listLabel: '历史搜索结果',
       timelineLabel: '历史时间线',
@@ -278,6 +286,10 @@ export const history = defineMessages({
       pagesMore: '找到 {count}+ 個頁面 · {mode}',
       windowed:
         '沒有為每個結果排序，只排了最近儲存的那些。再加一個詞可以縮小範圍。',
+      regexStarting: '正在搜尋所有瀏覽記錄…',
+      regexProgress: '目前找到 {count}+ 個頁面 · 已搜尋到 {date}',
+      keepSearching: '繼續搜尋',
+      stopSearching: '停止',
       relevance: '相關度 {percent}',
       listLabel: '歷史搜尋結果',
       timelineLabel: '歷史時間線',

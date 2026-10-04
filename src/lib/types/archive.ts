@@ -506,6 +506,8 @@ export interface HistoryQueryResponse {
   totalVisits?: number | null
   /** The search matched more pages than one search ranks: only the most recently archived matches were ranked, listed and counted. */
   windowed?: boolean
+  /** Regex searches: how far this chunk of the scan reached. `nextCursor` continues it. */
+  regexScan?: RegexScanProgress | null
   items: HistoryEntry[]
   page: number
   pageSize: number
@@ -513,6 +515,14 @@ export interface HistoryQueryResponse {
   hasPrevious: boolean
   hasNext: boolean
   nextCursor?: string | null
+}
+
+/** How far one chunk of a regex search got. */
+export interface RegexScanProgress {
+  /** Visit time the scan has reached (newest first); null before any visit was checked. */
+  scannedToMs: number | null
+  /** Every visit inside the filters has been checked; counts are final. */
+  complete: boolean
 }
 
 /**

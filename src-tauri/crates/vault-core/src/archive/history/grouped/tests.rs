@@ -3,18 +3,19 @@
 use super::*;
 use crate::config::project_paths_with_root;
 
-const CHROME: i64 = 1;
-const FIREFOX: i64 = 2;
+pub(in crate::archive::history) const CHROME: i64 = 1;
+pub(in crate::archive::history) const FIREFOX: i64 = 2;
 
-/// A test archive: Chrome and Firefox profiles, then the URLs and visits each test adds.
-struct Archive {
+/// A test archive: Chrome and Firefox profiles, then the URLs and visits each test adds. Shared with
+/// the regex scan tests.
+pub(in crate::archive::history) struct Archive {
     _dir: tempfile::TempDir,
-    paths: ProjectPaths,
-    config: AppConfig,
+    pub(in crate::archive::history) paths: ProjectPaths,
+    pub(in crate::archive::history) config: AppConfig,
 }
 
 impl Archive {
-    fn new() -> Self {
+    pub(in crate::archive::history) fn new() -> Self {
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
         let config = AppConfig::default();
@@ -35,7 +36,14 @@ impl Archive {
     }
 
     /// Adds one `urls` row (one profile's copy of an address) and its visits at `times`.
-    fn url(&self, url_id: i64, profile: i64, url: &str, title: &str, times: &[i64]) -> &Self {
+    pub(in crate::archive::history) fn url(
+        &self,
+        url_id: i64,
+        profile: i64,
+        url: &str,
+        title: &str,
+        times: &[i64],
+    ) -> &Self {
         let connection = open_archive_connection(&self.paths, &self.config, None).expect("open");
         connection
             .execute(
@@ -59,7 +67,7 @@ impl Archive {
         self
     }
 
-    fn index(&self) {
+    pub(in crate::archive::history) fn index(&self) {
         rebuild_search_projection(&self.paths, &self.config, None).expect("search projection");
     }
 

@@ -16,6 +16,7 @@ M18 redesign（2026-10-02）後，下文的「Explorer」就是 **History**（`s
     - **排序窗口**：一個詞（或只有運算子的搜尋）在篩選之內命中超過 25,000 個網址時，只排序、分組、計數最近封存的 25,000 個（`oldest` 排序取最早封存的）。回應帶 `windowed: true`、`totalExact: false`，結果數顯示「25,000+ 個頁面」這類下限，下面多一行「沒有為每個結果排序，只排了最近保存的那些。再加一個詞可以縮小範圍。」。篩選（瀏覽器、profile、日期、網域、`site:` 等）先於窗口；窗口邊界寫進 cursor，翻頁期間有新備份也不會跳行或重複。未超過的詞結果與以前完全一樣。只有 `tag:` 的搜尋不走窗口（標籤集是手寫的、很小）。實作與失效模式見 `vault-core/src/archive/history/grouped/window.rs`，數字見 [ipc-performance.md](../architecture/ipc-performance.md) §6。
     - 其他呼叫者：AI 搜尋（混合與依日期排序）在被窗口截斷時多一個 `lexicalWindowed` 註記（給模型的英文說明，MCP `search-history` 的 `notes` 也帶），`export_history` 的結果多 `windowed`；⌘K 只列前 6 個頁面、不顯示數字，不受影響。
   - **Regex**：`query_history` 加 `regexMode`，依時間新到舊。把查詢用 `/…/` 包起來時，不管選了哪種方式都當 regex。前端用 Rust `regex` 的規則檢查（`regex-dialect.ts`：群組、巢狀字元類、跳脫字元、重複次數），擋下 look-around、反向參照、atomic / 條件群組、Rust 不認得的跳脫字元與不是重複次數的 `{`，用白話說明哪裡不支援，不送出查詢，畫面保留上一批結果（淡化）。不再用 JavaScript `RegExp`：它會擋下 Rust 接受的寫法（`a++`、`(?i)`、`(?P<name>…)`）。檢查器與後端共用一張案例表（`regex-dialect-cases.json`；Rust 測試 `regex_dialect_cases` 與 vitest 各跑一次）。只有編譯時才知道的錯誤（不存在的 Unicode 屬性、反向範圍、大小上限）仍會送到後端，畫面顯示「這個正規表示式無法執行」與 Rust 的訊息，不再是「搜尋沒有執行成功」。
+    - **分段掃描整個 archive**：每個請求從上次停下的地方往舊掃最多 200 ms，回傳找到的結果、續掃 cursor 與 `regexScan`（掃到哪個時間、是否掃完）。捲動列表會續掃；列表不滿一頁時自己接著要下一段，之後顯示「目前找到 48+ 個頁面 · 已搜索到 2025年3月」與「繼續搜索」（掃描中是「停止」）。掃完之前數字都是「目前」，`totalExact` 只有一次掃完整個篩選範圍時才為 true。分組時每段的列只算該段的訪問，同一頁面在後段再出現時由列表相加。篩選是掃描條件的一部分，日期篩選會縮短掃描。中途離開不會留下任何在跑的工作（cursor 就是全部狀態）。實作與失效模式見 `vault-core/src/archive/history/regex_scan.rs`，數字見 [ipc-performance.md](../architecture/ipc-performance.md) §7。
   - **語意**：`search_ai_history`（AI 搜尋），只有 `ai.enabled`、`semanticIndexEnabled` 都開而且索引就緒時可選；否則自動退回全文。不可選時，按鈕的提示與結果數下方一行說明原因（未開啟、建立中、等待建立、已暫停、索引是空的、建立失敗、無法使用、archive 未設定），並連到 Settings → AI；可用時同一行寫出 provider 與模型、已索引頁數、更新時間，索引過期時提示去重建。後端只能依網域篩選，日期與瀏覽器篩選在前端對已載入的結果做。
 - **篩選**：日期（今天、昨天、最近 7 天、最近 30 天、自訂起訖日）、瀏覽器（依瀏覽器種類，不是單一 profile）、網站（從網站視圖或 Insights 帶入的 chip）。全部寫在 URL（`date`、`browser`、`domain`），可一鍵清除。
 - **列表**：虛擬化、固定列高；cursor 分頁，捲到接近底部自動載下一頁（每頁 100 筆，語意每頁 50 筆）。結果數先顯示「100+」，旁邊另一個 `limit: 1, includeTotal: true` 的查詢算完精確總數後再換成精確數字；全文搜尋被窗口截斷時一直是「N+」。
@@ -102,7 +103,7 @@ M18 redesign（2026-10-02）後，下文的「Explorer」就是 **History**（`s
 ### Regex 搜尋的效能邊界
 
 - FTS5 仍是 day-one keyword recall 的正式快速路徑；regex 不是它的替代品。
-- regex mode 在 canonical filter（profile / browser / domain / date range / visibility）之後做 post-filter：先由後端以 canonical filter 縮小結果集，再對縮小後的結果執行 regex 匹配。這確保 regex 永遠只跑在受限的 working set 上，不觸發全表掃描。
+- regex mode 在 canonical filter（profile / browser / domain / date range / visibility）之後做 post-filter：先由後端以 canonical filter 縮小結果集，再對縮小後的結果執行 regex 匹配。2026-10 起 regex 會掃完整個 archive，但每個請求只掃一段（約 200 ms），由 cursor 續掃，介面顯示目前掃到哪裡；見上方 §0。
 - 對用戶的 UX 含義：regex 搜尋在已縮窄的結果集上通常足夠快，但在無任何 canonical filter 的情況下對大型 archive 可能較慢。UI 應在這種情境下顯示適當的載入指示。
 - 若未來要把 regex 升級成大數據量下也可接受的正式 fast path，必須先新增獨立 research / benchmark，再改文檔與實作。
 

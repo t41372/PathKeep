@@ -190,7 +190,9 @@ impl Write for CountedWriter<'_> {
 }
 
 /// Ordinary browse exports stream one statement in existing time/id order. Search retains the
-/// shared cursor reader on this same connection, including its bounded regex/fuzzy semantics.
+/// shared cursor reader on this same connection. A regex search is scanned a time-boxed chunk per
+/// call (`regex_scan`), so the loop follows its cursor until the scan covers the whole archive;
+/// the connection's progress handler still interrupts a chunk when the export is cancelled.
 ///
 /// Returns true when a keyword search was windowed (`grouped/window.rs`): the export then holds
 /// the most recently archived matches only, and `ExportResult::windowed` says so.
