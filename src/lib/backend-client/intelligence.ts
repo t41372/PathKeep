@@ -109,6 +109,9 @@ export const intelligenceClient = {
     call<CoreIntelligenceQueueReport>('queue_core_intelligence_rebuild', {
       request,
     }),
+  /** Counts what `clearDerivedState` would remove, without removing it (the PME preview). */
+  previewClearDerivedState: () =>
+    call<ClearDerivedIntelligenceReport>('preview_clear_derived_intelligence'),
   clearDerivedState: () =>
     call<ClearDerivedIntelligenceReport>('clear_derived_intelligence'),
   getPrimaryOverview: (request: {

@@ -444,6 +444,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "repair_health" => {
             json_value!(worker_bridge::repair_health_impl(session_key(&state.session).as_deref())?)
         }
+        "preview_clear_derived_intelligence" => {
+            json_value!(worker_bridge::preview_clear_derived_intelligence_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "clear_derived_intelligence" => {
             json_value!(worker_bridge::clear_derived_intelligence_impl(
                 session_key(&state.session).as_deref()

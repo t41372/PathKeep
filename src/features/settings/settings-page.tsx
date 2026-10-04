@@ -6,6 +6,7 @@
  * Not responsible for any setting itself; each section file owns its rows.
  */
 import {
+  Activity,
   Database,
   Info,
   Lock,
@@ -19,6 +20,7 @@ import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
 import { AboutSection } from './about-section'
 import { AiSection } from './ai-section'
+import { BackgroundSection } from './background/background-section'
 import { GeneralSection } from './general-section'
 import { SecuritySection } from './security-section'
 import { StorageSection } from './storage-section'
@@ -27,6 +29,7 @@ const sections = {
   general: { icon: SlidersHorizontal, Body: GeneralSection },
   security: { icon: Lock, Body: SecuritySection },
   ai: { icon: Sparkles, Body: AiSection },
+  background: { icon: Activity, Body: BackgroundSection },
   storage: { icon: Database, Body: StorageSection },
   about: { icon: Info, Body: AboutSection },
 } satisfies Record<string, { icon: LucideIcon; Body: () => React.ReactNode }>

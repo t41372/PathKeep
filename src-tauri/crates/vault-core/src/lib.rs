@@ -133,8 +133,9 @@ pub use intelligence::{
     get_reopened_investigations, get_search_effectiveness, get_search_engine_ranking,
     get_search_queries, get_search_trails, get_session_detail, get_sessions, get_stable_sources,
     get_top_search_concepts, get_top_sites, get_trail_detail, intelligence_status,
-    list_search_engine_rules_for_settings, preview_intelligence_local_host, run_core_intelligence,
-    run_core_intelligence_with_progress, upsert_search_engine_rule_for_settings,
+    list_search_engine_rules_for_settings, preview_derived_intelligence_clear,
+    preview_intelligence_local_host, run_core_intelligence, run_core_intelligence_with_progress,
+    upsert_search_engine_rule_for_settings,
 };
 pub use intelligence_runtime::{
     cancel_intelligence_job, intelligence_job_stop_requested, load_intelligence_runtime,

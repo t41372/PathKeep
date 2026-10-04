@@ -351,23 +351,33 @@ pub(crate) fn intelligence_status_from(
     })
 }
 
-/// Clears only rebuildable intelligence state and runtime traces while leaving
-/// the canonical archive untouched.
-pub fn clear_derived_intelligence_state(
+/// Counts what [`clear_derived_intelligence_state`] would remove, without removing it.
+///
+/// Exists so Settings can show the real row counts before the user confirms a clear
+/// (Preview → Manual → Execute); the clear itself reports the same numbers from the same
+/// queries, so the preview and the result cannot drift apart.
+pub fn preview_derived_intelligence_clear(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
 ) -> Result<ClearDerivedIntelligenceReport> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
-    let cleared_runtime_rows = table_row_count(&connection, "deterministic_module_runtime")?
-        + table_row_count(&connection, "core_intelligence_stage_checkpoints")?
-        + count_core_intelligence_job_triggers(&connection)?
-        + count_core_intelligence_jobs(&connection)?;
-    let report = ClearDerivedIntelligenceReport {
-        cleared_visit_derived_fact_rows: table_row_count(&connection, "visit_derived_facts")?,
+    count_derived_intelligence_state(&connection)
+}
+
+/// Row counts per stage group for the derived Core Intelligence plane.
+fn count_derived_intelligence_state(
+    connection: &Connection,
+) -> Result<ClearDerivedIntelligenceReport> {
+    let cleared_runtime_rows = table_row_count(connection, "deterministic_module_runtime")?
+        + table_row_count(connection, "core_intelligence_stage_checkpoints")?
+        + count_core_intelligence_job_triggers(connection)?
+        + count_core_intelligence_jobs(connection)?;
+    Ok(ClearDerivedIntelligenceReport {
+        cleared_visit_derived_fact_rows: table_row_count(connection, "visit_derived_facts")?,
         cleared_daily_rollup_rows: sum_table_row_counts(
-            &connection,
+            connection,
             &[
                 "domain_daily_rollups",
                 "category_daily_rollups",
@@ -376,7 +386,7 @@ pub fn clear_derived_intelligence_state(
             ],
         )?,
         cleared_structural_rows: sum_table_row_counts(
-            &connection,
+            connection,
             &[
                 "sessions",
                 "search_trails",
@@ -396,7 +406,19 @@ pub fn clear_derived_intelligence_state(
             "Cleared Core Intelligence derived rows, checkpoints, and runtime traces without touching canonical archive facts."
                 .to_string(),
         ],
-    };
+    })
+}
+
+/// Clears only rebuildable intelligence state and runtime traces while leaving
+/// the canonical archive untouched.
+pub fn clear_derived_intelligence_state(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<ClearDerivedIntelligenceReport> {
+    let connection = open_intelligence_connection(paths, config, key)?;
+    ensure_core_intelligence_schema(&connection)?;
+    let report = count_derived_intelligence_state(&connection)?;
     clear_core_tables(&connection, None)?;
     delete_stage_checkpoints(&connection, None)?;
     super::intelligence_overview_snapshot::clear_overview_snapshots(&connection)?;

@@ -29,8 +29,9 @@ use vault_core::{
         DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
         enqueue_core_intelligence_job, mark_all_deterministic_modules_stale,
     },
-    list_history, load_audit_run_detail, load_dashboard_snapshot, preview_import_batch,
-    repair_health_issues, restore_import_batch, revert_import_batch, run_backup_with_progress,
+    list_history, load_audit_run_detail, load_dashboard_snapshot,
+    preview_derived_intelligence_clear, preview_import_batch, repair_health_issues,
+    restore_import_batch, revert_import_batch, run_backup_with_progress,
 };
 
 use std::collections::HashMap;
@@ -799,6 +800,15 @@ pub fn export_query(
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     export_history(&paths, &config, session_database_key, request)
+}
+
+/// Counts what [`clear_derived_intelligence`] would remove, without removing anything.
+pub fn preview_clear_derived_intelligence(
+    session_database_key: Option<&str>,
+) -> Result<ClearDerivedIntelligenceReport> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    preview_derived_intelligence_clear(&paths, &config, session_database_key)
 }
 
 /// Clears rebuildable intelligence state while leaving canonical archive facts intact.

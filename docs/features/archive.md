@@ -8,21 +8,21 @@
 
 M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為不變；提到舊頁面的地方，對照如下（畫面細節見 [screens-and-nav.md](../design/screens-and-nav.md)）：
 
-| 舊頁面 / 名稱                                              | 現在在哪裡                                                                                        |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Dashboard                                                  | Home                                                                                              |
-| Explorer                                                   | History                                                                                           |
-| Onboarding 的 profile / storage / security / schedule 步驟 | Onboarding 七步：歡迎、瀏覽器、存放位置、加密、排程、AI、完成                                     |
-| Scheduled Backup Settings（Schedule）                      | Backup → 自動備份卡                                                                               |
-| Import（Takeout）                                          | Backup → 匯入卡（含近期匯入的復原 / 還原）                                                        |
-| Import（Browser Direct）                                   | 沒有介面。`inspect_browser_history` / `import_browser_history` 與 typed client 還在，前端沒有呼叫 |
-| Audit Ledger / run detail                                  | Backup → 最近執行，點一列開側邊 sheet                                                             |
-| Jobs、sidebar footer 的背景工作條                          | 沒有。手動備份進度在 Backup 頂端的進度卡與備份按鈕上；Takeout 匯入進度在匯入卡內                  |
-| Security                                                   | Settings → Security                                                                               |
-| Settings → Data migration                                  | Settings → Storage →「搬到另一台電腦」（`.pathkeep` 檔）                                          |
-| Settings → Data →「刪除所有資料」                          | Settings → Storage →「刪除所有資料」                                                              |
-| Maintenance（retention、doctor、更新、log）                | Settings → Storage「釋放空間」；Settings → About 的「檢查存檔」、更新、記錄檔                     |
-| App Lock 面板                                              | Settings → Security 的「App Lock」分組                                                            |
+| 舊頁面 / 名稱                                              | 現在在哪裡                                                                                                                                                                                            |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard                                                  | Home                                                                                                                                                                                                  |
+| Explorer                                                   | History                                                                                                                                                                                               |
+| Onboarding 的 profile / storage / security / schedule 步驟 | Onboarding 七步：歡迎、瀏覽器、存放位置、加密、排程、AI、完成                                                                                                                                         |
+| Scheduled Backup Settings（Schedule）                      | Backup → 自動備份卡                                                                                                                                                                                   |
+| Import（Takeout）                                          | Backup → 匯入卡（含近期匯入的復原 / 還原）                                                                                                                                                            |
+| Import（Browser Direct）                                   | 沒有介面。`inspect_browser_history` / `import_browser_history` 與 typed client 還在，前端沒有呼叫                                                                                                     |
+| Audit Ledger / run detail                                  | Backup → 最近執行，點一列開側邊 sheet                                                                                                                                                                 |
+| Jobs、sidebar footer 的背景工作條                          | Settings → Background work：暫停 / 恢復、同時執行數、洞察佇列與搜尋索引 / 助理佇列（最近工作、進度、錯誤、重試 / 取消）、網頁摘要、連結預覽；手動備份進度仍在 Backup 頂端，Takeout 匯入進度在匯入卡內 |
+| Security                                                   | Settings → Security                                                                                                                                                                                   |
+| Settings → Data migration                                  | Settings → Storage →「搬到另一台電腦」（`.pathkeep` 檔）                                                                                                                                              |
+| Settings → Data →「刪除所有資料」                          | Settings → Storage →「刪除所有資料」                                                                                                                                                                  |
+| Maintenance（retention、doctor、更新、log）                | Settings → Storage「釋放空間」；Settings → About 的「檢查存檔」、更新、記錄檔與當機報告路徑（開啟 / 複製）、「複製診斷資訊」；「重建洞察」與 derived state 在 Settings → Background work              |
+| App Lock 面板                                              | Settings → Security 的「App Lock」分組                                                                                                                                                                |
 
 ### 已接受要求中 2026-10 介面沒有做到的
 
@@ -34,8 +34,8 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 - §3 匯入後的 Jobs / sidebar 進度與「第二個寫入任務連到現有任務」：沒有 Jobs 頁；手動備份由 `BackupRunnerProvider` 保證同時只有一個。
 - §4 匯出：只有整個歷史一個檔，沒有 profile / 時間 / domain / query 篩選。
 - §5 rekey 後的 review（run id、安全副本路徑）只在 Backup → 最近執行的 sheet 裡看得到 run，沒有安全副本路徑的開啟 / 複製動作。
-- §6 Audit：沒有 manifest / artifact 路徑的開啟 / 複製、沒有 `Summary / Artifacts / Warnings` 分頁、沒有 snapshot_restore（checkpoint replay）的介面；Settings 不顯示 log / crash report 路徑，只有「顯示記錄檔資料夾」。
-- §7 Settings 的 enrichment / derived-state 面板（plugin 版本、queue、freshness、clear derived state）沒有介面；只有 Settings → General 的兩個開關與 Settings → About 的「重建洞察」。
+- §6 Audit：沒有 manifest / artifact 路徑的開啟 / 複製、沒有 `Summary / Artifacts / Warnings` 分頁、沒有 snapshot_restore（checkpoint replay）的介面。（log / crash report 路徑已在 Settings → About，2026-10-04。）
+- §7 derived-state 面板（2026-10-04 起在 Settings → Background work）：有 module 版本、freshness（最新 / 已過期 / 尚未建立，含過期原因）、上次建立時間、queue、plugin 的已存筆數與上次執行 / 錯誤、rebuild 與 clear（先用 `preview_clear_derived_intelligence` 列出會刪的筆數）。沒有：plugin 版本（後端 `EnrichmentPluginStatus` 沒有版本欄位）、derived tables 的 storage impact 與 latest growth signal、個別 plugin 開關（`enrichmentPlugins` 設定仍在，介面沒有）。
 - §8 App Lock：見 [app-lock-panel-tradeoff.md](../design/app-lock-panel-tradeoff.md)，**待用戶決定**。
 
 ---

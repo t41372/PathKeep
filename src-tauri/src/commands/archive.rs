@@ -446,6 +446,20 @@ pub(crate) async fn repair_health(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Counts what `clear_derived_intelligence` would remove, off the UI thread, so the clear can
+/// be previewed before the user confirms it.
+pub(crate) async fn preview_clear_derived_intelligence(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ClearDerivedIntelligenceReport, CommandError> {
+    let key = state.get_key();
+    run_blocking_command("preview_clear_derived_intelligence", move || {
+        worker_bridge::preview_clear_derived_intelligence_impl(key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Clears rebuildable intelligence state without touching canonical visits, off the UI thread.
 pub(crate) async fn clear_derived_intelligence(
     state: State<'_, SessionState>,

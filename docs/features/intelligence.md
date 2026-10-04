@@ -24,7 +24,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變�
 | Dashboard 的 On This Day、Browsing Rhythm、threads             | Home 的 On this day、「你的一年」日曆熱力圖、「常回來的主題」（reopened investigations，90 天）                                                                   |
 | Settings 的 AI provider editor                                 | Settings → AI 的「AI 服務」列與新增對話框（onboarding 第 6 步共用同一張表單）                                                                                     |
 | Integrations 的 MCP / skill artifact review                    | Settings → AI 的「MCP 伺服器」開關；開啟後顯示可複製的 MCP 指令。沒有 JSON / skill markdown 預覽                                                                  |
-| Jobs、Maintenance 的 derived-state 面板、sidebar footer 工作條 | 沒有。語意索引的下載 / 建索引進度在 Settings → AI；「重建搜尋索引」在 Settings → AI；「重建洞察」在 Settings → About                                              |
+| Jobs、Maintenance 的 derived-state 面板、sidebar footer 工作條 | Settings → Background work（佇列、暫停 / 恢復、併發數、重試 / 取消、重建洞察、清除洞察資料）。語意索引的下載 / 建索引進度與「重建搜尋索引」仍在 Settings → AI     |
 | 共享 profile scope                                             | 沒有。Insights 與 Ask 一律是整個 archive；History 只能依瀏覽器種類篩選                                                                                            |
 
 2026-10 介面沒有做到、但下文仍要求的（待用戶決定補或改）：
@@ -33,8 +33,8 @@ M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變�
 - §2 assistant 的 `queued` / `insufficient-evidence` 狀態與 `jobId` / `runId` 顯示、共享 profile scope、seeded prompt 以外的修復入口。Ask 有四個範例問題與「去 Settings → AI」。
 - §3 Integrations 的 generated-artifact review（MCP JSON、skill markdown、consent summary）。
 - §4 Insights 的 V1 洞察卡（Periodic Summaries、Topic Timeline、Threads、Open Loops、Explore vs Exploit、Source Role Map、Query Ladder、Contrastive Summary）、evidence / freshness badge、scope 標示：2026-10 Insights 只有上表六張卡。對應的 32 個 intelligence 讀取命令仍在，前端沒有呼叫，清單見 [desktop-command-surface.md](../architecture/desktop-command-surface.md) §2026-10。
-- §6 Job Queue 的使用者控制（看隊列、暫停 / 恢復、併發數、重排失敗任務）：沒有介面。
-- 搜尋 tuning（RRF `k`、權重、starred boost）的 Settings 入口：沒有。
+- §6 Job Queue 的使用者控制：2026-10-04 起在 Settings → Background work（隊列數、執行中與最近完成 / 失敗的工作、進度、暫停 / 恢復、併發 1–4、單筆重試 / 取消、手動「重建洞察」與「立即抓取」網頁摘要）。沒有：一次重排全部失敗任務、清理失敗任務（後端沒有批次命令）、前景「立即執行」(`run_ai_queue_jobs` 會在一次 IPC 內跑完工作，索引建置可長達數分鐘，所以不接)。最近工作只列後端回傳的 12 筆。
+- 搜尋 tuning：2026-10-04 起在 Settings → AI「搜尋排序」（RRF `k`、文字 / 意思權重、加星加分；預設值、範圍、說明、恢復預設值；範圍與 `normalize_search_knobs` 一致）。
 
 ---
 

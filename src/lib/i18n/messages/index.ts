@@ -13,6 +13,7 @@ import { onboarding } from './onboarding'
 import { settings } from './settings'
 import { settingsAbout } from './settings-about'
 import { settingsAi } from './settings-ai'
+import { settingsBackground } from './settings-background'
 import { settingsStorage } from './settings-storage'
 import { shell } from './shell'
 
@@ -26,6 +27,7 @@ const namespaces = {
   backup,
   settings,
   settingsAi,
+  settingsBackground,
   settingsStorage,
   settingsAbout,
   onboarding,

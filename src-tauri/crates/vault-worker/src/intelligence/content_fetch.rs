@@ -49,10 +49,18 @@ const DEFAULT_WORKING_SET_ENQUEUE_LIMIT: usize = 2_000;
 const MAX_DEFERRED_SLEEP_SECS: u64 = 60;
 
 /// Returns the Settings-facing content-fetch consent + status surface.
+///
+/// Like the other queue status reads (`load_ai_queue`, `load_intelligence_runtime_snapshot`), it also
+/// restarts the drain when queued work is waiting: the lane exits while the queue is paused, and
+/// resuming only saves the config, so this read is what gets parked fetches moving again.
 pub fn content_fetch_settings(session_database_key: Option<&str>) -> Result<ContentFetchSettings> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    core_content_fetch_settings(&paths, &config, session_database_key)
+    let settings = core_content_fetch_settings(&paths, &config, session_database_key)?;
+    if settings.queued_jobs > 0 {
+        maybe_spawn_content_fetch_drain(&paths, &config, session_database_key);
+    }
+    Ok(settings)
 }
 
 /// Persists the content-fetch consent settings (master switch + per-extractor + per-domain) and, when
