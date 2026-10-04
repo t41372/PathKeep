@@ -26,7 +26,7 @@ There is no coverage threshold and no mutation testing. A green run means the fe
 
 Each run writes seeded synthetic browser profiles (two Chrome, one Firefox, real SQLite history files, about 21,000 visits over 14 months) to a temp folder, with the archive, keyring and project root next to them. `tests/e2e/support/fixture.ts` reads the same data, so expected numbers are computed from it rather than typed into the specs. The keyring is a file in that folder: debug builds honor `CHB_TEST_KEYRING_DIR`, release builds ignore it.
 
-The specs run in order on one archive (see `projects` in the config): `first-run` (onboarding, first backup) → `read` (search, insights) → `change` (new visits, paused source, custom-interval schedule install / verify / remove, Browser Direct import / undo / restore, app lock) → `wipe` (delete all data).
+The specs run in order on one archive (see `projects` in the config): `first-run` (onboarding, first backup) → `read` (search, search tools and tags, insights) → `change` (new visits, paused source, custom-interval schedule install / verify / remove, Browser Direct import / undo / restore, app lock and its hint, archive password change, background work) → `wipe` (delete all data).
 
 Writing E2E tests:
 
