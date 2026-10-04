@@ -47,6 +47,11 @@ import {
 } from './parts'
 import { useRange, type RangeId } from './range'
 
+/** Engine ids are lowercase (`google`); show them as names. */
+function engineName(id: string) {
+  return id.charAt(0).toUpperCase() + id.slice(1)
+}
+
 function hostOf(url: string) {
   try {
     return new URL(url).hostname.replace(/^www\./, '')
@@ -274,15 +279,15 @@ function TrailRow({ trail }: { trail: TrailSummary }) {
                     })
                   : t('insights.search.noLanding')}
               </span>
-              <span className="text-xs text-muted-foreground capitalize">
+              <span className="text-xs text-muted-foreground">
                 {trail.visitCount > 1
                   ? t('insights.search.trailMeta', {
                       pages: t('common.pages', {
                         count: trail.visitCount - 1,
                       }),
-                      engine: trail.searchEngine,
+                      engine: engineName(trail.searchEngine),
                     })
-                  : trail.searchEngine}
+                  : engineName(trail.searchEngine)}
               </span>
             </span>
             <ChevronDown
