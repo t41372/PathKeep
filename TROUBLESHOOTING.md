@@ -68,14 +68,25 @@ The Settings page now exposes the app data root, archive database path, audit re
 ### Biometric unlock is unavailable
 
 - On macOS, Touch ID can still be temporarily unavailable because of OS state, enrollment, lockout, or cancellation. PathKeep falls back to the App Lock passcode when that happens.
-- On Windows and Linux, this is expected: the current build remains passcode-only and shows biometric controls as truthful unsupported / degradation state.
+- The Touch ID button only appears after you turn Touch ID on in Settings → Security. While Touch ID is unavailable you cannot turn it on, but you can always turn it off.
+- On Windows and Linux, this is expected: the current build is passcode-only and shows no biometric controls.
 - App Lock is still a passcode-first UI session lock, even when Touch ID is available on macOS.
 
 ### You forgot the App Lock passcode
 
-- PathKeep does not offer a fake recovery flow here.
-- Use the lock screen or Settings to open the config path, then follow your local support / recovery process for resetting the UI session lock.
-- Resetting App Lock does not recover or change the archive encryption password.
+- On the lock screen, press **Forgot passcode?**. It shows the hint you saved with the passcode, if any.
+- There is no reset button, because one that works on a locked window would let anyone past the lock. To turn App Lock off:
+  1. Quit PathKeep.
+  2. Open `config.json` in the PathKeep folder (the lock screen shows the path and has **Show in Finder**; on macOS it is `~/Library/Application Support/com.yi-ting.pathkeep`).
+  3. Under `"appLock"`, change `"enabled": true` to `"enabled": false` and save.
+  4. Open PathKeep, then set a new passcode in Settings → Security if you want the lock back.
+- App Lock only guards the window. Turning it off does not touch your archive, and it does not recover or change the archive encryption password.
+
+### Changing the archive password says "That is not the current password"
+
+- Changing the archive password or turning encryption off asks for the current archive password, and PathKeep checks it against the archive file. Nothing is changed when it does not match.
+- This is the archive password, not the App Lock passcode.
+- If PathKeep unlocks from the keychain, you may not have typed the password in a long time. Unlocking from the keychain does not count as knowing it: without the current password the archive password cannot be changed, because no one can reset it.
 
 ## Remote Backup
 

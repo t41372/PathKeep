@@ -1,10 +1,10 @@
 # App Lock 面板與鎖定畫面：補齊、刪減或放棄 — Trade-off
 
-> **狀態：待用戶決定（2026-10-02 提出）**
+> **狀態：Accepted — 用戶 2026-10-04 選定選項 B**（2026-10-02 提出；落地內容見第 7 節）
 > **範圍：** Settings → Security 的 App Lock 列、App Lock 鎖定畫面
 > **牽涉的已接受文檔：** [archive.md](../features/archive.md) §8、[screens-and-nav.md](screens-and-nav.md)「App Lock 畫面與導航規則」、[ADR-005](../architecture/decisions/005-app-lock-session-boundary.md)（recovery story）、[ADR-007](../architecture/decisions/007-macos-biometric-session-unlock.md)（macOS Touch ID）、`TROUBLESHOOTING.md`「You forgot the App Lock passcode」
 >
-> 在用戶決定之前，上述文檔的要求不變；本文只列選項。
+> 上述文檔已照選項 B 改寫。
 
 ---
 
@@ -88,3 +88,13 @@
 選 **B**。Touch ID 與 recovery 是使用者真的會用到的，而且後端已經做好，只差介面；上次解鎖時間與 config 路徑列是診斷資訊，放進 prototype 的極簡鎖定畫面得不償失。C 會讓一個已上線的功能消失，並把忘記 passcode 的人留在死路，不建議。
 
 用戶選定後：照選項改程式碼與文檔，把本文狀態改成 Accepted 並記下選了哪一項。
+
+## 7. 定案（2026-10-04）
+
+用戶選 **B**。落地內容：
+
+- Settings → Security：Touch ID 開關（後端回報 `unsupported` 時不顯示；暫不可用時不能打開、但能關掉）、passcode 對話框的可選 hint（更改 passcode 時帶入已存的 hint，修掉「改 passcode 會清掉 hint」的 bug）、passcode 列顯示目前的 hint。
+- 鎖定畫面：「用 Touch ID 解鎖」（依 Settings 開關顯示，暫不可用時停用並說明）、「忘記密碼？」（hint、App Lock 只擋這個視窗的說明、把 `config.json` 的 `appLock.enabled` 改成 `false` 來關掉 App Lock、config 路徑與在 Finder 中顯示）。
+- 不做：config 路徑列、上次解鎖時間、鎖定原因、非 macOS 的生物辨識說明。
+- 與第 2 節「不需要改後端」不同的地方：Touch ID 可用與否改為只在開關從關到開時檢查（`validate_app_lock_change`），否則開了 Touch ID 的 Mac 闔上蓋子後，所有設定都存不了。出路沒有新增後端命令：能在鎖定時運作的重設命令就是繞過鎖的方法；改 `config.json` 需要能讀寫這個帳號的檔案，本來就能讀到資料。
+- 已改寫：`archive.md` §8、`screens-and-nav.md`「App Lock 畫面與導航規則」、ADR-007 的平台說明、`TROUBLESHOOTING.md`「You forgot the App Lock passcode」。Touch ID 在 headless E2E 跑不了，由 vault-core `app_lock` 的 Rust 測試覆蓋。

@@ -143,6 +143,8 @@ Changed for Backup (2026-10-04), all additive:
 
 `query_history` also takes `groupByUrl: true` (with search text): one row per URL string instead of per visit, each the page's newest matching visit with `visitCount`, `totalVisits` beside the page `total`, cursor paging only. History search and the ⌘K palette use it (`explorerClient.searchPages`); the timeline does not. Contract and failure modes: `vault-core/src/archive/history/grouped.rs`; cost: `ipc-performance.md` §6.
 
+`preview_rekey_archive` / `rekey_archive` (2026-10-04): `RekeyRequest` gains `currentKey`. For an encrypted archive both commands refuse unless it decrypts the archive file: code `archive-password-required` when it is missing (also what an older client that never sends it gets), `archive-password-wrong` when it does not open the file. The rekey then opens the archive with that verified key and no longer reads the session key, so an unlocked session alone cannot change or remove the encryption, through Tauri or the dev bridge. A plaintext archive has no password and ignores the field. The preview no longer reads the session either, and its `archive-locked` warning code is gone. Why the check opens the file instead of comparing with the session key, and the failure modes it is tested against: `vault-worker/src/current_password.rs`.
+
 Removed, after checking `src/`, the MCP server (`vault-worker/src/mcp.rs`: `search_history`, `archive_status`, `usage_guide` only), the worker CLI, `scripts/` and `tests/`:
 
 - `ask_ai_assistant`, `load_ai_assistant_job`: the Ask page streams through `ai_chat_send`. The queue still drains and replays assistant jobs already stored, so `vault_worker::ask_ai_assistant` and the assistant job type stay.

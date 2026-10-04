@@ -35,7 +35,6 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 - §5 rekey 後的 review：Backup → 最近執行的 sheet 摘要頁標出安全副本並可開啟 / 複製；Settings → Security 不顯示最近一次 rekey 的時間、run id 與安全副本路徑（鎖定時也要保留）。
 - §6 Audit：沒有 snapshot_restore（checkpoint replay）的介面。（manifest / artifact 路徑與「摘要 / 檔案 / 警告」分頁已在 Backup → 最近執行；log / crash report 路徑已在 Settings → About，2026-10-04。）
 - §7 derived-state 面板（2026-10-04 起在 Settings → Background work）：有 module 版本、freshness（最新 / 已過期 / 尚未建立，含過期原因）、上次建立時間、queue、plugin 的已存筆數與上次執行 / 錯誤、rebuild 與 clear（先用 `preview_clear_derived_intelligence` 列出會刪的筆數）。沒有：plugin 版本（後端 `EnrichmentPluginStatus` 沒有版本欄位）、derived tables 的 storage impact 與 latest growth signal、個別 plugin 開關（`enrichmentPlugins` 設定仍在，介面沒有）。
-- §8 App Lock：見 [app-lock-panel-tradeoff.md](../design/app-lock-panel-tradeoff.md)，**待用戶決定**。
 
 ---
 
@@ -286,6 +285,7 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 - Linux 沒有可用 keyring 時：仍允許加密模式，但每次啟動都需要輸入主密碼。不做弱保護 fallback。
 - keyring unavailable、session locked、password-loss 風險與 rekey boundary 不能只留在 Security；Dashboard 與 Settings 也要保留可見 warning 與導向 Security 的修復入口。
 - 提供完整的 rekey 流程：更改密碼、明文→加密、加密→明文。
+- 更改密碼與加密→明文都必須先輸入**目前的密碼**（2026-10-04）：後端用它實際打開 archive 檔案來驗證，錯了就拒絕（preview 與 execute 都檢查），並用驗證過的密碼打開 archive 做 rekey，不使用 session 裡的金鑰。否則任何坐在已解鎖視窗前的人都能把 archive 換成自己的密碼或改成明文。明文→加密沒有目前的密碼，不需要。錯誤碼 `archive-password-required` / `archive-password-wrong`，契約見 `desktop-command-surface.md` §2026-10。
 - rekey execute 必須留下可 review 的 audit summary：至少包含 `rekey` run、safety snapshot path、manifest artifact、以及 Security / Audit 可直接打開的 review surface，而不是只改完 config 就結束。
 - 即使 archive 目前重新上鎖，Security 仍必須保留最近一次 rekey review 的時間、run id 與 safety snapshot path，避免 recoverability 線索只在 unlocked session 內短暫可見。
 - **密碼遺忘等於數據丟失**：UI 中必須有明確、醒目的警告，要求用戶把密碼妥善保存，並且告知風險。
@@ -391,12 +391,13 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 - App Lock 是 **UI session lock**：啟動時、手動鎖定時，以及可配置的閒置逾時（預設 5 分鐘，可調 1–60 分鐘）後出現。
 - Trusted native scheduled-backup worker 是安全例外：它不渲染或回傳 archive data，因此不受 UI session lock 阻擋；archive encryption / keyring 邊界仍完整適用。App Lock 不得讓使用者已安裝的自動備份永久停擺。
 - 目前 shipped unlock path 是 **app-lock passcode + macOS Touch ID**。
-- Touch ID 只在 macOS 上作為真正可用的 session unlock path；Windows / Linux 仍維持 capability / degradation state，不可假裝已有 native biometric parity。
+- Touch ID 只在 macOS 上作為真正可用的 session unlock path；Windows / Linux 不顯示任何生物辨識控制項（後端回報 `unsupported`），不可假裝已有 native biometric parity。
 - biometric toggle 是 authoritative user preference：若使用者在 Settings 關閉 biometric unlock，lock screen 不得再顯示 Touch ID / biometric CTA，backend 也不得繞過設定直接允許 biometric unlock。
 - 目前不 shipping 獨立 PIN mode；passcode 是唯一正式的解鎖憑證。
-- Lock screen 顯示 PathKeep branding、鎖定原因、config path、上次解鎖時間、passcode prompt，以及帶 recovery hint / open-config-path 動作的 recovery callout。
+- Lock screen 顯示 PathKeep branding、passcode prompt；使用者在 Settings 開了 Touch ID 時有「用 Touch ID 解鎖」按鈕（Touch ID 暫時不可用時停用並說明改用 passcode；取消提示不算錯誤）；「忘記密碼？」展開後顯示 recovery hint（沒有就說沒有）、說明 App Lock 只擋住這個視窗、archive 與其密碼不受影響，以及唯一誠實的出路：關掉 PathKeep，把 `config.json` 裡 `appLock.enabled` 改成 `false` 再打開，附 config 路徑與「在 Finder 中顯示」。鎖定畫面上沒有重設按鈕：能在鎖定時運作的重設等於沒有鎖。
 - 鎖定時必須阻斷 shell rendering、desktop query/read commands，以及 MCP 的 history query surface；不能只靠前端遮罩。安全例外 surface 只保留 lock status、unlock、config-path recovery 與非資料型 diagnostics。
-- Settings 的 App Lock panel 必須包含：enable / disable toggle、idle timeout、biometric toggle（若平台未接線或暫不可用則 disabled + honesty note）、passcode set / update / clear、recovery hint、`Lock now`、config path、last unlocked timestamp。
+- Settings 的 App Lock panel 必須包含：enable / disable toggle、idle timeout、Touch ID toggle（只在 macOS 出現；暫不可用時不能打開、但能關掉，並說明原因）、passcode set / update / clear、passcode 對話框裡可選的 recovery hint（更改 passcode 時帶入已存的 hint，避免被清掉；passcode 列顯示目前的 hint）、`Lock now`。不顯示 config path 與上次解鎖時間（2026-10-04 用戶選 [trade-off](../design/app-lock-panel-tradeoff.md) 選項 B）。
+- Touch ID 是否可用只在開關從關到開時檢查；之後 Touch ID 暫時不可用（例如闔上筆電）不影響其他設定的儲存，解鎖時自然退回 passcode。
 - shared profile scope 仍然只是 viewer / filter contract，不會因為 App Lock 而升級成真正的 per-profile partition。
 
 ### 與 Archive Encryption 的區別
@@ -411,11 +412,11 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 
 ### 平台考量
 
-| 平台        | 目前 shipped unlock path | truthful stance                                                                                       |
-| ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------- |
-| **macOS**   | passcode + Touch ID      | Touch ID 現在可用於解鎖當前 UI session；passcode 仍是 required fallback，不取代 archive encryption    |
-| **Windows** | passcode                 | Windows Hello 尚未接進目前 build；Settings / lock screen 顯示 truthful unsupported / degradation note |
-| **Linux**   | passcode                 | 維持 passcode-only；不宣稱有 biometric 支援                                                           |
+| 平台        | 目前 shipped unlock path | truthful stance                                                                                    |
+| ----------- | ------------------------ | -------------------------------------------------------------------------------------------------- |
+| **macOS**   | passcode + Touch ID      | Touch ID 現在可用於解鎖當前 UI session；passcode 仍是 required fallback，不取代 archive encryption |
+| **Windows** | passcode                 | Windows Hello 尚未接進目前 build；Settings / lock screen 不顯示生物辨識控制項                      |
+| **Linux**   | passcode                 | 維持 passcode-only；不顯示也不宣稱有 biometric 支援                                                |
 
 - `PG-RD-PLAT-006` 已定案：App Lock 保護的是 UI session 與 read/query surface，不是 database key；macOS Touch ID 的 additive amendment 見 [ADR-007](../architecture/decisions/007-macos-biometric-session-unlock.md)，session-only boundary 本身仍以 [ADR-005](../architecture/decisions/005-app-lock-session-boundary.md) 為準。
 
@@ -423,4 +424,4 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 
 - 畫面與導航結構 → `docs/design/screens-and-nav.md` §App Lock
 - 決策記錄 → `docs/architecture/decisions/005-app-lock-session-boundary.md`
-- 2026-10 介面（Settings → Security 的 App Lock 分組、`src/app/shell/lock-screen.tsx`）只做了開關、passcode 更改 / 移除、自動鎖定與立即鎖定；biometric 開關與 Touch ID 解鎖、recovery hint、config 路徑、上次解鎖時間都沒有。選項與建議見 [app-lock-panel-tradeoff.md](../design/app-lock-panel-tradeoff.md)，**待用戶決定**；本節要求在決定前不變。
+- 2026-10 介面：Settings → Security 的 App Lock 分組（`src/features/settings/security-section.tsx`、`passcode-dialog.tsx`）、鎖定畫面 `src/app/shell/lock-screen.tsx`（`touch-id-unlock.tsx`、`forgot-passcode.tsx`）。取捨記錄見 [app-lock-panel-tradeoff.md](../design/app-lock-panel-tradeoff.md)（2026-10-04 定案，選項 B）。
