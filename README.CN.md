@@ -1,5 +1,7 @@
 <div align="center">
 
+<img alt="PathKeep" src="docs/design/brand-icon/source/icon-1024.png" width="112" />
+
 # PathKeep —— 留住你走过的路
 
 <img alt="demo" src="https://github.com/user-attachments/assets/6118f6f4-80ee-4cd2-bf44-3989d26eb5e5" />
@@ -21,12 +23,6 @@
 </a>
 <a href="https://github.com/t41372/PathKeep/actions/workflows/release.yml">
 <img alt="Release" src="https://github.com/t41372/PathKeep/actions/workflows/release.yml/badge.svg?branch=main" />
-</a>
-<a href="https://github.com/t41372/PathKeep/actions/workflows/mutation.yml">
-<img alt="Mutation" src="https://github.com/t41372/PathKeep/actions/workflows/mutation.yml/badge.svg?branch=main" />
-</a>
-<a href="https://app.codecov.io/github/t41372/PathKeep">
-<img alt="Codecov" src="https://codecov.io/github/t41372/PathKeep/branch/main/graph/badge.svg" />
 </a>
 <br />
 <a href="https://github.com/t41372/PathKeep/releases">
@@ -251,7 +247,7 @@ PathKeep 严格区分"已实现的适配器"和"公开承诺的支持"。README 
 ### 前置条件
 
 - [Bun](https://bun.sh/)
-- Rust `1.94.1`，包含 `clippy`、`rustfmt`、`llvm-tools-preview`
+- Rust `1.94.1`，包含 `clippy`、`rustfmt`
 - Git
 - [Tauri 2 平台先决条件](https://v2.tauri.app/distribute/)
 
@@ -299,29 +295,15 @@ bun run desktop:build    # 桌面 release 包
 
 ```
 
-bun run check            # 全部主线质量门
-
+bun run check            # lint、构建、Rust 检查与 desktop-bridge E2E 套件
 bun run build            # TypeScript + Vite 打包
-
-bun run test:unit        # Vitest 单元测试
-
-bun run test:e2e         # Playwright 端到端测试
-
-bun run coverage:js      # JS 覆盖率门
-
-bun run coverage:rust    # Rust 覆盖率门
-
-bun run mutation:js      # 桌面契约 JS 变异测试门
-
-bun run mutation:js:full # JS 全量变异深扫
-
-bun run mutation:rust    # Rust 全量变异深扫
-
+bun run test:e2e:desktop-bridge # 对真实 Rust 后端跑 E2E
+bun run test:unit        # Vitest（数量很少，E2E 是主要手段）
 bun run verify           # check + debug 桌面构建演练
 
 ```
 
-完整的门矩阵、深度检查和发版命令见 [TESTING.md](./TESTING.md)。
+门的定义、E2E 产物和发版命令见 [TESTING.md](./TESTING.md)。
 
 ---
 

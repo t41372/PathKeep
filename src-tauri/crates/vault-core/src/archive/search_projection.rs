@@ -12,8 +12,31 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration as StdDuration;
+
+/// Search databases whose schema was verified in this process. Every archive open attaches the
+/// search database, so re-checking (and rewriting the meta row) per open put a write transaction
+/// on every read command.
+static SEARCH_SCHEMA_READY: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+/// Search databases known to hold documents (or to have nothing to project), so opens skip the
+/// emptiness probe.
+static SEARCH_SEEDED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn process_flag_contains(
+    flag: &'static OnceLock<Mutex<HashSet<String>>>,
+    paths: &ProjectPaths,
+) -> bool {
+    let key = paths.search_database_path.display().to_string();
+    flag.get_or_init(Default::default).lock().expect("search flag lock").contains(&key)
+        && paths.search_database_path.exists()
+}
+
+fn process_flag_set(flag: &'static OnceLock<Mutex<HashSet<String>>>, paths: &ProjectPaths) {
+    let key = paths.search_database_path.display().to_string();
+    flag.get_or_init(Default::default).lock().expect("search flag lock").insert(key);
+}
 
 /// Rows reprojected between search-reprojection progress ticks. Coalesces the
 /// per-document loop into a handful of events across the 14.4M tail so the
@@ -90,9 +113,15 @@ DROP TABLE IF EXISTS search_projection_meta;
 "#;
 
 pub(crate) fn ensure_search_projection_bootstrapped(paths: &ProjectPaths) -> Result<()> {
+    if process_flag_contains(&SEARCH_SCHEMA_READY, paths) {
+        return Ok(());
+    }
     ensure_paths(paths)?;
     let connection = open_search_connection(paths)?;
+    // Persistent in the file: readers no longer wait on the writer that refreshes the projection.
+    connection.pragma_update(None, "journal_mode", "WAL")?;
     ensure_search_schema(&connection)?;
+    process_flag_set(&SEARCH_SCHEMA_READY, paths);
     Ok(())
 }
 
@@ -124,10 +153,17 @@ pub(crate) fn seed_search_projection_with_progress<F>(
 where
     F: FnMut(ArchiveUpgradeProgress),
 {
-    let projected_documents: i64 = archive
-        .query_row("SELECT COUNT(*) FROM search.search_documents", [], |row| row.get(0))
-        .unwrap_or_default();
-    if projected_documents > 0 {
+    if process_flag_contains(&SEARCH_SEEDED, paths) {
+        return Ok(());
+    }
+    // An existence probe: a COUNT would walk every projected document on each open.
+    let has_documents = archive
+        .query_row("SELECT 1 FROM search.search_documents LIMIT 1", [], |_| Ok(()))
+        .optional()
+        .unwrap_or_default()
+        .is_some();
+    if has_documents {
+        process_flag_set(&SEARCH_SEEDED, paths);
         return Ok(());
     }
 
@@ -151,7 +187,9 @@ where
                 total,
             ));
         },
-    )
+    )?;
+    process_flag_set(&SEARCH_SEEDED, paths);
+    Ok(())
 }
 
 /// Whether opening the archive will trigger a search-projection reprojection
@@ -968,12 +1006,14 @@ fn ensure_search_schema(connection: &Connection) -> Result<()> {
         connection.execute_batch(RESET_SEARCH_SCHEMA_SQL)?;
     }
     connection.execute_batch(SEARCH_SCHEMA_SQL)?;
-    connection.execute(
-        "INSERT INTO search_projection_meta (key, value)
-         VALUES ('schema_version', ?1)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        params![SEARCH_PROJECTION_SCHEMA_VERSION.to_string()],
-    )?;
+    if current_version != Some(SEARCH_PROJECTION_SCHEMA_VERSION) {
+        connection.execute(
+            "INSERT INTO search_projection_meta (key, value)
+             VALUES ('schema_version', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![SEARCH_PROJECTION_SCHEMA_VERSION.to_string()],
+        )?;
+    }
     Ok(())
 }
 

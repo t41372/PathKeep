@@ -330,6 +330,8 @@ export interface HistoryQuery {
   page?: number | null
   cursor?: string | null
   regexMode?: boolean
+  /** Skip the exact total count. Set it for paged lists; counting 14M rows on every page is slow. */
+  includeTotal?: boolean
 }
 
 /**

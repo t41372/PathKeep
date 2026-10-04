@@ -35,7 +35,7 @@ if (process.argv[1] === scriptPath) {
   })
 
   console.log(
-    `PathKeep desktop bridge enabled at ${resolved.devIpcUrl}. Open ${resolved.devServerUrl} in Chrome or run bun run test:e2e:desktop-bridge.`,
+    `PathKeep desktop bridge enabled at ${resolved.devIpcUrl}. Open ${resolved.devServerUrl} in Chrome or run bun run test:e2e.`,
   )
 
   const child = spawn(

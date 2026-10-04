@@ -140,7 +140,7 @@ export function hasTauriGuestApi() {
  * cheaper and unambiguous). Kept defensive so the helper is safe to call before
  * first paint and inside non-DOM test contexts.
  */
-function isMacOsHost() {
+export function isMacOsHost() {
   if (typeof navigator === 'undefined') {
     return false
   }

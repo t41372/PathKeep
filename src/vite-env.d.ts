@@ -23,5 +23,3 @@
 interface ImportMetaEnv {
   readonly VITE_PATHKEEP_DEV_IPC_URL?: string
 }
-
-declare const __PATHKEEP_BROWSER_PREVIEW_DATASET__: string | undefined

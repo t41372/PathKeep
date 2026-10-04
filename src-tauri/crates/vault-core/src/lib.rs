@@ -97,11 +97,12 @@ pub use archive::{
     BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
     BrowseDayTopUrl, LaunchRecovery, ReconcileReport, archive_status, assess_archive_upgrade,
     doctor, ensure_archive_initialized, ensure_archive_initialized_with_progress, export_history,
-    get_browse_day_insights, list_history, list_recovery_snapshots, load_audit_run_detail,
-    load_dashboard_snapshot, load_history_favicons, load_recent_runs, og_images, og_images_fetch,
-    open_source_evidence_connection, preview_retention, preview_snapshot_restore,
-    reconcile_archive_encryption, recover_archive_on_launch, rekey_archive, repair_health_issues,
-    run_backup, run_backup_with_progress, run_full_archive_snapshot_restore, run_retention_prune,
+    get_browse_day_insights, get_url_detail, list_history, list_recovery_snapshots,
+    load_audit_run_detail, load_dashboard_snapshot, load_history_favicons, load_recent_runs,
+    load_source_stats, og_images, og_images_fetch, open_source_evidence_connection,
+    preview_retention, preview_snapshot_restore, reconcile_archive_encryption,
+    recover_archive_on_launch, rekey_archive, repair_health_issues, run_backup,
+    run_backup_with_progress, run_full_archive_snapshot_restore, run_retention_prune,
     run_snapshot_restore,
 };
 pub use browser_access::{

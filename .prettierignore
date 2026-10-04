@@ -1,4 +1,3 @@
-coverage
 dist
 node_modules
 # Downloaded candle model weights / caches for the env-gated W-AI-4b tests (large, reproducible).
@@ -6,13 +5,11 @@ artifacts/candle-models
 src-tauri/artifacts
 **/candle-models
 playwright-report
+artifacts/e2e
 .playwright-mcp
 reports
 src-tauri/gen/schemas
-src-tauri/mutants.out
-src-tauri/mutants.out.old
 src-tauri/target
-target-llvmcov
 test-results
 
 # Handoff design package — source-of-truth, not authored by us
@@ -27,3 +24,4 @@ src-tauri/crates/vault-core/tests/fixtures/static_parity_potion_multilingual.jso
 # committed harness.wasm, so prettier must never reformat it (formatter churn
 # would silently desync the source from the pinned artifact → fail-closed).
 src-tauri/crates/vault-core/src/ai/code_mode_guest/
+docs/design/prototype-2026-10/

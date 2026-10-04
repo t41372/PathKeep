@@ -16,7 +16,74 @@
 
 ---
 
+## 巨型檔案清單（2026-10-02 量測）
+
+> 量測方式：版本庫追蹤中的 `src/`、`src-tauri/` 下 `.ts` / `.tsx` / `.rs` / `.css` / `.sql` / `.mjs` 檔，`wc -l`，列出 1000 行以上的（AGENTS.md：重構超過 1000 行的檔案前，先做審查階段）。量測時是 `redesign/v0.4` 的 `5edf5645`；同時有其他分支在改 Rust，行數會有小幅出入。
+> 「程式碼」的行數包含同檔的 `#[cfg(test)]` 區塊。舊表中 `vault-core/src/intelligence_runtime.rs`、`vault-core/src/models.rs`、`vault-core/src/remote.rs`、`src/pages/intelligence/sections.tsx` 已不存在（前三個拆成目錄或刪除，最後一個隨舊前端刪除）。
+
+共 53 個檔案。前端只有三個：兩個是照原樣保留的 EvilCharts 圖表，一個是型別定義；手寫的畫面元件最大的是 `src/features/onboarding/onboarding-page.tsx`（441 行）。
+
+| 檔案                                                                    | 行數 | 類型                               |
+| ----------------------------------------------------------------------- | ---- | ---------------------------------- |
+| `src-tauri/crates/vault-core/src/ai/tests.rs`                           | 5871 | 測試檔                             |
+| `src-tauri/crates/vault-core/src/archive/tests.rs`                      | 4540 | 測試檔                             |
+| `src-tauri/crates/vault-core/src/archive/maintenance.rs`                | 3610 | 程式碼                             |
+| `src-tauri/crates/vault-worker/src/tests.rs`                            | 3574 | 測試檔                             |
+| `src-tauri/crates/vault-core/src/migration.rs`                          | 3092 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/ai/agent_harness.rs`                   | 3047 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/ai/agent_tools.rs`                     | 2945 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/models/intelligence.rs`                | 2713 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/archive/at_rest.rs`                    | 2689 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/agent_store.rs`                        | 2318 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/migration/fault_tests.rs`              | 2063 | 測試檔                             |
+| `src-tauri/crates/vault-core/src/ai/embedding_candle.rs`                | 2056 | 程式碼                             |
+| `src-tauri/crates/vault-worker/src/archive_flows.rs`                    | 2006 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/archive/search_projection.rs`          | 1949 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/enrichment/content_fetch.rs`           | 1928 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/ai/search.rs`                          | 1747 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/ai/code_mode/tests.rs`                 | 1656 | 測試檔                             |
+| `src-tauri/crates/vault-core/src/enrichment.rs`                         | 1635 | 程式碼                             |
+| `src-tauri/crates/browser-history-parser/src/chromium/mod.rs`           | 1559 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/archive/history/og_images_fetch.rs`    | 1462 | 程式碼                             |
+| `src/components/evilcharts/charts/recharts-bar-chart.tsx`               | 1459 | vendored（EvilCharts，照原樣保留） |
+| `src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs`     | 1368 | 測試情境                           |
+| `src-tauri/crates/vault-core/src/intelligence/tests/schema_overview.rs` | 1363 | 測試檔                             |
+| `src-tauri/crates/vault-core/src/ai/code_mode.rs`                       | 1357 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/ai/llm.rs`                             | 1342 | 程式碼                             |
+| `src-tauri/crates/vault-platform/src/scheduler.rs`                      | 1341 | 程式碼                             |
+| `src-tauri/src/worker_bridge/mod.rs`                                    | 1337 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/archive/history/og_images.rs`          | 1326 | 程式碼                             |
+| `src-tauri/crates/vault-worker/src/intelligence/ai_queue.rs`            | 1312 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/archive/schema.rs`                     | 1286 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/takeout/browser_history.rs`            | 1284 | 程式碼                             |
+| `src/components/evilcharts/charts/recharts-area-chart.tsx`              | 1282 | vendored（EvilCharts，照原樣保留） |
+| `src-tauri/crates/vault-core/src/ai/embedding_static.rs`                | 1249 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/stars/tests.rs`                        | 1245 | 測試檔                             |
+| `src-tauri/crates/vault-core/src/takeout/tests.rs`                      | 1243 | 測試檔                             |
+| `src-tauri/crates/vault-core/src/intelligence/tests/stage_rebuild.rs`   | 1235 | 測試檔                             |
+| `src-tauri/src/dev_ipc_bridge/dispatch.rs`                              | 1221 | 程式碼                             |
+| `src-tauri/crates/browser-history-parser/src/takeout/tests.rs`          | 1206 | 測試檔                             |
+| `src/lib/types/intelligence.ts`                                         | 1186 | 型別定義                           |
+| `src-tauri/crates/vault-core/src/archive/history.rs`                    | 1181 | 程式碼                             |
+| `src-tauri/crates/browser-history-parser/src/safari/mod.rs`             | 1177 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/ai/indexing/backfill.rs`               | 1159 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/chrome/tests.rs`                       | 1149 | 測試檔                             |
+| `src-tauri/src/dev_ipc_bridge/dispatch/tests.rs`                        | 1147 | 測試檔                             |
+| `src-tauri/crates/vault-core/src/archive/write_lock.rs`                 | 1137 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/intelligence_runtime/tests_queue.rs`   | 1133 | 測試檔                             |
+| `src-tauri/crates/vault-worker/src/intelligence/chat.rs`                | 1131 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/intelligence/host_artifacts.rs`        | 1098 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/intelligence/phase_three.rs`           | 1091 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/ai_queue.rs`                           | 1081 | 程式碼                             |
+| `src-tauri/crates/vault-core/examples/intelligence-benchmark.rs`        | 1042 | benchmark 範例                     |
+| `src-tauri/crates/vault-platform/src/scheduler/macos.rs`                | 1023 | 程式碼                             |
+| `src-tauri/crates/vault-core/src/archive/history/day_insights.rs`       | 1017 | 程式碼                             |
+
+---
+
 ## 前端基線
+
+> **2026-10-02：** 本節描述 2026-04 的前端（`src/pages/`、`src/styles/tokens.css`、`src/components/{sidebar,topbar,primitives}/`、`src/lib/backend.ts`），這些都已在 M18 redesign 刪除。現在的前端結構見 [module-boundary-map.md](../../architecture/module-boundary-map.md)「前端（2026-10 redesign 之後）」，畫面見 [screens-and-nav.md](../../design/screens-and-nav.md)。以下留作紀錄。
 
 ### 觀察
 
@@ -45,6 +112,8 @@
 ---
 
 ## 後端與資料平面基線
+
+> **2026-10-02：** 下面觀察裡的行數是 2026-04 的數字（例如 `intelligence/mod.rs` 9152 行，現在 431 行；`intelligence_runtime.rs` 已拆成目錄）。現在的大檔看上方「巨型檔案清單」。
 
 ### 觀察
 
@@ -124,7 +193,9 @@
 **非 AI 的兩個既存大檔（登記在案，不在本次範圍）**：
 
 - [`vault-worker/src/archive_flows.rs`](../../../src-tauri/crates/vault-worker/src/archive_flows.rs) ~1845 行：og:image 抓取 worker-pool 是裡面最該抽出的一塊（建議抽到專屬 module），其餘 archive flow orchestration 責任本身正確。
-- [`src/pages/intelligence/sections.tsx`](../../../src/pages/intelligence/sections.tsx) ~1086 行：intelligence 頁多個 section 擠在單檔，應按 section 拆成子組件。
+- ~~`src/pages/intelligence/sections.tsx` ~1086 行~~：已隨舊前端刪除（2026-10）。
+
+> 2026-10-02：本節的行數是 2026-06-21 的數字。現在 `ai/tests.rs` 5871、`embedding_candle.rs` 2056、`agent_harness.rs` 3047、`llm.rs` 1342、`embedding_static.rs` 1249、`ai/search.rs` 1747、`archive_flows.rs` 2006 行，見上方「巨型檔案清單」。
 
 ### 待辦
 
@@ -137,6 +208,8 @@
 ---
 
 ## 品質、測試與發版基線
+
+> **2026-10-02：** M18 刪掉了 mutation test（Stryker、`mutation:*`）、100% coverage gate（`coverage:js` / `coverage:rust`）與舊的 Vitest 頁面測試；E2E（`bun run test:e2e`，真 Rust 後端）是主要手段。下面的觀察與 test pyramid 是 2026-04 的狀態，現行 gate 以 [quality-matrix.md](quality-matrix.md) 與 `TESTING.md` 為準。
 
 ### 觀察
 

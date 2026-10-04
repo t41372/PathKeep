@@ -1,538 +1,74 @@
-/**
- * This module is the canonical route registry for the desktop shell, including sidebar metadata and route handles.
- *
- * Why this file exists:
- * - Files under `src/app/` explain how the desktop shell is stitched together before route-specific UI takes over.
- * - This is where shared profile scope, app-lock gating, route metadata, and shell-level loading grammar should stay readable.
- *
- * Main declarations:
- * - `AppRouteId`
- * - `NavigationSection`
- * - `AppScreen`
- * - `onboardingScreen`
- * - `appScreens`
- * - `sidebarSections`
- * - `appRoutes`
- * - `readRouteHandle`
- *
- * Source-of-truth notes:
- * - Keep this aligned with `docs/design/screens-and-nav.md` for information architecture and route semantics.
- * - Keep busy, locked, degraded, and loading behavior aligned with `docs/design/ux-principles.md`.
- */
+/** Routes. Each screen is code-split so the first paint only loads the shell. */
+import { lazy, Suspense, type ComponentType } from 'react'
+import { createHashRouter, Navigate } from 'react-router-dom'
+import { Skeleton } from '@/components/ui/skeleton'
+import { AppFrame } from './shell/app-frame'
+import { RouteError } from './shell/route-error'
 
-import { Navigate, type RouteObject } from 'react-router-dom'
-import { OnboardingShell } from './onboarding-shell'
-import { RouteHydrateFallback } from './route-hydrate-fallback'
-import { RequireLockScreen, RequireUnlockedShell } from './route-guards'
-import { AppShell } from './shell'
-import { ShellRouteErrorBoundary } from './shell-route-error-boundary'
-import type { GlyphIconName } from '../components/ui'
-
-/**
- * Defines the type-level contract for app route id.
- *
- * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
- */
-export type AppRouteId =
-  | 'dashboard'
-  | 'explorer'
-  | 'search'
-  | 'intelligence'
-  | 'assistant'
-  | 'import'
-  | 'audit'
-  | 'jobs'
-  | 'schedule'
-  | 'integrations'
-  | 'security'
-  | 'maintenance'
-  | 'settings'
-  | 'onboarding'
-
-/**
- * Defines the type-level contract for navigation section.
- *
- * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
- */
-export type NavigationSection = 'CORE' | 'OPERATIONS' | 'SYSTEM'
-
-/**
- * Defines the typed shape for app screen.
- *
- * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
- */
-export interface AppScreen {
-  id: AppRouteId
-  titleKey: string
-  labelKey: string
-  subtitleKey: string
-  icon: GlyphIconName
-  href: string
-  badgeKey?: string
-  section?: NavigationSection
+function ScreenFallback() {
+  return (
+    <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-5 px-10 py-9">
+      <Skeleton className="h-9 w-64" />
+      <div className="grid grid-cols-4 gap-3">
+        {Array.from({ length: 4 }, (_, index) => (
+          <Skeleton key={index} className="h-24 rounded-xl" />
+        ))}
+      </div>
+      <Skeleton className="h-64 rounded-xl" />
+    </div>
+  )
 }
 
-/**
- * Defines the typed shape for route handle.
- *
- * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
- */
-interface RouteHandle {
-  screen: AppScreen
+function screen(load: () => Promise<{ default: ComponentType }>) {
+  const Screen = lazy(load)
+  return (
+    <Suspense fallback={<ScreenFallback />}>
+      <Screen />
+    </Suspense>
+  )
 }
 
-/**
- * Collects the screen metadata that the shell uses for navigation and routing.
- *
- * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
- */
-const appShellScreens: AppScreen[] = [
-  {
-    id: 'dashboard',
-    labelKey: 'navigation.dashboardLabel',
-    titleKey: 'navigation.dashboardTitle',
-    subtitleKey: 'navigation.dashboardSubtitle',
-    icon: 'bar_chart',
-    href: '/',
-    section: 'CORE',
-  },
-  {
-    id: 'explorer',
-    labelKey: 'navigation.explorerLabel',
-    titleKey: 'navigation.explorerTitle',
-    subtitleKey: 'navigation.explorerSubtitle',
-    icon: 'auto_stories',
-    href: '/explorer',
-    section: 'CORE',
-  },
-  {
-    id: 'search',
-    labelKey: 'navigation.searchLabel',
-    titleKey: 'navigation.searchTitle',
-    subtitleKey: 'navigation.searchSubtitle',
-    icon: 'search',
-    href: '/search',
-    section: 'CORE',
-  },
-  {
-    id: 'intelligence',
-    labelKey: 'navigation.intelligenceLabel',
-    titleKey: 'navigation.intelligenceTitle',
-    subtitleKey: 'navigation.intelligenceSubtitle',
-    icon: 'memory',
-    href: '/intelligence',
-    section: 'CORE',
-  },
-  {
-    id: 'assistant',
-    labelKey: 'navigation.assistantLabel',
-    titleKey: 'navigation.assistantTitle',
-    subtitleKey: 'navigation.assistantSubtitle',
-    icon: 'smart_toy',
-    href: '/assistant',
-    section: 'CORE',
-  },
-  {
-    id: 'import',
-    labelKey: 'navigation.importLabel',
-    titleKey: 'navigation.importTitle',
-    subtitleKey: 'navigation.importSubtitle',
-    icon: 'download',
-    href: '/import',
-    section: 'OPERATIONS',
-  },
-  {
-    id: 'audit',
-    labelKey: 'navigation.auditLabel',
-    titleKey: 'navigation.auditTitle',
-    subtitleKey: 'navigation.auditSubtitle',
-    icon: 'history',
-    href: '/audit',
-    section: 'OPERATIONS',
-  },
-  {
-    id: 'jobs',
-    labelKey: 'navigation.jobsLabel',
-    titleKey: 'navigation.jobsTitle',
-    subtitleKey: 'navigation.jobsSubtitle',
-    icon: 'database',
-    href: '/jobs',
-    section: 'OPERATIONS',
-  },
-  {
-    id: 'schedule',
-    labelKey: 'navigation.scheduleLabel',
-    titleKey: 'navigation.scheduleTitle',
-    subtitleKey: 'navigation.scheduleSubtitle',
-    icon: 'sync',
-    href: '/schedule',
-    section: 'SYSTEM',
-  },
-  {
-    id: 'security',
-    labelKey: 'navigation.securityLabel',
-    titleKey: 'navigation.securityTitle',
-    subtitleKey: 'navigation.securitySubtitle',
-    icon: 'shield',
-    href: '/security',
-    section: 'SYSTEM',
-  },
-  {
-    id: 'settings',
-    labelKey: 'navigation.settingsLabel',
-    titleKey: 'navigation.settingsTitle',
-    subtitleKey: 'navigation.settingsSubtitle',
-    icon: 'settings',
-    href: '/settings',
-    section: 'SYSTEM',
-  },
-  {
-    id: 'integrations',
-    labelKey: 'navigation.integrationsLabel',
-    titleKey: 'navigation.integrationsTitle',
-    subtitleKey: 'navigation.integrationsSubtitle',
-    icon: 'cloud_upload',
-    href: '/integrations',
-    section: 'OPERATIONS',
-  },
-  {
-    id: 'maintenance',
-    labelKey: 'navigation.maintenanceLabel',
-    titleKey: 'navigation.maintenanceTitle',
-    subtitleKey: 'navigation.maintenanceSubtitle',
-    icon: 'build',
-    href: '/maintenance',
-    section: 'SYSTEM',
-  },
-]
-
-/**
- * Exposes the shared onboarding screen declaration used by this module.
- *
- * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
- */
-export const onboardingScreen: AppScreen = {
-  id: 'onboarding',
-  labelKey: 'navigation.onboardingLabel',
-  titleKey: 'navigation.onboardingTitle',
-  subtitleKey: 'navigation.onboardingSubtitle',
-  icon: 'check',
-  href: '/onboarding',
+export function createAppRouter() {
+  return createHashRouter([
+    {
+      element: <AppFrame />,
+      errorElement: <RouteError />,
+      children: [
+        {
+          index: true,
+          element: screen(() => import('@/features/home/home-page')),
+        },
+        {
+          path: 'history',
+          element: screen(() => import('@/features/history/history-page')),
+        },
+        {
+          path: 'insights',
+          element: screen(() => import('@/features/insights/insights-page')),
+        },
+        {
+          path: 'ask',
+          element: screen(() => import('@/features/ask/ask-page')),
+        },
+        {
+          path: 'backup',
+          element: screen(() => import('@/features/backup/backup-page')),
+        },
+        {
+          path: 'settings/:section?',
+          element: screen(() => import('@/features/settings/settings-page')),
+        },
+        { path: '*', element: <Navigate to="/" replace /> },
+      ],
+    },
+  ])
 }
 
-/**
- * Collects the screen metadata that the shell uses for navigation and routing.
- *
- * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
- */
-export const appScreens = [...appShellScreens, onboardingScreen]
-
-/**
- * Looks up an `AppScreen` by its stable id. Use this from the router so
- * inserting / reordering entries in `appShellScreens` doesn't silently
- * desync `appShellScreens[N]` callsites — the bug pattern that bit us
- * when the `search` entry landed between `explorer` and `intelligence`.
- */
-export function findAppScreen(id: AppRouteId): AppScreen {
-  const match = appScreens.find((entry) => entry.id === id)
-  if (!match) {
-    throw new Error(`Unknown app screen id: ${id}`)
-  }
-  return match
-}
-
-/**
- * Groups navigation metadata into the sidebar sections shown by the shell.
- *
- * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
- */
-export const sidebarSections = [
-  {
-    id: 'core',
-    labelKey: 'navigation.coreSection',
-    items: appShellScreens.filter((screen) => screen.section === 'CORE'),
-  },
-  {
-    id: 'operations',
-    labelKey: 'navigation.operationsSection',
-    items: appShellScreens.filter((screen) => screen.section === 'OPERATIONS'),
-  },
-  {
-    id: 'system',
-    labelKey: 'navigation.systemSection',
-    items: appShellScreens.filter((screen) => screen.section === 'SYSTEM'),
-  },
-]
-
-/**
- * Explains how with handle works.
- *
- * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
- */
-function withHandle(screen: AppScreen): RouteHandle {
-  return { screen }
-}
-
-const appRouteChildren: RouteObject[] = [
-  {
-    index: true,
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/dashboard')
-      return { Component: module.DashboardPage }
+export function createOnboardingRouter() {
+  return createHashRouter([
+    {
+      path: '*',
+      element: screen(() => import('@/features/onboarding/onboarding-page')),
     },
-    handle: withHandle(findAppScreen('dashboard')),
-  },
-  {
-    path: 'explorer',
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/explorer')
-      return { Component: module.ExplorerPage }
-    },
-    handle: withHandle(findAppScreen('explorer')),
-  },
-  {
-    // `/search` mounts the same ExplorerPage component as `/explorer`, but
-    // keeps its own URL + route handle so the sidebar highlights "Search"
-    // and the topbar title reads "Search" instead of "History Explorer".
-    // The earlier `<Navigate to="/explorer?surface=search" />` redirect
-    // lost the route handle (useMatches resolved to the explorer route
-    // after the redirect), so the active-screen indicator silently flipped
-    // back to Browse. ExplorerPage detects `pathname === '/search'` and
-    // treats it as the search surface — see `paperSearchSurface` /
-    // `surfaceIsSearch` in src/pages/explorer/index.tsx.
-    path: 'search',
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/explorer')
-      return { Component: module.ExplorerPage }
-    },
-    handle: withHandle(findAppScreen('search')),
-  },
-  {
-    path: 'intelligence',
-    handle: withHandle(findAppScreen('intelligence')),
-    ErrorBoundary: ShellRouteErrorBoundary,
-    children: [
-      {
-        index: true,
-        ErrorBoundary: ShellRouteErrorBoundary,
-        lazy: async () => {
-          const module = await import('../pages/intelligence')
-          return { Component: module.IntelligencePage }
-        },
-      },
-      {
-        path: 'domain/:domain',
-        ErrorBoundary: ShellRouteErrorBoundary,
-        lazy: async () => {
-          const module = await import('../pages/intelligence')
-          return { Component: module.DomainDeepDiveRoutePage }
-        },
-      },
-      {
-        path: 'query-family/:familyId',
-        ErrorBoundary: ShellRouteErrorBoundary,
-        lazy: async () => {
-          const module = await import('../pages/intelligence')
-          return { Component: module.QueryFamilyInsightsRoutePage }
-        },
-      },
-      {
-        path: 'refind/:canonicalUrl',
-        ErrorBoundary: ShellRouteErrorBoundary,
-        lazy: async () => {
-          const module = await import('../pages/intelligence')
-          return { Component: module.RefindPageInsightsRoutePage }
-        },
-      },
-      {
-        path: 'session/:sessionId',
-        ErrorBoundary: ShellRouteErrorBoundary,
-        lazy: async () => {
-          const module = await import('../pages/intelligence')
-          return { Component: module.SessionInsightsRoutePage }
-        },
-      },
-      {
-        path: 'trail/:trailId',
-        ErrorBoundary: ShellRouteErrorBoundary,
-        lazy: async () => {
-          const module = await import('../pages/intelligence')
-          return { Component: module.TrailInsightsRoutePage }
-        },
-      },
-      {
-        path: 'compare-set/:compareSetId',
-        ErrorBoundary: ShellRouteErrorBoundary,
-        lazy: async () => {
-          const module = await import('../pages/intelligence')
-          return { Component: module.CompareSetInsightsRoutePage }
-        },
-      },
-      {
-        path: 'day/:date',
-        ErrorBoundary: ShellRouteErrorBoundary,
-        lazy: async () => {
-          const module = await import('../pages/intelligence')
-          return { Component: module.DayInsightsRoutePage }
-        },
-      },
-      {
-        path: 'year/:year',
-        ErrorBoundary: ShellRouteErrorBoundary,
-        lazy: async () => {
-          const module = await import('../pages/intelligence')
-          return { Component: module.YearReviewPage }
-        },
-      },
-    ],
-  },
-  {
-    path: 'assistant',
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/assistant')
-      return { Component: module.AssistantPage }
-    },
-    handle: withHandle(findAppScreen('assistant')),
-  },
-  {
-    path: 'import',
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/import')
-      return { Component: module.ImportPage }
-    },
-    handle: withHandle(findAppScreen('import')),
-  },
-  {
-    path: 'audit',
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/audit')
-      return { Component: module.AuditPage }
-    },
-    handle: withHandle(findAppScreen('audit')),
-  },
-  {
-    path: 'jobs',
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/jobs')
-      return { Component: module.JobsPage }
-    },
-    handle: withHandle(findAppScreen('jobs')),
-  },
-  {
-    path: 'schedule',
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/schedule')
-      return { Component: module.SchedulePage }
-    },
-    handle: withHandle(findAppScreen('schedule')),
-  },
-  {
-    path: 'integrations',
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/integrations')
-      return { Component: module.IntegrationsPage }
-    },
-    handle: withHandle(findAppScreen('integrations')),
-  },
-  {
-    path: 'security',
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/security')
-      return { Component: module.SecurityPage }
-    },
-    handle: withHandle(findAppScreen('security')),
-  },
-  {
-    path: 'maintenance',
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/maintenance')
-      return { Component: module.MaintenancePage }
-    },
-    handle: withHandle(findAppScreen('maintenance')),
-  },
-  {
-    path: 'settings',
-    ErrorBoundary: ShellRouteErrorBoundary,
-    lazy: async () => {
-      const module = await import('../pages/settings')
-      return { Component: module.SettingsPage }
-    },
-    handle: withHandle(findAppScreen('settings')),
-  },
-]
-
-/**
- * Defines the route tree or route registry used by the desktop shell.
- *
- * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
- */
-export const appRoutes: RouteObject[] = [
-  {
-    path: '/',
-    element: (
-      <RequireUnlockedShell>
-        <AppShell />
-      </RequireUnlockedShell>
-    ),
-    hydrateFallbackElement: <RouteHydrateFallback />,
-    children: appRouteChildren,
-  },
-  {
-    path: '/lock',
-    element: <RequireLockScreen />,
-  },
-  {
-    path: '/onboarding',
-    element: (
-      <RequireUnlockedShell>
-        <OnboardingShell />
-      </RequireUnlockedShell>
-    ),
-    hydrateFallbackElement: <RouteHydrateFallback />,
-    handle: withHandle(onboardingScreen),
-    children: [
-      {
-        index: true,
-        lazy: async () => {
-          const module = await import('../pages/onboarding')
-          return { Component: module.OnboardingPage }
-        },
-        handle: withHandle(onboardingScreen),
-      },
-    ],
-  },
-  {
-    path: '*',
-    element: <Navigate replace to="/" />,
-  },
-]
-
-/**
- * Reads route handle from the current runtime.
- *
- * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
- */
-export function readRouteHandle(handle: unknown): RouteHandle | null {
-  if (
-    typeof handle === 'object' &&
-    handle !== null &&
-    'screen' in handle &&
-    typeof handle.screen === 'object' &&
-    handle.screen !== null
-  ) {
-    return handle as RouteHandle
-  }
-
-  return null
+  ])
 }

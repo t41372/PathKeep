@@ -56,6 +56,44 @@ pub struct BrowserProfile {
     pub retention_boundary: BrowserRetentionBoundary,
 }
 
+/// Visits one source profile has contributed to the archive.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceStats {
+    /// Same id as `BrowserProfile.profile_id` (`chrome:Default`).
+    pub profile_id: String,
+    pub browser_name: String,
+    pub profile_name: String,
+    pub visit_count: i64,
+    pub first_visit_at: Option<String>,
+    pub last_visit_at: Option<String>,
+}
+
+/// One calendar week of visits to a single URL.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UrlWeeklyVisits {
+    /// Local Monday of the week, `YYYY-MM-DD`.
+    pub week_start: String,
+    pub visits: i64,
+}
+
+/// Everything the History detail panel shows about one URL.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UrlDetail {
+    pub url: String,
+    pub title: Option<String>,
+    pub domain: String,
+    pub total_visits: i64,
+    pub first_visit_at: Option<String>,
+    pub last_visit_at: Option<String>,
+    /// Browser names that recorded the URL, most visits first.
+    pub browsers: Vec<String>,
+    /// Twelve entries, oldest first, ending with the current week.
+    pub weekly_visits: Vec<UrlWeeklyVisits>,
+}
+
 /// Compact run-ledger summary used in lists and dashboards.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -563,6 +601,10 @@ pub struct HistoryQuery {
     pub page: Option<u32>,
     pub cursor: Option<String>,
     pub regex_mode: Option<bool>,
+    /// `Some(false)` skips the exact match count. Paged lists need it off: the count walks every
+    /// matching visit, which is seconds on a 14M-row archive.
+    #[serde(default)]
+    pub include_total: Option<bool>,
 }
 
 impl Default for HistoryQuery {
@@ -580,6 +622,7 @@ impl Default for HistoryQuery {
             page: None,
             cursor: None,
             regex_mode: Some(false),
+            include_total: None,
         }
     }
 }
@@ -722,7 +765,11 @@ pub struct HistoryEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryQueryResponse {
+    /// Exact match count, or the size of this page when `total_exact` is false.
     pub total: usize,
+    /// False when the caller asked for `include_total: false`.
+    #[serde(default = "default_total_exact")]
+    pub total_exact: bool,
     pub items: Vec<HistoryEntry>,
     pub page: usize,
     pub page_size: usize,
@@ -732,10 +779,15 @@ pub struct HistoryQueryResponse {
     pub next_cursor: Option<String>,
 }
 
+fn default_total_exact() -> bool {
+    true
+}
+
 impl Default for HistoryQueryResponse {
     fn default() -> Self {
         Self {
             total: 0,
+            total_exact: true,
             items: Vec::new(),
             page: 1,
             page_size: 0,

@@ -44,6 +44,8 @@ mod search_projection;
 mod search_query;
 mod source_evidence;
 mod source_evidence_builder;
+mod source_stats;
+mod url_detail;
 mod write_lock;
 
 pub(crate) use self::artifacts::{
@@ -98,6 +100,8 @@ pub(crate) use self::source_evidence_builder::{
     DeferredSourceEvidenceBuilder, SourceEvidenceCounts, coverage_stats_json_from_counts,
     coverage_stats_json_from_parts,
 };
+pub use self::source_stats::load_source_stats;
+pub use self::url_detail::get_url_detail;
 // The cross-process archive write lock (W: serialize every destructive archive op so the
 // out-of-process scheduled backup can never race a GUI rekey/mode-toggle), plus the in-process
 // top-level [`ArchiveOpGate`] that serializes two same-process top-level destructive ops (CRIT-5's

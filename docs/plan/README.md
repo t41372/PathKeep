@@ -2,6 +2,8 @@
 
 # PathKeep — 工作計劃與進度追蹤
 
+> **測試政策（2026-10）**：已取消 mutation test 與 100% 覆蓋率門檻，改以 E2E 為主。本目錄內更早的 closeout 記錄提到的 `coverage:*` / `mutation:*` / `check:deep` 都是歷史，現行 gate 見 [program/quality-matrix.md](program/quality-matrix.md)。
+
 > **Status:** Living document · **Rebuilt:** 2026-04-05  
 > 本目錄是 PathKeep 的實作層 source of truth。  
 > 產品願景、需求和設計定義在 [vision-and-requirements.md](../vision-and-requirements.md) 與它的子文檔裡；這裡回答的是 **接下來怎麼做、先做什麼、哪些事情卡住了、每個里程碑拆到哪一層**。

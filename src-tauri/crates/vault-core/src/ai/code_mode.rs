@@ -679,6 +679,7 @@ impl HostState {
                 page: None,
                 cursor: None,
                 regex_mode: Some(false),
+                include_total: Some(false),
             },
         )?;
         let items: Vec<crate::models::AiSearchEntry> = listing

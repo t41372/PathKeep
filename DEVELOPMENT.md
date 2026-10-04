@@ -7,7 +7,7 @@ This document is the maintainer-facing guide for running PathKeep locally withou
 Install:
 
 - Bun
-- Rust `1.94.1` with `clippy`, `rustfmt`, and `llvm-tools-preview`
+- Rust `1.94.1` with `clippy` and `rustfmt`
 - Git
 - Tauri 2 host dependencies for your platform
 
@@ -42,7 +42,7 @@ bun run check
 bun run build
 ```
 
-Use [TESTING.md](./TESTING.md) when you need deeper validation or release signoff.
+`bun run check` ends with the desktop-bridge E2E suite and leaves its report in `artifacts/e2e/desktop-bridge/`. See [TESTING.md](./TESTING.md) for details and release signoff.
 
 ## Surface Boundaries
 
@@ -74,7 +74,7 @@ Honest boundary:
 
 ## Repo Map
 
-- `src/main.tsx`: desktop entrypoint covered by the desktop-contract sub-gate.
+- `src/main.tsx`: desktop entrypoint.
 - `src/app/`: shell provider, router, route chrome, and preview orchestration.
 - `src/pages/`: route-scoped UI surfaces.
 - `src/lib/backend.ts`: browser-preview and mock backend reference surface.

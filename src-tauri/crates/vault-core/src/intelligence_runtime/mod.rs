@@ -287,18 +287,19 @@ pub(super) const BUILT_IN_ENRICHMENT_PLUGINS: [EnrichmentPluginDefinition; 2] = 
 /// Ensures the persistent intelligence runtime tables exist.
 pub(crate) fn ensure_intelligence_runtime_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(INTELLIGENCE_RUNTIME_SCHEMA_SQL)?;
-    // Runtime tables are created with `CREATE TABLE IF NOT EXISTS`, so a DB
-    // written before the column existed keeps its old shape. The nullable ALTER
-    // follows the guarded pattern from
-    // `enrichment::add_visit_content_enrichment_w_enrich_columns`: a fresh DB
-    // already has the column and the duplicate-column error is the no-op.
-    if let Err(error) = connection
-        .execute("ALTER TABLE deterministic_module_runtime ADD COLUMN stale_reason_code TEXT", [])
-    {
-        let message = error.to_string();
-        if !message.contains("duplicate column name") {
-            return Err(error.into());
-        }
+    // Runtime tables are created with `CREATE TABLE IF NOT EXISTS`, so a database written before
+    // this column existed keeps its old shape.
+    let has_stale_reason: bool = connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM pragma_table_info('deterministic_module_runtime')
+                        WHERE name = 'stale_reason_code')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_stale_reason {
+        connection.execute(
+            "ALTER TABLE deterministic_module_runtime ADD COLUMN stale_reason_code TEXT",
+            [],
+        )?;
     }
     Ok(())
 }

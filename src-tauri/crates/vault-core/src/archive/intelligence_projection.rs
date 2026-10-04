@@ -14,11 +14,11 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use rusqlite::Connection;
+use std::collections::HashSet;
 #[cfg(test)]
 use std::panic::Location;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
-#[cfg(test)]
 use std::sync::{Mutex, OnceLock};
 #[cfg(test)]
 use std::thread::{self, ThreadId};
@@ -26,6 +26,11 @@ use std::time::Duration as StdDuration;
 
 const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
 const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
+
+/// Intelligence databases whose schema was ensured in this process. Every intelligence read opens
+/// a connection; replaying a dozen `CREATE ... IF NOT EXISTS` and `ALTER` statements each time was
+/// measurable on the first-paint path.
+static INTELLIGENCE_SCHEMA_READY: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[cfg(test)]
 static OPEN_INTELLIGENCE_CONNECTION_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -62,11 +67,21 @@ pub fn open_intelligence_connection(
         }
     }
     ensure_paths(paths)?;
+    let schema_key = paths.intelligence_database_path.display().to_string();
+    // Checked before `open` creates the file, so a deleted database is rebuilt.
+    let schema_ready = paths.intelligence_database_path.exists()
+        && INTELLIGENCE_SCHEMA_READY
+            .get_or_init(Default::default)
+            .lock()
+            .expect("intelligence schema flag lock")
+            .contains(&schema_key);
     let connection = Connection::open(&paths.intelligence_database_path)
         .with_context(|| format!("opening {}", paths.intelligence_database_path.display()))?;
     connection.busy_timeout(StdDuration::from_secs(5))?;
     connection.pragma_update(None, "foreign_keys", true)?;
-    connection.pragma_update(None, "journal_mode", "WAL")?;
+    if !schema_ready {
+        connection.pragma_update(None, "journal_mode", "WAL")?;
+    }
     connection.pragma_update(None, "synchronous", "NORMAL")?;
     connection.pragma_update(None, "cache_size", SQLITE_CACHE_SIZE_KIB)?;
     connection.pragma_update(None, "temp_store", "MEMORY")?;
@@ -74,10 +89,17 @@ pub fn open_intelligence_connection(
     attach_archive_database(&connection, paths, config, key)?;
     connection.pragma_update(Some("archive"), "cache_size", SQLITE_CACHE_SIZE_KIB)?;
     let _ = connection.pragma_update(Some("archive"), "mmap_size", SQLITE_MMAP_SIZE_BYTES);
-    ensure_ai_schema(&connection)?;
-    ai_queue::ensure_ai_queue_schema(&connection)?;
-    ensure_core_intelligence_schema(&connection)?;
-    ensure_intelligence_runtime_schema(&connection)?;
+    if !schema_ready {
+        ensure_ai_schema(&connection)?;
+        ai_queue::ensure_ai_queue_schema(&connection)?;
+        ensure_core_intelligence_schema(&connection)?;
+        ensure_intelligence_runtime_schema(&connection)?;
+        INTELLIGENCE_SCHEMA_READY
+            .get_or_init(Default::default)
+            .lock()
+            .expect("intelligence schema flag lock")
+            .insert(schema_key);
+    }
     Ok(connection)
 }
 

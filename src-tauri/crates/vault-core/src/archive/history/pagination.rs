@@ -101,12 +101,49 @@ pub(super) fn build_history_response(
 
     HistoryQueryResponse {
         total,
+        total_exact: true,
         page: normalized_page,
         page_size: normalized_page_size,
         page_count: normalized_page_count,
         has_previous,
         has_next,
         next_cursor: has_next.then(|| items.last().map(encode_history_cursor)).flatten(),
+        items,
+    }
+}
+
+/// Builds the response for `include_total: false` pages.
+///
+/// `has_more` comes from fetching one row past the page size, so no count query is needed.
+/// `total` is the page size and `page_count` stays 1: neither is an archive-wide figure.
+pub(super) fn build_uncounted_history_response(
+    page_size: usize,
+    start_index: usize,
+    has_more: bool,
+    scored_items: Vec<(HistoryEntry, f64)>,
+    sort: &str,
+) -> HistoryQueryResponse {
+    let next_cursor = has_more
+        .then(|| {
+            scored_items.last().map(|(entry, score)| {
+                if sort == "relevance" {
+                    encode_relevance_history_cursor(entry, *score)
+                } else {
+                    encode_history_cursor(entry)
+                }
+            })
+        })
+        .flatten();
+    let items: Vec<HistoryEntry> = scored_items.into_iter().map(|(entry, _)| entry).collect();
+    HistoryQueryResponse {
+        total: items.len(),
+        total_exact: false,
+        page: 1,
+        page_size: page_size.max(1),
+        page_count: 1,
+        has_previous: start_index > 0,
+        has_next: has_more,
+        next_cursor,
         items,
     }
 }
@@ -140,6 +177,7 @@ pub(super) fn build_lexical_history_response(
 
     HistoryQueryResponse {
         total,
+        total_exact: true,
         page: normalized_page,
         page_size: normalized_page_size,
         page_count: normalized_page_count,
