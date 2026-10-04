@@ -31,8 +31,9 @@
 
 use anyhow::{Context, Result};
 use std::fs::{self, File};
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 // --- test-only fault-injection seam --------------------------------------------------------------
 //
@@ -226,14 +227,32 @@ fn fsync_parent_dir(_path: &Path) -> Result<()> {
 /// half-written `path`. The destination inherits the temp's permissions (0600 from
 /// `tempfile::Builder`), which is the intended mode for config/salt files.
 pub fn atomic_durable_write(path: &Path, contents: &[u8]) -> Result<()> {
+    atomic_durable_write_with(path, |writer| {
+        writer.write_all(contents).context("write temp contents")?;
+        Ok(())
+    })
+}
+
+/// Atomically + durably writes a file whose contents `write` produces piece by piece.
+///
+/// For files too large to build in memory first (a 14.4M-visit history export is gigabytes).
+/// `write` gets a buffered writer over the same-directory temp; the barrier afterwards is the one
+/// [`atomic_durable_write`] uses. If `write` fails, the temp is deleted and `path` is untouched.
+pub fn atomic_durable_write_with(
+    path: &Path,
+    write: impl FnOnce(&mut dyn Write) -> Result<()>,
+) -> Result<()> {
     let parent =
         path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
-    let mut tmp = tempfile::Builder::new()
+    let tmp = tempfile::Builder::new()
         .prefix(".pk-durable-")
         .tempfile_in(parent)
         .with_context(|| format!("create temp beside {}", path.display()))?;
-    tmp.write_all(contents).context("write temp contents")?;
-    tmp.flush().context("flush temp")?;
+    {
+        let mut writer = BufWriter::new(tmp.as_file());
+        write(&mut writer)?;
+        writer.flush().context("flush temp")?;
+    }
     full_fsync(tmp.as_file())?;
     // persist() = rename onto the destination (atomic on the same filesystem).
     tmp.persist(path)
@@ -296,9 +315,29 @@ pub(crate) fn remove_file_durably(path: &Path) -> Result<()> {
 
 /// Removes orphaned `.pk-durable-*` temp files left in `dir` when the process was killed between
 /// temp-create and persist (a `SIGKILL` skips `NamedTempFile`'s Drop, so the temp leaks). Returns
-/// the number removed. A missing `dir` is not an error (nothing to sweep). Startup / archive-open
-/// paths call this so leaked temps don't accumulate in the user's archive directory.
+/// the number removed. A missing `dir` is not an error (nothing to sweep). Only call it where no
+/// other write can be in flight; otherwise use [`sweep_temps_older_than`]. (Nothing sweeps the
+/// archive directory at startup yet; history export sweeps its own directory by age.)
 pub fn sweep_stale_temps(dir: &Path) -> Result<usize> {
+    sweep_temps_matching(dir, |_| true)
+}
+
+/// Like [`sweep_stale_temps`], but only removes temps not written to for `min_age`. For a
+/// directory where another write may be in progress (two history exports at once): a temp that
+/// is still being written keeps a fresh modification time.
+pub fn sweep_temps_older_than(dir: &Path, min_age: Duration) -> Result<usize> {
+    let now = SystemTime::now();
+    sweep_temps_matching(dir, |entry| {
+        entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= min_age)
+    })
+}
+
+fn sweep_temps_matching(dir: &Path, stale: impl Fn(&fs::DirEntry) -> bool) -> Result<usize> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
@@ -309,7 +348,7 @@ pub fn sweep_stale_temps(dir: &Path) -> Result<usize> {
     let mut removed = 0usize;
     for entry in entries {
         let entry = entry.with_context(|| format!("read entry in {}", dir.display()))?;
-        if entry.file_name().to_string_lossy().starts_with(".pk-durable-") {
+        if entry.file_name().to_string_lossy().starts_with(".pk-durable-") && stale(&entry) {
             let temp = entry.path();
             fs::remove_file(&temp)
                 .with_context(|| format!("remove stale temp {}", temp.display()))?;
@@ -434,6 +473,58 @@ mod tests {
     }
 
     // --- MEDIUM-4: orphaned temp sweep -----------------------------------------------------------
+
+    #[test]
+    fn streamed_write_lands_whole_and_leaves_no_temp() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("export.jsonl");
+        atomic_durable_write_with(&path, |writer| {
+            for line in 0..10_000 {
+                writeln!(writer, "{{\"line\":{line}}}")?;
+            }
+            Ok(())
+        })
+        .expect("streamed write");
+
+        let written = fs::read_to_string(&path).expect("read back");
+        assert_eq!(written.lines().count(), 10_000);
+        assert!(written.ends_with("{\"line\":9999}\n"));
+        assert_eq!(fs::read_dir(dir.path()).expect("list").count(), 1, "the temp was left behind");
+    }
+
+    /// An export that fails halfway (archive locked, disk full) must not leave a truncated file
+    /// where the old one was, nor a partial temp.
+    #[test]
+    fn a_failed_streamed_write_keeps_the_old_file_and_removes_the_temp() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("export.html");
+        fs::write(&path, b"old export").expect("seed");
+        let error = atomic_durable_write_with(&path, |writer| {
+            writer.write_all(b"<html><body>half")?;
+            anyhow::bail!("archive went away")
+        })
+        .expect_err("the writer's error propagates");
+
+        assert!(error.to_string().contains("archive went away"));
+        assert_eq!(fs::read(&path).expect("read"), b"old export");
+        assert_eq!(fs::read_dir(dir.path()).expect("list").count(), 1, "partial temp left behind");
+    }
+
+    #[test]
+    fn age_gated_sweep_leaves_temps_that_are_still_being_written() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::write(dir.path().join(".pk-durable-live"), b"in progress").expect("seed temp");
+        fs::write(dir.path().join("export.md"), b"keep").expect("seed export");
+
+        assert_eq!(
+            sweep_temps_older_than(dir.path(), Duration::from_secs(3600)).expect("sweep"),
+            0
+        );
+        assert!(dir.path().join(".pk-durable-live").exists());
+        assert_eq!(sweep_temps_older_than(dir.path(), Duration::ZERO).expect("sweep"), 1);
+        assert!(!dir.path().join(".pk-durable-live").exists());
+        assert!(dir.path().join("export.md").exists());
+    }
 
     #[test]
     fn sweep_stale_temps_removes_only_durable_temps_and_counts_them() {
