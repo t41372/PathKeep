@@ -52,12 +52,13 @@ use std::time::{Duration, Instant};
 /// The History list asks for the next chunk as soon as one arrives while it has less than a screen
 /// of rows, so this is the delay between visible updates, not a limit on what is searched. At about
 /// 200 ms the count and the "searched back to" date move several times a second, and each chunk is
-/// long enough that the per-request cost (opening the archive, preparing the query, about 1 ms)
-/// stays under 1% of the scan.
+/// long enough that the per-request cost (opening the archive, preparing the query, about 2 ms)
+/// stays around 1% of the scan.
 pub(super) const REGEX_CHUNK_TIME: Duration = Duration::from_millis(200);
 
 /// Rows one request scans at most, whatever the clock says: a backstop for a stalled clock and the
-/// knob tests turn instead of time. About two seconds of scanning on the benchmark machine.
+/// knob tests turn instead of time. About five seconds of scanning on the benchmark machine
+/// (roughly 155,000 visits per 200 ms chunk).
 const REGEX_CHUNK_ROWS: usize = 4_000_000;
 
 /// How often the row loop reads the clock.

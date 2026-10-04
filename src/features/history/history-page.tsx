@@ -233,9 +233,11 @@ export default function HistoryPage() {
         />
       )
     }
-    // An empty regex chunk is not "no results" until the whole archive is scanned.
+    // An empty regex chunk is not "no results" until the whole archive is
+    // scanned. While chunks are coming it is loading; once stopped, the header
+    // says how far the scan got and offers to keep searching.
     if (items.length === 0 && list.regex && !list.regex.complete) {
-      return <StateMessage loading />
+      return list.regex.running ? <StateMessage loading /> : null
     }
     if (list.error) {
       return (
