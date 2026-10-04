@@ -42,7 +42,7 @@
     - Regex 搜尋只掃最新的 50,000 筆訪問，計數卻像是精確的（14.4M 時只覆蓋約 0.35%）。決定：regex 要涵蓋整個 archive——按時間往回分段掃、每段有時間上限、捲動或「繼續搜尋」接著掃，全部掃完前計數標成「N+（目前為止）」並寫明掃到哪天。進行中。
     - ~~Insights「常搜尋」的次數是整個 query family 的歷史總數，不受日期範圍限制~~：已修。新命令 `get_frequent_searches` 只數範圍內的關鍵字搜尋（intelligence migration 9 給 `search_events` 加上訪問時間和索引），14.4M 下 30 天約 10 ms、一年約 145 ms，見 `ipc-performance.md` §8。
     - ~~排程器沒有沙盒~~：已補 `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR`（只在 debug build 生效），dev:demo 與 E2E 都會設。E2E 的 onboarding 仍選 Manual；`schedule.spec`（2026-10-04）在沙盒裡裝自訂間隔、核對檔案、移除。改了 project root 卻沒設沙盒的 debug run 會被排程器拒絕。
-    - ~~`export_history` 先把整個結果集載入記憶體；`doctor_report` / `repair_health` 用 `NOT IN`~~：已修。匯出改成逐頁寫入暫存檔再原子改名（1M：heap 1.2 GB → 0.6 MB）；doctor 改成 `NOT EXISTS` 按主鍵查（14.4M：SQLite 暫存 321 MB → 0）。見 `ipc-performance.md` §7、§9。14.4M 全量匯出量過：heap +0.6 MiB、常駐約 92 MiB、4.7 GB 檔。剩下：冷快取下要 66 分鐘，Settings 沒有進度和取消。
+    - ~~`export_history` 先把整個結果集載入記憶體；`doctor_report` / `repair_health` 用 `NOT IN`~~：已修。匯出改成逐頁寫入暫存檔再原子改名（1M：heap 1.2 GB → 0.6 MB）；doctor 改成 `NOT EXISTS` 按主鍵查（14.4M：SQLite 暫存 321 MB → 0）。見 `ipc-performance.md` §7、§9。14.4M 全量匯出量過：heap +0.6 MiB、常駐約 92 MiB、4.7 GB 檔。後來改成單一連線（見下一條），66 分鐘的問題已處理。
     - ~~App Lock 面板與已接受文檔不一致~~：用戶 2026-10-04 選 trade-off 選項 B，已做（Touch ID 開關與解鎖、passcode hint、鎖屏「忘記密碼？」；不做 config 路徑列與上次解鎖時間），文檔已改。
     - ~~更改 archive 密碼 / 關閉加密不需要目前的密碼~~：已修（2026-10-04），後端用目前的密碼實際打開 archive 驗證，dev bridge 也繞不過。
     - E2E 偶發失敗（2026-10-04 見過一次，重跑通過）：`history.spec`「a starred page keeps its note after a reload」輸入搜尋後立刻點結果，那一刻列表有兩列同標題（之後只剩一列），strict mode 報錯。疑似舊查詢的結果還在畫面上，屬 History 範圍，未修。
@@ -53,7 +53,7 @@
     - `revert_import_batch` / `restore_import_batch` 每次都同步 `rebuild_search_projection` 整個搜尋投影；1440 萬條時一次復原要重建全部索引。應改成只刷新該批影響的 URL（匯入時已經這樣做）。
     - `vite.config.ts` 的 `server.watch.ignored` 含 `**/.claude/**`，在 `.claude/worktrees/` 裡開的 dev server 看不到任何檔案變更（要重開才生效）。
     - 自訂排程間隔上限 30 天是新加的限制（archive.md §2 原文只寫最短 1 分鐘）。
-  - 匯出歷史在 14.4M 要約 66 分鐘（每秒約 3,600 筆），Settings 沒有進度也不能取消。決定（2026-10-04）release 前要修：後端單一連線 + keyset 分頁、目標幾分鐘內；加 `exportId`、`get_export_progress`（輪詢，dev bridge 也能用）、`cancel_export`；前端顯示進度與取消，附 E2E。後端交給 Codex，進行中。
+  - 匯出歷史在 14.4M 要約 66 分鐘（每秒約 3,600 筆），Settings 沒有進度也不能取消。決定（2026-10-04）release 前要修：後端單一連線 + keyset 分頁、目標幾分鐘內；加 `exportId`、`get_export_progress`（輪詢，dev bridge 也能用）、`cancel_export`；前端顯示進度與取消，附 E2E。**已做（2026-10-04）**：Codex 改後端（`55d22c0a`），明文 14.4M JSON Lines 51.5 分鐘 → 40 秒；Settings → Storage 有進度、剩餘時間、停止，`export.spec` 覆蓋。**還沒量**：加密 14.4M archive 的匯出時間（用戶預設就是加密），量完才算解決。
   - 試跑：`bun run dev:demo`（真後端 + 合成 Chrome×2 / Firefox archive），瀏覽器開 http://127.0.0.1:1420。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_

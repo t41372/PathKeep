@@ -244,6 +244,7 @@ Settings → General 的兩個開關。
 - 匯出支援篩選：profile、時間範圍、domain、搜尋 query。
 - 匯出只包含**當前可見** query 結果；已回滾或 hidden 的 facts 不會進入 artifact。
 - 匯出報告記入審計日誌。
+- 匯出時 Settings 顯示進度條、已寫筆數 / 約總數 / 檔案大小與剩餘時間，可以停止。停止的匯出不留下任何檔案（連暫存檔都刪掉）；離開 Settings 再回來，進度還在。總數用 archive 快取的可見筆數，所以寫「約」。
 
 ### 整機資料遷移（Export / Import）
 

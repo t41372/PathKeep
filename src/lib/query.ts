@@ -30,4 +30,5 @@ export const queryKeys = {
   archiveData: ['archive'] as const,
   dashboard: ['archive', 'dashboard'] as const,
   schedule: ['schedule-status'] as const,
+  exportProgress: (exportId: string) => ['export-progress', exportId] as const,
 }

@@ -120,6 +120,9 @@ fn write_export(
         let render_result: Result<()> = (|| {
             let mut export = ExportWriter::new(&mut counted, &format)?;
             walk_history_for_export(&connection, request.query, job, |item| {
+                if let Some(delay) = crate::test_support::export_row_delay() {
+                    std::thread::sleep(delay);
+                }
                 check_cancel(job)?;
                 export.item(item)?;
                 rows_written = export.count as u64;

@@ -18,6 +18,21 @@ pub fn network_is_blocked() -> bool {
     std::env::var("PATHKEEP_TEST_BLOCK_NETWORK").is_ok_and(|value| value == "1")
 }
 
+/// Slows each exported row so an end-to-end test can watch an export's progress and stop it;
+/// the fixture's twenty thousand visits otherwise export before the first progress poll.
+///
+/// Debug builds only, like `network_is_blocked`; read once, since it is checked per row.
+pub fn export_row_delay() -> Option<std::time::Duration> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    static DELAY: std::sync::OnceLock<Option<std::time::Duration>> = std::sync::OnceLock::new();
+    *DELAY.get_or_init(|| {
+        let micros = std::env::var("PATHKEEP_TEST_EXPORT_ROW_DELAY_US").ok()?.parse().ok()?;
+        (micros > 0).then(|| std::time::Duration::from_micros(micros))
+    })
+}
+
 #[cfg(test)]
 pub(crate) fn network_test_child() -> bool {
     std::env::var_os("PATHKEEP_NETWORK_TEST_CHILD").is_some()
