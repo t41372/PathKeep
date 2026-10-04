@@ -9,7 +9,7 @@ import {
   useQuery,
   type QueryClient,
 } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { annotationsClient } from '@/lib/backend-client/annotations'
 import { explorerClient } from '@/lib/backend-client/explorer'
 import { insightsClient, localDateKey } from '@/lib/backend-client/insights'
@@ -45,6 +45,8 @@ export function invalidateSearches(client: QueryClient) {
 }
 
 const PAGE_SIZE = 100
+/** Where the list key says what it lists: `'visits'` (timeline) or `'pages'` (search). */
+const LIST_KIND_AT = key('list').length
 const SEMANTIC_PAGE_SIZE = 50
 
 function fromEntry(entry: HistoryEntry): VisitItem {
@@ -76,13 +78,36 @@ export interface SearchTotals {
   pages: number
   /** Matching visits; unknown for semantic search, which returns pages only. */
   visits: number | null
+  /**
+   * The word matched more pages than one search ranks, so only the most
+   * recently archived ones were ranked and counted: `pages` is "at least".
+   */
+  windowed: boolean
+}
+
+/** How far a regex search has scanned the archive. */
+export interface RegexProgress {
+  /** Visit time the scan has reached; null before the first chunk. */
+  scannedToMs: number | null
+  /** Every visit inside the filters has been checked. */
+  complete: boolean
+  /** The list keeps asking for chunks without the user scrolling. */
+  running: boolean
+  /** Scan on until another page of results turns up, or the archive ends. */
+  keepSearching: () => void
+  /** Stop asking for chunks; scrolling down still continues. */
+  stop: () => void
 }
 
 /** The pages of a visit list, flattened. */
 export interface VisitList {
   items: VisitItem[]
-  /** Exact search totals when known; always null for the timeline. */
+  /** Search totals once counted; always null for the timeline. */
   totals: SearchTotals | null
+  /** A loaded page of a full-text search came from a window of the matches. */
+  windowed: boolean
+  /** Regex searches only: the scan's progress and controls. */
+  regex: RegexProgress | null
   isPending: boolean
   isPlaceholder: boolean
   error: Error | null
@@ -97,6 +122,12 @@ export interface VisitList {
  * every visit; full-text and regex results list each page once
  * (`searchPages`), both read by cursor without an exact count. Semantic
  * results come from the AI search, which also returns one row per page.
+ *
+ * Regex is scanned by the backend a time-boxed chunk per request, newest
+ * first. A chunk can come back empty and a page can show up again in a later
+ * chunk with more visits, so regex rows are merged by URL here, and the list
+ * asks for the next chunk by itself until it has a page of rows (or the user
+ * stops it), then waits for scrolling or "Keep searching".
  */
 export function useVisitList(
   search: SearchSpec,
@@ -104,11 +135,18 @@ export function useVisitList(
   enabled: boolean,
 ): VisitList {
   const semantic = search.mode === 'semantic' && search.text !== ''
+  const regex = search.mode === 'regex' && search.text !== ''
   const lexicalEnabled = enabled && !semantic && !search.regexError
 
   const lexical = useInfiniteQuery({
     enabled: lexicalEnabled,
-    queryKey: key('list', search.text, search.mode, filters),
+    queryKey: key(
+      'list',
+      search.text ? 'pages' : 'visits',
+      search.text,
+      search.mode,
+      filters,
+    ),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => {
       const query = {
@@ -123,7 +161,15 @@ export function useVisitList(
     },
     getNextPageParam: (last: HistoryQueryResponse) =>
       last.hasNext ? (last.nextCursor ?? undefined) : undefined,
-    placeholderData: keepPreviousData,
+    // Keep the previous rows on screen while the next query loads, but only
+    // when they are the same kind of rows: the timeline lists visits and a
+    // search lists pages, so the timeline shown under "History results" put
+    // one page on several rows until the search answered.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[LIST_KIND_AT] ===
+      (search.text ? 'pages' : 'visits')
+        ? previous
+        : undefined,
   })
 
   const smart = useInfiniteQuery({
@@ -141,13 +187,15 @@ export function useVisitList(
     placeholderData: keepPreviousData,
   })
 
-  const totals = useSearchTotals(search, filters, lexicalEnabled)
+  // A regex count comes from the scan itself; a separate count would scan again.
+  const totals = useSearchTotals(search, filters, lexicalEnabled && !regex)
   const active = semantic ? smart : lexical
   const { startTimeMs, endTimeMs, browserKind } = filters
   const clientFiltered =
     semantic && (startTimeMs !== null || browserKind !== null)
 
   const items = useMemo(() => {
+    if (regex) return mergePages(lexical.data?.pages ?? [])
     if (!semantic) {
       return (
         lexical.data?.pages.flatMap((page) => page.items.map(fromEntry)) ?? []
@@ -172,7 +220,17 @@ export function useVisitList(
           (browserKind === null ||
             browserKindOf(item.profileId) === browserKind),
       )
-  }, [semantic, smart.data, lexical.data, startTimeMs, endTimeMs, browserKind])
+  }, [
+    regex,
+    semantic,
+    smart.data,
+    lexical.data,
+    startTimeMs,
+    endTimeMs,
+    browserKind,
+  ])
+
+  const scan = useRegexScan(regex, search, filters, lexical, items.length)
 
   const semanticTotal = smart.data?.pages[0]?.total
   return {
@@ -180,8 +238,23 @@ export function useVisitList(
     totals: semantic
       ? clientFiltered || semanticTotal === undefined
         ? null
-        : { pages: semanticTotal, visits: null }
-      : totals,
+        : { pages: semanticTotal, visits: null, windowed: false }
+      : regex
+        ? scan?.complete
+          ? {
+              pages: items.length,
+              visits: items.reduce(
+                (sum, item) => sum + (item.visitCount ?? 0),
+                0,
+              ),
+              windowed: false,
+            }
+          : null
+        : totals,
+    windowed:
+      !semantic &&
+      (lexical.data?.pages.some((page) => page.windowed === true) ?? false),
+    regex: scan,
     isPending: (lexicalEnabled || (enabled && semantic)) && active.isPending,
     isPlaceholder: active.isPlaceholderData,
     error: active.error,
@@ -189,6 +262,76 @@ export function useVisitList(
     isFetchingNextPage: active.isFetchingNextPage,
     fetchNextPage: () => void active.fetchNextPage(),
     refetch: () => void active.refetch(),
+  }
+}
+
+/** Regex rows of every chunk so far, one per page, with the visits of each chunk added up. */
+function mergePages(pages: HistoryQueryResponse[]): VisitItem[] {
+  const byUrl = new Map<string, VisitItem>()
+  for (const entry of pages.flatMap((page) => page.items)) {
+    const known = byUrl.get(entry.url)
+    if (known) {
+      known.visitCount = (known.visitCount ?? 0) + (entry.visitCount ?? 0)
+    } else {
+      byUrl.set(entry.url, fromEntry(entry))
+    }
+  }
+  return [...byUrl.values()]
+}
+
+interface ScanGoal {
+  key: string
+  rows: number
+  stopped: boolean
+}
+
+/**
+ * Keeps a regex scan going until the list has `rows` rows, the user stops
+ * it, or the archive ends. Each chunk is one short request, so stopping only
+ * means not asking for the next one.
+ */
+function useRegexScan(
+  regex: boolean,
+  search: SearchSpec,
+  filters: HistoryFilters,
+  lexical: {
+    data?: { pages: HistoryQueryResponse[] }
+    hasNextPage: boolean
+    isFetchingNextPage: boolean
+    isFetching: boolean
+    isPlaceholderData: boolean
+    fetchNextPage: () => unknown
+  },
+  rowCount: number,
+): RegexProgress | null {
+  const scanKey = JSON.stringify([search.text, search.mode, filters])
+  const fresh = { key: scanKey, rows: PAGE_SIZE, stopped: false }
+  const [stored, setGoal] = useState<ScanGoal>(fresh)
+  const goal = stored.key === scanKey ? stored : fresh
+  const { hasNextPage, isFetching, isPlaceholderData, fetchNextPage } = lexical
+  const running = regex && hasNextPage && !goal.stopped && rowCount < goal.rows
+
+  useEffect(() => {
+    if (running && !isFetching && !isPlaceholderData) void fetchNextPage()
+  }, [running, isFetching, isPlaceholderData, fetchNextPage])
+
+  const keepSearching = useCallback(
+    () => setGoal({ key: scanKey, rows: rowCount + PAGE_SIZE, stopped: false }),
+    [scanKey, rowCount],
+  )
+  const stop = useCallback(
+    () => setGoal({ key: scanKey, rows: rowCount, stopped: true }),
+    [scanKey, rowCount],
+  )
+  const last =
+    regex && !isPlaceholderData ? lexical.data?.pages.at(-1) : undefined
+  if (!last) return null
+  return {
+    scannedToMs: last.regexScan?.scannedToMs ?? null,
+    complete: last.regexScan?.complete ?? !hasNextPage,
+    running,
+    keepSearching,
+    stop,
   }
 }
 
@@ -209,8 +352,13 @@ function useSearchTotals(
       }),
   })
   const response = query.data
-  if (!response?.totalExact) return null
-  return { pages: response.total, visits: response.totalVisits ?? null }
+  const windowed = response?.windowed === true
+  if (!response || !(response.totalExact || windowed)) return null
+  return {
+    pages: response.total,
+    visits: response.totalVisits ?? null,
+    windowed,
+  }
 }
 
 export interface BrowserOption {

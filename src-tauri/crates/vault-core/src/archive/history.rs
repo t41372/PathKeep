@@ -4,8 +4,8 @@
 //! keeps three recall modes explicit:
 //!
 //! - regular SQL filtering
-//! - FTS-backed keyword recall
-//! - manual regex post-filtering
+//! - FTS-backed keyword recall, ranked inside a bounded window of matches (`grouped/window.rs`)
+//! - manual regex matching, scanned in time-boxed chunks across the whole archive (`regex_scan`)
 //!
 //! Searches can also return one row per page instead of one per visit (`group_by_url`); that
 //! lives in `grouped`.
@@ -31,6 +31,7 @@ pub mod og_images;
 pub mod og_images_fetch;
 pub mod og_images_synth;
 mod pagination;
+mod regex_scan;
 
 pub use self::day_insights::{
     BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
@@ -58,26 +59,14 @@ use self::pagination::{
     build_uncounted_history_response, normalize_history_sort, page_count, parse_history_cursor,
 };
 
+/// Visits of the matching URLs, which `grouped::window::rank_matching_urls` collected (with their
+/// scores, inside the window) into `temp.history_ranked_urls` first.
+///
+/// `CROSS JOIN` fixes the join order: the temp table has no statistics, and without it SQLite may
+/// walk every visit in time order and probe the table instead of reading each ranked URL's visits.
 const LIST_HISTORY_LEXICAL_SQL: &str = r#"
-WITH search_matches AS (
-  SELECT
-    rowid AS url_id,
-    bm25(history_search_terms, 6.0, 12.0, 4.0, 5.0, 10.0, 4.0, 2.0, 7.0, 9.0, 6.0) AS score
-  FROM search.history_search_terms
-  WHERE :termsFtsQuery IS NOT NULL
-    AND history_search_terms MATCH :termsFtsQuery
-  UNION ALL
-  SELECT
-    rowid AS url_id,
-    bm25(history_search_trigram, 1.0) + 0.35 AS score
-  FROM search.history_search_trigram
-  WHERE :trigramFtsQuery IS NOT NULL
-    AND history_search_trigram MATCH :trigramFtsQuery
-),
-ranked_urls AS (
-  SELECT url_id, MIN(score) AS score
-  FROM search_matches
-  GROUP BY url_id
+WITH ranked_urls AS (
+  SELECT url_id, score FROM temp.history_ranked_urls
 )
 SELECT
   visits.id,
@@ -94,13 +83,13 @@ SELECT
   -- scored, so surfacing it costs ONE extra projection-keyed lookup per result, never an N+1.
   search_documents.enrichment_text,
   ranked_urls.score
-FROM visits
-JOIN urls
-  ON urls.id = visits.url_id
+FROM ranked_urls
+CROSS JOIN urls
+  ON urls.id = ranked_urls.url_id
+CROSS JOIN visits
+  ON visits.url_id = urls.id
 JOIN source_profiles
   ON source_profiles.id = visits.source_profile_id
-JOIN ranked_urls
-  ON ranked_urls.url_id = urls.id
 LEFT JOIN search.search_documents
   ON search_documents.url_id = urls.id
 WHERE visits.reverted_at IS NULL
@@ -168,25 +157,6 @@ OFFSET :pageOffset
 const FUZZY_CANDIDATE_URL_LIMIT: i64 = 200;
 const FUZZY_CANDIDATE_VISIT_LIMIT: i64 = 400;
 
-/// Upper bound on how many visible visit rows the manual regex path scans
-/// before it stops, in newest/oldest sort order.
-///
-/// Regex recall cannot be served by any index — an arbitrary pattern forces a
-/// linear scan with a per-row match in Rust. The previous implementation bound
-/// the list query to `:pageLimit = -1`, which streamed the *entire* visits
-/// table into a `Vec<HistoryEntry>` before filtering: on the 14.4M-row target
-/// archive that is multiple gigabytes of allocation and a multi-second freeze
-/// before the first row reaches the user.
-///
-/// Capping the scan keeps memory and latency bounded (at most this many rows are
-/// examined, and at most this many matched `HistoryEntry` values are held) while
-/// still covering far more than a single page. Because the scan is index-ordered
-/// by `visit_time_ms`/`id` (see migrations 005/007), the cap deterministically
-/// covers the most recent rows for `newest` and the earliest for `oldest`, so
-/// repeated page requests slice a stable window. Archives with fewer than this
-/// many visible rows behave exactly as before — the full set is scanned and the
-/// reported total is exact.
-const REGEX_SCAN_CAP: usize = 50_000;
 const ADVANCED_FILTER_TABLES: &[&str] = &[
     "history_exact_terms",
     "history_excluded_terms",
@@ -265,31 +235,19 @@ ORDER BY
 LIMIT :candidateVisitLimit
 "#;
 
+/// Counts the visits of the ranked URLs, so a windowed search counts only its window.
 const COUNT_HISTORY_LEXICAL_SQL: &str = r#"
-WITH search_matches AS (
-  SELECT rowid AS url_id
-  FROM search.history_search_terms
-  WHERE :termsFtsQuery IS NOT NULL
-    AND history_search_terms MATCH :termsFtsQuery
-  UNION
-  SELECT rowid AS url_id
-  FROM search.history_search_trigram
-  WHERE :trigramFtsQuery IS NOT NULL
-    AND history_search_trigram MATCH :trigramFtsQuery
-),
-ranked_urls AS (
-  SELECT url_id
-  FROM search_matches
-  GROUP BY url_id
+WITH ranked_urls AS (
+  SELECT url_id FROM temp.history_ranked_urls
 )
 SELECT COUNT(*)
-FROM visits
-JOIN urls
-  ON urls.id = visits.url_id
+FROM ranked_urls
+CROSS JOIN urls
+  ON urls.id = ranked_urls.url_id
+CROSS JOIN visits
+  ON visits.url_id = urls.id
 JOIN source_profiles
   ON source_profiles.id = visits.source_profile_id
-JOIN ranked_urls
-  ON ranked_urls.url_id = urls.id
 WHERE visits.reverted_at IS NULL
   AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
   AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
@@ -331,14 +289,34 @@ pub fn list_history(
     key: Option<&str>,
     query: HistoryQuery,
 ) -> Result<HistoryQueryResponse> {
+    list_history_with_window(paths, config, key, query, grouped::window::keyword_window_cap())
+}
+
+/// [`list_history`] with the keyword window cap as a parameter, so tests can hit the window with a
+/// handful of rows.
+fn list_history_with_window(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    query: HistoryQuery,
+    window_cap: usize,
+) -> Result<HistoryQueryResponse> {
     let connection = open_archive_connection(paths, config, key)?;
-    list_history_on_connection(&connection, query)
+    list_history_on_connection_with_window(&connection, query, window_cap)
 }
 
 // Export reuses this dispatch on its one connection; recall paths and filters stay shared.
 fn list_history_on_connection(
     connection: &Connection,
     query: HistoryQuery,
+) -> Result<HistoryQueryResponse> {
+    list_history_on_connection_with_window(connection, query, grouped::window::keyword_window_cap())
+}
+
+fn list_history_on_connection_with_window(
+    connection: &Connection,
+    query: HistoryQuery,
+    window_cap: usize,
 ) -> Result<HistoryQueryResponse> {
     let limit = query.limit.unwrap_or(150).clamp(1, 1_000);
     let limit_usize = limit as usize;
@@ -376,14 +354,18 @@ fn list_history_on_connection(
         };
         let cursor = query.cursor.as_deref();
         return match (regex, lexical_query) {
-            (Some(regex), _) => grouped::list_regex_pages(
+            (Some(regex), _) => regex_scan::scan_regex(
                 connection,
-                &filters,
-                &sort,
-                limit_usize,
-                cursor,
-                &regex,
-                REGEX_SCAN_CAP,
+                &regex_scan::RegexScan {
+                    regex: &regex,
+                    filters: &filters,
+                    sort: &sort,
+                    limit: limit_usize,
+                    cursor,
+                    requested_page: None,
+                    grouped: true,
+                },
+                regex_scan::ScanBudget::chunk(),
             ),
             (None, Some(lexical_query)) => grouped::list_keyword_pages(
                 connection,
@@ -393,6 +375,7 @@ fn list_history_on_connection(
                 cursor,
                 include_total,
                 lexical_query,
+                window_cap,
             ),
             // Words that analyze to nothing searchable match nothing, as in the visit list.
             (None, None) if q.is_some() => Ok(HistoryQueryResponse::default()),
@@ -411,25 +394,34 @@ fn list_history_on_connection(
                 limit_usize,
                 cursor,
                 include_total,
+                window_cap,
             ),
         };
     }
 
-    let cursor = parse_history_cursor(query.cursor.as_deref());
+    let (window_edge, visit_cursor) = grouped::window::split_cursor(query.cursor.as_deref());
+    let cursor = parse_history_cursor(visit_cursor);
 
     if let Some(regex) = regex {
-        return list_history_with_regex(
-            connection,
-            limit_usize,
-            requested_page,
+        let filters = grouped::PageFilters {
             profile_id,
             browser_kind,
             domain_pattern,
             start_time_ms,
             end_time_ms,
-            sort,
-            cursor,
-            regex,
+        };
+        return regex_scan::scan_regex(
+            connection,
+            &regex_scan::RegexScan {
+                regex: &regex,
+                filters: &filters,
+                sort: &sort,
+                limit: limit_usize,
+                cursor: query.cursor.as_deref(),
+                requested_page,
+                grouped: false,
+            },
+            regex_scan::ScanBudget::chunk(),
         );
     }
 
@@ -452,6 +444,7 @@ fn list_history_on_connection(
             sort,
             cursor,
             lexical_query,
+            LexicalWindow { edge: window_edge, cap: window_cap },
         );
     }
 
@@ -552,160 +545,13 @@ fn insert_filter_values(connection: &Connection, table: &str, values: &[String])
     Ok(())
 }
 
-/// Runs regex recall as a manual post-filter over a bounded candidate scan.
-///
-/// Delegates to [`list_history_with_regex_capped`] with the production
-/// [`REGEX_SCAN_CAP`]; the cap is a parameter on the inner function purely so
-/// tests can exercise the truncation boundary without seeding 50k rows.
-#[allow(clippy::too_many_arguments)]
-fn list_history_with_regex(
-    connection: &Connection,
-    limit_usize: usize,
-    requested_page: Option<usize>,
-    profile_id: Option<String>,
-    browser_kind: Option<String>,
-    domain_pattern: Option<String>,
-    start_time_ms: Option<i64>,
-    end_time_ms: Option<i64>,
-    sort: String,
-    cursor: Option<HistoryCursor>,
-    regex: regex::Regex,
-) -> Result<HistoryQueryResponse> {
-    list_history_with_regex_capped(
-        connection,
-        limit_usize,
-        requested_page,
-        profile_id,
-        browser_kind,
-        domain_pattern,
-        start_time_ms,
-        end_time_ms,
-        sort,
-        cursor,
-        regex,
-        REGEX_SCAN_CAP,
-    )
+/// The keyword window of one visit-list request: the cap, and the edge a cursor pinned.
+struct LexicalWindow {
+    edge: Option<grouped::window::WindowEdge>,
+    cap: usize,
 }
 
-/// Streams up to `scan_cap` ordered visit rows, regex-filtering each row as it
-/// arrives so peak memory stays bounded by the number of *matched* rows within
-/// the scan window rather than the full visits table.
-///
-/// `total` and the pagination envelope describe matches inside the scanned
-/// window. When the scan reaches `scan_cap` there may be further matches deeper
-/// in history that were not examined; callers that need an exact count for a
-/// huge archive must narrow the filter (date / profile / domain) so the visible
-/// candidate set fits under the cap.
-#[allow(clippy::too_many_arguments)]
-fn list_history_with_regex_capped(
-    connection: &Connection,
-    limit_usize: usize,
-    requested_page: Option<usize>,
-    profile_id: Option<String>,
-    browser_kind: Option<String>,
-    domain_pattern: Option<String>,
-    start_time_ms: Option<i64>,
-    end_time_ms: Option<i64>,
-    sort: String,
-    cursor: Option<HistoryCursor>,
-    regex: regex::Regex,
-    scan_cap: usize,
-) -> Result<HistoryQueryResponse> {
-    let scan_limit = i64::try_from(scan_cap).unwrap_or(i64::MAX);
-    let (start_bound, end_bound, cursor_visit_time, cursor_id) =
-        list_history_bounds(&sort, start_time_ms, end_time_ms, None);
-    let mut statement = connection.prepare(list_history_sql(&sort))?;
-    let mut rows = statement.query(named_params! {
-        ":profileId": profile_id,
-        ":browserKind": browser_kind,
-        ":domainPattern": domain_pattern,
-        ":startTimeMs": start_bound,
-        ":endTimeMs": end_bound,
-        ":cursorVisitTime": cursor_visit_time,
-        ":cursorId": cursor_id,
-        ":pageLimit": scan_limit,
-        ":pageOffset": 0i64,
-    })?;
-    // Stream the bounded candidate window and keep only matches. The SQL LIMIT
-    // already caps how many rows SQLite produces, so the iterator naturally
-    // stops at `scan_cap` without ever materializing the full visits table; only
-    // matched rows are retained, so peak memory is bounded by the match count
-    // inside the window rather than by the archive size.
-    let mut filtered_items: Vec<HistoryEntry> = Vec::new();
-    while let Some(row) = rows.next()? {
-        let entry = history_entry_from_row(row)?;
-        if regex.is_match(&entry.url)
-            || entry.title.as_ref().is_some_and(|title| regex.is_match(title))
-        {
-            filtered_items.push(entry);
-        }
-    }
-    let total = filtered_items.len();
-    let normalized_page_count = page_count(total, limit_usize);
-    let page = requested_page.unwrap_or(1).min(normalized_page_count);
-    let start_index = if requested_page.is_some() {
-        page.saturating_sub(1) * limit_usize
-    } else if let Some((cursor_visit_time, cursor_id)) =
-        cursor.and_then(HistoryCursor::chronological)
-    {
-        filtered_items
-            .iter()
-            .position(|entry| {
-                if sort == "oldest" {
-                    entry.visit_time > cursor_visit_time
-                        || (entry.visit_time == cursor_visit_time && entry.id > cursor_id)
-                } else {
-                    entry.visit_time < cursor_visit_time
-                        || (entry.visit_time == cursor_visit_time && entry.id < cursor_id)
-                }
-            })
-            .unwrap_or(total)
-    } else {
-        0
-    };
-    let items = filtered_items.into_iter().skip(start_index).take(limit_usize).collect::<Vec<_>>();
-
-    Ok(build_history_response(total, limit_usize, page, start_index, items))
-}
-
-/// Test-only seam over [`list_history_with_regex_capped`] that exposes the
-/// injectable `scan_cap` to the archive test module without widening the
-/// production surface or leaking the module-private `HistoryCursor` type.
-///
-/// It builds the regex exactly like [`list_history`] (case-insensitive) and
-/// drives the cursor-less first page, so a tiny `scan_cap` can prove the
-/// truncation boundary against the shared seeding fixtures.
-#[cfg(test)]
-pub(super) fn list_history_with_regex_capped_for_test(
-    connection: &Connection,
-    limit_usize: usize,
-    sort: &str,
-    pattern: &str,
-    scan_cap: usize,
-) -> Result<HistoryQueryResponse> {
-    let regex = build_history_regex(pattern)?;
-    // The list query references the advanced-filter temp tables, which
-    // `list_history` materializes before dispatching to the regex path. Regex
-    // mode contributes no advanced filters, so seed the empty default set here
-    // to mirror the production preconditions.
-    prepare_advanced_search_filters(connection, &ParsedHistorySearchQuery::default())?;
-    list_history_with_regex_capped(
-        connection,
-        limit_usize,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        sort.to_string(),
-        None,
-        regex,
-        scan_cap,
-    )
-}
-
-/// Runs normalized FTS-backed keyword recall.
+/// Runs normalized FTS-backed keyword recall over the matches `rank_matching_urls` keeps.
 #[allow(clippy::too_many_arguments)]
 fn list_history_with_lexical_search(
     connection: &Connection,
@@ -721,15 +567,28 @@ fn list_history_with_lexical_search(
     sort: String,
     cursor: Option<HistoryCursor>,
     lexical_query: LexicalQuery,
+    window: LexicalWindow,
 ) -> Result<HistoryQueryResponse> {
+    let ranked = grouped::window::rank_matching_urls(
+        connection,
+        grouped::window::Matching::Words(&lexical_query),
+        &grouped::PageFilters {
+            profile_id: profile_id.clone(),
+            browser_kind: browser_kind.clone(),
+            domain_pattern: domain_pattern.clone(),
+            start_time_ms,
+            end_time_ms,
+        },
+        &sort,
+        window.edge,
+        window.cap,
+    )?;
     let fuzzy_query = lexical_query.fuzzy_query.clone();
     let total: Option<usize> = if include_total {
         let count: usize = connection
             .query_row(
                 COUNT_HISTORY_LEXICAL_SQL,
                 named_params! {
-                    ":termsFtsQuery": lexical_query.terms_query.clone(),
-                    ":trigramFtsQuery": lexical_query.trigram_query.clone(),
                     ":profileId": profile_id.clone(),
                     ":browserKind": browser_kind.clone(),
                     ":domainPattern": domain_pattern.clone(),
@@ -789,8 +648,6 @@ fn list_history_with_lexical_search(
     let cursor_score = relevance_cursor.map(|(score, _, _)| score);
     let rows = statement.query_map(
         named_params! {
-            ":termsFtsQuery": lexical_query.terms_query,
-            ":trigramFtsQuery": lexical_query.trigram_query,
             ":profileId": profile_id.clone(),
             ":browserKind": browser_kind.clone(),
             ":domainPattern": domain_pattern.clone(),
@@ -838,23 +695,23 @@ fn list_history_with_lexical_search(
                 fuzzy_query,
             );
         }
-        return Ok(build_uncounted_history_response(
+        return Ok(ranked.label(build_uncounted_history_response(
             limit_usize,
             response_start_index,
             has_more,
             scored_items,
             &sort,
-        ));
+        )));
     };
 
-    Ok(build_lexical_history_response(
+    Ok(ranked.label(build_lexical_history_response(
         total,
         limit_usize,
         page,
         response_start_index,
         scored_items,
         &sort,
-    ))
+    )))
 }
 
 /// Runs Latin typo tolerance over a bounded trigram candidate set.

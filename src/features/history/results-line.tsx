@@ -4,7 +4,7 @@
  * become exact when the separate count lands (or every page is in).
  */
 import { TriangleAlert } from 'lucide-react'
-import { useI18n } from '@/lib/i18n'
+import { useFormat, useI18n } from '@/lib/i18n'
 import type { SearchSpec } from './history-params'
 import type { VisitItem } from './history-types'
 import type { VisitList } from './queries'
@@ -37,13 +37,33 @@ export function ResultsLine({
   items: VisitItem[]
 }) {
   const { t } = useI18n()
+  const format = useFormat()
   if (search.regexError) return <RegexProblemText problem={search.regexError} />
 
   // The rows on screen are the previous list, kept while the new one loads;
   // a count next to them would describe rows that are not there yet.
   if (list.isPlaceholder) return null
   const modeLabel = t(`history.modes.${search.mode}`)
-  // Until the count lands, describe what is loaded: exact once every page is in.
+  // A regex is scanned a chunk at a time; until it reaches the oldest visit
+  // the count is "so far", with how far back it has searched.
+  const scan = list.regex
+  if (scan && !scan.complete) {
+    return (
+      <>
+        {scan.scannedToMs === null
+          ? t('history.results.regexStarting')
+          : t('history.results.regexProgress', {
+              count: items.length,
+              date: format.date(scan.scannedToMs, {
+                month: 'short',
+                year: 'numeric',
+              }),
+            })}
+      </>
+    )
+  }
+  // Until the count lands, describe what is loaded: exact once every page is
+  // in, unless those pages came from a window of the matches.
   const totals =
     list.totals ??
     (list.isPending || items.length === 0 || list.hasNextPage
@@ -54,7 +74,18 @@ export function ResultsLine({
             search.mode === 'semantic'
               ? null
               : items.reduce((sum, item) => sum + (item.visitCount ?? 0), 0),
+          windowed: list.windowed,
         })
+  if (totals?.windowed) {
+    return (
+      <>
+        {t('history.results.pagesMore', {
+          count: totals.pages,
+          mode: modeLabel,
+        })}
+      </>
+    )
+  }
   if (!totals) {
     return items.length > 0 ? (
       <>

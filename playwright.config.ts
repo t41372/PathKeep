@@ -66,6 +66,16 @@ function prepareFixture() {
     PATHKEEP_TEST_BLOCK_NETWORK: '1',
     // Lets export.spec.ts watch and stop an export of the small fixture. Debug only.
     PATHKEEP_TEST_EXPORT_ROW_DELAY_US: '500',
+    // A keyword search ranks at most this many matching URLs (25,000 in a
+    // release build). 40 sits above every word the specs count exactly
+    // ("tokio" has at most 18 URL copies) and below a word on every page, so
+    // search-limits.spec.ts can show the "N+ pages" header. Debug builds only.
+    PATHKEEP_DEBUG_SEARCH_WINDOW: '40',
+    // A regex request scans at most this many visits (a 200 ms budget and a
+    // 4M-row backstop in a release build), so the ~21k-visit fixture takes
+    // about eleven chunks and search-limits.spec.ts can show an old match
+    // found by continuing. Debug builds only.
+    PATHKEEP_DEBUG_REGEX_CHUNK_ROWS: '2000',
     // Keep the build cache between runs; a cold Rust build takes minutes.
     CARGO_TARGET_DIR:
       process.env.CARGO_TARGET_DIR ??
@@ -139,6 +149,8 @@ export default defineConfig({
         'insights.spec.ts',
         'insights-drill.spec.ts',
         'export.spec.ts',
+        'search-loading.spec.ts',
+        'search-limits.spec.ts',
       ],
       'first-run',
     ),

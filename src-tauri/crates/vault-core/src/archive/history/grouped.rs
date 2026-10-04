@@ -4,9 +4,9 @@
 //! each matching URL appears once: its most recent matching visit, plus how many visits matched.
 //!
 //! ## Responsibilities
-//! - Keyword (FTS), fuzzy-fallback, operator-only (starting from the tagged URLs when `tag:` is
-//!   present) and regex search, grouped by URL string, with the same browser, profile, date,
-//!   domain and `site:`-style filters as the visit list.
+//! - Keyword (FTS), fuzzy-fallback and operator-only search (starting from the tagged URLs when
+//!   `tag:` is present), grouped by URL string, with the same browser, profile, date, domain and
+//!   `site:`-style filters as the visit list. Regex grouping lives in `regex_scan`.
 //! - Cursor paging over pages, and the totals: matching pages and matching visits.
 //!
 //! ## Not responsible for
@@ -35,10 +35,11 @@
 //! 6. Work that grows with every visit in the archive instead of with the matches. A plan test
 //!    requires the visit lookups to use `idx_visits_visible_url_time` and never scan `visits`.
 //! 7. The URL filters here drift from the visit list's. They are the same text, checked by a test.
-//! 8. Regex counts. Regex reads the newest `REGEX_SCAN_CAP` visits, like the visit list, so its
-//!    counts cover that window; archives under the cap get exact counts.
+//! 8. Regex rows. Regex is scanned in chunks (`regex_scan`); a grouped row counts the visits of its
+//!    chunk, and a page met again in a later chunk comes back as another row for the list to add up.
 //! 9. A `tag:` search that starts from every URL. Tag-only searches start from `url_tags`; a plan
-//!    test requires `urls` to be read through `idx_urls_url`, never scanned.
+//!    test requires `urls` to be read through `idx_urls_url`, never scanned. A tag set is written
+//!    by hand and small, so tag searches are not windowed.
 //!
 //! ## Performance notes
 //! - Keyword search costs one FTS match plus one index range per matching `url_id`; the sort runs
@@ -71,43 +72,11 @@ macro_rules! page_url_filters {
     };
 }
 
-/// Matching `url_id`s with their relevance score, from both FTS tables (as the visit list does).
-macro_rules! keyword_ranked_urls {
+/// The matching `url_id`s and their scores, collected first by `window::rank_matching_urls` (keyword
+/// and operator-only searches) or by the fuzzy scorer.
+macro_rules! ranked_urls {
     () => {
-        r#"search_matches AS (
-  SELECT
-    rowid AS url_id,
-    bm25(history_search_terms, 6.0, 12.0, 4.0, 5.0, 10.0, 4.0, 2.0, 7.0, 9.0, 6.0) AS score
-  FROM search.history_search_terms
-  WHERE :termsFtsQuery IS NOT NULL
-    AND history_search_terms MATCH :termsFtsQuery
-  UNION ALL
-  SELECT
-    rowid AS url_id,
-    bm25(history_search_trigram, 1.0) + 0.35 AS score
-  FROM search.history_search_trigram
-  WHERE :trigramFtsQuery IS NOT NULL
-    AND history_search_trigram MATCH :trigramFtsQuery
-),
-ranked_urls AS (
-  SELECT url_id, MIN(score) AS score
-  FROM search_matches
-  GROUP BY url_id
-)"#
-    };
-}
-
-/// Fuzzy candidates scored in Rust and written to a temp table first.
-macro_rules! fuzzy_ranked_urls {
-    () => {
-        "ranked_urls AS (SELECT url_id, score FROM temp.history_fuzzy_urls)"
-    };
-}
-
-/// Operator-only searches (`site:example.com` with no words): every URL, unranked.
-macro_rules! every_url {
-    () => {
-        "ranked_urls AS (SELECT id AS url_id, 0.0 AS score FROM urls)"
+        "ranked_urls AS (SELECT url_id, score FROM temp.history_ranked_urls)"
     };
 }
 
@@ -130,10 +99,13 @@ macro_rules! tagged_urls {
     };
 }
 
+pub(super) mod window;
+
 /// One row per matching `url_id` that has visits inside the filters: how many, and the newest.
 ///
 /// `visits.id` is a bare column next to the only min/max aggregate, so SQLite takes it from the
-/// row with the newest `visit_time_ms`. Leave it the only one.
+/// row with the newest `visit_time_ms`. Leave it the only one. `CROSS JOIN` keeps the ranked URLs
+/// as the outer loop: the temp table has no statistics for the planner to go on.
 macro_rules! url_matches {
     ($ranked_urls:expr) => {
         concat!(
@@ -149,9 +121,9 @@ url_matches AS (
     MAX(visits.visit_time_ms) AS last_time,
     visits.id AS last_id
   FROM ranked_urls
-  JOIN urls
+  CROSS JOIN urls
     ON urls.id = ranked_urls.url_id
-  JOIN visits
+  CROSS JOIN visits
     ON visits.url_id = urls.id
   WHERE visits.reverted_at IS NULL
     AND visits.visit_time_ms >= :startTimeMs
@@ -249,12 +221,8 @@ macro_rules! page_totals {
     };
 }
 
-const KEYWORD_PAGES_SQL: &str = page_list!(keyword_ranked_urls!());
-const KEYWORD_PAGE_TOTALS_SQL: &str = page_totals!(keyword_ranked_urls!());
-const FUZZY_PAGES_SQL: &str = page_list!(fuzzy_ranked_urls!());
-const FUZZY_PAGE_TOTALS_SQL: &str = page_totals!(fuzzy_ranked_urls!());
-const OPERATOR_PAGES_SQL: &str = page_list!(every_url!());
-const OPERATOR_PAGE_TOTALS_SQL: &str = page_totals!(every_url!());
+const RANKED_PAGES_SQL: &str = page_list!(ranked_urls!());
+const RANKED_PAGE_TOTALS_SQL: &str = page_totals!(ranked_urls!());
 const TAGGED_PAGES_SQL: &str = page_list!(tagged_urls!());
 const TAGGED_PAGE_TOTALS_SQL: &str = page_totals!(tagged_urls!());
 
@@ -284,6 +252,10 @@ pub(super) struct PageFilters {
 }
 
 /// One page of keyword results, falling back to typo-tolerant matching when nothing matches.
+///
+/// The matches are ranked inside a window of at most `cap` URLs (`window`); a windowed response says
+/// so and its cursor keeps later pages in the same window.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn list_keyword_pages(
     connection: &Connection,
     filters: &PageFilters,
@@ -292,31 +264,36 @@ pub(super) fn list_keyword_pages(
     cursor: Option<&str>,
     include_total: bool,
     lexical_query: LexicalQuery,
+    cap: usize,
 ) -> Result<HistoryQueryResponse> {
+    let (edge, cursor) = window::split_cursor(cursor);
     let cursor = parse_page_cursor(cursor);
-    let pages = SqlPages {
-        list_sql: KEYWORD_PAGES_SQL,
-        totals_sql: KEYWORD_PAGE_TOTALS_SQL,
-        terms_query: lexical_query.terms_query.clone(),
-        trigram_query: lexical_query.trigram_query.clone(),
-    };
-    let totals = if include_total { Some(pages.totals(connection, filters)?) } else { None };
-    if totals.is_none_or(|(pages, _)| pages > 0) {
-        let response = pages.page(connection, filters, sort, limit, cursor.as_ref(), totals)?;
+    let ranked = window::rank_matching_urls(
+        connection,
+        window::Matching::Words(&lexical_query),
+        filters,
+        sort,
+        edge,
+        cap,
+    )?;
+    if ranked.count > 0 || cursor.is_some() || lexical_query.fuzzy_query.is_none() {
+        let totals = if include_total { Some(ranked_totals(connection, filters)?) } else { None };
+        let response = ranked_page(connection, filters, sort, limit, cursor.as_ref(), totals)?;
         let first_page_empty = cursor.is_none() && response.items.is_empty();
         if !first_page_empty || lexical_query.fuzzy_query.is_none() {
-            return Ok(response);
+            return Ok(ranked.label(response));
         }
     }
     match lexical_query.fuzzy_query {
         Some(fuzzy_query) => {
             list_fuzzy_pages(connection, filters, sort, limit, cursor.as_ref(), &fuzzy_query)
         }
-        None => Ok(build_page_response(limit, false, false, Vec::new(), sort, totals)),
+        None => Ok(build_page_response(limit, false, false, Vec::new(), sort, None)),
     }
 }
 
-/// One page of an operator-only search (`site:`, `intitle:` and the like with no words).
+/// One page of an operator-only search (`site:`, `intitle:` and the like with no words), windowed
+/// like keyword search: every URL is a candidate.
 pub(super) fn list_operator_pages(
     connection: &Connection,
     filters: &PageFilters,
@@ -324,15 +301,21 @@ pub(super) fn list_operator_pages(
     limit: usize,
     cursor: Option<&str>,
     include_total: bool,
+    cap: usize,
 ) -> Result<HistoryQueryResponse> {
-    let pages = SqlPages {
-        list_sql: OPERATOR_PAGES_SQL,
-        totals_sql: OPERATOR_PAGE_TOTALS_SQL,
-        terms_query: None,
-        trigram_query: None,
-    };
-    let totals = if include_total { Some(pages.totals(connection, filters)?) } else { None };
-    pages.page(connection, filters, sort, limit, parse_page_cursor(cursor).as_ref(), totals)
+    let (edge, cursor) = window::split_cursor(cursor);
+    let ranked = window::rank_matching_urls(
+        connection,
+        window::Matching::EveryUrl,
+        filters,
+        sort,
+        edge,
+        cap,
+    )?;
+    let totals = if include_total { Some(ranked_totals(connection, filters)?) } else { None };
+    let response =
+        ranked_page(connection, filters, sort, limit, parse_page_cursor(cursor).as_ref(), totals)?;
+    Ok(ranked.label(response))
 }
 
 /// Operator-only pages when a `tag:` operator is present: the candidates are the tagged URLs.
@@ -347,14 +330,13 @@ pub(super) fn list_tagged_pages(
     cursor: Option<&str>,
     include_total: bool,
 ) -> Result<HistoryQueryResponse> {
-    let pages = SqlPages {
-        list_sql: TAGGED_PAGES_SQL,
-        totals_sql: TAGGED_PAGE_TOTALS_SQL,
-        terms_query: None,
-        trigram_query: None,
+    let totals = if include_total {
+        Some(totals_of(connection, TAGGED_PAGE_TOTALS_SQL, filters)?)
+    } else {
+        None
     };
-    let totals = if include_total { Some(pages.totals(connection, filters)?) } else { None };
-    pages.page(connection, filters, sort, limit, parse_page_cursor(cursor).as_ref(), totals)
+    let cursor = parse_page_cursor(cursor);
+    page_of(connection, TAGGED_PAGES_SQL, filters, sort, limit, cursor.as_ref(), totals)
 }
 
 /// Typo-tolerant pages: score the bounded trigram candidates, then group them like keyword hits.
@@ -369,16 +351,16 @@ fn list_fuzzy_pages(
     fuzzy_query: &FuzzyQuery,
 ) -> Result<HistoryQueryResponse> {
     connection.execute_batch(
-        "CREATE TEMP TABLE IF NOT EXISTS history_fuzzy_urls (
+        "CREATE TEMP TABLE IF NOT EXISTS history_ranked_urls (
            url_id INTEGER PRIMARY KEY,
            score REAL NOT NULL
          );
-         DELETE FROM temp.history_fuzzy_urls;",
+         DELETE FROM temp.history_ranked_urls;",
     )?;
     {
         let mut candidates = connection.prepare(FUZZY_URL_CANDIDATES_SQL)?;
         let mut insert = connection
-            .prepare("INSERT INTO temp.history_fuzzy_urls (url_id, score) VALUES (?1, ?2)")?;
+            .prepare("INSERT INTO temp.history_ranked_urls (url_id, score) VALUES (?1, ?2)")?;
         let mut rows = candidates.query(named_params! {
             ":fuzzyFtsQuery": fuzzy_query.candidate_query,
             ":candidateUrlLimit": FUZZY_CANDIDATE_URL_LIMIT,
@@ -398,72 +380,67 @@ fn list_fuzzy_pages(
             }
         }
     }
-    let pages = SqlPages {
-        list_sql: FUZZY_PAGES_SQL,
-        totals_sql: FUZZY_PAGE_TOTALS_SQL,
-        terms_query: None,
-        trigram_query: None,
-    };
-    let totals = pages.totals(connection, filters)?;
-    pages.page(connection, filters, sort, limit, cursor, Some(totals))
+    let totals = ranked_totals(connection, filters)?;
+    ranked_page(connection, filters, sort, limit, cursor, Some(totals))
 }
 
-/// One grouped SQL search: its list statement, its totals statement and the FTS queries they bind.
-struct SqlPages {
-    list_sql: &'static str,
-    totals_sql: &'static str,
-    terms_query: Option<String>,
-    trigram_query: Option<String>,
+/// `(pages, visits)` among the ranked URLs inside the filters.
+fn ranked_totals(connection: &Connection, filters: &PageFilters) -> Result<(usize, usize)> {
+    totals_of(connection, RANKED_PAGE_TOTALS_SQL, filters)
 }
 
-impl SqlPages {
-    /// `(pages, visits)` matching the search and filters.
-    fn totals(&self, connection: &Connection, filters: &PageFilters) -> Result<(usize, usize)> {
-        let mut statement = connection.prepare(self.totals_sql)?;
-        bind_filters(&mut statement, self, filters)?;
-        let mut rows = statement.raw_query();
-        let row = rows.next()?.context("page totals returned no row")?;
-        let pages: i64 = row.get(0)?;
-        let visits: i64 = row.get(1)?;
-        Ok((usize::try_from(pages).unwrap_or(0), usize::try_from(visits).unwrap_or(0)))
-    }
-
-    /// The rows after `cursor`, reading one extra to know whether more follow.
-    fn page(
-        &self,
-        connection: &Connection,
-        filters: &PageFilters,
-        sort: &str,
-        limit: usize,
-        cursor: Option<&PageCursor>,
-        totals: Option<(usize, usize)>,
-    ) -> Result<HistoryQueryResponse> {
-        let mut statement = connection.prepare(self.list_sql)?;
-        bind_filters(&mut statement, self, filters)?;
-        bind(&mut statement, ":sort", &sort)?;
-        bind(&mut statement, ":cursorScore", &cursor.and_then(|cursor| cursor.score))?;
-        bind(&mut statement, ":cursorTime", &cursor.map(|cursor| cursor.last_time))?;
-        bind(&mut statement, ":cursorUrl", &cursor.map(|cursor| cursor.url.as_str()))?;
-        bind(&mut statement, ":pageLimit", &(i64::try_from(limit).unwrap_or(i64::MAX - 1) + 1))?;
-        let mut rows = statement.raw_query();
-        let mut items = Vec::with_capacity(limit + 1);
-        while let Some(row) = rows.next()? {
-            items.push(page_row(row)?);
-        }
-        let has_more = items.len() > limit;
-        items.truncate(limit);
-        Ok(build_page_response(limit, cursor.is_some(), has_more, items, sort, totals))
-    }
-}
-
-/// Binds the parameters every grouped statement shares. Unbound FTS queries stay NULL.
-fn bind_filters(
-    statement: &mut rusqlite::Statement<'_>,
-    pages: &SqlPages,
+/// The pages of the ranked URLs after `cursor`, reading one extra to know whether more follow.
+fn ranked_page(
+    connection: &Connection,
     filters: &PageFilters,
-) -> Result<()> {
-    bind(statement, ":termsFtsQuery", &pages.terms_query)?;
-    bind(statement, ":trigramFtsQuery", &pages.trigram_query)?;
+    sort: &str,
+    limit: usize,
+    cursor: Option<&PageCursor>,
+    totals: Option<(usize, usize)>,
+) -> Result<HistoryQueryResponse> {
+    page_of(connection, RANKED_PAGES_SQL, filters, sort, limit, cursor, totals)
+}
+
+/// `(pages, visits)` from one `page_totals!` statement.
+fn totals_of(connection: &Connection, sql: &str, filters: &PageFilters) -> Result<(usize, usize)> {
+    let mut statement = connection.prepare_cached(sql)?;
+    bind_filters(&mut statement, filters)?;
+    let mut rows = statement.raw_query();
+    let row = rows.next()?.context("page totals returned no row")?;
+    let pages: i64 = row.get(0)?;
+    let visits: i64 = row.get(1)?;
+    Ok((usize::try_from(pages).unwrap_or(0), usize::try_from(visits).unwrap_or(0)))
+}
+
+/// One `page_list!` statement's rows after `cursor`, reading one extra to know whether more follow.
+fn page_of(
+    connection: &Connection,
+    sql: &str,
+    filters: &PageFilters,
+    sort: &str,
+    limit: usize,
+    cursor: Option<&PageCursor>,
+    totals: Option<(usize, usize)>,
+) -> Result<HistoryQueryResponse> {
+    let mut statement = connection.prepare_cached(sql)?;
+    bind_filters(&mut statement, filters)?;
+    bind(&mut statement, ":sort", &sort)?;
+    bind(&mut statement, ":cursorScore", &cursor.and_then(|cursor| cursor.score))?;
+    bind(&mut statement, ":cursorTime", &cursor.map(|cursor| cursor.last_time))?;
+    bind(&mut statement, ":cursorUrl", &cursor.map(|cursor| cursor.url.as_str()))?;
+    bind(&mut statement, ":pageLimit", &(i64::try_from(limit).unwrap_or(i64::MAX - 1) + 1))?;
+    let mut rows = statement.raw_query();
+    let mut items = Vec::with_capacity(limit + 1);
+    while let Some(row) = rows.next()? {
+        items.push(page_row(row)?);
+    }
+    let has_more = items.len() > limit;
+    items.truncate(limit);
+    Ok(build_page_response(limit, cursor.is_some(), has_more, items, sort, totals))
+}
+
+/// Binds the filter parameters every grouped statement shares.
+fn bind_filters(statement: &mut rusqlite::Statement<'_>, filters: &PageFilters) -> Result<()> {
     bind(statement, ":profileId", &filters.profile_id)?;
     bind(statement, ":browserKind", &filters.browser_kind)?;
     bind(statement, ":domainPattern", &filters.domain_pattern)?;
@@ -473,7 +450,7 @@ fn bind_filters(
     Ok(())
 }
 
-/// Binds `name` when the statement uses it; the operator and fuzzy statements have no FTS query.
+/// Binds `name` when the statement uses it; not every statement uses every filter.
 fn bind(
     statement: &mut rusqlite::Statement<'_>,
     name: &str,
@@ -494,78 +471,5 @@ fn page_row(row: &Row<'_>) -> rusqlite::Result<(HistoryEntry, f64)> {
     Ok((entry, row.get(10)?))
 }
 
-/// One page of regex results, grouped from the same bounded scan the visit list uses.
-///
-/// Regex cannot use an index, so it reads the newest (or oldest) `scan_cap` visible visits inside
-/// the filters and matches each URL and title in Rust. Counts and totals cover that window.
-pub(super) fn list_regex_pages(
-    connection: &Connection,
-    filters: &PageFilters,
-    sort: &str,
-    limit: usize,
-    cursor: Option<&str>,
-    regex: &regex::Regex,
-    scan_cap: usize,
-) -> Result<HistoryQueryResponse> {
-    let cursor = parse_page_cursor(cursor);
-    let (start_bound, end_bound, cursor_visit_time, cursor_id) =
-        list_history_bounds(sort, filters.start_time_ms, filters.end_time_ms, None);
-    let mut statement = connection.prepare(list_history_sql(sort))?;
-    let mut rows = statement.query(named_params! {
-        ":profileId": filters.profile_id,
-        ":browserKind": filters.browser_kind,
-        ":domainPattern": filters.domain_pattern,
-        ":startTimeMs": start_bound,
-        ":endTimeMs": end_bound,
-        ":cursorVisitTime": cursor_visit_time,
-        ":cursorId": cursor_id,
-        ":pageLimit": i64::try_from(scan_cap).unwrap_or(i64::MAX),
-        ":pageOffset": 0i64,
-    })?;
-    let mut pages: std::collections::HashMap<String, HistoryEntry> =
-        std::collections::HashMap::new();
-    let mut visits = 0usize;
-    while let Some(row) = rows.next()? {
-        let entry = history_entry_from_row(row)?;
-        if !(regex.is_match(&entry.url)
-            || entry.title.as_ref().is_some_and(|title| regex.is_match(title)))
-        {
-            continue;
-        }
-        visits += 1;
-        match pages.get_mut(&entry.url) {
-            Some(page) => {
-                let count = page.visit_count.unwrap_or(0) + 1;
-                if (entry.visit_time, entry.id) > (page.visit_time, page.id) {
-                    *page = entry;
-                }
-                page.visit_count = Some(count);
-            }
-            None => {
-                pages.insert(entry.url.clone(), HistoryEntry { visit_count: Some(1), ..entry });
-            }
-        }
-    }
-    let mut pages: Vec<HistoryEntry> = pages.into_values().collect();
-    pages.sort_by(|left, right| {
-        let by_time = if sort == "oldest" {
-            left.visit_time.cmp(&right.visit_time)
-        } else {
-            right.visit_time.cmp(&left.visit_time)
-        };
-        by_time.then_with(|| left.url.cmp(&right.url))
-    });
-    let totals = (pages.len(), visits);
-    let start = cursor.as_ref().map_or(0, |cursor| {
-        pages
-            .iter()
-            .position(|page| cursor.precedes(sort, 0.0, page.visit_time, &page.url))
-            .unwrap_or(pages.len())
-    });
-    let has_more = pages.len() > start + limit;
-    let rows = pages.into_iter().skip(start).take(limit).map(|page| (page, 0.0)).collect();
-    Ok(build_page_response(limit, cursor.is_some(), has_more, rows, sort, Some(totals)))
-}
-
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

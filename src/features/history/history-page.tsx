@@ -233,6 +233,12 @@ export default function HistoryPage() {
         />
       )
     }
+    // An empty regex chunk is not "no results" until the whole archive is
+    // scanned. While chunks are coming it is loading; once stopped, the header
+    // says how far the scan got and offers to keep searching.
+    if (items.length === 0 && list.regex && !list.regex.complete) {
+      return list.regex.running ? <StateMessage loading /> : null
+    }
     if (list.error) {
       return (
         <StateMessage
@@ -335,12 +341,29 @@ export default function HistoryPage() {
       <div className="flex min-h-0 flex-1">
         <section className="flex min-w-0 flex-1 flex-col">
           {searching && (
-            <p
-              className="min-h-[38px] px-7 pt-3.5 pb-1.5 text-[13px] text-muted-foreground"
-              aria-live="polite"
-            >
-              <ResultsLine search={search} list={list} items={items} />
-            </p>
+            <div className="flex min-h-[38px] items-center gap-2 px-7 pt-3.5 pb-1.5 text-[13px] text-muted-foreground">
+              <p aria-live="polite">
+                <ResultsLine search={search} list={list} items={items} />
+              </p>
+              {!search.regexError && list.regex && !list.regex.complete && (
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-[13px]"
+                  onClick={
+                    list.regex.running
+                      ? list.regex.stop
+                      : list.regex.keepSearching
+                  }
+                >
+                  {t(
+                    list.regex.running
+                      ? 'history.results.stopSearching'
+                      : 'history.results.keepSearching',
+                  )}
+                </Button>
+              )}
+            </div>
           )}
           {searching &&
             (search.mode === 'semantic' || params.mode === 'semantic') && (
@@ -348,6 +371,13 @@ export default function HistoryPage() {
                 info={semantic}
                 active={search.mode === 'semantic'}
               />
+            )}
+          {searching &&
+            !search.regexError &&
+            (list.totals?.windowed || list.windowed) && (
+              <p className="px-7 pb-1.5 text-[13px] text-muted-foreground">
+                {t('history.results.windowed')}
+              </p>
             )}
           {showList ? (
             listContent()
