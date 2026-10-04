@@ -83,7 +83,7 @@ Debug build（`tauri dev`、`bun run dev:demo`、desktop-bridge E2E）設定 `PA
 - `TaskScheduler/<label>.xml`：Windows 排程。
 - `login-items/com.yi-ting.pathkeep.login.plist`：開機啟動（所有 OS 都用這個格式記錄）。
 
-Plan 產生、plist / XML 內容、audit 與 status 解析照常執行。每次 apply / remove / repair / status 只解析一次沙盒設定，同一個操作不會混用真實與沙盒。Release build 忽略此變數（與 `PATHKEEP_PLATFORM_TEST_KEYRING_DIR` 相同）；舊的 `PATHKEEP_PLATFORM_TEST_LAUNCH_AGENTS_DIR` 也改成只在 debug build 生效。Linux 排程本來就只給手動步驟，沙盒對它沒有作用。可能的失效方式與對應測試列在 `vault-platform/src/sandbox.rs` 檔頭。`scripts/dev-demo.mjs` 與 `playwright.desktop-bridge.config.ts` 都會設定它。
+Plan 產生、plist / XML 內容、audit 與 status 解析照常執行。每次 apply / remove / repair / status 只解析一次沙盒設定，同一個操作不會混用真實與沙盒。Release build 忽略此變數（與 `PATHKEEP_PLATFORM_TEST_KEYRING_DIR` 相同）；舊的 `PATHKEEP_PLATFORM_TEST_LAUNCH_AGENTS_DIR` 也改成只在 debug build 生效。Linux 排程本來就只給手動步驟，沙盒對它沒有作用。Debug build 若設了 `CHB_PROJECT_ROOT` 卻沒設沙盒，macOS / Windows 的排程 status / apply / remove / repair 與開機啟動一律回錯誤（`sandbox::ensure_native_os_allowed`），不會讀到或改到開發者自己的排程與登入項目。可能的失效方式與對應測試列在 `vault-platform/src/sandbox.rs` 檔頭。`scripts/dev-demo.mjs` 與 `playwright.desktop-bridge.config.ts` 都會設定它。
 
 ## Dev Automation Mirror（2026-04-10 / `WORK-QC-H`）
 
@@ -134,6 +134,12 @@ Added for the shadcn frontend. Each is a Tauri command (off the UI thread) and a
 | `preview_clear_derived_intelligence` | none               | `ClearDerivedIntelligenceReport` | Counts what `clear_derived_intelligence` would remove (same queries, same report shape) without removing it; Settings → Background work shows it before the clear.                                                                         |
 
 `get_content_fetch_settings` now also restarts the content-fetch drain when jobs are queued, like `load_ai_queue_status` and `load_intelligence_runtime` do: the lane exits while the queue is paused and resuming only saves the config.
+
+Changed for Backup (2026-10-04), all additive:
+
+- `preview_schedule` takes an optional `dueAfterHours` (whole minutes, 1 minute to 30 days) and builds the plan for that interval without saving config. Backup shows that plan, then saves the interval and applies the same plan on confirm; saving first would flip status to `mismatch` while the user is still looking.
+- `schedule_status.lastAction` is filled from the newest `audit/scheduler/*.json` (`action`, `status` ok / failed / unknown, `at`, `files`, `auditPath`). Scheduler audit files now carry `at`, `success` and `files`.
+- `inspect_browser_history` reads the session key (the Tauri command takes `SessionState`; payload unchanged) and returns `duplicateItems`: visits the archive already holds for the same source profile, by the two unique keys the import's `INSERT OR IGNORE` hits. Preview entries carry `status: "duplicate"` for those.
 
 `query_history` also takes `groupByUrl: true` (with search text): one row per URL string instead of per visit, each the page's newest matching visit with `visitCount`, `totalVisits` beside the page `total`, cursor paging only. History search and the ⌘K palette use it (`explorerClient.searchPages`); the timeline does not. Contract and failure modes: `vault-core/src/archive/history/grouped.rs`; cost: `ipc-performance.md` §6.
 

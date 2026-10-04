@@ -26,7 +26,7 @@ There is no coverage threshold and no mutation testing. A green run means the fe
 
 Each run writes seeded synthetic browser profiles (two Chrome, one Firefox, real SQLite history files, about 21,000 visits over 14 months) to a temp folder, with the archive, keyring and project root next to them. `tests/e2e/support/fixture.ts` reads the same data, so expected numbers are computed from it rather than typed into the specs. The keyring is a file in that folder: debug builds honor `CHB_TEST_KEYRING_DIR`, release builds ignore it.
 
-The specs run in order on one archive (see `projects` in the config): `first-run` (onboarding, first backup) → `read` (search, insights) → `change` (new visits, paused source, app lock) → `wipe` (delete all data).
+The specs run in order on one archive (see `projects` in the config): `first-run` (onboarding, first backup) → `read` (search, insights) → `change` (new visits, paused source, custom-interval schedule install / verify / remove, Browser Direct import / undo / restore, app lock) → `wipe` (delete all data).
 
 Writing E2E tests:
 
@@ -64,7 +64,7 @@ Unit tests are the exception. Use one only when something has to be tested in is
 ## Honest Boundaries
 
 - A focused command does not replace `bun run check`.
-- The E2E suite does not install a real schedule, write the real keychain, sign, notarize, or check the native window. It picks "Manual" in onboarding so it never touches launchd. Windows Task Scheduler apply/status/remove must still be accepted on a real Windows host or VM even though the Rust unit slice uses a stubbed `schtasks` runner.
+- The E2E suite does not install a real schedule, write the real keychain, sign, notarize, or check the native window. Onboarding picks "Manual"; `schedule.spec` and `wipe.spec` install schedules into the debug sandbox (`PATHKEEP_PLATFORM_TEST_SANDBOX_DIR`), never into launchd or Task Scheduler. A debug run that sets `CHB_PROJECT_ROOT` without the sandbox is refused by the scheduler rather than touching your own LaunchAgent. Windows Task Scheduler apply/status/remove must still be accepted on a real Windows host or VM even though the Rust unit slice uses a stubbed `schtasks` runner.
 - `bun run release:check` proves the release config still permits unsigned Windows installers and keeps WebView2 in download-bootstrapper mode; it does not prove a specific Windows host can launch the installer.
 - The GitHub `Windows Test Binary` workflow builds an unsigned Windows app and uploads a short-lived workflow artifact for QA handoff without updating public release assets. It still needs real Windows test-machine validation for install, first launch, scheduler apply/status/remove, and upgrade behavior.
 - GitHub-hosted Windows runners currently validate the desktop surface with `desktop:build:debug`, `vault-platform` native-host tests, and the updater E2E path. The `pathkeep-desktop` Rust test binary for updater/file-manager facades is skipped on Windows CI because the hosted runner fails before the test harness starts with a loader-level `STATUS_ENTRYPOINT_NOT_FOUND`; macOS/Linux still run those Rust facade tests.

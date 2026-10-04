@@ -13,10 +13,10 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 | Dashboard                                                  | Home                                                                                                                                                                                                  |
 | Explorer                                                   | History                                                                                                                                                                                               |
 | Onboarding 的 profile / storage / security / schedule 步驟 | Onboarding 七步：歡迎、瀏覽器、存放位置、加密、排程、AI、完成                                                                                                                                         |
-| Scheduled Backup Settings（Schedule）                      | Backup → 自動備份卡                                                                                                                                                                                   |
-| Import（Takeout）                                          | Backup → 匯入卡（含近期匯入的復原 / 還原）                                                                                                                                                            |
-| Import（Browser Direct）                                   | 沒有介面。`inspect_browser_history` / `import_browser_history` 與 typed client 還在，前端沒有呼叫                                                                                                     |
-| Audit Ledger / run detail                                  | Backup → 最近執行，點一列開側邊 sheet                                                                                                                                                                 |
+| Scheduled Backup Settings（Schedule）                      | Backup → 自動備份卡（預設、自訂間隔、預覽對話框、詳情 sheet）                                                                                                                                         |
+| Import（Takeout）                                          | Backup → 匯入卡；近期匯入（Takeout 與瀏覽器檔案）在「最近的匯入」卡，復原 / 還原都先預覽該批                                                                                                          |
+| Import（Browser Direct）                                   | Backup →「匯入瀏覽器歷史」卡（檔案或使用者資料夾 → 預覽新增 / 已有 → 匯入）                                                                                                                           |
+| Audit Ledger / run detail                                  | Backup → 最近執行，點一列開側邊 sheet（摘要 / 檔案 / 警告）                                                                                                                                           |
 | Jobs、sidebar footer 的背景工作條                          | Settings → Background work：暫停 / 恢復、同時執行數、洞察佇列與搜尋索引 / 助理佇列（最近工作、進度、錯誤、重試 / 取消）、網頁摘要、連結預覽；手動備份進度仍在 Backup 頂端，Takeout 匯入進度在匯入卡內 |
 | Security                                                   | Settings → Security                                                                                                                                                                                   |
 | Settings → Data migration                                  | Settings → Storage →「搬到另一台電腦」（`.pathkeep` 檔）                                                                                                                                              |
@@ -29,12 +29,11 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 以下要求沒有被改掉，只是新介面還沒做到；要補還是要改需求，需要用戶決定：
 
 - §1 Onboarding 沒有「離開設定」：archive 建立前沒有主畫面可去，關掉 app 下次回到 onboarding（瀏覽器選擇已存）。
-- §1 / §3 Browser Direct 匯入沒有介面入口。
-- §2 排程：Backup 卡只有每小時 / 每 6 小時 / 每天 / 關；沒有自訂分鐘間隔（其他值只以文字顯示）、沒有在安裝前顯示 plist / XML / service 檔（只有 onboarding 第 5 步會顯示）、沒有手動安裝路徑以外的 Verify 區塊（偵測到的檔案、檢查項、最近一次 apply / remove 結果）。選「關」即移除排程。
+- §2 排程：自訂間隔的單位是分鐘 / 小時 / 天，範圍 1 分鐘到 30 天（後端 `preview_schedule` 也只接受這個範圍）；需求寫的「最短 1 分鐘、沒有上限」改成上限 30 天，要放寬需要用戶決定。
 - §3 匯入後的 Jobs / sidebar 進度與「第二個寫入任務連到現有任務」：沒有 Jobs 頁；手動備份由 `BackupRunnerProvider` 保證同時只有一個。
 - §4 匯出：只有整個歷史一個檔，沒有 profile / 時間 / domain / query 篩選。
-- §5 rekey 後的 review（run id、安全副本路徑）只在 Backup → 最近執行的 sheet 裡看得到 run，沒有安全副本路徑的開啟 / 複製動作。
-- §6 Audit：沒有 manifest / artifact 路徑的開啟 / 複製、沒有 `Summary / Artifacts / Warnings` 分頁、沒有 snapshot_restore（checkpoint replay）的介面。（log / crash report 路徑已在 Settings → About，2026-10-04。）
+- §5 rekey 後的 review：Backup → 最近執行的 sheet 摘要頁標出安全副本並可開啟 / 複製；Settings → Security 不顯示最近一次 rekey 的時間、run id 與安全副本路徑（鎖定時也要保留）。
+- §6 Audit：沒有 snapshot_restore（checkpoint replay）的介面。（manifest / artifact 路徑與「摘要 / 檔案 / 警告」分頁已在 Backup → 最近執行；log / crash report 路徑已在 Settings → About，2026-10-04。）
 - §7 derived-state 面板（2026-10-04 起在 Settings → Background work）：有 module 版本、freshness（最新 / 已過期 / 尚未建立，含過期原因）、上次建立時間、queue、plugin 的已存筆數與上次執行 / 錯誤、rebuild 與 clear（先用 `preview_clear_derived_intelligence` 列出會刪的筆數）。沒有：plugin 版本（後端 `EnrichmentPluginStatus` 沒有版本欄位）、derived tables 的 storage impact 與 latest growth signal、個別 plugin 開關（`enrichmentPlugins` 設定仍在，介面沒有）。
 - §8 App Lock：見 [app-lock-panel-tradeoff.md](../design/app-lock-panel-tradeoff.md)，**待用戶決定**。
 
@@ -144,6 +143,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 - Dashboard / Settings / Schedule 必須共享平台 capability 與 troubleshooting 語法，至少能清楚暴露 manual-review、mismatch、legacy install、permission warning 等狀態，並直接引導回排程頁修復。
 - Settings 的 independent support inspections（schedule / keyring / security）失敗時，必須在 Settings 本身留下可見 failure + retry，不能用 `null` status 偽裝成沒有問題。
 - Schedule 的 Verify surface 必須直接列出 install state、detected files、typed issues、verification checks、latest audit artifact 與最近一次 apply / remove / repair 結果，避免 verify 只剩一段模糊狀態字串或 raw backend English warning。
+- 2026-10 介面：Backup → 自動備份卡有每小時 / 每 6 小時 / 每天 / 自訂 / 關。選任何間隔、關閉、重新安裝或移除舊版工作都先開對話框：安裝類顯示 `preview_schedule`（帶 `dueAfterHours`，不寫 config）產生的完整 plist / XML / systemd 檔與存放位置，關閉類列出會移除的檔案；按下確認才存間隔並 `apply_schedule` 剛才顯示的那份 plan。關閉不改存下的間隔。「詳情」sheet 是 Verify：檢查項（後端 `schedule.verify*` key 的在地化文字）、問題（`schedule.issue*`）、找到的檔案、最近一次變更（`lastAction`，讀最新的 `audit/scheduler/*.json`，含寫入 / 移除的檔案與記錄檔路徑；舊記錄沒有結果欄位時顯示「沒有記錄結果」）、最近的自動執行、手動步驟（`schedule.manual*`，檔案與指令都可複製）。Linux 卡片直接顯示手動步驟，選間隔只存設定。
 - App 的「開機啟動」（autostart）和備份排程是兩件分開的事。排程靠 `pathkeep-worker`，app 沒開也會跑；開機啟動只是讓 app 本身在登入時出現在選單列，見下方「開機啟動與選單列圖示」。
 - 2026-04-29 scheduled-backup state-machine truth：如果 macOS 存在 known pre-rename LaunchAgent（`dev.codex.pathkeep.backup` 或 `dev.codex.browser-history-backup.backup`），status 必須顯示 typed `legacy-launch-agent` issue 並把 UI 映射到 `INSTALLED_WARN`，讓使用者選擇一鍵修復或手動修復；不得把它顯示成 canonical installed，也不得因 canonical `com.yi-ting.pathkeep.backup` 缺失而直接顯示普通 `NOT_INSTALLED`。
 - 2026-04-29 live repair follow-up：macOS canonical `com.yi-ting.pathkeep.backup` 如果仍 loaded 但 plist 已缺失，status 必須顯示 typed `macos-plist-missing-loaded` error 並映射到 `INSTALLED_ERROR`，提供 reinstall / remove / diagnostics，不得把 loaded-but-uneditable scheduler 當成普通未安裝。macOS remove / repair 必須用 `launchctl bootout gui/$UID/<label>` service target，才能移除沒有 plist 檔但仍留在 launchd 內的 canonical 或 known legacy jobs。
@@ -204,6 +204,8 @@ Settings → General 的兩個開關。
 ### 瀏覽器直接導入
 
 - 同樣走 Preview/Manual/Execute 流程。
+- 2026-10 介面：Backup →「匯入瀏覽器歷史」卡，選檔案或資料夾（瀏覽器模式貼路徑），可選「來自」哪個瀏覽器（預設自動辨識；Edge / Atlas / Comet 會帶 `browserName` 保留產品名）。拖進視窗的檔案依名稱分給這張卡或 Takeout 卡（`History` / `History.db` / `places.sqlite` / `.sqlite` / `.db` 與其他資料夾 → 這張；`.zip` / `.json` / 名稱含 takeout → Takeout）。預覽顯示新增幾筆、存檔已有幾筆、檔案裡共幾筆、時間範圍與最近幾筆；按「匯入 N 筆」才寫入。
+- `inspect_browser_history` 讀存檔（需要 session key，受 App Lock 限制）計算 `duplicateItems`：同一個來源 profile 下 `(source_profile_id, source_visit_id)` 或 `(source_profile_id, event_fingerprint)` 已存在的 visit，和匯入的 `INSERT OR IGNORE` 用同兩個唯一鍵，所以預覽的「新增」就是匯入會加的數量；預覽列 `status` 為 `duplicate`。手選檔案的 profile id 由路徑雜湊得出，同一個檔案再匯入時才會比對到；換路徑視為另一個來源。同一檔案內 fingerprint 相同的兩筆不在預覽偵測範圍（瀏覽器不會寫這種資料）。
 - `/import` 的 Browser Direct 入口必須走 `inspect_browser_history` / `import_browser_history`，不得把本地 `History` / `History.db` 送進 Google Takeout parser。
 - Browser Direct 目前公開承諾只顯示已驗證的 Google Chrome、Microsoft Edge / Edge Dev、Firefox、macOS ChatGPT Atlas browser history profile、macOS Perplexity Comet browser history profile、與 macOS Safari baseline；其他 adapter 即使有內部 parser / discovery coverage，也不能在這個 UI 入口升級成公開承諾。
 - Microsoft Edge / Edge Dev 必須被當成 Chromium-family adapter：`browserFamily` 使用 `chromium`，但 `profileId`、`source_profiles.browser_product` 與 UI 顯示必須保留 `Microsoft Edge` / `Microsoft Edge Dev`。只有手動選 raw `History` 且沒有 discovery metadata 時，才可使用 generic Chromium fallback。
