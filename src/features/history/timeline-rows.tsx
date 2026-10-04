@@ -143,7 +143,10 @@ export const VisitRow = memo(function VisitRow({
   )
 })
 
-/** Search results are not chronological, so each row carries its own date. */
+/**
+ * A search result: one page, with its most recent matching visit's date and,
+ * for full-text and regex, how many visits matched.
+ */
 export const ResultRow = memo(function ResultRow({
   item,
   selected,
@@ -186,6 +189,11 @@ export const ResultRow = memo(function ResultRow({
           {item.domain} · {format.dayAndTime(item.visitTime)}
         </span>
       </span>
+      {item.visitCount !== undefined && (
+        <span className="shrink-0 text-xs text-muted-foreground tabular">
+          {t('common.visits', { count: item.visitCount })}
+        </span>
+      )}
       {relevance && (
         <span
           className="shrink-0 font-mono text-xs text-muted-foreground tabular"

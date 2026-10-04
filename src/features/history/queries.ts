@@ -44,6 +44,7 @@ function fromEntry(entry: HistoryEntry): VisitItem {
     title: entry.title ?? null,
     domain: entry.domain,
     visitTime: entry.visitTime,
+    visitCount: entry.visitCount,
   }
 }
 
@@ -59,11 +60,18 @@ function lexicalQuery(search: SearchSpec, filters: HistoryFilters) {
   }
 }
 
+/** How much a search matched, once counted. */
+export interface SearchTotals {
+  pages: number
+  /** Matching visits; unknown for semantic search, which returns pages only. */
+  visits: number | null
+}
+
 /** The pages of a visit list, flattened. */
 export interface VisitList {
   items: VisitItem[]
-  /** Exact match count when known. */
-  total: number | null
+  /** Exact search totals when known; always null for the timeline. */
+  totals: SearchTotals | null
   isPending: boolean
   isPlaceholder: boolean
   error: Error | null
@@ -74,9 +82,10 @@ export interface VisitList {
 }
 
 /**
- * The timeline and the search results share one list. Timeline and
- * full-text/regex pages come from `query_history` with a cursor and no
- * exact count; semantic pages come from the AI search.
+ * The timeline and the search results share one list. The timeline lists
+ * every visit; full-text and regex results list each page once
+ * (`searchPages`), both read by cursor without an exact count. Semantic
+ * results come from the AI search, which also returns one row per page.
  */
 export function useVisitList(
   search: SearchSpec,
@@ -90,13 +99,17 @@ export function useVisitList(
     enabled: lexicalEnabled,
     queryKey: key('list', search.text, search.mode, filters),
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) =>
-      explorerClient.queryHistory({
+    queryFn: ({ pageParam }) => {
+      const query = {
         ...lexicalQuery(search, filters),
         limit: PAGE_SIZE,
         cursor: pageParam,
         includeTotal: false,
-      }),
+      }
+      return search.text
+        ? explorerClient.searchPages(query)
+        : explorerClient.queryHistory(query)
+    },
     getNextPageParam: (last: HistoryQueryResponse) =>
       last.hasNext ? (last.nextCursor ?? undefined) : undefined,
     placeholderData: keepPreviousData,
@@ -117,7 +130,7 @@ export function useVisitList(
     placeholderData: keepPreviousData,
   })
 
-  const total = useSearchTotal(search, filters, lexicalEnabled)
+  const totals = useSearchTotals(search, filters, lexicalEnabled)
   const active = semantic ? smart : lexical
   const { startTimeMs, endTimeMs, browserKind } = filters
   const clientFiltered =
@@ -150,13 +163,14 @@ export function useVisitList(
       )
   }, [semantic, smart.data, lexical.data, startTimeMs, endTimeMs, browserKind])
 
+  const semanticTotal = smart.data?.pages[0]?.total
   return {
     items,
-    total: semantic
-      ? clientFiltered
+    totals: semantic
+      ? clientFiltered || semanticTotal === undefined
         ? null
-        : (smart.data?.pages[0]?.total ?? null)
-      : total,
+        : { pages: semanticTotal, visits: null }
+      : totals,
     isPending: (lexicalEnabled || (enabled && semantic)) && active.isPending,
     isPlaceholder: active.isPlaceholderData,
     error: active.error,
@@ -168,25 +182,24 @@ export function useVisitList(
 }
 
 /** Counting matches is slower than fetching a page, so it runs beside the list, not before it. */
-function useSearchTotal(
+function useSearchTotals(
   search: SearchSpec,
   filters: HistoryFilters,
   enabled: boolean,
-) {
+): SearchTotals | null {
   const query = useQuery({
     enabled: enabled && search.text !== '',
     queryKey: key('search-total', search.text, search.mode, filters),
     queryFn: () =>
-      explorerClient.queryHistory({
+      explorerClient.searchPages({
         ...lexicalQuery(search, filters),
         limit: 1,
         includeTotal: true,
       }),
   })
-  const response = query.data as
-    | (HistoryQueryResponse & { totalExact?: boolean })
-    | undefined
-  return response && response.totalExact !== false ? response.total : null
+  const response = query.data
+  if (!response?.totalExact) return null
+  return { pages: response.total, visits: response.totalVisits ?? null }
 }
 
 export interface BrowserOption {

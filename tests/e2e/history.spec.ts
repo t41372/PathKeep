@@ -2,10 +2,11 @@
  * History: finding one page among twenty thousand visits, three ways, then
  * keeping it with a star and a note.
  *
- * Proves: full-text and regex search return exactly the visits that match
- * (not a page of them, not near-misses), the browser filter narrows to one
- * profile's visits, the detail panel counts visits across browsers, and a
- * star and note survive a reload.
+ * Proves: search lists each matching page once, with exactly the visits that
+ * match it (not a page of them, not near-misses), in full-text and regex; the
+ * browser filter narrows the count to one profile's visits; a word on several
+ * pages lists every one of them once; the detail panel counts visits across
+ * browsers; and a star and note survive a reload.
  */
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import {
@@ -14,15 +15,37 @@ import {
   expectCount,
   fixture,
   parseCount,
+  type FixtureVisit,
 } from './support/fixture'
 
 const PAGE_URL = 'https://news.ycombinator.com/item?id=41502281'
 const PAGE_TITLE = 'Hacker News · Why I left tokio'
 
+interface Expected {
+  pages: number
+  visits: number
+  /** One title per page, sorted. */
+  titles: string[]
+}
+
+/** What a search should find, worked out from the visits the fixture wrote. */
+function expected(
+  visits: FixtureVisit[],
+  matches: (visit: FixtureVisit) => boolean,
+): Expected {
+  const hits = visits.filter(matches)
+  const titles = new Map(hits.map((visit) => [visit.url, visit.title]))
+  return {
+    pages: titles.size,
+    visits: hits.length,
+    titles: [...titles.values()].sort(),
+  }
+}
+
 /**
- * Waits until the result header shows `expected` exactly, then records the
- * pair. The header first says "100+ results" from the first page and fills
- * in the exact total when the separate count query lands, so a single read
+ * Waits until the result header reads exactly "N pages · M visits · mode",
+ * then records both numbers. The header first describes the loaded rows and
+ * fills in the totals when the separate count query lands, so a single read
  * would race it.
  */
 async function expectResults(
@@ -30,52 +53,60 @@ async function expectResults(
   testInfo: TestInfo,
   name: string,
   mode: string,
-  expected: number,
+  want: Expected,
 ) {
-  const header = page.getByText(new RegExp(`results? · ${mode}$`))
-  let actual = Number.NaN
+  const pattern = new RegExp(`^([\\d,]+) pages? · ([\\d,]+) visits? · ${mode}$`)
+  const header = page.getByText(new RegExp(`visits? · ${mode}$`))
+  let actual = { pages: Number.NaN, visits: Number.NaN }
   await expect
     .poll(async () => {
-      const text = await header.innerText().catch(() => '')
-      actual = /^[\d,]+ results? ·/.test(text) ? parseCount(text) : Number.NaN
+      const match = (await header.innerText().catch(() => '')).match(pattern)
+      actual = match
+        ? { pages: parseCount(match[1]), visits: parseCount(match[2]) }
+        : { pages: Number.NaN, visits: Number.NaN }
       return actual
     })
-    .toBe(expected)
-  await expectCount(testInfo, name, actual, expected)
+    .toEqual({ pages: want.pages, visits: want.visits })
+  await expectCount(testInfo, `${name}: pages`, actual.pages, want.pages)
+  await expectCount(testInfo, `${name}: visits`, actual.visits, want.visits)
 }
 
 const results = (page: Page) =>
   page.getByRole('listbox', { name: 'History results' }).getByRole('option')
 
-test('search finds every visit to a page, and nothing else', async ({
+/** The page's single row, showing its visit count. */
+async function expectOnlyRow(page: Page, title: string, visits: number) {
+  const rows = results(page).filter({ hasText: title })
+  await expect(rows).toHaveCount(1)
+  await expect(rows).toContainText(
+    `${visits.toLocaleString('en-US')} visit${visits === 1 ? '' : 's'}`,
+  )
+}
+
+test('search lists each matching page once with its visits', async ({
   page,
 }, testInfo) => {
-  const visitsToPage = (id?: string) =>
-    (id
-      ? fixture().visitsByProfile[id as 'firefox:k3x9.default-release']
-      : archivedVisits()
-    ).filter((visit) => visit.url === PAGE_URL).length
-  const expected = visitsToPage()
-  expect(expected, 'the fixture must contain the page').toBeGreaterThan(1)
+  const toPage = (visit: FixtureVisit) => visit.url === PAGE_URL
+  const everywhere = expected(archivedVisits(), toPage)
+  expect(
+    everywhere.visits,
+    'the fixture must revisit the page',
+  ).toBeGreaterThan(1)
 
   await page.goto('/#/history')
   const search = page.getByRole('searchbox', { name: 'Search history' })
 
   // Every word of the title has to match; "tokio" alone matches many pages.
   await search.fill('why I left tokio')
-  await expectResults(
-    page,
-    testInfo,
-    'full-text matches',
-    'Full text',
-    expected,
-  )
-  await expect(results(page).first()).toContainText(PAGE_TITLE)
+  await expectResults(page, testInfo, 'full text', 'Full text', everywhere)
+  await expect(results(page)).toHaveCount(everywhere.pages)
+  await expectOnlyRow(page, PAGE_TITLE, everywhere.visits)
 
   // Regex over the URL: the escaped `?` must not turn into a wildcard.
   await page.getByRole('radio', { name: 'Regex' }).click()
   await search.fill('item\\?id=41502281$')
-  await expectResults(page, testInfo, 'regex matches', 'Regex', expected)
+  await expectResults(page, testInfo, 'regex', 'Regex', everywhere)
+  await expectOnlyRow(page, PAGE_TITLE, everywhere.visits)
 
   // Only Firefox's visits to the same page.
   await page.getByRole('button', { name: /All browsers/ }).click()
@@ -85,13 +116,31 @@ test('search finds every visit to a page, and nothing else', async ({
     .first()
     .click()
   await page.keyboard.press('Escape')
-  await expectResults(
-    page,
-    testInfo,
-    'regex matches in Firefox only',
-    'Regex',
-    visitsToPage('firefox:k3x9.default-release'),
+  const firefox = expected(
+    fixture().visitsByProfile['firefox:k3x9.default-release'],
+    toPage,
   )
+  await expectResults(page, testInfo, 'regex, Firefox only', 'Regex', firefox)
+  await expectOnlyRow(page, PAGE_TITLE, firefox.visits)
+})
+
+test('a word on several pages lists every page once', async ({
+  page,
+}, testInfo) => {
+  const want = expected(archivedVisits(), (visit) =>
+    `${visit.title} ${visit.url}`.toLowerCase().includes('tokio'),
+  )
+  expect(want.pages, 'the fixture has several tokio pages').toBeGreaterThan(2)
+
+  await page.goto('/#/history')
+  await page.getByRole('searchbox', { name: 'Search history' }).fill('tokio')
+  await expectResults(page, testInfo, 'tokio', 'Full text', want)
+  await expect(results(page)).toHaveCount(want.pages)
+  // Each row starts with the page title.
+  const titles = (await results(page).allInnerTexts())
+    .map((text) => text.split('\n')[0].trim())
+    .sort()
+  expect(titles, 'each page once, and nothing else').toEqual(want.titles)
 })
 
 test('a starred page keeps its note after a reload', async ({
@@ -105,7 +154,7 @@ test('a starred page keeps its note after a reload', async ({
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill('why I left tokio')
-  await results(page).filter({ hasText: PAGE_TITLE }).first().click()
+  await results(page).filter({ hasText: PAGE_TITLE }).click()
 
   const detail = page.getByRole('complementary', { name: 'Page details' })
   await expect(detail).toContainText(PAGE_URL)

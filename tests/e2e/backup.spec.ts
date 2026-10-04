@@ -38,18 +38,24 @@ async function backUp(page: Page, expected: RegExp) {
   await expect(latest).toContainText(expected, { timeout: 60_000 })
 }
 
-/** Searches History for the test page and waits for exactly `expected` hits. */
+/**
+ * Searches History for the test page and waits for exactly `expected` visits
+ * to it. Search lists the page once; the header counts its visits
+ * ("1 page · 5 visits · Full text").
+ */
 async function expectSearchHits(page: Page, expected: number) {
   await page.goto('/#/history')
   await page.getByRole('searchbox', { name: 'Search history' }).fill(NEW_TITLE)
-  const header = page.getByText(/results? · Full text$|^Nothing found$/)
+  // With no match both the header and the empty state show; the header comes first.
+  const header = page.getByText(/visits? · Full text$|^Nothing found$/).first()
   await expect
     .poll(async () => {
       const text = await header.innerText().catch(() => '')
       if (text === 'Nothing found') return 0
-      return /^[\d,]+ results? ·/.test(text)
-        ? Number(text.replace(/[^\d]/g, ''))
-        : Number.NaN
+      const counts = text.match(
+        /^([01]) pages? · ([\d,]+) visits? · Full text$/,
+      )
+      return counts ? Number(counts[2].replace(/[^\d]/g, '')) : Number.NaN
     })
     .toBe(expected)
 }

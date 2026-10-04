@@ -332,6 +332,12 @@ export interface HistoryQuery {
   regexMode?: boolean
   /** Skip the exact total count. Set it for paged lists; counting 14M rows on every page is slow. */
   includeTotal?: boolean
+  /**
+   * One row per page (URL) instead of one per visit: the page's newest
+   * matching visit, with `visitCount`. Applies only when `q` is set; read
+   * further pages with `nextCursor`.
+   */
+  groupByUrl?: boolean
 }
 
 /**
@@ -369,6 +375,8 @@ export interface HistoryEntry {
    * highlights query terms inside it and suppresses the affordance when empty.
    */
   enrichmentExcerpt?: string | null
+  /** On `groupByUrl` rows only: how many visits to this page matched. */
+  visitCount?: number
 }
 
 /**
@@ -490,7 +498,12 @@ export interface OgImageSettings {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface HistoryQueryResponse {
+  /** Matching rows (pages when grouped), or only this page's size when `totalExact` is false. */
   total: number
+  /** False when the query was sent with `includeTotal: false`. */
+  totalExact: boolean
+  /** Grouped queries with an exact total: matching visits across all pages. */
+  totalVisits?: number | null
   items: HistoryEntry[]
   page: number
   pageSize: number
