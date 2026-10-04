@@ -1,6 +1,6 @@
 import { defineMessages } from '../define'
 
-/** Settings → About: version, updates, logs, health check, rebuilding Insights. */
+/** Settings → About: version, updates, logs and diagnostics, health check. */
 export const settingsAbout = defineMessages({
   en: {
     version: {
@@ -64,16 +64,6 @@ export const settingsAbout = defineMessages({
       repaired: 'Repair finished.',
       repairFailed: 'The repair did not finish',
     },
-    insights: {
-      title: 'Rebuild Insights',
-      description: 'Work out Insights again from your whole history',
-      action: 'Rebuild',
-      confirmTitle: 'Rebuild Insights?',
-      confirmBody:
-        'This runs in the background and can take a while on a large history. Your history is not changed.',
-      started: 'Rebuilding Insights in the background.',
-      failed: 'Could not start the rebuild',
-    },
   },
   'zh-CN': {
     version: {
@@ -135,16 +125,6 @@ export const settingsAbout = defineMessages({
       repaired: '修复完成。',
       repairFailed: '修复没有完成',
     },
-    insights: {
-      title: '重建洞察',
-      description: '根据你的全部历史重新计算洞察',
-      action: '重建',
-      confirmTitle: '要重建洞察吗？',
-      confirmBody:
-        '这会在后台运行，历史较多时需要一些时间。你的历史不会被更改。',
-      started: '正在后台重建洞察。',
-      failed: '无法开始重建',
-    },
   },
   'zh-TW': {
     version: {
@@ -205,16 +185,6 @@ export const settingsAbout = defineMessages({
         'PathKeep 會重建能重建的記錄，並清除過時的搜尋和洞察資料以便重新產生。你的歷史不會被刪除。',
       repaired: '修復完成。',
       repairFailed: '修復沒有完成',
-    },
-    insights: {
-      title: '重建洞察',
-      description: '根據你的全部歷史重新計算洞察',
-      action: '重建',
-      confirmTitle: '要重建洞察嗎？',
-      confirmBody:
-        '這會在背景執行，歷史較多時需要一些時間。你的歷史不會被更改。',
-      started: '正在背景重建洞察。',
-      failed: '無法開始重建',
     },
   },
 })

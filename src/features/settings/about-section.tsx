@@ -1,25 +1,14 @@
 /**
- * Settings → About: which build this is, updates, logs, the archive health
- * check, and rebuilding Insights. The places to go when something is wrong.
+ * Settings → About: which build this is, updates, logs, and the archive
+ * health check. The places to go when something is wrong. (Rebuilding
+ * Insights lives in Settings → Background work.)
  */
 import { useMutation } from '@tanstack/react-query'
-import { useState } from 'react'
 import { toast } from 'sonner'
 import { useSession } from '@/app/session'
 import { SettingRow, SettingsSection } from '@/components/app/setting-row'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { supportClient } from '@/lib/backend-client/support'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
@@ -48,7 +37,6 @@ export function AboutSection() {
       {buildInfo && <UpdateRow version={buildInfo.version} />}
       <LogsRow />
       <HealthRow />
-      <RebuildInsightsRow />
     </SettingsSection>
   )
 }
@@ -77,54 +65,5 @@ function LogsRow() {
         </Button>
       }
     />
-  )
-}
-
-function RebuildInsightsRow() {
-  const { t } = useI18n()
-  const [confirm, setConfirm] = useState(false)
-  const rebuild = useMutation({
-    mutationFn: () =>
-      intelligenceClient.queueCoreIntelligenceRebuild({ fullRebuild: true }),
-    onSuccess: () => toast.success(t('settingsAbout.insights.started')),
-    onError: (error) =>
-      toast.error(t('settingsAbout.insights.failed'), {
-        description: describeError(error, 'queue_core_intelligence_rebuild'),
-      }),
-  })
-  return (
-    <SettingRow
-      title={t('settingsAbout.insights.title')}
-      description={t('settingsAbout.insights.description')}
-      control={
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={rebuild.isPending}
-          onClick={() => setConfirm(true)}
-        >
-          {t('settingsAbout.insights.action')}
-        </Button>
-      }
-    >
-      <AlertDialog open={confirm} onOpenChange={setConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t('settingsAbout.insights.confirmTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('settingsAbout.insights.confirmBody')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => rebuild.mutate()}>
-              {t('settingsAbout.insights.action')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </SettingRow>
   )
 }
