@@ -45,6 +45,8 @@ export function invalidateSearches(client: QueryClient) {
 }
 
 const PAGE_SIZE = 100
+/** Where the list key says what it lists: `'visits'` (timeline) or `'pages'` (search). */
+const LIST_KIND_AT = key('list').length
 const SEMANTIC_PAGE_SIZE = 50
 
 function fromEntry(entry: HistoryEntry): VisitItem {
@@ -115,7 +117,13 @@ export function useVisitList(
 
   const lexical = useInfiniteQuery({
     enabled: lexicalEnabled,
-    queryKey: key('list', search.text, search.mode, filters),
+    queryKey: key(
+      'list',
+      search.text ? 'pages' : 'visits',
+      search.text,
+      search.mode,
+      filters,
+    ),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => {
       const query = {
@@ -130,7 +138,15 @@ export function useVisitList(
     },
     getNextPageParam: (last: HistoryQueryResponse) =>
       last.hasNext ? (last.nextCursor ?? undefined) : undefined,
-    placeholderData: keepPreviousData,
+    // Keep the previous rows on screen while the next query loads, but only
+    // when they are the same kind of rows: the timeline lists visits and a
+    // search lists pages, so the timeline shown under "History results" put
+    // one page on several rows until the search answered.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[LIST_KIND_AT] ===
+      (search.text ? 'pages' : 'visits')
+        ? previous
+        : undefined,
   })
 
   const smart = useInfiniteQuery({

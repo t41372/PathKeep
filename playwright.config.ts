@@ -144,6 +144,7 @@ export default defineConfig({
         'insights.spec.ts',
         'insights-drill.spec.ts',
         'export.spec.ts',
+        'search-loading.spec.ts',
         'search-limits.spec.ts',
       ],
       'first-run',

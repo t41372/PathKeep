@@ -664,3 +664,47 @@ fn tag_pages_start_from_the_tagged_urls_not_every_url() {
         assert!(!plan.contains("SCAN visits"), "no scan of every visit:\n{plan}");
     }
 }
+
+#[test]
+fn three_copies_of_one_page_stay_one_row_on_every_page_of_the_walk() {
+    // The E2E fixture's "Why I left tokio" page lives in three profiles, with the newest visits
+    // minutes apart; the list showed it twice. The query never did: its copies fold into one row
+    // however the walk is cut (the duplicate was the timeline shown as search results while the
+    // search loaded, fixed in `src/features/history/queries.ts`).
+    let archive = Archive::new();
+    let connection = open_archive_connection(&archive.paths, &archive.config, None).expect("open");
+    connection
+        .execute(
+            "INSERT INTO source_profiles (id, browser_kind, profile_name, profile_path,
+               discovered_at, enabled, profile_key)
+             VALUES (3, 'chrome', 'work', '/tmp/work', '2026-05-01T00:00:00Z', 1, 'chrome:Work')",
+            [],
+        )
+        .expect("third profile");
+    let page = "https://news.ycombinator.com/item?id=41502281";
+    let title = "Hacker News · Why I left tokio";
+    archive
+        .url(1, FIREFOX, page, title, &[9_000, 9_480, 9_530])
+        .url(2, CHROME, page, title, &[5_000, 9_500])
+        .url(3, 3, page, title, &[7_000])
+        .url(4, CHROME, "https://tokio.rs/", "tokio", &[9_490])
+        .url(5, FIREFOX, "https://example.test/left", "why I left my job", &[9_520])
+        .index();
+
+    for query in ["why I left tokio", "tokio"] {
+        for sort in ["relevance", "newest", "oldest"] {
+            let search = HistoryQuery {
+                q: Some(query.into()),
+                sort: Some(sort.into()),
+                ..Default::default()
+            };
+            for limit in [1, 2, 100] {
+                let walked = archive.walk(search.clone(), limit);
+                let copies = walked.iter().filter(|row| row.url == page).collect::<Vec<_>>();
+                assert_eq!(copies.len(), 1, "{query} {sort} limit {limit}: {:?}", urls(&walked));
+                assert_eq!(copies[0].visit_count, Some(6), "{query} {sort} limit {limit}");
+                assert_eq!(copies[0].visit_time, 9_530, "{query} {sort} limit {limit}");
+            }
+        }
+    }
+}
