@@ -1,7 +1,8 @@
 # ANNOTATIONS — 每網址筆記與標籤
 
-> v0.3 paper redesign 引入的使用者可手寫資料。讓 Browse detail panel 寫下的 notes 與 tags
+> v0.3 paper redesign 引入的使用者可手寫資料。讓詳情面板寫下的 notes 與 tags
 > 進入 canonical archive，跨 session、跨備份、跨 restore 保存下來。
+> 2026-10 起筆記在 History 詳情面板；標籤目前沒有介面（見 §4）。
 
 ---
 
@@ -95,18 +96,21 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
 所有 command 都吃 session database key（與 archive 的 App Lock session 同層），加密 archive
 鎖住時不會回傳資料。
 
-## 4. 前端
+## 4. 前端（2026-10 redesign 之後）
 
-- `src/lib/backend-client/annotations.ts` 提供 typed client：`backend.getUrlAnnotation`、
-  `backend.setUrlNotes`、`backend.replaceUrlTags`、`backend.listUrlAnnotations`、
-  `backend.searchUrlAnnotations`。
-- `src/pages/explorer/use-desktop-annotations.ts`：backend-backed hook，optimistic
-  cache + write-through。形狀與 `useLocalAnnotations` 一致，所以 Browse detail panel
-  完全不知道後面接誰。
-- `src/pages/explorer/index.tsx` 用 `hasDesktopCommandTransport()` 在 `useDesktopAnnotations`
-  與 `useLocalAnnotations` 之間切換。Browser-preview build 仍走 localStorage。
-- 「Saved · local」這條 mono 文字目前還是維持的；之後 surface 真實的 backend save state
-  時會由 detail panel 自行調整。
+- `src/lib/backend-client/annotations.ts`：typed client `annotationsClient`
+  （`getUrlAnnotation`、`setUrlNotes`、`replaceUrlTags`、`listUrlAnnotations`、
+  `searchUrlAnnotations`）。
+- **筆記**：History 詳情面板底部的「備註」框（`src/features/history/note-editor.tsx`）。
+  停止輸入 800 ms 後自動存（`set_url_notes`），換到另一頁時先把未存的內容寫掉；
+  旁邊顯示「正在儲存… / 已儲存 / 無法儲存備註」。讀取用 `useUrlAnnotation(url)`
+  （`src/features/history/queries.ts`），讀取失敗會說「無法載入備註」。
+- **已加星**視圖用 `useAnnotationList()`（`list_url_annotations`，上限 2000 筆）在每列
+  顯示筆記預覽。
+- **標籤**：後端與 client 都在，但 2026-10 介面沒有任何地方讀寫標籤
+  （`replaceUrlTags` 沒有呼叫者）。
+- 沒有 localStorage 備援，也沒有 browser-preview 版本；舊的 `useLocalAnnotations`、
+  `use-desktop-annotations.ts` 與「Saved · local」字樣已隨舊前端刪除。
 
 ## 5. 與其他系統的互動
 
@@ -115,13 +119,15 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
   視為 derived state 刪掉（不在 `clear_derived_intelligence` 範圍）。
 - **Audit ledger**：寫入 annotations 不會產生新的 backup run，但 `source_profile` 欄位讓
   後續 audit 想 trace「這條筆記是誰在哪個 profile 寫的」時有來源 hint。
-- **Search 入口**：未來 Recall 與 paper Search 都會把 `search_annotations` 接成第三條
-  signal（與 history、semantic 並列），但目前的 paper Search 仍只用 history。
+- **搜尋**：search projection v4 把筆記與標籤寫進 `search_documents` 的
+  `notes_text` / `tags_text`，也併進 CJK gram 與 trigram，所以 History 的全文搜尋直接
+  找得到筆記內容；`set_notes` / `replace_tags` 寫入後立即重算該網址的搜尋文件。
+  另外可用 `note:字串`、`-note:字串`、`tag:名稱`、`-tag:名稱` 篩選
+  （`vault-core/src/archive/search_query.rs`）。`search_url_annotations` 這條獨立 API
+  目前沒有前端呼叫者。
 
 ## 6. 後續 backlog
 
-- `search_annotations` 接上 FTS 索引（單獨 migration），保留現有 API。
-- Notes export / import（含 CSV 與 markdown），由 maintenance 流程觸發。
-- Detail panel 用 backend save-state 取代「Saved · local」字串，配合 toast / inline
-  status pill。
+- 標籤的介面（2026-10 redesign 沒有做）。
+- Notes export / import（含 CSV 與 markdown）。
 - Tag aliasing / canonical tag list 由 Settings 管理（先做使用者觀察再設計）。

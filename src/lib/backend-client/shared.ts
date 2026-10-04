@@ -3,7 +3,6 @@
  *
  * Why this file exists:
  * - The `backend-client` layer keeps page components from having to know raw command names or transport details.
- * - If a route needs desktop data, start here before reaching for legacy preview helpers.
  *
  * Main declarations:
  * - `call`

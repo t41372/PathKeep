@@ -3,6 +3,8 @@
 > v0.3 paper redesign 引入的 Browse 卡片模式視覺。讓每張 card 顯示頁面真正的 og:image
 > 社交卡，而非僅僅 favicon 或 domain 色塊；圖片以 byte-identical dedup 儲存，使用者可
 > 隨時關掉 fetch、清空快取，或設定 LRU / 大小 / 時間驅動的自動清理。
+> **2026-10 註記**：卡片模式已隨舊前端刪除，現在的介面不顯示 og:image，只剩開關與清除快取
+> （§4）。後端（§3）不變。
 
 ---
 
@@ -131,30 +133,29 @@ data-sovereignty)`、無 Referer、connect 8 s / total 12 s、最多 1 次 redir
 - 第一版採嚴格序列 fetch（單一 client、無 parallelism）。未來可加 per-host token
   bucket / parallelism cap，呼叫合約不變。
 
-## 4. 前端
+## 4. 前端（2026-10 redesign 之後）
 
-- `src/lib/backend-client/explorer.ts` + `src/lib/backend.ts`：6 個 typed methods
-  `loadHistoryOgImages` / `markOgImagesShown` / `triggerOgImageRefetch` /
-  `getOgImageStorageStats` / `clearOgImageCache` / `runOgImageCleanup`。
-- `src/pages/explorer/hooks/use-explorer-og-images.ts`：lazy hydration hook。
-  - 鏡像 `useExplorerFavicons` 的 dedup + inflight + cache-token 行為，但 key 只用 URL
-    （og:image 是 page-level，沒有 visit-time / profile scope）。
-  - debounced（1 s）批次呼叫 `markOgImagesShown`，把可見 URL 推進 LRU 訊號裡。
-  - `enabled` prop 讓 list mode 可以完全跳過整個 pipeline。
-- `src/components/explorer-paper/paper-contact-frame.tsx`：渲染順位 og:image > favicon
-  > domain swatch。og:image 在時，背景轉黑、`<img>` `object-cover` 填滿 16:10 區域、
-  > 加上頂底 scrim 讓 index / transition token 在任何圖上都可讀。
-- `src/pages/settings/link-previews-section.tsx`：Settings → Link previews
-  subsection。
-  - Fetch toggle 透過 `saveConfig` 寫 `AppConfig.ogImage.fetchEnabled`。
-  - 即時顯示 `getOgImageStorageStats` 結果。
-  - Run-cleanup / Clear-all（後者有 `window.confirm` guard）。
-  - 三語 i18n keys（`settings.linkPreviews*`）位於
-    `src/lib/i18n/catalog/settings-core-and-platform.ts`。
-- `src/pages/onboarding/ready-step.tsx`：onboarding Ready 步有一次性 egress 披露
-  （2026-07-26 加入）：如實說明連結預覽預設開啟、每次備份後會向造訪過的網站請求預覽圖
-  （Bilibili 經其公開 API）、不帶 cookie / 帳號資訊，並指向「設定 → 連結預覽」關閉或
-  改為按需。
+2026-10 的介面**不顯示** og:image。History 只有列表（沒有卡片模式），列與詳情面板只用
+favicon 或網域首字母色塊；沒有任何畫面呼叫 `loadHistoryOgImages` 或 `markOgImagesShown`。
+介面上只剩兩個控制：
+
+- **Settings → General →「連結預覽」開關**（`src/features/settings/online-rows.tsx`）：
+  寫 `AppConfig.ogImage.fetchEnabled`；打開時若 `fetchMode` 是 `off`，同時改成
+  `background`。說明文字：「下載每頁提供的預覽圖，網站會看到一個來自你電腦的請求」。
+  同一組「線上」分組註明：只有連結預覽與網頁摘要會連到網站。
+- **Settings → Storage →「連結預覽圖」**（`src/features/settings/storage-section.tsx`）：
+  顯示 `get_og_image_storage_stats` 的張數與大小，「清除…」確認後呼叫
+  `clear_og_image_cache`。沒有 Run cleanup、沒有清理策略選擇、沒有 per-domain blocklist 介面。
+
+`src/lib/backend-client/explorer.ts` 仍保有 6 個 typed methods
+（`loadHistoryOgImages` / `markOgImagesShown` / `triggerOgImageRefetch` /
+`getOgImageStorageStats` / `clearOgImageCache` / `runOgImageCleanup`），介面只用到
+`getOgImageStorageStats` 與 `clearOgImageCache`。
+
+**已知問題（待決定）**：後端預設 `fetch_enabled: true`、`fetch_mode: background`，所以
+每次備份後仍會向造訪過的網站下載預覽圖，但 2026-10 介面既不顯示這些圖，onboarding 也不再
+告知這件事（舊的 Ready 步 egress 披露已隨舊前端刪除）。使用者唯一能發現它的地方是
+Settings → General 的開關。要嘛把預設改成關、要嘛恢復顯示並在 onboarding 告知，需要用戶決定。
 
 ## 5. 與其他系統的互動
 
@@ -164,8 +165,7 @@ data-sovereignty)`、無 Referer、connect 8 s / total 12 s、最多 1 次 redir
 - **Schedule tick**：未來在 `schedule.rs` daily tick 接上 `run_og_image_cleanup`，
   在使用者選了 Time / Size / LRU 模式時自動回收；目前 `Off` 模式下 tick 仍跑一次
   orphan-blob GC，量級忽略不計。
-- **List mode**：列表模式只渲染 favicon，不觸發 og:image 抓取。`useExplorerOgImages`
-  在 list mode 接到 `enabled=false`。
+- **顯示**：2026-10 起沒有任何畫面顯示 og:image（見 §4）；背景抓取仍照設定進行。
 
 ## 6. 後續 backlog
 

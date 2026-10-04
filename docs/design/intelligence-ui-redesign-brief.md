@@ -1,5 +1,7 @@
 # Intelligence UI Redesign Brief
 
+> **2026-10-02 註記：** 本文描述 2026-10 之前的介面（Intelligence、Explorer、Jobs、Maintenance 等舊頁面已在 M18 redesign 刪除），留作紀錄，不再是現行規格。現行畫面見 [screens-and-nav.md](screens-and-nav.md)。
+
 > 這份 brief 是給設計師重做 intelligence 介面的輸入文件。  
 > 它描述的是 **現在產品實際已有的 intelligence 能力，要怎麼重新整理成好懂、好用、可解釋的 UI**。  
 > 它不是要發明一套完全脫離現實的「AI 感」介面。

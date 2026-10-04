@@ -1,5 +1,7 @@
 # Design Handoff — Source of Truth
 
+> **2026-10-02:** Everything in this folder is the handoff for the retired v0.3 Paper redesign. The current frontend follows `../prototype-2026-10/` instead (see [screens-and-nav.md](../screens-and-nav.md)). Kept for the record; nothing here is a current spec.
+
 This directory holds **immutable design source files** received from external
 design tooling. They are the visual contract that the v0.3 paper redesign
 implements. Treat them as **read-only reference**.

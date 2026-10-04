@@ -12,13 +12,39 @@
 
 ---
 
+## 0. 2026-10 介面對照
+
+M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變；提到舊頁面的地方對照如下（畫面細節見 [screens-and-nav.md](../design/screens-and-nav.md)）：
+
+| 舊頁面 / 元件                                                  | 現在                                                                                                                                                              |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Explorer 的 keyword / semantic / hybrid recall                 | History 的搜尋方式：全文 / Regex / 語意。語意走 `search_ai_history`，條件是 `ai.enabled`、`semanticIndexEnabled` 都開且 `aiStatus.ready`；否則退回全文並提示      |
+| Assistant（`/assistant`）                                      | Ask（`/ask`）：串流回答、可展開思考與搜尋次數、引用頁面連回 History、停止 / 重試 / 複製、對話清單（改名、刪除）                                                   |
+| `/intelligence` 與 day / domain / query-family / refind… 路由  | Insights（`/insights`，7 天 / 30 天 / 90 天 / 1 年）：KPI、每日活動、熱門網站、節奏、常搜尋、常重開的頁面。沒有 day / domain / entity 路由，也沒有 Insight Access |
+| Dashboard 的 On This Day、Browsing Rhythm、threads             | Home 的 On this day、「你的一年」日曆熱力圖、「常回來的主題」（reopened investigations，90 天）                                                                   |
+| Settings 的 AI provider editor                                 | Settings → AI 的「AI 服務」列與新增對話框（onboarding 第 6 步共用同一張表單）                                                                                     |
+| Integrations 的 MCP / skill artifact review                    | Settings → AI 的「MCP 伺服器」開關；開啟後顯示可複製的 MCP 指令。沒有 JSON / skill markdown 預覽                                                                  |
+| Jobs、Maintenance 的 derived-state 面板、sidebar footer 工作條 | 沒有。語意索引的下載 / 建索引進度在 Settings → AI；「重建搜尋索引」在 Settings → AI；「重建洞察」在 Settings → About                                              |
+| 共享 profile scope                                             | 沒有。Insights 與 Ask 一律是整個 archive；History 只能依瀏覽器種類篩選                                                                                            |
+
+2026-10 介面沒有做到、但下文仍要求的（待用戶決定補或改）：
+
+- §1 semantic / hybrid 顯示目前的 provider / model / index state：History 只有「語意」一個選項，不顯示模型與索引狀態（狀態在 Settings → AI）。沒有獨立的 hybrid 選項。
+- §2 assistant 的 `queued` / `insufficient-evidence` 狀態與 `jobId` / `runId` 顯示、共享 profile scope、seeded prompt 以外的修復入口。Ask 有四個範例問題與「去 Settings → AI」。
+- §3 Integrations 的 generated-artifact review（MCP JSON、skill markdown、consent summary）。
+- §4 Insights 的 V1 洞察卡（Periodic Summaries、Topic Timeline、Threads、Open Loops、Explore vs Exploit、Source Role Map、Query Ladder、Contrastive Summary）、evidence / freshness badge、scope 標示：2026-10 Insights 只有上表六張卡。對應的 32 個 intelligence 讀取命令仍在，前端沒有呼叫，清單見 [desktop-command-surface.md](../architecture/desktop-command-surface.md) §2026-10。
+- §6 Job Queue 的使用者控制（看隊列、暫停 / 恢復、併發數、重排失敗任務）：沒有介面。
+- 搜尋 tuning（RRF `k`、權重、starred boost）的 Settings 入口：沒有。
+
+---
+
 ## 1. 語義搜尋（Semantic Search）
 
 **作為**用戶，**我想要**用自然語言搜尋我的歷史紀錄，**以便**能找到「我記得看過某個講 local-first 的文章但記不得具體名字」這類模糊記憶。
 
 ### 需求要點
 
-- semantic / hybrid search 已交付（W-AI-4/5/6），但 **off by default + consent-gated**（master `ai.enabled` + `semantic_index_enabled`）；沒開時 Explorer recall 維持 keyword / regex / lexical recall v2。
+- semantic / hybrid search 已交付（W-AI-4/5/6），但 **off by default + consent-gated**（master `ai.enabled` + `semantic_index_enabled`）；沒開時 History 搜尋維持全文 / regex（lexical recall v2）。
 - 向量相似度走 in-app（candle Qwen3）或 external（OpenAI-compatible `/v1/embeddings`）embedding，寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
 - Embedding 增量計算、content-hash dedup（一個 content_key 一條向量，fan-out 到所有共享該內容的 visit）、本地索引、避免重算。
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
@@ -48,7 +74,7 @@
 - queued assistant request 可在執行前 replay / cancel；running AI / deterministic job 改為 cooperative stop request，而不是假裝立即中斷。UI 必須清楚說明「已請求取消，會在目前 phase / chunk 邊界停止」。
 - Assistant 必須尊重 shell 的共享 profile scope；若使用者透過 deep-link 帶進明確 `profileId`，頁面級 scope 優先於共享 scope。
 - Assistant 的 empty / AI-disabled state 不能只剩靜態說明；至少要提供 seeded prompt 建議、queue / settings 修復入口，以及在共享 profile scope 生效時明講目前回答邊界是 scoped view。
-- shipped（W-AI-1/2/3/7）：Assistant 現在是 streaming chat surface——token / reasoning / tool-use 即時可視，markdown 串流渲染，evidence/citation panel 可深鏈回 Explorer。底層是 durable agent harness（journal-before-observe + replay，崩潰可續跑不重複收費），可呼叫 5 個工具：`search_history`（hybrid）、`search_bm25`、`search_vector`、`search_hybrid`、`run_code`（code-mode 沙箱，見 §4-code-mode）。chat 持久化在 `derived/agent.sqlite`，transcript **不進 export**。整個 surface gated on `ai.enabled && assistant_enabled`（預設關）。
+- shipped（W-AI-1/2/3/7）：Assistant 現在是 streaming chat surface——token / reasoning / tool-use 即時可視，markdown 串流渲染，引用的頁面可連回 History（`/history?q=<標題>&visit=<id>`）。底層是 durable agent harness（journal-before-observe + replay，崩潰可續跑不重複收費），可呼叫 5 個工具：`search_history`（hybrid）、`search_bm25`、`search_vector`、`search_hybrid`、`run_code`（code-mode 沙箱，見 §4-code-mode）。chat 持久化在 `derived/agent.sqlite`，transcript **不進 export**。整個 surface gated on `ai.enabled && assistant_enabled`（預設關）。
 
 ---
 
@@ -301,7 +327,7 @@
 - secret clear 只清除 credential，不刪除 provider preset / model selection，讓使用者能先保留配置再補 key。
 - **API key 是可選的，不是前置條件**：本地 / LAN 自架 provider（LM Studio、Ollama、llama-server…）不需要 key。PathKeep 絕不因「沒存 key」就自行擋下 provider 呼叫——`resolve_provider_runtime` 在缺 key 時照常 resolve（`api_key: Option<SecretString>` 為 `None`），transport 對缺 / 空白 key 完全不送 `Authorization` header（不送空的 `Bearer `）。只有 provider 自己回傳的錯誤（真正的 401/403…）才算失敗。雲端 provider 需要 key 時，由它自己的 401 帶出，而不是我們的 precondition。
   - 已知 transport 細節：OpenAI-compatible embeddings 走我們自管的 reqwest `/v1/embeddings`，缺 key 真正省略 header；rig 0.34 的 openai/anthropic/gemini chat client 在 `.api_key()` 後一定會帶 auth header（上游限制），keyless local model 會忽略它，仍可運作。
-  - FE：新增 provider 需先 Save settings（key 依 provider id 存進 keyring，id 在存檔前不存在於 saved config）；Save key 在 provider 尚未持久化時會 disable 並顯示 inline hint 指引「先存設定」，不留死路。
+  - FE（2026-10）：Settings → AI 與 onboarding 第 6 步共用「新增 AI 服務」表單（`src/features/ai-setup/`）。按下新增時依序：把 provider 寫進 config 並選為目前服務（同時打開 `ai.enabled` 與 `assistantEnabled`）→ 有填 key 才存進鑰匙圈 → 自動測一次連線。只做 chat（`llmProviders`）；介面上沒有分開設定 embedding provider，本機語意搜尋用內建的靜態模型。
 
 ---
 

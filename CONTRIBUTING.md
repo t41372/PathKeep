@@ -15,7 +15,7 @@ PathKeep is mid-rewrite, local-first, and audit-first. We optimize for reviewabl
 - Do not hide destructive or high-risk actions behind opaque automation.
 - Do not silently weaken the trust model to simplify implementation.
 - Update source docs in the same branch when product behavior, platform stance, or operator workflow changes.
-- Treat browser preview, desktop shell, and release packaging as different surfaces with different acceptance criteria.
+- Treat the dev bridge (browser + real backend), the desktop window, and release packaging as different surfaces with different acceptance criteria.
 
 ## Environment Setup
 
@@ -51,10 +51,11 @@ prek install --hook-type pre-push
 
 ## Daily Workflow
 
-Run the browser preview shell:
+Run the real app on synthetic browser data, in your browser (no personal history involved):
 
 ```bash
-bun run dev
+bun run dev:demo                      # opens at http://127.0.0.1:1420
+bun run dev:demo -- --first-run --fresh   # start at onboarding
 ```
 
 Run the desktop shell:
@@ -102,7 +103,7 @@ Examples:
   - [TESTING.md](./TESTING.md)
   - [RELEASE.md](./RELEASE.md)
 - Update docs if user-facing behavior or operator workflow changed.
-- Mention explicit gaps, preview-only paths, or deferred risks.
+- Mention explicit gaps or deferred risks.
 
 ## Release And Support Changes
 

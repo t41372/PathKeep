@@ -1,6 +1,38 @@
 # Tradeoff — Chart rendering: a self-built SVG primitive vs. a charting library
 
-> Status: **Accepted (2026-07-05)** — Line 2 of the shadcn UI-craft adoption
+> **Superseded 2026-10-02.** For the frontend redesign (M18) the user decided that charts
+> use [EvilCharts](https://evilcharts.com), which is built on Recharts 3 (`docs/plan/STATUS.md`,
+> "用戶要求"). The section below this note is the July decision, kept for the record; it no
+> longer describes the code.
+>
+> What the code does now:
+>
+> - **Line, area and bar charts**: EvilCharts components added with
+>   `npx shadcn add @evilcharts/...` and vendored under `src/components/evilcharts/`
+>   (`charts/recharts-area-chart.tsx`, `charts/recharts-bar-chart.tsx`, `ui/recharts-*.tsx`).
+>   They are registry code kept as shipped: lint relaxes the same rules it relaxes for
+>   `src/components/ui/`, and we change their look through props (e.g. Home's 30-day trend
+>   passes its own gradient via `areaProps`), not by editing the files. Colors come from
+>   `--chart-1` … `--chart-5` (see [design-tokens.md](./design-tokens.md)).
+>   Used by Home (30-day area trend) and Insights (daily pages / searches bars).
+>   The History detail panel's 12-week bars are plain divs in `detail-stats.tsx`.
+> - **Heatmaps**: EvilCharts has no heatmap and the amicro mono-chart one is a fixed-data demo,
+>   so `src/components/app/heatmap.tsx` is our own small grid in the same orange scale
+>   (`--heat-0` … `--heat-4`). Home's year calendar uses it with real dates (click a day →
+>   `/history?date=YYYY-MM-DD`); Insights' rhythm uses it as weekday × hour. One shared
+>   tooltip, portalled with fixed coordinates so the card edge can't clip it.
+> - Recharts is lazy-loaded with the screens that use it; Vite emits it as one ~546 kB chunk
+>   (named `heatmap` after the first module in it) shared by Home and Insights.
+>
+> Still true from the July decision: charts get pre-aggregated, small series from the backend
+> and never bucket or sum on the render path; every chart says what it measures and over which
+> window ([ui-review-guardrails.md](./ui-review-guardrails.md) §6).
+>
+> Not met today: heatmap cells are `<span>`s with no `role`, no per-cell `aria-label` and no
+> keyboard path, so the year calendar's click-to-open-a-day works with a mouse only. The
+> tooltip has `role="tooltip"` but nothing points at it.
+
+> Status (July 2026): **Accepted (2026-07-05)** — Line 2 of the shadcn UI-craft adoption
 > (`docs/plan/DISCUSSION-ui-craft-shadcn-gap.md`). Supersedes the stray
 > `pk-contactsheet.jsx:396` design-comp note "implement with tailwind + shadcn recharts
 > in production" — that was a mockup annotation, never a decision.
