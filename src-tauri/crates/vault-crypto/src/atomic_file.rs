@@ -58,16 +58,20 @@ pub(crate) fn temp_path(path: &Path) -> PathBuf {
 }
 
 /// Makes a rename or a new directory entry durable.
-#[cfg(unix)]
 pub(crate) fn sync_parent_directory(path: &Path) -> io::Result<()> {
-    let parent = match path.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => parent,
-        _ => Path::new("."),
-    };
-    File::open(parent)?.sync_all()
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => sync_directory(parent),
+        _ => sync_directory(Path::new(".")),
+    }
+}
+
+/// Fsyncs a directory, so the entries created or renamed in it survive a power cut.
+#[cfg(unix)]
+pub(crate) fn sync_directory(dir: &Path) -> io::Result<()> {
+    File::open(dir)?.sync_all()
 }
 
 #[cfg(not(unix))]
-pub(crate) fn sync_parent_directory(_path: &Path) -> io::Result<()> {
+pub(crate) fn sync_directory(_dir: &Path) -> io::Result<()> {
     Ok(())
 }

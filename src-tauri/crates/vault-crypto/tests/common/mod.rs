@@ -7,6 +7,8 @@
 
 #![allow(dead_code)]
 
+pub mod pages;
+
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
