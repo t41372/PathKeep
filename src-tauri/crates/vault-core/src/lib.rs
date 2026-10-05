@@ -38,6 +38,7 @@ pub mod models;
 pub mod schedule_attempts;
 mod snapshot_reads;
 pub mod stars;
+pub mod store_schema;
 pub mod takeout;
 pub mod test_support;
 pub mod utils;

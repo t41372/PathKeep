@@ -3,7 +3,8 @@
 //! Failure modes: wrong keys modify files; a later invalid database permits earlier
 //! writes; scratch survives reopen; IO injection is ignored; non-WAL modes are used;
 //! a schema-qualified scratch pragma silently changes the main cache setting.
-//! Tests: opening and scratch tests.
+//! Foreign keys can silently accept orphans when the engine default is retained.
+//! Tests: opening, scratch and foreign_keys tests.
 use crate::{Config, Db, Error, IoLayer, Result, Session};
 use std::{
     fs,
@@ -167,6 +168,7 @@ impl Engine {
         self.rt.block_on(async {
             // Drain pragma result rows; execute() rejects row-returning pragmas.
             for sql in [
+                "PRAGMA foreign_keys=ON".into(),
                 "PRAGMA journal_mode=WAL".into(),
                 "PRAGMA synchronous=FULL".into(),
                 format!("PRAGMA cache_size=-{}", settings.cache_kib),

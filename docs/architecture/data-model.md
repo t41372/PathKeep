@@ -98,6 +98,13 @@
 
 ### Storage planes
 
+Turso 的新庫 schema 見 [store-schema.md](store-schema.md)：四個 durable `.db`
+各有一份 consolidated v1，scratch 為空；archive 包含跨 profile 的 `pages`、
+每頁搜尋文件與 transactional outbox，全文索引由 Tantivy 持有。各表用途、keys、
+索引、writer 與刪除清單以該文檔為準。這次只交付 schema registry，既有 rusqlite
+查詢與寫入尚未切換；以下 `.sqlite`、FTS 與 SQLCipher 描述記錄目前仍在運行的路徑，
+不是 [ADR-012](decisions/012-turso-storage-engine.md) 的目標設計。
+
 - `archive/history-vault.sqlite`
   - 只保存 canonical facts 與 immutable audit facts
   - 包含 `runs`、`source_profiles`、`urls`、`visits`、`downloads`、`search_terms`、`favicons`、`profile_watermarks`、checkpoint / import / manifest / snapshot trace

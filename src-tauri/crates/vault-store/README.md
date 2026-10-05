@@ -129,7 +129,10 @@ does not issue it: `translate/pragma.rs:376` uses the main pager supplied by
 `page_cache_and_reader_pragmas_are_applied` verifies the actual 8 MiB main setting,
 FILE temporary storage and query-only readers. The attached cache is additional;
 8 MiB is not a hard total allocation ceiling for a connection.
-All connections use WAL, `synchronous=FULL`, and `temp_store=FILE`. MVCC,
+All connections use WAL, `synchronous=FULL`, and `temp_store=FILE`.
+Foreign keys are enabled on every writer and reader, including scratch;
+`foreign_key_violations_fail_on_every_database` verifies enforcement and cascades
+in plaintext and encrypted stores. MVCC,
 experimental multiprocess WAL, native FTS and Turso's default global allocator
 feature are not enabled.
 

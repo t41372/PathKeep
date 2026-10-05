@@ -8997,6 +8997,7 @@ dependencies = [
  "tokio",
  "ureq",
  "vault-metal-backend",
+ "vault-store",
  "walkdir",
  "wasmtime",
  "wasmtime-wasi",
