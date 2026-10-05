@@ -24,6 +24,7 @@ path = "src/lib.rs"
 members = [
   "crates/vault-store",
   "crates/vault-core",
+  "crates/vault-crypto",
   "crates/vault-metal-backend",
   "crates/vault-platform",
   "crates/vault-worker",
