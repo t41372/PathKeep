@@ -37,7 +37,7 @@ PathKeep 自己的五個資料庫（archive、source evidence、search、intelli
    - Tantivy 索引用我們自己的加密 Directory：認證的 AES-256-GCM 區塊、有上限的解密快取、寫入和合併都直接寫密文、崩潰可恢復。
    - 不再有明文的衍生資料。
 2. **金鑰管理。**
-   - 應用程式用 Argon2id 從密碼推導出 key-encryption key，用它包裝一把隨機的 256-bit data key，所有資料庫都用這把 data key 開啟。
+   - 應用程式用 Argon2id 從密碼推導出 key-encryption key，用它包裝一把隨機的 256-bit data key。每個資料庫、搜尋索引和暫存檔，各用 HKDF 從 data key 推導出自己的子金鑰，任兩種用途都不共用金鑰材料。
    - 改密碼只需要重新包裝 data key，資料檔不用重寫。
    - 驗收用的參數：Argon2id m=256 MiB、t=3、p=4，包裝用 AES-256-GCM，94 bytes 的信封會認證 KDF 參數。在 18 核開發機上解鎖 297 ms；目標機要重新量。
 3. **全文搜尋用獨立的 Tantivy 索引。**
@@ -72,7 +72,7 @@ PathKeep 自己的五個資料庫（archive、source evidence、search、intelli
     - 我們用 `with_io_impl` 提供一層 IO，用只存在記憶體裡的金鑰（AES-256-CTR）加密暫存檔。
     - 不用 TEMP 表，改用 ATTACH 一個加密的 scratch 資料庫。
     - 這依賴 Turso 內部的暫存檔名（`tursodb_temp_file`），每次升級 Turso 都要重跑溢出測試。
-    - Apple Silicon 要開 `--cfg aes_armv8`，不然 AES 走軟體實作，慢約 7 倍。
+    - Apple Silicon 要開 `--cfg aes_armv8` 和 `--cfg polyval_armv8`（`.cargo/config.toml`），不然 AES 和 GHASH 走軟體實作，慢約 7 倍。另外設定的 `RUSTFLAGS`（例如 cargo-llvm-cov）會蓋掉這兩個旗標：結果仍然正確，只是變慢。
 11. **匯出查詢要寫成不排序的形狀**（例如 `CROSS JOIN`），並用測試確認查詢計畫裡沒有 sorter，免得把整份資料溢出到磁碟。
 12. **和引擎無關、也要一起修的問題：**
 

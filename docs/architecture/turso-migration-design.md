@@ -14,7 +14,7 @@
 | `derived/intelligence.db`    | 可重建的衍生資料                                       | 重寫頻繁，獨立成一個檔，不讓 canonical 檔膨脹。                                                       |
 | `derived/agent.db`           | AI 對話                                                | 獨立。                                                                                                |
 
-- 四個檔都用 Turso 原生加密，共用同一把 data key（見 §3），全部 WAL 模式。
+- 四個檔都用 Turso 原生加密，各用一把從 data key 推導出的子金鑰（見 §3），全部 WAL 模式。
 - 不用 MVCC，不用 TEMP 表，不用 `VACUUM INTO`。
 - 暫存用 ATTACH 一個加密的 scratch 資料庫（`derived/scratch.db`，啟動時清空）。
 
@@ -39,6 +39,8 @@
 - **Data key：** 隨機 256-bit，開啟所有資料庫。
 - **密碼信封** `archive/keys.envelope`：
   - Argon2id 從密碼推導出 KEK，用 AES-256-GCM 包裝 data key；
+  - 每個資料庫、搜尋索引、暫存檔各用 HKDF-SHA256 從 data key 推導出自己的子金鑰，標籤固定，不共用金鑰材料；
+  - 暫存檔的金鑰再加一個只存在記憶體裡的隨機 salt，所以殘留的溢出檔即使有密碼也解不開；
   - KDF 參數存在信封裡，並且受認證；
   - 目標機上的參數另外量（驗收時用 m=256 MiB、t=3、p=4）。
 - **Keychain：** 存 data key 本身，取代今天存的 archive 金鑰，所以自動解鎖的安全性和今天一樣。
@@ -70,7 +72,7 @@
 
 **取消：** 長操作（匯出、搜尋 collector、regex 掃描、批次寫入）每批之間檢查取消旗標。Turso 沒有公開的中斷介面。
 
-**暫存 IO：** 用 `with_io_impl` 包一層，用只存在記憶體裡的金鑰（AES-256-CTR）加密 `tursodb_temp_file`。Apple Silicon 要開 `--cfg aes_armv8`。
+**暫存 IO：** 用 `with_io_impl` 包一層，用只存在記憶體裡的金鑰（AES-256-CTR）加密 `tursodb_temp_file`。Apple Silicon 要開 `--cfg aes_armv8` 和 `--cfg polyval_armv8`。
 
 **Checkpoint：**
 
