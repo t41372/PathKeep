@@ -2656,3 +2656,11 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - Wiping all data keeps the owner lock file, so ownership survives a wipe.
   - `owner_process.rs` runs the real app, CLI and MCP processes against a fixture, with a macOS sandbox denying the clients any access to `archive/` and `derived/`. It passes. Windows code type-checks but was not linked or run here.
   - Implemented by Codex (GPT 6 astra); reviewed here. See `docs/architecture/owner-process.md`.
+
+- [x] `WORK-TURSO-STORAGE` — The search index: `vault-search` (2026-10-05, `feat/turso-storage`).
+  - A Tantivy index over vault-crypto's encrypted directory: one document per page, the ten weighted fields of today's search projection, a trigram field for typos and unsegmented Chinese, and fast fields for recency, domain and profiles.
+  - Queries are built from a typed tree, never parsed from text. Prefixes are exact and BM25-scored with no expansion cap, because every prefix of every word is indexed; that roughly quadruples the index (1.5 GB at 2.9M pages) but costs no memory at query time.
+  - Ranking keeps an exact top-k by score, then newest visit, then page id; paging continues after the last key, so every match is reachable exactly once. Counts are exact. Searches and counts can also run segment by segment within a time budget, returning provisional results, for slow machines.
+  - Each commit records the highest search-outbox sequence it applied, so a crash replays from there; a rebuild serves the old index until the new one is complete.
+  - At 2.9M encrypted pages: a common word's first page in 40 ms warm and about 350 ms in a fresh process, its exact count in 14 ms warm; steady memory 305–335 MB. Measurements: `docs/architecture/research/2026-10-vault-search-benchmark.md`.
+  - Implemented by Codex (GPT 6 astra); reviewed here. Not yet wired to vault-core.

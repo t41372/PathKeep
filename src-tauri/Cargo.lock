@@ -9735,6 +9735,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vault-search"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "tantivy",
+ "tempfile",
+ "thiserror 2.0.18",
+ "vault-crypto",
+]
+
+[[package]]
 name = "vault-store"
 version = "0.1.0"
 dependencies = [

@@ -149,6 +149,36 @@
   - 命令面板不續掃；
   - 標註 API 的上限。
 
+### §6 implementation: `vault-search` (2026-10-05)
+
+The independent engine is implemented in
+[`vault-search`](../../src-tauri/crates/vault-search/README.md); vault-core's
+projection/outbox consumer and UI integration remain separate work.
+
+- Open/create accepts `Option<&vault_crypto::DataKey>`. `EncryptedDirectory` owns
+  sub-key derivation; vault-search implements no encryption.
+- Ten weighted positioned fields, Unicode trigrams, page ID, recency, domain and
+  multi-valued profile fast fields. Schema/analyzer versions accompany the durable
+  outbox sequence in every encrypted commit payload.
+- Exact and prefix token namespaces share the ten fields. Complete Unicode prefix
+  aliases provide BM25 frequency/length scoring without query-time expansion caps.
+  Field norms include the aliases. This preserves the projection weights, not
+  numerical FTS5 scores. The measured storage/build cost is documented in the crate.
+- A bounded heap ranks all eligible matches by score, recency and page ID. Domain
+  and profile estimates choose pushed zero-score intersections or fast-field
+  predicates; canonical same-visit eligibility remains caller-owned.
+- Session-owned snapshots and continuation keys keep every result reachable during
+  writes and rebuilds. Ranking and counting retain their segment position between
+  time slices; provisional results become exact only at completion.
+- Rebuild streams new segments alongside the published commit, then atomically
+  replaces Tantivy metadata. Cancelled/failed input never publishes. Crash replay
+  starts after the committed sequence; fresh writers first collect uncommitted
+  deletion files that would otherwise collide with replayed opstamp filenames.
+
+The crate [README](../../src-tauri/crates/vault-search/README.md) defines caller
+obligations and API contracts; the
+[measurements](research/2026-10-vault-search-benchmark.md) justify its defaults.
+
 ## 7. 維護操作
 
 | 操作            | 新做法                                                                               |

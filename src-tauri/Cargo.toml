@@ -26,6 +26,7 @@ members = [
   "crates/vault-owner-ipc",
   "crates/vault-core",
   "crates/vault-crypto",
+  "crates/vault-search",
   "crates/vault-metal-backend",
   "crates/vault-platform",
   "crates/vault-worker",

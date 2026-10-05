@@ -8,6 +8,22 @@
 
 M18 redesign（2026-10-02）後，下文的「Explorer」就是 **History**（`src/features/history/`），「Audit Ledger」是 **Backup → 最近執行**。後端的搜尋、分頁、favicon 與回滾行為不變。畫面細節見 [screens-and-nav.md](../design/screens-and-nav.md)。
 
+### Tantivy engine boundary (2026-10-05)
+
+ADR-012's replacement engine is now the independent
+[`vault-search` crate](../../src-tauri/crates/vault-search/README.md). It searches
+all matching pages with weighted BM25, stable recency/ID ties and complete cursor
+pagination. Ranking and exact counting have separate resumable handles that expose
+provisional results and progress. There are no latest-page windows or fuzzy
+candidate caps in this engine.
+
+The crate accepts normalized documents/tokens and canonical page eligibility from
+its caller. It does not yet replace History's existing query path: vault-core's
+outbox consumer, canonical hydration, IPC and frontend integration are outside
+this delivery. The descriptions below of the current History implementation
+therefore remain current until that integration lands. Its old limits are not the
+contract for the new engine.
+
 ### 現在的 History
 
 - **三個視圖**：時間線（依天分組，同一天內相隔 30 分鐘以上切成 session）、網站（所選範圍內最常去的 200 個網站，每列帶該網站最近一頁的連結預覽縮圖，點一個切回時間線並篩選）、已加星（頁面與整個網站，附連結預覽縮圖、最多三個標籤與筆記預覽）。搜尋時改為結果列表，同一頁面只列一行並標出符合的瀏覽次數。
