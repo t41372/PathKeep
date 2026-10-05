@@ -1,0 +1,15 @@
+[package]
+name = "vault-store"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license.workspace = true
+description = "Thread-owned, synchronous Turso storage for PathKeep"
+
+[dependencies]
+turso = { version = "=0.8.1", default-features = false }
+tokio = { workspace = true, features = ["rt", "time"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

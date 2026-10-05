@@ -14,7 +14,7 @@
 | `derived/intelligence.db`    | 可重建的衍生資料                                       | 重寫頻繁，獨立成一個檔，不讓 canonical 檔膨脹。                                                       |
 | `derived/agent.db`           | AI 對話                                                | 獨立。                                                                                                |
 
-- 四個檔都用 Turso 原生加密，共用同一把 data key（見 §3），全部 WAL 模式。
+- 四個檔都用 Turso 原生加密，各用一把從 data key 推導出的子金鑰（見 §3），全部 WAL 模式。
 - 不用 MVCC，不用 TEMP 表，不用 `VACUUM INTO`。
 - 暫存用 ATTACH 一個加密的 scratch 資料庫（`derived/scratch.db`，啟動時清空）。
 
@@ -34,11 +34,15 @@
 - 多行程 WAL 那個 `.tshm` frame 上限造成的卡住，因為根本只有一個行程；
 - 排程備份和 GUI 同時寫入的衝突，因為所有寫入都經過同一個寫入佇列。
 
+實作與協定：[owner-process.md](owner-process.md)。
+
 ## 3. 金鑰
 
 - **Data key：** 隨機 256-bit，開啟所有資料庫。
 - **密碼信封** `archive/keys.envelope`：
   - Argon2id 從密碼推導出 KEK，用 AES-256-GCM 包裝 data key；
+  - 每個資料庫、搜尋索引、暫存檔各用 HKDF-SHA256 從 data key 推導出自己的子金鑰，標籤固定，不共用金鑰材料；
+  - 暫存檔的金鑰再加一個只存在記憶體裡的隨機 salt，所以殘留的溢出檔即使有密碼也解不開；
   - KDF 參數存在信封裡，並且受認證；
   - 目標機上的參數另外量（驗收時用 m=256 MiB、t=3、p=4）。
 - **Keychain：** 存 data key 本身，取代今天存的 archive 金鑰，所以自動解鎖的安全性和今天一樣。
@@ -70,7 +74,7 @@
 
 **取消：** 長操作（匯出、搜尋 collector、regex 掃描、批次寫入）每批之間檢查取消旗標。Turso 沒有公開的中斷介面。
 
-**暫存 IO：** 用 `with_io_impl` 包一層，用只存在記憶體裡的金鑰（AES-256-CTR）加密 `tursodb_temp_file`。Apple Silicon 要開 `--cfg aes_armv8`。
+**暫存 IO：** 用 `with_io_impl` 包一層，用只存在記憶體裡的金鑰（AES-256-CTR）加密 `tursodb_temp_file`。Apple Silicon 要開 `--cfg aes_armv8` 和 `--cfg polyval_armv8`。
 
 **Checkpoint：**
 
@@ -195,3 +199,26 @@
 6. 前端：搜尋的分時呈現、忙碌時自己恢復、轉換畫面（我做）；E2E 全套。
 
 後端交給 Codex，每塊附明確範圍和驗收條件。前端、E2E 和審查由 Claude 做。
+
+## 11. vault-core 怎麼拿到資料庫
+
+- **`vault_core::Vault`：** vault-core 對外只有這一個 handle。它包著擁有者行程裡唯一的 `Arc<vault_store::Store>`，以及 `ProjectPaths` 和設定。
+  - app 在解鎖時建立它，鎖定時關掉它（同時清掉金鑰和解密快取）。
+  - Tauri 命令從 app state 拿 `&Vault`，再交給 `vault_worker` 和 `vault_core`。
+- **公開函數一律收 `&Vault`，**不再收 `(paths, config, key)`，也不再自己開連線。
+  - 讀取寫成 `vault.store().read(Db::Archive, |s| ...)`；寫入用 `write`，並指定優先級。
+  - 長操作（備份、匯入、重建）每批送一個 `Batch` 寫入，每批之間檢查 `CancelToken`。
+- **內部函數收 `&vault_store::Session`。** 和今天收 `&rusqlite::Connection` 的位置一樣，只是換型別。
+- **測試用 `Vault::open_temp()`：** 開一個暫時的 Store（明文，或帶 32-byte key），schema 由 `store_schema::migration_registry()` 建好。
+- **遷移期間的做法：**
+  - 一次移植一個區域：改簽名、改 SQL、改測試，讓那個區域的測試在 Turso 上通過。
+  - 還沒移植的區域照舊用 rusqlite，以便編譯和跑舊測試。
+  - 全部移植完成後，app 才切換成用 `Vault`，同時刪除 rusqlite 的開檔函數。
+  - 分支上一定會有一段「app 還不能跑」的時間；分支的驗收是最後的 E2E 全綠，不是中間的每一步。
+- **區域與順序**（同一層可以平行；每個區域都附自己的測試）：
+  1. archive 寫入：開檔、ingest、備份（分批）、Takeout 和瀏覽器匯入、撤銷和恢復、標註、星號、預覽圖、source evidence。
+  2. archive 讀取：History 時間軸、read models、source stats、URL 詳情、doctor、匯出。
+  3. 搜尋（等 vault-crypto 完成）：`vault-search` crate、索引執行緒和 outbox、查詢、collector、AI 搜尋、MCP。
+  4. intelligence、AI 佇列、agent store。
+  5. 維護：改密碼、加密模式切換、搬家匯出和匯入、快照、清除、啟動恢復。
+  6. app 接線：解鎖建立 `Vault`、擁有者生命週期、刪掉 rusqlite 開檔函數。最後跑 E2E 全套。

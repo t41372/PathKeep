@@ -15,8 +15,8 @@
 //!   under [`ProjectPaths::app_root`].
 //!
 //! ## What is removed
-//! - Everything in `archive/` except the write-lock sentinel: the archive and source-evidence
-//!   databases with their WAL/SHM files, import backstops (`*.bak-*`) and rekey/restore/import
+//! - Everything in `archive/` except the write-lock and owner-lock sentinels: the archive
+//!   and source-evidence databases with their WAL/SHM files, import backstops (`*.bak-*`) and rekey/restore/import
 //!   markers.
 //! - `derived/` (search, intelligence, AI vectors, agent conversations), `sidecars/`,
 //!   `raw-snapshots/`, `staging/`, `quarantine/`, `audit/` (run ledger and manifests), `exports/`,
@@ -32,8 +32,8 @@
 //!   are the only record of why. They hold no visit rows.
 //! - `audit/scheduler/remove-<time>.json`, when an automatic backup was removed. The scheduler
 //!   writes this record of the removal after `audit/` is gone; it names the task, nothing else.
-//! - `archive/.pk-archive-write.lock`. Other processes lock that file's inode; deleting it would
-//!   let a second process lock a new file while the first still holds the old one.
+//! - `archive/.pk-archive-write.lock` and `archive/.pk-owner.lock`. Deleting either inode
+//!   would let a second process lock a new file while the first still holds the old one.
 //!
 //! ## Order
 //! Gate and write lock, marker, `config.json`, `quiesce`, the files, the keychain, the automatic
@@ -65,6 +65,9 @@
 //!    Its plan is taken before `config.json` goes and saved in the marker, so an interrupted wipe
 //!    removes it on the next launch too; `vault-worker` tests install a sandboxed task and check it
 //!    is gone.
+//!
+//! 9. Deleting the owner lock lets a second app acquire a different inode. The deletion
+//!    list retains it; desktop `owner_lock_wipe` proves the file and OS lock survive.
 //!
 //! ## Performance notes
 //! - The preview takes the visit count from the last backup's cached totals; it only counts rows
@@ -260,11 +263,10 @@ fn wipe_targets(paths: &ProjectPaths) -> Result<Vec<PathBuf>> {
 
     let archive_dir =
         paths.archive_database_path.parent().context("archive database path has no parent")?;
-    targets.extend(
-        entries_of(archive_dir)?
-            .into_iter()
-            .filter(|path| path.file_name().is_none_or(|name| name != ARCHIVE_WRITE_LOCK_FILE)),
-    );
+    targets.extend(entries_of(archive_dir)?.into_iter().filter(|path| {
+        path.file_name()
+            .is_none_or(|name| name != ARCHIVE_WRITE_LOCK_FILE && name != ".pk-owner.lock")
+    }));
 
     targets.extend([
         paths.derived_dir.clone(),

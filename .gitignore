@@ -25,6 +25,8 @@ src-tauri/artifacts/
 playwright-report
 # E2E run artifacts (HTML report, results.json, traces). See artifacts/e2e/README.md.
 artifacts/e2e/*
+# Owner-process test artifacts (result.json, sidecar-mcp.json).
+artifacts/owner-process/
 !artifacts/e2e/README.md
 .playwright-mcp
 .playwright-cli

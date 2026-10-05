@@ -1,4 +1,7 @@
-//! Desktop application entrypoint and process-level wiring.
+//! Responsibilities: desktop entrypoint, single instance and process-level wiring.
+//! Not responsible for: storage implementation or worker business operations.
+//! Failure modes: clients enter GUI setup; second instances open databases; startup
+//! listeners precede ownership. Tests: owner_process and desktop-bridge tests.
 //!
 //! This crate is the outermost backend boundary for the Tauri desktop app. It
 //! decides whether the process should boot the GUI shell or run the worker CLI,
@@ -21,6 +24,8 @@ mod desktop_integration;
 #[cfg(feature = "devtools-bridge")]
 mod dev_ipc_bridge;
 mod file_manager;
+#[cfg(not(test))]
+mod owner;
 mod session;
 #[cfg(test)]
 mod test_support;
@@ -41,9 +46,10 @@ const PRODUCT_DISPLAY_NAME: &str = "PathKeep";
 /// Launches the desktop process in either GUI or `--worker` mode.
 pub fn entrypoint() -> Result<()> {
     let arguments = std::env::args().collect::<Vec<_>>();
+    let payload = run_with_arguments(&arguments)?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    write_payload(&mut handle, run_with_arguments(&arguments)?)
+    write_payload(&mut handle, payload)
 }
 
 /// Routes process arguments to the worker CLI or the GUI shell.
@@ -69,12 +75,26 @@ fn run_app() -> Result<()> {
     let session_state = SessionState::default();
     #[cfg(feature = "devtools-bridge")]
     let dev_bridge_state = session_state.clone();
-    #[cfg(feature = "devtools-bridge")]
-    let dev_bridge_handle = dev_ipc_bridge::maybe_launch(dev_bridge_state.clone())?;
 
     let launched_at_login =
         std::env::args().any(|argument| argument == desktop_integration::LAUNCHED_AT_LOGIN_ARG);
-    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    let background = std::env::args().any(|argument| argument == "--background");
+    let launches = owner::LaunchState::default();
+    let owner_session = session_state.clone();
+    let mut context = tauri::generate_context!();
+    if background {
+        for window in &mut context.config_mut().app.windows {
+            window.create = false;
+        }
+    }
+    // Isolate single-instance routing by user/data root, including test archives.
+    // The persisted product paths still come exclusively from vault_core.
+    let paths = vault_core::project_paths()?;
+    context.config_mut().identifier = vault_owner_ipc::instance_identifier(&paths.app_root);
+    let builder = tauri::Builder::default()
+        .manage(launches.clone())
+        .plugin(tauri_plugin_single_instance::init(owner::handoff))
+        .plugin(tauri_plugin_dialog::init());
     // macOS writes its own login LaunchAgent; see `vault_platform::login_item`.
     #[cfg(not(target_os = "macos"))]
     let builder = builder.plugin(
@@ -86,6 +106,8 @@ fn run_app() -> Result<()> {
     builder
         .setup(move |app| {
             let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
+            let owner_lock = vault_store::OwnerLock::acquire(&paths.app_root)
+                .map_err(anyhow::Error::from).map_err(tauri::Error::Anyhow)?;
             vault_core::config::ensure_paths(&paths).map_err(tauri::Error::Anyhow)?;
             install_panic_hook(&paths);
             app.handle().plugin(build_logging_plugin(&paths))?;
@@ -104,7 +126,11 @@ fn run_app() -> Result<()> {
             )?;
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             // Shows the window, unless this is a login launch into the menu bar.
-            desktop_integration::setup(app.handle(), &config, launched_at_login);
+            desktop_integration::setup(app.handle(), &config, launched_at_login, background);
+            use tauri::Manager;
+            app.manage(owner::OwnerService::start(&paths.app_root, owner_lock, owner_session, launches, background, app.webview_windows().len())?);
+            #[cfg(feature = "devtools-bridge")]
+            let dev_bridge_handle = dev_ipc_bridge::maybe_launch(dev_bridge_state.clone())?;
             #[cfg(feature = "devtools-bridge")]
             if let Some(bridge) = &dev_bridge_handle {
                 bridge.attach_app(app.handle().clone()).map_err(tauri::Error::Anyhow)?;
@@ -282,7 +308,7 @@ fn run_app() -> Result<()> {
             set_launch_at_login,
             set_menu_bar_icon
         ])
-        .build(tauri::generate_context!())?
+        .build(context)?
         .run(|_app, _event| {
             // Clicking the Dock icon brings back a window hidden to the menu bar.
             #[cfg(target_os = "macos")]

@@ -16,6 +16,10 @@
 //!   bookkeeping (`status.rs`), login items (`login_item.rs`) or window
 //!   behaviour (`window.rs`).
 //!
+//! ## Failure modes
+//! Background startup shows a window or loses the tray when its preference is off.
+//! Tests: desktop owner_process; startup_window tests cover login visibility.
+//!
 //! ## Threading
 //! Menu updates are dispatched to the main thread and wait for it, and they
 //! run while holding [`DesktopIntegrationState`]'s lock. So that lock must
@@ -51,7 +55,7 @@ pub(crate) use status::{BackupSource, run_backup};
 #[cfg_attr(test, allow(unused_imports))]
 pub(crate) use window::on_window_event;
 // Only the macOS Dock "reopen" handler in lib.rs needs it from outside.
-#[cfg(all(target_os = "macos", not(test)))]
+#[cfg(not(test))]
 pub(crate) use window::show_main_window;
 
 /// How often the "12 min ago" text is redrawn (no I/O).
@@ -123,14 +127,22 @@ fn menu_language(config: &AppConfig) -> MenuLanguage {
 }
 
 /// Launch-time setup, called from `lib.rs` before the window is shown.
-pub(crate) fn setup<R: Runtime>(app: &AppHandle<R>, config: &AppConfig, launched_at_login: bool) {
+pub(crate) fn setup<R: Runtime>(
+    app: &AppHandle<R>,
+    config: &AppConfig,
+    launched_at_login: bool,
+    background: bool,
+) {
     with_state(app, |state| state.language = menu_language(config));
-    let shown = config.menu_bar_icon
+    let shown = (background || config.menu_bar_icon)
         && show_icon(app)
             .inspect_err(|error| log::warn!("menu bar icon: {}", error.message))
             .is_ok();
     let has_dock = cfg!(target_os = "macos");
-    window::apply_startup_window(app, window::startup_window(launched_at_login, shown, has_dock));
+    window::apply_startup_window(
+        app,
+        window::startup_window(launched_at_login || background, shown || background, has_dock),
+    );
     if let Err(error) = login_item::refresh() {
         log::warn!("could not update the login item: {error:#}");
     }

@@ -1,4 +1,7 @@
-//! Worker orchestration crate for PathKeep.
+//! Responsibilities: worker orchestration inside the database owner.
+//! Not responsible for: database implementation or desktop lifecycle.
+//! Failure modes: client entrypoints execute work locally. Tests: owner_client
+//! and owner_requests; the CLI/MCP adapters only forward requests.
 //!
 //! `vault-worker` is the glue layer between the desktop facade and the core
 //! domain crates. It owns orchestration concerns such as:
@@ -24,6 +27,7 @@ mod intelligence;
 mod job_runtime;
 mod mcp;
 mod migration;
+pub mod owner_requests;
 mod schedule;
 mod security;
 mod stars;
@@ -106,10 +110,7 @@ pub(crate) use self::{
         derive_ai_status, hydrate_provider_collection, resolve_provider_runtime,
         search_response_with_resolution_note, selected_optional_embedding_runtime,
     },
-    mcp::{
-        BrowserHistoryMcpServer, McpSearchRequest, mcp_archive_status_result, mcp_search_result,
-        mcp_usage_guide_result,
-    },
+    mcp::{McpSearchRequest, mcp_archive_status_result, mcp_search_result, mcp_usage_guide_result},
 };
 
 #[cfg(test)]

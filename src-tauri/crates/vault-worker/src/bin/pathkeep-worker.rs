@@ -1,12 +1,15 @@
-//! Dedicated command-line entrypoint for background PathKeep work.
+//! Responsibilities: client CLI output and process exit codes.
+//! Not responsible for: opening databases or executing worker business logic.
+//! Failure modes: stdout lock deadlocks MCP; errors return success. Tests: below and owner_process.
 //!
 //! This binary deliberately depends on `vault-worker`, not the Tauri desktop
 //! shell. Native schedulers can therefore execute it directly and observe its
-//! real process exit status without activating a GUI application.
+//! real process exit status while the database owner stays in the background.
 
 use anyhow::Result;
 use std::io::Write;
 
+#[cfg(test)]
 fn run_with_arguments<W: Write>(arguments: &[String], writer: &mut W) -> Result<()> {
     write_worker_payload(vault_worker::run_worker_cli(arguments), writer)
 }
@@ -30,9 +33,10 @@ fn entrypoint_exit_code(result: Result<()>) -> i32 {
 #[cfg(not(test))]
 fn main() {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    let payload = vault_worker::run_worker_cli(&arguments);
     let stdout = std::io::stdout();
     let mut writer = stdout.lock();
-    let exit_code = entrypoint_exit_code(run_with_arguments(&arguments, &mut writer));
+    let exit_code = entrypoint_exit_code(write_worker_payload(payload, &mut writer));
     if exit_code != 0 {
         std::process::exit(exit_code);
     }

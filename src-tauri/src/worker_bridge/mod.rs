@@ -759,6 +759,11 @@ mod tests {
         fs::write(dir.path().join("vault.hold"), "secret vault").expect("write stronghold fixture");
         reset_local_secret_vault_impl().expect("reset local secret vault");
         assert!(!dir.path().join("vault.hold").exists());
+        let owner_lock = vault_store::OwnerLock::acquire(dir.path()).expect("owner reservation");
+        let owner = vault_owner_ipc::Server::start(dir.path(), |request, progress| {
+            vault_worker::owner_requests::dispatch(request, progress, None)
+        })
+        .expect("owner endpoint");
         let worker_payload = run_with_arguments(&[
             "pathkeep".to_string(),
             "--worker".to_string(),
@@ -767,6 +772,8 @@ mod tests {
         .expect("run worker doctor")
         .expect("worker payload");
         assert!(worker_payload.contains("checks"));
+        drop(owner);
+        drop(owner_lock);
         assert!(run_with_arguments(&["pathkeep".to_string()]).is_ok());
 
         unsafe {

@@ -165,3 +165,9 @@ Insights' drill-ins and pattern cards (2026-10) call: `get_day_insights`, `get_s
 - `get_refind_pages` without a profile keeps one row per page (the best-scoring profile) and every row carries `profileId` and `profileCount`; `get_refind_page_detail`'s explanation now comes from the same profile's row.
 
 Still not called by any screen: `run_core_intelligence_now`, `get_search_trails`, `get_navigation_path`, `get_hub_pages`, `get_search_engine_ranking`, `get_domain_trend`, `explain_refind`, `explain_entity`, `get_activity_mix`, `get_stable_sources`, `get_search_effectiveness`, `get_friction_signals`, `get_interrupted_habits`, `get_intelligence_embed_cards`, `get_intelligence_widget_snapshot`, `get_intelligence_public_snapshot`, `preview_intelligence_local_host`, `build_intelligence_local_host`, `get_path_flows`, `get_observed_interactions`, `get_compare_sets`, `get_compare_set_detail`. Why the Insights cards that would use them were not built is in `docs/features/intelligence.md` §0. Decide on these when step 5 of the redesign removes the old frontend's leftovers.
+
+## 單一資料庫擁有者（Turso 遷移 §2）
+
+App 在任何資料庫工作前持有 `archive/.pk-owner.lock`，並提供同一使用者才能連線的本機 endpoint。
+排程、worker CLI 與 MCP stdio 都透過它執行；未啟動時會以 `--background` 啟動 app。
+協定、方法、權限、各平台啟動和驗收方式見 [owner-process.md](owner-process.md)。

@@ -308,11 +308,13 @@ pub(crate) fn export_history_impl(
 }
 
 /// Polls process-local export state without archive I/O.
+#[cfg_attr(all(test, not(feature = "devtools-bridge")), allow(dead_code))]
 pub(crate) fn get_export_progress_impl(export_id: &str) -> Option<vault_core::ExportProgress> {
     vault_core::get_export_progress(export_id)
 }
 
 /// Requests cancellation through the same registry the in-process worker uses.
+#[cfg_attr(all(test, not(feature = "devtools-bridge")), allow(dead_code))]
 pub(crate) fn cancel_export_impl(export_id: &str) -> bool {
     vault_core::cancel_export(export_id)
 }
