@@ -14,7 +14,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 3. **Performance is a constraint** — 兩端都要扛：後端在目標機 4 核 3GHz / 8GB RAM 上流暢支撐 1440 萬條歷史記錄與同量級一次性導入；前端任何時刻都流暢不卡、不凍結主線程。每段邏輯都要過：「1440 萬條時這會怎樣？」
 4. **Intelligence is optional** — 沒 LLM/Embedding 時 PathKeep 仍完整可用。
 5. **i18n is a shipping contract** — 所有 user-visible copy（含 aria-label、空/錯/載入/禁用等非顯眼狀態）開發當下就交付 `en` / `zh-CN` / `zh-TW`。
-6. **選長期最優解** — 避免臨時方案，不糊弄測試，不為省開發成本妥協。代碼複雜度要控。
+6. **選長期最優解** — 避免臨時方案和過渡方案，不糊弄測試，不為省開發成本妥協。遷移成本、改動量、工作量都不是取捨理由，取捨只看結果好不好。代碼複雜度要控。不做工期或人力估計（永遠不準，偏差離譜）。
 7. **Accepted docs 不可隨意推翻** — `docs/` 中確立的決策要推翻，需 trade-off 文檔 + 用戶明確同意。
 
 ---
@@ -42,6 +42,8 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 - **Written for the people who maintain it.** Our code is read and maintained by people for years. Keep the architecture elegant, the code clean, and the whole system easy to maintain. Text, whether in docs, comments, or the UI, says things plainly, the way a person would. No AI slop.
 
 **文檔跟著代碼走**：改功能更新 `docs/features/`，新技術決策更新 `docs/architecture/`。新模塊交付時附 doc comments——檔頭標明職責邊界（Responsibilities / Not responsible for），exported 符號說「為什麼存在」而非「做了什麼」。
+
+**不對外**：不在任何第三方倉庫開 issue / PR / 留言，不以用戶名義聯絡任何外部服務，也不起草要送去上游的東西。依賴的 bug 記在本 repo（根本原因 + 最小重現），在自己的代碼裡繞過；唯一修法是改依賴本身時，先問用戶。
 
 **Commit 說 Why**：Conventional Commits，subject ≤ 72 字。Body 必含動機與關鍵變化。
 

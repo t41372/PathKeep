@@ -110,7 +110,7 @@ PathKeep 自己的五個資料庫（archive、source evidence、search、intelli
 
 細節與數字：[part a](../research/2026-10-turso-probes-part-a.md)、[part b（加密）](../research/2026-10-turso-probes-part-b.md)、[part c（單一行程）](../research/2026-10-turso-probes-part-c.md)、[part d（記憶體）](../research/2026-10-turso-probes-part-d.md)、[Tantivy 研究](../research/2026-10-large-result-search.md)。
 
-任何一條沒過，如果是 Turso 本身的 bug 或缺功能，就找出根本原因，寫最小重現，並修上游（Turso 是 MIT 授權）。不退回 SQLCipher，也不做過渡方案。
+任何一條沒過，如果是 Turso 本身的 bug 或缺功能，就在 repo 裡記下根本原因和最小重現，並在 PathKeep 自己的代碼裡繞過（例如在 FTS 的結果流上自己做 top-k）。不在 Turso 倉庫開 issue 或 PR，也不以任何形式聯絡上游；若唯一的修法是改 Turso 本身，先問用戶。不退回 SQLCipher，也不做過渡方案。
 
 ## 後果
 
