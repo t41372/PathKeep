@@ -1,6 +1,6 @@
 # 大量結果的關鍵字搜尋：引擎與加密 — Trade-off
 
-> **狀態：Proposed（2026-10-04），等用戶決定第 6 節的三件事**
+> **狀態：Superseded（2026-10-04）由 [ADR-012](decisions/012-turso-storage-engine.md) 取代。** 本文把遷移成本、改動量和工期估計當成取捨理由，還提了過渡方案，違反核心原則 6，結論不採用；實測數據仍然有效。
 > **範圍：** History 關鍵字搜尋、AI 搜尋、匯出、`derived/` 下的搜尋索引與加密
 > **牽涉的已接受文檔：** [lexical-recall-v2.md](lexical-recall-v2.md)（FTS5 設計）、[data-model.md](data-model.md)（`derived/` 明文 sidecar 的 at-rest 例外、backlog `WORK-ENCRYPT-AT-REST-ALL`）、[ipc-performance.md](ipc-performance.md) §6
 > **依據：** 兩份有實測的研究，見文末「來源」。
