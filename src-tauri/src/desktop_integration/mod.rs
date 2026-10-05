@@ -172,7 +172,7 @@ pub(crate) fn setup<R: Runtime>(
 fn refresh_status_from_disk<R: Runtime>(app: &AppHandle<R>) {
     let include_archive =
         with_state(app, |state| state.status.archive() != ArchiveReadiness::Ready);
-    let key = app.try_state::<SessionState>().and_then(|session| session.get_key());
+    let key = app.try_state::<SessionState>().and_then(|session| session.get_key().ok().flatten());
     let (archive, successes) = read_backup_status_from_disk(key.as_deref(), include_archive);
     update_status(app, |status| {
         if let Some(archive) = archive {

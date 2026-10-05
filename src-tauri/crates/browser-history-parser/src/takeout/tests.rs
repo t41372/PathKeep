@@ -76,7 +76,7 @@ fn json_stream_records_arrays_ordinals_errors_and_shape_rejections() {
     }
 
     let callback = json_stream::stream_payload_records(
-        br#"[{"id":1},{"id":2}]"#,
+        &br#"[{"id":1},{"id":2}]"#[..],
         "payload.json",
         &[],
         |_record, ordinal| {
@@ -92,11 +92,13 @@ fn json_stream_records_arrays_ordinals_errors_and_shape_rejections() {
         json_stream::JsonRecordStreamError::Callback(ref error) if error == "stop at second row"
     ));
 
-    let parse_error =
-        json_stream::stream_payload_records::<_, String>(b"{", "broken.json", &[], |_record, _| {
-            Ok(())
-        })
-        .expect_err("parse error");
+    let parse_error = json_stream::stream_payload_records::<_, String>(
+        &b"{"[..],
+        "broken.json",
+        &[],
+        |_record, _| Ok(()),
+    )
+    .expect_err("parse error");
     assert!(matches!(
         parse_error,
         json_stream::JsonRecordStreamError::Parse(ref error)
@@ -562,7 +564,7 @@ fn browser_history_payload_covers_jsonl_skips_duplicates_and_error_paths() {
     let unsupported = browser_history::stream_browser_history_payload(
         "Unknown.json",
         "unknown-kind",
-        b"[]",
+        &b"[]"[..],
         1,
         TakeoutStreamOptions::default(),
         &mut failing,
@@ -813,7 +815,7 @@ fn stream_payload_routes_index_unsupported_and_native_only_edges() {
     let unsupported = stream_payload_with_sink(
         "Unknown.json",
         "unknown-kind",
-        b"[]",
+        &b"[]"[..],
         10,
         TakeoutStreamOptions::default(),
         &mut consumer,
@@ -1182,6 +1184,7 @@ fn parse_history_merges_reports_and_adapter_passthrough_edges() {
         .expect("download passthrough");
     adapter
         .search_terms(vec![ParsedSearchTerm {
+            url_last_visit_time: 0,
             keyword_id: 1,
             url_id: 1,
             term: "pathkeep".to_string(),

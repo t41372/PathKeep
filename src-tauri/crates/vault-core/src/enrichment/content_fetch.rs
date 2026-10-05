@@ -11,9 +11,12 @@
 //!   re-fetches by the negative cache + extractor version.
 //!
 //! ## Not responsible for
-//! - The dedup content_hash / FTS5 mirror (the indexing + search-projection layers consume the stored
-//!   `enrichment_summary`), the working-set ranking ([`crate::ai::working_set`] is the prioritization
+//! - The dedup content_hash or index consumption, the working-set ranking ([`crate::ai::working_set`] is the prioritization
 //!   hook the enqueue caller feeds in), or extractor parsing (the extractors own that).
+//!
+//! Failure modes: enrichment misses its canonical document, an absent document publishes
+//! a phantom event, a failed outbox write is reported as a completed fetch job. Tests:
+//! finish_fans_enrichment_out_to_sibling_visits_and_publishes_outbox and search_documents tests.
 //!
 //! ## Privacy posture (06 §2 — these GATE acceptance)
 //! - Egress ONLY through `build_fetch_client` (desktop Chrome UA, no Referer/cookies/fingerprint).
@@ -34,7 +37,7 @@ use crate::archive::net_guard::url_target_is_blocked;
 use crate::config::ProjectPaths;
 use crate::intelligence_runtime::{
     ClaimedEnrichmentJob, EnrichmentJobPayload, claim_content_fetch_job_by_id,
-    intelligence_job_stop_requested, mark_intelligence_job_succeeded,
+    intelligence_job_stop_requested, mark_intelligence_job_failed, mark_intelligence_job_succeeded,
     mark_running_intelligence_job_cancelled, requeue_content_fetch_job_after,
 };
 use crate::models::{AppConfig, content_extractor_enabled, content_fetch_domain_blocked};
@@ -134,6 +137,8 @@ pub(crate) enum ContentFetchJobOutcome {
     Deferred,
     /// The id was not a claimable queued content-fetch row.
     NotClaimable,
+    /// No canonical page has reached the archive yet; a later candidate pass can requeue it.
+    AwaitingArchive,
 }
 
 /// Runs one content-fetch attempt for a payload through an injected [`Fetcher`] (PURE of real egress).
@@ -378,6 +383,7 @@ pub(crate) fn content_fetch_allowed(config: &AppConfig, url: &str) -> bool {
 /// cancelled. Returns the [`ContentFetchJobOutcome`] so the drain knows whether more work is due now.
 #[cfg(not(any(test, coverage)))]
 pub fn execute_content_fetch_job_by_id(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     connection: &Connection,
     config: &AppConfig,
@@ -385,8 +391,8 @@ pub fn execute_content_fetch_job_by_id(
 ) -> Result<bool> {
     let fetcher = SharedClientFetcher::new()?;
     let outcome =
-        execute_content_fetch_job_with_fetcher(paths, connection, config, job_id, &fetcher)?;
-    Ok(outcome == ContentFetchJobOutcome::Ran)
+        execute_content_fetch_job_with_fetcher(vault, paths, connection, config, job_id, &fetcher)?;
+    Ok(matches!(outcome, ContentFetchJobOutcome::Ran | ContentFetchJobOutcome::AwaitingArchive))
 }
 
 /// Test/coverage stub for the production entry: the worker still links, but real egress is excluded.
@@ -399,19 +405,21 @@ pub fn execute_content_fetch_job_by_id(
 /// exhausted defers → `false`, so the lane idles + sleeps rather than busy-looping the parked row.
 #[cfg(any(test, coverage))]
 pub fn execute_content_fetch_job_by_id(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     connection: &Connection,
     config: &AppConfig,
     job_id: i64,
 ) -> Result<bool> {
     let outcome = execute_content_fetch_job_with_fetcher(
+        vault,
         paths,
         connection,
         config,
         job_id,
         &OfflineStubFetcher,
     )?;
-    Ok(outcome == ContentFetchJobOutcome::Ran)
+    Ok(matches!(outcome, ContentFetchJobOutcome::Ran | ContentFetchJobOutcome::AwaitingArchive))
 }
 
 /// An offline fetcher for the coverage build: returns a small benign body for any URL (no socket), so a
@@ -449,6 +457,7 @@ impl Fetcher for OfflineStubFetcher {
 /// acquires the per-egress rate-limit token at the REAL host) → store. The SSRF/https page guard runs
 /// BEFORE any rate-limit acquire so a blocked/non-https job never burns a token (SEC-4).
 pub(crate) fn execute_content_fetch_job_with_fetcher(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     connection: &Connection,
     config: &AppConfig,
@@ -471,6 +480,11 @@ pub(crate) fn execute_content_fetch_job_with_fetcher(
         return Ok(ContentFetchJobOutcome::Ran);
     }
 
+    if super::search_text::pages(vault, &job.payload.url)?.is_empty() {
+        await_archive(connection, job.id)?;
+        return Ok(ContentFetchJobOutcome::AwaitingArchive);
+    }
+
     // Page-URL SSRF guard + https-only (06 §2b), BEFORE any rate-limit acquire (SEC-4): a blocked /
     // non-https job must not burn a token, and the stored row must carry the RESOLVED extractor's
     // `content_source` + `extractor_version` so `content_fetch_job_due` matches it and the working set
@@ -491,7 +505,7 @@ pub(crate) fn execute_content_fetch_job_with_fetcher(
             extractor_version: Some(extractor.version() as i64),
             ..EnrichmentResult::default()
         };
-        finish_content_fetch_job(paths, connection, &job, extractor.id(), &blocked, None)?;
+        finish_content_fetch_job(vault, paths, connection, &job, extractor.id(), &blocked, None)?;
         return Ok(ContentFetchJobOutcome::Ran);
     }
 
@@ -523,6 +537,7 @@ pub(crate) fn execute_content_fetch_job_with_fetcher(
     }
 
     finish_content_fetch_job(
+        vault,
         paths,
         connection,
         &job,
@@ -546,6 +561,7 @@ pub(crate) fn execute_content_fetch_job_with_fetcher(
 /// and the page double-embeds, violating 05 §1). Then the FTS `enrichment_text` projection is refreshed
 /// for that URL so a fetched page is immediately findable WITHOUT a full rebuild (CORR-1).
 fn finish_content_fetch_job(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     connection: &Connection,
     job: &ClaimedEnrichmentJob,
@@ -558,10 +574,15 @@ fn finish_content_fetch_job(
         return Ok(true);
     }
 
-    // Fan the enrichment out to every sibling visit of this page (the fetched history_id is always one
-    // of them). Resolving siblings is best-effort: if the lookup fails (e.g. the archive attach is
-    // unavailable) we still store the primary visit's row so the job is never lost.
-    let mut history_ids = sibling_history_ids(connection, &job.payload.url).unwrap_or_default();
+    let pages = super::search_text::pages(vault, &job.payload.url)?;
+    if pages.is_empty() {
+        await_archive(connection, job.id)?;
+        return Ok(true);
+    }
+    // Legacy per-visit cache rows retain the job's source-URL identity. Native
+    // canonical variants are resolved independently by the indexed page key.
+    let mut history_ids =
+        source_url_history_ids(connection, job.payload.history_id).unwrap_or_default();
     if !history_ids.contains(&job.payload.history_id) {
         history_ids.push(job.payload.history_id);
     }
@@ -576,14 +597,14 @@ fn finish_content_fetch_job(
         )?;
     }
 
-    // Refresh the FTS `enrichment_text` projection for this URL (CORR-1) so the fetched summary/topics
-    // are keyword-searchable immediately. Siblings share ONE canonical URL ⇒ ONE `url_id`, so a single
-    // refresh keyed off any visit covers them. Best-effort: never fail the job on a projection hiccup.
-    let _ = crate::archive::refresh_enrichment_text_for_history(
-        paths,
-        connection,
-        job.payload.history_id,
+    let text = crate::archive::enrichment_text_for_index(
+        enrichment.enrichment_summary.as_deref(),
+        Some(&enrichment.extraction.to_string()),
     );
+    if let Err(error) = super::search_text::publish(vault, pages, text) {
+        mark_intelligence_job_failed(connection, job.id, &format!("{error:#}"))?;
+        return Err(error);
+    }
 
     let artifact = json!({
         "contentSource": content_source,
@@ -597,47 +618,15 @@ fn finish_content_fetch_job(
     Ok(true)
 }
 
-/// Resolves every non-reverted visit `history_id` whose canonical URL equals `url`'s (CORR-3 fan-out).
-///
-/// The fetch is URL-keyed, so its enrichment belongs to ALL visits of the page (05 §1 / 06 §3). We
-/// canonicalize the job URL the SAME way stars/annotations/the working set do, then enumerate the raw
-/// `urls` rows that share the page's host+path prefix — a BOUNDED range seek off `idx_urls_url` (a page
-/// has only a few tracking-param / casing variants), NEVER a full-table scan (14.4M perf). Each
-/// candidate raw url is re-canonicalized in Rust so only true variants of the same page collapse
-/// together; the matching url_ids' visits become the fan-out set. Resolved via the intelligence
-/// connection's attached `archive` schema. Returns an empty vec on any lookup failure (best-effort).
-fn sibling_history_ids(connection: &Connection, url: &str) -> Result<Vec<i64>> {
-    let canonical = crate::visit_taxonomy::normalize_visit_url(url)
-        .map(|normalized| normalized.canonical_url)
-        .unwrap_or_else(|| url.trim().to_string());
-    // The prefix is the canonical url up to (but excluding) any `?`/`#`: tracking-param + fragment
-    // variants of one page all share it, so a `>= prefix AND < prefix\u{10FFFF}` range seek bounds the
-    // candidate set to this page's variants via `idx_urls_url` rather than scanning every URL.
-    let prefix: String = canonical.split(['?', '#']).next().unwrap_or(&canonical).to_string();
-    let mut upper = prefix.clone();
-    upper.push('\u{10ffff}');
-    let mut statement = connection.prepare(
-        "SELECT visits.id, urls.url
-         FROM archive.urls AS urls
-         JOIN archive.visits AS visits ON visits.url_id = urls.id
-         WHERE visits.reverted_at IS NULL
-           AND urls.url >= ?1
-           AND urls.url < ?2",
-    )?;
-    let rows = statement.query_map(params![prefix, upper], |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-    })?;
-    let mut ids = Vec::new();
-    for row in rows {
-        let (history_id, raw_url) = row?;
-        let row_canonical = crate::visit_taxonomy::normalize_visit_url(&raw_url)
-            .map(|normalized| normalized.canonical_url)
-            .unwrap_or_else(|| raw_url.trim().to_string());
-        if row_canonical == canonical {
-            ids.push(history_id);
-        }
-    }
-    Ok(ids)
+/// The unported enrichment cache uses legacy visit IDs, never native page IDs.
+fn source_url_history_ids(connection: &Connection, history_id: i64) -> Result<Vec<i64>> {
+    let mut statement=connection.prepare("SELECT id FROM archive.visits WHERE reverted_at IS NULL AND url_id=(SELECT url_id FROM archive.visits WHERE id=?1)")?;
+    Ok(statement.query_map([history_id], |r| r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+fn await_archive(connection: &Connection, job: i64) -> Result<()> {
+    connection.execute("UPDATE intelligence_jobs SET state='awaiting_archive',finished_at=?2,updated_at=?2,lease_owner=NULL,lease_expires_at=NULL,last_error=NULL,artifact_json=?3 WHERE id=?1 AND state='running'",
+        params![job,crate::utils::now_rfc3339(),json!({"code":"archive-page-missing"}).to_string()])?;
+    Ok(())
 }
 
 /// Production fetcher backed by the shared `build_fetch_client()` egress (06 §2b).
@@ -803,7 +792,7 @@ fn read_capped<R: std::io::Read>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::archive::open_intelligence_connection;
     use crate::config::{ensure_paths, project_paths_with_root};
@@ -1049,8 +1038,15 @@ mod tests {
             .with_html("https://example.com/article", body(html.as_bytes(), "text/html"));
 
         assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, job_id, &fetcher)
-                .expect("execute"),
+            execute_content_fetch_job_with_fetcher(
+                &page_vault(&payload.url),
+                &paths,
+                &connection,
+                &config,
+                job_id,
+                &fetcher
+            )
+            .expect("execute"),
             ContentFetchJobOutcome::Ran
         );
 
@@ -1095,8 +1091,15 @@ mod tests {
         let off = AppConfig { initialized: true, ..AppConfig::default() };
         let fetcher = FakeFetcher::new();
         assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &off, job_id, &fetcher)
-                .expect("execute"),
+            execute_content_fetch_job_with_fetcher(
+                &page_vault(&payload.url),
+                &paths,
+                &connection,
+                &off,
+                job_id,
+                &fetcher
+            )
+            .expect("execute"),
             ContentFetchJobOutcome::Ran
         );
         let state: String = connection
@@ -1128,8 +1131,15 @@ mod tests {
         let config = consenting_config();
         let fetcher = FakeFetcher::new();
         assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, job_id, &fetcher)
-                .expect("execute"),
+            execute_content_fetch_job_with_fetcher(
+                &page_vault(&payload.url),
+                &paths,
+                &connection,
+                &config,
+                job_id,
+                &fetcher
+            )
+            .expect("execute"),
             ContentFetchJobOutcome::Ran
         );
         // SEC-4: a blocked/non-https row stores the RESOLVED extractor's content_source + version (not
@@ -1159,8 +1169,15 @@ mod tests {
         let config = consenting_config();
         let fetcher = FakeFetcher::new();
         assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, 4040, &fetcher)
-                .expect("missing job no-op"),
+            execute_content_fetch_job_with_fetcher(
+                &crate::Vault::open_temp().unwrap(),
+                &paths,
+                &connection,
+                &config,
+                4040,
+                &fetcher
+            )
+            .expect("missing job no-op"),
             ContentFetchJobOutcome::NotClaimable
         );
     }
@@ -1221,6 +1238,7 @@ mod tests {
             .expect("enqueue");
         assert_eq!(
             execute_content_fetch_job_with_fetcher(
+                &page_vault("https://github.com/o/r"),
                 &paths,
                 &connection,
                 &consenting_config(),
@@ -1664,8 +1682,15 @@ mod tests {
         let job_id = enqueue_content_fetch_job(&connection, &payload(&url, 1)).expect("enqueue");
         let fetcher = FakeFetcher::new();
         assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, job_id, &fetcher)
-                .expect("execute"),
+            execute_content_fetch_job_with_fetcher(
+                &page_vault(&url),
+                &paths,
+                &connection,
+                &config,
+                job_id,
+                &fetcher
+            )
+            .expect("execute"),
             ContentFetchJobOutcome::Deferred
         );
         let (state, scheduled): (String, String) = connection
@@ -1714,8 +1739,15 @@ mod tests {
             .expect("enqueue");
         let fetcher = FakeFetcher::new(); // never reached — the api.github.com bucket is empty
         assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, job_id, &fetcher)
-                .expect("execute"),
+            execute_content_fetch_job_with_fetcher(
+                &page_vault("https://github.com/o/r"),
+                &paths,
+                &connection,
+                &config,
+                job_id,
+                &fetcher
+            )
+            .expect("execute"),
             ContentFetchJobOutcome::Deferred
         );
         let scheduled: String = connection
@@ -1801,8 +1833,15 @@ mod tests {
             job_id,
         };
         assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, job_id, &fetcher)
-                .expect("execute"),
+            execute_content_fetch_job_with_fetcher(
+                &page_vault(&url),
+                &paths,
+                &connection,
+                &config,
+                job_id,
+                &fetcher
+            )
+            .expect("execute"),
             ContentFetchJobOutcome::Ran,
             "a concurrent stop during a throttled fetch cancels the job (Ran), not Deferred"
         );
@@ -1834,6 +1873,7 @@ mod tests {
             EnrichmentResult { status: "success".to_string(), ..EnrichmentResult::default() };
         assert!(
             finish_content_fetch_job(
+                &crate::Vault::open_temp().unwrap(),
                 &paths,
                 &connection,
                 &job,
@@ -1886,6 +1926,7 @@ mod tests {
         // succeeded; the point is the `!mark...` arm executes.
         assert!(
             finish_content_fetch_job(
+                &page_vault(&job.payload.url),
                 &paths,
                 &connection,
                 &job,
@@ -1898,7 +1939,50 @@ mod tests {
     }
 
     #[test]
-    fn finish_fans_enrichment_out_to_sibling_visits_and_refreshes_fts() {
+    fn unarchived_candidate_waits_without_fetching_and_can_be_offered_again() {
+        struct NoFetch;
+        impl Fetcher for NoFetch {
+            fn fetch_html(&self, _url: &str) -> FetchOutcome {
+                panic!("unarchived candidates must not fetch")
+            }
+            fn fetch_json(&self, _url: &str, _cap: usize) -> FetchOutcome {
+                panic!("unarchived candidates must not fetch")
+            }
+        }
+        let root = tempdir().unwrap();
+        let paths = project_paths_with_root(root.path());
+        ensure_paths(&paths).unwrap();
+        let connection = intelligence_connection(&paths);
+        let input = payload("https://github.com/o/r", 1);
+        let id = enqueue_content_fetch_job(&connection, &input).unwrap();
+        let config = consenting_config();
+        let outcome = execute_content_fetch_job_with_fetcher(
+            &crate::Vault::open_temp().unwrap(),
+            &paths,
+            &connection,
+            &config,
+            id,
+            &NoFetch,
+        )
+        .unwrap();
+        assert_eq!(outcome, ContentFetchJobOutcome::AwaitingArchive);
+        assert_eq!(
+            connection
+                .query_row("SELECT state FROM intelligence_jobs WHERE id=?1", [id], |r| r
+                    .get::<_, String>(0))
+                .unwrap(),
+            "awaiting_archive"
+        );
+        assert!(
+            crate::intelligence_runtime::content_fetch_job_due(&connection, 1, "github-repo", 1)
+                .unwrap()
+        );
+        assert_eq!(enqueue_content_fetch_job(&connection, &input).unwrap(), id);
+        assert!(claim_content_fetch_job_by_id(&connection, id).unwrap().is_some());
+    }
+
+    #[test]
+    fn finish_fans_enrichment_out_to_sibling_visits_and_publishes_outbox() {
         // CORR-3 (store-time fan-out) + CORR-1 (FTS enrichment_text refresh) end-to-end via the
         // intelligence connection with an attached plaintext archive. Two visits of ONE canonical URL
         // must BOTH receive the enrichment, and the FTS term mirror must match a fetched token without
@@ -1937,25 +2021,17 @@ mod tests {
                 )
                 .expect("visit");
         }
-        // Seed a search_documents row for url_id 1 so the enrichment_text refresh has a row to update.
-        archive
-            .execute(
-                "INSERT INTO search.search_documents (
-                   url_id, url, title, search_terms, normalized_url, normalized_title,
-                   normalized_search_terms, compact_text, cjk_grams, enrichment_text, updated_at
-                 )
-                 VALUES (1, 'https://github.com/o/r', 'o/r', '', 'https://github.com/o/r', 'o/r',
-                         '', 'githubor', '', '', datetime('now'))",
-                [],
-            )
-            .expect("seed search doc");
-        archive
-            .execute(
-                "INSERT INTO search.history_search_terms(rowid, url, title, search_terms, normalized_url, normalized_title, normalized_search_terms, cjk_grams, enrichment_text)
-                 VALUES (1, 'https://github.com/o/r', 'o/r', '', 'https://github.com/o/r', 'o/r', '', '', '')",
-                [],
-            )
-            .expect("seed fts row");
+        let vault = crate::Vault::open_temp().unwrap();
+        vault
+            .store()
+            .write(vault_store::Db::Archive, vault_store::Priority::Interactive, |s| {
+                s.execute("INSERT INTO pages(id,url,canonical_url) VALUES(1,'https://GitHub.com/o/r?utm_source=x','https://github.com/o/r'),(2,'https://github.com/o/r?utm_campaign=y','https://github.com/o/r')", ())?;
+                crate::archive::search_documents::text_changed(s, 2)?;
+                crate::archive::search_documents::text_changed(s, 1)?;
+                s.execute("DELETE FROM search_outbox", ())?;
+                Ok(())
+            })
+            .unwrap();
         drop(archive);
 
         // Open the intelligence connection (attaches the archive) + claim a fetch for visit 10. We call
@@ -1982,8 +2058,16 @@ mod tests {
             ..EnrichmentResult::default()
         };
         assert!(
-            finish_content_fetch_job(&paths, &connection, &job, "github-repo", &enrichment, None)
-                .expect("finish")
+            finish_content_fetch_job(
+                &vault,
+                &paths,
+                &connection,
+                &job,
+                "github-repo",
+                &enrichment,
+                None
+            )
+            .expect("finish")
         );
 
         // CORR-3: BOTH sibling visits got the same enrichment_summary.
@@ -2001,19 +2085,54 @@ mod tests {
         assert_eq!(summaries[0].1.as_deref(), Some("Wasmtime sandbox runtime"));
         assert_eq!(summaries[1].1.as_deref(), Some("Wasmtime sandbox runtime"));
 
-        // CORR-1: the FTS term mirror matches a fetched token WITHOUT a full rebuild.
-        let search = Connection::open(&paths.search_database_path).expect("search db");
-        let hits: i64 = search
-            .query_row(
-                "SELECT COUNT(*) FROM history_search_terms WHERE history_search_terms MATCH 'wasmtime'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("fts match");
-        assert_eq!(
-            hits, 1,
-            "the fetched summary must be keyword-searchable without a full rebuild"
-        );
+        vault
+            .store()
+            .read(vault_store::Db::Archive, |s| {
+                let text = s.query_one(
+                    "SELECT enrichment_text FROM search_documents WHERE page_id=1",
+                    (),
+                    |r| Ok(r.get::<String>(0)?),
+                )?;
+                assert!(text.contains("Wasmtime"));
+                assert!(text.contains("wasm"));
+                assert_eq!(
+                    s.query_one("SELECT COUNT(*) FROM search_outbox WHERE page_id=1", (), |r| Ok(
+                        r.get::<i64>(0)?
+                    ))?,
+                    1
+                );
+                assert_eq!(
+                    s.query_one(
+                        "SELECT enrichment_text FROM search_documents WHERE page_id=2",
+                        (),
+                        |r| Ok(r.get::<String>(0)?)
+                    )?,
+                    text
+                );
+                assert_eq!(
+                    s.query_one(
+                        "SELECT COUNT(*) FROM search_outbox",
+                        (),
+                        |r| Ok(r.get::<i64>(0)?)
+                    )?,
+                    2
+                );
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    pub(crate) fn page_vault(url: &str) -> crate::Vault {
+        let vault = crate::Vault::open_temp().unwrap();
+        let url = url.to_string();
+        vault
+            .write(vault_store::Db::Archive, vault_store::Priority::Batch, move |s| {
+                s.execute("INSERT INTO pages(id,url,canonical_url) VALUES(1,?1,?1)", [url])?;
+                crate::archive::search_documents::text_changed(s, 1)?;
+                Ok(())
+            })
+            .unwrap();
+        vault
     }
 
     fn seed_run_profile(archive: &Connection) {

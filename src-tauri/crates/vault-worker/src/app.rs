@@ -254,6 +254,9 @@ pub fn save_user_config_with_base(
         Some(base_config) => merge_config_change(&previous_config, base_config, config)?,
         None => config.clone(),
     };
+    if previous_config.initialized && previous_config.archive_mode != next_config.archive_mode {
+        vault_core::require_complete_storage_migration("encryption-mode switch")?;
+    }
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
     validate_app_lock_change(
@@ -386,6 +389,9 @@ where
     // Only to tell whether Touch ID is being turned on; a first run has no config yet.
     let previous_config = load_hydrated_config(&paths).unwrap_or_default();
     let mut next_config = config.clone();
+    if previous_config.initialized && previous_config.archive_mode != next_config.archive_mode {
+        vault_core::require_complete_storage_migration("encryption-mode switch")?;
+    }
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
     validate_app_lock_change(
@@ -456,6 +462,7 @@ pub fn parse_archive_recovery_required(message: &str) -> Option<ArchiveRecoveryR
 /// The archive is opened with the request's verified current password, never
 /// with a key the caller merely holds (see [`crate::current_password`]).
 pub fn rekey_archive_database(request: &RekeyRequest) -> Result<AppSnapshot> {
+    vault_core::require_complete_storage_migration("archive rekey")?;
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let old_key = crate::current_password::verified_current_key(&paths, &config, request)?;
@@ -477,6 +484,7 @@ pub fn rekey_archive_database(request: &RekeyRequest) -> Result<AppSnapshot> {
 /// write lock for its whole duration, so a SEPARATE scheduled backup can never race it on
 /// source-evidence, and a SECOND same-process top-level op excludes on the gate.
 pub fn reconcile_archive_encryption(session_database_key: Option<&str>) -> Result<ReconcileReport> {
+    vault_core::require_complete_storage_migration("archive encryption reconciliation")?;
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     vault_core::reconcile_archive_encryption(&paths, &config, session_database_key)

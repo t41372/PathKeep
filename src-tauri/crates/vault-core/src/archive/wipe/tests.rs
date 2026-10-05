@@ -5,8 +5,7 @@
 use super::*;
 use crate::{
     archive::{
-        archive_status, ensure_archive_initialized, list_history, run_backup,
-        tests::seed_chrome_fixture,
+        archive_status, ensure_archive_initialized, list_history, tests::seed_chrome_fixture,
     },
     config::{load_config, project_paths_with_root, save_config},
     models::HistoryQuery,
@@ -62,14 +61,16 @@ fn backed_up_archive() -> Fixture {
         .push(crate::models::AiProviderConfig { id: "llm-1".to_string(), ..Default::default() });
     save_config(&paths, &config).expect("save config");
     ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    let report = run_backup(&paths, &config, None, false).expect("backup");
-    assert_eq!(report.run.expect("run").new_visits, 2);
+    super::super::tests::legacy_queries::seed_reader_archive(&paths, &config);
+    drop(super::super::open_source_evidence_connection(&paths, &config, None).unwrap());
 
     // Things a real install accumulates beside the archive.
     let write = |path: PathBuf, bytes: &[u8]| {
         fs::create_dir_all(path.parent().expect("parent")).expect("parent dir");
         fs::write(path, bytes).expect("write");
     };
+    write(paths.raw_snapshots_dir.join("fixture/History"), b"source");
+    write(paths.audit_repo_path.join("fixture.json"), b"{}");
     write(paths.exports_dir.join("history.csv"), b"url,title\n");
     write(paths.models_dir.join("bge").join("model.safetensors"), &[7; 4096]);
     write(paths.app_root.join("app-lock-passcode.json"), b"{}");
@@ -373,8 +374,7 @@ fn a_new_archive_in_the_same_process_bootstraps_and_searches_after_a_wipe() {
 
     save_config(paths, &fixture.config).expect("config again");
     ensure_archive_initialized(paths, &fixture.config, None).expect("init again");
-    let report = run_backup(paths, &fixture.config, None, false).expect("backup again");
-    assert_eq!(report.run.expect("run").new_visits, 2);
+    super::super::tests::legacy_queries::seed_reader_archive(paths, &fixture.config);
     let found = list_history(
         paths,
         &fixture.config,

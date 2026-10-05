@@ -191,19 +191,19 @@ fn import_batch_visibility_scale_bench() {
         .expect("affected URLs");
     transaction.commit().expect("batch commit");
     drop(archive);
+    let vault = vault_core::Vault::open_temp().unwrap();
+    vault_core::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
     println!("\n## import batch visibility: {visits} visits, 10000 in batch, {affected} URLs");
     let mut revert_samples = Vec::new();
     let mut restore_samples = Vec::new();
     for _ in 0..5 {
         let started = Instant::now();
-        let detail =
-            vault_core::revert_import_batch(&paths, &config, None, batch_id).expect("revert batch");
+        let detail = vault_core::revert_import_batch(&vault, batch_id).expect("revert batch");
         revert_samples.push(started.elapsed());
         assert_eq!(detail.batch.status, "reverted");
         assert!(!detail.note_details.iter().any(|note| note.code.contains("rebuild-needed")));
         let started = Instant::now();
-        let detail = vault_core::restore_import_batch(&paths, &config, None, batch_id)
-            .expect("restore batch");
+        let detail = vault_core::restore_import_batch(&vault, batch_id).expect("restore batch");
         restore_samples.push(started.elapsed());
         assert_eq!(detail.batch.status, "imported");
         assert!(!detail.note_details.iter().any(|note| note.code.contains("rebuild-needed")));

@@ -17,6 +17,7 @@ pub(crate) mod content_fetch;
 pub mod content_fetch_api;
 pub(crate) mod extractors;
 pub(crate) mod rate_limit;
+mod search_text;
 
 use crate::{
     config::ProjectPaths,

@@ -81,7 +81,7 @@ test('changing the archive password needs the current one', async ({
   await expect(dialog.getByLabel('Current password')).toBeVisible()
   expect(await opensArchive(OLD)).toBe(true)
   expect(await opensArchive(NEW)).toBe(false)
-  expect(await backend<string | null>('keyring_get_database_key')).toBe(OLD)
+  expect(await backend<boolean>('keyring_get_database_key')).toBe(true)
 
   await dialog.getByLabel('Current password').fill(OLD)
   await expect(dialog.getByRole('alert')).toBeHidden()
@@ -95,7 +95,7 @@ test('changing the archive password needs the current one', async ({
 
   expect(await opensArchive(NEW)).toBe(true)
   expect(await opensArchive(OLD)).toBe(false)
-  expect(await backend<string | null>('keyring_get_database_key')).toBe(NEW)
+  expect(await backend<boolean>('keyring_get_database_key')).toBe(true)
 
   // A fresh session: no key in memory, so PathKeep has to unlock the
   // archive with what the keychain holds now.

@@ -21,41 +21,6 @@ use std::convert::Infallible;
 use std::path::Path;
 
 const INSPECT_TABLES_SQL: &str = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
-const URLS_SQL: &str = r#"
-SELECT
-  history_items.id,
-  history_items.url,
-  (
-    SELECT history_visits.title
-    FROM history_visits
-    WHERE history_visits.history_item = history_items.id
-      AND history_visits.title IS NOT NULL
-    ORDER BY history_visits.visit_time DESC, history_visits.id DESC
-    LIMIT 1
-  ) AS title,
-  (
-    SELECT COUNT(*)
-    FROM history_visits
-    WHERE history_visits.history_item = history_items.id
-  ) AS visit_count,
-  (
-    SELECT MAX(history_visits.visit_time)
-    FROM history_visits
-    WHERE history_visits.history_item = history_items.id
-  ) AS last_visit_time
-FROM history_items
-WHERE EXISTS (
-  SELECT 1
-  FROM history_visits
-  WHERE history_visits.history_item = history_items.id
-)
-  AND (
-    SELECT MAX(history_visits.visit_time)
-    FROM history_visits
-    WHERE history_visits.history_item = history_items.id
-  ) >= ?1
-ORDER BY last_visit_time ASC
-"#;
 const SAFARI_UNIX_EPOCH_OFFSET_SECONDS: f64 = 978_307_200.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -226,7 +191,7 @@ pub fn parse_history(
 ) -> Result<ParsedHistory, ParseError> {
     let mut collector = SafariHistoryCollector::default();
     let streamed =
-        stream_history(path, after_visit_id, after_url_last_visit_ms, 10_000, &mut collector)
+        stream_history(path, after_visit_id, after_url_last_visit_ms, None, 10_000, &mut collector)
             .map_err(|error| match error {
                 StreamHistoryError::Parse(error) => error,
                 StreamHistoryError::Consumer(never) => match never {},
@@ -251,6 +216,7 @@ pub fn stream_history<C>(
     path: &Path,
     after_visit_id: i64,
     after_url_last_visit_ms: i64,
+    url_scan: Option<crate::UrlScan>,
     chunk_size: usize,
     consumer: &mut C,
 ) -> Result<StreamedHistory, StreamHistoryError<C::Error>>
@@ -272,45 +238,17 @@ where
     let mut native_entities = Vec::new();
     let retain_source_evidence = consumer.retain_source_evidence_in_report();
 
-    {
-        let mut statement = stream_sql(connection.prepare(URLS_SQL))?;
-        let column_names =
-            statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-        let mut rows =
-            stream_sql(statement.query(params![unix_ms_to_safari_time(after_url_last_visit_ms)]))?;
-        let mut batch = Vec::with_capacity(chunk_size);
-        let mut source_evidence = SourceEvidenceChunk::default();
-        while let Some(row) = stream_sql(rows.next())? {
-            batch.push(stream_sql(parsed_url_from_row(row))?);
-            source_evidence.native_entities.push(stream_sql(capture_native_row(
-                row,
-                &column_names,
-                "safari-history-item-row",
-                "id",
-                None,
-            ))?);
-            if batch.len() >= chunk_size {
-                consumer.urls(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
-                flush_source_evidence(
-                    consumer,
-                    retain_source_evidence,
-                    &mut typed_evidence,
-                    &mut native_entities,
-                    &mut source_evidence,
-                )?;
-            }
-        }
-        if !batch.is_empty() {
-            consumer.urls(batch).map_err(StreamHistoryError::Consumer)?;
-        }
-        flush_source_evidence(
-            consumer,
-            retain_source_evidence,
-            &mut typed_evidence,
-            &mut native_entities,
-            &mut source_evidence,
-        )?;
-    }
+    crate::url_pages::stream(
+        &connection,
+        crate::url_pages::Family::Safari,
+        url_scan,
+        after_url_last_visit_ms,
+        after_visit_id,
+        chunk_size,
+        consumer,
+        &mut native_entities,
+        parsed_url_from_row,
+    )?;
 
     {
         let visits_sql = safari_visits_sql(&extra_visit_columns);
@@ -941,7 +879,8 @@ mod tests {
         write_current_schema_fixture(&history_path);
         let mut sink = NonRetainingEvidenceSink::default();
 
-        let streamed = stream_history(&history_path, 0, 0, 1, &mut sink).expect("stream safari");
+        let streamed =
+            stream_history(&history_path, 0, 0, None, 1, &mut sink).expect("stream safari");
 
         assert_eq!(sink.urls, 1);
         assert_eq!(sink.visits, 2);
@@ -1011,7 +950,8 @@ mod tests {
         drop(connection);
 
         let mut sink = NonRetainingEvidenceSink::default();
-        let streamed = stream_history(&history_path, 0, 0, 2, &mut sink).expect("stream safari");
+        let streamed =
+            stream_history(&history_path, 0, 0, None, 2, &mut sink).expect("stream safari");
 
         assert_eq!(sink.url_batches, vec![2, 1]);
         assert_eq!(sink.visit_batches, vec![2, 2]);
@@ -1039,7 +979,8 @@ mod tests {
         write_current_schema_fixture(&history_path);
         let mut sink = NonRetainingEvidenceSink::default();
 
-        let streamed = stream_history(&history_path, 0, 0, 4, &mut sink).expect("stream safari");
+        let streamed =
+            stream_history(&history_path, 0, 0, None, 4, &mut sink).expect("stream safari");
 
         assert!(sink.source_evidence_chunks >= 3);
         assert!(sink.native_entities >= 5);

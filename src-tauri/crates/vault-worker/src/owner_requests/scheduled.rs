@@ -4,24 +4,22 @@
 //! contention is misclassified. Tests: below and owner_requests/tests.rs.
 use crate::{
     archive_flows::run_scheduled_backup_with_progress, context::load_background_backup_config,
-    security::read_database_key_from_keyring,
 };
 use anyhow::{Error, Result, anyhow};
 use vault_core::{
     ScheduleAttemptRecorder as AttemptRecorder, ScheduledBackupAttemptOutcome,
     ScheduledBackupAttemptPhase,
 };
-pub(super) fn run_scheduled_backup_cli(progress: &vault_owner_ipc::Progress) -> Result<String> {
+pub(super) fn run_scheduled_backup_cli(
+    progress: &vault_owner_ipc::Progress,
+    vault: &impl Fn() -> Result<vault_core::Vault>,
+    session_key: Option<&str>,
+) -> Result<String> {
     let paths = vault_core::project_paths()?;
     let mut attempt = AttemptRecorder::begin(&paths)?;
 
     attempt.advance(ScheduledBackupAttemptPhase::Keyring)?;
-    let key = match read_database_key_from_keyring() {
-        Ok(key) => key,
-        Err(error) => {
-            return Err(finalize_attempt_failure(&mut attempt, "keyring", &error));
-        }
-    };
+    let key = session_key;
 
     attempt.advance(ScheduledBackupAttemptPhase::Config)?;
     let config = match load_background_backup_config(&paths) {
@@ -32,16 +30,43 @@ pub(super) fn run_scheduled_backup_cli(progress: &vault_owner_ipc::Progress) -> 
     };
 
     attempt.advance(ScheduledBackupAttemptPhase::Backup)?;
-    let report =
-        match run_scheduled_backup_with_progress(&paths, &config, key.as_deref(), |event| {
-            progress.send(serde_json::to_value(event).expect("backup progress is serializable"));
-        }) {
-            Ok(report) => report,
-            Err(error) => {
-                let reason_code = classify_backup_failure(&error);
-                return Err(finalize_attempt_failure(&mut attempt, reason_code, &error));
-            }
-        };
+    let vault = match vault() {
+        Ok(vault) => vault,
+        Err(error) => {
+            return Err(finalize_attempt_failure(
+                &mut attempt,
+                if error.to_string().starts_with("keychain-unavailable:") {
+                    "keyring"
+                } else {
+                    "archive-open"
+                },
+                &error,
+            ));
+        }
+    };
+    let report = match run_scheduled_backup_with_progress(&vault, &paths, &config, key, |event| {
+        progress.send(serde_json::to_value(event).expect("backup progress is serializable"));
+    }) {
+        Ok(report) => report,
+        Err(error) if error.downcast_ref::<vault_core::BackupAlreadyRunning>().is_some() => {
+            attempt.finish(
+                ScheduledBackupAttemptOutcome::Deferred,
+                Some("write-lock"),
+                Some("A backup is already running."),
+                None,
+            )?;
+            return Ok(serde_json::to_string(&vault_core::BackupReport {
+                due_skipped: true,
+                reason_code: Some("write-lock".into()),
+                reason: Some("A backup is already running.".into()),
+                ..Default::default()
+            })?);
+        }
+        Err(error) => {
+            let reason_code = classify_backup_failure(&error);
+            return Err(finalize_attempt_failure(&mut attempt, reason_code, &error));
+        }
+    };
 
     let (outcome, reason_code) =
         classify_scheduled_report(report.due_skipped, report.reason_code.as_deref());

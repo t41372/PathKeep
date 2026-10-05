@@ -53,12 +53,15 @@ const MAX_DEFERRED_SLEEP_SECS: u64 = 60;
 /// Like the other queue status reads (`load_ai_queue`, `load_intelligence_runtime_snapshot`), it also
 /// restarts the drain when queued work is waiting: the lane exits while the queue is paused, and
 /// resuming only saves the config, so this read is what gets parked fetches moving again.
-pub fn content_fetch_settings(session_database_key: Option<&str>) -> Result<ContentFetchSettings> {
+pub fn content_fetch_settings(
+    vault: &vault_core::Vault,
+    session_database_key: Option<&str>,
+) -> Result<ContentFetchSettings> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let settings = core_content_fetch_settings(&paths, &config, session_database_key)?;
     if settings.queued_jobs > 0 {
-        maybe_spawn_content_fetch_drain(&paths, &config, session_database_key);
+        maybe_spawn_content_fetch_drain(vault, &paths, &config, session_database_key);
     }
     Ok(settings)
 }
@@ -69,6 +72,7 @@ pub fn content_fetch_settings(session_database_key: Option<&str>) -> Result<Cont
 /// Returns a fresh [`AppSnapshot`] so the shell sees the updated config. Writing the config is the
 /// consent gate: nothing is fetched until `enabled` is true here (and persisted).
 pub fn set_content_fetch_settings(
+    vault: &vault_core::Vault,
     settings: &ContentFetchSettings,
     session_database_key: Option<&str>,
 ) -> Result<AppSnapshot> {
@@ -84,10 +88,11 @@ pub fn set_content_fetch_settings(
     // settings save (the consent flag is already persisted).
     if settings.enabled {
         let _ = enqueue_content_fetch_working_set(
+            vault,
             DEFAULT_WORKING_SET_ENQUEUE_LIMIT,
             session_database_key,
         );
-        maybe_spawn_content_fetch_drain(&paths, &config, session_database_key);
+        maybe_spawn_content_fetch_drain(vault, &paths, &config, session_database_key);
     }
     crate::app::app_snapshot(session_database_key)
 }
@@ -104,6 +109,7 @@ pub fn list_visit_enrichment(
 
 /// Triggers the manual "fetch now" PME for one URL, then starts the drain so it runs promptly.
 pub fn content_fetch_now(
+    vault: &vault_core::Vault,
     request: &ContentFetchNowRequest,
     session_database_key: Option<&str>,
 ) -> Result<ContentFetchNowResult> {
@@ -111,7 +117,7 @@ pub fn content_fetch_now(
     let config = load_unlocked_config(&paths)?;
     let result = core_enqueue_content_fetch_now(&paths, &config, session_database_key, request)?;
     if result.state == "queued" {
-        maybe_spawn_content_fetch_drain(&paths, &config, session_database_key);
+        maybe_spawn_content_fetch_drain(vault, &paths, &config, session_database_key);
     }
     Ok(result)
 }
@@ -120,6 +126,7 @@ pub fn content_fetch_now(
 ///
 /// Returns the number of jobs enqueued. A no-op (returns 0) when the master switch is off.
 pub fn enqueue_content_fetch_working_set(
+    vault: &vault_core::Vault,
     limit: usize,
     session_database_key: Option<&str>,
 ) -> Result<usize> {
@@ -128,7 +135,7 @@ pub fn enqueue_content_fetch_working_set(
     let enqueued =
         core_enqueue_content_fetch_working_set(&paths, &config, session_database_key, limit)?;
     if enqueued > 0 {
-        maybe_spawn_content_fetch_drain(&paths, &config, session_database_key);
+        maybe_spawn_content_fetch_drain(vault, &paths, &config, session_database_key);
     }
     Ok(enqueued)
 }
@@ -138,6 +145,7 @@ pub fn enqueue_content_fetch_working_set(
 /// LOW concurrency (one worker): network-bound, rate-limited work must not fan out on a 4-core host.
 /// Off the backup/import critical path — only Settings / manual-trigger / post-enable flows start it.
 pub(crate) fn maybe_spawn_content_fetch_drain(
+    vault: &vault_core::Vault,
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
@@ -147,7 +155,7 @@ pub(crate) fn maybe_spawn_content_fetch_drain(
     }
     let paths = paths.clone();
     let session_database_key = session_database_key.map(ToOwned::to_owned);
-    spawn_content_fetch_drain(paths, session_database_key);
+    spawn_content_fetch_drain(vault, paths, session_database_key);
 }
 
 /// Production driver: runs the drain lane on the bounded worker pool with the REAL per-iteration step
@@ -160,12 +168,14 @@ pub(crate) fn maybe_spawn_content_fetch_drain(
 /// `#[cfg(coverage)]` twin below drives the SAME seam inline so the 100% gate is deterministic).
 #[cfg(not(coverage))]
 fn spawn_content_fetch_drain(
+    vault: &vault_core::Vault,
     paths: vault_core::ProjectPaths,
     session_database_key: Option<String>,
 ) {
+    let vault = vault.clone();
     maybe_spawn_worker_pool("pathkeep-content-fetch", &CONTENT_FETCH_WORKERS, 1, move || {
         run_content_fetch_lane(
-            || drain_content_fetch_lane_step(&paths, session_database_key.as_deref()),
+            || drain_content_fetch_lane_step(&vault, &paths, session_database_key.as_deref()),
             |secs| std::thread::sleep(std::time::Duration::from_secs(secs)),
         );
     });
@@ -180,6 +190,7 @@ fn spawn_content_fetch_drain(
 /// inline drive forever while still flowing through the SAME seam + cap the production thread uses.
 #[cfg(coverage)]
 fn spawn_content_fetch_drain(
+    vault: &vault_core::Vault,
     paths: vault_core::ProjectPaths,
     session_database_key: Option<String>,
 ) {
@@ -189,7 +200,7 @@ fn spawn_content_fetch_drain(
             if slept.get() {
                 return LaneStep::Stop;
             }
-            drain_content_fetch_lane_step(&paths, session_database_key.as_deref())
+            drain_content_fetch_lane_step(vault, &paths, session_database_key.as_deref())
         },
         |_secs| slept.set(true),
     );
@@ -242,6 +253,7 @@ pub(crate) enum LaneStep {
 /// = the queue is empty, exit). A drain error is logged + treated as idle-empty (stop) so a transient
 /// fault never spins the lane.
 fn drain_content_fetch_lane_step(
+    vault: &vault_core::Vault,
     paths: &vault_core::ProjectPaths,
     session_database_key: Option<&str>,
 ) -> LaneStep {
@@ -252,7 +264,7 @@ fn drain_content_fetch_lane_step(
     if !config.initialized || !config.ai.content_fetch_enabled || config.ai.job_queue_paused {
         return LaneStep::Stop;
     }
-    match drain_one_content_fetch_job(paths, &config, session_database_key) {
+    match drain_one_content_fetch_job(vault, paths, &config, session_database_key) {
         Ok(true) => LaneStep::Drained,
         Ok(false) => {
             // Nothing due NOW. If a job was deferred (rate-limited) with a future schedule, report its
@@ -307,12 +319,14 @@ mod tests {
         crate::app::initialize_archive_database(&bootstrap, None).expect("initialize archive");
 
         // Default (master OFF until persisted): the read surface reports disabled + zero jobs.
-        let off_settings = content_fetch_settings(None).expect("settings off");
+        let off_settings = content_fetch_settings(&vault_core::Vault::open_temp().unwrap(), None)
+            .expect("settings off");
         assert!(!off_settings.enabled);
         assert_eq!(off_settings.queued_jobs, 0);
 
         // A manual fetch-now while disabled is parked (no job).
         let disabled = content_fetch_now(
+            &vault_core::Vault::open_temp().unwrap(),
             &ContentFetchNowRequest {
                 history_id: 1,
                 profile_id: "chrome:Default".to_string(),
@@ -325,18 +339,26 @@ mod tests {
         assert_eq!(disabled.state, "disabled");
 
         // The working-set enqueue is a no-op while disabled.
-        assert_eq!(enqueue_content_fetch_working_set(10, None).expect("ws disabled"), 0);
+        assert_eq!(
+            enqueue_content_fetch_working_set(&vault_core::Vault::open_temp().unwrap(), 10, None)
+                .expect("ws disabled"),
+            0
+        );
 
         // Persist consent ON via the settings writer (the consent gate), then the read surface flips.
         let mut on = off_settings.clone();
         on.enabled = true;
-        let snapshot = set_content_fetch_settings(&on, None).expect("enable");
+        let snapshot =
+            set_content_fetch_settings(&vault_core::Vault::open_temp().unwrap(), &on, None)
+                .expect("enable");
         assert!(snapshot.config.ai.content_fetch_enabled);
-        let on_settings = content_fetch_settings(None).expect("settings on");
+        let on_settings = content_fetch_settings(&vault_core::Vault::open_temp().unwrap(), None)
+            .expect("settings on");
         assert!(on_settings.enabled);
 
         // A manual fetch-now now enqueues a job (covers the enabled branch + drain spawn kick).
         let queued = content_fetch_now(
+            &vault_core::Vault::open_temp().unwrap(),
             &ContentFetchNowRequest {
                 history_id: 2,
                 profile_id: "chrome:Default".to_string(),
@@ -364,7 +386,7 @@ mod tests {
         // The paused lane reports Stop (covers the disabled/paused early-return branch) and, once any
         // background lane observes the pause + exits, the queue is ours to control.
         assert_eq!(
-            drain_content_fetch_lane_step(&paths, None),
+            drain_content_fetch_lane_step(&vault_core::Vault::open_temp().unwrap(), &paths, None),
             LaneStep::Stop,
             "paused lane stops"
         );
@@ -408,8 +430,15 @@ mod tests {
             },
         )
         .expect("enqueue due job");
+        let vault = vault_core::Vault::open_temp().unwrap();
+        vault.store().write(vault_store::Db::Archive, vault_store::Priority::Batch, move |s| {
+            s.execute("INSERT INTO pages(id,url,canonical_url) VALUES(1,?1,?1)", [format!("https://{host}/post")])?;
+            // The real archive write path always creates the document with the page.
+            s.execute("INSERT INTO search_documents(page_id,url,title,search_terms,normalized_url,normalized_title,normalized_search_terms,cjk_grams,compact_text,updated_at) SELECT id,url,'','',url,'','','',url,'now' FROM pages", ())?;
+            Ok(())
+        }).unwrap();
         assert_eq!(
-            drain_content_fetch_lane_step(&paths, None),
+            drain_content_fetch_lane_step(&vault, &paths, None),
             LaneStep::Drained,
             "a queued, un-throttled job is drained (ran)"
         );
@@ -437,11 +466,21 @@ mod tests {
         // maybe_spawn early-returns when fetching is disabled (covers the guard) — no thread spawned.
         let mut off = config.clone();
         off.ai.content_fetch_enabled = false;
-        maybe_spawn_content_fetch_drain(&paths, &off, None);
+        maybe_spawn_content_fetch_drain(
+            &vault_core::Vault::open_temp().unwrap(),
+            &paths,
+            &off,
+            None,
+        );
         // …and when the queue is paused.
         let mut paused = config.clone();
         paused.ai.job_queue_paused = true;
-        maybe_spawn_content_fetch_drain(&paths, &paused, None);
+        maybe_spawn_content_fetch_drain(
+            &vault_core::Vault::open_temp().unwrap(),
+            &paths,
+            &paused,
+            None,
+        );
 
         // Seed a starred, due github URL so the working-set enqueue returns > 0 and kicks the drain
         // spawn (covers the `enqueued > 0 => maybe_spawn` line).
@@ -491,7 +530,9 @@ mod tests {
         on_cfg.ai.content_fetch_enabled = true;
         on_cfg.ai.job_queue_paused = true;
         vault_core::save_config(&paths, &on_cfg).expect("persist consent + pause");
-        let enqueued = enqueue_content_fetch_working_set(100, None).expect("ws enqueue");
+        let enqueued =
+            enqueue_content_fetch_working_set(&vault_core::Vault::open_temp().unwrap(), 100, None)
+                .expect("ws enqueue");
         assert_eq!(enqueued, 1, "a starred due URL enqueues, kicking the drain spawn");
         // Drop the queued job so no spinning thread can churn on it under the test stub.
         {
@@ -513,7 +554,11 @@ mod tests {
         std::fs::create_dir_all(bad_paths.config_path.parent().unwrap()).expect("config dir");
         std::fs::write(&bad_paths.config_path, "{ not valid json").expect("write corrupt config");
         assert_eq!(
-            drain_content_fetch_lane_step(&bad_paths, None),
+            drain_content_fetch_lane_step(
+                &vault_core::Vault::open_temp().unwrap(),
+                &bad_paths,
+                None
+            ),
             LaneStep::Stop,
             "a lane step whose config cannot load stops"
         );
@@ -601,7 +646,7 @@ mod tests {
 
         // The inline drive must RETURN (the bounded single sleep pass keeps a deferred job from spinning
         // the coverage stub forever). The job stays deferred (untouched) afterwards.
-        spawn_content_fetch_drain(paths.clone(), None);
+        spawn_content_fetch_drain(&vault_core::Vault::open_temp().unwrap(), paths.clone(), None);
 
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original.as_deref());
     }
@@ -631,9 +676,11 @@ mod tests {
             .expect("initialize archive");
 
         // Persist consent ON via the settings writer so the lane step sees fetching enabled.
-        let mut on = content_fetch_settings(None).expect("settings");
+        let mut on = content_fetch_settings(&vault_core::Vault::open_temp().unwrap(), None)
+            .expect("settings");
         on.enabled = true;
-        set_content_fetch_settings(&on, None).expect("enable");
+        set_content_fetch_settings(&vault_core::Vault::open_temp().unwrap(), &on, None)
+            .expect("enable");
 
         let paths = vault_core::project_paths().expect("paths");
 
@@ -670,7 +717,8 @@ mod tests {
                 .expect("defer the job");
         }
 
-        match drain_content_fetch_lane_step(&paths, None) {
+        match drain_content_fetch_lane_step(&vault_core::Vault::open_temp().unwrap(), &paths, None)
+        {
             LaneStep::Idle { sleep_secs: Some(secs) } => {
                 assert!((1..=31).contains(&secs), "deferred ETA should be ~30s, got {secs}");
             }
@@ -686,7 +734,7 @@ mod tests {
                 .expect("clear queue");
         }
         assert_eq!(
-            drain_content_fetch_lane_step(&paths, None),
+            drain_content_fetch_lane_step(&vault_core::Vault::open_temp().unwrap(), &paths, None),
             LaneStep::Idle { sleep_secs: None },
             "an empty queue is idle with nothing to wait on"
         );

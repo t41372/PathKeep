@@ -127,6 +127,7 @@ struct SemanticHit {
 /// orchestration code.
 #[derive(Clone)]
 pub(super) struct SearchContext {
+    pub vault: crate::Vault,
     pub paths: ProjectPaths,
     pub config: AppConfig,
     pub database_key: Option<String>,
@@ -224,6 +225,7 @@ impl Tool for SearchHistoryTool {
             end_date: None,
         };
         let response = search_history_internal(
+            &self.context.vault,
             &self.context.paths,
             &self.context.config,
             self.context.database_key.as_deref(),
@@ -263,21 +265,24 @@ impl Tool for SearchHistoryTool {
 /// pages and aggregate them in-sandbox — but a model/UI-facing caller must NOT inherit that. Pre-change
 /// this path was hard-capped at 50, and a search UI never needs a 1000-row page; it paginates instead.
 pub async fn semantic_search_history(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
     provider: Option<&AiProviderRuntime>,
     request: &AiSearchRequest,
 ) -> Result<AiSearchResponse> {
+    check_storage_filter(request)?;
     let mut bounded = request.clone();
     if let Some(limit) = bounded.limit {
         bounded.limit = Some(limit.min(MODEL_FACING_ROW_CAP));
     }
-    search_history_internal(paths, config, key, provider, &bounded).await
+    search_history_internal(vault, paths, config, key, provider, &bounded).await
 }
 
 /// Answers one user question against archive history with evidence-backed citations.
 pub async fn answer_history_question(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
@@ -286,6 +291,7 @@ pub async fn answer_history_question(
     request: &AiAssistantRequest,
 ) -> Result<AiAssistantResponse> {
     answer_history_question_with_control(
+        vault,
         paths,
         config,
         key,
@@ -299,6 +305,7 @@ pub async fn answer_history_question(
 
 /// Answers one assistant question while honoring optional cooperative stop checkpoints.
 pub async fn answer_history_question_with_control(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
@@ -346,7 +353,7 @@ pub async fn answer_history_question_with_control(
         let search_response = await_with_ai_cancellation(
             run_control,
             "Assistant run was cancelled before retrieval finished.",
-            search_history_internal(paths, config, key, embedding_provider, &retrieval_request),
+            search_history_internal(vault, paths, config, key, embedding_provider, &retrieval_request),
         )
         .await?;
         let seeded_citations = search_response
@@ -364,6 +371,7 @@ pub async fn answer_history_question_with_control(
             .collect::<Vec<_>>();
         let citations = Arc::new(Mutex::new(seeded_citations.clone()));
         let tool_context = SearchContext {
+            vault: vault.clone(),
             paths: paths.clone(),
             config: config.clone(),
             database_key: key.map(ToOwned::to_owned),
@@ -505,6 +513,7 @@ pub(super) fn build_assistant_preamble(
 /// (W-AI-6) restricts BOTH recall sets to starred pages via the lexical post-filter + the semantic
 /// allowlist seam. AI-off / no provider degrades to lexical-only (RRF over one list = the lexical order).
 pub(super) async fn search_history_internal(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
@@ -536,6 +545,7 @@ pub(super) async fn search_history_internal(
     // bounded: `lexical_history_results` clamps the fetch to `list_history`'s `[1, 1000]` cap.
     if query.is_empty() {
         return recent_visits_response(
+            vault,
             paths,
             config,
             key,
@@ -557,6 +567,7 @@ pub(super) async fn search_history_internal(
     let sort = AiSearchSort::parse(request.sort.as_deref());
     if sort.is_date_ordered() {
         return date_ordered_response(
+            vault,
             paths,
             config,
             key,
@@ -570,12 +581,12 @@ pub(super) async fn search_history_internal(
 
     // Load the starred set once (tiny by design). It powers BOTH the bounded boost (always, when any
     // page is starred) and the `is:starred` facet's lexical post-filter + semantic allowlist (when on).
-    let starred = crate::stars::load_starred_matcher(paths, config, key)?;
+    let starred = crate::stars::load_starred_matcher(vault)?;
 
     // The `is:starred` facet resolves starred VISITS → deduped content_keys so semantic recall can be
     // restricted to favorites (the allowlist seam). Resolved once, reused for the lexical post-filter.
     let starred_content_keys = if facet_starred {
-        resolve_starred_content_keys(paths, config, key, provider, &starred)?
+        resolve_starred_content_keys(vault, paths, provider, &starred)?
     } else {
         None
     };
@@ -735,6 +746,7 @@ pub(super) const MATCH_REASON_STARRED_SUFFIX: &str = "+starred";
 /// the keyword path. Bounded: `lexical_history_results` clamps to `list_history`'s `[1, 1000]` cap,
 /// so this never scans the corpus even at 14.4M visits.
 fn recent_visits_response(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
@@ -743,7 +755,7 @@ fn recent_visits_response(
     facet_starred: bool,
     applied_limit: u32,
 ) -> Result<AiSearchResponse> {
-    let starred = crate::stars::load_starred_matcher(paths, config, key)?;
+    let starred = crate::stars::load_starred_matcher(vault)?;
     // No keyword text: `list_history` filters the empty `q` to `None` and returns recent-by-newest.
     // H3 — over-fetch ONE probe row beyond `limit` from the recency source: the previous call fetched
     // only `base_limit == limit` rows, so the `.take(limit + 1)` below was a NO-OP and `has_more` was
@@ -827,6 +839,7 @@ fn recent_visits_response(
 /// than believe it saw everything. Bounded exactly like every other path: no full scan even at 14.4M.
 #[allow(clippy::too_many_arguments)]
 fn date_ordered_response(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
@@ -843,7 +856,7 @@ fn date_ordered_response(
     // Starred matcher: needed both for the `is:starred` post-filter and so favorites still STAR on the
     // FE evidence rows; the bounded starred boost is intentionally NOT applied here — re-scoring would
     // be meaningless on a date-ordered list and could only tempt a future re-sort that breaks the order.
-    let starred = crate::stars::load_starred_matcher(paths, config, key)?;
+    let starred = crate::stars::load_starred_matcher(vault)?;
 
     // Over-fetch the pool to cover `offset + limit + 1` (the +1 probe feeds an honest `has_more`). We
     // clone the request and widen its `limit` so `lexical_history_results` (which derives its fetch from
@@ -1164,16 +1177,15 @@ fn resolve_content_keys_for_history_ids(
 /// anyway, so the facet has nothing to constrain). The content_key is `hash(canonical_url + title +
 /// enrichment)`, NOT derivable from the URL alone, so the `.pkmap` is the source of truth, not a re-hash.
 fn resolve_starred_content_keys(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
     provider: Option<&AiProviderRuntime>,
     starred: &crate::stars::StarredMatcher,
 ) -> Result<Option<Vec<u64>>> {
     let Some(provider) = provider else {
         return Ok(None);
     };
-    let history_ids = crate::stars::starred_history_ids(paths, config, key, starred)?;
+    let history_ids = crate::stars::starred_history_ids(vault, starred)?;
     // XA-PERF-4 (closed, M-11): resolve the BOUNDED starred history_id set → content_keys through the
     // keyed forward sidecar (`.pkfwd`, O(starred·log n) binary-search seeks) when present + fresh,
     // falling back to the authoritative `.pkmap` full scan only when the sidecar is missing/stale (an
@@ -1754,4 +1766,12 @@ pub(super) fn semantic_index_staleness_reason(
     }
 
     Ok(None)
+}
+
+/// External AI entrypoints refuse cross-store visit-id matching during migration.
+pub(super) fn check_storage_filter(request: &AiSearchRequest) -> Result<()> {
+    if request.starred_only.unwrap_or(false) {
+        crate::require_complete_storage_migration("AI is:starred filter")?;
+    }
+    Ok(())
 }

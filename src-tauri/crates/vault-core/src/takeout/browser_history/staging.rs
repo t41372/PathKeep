@@ -165,12 +165,22 @@ where
                 consumer,
             )
         }
-        BrowserHistoryFamily::Firefox => {
-            firefox::stream_history(&staged.history_path, 0, 0, BROWSER_IMPORT_CHUNK_SIZE, consumer)
-        }
-        BrowserHistoryFamily::Safari => {
-            safari::stream_history(&staged.history_path, 0, 0, BROWSER_IMPORT_CHUNK_SIZE, consumer)
-        }
+        BrowserHistoryFamily::Firefox => firefox::stream_history(
+            &staged.history_path,
+            0,
+            0,
+            None,
+            BROWSER_IMPORT_CHUNK_SIZE,
+            consumer,
+        ),
+        BrowserHistoryFamily::Safari => safari::stream_history(
+            &staged.history_path,
+            0,
+            0,
+            None,
+            BROWSER_IMPORT_CHUNK_SIZE,
+            consumer,
+        ),
     }
     .map_err(browser_history_stream_error_to_anyhow)
 }

@@ -108,9 +108,7 @@ test('onboarding sets up an encrypted archive and backs up the chosen browsers',
     'chrome:Profile 1',
     'firefox:k3x9.default-release',
   ])
-  expect(await backend<string | null>('keyring_get_database_key')).toBe(
-    PASSWORD,
-  )
+  expect(await backend<boolean>('keyring_get_database_key')).toBe(true)
 
   await page.getByRole('button', { name: 'Open PathKeep' }).click()
   const saved = page.getByRole('link', { name: /Saved visits/ })

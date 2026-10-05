@@ -97,10 +97,34 @@ impl Fixture {
             .unwrap();
     }
 }
-pub struct AppProcess(pub u32);
-impl Drop for AppProcess {
+// This fixture links vault-store, which requires Rust 1.96 for native file locks.
+#[clippy::msrv = "1.96"]
+impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = Command::new("kill").args(["-TERM", &self.0.to_string()]).status();
+        let path = self.root.path().join("archive/.pk-owner.lock");
+        let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&path) else {
+            return;
+        };
+        if file.try_lock().is_ok() {
+            return;
+        }
+        let Some(pid) =
+            std::fs::read_to_string(&path).ok().and_then(|text| text.trim().parse::<u32>().ok())
+        else {
+            return;
+        };
+        if pid == std::process::id() {
+            return;
+        }
+        let _ = Command::new("kill").args(["-TERM", &pid.to_string()]).status();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while file.try_lock().is_err() {
+            if std::time::Instant::now() >= deadline {
+                let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).status();
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 }
 pub fn open_files(pid: u32) -> String {

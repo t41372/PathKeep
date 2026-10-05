@@ -26,34 +26,38 @@
 mod artifacts;
 mod at_rest;
 mod backup;
+mod backup_manifest;
+mod checkpoint_restore;
 mod doctor;
 mod history;
 // Re-export the SSRF guard module so the W-ENRICH-1 enrichment plane can reach
 // `crate::archive::history::net_guard::url_target_is_blocked` through the same chokepoint og:image
 // fetching uses (history itself is a private module, so the path needs a crate-visible re-export).
 pub(crate) use self::history::net_guard;
-mod ingest;
+pub(crate) mod ingest;
 mod intelligence_projection;
 mod maintenance;
 mod read_models;
+pub(crate) mod totals;
 pub(crate) use self::read_models::{archive_status_from_open, recent_runs_from};
 mod run_support;
 mod schema;
+pub(crate) mod search_documents;
+pub(crate) mod write_runs;
+pub use search_documents::set_enrichment_text;
 mod search_lexical;
 mod search_opencc;
 mod search_projection;
 mod search_query;
-mod source_evidence;
-mod source_evidence_builder;
+pub(crate) mod source_evidence;
+mod source_evidence_open;
 mod source_stats;
 mod url_detail;
 mod wipe;
 mod write_lock;
 
 pub(crate) use self::artifacts::{
-    SnapshotArtifact, collect_schema_payload, create_snapshot_artifact,
-    load_checkpoint_profile_snapshot, load_snapshot_record, record_snapshot_reference,
-    serialize_payload,
+    SnapshotArtifact, collect_schema_payload, record_snapshot_reference,
 };
 pub use self::at_rest::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, ArchiveRecoveryKind, ArchiveRecoveryReport, LaunchRecovery,
@@ -62,14 +66,14 @@ pub use self::at_rest::{
 };
 pub(crate) use self::at_rest::{
     DiskEncryptionMode, detect_disk_encryption_mode, migrate_source_evidence_for_rekey,
-    reconcile_source_evidence_with_archive, remove_stale_sidecars,
+    remove_stale_sidecars,
 };
 // The config↔disk at-rest invariant checker is a TEST-facing post-condition (threaded into every
 // archive-mutation success/crash test), never a production hot path — so it + its re-export exist
 // only in the measured test build, mirroring `fault_inject`'s `#[cfg(test)]` arming helpers.
 #[cfg(test)]
 pub(crate) use self::at_rest::check_config_disk_consistency;
-pub use self::backup::{run_backup, run_backup_with_progress};
+pub use self::backup::{run_backup, run_backup_with_control, run_backup_with_progress};
 pub(crate) use self::history::cap_enrichment_excerpt;
 pub use self::intelligence_projection::open_intelligence_connection;
 #[cfg(test)]
@@ -79,10 +83,8 @@ pub(crate) use self::intelligence_projection::{
 };
 use self::read_models::{decode_profile_scope, directory_size, file_size};
 pub(crate) use self::run_support::{
-    ArchiveVisibleTotals, BackupManifest, archive_row_counts, backup_run_summary,
-    count_visible_archive_totals, current_timezone_name, finalize_failed_run,
-    finalize_successful_run, latest_manifest_row, persist_manifest_row,
-    persist_structured_manifest, stats_with_archive_totals, write_manifest_artifact,
+    ArchiveVisibleTotals, count_visible_archive_totals, current_timezone_name,
+    persist_structured_manifest, stats_with_archive_totals,
 };
 pub(crate) use self::schema::apply_cipher_key;
 pub(crate) use self::schema::export_archive_database;
@@ -91,19 +93,12 @@ pub use self::schema::{
     archive_key_opens, assess_archive_upgrade, create_schema, open_archive_connection,
 };
 pub use self::schema::{current_version, max_schema_version, run_migrations};
-pub(crate) use self::search_projection::{
-    attach_search_database, rebuild_search_projection, refresh_enrichment_text_for_history,
-    refresh_notes_tags_text_for_url, refresh_search_projection_for_import_batch,
-};
-pub use self::source_evidence::open_source_evidence_connection;
+pub(crate) use self::search_projection::{attach_search_database, enrichment_text_for_index};
 pub(crate) use self::source_evidence::{
-    DeferredSourceEvidencePayload, SourceBatchInput, SourceEvidencePayload,
-    defer_source_evidence_payload, record_schema_observation, upsert_source_batch,
+    SourceBatchInput, SourceEvidencePayload, record_schema_observation, upsert_source_batch,
 };
-pub(crate) use self::source_evidence_builder::{
-    DeferredSourceEvidenceBuilder, SourceEvidenceCounts, coverage_stats_json_from_counts,
-    coverage_stats_json_from_parts,
-};
+pub use self::source_evidence_open::open_source_evidence_connection;
+
 pub use self::source_stats::load_source_stats;
 pub use self::url_detail::get_url_detail;
 pub use self::wipe::{
@@ -166,7 +161,7 @@ use crate::{
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use regex::RegexBuilder;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, named_params, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, named_params, params};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -526,3 +521,6 @@ mod tests;
 
 #[cfg(test)]
 mod upgrade_v020_tests;
+
+#[cfg(any(test, feature = "test-fixtures"))]
+pub(crate) use self::search_projection::rebuild_search_projection;

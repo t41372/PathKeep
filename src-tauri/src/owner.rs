@@ -34,19 +34,22 @@ pub(crate) struct OwnerService {
 impl OwnerService {
     pub(crate) fn start(
         root: &Path,
-        lock: vault_store::OwnerLock,
+        lock: Arc<vault_store::OwnerLock>,
         session: SessionState,
         launches: LaunchState,
         background: bool,
         startup_windows: usize,
     ) -> anyhow::Result<Self> {
-        let lock = Arc::new(lock);
         let operation_lock = lock.clone();
         let server = vault_owner_ipc::Server::start(root, move |request, progress| {
             let _ownership = &operation_lock;
             let ping = request.method == "ping";
-            let mut result =
-                vault_worker::owner_requests::dispatch(request, progress, session.get_key())?;
+            let mut result = vault_worker::owner_requests::dispatch(
+                request,
+                progress,
+                session.get_key(),
+                || session.background_vault().map_err(anyhow::Error::msg),
+            )?;
             if ping {
                 result["background"] = background.into();
                 result["startupWindows"] = startup_windows.into();
@@ -57,4 +60,30 @@ impl OwnerService {
         })?;
         Ok(Self { _server: server, _lock: lock })
     }
+}
+
+/// A failed endpoint cannot serve scheduled work. Show its diagnostic before exit.
+pub(crate) fn startup_failure<R: Runtime>(
+    app: &AppHandle<R>,
+    paths: &vault_core::ProjectPaths,
+    reason: &str,
+) {
+    use std::io::Write;
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    log::error!("owner endpoint unavailable: {reason}");
+    let logged = (|| -> std::io::Result<()> {
+        let mut file =
+            std::fs::OpenOptions::new().create(true).append(true).open(&paths.rust_log_path)?;
+        writeln!(file, "owner endpoint unavailable: {reason}")?;
+        file.sync_all()
+    })();
+    if let Err(error) = logged {
+        log::error!("could not persist startup diagnostic: {error}");
+    }
+    let exit = app.clone();
+    app.dialog()
+        .message(reason)
+        .title("PathKeep")
+        .kind(MessageDialogKind::Error)
+        .show(move |_| exit.exit(1));
 }

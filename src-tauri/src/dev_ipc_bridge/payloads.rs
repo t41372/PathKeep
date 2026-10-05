@@ -302,6 +302,7 @@ pub(super) struct ExportConversationFilePayload {
 pub(super) struct AnnotationSearchPayload {
     pub(super) query: String,
     pub(super) limit: Option<usize>,
+    pub(super) cursor: Option<String>,
 }
 
 /// Bridge envelope for the annotation-list command — mirrors the desktop
@@ -310,6 +311,7 @@ pub(super) struct AnnotationSearchPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct AnnotationLimitPayload {
     pub(super) limit: Option<usize>,
+    pub(super) cursor: Option<String>,
 }
 
 /// Bridge envelope for set_url_notes / replace_url_tags — both desktop
@@ -324,7 +326,7 @@ pub(super) type SetStarPayload = WrappedRequest<SetStarRequest>;
 pub(super) type StarStatusPayload = WrappedRequest<StarStatusRequest>;
 
 /// Bridge envelope for list_stars — the desktop command takes an optional kind
-/// filter, a sort, and an optional row cap as top-level fields.
+/// filter, sort, page size and cursor as top-level fields.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ListStarsPayload {
@@ -334,6 +336,7 @@ pub(super) struct ListStarsPayload {
     pub(super) sort: StarSort,
     #[serde(default)]
     pub(super) limit: Option<usize>,
+    pub cursor: Option<String>,
 }
 
 /// Bridge envelope for get_browse_day_insights — the desktop command

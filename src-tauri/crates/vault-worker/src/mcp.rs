@@ -302,6 +302,7 @@ fn record_mcp_query_run(
 
 /// Runs one MCP search request against the normal worker search surface.
 pub(crate) fn mcp_search_result(
+    vault: &vault_core::Vault,
     database_key: Option<&str>,
     request: McpSearchRequest,
 ) -> Result<McpSearchResult> {
@@ -324,7 +325,7 @@ pub(crate) fn mcp_search_result(
         start_date: None,
         end_date: None,
     };
-    let response = search_ai_history(database_key, &search_request)?;
+    let response = search_ai_history(vault, database_key, &search_request)?;
     let connection = ai_archive_connection(&paths, &config, database_key)?;
     record_mcp_query_run(
         &connection,

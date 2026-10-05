@@ -88,3 +88,9 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) mod store;
+
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod legacy_fixtures;

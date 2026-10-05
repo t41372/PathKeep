@@ -1,4 +1,7 @@
-//! Archive read models and status helpers.
+//! Responsibilities: expose archive read models and locked/unlocked status.
+//! Not responsible for: retrieving credentials or opening the native owner.
+//! Failure modes: keychain-only unlock looks locked, a locked snapshot raises an
+//! error, or an unreadable ledger is silently ignored. Tests: worker/dispatch snapshot tests.
 //!
 //! This module serves the non-mutating archive-facing reads used by the desktop
 //! shell: initialization status, recent runs, dashboard summary, and audit
@@ -57,6 +60,31 @@ pub fn archive_status(
     config: &AppConfig,
     key: Option<&str>,
 ) -> Result<ArchiveStatus> {
+    if config.archive_mode == ArchiveMode::Encrypted && key.is_none() {
+        let native = crate::vault::live::store(&paths.app_root);
+        let last_successful_backup_at = if let Some(store) = &native {
+            store.read(vault_store::Db::Archive, |s| Ok(s.query("SELECT finished_at FROM runs WHERE run_type='backup' AND status='success' ORDER BY id DESC LIMIT 1", (), |r| Ok(r.get::<String>(0)?))?.pop()))?
+        } else {
+            None
+        };
+        return Ok(ArchiveStatus {
+            initialized: config.initialized
+                && (native.is_some()
+                    || paths.archive_database_path.exists()
+                    || paths.app_root.join("archive/history-vault.db").exists()),
+            encrypted: true,
+            unlocked: native.is_some(),
+            database_path: if native.is_some() {
+                paths.app_root.join("archive/history-vault.db")
+            } else {
+                paths.archive_database_path.clone()
+            }
+            .display()
+            .to_string(),
+            last_successful_backup_at,
+            warning: None,
+        });
+    }
     ensure_paths(paths)?;
     let opened = (config.initialized && paths.archive_database_path.exists())
         .then(|| open_archive_connection(paths, config, key));

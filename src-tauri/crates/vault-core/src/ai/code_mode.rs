@@ -639,10 +639,12 @@ impl HostState {
         request: &AiSearchRequest,
         provider: Option<&super::AiProviderRuntime>,
     ) -> Result<crate::models::AiSearchResponse> {
+        super::search::check_storage_filter(request)?;
         let context = &self.context;
         let runtime = self.runtime.clone();
         tokio::task::block_in_place(|| {
             runtime.block_on(search_history_internal(
+                &context.vault,
                 &context.paths,
                 &context.config,
                 context.database_key.as_deref(),

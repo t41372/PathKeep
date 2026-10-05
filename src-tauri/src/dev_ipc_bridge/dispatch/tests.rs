@@ -64,13 +64,13 @@ async fn dispatch_command_handles_session_round_trip_without_tauri_app() {
             .await
             .expect("set session key");
     assert_eq!(set, Value::Null);
-    assert_eq!(session_key(&state.session), Some("secret".to_string()));
+    assert_eq!(session_key(&state.session).unwrap(), Some("secret".to_string()));
 
     let clear = dispatch_command(&state, "clear_session_database_key", json!({}))
         .await
         .expect("clear session key");
     assert_eq!(clear, Value::Null);
-    assert_eq!(session_key(&state.session), None);
+    assert_eq!(session_key(&state.session).unwrap(), None);
 }
 
 #[tokio::test]
@@ -233,6 +233,7 @@ fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session
     assert_eq!(preview["scheduleItems"], json!([]));
     assert!(preview["items"][0]["path"].is_string() && preview["items"][0]["bytes"].is_u64());
 
+    let owner = state.session.vault().unwrap().store().clone();
     let refused = ready_block_on(dispatch_command(
         &state,
         "wipe_all_data",
@@ -240,7 +241,7 @@ fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session
     ))
     .expect_err("a lowercase word must be refused");
     assert!(refused.message.contains("DELETE"), "{}", refused.message);
-    assert_eq!(session_key(&state.session), Some("session-key".to_string()));
+    assert!(std::sync::Arc::ptr_eq(&owner, state.session.vault().unwrap().store()));
 
     let wiped = ready_block_on(dispatch_command(
         &state,
@@ -249,7 +250,11 @@ fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session
     ))
     .expect("wipe over the bridge");
     assert_eq!(wiped, json!({ "scheduleRemoved": false, "scheduleError": null }));
-    assert_eq!(session_key(&state.session), None, "the stale archive key must be forgotten");
+    assert_eq!(
+        session_key(&state.session).unwrap(),
+        None,
+        "the stale archive key must be forgotten"
+    );
     let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({})))
         .expect("snapshot after wipe");
     assert_eq!(snapshot["config"]["initialized"], json!(false));
@@ -285,7 +290,7 @@ async fn blocking_join_failures_report_the_command_without_a_remediation_code() 
 }
 
 #[test]
-fn dispatch_rekey_cannot_borrow_the_session_key_instead_of_the_current_password() {
+fn dispatch_rekey_refuses_the_mixed_storage_build_even_with_a_valid_password() {
     // The dev bridge is the path an automation (or anyone with the localhost port) uses.
     // Holding an unlocked session must not be enough to change or remove the encryption:
     // a wrong or missing `currentKey` is refused even though the session holds the right
@@ -309,7 +314,9 @@ fn dispatch_rekey_cannot_borrow_the_session_key_instead_of_the_current_password(
         json!({ "config": config, "databaseKey": password }),
     ))
     .expect("initialize encrypted archive");
-    assert_eq!(session_key(&state.session).as_deref(), Some(password));
+    assert_eq!(session_key(&state.session).unwrap().as_deref(), Some(password));
+    let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({}))).unwrap();
+    assert_eq!(snapshot["archiveStatus"]["unlocked"], true);
 
     let refusals = [
         ("preview_rekey_archive", json!({ "newMode": "Plaintext", "newKey": null })),
@@ -323,26 +330,55 @@ fn dispatch_rekey_cannot_borrow_the_session_key_instead_of_the_current_password(
         let error =
             ready_block_on(dispatch_command(&state, command, json!({ "request": request })))
                 .expect_err("refused without the current password");
-        let expected = if request.get("currentKey").is_some() {
-            crate::command_error::ERROR_CODE_ARCHIVE_PASSWORD_WRONG
-        } else {
-            crate::command_error::ERROR_CODE_ARCHIVE_PASSWORD_REQUIRED
-        };
+        let expected = "storage-migration-incomplete";
         assert_eq!(error.code.as_deref(), Some(expected), "{command}: {}", error.message);
         assert!(!error.message.contains("intruder password") && !error.message.contains("guess"));
     }
-    assert_eq!(session_key(&state.session).as_deref(), Some(password));
+    assert_eq!(session_key(&state.session).unwrap().as_deref(), Some(password));
 
     ready_block_on(dispatch_command(&state, "clear_session_database_key", json!({})))
         .expect("clear session key");
-    let snapshot = ready_block_on(dispatch_command(
+    let error = ready_block_on(dispatch_command(
         &state,
         "rekey_archive",
         json!({ "request": { "newMode": "Encrypted", "newKey": "next password", "currentKey": password } }),
     ))
-    .expect("the right current password works without a session key");
-    assert_eq!(snapshot["archiveStatus"]["unlocked"], json!(true));
-    assert_eq!(session_key(&state.session).as_deref(), Some("next password"));
+    .expect_err("rekey is unavailable even with a valid current password");
+    assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
+    assert!(session_key(&state.session).unwrap().is_none());
+    ready_block_on(dispatch_command(
+        &state,
+        "keyring_store_database_key",
+        json!({"value": password}),
+    ))
+    .unwrap();
+    assert_eq!(
+        ready_block_on(dispatch_command(&state, "keyring_get_database_key", json!({}))).unwrap(),
+        json!(true)
+    );
+    assert_eq!(
+        ready_block_on(dispatch_command(&state, "unlock_archive_from_keychain", json!({})))
+            .unwrap(),
+        Value::Null
+    );
+    assert!(state.session.background_vault().is_ok());
+    let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({}))).unwrap();
+    assert_eq!(snapshot["archiveStatus"]["unlocked"], true);
+    assert!(snapshot["recentRuns"].as_array().unwrap().is_empty());
+    ready_block_on(dispatch_command(&state, "security_status", json!({}))).unwrap();
+    ready_block_on(dispatch_command(&state, "preview_wipe_all_data", json!({}))).unwrap();
+    ready_block_on(dispatch_command(
+        &state,
+        "set_session_database_key",
+        json!({"databaseKey": password}),
+    ))
+    .unwrap();
+    assert_eq!(
+        ready_block_on(dispatch_command(&state, "app_snapshot", json!({}))).unwrap()["archiveStatus"]
+            ["unlocked"],
+        true
+    );
+    state.session.close_vault().unwrap();
 
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
@@ -1354,5 +1390,105 @@ fn dispatch_export_progress_and_cancel_work_while_export_is_running() {
     });
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+    }
+}
+
+#[test]
+fn ui_snapshot_waits_for_startup_open() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let old_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let old_ring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
+    }
+    vault_worker::initialize_archive_database(&test_config(), None).unwrap();
+    let session = SessionState::default();
+    session.begin_startup();
+    let opening = session.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let read = std::thread::spawn(move || {
+        let state = DevIpcBridgeState::without_app(session, DEFAULT_DEV_IPC_BRIDGE_PORT);
+        tx.send(ready_block_on(dispatch_command(&state, "app_snapshot", json!({})))).unwrap();
+    });
+    assert!(rx.recv_timeout(std::time::Duration::from_millis(50)).is_err());
+    opening.finish_startup().unwrap();
+    assert_eq!(rx.recv().unwrap().unwrap()["archiveStatus"]["unlocked"], true);
+    read.join().unwrap();
+    opening.close_vault().unwrap();
+    unsafe {
+        match old_root {
+            Some(value) => std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, value),
+            None => std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV),
+        }
+        match old_ring {
+            Some(value) => std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, value),
+            None => std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV),
+        }
+    }
+}
+
+#[test]
+fn locked_snapshots_do_not_read_keychain_and_explicit_unlock_reads_once() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let names = [
+        PROJECT_ROOT_OVERRIDE_ENV,
+        TEST_KEYRING_OVERRIDE_ENV,
+        CHROME_USER_DATA_OVERRIDE_ENV,
+        vault_platform::SANDBOX_DIR_ENV,
+    ];
+    let old = names.map(std::env::var_os);
+    let keyring = root.path().join("keyring");
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring);
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, root.path().join("chrome"));
+        std::env::set_var(vault_platform::SANDBOX_DIR_ENV, root.path().join("platform"));
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    let config = AppConfig { archive_mode: ArchiveMode::Encrypted, ..test_config() };
+    ready_block_on(dispatch_command(
+        &state,
+        "initialize_archive",
+        json!({"config":config,"databaseKey":"password"}),
+    ))
+    .unwrap();
+    state.session.close_vault().unwrap();
+    vault_platform::keyring_clear_database_key().unwrap();
+    for stored in [false, true] {
+        if stored {
+            vault_worker::write_database_key_to_keyring("password").unwrap();
+        }
+        let before = vault_platform::test_support::keyring_secret_read_count(&keyring);
+        for _ in 0..2 {
+            let snapshot =
+                ready_block_on(dispatch_command(&state, "app_snapshot", json!({}))).unwrap();
+            assert_eq!(snapshot["archiveStatus"]["encrypted"], true);
+            assert_eq!(snapshot["archiveStatus"]["unlocked"], false);
+            assert!(state.session.current_vault().is_none());
+        }
+        assert_eq!(vault_platform::test_support::keyring_secret_read_count(&keyring), before);
+    }
+    let before = vault_platform::test_support::keyring_secret_read_count(&keyring);
+    ready_block_on(dispatch_command(&state, "unlock_archive_from_keychain", json!({}))).unwrap();
+    assert_eq!(vault_platform::test_support::keyring_secret_read_count(&keyring), before + 1);
+    let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({}))).unwrap();
+    assert_eq!(snapshot["archiveStatus"]["unlocked"], true);
+    ready_block_on(dispatch_command(&state, "schedule_status", json!({}))).unwrap();
+    ready_block_on(dispatch_command(&state, "ai_chat_cancel", json!({"runId":"no-live-run"})))
+        .unwrap();
+    assert_eq!(vault_platform::test_support::keyring_secret_read_count(&keyring), before + 1);
+    ready_block_on(dispatch_command(&state, "wipe_all_data", json!({"confirmation":"DELETE"})))
+        .unwrap();
+    for (name, value) in names.into_iter().zip(old) {
+        unsafe {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
     }
 }

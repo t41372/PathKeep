@@ -1,53 +1,47 @@
-//! Takeout import execution helpers.
-//!
-//! ## Responsibilities
-//! - Run the archive import transaction for recognized Takeout payloads.
-//! - Emit honest progress updates while the import is in flight.
-//! - Persist source-evidence plans after canonical archive writes commit.
-//!
-//! ## Not responsible for
-//! - Loading persisted batch review read models.
-//! - Reverting or restoring prior import batches.
-//! - Quarantining unsupported files beyond delegating to inspection helpers.
-//!
-//! ## Dependencies
-//! - Canonical archive helpers from `crate::archive`.
-//! - Batch review helpers from `super::batches`.
-//! - Inspection/quarantine helpers from `super::inspect`.
-//!
-//! ## Performance notes
-//! - Import still walks recognized files sequentially inside one transaction.
-//! - Source-evidence writes happen after canonical commit so archive visibility
-//!   is never half-written if source-evidence persistence fails.
+//! Responsibilities: consume recognized files in bounded batches and retain import review.
+//! Not responsible for: row SQL, browser staging, indexing or visibility reversal.
+//! Failure modes: parse/cancel after committed work, lost batch progress, phantom
+//! running state, duplicate source renames or missing audit artifacts.
+//! Tests: takeout suites and turso_write_path in plaintext and encrypted stores.
 
 use super::inspect::{payload_parse_failed_note, skipped_missing_visit_time_note};
 use super::payload_import::{
     TakeoutPayloadImportContext, TakeoutPayloadProgress, import_supported_payload_with_progress,
-    persist_takeout_source_evidence_plans, upsert_takeout_profile,
+    upsert_takeout_profile,
 };
 use super::{batches, inspect, *};
+use crate::Vault;
+use vault_store::{CancelToken, Db, Priority};
 
 /// Imports a Takeout source into the canonical archive without streaming progress.
-pub fn import_takeout(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    request: &TakeoutRequest,
-) -> Result<TakeoutInspection> {
-    import_takeout_with_progress(paths, config, key, request, |_| {})
+pub fn import_takeout(vault: &Vault, request: &TakeoutRequest) -> Result<TakeoutInspection> {
+    import_takeout_with_progress(vault, request, |_| {})
 }
 
 /// Imports a Takeout source and emits progress events for the desktop shell.
 pub fn import_takeout_with_progress<F>(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &Vault,
     request: &TakeoutRequest,
+    report_progress: F,
+) -> Result<TakeoutInspection>
+where
+    F: FnMut(ImportProgressEvent),
+{
+    import_takeout_with_control(vault, request, &CancelToken::new(), report_progress)
+}
+
+/// Exposes cooperative cancellation while preserving committed batch identity.
+pub fn import_takeout_with_control<F>(
+    vault: &Vault,
+    request: &TakeoutRequest,
+    cancel: &CancelToken,
     mut report_progress: F,
 ) -> Result<TakeoutInspection>
 where
     F: FnMut(ImportProgressEvent),
 {
+    let paths = vault.paths();
+    let config = vault.config();
     ensure_paths(paths)?;
     if request.dry_run {
         return inspect::inspect_takeout(paths, request);
@@ -80,244 +74,237 @@ where
     };
     let mut found_importable_payload = false;
     let synthetic_profile = "takeout::browser-history".to_string();
-    let started_at = now_rfc3339();
+    let (profile, profile_source, request_copy) =
+        (synthetic_profile.clone(), source.to_path_buf(), request.clone());
+    let (source_profile_id, batch_id, run_id) =
+        vault.write(Db::Archive, Priority::Batch, move |s| {
+            let source = upsert_takeout_profile(s, &profile, &profile_source)?;
+            let batch = batches::create_import_batch(s, &profile, &request_copy)?;
+            let run = crate::archive::write_runs::start_in(s, "import", "manual", &[profile])?;
+            s.execute(
+                "UPDATE runs SET stats_json=?2 WHERE id=?1",
+                vault_store::params![run, json!({"importBatchId":batch}).to_string()],
+            )?;
+            Ok((source, batch, run))
+        })?;
+    let guard = super::import_run::ImportRun::new(vault, run_id, batch_id);
+    guard.run(|| {
+        let mut stats = ImportStats::default();
+        let mut progress_log_lines = vec![format!(
+            "Queued {} Takeout payload(s) from {}.",
+            planned_files.max(1),
+            request.source_path
+        )];
+        emit_import_progress(
+            &mut report_progress,
+            "prepare",
+            format!("Scanning {} payload(s) before archive write.", planned_files.max(1)),
+            0,
+            planned_files.max(1),
+            progress_percent_from_counts(0, planned_files.max(1)),
+            Some(request.source_path.clone()),
+            &progress_log_lines,
+        );
 
-    let mut archive = open_archive_connection(paths, config, key)?;
-    create_schema(&archive)?;
-    let run_id = create_import_run(&archive, &synthetic_profile, &started_at)?;
-    let transaction = archive.transaction()?;
-    let source_profile_id = upsert_takeout_profile(&transaction, &synthetic_profile, source)?;
-    let batch_id = batches::create_import_batch(&transaction, &synthetic_profile, request)?;
-    let mut stats = ImportStats::default();
-    let mut source_evidence_plans = Vec::new();
-    let mut progress_log_lines = vec![format!(
-        "Queued {} Takeout payload(s) from {}.",
-        planned_files.max(1),
-        request.source_path
-    )];
-    emit_import_progress(
-        &mut report_progress,
-        "prepare",
-        format!("Scanning {} payload(s) before archive write.", planned_files.max(1)),
-        0,
-        planned_files.max(1),
-        progress_percent_from_counts(0, planned_files.max(1)),
-        Some(request.source_path.clone()),
-        &progress_log_lines,
-    );
+        let import_result = (|| -> Result<()> {
+            let mut imported_file_count = 0usize;
+            for classified_file in classified_files {
+                let file = classified_file.file;
+                merge_detected_locale(
+                    &mut inspection.detected_locale,
+                    classified_file.path_match.locale,
+                );
 
-    let import_result = (|| -> Result<()> {
-        let mut imported_file_count = 0usize;
-        for classified_file in classified_files {
-            let file = classified_file.file;
-            merge_detected_locale(
-                &mut inspection.detected_locale,
-                classified_file.path_match.locale,
-            );
-
-            if classified_file.path_match.disposition == TakeoutPathDisposition::NeedsReview {
-                inspect::quarantine_takeout_file(paths, source, file)?;
-                inspection.quarantined_files.push(file_report_from_match(
-                    classified_file,
-                    "needs-review",
-                    0,
-                    None,
-                ));
-                progress_log_lines.push(format!("Queued review-needed payload {}.", file.path));
-                continue;
-            }
-
-            let Some(kind) = classified_file.path_match.recognized_kind else {
-                inspection.recognized_files.push(file_report_from_match(
-                    classified_file,
-                    "ignored",
-                    0,
-                    None,
-                ));
-                continue;
-            };
-            if kind == KIND_INDEX {
-                inspection.recognized_files.push(file_report_from_match(
-                    classified_file,
-                    "ignored",
-                    0,
-                    None,
-                ));
-                continue;
-            }
-            if classified_file.path_match.disposition == TakeoutPathDisposition::WillImport {
-                found_importable_payload = true;
-            }
-            imported_file_count += 1;
-            progress_log_lines.push(format!("Importing {kind} from {}.", file.path));
-            emit_import_progress(
-                &mut report_progress,
-                "import-file",
-                format!(
-                    "Processing {} ({imported_file_count}/{})",
-                    file.path,
-                    planned_files.max(1)
-                ),
-                imported_file_count,
-                planned_files.max(1),
-                None,
-                Some(file.path.clone()),
-                &progress_log_lines,
-            );
-
-            let bytes = if file.from_zip {
-                inspect::read_zip_entry(source, &file.path)?
-            } else {
-                fs::read(&file.path)?
-            };
-            let mut last_processed_records = 0usize;
-            let source_label = file.path.clone();
-            let file_stats = match import_supported_payload_with_progress(
-                TakeoutPayloadImportContext {
-                    paths,
-                    archive: &transaction,
-                    run_id,
-                    batch_id,
-                    source_profile_id,
-                },
-                classified_file,
-                kind,
-                &bytes,
-                Some(Box::new(|progress: TakeoutPayloadProgress| {
-                    emit_import_record_progress_if_changed(
-                        &mut report_progress,
-                        &mut last_processed_records,
-                        imported_file_count,
-                        planned_files,
-                        &source_label,
-                        &progress_log_lines,
-                        progress,
-                    );
-                })),
-            ) {
-                Ok(file_stats) => file_stats,
-                Err(error) => {
-                    let mut report = file_report_from_match(
+                if classified_file.path_match.disposition == TakeoutPathDisposition::NeedsReview {
+                    inspect::quarantine_takeout_file(paths, source, file)?;
+                    inspection.quarantined_files.push(file_report_from_match(
                         classified_file,
-                        "parse-error",
+                        "needs-review",
                         0,
-                        Some(error.to_string()),
-                    );
-                    report.classification = "parse-error".to_string();
-                    report.reason_code = Some("parse-error".to_string());
-                    inspection.recognized_files.push(report);
-                    inspection.push_note(payload_parse_failed_note(&file.path, &error));
-                    return Err(error);
+                        None,
+                    ));
+                    progress_log_lines.push(format!("Queued review-needed payload {}.", file.path));
+                    continue;
                 }
-            };
-            inspection.candidate_items += file_stats.record_count;
-            inspection.recognized_files.push(file_stats.recognized_file);
-            let mut preview_range = PreviewRangeSummary {
-                start: inspection.preview_range_start.take(),
-                end: inspection.preview_range_end.take(),
-            };
-            merge_preview_range(
-                &mut preview_range,
-                file_stats.earliest_visit_iso.as_deref(),
-                file_stats.latest_visit_iso.as_deref(),
-            );
-            inspection.preview_range_start = preview_range.start;
-            inspection.preview_range_end = preview_range.end;
-            stats.imported_items += file_stats.stats.imported_items;
-            stats.duplicate_items += file_stats.stats.duplicate_items;
-            source_evidence_plans.push(file_stats.source_evidence_plan);
-            if file_stats.stats.skipped_items > 0 {
-                inspection.push_note(skipped_missing_visit_time_note(
-                    file_stats.stats.skipped_items,
-                    &file.path,
-                ));
-                progress_log_lines.push(format!(
-                    "Skipped {} record(s) without visit timestamps in {}.",
-                    file_stats.stats.skipped_items, file.path
-                ));
+
+                let Some(kind) = classified_file.path_match.recognized_kind else {
+                    inspection.recognized_files.push(file_report_from_match(
+                        classified_file,
+                        "ignored",
+                        0,
+                        None,
+                    ));
+                    continue;
+                };
+                if kind == KIND_INDEX {
+                    inspection.recognized_files.push(file_report_from_match(
+                        classified_file,
+                        "ignored",
+                        0,
+                        None,
+                    ));
+                    continue;
+                }
+                if classified_file.path_match.disposition == TakeoutPathDisposition::WillImport {
+                    found_importable_payload = true;
+                }
+                imported_file_count += 1;
+                progress_log_lines.push(format!("Importing {kind} from {}.", file.path));
+                emit_import_progress(
+                    &mut report_progress,
+                    "import-file",
+                    format!(
+                        "Processing {} ({imported_file_count}/{})",
+                        file.path,
+                        planned_files.max(1)
+                    ),
+                    imported_file_count,
+                    planned_files.max(1),
+                    None,
+                    Some(file.path.clone()),
+                    &progress_log_lines,
+                );
+
+                let mut last_processed_records = 0usize;
+                let source_label = file.path.clone();
+                let file_stats =
+                    match super::source_reader::with_reader(source, file, cancel, |reader| {
+                        import_supported_payload_with_progress(
+                            TakeoutPayloadImportContext {
+                                vault,
+                                cancel,
+                                run_id,
+                                batch_id,
+                                source_profile_id,
+                            },
+                            classified_file,
+                            kind,
+                            reader,
+                            Some(Box::new(|progress: TakeoutPayloadProgress| {
+                                emit_import_record_progress_if_changed(
+                                    &mut report_progress,
+                                    &mut last_processed_records,
+                                    imported_file_count,
+                                    planned_files,
+                                    &source_label,
+                                    &progress_log_lines,
+                                    progress,
+                                );
+                            })),
+                        )
+                    }) {
+                        Ok(file_stats) => file_stats,
+                        Err(error) => {
+                            let mut report = file_report_from_match(
+                                classified_file,
+                                "parse-error",
+                                0,
+                                Some(error.to_string()),
+                            );
+                            report.classification = "parse-error".to_string();
+                            report.reason_code = Some("parse-error".to_string());
+                            inspection.recognized_files.push(report);
+                            inspection.push_note(payload_parse_failed_note(&file.path, &error));
+                            return Err(error);
+                        }
+                    };
+                inspection.candidate_items += file_stats.record_count;
+                inspection.recognized_files.push(file_stats.recognized_file);
+                let mut preview_range = PreviewRangeSummary {
+                    start: inspection.preview_range_start.take(),
+                    end: inspection.preview_range_end.take(),
+                };
+                merge_preview_range(
+                    &mut preview_range,
+                    file_stats.earliest_visit_iso.as_deref(),
+                    file_stats.latest_visit_iso.as_deref(),
+                );
+                inspection.preview_range_start = preview_range.start;
+                inspection.preview_range_end = preview_range.end;
+                stats.imported_items += file_stats.stats.imported_items;
+                stats.duplicate_items += file_stats.stats.duplicate_items;
+                if file_stats.stats.skipped_items > 0 {
+                    inspection.push_note(skipped_missing_visit_time_note(
+                        file_stats.stats.skipped_items,
+                        &file.path,
+                    ));
+                    progress_log_lines.push(format!(
+                        "Skipped {} record(s) without visit timestamps in {}.",
+                        file_stats.stats.skipped_items, file.path
+                    ));
+                }
+                emit_import_progress(
+                    &mut report_progress,
+                    "import-file",
+                    format!(
+                        "Imported {} ({imported_file_count}/{})",
+                        file.path,
+                        planned_files.max(1)
+                    ),
+                    imported_file_count,
+                    planned_files.max(1),
+                    progress_percent_from_counts(imported_file_count, planned_files.max(1)),
+                    Some(file.path.clone()),
+                    &progress_log_lines,
+                );
             }
-            emit_import_progress(
-                &mut report_progress,
-                "import-file",
-                format!("Imported {} ({imported_file_count}/{})", file.path, planned_files.max(1)),
-                imported_file_count,
-                planned_files.max(1),
-                progress_percent_from_counts(imported_file_count, planned_files.max(1)),
-                Some(file.path.clone()),
-                &progress_log_lines,
-            );
+
+            debug_assert!(found_importable_payload);
+
+            cancel.check()?;
+            Ok(())
+        })();
+
+        if let Err(error) = import_result {
+            let inspection = inspection.clone();
+            let review = vault.write(Db::Archive, Priority::Batch, move |s| {
+                batches::save_partial_review(s, batch_id, &inspection)
+            });
+            return Err(super::import_run::with_review_context(error, review));
         }
 
-        debug_assert!(found_importable_payload);
+        inspection.imported_items = stats.imported_items;
+        inspection.duplicate_items = stats.duplicate_items;
+        progress_log_lines.push("Refreshing derived import review surfaces.".to_string());
+        emit_import_progress(
+            &mut report_progress,
+            "finalize",
+            "Refreshing keyword recall and batch review metadata.".to_string(),
+            planned_files.max(1),
+            planned_files.max(1),
+            progress_percent_from_counts(planned_files.max(1), planned_files.max(1)),
+            Some(request.source_path.clone()),
+            &progress_log_lines,
+        );
+        finalize_successful_import_run(vault, run_id, batch_id, &inspection, &stats)?;
+        batches::ensure_import_batch_audit_artifact(vault, batch_id, Some("imported"))?;
 
-        transaction.commit()?;
-        Ok(())
-    })();
-
-    if let Err(error) = import_result {
-        finalize_failed_import_run(&archive, run_id, &inspection.notes, &stats, &error)?;
-        return Err(error);
-    }
-
-    inspection.imported_items = stats.imported_items;
-    inspection.duplicate_items = stats.duplicate_items;
-    progress_log_lines.push("Refreshing derived import review surfaces.".to_string());
-    emit_import_progress(
-        &mut report_progress,
-        "finalize",
-        "Refreshing keyword recall and batch review metadata.".to_string(),
-        planned_files.max(1),
-        planned_files.max(1),
-        progress_percent_from_counts(planned_files.max(1), planned_files.max(1)),
-        Some(request.source_path.clone()),
-        &progress_log_lines,
-    );
-    inspection.extend_notes(
-        persist_takeout_source_evidence_plans(
-            paths,
-            config,
-            key,
-            &synthetic_profile,
-            &source_evidence_plans,
-        )
-        .err()
-        .map(takeout_source_evidence_rebuild_note),
-    );
-    batches::finalize_import_batch(&archive, batch_id, &inspection)?;
-    finalize_successful_import_run(&archive, run_id, batch_id, &inspection, &stats)?;
-    inspection.extend_notes(
-        refresh_search_projection_for_import_batch(paths, config, key, batch_id)
-            .err()
-            .map(takeout_keyword_recall_rebuild_note),
-    );
-
-    batches::ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("imported"))?;
-
-    let detail = preview_import_batch(paths, config, key, batch_id)?;
-    inspection.import_batch = Some(detail.batch);
-    inspection.preview_entries = detail.preview_entries;
-    inspection.recognized_files = detail.recognized_files;
-    inspection.quarantined_files = detail.quarantined_files;
-    inspection.replace_notes(detail.notes, detail.note_details);
-    inspection.detected_locale = detail.detected_locale;
-    inspection.preview_range_start = detail.preview_range_start;
-    inspection.preview_range_end = detail.preview_range_end;
-    progress_log_lines.push(format!(
-        "Imported {} new record(s); {} duplicate(s) skipped.",
-        inspection.imported_items, inspection.duplicate_items
-    ));
-    emit_import_progress(
-        &mut report_progress,
-        "complete",
-        "Takeout review is ready and follow-up rebuild work can continue in the background."
-            .to_string(),
-        planned_files.max(1),
-        planned_files.max(1),
-        progress_percent_from_counts(planned_files.max(1), planned_files.max(1)),
-        Some(request.source_path.clone()),
-        &progress_log_lines,
-    );
-    Ok(inspection)
+        let detail = preview_import_batch(vault, batch_id)?;
+        inspection.import_batch = Some(detail.batch);
+        inspection.preview_entries = detail.preview_entries;
+        inspection.recognized_files = detail.recognized_files;
+        inspection.quarantined_files = detail.quarantined_files;
+        inspection.replace_notes(detail.notes, detail.note_details);
+        inspection.detected_locale = detail.detected_locale;
+        inspection.preview_range_start = detail.preview_range_start;
+        inspection.preview_range_end = detail.preview_range_end;
+        progress_log_lines.push(format!(
+            "Imported {} new record(s); {} duplicate(s) skipped.",
+            inspection.imported_items, inspection.duplicate_items
+        ));
+        emit_import_progress(
+            &mut report_progress,
+            "complete",
+            "Takeout review is ready and follow-up rebuild work can continue in the background."
+                .to_string(),
+            planned_files.max(1),
+            planned_files.max(1),
+            progress_percent_from_counts(planned_files.max(1), planned_files.max(1)),
+            Some(request.source_path.clone()),
+            &progress_log_lines,
+        );
+        Ok(inspection)
+    })
 }
 
 #[derive(Default)]
@@ -471,126 +458,23 @@ fn progress_log_level_for_phase(phase: &str) -> &'static str {
     }
 }
 
-pub(super) fn takeout_source_evidence_rebuild_note(error: anyhow::Error) -> TakeoutNote {
-    TakeoutNote::new(
-        "takeout-source-evidence-rebuild-needed",
-        format!(
-            "Canonical Takeout import completed, but the source-evidence archive needs a rebuild: {error}"
-        ),
-    )
-    .with_diagnostic(format!("{error}"))
-}
-
-pub(super) fn takeout_keyword_recall_rebuild_note(error: anyhow::Error) -> TakeoutNote {
-    TakeoutNote::new(
-        "search-projection-rebuild-needed",
-        format!("Import completed, but the keyword-recall projection needs a rebuild: {error}"),
-    )
-    .with_diagnostic(format!("{error}"))
-}
-
-/// Creates the running import ledger row before archive writes begin.
-pub(super) fn create_import_run(
-    archive: &Connection,
-    profile_id: &str,
-    started_at: &str,
-) -> Result<i64> {
-    archive.execute(
-        "INSERT INTO runs (
-           run_type,
-           trigger,
-           started_at,
-           timezone,
-           status,
-           profile_scope_json,
-           warnings_json,
-           stats_json,
-           due_only
-         )
-         VALUES (
-           'import',
-           'manual',
-           ?1,
-           'UTC',
-           'running',
-           ?2,
-           '[]',
-           '{}',
-           0
-         )",
-        params![started_at, serde_json::to_string(&vec![profile_id.to_string()])?],
-    )?;
-    Ok(archive.last_insert_rowid())
-}
-
-/// Marks the import run successful and folds import counters into archive totals.
 pub(super) fn finalize_successful_import_run(
-    archive: &Connection,
+    vault: &Vault,
     run_id: i64,
     batch_id: i64,
     inspection: &TakeoutInspection,
     stats: &ImportStats,
 ) -> Result<()> {
-    let stats_json = stats_with_archive_totals(
-        archive,
-        json!({
-            "profilesProcessed": 1,
-            "newVisits": stats.imported_items,
-            "newUrls": 0,
-            "newDownloads": 0,
-            "candidateItems": inspection.candidate_items,
-            "importedItems": stats.imported_items,
-            "duplicateItems": stats.duplicate_items,
-            "importBatchId": batch_id,
-        }),
-    )?;
-    archive.execute(
-        "UPDATE runs
-         SET finished_at = ?1,
-             status = 'success',
-             stats_json = ?2,
-             warnings_json = ?3,
-             error_message = NULL
-         WHERE id = ?4",
-        params![
-            now_rfc3339(),
-            serde_json::to_string(&stats_json)?,
-            serde_json::to_string(&inspection.notes)?,
+    let inspection = inspection.clone();
+    let extra = json!({"profilesProcessed":1,"candidateItems":inspection.candidate_items,"importBatchId":batch_id,
+        "importedItems":stats.imported_items,"duplicateItems":stats.duplicate_items,"skippedItems":stats.skipped_items});
+    vault.write(Db::Archive, Priority::Batch, move |s| {
+        batches::finalize_import_batch(s, batch_id, &inspection)?;
+        crate::archive::write_runs::complete_in(
+            s,
             run_id,
-        ],
-    )?;
-    Ok(())
-}
-
-/// Marks the import run failed while keeping the partial counters visible for audit/debug.
-pub(super) fn finalize_failed_import_run(
-    archive: &Connection,
-    run_id: i64,
-    notes: &[String],
-    stats: &ImportStats,
-    error: &anyhow::Error,
-) -> Result<()> {
-    archive.execute(
-        "UPDATE runs
-         SET finished_at = ?1,
-             status = 'failed',
-             stats_json = ?2,
-             warnings_json = ?3,
-             error_message = ?4
-         WHERE id = ?5",
-        params![
-            now_rfc3339(),
-            serde_json::to_string(&json!({
-                "profilesProcessed": 1,
-                "newVisits": stats.imported_items,
-                "newUrls": 0,
-                "newDownloads": 0,
-                "duplicateItems": stats.duplicate_items,
-            }))?,
-            serde_json::to_string(notes)?,
-            format!("{error:#}"),
-            run_id,
-        ],
-    )?;
-    Ok(())
+            extra,
+            serde_json::to_value(&inspection.note_details)?,
+        )
+    })
 }

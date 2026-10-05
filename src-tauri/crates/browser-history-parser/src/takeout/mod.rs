@@ -470,3 +470,21 @@ fn merge_stream_reports(
         crate::types::CapabilitySnapshot { items: capabilities.into_values().collect() };
     TakeoutStreamReport { history, counts, record_count, skipped_missing_visit_time }
 }
+
+/// Accepts a bounded file/ZIP reader so imports never retain the complete payload.
+pub fn stream_payload_reader_with_sink<C>(
+    source_path: &str,
+    kind: &str,
+    reader: impl std::io::Read,
+    chunk_size: usize,
+    options: TakeoutStreamOptions,
+    consumer: &mut C,
+) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer + TakeoutSourceEvidenceConsumer<C::Error>,
+    C::Error: std::fmt::Display,
+{
+    payloads::stream_payload(source_path, kind, reader, chunk_size, options, consumer)
+}
+#[cfg(test)]
+mod reader_tests;

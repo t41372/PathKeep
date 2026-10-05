@@ -29,41 +29,6 @@ const INSPECT_TABLES_SQL: &str = "SELECT name FROM sqlite_master WHERE type = 't
 ///   cursor, even when Firefox didn't bump `moz_places.last_visit_date`.
 ///   Without this OR, long-tail revisited pages lose their new visits to
 ///   `skipped_visits++` because the URL is absent from `url_id_map` (B2).
-const URLS_SQL: &str = r#"
-SELECT
-  moz_places.id,
-  moz_places.url,
-  moz_places.title,
-  moz_places.visit_count,
-  COALESCE(moz_places.hidden, 0),
-  COALESCE(moz_places.last_visit_date, 0)
-FROM moz_places
-WHERE COALESCE(moz_places.last_visit_date, 0) >= ?1
-   OR moz_places.id IN (SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > ?2)
-ORDER BY COALESCE(moz_places.last_visit_date, 0) ASC
-"#;
-
-/// First-import URL ingest query. When both watermarks are at zero, the
-/// `last_visit_date >= 0` predicate already matches every moz_places row,
-/// so the OR's `SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > 0`
-/// subquery is pure waste — it forces SQLite to scan the entire
-/// `moz_historyvisits` table and materialize an ephemeral B-tree of every
-/// distinct place_id before the outer filter runs. On a 14.4M-visit Firefox
-/// profile that's a multi-GB transient plus multi-minute stall added to
-/// the very first import. Mirrors the Chromium `INGEST_URLS_FULL_SQL`
-/// optimization — stripping the OR removes the hazard without losing any
-/// rows.
-const URLS_FULL_SQL: &str = r#"
-SELECT
-  moz_places.id,
-  moz_places.url,
-  moz_places.title,
-  moz_places.visit_count,
-  COALESCE(moz_places.hidden, 0),
-  COALESCE(moz_places.last_visit_date, 0)
-FROM moz_places
-ORDER BY COALESCE(moz_places.last_visit_date, 0) ASC
-"#;
 const VISITS_SQL: &str = r#"
 SELECT
   moz_historyvisits.id,
@@ -165,7 +130,7 @@ pub fn parse_history(
 ) -> Result<ParsedHistory, ParseError> {
     let mut collector = FirefoxHistoryCollector::default();
     let streamed =
-        stream_history(path, after_visit_id, after_url_last_visit_ms, 10_000, &mut collector)
+        stream_history(path, after_visit_id, after_url_last_visit_ms, None, 10_000, &mut collector)
             .map_err(|error| match error {
                 StreamHistoryError::Parse(error) => error,
                 StreamHistoryError::Consumer(never) => match never {},
@@ -190,6 +155,7 @@ pub fn stream_history<C>(
     path: &Path,
     after_visit_id: i64,
     after_url_last_visit_ms: i64,
+    url_scan: Option<crate::UrlScan>,
     chunk_size: usize,
     consumer: &mut C,
 ) -> Result<StreamedHistory, StreamHistoryError<C::Error>>
@@ -212,58 +178,17 @@ where
     let mut native_entities = Vec::new();
     let mut source_evidence_chunk = SourceEvidenceChunk::default();
 
-    {
-        // First-import branch: when both watermarks are zero, the OR
-        // subquery in URLS_SQL is wasted work over potentially millions
-        // of moz_historyvisits rows. Use URLS_FULL_SQL (no OR clause,
-        // no bound params) to skip the materialization. Matches the
-        // Chromium pattern at `chromium/mod.rs:383-384`.
-        let first_import = after_visit_id == 0 && after_url_last_visit_ms == 0;
-        let sql = if first_import { URLS_FULL_SQL } else { URLS_SQL };
-        let mut statement = stream_sql(connection.prepare(sql))?;
-        let column_names =
-            statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-        let mut rows =
-            if first_import {
-                stream_sql(statement.query([]))?
-            } else {
-                stream_sql(statement.query(params![
-                    unix_ms_to_firefox_time(after_url_last_visit_ms),
-                    after_visit_id
-                ]))?
-            };
-        let mut batch = Vec::with_capacity(chunk_size);
-        while let Some(row) = stream_sql(rows.next())? {
-            batch.push(stream_sql(parsed_url_from_row(row))?);
-            source_evidence_chunk.native_entities.push(stream_sql(capture_native_row(
-                row,
-                &column_names,
-                "firefox-place-row",
-                "id",
-                None,
-            ))?);
-            if batch.len() >= chunk_size {
-                consumer.urls(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
-                flush_source_evidence(
-                    consumer,
-                    retain_source_evidence,
-                    &mut typed_evidence,
-                    &mut native_entities,
-                    &mut source_evidence_chunk,
-                )?;
-            }
-        }
-        if !batch.is_empty() {
-            consumer.urls(batch).map_err(StreamHistoryError::Consumer)?;
-        }
-        flush_source_evidence(
-            consumer,
-            retain_source_evidence,
-            &mut typed_evidence,
-            &mut native_entities,
-            &mut source_evidence_chunk,
-        )?;
-    }
+    crate::url_pages::stream(
+        &connection,
+        crate::url_pages::Family::Firefox,
+        url_scan,
+        after_url_last_visit_ms,
+        after_visit_id,
+        chunk_size,
+        consumer,
+        &mut native_entities,
+        parsed_url_from_row,
+    )?;
 
     {
         let mut statement = stream_sql(connection.prepare(VISITS_SQL))?;
@@ -613,7 +538,7 @@ mod tests {
 
         let mut consumer = RecordingConsumer::default();
         let streamed =
-            stream_history(&history_path, 0, 0, 1, &mut consumer).expect("stream firefox");
+            stream_history(&history_path, 0, 0, None, 1, &mut consumer).expect("stream firefox");
 
         assert_eq!(consumer.url_batches, vec![1, 1]);
         assert_eq!(consumer.visit_batches, vec![1, 1]);
@@ -741,7 +666,7 @@ mod tests {
 
         let mut consumer = RecordingConsumer::default();
         let streamed =
-            stream_history(&history_path, 0, 0, 2, &mut consumer).expect("stream firefox");
+            stream_history(&history_path, 0, 0, None, 2, &mut consumer).expect("stream firefox");
 
         assert_eq!(consumer.url_batches, vec![2, 1]);
         assert_eq!(consumer.visit_batches, vec![2, 1]);
@@ -773,7 +698,7 @@ mod tests {
         let mut consumer =
             RecordingConsumer { spool_source_evidence: true, ..RecordingConsumer::default() };
         let streamed =
-            stream_history(&history_path, 0, 0, 10, &mut consumer).expect("stream firefox");
+            stream_history(&history_path, 0, 0, None, 10, &mut consumer).expect("stream firefox");
 
         assert!(streamed.native_entities.is_empty());
         assert!(consumer.source_evidence_chunks.iter().any(|chunk| {

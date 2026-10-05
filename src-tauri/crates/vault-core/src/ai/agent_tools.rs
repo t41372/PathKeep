@@ -96,6 +96,7 @@ pub struct ToolOutcome {
 /// (honest degradation), while the semantic planes degrade to lexical-only with a note.
 #[derive(Clone)]
 pub struct AgentToolContext {
+    pub vault: crate::Vault,
     pub paths: ProjectPaths,
     pub config: AppConfig,
     pub database_key: Option<String>,
@@ -270,8 +271,10 @@ impl AgentTool for HistorySearchTool {
             start_date: parsed.start_date,
             end_date: parsed.end_date,
         };
+        super::search::check_storage_filter(&request)?;
         let provider = self.plane.provider_for(context);
         let response = search_history_internal(
+            &context.vault,
             &context.paths,
             &context.config,
             context.database_key.as_deref(),
@@ -941,6 +944,8 @@ fn intelligence_not_ready_outcome(report: &str) -> ToolOutcome {
 struct ListStarsArgs {
     sort: Option<String>,
     limit: Option<usize>,
+    cursor: Option<String>,
+    kind: Option<crate::StarEntityKind>,
 }
 
 /// Lists the user's starred (favorited) pages (W-AI-9 WPB-2).
@@ -960,6 +965,8 @@ impl AgentTool for ListStarsTool {
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "cursor": {"type":["string","null"],"description":"nextCursor from the previous page"},
+                    "kind": {"type":["string","null"],"enum":["url","domain",null]},
                     "sort": {
                         "type": "string",
                         "enum": ["recent", "most_revisited"],
@@ -967,7 +974,7 @@ impl AgentTool for ListStarsTool {
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum items to return (default 50, max 500)."
+                        "description": "Page size (default 50, max 500)."
                     }
                 }
             }),
@@ -982,22 +989,34 @@ impl AgentTool for ListStarsTool {
             _ => StarSort::RecentlyStarred,
         };
         let limit = parsed.limit.unwrap_or(50).clamp(1, 500);
-        let items = crate::stars::list_stars(
-            &context.paths,
-            &context.config,
-            context.database_key.as_deref(),
-            None,
+        let page = crate::stars::list_stars(
+            &context.vault,
+            parsed.kind,
             sort,
             Some(limit),
+            parsed.cursor,
         )?;
+        let items = &page.items;
         if items.is_empty() {
             return Ok(ToolOutcome {
-                model_text: "list_stars: no starred pages found.".to_string(),
+                model_text: format!(
+                    "list_stars: no starred pages found.\n{}",
+                    serde_json::to_string(&page)?
+                ),
                 ..ToolOutcome::default()
             });
         }
-        let mut text = format!("list_stars: {} starred item(s).", items.len());
-        for item in &items {
+        let mut text = format!(
+            "list_stars: {} starred item(s). {} nextCursor: {}",
+            items.len(),
+            if page.next_cursor.is_some() {
+                "More stars exist; continue with this cursor."
+            } else {
+                "End of list."
+            },
+            serde_json::to_string(&page.next_cursor)?
+        );
+        for item in items {
             text.push_str(&format!(
                 "\n- {key} | {domain} — {title} ({visits}x, starred {at})",
                 key = item.entity_key,
@@ -1007,6 +1026,10 @@ impl AgentTool for ListStarsTool {
                 at = item.starred_at,
             ));
         }
+        if page.next_cursor.is_some() {
+            text.push_str("\nMore stars exist; pass nextCursor to continue.");
+        }
+        text.push_str(&format!("\n{}", serde_json::to_string(&page)?));
         Ok(ToolOutcome { model_text: text, ..ToolOutcome::default() })
     }
 }
@@ -1020,6 +1043,7 @@ impl AgentTool for ListStarsTool {
 struct ListAnnotationsArgs {
     query: Option<String>,
     limit: Option<usize>,
+    cursor: Option<String>,
 }
 
 /// Byte budget for one annotation's note preview in the model-facing list before truncation.
@@ -1048,8 +1072,9 @@ impl AgentTool for ListAnnotationsTool {
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum items to return (default 50, max 500)."
-                    }
+                        "description": "Page size (default 50, max 500)."
+                    },
+                    "cursor": {"type":"string","description":"The next cursor returned by the previous page."}
                 }
             }),
         }
@@ -1059,15 +1084,14 @@ impl AgentTool for ListAnnotationsTool {
         let parsed: ListAnnotationsArgs = serde_json::from_value(args)
             .map_err(|error| anyhow::anyhow!("invalid list_annotations arguments: {error}"))?;
         let limit = Some(parsed.limit.unwrap_or(50).clamp(1, 500));
-        let paths = &context.paths;
-        let config = &context.config;
-        let key = context.database_key.as_deref();
         let query_str = parsed.query.as_deref().unwrap_or("").trim();
         let items = if query_str.is_empty() {
-            crate::annotations::list_annotations(paths, config, key, limit)?
+            crate::annotations::list_annotations(&context.vault, limit, parsed.cursor)?
         } else {
-            crate::annotations::search_annotations(paths, config, key, query_str, limit)?
+            crate::annotations::search_annotations(&context.vault, query_str, limit, parsed.cursor)?
         };
+        let next_cursor = items.next_cursor;
+        let items = items.items;
         if items.is_empty() {
             let qualifier = if query_str.is_empty() {
                 String::new()
@@ -1080,6 +1104,9 @@ impl AgentTool for ListAnnotationsTool {
             });
         }
         let mut text = format!("list_annotations: {} annotation(s).", items.len());
+        if let Some(cursor) = next_cursor {
+            text.push_str(&format!("\nNext cursor: {cursor}"));
+        }
         for item in &items {
             let tags_str = if item.tags.is_empty() {
                 String::new()
@@ -1240,12 +1267,14 @@ mod tests {
     }
 
     fn context_with(embedding: Option<AiProviderRuntime>) -> (tempfile::TempDir, AgentToolContext) {
+        let vault = crate::Vault::open_temp().unwrap();
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
         let mut config = AppConfig::default();
         config.ai.enabled = true;
         config.ai.assistant_enabled = true;
         let context = AgentToolContext {
+            vault: vault.clone(),
             paths,
             config,
             database_key: None,
@@ -2560,9 +2589,7 @@ mod tests {
             .expect("init archive");
         // Star a URL through the public API (the same canonicalization the tool resolves).
         crate::stars::set_star(
-            &context.paths,
-            &context.config,
-            None,
+            &context.vault,
             crate::models::SetStarRequest {
                 entity_kind: crate::models::StarEntityKind::Url,
                 entity_key: "https://example.com/page".to_string(),
@@ -2582,6 +2609,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_stars_tool_exposes_a_reusable_cursor_and_canonical_annotations() {
+        let (_dir, context) = context_with(None);
+        for id in 0..2 {
+            crate::set_star(
+                &context.vault,
+                crate::SetStarRequest {
+                    entity_kind: crate::StarEntityKind::Url,
+                    entity_key: format!("https://star.test/{id}"),
+                    source_profile: None,
+                },
+            )
+            .unwrap();
+        }
+        crate::set_notes(
+            &context.vault,
+            crate::SetNotesRequest {
+                url: "https://star.test/1?utm_source=notes".into(),
+                notes: "Favorite".into(),
+                source_profile: None,
+            },
+        )
+        .unwrap();
+        let first = ListStarsTool.call(json!({"limit":1}), &context).await.unwrap();
+        assert!(first.model_text.contains("More stars exist"));
+        let page: crate::StarPage =
+            serde_json::from_str(first.model_text.lines().last().unwrap()).unwrap();
+        assert_eq!(page.items[0].notes, "Favorite");
+        let second = ListStarsTool
+            .call(json!({"limit":1,"cursor":page.next_cursor}), &context)
+            .await
+            .unwrap();
+        let last: crate::StarPage =
+            serde_json::from_str(second.model_text.lines().last().unwrap()).unwrap();
+        assert_ne!(page.items[0].entity_key, last.items[0].entity_key);
+        assert!(last.next_cursor.is_none());
+    }
+
+    #[tokio::test]
     async fn list_stars_renders_untitled_branch() {
         // Test 4 — the "(untitled)" formatting branch: a starred URL with no title row renders the
         // sentinel rather than an empty title. A regression dropping the branch fails this.
@@ -2589,9 +2654,7 @@ mod tests {
         crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
             .expect("init archive");
         crate::stars::set_star(
-            &context.paths,
-            &context.config,
-            None,
+            &context.vault,
             crate::models::SetStarRequest {
                 entity_kind: crate::models::StarEntityKind::Url,
                 entity_key: "https://untitled.example/x".to_string(),
@@ -2616,9 +2679,7 @@ mod tests {
             .expect("init archive");
         let url = "https://example.com/tagged";
         crate::annotations::set_notes(
-            &context.paths,
-            &context.config,
-            None,
+            &context.vault,
             crate::models::SetNotesRequest {
                 url: url.to_string(),
                 notes: "Short note about Rust".to_string(),
@@ -2627,9 +2688,7 @@ mod tests {
         )
         .expect("set notes");
         crate::annotations::replace_tags(
-            &context.paths,
-            &context.config,
-            None,
+            &context.vault,
             crate::models::ReplaceTagsRequest {
                 url: url.to_string(),
                 tags: vec!["rust".to_string(), "reference".to_string()],
@@ -2657,9 +2716,7 @@ mod tests {
         crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
             .expect("init archive");
         crate::annotations::set_notes(
-            &context.paths,
-            &context.config,
-            None,
+            &context.vault,
             crate::models::SetNotesRequest {
                 url: "https://example.com/plain".to_string(),
                 notes: "A note with no tags".to_string(),
@@ -2696,9 +2753,7 @@ mod tests {
             "byte 120 must be mid-codepoint so a raw slice would panic"
         );
         crate::annotations::set_notes(
-            &context.paths,
-            &context.config,
-            None,
+            &context.vault,
             crate::models::SetNotesRequest {
                 url: "https://example.com/cjk".to_string(),
                 notes: long_cjk_note.clone(),

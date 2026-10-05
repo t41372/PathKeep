@@ -1533,12 +1533,14 @@ mod tests {
     }
 
     fn tool_context() -> (tempfile::TempDir, AgentToolContext) {
+        let vault = crate::Vault::open_temp().unwrap();
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
         let mut config = AppConfig::default();
         config.ai.enabled = true;
         config.ai.assistant_enabled = true;
         let context = AgentToolContext {
+            vault: vault.clone(),
             paths,
             config,
             database_key: None,
@@ -2790,6 +2792,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_host_call_budget_run_code_is_bounded_with_the_host_calls_limit() {
+        let vault = crate::Vault::open_temp().unwrap();
         // A script that loops issuing query_history past the host-call budget trips HostCalls (the
         // host refuses overflow calls), and the run completes bounded — driven through the tool path
         // over an initialized-but-empty archive (each call is fast + deterministic).
@@ -2804,6 +2807,7 @@ mod tests {
             crate::archive::open_archive_connection(&paths, &config, None).expect("open archive");
         crate::archive::create_schema(&archive).expect("schema");
         let context = AgentToolContext {
+            vault: vault.clone(),
             paths,
             config,
             database_key: None,

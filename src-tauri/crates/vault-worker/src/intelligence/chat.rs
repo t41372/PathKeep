@@ -83,6 +83,7 @@ fn to_llm_request(request: &AiChatSendRequest) -> LlmChatRequest {
 /// Bundled so the (blocking) provider/config/registry resolution happens on the calling thread
 /// while the run id is minted, then the whole bundle moves onto the background thread.
 struct AgentRunSetup {
+    vault: vault_core::Vault,
     llm_runtime: AiProviderRuntime,
     embedding_runtime: Option<AiProviderRuntime>,
     request: LlmChatRequest,
@@ -104,6 +105,7 @@ struct AgentRunSetup {
 /// is the desktop `AppHandle::emit` wrapper; it must be `Send + Sync + 'static` so the background
 /// thread can own it.
 pub fn ai_chat_send<E>(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     request: &AiChatSendRequest,
     emit: E,
@@ -132,6 +134,7 @@ where
         // is not fatal to the agent run, so treat it as "no embedding provider" rather than aborting.
         let embedding_runtime = selected_optional_embedding_runtime(&config).ok().flatten();
         let setup = AgentRunSetup {
+            vault: vault.clone(),
             llm_runtime: runtime,
             embedding_runtime,
             request: to_llm_request(request),
@@ -448,6 +451,7 @@ where
     let journal = AgentSqliteJournal { paths: setup.paths.clone(), run_id: run_id.to_string() };
     let control: Arc<dyn AiRunControl> = Arc::new(WorkerCancelControl { cancel });
     let tool_context = AgentToolContext {
+        vault: setup.vault.clone(),
         paths: setup.paths.clone(),
         config: setup.config.clone(),
         database_key: setup.session_database_key.clone(),
@@ -606,13 +610,15 @@ mod tests {
 
     #[test]
     fn empty_message_request_is_rejected_before_provider_resolution() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         let request = AiChatSendRequest::default();
-        let error = ai_chat_send(None, &request, |_| {}).expect_err("empty request");
+        let error = ai_chat_send(&vault, None, &request, |_| {}).expect_err("empty request");
         assert!(error.to_string().contains("at least one message"));
     }
 
     #[test]
     fn chat_send_refuses_when_master_ai_or_assistant_consent_is_off() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         // A non-empty request with a configured provider+key must STILL refuse while the master AI
         // switch (or the assistant sub-flag) is off — a previously-configured provider must not let
         // the agent/streaming run fire with consent withdrawn (H-1 / M-2). The gate bails before any
@@ -641,7 +647,7 @@ mod tests {
             tools_enabled: true,
             ..Default::default()
         };
-        let error = ai_chat_send(None, &request, |_| panic!("sink must never be reached"))
+        let error = ai_chat_send(&vault, None, &request, |_| panic!("sink must never be reached"))
             .expect_err("master AI off must refuse");
         let message = error.to_string();
         assert!(
@@ -653,7 +659,7 @@ mod tests {
         config.ai.enabled = true;
         config.ai.assistant_enabled = false;
         vault_core::save_config(&paths, &config).expect("save config");
-        let error = ai_chat_send(None, &request, |_| panic!("sink must never be reached"))
+        let error = ai_chat_send(&vault, None, &request, |_| panic!("sink must never be reached"))
             .expect_err("assistant sub-flag off must refuse");
         assert!(error.to_string().contains("assistant"), "names the assistant capability");
 
@@ -850,6 +856,7 @@ mod tests {
         config.ai.enabled = true;
         config.ai.assistant_enabled = true;
         AgentRunSetup {
+            vault: vault_core::Vault::open_temp().unwrap(),
             llm_runtime: stub_runtime(id),
             embedding_runtime: None,
             request: to_llm_request(&AiChatSendRequest {
@@ -1080,6 +1087,7 @@ mod tests {
     #[cfg(coverage)]
     #[test]
     fn coverage_agent_send_routes_tools_enabled_through_the_agent_path() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         // End-to-end through `ai_chat_send` with toolsEnabled: resolves the provider, mints a run id,
         // and (under coverage) drives the agent harness inline so the tools_enabled branch + the
         // embedding-optional resolution are exercised. Requires a configured project root.
@@ -1098,6 +1106,7 @@ mod tests {
 
         let (events, sink) = agent_events_sink();
         let ack = ai_chat_send(
+            &vault,
             None,
             &AiChatSendRequest {
                 provider_id: Some("llm-primary".to_string()),

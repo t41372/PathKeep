@@ -1,46 +1,25 @@
-//! Google Takeout import boundary.
-//!
-//! ## Responsibilities
-//! - Own the archive-facing Takeout flow: inspect, quarantine, import, batch
-//!   review, and reversible visibility changes.
-//! - Keep the import transport honest by preserving preview/manual/execute
-//!   semantics and import-batch audit history.
-//! - Preserve source-evidence provenance for recognized Takeout payloads.
-//!
-//! ## Not responsible for
-//! - Defining the parser contract for non-Takeout browser sources.
-//! - Owning canonical archive schema bootstrap outside the import-specific
-//!   tables it depends on.
-//! - Rewriting frontend or Tauri command contracts.
-//!
-//! ## Dependencies
-//! - Canonical/archive helpers from `crate::archive`.
-//! - Audit artifact persistence from `crate::git_audit`.
-//! - Source payload parsing from `browser_history_parser::takeout`.
-//!
-//! ## Performance notes
-//! - This boundary still runs on potentially large import sources, so import
-//!   execution and review helpers must avoid hidden extra passes and keep
-//!   per-file work explicit.
+//! Responsibilities: expose preview, import, review and reversible batch operations.
+//! Not responsible for: database ownership, browser parsing or search indexing.
+//! Failure modes: preview mutates facts, imports lose evidence, review loses
+//! provenance, revert/restore diverges from search. Tests: takeout and batch_search_tests.
 
 mod batch_review;
 pub(crate) use self::batch_review::import_batches_from;
 mod batches;
 mod browser_history;
 mod import_flow;
+mod import_run;
 mod inspect;
 mod payload_import;
+mod source_reader;
+mod visibility;
 
 #[cfg(test)]
 mod tests;
 
 use crate::{
     archive::{
-        DeferredSourceEvidenceBuilder, DeferredSourceEvidencePayload, SourceBatchInput,
-        SourceEvidenceCounts, SourceEvidencePayload, coverage_stats_json_from_counts,
-        create_schema, open_archive_connection, open_source_evidence_connection,
-        record_schema_observation, refresh_search_projection_for_import_batch,
-        stats_with_archive_totals, upsert_source_batch, visit_event_fingerprint,
+        SourceBatchInput, record_schema_observation, upsert_source_batch, visit_event_fingerprint,
     },
     config::{ProjectPaths, ensure_paths},
     git_audit,
@@ -53,14 +32,14 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use browser_history_parser::takeout::{
-    KIND_INDEX, TakeoutPathDisposition, TakeoutPathMatch, TakeoutPayloadStreamReport,
+    KIND_INDEX, TakeoutPathDisposition, TakeoutPathMatch,
     classify_payload_path_with_sniff as classify_takeout_payload_with_sniff,
 };
 #[cfg(test)]
 use browser_history_parser::takeout::{
     TakeoutPayloadReport, parse_payload as parse_takeout_payload,
 };
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
+use rusqlite::{Connection, Row};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -72,11 +51,15 @@ use zip::ZipArchive;
 
 pub use self::{
     batch_review::{load_import_batches, preview_import_batch},
-    batches::{restore_import_batch, revert_import_batch},
-    browser_history::{
-        import_browser_history, import_browser_history_with_progress, inspect_browser_history,
+    batches::{
+        restore_import_batch, restore_import_batch_with_control, revert_import_batch,
+        revert_import_batch_with_control,
     },
-    import_flow::{import_takeout, import_takeout_with_progress},
+    browser_history::{
+        import_browser_history, import_browser_history_with_control,
+        import_browser_history_with_progress, inspect_browser_history,
+    },
+    import_flow::{import_takeout, import_takeout_with_control, import_takeout_with_progress},
     inspect::inspect_takeout,
 };
 
@@ -128,7 +111,6 @@ struct ImportedPayload {
     recognized_file: TakeoutFileReport,
     earliest_visit_iso: Option<String>,
     latest_visit_iso: Option<String>,
-    source_evidence_plan: TakeoutSourceEvidencePlan,
 }
 
 /// Holds preview rows plus the minimal parser metadata needed by inspection tests.
@@ -137,14 +119,6 @@ struct ImportedPayload {
 struct CollectedPayload {
     records: Vec<ParsedTakeoutRecord>,
     skipped_missing_visit_time: usize,
-}
-
-/// Stages the source-evidence writes required after canonical import commits.
-#[derive(Debug)]
-struct TakeoutSourceEvidencePlan {
-    source_batch: SourceBatchInput,
-    schema_observation: browser_history_parser::SchemaObservation,
-    source_evidence_payload: DeferredSourceEvidencePayload,
 }
 
 /// Represents one persisted import batch plus its review metadata.

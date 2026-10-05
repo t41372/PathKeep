@@ -30,9 +30,9 @@ pub(crate) async fn ai_chat_send(
     request: vault_core::AiChatSendRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiChatSendAck, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("ai_chat_send", move || {
-        worker_bridge::ai_chat_send_impl(request, session_database_key.as_deref(), move |event| {
+        worker_bridge::ai_chat_send_impl(request, &state, move |event| {
             let _ = app.emit(vault_core::AI_CHAT_STREAM_EVENT, &event);
         })
     })
@@ -46,9 +46,9 @@ pub(crate) async fn ai_chat_cancel(
     run_id: String,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiChatCancelResult, CommandError> {
-    let session_database_key = state.get_key();
+    let session_database_key_state = state.inner().clone();
     run_blocking_command("ai_chat_cancel", move || {
-        worker_bridge::ai_chat_cancel_impl(run_id, session_database_key.as_deref())
+        worker_bridge::ai_chat_cancel_impl(run_id, session_database_key_state.get_key()?.as_deref())
     })
     .await
 }

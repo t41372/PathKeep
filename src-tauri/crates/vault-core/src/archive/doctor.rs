@@ -90,6 +90,7 @@ pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Re
 
 /// Repairs the subset of doctor findings that are explicitly recoverable in-place.
 pub fn repair_health_issues(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
@@ -139,8 +140,7 @@ pub fn repair_health_issues(
 
     let repair_result = (|| -> Result<HealthRepairReport> {
         let mut notes = Vec::new();
-        let repaired_audit_paths =
-            rewrite_import_audit_artifacts(paths, config, key, &missing_import_audits)?;
+        let repaired_audit_paths = rewrite_import_audit_artifacts(vault, &missing_import_audits)?;
         let repaired_import_audits = repaired_audit_paths.len();
         for (batch_id, audit_path) in &repaired_audit_paths {
             archive.execute(
@@ -536,26 +536,20 @@ fn missing_import_audit_batches(connection: &Connection) -> Result<Vec<i64>> {
 
 /// Rebuilds missing import audit artifacts from persisted import batch facts.
 fn rewrite_import_audit_artifacts(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     batch_ids: &[i64],
 ) -> Result<Vec<(i64, String)>> {
     if batch_ids.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut repair_config = config.clone();
+    let mut repair_config = vault.config().clone();
     repair_config.git_enabled = false;
+    let vault = vault.with_config(repair_config);
     let mut rewritten = Vec::new();
     for batch_id in batch_ids {
-        let (audit_path, _) = crate::takeout::ensure_import_batch_audit_artifact(
-            paths,
-            &repair_config,
-            key,
-            *batch_id,
-            None,
-        )?;
+        let (audit_path, _) =
+            crate::takeout::ensure_import_batch_audit_artifact(&vault, *batch_id, None)?;
         if let Some(audit_path) = audit_path {
             rewritten.push((*batch_id, audit_path));
         }

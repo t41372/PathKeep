@@ -826,6 +826,7 @@ dependencies = [
 name = "browser-history-parser"
 version = "0.1.0"
 dependencies = [
+ "browser-history-fixtures",
  "chrono",
  "hex",
  "rusqlite",
@@ -9656,11 +9657,13 @@ dependencies = [
  "tokenizers",
  "tokio",
  "ureq",
+ "vault-crypto",
  "vault-metal-backend",
  "vault-store",
  "walkdir",
  "wasmtime",
  "wasmtime-wasi",
+ "zeroize",
  "zip 2.4.2",
 ]
 
@@ -9755,6 +9758,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "turso",
+ "zeroize",
 ]
 
 [[package]]
@@ -9771,9 +9775,11 @@ dependencies = [
  "tempfile",
  "tokio",
  "vault-core",
+ "vault-crypto",
  "vault-owner-ipc",
  "vault-platform",
  "vault-store",
+ "zeroize",
 ]
 
 [[package]]

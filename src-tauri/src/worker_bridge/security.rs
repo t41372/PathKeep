@@ -1,4 +1,7 @@
-//! Worker-bridge helpers for keyring and security surfaces.
+//! Responsibilities: adapt security status, key presence and backend-only unlocks.
+//! Not responsible for: transporting data keys, storing session state or opening SQL.
+//! Failure modes: secret material reaches a command response, passwords replace data
+//! keys, or legacy readers receive a keychain key. Tests: dispatch session regressions.
 
 use super::worker_result;
 use crate::command_error::CommandError;
@@ -15,12 +18,12 @@ pub(crate) fn security_status_impl(
     worker_result(vault_worker::security_status(session_database_key))
 }
 
-/// Reads the archive database key from native keyring storage.
-pub(crate) fn keyring_get_database_key_impl() -> Result<Option<String>, CommandError> {
-    worker_result(vault_worker::read_database_key_from_keyring())
+/// Reports presence without returning key material.
+pub(crate) fn keyring_get_database_key_impl() -> Result<bool, CommandError> {
+    Ok(vault_worker::keyring_report().stored_secret)
 }
 
-/// Stores the archive database key in native keyring storage.
+/// Unwraps an existing envelope with the archive password and remembers its data key.
 pub(crate) fn keyring_store_database_key_impl(
     value: String,
 ) -> Result<vault_core::KeyringStatusReport, CommandError> {
@@ -36,4 +39,11 @@ pub(crate) fn keyring_clear_database_key_impl()
 /// Resets PathKeep's local secret vault for recovery/testing flows.
 pub(crate) fn reset_local_secret_vault_impl() -> Result<(), CommandError> {
     worker_result(vault_worker::reset_local_secret_vault())
+}
+
+/// Opens the Vault from the native credential entry without exposing its data key.
+pub(crate) fn unlock_archive_from_keychain_impl(
+    state: &crate::session::SessionState,
+) -> Result<(), CommandError> {
+    Ok(state.unlock_from_keychain()?)
 }

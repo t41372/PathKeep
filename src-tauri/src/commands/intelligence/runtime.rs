@@ -42,9 +42,9 @@ pub(crate) async fn run_core_intelligence_now(
     request: vault_core::CoreIntelligenceRebuildRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::CoreIntelligenceRebuildReport, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("run_core_intelligence_now", move || {
-        worker_bridge::run_core_intelligence_now_impl(request, key.as_deref())
+        worker_bridge::run_core_intelligence_now_impl(request, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -58,9 +58,12 @@ pub(crate) async fn queue_core_intelligence_rebuild(
     request: vault_core::CoreIntelligenceRebuildRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::CoreIntelligenceQueueReport, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("queue_core_intelligence_rebuild", move || {
-        worker_bridge::queue_core_intelligence_rebuild_impl(request, key.as_deref())
+        worker_bridge::queue_core_intelligence_rebuild_impl(
+            request,
+            key_state.get_key()?.as_deref(),
+        )
     })
     .await
 }
@@ -71,9 +74,9 @@ pub(crate) async fn queue_core_intelligence_rebuild(
 pub(crate) async fn list_search_engine_rules(
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::SearchEngineRule>, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("list_search_engine_rules", move || {
-        worker_bridge::list_search_engine_rules_impl(key.as_deref())
+        worker_bridge::list_search_engine_rules_impl(key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -85,9 +88,9 @@ pub(crate) async fn upsert_search_engine_rule(
     input: vault_core::SearchEngineRuleInput,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::SearchEngineRule>, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("upsert_search_engine_rule", move || {
-        worker_bridge::upsert_search_engine_rule_impl(input, key.as_deref())
+        worker_bridge::upsert_search_engine_rule_impl(input, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -99,9 +102,9 @@ pub(crate) async fn delete_search_engine_rule(
     rule_id: String,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::SearchEngineRule>, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("delete_search_engine_rule", move || {
-        worker_bridge::delete_search_engine_rule_impl(rule_id, key.as_deref())
+        worker_bridge::delete_search_engine_rule_impl(rule_id, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -113,11 +116,11 @@ pub(crate) async fn get_intelligence_primary_overview(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::CoreIntelligencePrimaryOverview, CommandError> {
-    let session_database_key = state.get_key();
+    let session_database_key_state = state.inner().clone();
     run_blocking_command("get_intelligence_primary_overview", move || {
         worker_bridge::get_intelligence_primary_overview_impl(
             request,
-            session_database_key.as_deref(),
+            session_database_key_state.get_key()?.as_deref(),
         )
     })
     .await
@@ -130,11 +133,11 @@ pub(crate) async fn get_intelligence_secondary_overview(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::CoreIntelligenceSecondaryOverview, CommandError> {
-    let session_database_key = state.get_key();
+    let session_database_key_state = state.inner().clone();
     run_blocking_command("get_intelligence_secondary_overview", move || {
         worker_bridge::get_intelligence_secondary_overview_impl(
             request,
-            session_database_key.as_deref(),
+            session_database_key_state.get_key()?.as_deref(),
         )
     })
     .await
@@ -147,9 +150,9 @@ pub(crate) async fn get_intelligence_embed_cards(
     request: vault_core::IntelligenceEmbedCardsRequest,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::IntelligenceEmbedCardPayload>, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("get_intelligence_embed_cards", move || {
-        worker_bridge::get_intelligence_embed_cards_impl(request, key.as_deref())
+        worker_bridge::get_intelligence_embed_cards_impl(request, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -161,9 +164,12 @@ pub(crate) async fn get_intelligence_widget_snapshot(
     request: vault_core::IntelligenceEmbedCardsRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::IntelligenceWidgetSnapshot, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("get_intelligence_widget_snapshot", move || {
-        worker_bridge::get_intelligence_widget_snapshot_impl(request, key.as_deref())
+        worker_bridge::get_intelligence_widget_snapshot_impl(
+            request,
+            key_state.get_key()?.as_deref(),
+        )
     })
     .await
 }
@@ -175,9 +181,12 @@ pub(crate) async fn get_intelligence_public_snapshot(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::IntelligencePublicSnapshot, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("get_intelligence_public_snapshot", move || {
-        worker_bridge::get_intelligence_public_snapshot_impl(request, key.as_deref())
+        worker_bridge::get_intelligence_public_snapshot_impl(
+            request,
+            key_state.get_key()?.as_deref(),
+        )
     })
     .await
 }
@@ -189,9 +198,12 @@ pub(crate) async fn preview_intelligence_local_host(
     request: vault_core::IntelligenceLocalHostRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::IntelligenceLocalHostPreview, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("preview_intelligence_local_host", move || {
-        worker_bridge::preview_intelligence_local_host_impl(request, key.as_deref())
+        worker_bridge::preview_intelligence_local_host_impl(
+            request,
+            key_state.get_key()?.as_deref(),
+        )
     })
     .await
 }
@@ -203,9 +215,9 @@ pub(crate) async fn build_intelligence_local_host(
     request: vault_core::IntelligenceLocalHostRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::IntelligenceLocalHostBuildResult, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("build_intelligence_local_host", move || {
-        worker_bridge::build_intelligence_local_host_impl(request, key.as_deref())
+        worker_bridge::build_intelligence_local_host_impl(request, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -216,9 +228,11 @@ pub(crate) async fn build_intelligence_local_host(
 pub(crate) async fn load_intelligence_runtime(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::IntelligenceRuntimeSnapshot, CommandError> {
-    let session_database_key = state.get_key();
+    let session_database_key_state = state.inner().clone();
     run_blocking_command("load_intelligence_runtime", move || {
-        worker_bridge::load_intelligence_runtime_impl(session_database_key.as_deref())
+        worker_bridge::load_intelligence_runtime_impl(
+            session_database_key_state.get_key()?.as_deref(),
+        )
     })
     .await
 }
@@ -230,9 +244,9 @@ pub(crate) async fn retry_intelligence_job(
     job_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::IntelligenceRuntimeSnapshot, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("retry_intelligence_job", move || {
-        worker_bridge::retry_intelligence_job_impl(job_id, key.as_deref())
+        worker_bridge::retry_intelligence_job_impl(job_id, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -244,9 +258,9 @@ pub(crate) async fn cancel_intelligence_job(
     job_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::IntelligenceRuntimeSnapshot, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("cancel_intelligence_job", move || {
-        worker_bridge::cancel_intelligence_job_impl(job_id, key.as_deref())
+        worker_bridge::cancel_intelligence_job_impl(job_id, key_state.get_key()?.as_deref())
     })
     .await
 }

@@ -70,8 +70,10 @@ fn base_config() -> AppConfig {
 /// Builds an empty (no archive) context — enough for the security/limit tests, which never need
 /// real rows (an empty archive returns zero rows honestly, never an error).
 fn empty_context() -> (crate::config::ProjectPaths, AgentToolContext) {
+    let vault = crate::Vault::open_temp().unwrap();
     let paths = test_paths();
     let context = AgentToolContext {
+        vault: vault.clone(),
         paths: paths.clone(),
         config: base_config(),
         database_key: None,
@@ -1159,6 +1161,7 @@ fn pre_cancelled_host_call_is_refused_in_real_js() {
 
 #[test]
 fn query_history_matches_a_direct_search_over_the_same_plane() {
+    let vault = crate::Vault::open_temp().unwrap();
     // The rows the real guest surfaces (via the host API) match what a direct search_history_internal
     // returns over the same plane (no provider = bm25/lexical) — code-mode reuses the SAME retrieval.
     let (_paths, context) = seeded_context();
@@ -1173,6 +1176,7 @@ fn query_history_matches_a_direct_search_over_the_same_plane() {
 
     let direct = rt
         .block_on(search_history_internal(
+            &vault,
             &context.paths,
             &context.config,
             None,

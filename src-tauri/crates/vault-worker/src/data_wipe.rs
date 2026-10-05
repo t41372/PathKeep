@@ -54,7 +54,11 @@ pub fn preview_data_wipe(session_database_key: Option<&str>) -> Result<WipePrevi
 /// Afterwards the app reports itself not initialized, so the shell routes to onboarding. An
 /// installed automatic backup is removed last; if that fails the files are still gone and the
 /// report carries the error.
-pub fn wipe_all_data(confirmation: &str, session_database_key: Option<&str>) -> Result<WipeReport> {
+pub fn wipe_all_data(
+    confirmation: &str,
+    session_database_key: Option<&str>,
+    close_store: impl FnOnce() -> Result<()>,
+) -> Result<WipeReport> {
     if confirmation != WIPE_CONFIRMATION_WORD {
         anyhow::bail!(
             "Deleting all data needs the confirmation word {WIPE_CONFIRMATION_WORD}; nothing was deleted."
@@ -67,7 +71,10 @@ pub fn wipe_all_data(confirmation: &str, session_database_key: Option<&str>) -> 
     let report = vault_core::wipe_all_data(
         &paths,
         &outside,
-        || stop_background_work(&paths, Some((&config, session_database_key))),
+        || {
+            stop_background_work(&paths, Some((&config, session_database_key)))?;
+            close_store()
+        },
         clear_keychain,
         |plan| remove_schedule(&paths, plan),
     )?;

@@ -45,6 +45,15 @@ export interface ReplaceTagsRequest {
   sourceProfile?: string | null
 }
 
+/**
+ * One page of annotations. Pass `nextCursor` back unchanged to get the next
+ * page; `null` means there is nothing more.
+ */
+export interface AnnotationPage {
+  items: UrlAnnotation[]
+  nextCursor: string | null
+}
+
 export const annotationsClient = {
   getUrlAnnotation: (url: string) =>
     call<UrlAnnotation | null>('get_url_annotation', { url }),
@@ -52,11 +61,19 @@ export const annotationsClient = {
     call<UrlAnnotation>('set_url_notes', { request }),
   replaceUrlTags: (request: ReplaceTagsRequest) =>
     call<UrlAnnotation>('replace_url_tags', { request }),
-  listUrlAnnotations: (limit?: number) =>
-    call<UrlAnnotation[]>('list_url_annotations', { limit: limit ?? null }),
-  searchUrlAnnotations: (query: string, limit?: number) =>
-    call<UrlAnnotation[]>('search_url_annotations', {
+  listUrlAnnotations: (cursor: string | null, limit?: number) =>
+    call<AnnotationPage>('list_url_annotations', {
+      cursor,
+      limit: limit ?? null,
+    }),
+  searchUrlAnnotations: (
+    query: string,
+    cursor: string | null,
+    limit?: number,
+  ) =>
+    call<AnnotationPage>('search_url_annotations', {
       query,
+      cursor,
       limit: limit ?? null,
     }),
 }

@@ -66,7 +66,8 @@ impl Paths {
 pub struct Config {
     pub root: PathBuf,
     pub paths: Paths,
-    pub key: Option<[u8; 32]>,
+    pub keys: [Option<[u8; 32]>; 5],
+    pub owner: Option<Arc<crate::OwnerLock>>,
     pub io: Option<IoLayer>,
     pub readers_per_database: NonZeroUsize,
     pub page_cache_kib: NonZeroUsize,
@@ -80,7 +81,8 @@ impl Config {
         Self {
             root,
             paths,
-            key: None,
+            keys: [None; 5],
+            owner: None,
             io: None,
             readers_per_database: NonZeroUsize::new(2).unwrap(),
             page_cache_kib: NonZeroUsize::new(8192).unwrap(),
@@ -101,6 +103,13 @@ impl Config {
         self.migrations.validate()
     }
 }
+impl Drop for Config {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.keys.zeroize();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

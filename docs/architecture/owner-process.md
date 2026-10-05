@@ -75,7 +75,7 @@ UTF-8 JSON. Empty frames and frames above 8 MiB are rejected before allocation.
 There is one request per connection. Requests have `version`, `method`, `params`:
 
 ```json
-{"version":1,"method":"backup","params":{"dueOnly":true}}
+{ "version": 1, "method": "backup", "params": { "dueOnly": true } }
 ```
 
 Replies have `version`, zero-based `sequence`, and one of these bodies:
@@ -92,14 +92,14 @@ exactly one final result/error. The client checks every sequence and version.
 Typed errors are `version_mismatch`, `invalid_request`, `unknown_method`,
 `operation_failed`, `unavailable` and `protocol`; diagnostic messages retain causes.
 
-| Method | Parameters | Result |
-| --- | --- | --- |
-| `ping` | `{}` | Owner PID, background flag, initial webview count, last handed-off arguments |
-| `backup` | `{ "dueOnly": boolean }` | Existing `BackupReport`, with progress first |
-| `doctor` | `{}` | Existing health report |
-| `ai-index` | `{}` | Existing default AI index request result |
-| `ai-queue` | `{}` | Existing queue drain result |
-| `mcp` | `{ "tool": string, "arguments": object }` | Existing MCP tool result |
+| Method     | Parameters                                | Result                                                                       |
+| ---------- | ----------------------------------------- | ---------------------------------------------------------------------------- |
+| `ping`     | `{}`                                      | Owner PID, background flag, initial webview count, last handed-off arguments |
+| `backup`   | `{ "dueOnly": boolean }`                  | Existing `BackupReport`, with progress first                                 |
+| `doctor`   | `{}`                                      | Existing health report                                                       |
+| `ai-index` | `{}`                                      | Existing default AI index request result                                     |
+| `ai-queue` | `{}`                                      | Existing queue drain result                                                  |
+| `mcp`      | `{ "tool": string, "arguments": object }` | Existing MCP tool result                                                     |
 
 External MCP tool names are only `search-history`, `archive-status`, and `usage-guide`.
 The stdio adapter first sends `mcp` with `tool: "initialize"` and empty arguments
@@ -146,33 +146,32 @@ CARGO_NET_OFFLINE=true cargo test --manifest-path src-tauri/Cargo.toml -p vault-
 CARGO_NET_OFFLINE=true cargo check --manifest-path src-tauri/Cargo.toml -p vault-owner-ipc --all-targets --target x86_64-pc-windows-gnu
 ```
 
-
 ## Failure modes and test names
 
 Every new module lists its responsibility boundary and failure modes in its header.
 The executable checks are:
 
-| Failure mode | Test |
-| --- | --- |
-| Cold client cannot start owner; second app takes ownership or loses arguments; background creates webview; client opens databases; MCP bypasses endpoint | `cold_client_backup_single_instance_handoff_and_mcp_use_only_owner` |
-| App reservation opens databases, allows another owner, or fails to release | `app_reserves_owner_lock_without_opening_databases` |
-| Wipe deletes ownership inode while the owner still holds it | `wipe_keeps_owner_lock_file_and_exclusive_ownership` |
-| Live socket replaced; progress reordered/lost; final reply missing | `progress_is_ordered_before_final_reply_and_existing_owner_is_not_replaced` |
-| Crashed owner's socket blocks restart; another user can access endpoint | `stale_socket_is_recovered_and_directory_and_socket_are_user_only` |
-| Symlink redirects the private socket directory | `symlinked_socket_directory_is_rejected` |
-| Incompatible client executes business work | `protocol_mismatch_returns_typed_error_without_dispatch` |
-| Malformed, truncated or oversized input is accepted | `malformed_truncated_and_oversized_frames_fail` |
-| Oversized output closes without a typed final error | `oversized_reply_is_typed_error_and_owner_survives` |
-| Handler panic loses final error | `handler_panic_is_a_final_error_and_owner_survives` |
-| Startup waits forever or launches repeatedly | `no_endpoint_start_failure_is_clear_and_does_not_retry_launch` |
-| Unknown method or bad parameters reach a worker | `owner_rejects_unknown_methods_and_invalid_parameters_before_work` |
-| Due-only work/consent checks bypass owner dispatch | `owner_serves_ping_due_backup_and_mcp_consent_through_endpoint` |
-| Sidecar runs locally; MCP stdout deadlocks; disabled startup succeeds; live consent revocation is ignored | `sidecar_and_mcp_forward_to_owner_and_recheck_consent` |
-| Direct app launch omits background argument | `desktop_launch_uses_same_executable_and_background_argument` |
-| Missing sibling app recursively starts sidecar | `sidecar_without_app_reports_installation_error` |
-| macOS bundle is brought forward | `bundled_clients_use_launch_services_without_frontmost_window` |
-| Launch Services drops archive/sandbox overrides | `launch_services_keeps_the_client_data_root_and_sandbox` |
-| Windows pipe grants another user access | `current_user_is_the_only_dacl_trustee` (type-checked; native Windows run pending) |
+| Failure mode                                                                                                                                             | Test                                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Cold client cannot start owner; second app takes ownership or loses arguments; background creates webview; client opens databases; MCP bypasses endpoint | `cold_client_backup_single_instance_handoff_and_mcp_use_only_owner`                |
+| App reservation opens databases, allows another owner, or fails to release                                                                               | `app_reserves_owner_lock_without_opening_databases`                                |
+| Wipe deletes ownership inode while the owner still holds it                                                                                              | `wipe_keeps_owner_lock_file_and_exclusive_ownership`                               |
+| Live socket replaced; progress reordered/lost; final reply missing                                                                                       | `progress_is_ordered_before_final_reply_and_existing_owner_is_not_replaced`        |
+| Crashed owner's socket blocks restart; another user can access endpoint                                                                                  | `stale_socket_is_recovered_and_directory_and_socket_are_user_only`                 |
+| Symlink redirects the private socket directory                                                                                                           | `symlinked_socket_directory_is_rejected`                                           |
+| Incompatible client executes business work                                                                                                               | `protocol_mismatch_returns_typed_error_without_dispatch`                           |
+| Malformed, truncated or oversized input is accepted                                                                                                      | `malformed_truncated_and_oversized_frames_fail`                                    |
+| Oversized output closes without a typed final error                                                                                                      | `oversized_reply_is_typed_error_and_owner_survives`                                |
+| Handler panic loses final error                                                                                                                          | `handler_panic_is_a_final_error_and_owner_survives`                                |
+| Startup waits forever or launches repeatedly                                                                                                             | `no_endpoint_start_failure_is_clear_and_does_not_retry_launch`                     |
+| Unknown method or bad parameters reach a worker                                                                                                          | `owner_rejects_unknown_methods_and_invalid_parameters_before_work`                 |
+| Due-only work/consent checks bypass owner dispatch                                                                                                       | `owner_serves_ping_due_backup_and_mcp_consent_through_endpoint`                    |
+| Sidecar runs locally; MCP stdout deadlocks; disabled startup succeeds; live consent revocation is ignored                                                | `sidecar_and_mcp_forward_to_owner_and_recheck_consent`                             |
+| Direct app launch omits background argument                                                                                                              | `desktop_launch_uses_same_executable_and_background_argument`                      |
+| Missing sibling app recursively starts sidecar                                                                                                           | `sidecar_without_app_reports_installation_error`                                   |
+| macOS bundle is brought forward                                                                                                                          | `bundled_clients_use_launch_services_without_frontmost_window`                     |
+| Launch Services drops archive/sandbox overrides                                                                                                          | `launch_services_keeps_the_client_data_root_and_sandbox`                           |
+| Windows pipe grants another user access                                                                                                                  | `current_user_is_the_only_dacl_trustee` (type-checked; native Windows run pending) |
 
 The existing scheduled-report tests retained in `owner_requests/scheduled.rs` cover
 success/skip/defer classification, keyring/config/archive failure evidence, and a

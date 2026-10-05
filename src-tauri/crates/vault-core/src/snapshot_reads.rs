@@ -52,6 +52,15 @@ pub fn load_snapshot_reads(
     config: &AppConfig,
     key: Option<&str>,
 ) -> Result<SnapshotReads> {
+    if config.archive_mode == crate::ArchiveMode::Encrypted && key.is_none() {
+        return Ok(SnapshotReads {
+            archive_status: crate::archive_status(paths, config, None)?,
+            recent_runs: vec![],
+            recent_import_batches: vec![],
+            ai_status: Ok(AiIndexStatus::default()),
+            intelligence_status: Ok(IntelligenceStatus::default()),
+        });
+    }
     ensure_paths(paths)?;
     let initialized = config.initialized && paths.archive_database_path.exists();
     let archive = initialized.then(|| open_archive_connection(paths, config, key));

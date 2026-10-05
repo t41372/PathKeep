@@ -479,13 +479,14 @@ export function useLatestVisit(domain: string, filters: HistoryFilters | null) {
   })
 }
 
-const STAR_LIST_LIMIT = 500
-
+/** Every star, newest first, a page at a time as the list scrolls. */
 export function useStarList() {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['stars', 'list'],
-    queryFn: () =>
-      starsClient.listStars(null, 'recently_starred', STAR_LIST_LIMIT),
+    queryFn: ({ pageParam }) =>
+      starsClient.listStars(null, 'recently_starred', pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
   })
 }
 
@@ -493,14 +494,6 @@ export function useStarCounts() {
   return useQuery({
     queryKey: ['stars', 'counts'],
     queryFn: starsClient.getStarCounts,
-  })
-}
-
-/** Note text per page, for the Starred previews. */
-export function useAnnotationList() {
-  return useQuery({
-    queryKey: ['annotations', 'list'],
-    queryFn: () => annotationsClient.listUrlAnnotations(2000),
   })
 }
 

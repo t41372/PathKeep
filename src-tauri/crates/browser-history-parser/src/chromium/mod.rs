@@ -71,36 +71,6 @@ struct VisitCapabilityStats {
     engagement_evidence_count: usize,
 }
 
-/// Incremental URL ingest query used by re-imports after at least one
-/// previous import. Filters URLs by both watermarks intentionally:
-///
-/// - `last_visit_time >= ?1` catches every URL whose most recent visit
-///   landed at or after the URL cursor (the common path).
-/// - `id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)` widens the
-///   set to any URL referenced by a new visit beyond the visit cursor,
-///   even when Chrome didn't bump `urls.last_visit_time` for that URL.
-///   Without this OR, long-tail revisited pages (Zhihu answer pages are
-///   the canonical example) lost their new visits to `skipped_visits++`
-///   because the URL was absent from the in-memory `url_id_map`.
-pub const INGEST_URLS_SQL: &str =
-    "SELECT id, url, title, visit_count, typed_count, last_visit_time, hidden
-     FROM urls
-     WHERE last_visit_time >= ?1
-        OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)
-     ORDER BY last_visit_time ASC";
-
-/// First-import URL ingest query. When both watermarks are at zero, the
-/// `last_visit_time >= 0` predicate already matches every URL row, so
-/// the OR's `SELECT DISTINCT url FROM visits WHERE id > 0` subquery is
-/// pure waste — it forces SQLite to scan the entire `visits` table and
-/// materialize an ephemeral B-tree of every URL id before the outer
-/// filter runs. On a 14.4M-visit history that's a multi-GB transient
-/// plus multi-minute stall added to the very first import. Stripping the
-/// OR removes the hazard without losing any rows.
-pub const INGEST_URLS_FULL_SQL: &str =
-    "SELECT id, url, title, visit_count, typed_count, last_visit_time, hidden
-     FROM urls
-     ORDER BY last_visit_time ASC";
 /// Incremental visit ingest query used by the archive pipeline.
 pub const INGEST_VISITS_SQL: &str =
     "SELECT visits.id, visits.url, urls.url, urls.title, visits.visit_time, visits.from_visit,
@@ -118,11 +88,10 @@ pub const DOWNLOADS_SQL: &str =
      WHERE id > ?1
      ORDER BY id ASC";
 /// Incremental keyword-search-term query used by the archive pipeline.
-pub const SEARCH_TERMS_SQL: &str = "SELECT keyword_id, url_id, term, normalized_term
-     FROM keyword_search_terms
-     WHERE url_id IN (
-       SELECT id FROM urls WHERE last_visit_time >= ?1
-     )";
+pub const SEARCH_TERMS_SQL: &str =
+    "SELECT keyword_id, url_id, term, normalized_term, urls.last_visit_time
+     FROM keyword_search_terms JOIN urls ON urls.id = keyword_search_terms.url_id
+     WHERE urls.last_visit_time >= ?1 ORDER BY urls.last_visit_time, urls.id, keyword_id";
 /// Incremental favicons query used by the archive pipeline.
 pub const FAVICONS_SQL: &str = "SELECT icon_mapping.page_url, favicons.url, favicons.icon_type,
             IFNULL(favicon_bitmaps.width, 0), IFNULL(favicon_bitmaps.height, 0),
@@ -209,16 +178,7 @@ where
     let mut visit_stats = VisitCapabilityStats::default();
     let retain_source_evidence = consumer.retain_source_evidence_in_report();
 
-    stream_url_batches(
-        &history,
-        cursor.after_url_last_visit_time,
-        cursor.after_visit_id,
-        chunk_size,
-        consumer,
-        retain_source_evidence,
-        &mut typed_evidence,
-        &mut native_entities,
-    )?;
+    stream_url_batches(&history, cursor, chunk_size, consumer, &mut native_entities)?;
     stream_visit_batches(
         &history,
         cursor.after_visit_id,
@@ -250,7 +210,7 @@ where
     if has_table(&inspection, "keyword_search_terms") {
         stream_search_term_batches(
             &history,
-            cursor.after_url_last_visit_time,
+            cursor.after_search_url_time,
             chunk_size,
             consumer,
             retain_source_evidence,
@@ -368,65 +328,25 @@ where
 
 fn stream_url_batches<C>(
     connection: &Connection,
-    last_visit_time: i64,
-    last_visit_id: i64,
+    cursor: ChromiumReadCursor,
     chunk_size: usize,
     consumer: &mut C,
-    retain_source_evidence: bool,
-    typed_evidence: &mut TypedEvidenceBatch,
     native_entities: &mut Vec<crate::types::NativeEntity>,
 ) -> Result<(), StreamHistoryError<C::Error>>
 where
     C: HistoryBatchConsumer,
 {
-    // First-import path: both watermarks at zero means the OR's
-    // `visits.id > 0` subquery wouldn't filter anything beyond what
-    // `last_visit_time >= 0` already returns. Use the OR-free variant
-    // to skip a multi-GB DISTINCT-over-visits materialisation on the
-    // 14.4M-row ceiling.
-    let first_import = last_visit_time == 0 && last_visit_id == 0;
-    let sql = if first_import { INGEST_URLS_FULL_SQL } else { INGEST_URLS_SQL };
-    let mut statement = stream_sql(connection.prepare(sql))?;
-    let column_names =
-        statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-    let mut rows = if first_import {
-        stream_sql(statement.query(params![]))?
-    } else {
-        stream_sql(statement.query(params![last_visit_time, last_visit_id]))?
-    };
-    let mut batch = Vec::with_capacity(chunk_size);
-    let mut source_evidence = SourceEvidenceChunk::default();
-    while let Some(row) = stream_sql(rows.next())? {
-        batch.push(stream_sql(parsed_url_from_row(row))?);
-        source_evidence.native_entities.push(stream_sql(capture_native_row(
-            row,
-            &column_names,
-            "chromium-url-row",
-            "id",
-            None,
-        ))?);
-        if batch.len() >= chunk_size {
-            consumer.urls(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
-            flush_source_evidence(
-                consumer,
-                retain_source_evidence,
-                typed_evidence,
-                native_entities,
-                &mut source_evidence,
-            )?;
-        }
-    }
-    if !batch.is_empty() {
-        consumer.urls(batch).map_err(StreamHistoryError::Consumer)?;
-    }
-    flush_source_evidence(
+    crate::url_pages::stream(
+        connection,
+        crate::url_pages::Family::Chromium,
+        cursor.url_scan,
+        cursor.after_url_last_visit_time,
+        cursor.after_visit_id,
+        chunk_size,
         consumer,
-        retain_source_evidence,
-        typed_evidence,
         native_entities,
-        &mut source_evidence,
-    )?;
-    Ok(())
+        parsed_url_from_row,
+    )
 }
 
 fn stream_visit_batches<C>(
@@ -812,6 +732,7 @@ fn parsed_download_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedDownload> {
 
 fn parsed_search_term_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedSearchTerm> {
     Ok(ParsedSearchTerm {
+        url_last_visit_time: row.get(4)?,
         keyword_id: row.get(0)?,
         url_id: row.get(1)?,
         term: row.get(2)?,
@@ -1155,6 +1076,8 @@ mod tests {
         let parsed = parse_history(
             &HistoryDatabaseSet { history_path, favicons_path: None },
             ChromiumReadCursor {
+                after_search_url_time: 0,
+                url_scan: None,
                 after_url_last_visit_time: 13_000_000_001_000_000_i64,
                 after_visit_id: 50_i64,
                 after_download_id: 0,
@@ -1196,6 +1119,8 @@ mod tests {
         let parsed_with_url_cursor = parse_history(
             &HistoryDatabaseSet { history_path: history_path.clone(), favicons_path: None },
             ChromiumReadCursor {
+                after_search_url_time: 0,
+                url_scan: None,
                 after_url_last_visit_time: 12_500_000_000_000_000_i64,
                 after_visit_id: 0,
                 after_download_id: 0,
@@ -1232,6 +1157,8 @@ mod tests {
         let parsed_with_visit_cursor = parse_history(
             &HistoryDatabaseSet { history_path, favicons_path: None },
             ChromiumReadCursor {
+                after_search_url_time: 0,
+                url_scan: None,
                 after_url_last_visit_time: 0,
                 after_visit_id: 50,
                 after_download_id: 0,

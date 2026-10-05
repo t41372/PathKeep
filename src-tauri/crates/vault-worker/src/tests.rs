@@ -501,6 +501,9 @@ fn scheduled_worker_records_keyring_config_and_archive_open_failures_before_arch
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
+    let encrypted_config =
+        AppConfig { initialized: true, archive_mode: ArchiveMode::Encrypted, ..Default::default() };
+    vault_core::save_config(&project_paths().unwrap(), &encrypted_config).unwrap();
     fs::create_dir_all(&keyring_root).expect("keyring root");
     let secret_path = keyring_root
         .join(format!("{}-database-key.secret", vault_platform::test_support::keyring_service()));
@@ -531,7 +534,8 @@ fn scheduled_worker_records_keyring_config_and_archive_open_failures_before_arch
     vault_core::save_config(&paths, &config).expect("valid config");
     fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
         .expect("archive parent");
-    fs::write(&paths.archive_database_path, b"not sqlite").expect("invalid archive");
+    fs::write(paths.app_root.join("archive/history-vault.db"), b"not turso")
+        .expect("invalid archive");
     let archive_error = run_worker_cli(&["backup".to_string(), "--due-only".to_string()])
         .expect_err("archive open must fail");
     assert!(!archive_error.to_string().is_empty());
@@ -604,13 +608,7 @@ fn app_snapshot_stays_usable_when_archive_is_initialized_but_locked() {
     assert!(locked_snapshot.archive_status.initialized);
     assert!(locked_snapshot.archive_status.encrypted);
     assert!(!locked_snapshot.archive_status.unlocked);
-    assert!(
-        locked_snapshot
-            .archive_status
-            .warning
-            .as_deref()
-            .is_some_and(|warning| warning.contains("database key is required"))
-    );
+    assert!(locked_snapshot.archive_status.warning.is_none());
     assert!(locked_snapshot.recent_runs.is_empty());
     assert!(locked_snapshot.recent_import_batches.is_empty());
 
@@ -623,6 +621,7 @@ fn app_snapshot_stays_usable_when_archive_is_initialized_but_locked() {
 
 #[test]
 fn app_snapshot_surfaces_recent_run_ledger_decode_failures() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -639,7 +638,8 @@ fn app_snapshot_surfaces_recent_run_ledger_decode_failures() {
 
     let config = initialized_config();
     initialize_archive_database(&config, None).expect("initialize archive");
-    run_backup_now(None, false).expect("seed a visible run");
+    run_backup_now(&vault, None, false).expect("seed a visible run");
+    seed_legacy_reader_fixture(None);
     let paths = project_paths().expect("project paths");
     let connection =
         Connection::open(&paths.archive_database_path).expect("open archive for corruption");
@@ -697,12 +697,12 @@ fn worker_cli_rejects_mcp_server_until_explicitly_enabled() {
 }
 
 #[test]
-fn mcp_surface_respects_visibility_and_locked_app_sessions() {
+fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
     let keyring_root = dir.path().join("test-keyring");
-    let takeout_source = takeout_fixture(dir.path());
 
     unsafe {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
@@ -713,16 +713,16 @@ fn mcp_surface_respects_visibility_and_locked_app_sessions() {
     let mut config = configured_ai_config();
     config.ai.job_queue_paused = true;
     initialize_archive_database(&config, None).expect("initialize archive");
-    run_backup_now(None, false).expect("backup");
-
-    let imported = import_takeout_source(
+    let paths = project_paths().unwrap();
+    vault_core::test_support::legacy_fixtures::seed_reader_archive(
+        &paths,
+        &config,
         None,
-        &TakeoutRequest { source_path: takeout_source, dry_run: false },
-    )
-    .expect("import takeout");
-    let batch_id = imported.import_batch.expect("import batch").id;
-
+        "https://example.com/import",
+        "Imported",
+    );
     let visible = mcp_search_result(
+        &vault,
         None,
         McpSearchRequest {
             query: "Imported".to_string(),
@@ -734,8 +734,12 @@ fn mcp_surface_respects_visibility_and_locked_app_sessions() {
     .expect("visible mcp search");
     assert_eq!(visible.total, 1);
 
-    revert_import_batch_detail(None, batch_id).expect("revert takeout batch");
+    vault_core::archive::open_archive_connection(&paths, &config, None)
+        .unwrap()
+        .execute("UPDATE visits SET reverted_at='2026-04-01'", [])
+        .unwrap();
     let hidden = mcp_search_result(
+        &vault,
         None,
         McpSearchRequest {
             query: "Imported".to_string(),
@@ -842,6 +846,7 @@ fn mcp_surface_respects_visibility_and_locked_app_sessions() {
     assert!(biometric_unlock.to_string().contains("Biometric"));
 
     let search_error = mcp_search_result(
+        &vault,
         None,
         McpSearchRequest {
             query: "example".to_string(),
@@ -992,6 +997,7 @@ fn mcp_usage_guide_gates_on_skill_consent_and_audits_when_served() {
 
 #[test]
 fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_session() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     // M-4: the MCP face re-reads config fresh per call, so a user who turns OFF the MCP server in
     // Settings while an external tool still holds the stdio connection must stop being served. With a
     // working archive + an active connection, flipping `mcp_enabled` false makes the SAME in-flight
@@ -1015,6 +1021,7 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
     save_user_config(&config, None).expect("save mcp-on config");
 
     let served = mcp_search_result(
+        &vault,
         None,
         McpSearchRequest {
             query: "example".to_string(),
@@ -1033,6 +1040,7 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
     save_user_config(&config, None).expect("save mcp-off config");
 
     let search_error = mcp_search_result(
+        &vault,
         None,
         McpSearchRequest {
             query: "example".to_string(),
@@ -1062,13 +1070,14 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
     save_user_config(&config, None).expect("save ai-off config");
     assert!(
         mcp_search_result(
+            &vault,
             None,
             McpSearchRequest {
                 query: "example".to_string(),
                 profile_id: None,
                 domain: None,
                 limit: Some(5),
-            },
+            }
         )
         .is_err(),
         "master AI off must seal the MCP search face even with the sub-flag on"
@@ -1083,6 +1092,7 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
 
 #[test]
 fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -1097,7 +1107,8 @@ fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
     let mut config = configured_ai_config();
     config.ai.job_queue_paused = true;
     initialize_archive_database(&config, None).expect("initialize archive");
-    let backup = run_backup_now(None, false).expect("backup");
+    let backup = run_backup_now(&vault, None, false).expect("backup");
+    seed_legacy_reader_fixture(None);
     assert_eq!(backup.run.expect("run").new_visits, 1);
 
     let preview = preview_ai_integration_files().expect("preview integrations");
@@ -1118,6 +1129,7 @@ fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
     assert!(!cleared_snapshot.config.ai.llm_providers[0].api_key_saved);
 
     let search = search_ai_history(
+        &vault,
         None,
         &vault_core::AiSearchRequest {
             query: "example".to_string(),
@@ -1137,12 +1149,13 @@ fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
     assert!(!search.notes.is_empty());
 
     let index_report =
-        build_ai_index_now(None, &AiIndexRequest::default()).expect("queue paused index");
+        build_ai_index_now(&vault, None, &AiIndexRequest::default()).expect("queue paused index");
     assert!(index_report.job_id.is_some());
     assert!(index_report.run_id.is_none());
     assert!(index_report.notes.iter().any(|note| note.contains("Resume the AI queue")));
 
     let assistant_report = ask_ai_assistant(
+        &vault,
         None,
         &AiAssistantRequest {
             question: "What did I search?".to_string(),
@@ -1164,6 +1177,7 @@ fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
 
 #[test]
 fn queued_assistant_jobs_keep_their_enqueued_provider_snapshot() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -1181,6 +1195,7 @@ fn queued_assistant_jobs_keep_their_enqueued_provider_snapshot() {
     save_user_config(&config, None).expect("save initial config");
 
     let queued = ask_ai_assistant(
+        &vault,
         None,
         &AiAssistantRequest {
             question: "What changed?".to_string(),
@@ -1212,6 +1227,7 @@ fn queued_assistant_jobs_keep_their_enqueued_provider_snapshot() {
 
 #[test]
 fn build_ai_index_returns_a_background_job_report_without_blocking_the_caller() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -1227,20 +1243,20 @@ fn build_ai_index_returns_a_background_job_report_without_blocking_the_caller() 
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save config");
 
-    let report =
-        build_ai_index_now(None, &AiIndexRequest::default()).expect("queue background index");
+    let report = build_ai_index_now(&vault, None, &AiIndexRequest::default())
+        .expect("queue background index");
     let job_id = report.job_id.expect("queued job id");
     assert!(report.run_id.is_none());
     assert!(report.notes.iter().any(|note| note.contains("processing it in the background")));
 
-    let _ = run_ai_queue_jobs(None, None).expect("drain queued background job");
-    let mut queue = load_ai_queue(None).expect("load ai queue");
+    let _ = run_ai_queue_jobs(&vault, None, None).expect("drain queued background job");
+    let mut queue = load_ai_queue(&vault, None).expect("load ai queue");
     for _ in 0..20 {
         if queue.queued == 0 && queue.running == 0 {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
-        queue = load_ai_queue(None).expect("reload ai queue");
+        queue = load_ai_queue(&vault, None).expect("reload ai queue");
     }
     assert!(queue.recent_jobs.iter().any(|job| job.id == job_id
         && matches!(job.state.as_str(), "queued" | "running" | "succeeded" | "failed")));
@@ -1254,6 +1270,7 @@ fn build_ai_index_returns_a_background_job_report_without_blocking_the_caller() 
 
 #[test]
 fn manual_backup_refreshes_deterministic_insights_automatically() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -1268,7 +1285,9 @@ fn manual_backup_refreshes_deterministic_insights_automatically() {
     let config = configured_ai_config();
     initialize_archive_database(&config, None).expect("initialize archive");
 
-    let backup = run_backup_now(None, false).expect("backup");
+    seed_legacy_reader_fixture(None);
+    let backup = run_backup_now(&vault, None, false).expect("backup");
+    seed_legacy_reader_fixture(None);
     assert_eq!(backup.run.expect("backup run").new_visits, 1);
     assert!(
         backup
@@ -1331,6 +1350,7 @@ fn manual_backup_refreshes_deterministic_insights_automatically() {
 
 #[test]
 fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -1346,7 +1366,8 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
     let config = initialized_config();
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save user config");
-    run_backup_now(None, false).expect("backup");
+    run_backup_now(&vault, None, false).expect("backup");
+    seed_legacy_reader_fixture(None);
 
     let queried = query_history(
         None,
@@ -1396,35 +1417,49 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
         browser_name: Some("Chrome".to_string()),
         profile_name: Some("Default".to_string()),
     };
-    let browser_history_preview = inspect_browser_history_source(None, &browser_history_request)
+    let browser_history_preview = inspect_browser_history_source(&vault, &browser_history_request)
         .expect("inspect browser history");
     assert_eq!(browser_history_preview.candidate_items, 1);
-    let browser_history_import = import_browser_history_source(None, &browser_history_request)
-        .expect("dry-run browser import");
+    let browser_history_import =
+        import_browser_history_source(&vault, None, &browser_history_request)
+            .expect("dry-run browser import");
+    seed_legacy_reader_fixture(None);
     assert_eq!(browser_history_import.candidate_items, 1);
 
     let imported = import_takeout_source(
+        &vault,
         None,
         &TakeoutRequest { source_path: takeout_source, dry_run: false },
     )
     .expect("import takeout");
+    seed_legacy_reader_fixture(None);
     let batch_id = imported.import_batch.expect("import batch").id;
     assert_eq!(imported.imported_items, 1);
     assert!(imported.notes.iter().any(|note| { note.contains("Core Intelligence refresh jobs") }));
-    let import_preview = preview_import_batch_detail(None, batch_id).expect("preview batch");
+    let import_preview = preview_import_batch_detail(&vault, batch_id).expect("preview batch");
     assert_eq!(import_preview.batch.status, "imported");
-    let reverted = revert_import_batch_detail(None, batch_id).expect("revert batch");
+    let reverted = revert_import_batch_detail(&vault, batch_id).expect("revert batch");
+    seed_legacy_reader_fixture(None);
     assert_eq!(reverted.batch.status, "reverted");
-    let restored = restore_import_batch_detail(None, batch_id).expect("restore batch");
+    let restored = restore_import_batch_detail(&vault, batch_id).expect("restore batch");
+    seed_legacy_reader_fixture(None);
     assert_eq!(restored.batch.status, "imported");
 
     assert_eq!(read_database_key_from_keyring().expect("read empty db key"), None);
-    let stored_report = write_database_key_to_keyring("db-secret").expect("store db key");
+    let key_root = tempdir().unwrap();
+    let key_paths = vault_core::project_paths_with_root(key_root.path());
+    let (key_vault, data_key) =
+        vault_core::Vault::open_password(key_paths, AppConfig::default(), "db-secret", None)
+            .unwrap();
+    let stored_report = store_data_key_in_keyring(&data_key).expect("store db key");
     assert!(stored_report.stored_secret);
+    let stored = read_database_key_from_keyring().expect("read db key").unwrap();
+    let expected = vault_core::Vault::unlock_data_key(key_vault.paths(), "db-secret").unwrap();
     assert_eq!(
-        read_database_key_from_keyring().expect("read db key"),
-        Some("db-secret".to_string())
+        *stored,
+        expected.expose_bytes().iter().map(|b| format!("{b:02x}")).collect::<String>()
     );
+    assert_ne!(*stored, "db-secret");
     assert!(keyring_report().stored_secret);
     assert!(!clear_database_key_from_keyring().expect("clear db key").stored_secret);
 
@@ -1432,48 +1467,12 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
     assert_eq!(security.mode, "plaintext");
     assert!(security.initialized);
 
-    let rekey_preview = preview_rekey_archive(&RekeyRequest {
-        new_mode: ArchiveMode::Encrypted,
-        new_key: None,
-        current_key: None,
-    })
-    .expect("preview rekey");
-    assert!(rekey_preview.requires_new_key);
-    assert!(rekey_preview.snapshot_path.contains("raw-snapshots/rekey"));
-    assert!(
-        rekey_preview
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("requires a new database key"))
-    );
-    // Codes stay index-aligned with the prose so the shell localizes off the
-    // stable code channel instead of matching backend English sentences.
-    assert_eq!(rekey_preview.warnings.len(), rekey_preview.warning_codes.len());
-    assert!(
-        rekey_preview
-            .warning_codes
-            .iter()
-            .any(|code| code == vault_core::REKEY_WARNING_NEW_KEY_REQUIRED)
-    );
-    let same_mode_rekey_preview = preview_rekey_archive(&RekeyRequest {
-        new_mode: ArchiveMode::Plaintext,
-        new_key: None,
-        current_key: None,
-    })
-    .expect("same-mode rekey preview");
-    assert!(
-        same_mode_rekey_preview
-            .warnings
-            .iter()
-            .any(|warning| { warning.contains("target mode matches the current mode") })
-    );
-    assert_eq!(same_mode_rekey_preview.warnings.len(), same_mode_rekey_preview.warning_codes.len());
-    assert!(
-        same_mode_rekey_preview
-            .warning_codes
-            .iter()
-            .any(|code| code == vault_core::REKEY_WARNING_SAME_MODE_REWRITE)
-    );
+    for new_mode in [ArchiveMode::Encrypted, ArchiveMode::Plaintext] {
+        let error =
+            preview_rekey_archive(&RekeyRequest { new_mode, new_key: None, current_key: None })
+                .unwrap_err();
+        assert!(error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some());
+    }
 
     let paths = project_paths().expect("project paths");
     fs::write(&paths.stronghold_path, "hold").expect("write stronghold");
@@ -1505,7 +1504,7 @@ fn security_status_reports_uninitialized_archive_mode() {
         current_key: None,
     })
     .expect_err("uninitialized archive cannot preview rekey");
-    assert!(preview_error.to_string().contains("initialize the archive"));
+    assert!(preview_error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some());
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
     restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring_root.as_deref());
@@ -1516,6 +1515,7 @@ fn security_status_reports_uninitialized_archive_mode() {
 
 #[test]
 fn build_ai_index_refuses_a_reembed_without_semantic_consent_but_allows_clear() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     // M-3: a re-embed (build) must require the master AI switch AND the semantic-index sub-flag, so a
     // user with master ON but Smart search OFF cannot trigger an embedding job (token cost/egress +
     // ~59 GB derived vectors). A `clear_only` job is pure cleanup and stays allowed (reclaiming the
@@ -1538,7 +1538,7 @@ fn build_ai_index_refuses_a_reembed_without_semantic_consent_but_allows_clear() 
     keyring_set_provider_api_key("embed-primary", "embed-secret").expect("store embedding key");
 
     // The build path refuses with the honest, actionable message.
-    let build_error = build_ai_index_now(None, &AiIndexRequest::default())
+    let build_error = build_ai_index_now(&vault, None, &AiIndexRequest::default())
         .expect_err("re-embed without semantic consent must refuse");
     let message = build_error.to_string();
     assert!(
@@ -1547,9 +1547,12 @@ fn build_ai_index_refuses_a_reembed_without_semantic_consent_but_allows_clear() 
     );
 
     // The clear-only path is pure cleanup and stays permitted (no embedding job is enqueued).
-    let cleared =
-        build_ai_index_now(None, &AiIndexRequest { clear_only: true, ..AiIndexRequest::default() })
-            .expect("clear-only must be allowed even without the semantic sub-flag");
+    let cleared = build_ai_index_now(
+        &vault,
+        None,
+        &AiIndexRequest { clear_only: true, ..AiIndexRequest::default() },
+    )
+    .expect("clear-only must be allowed even without the semantic sub-flag");
     assert!(cleared.job_id.is_some(), "a clear job was enqueued");
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
@@ -1675,6 +1678,7 @@ fn provider_resolution_helpers_cover_error_success_and_note_paths() {
 #[cfg(coverage)]
 #[test]
 fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -1711,12 +1715,14 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     )
     .expect("store llm key");
 
-    run_backup_now(None, false).expect("backup with follow-up tasks");
+    run_backup_now(&vault, None, false).expect("backup with follow-up tasks");
+    seed_legacy_reader_fixture(None);
 
-    let index = build_ai_index_now(None, &AiIndexRequest::default()).expect("build ai index");
+    let index =
+        build_ai_index_now(&vault, None, &AiIndexRequest::default()).expect("build ai index");
     assert!(!index.provider_id.is_empty());
     for _ in 0..50 {
-        let queue = load_ai_queue(None).expect("load ai queue");
+        let queue = load_ai_queue(&vault, None).expect("load ai queue");
         if queue.queued == 0 && queue.running == 0 {
             break;
         }
@@ -1724,6 +1730,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     }
 
     let search = search_ai_history(
+        &vault,
         None,
         &AiSearchRequest {
             query: "example".to_string(),
@@ -1744,6 +1751,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     // retrieval now resolves REAL semantic citations for a vague question, so the run completes with
     // evidence instead of the old "insufficient-evidence" the stubbed-semantic path produced.
     let answer = ask_ai_assistant(
+        &vault,
         None,
         &AiAssistantRequest {
             question: "What did I visit?".to_string(),
@@ -1756,6 +1764,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     assert!(!answer.citations.is_empty(), "semantic + lexical retrieval must seed citations");
 
     let tool_result = mcp_search_result(
+        &vault,
         None,
         McpSearchRequest {
             query: "example".to_string(),
@@ -1822,6 +1831,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
         move |event: vault_core::AiChatStreamEvent| events.lock().expect("chat lock").push(event)
     };
     let ack = ai_chat_send(
+        &vault,
         None,
         &vault_core::AiChatSendRequest {
             provider_id: Some("llm-primary".to_string()),
@@ -1848,7 +1858,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     // Cancelling a finished run reports no live run; an empty-message request is rejected.
     let cancel = ai_chat_cancel(None, &ack.run_id).expect("ai chat cancel");
     assert!(!cancel.cancelled);
-    let empty_error = ai_chat_send(None, &vault_core::AiChatSendRequest::default(), |_| {})
+    let empty_error = ai_chat_send(&vault, None, &vault_core::AiChatSendRequest::default(), |_| {})
         .expect_err("empty chat request rejected");
     assert!(empty_error.to_string().contains("at least one message"));
 
@@ -1863,6 +1873,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
         move |event: vault_core::AiChatStreamEvent| events.lock().expect("agent lock").push(event)
     };
     let agent_ack = ai_chat_send(
+        &vault,
         None,
         &vault_core::AiChatSendRequest {
             provider_id: Some("llm-primary".to_string()),
@@ -1911,6 +1922,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
 #[cfg(coverage)]
 #[test]
 fn coverage_run_backup_now_reports_missing_follow_up_requirements() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -1932,7 +1944,8 @@ fn coverage_run_backup_now_reports_missing_follow_up_requirements() {
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save config");
 
-    let report = run_backup_now(None, false).expect("backup with missing follow-ups");
+    let report = run_backup_now(&vault, None, false).expect("backup with missing follow-ups");
+    seed_legacy_reader_fixture(None);
     assert!(report.warnings.iter().any(|warning| warning.contains("embedding provider")));
 
     unsafe {
@@ -1945,6 +1958,7 @@ fn coverage_run_backup_now_reports_missing_follow_up_requirements() {
 #[cfg(coverage)]
 #[test]
 fn coverage_ai_queue_paused_and_semantic_fallback_paths_stay_truthful() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -1976,13 +1990,14 @@ fn coverage_ai_queue_paused_and_semantic_fallback_paths_stay_truthful() {
         "paused enrichment queue must not claim work"
     );
 
-    let paused_index =
-        build_ai_index_now(None, &AiIndexRequest::default()).expect("queue paused index job");
+    let paused_index = build_ai_index_now(&vault, None, &AiIndexRequest::default())
+        .expect("queue paused index job");
     let index_job_id = paused_index.job_id.expect("paused index job id");
     assert!(paused_index.run_id.is_none());
     assert!(paused_index.notes.iter().any(|note| note.contains("Resume the AI queue")));
 
-    let drained = run_ai_queue_jobs(None, Some(2)).expect("paused drain should only report status");
+    let drained =
+        run_ai_queue_jobs(&vault, None, Some(2)).expect("paused drain should only report status");
     assert!(drained.paused);
     assert!(drained.queued >= 1);
 
@@ -2021,6 +2036,7 @@ fn coverage_ai_queue_paused_and_semantic_fallback_paths_stay_truthful() {
     config.ai.embedding_providers[0].enabled = false;
     save_user_config(&config, None).expect("unpause config with embedding provider disabled");
     let fallback_search = search_ai_history(
+        &vault,
         None,
         &AiSearchRequest {
             query: "example".to_string(),
@@ -2053,6 +2069,7 @@ fn coverage_ai_queue_paused_and_semantic_fallback_paths_stay_truthful() {
 #[cfg(coverage)]
 #[test]
 fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -2075,7 +2092,8 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     config.ai.embedding_providers.push(batch_error_provider);
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save config");
-    run_backup_now(None, false).expect("backup");
+    run_backup_now(&vault, None, false).expect("backup");
+    seed_legacy_reader_fixture(None);
     store_ai_provider_api_key(
         &AiProviderSecretInput {
             provider_id: "embed-primary".to_string(),
@@ -2219,6 +2237,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     vault_core::ai_queue::cancel_ai_job(&connection, assistant_job.id)
         .expect("request assistant cancellation");
     let _ = complete_claimed_assistant_job(
+        &vault,
         &connection,
         &paths,
         &config,
@@ -2227,7 +2246,8 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
         &assistant_request,
     );
     assert_eq!(job_state(assistant_job.id), "cancelled");
-    let replayed = replay_ai_job(None, assistant_job.id).expect("replay cancelled assistant job");
+    let replayed =
+        replay_ai_job(&vault, None, assistant_job.id).expect("replay cancelled assistant job");
     assert_eq!(replayed.state, "queued");
 
     let wrong_payload = vault_core::ai_queue::StoredAiJob {
@@ -2241,6 +2261,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
         },
     };
     let payload_error = complete_claimed_assistant_job(
+        &vault,
         &connection,
         &paths,
         &config,
@@ -2264,6 +2285,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
             .expect("claim failing assistant")
             .expect("claimed failing assistant");
     let assistant_error = complete_claimed_assistant_job(
+        &vault,
         &connection,
         &paths,
         &config,
@@ -2290,6 +2312,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     vault_core::ai_queue::cancel_ai_job(&connection, cancelled_error_assistant.id)
         .expect("request failing assistant cancellation");
     let cancelled_assistant_error = complete_claimed_assistant_job(
+        &vault,
         &connection,
         &paths,
         &config,
@@ -2305,7 +2328,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     );
     assert_eq!(job_state(cancelled_error_assistant.id), "cancelled");
 
-    let answered = ask_ai_assistant(None, &assistant_request).expect("assistant answer");
+    let answered = ask_ai_assistant(&vault, None, &assistant_request).expect("assistant answer");
     let loaded = load_ai_assistant_job(None, answered.job_id.expect("assistant job id"))
         .expect("load completed assistant job");
     assert_eq!(loaded.state, "succeeded");
@@ -2344,6 +2367,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     assert!(!drain_one_ai_queue_job(&paths, None).expect("idle AI queue drain"));
 
     let explicit_index = build_ai_index_now(
+        &vault,
         None,
         &AiIndexRequest {
             provider_id: Some("embed-primary".to_string()),
@@ -2382,6 +2406,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
 #[cfg(coverage)]
 #[test]
 fn coverage_queue_spawn_and_foreground_drains_cover_worker_loops() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -2397,7 +2422,8 @@ fn coverage_queue_spawn_and_foreground_drains_cover_worker_loops() {
     config.ai.job_queue_concurrency = 2;
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save config");
-    run_backup_now(None, false).expect("backup");
+    run_backup_now(&vault, None, false).expect("backup");
+    seed_legacy_reader_fixture(None);
     store_ai_provider_api_key(
         &AiProviderSecretInput {
             provider_id: "embed-primary".to_string(),
@@ -2441,7 +2467,7 @@ fn coverage_queue_spawn_and_foreground_drains_cover_worker_loops() {
         false,
     )
     .expect("enqueue foreground assistant");
-    let status = run_ai_queue_jobs(None, Some(2)).expect("foreground drain");
+    let status = run_ai_queue_jobs(&vault, None, Some(2)).expect("foreground drain");
     assert!(status.queued <= 1);
     for job_id in [index.id, assistant.id] {
         let state: String = connection
@@ -2734,6 +2760,7 @@ fn coverage_intelligence_queue_drain_covers_error_and_enrichment_lanes() {
 #[cfg(coverage)]
 #[test]
 fn coverage_run_backup_now_surfaces_remote_and_index_failures_as_warnings() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -2763,14 +2790,15 @@ fn coverage_run_backup_now_surfaces_remote_and_index_failures_as_warnings() {
     )
     .expect("store embed key");
 
-    run_backup_now(None, false).expect("backup with failing follow-up tasks");
-    let mut queue = load_ai_queue(None).expect("load ai queue");
+    run_backup_now(&vault, None, false).expect("backup with failing follow-up tasks");
+    seed_legacy_reader_fixture(None);
+    let mut queue = load_ai_queue(&vault, None).expect("load ai queue");
     for _ in 0..50 {
         if queue.failed > 0 {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
-        queue = load_ai_queue(None).expect("reload ai queue");
+        queue = load_ai_queue(&vault, None).expect("reload ai queue");
     }
     assert!(queue.failed > 0);
 
@@ -2785,6 +2813,7 @@ fn coverage_run_backup_now_surfaces_remote_and_index_failures_as_warnings() {
 #[cfg(coverage)]
 #[test]
 fn coverage_browser_import_and_paused_auto_index_cover_archive_followups() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -2818,12 +2847,14 @@ fn coverage_browser_import_and_paused_auto_index_cover_archive_followups() {
         browser_name: Some("Chrome".to_string()),
         profile_name: Some("Default".to_string()),
     };
-    let imported = import_browser_history_source(None, &browser_history_request)
+    let imported = import_browser_history_source(&vault, None, &browser_history_request)
         .expect("browser direct import");
+    seed_legacy_reader_fixture(None);
     assert_eq!(imported.imported_items, 1);
     assert!(imported.notes.iter().any(|note| note.contains("Core Intelligence refresh jobs")));
 
-    let backup = run_backup_now(None, false).expect("backup with paused auto-index");
+    let backup = run_backup_now(&vault, None, false).expect("backup with paused auto-index");
+    seed_legacy_reader_fixture(None);
     assert!(backup.warnings.iter().any(|warning| warning.contains("AI auto-index queued job")));
 
     unsafe {
@@ -2836,6 +2867,7 @@ fn coverage_browser_import_and_paused_auto_index_cover_archive_followups() {
 #[cfg(coverage)]
 #[test]
 fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -2863,7 +2895,8 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
     });
     initialize_archive_database(&config, Some("vault-passphrase")).expect("initialize archive");
     save_user_config(&config, Some("vault-passphrase")).expect("save config");
-    let backup = run_backup_now(Some("vault-passphrase"), false).expect("backup");
+    let backup = run_backup_now(&vault, Some("vault-passphrase"), false).expect("backup");
+    seed_legacy_reader_fixture(Some("vault-passphrase"));
     let run_id = backup.run.expect("backup run").id;
 
     let dashboard = dashboard_snapshot(Some("vault-passphrase")).expect("load dashboard snapshot");
@@ -2873,7 +2906,7 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
 
     let doctor = doctor_report(Some("vault-passphrase")).expect("doctor report");
     assert!(!doctor.checks.is_empty());
-    let repair = repair_health(Some("vault-passphrase")).expect("repair health");
+    let repair = repair_health(&vault, Some("vault-passphrase")).expect("repair health");
     assert!(repair.run_id.is_none() || repair.run_id >= Some(run_id));
 
     // OPTIONAL key: probing a provider with NO stored key must RUN the probe, not pre-fail on
@@ -2910,12 +2943,13 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
     assert!(!disabled_probe.ok);
     assert_eq!(disabled_probe.error_code.as_deref(), Some("provider-disabled"));
 
-    let queue = load_ai_queue(Some("vault-passphrase")).expect("load ai queue");
+    let queue = load_ai_queue(&vault, Some("vault-passphrase")).expect("load ai queue");
     assert_eq!(queue.queued, 0);
-    let drained = run_ai_queue_jobs(Some("vault-passphrase"), None).expect("run empty ai queue");
+    let drained =
+        run_ai_queue_jobs(&vault, Some("vault-passphrase"), None).expect("run empty ai queue");
     assert_eq!(drained.queued, 0);
 
-    let replay = replay_ai_job(Some("vault-passphrase"), 999)
+    let replay = replay_ai_job(&vault, Some("vault-passphrase"), 999)
         .expect_err("replay should fail for a missing job");
     assert!(replay.to_string().contains("999"));
     let cancel = cancel_ai_job(Some("vault-passphrase"), 999)
@@ -3193,12 +3227,16 @@ fn security_status_keeps_last_rekey_review_visible_when_archive_is_locked() {
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save config");
 
-    rekey_archive_database(&RekeyRequest {
-        new_mode: ArchiveMode::Encrypted,
-        new_key: Some("vault-passphrase".to_string()),
-        current_key: None,
-    })
-    .expect("rekey archive");
+    // This unported read-model test uses a native SQLCipher rekey fixture.
+    // The application rekey entrypoint is refused in the mixed-storage build.
+    vault_core::rekey_archive(
+        &project_paths().unwrap(),
+        &config,
+        None,
+        ArchiveMode::Encrypted,
+        Some("vault-passphrase"),
+    )
+    .unwrap();
 
     let security = security_status(None).expect("security status while locked");
     assert_eq!(security.mode, "locked");
@@ -3221,7 +3259,7 @@ fn security_status_keeps_last_rekey_review_visible_when_archive_is_locked() {
 /// transports call: a wrong or missing current password changes nothing, and
 /// the right one rekeys so that only the new password opens the archive.
 #[test]
-fn rekey_requires_the_current_password_of_an_encrypted_archive() {
+fn rekey_refuses_mixed_storage_without_changing_existing_archive() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -3247,30 +3285,24 @@ fn rekey_requires_the_current_password_of_an_encrypted_archive() {
         new_key: None,
         current_key: current.map(str::to_string),
     };
-    for request in [change(Some("wrong password")), decrypt(Some("wrong password"))] {
-        let preview = preview_rekey_archive(&request).expect_err("preview refuses");
-        assert_eq!(format!("{preview:#}"), crate::REKEY_CURRENT_PASSWORD_WRONG);
-        let execute = rekey_archive_database(&request).expect_err("rekey refuses");
-        assert_eq!(format!("{execute:#}"), crate::REKEY_CURRENT_PASSWORD_WRONG);
+    for request in [
+        change(None),
+        decrypt(None),
+        change(Some("wrong password")),
+        decrypt(Some("wrong password")),
+        change(Some(old)),
+        decrypt(Some(old)),
+    ] {
+        for error in [
+            preview_rekey_archive(&request).unwrap_err(),
+            rekey_archive_database(&request).unwrap_err(),
+        ] {
+            assert!(error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some());
+        }
     }
-    for request in [change(None), decrypt(None)] {
-        let execute = rekey_archive_database(&request).expect_err("rekey refuses");
-        assert_eq!(format!("{execute:#}"), crate::REKEY_CURRENT_PASSWORD_REQUIRED);
-    }
-    assert_eq!(archive_bytes(), before, "a refused rekey must not touch the archive");
-    assert!(vault_core::archive_key_opens(&paths, old).expect("old password check"));
-
-    preview_rekey_archive(&change(Some(old))).expect("preview with the right password");
-    let snapshot = rekey_archive_database(&change(Some(old))).expect("rekey");
-    assert!(snapshot.archive_status.encrypted && snapshot.archive_status.unlocked);
-    assert!(vault_core::archive_key_opens(&paths, new).expect("new password check"));
-    assert!(!vault_core::archive_key_opens(&paths, old).expect("old password check"));
-
-    // The old password no longer counts as the current one.
-    let error = rekey_archive_database(&decrypt(Some(old))).expect_err("old password refused");
-    assert_eq!(format!("{error:#}"), crate::REKEY_CURRENT_PASSWORD_WRONG);
-    let plain = rekey_archive_database(&decrypt(Some(new))).expect("decrypt");
-    assert!(!plain.archive_status.encrypted && plain.archive_status.unlocked);
+    assert_eq!(archive_bytes(), before);
+    assert!(vault_core::archive_key_opens(&paths, old).unwrap());
+    assert!(!vault_core::archive_key_opens(&paths, new).unwrap());
 
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
@@ -3314,14 +3346,7 @@ fn launch_recovery_heals_a_stale_plaintext_config_so_the_archive_is_not_bricked(
     assert!(snapshot.archive_status.initialized);
     assert!(snapshot.archive_status.encrypted, "config healed to the encrypted file's real mode");
     assert!(!snapshot.archive_status.unlocked, "no key in hand -> locked, never bricked");
-    assert!(
-        snapshot
-            .archive_status
-            .warning
-            .as_deref()
-            .is_some_and(|warning| warning.contains("database key is required")),
-        "the healed state must be the unlock prompt, not a NOTADB dead-end",
-    );
+    assert!(snapshot.archive_status.warning.is_none(), "locked is a prompt state, not an error");
     assert!(matches!(
         vault_core::load_config(&paths).expect("load healed config").archive_mode,
         ArchiveMode::Encrypted,
@@ -3532,49 +3557,19 @@ fn parse_archive_recovery_required_round_trips_the_startup_report() {
 }
 
 #[test]
-fn run_full_archive_restore_worker_fn_revives_a_broken_archive() {
-    // The worker wrapper pins paths+config+key correctly: an encrypted archive is bricked, then the
-    // one-click restore from a verified snapshot revives it (the core test does the deep assertions).
-    let _guard = lock_env();
-    let dir = tempdir().expect("tempdir");
-    let keyring_root = dir.path().join("test-keyring");
-    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
-    let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
-    unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
-        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+fn full_restore_and_reconciliation_refuse_mixed_storage() {
+    let request = vault_core::SnapshotRestoreRequest { snapshot_path: "unused".into() };
+    for error in [
+        crate::run_full_archive_restore(None, &request).unwrap_err(),
+        crate::reconcile_archive_encryption(None).unwrap_err(),
+    ] {
+        assert!(error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some());
     }
-
-    let mut encrypted = initialized_config();
-    encrypted.archive_mode = ArchiveMode::Encrypted;
-    initialize_archive_database(&encrypted, Some("000000")).expect("init encrypted archive");
-    let paths = project_paths().expect("project paths");
-
-    let snapshot_dir = paths.raw_snapshots_dir.join("rekey");
-    fs::create_dir_all(&snapshot_dir).expect("snapshot dir");
-    let snapshot_path = snapshot_dir.join("archive-before-rekey-good.sqlite");
-    fs::copy(&paths.archive_database_path, &snapshot_path).expect("copy snapshot");
-
-    // Break the canonical history-vault so it can no longer open.
-    fs::write(&paths.archive_database_path, vec![0u8; 4096]).expect("brick canonical archive");
-
-    let request =
-        vault_core::SnapshotRestoreRequest { snapshot_path: snapshot_path.display().to_string() };
-    let report =
-        crate::run_full_archive_restore(Some("000000"), &request).expect("worker restore succeeds");
-    assert!(report.run_id.is_some(), "an audit run was recorded");
-    assert!(matches!(report.restored_mode, ArchiveMode::Encrypted));
-
-    // The archive opens afterward (the wrapper reconciled config + restored the file).
-    let snapshot = app_snapshot(Some("000000")).expect("app snapshot");
-    assert!(snapshot.archive_status.unlocked, "the restored archive opens unlocked");
-
-    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
-    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
 }
 
 #[test]
 fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -3598,7 +3593,8 @@ fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
     keyring_set_provider_api_key("llm-primary", "sk-test").expect("store provider key");
     // A manual backup starts the intelligence queue workers in the background; the wipe has to
     // stop them before it deletes the databases they write.
-    let backup = run_backup_now(None, false).expect("backup");
+    let backup = run_backup_now(&vault, None, false).expect("backup");
+    seed_legacy_reader_fixture(None);
     assert_eq!(backup.run.expect("run").new_visits, 1);
 
     let preview = preview_data_wipe(None).expect("preview");
@@ -3607,12 +3603,13 @@ fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
     assert!(preview.items.iter().any(|item| item.path.ends_with("history-vault.sqlite")));
 
     for wrong in ["", "delete", "DELETE ", "Delete"] {
-        let error = wipe_all_data(wrong, None).expect_err("only the exact word is accepted");
+        let error =
+            wipe_all_data(wrong, None, || Ok(())).expect_err("only the exact word is accepted");
         assert!(error.to_string().contains("DELETE"), "{error:#}");
     }
     assert!(app_snapshot(None).expect("snapshot").archive_status.initialized, "nothing deleted");
 
-    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, None).expect("wipe");
+    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, None, || Ok(())).expect("wipe");
     assert_eq!(report, vault_core::WipeReport::default(), "no automatic backup was installed");
     assert_eq!(crate::intelligence::running_background_workers(), 0);
     let snapshot = app_snapshot(None).expect("snapshot after wipe");
@@ -3626,12 +3623,15 @@ fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
         "the browser's own history must be untouched"
     );
 
-    wipe_all_data(WIPE_CONFIRMATION_WORD, None).expect("a second wipe is a no-op");
+    wipe_all_data(WIPE_CONFIRMATION_WORD, None, || Ok(())).expect("a second wipe is a no-op");
     assert!(!finish_interrupted_data_wipe().expect("nothing interrupted"));
 
     // Onboarding again works in the same process.
     initialize_archive_database(&initialized_config(), None).expect("initialize again");
-    let again = run_backup_now(None, false).expect("backup again");
+    vault.store().close().unwrap();
+    let vault = vault_core::Vault::open_temp().unwrap();
+    let again = run_backup_now(&vault, None, false).expect("backup again");
+    seed_legacy_reader_fixture(None);
     assert_eq!(again.run.expect("run").new_visits, 1);
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
@@ -3693,7 +3693,7 @@ fn delete_all_data_removes_the_installed_automatic_backup() {
         );
     }
 
-    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, None).expect("wipe");
+    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, None, || Ok(())).expect("wipe");
     assert_eq!(report, vault_core::WipeReport { schedule_removed: true, schedule_error: None });
     assert_eq!(files_under(&sandbox), Vec::<PathBuf>::new(), "no task is left in the OS");
     assert_eq!(
@@ -3717,4 +3717,56 @@ fn delete_all_data_removes_the_installed_automatic_backup() {
     for (name, value) in saved {
         restore_env_var(name, value.as_deref());
     }
+}
+
+fn seed_legacy_reader_fixture(key: Option<&str>) {
+    let paths = vault_core::project_paths().unwrap();
+    let config = vault_core::load_config(&paths).unwrap();
+    vault_core::test_support::legacy_fixtures::seed_reader_archive(
+        &paths,
+        &config,
+        key,
+        "https://example.com",
+        "Example",
+    );
+}
+
+#[test]
+fn mixed_storage_refuses_unsafe_operations_before_touching_archive_files() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let old = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+    }
+    let vault = vault_core::Vault::open_temp().unwrap();
+    let request = crate::RekeyRequest {
+        new_mode: ArchiveMode::Encrypted,
+        new_key: Some("new password".into()),
+        current_key: None,
+    };
+    let mut errors = vec![
+        crate::rekey_archive_database(&request).unwrap_err(),
+        crate::preview_rekey_archive(&request).unwrap_err(),
+        crate::repair_health(&vault, None).unwrap_err(),
+        crate::export_app_data(None, root.path().join("export.pathkeep-bundle")).unwrap_err(),
+        crate::preview_import(root.path().join("absent.pathkeep-bundle")).unwrap_err(),
+        crate::apply_import(None, root.path().join("absent.pathkeep-bundle"), Default::default())
+            .unwrap_err(),
+    ];
+    let paths = project_paths().unwrap();
+    let config = AppConfig { initialized: true, ..Default::default() };
+    vault_core::save_config(&paths, &config).unwrap();
+    let mut changed = config.clone();
+    changed.archive_mode = ArchiveMode::Encrypted;
+    errors.push(crate::save_user_config(&changed, None).unwrap_err());
+    for error in errors {
+        assert!(
+            error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some(),
+            "{error:#}"
+        );
+    }
+    assert!(!paths.archive_database_path.exists());
+    assert_eq!(vault_core::load_config(&paths).unwrap().archive_mode, config.archive_mode);
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old.as_deref());
 }

@@ -129,7 +129,15 @@ pub fn preview_data_wipe(
     key: Option<&str>,
 ) -> Result<WipePreview> {
     // Counted before sizing: opening the archive can create the search database it attaches.
-    let visit_count = if config.initialized && paths.archive_database_path.exists() {
+    let visit_count = if let Some(store) = crate::vault::live::store(&paths.app_root) {
+        store.read(vault_store::Db::Archive, |s| {
+            s.query_one("SELECT value FROM archive_totals WHERE name='visits'", (), |r| {
+                Ok(r.get(0)?)
+            })
+        })?
+    } else if config.archive_mode == crate::ArchiveMode::Encrypted && key.is_none() {
+        0
+    } else if config.initialized && paths.archive_database_path.exists() {
         visible_visit_count(paths, config, key)?
     } else {
         0

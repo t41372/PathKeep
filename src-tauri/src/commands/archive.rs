@@ -43,9 +43,9 @@ pub(crate) async fn initialize_archive(
 pub(crate) async fn assess_archive_upgrade(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ArchiveUpgradeAssessment, CommandError> {
-    let session_database_key = state.get_key();
+    let session_database_key_state = state.inner().clone();
     run_blocking_command("assess_archive_upgrade", move || {
-        worker_bridge::assess_archive_upgrade_impl(session_database_key.as_deref())
+        worker_bridge::assess_archive_upgrade_impl(session_database_key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -179,15 +179,12 @@ pub(crate) async fn run_retention_prune(
 pub(crate) async fn run_backup_now(
     app: AppHandle,
     due_only: bool,
-    state: State<'_, SessionState>,
 ) -> Result<vault_core::BackupReport, CommandError> {
-    let session_database_key = state.get_key();
     run_blocking_command("run_backup_now", move || {
         crate::desktop_integration::run_backup(
             &app,
             crate::desktop_integration::BackupSource::App,
             due_only,
-            session_database_key.as_deref(),
         )
     })
     .await
@@ -200,9 +197,9 @@ pub(crate) async fn query_history(
     query: vault_core::HistoryQuery,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::HistoryQueryResponse, CommandError> {
-    let session_database_key = state.get_key();
+    let session_database_key_state = state.inner().clone();
     run_blocking_command("query_history", move || {
-        worker_bridge::query_history_impl(query, session_database_key.as_deref())
+        worker_bridge::query_history_impl(query, session_database_key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -215,9 +212,12 @@ pub(crate) async fn load_history_favicons(
     entries: Vec<vault_core::HistoryFaviconLookupEntry>,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::HistoryFaviconLookupResult>, CommandError> {
-    let session_database_key = state.get_key();
+    let session_database_key_state = state.inner().clone();
     run_blocking_command("load_history_favicons", move || {
-        worker_bridge::load_history_favicons_impl(entries, session_database_key.as_deref())
+        worker_bridge::load_history_favicons_impl(
+            entries,
+            session_database_key_state.get_key()?.as_deref(),
+        )
     })
     .await
 }
@@ -229,9 +229,9 @@ pub(crate) async fn load_history_og_images(
     entries: Vec<vault_core::HistoryOgImageLookupEntry>,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::HistoryOgImageLookupResult>, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("load_history_og_images", move || {
-        worker_bridge::load_history_og_images_impl(entries, session_database_key.as_deref())
+        worker_bridge::load_history_og_images_impl(entries, &state)
     })
     .await
 }
@@ -243,9 +243,9 @@ pub(crate) async fn mark_og_images_shown(
     urls: Vec<String>,
     state: State<'_, SessionState>,
 ) -> Result<(), CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("mark_og_images_shown", move || {
-        worker_bridge::mark_og_images_shown_impl(urls, session_database_key.as_deref())
+        worker_bridge::mark_og_images_shown_impl(urls, &state)
     })
     .await
 }
@@ -257,9 +257,9 @@ pub(crate) async fn trigger_og_image_refetch(
     urls: Vec<String>,
     state: State<'_, SessionState>,
 ) -> Result<u32, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("trigger_og_image_refetch", move || {
-        worker_bridge::refetch_og_images_impl(urls, session_database_key.as_deref())
+        worker_bridge::refetch_og_images_impl(urls, &state)
     })
     .await
 }
@@ -276,9 +276,9 @@ pub(crate) async fn prefetch_og_images(
     budget: u32,
     state: State<'_, SessionState>,
 ) -> Result<(u32, u32), CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("prefetch_og_images", move || {
-        worker_bridge::prefetch_og_images_impl(budget, session_database_key.as_deref())
+        worker_bridge::prefetch_og_images_impl(budget, &state)
     })
     .await
 }
@@ -289,9 +289,9 @@ pub(crate) async fn prefetch_og_images(
 pub(crate) async fn get_og_image_storage_stats(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::OgImageStorageStats, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("get_og_image_storage_stats", move || {
-        worker_bridge::og_image_storage_stats_impl(session_database_key.as_deref())
+        worker_bridge::og_image_storage_stats_impl(&state)
     })
     .await
 }
@@ -302,9 +302,9 @@ pub(crate) async fn get_og_image_storage_stats(
 pub(crate) async fn get_og_image_coverage_stats(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::OgImageCoverageStats, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("get_og_image_coverage_stats", move || {
-        worker_bridge::og_image_coverage_stats_impl(session_database_key.as_deref())
+        worker_bridge::og_image_coverage_stats_impl(&state)
     })
     .await
 }
@@ -315,9 +315,9 @@ pub(crate) async fn get_og_image_coverage_stats(
 pub(crate) async fn clear_og_image_cache(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::OgImageCleanupReport, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("clear_og_image_cache", move || {
-        worker_bridge::clear_og_image_cache_impl(session_database_key.as_deref())
+        worker_bridge::clear_og_image_cache_impl(&state)
     })
     .await
 }
@@ -328,9 +328,9 @@ pub(crate) async fn clear_og_image_cache(
 pub(crate) async fn run_og_image_cleanup(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::OgImageCleanupReport, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("run_og_image_cleanup", move || {
-        worker_bridge::run_og_image_cleanup_impl(session_database_key.as_deref())
+        worker_bridge::run_og_image_cleanup_impl(&state)
     })
     .await
 }
@@ -341,9 +341,9 @@ pub(crate) async fn run_og_image_cleanup(
 pub(crate) async fn load_dashboard_snapshot(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::DashboardSnapshot, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("load_dashboard_snapshot", move || {
-        worker_bridge::dashboard_snapshot_impl(key.as_deref())
+        worker_bridge::dashboard_snapshot_impl(key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -354,9 +354,9 @@ pub(crate) async fn load_dashboard_snapshot(
 pub(crate) async fn load_source_stats(
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::SourceStats>, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("load_source_stats", move || {
-        worker_bridge::source_stats_impl(key.as_deref())
+        worker_bridge::source_stats_impl(key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -368,9 +368,9 @@ pub(crate) async fn get_url_detail(
     url: String,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::UrlDetail, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("get_url_detail", move || {
-        worker_bridge::url_detail_impl(&url, key.as_deref())
+        worker_bridge::url_detail_impl(&url, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -385,9 +385,9 @@ pub(crate) async fn get_browse_day_insights(
     request: vault_core::BrowseDayInsightsRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::BrowseDayInsights, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("get_browse_day_insights", move || {
-        worker_bridge::browse_day_insights_impl(key.as_deref(), request)
+        worker_bridge::browse_day_insights_impl(key_state.get_key()?.as_deref(), request)
     })
     .await
 }
@@ -399,9 +399,9 @@ pub(crate) async fn load_audit_run_detail(
     run_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AuditRunDetail, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("load_audit_run_detail", move || {
-        worker_bridge::audit_run_detail_impl(run_id, key.as_deref())
+        worker_bridge::audit_run_detail_impl(run_id, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -413,9 +413,9 @@ pub(crate) async fn export_history(
     request: vault_core::ExportRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ExportResult, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("export_history", move || {
-        worker_bridge::export_history_impl(request, key.as_deref())
+        worker_bridge::export_history_impl(request, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -440,9 +440,11 @@ pub(crate) fn cancel_export(export_id: String) -> bool {
 pub(crate) async fn doctor_report(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::HealthReport, CommandError> {
-    let key = state.get_key();
-    run_blocking_command("doctor_report", move || worker_bridge::doctor_report_impl(key.as_deref()))
-        .await
+    let key_state = state.inner().clone();
+    run_blocking_command("doctor_report", move || {
+        worker_bridge::doctor_report_impl(key_state.get_key()?.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
@@ -451,9 +453,8 @@ pub(crate) async fn doctor_report(
 pub(crate) async fn repair_health(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::HealthRepairReport, CommandError> {
-    let key = state.get_key();
-    run_blocking_command("repair_health", move || worker_bridge::repair_health_impl(key.as_deref()))
-        .await
+    let state = state.inner().clone();
+    run_blocking_command("repair_health", move || worker_bridge::repair_health_impl(&state)).await
 }
 
 #[cfg(not(test))]
@@ -463,9 +464,9 @@ pub(crate) async fn repair_health(
 pub(crate) async fn preview_clear_derived_intelligence(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ClearDerivedIntelligenceReport, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("preview_clear_derived_intelligence", move || {
-        worker_bridge::preview_clear_derived_intelligence_impl(key.as_deref())
+        worker_bridge::preview_clear_derived_intelligence_impl(key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -476,9 +477,9 @@ pub(crate) async fn preview_clear_derived_intelligence(
 pub(crate) async fn clear_derived_intelligence(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ClearDerivedIntelligenceReport, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("clear_derived_intelligence", move || {
-        worker_bridge::clear_derived_intelligence_impl(key.as_deref())
+        worker_bridge::clear_derived_intelligence_impl(key_state.get_key()?.as_deref())
     })
     .await
 }

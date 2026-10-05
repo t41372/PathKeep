@@ -120,3 +120,21 @@ pub(crate) fn restore_env_var(name: &str, value: Option<&std::ffi::OsStr>) {
         }
     }
 }
+
+/// Number of secret reads from one file-backed keyring. Counts never include secrets.
+#[cfg(debug_assertions)]
+pub fn keyring_secret_read_count(root: &std::path::Path) -> usize {
+    keyring_read_counts().lock().unwrap().get(root).copied().unwrap_or(0)
+}
+#[cfg(debug_assertions)]
+pub(crate) fn record_keyring_secret_read(root: &std::path::Path) {
+    *keyring_read_counts().lock().unwrap().entry(root.to_owned()).or_default() += 1;
+}
+#[cfg(debug_assertions)]
+fn keyring_read_counts()
+-> &'static std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, usize>> {
+    static COUNTS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, usize>>,
+    > = std::sync::OnceLock::new();
+    COUNTS.get_or_init(Default::default)
+}

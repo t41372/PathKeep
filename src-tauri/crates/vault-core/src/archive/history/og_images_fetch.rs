@@ -768,8 +768,7 @@ mod tests {
             );
             return;
         }
-        let connection = rusqlite::Connection::open_in_memory().expect("archive");
-        crate::archive::schema::create_schema(&connection).expect("schema");
+        let connection = crate::Vault::open_temp().expect("archive");
         let page_url = "https://network-switch-test.invalid/article";
         // Replace a previously retryable row, as the worker would during a retry.
         let previous =
@@ -1416,6 +1415,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Fetches a public YouTube thumbnail; requires explicit network permission"]
     fn youtube_synth_path_enters_finish_image_fetch_without_html_scrape() {
         let client = build_fetch_client().unwrap();
         let outcome =

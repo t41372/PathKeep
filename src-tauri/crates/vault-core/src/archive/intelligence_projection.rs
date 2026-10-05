@@ -66,6 +66,7 @@ pub fn open_intelligence_connection(
                 .push(Location::caller().to_string());
         }
     }
+    super::schema::require_legacy_password(paths, config, key)?;
     ensure_paths(paths)?;
     let schema_key = paths.intelligence_database_path.display().to_string();
     // Checked before `open` creates the file, so a deleted database is rebuilt.

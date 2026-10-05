@@ -16,7 +16,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use super::copy::StatusLine;
 use crate::{command_error::CommandError, worker_bridge};
@@ -165,10 +165,10 @@ pub(crate) fn run_backup<R: Runtime>(
     app: &AppHandle<R>,
     source: BackupSource,
     due_only: bool,
-    database_key: Option<&str>,
 ) -> Result<vault_core::BackupReport, CommandError> {
     super::update_status(app, BackupStatus::started);
-    let result = worker_bridge::run_backup_now_impl(due_only, database_key, |event| {
+    let session = app.state::<crate::session::SessionState>();
+    let result = worker_bridge::run_backup_now_impl(due_only, &session, |event| {
         let _ = app.emit(BACKUP_PROGRESS_EVENT, &event);
     });
     let ran = result.as_ref().map(|report| !report.due_skipped);

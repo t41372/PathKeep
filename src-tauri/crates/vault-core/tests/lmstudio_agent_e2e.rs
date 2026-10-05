@@ -97,7 +97,8 @@ fn agent_config() -> AppConfig {
 /// Seeds a small, distinctive archive at `paths` by importing a real Firefox `places.sqlite`
 /// fixture, so the lexical (BM25) plane has rows to surface for the agent's `search_history` call.
 /// Returns the imported visit count (a sanity check the seed actually landed).
-fn seed_archive(paths: &ProjectPaths, config: &AppConfig, source_dir: &Path) -> usize {
+fn seed_archive(source_dir: &Path) -> usize {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let history_path = source_dir.join("places.sqlite");
     // A handful of recognizable pages; the prompt asks about "tauri", which only the first row
     // matches, so a faithful tool call must surface it.
@@ -159,8 +160,8 @@ fn seed_archive(paths: &ProjectPaths, config: &AppConfig, source_dir: &Path) -> 
         browser_name: Some("Mozilla Firefox".to_string()),
         profile_name: Some("default".to_string()),
     };
-    let inspection = vault_core::import_browser_history(paths, config, None, &request)
-        .expect("import seeded archive");
+    let inspection =
+        vault_core::import_browser_history(&vault, &request).expect("import seeded archive");
     inspection.candidate_items
 }
 
@@ -235,7 +236,9 @@ impl AiRunControl for CancelToken {
 /// Builds the tool context the harness drives: the seeded archive + the real LM Studio embedding
 /// provider so `search_history` runs the full hybrid pipeline.
 fn tool_context(paths: &ProjectPaths, config: &AppConfig) -> AgentToolContext {
+    let vault = vault_core::Vault::open_temp().unwrap();
     AgentToolContext {
+        vault: vault.clone(),
         paths: paths.clone(),
         config: config.clone(),
         database_key: None,
@@ -265,7 +268,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     let dir = tempfile::tempdir().expect("tempdir");
     let paths = project_paths_with_root(dir.path());
     let config = agent_config();
-    let seeded = seed_archive(&paths, &config, dir.path());
+    let seeded = seed_archive(dir.path());
     assert!(seeded > 0, "the seeded archive must hold at least one visit");
     eprintln!("agent e2e: seeded {seeded} visit(s)");
 
@@ -491,7 +494,7 @@ async fn lmstudio_agent_cancel_mid_loop_emits_a_graceful_done() {
     let dir = tempfile::tempdir().expect("tempdir");
     let paths = project_paths_with_root(dir.path());
     let config = agent_config();
-    seed_archive(&paths, &config, dir.path());
+    seed_archive(dir.path());
 
     let run_id = "run-agent-cancel-e2e";
     begin_agent_run(&paths, &BeginAgentRun { id: run_id.to_string(), ..Default::default() })

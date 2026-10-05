@@ -18,6 +18,7 @@ pub(crate) struct Settings {
     pub path: PathBuf,
     pub scratch: Option<PathBuf>,
     pub key: Option<[u8; 32]>,
+    pub scratch_key: Option<[u8; 32]>,
     pub io: Option<IoLayer>,
     pub cache_kib: usize,
 }
@@ -26,7 +27,8 @@ impl Settings {
         Self {
             path: config.paths.get(db).into(),
             scratch: (db != Db::Scratch).then(|| config.paths.scratch.clone()),
-            key: config.key,
+            key: config.keys[db as usize],
+            scratch_key: config.keys[Db::Scratch as usize],
             io: config.io.clone(),
             cache_kib: config.page_cache_kib.get(),
         }
@@ -37,10 +39,11 @@ impl Settings {
             .experimental_attach(true)
             .experimental_encryption(self.key.is_some())
             .experimental_multiprocess_wal(false);
-        if let Some(key) = self.key {
+        if let Some(key) = &self.key {
             b = b.with_encryption(turso::EncryptionOpts {
                 cipher: "aegis256".into(),
-                hexkey: hex_key(&key),
+                // Turso owns this required SDK copy; our temporary is wiped on drop.
+                hexkey: hex_key(key).to_string(),
             });
         }
         if let Some(io) = &self.io {
@@ -70,6 +73,7 @@ pub(crate) fn preflight(config: &Config) -> Result<()> {
                 let database = rt.block_on(settings.builder(true).build())?;
                 let conn = database.connect()?;
                 let session = Session {
+                    statements: std::cell::Cell::new(0),
                     runtime: &rt,
                     conn: &conn,
                     read_only: true,
@@ -156,6 +160,7 @@ impl Engine {
     }
     pub fn session(&self, read_only: bool) -> Session<'_> {
         Session {
+            statements: std::cell::Cell::new(0),
             runtime: &self.rt,
             conn: &self.conn,
             read_only,
@@ -178,8 +183,8 @@ impl Engine {
                 while rows.next().await?.is_some() {}
             }
             if let Some(path) = &settings.scratch {
-                let uri = scratch_uri(path, settings.key.as_ref());
-                self.conn.execute("ATTACH ?1 AS scratch", [uri]).await?;
+                let uri = scratch_uri(path, settings.scratch_key.as_ref());
+                self.conn.execute("ATTACH ?1 AS scratch", [uri.as_str()]).await?;
                 // In 0.8.1 a schema-qualified cache_size still updates main.
                 // Leave the attachment's native bounded page cache alone.
             }
@@ -190,17 +195,17 @@ impl Engine {
         })
     }
 }
-fn hex_key(key: &[u8; 32]) -> String {
+fn hex_key(key: &[u8; 32]) -> zeroize::Zeroizing<String> {
     use std::fmt::Write;
-    let mut s = String::with_capacity(64);
+    let mut s = zeroize::Zeroizing::new(String::with_capacity(64));
     for byte in key {
         write!(s, "{byte:02x}").unwrap();
     }
     s
 }
-fn scratch_uri(path: &Path, key: Option<&[u8; 32]>) -> String {
+fn scratch_uri(path: &Path, key: Option<&[u8; 32]>) -> zeroize::Zeroizing<String> {
     use std::fmt::Write;
-    let mut uri = String::from("file:");
+    let mut uri = zeroize::Zeroizing::new(String::from("file:"));
     for byte in path.to_str().unwrap().as_bytes() {
         if byte.is_ascii_alphanumeric() || b"/-_.:".contains(byte) {
             uri.push(*byte as char)
@@ -209,9 +214,18 @@ fn scratch_uri(path: &Path, key: Option<&[u8; 32]>) -> String {
         }
     }
     if let Some(key) = key {
-        write!(uri, "?cipher=aegis256&hexkey={}", hex_key(key)).unwrap();
+        let hex = hex_key(key);
+        write!(uri, "?cipher=aegis256&hexkey={}", hex.as_str()).unwrap();
     }
     uri
+}
+
+impl Drop for Settings {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.key.zeroize();
+        self.scratch_key.zeroize();
+    }
 }
 
 #[cfg(test)]

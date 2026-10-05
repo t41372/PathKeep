@@ -51,7 +51,7 @@ export function TagField({
           })
           saved.current = annotation.tags
           client.setQueryData(['annotations', 'url', url], annotation)
-          void client.invalidateQueries({ queryKey: ['annotations', 'list'] })
+          void client.invalidateQueries({ queryKey: ['stars', 'list'] })
           invalidateSearches(client)
         } catch {
           setTags(saved.current)

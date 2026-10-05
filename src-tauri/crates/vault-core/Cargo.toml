@@ -19,6 +19,8 @@ license.workspace = true
 # in default/CI), not in lock bytes.
 [features]
 default = []
+# Real fixture sharing for the still-unported SQLite consumers in workspace tests.
+test-fixtures = []
 # `metal` — opt-in Apple-Silicon Metal backend across the three candle crates (05 §7). OFF in
 # default/coverage/CI: Metal cannot run on the CI box (no GPU), and the metal crates only enter the
 # build graph under `--features metal`. The runtime `gpu_enabled` flag, the honest "needs a Metal
@@ -41,6 +43,8 @@ default = []
 metal = ["dep:vault-metal-backend"]
 
 [dependencies]
+vault-crypto = { path = "../vault-crypto" }
+zeroize = "1"
 anyhow.workspace = true
 browser-history-parser = { version = "0.1.0", path = "../browser-history-parser" }
 # candle in-app embedding engine (W-AI-4b): CPU-only by DEFAULT (no accelerate/mkl/cuda/metal). The

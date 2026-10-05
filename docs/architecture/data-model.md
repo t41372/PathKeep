@@ -101,9 +101,203 @@
 Turso 的新庫 schema 見 [store-schema.md](store-schema.md)：四個 durable `.db`
 各有一份 consolidated v1，scratch 為空；archive 包含跨 profile 的 `pages`、
 每頁搜尋文件與 transactional outbox，全文索引由 Tantivy 持有。各表用途、keys、
-索引、writer 與刪除清單以該文檔為準。這次只交付 schema registry，既有 rusqlite
-查詢與寫入尚未切換；以下 `.sqlite`、FTS 與 SQLCipher 描述記錄目前仍在運行的路徑，
-不是 [ADR-012](decisions/012-turso-storage-engine.md) 的目標設計。
+索引、writer 與刪除清單以該文檔為準。archive 寫入、備份、Takeout / Browser Direct
+匯入、批次撤銷與恢復、筆記、標籤、星號和預覽圖已經透過 `Vault` 寫入 Turso。
+尚未移植的讀取、intelligence、agent 與整庫維護仍使用下列 `.sqlite` 路徑；它們不是
+[ADR-012](decisions/012-turso-storage-engine.md) 的目標設計。
+
+### Migration in progress
+
+This branch is not usable as a complete archive application until migration area 6.
+Archive writes use Turso `.db` files. Password unlock retains the exact typed archive
+password for unported SQLCipher readers, separately from the zeroized data key. Backend
+keychain auto-unlock has no typed password. The snapshot still reports `unlocked: true`,
+with empty results for its unported reader sections. Wipe, security status, schedule
+status and chat cancellation do not need that password. Only attempts to open a
+SQLCipher connection return `storage-migration-incomplete` until the user supplies the
+archive password. A locked encrypted archive returns a successful snapshot with
+`encrypted: true, unlocked: false`; status reads never retrieve a keychain secret.
+History, Insights and several maintenance readers
+still use the old SQLite files and do not see new Turso writes. There is no bridge
+between the stores. The owner IPC prevents another process from opening databases;
+it does not make the unported readers current.
+
+This build refuses archive rekey (including its preview), encryption-mode changes on
+an initialized archive, doctor repair, full-archive migration export/import (including
+import preview), full-archive snapshot restore, archive encryption reconciliation, and the AI `is:starred` filter. They return the typed
+`StorageMigrationIncomplete` error, exposed to desktop commands as
+`storage-migration-incomplete`: the operation is unavailable until the storage migration
+completes. The AI refusal applies to the public search, agent tools and code-mode entrypoints.
+The internal legacy read algorithms still have their own SQLite tests.
+
+Restore in area 6: the worker bundle tests
+`export_app_data_writes_a_bundle_at_the_requested_target`,
+`preview_import_reads_a_bundle_written_by_export_app_data`, and
+`apply_import_restores_an_exported_bundle_onto_a_fresh_project_root`. They were replaced
+by refusal tests while mixed-store operations are unavailable. The full-archive worker
+restore success test is likewise replaced by a typed refusal; its legacy core tests remain.
+The desktop `migration_and_browse_insights_impls_cover_local_desktop_flows` bundle round-trip
+assertions also need restoring in area 6. Desktop wrapper tests seed SQLite read fixtures
+independently and inspect Turso writer results directly; they do not assert against copied data.
+
+### Turso write path and ownership
+
+`Vault` opens one shared `Store` with the migration registry. Each durable database
+has one initial schema version. Archive includes resumable visibility state, the batch
+URL index, indexed preview-image eviction, independent source cursors, cached totals,
+and canonical URL indexes. No released Turso schema needs a backfill. Fact transactions
+maintain the counters incrementally. Public writes receive `&Vault`; transaction helpers
+receive `&Session`. The ported paths do not bootstrap schemas or seed search on reads.
+
+Backup and import submit at most 10,000 source rows per `Priority::Batch` transaction.
+Each archive batch commits facts, URL bounds, affected search documents, profile
+memberships, outbox events and run/import progress together. The producer waits for its
+commit, and interactive stars, notes and tags can overtake a queued batch. A second
+backup request in the same owner is rejected as `backup-already-running`. A colliding
+scheduled request is deferred with the existing `write-lock` reason. Checkpoint replay
+shares this guard.
+
+Visit IDs and download IDs advance with their own committed rows. Favicon timestamps
+and search terms' URL timestamps use independent inclusive cursors so ties stay reachable.
+Each URL batch advances its URL-time watermark and stores a rowid scan position.
+Chromium, Firefox and Safari page their URL tables by `id > position ORDER BY id`.
+The scan retains its original time filter and visit-ID range so partial commits cannot
+change the selection of unread rows. Resume seeks past committed rows. Visits added
+since the interrupted scan began can bring in a parent URL behind that position,
+regardless of its timestamp; those parent upserts are idempotent. A full first scan
+without new source visits does not rescan the visits table. Completing all source phases
+clears the scan position. Visit/download streams walk source IDs; search terms and
+favicons use one streaming source query rather than re-sorting for each emitted batch.
+Browser-direct imports update `last_source_batch_id` without advancing live backup
+cursors. Takeout retains a watermark for its separate synthetic profile.
+
+Source evidence is a separate database. Its bounded chunks commit before the archive
+watermark references them. A crash can leave unreferenced evidence, but cannot commit a
+cursor past evidence that was never saved. Browser files still use rusqlite staging and
+parsers. Browser-import schema fingerprints describe schema observations, not whole-file
+contents. Takeout file and ZIP readers emit batches before reaching the end of input,
+avoiding an allocation proportional to the complete input file; there is no plaintext
+JSON evidence spool. The parser continues to accept trailing bytes as it did before this port. Imports
+still drain the input with cancellation checks to validate ZIP checksums and late I/O
+errors before completion. A late error leaves a failed batch with its committed prefix.
+
+Runs store `running` while active, `success` on completion, `failed` on an ordinary
+error, and `interrupted` on cancellation or crash. Errors retain committed counts,
+completed profile summaries and collected warnings. The run overview uses the same
+status, timestamps and requested profile scope as its row. On startup, leftover active write runs and import batches become
+interrupted. A partial import retains its batch ID and exposes `batch.status` in its
+list/detail response; it is never reported as fully imported. In-flight previews do not
+write final audit artifacts. The run links its `importBatchId` from the initial transaction.
+
+Revert and restore commit 1,000 affected URL IDs at a time. The batch stores `reverting`
+or `restoring`, the last committed URL ID, its operation run, and its pre-revert status.
+Each chunk changes visits, page documents, visible profile summaries and outbox rows
+in one transaction. Cancellation is checked between chunks; invoking the same action
+resumes it. A second active producer or the opposite action on an unfinished operation
+is refused. Restore returns a partial batch to `interrupted` or `failed` when that was
+its original status. These runs use the existing UI trigger `manual`; `run_type` remains
+`rollback` or `restore`. Archive and per-batch visible totals change in the same fact
+transactions. Run summaries and manifests read these counters and indexed visit bounds;
+they do not scan the archive for totals. Successful import and visibility finalization
+update the run and batch together. Failed imports retain file reports and notes.
+Startup snapshots include unfinished `reverting`/`restoring` batches even when they are
+older than the recent-batch list; repeating that action resumes from its committed cursor.
+
+`pages` remain exact-URL anchors shared across profiles. Their indexed `canonical_url`
+is computed by the same normalizer used by stars and enrichment. It handles tracking
+parameters, default ports, empty paths, IDN hosts and unreserved percent escapes;
+reserved path delimiters remain escaped. Variant lookups use indexed equality.
+New visits increment profile summaries only for actual inserts. Each affected page's
+text and annotations are read once per batch refresh and publish one outbox entry.
+Enrichment resolves all matching page IDs on a reader, then publishes their text and
+outbox rows in a short transaction. No page match before fetching leaves the job in
+`awaiting_archive` with artifact code `archive-page-missing`, without fetching or recording
+a success/failure. Candidate generation still reads the legacy store until area 4;
+because no enrichment result is recorded, a later candidate refresh offers the job
+again after its page reaches Turso. Legacy enrichment cache fan-out follows the job's
+source URL row; native search text covers every canonical variant. An absent search
+document produces no outbox event. No write path rebuilds an index; the separate
+`vault-search` consumer is not wired into these writes here.
+
+Star lists paginate every sort with a complete tie-breaker: visit count when requested,
+star time, entity kind and key. Each item includes its canonical page's newest nonempty
+note and combined tags, loaded in bulk in the same read transaction. Domain stars have
+empty notes/tags. Page limits do not cap the reachable set. AI tools return a page and
+cursor and state when more items exist.
+
+Annotation list/search responses are `{ items, nextCursor }`. Both accept an optional
+`cursor`; it carries the last `(updated_at, URL)` pair, so tied timestamps and rows beyond
+5,000 remain reachable. The frontend must consume this page contract.
+
+The app reserves ownership at startup. `Vault::open_owned` shares that reservation with
+Store; CLI, MCP, scheduled tasks and the sidecar remain owner-IPC clients. Session open
+and explicit close run on blocking threads, without holding the session mutex. App Lock
+is a UI gate: it retains the Vault, password, data key and running AI chats. Scheduled
+backups continue. Concurrent openers and UI reads wait for startup open to finish; the
+owner endpoint binds before opening starts. Connected requests wait without a response
+timeout; the client's deadline covers connecting only. A typed password submitted during
+startup is validated after that attempt, even if startup failed. Panics end the opening
+transition and wake waiters. Endpoint bind failures are logged and shown in a native
+dialog before exit.
+An explicit archive-session clear or wipe closes Store outside the session mutex.
+Store close revokes retained handles and finishes admitted requests; the app's shared
+ownership reservation survives until the app exits, including across a wipe.
+
+The encrypted archive uses `archive/keys.envelope` from `vault-crypto`. `Vault::open_password`
+unwraps an existing envelope. If no Turso database exists, it can create a random data key
+wrapped with Argon2id and AES-256-GCM; an existing SQLCipher archive must first accept the
+password. Before any database file is created, the envelope is written to
+`keys.envelope.pending` and both file and directory are synced. A successful Store open
+promotes it atomically to `keys.envelope`. An interrupted first open recovers through
+the pending envelope with the same password; a wrong password changes neither file.
+Existing Turso files without either envelope return `envelope-missing` and are never
+assigned a new key.
+The native keychain entry stores the data key as 64 hexadecimal digits, replacing the
+password. Old password entries are authenticated through the password path and replaced
+in the backend. Only startup and explicit keychain unlock read this secret. Data keys
+and caller-owned key buffers are zeroized; no data key is returned
+to the WebView or over owner IPC. Each database uses its `KeyPurpose` HKDF sub-key,
+including scratch; `TempCryptIo` protects spill files. Plaintext supplies no Store keys
+and retains the compatibility password state expected by unported callers. Area 5
+password changes must rewrap the envelope without rewriting databases.
+
+Desktop command contracts (camelCase payloads):
+
+- `set_session_database_key({ databaseKey: string }) -> null` opens with the typed password.
+- `keyring_get_database_key({}) -> boolean` reports presence only.
+- `unlock_archive_from_keychain({}) -> null` opens in the backend without a password round trip.
+- `keyring_store_database_key({ value: string }) -> KeyringStatusReport` treats `value` as
+  the archive password, unwraps the existing envelope and stores only its data key.
+- `list_stars({ kind: "url" | "domain" | null, sort: "recently_starred" | "most_revisited", cursor: string | null, limit: number | null }) -> StarPage`.
+
+`StarPage` is `{ items: StarListItem[], nextCursor: string | null }`. An item is
+`{ entityKind, entityKey, starredAt, domain, title, visitCount: number, notes: string, tags: string[] }`;
+all other fields are strings. `kind`, `cursor` and `limit` may also be omitted. Reuse the
+cursor with the same kind and sort; invalid cursors/page sizes return `invalid-cursor`
+and `invalid-page-size`. The default page size is 500.
+
+- `list_url_annotations({ limit?: number | null, cursor?: string | null }) -> AnnotationPage`.
+- `search_url_annotations({ query: string, limit?: number | null, cursor?: string | null }) -> AnnotationPage`.
+
+`AnnotationPage` is `{ items: UrlAnnotation[], nextCursor: string | null }`; `UrlAnnotation`
+is `{ url, notes, tags: string[], createdAt, updatedAt, sourceProfile: string | null }`.
+All other annotation fields are strings. Pass `nextCursor` unchanged to the same command.
+Unlock errors use `CommandError` (`message`, optional `code`, `actionHint`, `retryHint`),
+including `archive-password-wrong`, `archive-password-required`, `envelope-missing`,
+`keychain-key-missing`, `keychain-unavailable`, `archive-open-panicked`, `archive-busy`
+(close only), and `storage-migration-incomplete`.
+The frontend adopts these contracts separately. Keychain-only backups and imports succeed but
+report a migration warning instead of launching follow-up SQLCipher reads without a password.
+
+Recorded checkpoint replay requires a `snapshots` ledger entry, uses the recorded single-profile scope (and preserves the directory-name fallback for
+older or multi-profile snapshots), preserves the original snapshot creation time, and records
+source hashes and manifest provenance. A directory supplied without a ledger entry is
+not a valid restore source.
+
+The old `ArchiveOpGate` / `ArchiveWriteLock` remain only for unported SQLCipher
+rekey/recovery, full-archive restore, retention, whole-application migration and wipe.
+Their native SQLite tests use independent fixtures, never translated copies of Turso
+writer results.
 
 - `archive/history-vault.sqlite`
   - 只保存 canonical facts 與 immutable audit facts
@@ -129,7 +323,7 @@ Turso 的新庫 schema 見 [store-schema.md](store-schema.md)：四個 durable `
 - `sidecars/intelligence-blobs/`
   - W-ENRICH content-fetch 抓回的 readable body / caption blob（content-addressed）；可重抓、可能大，**排除出 export bundle**（capped `enrichment_summary` 改由 intelligence DB 攜帶，讓 target 仍能離線搜尋）
 
-### Encryption at rest（2026-06-28）
+### Legacy SQLite encryption at rest（未移植區域）
 
 當 `AppConfig.archive_mode == Encrypted` 時，**只有 canonical encrypted-tier 的兩個 DB 加密**（SQLCipher，`rusqlite` bundled-sqlcipher，每連線 `PRAGMA key`）：
 
@@ -138,7 +332,7 @@ Turso 的新庫 schema 見 [store-schema.md](store-schema.md)：四個 durable `
 
 **Rekey 必須 lockstep 遷移兩個 encrypted-tier DB。** `archive::maintenance::rekey_archive` 透過 `archive::at_rest::migrate_source_evidence_for_rekey` 在切換模式/輪換金鑰時同時重寫 `source-evidence.sqlite`（偵測檔案實際 on-disk 模式以選開啟金鑰，再以新模式/金鑰 export+atomic swap）。歷史 bug：舊 rekey 只重寫 archive，留下明文 `source-evidence`，而 `open_source_evidence_connection` 在 Encrypted 模式對它套 `PRAGMA key` → SQLCipher 把明文檔頭當密文 → page size 亂掉 → 每次備份 `SQLITE_NOMEM`。
 
-**Auto-repair（self-heal drift）。** `archive::at_rest::reconcile_source_evidence_with_archive` 用 16-byte 檔頭（`SQLite format 3\0` = 明文，無需金鑰）偵測 `source-evidence` 的 at-rest 模式是否與 config 漂移，漂移就原地重新加密/解密（`sqlcipher_export`→atomic swap，`recover_interrupted_rewrite` 保證崩潰可復原且不留明文 backstop），並記一筆 `run_type='rekey'` / `trigger='repair'` run（PME 透明）。它**防禦性地**在 `run_backup_with_progress` 開 source-evidence 前先跑（修好 manual + scheduled 備份），並由 `reconcile_archive_encryption` 命令在解鎖後**主動**跑一次。**範圍限制**：只處理 MODE drift（明文↔加密），不處理 KEY drift（用舊密碼加密的檔，檔頭與正確金鑰檔無從區分）→ [[WORK-ENCRYPT-KEYDRIFT-A backlog]]。
+**Auto-repair（self-heal drift）。** `archive::at_rest::reconcile_source_evidence_with_archive` 用 16-byte 檔頭（`SQLite format 3\0` = 明文，無需金鑰）偵測 `source-evidence` 的 at-rest 模式是否與 config 漂移，漂移就原地重新加密/解密（`sqlcipher_export`→atomic swap，`recover_interrupted_rewrite` 保證崩潰可復原且不留明文 backstop），並記一筆 `run_type='rekey'` / `trigger='repair'` run（PME 透明）。它留在尚未移植的 `reconcile_archive_encryption` 維護命令；Turso 備份不再呼叫這條 SQLCipher rewrite 路徑。**範圍限制**：只處理 MODE drift（明文↔加密），不處理 KEY drift（用舊密碼加密的檔，檔頭與正確金鑰檔無從區分）→ [[WORK-ENCRYPT-KEYDRIFT-A backlog]]。
 
 ### Run ledger 與 rollback visibility
 
@@ -147,12 +341,12 @@ Turso 的新庫 schema 見 [store-schema.md](store-schema.md)：四個 durable `
 - `visits`、`downloads`、`search_terms` 等 user-visible facts 用 `reverted_at` / `reverted_by_run_id` 表示 rollback visibility。
 - `urls` 和 `source_profiles` 作為 canonical anchors，不直接以 rollback 做 destructive delete；read model 以關聯 facts 的可見性來判斷是否顯示。
 
-### FTS projection 範圍
+### Legacy FTS projection 範圍（搜尋移植前）
 
 - lexical recall 不再與 canonical archive 共住同一個 SQLite。FTS 只存在 `derived/history-search.sqlite`，作為 canonical URL-document 的 projection。
 - FTS 只索引 **URL、title、search term** 與由這些欄位 deterministic 派生出的 normalized / compact / CJK gram 欄位，以及後續明確挑選的 bounded enrichment projection 欄位。
 - 一筆 canonical `urls.id` 對應一份 URL-document search projection，Explorer keyword recall 透過 `MATCH` 命中 projection 後再 join 回可見 `visits`，避免 rollback hidden rows 洩漏回主查詢。
-- Takeout / Browser Direct import 成功後只刷新該 import batch 影響到的 URL-document projection；不得在導入主路徑同步 delete-all / rebuild 全部 search projection。rollback / restore 仍可用 full rebuild 作為顯式維護動作。
+- Turso 匯入、撤銷與恢復只維護 affected page documents 和 outbox，不寫這個 FTS database。舊 FTS 保留給尚未移植的查詢與測試。
 - 完整 refetch 文本、readable content、AI 生成摘要不直接塞進 FTS 主索引。
 - 若某個 enrichment 需要被全文搜尋，先經 projection / truncation / field whitelist 進入獨立 projection table，再由 FTS 索引。
 

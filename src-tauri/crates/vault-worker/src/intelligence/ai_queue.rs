@@ -243,6 +243,7 @@ pub(crate) fn complete_claimed_index_job(
 /// Centralizing the state transition logic here keeps the queue contract honest
 /// for both background drains and foreground "run now" paths.
 pub(crate) fn complete_claimed_assistant_job(
+    vault: &vault_core::Vault,
     connection: &rusqlite::Connection,
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
@@ -265,6 +266,7 @@ pub(crate) fn complete_claimed_assistant_job(
         let runtime = tokio_runtime()?;
         let run_control = start_ai_job_control(paths, config, session_database_key, claimed.id);
         let result = runtime.block_on(answer_history_question_with_control(
+            vault,
             paths,
             config,
             session_database_key,
@@ -335,6 +337,7 @@ fn mark_successful_ai_job_or_cancelled(
 /// This path is used when the UI wants an answer right away instead of waiting
 /// for the background drain loop to notice a newly enqueued request.
 pub(crate) fn execute_assistant_job(
+    vault: &vault_core::Vault,
     connection: &rusqlite::Connection,
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
@@ -345,6 +348,7 @@ pub(crate) fn execute_assistant_job(
     let claimed = ai_queue::claim_ai_job_by_id(connection, job_id, 300)?
         .with_context(|| format!("AI assistant job {job_id} is not ready to run"))?;
     complete_claimed_assistant_job(
+        vault,
         connection,
         paths,
         config,
@@ -360,6 +364,7 @@ pub(crate) fn execute_assistant_job(
 /// new AI jobs. Keeping the spawn decision here ensures archive flows and queue
 /// callers share the same paused-state and concurrency guard.
 pub(crate) fn maybe_spawn_ai_queue_drain(
+    vault: &vault_core::Vault,
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
@@ -369,6 +374,7 @@ pub(crate) fn maybe_spawn_ai_queue_drain(
         return;
     }
     spawn_ai_queue_drain(
+        vault,
         paths.clone(),
         config.ai.job_queue_concurrency.max(1) as usize,
         session_database_key.map(ToOwned::to_owned),
@@ -381,16 +387,18 @@ pub(crate) fn maybe_spawn_ai_queue_drain(
 /// opened, or config says the AI queue is paused. The shared atomic counter keeps
 /// the host from exceeding the configured concurrency.
 fn spawn_ai_queue_drain(
+    vault: &vault_core::Vault,
     paths: vault_core::ProjectPaths,
     desired_workers: usize,
     session_database_key: Option<String>,
 ) {
+    let vault = vault.clone();
     maybe_spawn_worker_pool(
         "pathkeep-ai-queue",
         &AI_QUEUE_ACTIVE_WORKERS,
         desired_workers,
         move || loop {
-            match drain_one_ai_queue_job(&paths, session_database_key.as_deref()) {
+            match drain_one_ai_queue_job(&vault, &paths, session_database_key.as_deref()) {
                 Ok(true) => {}
                 Ok(false) => break,
                 Err(error) => {
@@ -403,6 +411,7 @@ fn spawn_ai_queue_drain(
 }
 
 pub(crate) fn drain_one_ai_queue_job(
+    vault: &vault_core::Vault,
     paths: &vault_core::ProjectPaths,
     session_database_key: Option<&str>,
 ) -> Result<bool> {
@@ -430,6 +439,7 @@ pub(crate) fn drain_one_ai_queue_job(
         }
         ai_queue::AiJobPayload::Assistant { payload } => {
             let _ = complete_claimed_assistant_job(
+                vault,
                 &connection,
                 paths,
                 &config,
@@ -446,7 +456,10 @@ pub(crate) fn drain_one_ai_queue_job(
 ///
 /// The returned snapshot doubles as a lazy "kick the drain loop if needed"
 /// surface, which keeps queue work moving even when the UI only polls status.
-pub fn load_ai_queue(session_database_key: Option<&str>) -> Result<AiQueueStatus> {
+pub fn load_ai_queue(
+    vault: &vault_core::Vault,
+    session_database_key: Option<&str>,
+) -> Result<AiQueueStatus> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let status = vault_core::ai_queue_status(&paths, &config, session_database_key)?;
@@ -457,7 +470,7 @@ pub fn load_ai_queue(session_database_key: Option<&str>) -> Result<AiQueueStatus
     // It reads the same intelligence connection `ai_queue_status` just opened above, so propagating its
     // error (rather than swallowing it) keeps the two reads consistent.
     let drainable = vault_core::recoverable_ai_jobs(&paths, &config, session_database_key)?;
-    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, drainable);
+    maybe_spawn_ai_queue_drain(vault, &paths, &config, session_database_key, drainable);
     Ok(status)
 }
 
@@ -466,6 +479,7 @@ pub fn load_ai_queue(session_database_key: Option<&str>) -> Result<AiQueueStatus
 /// This is the explicit "run now" path used by review/debug surfaces that want
 /// deterministic progress instead of waiting for background workers.
 pub fn run_ai_queue_jobs(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     max_jobs: Option<u32>,
 ) -> Result<AiQueueStatus> {
@@ -494,6 +508,7 @@ pub fn run_ai_queue_jobs(
             }
             ai_queue::AiJobPayload::Assistant { payload } => {
                 let _ = complete_claimed_assistant_job(
+                    vault,
                     &connection,
                     &paths,
                     &config,
@@ -509,12 +524,17 @@ pub fn run_ai_queue_jobs(
 }
 
 /// Marks one AI job as replayable and restarts the drain loop if it became queued again.
-pub fn replay_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<AiQueueJob> {
+pub fn replay_ai_job(
+    vault: &vault_core::Vault,
+    session_database_key: Option<&str>,
+    job_id: i64,
+) -> Result<AiQueueJob> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let connection = ai_archive_connection(&paths, &config, session_database_key)?;
     let job = ai_queue::replay_ai_job(&connection, job_id, config.ai.job_queue_paused)?;
     maybe_spawn_ai_queue_drain(
+        vault,
         &paths,
         &config,
         session_database_key,
@@ -549,6 +569,7 @@ pub fn cancel_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<
 /// and a 0-vector index genuinely self-heals. The returned [`AiIndexReport`] is the new job's
 /// acknowledgement, exactly like a manual build.
 pub fn reset_ai_index_build(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
@@ -569,7 +590,7 @@ pub fn reset_ai_index_build(
         limit: None,
         scope: ReembedScope::Full,
     };
-    let mut report = build_ai_index_now(session_database_key, &rebuild)?;
+    let mut report = build_ai_index_now(vault, session_database_key, &rebuild)?;
     report.notes.insert(
         0,
         format!(
@@ -581,6 +602,7 @@ pub fn reset_ai_index_build(
 
 /// Enqueues an AI index build and starts background work when the queue is active.
 pub fn build_ai_index_now(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
@@ -623,7 +645,7 @@ pub fn build_ai_index_now(
             )],
         });
     }
-    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, 1);
+    maybe_spawn_ai_queue_drain(vault, &paths, &config, session_database_key, 1);
     Ok(AiIndexReport {
         job_id: Some(queued.id),
         run_id: None,
@@ -666,6 +688,7 @@ pub fn estimate_reembed_now(
 
 /// Runs semantic search and degrades to lexical recall when embeddings are unavailable.
 pub fn search_ai_history(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     request: &AiSearchRequest,
 ) -> Result<AiSearchResponse> {
@@ -675,15 +698,23 @@ pub fn search_ai_history(
         Ok(provider) => provider,
         Err(error) => {
             let lexical =
-                run_semantic_search(&paths, &config, session_database_key, None, request)?;
+                run_semantic_search(vault, &paths, &config, session_database_key, None, request)?;
             return Ok(search_response_with_resolution_note(lexical, Some(error)));
         }
     };
-    run_semantic_search(&paths, &config, session_database_key, embedding_provider.as_ref(), request)
+    run_semantic_search(
+        vault,
+        &paths,
+        &config,
+        session_database_key,
+        embedding_provider.as_ref(),
+        request,
+    )
 }
 
 /// Executes one semantic-search request using the optional embedding provider.
 fn run_semantic_search(
+    vault: &vault_core::Vault,
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
@@ -691,6 +722,7 @@ fn run_semantic_search(
     request: &AiSearchRequest,
 ) -> Result<AiSearchResponse> {
     tokio_runtime()?.block_on(semantic_search_history(
+        vault,
         paths,
         config,
         session_database_key,
@@ -701,6 +733,7 @@ fn run_semantic_search(
 
 /// Enqueues one assistant request and executes it immediately when the queue is active.
 pub fn ask_ai_assistant(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     request: &AiAssistantRequest,
 ) -> Result<AiAssistantResponse> {
@@ -734,7 +767,15 @@ pub fn ask_ai_assistant(
         });
     }
 
-    execute_assistant_job(&connection, &paths, &config, session_database_key, queued.id, request)
+    execute_assistant_job(
+        vault,
+        &connection,
+        &paths,
+        &config,
+        session_database_key,
+        queued.id,
+        request,
+    )
 }
 
 /// Loads one assistant job state, including the persisted answer when ready.
@@ -869,6 +910,7 @@ mod tests {
 
     #[test]
     fn assistant_provider_preflight_failure_is_persisted() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         let connection = Connection::open_in_memory().expect("memory queue");
         let request = AiAssistantRequest {
             question: "What did I visit?".to_string(),
@@ -885,9 +927,16 @@ mod tests {
         let paths = vault_core::config::project_paths_with_root(dir.path());
         let config = AppConfig::default();
 
-        let error =
-            complete_claimed_assistant_job(&connection, &paths, &config, None, claimed, &request)
-                .expect_err("missing frozen provider must fail");
+        let error = complete_claimed_assistant_job(
+            &vault,
+            &connection,
+            &paths,
+            &config,
+            None,
+            claimed,
+            &request,
+        )
+        .expect_err("missing frozen provider must fail");
 
         assert!(error.to_string().contains("deleted-llm"));
         assert_eq!(job_state(&connection, queued.id), "failed");
@@ -1081,6 +1130,7 @@ mod tests {
 
     #[test]
     fn reset_ai_index_build_clears_stuck_jobs_and_reenqueues() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         // HEADLINE (F2): a wedged build is recovered — `reset_ai_index_build` clears the stuck index
         // job(s) and re-enqueues a clean one, so the queue is no longer jammed by the old job. Runs
         // against the GLOBAL project root (the reset path resolves `project_paths()` itself), with the
@@ -1117,7 +1167,7 @@ mod tests {
             .execute("UPDATE ai_jobs SET state = 'stale' WHERE id = ?1", [stuck.id])
             .expect("wedge it");
 
-        let report = reset_ai_index_build(None, &AiIndexRequest::default()).expect("reset");
+        let report = reset_ai_index_build(&vault, None, &AiIndexRequest::default()).expect("reset");
         assert!(
             report.notes.iter().any(|note| note.contains("Reset the semantic index")),
             "the reset reports what it cleared: {:?}",

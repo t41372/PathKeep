@@ -45,9 +45,9 @@ pub(crate) async fn store_ai_provider_api_key(
     input: vault_core::AiProviderSecretInput,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("store_ai_provider_api_key", move || {
-        worker_bridge::store_ai_provider_api_key_impl(input, key.as_deref())
+        worker_bridge::store_ai_provider_api_key_impl(input, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -59,9 +59,9 @@ pub(crate) async fn clear_ai_provider_api_key(
     provider_id: String,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("clear_ai_provider_api_key", move || {
-        worker_bridge::clear_ai_provider_api_key_impl(provider_id, key.as_deref())
+        worker_bridge::clear_ai_provider_api_key_impl(provider_id, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -77,9 +77,9 @@ pub(crate) async fn test_ai_provider_connection(
     request: vault_core::AiProviderConnectionTestRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiProviderConnectionTestReport, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("test_ai_provider_connection", move || {
-        worker_bridge::test_ai_provider_connection_impl(request, key.as_deref())
+        worker_bridge::test_ai_provider_connection_impl(request, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -90,9 +90,9 @@ pub(crate) async fn test_ai_provider_connection(
 pub(crate) async fn load_ai_queue_status(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiQueueStatus, CommandError> {
-    let key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("load_ai_queue_status", move || {
-        worker_bridge::load_ai_queue_status_impl(key.as_deref())
+        worker_bridge::load_ai_queue_status_impl(&state)
     })
     .await
 }
@@ -104,9 +104,9 @@ pub(crate) async fn run_ai_queue_jobs(
     max_jobs: Option<u32>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiQueueStatus, CommandError> {
-    let key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("run_ai_queue_jobs", move || {
-        worker_bridge::run_ai_queue_jobs_impl(max_jobs, key.as_deref())
+        worker_bridge::run_ai_queue_jobs_impl(max_jobs, &state)
     })
     .await
 }
@@ -118,11 +118,9 @@ pub(crate) async fn replay_ai_job(
     job_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiQueueJob, CommandError> {
-    let key = state.get_key();
-    run_blocking_command("replay_ai_job", move || {
-        worker_bridge::replay_ai_job_impl(job_id, key.as_deref())
-    })
-    .await
+    let state = state.inner().clone();
+    run_blocking_command("replay_ai_job", move || worker_bridge::replay_ai_job_impl(job_id, &state))
+        .await
 }
 
 #[cfg(not(test))]
@@ -132,9 +130,9 @@ pub(crate) async fn cancel_ai_job(
     job_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiQueueJob, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("cancel_ai_job", move || {
-        worker_bridge::cancel_ai_job_impl(job_id, key.as_deref())
+        worker_bridge::cancel_ai_job_impl(job_id, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -146,9 +144,9 @@ pub(crate) async fn build_ai_index(
     request: vault_core::AiIndexRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiIndexReport, CommandError> {
-    let key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("build_ai_index", move || {
-        worker_bridge::build_ai_index_impl(request, key.as_deref())
+        worker_bridge::build_ai_index_impl(request, &state)
     })
     .await
 }
@@ -161,9 +159,9 @@ pub(crate) async fn reset_ai_index_build(
     request: vault_core::AiIndexRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiIndexReport, CommandError> {
-    let key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("reset_ai_index_build", move || {
-        worker_bridge::reset_ai_index_build_impl(request, key.as_deref())
+        worker_bridge::reset_ai_index_build_impl(request, &state)
     })
     .await
 }
@@ -179,9 +177,9 @@ pub(crate) async fn estimate_reembed(
     scope: vault_core::ReembedScope,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ReembedEstimate, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("estimate_reembed", move || {
-        worker_bridge::estimate_reembed_impl(scope, key.as_deref())
+        worker_bridge::estimate_reembed_impl(scope, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -196,9 +194,9 @@ pub(crate) async fn search_ai_history(
     request: vault_core::AiSearchRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiSearchResponse, CommandError> {
-    let key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("search_ai_history", move || {
-        worker_bridge::search_ai_history_impl(request, key.as_deref())
+        worker_bridge::search_ai_history_impl(request, &state)
     })
     .await
 }
@@ -284,9 +282,9 @@ pub(crate) async fn rename_ai_conversation(
 pub(crate) async fn get_content_fetch_settings(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ContentFetchSettings, CommandError> {
-    let key = state.get_key();
+    let session = state.inner().clone();
     run_blocking_command("get_content_fetch_settings", move || {
-        worker_bridge::content_fetch_settings_impl(key.as_deref())
+        worker_bridge::content_fetch_settings_impl(&session)
     })
     .await
 }
@@ -301,9 +299,9 @@ pub(crate) async fn set_content_fetch_settings(
     settings: vault_core::ContentFetchSettings,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    let key = state.get_key();
+    let session = state.inner().clone();
     run_blocking_command("set_content_fetch_settings", move || {
-        worker_bridge::set_content_fetch_settings_impl(settings, key.as_deref())
+        worker_bridge::set_content_fetch_settings_impl(settings, &session)
     })
     .await
 }
@@ -318,9 +316,9 @@ pub(crate) async fn list_visit_enrichment(
     history_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::VisitEnrichmentRecord>, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("list_visit_enrichment", move || {
-        worker_bridge::list_visit_enrichment_impl(history_id, key.as_deref())
+        worker_bridge::list_visit_enrichment_impl(history_id, key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -334,9 +332,9 @@ pub(crate) async fn content_fetch_now(
     request: vault_core::ContentFetchNowRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ContentFetchNowResult, CommandError> {
-    let key = state.get_key();
+    let session = state.inner().clone();
     run_blocking_command("content_fetch_now", move || {
-        worker_bridge::content_fetch_now_impl(request, key.as_deref())
+        worker_bridge::content_fetch_now_impl(request, &session)
     })
     .await
 }
@@ -350,9 +348,9 @@ pub(crate) async fn enqueue_content_fetch_working_set(
     limit: Option<u32>,
     state: State<'_, SessionState>,
 ) -> Result<usize, CommandError> {
-    let key = state.get_key();
+    let session = state.inner().clone();
     run_blocking_command("enqueue_content_fetch_working_set", move || {
-        worker_bridge::enqueue_content_fetch_working_set_impl(limit, key.as_deref())
+        worker_bridge::enqueue_content_fetch_working_set_impl(limit, &session)
     })
     .await
 }

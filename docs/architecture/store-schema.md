@@ -1,17 +1,14 @@
 # Turso store schema v1
 
-`vault_core::store_schema::migration_registry()` supplies one consolidated v1
-migration for Archive, SourceEvidence, Intelligence and Agent, and an empty list
+`vault_core::store_schema::migration_registry()` supplies a consolidated v1
+migration for Archive, SourceEvidence, Intelligence and Agent, with an empty list
 for Scratch. Every statement runs through `vault_store::Session`; each database's
 v1 and migration record commit in one transaction. No SQLite migration replay,
 views, triggers, TEMP tables, FTS virtual tables, window functions or WITHOUT ROWID
 tables are used.
 
 This is the schema contract for the Turso port in [ADR-012](decisions/012-turso-storage-engine.md)
-and [the migration design](turso-migration-design.md). Existing rusqlite writers
-and readers are unchanged and still use the old files. Writer names below identify
-ownership in the current source tree; they are not a claim that those modules
-already write Turso. This change does not switch the running application.
+and [the migration design](turso-migration-design.md). Archive mutation writers now use Vault and real Store transactions. Unported readers, intelligence and whole-file maintenance still use their existing SQLite files. The desktop session owns the shared Vault for ported commands.
 
 The baseline is the final effect of archive SQL migrations 001–016 and runtime
 DDL in archive schema/search/source evidence, intelligence schema and its runtime
@@ -20,15 +17,16 @@ definitions; they do not include or execute those legacy migration files.
 
 ## Files and lifecycle
 
-| Database | File | Version | Application tables |
-| --- | --- | --- | --- |
-| Archive | `archive/history-vault.db` | 1 | 21 |
-| Source evidence | `archive/source-evidence.db` | 1 | 7 |
-| Intelligence | `derived/intelligence.db` | 1 | 28 |
-| Agent | `derived/agent.db` | 1 | 5 |
-| Scratch | `derived/scratch.db` | 0 | None |
+| Database        | File                         | Version | Application tables |
+| --------------- | ---------------------------- | ------- | ------------------ |
+| Archive         | `archive/history-vault.db`   | 4       | 22                 |
+| Source evidence | `archive/source-evidence.db` | 1       | 7                  |
+| Intelligence    | `derived/intelligence.db`    | 1       | 28                 |
+| Agent           | `derived/agent.db`           | 1       | 5                  |
+| Scratch         | `derived/scratch.db`         | 0       | None               |
 
-All five files take the same optional 32-byte data key through `vault-store`.
+The owner derives a distinct 32-byte HKDF sub-key for each file from the data key,
+using vault-crypto purpose labels, and supplies those optional sub-keys to `vault-store`.
 No database stores a key, password or key envelope. The owner uses `vault-crypto`
 for the external envelope. Store resets scratch only after successful preflight;
 operation-specific staging tables are not part of the durable schema.
@@ -91,8 +89,7 @@ checks that both filters match the same canonical visible visit.
 being reused after pruning, including across reopen. There is deliberately no
 page FK: a deletion tombstone must outlive the page. Page IDs also never reuse a
 committed identity. The Tantivy consumer records its acknowledged sequence in the
-index commit before pruning outbox rows. Neither that consumer nor production
-mutation writers are implemented by this schema task. There are no implicit
+index commit before pruning outbox rows. The archive writers append the outbox; its Tantivy consumer is not part of the archive write-path port. There are no implicit
 triggers: the caller must use one Store write transaction.
 
 ## Table reference
@@ -116,11 +113,12 @@ invented between independently rebuilt intelligence tables.
 - Primary key: `id`.
 - Unique index `idx_source_profiles_profile_key`: `source_profiles(profile_key)`.
 
-**`pages`** — Exact URL identity shared by every profile; registrable domain is a page fact. Writer: `Archive ingest/import writers (Turso port pending)`.
+**`pages`** — Exact URL identity shared by every profile; registrable domain is a page fact. Writer: `Archive ingest/import writers (Turso)`.
 
 - Primary key: `id`.
 - Index `idx_pages_registrable_domain`: `pages(registrable_domain) WHERE registrable_domain IS NOT NULL`.
 - Unique: `url` (automatic index).
+- Index `idx_pages_canonical_url`: `pages(canonical_url)`, computed by the shared vault-core URL normalizer.
 
 **`urls`** — Browser profile observations: source URL ID, title, counts, times, hidden flag and provenance. Writer: `archive/ingest/writes; takeout`.
 
@@ -145,6 +143,8 @@ invented between independently rebuilt intelligence tables.
 - Index `idx_visits_visible_profile_time_id`: `visits(source_profile_id, visit_time_ms ASC, id ASC) WHERE reverted_at IS NULL`.
 - Index `idx_visits_visible_url_time`: `visits( url_id, visit_time_ms DESC, id DESC ) WHERE reverted_at IS NULL`.
 - Index `idx_visits_import_batch_id`: `visits(import_batch_id)`.
+- Index `idx_visits_batch_url`: `visits(import_batch_id, url_id)`; keyset walks stay within the changed batch.
+- Resumable visibility uses `import_batches.previous_status`, `visibility_cursor`, and `visibility_run_id`; `reverting` / `restoring` resume from the last committed URL chunk. The schema also includes `idx_og_images_eviction` and `idx_og_images_lru` so eviction follows an index rather than sorting each page.
 - Unique index `idx_visits_profile_event_fingerprint`: `visits(source_profile_id, event_fingerprint) WHERE event_fingerprint IS NOT NULL AND event_fingerprint != ''`.
 - Unique index `idx_visits_profile_source_visit_id`: `visits(source_profile_id, source_visit_id)`.
 - Index `idx_visits_profile_time`: `visits(source_profile_id, visit_time_ms DESC)`.
@@ -208,11 +208,13 @@ invented between independently rebuilt intelligence tables.
 
 - Primary key: `url`.
 - Index `idx_url_annotations_updated_at`: `url_annotations(updated_at DESC)`.
+- Index `idx_url_annotations_canonical`: `url_annotations(canonical_url, updated_at DESC, url)`.
 
 **`url_tags`** — User tags shared across profiles, one row per exact URL/tag. Writer: `annotations`.
 
 - Primary key: `url, tag`.
 - Index `idx_url_tags_tag`: `url_tags(tag, url)`.
+- Index `idx_url_tags_canonical`: `url_tags(canonical_url, created_at, tag)`.
 
 **`og_image_blobs`** — Content-addressed preview image bytes and dimensions. Writer: `archive/history/og_images`.
 
@@ -238,21 +240,21 @@ invented between independently rebuilt intelligence tables.
 - Primary key: `id`.
 - No secondary indexes.
 
-**`search_documents`** — One searchable document per page, including bounded enrichment, notes and tags. Writer: `archive/search_projection and archive mutation writers (Turso port pending)`.
+**`search_documents`** — One searchable document per page, including bounded enrichment, notes and tags. Writer: `archive/search_projection and archive mutation writers (Turso)`.
 
 - Primary key: `page_id`.
 - Foreign key: `page_id` → `pages.id`; delete cascade.
 - Index `idx_search_documents_newest`: `search_documents(newest_visit_ms DESC, page_id DESC)`.
 - Index `idx_search_documents_domain_time`: `search_documents(domain, newest_visit_ms DESC, page_id DESC)`.
 
-**`search_document_profiles`** — Visible visit count and newest time for each page/profile pair. Writer: `Archive mutation writers (Turso port pending)`.
+**`search_document_profiles`** — Visible visit count and newest time for each page/profile pair. Writer: `Archive mutation writers (Turso)`.
 
 - Primary key: `page_id, source_profile_id`.
 - Foreign key: `source_profile_id` → `source_profiles.id`; delete no action.
 - Foreign key: `page_id` → `search_documents.page_id`; delete cascade.
 - Index `idx_search_document_profiles_profile`: `search_document_profiles(source_profile_id, newest_visit_ms DESC, page_id)`.
 
-**`search_outbox`** — Ordered upsert/delete notifications committed with page document changes. Writer: `Archive mutation writers; Tantivy consumer acknowledges rows (ports pending)`.
+**`search_outbox`** — Ordered upsert/delete notifications committed with page document changes. Writer: `Archive mutation writers; Tantivy consumer acknowledges rows (consumer pending)`.
 
 - Primary key: `seq`.
 - No secondary indexes.
@@ -521,3 +523,17 @@ CARGO_NET_OFFLINE=true cargo test -p vault-core store_schema
 CARGO_NET_OFFLINE=true cargo test -p vault-core
 CARGO_NET_OFFLINE=true cargo build --workspace
 ```
+
+Archive runtime metadata (part of version 1):
+
+- `profile_watermarks.last_search_url_time` is independent from the URL cursor.
+  `url_scan_json` records the last committed source rowid and the original time filter,
+  visit floor/ceiling and full/incremental selection for every browser family.
+- `archive_totals(name, value)` caches enabled source profiles, URLs, visible visits,
+  visible downloads, manifest rows and snapshot rows. It starts at zero; fact
+  transactions apply deltas.
+- `import_batches.visible_items` changes with visit visibility; `previous_status`
+  is non-null with the `imported` default. New imports explicitly start it as `running`
+  and update it to their terminal import state.
+- `pages.canonical_url`, `url_annotations.canonical_url` and `url_tags.canonical_url`
+  use the shared URL normalizer and have indexes for variant equality lookups.

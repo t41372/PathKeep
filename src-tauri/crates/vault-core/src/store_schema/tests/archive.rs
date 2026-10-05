@@ -4,6 +4,7 @@
 use super::{Fixture, ForeignKey};
 
 pub(super) const TABLES: &[&str] = &[
+    "archive_totals",
     "__pk_migrations",
     "downloads",
     "favicon_blobs",
@@ -42,6 +43,10 @@ pub(super) const TABLES: &[&str] = &[
     "__turso_internal_seq___turso_internal_autoincrement_visits",
 ];
 pub(super) const INDEXES: &[&str] = &[
+    "sqlite_autoindex_archive_totals_1",
+    "idx_pages_canonical_url",
+    "idx_url_annotations_canonical",
+    "idx_url_tags_canonical",
     "idx_downloads_profile_source_download_id",
     "idx_downloads_profile_start",
     "idx_favicons_blob_hash",
@@ -54,6 +59,8 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_favicons_registrable_profile_lookup",
     "idx_manifests_content_hash",
     "idx_og_images_blob_hash",
+    "idx_og_images_eviction",
+    "idx_og_images_lru",
     "idx_og_images_last_shown",
     "idx_og_images_page_url",
     "idx_og_images_refetch",
@@ -74,6 +81,7 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_urls_profile_source_url_id",
     "idx_urls_url",
     "idx_visits_import_batch_id",
+    "idx_visits_batch_url",
     "idx_visits_profile_event_fingerprint",
     "idx_visits_profile_source_visit_id",
     "idx_visits_profile_time",
@@ -104,8 +112,8 @@ pub(super) const ROWS: &[Fixture] = &[
     },
     Fixture {
         table: "pages",
-        columns: "id, url, registrable_domain",
-        values: "1, 'sample', 'sample'",
+        columns: "id, url, registrable_domain, canonical_url",
+        values: "1, 'sample', 'sample', 'sample'",
         updated: "url = 'changed'",
     },
     Fixture {
@@ -176,14 +184,14 @@ pub(super) const ROWS: &[Fixture] = &[
     },
     Fixture {
         table: "url_annotations",
-        columns: "url, notes, created_at, updated_at, source_profile",
-        values: "'sample', 'sample', 'sample', 'sample', 'sample'",
+        columns: "url, notes, created_at, updated_at, source_profile, canonical_url",
+        values: "'sample', 'sample', 'sample', 'sample', 'sample', 'sample'",
         updated: "notes = 'changed'",
     },
     Fixture {
         table: "url_tags",
-        columns: "url, tag, created_at, source_profile",
-        values: "'sample', 'sample', 'sample', 'sample'",
+        columns: "url, tag, created_at, source_profile, canonical_url",
+        values: "'sample', 'sample', 'sample', 'sample', 'sample'",
         updated: "created_at = 'changed'",
     },
     Fixture {

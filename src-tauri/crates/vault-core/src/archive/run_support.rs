@@ -25,8 +25,7 @@ use super::SnapshotArtifact;
 use crate::{
     config::ProjectPaths,
     git_audit,
-    models::{AppConfig, BackupProfileSummary, BackupRunOverview, BackupWarning},
-    utils::now_rfc3339,
+    models::{AppConfig, BackupProfileSummary, BackupRunOverview},
 };
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
@@ -72,7 +71,6 @@ pub(crate) struct BackupManifest {
 #[derive(Debug, Clone)]
 pub(crate) struct ManifestRow {
     pub(crate) id: i64,
-    pub(crate) hash: String,
 }
 
 /// Persists one structured manifest payload and links it into the manifest chain.
@@ -108,12 +106,12 @@ pub(crate) fn persist_structured_manifest(
 pub(crate) fn latest_manifest_row(connection: &Connection) -> Result<Option<ManifestRow>> {
     connection
         .query_row(
-            "SELECT id, content_hash
+            "SELECT id
              FROM manifests
              ORDER BY id DESC
              LIMIT 1",
             [],
-            |row| Ok(ManifestRow { id: row.get(0)?, hash: row.get(1)? }),
+            |row| Ok(ManifestRow { id: row.get(0)? }),
         )
         .optional()
         .map_err(Into::into)
@@ -142,81 +140,6 @@ pub(crate) fn persist_manifest_row(
             serde_json::to_string(row_counts)?,
             created_at,
             file_path.display().to_string(),
-        ],
-    )?;
-    Ok(())
-}
-
-/// Marks a run successful and snapshots the visible archive totals alongside it.
-///
-/// The extra totals let Dashboard and Audit surfaces render recent activity
-/// without immediately recomputing global counts from scratch.
-pub(crate) fn finalize_successful_run(
-    connection: &Connection,
-    run_id: i64,
-    finished_at: &str,
-    summary: &BackupRunOverview,
-    warnings: &[BackupWarning],
-    manifest_hash: &str,
-) -> Result<()> {
-    let stats = stats_with_archive_totals(
-        connection,
-        json!({
-            "profilesProcessed": summary.profiles_processed,
-            "newVisits": summary.new_visits,
-            "newUrls": summary.new_urls,
-            "newDownloads": summary.new_downloads,
-            "manifestHash": manifest_hash,
-        }),
-    )?;
-    connection.execute(
-        "UPDATE runs
-         SET finished_at = ?1,
-             status = 'success',
-             stats_json = ?2,
-             warnings_json = ?3,
-             error_message = NULL
-         WHERE id = ?4",
-        params![
-            finished_at,
-            serde_json::to_string(&stats)?,
-            serde_json::to_string(warnings)?,
-            run_id,
-        ],
-    )?;
-    Ok(())
-}
-
-/// Marks a run failed without discarding the partial work summary gathered so far.
-///
-/// This keeps Audit truthful: the user can still see how far the job got
-/// before the error aborted the flow.
-pub(crate) fn finalize_failed_run(
-    connection: &Connection,
-    run_id: i64,
-    profile_summaries: &[BackupProfileSummary],
-    warnings: &[BackupWarning],
-    error: &anyhow::Error,
-) -> Result<()> {
-    connection.execute(
-        "UPDATE runs
-         SET finished_at = ?1,
-             status = 'failed',
-             stats_json = ?2,
-             warnings_json = ?3,
-             error_message = ?4
-         WHERE id = ?5",
-        params![
-            now_rfc3339(),
-            serde_json::to_string(&json!({
-                "profilesProcessed": profile_summaries.len(),
-                "newVisits": profile_summaries.iter().map(|item| item.new_visits).sum::<usize>(),
-                "newUrls": profile_summaries.iter().map(|item| item.new_urls).sum::<usize>(),
-                "newDownloads": profile_summaries.iter().map(|item| item.new_downloads).sum::<usize>(),
-            }))?,
-            serde_json::to_string(warnings)?,
-            format!("{error:#}"),
-            run_id,
         ],
     )?;
     Ok(())
@@ -371,19 +294,6 @@ pub(crate) fn current_timezone_name() -> String {
     get_timezone().unwrap_or_else(|_| "UTC".to_string())
 }
 
-/// Explains why a due-only backup should be skipped right now.
-///
-/// Scheduled runs use this to stay honest: if the archive was backed up
-/// recently enough, the scheduler records a skip instead of silently running
-/// redundant work.
-pub(super) fn backup_due_skip_reason(
-    connection: &Connection,
-    config: &AppConfig,
-) -> Result<Option<String>> {
-    Ok(latest_successful_backup_at(connection)?
-        .and_then(|last_backup_at| backup_due_skip_reason_at(last_backup_at, config, Utc::now())))
-}
-
 /// Computes the concrete skip reason for one due-window comparison.
 ///
 /// Tests and other helpers can call this with a controlled `now` value to keep
@@ -406,26 +316,4 @@ fn due_after_minutes(due_after_hours: f64) -> u64 {
     } else {
         1
     }
-}
-
-/// Loads the finish time of the most recent successful backup run.
-///
-/// This stays private because only the due-window logic should care about raw
-/// timestamps; callers above this module only need the skip reason.
-fn latest_successful_backup_at(connection: &Connection) -> Result<Option<DateTime<Utc>>> {
-    let latest: Option<String> = connection
-        .query_row(
-            "SELECT finished_at
-             FROM runs
-             WHERE run_type = 'backup'
-               AND status = 'success'
-             ORDER BY id DESC
-             LIMIT 1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(latest
-        .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())
-        .map(|value| value.with_timezone(&Utc)))
 }

@@ -1,158 +1,15 @@
-//! Cold source-evidence storage for browser-native metadata.
-//!
-//! ## Responsibilities
-//! - Own the archived `archive/source-evidence.sqlite` plane that preserves
-//!   schema observations, capability snapshots, typed evidence, and native
-//!   entities without polluting the hot canonical archive.
-//! - Provide the post-commit persistence helpers used by backup/import flows
-//!   after canonical archive rows have committed successfully.
-//! - Offer a bounded-memory deferred payload contract so large source-evidence
-//!   batches can spill to temporary disk before the cold archive write runs.
-//!
-//! ## Not responsible for
-//! - Writing canonical URL/visit/download/search-term/favicon rows.
-//! - Driving archive run-ledger, manifest, or checkpoint orchestration.
-//! - Serving default shell queries; this plane remains a cold explain/debug
-//!   boundary.
-//!
-//! ## Dependencies
-//! - `browser_history_parser` read models for typed evidence and native
-//!   entities.
-//! - `tempfile` for spill-to-disk payloads that would otherwise keep large
-//!   post-commit batches in RAM.
-//!
-//! ## Performance notes
-//! - Canonical ingest stays on the hot archive path; source-evidence writes are
-//!   deferred until after the canonical transaction commits.
-//! - Large deferred payloads spill to temporary files in `staging/` so long
-//!   imports do not retain every source-native JSON blob in memory until the
-//!   cold archive catch-up write begins.
-
-use crate::{
-    archive::apply_cipher_key,
-    config::{ProjectPaths, ensure_paths},
-    models::{AppConfig, ArchiveMode},
-    utils::now_rfc3339,
-};
-use anyhow::{Context, Result};
+//! Responsibilities: preserve parser provenance and typed/native evidence in bounded writes.
+//! Not responsible for: canonical visits, index consumption or file staging.
+//! Failure modes: optional fields disappear, evidence is lost before a cursor
+//! commits, large evidence exceeds the batch bound, keys are ignored.
+//! Tests: source_evidence_tests and ingest::core_tests.
+use crate::utils::now_rfc3339;
+use anyhow::Result;
 use browser_history_parser::{
     CapabilitySnapshot, NativeEntity, SchemaObservation, TypedEvidenceBatch,
 };
-use rusqlite::{Connection, Transaction, params};
 use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    io::{BufRead, BufReader},
-    path::Path,
-    time::Duration as StdDuration,
-};
-use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempPath};
-
-const SOURCE_EVIDENCE_SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS source_batches (
-  id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_profile_id        INTEGER NOT NULL,
-  run_id                   INTEGER,
-  source_kind              TEXT NOT NULL,
-  browser_version          TEXT,
-  schema_version_text      TEXT,
-  schema_version_int       INTEGER,
-  schema_fingerprint       TEXT NOT NULL,
-  parser_version           TEXT NOT NULL,
-  capability_snapshot_json TEXT NOT NULL,
-  coverage_stats_json      TEXT NOT NULL,
-  artifact_refs_json       TEXT,
-  notes_json               TEXT,
-  created_at               TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS schema_observations (
-  source_batch_id  INTEGER NOT NULL,
-  database_label   TEXT NOT NULL,
-  observation_json TEXT NOT NULL,
-  recorded_at      TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS visit_search_evidence (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_batch_id   INTEGER NOT NULL,
-  source_profile_id INTEGER NOT NULL,
-  source_visit_id   TEXT,
-  source_url_id     TEXT,
-  evidence_key      TEXT NOT NULL,
-  evidence_value    TEXT NOT NULL,
-  normalized_value  TEXT,
-  source_field      TEXT NOT NULL,
-  recorded_at       TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS visit_navigation_evidence (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_batch_id   INTEGER NOT NULL,
-  source_profile_id INTEGER NOT NULL,
-  source_visit_id   TEXT NOT NULL,
-  edge_kind         TEXT NOT NULL,
-  target_visit_id   TEXT,
-  target_url        TEXT,
-  transition        INTEGER,
-  source_field      TEXT NOT NULL,
-  recorded_at       TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS visit_engagement_evidence (
-  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_batch_id    INTEGER NOT NULL,
-  source_profile_id  INTEGER NOT NULL,
-  source_visit_id    TEXT NOT NULL,
-  metric_key         TEXT NOT NULL,
-  metric_value_int   INTEGER,
-  metric_value_real  REAL,
-  source_field       TEXT NOT NULL,
-  recorded_at        TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS visit_context_evidence (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_batch_id   INTEGER NOT NULL,
-  source_profile_id INTEGER NOT NULL,
-  source_visit_id   TEXT,
-  source_url_id     TEXT,
-  context_key       TEXT NOT NULL,
-  value_json        TEXT NOT NULL,
-  source_field      TEXT NOT NULL,
-  recorded_at       TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS native_entities (
-  id                         INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_batch_id            INTEGER NOT NULL,
-  source_profile_id          INTEGER NOT NULL,
-  entity_kind                TEXT NOT NULL,
-  native_primary_key         TEXT NOT NULL,
-  parent_native_primary_key  TEXT,
-  payload_json               TEXT NOT NULL,
-  metadata_json              TEXT NOT NULL,
-  recorded_at                TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_source_batches_profile_created
-  ON source_batches(source_profile_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_source_batches_run
-  ON source_batches(run_id);
-CREATE INDEX IF NOT EXISTS idx_visit_search_evidence_batch
-  ON visit_search_evidence(source_batch_id, source_profile_id);
-CREATE INDEX IF NOT EXISTS idx_visit_navigation_evidence_batch
-  ON visit_navigation_evidence(source_batch_id, source_profile_id);
-CREATE INDEX IF NOT EXISTS idx_visit_engagement_evidence_batch
-  ON visit_engagement_evidence(source_batch_id, source_profile_id);
-CREATE INDEX IF NOT EXISTS idx_visit_context_evidence_batch
-  ON visit_context_evidence(source_batch_id, source_profile_id);
-CREATE INDEX IF NOT EXISTS idx_native_entities_batch_kind
-  ON native_entities(source_batch_id, entity_kind);
-"#;
-
-pub(crate) const SOURCE_EVIDENCE_SPOOL_THRESHOLD_BYTES: usize = 512 * 1024;
-
+use vault_store::{Db, Priority, Session, params};
 #[derive(Debug, Clone)]
 pub(crate) struct SourceBatchInput {
     pub source_profile_id: i64,
@@ -175,154 +32,39 @@ pub(crate) struct SourceEvidencePayload {
     pub native_entities: Vec<NativeEntity>,
 }
 
-/// Defers one cold payload until the archive transaction has committed.
-///
-/// Small payloads stay in memory. Larger ones spill into a temporary JSON file
-/// under `staging/source-evidence-spool/` so import/backup flows do not keep
-/// every native payload resident until post-commit source-evidence persistence.
-#[derive(Debug)]
-pub(crate) enum DeferredSourceEvidencePayload {
-    InMemory(SourceEvidencePayload),
-    SpoolFile(TempPath),
-    ChunkFile(TempPath),
-}
-
-impl DeferredSourceEvidencePayload {
-    /// Returns `true` when this payload has been spilled to disk.
-    #[cfg(test)]
-    pub(crate) fn is_spooled(&self) -> bool {
-        matches!(self, Self::SpoolFile(_))
-    }
-
-    /// Persists the deferred payload into the cold source-evidence archive.
-    pub(crate) fn persist(
-        &self,
-        transaction: &Transaction<'_>,
-        source_batch_id: i64,
-        source_profile_id: i64,
-    ) -> Result<()> {
-        match self {
-            Self::InMemory(payload) => {
-                persist_source_evidence(transaction, source_batch_id, source_profile_id, payload)
-            }
-            Self::SpoolFile(path) => {
-                let file = fs::File::open(path).with_context(|| {
-                    format!("opening deferred source-evidence {}", path.display())
-                })?;
-                let payload: SourceEvidencePayload =
-                    serde_json::from_reader(file).with_context(|| {
-                        format!("reading deferred source-evidence {}", path.display())
-                    })?;
-                persist_source_evidence(transaction, source_batch_id, source_profile_id, &payload)
-            }
-            Self::ChunkFile(path) => {
-                let file = fs::File::open(path).with_context(|| {
-                    format!("opening deferred source-evidence chunk file {}", path.display())
-                })?;
-                let reader = BufReader::new(file);
-                for line in reader.lines() {
-                    let line = line.with_context(|| {
-                        format!("reading deferred source-evidence chunk {}", path.display())
-                    })?;
-                    if line.trim().is_empty() {
-                        continue;
-                    }
-                    let payload: SourceEvidencePayload =
-                        serde_json::from_str(&line).with_context(|| {
-                            format!(
-                                "deserializing deferred source-evidence chunk {}",
-                                path.display()
-                            )
-                        })?;
-                    persist_source_evidence(
-                        transaction,
-                        source_batch_id,
-                        source_profile_id,
-                        &payload,
-                    )?;
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
-/// Moves a post-commit payload into bounded storage before the cold archive write begins.
-pub(crate) fn defer_source_evidence_payload(
-    paths: &ProjectPaths,
-    label: &str,
-    payload: SourceEvidencePayload,
-) -> Result<DeferredSourceEvidencePayload> {
-    if approx_source_evidence_payload_bytes(&payload) <= SOURCE_EVIDENCE_SPOOL_THRESHOLD_BYTES {
-        return Ok(DeferredSourceEvidencePayload::InMemory(payload));
-    }
-
-    let spool_dir = paths.staging_dir.join("source-evidence-spool");
-    fs::create_dir_all(&spool_dir).with_context(|| format!("creating {}", spool_dir.display()))?;
-    let mut file = allocate_deferred_source_evidence_file(&spool_dir, label)?;
-    serde_json::to_writer(file.as_file_mut(), &payload)
-        .context("serializing deferred source-evidence payload")?;
-    Ok(DeferredSourceEvidencePayload::SpoolFile(file.into_temp_path()))
-}
-
-fn allocate_deferred_source_evidence_file(spool_dir: &Path, label: &str) -> Result<NamedTempFile> {
-    TempFileBuilder::new()
-        .prefix(&spool_file_prefix(label))
-        .suffix(".json")
-        .tempfile_in(spool_dir)
-        .with_context(|| format!("allocating deferred source-evidence in {}", spool_dir.display()))
-}
-
-pub fn open_source_evidence_connection(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<Connection> {
-    ensure_paths(paths)?;
-    let connection = Connection::open(&paths.source_evidence_database_path)
-        .with_context(|| format!("opening {}", paths.source_evidence_database_path.display()))?;
-    connection.busy_timeout(StdDuration::from_secs(5))?;
-    connection.pragma_update(None, "foreign_keys", true)?;
-    if matches!(config.archive_mode, ArchiveMode::Encrypted) {
-        let key = key.context("database key is required for encrypted archives")?;
-        apply_cipher_key(&connection, key)?;
-    }
-    connection.execute_batch(SOURCE_EVIDENCE_SCHEMA_SQL)?;
-    Ok(connection)
-}
-
 pub(crate) fn upsert_source_batch(
-    transaction: &Transaction<'_>,
+    transaction: &Session<'_>,
     input: &SourceBatchInput,
 ) -> Result<i64> {
-    transaction.execute(
+    let id = transaction.query_one(
         "INSERT INTO source_batches (
            source_profile_id, run_id, source_kind, browser_version, schema_version_text,
            schema_version_int, schema_fingerprint, parser_version, capability_snapshot_json,
            coverage_stats_json, artifact_refs_json, notes_json, created_at
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) RETURNING id",
         params![
             input.source_profile_id,
             input.run_id,
-            input.source_kind,
-            input.browser_version,
-            input.schema_version_text,
+            input.source_kind.clone(),
+            input.browser_version.clone(),
+            input.schema_version_text.clone(),
             input.schema_version_int,
-            input.schema_fingerprint,
+            input.schema_fingerprint.clone(),
             env!("CARGO_PKG_VERSION"),
             serde_json::to_string(&input.capability_snapshot)?,
-            input.coverage_stats_json,
-            input.artifact_refs_json,
-            input.notes_json,
+            input.coverage_stats_json.clone(),
+            input.artifact_refs_json.clone(),
+            input.notes_json.clone(),
             now_rfc3339(),
         ],
+        |r| Ok(r.get::<i64>(0)?),
     )?;
-    Ok(transaction.last_insert_rowid())
+    Ok(id)
 }
 
 pub(crate) fn record_schema_observation(
-    transaction: &Transaction<'_>,
+    transaction: &Session<'_>,
     source_batch_id: i64,
     database_label: &str,
     observation: &SchemaObservation,
@@ -346,7 +88,7 @@ pub(crate) fn record_schema_observation(
 /// and schema observations first. This helper intentionally ignores canonical
 /// visit/url rows because those already live in the hot archive.
 pub(crate) fn persist_source_evidence(
-    transaction: &Transaction<'_>,
+    transaction: &Session<'_>,
     source_batch_id: i64,
     source_profile_id: i64,
     payload: &SourceEvidencePayload,
@@ -364,11 +106,11 @@ pub(crate) fn persist_source_evidence(
                 source_profile_id,
                 evidence.source_visit_id.map(|value| value.to_string()),
                 evidence.source_url_id.map(|value| value.to_string()),
-                evidence.evidence_key,
-                evidence.evidence_value,
-                evidence.normalized_value,
-                evidence.source_field,
-                recorded_at,
+                evidence.evidence_key.clone(),
+                evidence.evidence_value.clone(),
+                evidence.normalized_value.clone(),
+                evidence.source_field.clone(),
+                recorded_at.clone(),
             ],
         )?;
     }
@@ -383,12 +125,12 @@ pub(crate) fn persist_source_evidence(
                 source_batch_id,
                 source_profile_id,
                 evidence.source_visit_id.to_string(),
-                evidence.edge_kind,
+                evidence.edge_kind.clone(),
                 evidence.target_visit_id.map(|value| value.to_string()),
-                evidence.target_url,
+                evidence.target_url.clone(),
                 evidence.transition,
-                evidence.source_field,
-                recorded_at,
+                evidence.source_field.clone(),
+                recorded_at.clone(),
             ],
         )?;
     }
@@ -403,11 +145,11 @@ pub(crate) fn persist_source_evidence(
                 source_batch_id,
                 source_profile_id,
                 evidence.source_visit_id.to_string(),
-                evidence.metric_key,
+                evidence.metric_key.clone(),
                 evidence.metric_value_int,
                 evidence.metric_value_real,
-                evidence.source_field,
-                recorded_at,
+                evidence.source_field.clone(),
+                recorded_at.clone(),
             ],
         )?;
     }
@@ -423,10 +165,10 @@ pub(crate) fn persist_source_evidence(
                 source_profile_id,
                 evidence.source_visit_id.map(|value| value.to_string()),
                 evidence.source_url_id.map(|value| value.to_string()),
-                evidence.context_key,
-                evidence.value_json,
-                evidence.source_field,
-                recorded_at,
+                evidence.context_key.clone(),
+                evidence.value_json.clone(),
+                evidence.source_field.clone(),
+                recorded_at.clone(),
             ],
         )?;
     }
@@ -440,344 +182,104 @@ pub(crate) fn persist_source_evidence(
             params![
                 source_batch_id,
                 source_profile_id,
-                entity.entity_kind,
-                entity.native_primary_key,
-                entity.parent_native_primary_key,
-                entity.payload_json,
+                entity.entity_kind.clone(),
+                entity.native_primary_key.clone(),
+                entity.parent_native_primary_key.clone(),
+                entity.payload_json.clone(),
                 serde_json::to_string(&entity.metadata)?,
-                recorded_at,
+                recorded_at.clone(),
             ],
         )?;
     }
     Ok(())
 }
 
-pub(crate) fn approx_source_evidence_payload_bytes(payload: &SourceEvidencePayload) -> usize {
-    payload
-        .typed_evidence
-        .search
-        .iter()
-        .map(|evidence| {
-            option_i64_len(evidence.source_visit_id)
-                + option_i64_len(evidence.source_url_id)
-                + evidence.evidence_key.len()
-                + evidence.evidence_value.len()
-                + option_str_len(evidence.normalized_value.as_deref())
-                + evidence.source_field.len()
-        })
-        .sum::<usize>()
-        + payload
-            .typed_evidence
-            .navigation
-            .iter()
-            .map(|evidence| {
-                evidence.source_visit_id.to_string().len()
-                    + evidence.edge_kind.len()
-                    + option_i64_len(evidence.target_visit_id)
-                    + option_str_len(evidence.target_url.as_deref())
-                    + option_i64_len(evidence.transition)
-                    + evidence.source_field.len()
-            })
-            .sum::<usize>()
-        + payload
-            .typed_evidence
-            .engagement
-            .iter()
-            .map(|evidence| {
-                evidence.source_visit_id.to_string().len()
-                    + evidence.metric_key.len()
-                    + option_i64_len(evidence.metric_value_int)
-                    + option_f64_len(evidence.metric_value_real)
-                    + evidence.source_field.len()
-            })
-            .sum::<usize>()
-        + payload
-            .typed_evidence
-            .context
-            .iter()
-            .map(|evidence| {
-                option_i64_len(evidence.source_visit_id)
-                    + option_i64_len(evidence.source_url_id)
-                    + evidence.context_key.len()
-                    + evidence.value_json.len()
-                    + evidence.source_field.len()
-            })
-            .sum::<usize>()
-        + payload
-            .native_entities
-            .iter()
-            .map(|entity| {
-                entity.entity_kind.len()
-                    + entity.native_primary_key.len()
-                    + option_str_len(entity.parent_native_primary_key.as_deref())
-                    + entity.payload_json.len()
-                    + entity
-                        .metadata
-                        .iter()
-                        .map(|(key, value)| key.len() + value.len())
-                        .sum::<usize>()
-            })
-            .sum::<usize>()
-}
-
-fn option_i64_len(value: Option<i64>) -> usize {
-    value.map(|_| std::mem::size_of::<i64>()).unwrap_or_default()
-}
-
-fn option_f64_len(value: Option<f64>) -> usize {
-    value.map(|_| std::mem::size_of::<f64>()).unwrap_or_default()
-}
-
-fn option_str_len(value: Option<&str>) -> usize {
-    value.map(str::len).unwrap_or_default()
-}
-
-fn spool_file_prefix(label: &str) -> String {
-    let mut prefix =
-        label
-            .chars()
-            .map(|character| {
-                if character.is_ascii_alphanumeric() { character.to_ascii_lowercase() } else { '-' }
-            })
-            .collect::<String>();
-    prefix.truncate(24);
-    if prefix.trim_matches('-').is_empty() {
-        prefix = "source-evidence".to_string();
-    }
-    format!("pathkeep-{prefix}-")
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use browser_history_parser::{
-        ContextEvidence, EngagementEvidence, NavigationEvidence, SearchEvidence, TypedEvidenceBatch,
-    };
-    use std::collections::BTreeMap;
-    use tempfile::{NamedTempFile, tempdir};
+#[path = "source_evidence_tests.rs"]
+mod tests;
+/// Bounded cold writes complete before a canonical batch advances its watermark.
+pub(crate) struct EvidenceWriter<'a> {
+    vault: &'a crate::Vault,
+    batch_id: i64,
+    profile_id: i64,
+    counts: EvidenceCounts,
+}
 
-    fn payload_with_all_evidence_families(label: &str) -> SourceEvidencePayload {
-        let mut metadata = BTreeMap::new();
-        metadata.insert("source".to_string(), label.to_string());
-        SourceEvidencePayload {
-            typed_evidence: TypedEvidenceBatch {
-                search: vec![SearchEvidence {
-                    source_visit_id: Some(1),
-                    source_url_id: Some(10),
-                    evidence_key: "query".to_string(),
-                    evidence_value: format!("{label} search"),
-                    normalized_value: Some(label.to_string()),
-                    source_field: "keyword_search_terms.term".to_string(),
-                }],
-                navigation: vec![NavigationEvidence {
-                    source_visit_id: 1,
-                    edge_kind: "referrer".to_string(),
-                    target_visit_id: Some(2),
-                    target_url: Some(format!("https://{label}.example/next")),
-                    transition: Some(805306368),
-                    source_field: "visits.from_visit".to_string(),
-                }],
-                engagement: vec![EngagementEvidence {
-                    source_visit_id: 1,
-                    metric_key: "duration_ms".to_string(),
-                    metric_value_int: Some(42),
-                    metric_value_real: Some(42.5),
-                    source_field: "visits.visit_duration".to_string(),
-                }],
-                context: vec![ContextEvidence {
-                    source_visit_id: Some(1),
-                    source_url_id: Some(10),
-                    context_key: "page_title".to_string(),
-                    value_json: serde_json::json!({ "title": label }).to_string(),
-                    source_field: "urls.title".to_string(),
-                }],
-            },
-            native_entities: vec![NativeEntity {
-                entity_kind: "history-row".to_string(),
-                native_primary_key: label.to_string(),
-                parent_native_primary_key: Some("parent".to_string()),
-                payload_json: serde_json::json!({ "id": label }).to_string(),
-                metadata,
-            }],
+impl<'a> EvidenceWriter<'a> {
+    pub(crate) fn new(vault: &'a crate::Vault, batch_id: i64, profile_id: i64) -> Self {
+        Self { vault, batch_id, profile_id, counts: EvidenceCounts::default() }
+    }
+    pub(crate) fn counts(&self) -> EvidenceCounts {
+        self.counts.clone()
+    }
+    pub(crate) fn batch_id(&self) -> i64 {
+        self.batch_id
+    }
+    pub(crate) fn push(&mut self, payload: SourceEvidencePayload) -> Result<()> {
+        const ROWS: usize = 10_000;
+        self.counts.add(&payload);
+        // Each family uses the same row bound; no whole-import evidence vector survives.
+        for rows in payload.typed_evidence.search.chunks(ROWS) {
+            let mut part = SourceEvidencePayload::default();
+            part.typed_evidence.search = rows.to_vec();
+            self.write(part)?;
         }
-    }
-
-    #[test]
-    fn deferred_payloads_persist_in_memory_spool_and_chunk_variants() {
-        let root = tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(root.path());
-        let config = AppConfig::default();
-        let mut connection =
-            open_source_evidence_connection(&paths, &config, None).expect("open evidence");
-
-        let spool_file = NamedTempFile::new_in(root.path()).expect("spool tempfile");
-        serde_json::to_writer(spool_file.as_file(), &payload_with_all_evidence_families("spool"))
-            .expect("write spool payload");
-        let chunk_file = NamedTempFile::new_in(root.path()).expect("chunk tempfile");
-        fs::write(
-            chunk_file.path(),
-            format!(
-                "\n{}\n",
-                serde_json::to_string(&payload_with_all_evidence_families("chunk"))
-                    .expect("serialize chunk payload")
-            ),
-        )
-        .expect("write chunk payload");
-
-        let deferred = [
-            DeferredSourceEvidencePayload::InMemory(payload_with_all_evidence_families("memory")),
-            DeferredSourceEvidencePayload::SpoolFile(spool_file.into_temp_path()),
-            DeferredSourceEvidencePayload::ChunkFile(chunk_file.into_temp_path()),
-        ];
-
-        let transaction = connection.transaction().expect("transaction");
-        for (index, payload) in deferred.iter().enumerate() {
-            payload
-                .persist(&transaction, 100 + index as i64, 200 + index as i64)
-                .expect("persist deferred payload");
+        for rows in payload.typed_evidence.navigation.chunks(ROWS) {
+            let mut part = SourceEvidencePayload::default();
+            part.typed_evidence.navigation = rows.to_vec();
+            self.write(part)?;
         }
-        transaction.commit().expect("commit");
-
-        for table in [
-            "visit_search_evidence",
-            "visit_navigation_evidence",
-            "visit_engagement_evidence",
-            "visit_context_evidence",
-            "native_entities",
-        ] {
-            let count: i64 = connection
-                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
-                .expect("count evidence rows");
-            assert_eq!(count, 3, "{table}");
+        for rows in payload.typed_evidence.engagement.chunks(ROWS) {
+            let mut part = SourceEvidencePayload::default();
+            part.typed_evidence.engagement = rows.to_vec();
+            self.write(part)?;
         }
-    }
-
-    #[test]
-    fn source_evidence_sizing_and_spool_prefix_cover_optional_edges() {
-        let payload = payload_with_all_evidence_families("sizing");
-        assert!(approx_source_evidence_payload_bytes(&payload) > 0);
-        assert_eq!(option_i64_len(None), 0);
-        assert_eq!(option_f64_len(None), 0);
-        assert_eq!(option_str_len(None), 0);
-        assert_eq!(spool_file_prefix("!!!"), "pathkeep-source-evidence-");
-        assert_eq!(spool_file_prefix("Browser History Export"), "pathkeep-browser-history-export-");
-    }
-
-    #[test]
-    fn deferred_source_evidence_allocation_errors_name_the_spool_directory() {
-        let root = tempdir().expect("tempdir");
-        let missing_spool_dir = root.path().join("missing").join("source-evidence-spool");
-
-        let error = allocate_deferred_source_evidence_file(&missing_spool_dir, "fixture")
-            .expect_err("missing spool parent cannot allocate tempfile");
-
-        assert!(format!("{error:#}").contains("allocating deferred source-evidence"));
-    }
-
-    #[test]
-    fn open_source_evidence_connection_applies_cipher_key_in_encrypted_mode() {
-        // Drives the encrypted branch of open_source_evidence_connection
-        // — without this test the cipher-key application stays
-        // uncovered because every other call site in this module uses
-        // the plaintext default. We round-trip a write + read with a
-        // real sqlcipher key so the key actually gates the database.
-        let root = tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(root.path());
-        let encrypted_config =
-            AppConfig { archive_mode: ArchiveMode::Encrypted, ..AppConfig::default() };
-        let key = "source-evidence-encryption-test-key";
-
-        // Initial open creates an encrypted schema.
-        {
-            let mut connection =
-                open_source_evidence_connection(&paths, &encrypted_config, Some(key))
-                    .expect("encrypted open creates schema");
-            let transaction = connection.transaction().expect("transaction");
-            transaction
-                .execute(
-                    "INSERT INTO source_batches (
-                       source_profile_id, run_id, source_kind, browser_version,
-                       schema_version_text, schema_version_int, schema_fingerprint,
-                       parser_version, capability_snapshot_json, coverage_stats_json,
-                       artifact_refs_json, notes_json, created_at)
-                     VALUES (1, NULL, 'chromium', NULL, NULL, NULL, 'fp', 'pv', '{}', '{}', NULL, NULL, '2026-05-25T00:00:00Z')",
-                    [],
-                )
-                .expect("insert");
-            transaction.commit().expect("commit");
+        for rows in payload.typed_evidence.context.chunks(ROWS) {
+            let mut part = SourceEvidencePayload::default();
+            part.typed_evidence.context = rows.to_vec();
+            self.write(part)?;
         }
-
-        // Re-opening with the same key reads the encrypted rows back.
-        let connection = open_source_evidence_connection(&paths, &encrypted_config, Some(key))
-            .expect("re-open with correct key");
-        let count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM source_batches", [], |row| row.get(0))
-            .expect("count");
-        assert_eq!(count, 1, "encrypted round-trip lost the inserted batch");
+        for rows in payload.native_entities.chunks(ROWS) {
+            self.write(SourceEvidencePayload {
+                native_entities: rows.to_vec(),
+                ..SourceEvidencePayload::default()
+            })?;
+        }
+        Ok(())
     }
-
-    #[test]
-    fn open_source_evidence_connection_requires_key_when_encrypted() {
-        // Cover the `key.context(...)` Err arm: an encrypted config
-        // with no key must surface the documented "database key is
-        // required" error rather than silently fall through to a
-        // schema bootstrap that would race with a future write.
-        let root = tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(root.path());
-        let encrypted_config =
-            AppConfig { archive_mode: ArchiveMode::Encrypted, ..AppConfig::default() };
-        let err = open_source_evidence_connection(&paths, &encrypted_config, None)
-            .expect_err("encrypted open without key must error");
-        assert!(
-            format!("{err:?}").contains("database key is required"),
-            "unexpected error: {err:?}",
-        );
+    fn write(&self, payload: SourceEvidencePayload) -> Result<()> {
+        let (batch, profile) = (self.batch_id, self.profile_id);
+        self.vault.write(Db::SourceEvidence, Priority::Batch, move |s| {
+            persist_source_evidence(s, batch, profile, &payload)
+        })
     }
+}
 
-    #[test]
-    fn deferred_payload_error_contexts_name_spool_and_chunk_paths() {
-        let root = tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(root.path());
-        let config = AppConfig::default();
-        let mut connection =
-            open_source_evidence_connection(&paths, &config, None).expect("open evidence");
-        let transaction = connection.transaction().expect("transaction");
-
-        let missing_spool = NamedTempFile::new_in(root.path()).expect("missing spool");
-        let missing_spool_path = missing_spool.into_temp_path();
-        fs::remove_file(&missing_spool_path).expect("remove spool");
-        let error = DeferredSourceEvidencePayload::SpoolFile(missing_spool_path)
-            .persist(&transaction, 1, 1)
-            .expect_err("missing spool");
-        assert!(format!("{error:#}").contains("opening deferred source-evidence"));
-
-        let bad_spool = NamedTempFile::new_in(root.path()).expect("bad spool");
-        fs::write(bad_spool.path(), b"{").expect("write bad spool");
-        let error = DeferredSourceEvidencePayload::SpoolFile(bad_spool.into_temp_path())
-            .persist(&transaction, 1, 1)
-            .expect_err("bad spool");
-        assert!(format!("{error:#}").contains("reading deferred source-evidence"));
-
-        let missing_chunk = NamedTempFile::new_in(root.path()).expect("missing chunk");
-        let missing_chunk_path = missing_chunk.into_temp_path();
-        fs::remove_file(&missing_chunk_path).expect("remove chunk");
-        let error = DeferredSourceEvidencePayload::ChunkFile(missing_chunk_path)
-            .persist(&transaction, 1, 1)
-            .expect_err("missing chunk");
-        assert!(format!("{error:#}").contains("opening deferred source-evidence chunk file"));
-
-        let bad_chunk = NamedTempFile::new_in(root.path()).expect("bad chunk");
-        fs::write(bad_chunk.path(), [0xff]).expect("write bad chunk");
-        let error = DeferredSourceEvidencePayload::ChunkFile(bad_chunk.into_temp_path())
-            .persist(&transaction, 1, 1)
-            .expect_err("bad chunk");
-        assert!(format!("{error:#}").contains("reading deferred source-evidence chunk"));
-
-        let bad_json_chunk = NamedTempFile::new_in(root.path()).expect("bad json chunk");
-        fs::write(bad_json_chunk.path(), "{\n").expect("write bad json chunk");
-        let error = DeferredSourceEvidencePayload::ChunkFile(bad_json_chunk.into_temp_path())
-            .persist(&transaction, 1, 1)
-            .expect_err("bad json chunk");
-        assert!(format!("{error:#}").contains("deserializing deferred source-evidence chunk"));
+/// Coverage is accumulated with committed evidence, never from an unbounded report.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct EvidenceCounts {
+    pub search: usize,
+    pub navigation: usize,
+    pub engagement: usize,
+    pub context: usize,
+    pub native: usize,
+}
+impl EvidenceCounts {
+    fn add(&mut self, payload: &SourceEvidencePayload) {
+        self.search += payload.typed_evidence.search.len();
+        self.navigation += payload.typed_evidence.navigation.len();
+        self.engagement += payload.typed_evidence.engagement.len();
+        self.context += payload.typed_evidence.context.len();
+        self.native += payload.native_entities.len();
+    }
+    pub(crate) fn coverage(
+        &self,
+        urls: usize,
+        visits: usize,
+        downloads: usize,
+        terms: usize,
+    ) -> String {
+        serde_json::json!({"urls":urls,"visits":visits,"downloads":downloads,"searchTerms":terms,
+            "searchEvidence":self.search,"navigationEvidence":self.navigation,"engagementEvidence":self.engagement,"contextEvidence":self.context,"nativeEntities":self.native}).to_string()
     }
 }

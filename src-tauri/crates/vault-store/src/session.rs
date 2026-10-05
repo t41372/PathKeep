@@ -4,7 +4,7 @@
 //! ownership; failed rollback is hidden. Tests: concurrency, api compile-fail docs.
 use crate::{Error, Result};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     marker::PhantomData,
     panic::{AssertUnwindSafe, catch_unwind},
     rc::Rc,
@@ -25,6 +25,7 @@ use tokio::runtime::Runtime;
 /// }
 /// ```
 pub struct Session<'a> {
+    pub(crate) statements: Cell<usize>,
     pub(crate) runtime: &'a Runtime,
     pub(crate) conn: &'a turso::Connection,
     pub(crate) read_only: bool,
@@ -46,8 +47,14 @@ impl<'a> Session<'a> {
                 *held = Some(gate.enter());
             }
         }
+        self.statements.set(self.statements.get() + 1);
         Ok(())
     }
+    /// Counts application statements in this job, for bounded-write diagnostics.
+    pub fn statement_count(&self) -> usize {
+        self.statements.get()
+    }
+
     /// Apply one statement within the transaction already owned by the facade.
     pub fn execute(&self, sql: &str, params: impl turso::IntoParams) -> Result<u64> {
         self.check_sql(sql)?;

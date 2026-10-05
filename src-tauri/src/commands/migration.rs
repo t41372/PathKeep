@@ -24,10 +24,10 @@ pub(crate) async fn export_app_data(
     state: State<'_, SessionState>,
     target_path: String,
 ) -> Result<vault_core::ExportedBundle, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     let target = PathBuf::from(target_path);
     run_blocking_command("export_app_data", move || {
-        worker_bridge::export_app_data_impl(key.as_deref(), target)
+        worker_bridge::export_app_data_impl(key_state.get_key()?.as_deref(), target)
     })
     .await
 }
@@ -58,10 +58,10 @@ pub(crate) async fn apply_app_data_import(
     bundle_path: String,
     options: vault_core::ApplyImportOptions,
 ) -> Result<vault_core::ImportResult, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     let bundle = PathBuf::from(bundle_path);
     run_blocking_command("apply_app_data_import", move || {
-        worker_bridge::apply_app_data_import_impl(key.as_deref(), bundle, options)
+        worker_bridge::apply_app_data_import_impl(key_state.get_key()?.as_deref(), bundle, options)
     })
     .await
 }

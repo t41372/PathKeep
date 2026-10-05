@@ -62,27 +62,33 @@ pub(crate) fn test_ai_provider_connection_impl(
 #[cfg_attr(test, allow(dead_code))]
 /// Loads the AI queue read model.
 pub(crate) fn load_ai_queue_status_impl(
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::AiQueueStatus, CommandError> {
-    worker_result(vault_worker::load_ai_queue(session_database_key))
+    let key = state.get_key()?;
+    let session_database_key = key.as_deref();
+    worker_result(vault_worker::load_ai_queue(&state.vault()?, session_database_key))
 }
 
 #[cfg_attr(test, allow(dead_code))]
 /// Drains AI queue jobs immediately.
 pub(crate) fn run_ai_queue_jobs_impl(
     max_jobs: Option<u32>,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::AiQueueStatus, CommandError> {
-    worker_result(vault_worker::run_ai_queue_jobs(session_database_key, max_jobs))
+    let key = state.get_key()?;
+    let session_database_key = key.as_deref();
+    worker_result(vault_worker::run_ai_queue_jobs(&state.vault()?, session_database_key, max_jobs))
 }
 
 #[cfg_attr(test, allow(dead_code))]
 /// Requeues a single AI job.
 pub(crate) fn replay_ai_job_impl(
     job_id: i64,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::AiQueueJob, CommandError> {
-    worker_result(vault_worker::replay_ai_job(session_database_key, job_id))
+    let key = state.get_key()?;
+    let session_database_key = key.as_deref();
+    worker_result(vault_worker::replay_ai_job(&state.vault()?, session_database_key, job_id))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -97,18 +103,26 @@ pub(crate) fn cancel_ai_job_impl(
 /// Builds or refreshes the semantic index right away.
 pub(crate) fn build_ai_index_impl(
     request: AiIndexRequest,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::AiIndexReport, CommandError> {
-    worker_result(vault_worker::build_ai_index_now(session_database_key, &request))
+    let key = state.get_key()?;
+    let session_database_key = key.as_deref();
+    worker_result(vault_worker::build_ai_index_now(&state.vault()?, session_database_key, &request))
 }
 
 /// Recovers a wedged semantic-index build: clears the stuck job(s) and re-enqueues a clean one (F2).
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn reset_ai_index_build_impl(
     request: AiIndexRequest,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::AiIndexReport, CommandError> {
-    worker_result(vault_worker::reset_ai_index_build(session_database_key, &request))
+    let key = state.get_key()?;
+    let session_database_key = key.as_deref();
+    worker_result(vault_worker::reset_ai_index_build(
+        &state.vault()?,
+        session_database_key,
+        &request,
+    ))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -123,9 +137,11 @@ pub(crate) fn estimate_reembed_impl(
 /// Runs semantic-plus-lexical search through the worker layer.
 pub(crate) fn search_ai_history_impl(
     request: AiSearchRequest,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::AiSearchResponse, CommandError> {
-    worker_result(vault_worker::search_ai_history(session_database_key, &request))
+    let key = state.get_key()?;
+    let session_database_key = key.as_deref();
+    worker_result(vault_worker::search_ai_history(&state.vault()?, session_database_key, &request))
 }
 
 /// Previews the generated MCP and skill integration artifacts.
@@ -141,13 +157,15 @@ pub(crate) fn preview_ai_integrations_impl()
 /// 'static` so the worker's background streaming thread can own it.
 pub(crate) fn ai_chat_send_impl<E>(
     request: AiChatSendRequest,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
     emit: E,
 ) -> Result<vault_core::AiChatSendAck, CommandError>
 where
     E: Fn(AiChatStreamEvent) + Send + Sync + 'static,
 {
-    worker_result(vault_worker::ai_chat_send(session_database_key, &request, emit))
+    let key = state.get_key()?;
+    let session_database_key = key.as_deref();
+    worker_result(vault_worker::ai_chat_send(&state.vault()?, session_database_key, &request, emit))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -229,9 +247,12 @@ pub(crate) fn rename_ai_conversation_impl(
 /// Reads the content-fetch consent + status surface for Settings.
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn content_fetch_settings_impl(
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<ContentFetchSettings, CommandError> {
-    worker_result(vault_worker::content_fetch_settings(session_database_key))
+    worker_result(vault_worker::content_fetch_settings(
+        &state.vault()?,
+        state.get_key()?.as_deref(),
+    ))
 }
 
 /// Persists the content-fetch consent settings (master switch + per-extractor + per-domain).
@@ -241,9 +262,13 @@ pub(crate) fn content_fetch_settings_impl(
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn set_content_fetch_settings_impl(
     settings: ContentFetchSettings,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    worker_result(vault_worker::set_content_fetch_settings(&settings, session_database_key))
+    worker_result(vault_worker::set_content_fetch_settings(
+        &state.vault()?,
+        &settings,
+        state.get_key()?.as_deref(),
+    ))
 }
 
 /// Lists the stored content enrichment for one visit (the detail panel; never blocks on network).
@@ -259,17 +284,25 @@ pub(crate) fn list_visit_enrichment_impl(
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn content_fetch_now_impl(
     request: ContentFetchNowRequest,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<ContentFetchNowResult, CommandError> {
-    worker_result(vault_worker::content_fetch_now(&request, session_database_key))
+    worker_result(vault_worker::content_fetch_now(
+        &state.vault()?,
+        &request,
+        state.get_key()?.as_deref(),
+    ))
 }
 
 /// Enqueues the prioritized working set for content fetch (the 06 §5 bulk hook).
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn enqueue_content_fetch_working_set_impl(
     limit: Option<u32>,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<usize, CommandError> {
     let limit = limit.map(|value| value as usize).unwrap_or(2_000);
-    worker_result(vault_worker::enqueue_content_fetch_working_set(limit, session_database_key))
+    worker_result(vault_worker::enqueue_content_fetch_working_set(
+        &state.vault()?,
+        limit,
+        state.get_key()?.as_deref(),
+    ))
 }

@@ -17,23 +17,23 @@ One live document per `page_id`. An upsert deletes its old ID before adding a fu
 replacement. Rebuild input is strictly ordered by page ID, enforcing uniqueness
 with one previous ID rather than an archive-sized set.
 
-| Field | Type | Weight |
-| --- | --- | ---: |
-| `url` | positioned text | 6 |
-| `title` | positioned text | 12 |
-| `search_terms` | positioned text | 4 |
-| `normalized_url` | positioned text | 5 |
-| `normalized_title` | positioned text | 10 |
-| `normalized_search_terms` | positioned text | 4 |
-| `cjk_grams` | positioned text | 2 |
-| `enrichment_text` | positioned text | 7 |
-| `notes_text` | positioned text | 9 |
-| `tags_text` | positioned text | 6 |
-| `trigrams` | Unicode 3-grams from `compact_text`, frequencies | 1 |
-| `page_id` | indexed u64, fast | — |
-| `newest_visit_ms` | i64, fast | — |
-| `domain` | exact indexed string, fast | — |
-| `profile_ids` | indexed u64, multi-valued fast | — |
+| Field                     | Type                                             | Weight |
+| ------------------------- | ------------------------------------------------ | -----: |
+| `url`                     | positioned text                                  |      6 |
+| `title`                   | positioned text                                  |     12 |
+| `search_terms`            | positioned text                                  |      4 |
+| `normalized_url`          | positioned text                                  |      5 |
+| `normalized_title`        | positioned text                                  |     10 |
+| `normalized_search_terms` | positioned text                                  |      4 |
+| `cjk_grams`               | positioned text                                  |      2 |
+| `enrichment_text`         | positioned text                                  |      7 |
+| `notes_text`              | positioned text                                  |      9 |
+| `tags_text`               | positioned text                                  |      6 |
+| `trigrams`                | Unicode 3-grams from `compact_text`, frequencies |      1 |
+| `page_id`                 | indexed u64, fast                                |      — |
+| `newest_visit_ms`         | i64, fast                                        |      — |
+| `domain`                  | exact indexed string, fast                       |      — |
+| `profile_ids`             | indexed u64, multi-valued fast                   |      — |
 
 Text contains **already normalized, ASCII-whitespace-delimited tokens**. The
 crate performs no case folding, Unicode normalization, stemming, language
@@ -67,15 +67,15 @@ projection rather than acknowledge a partly searchable document.
 
 ## Typed AST
 
-| Expression | Meaning |
-| --- | --- |
-| `Term { token, field }` | Exact token; `None` searches all ten weighted fields. |
-| `Prefix { token, field }` | Literal prefix; empty matches any token in the field. |
-| `Phrase { tokens, field }` | Adjacent, ordered `PhraseTerm::Exact` or `Prefix` tokens within one field. One token is a term; empty matches nothing. |
-| `Not(child)` | All live pages except the child; contributes zero score. |
-| `And(children)` | Intersection; empty matches all live pages. |
-| `Or(children)` | Union; empty matches nothing. |
-| `Trigrams { text, minimum_match }` | At least this many distinct Unicode 3-grams match. Threshold must be positive. |
+| Expression                         | Meaning                                                                                                                |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `Term { token, field }`            | Exact token; `None` searches all ten weighted fields.                                                                  |
+| `Prefix { token, field }`          | Literal prefix; empty matches any token in the field.                                                                  |
+| `Phrase { tokens, field }`         | Adjacent, ordered `PhraseTerm::Exact` or `Prefix` tokens within one field. One token is a term; empty matches nothing. |
+| `Not(child)`                       | All live pages except the child; contributes zero score.                                                               |
+| `And(children)`                    | Intersection; empty matches all live pages.                                                                            |
+| `Or(children)`                     | Union; empty matches nothing.                                                                                          |
+| `Trigrams { text, minimum_match }` | At least this many distinct Unicode 3-grams match. Threshold must be positive.                                         |
 
 No query string parser is used. Punctuation is literal. A trigram query means gram
 similarity, not an edit-distance guarantee. A threshold greater than the number of
@@ -163,7 +163,7 @@ the sequence past unapplied rows.
 Each commit payload is JSON:
 
 ```json
-{"schema_version":1,"analyzer_version":1,"last_seq":123}
+{ "schema_version": 1, "analyzer_version": 1, "last_seq": 123 }
 ```
 
 Tantivy writes segments before atomically replacing `meta.json` through the

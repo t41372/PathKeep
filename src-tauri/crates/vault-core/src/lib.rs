@@ -35,6 +35,7 @@ pub mod intelligence_runtime;
 mod intelligence_sections;
 pub mod migration;
 pub mod models;
+pub(crate) mod pages;
 pub mod schedule_attempts;
 mod snapshot_reads;
 pub mod stars;
@@ -42,7 +43,10 @@ pub mod store_schema;
 pub mod takeout;
 pub mod test_support;
 pub mod utils;
+mod vault;
 pub mod visit_taxonomy;
+
+pub use vault::{ArchivePasswordWrong, BackupAlreadyRunning, EnvelopeMissing, Vault};
 
 pub use agent_store::{
     AgentCitationRecord, AgentRunStatus, AgentRunTrace, AgentStepRecord, AppendAgentStep,
@@ -87,7 +91,7 @@ pub use ai::{
     test_provider_connection, vector_plane_bytes, visit_map_plane_bytes,
 };
 pub use annotations::{
-    get_annotation, list_annotations, replace_tags, search_annotations, set_notes,
+    AnnotationPage, get_annotation, list_annotations, replace_tags, search_annotations, set_notes,
 };
 pub use app_lock::{
     app_lock_status, app_lock_status_with_biometric, clear_app_lock_passcode,
@@ -166,8 +170,12 @@ pub use stars::{
 pub use takeout::{
     import_browser_history, import_browser_history_with_progress, import_takeout,
     import_takeout_with_progress, inspect_browser_history, inspect_takeout, load_import_batches,
-    preview_import_batch, restore_import_batch, revert_import_batch,
+    preview_import_batch, restore_import_batch, restore_import_batch_with_control,
+    revert_import_batch, revert_import_batch_with_control,
 };
 /// Pure SHA-256 helpers (hex digest of bytes / of a file's contents). Re-exported so the worker's
 /// model-download tests + the candle e2e can pin digests against the same impl the manifest uses.
 pub use utils::{file_sha256_hex, sha256_hex};
+
+mod storage_migration;
+pub use storage_migration::{StorageMigrationIncomplete, require_complete_storage_migration};

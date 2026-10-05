@@ -9,7 +9,7 @@ fn foreign_key_violations_fail_on_every_database() {
     for key in [None, Some([0x5a; 32])] {
         let root = tempfile::tempdir().unwrap();
         let mut config = Config::new(root.path());
-        config.key = key;
+        config.keys = [key; 5];
         for db in Db::ALL {
             config.migrations.register(db, vec![Migration::rust(1, |tx| {
                 tx.execute("CREATE TABLE parent(id INTEGER PRIMARY KEY)", ())?;

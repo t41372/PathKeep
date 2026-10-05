@@ -64,7 +64,7 @@ const KEYS: [Option<[u8; 32]>; 2] = [None, Some([0x5a; 32])];
 
 fn config(root: &Path, key: Option<[u8; 32]>) -> Config {
     let mut config = Config::new(root);
-    config.key = key;
+    config.keys = [key; 5];
     config.readers_per_database = NonZeroUsize::new(1).unwrap();
     config.migrations = super::migration_registry();
     config
@@ -288,11 +288,11 @@ fn newer_versions_are_refused() {
             let mut future = config(root.path(), key);
             future.migrations.register(
                 db,
-                vec![Migration::sql(2, "CREATE TABLE future_marker(id INTEGER PRIMARY KEY)")],
+                vec![Migration::sql(5, "CREATE TABLE future_marker(id INTEGER PRIMARY KEY)")],
             );
             drop(Store::open(future).unwrap());
             assert!(
-                matches!(Store::open(config(root.path(), key)), Err(Error::SchemaTooNew { db: found_db, found: 2, supported }) if found_db == db && supported == if db == Db::Scratch {0} else {1})
+                matches!(Store::open(config(root.path(), key)), Err(Error::SchemaTooNew { db: found_db, found: 5, supported }) if found_db == db && supported == if db == Db::Scratch {0} else {1})
             );
         }
     }

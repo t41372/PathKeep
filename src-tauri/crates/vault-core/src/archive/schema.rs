@@ -150,6 +150,7 @@ fn open_archive_connection_base(
     config: &AppConfig,
     key: Option<&str>,
 ) -> Result<Connection> {
+    require_legacy_password(paths, config, key)?;
     ensure_paths(paths)?;
     let connection = Connection::open(&paths.archive_database_path)
         .with_context(|| format!("opening {}", paths.archive_database_path.display()))?;
@@ -163,6 +164,21 @@ fn open_archive_connection_base(
     connection.pragma_update(None, "temp_store", "MEMORY")?;
     let _ = connection.pragma_update(None, "mmap_size", SQLITE_MMAP_SIZE_BYTES);
     Ok(connection)
+}
+
+/// Keep the mixed-store refusal at SQLCipher I/O, not session or status reads.
+pub(super) fn require_legacy_password(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<()> {
+    if config.archive_mode == ArchiveMode::Encrypted
+        && key.is_none()
+        && crate::vault::live::store(&paths.app_root).is_some()
+    {
+        crate::require_complete_storage_migration("SQLCipher reads without a session password")?;
+    }
+    Ok(())
 }
 
 /// Applies the archive cipher key to an already-open SQLite connection.

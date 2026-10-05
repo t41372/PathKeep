@@ -132,6 +132,29 @@ impl CommandError {
 ///   Neither is lock-required: the archive is open; the person only has to
 ///   show they know its password.
 fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str>) {
+    for code in [
+        "envelope-missing",
+        "archive-password-wrong",
+        "archive-busy",
+        "keychain-key-missing",
+        "invalid-keychain-key",
+        "keychain-unavailable",
+        "archive-password-required",
+        "archive-open-panicked",
+        "invalid-cursor",
+        "invalid-page-size",
+    ] {
+        if message.contains(&format!("{code}:")) {
+            return (Some(code), None);
+        }
+    }
+    if message.contains("storage-migration-incomplete:") {
+        return (Some("storage-migration-incomplete"), None);
+    }
+    if message.contains("backup-already-running:") {
+        return (Some("backup-already-running"), None);
+    }
+
     if message.contains("Full Disk Access")
         || message.contains("Safari History.db is not readable yet")
     {

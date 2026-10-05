@@ -13,7 +13,7 @@ use vault_store::{Config, Db, Migration, Priority, Result, Store};
 
 fn open_archive() -> Result<Arc<Store>> {
     let mut config = Config::new("/path/to/archive-root");
-    config.key = None; // Or Some(already_derived_32_byte_database_key).
+    config.keys = [None; 5]; // Or an independent derived key for each Db.
     config.migrations.register(Db::Archive, vec![
         Migration::sql(1, "CREATE TABLE notes(page_id INTEGER PRIMARY KEY, body TEXT)"),
     ]);
@@ -43,13 +43,13 @@ synchronous Store requests from an owner thread return `Reentrant`.
 `Db` identifies Archive, SourceEvidence, Intelligence, Agent and Scratch. The
 caller can replace every `config.paths` entry. Defaults under `config.root` are:
 
-| Database | Path |
-| --- | --- |
-| Archive | `archive/history-vault.db` |
+| Database       | Path                         |
+| -------------- | ---------------------------- |
+| Archive        | `archive/history-vault.db`   |
 | SourceEvidence | `archive/source-evidence.db` |
-| Intelligence | `derived/intelligence.db` |
-| Agent | `derived/agent.db` |
-| Scratch | `derived/scratch.db` |
+| Intelligence   | `derived/intelligence.db`    |
+| Agent          | `derived/agent.db`           |
+| Scratch        | `derived/scratch.db`         |
 
 Use the same root for every attempt to open a given set of files. The root is
 the ownership identity, not a discovery mechanism for unrelated file sets.
@@ -103,18 +103,22 @@ A returned error rolls back the transaction. A closure panic is caught, its
 transaction rolls back, and its owner remains usable. `JobPanicked` is returned;
 the application's normal panic hook still runs. Commit is acknowledged before
 idle reader draining, so a reader cannot hold up a successful write reply.
-Shutdown closes queues and joins all threads before releasing the ownership
-file. Scratch's owners outlive the attached connections.
+`Store::close()` revokes every retained handle, waits for admitted requests, closes queues and joins all threads before releasing the ownership
+file when no app reservation remains. `Config::owner` can share the app's startup `Arc<OwnerLock>` for the same root. It is idempotent; subsequent reads and writes return `Closed`. Drop uses the same closure path. Explicit shutdown or archive-session clearing closes retained handles; App Lock keeps the owner open. Scratch's owners outlive the attached connections.
 
 ## Encryption and scratch
 
-`key: Option<[u8; 32]>` is the already-derived database key. `None` selects
+`keys: [Option<[u8; 32]>; 5]` supplies each `Db` its already-derived key. `[None; 5]` selects
 plaintext for all five databases. A key is hex-encoded with standard-library
 formatting and passed to native `EncryptionOpts { cipher: "aegis256", hexkey }`
-with `experimental_encryption(true)`. Scratch attachments use the same native
+with `experimental_encryption(true)`. Scratch attachments use the separately supplied scratch
 key through a bound `file:...?cipher=aegis256&hexkey=...` URI. URI paths are
 percent-encoded, including non-ASCII characters and `?`, `#`, and quotes.
-Configuration has no Debug implementation that could print the key.
+Configuration has no Debug implementation that could print the key. Configuration and
+connection settings zeroize their owned key arrays when dropped. Temporary hexadecimal
+keys and scratch URI strings are zeroized too. The Turso SDK receives its own owned
+`hexkey` string and retains internal parsed key/URI copies for its connections; their
+memory lifetime and erasure are controlled by Turso, not this facade.
 
 `IoLayer = Arc<dyn turso::core::IO>` is the optional caller-supplied IO boundary,
 passed unchanged to `Builder::with_io_impl`. For protected spill files, the
@@ -163,7 +167,7 @@ counts and the last maintenance error with its cause. An unsuccessful checkpoint
 is retried at a later job or reader-completion boundary, without a busy loop.
 
 **Measured correction to the probe report:** stock cached Turso 0.8.1 ignores
-`wal_autocheckpoint=0`, but it does not backfill on *every* small commit. Its
+`wal_autocheckpoint=0`, but it does not backfill on _every_ small commit. Its
 `WalFile::should_checkpoint` checks whether unbackfilled frames exceed 1,000
 (`storage/wal.rs:4099`, threshold initialization at 4845); the commit state
 machine only enters AutoCheckpoint when that condition holds

@@ -36,7 +36,7 @@ use std::{
 pub(super) fn stream_browser_history_payload<C>(
     source_path: &str,
     kind: &str,
-    bytes: &[u8],
+    reader: impl std::io::Read,
     chunk_size: usize,
     options: TakeoutStreamOptions,
     consumer: &mut C,
@@ -49,7 +49,7 @@ where
     let mut accumulator = BrowserHistoryAccumulator::new(source_path, kind, chunk_size, options);
 
     if kind == KIND_JSONL {
-        let reader = BufReader::new(bytes);
+        let reader = BufReader::new(reader);
         for (ordinal, line) in reader.lines().enumerate() {
             // `BufRead::lines()` yields `Err(InvalidData)` on any invalid UTF-8
             // byte — independent of I/O — so an adversarial / truncated `.jsonl`
@@ -73,7 +73,7 @@ where
         }
     } else if kind == KIND_BROWSER_JSON {
         json_stream::stream_payload_records(
-            bytes,
+            reader,
             source_path,
             &["BrowserHistory", "Browser History"],
             |record, ordinal| accumulator.observe_record(record, ordinal, consumer),

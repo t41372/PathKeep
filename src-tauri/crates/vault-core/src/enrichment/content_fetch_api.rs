@@ -1,7 +1,8 @@
 //! Public façade for the W-ENRICH-1 content-fetch plane (worker + IPC command entrypoints).
 //!
 //! ## Responsibilities
-//! - Expose the `(paths, config, key)`-shaped entrypoints the worker drain + Tauri commands call, so
+//! - Pass the owner Vault to the drain for its search handoff, while unported intelligence
+//!   operations retain their `(paths, config, key)` context, so
 //!   neither has to construct the intelligence connection or know the queue internals: the worker
 //!   drain ([`drain_one_content_fetch_job`]), the working-set-fed bulk enqueue
 //!   ([`enqueue_content_fetch_working_set`]), the manual PME "fetch now"
@@ -44,6 +45,7 @@ use rusqlite::{OptionalExtension, params};
 /// busy-looping. A no-op when the master switch is off (no fetch ever happens without consent). NEVER on
 /// the backup/import critical path — the worker spawns this on its own lane.
 pub fn drain_one_content_fetch_job(
+    vault: &crate::Vault,
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
@@ -58,7 +60,7 @@ pub fn drain_one_content_fetch_job(
     // Propagate the run/defer signal: `execute_content_fetch_job_by_id` maps Ran → Ok(true) and both
     // Deferred + NotClaimable → Ok(false) (BUG-3). A deferred (rate-limited) job MUST report false so
     // the worker lane idles + sleeps to its ETA instead of immediately re-looping on the parked row.
-    execute_content_fetch_job_by_id(paths, &connection, config, job_id)
+    execute_content_fetch_job_by_id(vault, paths, &connection, config, job_id)
 }
 
 /// Seconds until the soonest DEFERRED content-fetch job becomes due, or `None` when none is pending.
@@ -386,7 +388,15 @@ mod tests {
         let paths = project_paths_with_root(root.path());
         ensure_paths(&paths).expect("paths");
         let config = AppConfig { initialized: true, ..AppConfig::default() }; // master OFF
-        assert!(!drain_one_content_fetch_job(&paths, &config, None).expect("drain"));
+        assert!(
+            !drain_one_content_fetch_job(
+                &crate::Vault::open_temp().unwrap(),
+                &paths,
+                &config,
+                None
+            )
+            .expect("drain")
+        );
     }
 
     #[test]
@@ -396,7 +406,15 @@ mod tests {
         ensure_paths(&paths).expect("paths");
         let config = consenting_config();
         // No due job → drain returns false (the lane idles).
-        assert!(!drain_one_content_fetch_job(&paths, &config, None).expect("idle drain"));
+        assert!(
+            !drain_one_content_fetch_job(
+                &crate::Vault::open_temp().unwrap(),
+                &paths,
+                &config,
+                None
+            )
+            .expect("idle drain")
+        );
 
         // Enqueue one DUE job on a unique host with a FULL bucket, then the drain finds it + RUNS it
         // (returns true). Under the test build the execute entry drives the real pipeline through an
@@ -417,7 +435,17 @@ mod tests {
             },
         )
         .expect("enqueue");
-        assert!(drain_one_content_fetch_job(&paths, &config, None).expect("drain picks up job"));
+        assert!(
+            drain_one_content_fetch_job(
+                &crate::enrichment::content_fetch::tests::page_vault(&format!(
+                    "https://{host}/post"
+                )),
+                &paths,
+                &config,
+                None
+            )
+            .expect("drain picks up job")
+        );
     }
 
     #[test]
@@ -449,7 +477,13 @@ mod tests {
         .expect("enqueue");
 
         assert!(
-            !drain_one_content_fetch_job(&paths, &config, None).expect("drain"),
+            !drain_one_content_fetch_job(
+                &super::super::content_fetch::tests::page_vault(&url),
+                &paths,
+                &config,
+                None
+            )
+            .expect("drain"),
             "a deferred (rate-limited) job makes the drain report false (idle + sleep to ETA)"
         );
         // The job is back to `queued` with a future schedule (requeued, not run or cancelled).
