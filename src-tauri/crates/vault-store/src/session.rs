@@ -1,0 +1,143 @@
+//! Responsibilities: keep statements/cursors on one thread and scope each transaction.
+//! Not responsible for: scheduling, application SQL or accumulating large result sets.
+//! Failure modes: reads write; errors/panics leak transactions; cursor escape shares
+//! ownership; failed rollback is hidden. Tests: concurrency, api compile-fail docs.
+use crate::{Error, Result};
+use std::{
+    cell::RefCell,
+    marker::PhantomData,
+    panic::{AssertUnwindSafe, catch_unwind},
+    rc::Rc,
+};
+use tokio::runtime::Runtime;
+
+/// Borrowed synchronous access exists only during an owner-thread closure.
+/// Cursors never escape; map rows to application values before returning.
+///
+/// ```compile_fail
+/// fn escape(store: &vault_store::Store) {
+///     store.read(vault_store::Db::Archive, |conn| Ok(conn));
+/// }
+/// ```
+/// ```compile_fail
+/// fn send(conn: &vault_store::Session<'_>) {
+///     std::thread::scope(|s| { s.spawn(move || conn.execute("SELECT 1", ())); });
+/// }
+/// ```
+pub struct Session<'a> {
+    pub(crate) runtime: &'a Runtime,
+    pub(crate) conn: &'a turso::Connection,
+    pub(crate) read_only: bool,
+    pub(crate) _thread: PhantomData<Rc<()>>,
+    pub(crate) scratch: Option<&'a crate::checkpoint::Gate>,
+    pub(crate) scratch_read: RefCell<Option<crate::checkpoint::ReadGuard<'a>>>,
+}
+impl<'a> Session<'a> {
+    pub(crate) fn with_scratch(mut self, gate: Option<&'a crate::checkpoint::Gate>) -> Self {
+        self.scratch = gate;
+        self
+    }
+    fn check_sql(&self, sql: &str) -> Result<()> {
+        if crate::sql::validate(sql, self.read_only)?
+            && let Some(gate) = self.scratch
+        {
+            let mut held = self.scratch_read.borrow_mut();
+            if held.is_none() {
+                *held = Some(gate.enter());
+            }
+        }
+        Ok(())
+    }
+    /// Apply one statement within the transaction already owned by the facade.
+    pub fn execute(&self, sql: &str, params: impl turso::IntoParams) -> Result<u64> {
+        self.check_sql(sql)?;
+        Ok(self.runtime.block_on(self.conn.execute(sql, params))?)
+    }
+    /// Collect a bounded application page. For unbounded queries use `for_each`.
+    pub fn query<T>(
+        &self,
+        sql: &str,
+        params: impl turso::IntoParams,
+        mut map: impl FnMut(&turso::Row) -> Result<T>,
+    ) -> Result<Vec<T>> {
+        let mut values = Vec::new();
+        self.for_each(sql, params, |row| {
+            values.push(map(row)?);
+            Ok(())
+        })?;
+        Ok(values)
+    }
+    /// Decode a single result without exposing a live cursor to the caller.
+    pub fn query_one<T>(
+        &self,
+        sql: &str,
+        params: impl turso::IntoParams,
+        map: impl FnOnce(&turso::Row) -> Result<T>,
+    ) -> Result<T> {
+        self.check_sql(sql)?;
+        self.runtime.block_on(async {
+            let mut rows = self.conn.query(sql, params).await?;
+            let row = rows.next().await?.ok_or(turso::Error::QueryReturnedNoRows)?;
+            let result = map(&row)?;
+            // Drain RETURNING so its statement completes before the transaction.
+            while rows.next().await?.is_some() {}
+            Ok(result)
+        })
+    }
+    /// Stream rows without an archive-sized allocation. Long walks should use Store::walk.
+    pub fn for_each(
+        &self,
+        sql: &str,
+        params: impl turso::IntoParams,
+        mut visit: impl FnMut(&turso::Row) -> Result<()>,
+    ) -> Result<()> {
+        self.check_sql(sql)?;
+        self.runtime.block_on(async {
+            let mut rows = self.conn.query(sql, params).await?;
+            while let Some(row) = rows.next().await? {
+                visit(&row)?
+            }
+            Ok(())
+        })
+    }
+}
+
+pub(crate) fn catch_job<T>(work: impl FnOnce() -> Result<T>) -> Result<T> {
+    catch_unwind(AssertUnwindSafe(work)).unwrap_or_else(|payload| {
+        let message = payload
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+            .unwrap_or_else(|| "non-string panic payload".into());
+        Err(Error::JobPanicked { message })
+    })
+}
+
+pub(crate) fn transaction<T>(
+    session: &Session<'_>,
+    work: impl FnOnce(&Session<'_>) -> Result<T>,
+) -> Result<T> {
+    // Each database already has one writer. IMMEDIATE would also reserve the
+    // attached scratch writer, unnecessarily serializing unrelated databases.
+    session.runtime.block_on(session.conn.execute("BEGIN", ()))?;
+    let result = catch_job(|| work(session));
+    match result {
+        Ok(value) => match session.runtime.block_on(session.conn.execute("COMMIT", ())) {
+            Ok(_) => Ok(value),
+            Err(error) => rollback(session, Error::from(error)),
+        },
+        Err(error) => rollback(session, error),
+    }
+}
+fn rollback<T>(s: &Session<'_>, original: Error) -> Result<T> {
+    // Some engine errors auto-rollback; only rollback a transaction that remains open.
+    if s.conn.is_autocommit()? {
+        return Err(original);
+    }
+    match s.runtime.block_on(s.conn.execute("ROLLBACK", ())) {
+        Ok(_) => Err(original),
+        Err(error) => {
+            Err(Error::Rollback { original: Box::new(original), rollback: Box::new(error.into()) })
+        }
+    }
+}
