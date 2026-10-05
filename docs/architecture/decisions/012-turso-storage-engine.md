@@ -60,7 +60,7 @@ PathKeep 自己的五個資料庫（archive、source evidence、search、intelli
 6. **Rust 介面能做到現在依賴的事。** 跨執行緒中斷查詢（匯出取消）、`RETURNING`、忙碌處理。
 7. **rusqlite（讀瀏覽器）和 Turso 能共存在同一個執行檔裡。**
 
-任何一條沒過，如果是 Turso 本身的 bug 或缺功能，就找出根本原因，寫最小重現，並修上游（Turso 是 MIT 授權）。不退回 SQLCipher，也不做過渡方案。
+任何一條沒過，如果是 Turso 本身的 bug 或缺功能，就在 repo 裡記下根本原因和最小重現，並在 PathKeep 自己的代碼裡繞過（例如在 FTS 的結果流上自己做 top-k）。不在 Turso 倉庫開 issue 或 PR，也不以任何形式聯絡上游；若唯一的修法是改 Turso 本身，先問用戶。不退回 SQLCipher，也不做過渡方案。
 
 ## 後果
 

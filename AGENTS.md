@@ -43,6 +43,8 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 **文檔跟著代碼走**：改功能更新 `docs/features/`，新技術決策更新 `docs/architecture/`。新模塊交付時附 doc comments——檔頭標明職責邊界（Responsibilities / Not responsible for），exported 符號說「為什麼存在」而非「做了什麼」。
 
+**不對外**：不在任何第三方倉庫開 issue / PR / 留言，不以用戶名義聯絡任何外部服務，也不起草要送去上游的東西。依賴的 bug 記在本 repo（根本原因 + 最小重現），在自己的代碼裡繞過；唯一修法是改依賴本身時，先問用戶。
+
 **Commit 說 Why**：Conventional Commits，subject ≤ 72 字。Body 必含動機與關鍵變化。
 
 ---
