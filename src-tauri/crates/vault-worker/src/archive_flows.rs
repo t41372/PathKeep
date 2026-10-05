@@ -1,3 +1,5 @@
+//! Failure modes for scheduled progress: dropping events or changing the App Lock
+//! exception. Tests: owner_requests, scheduled backup regressions and owner_process.
 //! Archive-facing worker flows.
 //!
 //! This module owns the worker entrypoints that talk to the canonical archive:
@@ -128,15 +130,14 @@ where
     run_backup_with_loaded_config(&paths, &config, session_database_key, due_only, report_progress)
 }
 
-/// Runs the OS-scheduled background backup without consulting the desktop App
-/// Lock session. This exception is intentionally limited to backup execution;
-/// MCP/read/query callers still use the locked-session path.
-pub(crate) fn run_scheduled_backup(
+/// Keeps scheduled progress on the same backup path and App Lock exception.
+pub(crate) fn run_scheduled_backup_with_progress(
     paths: &vault_core::ProjectPaths,
     config: &vault_core::AppConfig,
     database_key: Option<&str>,
+    progress: impl FnMut(BackupProgressEvent),
 ) -> Result<vault_core::BackupReport> {
-    run_backup_with_loaded_config(paths, config, database_key, true, |_| {})
+    run_backup_with_loaded_config(paths, config, database_key, true, progress)
 }
 
 fn run_backup_with_loaded_config<F>(

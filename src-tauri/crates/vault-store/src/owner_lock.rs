@@ -8,10 +8,12 @@ use std::{
     path::Path,
 };
 
-pub(crate) struct OwnerLock {
+/// Reserves database ownership before the desktop starts any command listeners.
+pub struct OwnerLock {
     _file: File,
 }
 impl OwnerLock {
+    /// The app holds this guard until all database work has stopped.
     #[cfg(any(unix, windows))]
     pub fn acquire(root: &Path) -> Result<Self> {
         let directory = root.join("archive");

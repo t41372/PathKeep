@@ -2650,3 +2650,9 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - New in the archive: `pages` (one row per URL string across profiles, owning the registrable domain), `urls.page_id`, one `search_documents` row per page, `search_document_profiles` (visible-visit count and newest visit per page and profile, so a revert can drop a page from a profile), and `search_outbox`, written in the same transaction as the document it describes. Deleted pages leave a tombstone for the index.
   - vault-store now turns foreign keys on for every connection; Turso leaves them off by default, so orphan rows were accepted before.
   - Implemented by Codex (GPT 6 astra). Not yet used by any query: the ports come next.
+- [x] `WORK-TURSO-STORAGE` — The PathKeep app is the only process that opens its databases (2026-10-05, `feat/turso-storage`).
+  - The app takes vault-store's owner lock at start and serves a local endpoint: a user-only Unix socket, or a named pipe limited to the current user on Windows. The protocol is versioned, length-prefixed JSON with ordered progress messages before the final reply.
+  - Scheduled backups, the `pathkeep-worker` sidecar, the CLI commands and the MCP server are now clients. When no app is running they start it in the background (tray only, no window) and wait for the endpoint; they never open a database file. A second launch of the app hands its arguments to the running one (Tauri single-instance plugin).
+  - Wiping all data keeps the owner lock file, so ownership survives a wipe.
+  - `owner_process.rs` runs the real app, CLI and MCP processes against a fixture, with a macOS sandbox denying the clients any access to `archive/` and `derived/`. It passes. Windows code type-checks but was not linked or run here.
+  - Implemented by Codex (GPT 6 astra); reviewed here. See `docs/architecture/owner-process.md`.

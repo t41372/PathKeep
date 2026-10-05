@@ -55,7 +55,10 @@ Use the same root for every attempt to open a given set of files. The root is
 the ownership identity, not a discovery mechanism for unrelated file sets.
 Before accessing database files, open takes a nonblocking exclusive OS lock on
 `archive/.pk-owner.lock`. Rust 1.96's `File::try_lock` uses `flock` on Unix and
-`LockFileEx` on Windows. A loser gets `OwnedElsewhere`. The lockfile is never
+`LockFileEx` on Windows. A loser gets `OwnedElsewhere`. The public `OwnerLock::acquire(root)` lets desktop startup reserve this same lock
+before any command listener or recovery work starts, without opening databases.
+Do not independently acquire it again while the app retains its guard.
+The lockfile is never
 unlinked: deleting it could let two processes lock different inodes.
 
 Open first verifies the schema and migration version of **all existing files**

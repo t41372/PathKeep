@@ -1,6 +1,9 @@
-//! MCP-facing worker surface.
+//! Responsibilities: owner-side MCP business functions and the stdio client adapter.
+//! Not responsible for: IPC framing, app startup policy or database ownership.
+//! Failure modes: stdio tools open databases; consent/key snapshot becomes stale;
+//! tool results bypass the endpoint. Tests: owner_process.rs and worker consent tests.
 //!
-//! The MCP server is a localhost-only, explicitly enabled bridge for external
+//! The MCP server is a stdio bridge to the same-user owner endpoint for external
 //! AI tools. It must respect the same visibility and App Lock boundaries as the
 //! first-party UI, and every query still writes a dedicated `mcp_query` run so
 //! the archive keeps an auditable trace.
@@ -11,10 +14,8 @@ use crate::{
         resolved_app_lock_status,
     },
     intelligence::search_ai_history,
-    security::read_database_key_from_keyring,
 };
 use anyhow::Result;
-#[cfg(not(any(test, coverage)))]
 use rmcp::ServiceExt;
 use rmcp::schemars;
 use rmcp::{
@@ -221,14 +222,33 @@ pub(crate) struct McpArchiveStatus {
 /// Small MCP server wrapper used for stdio serving and test-time direct calls.
 #[derive(Debug, Clone)]
 pub(crate) struct BrowserHistoryMcpServer {
-    /// Optional archive key resolved from the keyring when the worker starts.
-    pub(crate) database_key: Option<String>,
+    client: vault_owner_ipc::Client,
 }
 
 impl BrowserHistoryMcpServer {
-    /// Creates the MCP server wrapper with the current database key snapshot.
-    pub(crate) fn new(database_key: Option<String>) -> Self {
-        Self { database_key }
+    /// External tools receive only an endpoint client, never an archive key.
+    pub(crate) fn new(client: vault_owner_ipc::Client) -> Self {
+        Self { client }
+    }
+
+    async fn forward<T: serde::de::DeserializeOwned>(
+        &self,
+        tool: &str,
+        arguments: serde_json::Value,
+    ) -> Result<T, rmcp::ErrorData> {
+        let value = self
+            .client
+            .request_or_start(
+                vault_owner_ipc::Request::new(
+                    "mcp",
+                    serde_json::json!({"tool":tool,"arguments":arguments}),
+                ),
+                |_| {},
+            )
+            .await
+            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+        serde_json::from_value(value)
+            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))
     }
 }
 
@@ -455,8 +475,12 @@ impl BrowserHistoryMcpServer {
         &self,
         Parameters(request): Parameters<McpSearchRequest>,
     ) -> Result<Json<McpSearchResult>, rmcp::ErrorData> {
-        let response = mcp_search_result(self.database_key.as_deref(), request)
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+        let response = self
+            .forward(
+                "search-history",
+                serde_json::to_value(request).expect("MCP request serializes"),
+            )
+            .await?;
         Ok(Json(response))
     }
 
@@ -466,8 +490,7 @@ impl BrowserHistoryMcpServer {
         description = "Report whether PathKeep is initialized, unlocked, and AI-ready."
     )]
     pub(crate) async fn archive_status(&self) -> Result<Json<McpArchiveStatus>, rmcp::ErrorData> {
-        let snapshot = mcp_archive_status_result(self.database_key.as_deref())
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+        let snapshot = self.forward("archive-status", serde_json::json!({})).await?;
         Ok(Json(snapshot))
     }
 
@@ -480,8 +503,7 @@ impl BrowserHistoryMcpServer {
         description = "Get PathKeep's read-only guide on how to query browser history effectively: granularity ladder, how search modes are selected, and how to cite evidence. Disabled by default; enable the usage guide in PathKeep Settings."
     )]
     pub(crate) async fn usage_guide(&self) -> Result<Json<McpUsageGuide>, rmcp::ErrorData> {
-        let guide = mcp_usage_guide_result(self.database_key.as_deref())
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+        let guide = self.forward("usage-guide", serde_json::json!({})).await?;
         Ok(Json(guide))
     }
 }
@@ -489,8 +511,8 @@ impl BrowserHistoryMcpServer {
 #[tool_handler]
 impl ServerHandler for BrowserHistoryMcpServer {}
 
-/// Runs the stdio MCP server when the feature is explicitly enabled.
-pub(crate) fn run_mcp_stdio_server() -> Result<()> {
+/// Preserves the pre-stdio consent and App Lock refusals inside the owner.
+pub(crate) fn validate_mcp_session() -> Result<()> {
     let paths = vault_core::project_paths()?;
     let config = load_hydrated_config(&paths)?;
     if !config.ai.enabled || !config.ai.mcp_enabled {
@@ -501,39 +523,25 @@ pub(crate) fn run_mcp_stdio_server() -> Result<()> {
     if resolved_app_lock_status(&paths, &config)?.locked {
         anyhow::bail!("Unlock PathKeep before starting the MCP server worker.");
     }
+    Ok(())
+}
 
-    let database_key = read_database_key_from_keyring()?;
-
-    // Under test/coverage builds we exercise the gated entry point and the real
-    // read-only helpers, but never bind stdio: `serve(...).waiting()` blocks
-    // forever on the transport, which can't run inside a unit test. We call the
-    // synchronous helpers directly (the same ones the tool handlers delegate to)
-    // — they own their own runtime, so we must not wrap them in an outer
-    // `block_on` or tokio refuses to nest runtimes.
-    #[cfg(any(test, coverage))]
-    {
-        let _ = mcp_archive_status_result(database_key.as_deref());
-        let _ = mcp_usage_guide_result(database_key.as_deref());
-        let _ = mcp_search_result(
-            database_key.as_deref(),
-            McpSearchRequest {
-                query: "coverage".to_string(),
-                profile_id: None,
-                domain: None,
-                limit: Some(1),
-            },
-        );
-        Ok(())
-    }
-
-    #[cfg(not(any(test, coverage)))]
-    {
-        crate::context::tokio_runtime()?.block_on(async move {
-            let service = BrowserHistoryMcpServer::new(database_key)
-                .serve(rmcp::transport::io::stdio())
-                .await?;
-            service.waiting().await?;
-            anyhow::Ok(())
-        })
-    }
+/// Keeps the AI tool's stdio process alive; all tool authorization runs in the owner.
+pub(crate) fn run_mcp_stdio_server() -> Result<()> {
+    let client = vault_owner_ipc::Client::new(vault_core::project_paths()?.app_root);
+    crate::context::tokio_runtime()?.block_on(async move {
+        client
+            .request_or_start(
+                vault_owner_ipc::Request::new(
+                    "mcp",
+                    serde_json::json!({"tool":"initialize","arguments":{}}),
+                ),
+                |_| {},
+            )
+            .await?;
+        let service =
+            BrowserHistoryMcpServer::new(client).serve(rmcp::transport::io::stdio()).await?;
+        service.waiting().await?;
+        anyhow::Ok(())
+    })
 }

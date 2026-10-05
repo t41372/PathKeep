@@ -19,6 +19,9 @@
 //!
 //! ## Not responsible for
 //! - Creating the icon (`tray.rs`) or reading the preference (`mod.rs`).
+//!
+//! Failure modes: background startup creates a webview; a later foreground launch
+//! cannot create it. Tests: owner_process and startup_window below.
 
 use tauri::{AppHandle, Manager, Runtime, Window, WindowEvent};
 
@@ -65,7 +68,15 @@ pub(crate) fn apply_startup_window<R: Runtime>(app: &AppHandle<R>, startup: Star
 
 /// Shows, un-minimizes and focuses the main window.
 pub(crate) fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+    // Background owners create their first webview only when explicitly opened.
+    let window = app.get_webview_window(MAIN_WINDOW).or_else(|| {
+        let config = app.config().app.windows.iter().find(|window| window.label == MAIN_WINDOW)?;
+        tauri::WebviewWindowBuilder::from_config(app, config)
+            .and_then(|builder| builder.build())
+            .inspect_err(|error| log::error!("opening main window: {error}"))
+            .ok()
+    });
+    if let Some(window) = window {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();

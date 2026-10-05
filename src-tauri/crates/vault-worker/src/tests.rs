@@ -5,6 +5,11 @@ use crate::intelligence::{
     drain_one_ai_queue_job, drain_one_enrichment_intelligence_job,
     drain_one_priority_intelligence_job,
 };
+#[cfg(coverage)]
+use crate::mcp::BrowserHistoryMcpServer;
+#[cfg(coverage)]
+use crate::owner_requests::test_client::mcp_call;
+use crate::owner_requests::test_client::run_worker_cli;
 use rusqlite::Connection;
 use std::fs;
 #[cfg(all(coverage, unix))]
@@ -291,7 +296,7 @@ pub(crate) fn configured_ai_config() -> AppConfig {
     config
 }
 
-fn chrome_user_data_fixture(root: &Path) -> PathBuf {
+pub(crate) fn chrome_user_data_fixture(root: &Path) -> PathBuf {
     let chrome_root = root.join("chrome-user-data");
     let profile_dir = chrome_root.join("Default");
     let recent_visit = chrono::Utc::now().to_rfc3339();
@@ -1562,9 +1567,6 @@ fn provider_resolution_helpers_cover_error_success_and_note_paths() {
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
     }
 
-    let server = BrowserHistoryMcpServer::new(None);
-    assert!(server.database_key.is_none());
-
     let mut config = configured_ai_config();
     hydrate_provider_collection(&mut config.ai.llm_providers);
     assert!(!config.ai.llm_providers[0].api_key_saved);
@@ -1768,26 +1770,33 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     let archive_status = mcp_archive_status_result(None).expect("archive status tool");
     assert!(archive_status.initialized);
 
-    let mcp_server = BrowserHistoryMcpServer::new(None);
-    let routed_status = block_on_ready(mcp_server.archive_status()).expect("routed archive status");
-    assert!(routed_status.0.initialized);
-    let routed_search = block_on_ready(mcp_server.search_history(
-        rmcp::handler::server::wrapper::Parameters(McpSearchRequest {
-            query: "example".to_string(),
-            profile_id: None,
-            domain: None,
-            limit: Some(5),
-        }),
-    ))
-    .expect("routed search history");
-    assert!(routed_search.0.total >= 1);
+    {
+        let _owner = crate::owner_requests::test_client::serve();
+        let runtime = crate::context::tokio_runtime().expect("runtime");
+        let mcp_server = BrowserHistoryMcpServer::new(vault_owner_ipc::Client::new(
+            project_paths().unwrap().app_root,
+        ));
+        let routed_status =
+            runtime.block_on(mcp_server.archive_status()).expect("routed archive status");
+        assert!(routed_status.0.initialized);
+        let routed_search = runtime
+            .block_on(mcp_server.search_history(rmcp::handler::server::wrapper::Parameters(
+                McpSearchRequest {
+                    query: "example".to_string(),
+                    profile_id: None,
+                    domain: None,
+                    limit: Some(5),
+                },
+            )))
+            .expect("routed search history");
+        assert!(routed_search.0.total >= 1);
 
-    // The usage-guide tool routes through the same server wrapper and, with the
-    // skill enabled in `configured_ai_config`, returns the full procedural body.
-    let routed_guide = block_on_ready(mcp_server.usage_guide()).expect("routed usage guide");
-    assert!(routed_guide.0.enabled);
-    assert!(!routed_guide.0.sections.is_empty());
-
+        // The usage-guide tool routes through the same server wrapper and, with the
+        // skill enabled in `configured_ai_config`, returns the full procedural body.
+        let routed_guide = runtime.block_on(mcp_server.usage_guide()).expect("routed usage guide");
+        assert!(routed_guide.0.enabled);
+        assert!(!routed_guide.0.sections.is_empty());
+    }
     let index_json = run_worker_cli(&["ai-index".to_string()]).expect("ai-index cli");
     let index_report: AiIndexReport =
         serde_json::from_str(&index_json).expect("parse ai index report");
@@ -1801,7 +1810,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     let doctor: HealthReport = serde_json::from_str(&doctor_json).expect("parse doctor");
     assert!(!doctor.checks.is_empty());
 
-    assert_eq!(run_worker_cli(&["mcp-server".to_string()]).expect("mcp cli"), "");
+    assert!(mcp_call("search-history", serde_json::json!({"query":"example"})).is_ok());
 
     // Streaming chat (W-AI-1): with the LLM key stored, `ai_chat_send` resolves the provider and
     // (under the coverage build) drives the stub RigLlmProvider stream inline through the sink,

@@ -34,6 +34,8 @@
 - 多行程 WAL 那個 `.tshm` frame 上限造成的卡住，因為根本只有一個行程；
 - 排程備份和 GUI 同時寫入的衝突，因為所有寫入都經過同一個寫入佇列。
 
+實作與協定：[owner-process.md](owner-process.md)。
+
 ## 3. 金鑰
 
 - **Data key：** 隨機 256-bit，開啟所有資料庫。

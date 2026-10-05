@@ -19,6 +19,7 @@ pub use checkpoint::Metrics;
 pub use config::{Config, Db, IoLayer, Paths};
 pub use error::{Error, Result};
 pub use migration::{Migration, MigrationRegistry};
+pub use owner_lock::OwnerLock;
 pub use queue::Priority;
 pub use session::Session;
 pub use turso::{Value, params};
