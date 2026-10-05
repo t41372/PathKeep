@@ -52,6 +52,7 @@ dependencies = [
  "cfg-if",
  "cipher",
  "cpufeatures 0.2.17",
+ "zeroize",
 ]
 
 [[package]]
@@ -9033,14 +9034,19 @@ dependencies = [
 name = "vault-crypto"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "aes-gcm",
  "argon2",
+ "ctr",
  "getrandom 0.3.4",
  "hkdf",
  "libc",
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
+ "turso",
+ "turso_core",
  "vault-crypto",
  "zeroize",
 ]

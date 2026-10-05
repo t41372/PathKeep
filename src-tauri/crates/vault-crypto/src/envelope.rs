@@ -269,7 +269,11 @@ fn derive_kek(
     let mut memory = vec![Block::default(); argon2.params().block_count()];
     let mut kek = Zeroizing::new([0u8; KEY_LEN]);
     let result = argon2.hash_password_into_with_memory(password, salt, &mut kek[..], &mut memory);
-    memory.zeroize();
+    // Block by block, so each wipe runs `argon2`'s own (optimized) `Block::zeroize` even in
+    // debug builds; wiping the `Vec` generically was the slowest part of a debug unlock.
+    for block in &mut memory {
+        block.zeroize();
+    }
     // The inputs are validated above, and Argon2 accepts any password and a 16-byte salt.
     result.expect("Argon2id inputs were validated");
     Ok(kek)

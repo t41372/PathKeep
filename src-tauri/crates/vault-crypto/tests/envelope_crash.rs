@@ -94,7 +94,7 @@ fn kills_at_random_moments_during_repeated_rewraps_leave_a_working_envelope() {
         // Let a random number of rewraps complete first; each takes a few milliseconds.
         std::thread::sleep(Duration::from_micros(rng.below(150_000)));
         child.kill();
-        let rewraps = child.drain_lines().iter().filter(|l| l.contains("rewrapped")).count();
+        let rewraps = child.lines_so_far().iter().filter(|l| l.contains("rewrapped")).count();
 
         let password = opening_password(&path, &key);
         finished_on[usize::from(password == PASSWORD_B)] += 1;

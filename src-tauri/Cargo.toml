@@ -135,6 +135,31 @@ tempfile.workspace = true
 [build-dependencies]
 tauri-build = { version = "2.5.1", features = [] }
 
+# The RustCrypto primitives are many times slower unoptimized: a debug-build unlock (Argon2id
+# over 256 MiB) took 6.6 s instead of 0.36 s, and the encrypted search index decrypts every
+# block it reads. They are small crates, so optimizing them in dev and test builds costs
+# little build time and keeps `desktop:dev` and `cargo test` usable.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
+[profile.dev.package.aes]
+opt-level = 3
+
+[profile.dev.package.aes-gcm]
+opt-level = 3
+
+[profile.dev.package.ghash]
+opt-level = 3
+
+[profile.dev.package.polyval]
+opt-level = 3
+
+[profile.dev.package.ctr]
+opt-level = 3
+
 [profile.release]
 codegen-units = 1
 lto = "thin"

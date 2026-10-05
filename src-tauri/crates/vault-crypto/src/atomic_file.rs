@@ -37,14 +37,14 @@ pub(crate) fn replace(path: &Path, contents: &[u8]) -> io::Result<()> {
     let temp = temp_path(path);
     let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(&temp)?;
     file.write_all(contents)?;
-    crash_point("atomic-replace/temp-written");
+    crash_point("atomic-replace/temp-written", path);
     file.sync_all()?;
     drop(file);
-    crash_point("atomic-replace/temp-synced");
+    crash_point("atomic-replace/temp-synced", path);
     fs::rename(&temp, path)?;
-    crash_point("atomic-replace/renamed");
+    crash_point("atomic-replace/renamed", path);
     sync_parent_directory(path)?;
-    crash_point("atomic-replace/directory-synced");
+    crash_point("atomic-replace/directory-synced", path);
     Ok(())
 }
 

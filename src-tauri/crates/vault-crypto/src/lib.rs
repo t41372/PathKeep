@@ -17,8 +17,10 @@ mod atomic_file;
 mod crash_point;
 mod envelope;
 mod keys;
+mod temp_io;
 
 pub use envelope::{
     ENVELOPE_LEN, Envelope, EnvelopeError, KdfParams, read_envelope_file, write_envelope_file,
 };
 pub use keys::{DataKey, KEY_LEN, KeyPurpose, SubKey};
+pub use temp_io::{TURSO_TEMP_FILE_NAME, TempCryptIo};

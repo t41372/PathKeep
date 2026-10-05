@@ -148,6 +148,12 @@ impl SubKey {
         }
         hex
     }
+
+    /// Derives a further key from this one, for code in this crate that needs a key per file.
+    pub(crate) fn expand(&self, salt: &[u8], info: &[u8]) -> Zeroizing<[u8; KEY_LEN]> {
+        let key = hkdf_expand(&self.key[..], Some(salt), info);
+        Zeroizing::new(*key)
+    }
 }
 
 impl Drop for SubKey {

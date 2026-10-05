@@ -7,10 +7,14 @@
 
 #![allow(dead_code)]
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 pub const CHILD_ENV: &str = "VAULT_CRYPTO_CHILD";
@@ -23,6 +27,8 @@ pub fn is_child() -> bool {
 pub struct ChildProcess {
     child: std::process::Child,
     lines: Receiver<String>,
+    /// Every line received so far, including those `wait_for_line` read past.
+    seen: Vec<String>,
 }
 
 impl ChildProcess {
@@ -49,7 +55,7 @@ impl ChildProcess {
                 }
             }
         });
-        ChildProcess { child, lines }
+        ChildProcess { child, lines, seen: Vec::new() }
     }
 
     pub fn pid(&self) -> u32 {
@@ -64,8 +70,12 @@ impl ChildProcess {
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             match self.lines.recv_timeout(left) {
-                Ok(line) if line.contains(marker) => return line,
-                Ok(_) => continue,
+                Ok(line) => {
+                    self.seen.push(line.clone());
+                    if line.contains(marker) {
+                        return line;
+                    }
+                }
                 Err(RecvTimeoutError::Timeout) => {
                     self.kill();
                     panic!("child did not print {marker:?} within {timeout:?}");
@@ -78,9 +88,10 @@ impl ChildProcess {
         }
     }
 
-    /// Every line printed so far, without waiting.
-    pub fn drain_lines(&mut self) -> Vec<String> {
-        self.lines.try_iter().collect()
+    /// Every line the child has printed so far, without waiting.
+    pub fn lines_so_far(&mut self) -> &[String] {
+        self.seen.extend(self.lines.try_iter());
+        &self.seen
     }
 
     /// SIGKILL on Unix: no destructors, no buffered writes, no atexit handlers.
@@ -89,17 +100,24 @@ impl ChildProcess {
         let _ = self.child.wait();
     }
 
-    /// Waits for a normal exit and asserts it succeeded.
-    pub fn wait_success(mut self, timeout: Duration) {
+    /// Waits for a normal exit, asserts it succeeded, and returns everything the child
+    /// printed to stdout.
+    pub fn wait_success(mut self, timeout: Duration) -> Vec<String> {
         let deadline = Instant::now() + timeout;
+        let mut lines = Vec::new();
         loop {
+            lines.extend(self.lines.try_iter());
             if let Some(status) = self.child.try_wait().unwrap() {
-                assert!(status.success(), "child failed: {status}");
-                return;
+                // The pipe closes at exit; collect what the reader thread has not passed on yet.
+                while let Ok(line) = self.lines.recv_timeout(Duration::from_secs(5)) {
+                    lines.push(line);
+                }
+                assert!(status.success(), "child failed: {status}\n{}", lines.join("\n"));
+                return lines;
             }
             if Instant::now() > deadline {
                 self.kill();
-                panic!("child did not finish within {timeout:?}");
+                panic!("child did not finish within {timeout:?}\n{}", lines.join("\n"));
             }
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -188,7 +206,7 @@ pub fn scan_file<'a>(path: &Path, needles: &[&'a [u8]]) -> Vec<&'a [u8]> {
         };
         let end = carried + read;
         for (i, needle) in needles.iter().enumerate() {
-            if !hits[i] && buffer[..end].windows(needle.len()).any(|w| w == *needle) {
+            if !hits[i] && contains(&buffer[..end], needle) {
                 hits[i] = true;
             }
         }
@@ -196,6 +214,20 @@ pub fn scan_file<'a>(path: &Path, needles: &[&'a [u8]]) -> Vec<&'a [u8]> {
         buffer.copy_within(end - carried..end, 0);
     }
     needles.iter().zip(hits).filter(|(_, hit)| *hit).map(|(n, _)| *n).collect()
+}
+
+/// Whether `needle` occurs in `haystack`. Compares only where the first byte matches, which
+/// keeps scans of ciphertext (where it almost never does) fast.
+pub fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    let Some((&first, rest)) = needle.split_first() else { return true };
+    if haystack.len() < needle.len() {
+        return false;
+    }
+    let last_start = haystack.len() - needle.len();
+    haystack[..=last_start]
+        .iter()
+        .enumerate()
+        .any(|(i, &byte)| byte == first && &haystack[i + 1..i + needle.len()] == rest)
 }
 
 /// `uptime`'s load averages, for timing records.
@@ -224,4 +256,110 @@ pub fn peak_rss_mib() -> f64 {
 pub fn current_rss_mib(pid: u32) -> f64 {
     let out = Command::new("ps").args(["-o", "rss=", "-p", &pid.to_string()]).output().unwrap();
     String::from_utf8_lossy(&out.stdout).trim().parse::<f64>().unwrap_or(0.0) / 1024.0
+}
+
+/// Records every file that appears under the watched directories while it runs, and keeps
+/// each one's bytes after the program deletes it: new files are hard-linked into a
+/// quarantine directory (on the same file system), so the final contents of short-lived
+/// spill files and merged-away segments can still be scanned.
+///
+/// Limit: only the last bytes of each file are seen. Plaintext that was written and then
+/// overwritten is caught by recording writes at the IO layer instead, where that is possible.
+pub struct Watcher {
+    stop: Arc<AtomicBool>,
+    handle: Option<JoinHandle<Vec<WatchedFile>>>,
+    quarantine: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct WatchedFile {
+    pub path: PathBuf,
+    pub peak_bytes: u64,
+    /// Where the file's bytes can still be read, even if the original was deleted.
+    pub copy: Option<PathBuf>,
+}
+
+impl Watcher {
+    pub fn start(dirs: Vec<PathBuf>, quarantine: PathBuf) -> Watcher {
+        std::fs::create_dir_all(&quarantine).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
+        let q = quarantine.clone();
+        let handle = std::thread::spawn(move || {
+            let mut seen: BTreeMap<PathBuf, WatchedFile> = BTreeMap::new();
+            loop {
+                let last_pass = flag.load(Ordering::Acquire);
+                let mut files = Vec::new();
+                for dir in &dirs {
+                    list_files(dir, &q, &mut files);
+                }
+                for (path, len) in files {
+                    let n = seen.len();
+                    let entry = seen.entry(path.clone()).or_insert_with(|| {
+                        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                        let link = q.join(format!("{n:06}-{name}"));
+                        let copy = std::fs::hard_link(&path, &link).is_ok().then_some(link);
+                        WatchedFile { path, peak_bytes: 0, copy }
+                    });
+                    entry.peak_bytes = entry.peak_bytes.max(len);
+                }
+                for file in seen.values_mut() {
+                    if let Some(len) =
+                        file.copy.as_ref().and_then(|c| std::fs::metadata(c).ok()).map(|m| m.len())
+                    {
+                        file.peak_bytes = file.peak_bytes.max(len);
+                    }
+                }
+                if last_pass {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            seen.into_values().collect()
+        });
+        Watcher { stop, handle: Some(handle), quarantine }
+    }
+
+    /// Stops watching and returns every file seen, with the needles found in its final bytes.
+    pub fn finish(mut self, needles: &[&[u8]]) -> Vec<(WatchedFile, Vec<String>)> {
+        self.stop.store(true, Ordering::Release);
+        let files = self.handle.take().unwrap().join().unwrap();
+        files
+            .into_iter()
+            .map(|file| {
+                let source = file.copy.clone().unwrap_or_else(|| file.path.clone());
+                let hits = scan_file(&source, needles)
+                    .iter()
+                    .map(|n| String::from_utf8_lossy(n).into_owned())
+                    .collect();
+                (file, hits)
+            })
+            .collect()
+    }
+}
+
+impl Drop for Watcher {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+        let _ = std::fs::remove_dir_all(&self.quarantine);
+    }
+}
+
+fn list_files(dir: &Path, skip: &Path, out: &mut Vec<(PathBuf, u64)>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.starts_with(skip) {
+            continue;
+        }
+        let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+        if meta.is_dir() {
+            list_files(&path, skip, out);
+        } else if meta.is_file() {
+            out.push((path, meta.len()));
+        }
+    }
 }
