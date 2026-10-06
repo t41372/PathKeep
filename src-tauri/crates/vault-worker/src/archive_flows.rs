@@ -14,7 +14,7 @@
 //! payloads.
 
 use crate::{
-    context::{ai_archive_connection, load_unlocked_config, selected_embedding_provider_runtime},
+    context::{load_unlocked_config, selected_embedding_provider_runtime},
     intelligence::{maybe_spawn_ai_queue_drain, maybe_spawn_intelligence_queue_drain},
 };
 use anyhow::{Context, Result};
@@ -163,19 +163,7 @@ where
         run_backup_with_progress(&vault.with_config(config.clone()), due_only, |event| {
             report_progress(event);
         })?;
-    let legacy_available =
-        config.archive_mode == vault_core::ArchiveMode::Plaintext || session_database_key.is_some();
-    if !report.due_skipped && !legacy_available {
-        report.push_warning(vault_core::BackupWarning::new(
-            "storage-migration-incomplete",
-            vault_core::StorageMigrationIncomplete {
-                operation: "SQLCipher backup follow-up reads after keychain auto-unlock",
-            }
-            .to_string(),
-        ));
-    }
     if !report.due_skipped
-        && legacy_available
         && config.ai.enabled
         && config.ai.semantic_index_enabled
         && config.ai.auto_index_after_backup
@@ -186,10 +174,13 @@ where
                     provider_id: Some(provider.config.id),
                     ..AiIndexRequest::default()
                 };
-                if append_ai_auto_index_archive_result(
+                if append_ai_auto_index_enqueue_result(
                     &mut report,
-                    ai_archive_connection(paths, config, session_database_key),
-                    &auto_index_request,
+                    ai_queue::enqueue_index_job(
+                        vault,
+                        &auto_index_request,
+                        config.ai.job_queue_paused,
+                    ),
                     config.ai.job_queue_paused,
                 ) {
                     maybe_spawn_ai_queue_drain(vault, paths, config, session_database_key, 1);
@@ -198,7 +189,7 @@ where
             Err(error) => append_ai_auto_index_provider_warning(&mut report, error),
         }
     }
-    if !report.due_skipped && legacy_available && backup_changed_archive(report.run.as_ref()) {
+    if !report.due_skipped && backup_changed_archive(report.run.as_ref()) {
         let dirty_profiles = report
             .profiles
             .iter()
@@ -209,13 +200,20 @@ where
             .collect::<Vec<_>>();
         append_core_refresh_backup_result(
             &mut report,
-            enqueue_and_spawn_deterministic_refresh(
-                paths,
-                config,
-                session_database_key,
-                &dirty_profiles,
-            ),
+            enqueue_and_spawn_deterministic_refresh(vault, &dirty_profiles),
         );
+        if config.ai.content_fetch_enabled {
+            match vault_core::reoffer_archived_candidates(vault) {
+                Ok(count) if count > 0 => {
+                    crate::intelligence::maybe_spawn_content_fetch_drain(vault, config)
+                }
+                Ok(_) => {}
+                Err(error) => report.push_warning(vault_core::BackupWarning::new(
+                    "enrichment-reoffer-failed",
+                    format!("{error:#}"),
+                )),
+            }
+        }
     }
     // Daily og:image cache hygiene. Runs even when the user-selected
     // eviction mode is `Off` because vault_core::og_images::run_cleanup
@@ -746,21 +744,13 @@ pub fn export_query(
 }
 
 /// Counts what [`clear_derived_intelligence`] would remove, without removing anything.
-pub fn preview_clear_derived_intelligence(
-    session_database_key: Option<&str>,
-) -> Result<ClearDerivedIntelligenceReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    preview_derived_intelligence_clear(&paths, &config, session_database_key)
+pub fn preview_clear_derived_intelligence(vault: &Vault) -> Result<ClearDerivedIntelligenceReport> {
+    preview_derived_intelligence_clear(vault)
 }
 
 /// Clears rebuildable intelligence state while leaving canonical archive facts intact.
-pub fn clear_derived_intelligence(
-    session_database_key: Option<&str>,
-) -> Result<ClearDerivedIntelligenceReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    clear_derived_intelligence_state(&paths, &config, session_database_key)
+pub fn clear_derived_intelligence(vault: &Vault) -> Result<ClearDerivedIntelligenceReport> {
+    clear_derived_intelligence_state(vault)
 }
 
 /// Inspects a Takeout source without mutating the archive.
@@ -791,7 +781,7 @@ pub fn import_takeout_source(
 
 pub fn import_takeout_source_with_progress<F>(
     vault: &Vault,
-    session_database_key: Option<&str>,
+    _session_database_key: Option<&str>,
     request: &TakeoutRequest,
     report_progress: F,
 ) -> Result<TakeoutInspection>
@@ -806,9 +796,7 @@ where
         append_core_refresh_import_result(
             &mut inspection.notes,
             enqueue_and_spawn_deterministic_refresh(
-                &paths,
-                &config,
-                session_database_key,
+                vault,
                 &["takeout::browser-history".to_string()],
             ),
         );
@@ -827,7 +815,7 @@ pub fn import_browser_history_source(
 
 pub fn import_browser_history_source_with_progress<F>(
     vault: &Vault,
-    session_database_key: Option<&str>,
+    _session_database_key: Option<&str>,
     request: &BrowserHistoryImportRequest,
     report_progress: F,
 ) -> Result<TakeoutInspection>
@@ -847,12 +835,7 @@ where
         {
             append_core_refresh_import_result(
                 &mut inspection.notes,
-                enqueue_and_spawn_deterministic_refresh(
-                    &paths,
-                    &config,
-                    session_database_key,
-                    &[profile_id],
-                ),
+                enqueue_and_spawn_deterministic_refresh(vault, &[profile_id]),
             );
         }
     }
@@ -893,19 +876,11 @@ fn backup_changed_archive(run: Option<&vault_core::BackupRunOverview>) -> bool {
 }
 
 fn enqueue_and_spawn_deterministic_refresh(
-    paths: &vault_core::ProjectPaths,
-    config: &vault_core::AppConfig,
-    session_database_key: Option<&str>,
+    vault: &Vault,
     dirty_profiles: &[String],
 ) -> Result<Vec<i64>> {
-    if config.archive_mode == vault_core::ArchiveMode::Encrypted && session_database_key.is_none() {
-        vault_core::require_complete_storage_migration(
-            "SQLCipher follow-up reads after keychain auto-unlock",
-        )?;
-    }
-    let connection = ai_archive_connection(paths, config, session_database_key)?;
     mark_all_deterministic_modules_stale(
-        &connection,
+        vault,
         vault_core::DERIVED_STALE_ARCHIVE_DATA_CHANGED,
         "Archive data changed and Core Intelligence refresh jobs were queued.",
     )?;
@@ -914,7 +889,7 @@ fn enqueue_and_spawn_deterministic_refresh(
     for request in &rebuild_scopes {
         let scope_label = request.profile_id.as_deref().unwrap_or("all profiles").to_string();
         job_ids.push(enqueue_core_intelligence_job(
-            &connection,
+            vault,
             VISIT_DERIVE_JOB_TYPE,
             request,
             &format!(
@@ -922,20 +897,20 @@ fn enqueue_and_spawn_deterministic_refresh(
             ),
         )?);
         job_ids.push(enqueue_core_intelligence_job(
-            &connection,
+            vault,
             DAILY_ROLLUP_JOB_TYPE,
             request,
             &format!("Archive data changed and daily rollups need a refresh for {scope_label}."),
         )?);
         job_ids.push(enqueue_core_intelligence_job(
-            &connection,
+            vault,
             STRUCTURAL_REBUILD_JOB_TYPE,
             request,
             &format!("Archive data changed and structural Core Intelligence entities need a refresh for {scope_label}."),
         )?);
     }
-    if !config.ai.job_queue_paused {
-        maybe_spawn_intelligence_queue_drain(paths, config, session_database_key, job_ids.len());
+    if !vault.config().ai.job_queue_paused {
+        maybe_spawn_intelligence_queue_drain(vault, job_ids.len());
     }
     Ok(job_ids)
 }
@@ -977,24 +952,6 @@ fn append_ai_auto_index_enqueue_result(
                 )
                 .with_diagnostic(format!("{error}")),
             );
-            false
-        }
-    }
-}
-
-fn append_ai_auto_index_archive_result(
-    report: &mut BackupReport,
-    connection: Result<rusqlite::Connection>,
-    request: &AiIndexRequest,
-    queue_paused: bool,
-) -> bool {
-    match connection {
-        Ok(connection) => {
-            let enqueued = ai_queue::enqueue_index_job(&connection, request, queue_paused);
-            append_ai_auto_index_enqueue_result(report, enqueued, queue_paused)
-        }
-        Err(error) => {
-            append_ai_auto_index_provider_warning(report, error);
             false
         }
     }
@@ -1043,13 +1000,12 @@ fn core_refresh_rebuild_scopes(dirty_profiles: &[String]) -> Vec<CoreIntelligenc
 #[cfg(test)]
 mod tests {
     use super::{
-        PER_TICK_BUDGET_HARD_CAP, append_ai_auto_index_archive_result,
-        append_ai_auto_index_enqueue_result, append_ai_auto_index_provider_warning,
-        append_core_refresh_backup_result, append_core_refresh_import_result,
-        append_og_image_cleanup_result, append_og_image_prefetch_result,
-        append_og_image_refetch_due_result, clamp_budget, core_refresh_import_note,
-        core_refresh_rebuild_scopes, drain_one_worker_url, finalize_refetch_run,
-        host_throttle_wait, lock_or_recover, prefetch_og_images_on_demand,
+        PER_TICK_BUDGET_HARD_CAP, append_ai_auto_index_enqueue_result,
+        append_ai_auto_index_provider_warning, append_core_refresh_backup_result,
+        append_core_refresh_import_result, append_og_image_cleanup_result,
+        append_og_image_prefetch_result, append_og_image_refetch_due_result, clamp_budget,
+        core_refresh_import_note, core_refresh_rebuild_scopes, drain_one_worker_url,
+        finalize_refetch_run, host_throttle_wait, lock_or_recover, prefetch_og_images_on_demand,
         try_prefetch_new_visit_og_images, try_refetch_due_og_images,
     };
     use crate::tests::{
@@ -1779,10 +1735,9 @@ mod tests {
             false,
         ));
         append_ai_auto_index_provider_warning(&mut ai_report, anyhow::anyhow!("provider missing"));
-        assert!(!append_ai_auto_index_archive_result(
+        assert!(!append_ai_auto_index_enqueue_result(
             &mut ai_report,
             Err(anyhow::anyhow!("archive unavailable")),
-            &vault_core::AiIndexRequest::default(),
             false,
         ));
         let ai_warnings = ai_report.warnings.clone();

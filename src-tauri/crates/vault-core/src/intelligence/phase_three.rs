@@ -1,3 +1,7 @@
+//! Responsibilities: read breadth, habits and observed interaction evidence.
+//! Not responsible for: rebuild stages or source capture.
+//! Failure modes: reads write schemas, a query escapes its owner, stale scopes leak,
+//! or bounded results lose continuation. Native render-path and paging tests cover these.
 //! Phase 3 Core Intelligence read models.
 //!
 //! This module owns the shipping backend queries for:
@@ -7,34 +11,33 @@
 //! - common path flows
 //! - browser-reported interaction metrics
 
-use super::{date_range_bounds, ensure_core_intelligence_schema, rfc3339_from_millis};
+use super::{date_range_bounds, rfc3339_from_millis};
 use crate::{
-    archive::{open_intelligence_connection, open_legacy_source_evidence_connection},
-    config::ProjectPaths,
     intelligence::site_dictionary::display_name_for_domain,
     models::{
-        AppConfig, BreadthIndex, HabitPattern, InterruptedHabit, ObservedInteraction, PathFlow,
-        PathFlowRequest, PathFlowStep, ProfileScopedRequest, ScopedDateRangeRequest,
+        BreadthIndex, HabitPattern, InterruptedHabit, ObservedInteraction, ProfileScopedRequest,
+        ScopedDateRangeRequest,
     },
 };
 use anyhow::Result;
 use chrono::{Local, NaiveDate};
-use rusqlite::{Connection, params, params_from_iter, types::Value as SqlValue};
 use std::collections::{BTreeSet, HashMap};
+use vault_store::{Session, Value as SqlValue, params_from_iter, params_owned as params};
 
 pub fn get_breadth_index(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<BreadthIndex> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    get_breadth_index_with_connection(&connection, request)
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
+
+        get_breadth_index_with_connection(connection, request)
+    })
 }
 
 pub(crate) fn get_breadth_index_with_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
 ) -> Result<BreadthIndex> {
     let mut statement = connection.prepare(
@@ -53,9 +56,9 @@ pub(crate) fn get_breadth_index_with_connection(
                 request.date_range.start,
                 request.date_range.end,
             ],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?)),
         )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+        .collect::<vault_store::Result<Vec<_>>>()?;
 
     let total_visits = rows.iter().map(|(_, visits)| *visits).sum::<i64>();
     if total_visits <= 0 {
@@ -89,14 +92,15 @@ pub(crate) fn get_breadth_index_with_connection(
 }
 
 pub fn get_habit_patterns(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<HabitPattern>> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    get_habit_patterns_with_connection(&connection, request)
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
+
+        get_habit_patterns_with_connection(connection, request)
+    })
 }
 
 /// Habits only need the local days each site was visited on, which is what
@@ -106,7 +110,7 @@ pub fn get_habit_patterns(
 /// through `idx_urls_registrable_domain`, then each URL's newest visit before
 /// the end of the last active day through `idx_visits_visible_url_time`.
 pub(crate) fn get_habit_patterns_with_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<HabitPattern>> {
     let (_, end_ms) = date_range_bounds(&request.date_range)?;
@@ -126,9 +130,9 @@ pub(crate) fn get_habit_patterns_with_connection(
                 request.date_range.start,
                 request.date_range.end
             ],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| Ok((row.get::<String>(0)?, row.get::<String>(1)?)),
         )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+        .collect::<vault_store::Result<Vec<_>>>()?;
 
     let mut by_domain = HashMap::<String, DomainSeries>::new();
     for (domain, date_key) in rows {
@@ -139,15 +143,13 @@ pub(crate) fn get_habit_patterns_with_connection(
     // last-visit lookup for the rest.
     by_domain.retain(|_, series| series.days.len() >= 5);
     let mut last_visit = connection.prepare(
-        "SELECT MAX(visits.visit_time_ms)
-         FROM archive.urls AS urls
-         JOIN archive.visits AS visits
-           ON visits.url_id = urls.id
-          AND visits.reverted_at IS NULL
-          AND visits.visit_time_ms < ?2
-         WHERE urls.registrable_domain = ?1
-           AND (?3 IS NULL OR urls.source_profile_id IN (
-                 SELECT id FROM archive.source_profiles WHERE profile_key = ?3))",
+        "SELECT MAX((SELECT visit_time_ms FROM archive.visits INDEXED BY idx_visits_visible_url_time
+            WHERE url_id=urls.id AND reverted_at IS NULL AND visit_time_ms<?2
+            ORDER BY visit_time_ms DESC,id DESC LIMIT 1))
+         FROM archive.pages AS pages INDEXED BY idx_pages_registrable_domain
+         CROSS JOIN archive.urls AS urls ON urls.page_id=pages.id
+         WHERE pages.registrable_domain IS NOT NULL AND pages.registrable_domain=?1
+           AND (?3 IS NULL OR urls.source_profile_id IN (SELECT id FROM archive.source_profiles WHERE profile_key=?3))",
     )?;
     for (domain, series) in by_domain.iter_mut() {
         let last_day_end = series
@@ -157,9 +159,9 @@ pub(crate) fn get_habit_patterns_with_connection(
             .map(local_midnight_ms)
             .unwrap_or(end_ms);
         series.last_visited_ms = last_visit
-            .query_row(
+            .query_one(
                 params![domain, last_day_end.min(end_ms), request.profile_id.as_deref()],
-                |row| row.get::<_, Option<i64>>(0),
+                |row| Ok(row.get::<Option<i64>>(0)?),
             )?
             .unwrap_or(last_day_end - 1);
     }
@@ -186,18 +188,19 @@ fn local_midnight_ms(day: NaiveDate) -> i64 {
 }
 
 pub fn get_interrupted_habits(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &ProfileScopedRequest,
 ) -> Result<Vec<InterruptedHabit>> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    get_interrupted_habits_with_connection(&connection, request)
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
+
+        get_interrupted_habits_with_connection(connection, request)
+    })
 }
 
 pub(crate) fn get_interrupted_habits_with_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &ProfileScopedRequest,
 ) -> Result<Vec<InterruptedHabit>> {
     let mut statement = connection.prepare(
@@ -210,17 +213,17 @@ pub(crate) fn get_interrupted_habits_with_connection(
     let now_ms = Local::now().timestamp_millis();
     let habits = statement
         .query_map([request.profile_id.as_deref()], |row| {
-            let last_visited_ms = row.get::<_, i64>(5)?;
+            let last_visited_ms = row.get::<i64>(5)?;
             let days_since_last_visit =
                 ((now_ms - last_visited_ms).max(0) as f32 / 86_400_000.0).floor() as i64;
-            let mean_interval_days = row.get::<_, f32>(2)?;
+            let mean_interval_days = row.get::<f64>(2)? as f32;
             Ok(InterruptedHabit {
                 habit: HabitPattern {
                     registrable_domain: row.get(0)?,
-                    display_name: display_name_for_domain(&row.get::<_, String>(0)?),
+                    display_name: display_name_for_domain(&row.get::<String>(0)?),
                     habit_type: row.get(1)?,
                     mean_interval_days,
-                    cv: row.get(3)?,
+                    cv: row.get::<f64>(3)? as f32,
                     visit_count: row.get(4)?,
                     last_visited_at: rfc3339_from_millis(last_visited_ms),
                     is_interrupted: true,
@@ -229,120 +232,39 @@ pub(crate) fn get_interrupted_habits_with_connection(
                 interruption_threshold_days: mean_interval_days * 2.0,
             })
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+        .collect::<vault_store::Result<Vec<_>>>()?;
     Ok(habits)
 }
 
-pub fn get_path_flows(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    request: &PathFlowRequest,
-) -> Result<Vec<PathFlow>> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    get_path_flows_with_connection(&connection, request)
-}
-
-pub(crate) fn get_path_flows_with_connection(
-    connection: &Connection,
-    request: &PathFlowRequest,
-) -> Result<Vec<PathFlow>> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-    let step_count = request.step_count.clamp(2, 4) as usize;
-    let limit = request.limit.unwrap_or(20).max(1) as usize;
-    let mut statement = connection.prepare(
-        "SELECT visit_derived_facts.session_id, visit_derived_facts.registrable_domain, visits.visit_time_ms
-         FROM visit_derived_facts
-         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
-         WHERE visit_derived_facts.session_id IS NOT NULL
-           AND (?1 IS NULL OR visit_derived_facts.profile_id = ?1)
-           AND visits.visit_time_ms >= ?2
-           AND visits.visit_time_ms < ?3
-         ORDER BY visit_derived_facts.session_id ASC, visits.visit_time_ms ASC, visits.id ASC",
-    )?;
-    let rows = statement
-        .query_map(params![request.profile_id.as_deref(), start_ms, end_ms], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-
-    let mut flows = HashMap::<(String, usize), FlowAggregate>::new();
-    let mut current_session = String::new();
-    let mut current_sequence = Vec::<(String, i64)>::new();
-    for (session_id, domain, visit_time_ms) in rows {
-        if current_session != session_id {
-            finalize_path_sequence(&current_sequence, step_count, &mut flows);
-            current_session = session_id;
-            current_sequence.clear();
-        }
-        if current_sequence.last().is_none_or(|(last_domain, _)| *last_domain != domain) {
-            current_sequence.push((domain, visit_time_ms));
-        } else if let Some((_, last_seen_ms)) = current_sequence.last_mut() {
-            *last_seen_ms = visit_time_ms;
-        }
-    }
-    finalize_path_sequence(&current_sequence, step_count, &mut flows);
-
-    let mut results = flows
-        .into_iter()
-        .map(|((flow_pattern, step_count), aggregate)| {
-            let steps = build_path_flow_steps(&flow_pattern);
-            PathFlow {
-                flow_id: build_path_flow_id(
-                    request.profile_id.as_deref(),
-                    step_count,
-                    &flow_pattern,
-                ),
-                flow_pattern,
-                step_count: step_count as i64,
-                occurrence_count: aggregate.occurrence_count,
-                last_seen_at: rfc3339_from_millis(aggregate.last_seen_ms),
-                steps,
-            }
-        })
-        .collect::<Vec<_>>();
-    results.sort_by(|left, right| {
-        right
-            .occurrence_count
-            .cmp(&left.occurrence_count)
-            .then_with(|| right.last_seen_at.cmp(&left.last_seen_at))
-            .then_with(|| left.flow_pattern.cmp(&right.flow_pattern))
-    });
-    results.truncate(limit);
-    Ok(results)
-}
+pub use super::path_flows::get_path_flows;
+pub(crate) use super::path_flows::get_path_flows_with_connection;
+#[cfg(test)]
+use super::path_flows::{build_path_flow_steps, finalize_path_sequence};
 
 pub fn get_observed_interactions(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    request: &ScopedDateRangeRequest,
-) -> Result<Vec<ObservedInteraction>> {
-    let archive = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&archive)?;
-    get_observed_interactions_with_connection(paths, config, key, &archive, request)
-}
-
-pub(crate) fn get_observed_interactions_with_connection(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    archive: &Connection,
-    request: &ScopedDateRangeRequest,
-) -> Result<Vec<ObservedInteraction>> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-    let visits =
-        load_observed_interaction_visits(archive, request.profile_id.as_deref(), start_ms, end_ms)?;
-    if visits.is_empty() {
-        return Ok(Vec::new());
+    vault: &crate::Vault,
+    request: &crate::models::ScopedPageRequest,
+) -> Result<crate::models::IntelligencePage<ObservedInteraction>> {
+    use vault_store::Db;
+    let available=vault.read(Db::SourceEvidence,|s|Ok(s.query_one("SELECT EXISTS(SELECT 1 FROM visit_engagement_evidence LIMIT 1) OR EXISTS(SELECT 1 FROM visit_context_evidence LIMIT 1)",(),|r|Ok(r.get::<i64>(0)?!=0))?))?;
+    if !available {
+        return Ok(crate::models::IntelligencePage::default());
     }
-
-    let source_evidence = open_legacy_source_evidence_connection(paths, config, key)?;
-    let evidence = load_engagement_evidence(&source_evidence, &visits)?;
-    let mut interactions = observed_interactions_from_visits(visits, &evidence);
-    interactions.sort_by_key(|interaction| std::cmp::Reverse(interaction.visit_id));
-    Ok(interactions)
+    let (start, end) = date_range_bounds(&request.date_range)?;
+    let profile = request.profile_id.clone();
+    let limit = request.limit.unwrap_or(100).clamp(1, 512) as usize;
+    let after = super::paging::cursor::<(i64, i64)>(request.cursor.as_deref())?;
+    let rows = vault.read(Db::Intelligence, move |s| {
+        load_observed_interaction_visits(s, profile.as_deref(), start, end, after, limit + 1)
+    })?;
+    let page = super::paging::finish(rows, limit)?;
+    vault.read(Db::SourceEvidence, move |s| {
+        let evidence = load_engagement_evidence(s, &page.items)?;
+        Ok(crate::models::IntelligencePage {
+            items: observed_interactions_from_visits(page.items, &evidence),
+            next_cursor: page.next_cursor,
+        })
+    })
 }
 
 fn observed_interactions_from_visits(
@@ -377,45 +299,10 @@ fn observed_interactions_from_visits(
         .collect()
 }
 
-fn build_path_flow_id(profile_id: Option<&str>, step_count: usize, flow_pattern: &str) -> String {
-    let scope = profile_id.unwrap_or("all-profiles");
-    format!("flow:{scope}:{step_count}:{flow_pattern}")
-}
-
-fn build_path_flow_steps(flow_pattern: &str) -> Vec<PathFlowStep> {
-    flow_pattern
-        .split(" → ")
-        .enumerate()
-        .map(|(index, label)| PathFlowStep {
-            index: index as i64,
-            label: label.to_string(),
-            registrable_domain: is_registrable_domain(label).then(|| label.to_string()),
-        })
-        .collect()
-}
-
-fn is_registrable_domain(value: &str) -> bool {
-    let mut count = 0_usize;
-    for part in value.split('.') {
-        count += 1;
-        if part.is_empty() || !part.chars().all(|char| char.is_ascii_alphanumeric() || char == '-')
-        {
-            return false;
-        }
-    }
-    count >= 2
-}
-
 #[derive(Debug, Default)]
 struct DomainSeries {
     days: BTreeSet<NaiveDate>,
     last_visited_ms: i64,
-}
-
-#[derive(Debug, Default)]
-struct FlowAggregate {
-    occurrence_count: i64,
-    last_seen_ms: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -496,68 +383,30 @@ fn classify_habit_pattern(domain: &str, series: &DomainSeries) -> Option<HabitPa
     })
 }
 
-fn finalize_path_sequence(
-    sequence: &[(String, i64)],
-    step_count: usize,
-    flows: &mut HashMap<(String, usize), FlowAggregate>,
-) {
-    if sequence.len() < step_count {
-        return;
-    }
-    for window in sequence.windows(step_count) {
-        if window.len() < 2 {
-            continue;
-        }
-        let flow_pattern =
-            window.iter().map(|(domain, _)| domain.as_str()).collect::<Vec<_>>().join(" → ");
-        let last_seen_ms =
-            window.iter().map(|(_, visit_time_ms)| *visit_time_ms).max().unwrap_or(0);
-        let aggregate = flows.entry((flow_pattern, step_count)).or_default();
-        aggregate.occurrence_count += 1;
-        aggregate.last_seen_ms = aggregate.last_seen_ms.max(last_seen_ms);
-    }
-}
-
 fn load_observed_interaction_visits(
-    archive: &Connection,
-    profile_id: Option<&str>,
-    start_ms: i64,
-    end_ms: i64,
-) -> Result<Vec<ObservedVisit>> {
-    let mut statement = archive.prepare(
-        "SELECT visits.id,
-                visits.source_profile_id,
-                CAST(visits.source_visit_id AS TEXT),
-                urls.url,
-                urls.title,
-                COALESCE(source_profiles.browser_family, source_profiles.browser_kind)
-         FROM archive.visits AS visits
-         JOIN archive.urls AS urls ON urls.id = visits.url_id
-         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
-         WHERE visits.reverted_at IS NULL
-           AND visits.source_visit_id IS NOT NULL
-           AND (?1 IS NULL OR source_profiles.profile_key = ?1)
-           AND visits.visit_time_ms >= ?2
-           AND visits.visit_time_ms < ?3
-         ORDER BY visits.visit_time_ms DESC, visits.id DESC",
-    )?;
-    let visits = statement
-        .query_map(params![profile_id, start_ms, end_ms], |row| {
-            Ok(ObservedVisit {
-                visit_id: row.get(0)?,
-                source_profile_id: row.get(1)?,
-                source_visit_id: row.get(2)?,
-                url: row.get(3)?,
-                title: row.get(4)?,
-                browser_family: row.get(5)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(visits)
+    s: &Session<'_>,
+    profile: Option<&str>,
+    start: i64,
+    end: i64,
+    after: Option<(i64, i64)>,
+    limit: usize,
+) -> Result<Vec<(ObservedVisit, (i64, i64))>> {
+    Ok(s.query("SELECT v.id,v.source_profile_id,v.source_visit_id,u.url,u.title,COALESCE(p.browser_family,p.browser_kind),v.visit_time_ms
+        FROM archive.visits v INDEXED BY idx_visits_visible_time_id
+        CROSS JOIN archive.urls u ON u.id=v.url_id
+        CROSS JOIN archive.source_profiles p ON p.id=v.source_profile_id
+        WHERE v.reverted_at IS NULL AND v.source_visit_id IS NOT NULL
+          AND (?1 IS NULL OR p.profile_key=?1) AND v.visit_time_ms>=?2 AND v.visit_time_ms<?3
+          AND (?4 IS NULL OR v.visit_time_ms<?4 OR (v.visit_time_ms=?4 AND v.id<?5))
+        ORDER BY v.visit_time_ms DESC,v.id DESC LIMIT ?6",
+        params![profile,start,end,after.map(|c|c.0),after.map(|c|c.1),limit as i64],|r| {
+            let id=r.get::<i64>(0)?;
+            Ok((ObservedVisit {visit_id:id,source_profile_id:r.get(1)?,source_visit_id:r.get(2)?,url:r.get(3)?,title:r.get(4)?,browser_family:r.get(5)?},(r.get::<i64>(6)?,id)))
+        })?)
 }
 
 fn load_engagement_evidence(
-    source_evidence: &Connection,
+    source_evidence: &Session<'_>,
     visits: &[ObservedVisit],
 ) -> Result<HashMap<(i64, String), ObservedEvidence>> {
     let mut by_profile = HashMap::<i64, Vec<String>>::new();
@@ -568,24 +417,25 @@ fn load_engagement_evidence(
     let mut evidence = HashMap::<(i64, String), ObservedEvidence>::new();
     for (source_profile_id, visit_ids) in by_profile {
         for chunk in visit_ids.chunks(400) {
-            let placeholders = std::iter::repeat_n("?", chunk.len()).collect::<Vec<_>>().join(", ");
+            let placeholders =
+                (2..chunk.len() + 2).map(|n| format!("(?{n})")).collect::<Vec<_>>().join(",");
             let sql = format!(
-                "SELECT source_profile_id, source_visit_id, metric_key, metric_value_int, metric_value_real
-                 FROM visit_engagement_evidence
-                 WHERE source_profile_id = ?
-                   AND source_visit_id IN ({placeholders})"
+                "WITH requested(source_visit_id) AS (VALUES {placeholders})
+                 SELECT e.source_profile_id,e.source_visit_id,e.metric_key,e.metric_value_int,e.metric_value_real
+                 FROM requested CROSS JOIN visit_engagement_evidence e INDEXED BY idx_visit_engagement_profile_visit
+                 ON e.source_profile_id=?1 AND e.source_visit_id=requested.source_visit_id"
             );
             let mut bindings = Vec::<SqlValue>::with_capacity(chunk.len() + 1);
             bindings.push(SqlValue::from(source_profile_id));
             bindings.extend(chunk.iter().cloned().map(SqlValue::from));
             let mut statement = source_evidence.prepare(&sql)?;
-            let rows = statement.query_map(params_from_iter(bindings.iter()), |row| {
+            let rows = statement.query_map(params_from_iter(bindings.iter().cloned()), |row| {
                 Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<i64>>(3)?,
-                    row.get::<_, Option<f64>>(4)?,
+                    row.get::<i64>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<String>(2)?,
+                    row.get::<Option<i64>>(3)?,
+                    row.get::<Option<f64>>(4)?,
                 ))
             })?;
 
@@ -646,7 +496,7 @@ fn load_engagement_evidence(
 }
 
 fn load_context_evidence(
-    source_evidence: &Connection,
+    source_evidence: &Session<'_>,
     visits: &[ObservedVisit],
 ) -> Result<Option<HashMap<(i64, String), ObservedEvidence>>> {
     let mut by_profile = HashMap::<i64, Vec<String>>::new();
@@ -658,24 +508,25 @@ fn load_context_evidence(
     let mut has_rows = false;
     for (source_profile_id, visit_ids) in by_profile {
         for chunk in visit_ids.chunks(400) {
-            let placeholders = std::iter::repeat_n("?", chunk.len()).collect::<Vec<_>>().join(", ");
+            let placeholders =
+                (2..chunk.len() + 2).map(|n| format!("(?{n})")).collect::<Vec<_>>().join(",");
             let sql = format!(
-                "SELECT source_profile_id, source_visit_id, context_key, value_json
-                 FROM visit_context_evidence
-                 WHERE source_profile_id = ?
-                   AND source_visit_id IN ({placeholders})
-                   AND context_key IN ('context.load_successful', 'context.page_end_reason')"
+                "WITH requested(source_visit_id) AS (VALUES {placeholders})
+                 SELECT e.source_profile_id,e.source_visit_id,e.context_key,e.value_json
+                 FROM requested CROSS JOIN visit_context_evidence e INDEXED BY idx_visit_context_profile_visit
+                 ON e.source_profile_id=?1 AND e.source_visit_id=requested.source_visit_id
+                 WHERE e.context_key IN ('context.load_successful','context.page_end_reason')"
             );
             let mut bindings = Vec::<SqlValue>::with_capacity(chunk.len() + 1);
             bindings.push(SqlValue::from(source_profile_id));
             bindings.extend(chunk.iter().cloned().map(SqlValue::from));
             let mut statement = source_evidence.prepare(&sql)?;
-            let rows = statement.query_map(params_from_iter(bindings.iter()), |row| {
+            let rows = statement.query_map(params_from_iter(bindings.iter().cloned()), |row| {
                 Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
+                    row.get::<i64>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<String>(2)?,
+                    row.get::<String>(3)?,
                 ))
             })?;
             for row in rows {
@@ -700,12 +551,14 @@ fn load_context_evidence(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::project_paths_with_root;
+    use crate::test_support::native::TestDatabase;
+    use vault_store::{Db, Priority};
+
     use crate::models::{DateRange, PathFlowRequest, ProfileScopedRequest, ScopedDateRangeRequest};
     use chrono::NaiveDate;
-    use rusqlite::{Connection, params};
     use std::collections::{BTreeSet, HashMap};
-    use tempfile::tempdir;
+
+    use vault_store::params_owned as params;
 
     #[test]
     fn classify_habit_pattern_requires_five_visits_and_two_weeks() {
@@ -793,25 +646,36 @@ mod tests {
         seed_interrupted_habits(&connection);
 
         let scoped = ScopedDateRangeRequest { date_range: april_range(), profile_id: None };
-        let breadth =
-            get_breadth_index_with_connection(&connection, &scoped).expect("breadth index");
+        let breadth = {
+            let scoped = scoped.clone();
+            connection.read(move |session| get_breadth_index_with_connection(session, &scoped))
+        }
+        .expect("breadth index");
         assert!(breadth.hhi > 0.0);
         assert_eq!(breadth.concentration_domain_count, 1);
 
-        let empty = get_breadth_index_with_connection(
-            &connection,
-            &ScopedDateRangeRequest {
-                date_range: DateRange {
-                    start: "2026-05-01".to_string(),
-                    end: "2026-05-02".to_string(),
-                },
-                profile_id: None,
-            },
-        )
+        let empty = {
+            connection.read(move |session| {
+                get_breadth_index_with_connection(
+                    session,
+                    &ScopedDateRangeRequest {
+                        date_range: DateRange {
+                            start: "2026-05-01".to_string(),
+                            end: "2026-05-02".to_string(),
+                        },
+                        profile_id: None,
+                    },
+                )
+            })
+        }
         .expect("empty breadth");
         assert_eq!(empty.breadth_score, 0.0);
 
-        let habits = get_habit_patterns_with_connection(&connection, &scoped).expect("habits");
+        let habits = {
+            let scoped = scoped.clone();
+            connection.read(move |session| get_habit_patterns_with_connection(session, &scoped))
+        }
+        .expect("habits");
         let weekly = habits
             .iter()
             .find(|habit| habit.registrable_domain == "weekly.example")
@@ -821,80 +685,69 @@ mod tests {
         assert_eq!(weekly.last_visited_at, rfc3339_from_millis(day_ms(29)));
         assert!(!habits.iter().any(|habit| habit.registrable_domain == "docs.example"));
 
-        let interrupted = get_interrupted_habits_with_connection(
-            &connection,
-            &ProfileScopedRequest { profile_id: Some("chrome:Default".to_string()) },
-        )
+        let interrupted = {
+            connection.read(move |session| {
+                get_interrupted_habits_with_connection(
+                    session,
+                    &ProfileScopedRequest { profile_id: Some("chrome:Default".to_string()) },
+                )
+            })
+        }
         .expect("interrupted habits");
         assert_eq!(interrupted.len(), 1);
         assert!(interrupted[0].days_since_last_visit >= 0);
 
-        let flows = get_path_flows_with_connection(
-            &connection,
-            &PathFlowRequest {
-                date_range: april_range(),
-                profile_id: None,
-                step_count: 2,
-                limit: Some(5),
-            },
-        )
+        let flows = {
+            connection.read(move |session| {
+                get_path_flows_with_connection(
+                    session,
+                    &PathFlowRequest {
+                        cursor: None,
+                        date_range: april_range(),
+                        profile_id: None,
+                        step_count: 2,
+                        limit: Some(5),
+                    },
+                )
+            })
+        }
         .expect("path flows");
         assert!(flows.iter().any(|flow| flow.flow_pattern == "daily.example → weekly.example"));
 
-        let scoped_flows = get_path_flows_with_connection(
-            &connection,
-            &PathFlowRequest {
-                date_range: april_range(),
-                profile_id: Some("chrome:Default".to_string()),
-                step_count: 8,
-                limit: Some(1),
-            },
-        )
+        let scoped_flows = {
+            connection.read(move |session| {
+                get_path_flows_with_connection(
+                    session,
+                    &PathFlowRequest {
+                        cursor: None,
+                        date_range: april_range(),
+                        profile_id: Some("chrome:Default".to_string()),
+                        step_count: 8,
+                        limit: Some(1),
+                    },
+                )
+            })
+        }
         .expect("scoped path flows");
         assert!(scoped_flows.len() <= 1);
         assert!(scoped_flows.iter().all(|flow| flow.step_count == 4));
 
-        let root = tempdir().expect("tempdir");
-        let empty_observed = get_observed_interactions_with_connection(
-            &project_paths_with_root(root.path()),
-            &AppConfig::default(),
-            None,
-            &connection,
-            &ScopedDateRangeRequest {
-                date_range: DateRange {
-                    start: "2026-05-01".to_string(),
-                    end: "2026-05-02".to_string(),
-                },
+        let empty_observed = get_observed_interactions(
+            &connection.vault,
+            &crate::models::ScopedPageRequest {
+                date_range: DateRange { start: "2026-05-01".into(), end: "2026-05-02".into() },
                 profile_id: None,
+                ..Default::default()
             },
         )
-        .expect("empty observed interactions");
+        .unwrap();
         assert!(empty_observed.is_empty());
     }
 
     #[test]
     fn observed_interaction_evidence_merges_metrics_and_context_fallbacks() {
-        let source_evidence = Connection::open_in_memory().expect("source evidence");
-        source_evidence
-            .execute_batch(
-                "
-                CREATE TABLE visit_engagement_evidence (
-                    source_profile_id INTEGER NOT NULL,
-                    source_visit_id TEXT NOT NULL,
-                    metric_key TEXT NOT NULL,
-                    metric_value_int INTEGER,
-                    metric_value_real REAL
-                );
-                CREATE TABLE visit_context_evidence (
-                    source_profile_id INTEGER NOT NULL,
-                    source_visit_id TEXT,
-                    context_key TEXT NOT NULL,
-                    value_json TEXT NOT NULL
-                );
-                ",
-            )
-            .expect("schema");
-
+        let vault = crate::Vault::open_temp().unwrap();
+        let source_evidence = TestDatabase::new(&vault, Db::SourceEvidence);
         let visits = vec![
             ObservedVisit {
                 visit_id: 1,
@@ -926,9 +779,7 @@ mod tests {
         ] {
             source_evidence
                 .execute(
-                    "INSERT INTO visit_engagement_evidence
-                     (source_profile_id, source_visit_id, metric_key, metric_value_int, metric_value_real)
-                     VALUES (7, ?1, ?2, ?3, ?4)",
+                    "INSERT INTO visit_engagement_evidence(source_profile_id,source_visit_id,metric_key,metric_value_int,metric_value_real,source_batch_id,source_field,recorded_at) VALUES (7,?1,?2,?3,?4,0,'fixture','')",
                     params![visit_id, metric_key, value_int, value_real],
                 )
                 .expect("metric");
@@ -943,15 +794,15 @@ mod tests {
         ] {
             source_evidence
                 .execute(
-                    "INSERT INTO visit_context_evidence
-                     (source_profile_id, source_visit_id, context_key, value_json)
-                     VALUES (7, ?1, ?2, ?3)",
+                    "INSERT INTO visit_context_evidence(source_profile_id,source_visit_id,context_key,value_json,source_batch_id,source_field,recorded_at) VALUES (7,?1,?2,?3,0,'fixture','')",
                     params![visit_id, context_key, value_json],
                 )
                 .expect("context");
         }
 
-        let evidence = load_engagement_evidence(&source_evidence, &visits).expect("evidence");
+        let evidence =
+            { source_evidence.read(move |session| load_engagement_evidence(session, &visits)) }
+                .expect("evidence");
         let first = evidence.get(&(7, "a".to_string())).expect("first visit evidence");
         assert_eq!(first.foreground_duration_ms, Some(10));
         assert_eq!(first.scrolling_time_ms, Some(20));
@@ -968,7 +819,8 @@ mod tests {
         assert!(second.page_end_reason.is_none());
 
         let no_context =
-            load_context_evidence(&source_evidence, &[]).expect("empty context evidence");
+            { source_evidence.read(move |session| load_context_evidence(session, &[])) }
+                .expect("empty context evidence");
         assert!(no_context.is_none());
 
         assert!(observed_interactions_from_visits(Vec::new(), &HashMap::new()).is_empty());
@@ -1003,59 +855,14 @@ mod tests {
         }
     }
 
-    fn phase_three_connection() -> Connection {
-        let connection = Connection::open_in_memory().expect("connection");
-        connection
-            .execute_batch(
-                "
-                ATTACH DATABASE ':memory:' AS archive;
-                CREATE TABLE domain_daily_rollups (
-                    profile_id TEXT NOT NULL,
-                    date_key TEXT NOT NULL,
-                    registrable_domain TEXT NOT NULL,
-                    visit_count INTEGER NOT NULL
-                );
-                CREATE TABLE visit_derived_facts (
-                    visit_id INTEGER NOT NULL,
-                    profile_id TEXT NOT NULL,
-                    registrable_domain TEXT NOT NULL,
-                    session_id TEXT
-                );
-                CREATE TABLE archive.urls (
-                    id INTEGER PRIMARY KEY,
-                    url TEXT NOT NULL,
-                    title TEXT,
-                    registrable_domain TEXT,
-                    source_profile_id INTEGER
-                );
-                CREATE TABLE archive.source_profiles (
-                    id INTEGER PRIMARY KEY,
-                    profile_key TEXT NOT NULL,
-                    browser_kind TEXT NOT NULL,
-                    browser_family TEXT
-                );
-                CREATE TABLE archive.visits (
-                    id INTEGER PRIMARY KEY,
-                    url_id INTEGER,
-                    source_visit_id TEXT,
-                    visit_time_ms INTEGER NOT NULL,
-                    source_profile_id INTEGER,
-                    reverted_at TEXT
-                );
-                CREATE TABLE habit_patterns (
-                    profile_id TEXT NOT NULL,
-                    registrable_domain TEXT NOT NULL,
-                    habit_type TEXT NOT NULL,
-                    mean_interval_days REAL NOT NULL,
-                    cv REAL NOT NULL,
-                    visit_count INTEGER NOT NULL,
-                    last_visited_ms INTEGER NOT NULL,
-                    is_interrupted INTEGER NOT NULL
-                );
-                ",
-            )
-            .expect("schema");
-        connection
+    fn phase_three_connection() -> TestDatabase {
+        let vault = crate::Vault::open_temp().unwrap();
+        vault.write(Db::Archive,Priority::Batch,|s| {
+            s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,profile_key,discovered_at) VALUES(1,'chrome','Default','/fixture','chrome:Default','')",())?;Ok(())
+        }).unwrap();
+        let db = TestDatabase::new(&vault, Db::Intelligence);
+        db.execute("INSERT INTO intelligence_generations(profile_id) VALUES('chrome:Default'),('safari:Default')",()).unwrap();
+        db
     }
 
     fn april_range() -> DateRange {
@@ -1071,21 +878,19 @@ mod tests {
             .timestamp_millis()
     }
 
-    fn seed_rollups(connection: &Connection) {
+    fn seed_rollups(connection: &TestDatabase) {
         for (domain, visits) in [("daily.example", 12), ("weekly.example", 6), ("docs.example", 3)]
         {
             connection
                 .execute(
-                    "INSERT INTO domain_daily_rollups
-                     (profile_id, date_key, registrable_domain, visit_count)
-                     VALUES ('chrome:Default', '2026-04-15', ?1, ?2)",
+                    "INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,visit_count,domain_category,search_count,new_domain_visits,unique_urls) VALUES ('chrome:Default','2026-04-15',?1,?2,'unknown',0,0,1)",
                     params![domain, visits],
                 )
                 .expect("rollup");
         }
     }
 
-    fn seed_visits_and_facts(connection: &Connection) {
+    fn seed_visits_and_facts(connection: &TestDatabase) {
         let mut visit_id = 1_i64;
         for day in 1..=15 {
             insert_visit_fact(connection, visit_id, "daily.example", "session-a", day);
@@ -1100,62 +905,38 @@ mod tests {
     }
 
     fn insert_visit_fact(
-        connection: &Connection,
+        connection: &TestDatabase,
         visit_id: i64,
         domain: &str,
         session_id: &str,
         day: u32,
     ) {
-        connection
+        let archive = TestDatabase::new(&connection.vault, Db::Archive);
+        let url = format!("https://{domain}/{visit_id}");
+        let time = day_ms(day);
+        archive
             .execute(
-                "INSERT INTO archive.visits (id, visit_time_ms) VALUES (?1, ?2)",
-                params![visit_id, day_ms(day)],
+                "INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(?1,?2,?2,?3)",
+                params![visit_id, url, domain],
             )
-            .expect("visit");
-        connection
-            .execute(
-                "INSERT INTO visit_derived_facts
-                 (visit_id, profile_id, registrable_domain, session_id)
-                 VALUES (?1, 'chrome:Default', ?2, ?3)",
-                params![visit_id, domain, session_id],
-            )
-            .expect("fact");
-        // Habits read the per-day rollups and the URL's last visit, the way
-        // a rebuild leaves them.
-        connection
-            .execute(
-                "INSERT INTO domain_daily_rollups
-                 (profile_id, date_key, registrable_domain, visit_count)
-                 VALUES ('chrome:Default', ?1, ?2, 1)",
-                params![format!("2026-04-{day:02}"), domain],
-            )
-            .expect("rollup");
-        connection
-            .execute(
-                "INSERT INTO archive.urls (id, url, registrable_domain, source_profile_id)
-                 VALUES (?1, ?2, ?3, 1)",
-                params![visit_id, format!("https://{domain}/{visit_id}"), domain],
-            )
-            .expect("url");
-        connection
-            .execute("UPDATE archive.visits SET url_id = ?1 WHERE id = ?1", params![visit_id])
-            .expect("visit url");
+            .unwrap();
+        archive.execute("INSERT INTO urls(id,page_id,url,source_profile_id,created_by_run_id,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso) VALUES(?1,?1,?2,1,0,?3,'',?3,'')",params![visit_id,url,time]).unwrap();
+        archive.execute("INSERT INTO visits(id,url_id,source_profile_id,created_by_run_id,visit_time_ms,visit_time_iso) VALUES(?1,?1,1,0,?2,'')",params![visit_id,time]).unwrap();
+        connection.execute("INSERT INTO visit_derived_facts_rows(visit_id,profile_id,registrable_domain,canonical_url,computed_at) VALUES(?1,'chrome:Default',?2,?3,'')",params![visit_id,domain,url]).unwrap();
+        connection.execute("INSERT INTO visit_assignments(visit_id,profile_id,session_id) VALUES(?1,'chrome:Default',?2)",params![visit_id,session_id]).unwrap();
+        connection.execute("INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,domain_category,visit_count,search_count,new_domain_visits,unique_urls) VALUES ('chrome:Default',?1,?2,'unknown',1,0,0,1) ON CONFLICT(generation,date_key,profile_id,registrable_domain) DO UPDATE SET visit_count=visit_count+1",params![format!("2026-04-{day:02}"),domain]).unwrap();
     }
 
-    fn seed_interrupted_habits(connection: &Connection) {
+    fn seed_interrupted_habits(connection: &TestDatabase) {
         connection
             .execute(
-                "INSERT INTO habit_patterns
-                 (profile_id, registrable_domain, habit_type, mean_interval_days, cv, visit_count, last_visited_ms, is_interrupted)
-                 VALUES ('chrome:Default', 'weekly.example', 'weekly_habit', 7.0, 0.1, 5, ?1, 1)",
+                "INSERT INTO habit_patterns_rows(profile_id,registrable_domain,habit_type,mean_interval_days,cv,visit_count,last_visited_ms,is_interrupted,computed_at) VALUES ('chrome:Default','weekly.example','weekly_habit',7.0,0.1,5,?1,1,'')",
                 params![day_ms(1)],
             )
             .expect("interrupted habit");
         connection
             .execute(
-                "INSERT INTO habit_patterns
-                 (profile_id, registrable_domain, habit_type, mean_interval_days, cv, visit_count, last_visited_ms, is_interrupted)
-                 VALUES ('safari:Default', 'other.example', 'weekly_habit', 7.0, 0.1, 5, ?1, 1)",
+                "INSERT INTO habit_patterns_rows(profile_id,registrable_domain,habit_type,mean_interval_days,cv,visit_count,last_visited_ms,is_interrupted,computed_at) VALUES ('safari:Default','other.example','weekly_habit',7.0,0.1,5,?1,1,'')",
                 params![day_ms(1)],
             )
             .expect("scoped out habit");

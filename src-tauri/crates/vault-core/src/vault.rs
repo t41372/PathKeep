@@ -29,6 +29,7 @@ pub struct Vault {
     paths: ProjectPaths,
     config: AppConfig,
     backup: Arc<std::sync::Mutex<()>>,
+    intelligence: Arc<std::sync::Mutex<()>>,
     // Must outlive Store's threads and files.
     _temporary_root: Option<Arc<tempfile::TempDir>>,
 }
@@ -66,6 +67,8 @@ impl Vault {
             s.execute("UPDATE import_batches SET status='interrupted',previous_status='interrupted' WHERE status='running'", ())?;
             Ok(())
         })?;
+        crate::ai_queue::recover_owner_claims(&store)?;
+        crate::intelligence_runtime::recover_owner_claims(&store)?;
         let search = Arc::new(
             crate::search::Indexer::open(
                 store.clone(),
@@ -90,6 +93,7 @@ impl Vault {
             paths,
             config,
             backup: Arc::default(),
+            intelligence: Arc::default(),
             _temporary_root: None,
         })
     }
@@ -115,6 +119,10 @@ impl Vault {
 
     pub(crate) fn begin_backup(&self) -> anyhow::Result<std::sync::MutexGuard<'_, ()>> {
         self.backup.try_lock().map_err(|_| BackupAlreadyRunning.into())
+    }
+
+    pub(crate) fn intelligence_build(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.intelligence.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Gives tests the same schema and ownership rules as a real archive.

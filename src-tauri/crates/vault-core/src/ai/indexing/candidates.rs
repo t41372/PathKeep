@@ -1,3 +1,4 @@
+//! Failure modes: a chunk cursor skips unchanged rows or dedup collisions suppress pages.
 //! Candidate-visit collection and the pure embed-target selection (W-AI-4c dedup).
 //!
 //! ## Responsibilities
@@ -9,11 +10,12 @@
 //!
 //! ## Not responsible for
 //! - the embed loop / crash-resume dedup state (`super::backfill` owns those)
-//! - SQLite compatibility-row writes (`super::store_rows` owns those)
+//! - Turso metadata-row writes (`super::store_rows` owns those)
 
 use super::super::*;
 use super::IndexedVisit;
 use super::content::enrichment_summary_for;
+use vault_store::{Db, Session, params_owned as params};
 
 /// Collects up to `limit` candidate visits with `history_id >= start_history_id`, ascending.
 ///
@@ -21,46 +23,56 @@ use super::content::enrichment_summary_for;
 /// freshly built embedding content + hash and a `needs_embedding` flag (false when the stored
 /// content hash already matches, so the chunk can skip it without re-embedding).
 pub(in crate::ai) fn collect_visit_chunk(
-    paths: &ProjectPaths,
-    connection: &Connection,
+    vault: &crate::Vault,
     provider: &AiProviderRuntime,
     start_history_id: i64,
+    upper_history_id: i64,
     limit: usize,
 ) -> Result<Vec<IndexedVisit>> {
-    let mut statement = connection.prepare(
-        "SELECT visits.id,
+    let raw_visits = vault.read(Db::Archive, move |connection| {
+        let mut statement = connection.prepare(
+            "SELECT visits.id,
                 source_profiles.profile_key,
                 urls.url,
                 urls.title,
                 (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time
-         FROM archive.visits AS visits
-         JOIN archive.urls AS urls ON urls.id = visits.url_id
-         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
+         FROM visits AS visits
+         JOIN urls AS urls ON urls.id = visits.url_id
+         JOIN source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
          WHERE visits.reverted_at IS NULL
-           AND visits.id >= ?1
+           AND visits.id >= ?1 AND visits.id <= ?3
          ORDER BY visits.id ASC
          LIMIT ?2",
-    )?;
-    let mut rows = statement.query(params![start_history_id, limit as i64])?;
-    let mut raw_visits = Vec::new();
-    while let Some(row) = rows.next()? {
-        raw_visits.push(IndexedVisit {
-            history_id: row.get(0)?,
-            profile_id: row.get(1)?,
-            url: row.get(2)?,
-            title: row.get(3)?,
-            domain: String::new(),
-            visited_at: crate::utils::chrome_time_to_rfc3339(row.get::<_, i64>(4)?),
-            content: String::new(),
-            content_hash: String::new(),
-            content_key: 0,
-            needs_embedding: false,
-        });
-    }
+        )?;
+        let mut rows =
+            statement.query(params![start_history_id, limit as i64, upper_history_id])?;
+        let mut raw_visits = Vec::new();
+        while let Some(row) = rows.next()? {
+            raw_visits.push(IndexedVisit {
+                history_id: row.get(0)?,
+                profile_id: row.get(1)?,
+                url: row.get(2)?,
+                title: row.get(3)?,
+                domain: String::new(),
+                visited_at: crate::utils::chrome_time_to_rfc3339(row.get::<i64>(4)?),
+                content: String::new(),
+                content_hash: String::new(),
+                content_key: 0,
+                needs_embedding: false,
+            });
+        }
 
+        Ok(raw_visits)
+    })?;
     let history_ids = raw_visits.iter().map(|visit| visit.history_id).collect::<Vec<_>>();
-    let existing_hashes = load_existing_embedding_hashes(connection, provider, &history_ids)?;
-    let enrichments = load_best_enrichment_map_by_history_ids(paths, connection, &history_ids)?;
+    let provider = provider.clone();
+    let paths = vault.paths().clone();
+    let (existing_hashes, enrichments) = vault.read(Db::Intelligence, move |s| {
+        Ok((
+            load_existing_embedding_hashes(s, &provider, &history_ids)?,
+            load_best_enrichment_map_by_history_ids(&paths, s, &history_ids)?,
+        ))
+    })?;
     let mut visits = Vec::with_capacity(raw_visits.len());
     for mut visit in raw_visits {
         let enrichment = enrichments.get(&visit.history_id);
@@ -98,26 +110,25 @@ pub(in crate::ai) fn collect_visit_chunk(
 
 /// Loads the current content hashes for a bounded set of candidate history rows.
 pub(in crate::ai) fn load_existing_embedding_hashes(
-    connection: &Connection,
+    connection: &Session<'_>,
     provider: &AiProviderRuntime,
     history_ids: &[i64],
 ) -> Result<HashMap<i64, String>> {
     let mut hashes = HashMap::new();
     for chunk in history_ids.chunks(SQLITE_BATCH_SIZE) {
-        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let placeholders =
+            (3..chunk.len() + 3).map(|index| format!("(?{index})")).collect::<Vec<_>>().join(",");
         let sql = format!(
-            "SELECT history_id, content_hash
-             FROM ai_embeddings
-             WHERE provider_id = ?1
-               AND model = ?2
-               AND history_id IN ({placeholders})"
+            "WITH requested(history_id) AS (VALUES {placeholders}) SELECT e.history_id,e.content_hash
+             FROM requested CROSS JOIN ai_embeddings e INDEXED BY idx_ai_embeddings_history_id ON e.history_id=requested.history_id
+             WHERE e.provider_id=?1 AND e.model=?2"
         );
         let mut statement = connection.prepare(&sql)?;
-        let params = std::iter::once(&provider.config.id as &dyn rusqlite::ToSql)
-            .chain(std::iter::once(&provider.config.default_model as &dyn rusqlite::ToSql))
-            .chain(chunk.iter().map(|history_id| history_id as &dyn rusqlite::ToSql));
-        let rows = statement.query_map(rusqlite::params_from_iter(params), |row: &Row<'_>| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        let params = std::iter::once(vault_store::Value::Text(provider.config.id.clone()))
+            .chain(std::iter::once(vault_store::Value::Text(provider.config.default_model.clone())))
+            .chain(chunk.iter().copied().map(vault_store::Value::Integer));
+        let rows = statement.query_map(vault_store::params_from_iter(params), |row| {
+            Ok((row.get::<i64>(0)?, row.get::<String>(1)?))
         })?;
         for row in rows {
             let (history_id, content_hash) = row?;
@@ -129,23 +140,23 @@ pub(in crate::ai) fn load_existing_embedding_hashes(
 
 /// Collects stale history ids so the optional semantic sidecar can drop rows that no longer exist.
 pub(in crate::ai) fn collect_stale_history_ids(
-    connection: &Connection,
+    vault: &crate::Vault,
     provider: &AiProviderRuntime,
+    control: Option<&Arc<dyn AiRunControl>>,
 ) -> Result<Vec<i64>> {
-    let mut statement = connection.prepare(
-        "SELECT history_id
-         FROM ai_embeddings
-         WHERE provider_id = ?1
-           AND model = ?2
-           AND NOT EXISTS (
-             SELECT 1 FROM archive.visits AS visits
-             WHERE visits.id = ai_embeddings.history_id AND visits.reverted_at IS NULL
-           )",
-    )?;
-    statement
-        .query_map(params![provider.config.id, provider.config.default_model], |row| row.get(0))?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .context("collecting stale AI embedding ids")
+    let mut after = 0;
+    let mut ids = Vec::new();
+    loop {
+        checkpoint_ai_run(control, "Index cleanup was cancelled between reads.")?;
+        let provider = provider.clone();
+        let page=vault.read(Db::Intelligence,move |s|Ok(s.query("SELECT id,history_id,NOT EXISTS(SELECT 1 FROM archive.visits v WHERE v.id=e.history_id AND v.reverted_at IS NULL LIMIT 1 OFFSET 0) FROM ai_embeddings e INDEXED BY idx_ai_embeddings_provider_id WHERE e.provider_id=?1 AND e.model=?2 AND e.id>?3 ORDER BY e.id LIMIT 512",params![provider.config.id,provider.config.default_model,after],|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?!=0)))?))?;
+        if page.is_empty() {
+            break;
+        }
+        after = page.last().unwrap().0;
+        ids.extend(page.into_iter().filter(|r| r.2).map(|r| r.1));
+    }
+    Ok(ids)
 }
 
 /// Selects, in first-seen order, the UNIQUE pages among `changed` that still need embedding (W-AI-4c).

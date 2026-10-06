@@ -167,12 +167,12 @@ fn seed_archive(source_dir: &Path) -> usize {
 
 /// A real-database [`AgentJournal`] backed by `agent.sqlite`, mirroring the worker's journal so the
 /// e2e exercises the SAME durable write path the desktop app uses (journal-before-observe).
-struct SqliteJournal {
-    paths: ProjectPaths,
+struct VaultJournal {
+    vault: vault_core::Vault,
     run_id: String,
 }
 
-impl AgentJournal for SqliteJournal {
+impl AgentJournal for VaultJournal {
     fn journal_step(
         &self,
         turn: u32,
@@ -182,7 +182,7 @@ impl AgentJournal for SqliteJournal {
         payload: &str,
     ) -> anyhow::Result<()> {
         append_agent_step(
-            &self.paths,
+            &self.vault,
             &vault_core::AppendAgentStep {
                 run_id: self.run_id.clone(),
                 turn: turn as i64,
@@ -210,7 +210,7 @@ impl AgentJournal for SqliteJournal {
                 score: citation.score,
             })
             .collect();
-        record_agent_citations(&self.paths, &self.run_id, &records)?;
+        record_agent_citations(&self.vault, &self.run_id, &records)?;
         Ok(())
     }
 }
@@ -274,6 +274,7 @@ fn tool_context(paths: &ProjectPaths, config: &AppConfig) -> AgentToolContext {
 }
 
 #[tokio::test]
+#[ignore = "requires an explicitly enabled external LM Studio provider"]
 async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_trace() {
     if std::env::var("PATHKEEP_AGENT_E2E").as_deref() != Ok("1") {
         eprintln!(
@@ -287,6 +288,8 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     let paths = project_paths_with_root(dir.path());
     let config = agent_config();
     let seeded = seed_archive(dir.path());
+    let context = tool_context(&paths, &config);
+    let vault = context.vault.clone();
     assert!(seeded > 0, "the seeded archive must hold at least one visit");
     eprintln!("agent e2e: seeded {seeded} visit(s)");
 
@@ -295,7 +298,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     let conversation_id = "conv-agent-e2e";
     let message_id = "assistant-agent-e2e";
     save_conversation(
-        &paths,
+        &vault,
         &vault_core::SaveAgentConversationRequest {
             id: conversation_id.to_string(),
             title: None,
@@ -321,7 +324,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
 
     let run_id = "run-agent-e2e";
     begin_agent_run(
-        &paths,
+        &vault,
         &BeginAgentRun {
             id: run_id.to_string(),
             conversation_id: Some(conversation_id.to_string()),
@@ -334,8 +337,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
 
     let provider = RigLlmProvider::new(lmstudio_llm_runtime());
     let registry = ToolRegistry::with_default_search_tools();
-    let context = tool_context(&paths, &config);
-    let journal = SqliteJournal { paths: paths.clone(), run_id: run_id.to_string() };
+    let journal = VaultJournal { vault: vault.clone(), run_id: run_id.to_string() };
 
     // Mirror the worker: prepend the host-computed system-context block (current date/time/timezone
     // + archive span) ahead of the run's own system guidance. This is the date/recency fix under
@@ -459,7 +461,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     // Finalize the durable header to match the harness outcome (mirrors the worker).
     if let AgentRunOutcome::Completed { iterations, prompt_tokens, completion_tokens } = outcome {
         finalize_agent_run(
-            &paths,
+            &vault,
             run_id,
             vault_core::AgentRunStatus::Completed,
             iterations as i64,
@@ -471,7 +473,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     }
 
     // --- Durable trace: resume = replay ---------------------------------------------------------
-    let trace = load_agent_run(&paths, run_id).expect("load trace").expect("trace present");
+    let trace = load_agent_run(&vault, run_id).expect("load trace").expect("trace present");
     assert!(!trace.steps.is_empty(), "the journal must hold the replayable steps");
     assert!(
         trace.steps.iter().any(|s| s.kind == "tool-result"),
@@ -481,7 +483,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     assert_eq!(trace.status, vault_core::AgentRunStatus::Completed);
 
     // --- WU-7: reconstruction on reopen ---------------------------------------------------------
-    let detail = load_conversation(&paths, conversation_id)
+    let detail = load_conversation(&vault, conversation_id)
         .expect("load conversation")
         .expect("conversation present");
     let assistant =
@@ -502,6 +504,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
 }
 
 #[tokio::test]
+#[ignore = "requires an explicitly enabled external LM Studio provider"]
 async fn lmstudio_agent_cancel_mid_loop_emits_a_graceful_done() {
     if std::env::var("PATHKEEP_AGENT_E2E").as_deref() != Ok("1") {
         eprintln!("skipping LM Studio agent cancel e2e: set PATHKEEP_AGENT_E2E=1");
@@ -512,15 +515,16 @@ async fn lmstudio_agent_cancel_mid_loop_emits_a_graceful_done() {
     let paths = project_paths_with_root(dir.path());
     let config = agent_config();
     seed_archive(dir.path());
+    let context = tool_context(&paths, &config);
+    let vault = context.vault.clone();
 
     let run_id = "run-agent-cancel-e2e";
-    begin_agent_run(&paths, &BeginAgentRun { id: run_id.to_string(), ..Default::default() })
+    begin_agent_run(&vault, &BeginAgentRun { id: run_id.to_string(), ..Default::default() })
         .expect("begin run");
 
     let provider = RigLlmProvider::new(lmstudio_llm_runtime());
     let registry = ToolRegistry::with_default_search_tools();
-    let context = tool_context(&paths, &config);
-    let journal = SqliteJournal { paths: paths.clone(), run_id: run_id.to_string() };
+    let journal = VaultJournal { vault: vault.clone(), run_id: run_id.to_string() };
 
     // Pre-armed cancel: the FIRST checkpoint (before the first model turn) trips, so the loop stops
     // cooperatively and emits a graceful Done — the same contract plain chat honors.

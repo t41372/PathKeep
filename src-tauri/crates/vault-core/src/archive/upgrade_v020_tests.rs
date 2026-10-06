@@ -33,8 +33,7 @@
 use crate::archive::{
     LaunchRecovery, assess_archive_upgrade, check_config_disk_consistency, current_version,
     ensure_archive_initialized_with_progress, max_schema_version, open_archive_connection,
-    open_intelligence_connection, open_legacy_source_evidence_connection,
-    recover_archive_on_launch,
+    open_legacy_source_evidence_connection, recover_archive_on_launch,
 };
 use crate::config::{ProjectPaths, ensure_paths, load_config, project_paths_with_root};
 use crate::models::{
@@ -178,38 +177,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS history_search_trigram USING fts5(
     drop(conn);
 }
 
-/// Builds the v0.2.0 intelligence plane by applying migrations only through v6 on a raw
-/// connection (NOT via `open_intelligence_connection`, which force-migrates to MAX). Seeds a
-/// `sessions` marker row that must survive the forward-apply.
-fn build_v6_intelligence_db(paths: &ProjectPaths) {
-    ensure_paths(paths).expect("ensure project paths");
-    let conn = Connection::open(&paths.intelligence_database_path).expect("open intelligence db");
-    conn.execute_batch("PRAGMA foreign_keys = ON;").expect("enable foreign keys");
-
-    crate::intelligence::apply_intelligence_migrations_through(&conn, 6)
-        .expect("apply intelligence migrations through v6");
-
-    let max_version: i64 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(version), 0) FROM intelligence_schema_migrations",
-            [],
-            |row| row.get(0),
-        )
-        .expect("read intelligence schema version");
-    assert_eq!(max_version, 6, "intelligence plane must be capped at v6");
-
-    conn.execute(
-        r#"INSERT INTO sessions (session_id, profile_id, first_visit_ms, last_visit_ms,
-             visit_count, search_count, domain_count, computed_at)
-           VALUES ('v020-upgrade-marker', 'chrome:Default', 1, 2, 1, 0, 1, '2026-04-24T00:00:00Z')"#,
-        [],
-    )
-    .expect("seed intelligence session marker");
-
-    drop(conn);
-}
-
-/// Whether a table with `name` exists in the connected database.
 fn table_exists(conn: &Connection, name: &str) -> bool {
     conn.query_row(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -255,7 +222,6 @@ fn upgrade_v020_plaintext_archive_migrates_cleanly() {
 
     build_v020_archive(&paths);
     build_v020_search_projection(&paths);
-    build_v6_intelligence_db(&paths);
     std::fs::write(&paths.config_path, V020_CONFIG_JSON).expect("write v0.2.0 config.json");
     drop(
         open_legacy_source_evidence_connection(&paths, &plaintext_v020_config(), None)
@@ -338,54 +304,7 @@ fn upgrade_v020_plaintext_archive_migrates_cleanly() {
 
     // Search generation recovery is owned by the native Vault indexer (search::recovery_tests).
 
-    // 6. Intelligence plane forward-applies past v6, preserves the marker, and is idempotent.
-    crate::intelligence_status(&paths, &cfg, None).expect("intelligence forward-apply");
-    let intel_conn =
-        open_intelligence_connection(&paths, &cfg, None).expect("open intelligence db");
-    let intel_max: i64 = intel_conn
-        .query_row("SELECT MAX(version) FROM intelligence_schema_migrations", [], |row| row.get(0))
-        .expect("read intelligence version");
-    assert!(intel_max > 6, "intelligence plane must forward-apply past v6");
-    let intel_ledger_rows: i64 = intel_conn
-        .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
-        .expect("count intelligence ledger rows");
-    let marker_count: i64 = intel_conn
-        .query_row(
-            "SELECT COUNT(*) FROM sessions WHERE session_id = 'v020-upgrade-marker'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("count intelligence marker");
-    assert_eq!(marker_count, 1, "intelligence marker must survive forward-apply");
-    drop(intel_conn);
-
-    crate::intelligence_status(&paths, &cfg, None).expect("idempotent intelligence forward-apply");
-    let intel_conn_again =
-        open_intelligence_connection(&paths, &cfg, None).expect("re-open intelligence db");
-    let intel_max_again: i64 = intel_conn_again
-        .query_row("SELECT MAX(version) FROM intelligence_schema_migrations", [], |row| row.get(0))
-        .expect("re-read intelligence version");
-    let intel_ledger_rows_again: i64 = intel_conn_again
-        .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
-        .expect("re-count intelligence ledger rows");
-    // Idempotent: the second forward-apply must neither advance the ceiling nor append a
-    // duplicate ledger row (a re-applied migration would inflate the row count).
-    assert_eq!(intel_max_again, intel_max, "intelligence forward-apply must be idempotent");
-    assert_eq!(
-        intel_ledger_rows_again, intel_ledger_rows,
-        "re-running intelligence forward-apply must not append duplicate ledger rows"
-    );
-    drop(intel_conn_again);
-
-    // 7. Agent plane migrates to its current ceiling.
-    let agent_conn = crate::open_agent_connection(&paths).expect("agent db");
-    let agent_max: i64 = agent_conn
-        .query_row("SELECT COALESCE(MAX(version), 0) FROM agent_schema_migrations", [], |row| {
-            row.get(0)
-        })
-        .expect("read agent version");
-    assert_eq!(agent_max, 2);
-    drop(agent_conn);
+    // Consolidated Turso intelligence and agent schemas are tested through Vault::open_temp.
 
     // 8. Phase-E config<->disk consistency invariant holds after upgrade.
     check_config_disk_consistency(&paths)
@@ -408,7 +327,6 @@ fn assess_archive_upgrade_reports_pending_then_clears_after_upgrade() {
 
     build_v020_archive(&paths);
     build_v020_search_projection(&paths);
-    build_v6_intelligence_db(&paths);
     std::fs::write(&paths.config_path, V020_CONFIG_JSON).expect("write v0.2.0 config.json");
     let cfg = load_config(&paths).expect("v0.2.0 config must load");
 
@@ -539,7 +457,6 @@ fn upgrade_v020_with_progress_streams_phases_and_migrates_cleanly() {
 
     build_v020_archive(&paths);
     build_v020_search_projection(&paths);
-    build_v6_intelligence_db(&paths);
     std::fs::write(&paths.config_path, V020_CONFIG_JSON).expect("write v0.2.0 config.json");
     drop(
         open_legacy_source_evidence_connection(&paths, &plaintext_v020_config(), None)

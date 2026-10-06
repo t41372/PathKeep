@@ -59,10 +59,10 @@ pub struct DomainDeepDive {
     pub page_count: i64,
     /// Searches whose trail landed on this site in the window.
     pub landing_search_count: i64,
-    /// Most visited URLs, at most 10.
-    pub top_pages: Vec<DomainPageStat>,
-    /// Searches that most often landed here, at most 8.
-    pub landing_searches: Vec<DomainSearchStat>,
+    /// Ranked URL page with continuation.
+    pub top_pages: crate::models::IntelligencePage<DomainPageStat>,
+    /// Ranked landing queries with continuation.
+    pub landing_searches: crate::models::IntelligencePage<DomainSearchStat>,
     /// Visits per local day; days without visits are left out.
     pub visit_trend: Vec<DomainTrendPoint>,
 }
@@ -105,8 +105,8 @@ pub struct HardTopic {
 #[serde(rename_all = "camelCase")]
 pub struct SearchEffectiveness {
     pub engine_stats: Vec<EngineEffectiveness>,
-    pub top_resolving_sources: Vec<StableSource>,
-    pub hardest_topics: Vec<HardTopic>,
+    pub top_resolving_sources: crate::models::IntelligencePage<StableSource>,
+    pub hardest_topics: crate::models::IntelligencePage<HardTopic>,
 }
 
 /// Friction signal row surfaced by secondary Core Intelligence sections.
@@ -374,6 +374,7 @@ pub struct ExplainabilityFactor {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Explanation {
+    pub participating_visit_ids_next_cursor: Option<String>,
     pub entity_type: String,
     pub entity_id: String,
     pub trigger_rule: String,

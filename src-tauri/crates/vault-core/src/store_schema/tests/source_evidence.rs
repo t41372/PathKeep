@@ -21,6 +21,8 @@ pub(super) const TABLES: &[&str] = &[
     "__turso_internal_seq___turso_internal_autoincrement_visit_search_evidence",
 ];
 pub(super) const INDEXES: &[&str] = &[
+    "idx_visit_context_profile_visit",
+    "idx_visit_engagement_profile_visit",
     "idx_native_entities_batch_kind",
     "idx_source_batches_profile_created",
     "idx_source_batches_run",

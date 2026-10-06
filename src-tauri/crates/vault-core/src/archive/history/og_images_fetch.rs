@@ -843,6 +843,13 @@ mod tests {
 
     #[test]
     fn http_only_page_url_returns_parse_error_without_network() {
+        if !crate::test_support::network_test_child() {
+            crate::test_support::run_network_test(
+                "archive::history::og_images_fetch::tests::http_only_page_url_returns_parse_error_without_network",
+                None,
+            );
+            return;
+        }
         let client = build_fetch_client().unwrap();
         let outcome = fetch_og_image_for(&client, "http://insecure.example.com/");
         assert_eq!(outcome.fetch_status(), fetch_status::PARSE_ERROR);
@@ -851,6 +858,13 @@ mod tests {
 
     #[test]
     fn search_engine_result_pages_short_circuit_with_missing_status() {
+        if !crate::test_support::network_test_child() {
+            crate::test_support::run_network_test(
+                "archive::history::og_images_fetch::tests::search_engine_result_pages_short_circuit_with_missing_status",
+                None,
+            );
+            return;
+        }
         // Google / Bing / Baidu SERPs advertise a knowledge-panel og:image
         // that describes the top entity, not the SERP itself. Caching those
         // bytes against the SERP URL caused wrong-icon-on-search cards
@@ -876,6 +890,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "exercises real DNS/connection failure; requires explicit network permission"]
     fn https_page_url_passes_through_the_production_dispatcher() {
         // `fetch_og_image_for` is the production entry: the https-guard
         // branch falls through to `fetch_og_image_for_pipeline(.., true)`
@@ -901,6 +916,7 @@ mod tests {
         assert!(outcome.source_og_url.is_none());
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn og_image_host_guard_blocks_private_image_target() {
         // SSRF: the page is reachable, but its scraped og:image points at a
@@ -1022,6 +1038,7 @@ mod tests {
         assert!(default_refetch_after_for_status("").is_none());
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_ok_with_bytes_when_page_and_image_resolve() {
         let mut page = mockito::Server::new();
@@ -1056,6 +1073,7 @@ mod tests {
         assert!(insert.source_og_url.is_some());
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_missing_when_page_has_no_og_image() {
         let mut page = mockito::Server::new();
@@ -1072,6 +1090,7 @@ mod tests {
         assert!(outcome.image_bytes.is_none());
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_http_error_on_404_page() {
         let mut page = mockito::Server::new();
@@ -1083,6 +1102,7 @@ mod tests {
         assert_eq!(outcome.http_status, Some(404));
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_parse_error_on_non_html_content_type() {
         let mut page = mockito::Server::new();
@@ -1098,6 +1118,7 @@ mod tests {
         assert_eq!(outcome.fetch_status(), fetch_status::PARSE_ERROR);
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_rejects_unsupported_image_mime() {
         let mut page = mockito::Server::new();
@@ -1122,6 +1143,7 @@ mod tests {
         assert_eq!(outcome.fetch_status(), fetch_status::UNSUPPORTED_MIME);
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_http_error_when_image_body_stream_aborts_mid_chunk() {
         // The Err(BodyReadError::Io) arm of the image-body match is only
@@ -1177,6 +1199,7 @@ mod tests {
         assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_rejects_oversize_image_via_content_length_header() {
         let mut page = mockito::Server::new();
@@ -1208,6 +1231,7 @@ mod tests {
     // production helper that bypasses the https-only guard) so they can
     // run against mockito's http:// mock servers without standing up TLS.
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_parse_error_when_html_body_exceeds_cap() {
         let mut page = mockito::Server::new();
@@ -1243,6 +1267,7 @@ mod tests {
         );
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_http_error_when_og_image_url_is_unreachable() {
         let mut page = mockito::Server::new();
@@ -1271,6 +1296,7 @@ mod tests {
         assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_http_error_when_image_endpoint_returns_404() {
         let mut page = mockito::Server::new();
@@ -1299,6 +1325,7 @@ mod tests {
         assert!(!is_host_blocked(&blocked, ""));
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_recovers_from_non_utf8_html_via_lossy_decode() {
         // Walk the utf8 fallback arm on line 198: when the page returns
@@ -1407,6 +1434,13 @@ mod tests {
 
     #[test]
     fn synth_host_with_invalid_id_returns_missing_without_network() {
+        if !crate::test_support::network_test_child() {
+            crate::test_support::run_network_test(
+                "archive::history::og_images_fetch::tests::synth_host_with_invalid_id_returns_missing_without_network",
+                None,
+            );
+            return;
+        }
         let client = build_fetch_client().unwrap();
         let outcome =
             fetch_og_image_for_unchecked(&client, "https://www.youtube.com/watch?v=short");
@@ -1425,6 +1459,7 @@ mod tests {
         assert!(og.contains("i.ytimg.com"), "synth should produce ytimg URL, got {og}");
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn bilibili_api_path_enters_finish_image_fetch_via_mockito() {
         let mut api = mockito::Server::new();
@@ -1485,6 +1520,7 @@ mod tests {
         false
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn guarded_client_stops_at_a_blocked_redirect_hop() {
         // SEC-3 line coverage: a redirect to a guard-blocked URL is STOPPED — reqwest returns the 3xx
@@ -1510,6 +1546,7 @@ mod tests {
         internal.assert(); // the blocked host was never fetched
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn guarded_client_errors_after_too_many_redirects() {
         // SEC-3 line coverage: exceeding the hop budget makes the redirect policy error out.

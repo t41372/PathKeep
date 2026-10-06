@@ -353,7 +353,7 @@ pub(crate) fn mcp_search_result(
 /// Builds the MCP-facing archive status snapshot.
 pub(crate) fn mcp_archive_status_result(
     vault: Option<&vault_core::Vault>,
-    database_key: Option<&str>,
+    _database_key: Option<&str>,
 ) -> Result<McpArchiveStatus> {
     let paths = vault_core::project_paths()?;
     let config = load_hydrated_config(&paths)?;
@@ -381,7 +381,7 @@ pub(crate) fn mcp_archive_status_result(
             ..AiIndexStatus::default()
         }
     } else {
-        derive_ai_status(&paths, &config, database_key)
+        derive_ai_status(vault, &config)
     };
     // Audit the status probe too, so the user sees every external touch — not
     // just searches. We can only write when unlocked: a locked status reads

@@ -1,3 +1,4 @@
+//! Failure modes: split-day uniqueness, first-domain counts or category ties change totals.
 //! Daily-rollup accumulation helpers.
 //!
 //! ## Responsibilities
@@ -33,7 +34,7 @@ type DailySummaryKey = (String, String);
 type DailySummaryValue = (i64, i64, HashSet<String>, HashSet<String>, HashMap<String, i64>);
 
 #[derive(Debug, Default)]
-struct DailyRollupAccumulator {
+pub(super) struct DailyRollupAccumulator {
     domains: HashMap<DailyDomainKey, DailyDomainValue>,
     categories: HashMap<DailyCategoryKey, DailyCategoryValue>,
     engines: HashMap<DailyEngineKey, i64>,
@@ -41,7 +42,7 @@ struct DailyRollupAccumulator {
 }
 
 impl DailyRollupAccumulator {
-    fn add_visit(&mut self, visit: &VisitRecord) {
+    pub(super) fn add_visit(&mut self, visit: &VisitRecord) {
         let date_key = local_date_key(visit.visit_time_ms);
         let domain_key =
             (date_key.clone(), visit.profile_id.clone(), visit.registrable_domain.clone());
@@ -52,6 +53,9 @@ impl DailyRollupAccumulator {
             0,
             HashSet::new(),
         ));
+        if visit.domain_category < domain_entry.0 {
+            domain_entry.0 = visit.domain_category.clone();
+        }
         domain_entry.1 += 1;
         domain_entry.2 += i64::from(visit.is_search_event);
         domain_entry.3 += i64::from(visit.is_new_domain);
@@ -87,13 +91,7 @@ impl DailyRollupAccumulator {
         *summary_entry.4.entry(visit.registrable_domain.clone()).or_default() += 1;
     }
 
-    fn extend<'a>(&mut self, visits: impl IntoIterator<Item = &'a VisitRecord>) {
-        for visit in visits {
-            self.add_visit(visit);
-        }
-    }
-
-    fn finish(self) -> DailyRollupBundle {
+    pub(super) fn finish(self) -> DailyRollupBundle {
         DailyRollupBundle {
             domain_rows: self
                 .domains
@@ -173,21 +171,4 @@ impl DailyRollupAccumulator {
                 .collect(),
         }
     }
-}
-
-/// Builds daily rollups from an already loaded visit slice without touching any
-/// later deterministic structures.
-pub(super) fn build_daily_rollups(visits: &[VisitRecord]) -> DailyRollupBundle {
-    let mut accumulator = DailyRollupAccumulator::default();
-    accumulator.extend(visits.iter());
-    accumulator.finish()
-}
-
-/// Merges per-profile rollup bundles into one full-rebuild aggregate without
-/// changing any per-row semantics.
-pub(super) fn merge_rollups(target: &mut DailyRollupBundle, next: DailyRollupBundle) {
-    target.domain_rows.extend(next.domain_rows);
-    target.category_rows.extend(next.category_rows);
-    target.engine_rows.extend(next.engine_rows);
-    target.summary_rows.extend(next.summary_rows);
 }

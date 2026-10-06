@@ -802,6 +802,8 @@ pub struct AiIndexStatus {
     pub running_jobs: u32,
     pub failed_jobs: u32,
     pub recent_jobs: Vec<AiQueueJob>,
+    #[serde(default)]
+    pub recent_jobs_next_cursor: Option<i64>,
     pub semantic_sidecar_bytes: u64,
     pub semantic_metadata_bytes: u64,
     pub estimated_embedding_tokens: u64,
@@ -956,6 +958,8 @@ pub struct AiQueueStatus {
     /// `IndexClear`); the index-only companion to [`Self::index_queued`].
     pub index_running: u32,
     pub recent_jobs: Vec<AiQueueJob>,
+    #[serde(default)]
+    pub recent_jobs_next_cursor: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1398,10 +1402,12 @@ pub struct SaveAgentConversationRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
-/// Request payload for `list_ai_conversations`: a bounded, newest-first page cap.
+/// Request payload for a newest-first conversation page.
 pub struct ListAgentConversationsRequest {
-    /// Maximum conversations to return (newest-first); the store clamps this to a safe ceiling.
+    /// Page size: defaults to 50, at most 200. This does not cap the reachable history.
     pub limit: Option<u32>,
+    /// Continue with the preceding response's cursor, unchanged.
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1409,6 +1415,24 @@ pub struct ListAgentConversationsRequest {
 /// Response for `list_ai_conversations`.
 pub struct AgentConversationListResponse {
     pub conversations: Vec<AgentConversationSummary>,
+    pub next_cursor: Option<String>,
+}
+
+/// A transcript page in persisted sequence order; continue with `nextCursor`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMessagePage {
+    pub messages: Vec<AgentMessage>,
+    pub next_cursor: Option<i64>,
+}
+
+/// Requests the next persisted transcript page without loading the whole chat.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ListAgentMessagesRequest {
+    pub conversation_id: String,
+    pub limit: Option<u32>,
+    pub cursor: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1827,6 +1851,22 @@ pub struct IntelligenceJobOverview {
     pub cancellable: bool,
 }
 
+/// Continues the queue's deterministic newest-first order.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligenceJobCursor {
+    pub updated_at: String,
+    pub id: i64,
+}
+
+/// A queue page always exposes continuation when more records exist.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligenceJobPage {
+    pub items: Vec<IntelligenceJobOverview>,
+    pub next_cursor: Option<IntelligenceJobCursor>,
+}
+
 /// One deterministic-runtime note as a stable code plus typed params.
 ///
 /// Why this exists: the derived-state review card used to receive only English
@@ -2089,8 +2129,8 @@ pub struct ContentFetchSettings {
 #[serde(rename_all = "camelCase")]
 /// Request payload for the manual "fetch now" PME trigger (W-ENRICH-1, 06 §6).
 pub struct ContentFetchNowRequest {
-    pub history_id: i64,
-    pub profile_id: String,
+    pub history_id: Option<i64>,
+    pub profile_id: Option<String>,
     pub url: String,
     pub title: Option<String>,
 }
@@ -2115,6 +2155,8 @@ pub struct IntelligenceRuntimeSnapshot {
     pub plugins: Vec<EnrichmentPluginStatus>,
     pub modules: Vec<DeterministicModuleRuntimeStatus>,
     pub recent_jobs: Vec<IntelligenceJobOverview>,
+    #[serde(default)]
+    pub recent_jobs_next_cursor: Option<IntelligenceJobCursor>,
     pub notes: Vec<String>,
 }
 

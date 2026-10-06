@@ -75,7 +75,6 @@
 | `src-tauri/crates/vault-core/src/intelligence/host_artifacts.rs`        | 1098 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/intelligence/phase_three.rs`           | 1091 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/ai_queue.rs`                           | 1081 | 程式碼                             |
-| `src-tauri/crates/vault-core/examples/intelligence-benchmark.rs`        | 1042 | benchmark 範例                     |
 | `src-tauri/crates/vault-platform/src/scheduler/macos.rs`                | 1023 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/archive/history/day_insights.rs`       | 1017 | 程式碼                             |
 

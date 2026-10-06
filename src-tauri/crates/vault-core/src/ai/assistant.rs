@@ -2,10 +2,12 @@
 //! Not responsible for: search indexing, candidate pools or archive search hydration.
 //! Failure modes: citations or cancellation vanish during retrieval extraction.
 //! Tests: existing assistant/agent contract suites.
+use super::native_ledger::{begin_ai_run, finalize_ai_run_failure, finalize_ai_run_success};
 use super::search::{
     MODEL_FACING_ROW_CAP, SearchContext, SearchHistoryTool, search_history_internal,
 };
 use super::*;
+use vault_store::{Db, Priority};
 
 /// Answers one user question against archive history with evidence-backed citations.
 pub async fn answer_history_question(
@@ -45,11 +47,8 @@ pub async fn answer_history_question_with_control(
     if !config.ai.enabled || !config.ai.assistant_enabled {
         anyhow::bail!("Enable AI analysis and the assistant in Settings before asking questions.")
     }
-    let archive = open_archive_connection(paths, config, key)?;
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_ai_schema(&connection)?;
     let run_id = begin_ai_run(
-        &archive,
+        vault,
         "assistant",
         "manual",
         json!({
@@ -133,7 +132,7 @@ pub async fn answer_history_question_with_control(
         };
         #[rustfmt::skip]
         record_assistant_run(
-            &connection,
+            vault,
             run_id,
             request,
             &final_answer,
@@ -163,7 +162,7 @@ pub async fn answer_history_question_with_control(
     match result {
         Ok(response) => {
             finalize_ai_run_success(
-                &archive,
+                vault,
                 run_id,
                 json!({
                     "providerId": response.provider_id,
@@ -175,7 +174,7 @@ pub async fn answer_history_question_with_control(
         }
         Err(error) => {
             finalize_ai_run_failure(
-                &archive,
+                vault,
                 run_id,
                 &error.to_string(),
                 json!({
@@ -227,7 +226,7 @@ pub(super) fn build_assistant_preamble(
 
 /// Persists one assistant run trace after the final answer is known.
 pub(super) fn record_assistant_run(
-    connection: &Connection,
+    vault: &crate::Vault,
     run_id: i64,
     request: &AiAssistantRequest,
     answer: &str,
@@ -236,19 +235,18 @@ pub(super) fn record_assistant_run(
     citations: &[AiCitation],
     notes: &[String],
 ) -> Result<()> {
-    #[rustfmt::skip]
-    connection.execute(
-        INSERT_ASSISTANT_RUN_SQL,
-        params![
-            run_id,
-            request.question,
-            answer,
-            llm_provider_id,
-            embedding_provider_id,
-            serde_json::to_string(citations)?,
-            serde_json::to_string(notes)?,
-            now_rfc3339()
-        ],
-    )?;
-    Ok(())
+    let values = vault_store::params_owned![
+        run_id,
+        request.question,
+        answer,
+        llm_provider_id,
+        embedding_provider_id,
+        serde_json::to_string(citations)?,
+        serde_json::to_string(notes)?,
+        now_rfc3339()
+    ];
+    vault.write(Db::Intelligence, Priority::Interactive, move |session| {
+        session.execute(INSERT_ASSISTANT_RUN_SQL, values)?;
+        Ok(())
+    })
 }

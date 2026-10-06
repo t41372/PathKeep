@@ -1,3 +1,4 @@
+//! Failure modes: canonical variants hash differently or enrichment text is lost at a boundary.
 //! Embedding-content rendering and the enrichment → dedup-hash seam.
 //!
 //! ## Responsibilities

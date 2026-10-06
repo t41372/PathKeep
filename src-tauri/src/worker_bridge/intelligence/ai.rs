@@ -34,6 +34,15 @@ use vault_core::{
 
 use super::super::worker_result;
 
+/// Keeps message pagination on the session's storage owner.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn list_ai_messages_impl(
+    state: &crate::session::SessionState,
+    request: vault_core::ListAgentMessagesRequest,
+) -> Result<vault_core::AgentMessagePage, CommandError> {
+    worker_result(vault_worker::list_ai_messages(&state.vault()?, &request))
+}
+
 /// Stores one AI provider API key and returns the refreshed app snapshot.
 pub(crate) fn store_ai_provider_api_key_impl(
     input: AiProviderSecretInput,
@@ -95,9 +104,9 @@ pub(crate) fn replay_ai_job_impl(
 /// Cancels a single AI job.
 pub(crate) fn cancel_ai_job_impl(
     job_id: i64,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::AiQueueJob, CommandError> {
-    worker_result(vault_worker::cancel_ai_job(session_database_key, job_id))
+    worker_result(vault_worker::cancel_ai_job(&state.vault()?, job_id))
 }
 
 /// Builds or refreshes the semantic index right away.
@@ -129,9 +138,9 @@ pub(crate) fn reset_ai_index_build_impl(
 /// Estimates the cost/time of a re-embed run for one scope (W-AI-9 Sub-block D) — read-only.
 pub(crate) fn estimate_reembed_impl(
     scope: vault_core::ReembedScope,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::ReembedEstimate, CommandError> {
-    worker_result(vault_worker::estimate_reembed_now(session_database_key, scope))
+    worker_result(vault_worker::estimate_reembed_now(&state.vault()?, scope))
 }
 
 /// Runs semantic-plus-lexical search through the worker layer.
@@ -195,24 +204,26 @@ pub(crate) fn cancel_model_download_impl() -> Result<(), CommandError> {
 
 /// Persists (upsert) one assistant conversation and replaces its message transcript.
 ///
-/// The agent plane is a keyless derived sidecar, so no session key is threaded here.
+/// The session Vault supplies the Agent database and its encryption state.
 ///
 /// `cfg_attr(test, allow(dead_code))`: the only callers are the `#[cfg(not(test))]` Tauri command
 /// and the dev-IPC dispatch, so this is genuinely unused in the lib's test build (same pattern as
 /// the chat-stream impls above).
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn save_ai_conversation_impl(
+    state: &crate::session::SessionState,
     request: SaveAgentConversationRequest,
 ) -> Result<AgentConversationSummary, CommandError> {
-    worker_result(vault_worker::save_ai_conversation(&request))
+    worker_result(vault_worker::save_ai_conversation(&state.vault()?, &request))
 }
 
 /// Lists persisted conversations newest-first (bounded list of summaries).
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn list_ai_conversations_impl(
+    state: &crate::session::SessionState,
     request: ListAgentConversationsRequest,
 ) -> Result<AgentConversationListResponse, CommandError> {
-    worker_result(vault_worker::list_ai_conversations(&request))
+    worker_result(vault_worker::list_ai_conversations(&state.vault()?, &request))
 }
 
 /// Loads one persisted conversation plus its full message transcript.
@@ -221,25 +232,28 @@ pub(crate) fn list_ai_conversations_impl(
 /// surfacing an error envelope for an ordinary deleted-elsewhere race.
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn load_ai_conversation_impl(
+    state: &crate::session::SessionState,
     conversation_id: String,
 ) -> Result<Option<AgentConversationDetail>, CommandError> {
-    worker_result(vault_worker::load_ai_conversation(&conversation_id))
+    worker_result(vault_worker::load_ai_conversation(&state.vault()?, &conversation_id))
 }
 
 /// Deletes one persisted conversation (cascading its messages).
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn delete_ai_conversation_impl(
+    state: &crate::session::SessionState,
     conversation_id: String,
 ) -> Result<DeleteAgentConversationResult, CommandError> {
-    worker_result(vault_worker::delete_ai_conversation(&conversation_id))
+    worker_result(vault_worker::delete_ai_conversation(&state.vault()?, &conversation_id))
 }
 
 /// Renames one persisted conversation; returns `Ok(None)` when the id is unknown.
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn rename_ai_conversation_impl(
+    state: &crate::session::SessionState,
     request: RenameAgentConversationRequest,
 ) -> Result<Option<AgentConversationSummary>, CommandError> {
-    worker_result(vault_worker::rename_ai_conversation(&request))
+    worker_result(vault_worker::rename_ai_conversation(&state.vault()?, &request))
 }
 
 // ── W-ENRICH-1 site content-fetch (06 §6) ────────────────────────────────────────────────────────
@@ -249,10 +263,7 @@ pub(crate) fn rename_ai_conversation_impl(
 pub(crate) fn content_fetch_settings_impl(
     state: &crate::session::SessionState,
 ) -> Result<ContentFetchSettings, CommandError> {
-    worker_result(vault_worker::content_fetch_settings(
-        &state.vault()?,
-        state.get_key()?.as_deref(),
-    ))
+    worker_result(vault_worker::content_fetch_settings(&state.vault()?))
 }
 
 /// Persists the content-fetch consent settings (master switch + per-extractor + per-domain).
@@ -264,20 +275,16 @@ pub(crate) fn set_content_fetch_settings_impl(
     settings: ContentFetchSettings,
     state: &crate::session::SessionState,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    worker_result(vault_worker::set_content_fetch_settings(
-        &state.vault()?,
-        &settings,
-        state.get_key()?.as_deref(),
-    ))
+    worker_result(vault_worker::set_content_fetch_settings(&state.vault()?, &settings))
 }
 
 /// Lists the stored content enrichment for one visit (the detail panel; never blocks on network).
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn list_visit_enrichment_impl(
     history_id: i64,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<Vec<VisitEnrichmentRecord>, CommandError> {
-    worker_result(vault_worker::list_visit_enrichment(history_id, session_database_key))
+    worker_result(vault_worker::list_visit_enrichment(&state.vault()?, history_id))
 }
 
 /// Triggers the manual "fetch now" PME for one URL.
@@ -286,11 +293,7 @@ pub(crate) fn content_fetch_now_impl(
     request: ContentFetchNowRequest,
     state: &crate::session::SessionState,
 ) -> Result<ContentFetchNowResult, CommandError> {
-    worker_result(vault_worker::content_fetch_now(
-        &state.vault()?,
-        &request,
-        state.get_key()?.as_deref(),
-    ))
+    worker_result(vault_worker::content_fetch_now(&state.vault()?, &request))
 }
 
 /// Enqueues the prioritized working set for content fetch (the 06 §5 bulk hook).
@@ -300,9 +303,5 @@ pub(crate) fn enqueue_content_fetch_working_set_impl(
     state: &crate::session::SessionState,
 ) -> Result<usize, CommandError> {
     let limit = limit.map(|value| value as usize).unwrap_or(2_000);
-    worker_result(vault_worker::enqueue_content_fetch_working_set(
-        &state.vault()?,
-        limit,
-        state.get_key()?.as_deref(),
-    ))
+    worker_result(vault_worker::enqueue_content_fetch_working_set(&state.vault()?, limit))
 }

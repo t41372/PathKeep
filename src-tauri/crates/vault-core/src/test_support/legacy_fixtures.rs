@@ -140,7 +140,8 @@ pub fn seed_reader_pages(
 /// remain the real fixture files; this copies only metadata, never search results.
 pub fn copy_search_metadata(vault: &Vault, paths: &ProjectPaths, config: &AppConfig) {
     let source = crate::archive::open_intelligence_connection(paths, config, None).unwrap();
-    for table in ["ai_embeddings", "ai_index_ledger", "visit_content_enrichments"] {
+    crate::enrichment::ensure_visit_content_enrichment_schema(&source).unwrap();
+    for table in ["ai_embeddings", "ai_index_ledger"] {
         let fields = columns(&source, table);
         let mut statement =
             source.prepare(&format!("SELECT {} FROM {table}", fields.join(","))).unwrap();
@@ -170,6 +171,44 @@ pub fn copy_search_metadata(vault: &Vault, paths: &ProjectPaths, config: &AppCon
                 Ok(())
             })
             .unwrap();
+    }
+    vault.store().write(Db::Intelligence, Priority::Batch, |s| {
+        s.execute("DELETE FROM ai_embedding_totals", ())?;
+        s.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at) SELECT provider_id,model,COUNT(*),SUM(content_bytes),SUM(metadata_bytes),MAX(indexed_at) FROM ai_embeddings GROUP BY provider_id,model", ())?;
+        s.execute("DELETE FROM page_content_enrichments", ())?;
+        Ok(())
+    }).unwrap();
+    let fields = columns(&source, "visit_content_enrichments")
+        .into_iter()
+        .filter(|name| name != "id" && name != "history_id")
+        .collect::<Vec<_>>();
+    let sql = format!(
+        "SELECT history_id,{} FROM visit_content_enrichments ORDER BY fetched_at,id",
+        fields.join(",")
+    );
+    let records = source
+        .prepare(&sql)
+        .unwrap()
+        .query_map([], |r| {
+            let id = r.get::<_, i64>(0)?;
+            let values = (1..=fields.len())
+                .map(|i| r.get::<_, SqliteValue>(i).map(store_value))
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok((id, values))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for (id, mut values) in records {
+        let key=vault.store().read(Db::Archive,move|s|s.query_one("SELECT p.canonical_url FROM visits v JOIN urls u ON u.id=v.url_id JOIN pages p ON p.id=u.page_id WHERE v.id=?1",[id],|r|Ok(r.get::<String>(0)?))).unwrap();
+        values.insert(0, Value::Text(key));
+        let mut names = vec!["canonical_url".to_owned()];
+        names.extend(fields.clone());
+        vault.store().write(Db::Intelligence,Priority::Batch,move|s| {
+            let assignments=names.iter().filter(|name|name.as_str()!="canonical_url" && name.as_str()!="content_source").map(|name|format!("{name}=excluded.{name}")).collect::<Vec<_>>().join(",");
+            s.execute(&format!("INSERT INTO page_content_enrichments({}) VALUES({}) ON CONFLICT(canonical_url,content_source) DO UPDATE SET {assignments}",names.join(","),vec!["?";names.len()].join(",")),values)?;
+            Ok(())
+        }).unwrap();
     }
     let enrichments=source.prepare("SELECT history_id,enrichment_summary,extraction_json FROM visit_content_enrichments WHERE fetch_status='success'").unwrap().query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,Option<String>>(1)?,r.get::<_,Option<String>>(2)?))).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
     for (visit, summary, extraction) in enrichments {

@@ -1,3 +1,4 @@
+//! Failure modes: repeated pages inflate scores, paths cross sessions or habit gaps disappear.
 //! Structural aggregate builders for Core Intelligence.
 //!
 //! ## Responsibilities
@@ -27,11 +28,18 @@
 //!   a total counter, so a page revisited daily for decades cannot inflate the
 //!   accumulator or the persisted evidence JSON beyond a fixed size.
 
+#[cfg(test)]
+use super::DerivedVisitBatchCursor;
+#[cfg(test)]
+use super::SourceEffectivenessRecord;
+#[cfg(test)]
+use super::load_profile_derived_visit_batch;
 use super::{
-    DerivedVisitBatchCursor, HabitPatternRecord, PathFlowRecord, QueryFamilyRecord,
-    RefindPageRecord, ReopenedInvestigationRecord, SourceEffectivenessRecord, VisitRecord,
-    load_profile_derived_visit_batch, local_date_key, local_datetime_from_millis, normalize_query,
+    HabitPatternRecord, PathFlowRecord, QueryFamilyRecord, RefindPageRecord,
+    ReopenedInvestigationRecord, VisitRecord, local_date_key, local_datetime_from_millis,
+    normalize_query,
 };
+#[cfg(test)]
 use anyhow::Result;
 use chrono::{NaiveDate, Utc};
 use serde_json::json;
@@ -102,17 +110,28 @@ fn refind_evidence_json(
     typed_revisit_count: i64,
     sample: &RecentVisitSample,
 ) -> String {
+    let factors=refind_signals(cross_day_count,trail_count,search_arrival_count,typed_revisit_count).into_iter().map(|(signal,raw,weight)|json!({"signal":signal,"rawValue":raw,"weight":weight,"contribution":raw as f32*weight})).collect::<Vec<_>>();
     json!({
-        "factors": [
-            { "signal": "cross_day_count", "rawValue": cross_day_count, "weight": 2.0, "contribution": cross_day_count as f32 * 2.0 },
-            { "signal": "trail_count", "rawValue": trail_count, "weight": 1.5, "contribution": trail_count as f32 * 1.5 },
-            { "signal": "search_arrival_count", "rawValue": search_arrival_count, "weight": 1.0, "contribution": search_arrival_count as f32 },
-            { "signal": "typed_revisit_count", "rawValue": typed_revisit_count, "weight": 1.2, "contribution": typed_revisit_count as f32 * 1.2 }
-        ],
+        "factors": factors,
         "visitIds": sample.visit_ids(),
         "totalVisitCount": sample.total
     })
     .to_string()
+}
+
+/// The scoring vocabulary is shared by rebuilds and explanations.
+pub(super) fn refind_signals(
+    days: i64,
+    trails: i64,
+    searches: i64,
+    typed: i64,
+) -> [(&'static str, i64, f32); 4] {
+    [
+        ("cross_day_count", days, 2.0),
+        ("trail_count", trails, 1.5),
+        ("search_arrival_count", searches, 1.0),
+        ("typed_revisit_count", typed, 1.2),
+    ]
 }
 
 /// Compact accumulator state for one in-progress refind-page aggregate.
@@ -135,7 +154,7 @@ struct RefindAccumulatorEntry {
 /// Streams structural aggregate state across many derived-visit batches without
 /// holding the full profile visit vector in memory.
 #[derive(Debug, Default)]
-struct StructuralAggregateAccumulator {
+pub(super) struct StructuralAggregateAccumulator {
     profile_id: Option<String>,
     refind_pages: HashMap<String, RefindAccumulatorEntry>,
     flow_counts: HashMap<(String, String, i64), (i64, i64)>,
@@ -147,6 +166,7 @@ struct StructuralAggregateAccumulator {
 }
 
 /// Builds refind pages from one already-materialized visit slice.
+#[cfg(test)]
 pub(super) fn build_refind_pages(visits: &[VisitRecord]) -> Vec<RefindPageRecord> {
     let mut grouped = HashMap::<String, Vec<&VisitRecord>>::new();
     for visit in visits.iter().filter(|visit| !visit.is_search_event) {
@@ -217,6 +237,7 @@ pub(super) fn build_refind_pages(visits: &[VisitRecord]) -> Vec<RefindPageRecord
 
 /// Builds source-effectiveness rows directly from in-memory trails and refind
 /// pages during legacy scoped rebuilds.
+#[cfg(test)]
 pub(super) fn build_source_effectiveness(
     trails: &[super::TrailRecord],
     refind_pages: &[RefindPageRecord],
@@ -335,6 +356,7 @@ pub(super) fn build_reopened_investigations(
 }
 
 /// Builds path-flow rows from an already-materialized visit slice.
+#[cfg(test)]
 pub(super) fn build_path_flows(visits: &[VisitRecord]) -> Vec<PathFlowRecord> {
     let mut flows = HashMap::<(String, String, i64), (i64, i64)>::new();
     let mut current_session = None::<String>;
@@ -377,6 +399,7 @@ pub(super) fn build_path_flows(visits: &[VisitRecord]) -> Vec<PathFlowRecord> {
 }
 
 /// Builds habit-pattern rows from an already-materialized visit slice.
+#[cfg(test)]
 pub(super) fn build_habit_patterns(visits: &[VisitRecord]) -> Vec<HabitPatternRecord> {
     let mut by_domain = HashMap::<String, BTreeSet<NaiveDate>>::new();
     let mut last_visit = HashMap::<String, i64>::new();
@@ -399,8 +422,9 @@ pub(super) fn build_habit_patterns(visits: &[VisitRecord]) -> Vec<HabitPatternRe
 
 /// Rebuilds refind/path-flow/habit rows by streaming already-derived visits in
 /// visit order instead of materializing a second full profile visit vector.
+#[cfg(test)]
 pub(super) fn build_structural_profile_aggregates_from_batches(
-    connection: &rusqlite::Connection,
+    connection: &vault_store::Session<'_>,
     profile_id: &str,
 ) -> Result<(Vec<RefindPageRecord>, Vec<PathFlowRecord>, Vec<HabitPatternRecord>)> {
     let mut accumulator = StructuralAggregateAccumulator::default();
@@ -429,19 +453,37 @@ pub(super) fn build_structural_profile_aggregates_from_batches(
 impl StructuralAggregateAccumulator {
     /// Adds one derived visit into every structural aggregate that still depends
     /// on visit-level evidence.
-    fn add_visit(&mut self, visit: &VisitRecord) {
+    #[cfg(test)]
+    pub(super) fn add_visit(&mut self, visit: &VisitRecord) {
         self.profile_id.get_or_insert_with(|| visit.profile_id.clone());
         self.record_refind_page(visit);
         self.record_path_flow(visit);
         self.record_habit_day(visit);
     }
 
+    /// Keeps cross-page summaries separate from the per-page refind accumulator.
+    pub(super) fn add_summary_visit(&mut self, visit: &VisitRecord) {
+        self.profile_id.get_or_insert_with(|| visit.profile_id.clone());
+        self.record_path_flow(visit);
+        self.record_habit_day(visit);
+    }
+    /// Accepts indexed page order while preserving chronological URL/title provenance.
+    pub(super) fn add_refind_visit(&mut self, visit: &VisitRecord, earliest: bool) {
+        self.record_refind_page(visit);
+        if earliest && let Some(entry) = self.refind_pages.get_mut(&visit.canonical_url) {
+            entry.url = visit.url.clone();
+            entry.title = visit.title.clone();
+        }
+    }
+
     /// Finalizes the streamed aggregate state into persisted structural rows.
-    fn finish(mut self) -> (Vec<RefindPageRecord>, Vec<PathFlowRecord>, Vec<HabitPatternRecord>) {
+    pub(super) fn finish(
+        mut self,
+    ) -> (Vec<RefindPageRecord>, Vec<PathFlowRecord>, Vec<HabitPatternRecord>) {
         if let (Some(profile_id), false) =
             (self.current_profile_id.as_deref(), self.current_sequence.is_empty())
         {
-            flush_path_flow_sequence(&mut self.flow_counts, profile_id, &self.current_sequence);
+            flush_path_flow_tail(&mut self.flow_counts, profile_id, &self.current_sequence);
         }
         let StructuralAggregateAccumulator {
             profile_id,
@@ -501,7 +543,7 @@ impl StructuralAggregateAccumulator {
             if let (Some(profile_id), false) =
                 (self.current_profile_id.as_deref(), self.current_sequence.is_empty())
             {
-                flush_path_flow_sequence(&mut self.flow_counts, profile_id, &self.current_sequence);
+                flush_path_flow_tail(&mut self.flow_counts, profile_id, &self.current_sequence);
             }
             self.current_session_id = Some(session_id);
             self.current_profile_id = Some(visit.profile_id.clone());
@@ -512,6 +554,12 @@ impl StructuralAggregateAccumulator {
             .last()
             .is_none_or(|(last_domain, _)| *last_domain != visit.registrable_domain)
         {
+            if let Some(profile) = self.current_profile_id.as_deref() {
+                flush_path_flow_tail(&mut self.flow_counts, profile, &self.current_sequence);
+            }
+            if self.current_sequence.len() == 4 {
+                self.current_sequence.remove(0);
+            }
             self.current_sequence.push((visit.registrable_domain.clone(), visit.visit_time_ms));
         } else if let Some((_, last_seen_ms)) = self.current_sequence.last_mut() {
             *last_seen_ms = visit.visit_time_ms;
@@ -640,7 +688,28 @@ fn habit_records_for_domains(
         .collect()
 }
 
+/// Emits only windows ending at the just-completed domain; older domains are disposable.
+fn flush_path_flow_tail(
+    flows: &mut HashMap<(String, String, i64), (i64, i64)>,
+    profile: &str,
+    sequence: &[(String, i64)],
+) {
+    for size in [2, 3, 4] {
+        if sequence.len() < size {
+            continue;
+        }
+        let window = &sequence[sequence.len() - size..];
+        let pattern =
+            window.iter().map(|(domain, _)| domain.as_str()).collect::<Vec<_>>().join(" → ");
+        let end = window.last().unwrap().1;
+        let entry = flows.entry((profile.to_owned(), pattern, size as i64)).or_default();
+        entry.0 += 1;
+        entry.1 = entry.1.max(end);
+    }
+}
+
 /// Emits all path-flow n-grams for one completed session-local domain sequence.
+#[cfg(test)]
 fn flush_path_flow_sequence(
     flows: &mut HashMap<(String, String, i64), (i64, i64)>,
     profile_id: &str,
@@ -843,5 +912,34 @@ mod tests {
         let (sample_ids, total) = parse_visit_evidence(&streamed[0].evidence_json);
         assert_eq!(sample_ids.len(), REFIND_EVIDENCE_VISIT_SAMPLE);
         assert_eq!(total, observed as i64);
+    }
+    #[test]
+    fn bounded_path_flow_tail_matches_all_reference_windows() {
+        let visits = (0..10_003)
+            .map(|i| {
+                let mut v = refind_visit(i + 1, 1_700_000_000_000 + i * 1000);
+                v.registrable_domain = format!("site{}.test", (i / 2) % 37);
+                v.session_id = Some(format!("session:{}", i / 501));
+                v
+            })
+            .collect::<Vec<_>>();
+        let expected = build_path_flows(&visits);
+        let mut stream = StructuralAggregateAccumulator::default();
+        for visit in &visits {
+            stream.add_summary_visit(visit);
+            assert!(stream.current_sequence.len() <= 4);
+        }
+        let actual = stream.finish().1;
+        let rows = |values: Vec<PathFlowRecord>| {
+            let mut rows = values
+                .into_iter()
+                .map(|r| {
+                    (r.profile_id, r.flow_pattern, r.step_count, r.occurrence_count, r.last_seen_ms)
+                })
+                .collect::<Vec<_>>();
+            rows.sort();
+            rows
+        };
+        assert_eq!(rows(actual), rows(expected));
     }
 }

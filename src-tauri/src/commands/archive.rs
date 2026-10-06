@@ -457,7 +457,7 @@ pub(crate) async fn preview_clear_derived_intelligence(
 ) -> Result<vault_core::ClearDerivedIntelligenceReport, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("preview_clear_derived_intelligence", move || {
-        worker_bridge::preview_clear_derived_intelligence_impl(key_state.get_key()?.as_deref())
+        worker_bridge::preview_clear_derived_intelligence_impl(&key_state)
     })
     .await
 }
@@ -470,7 +470,7 @@ pub(crate) async fn clear_derived_intelligence(
 ) -> Result<vault_core::ClearDerivedIntelligenceReport, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("clear_derived_intelligence", move || {
-        worker_bridge::clear_derived_intelligence_impl(key_state.get_key()?.as_deref())
+        worker_bridge::clear_derived_intelligence_impl(&key_state)
     })
     .await
 }

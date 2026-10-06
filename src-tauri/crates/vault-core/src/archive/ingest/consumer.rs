@@ -3,6 +3,7 @@
 //! Failure modes: archive-sized maps, cursor/progress ahead of committed rows,
 //! URL cursor skips dependent terms, imports advance live cursors, duplicates widen bounds, missing URL parents, stale documents, cancellation
 //! discards committed batches, interactive jobs wait for the whole import.
+//! An evidence-only payload must not erase the profile's source-batch provenance.
 //! Tests: core_tests, concurrency_tests and dedup_scenarios*.
 
 use super::{
@@ -137,6 +138,7 @@ impl<'a> ArchiveChunkConsumer<'a> {
             let context = self.context.clone();
             let mut watermark = self.watermark.clone();
             watermark.url_scan = None;
+            watermark.last_source_batch_id = Some(self.evidence.batch_id());
             self.vault.write(Db::Archive, Priority::Batch, move |s| {
                 save_watermark(s, &context.profile_id, &watermark)?;
                 Ok(())

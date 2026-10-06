@@ -437,14 +437,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::repair_health_impl(&state.session)?)
         }
         "preview_clear_derived_intelligence" => {
-            json_value!(worker_bridge::preview_clear_derived_intelligence_impl(
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::preview_clear_derived_intelligence_impl(&state.session)?)
         }
         "clear_derived_intelligence" => {
-            json_value!(worker_bridge::clear_derived_intelligence_impl(
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::clear_derived_intelligence_impl(&state.session)?)
         }
         "keyring_status" => json_value!(worker_bridge::keyring_status_impl()),
         "security_status" => json_value!(worker_bridge::security_status_impl(&state.session)?),
@@ -489,6 +485,18 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let key = session_key(&state.session)?;
             json_value!(test_ai_provider_connection_off_thread(payload.request, key).await?)
         }
+        "list_ai_jobs" => {
+            let payload = parse_payload::<WrappedRequest<vault_core::ListAiJobsRequest>>(payload)?;
+            json_value!(worker_bridge::list_ai_jobs_impl(payload.request, &state.session)?)
+        }
+        "list_intelligence_jobs" => {
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::ListIntelligenceJobsRequest>>(payload)?;
+            json_value!(worker_bridge::list_intelligence_jobs_impl(
+                payload.request,
+                &state.session
+            )?)
+        }
         "load_ai_queue_status" => {
             json_value!(worker_bridge::load_ai_queue_status_impl(&state.session)?)
         }
@@ -507,10 +515,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "cancel_ai_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;
-            json_value!(worker_bridge::cancel_ai_job_impl(
-                payload.job_id,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::cancel_ai_job_impl(payload.job_id, &state.session)?)
         }
         "build_ai_index" => {
             let payload = parse_payload::<WrappedRequest<AiIndexRequest>>(payload)?;
@@ -557,23 +562,37 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "save_ai_conversation" => {
             let payload = parse_payload::<WrappedRequest<SaveAgentConversationRequest>>(payload)?;
-            json_value!(worker_bridge::save_ai_conversation_impl(payload.request)?)
+            json_value!(worker_bridge::save_ai_conversation_impl(&state.session, payload.request)?)
         }
         "list_ai_conversations" => {
             let payload = parse_payload::<WrappedRequest<ListAgentConversationsRequest>>(payload)?;
-            json_value!(worker_bridge::list_ai_conversations_impl(payload.request)?)
+            json_value!(worker_bridge::list_ai_conversations_impl(&state.session, payload.request)?)
+        }
+        "list_ai_messages" => {
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::ListAgentMessagesRequest>>(payload)?;
+            json_value!(worker_bridge::list_ai_messages_impl(&state.session, payload.request)?)
         }
         "load_ai_conversation" => {
             let payload = parse_payload::<ConversationIdPayload>(payload)?;
-            json_value!(worker_bridge::load_ai_conversation_impl(payload.conversation_id)?)
+            json_value!(worker_bridge::load_ai_conversation_impl(
+                &state.session,
+                payload.conversation_id
+            )?)
         }
         "delete_ai_conversation" => {
             let payload = parse_payload::<ConversationIdPayload>(payload)?;
-            json_value!(worker_bridge::delete_ai_conversation_impl(payload.conversation_id)?)
+            json_value!(worker_bridge::delete_ai_conversation_impl(
+                &state.session,
+                payload.conversation_id
+            )?)
         }
         "rename_ai_conversation" => {
             let payload = parse_payload::<WrappedRequest<RenameAgentConversationRequest>>(payload)?;
-            json_value!(worker_bridge::rename_ai_conversation_impl(payload.request)?)
+            json_value!(worker_bridge::rename_ai_conversation_impl(
+                &state.session,
+                payload.request
+            )?)
         }
         "get_content_fetch_settings" => {
             json_value!(worker_bridge::content_fetch_settings_impl(&state.session)?)
@@ -589,7 +608,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<HistoryIdPayload>(payload)?;
             json_value!(worker_bridge::list_visit_enrichment_impl(
                 payload.history_id,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "content_fetch_now" => {
@@ -607,237 +626,176 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;
             json_value!(worker_bridge::run_core_intelligence_now_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "queue_core_intelligence_rebuild" => {
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;
             json_value!(worker_bridge::queue_core_intelligence_rebuild_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_sessions" => {
             let payload = parse_payload::<WrappedRequest<PagedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_sessions_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_sessions_impl(payload.request, &state.session)?)
         }
         "get_session_detail" => {
-            let payload = parse_payload::<SessionIdPayload>(payload)?;
-            json_value!(worker_bridge::get_session_detail_impl(
-                payload.session_id,
-                session_key(&state.session)?.as_deref()
-            )?)
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::SessionDetailRequest>>(payload)?;
+            json_value!(worker_bridge::get_session_detail_impl(payload.request, &state.session)?)
         }
         "get_search_trails" => {
             let payload = parse_payload::<WrappedRequest<SearchTrailQueryRequest>>(payload)?;
-            json_value!(worker_bridge::get_search_trails_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_search_trails_impl(payload.request, &state.session)?)
         }
         "get_trail_detail" => {
-            let payload = parse_payload::<TrailIdPayload>(payload)?;
-            json_value!(worker_bridge::get_trail_detail_impl(
-                payload.trail_id,
-                session_key(&state.session)?.as_deref()
-            )?)
+            let payload = parse_payload::<WrappedRequest<vault_core::TrailDetailRequest>>(payload)?;
+            json_value!(worker_bridge::get_trail_detail_impl(payload.request, &state.session)?)
         }
         "get_navigation_path" => {
             let payload = parse_payload::<VisitIdPayload>(payload)?;
-            json_value!(worker_bridge::get_navigation_path_impl(
-                payload.visit_id,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_navigation_path_impl(payload.visit_id, &state.session)?)
         }
         "get_hub_pages" => {
             let payload = parse_payload::<WrappedRequest<TopSitesRequest>>(payload)?;
-            json_value!(worker_bridge::get_hub_pages_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_hub_pages_impl(payload.request, &state.session)?)
         }
         "get_search_engine_ranking" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_search_engine_ranking_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "list_search_engine_rules" => {
-            json_value!(worker_bridge::list_search_engine_rules_impl(
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::list_search_engine_rules_impl(&state.session)?)
         }
         "upsert_search_engine_rule" => {
             let payload = parse_payload::<InputPayload<SearchEngineRuleInput>>(payload)?;
             json_value!(worker_bridge::upsert_search_engine_rule_impl(
                 payload.input,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "delete_search_engine_rule" => {
             let payload = parse_payload::<RuleIdPayload>(payload)?;
             json_value!(worker_bridge::delete_search_engine_rule_impl(
                 payload.rule_id,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_top_search_concepts" => {
             let payload = parse_payload::<WrappedRequest<TopSearchConceptsRequest>>(payload)?;
             json_value!(worker_bridge::get_top_search_concepts_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_frequent_searches" => {
             let payload = parse_payload::<WrappedRequest<FrequentSearchesRequest>>(payload)?;
-            json_value!(worker_bridge::get_frequent_searches_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_frequent_searches_impl(payload.request, &state.session)?)
         }
         "get_search_queries" => {
             let payload = parse_payload::<WrappedRequest<SearchQueryListRequest>>(payload)?;
-            json_value!(worker_bridge::get_search_queries_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_search_queries_impl(payload.request, &state.session)?)
         }
         "get_query_families" => {
             let payload = parse_payload::<WrappedRequest<PagedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_query_families_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_query_families_impl(payload.request, &state.session)?)
         }
         "get_query_family_detail" => {
             let payload = parse_payload::<WrappedRequest<QueryFamilyDetailRequest>>(payload)?;
             json_value!(worker_bridge::get_query_family_detail_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_top_sites" => {
             let payload = parse_payload::<WrappedRequest<TopSitesRequest>>(payload)?;
-            json_value!(worker_bridge::get_top_sites_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_top_sites_impl(payload.request, &state.session)?)
         }
         "get_domain_trend" => {
             let payload = parse_payload::<WrappedRequest<DomainTrendRequest>>(payload)?;
-            json_value!(worker_bridge::get_domain_trend_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_domain_trend_impl(payload.request, &state.session)?)
         }
         "get_refind_pages" => {
             let payload = parse_payload::<WrappedRequest<RefindPagesRequest>>(payload)?;
-            json_value!(worker_bridge::get_refind_pages_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_refind_pages_impl(payload.request, &state.session)?)
         }
         "get_refind_page_detail" => {
             let payload = parse_payload::<WrappedRequest<RefindPageDetailRequest>>(payload)?;
             json_value!(worker_bridge::get_refind_page_detail_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "explain_refind" => {
             let payload = parse_payload::<WrappedRequest<ExplainRefindRequest>>(payload)?;
-            json_value!(worker_bridge::explain_refind_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::explain_refind_impl(payload.request, &state.session)?)
         }
         "explain_entity" => {
             let payload = parse_payload::<WrappedRequest<EntityExplanationRequest>>(payload)?;
-            json_value!(worker_bridge::explain_entity_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::explain_entity_impl(payload.request, &state.session)?)
         }
         "get_activity_mix" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_activity_mix_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_activity_mix_impl(payload.request, &state.session)?)
         }
         "get_activity_mix_trend" => {
             let payload = parse_payload::<WrappedRequest<GranularityDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_activity_mix_trend_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_digest_summary" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_digest_summary_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_digest_summary_impl(payload.request, &state.session)?)
         }
         "get_intelligence_primary_overview" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_intelligence_primary_overview_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_intelligence_secondary_overview" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_intelligence_secondary_overview_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_stable_sources" => {
-            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_stable_sources_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            let payload = parse_payload::<WrappedRequest<vault_core::ScopedPageRequest>>(payload)?;
+            json_value!(worker_bridge::get_stable_sources_impl(payload.request, &state.session)?)
         }
         "get_search_effectiveness" => {
             let payload = parse_payload::<WrappedRequest<SearchEffectivenessRequest>>(payload)?;
             json_value!(worker_bridge::get_search_effectiveness_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_friction_signals" => {
-            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_friction_signals_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            let payload = parse_payload::<WrappedRequest<vault_core::ScopedPageRequest>>(payload)?;
+            json_value!(worker_bridge::get_friction_signals_impl(payload.request, &state.session)?)
         }
         "get_reopened_investigations" => {
-            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
+            let payload = parse_payload::<WrappedRequest<vault_core::ScopedPageRequest>>(payload)?;
             json_value!(worker_bridge::get_reopened_investigations_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_domain_deep_dive" => {
             let payload = parse_payload::<WrappedRequest<DomainDeepDiveRequest>>(payload)?;
-            json_value!(worker_bridge::get_domain_deep_dive_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_domain_deep_dive_impl(payload.request, &state.session)?)
         }
         "get_day_insights" => {
             let payload = parse_payload::<WrappedRequest<DayInsightsRequest>>(payload)?;
-            json_value!(worker_bridge::get_day_insights_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_day_insights_impl(payload.request, &state.session)?)
         }
         // TODO: M13 - Revisit this dev-only intelligence mirror only if the
         // next transport parity audit proves a shared manifest or generation
@@ -845,133 +803,107 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "get_browsing_rhythm" => {
             let payload =
                 parse_payload::<WrappedRequest<CategoryFilteredDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_browsing_rhythm_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_browsing_rhythm_impl(payload.request, &state.session)?)
         }
         "get_discovery_trend" => {
             let payload = parse_payload::<WrappedRequest<GranularityDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_discovery_trend_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_discovery_trend_impl(payload.request, &state.session)?)
         }
         "get_intelligence_embed_cards" => {
             let payload = parse_payload::<WrappedRequest<IntelligenceEmbedCardsRequest>>(payload)?;
             json_value!(worker_bridge::get_intelligence_embed_cards_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_intelligence_widget_snapshot" => {
             let payload = parse_payload::<WrappedRequest<IntelligenceEmbedCardsRequest>>(payload)?;
             json_value!(worker_bridge::get_intelligence_widget_snapshot_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_intelligence_public_snapshot" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_intelligence_public_snapshot_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "preview_intelligence_local_host" => {
             let payload = parse_payload::<WrappedRequest<IntelligenceLocalHostRequest>>(payload)?;
             json_value!(worker_bridge::preview_intelligence_local_host_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "build_intelligence_local_host" => {
             let payload = parse_payload::<WrappedRequest<IntelligenceLocalHostRequest>>(payload)?;
             json_value!(worker_bridge::build_intelligence_local_host_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_on_this_day" => {
             let payload = parse_payload::<ProfileIdPayload>(payload)?;
-            json_value!(worker_bridge::get_on_this_day_impl(
-                payload.profile_id,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_on_this_day_impl(payload.profile_id, &state.session)?)
         }
         "get_breadth_index" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_breadth_index_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_breadth_index_impl(payload.request, &state.session)?)
         }
         "get_habit_patterns" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_habit_patterns_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_habit_patterns_impl(payload.request, &state.session)?)
         }
         "get_interrupted_habits" => {
             let payload = parse_payload::<WrappedRequest<ProfileScopedRequest>>(payload)?;
             json_value!(worker_bridge::get_interrupted_habits_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_path_flows" => {
             let payload = parse_payload::<WrappedRequest<PathFlowRequest>>(payload)?;
-            json_value!(worker_bridge::get_path_flows_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_path_flows_impl(payload.request, &state.session)?)
         }
         "get_observed_interactions" => {
-            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
+            let payload = parse_payload::<WrappedRequest<vault_core::ScopedPageRequest>>(payload)?;
             json_value!(worker_bridge::get_observed_interactions_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_compare_sets" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_compare_sets_impl(
-                payload.request,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::get_compare_sets_impl(payload.request, &state.session)?)
         }
         "get_compare_set_detail" => {
             let payload = parse_payload::<WrappedRequest<CompareSetDetailRequest>>(payload)?;
             json_value!(worker_bridge::get_compare_set_detail_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "get_multi_browser_diff" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_multi_browser_diff_impl(
                 payload.request,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "load_intelligence_runtime" => {
-            json_value!(worker_bridge::load_intelligence_runtime_impl(
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::load_intelligence_runtime_impl(&state.session)?)
         }
         "retry_intelligence_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;
-            json_value!(worker_bridge::retry_intelligence_job_impl(
-                payload.job_id,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::retry_intelligence_job_impl(payload.job_id, &state.session)?)
         }
         "cancel_intelligence_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;
             json_value!(worker_bridge::cancel_intelligence_job_impl(
                 payload.job_id,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "preview_ai_integrations" => json_value!(worker_bridge::preview_ai_integrations_impl()?),

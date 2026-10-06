@@ -29,7 +29,13 @@ pub(super) fn staleness(
         }
     }
     if let Some(indexed_at) = indexed_at {
-        let latest=vault.store().read(Db::Intelligence,|s|s.query_one("SELECT MAX(fetched_at) FROM visit_content_enrichments WHERE fetch_status='success'",(),|r|Ok(r.get::<Option<String>>(0)?)))?;
+        let latest = vault.store().read(Db::Intelligence, |s| {
+            s.query_one(
+                "SELECT MAX(fetched_at) FROM page_content_enrichments WHERE fetch_status='success'",
+                (),
+                |r| Ok(r.get::<Option<String>>(0)?),
+            )
+        })?;
         if latest.as_ref().is_some_and(|at| *at > indexed_at) {
             return Ok(Some(AiSemanticStaleness::Enrichment));
         }

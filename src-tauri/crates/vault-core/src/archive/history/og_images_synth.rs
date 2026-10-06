@@ -376,6 +376,7 @@ mod tests {
         assert!(resolve_image_url_via_api(&client, "https://example.com/").is_none());
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn resolve_image_url_via_api_success_path_returns_pic_url() {
         let mut server = mockito::Server::new();
@@ -394,6 +395,7 @@ mod tests {
         assert_eq!(result.as_deref(), Some("https://i0.hdslb.com/cover/foo.jpg"));
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn resolve_image_url_via_api_returns_none_on_http_error() {
         let mut server = mockito::Server::new();
@@ -411,6 +413,7 @@ mod tests {
         assert!(result.is_none());
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn resolve_image_url_via_api_returns_none_when_body_exceeds_cap() {
         let mut server = mockito::Server::new();
@@ -430,6 +433,7 @@ mod tests {
         assert!(result.is_none());
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn resolve_image_url_via_api_with_av_id_uses_aid_query_param() {
         let mut server = mockito::Server::new();
@@ -448,6 +452,7 @@ mod tests {
         assert_eq!(result.as_deref(), Some("https://i0.hdslb.com/cover/av.jpg"));
     }
 
+    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn resolve_image_url_via_api_strips_trailing_slash_from_base() {
         let mut server = mockito::Server::new();

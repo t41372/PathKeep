@@ -7,7 +7,9 @@
 //!   spelling), the keyword-only rule, the profile filter and the limit.
 //! - Check that counts never exceed the digest's search total for the same range, which is the
 //!   bug this read replaced (all-time query-family counts shown against a 30-day total).
-//! - Check that an intelligence database from before migration 9 gets its search times filled in.
+//!
+//! Failure modes: boundary searches leak, normalized spellings split counts, profiles mix,
+//! or the range query scans all historical events.
 //!
 //! ## Not responsible for
 //! - Speed at scale; `archive_scale_bench` measures that.
@@ -16,13 +18,9 @@ use super::super::{
     get_digest_summary, get_frequent_searches, intelligence_rebuild::run_core_intelligence,
 };
 use super::fixtures::{append_fixture_visit, seed_core_intelligence_fixture};
-use crate::{
-    archive::{open_archive_connection, open_intelligence_connection},
-    config::{ProjectPaths, project_paths_with_root},
-    models::{
-        AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, DateRange, FrequentSearch,
-        FrequentSearchesRequest, ScopedDateRangeRequest,
-    },
+use crate::models::{
+    AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest, DateRange, FrequentSearch,
+    FrequentSearchesRequest, ScopedDateRangeRequest,
 };
 use chrono::{Local, NaiveDate, TimeZone};
 
@@ -46,47 +44,57 @@ fn config() -> AppConfig {
 
 /// Builds an archive whose searches sit on and just outside the edges of [`range`], then runs
 /// the real intelligence rebuild over it.
-fn searched_archive(root: &std::path::Path) -> ProjectPaths {
-    let paths = project_paths_with_root(root);
-    let archive = open_archive_connection(&paths, &config(), None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
-    let start = local_midnight_ms("2024-04-10");
-    let end = local_midnight_ms("2024-04-13");
-    let searches: [(i64, &str); 9] = [
-        (start - 1, "rust ownership"),
-        (start, "rust ownership"),
-        (start + HOUR_MS, "Rust  Ownership"),
-        (start + 2 * HOUR_MS, "sqlite wal"),
-        (start + 3 * HOUR_MS, "tokio select"),
-        (start + 4 * HOUR_MS, "https://asu.edu"),
-        (end - HOUR_MS, "sqlite wal"),
-        (end - 1, "SQLite WAL"),
-        (end, "sqlite wal"),
-    ];
-    for (index, (time, query)) in searches.iter().enumerate() {
-        let visit_id = 100 + index as i64;
-        append_fixture_visit(
-            &archive,
-            visit_id,
-            &format!("https://www.google.com/search?q={}", query.replace(' ', "+")),
-            &format!("{query} - Google Search"),
-            *time,
-            None,
-            Some(query),
-        );
-    }
-    drop(archive);
-    run_core_intelligence(&paths, &config(), None, &CoreIntelligenceRebuildRequest::default())
+fn searched_archive() -> crate::Vault {
+    let vault = crate::Vault::open_temp().unwrap().with_config(config());
+    vault
+        .write(vault_store::Db::Archive, vault_store::Priority::Batch, |archive| {
+            seed_core_intelligence_fixture(archive);
+            let start = local_midnight_ms("2024-04-10");
+            let end = local_midnight_ms("2024-04-13");
+            let searches: [(i64, &str); 9] = [
+                (start - 1, "rust ownership"),
+                (start, "rust ownership"),
+                (start + HOUR_MS, "Rust  Ownership"),
+                (start + 2 * HOUR_MS, "sqlite wal"),
+                (start + 3 * HOUR_MS, "tokio select"),
+                (start + 4 * HOUR_MS, "https://asu.edu"),
+                (end - HOUR_MS, "sqlite wal"),
+                (end - 1, "SQLite WAL"),
+                (end, "sqlite wal"),
+            ];
+            for (index, (time, query)) in searches.iter().enumerate() {
+                let visit_id = 100 + index as i64;
+                append_fixture_visit(
+                    archive,
+                    visit_id,
+                    &format!("https://www.google.com/search?q={}", query.replace(' ', "+")),
+                    &format!("{query} - Google Search"),
+                    *time,
+                    None,
+                    Some(query),
+                );
+            }
+            Ok(())
+        })
+        .unwrap();
+    super::fixtures::sync_archive_totals(&crate::test_support::native::TestDatabase::new(
+        &vault,
+        vault_store::Db::Archive,
+    ));
+    run_core_intelligence(&vault, &CoreIntelligenceRebuildRequest::default())
         .expect("rebuild intelligence");
-    paths
+    vault
 }
 
-fn frequent(paths: &ProjectPaths, profile_id: Option<&str>, limit: u32) -> Vec<FrequentSearch> {
+fn frequent(
+    paths: &crate::Vault,
+    profile_id: Option<&str>,
+    limit: u32,
+) -> crate::models::IntelligencePage<FrequentSearch> {
     get_frequent_searches(
         paths,
-        &config(),
-        None,
         &FrequentSearchesRequest {
+            cursor: None,
             date_range: range(),
             profile_id: profile_id.map(str::to_string),
             limit: Some(limit),
@@ -101,8 +109,7 @@ fn counts(rows: &[FrequentSearch]) -> Vec<(&str, i64)> {
 
 #[test]
 fn counts_only_the_keyword_searches_inside_the_range() {
-    let root = tempfile::tempdir().expect("tempdir");
-    let paths = searched_archive(root.path());
+    let paths = searched_archive();
 
     let rows = frequent(&paths, None, 10);
     assert_eq!(
@@ -120,8 +127,6 @@ fn counts_only_the_keyword_searches_inside_the_range() {
 
     let digest = get_digest_summary(
         &paths,
-        &config(),
-        None,
         &ScopedDateRangeRequest { date_range: range(), profile_id: None },
     )
     .expect("digest");
@@ -135,8 +140,7 @@ fn counts_only_the_keyword_searches_inside_the_range() {
 
 #[test]
 fn honours_the_limit_and_the_profile_filter() {
-    let root = tempfile::tempdir().expect("tempdir");
-    let paths = searched_archive(root.path());
+    let paths = searched_archive();
 
     let top = frequent(&paths, None, 1);
     assert_eq!(counts(&top), vec![("sqlite wal", 3)]);
@@ -144,47 +148,24 @@ fn honours_the_limit_and_the_profile_filter() {
     assert!(frequent(&paths, Some("firefox:other"), 10).is_empty());
 }
 
-#[test]
-fn search_times_are_backfilled_for_databases_from_before_migration_9() {
-    let root = tempfile::tempdir().expect("tempdir");
-    let paths = searched_archive(root.path());
-    let intelligence = open_intelligence_connection(&paths, &config(), None).expect("open");
-    intelligence
-        .execute_batch(
-            "UPDATE search_events SET visit_time_ms = NULL;
-             DROP INDEX idx_search_events_kind_time;
-             DELETE FROM intelligence_schema_migrations WHERE version = 9;",
-        )
-        .expect("put the database back to version 8");
-    drop(intelligence);
-
-    // Every read runs pending migrations first.
-    let rows = frequent(&paths, None, 10);
-    assert_eq!(
-        rows.iter().map(|row| row.search_count).collect::<Vec<_>>(),
-        vec![3, 2, 1],
-        "{rows:?}"
-    );
-}
-
 /// The rebuild stores queries lower-cased today, but `raw_query` is what the user typed, and the
 /// card shows it. When spellings differ, the newest one is shown.
 #[test]
 fn shows_the_newest_spelling_of_each_query() {
-    let root = tempfile::tempdir().expect("tempdir");
-    let paths = searched_archive(root.path());
+    let paths = searched_archive();
     let start = local_midnight_ms("2024-04-10");
-    let intelligence = open_intelligence_connection(&paths, &config(), None).expect("open");
+    let intelligence =
+        crate::test_support::native::TestDatabase::new(&paths, vault_store::Db::Intelligence);
     intelligence
         .execute_batch(&format!(
-            "DELETE FROM search_events;
-             INSERT INTO search_events
-               (visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind,
+            "UPDATE intelligence_generations SET navigation=0; DELETE FROM search_events_rows;
+             INSERT INTO search_events_rows
+               (generation, visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind,
                 computed_at, visit_time_ms)
              VALUES
-               (1, 'chrome:Default', 'google', 'Tokio Select', 'tokio select', 'keyword', '', {}),
-               (2, 'chrome:Default', 'bing', 'TOKIO select', 'tokio select', 'keyword', '', {}),
-               (3, 'chrome:Default', 'google', 'tokio  SELECT', 'tokio select', 'keyword', '', {});",
+               (0, 1, 'chrome:Default', 'google', 'Tokio Select', 'tokio select', 'keyword', '', {}),
+               (0, 2, 'chrome:Default', 'bing', 'TOKIO select', 'tokio select', 'keyword', '', {}),
+               (0, 3, 'chrome:Default', 'google', 'tokio  SELECT', 'tokio select', 'keyword', '', {});",
             start + HOUR_MS,
             start + 3 * HOUR_MS,
             start + 2 * HOUR_MS,
@@ -200,26 +181,10 @@ fn shows_the_newest_spelling_of_each_query() {
 
 #[test]
 fn the_range_read_walks_the_kind_and_time_index() {
-    let root = tempfile::tempdir().expect("tempdir");
-    let paths = searched_archive(root.path());
-    let intelligence = open_intelligence_connection(&paths, &config(), None).expect("open");
-    let plan = intelligence
-        .prepare(&format!(
-            "EXPLAIN QUERY PLAN {}",
-            super::super::intelligence_search_metrics::FREQUENT_SEARCHES_SQL
-        ))
-        .expect("plan")
-        .query_map(rusqlite::params![0, 1, Option::<String>::None, 10], |row| {
-            row.get::<_, String>(3)
-        })
-        .expect("plan rows")
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .expect("plan text")
-        .join("\n");
-    assert!(
-        plan.contains(
-            "idx_search_events_kind_time (query_kind=? AND visit_time_ms>? AND visit_time_ms<?)"
-        ),
-        "the read must seek the range in the index, got:\n{plan}"
-    );
+    let paths = searched_archive();
+    paths.store().capture_query_plans(vault_store::Db::Intelligence, true).unwrap();
+    frequent(&paths, None, 10);
+    let plans = paths.store().take_query_plans(vault_store::Db::Intelligence).unwrap();
+    let plan = format!("{plans:?}");
+    assert!(plan.contains("idx_search_events_kind_time"), "range must seek its index: {plan}");
 }

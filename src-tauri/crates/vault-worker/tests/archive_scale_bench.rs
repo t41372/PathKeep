@@ -1,7 +1,7 @@
 //! Responsibilities: retain excluded search/maintenance probes and measure native archive reads.
 //! Not responsible for: CI latency thresholds or extrapolating another machine's performance.
 //! Failure modes: small fixtures hide full scans, exports truncate, caches obscure cold costs,
-//! or retained benchmark data grows without a bound.
+//! retained benchmark data grows without a bound, or concurrent tests contaminate allocator peaks.
 //!
 //! The ignored `turso_reads::encrypted_archive_reads_at_scale` test measures each native
 //! read in its own new process, then repeats it warm, including a complete 14.4M-row
@@ -278,6 +278,9 @@ fn bench_frequent_searches(root: &Path, config: &AppConfig) {
     unsafe { std::env::set_var("CHB_PROJECT_ROOT", root) };
     let intelligence = open_intelligence_connection(&paths, config, None).expect("intelligence");
     seed_search_events(&intelligence);
+    let vault = vault_core::Vault::open_temp().unwrap();
+    vault_core::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, config);
+    vault_core::run_core_intelligence(&vault, &Default::default()).unwrap();
     let events: i64 = intelligence
         .query_row("SELECT COUNT(*) FROM search_events", [], |row| row.get(0))
         .expect("count");
@@ -286,6 +289,7 @@ fn bench_frequent_searches(root: &Path, config: &AppConfig) {
     // The synthetic visits end in September 2025.
     let last_day = chrono::NaiveDate::from_ymd_opt(2025, 9, 12).expect("date");
     let request = |days: i64| FrequentSearchesRequest {
+        cursor: None,
         date_range: DateRange {
             start: (last_day - chrono::Duration::days(days - 1)).format("%Y-%m-%d").to_string(),
             end: last_day.format("%Y-%m-%d").to_string(),
@@ -294,11 +298,11 @@ fn bench_frequent_searches(root: &Path, config: &AppConfig) {
         limit: Some(10),
     };
     report("first read: migration 9 backfill + 30-day read", 1, || {
-        vault_core::get_frequent_searches(&paths, config, None, &request(30)).expect("read");
+        vault_core::get_frequent_searches(&vault, &request(30)).expect("read");
     });
     for days in [7, 30, 90, 365] {
         report_memory(&format!("get_frequent_searches, {days} days"), 5, || {
-            vault_core::get_frequent_searches(&paths, config, None, &request(days)).expect("read");
+            vault_core::get_frequent_searches(&vault, &request(days)).expect("read");
         });
     }
     // The same count without a stored time: join each event to its visit, as the other
@@ -687,6 +691,8 @@ fn report_memory(label: &str, iterations: usize, mut call: impl FnMut()) -> (usi
     (peak_heap, peak_sqlite)
 }
 
+// Large native measurements use process RSS and disable allocator accounting once per process.
+static COUNT_HEAP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 static HEAP_CURRENT: AtomicUsize = AtomicUsize::new(0);
 static HEAP_PEAK: AtomicUsize = AtomicUsize::new(0);
 
@@ -705,7 +711,7 @@ impl CountingAllocator {
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let pointer = unsafe { System.alloc(layout) };
-        if !pointer.is_null() {
+        if !pointer.is_null() && COUNT_HEAP.load(Ordering::Relaxed) {
             Self::grew(layout.size());
         }
         pointer
@@ -713,7 +719,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         let pointer = unsafe { System.alloc_zeroed(layout) };
-        if !pointer.is_null() {
+        if !pointer.is_null() && COUNT_HEAP.load(Ordering::Relaxed) {
             Self::grew(layout.size());
         }
         pointer
@@ -721,12 +727,14 @@ unsafe impl GlobalAlloc for CountingAllocator {
 
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
         unsafe { System.dealloc(pointer, layout) };
-        HEAP_CURRENT.fetch_sub(layout.size(), Ordering::Relaxed);
+        if COUNT_HEAP.load(Ordering::Relaxed) {
+            HEAP_CURRENT.fetch_sub(layout.size(), Ordering::Relaxed);
+        }
     }
 
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         let grown = unsafe { System.realloc(pointer, layout, new_size) };
-        if !grown.is_null() {
+        if !grown.is_null() && COUNT_HEAP.load(Ordering::Relaxed) {
             HEAP_CURRENT.fetch_sub(layout.size(), Ordering::Relaxed);
             Self::grew(new_size);
         }
@@ -741,6 +749,16 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 /// otherwise idle integration-test process. This guards against collecting rows/strings again.
 #[test]
 fn export_heap_stays_bounded_as_archive_grows() {
+    // The allocator is process-wide; another test opening a Vault must not count as export memory.
+    if std::env::var_os("PATHKEEP_EXPORT_HEAP_CHILD").is_none() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "export_heap_stays_bounded_as_archive_grows", "--nocapture"])
+            .env("PATHKEEP_EXPORT_HEAP_CHILD", "1")
+            .status()
+            .unwrap();
+        assert!(status.success(), "isolated export heap measurement failed");
+        return;
+    }
     // Large opt-in benchmarks run alone so their allocator measurements remain comparable.
     if std::env::var("PATHKEEP_ARCHIVE_BENCH").as_deref() == Ok("1")
         || std::env::var("PATHKEEP_IMPORT_BATCH_BENCH").as_deref() == Ok("1")
@@ -791,3 +809,6 @@ fn native_export_fixture(visits: u64) -> vault_core::Vault {
 
 #[path = "archive_scale_bench/turso_reads.rs"]
 mod turso_reads;
+
+#[path = "archive_scale_bench/turso_intelligence.rs"]
+mod turso_intelligence;

@@ -221,13 +221,12 @@ fn audit_repair_retains_optional_git_result_or_its_warning() {
 }
 
 #[test]
-fn a_legacy_derived_only_repair_still_has_a_native_audit_run() {
+fn a_native_derived_only_repair_keeps_its_audit_run_and_metadata_totals() {
     let vault = crate::Vault::open_temp().unwrap();
-    let legacy_paths = crate::project_paths_with_root(&vault.paths().app_root);
-    drop(crate::archive::open_archive_connection(&legacy_paths, vault.config(), None).unwrap());
-    let intelligence =
-        crate::archive::open_intelligence_connection(&legacy_paths, vault.config(), None).unwrap();
-    intelligence.execute("INSERT INTO ai_embeddings(history_id,profile_id,url,title,domain,visited_at,content_hash,content_bytes,provider_id,model,indexed_at) VALUES(999,'profile','https://example.com','Title','example.com','2026-10-05','hash',1,'test','test','2026-10-05')",[]).unwrap();
+    vault.store().write(vault_store::Db::Intelligence,vault_store::Priority::Batch,|s| {
+        s.execute("INSERT INTO ai_embeddings(history_id,profile_id,url,title,domain,visited_at,content_hash,content_bytes,metadata_bytes,provider_id,model,indexed_at) VALUES(999,'profile','https://example.com','Title','example.com','2026-10-05','hash',1,1,'test','test','2026-10-05')",())?;
+        s.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at) VALUES('test','test',1,1,1,'2026-10-05')",())?;Ok(())
+    }).unwrap();
     let report = repair_health_issues(&vault, None).unwrap();
     assert_eq!(report.cleared_derived_rows, 1);
     let run = report.run_id.expect("derived repairs must retain their audit trace");

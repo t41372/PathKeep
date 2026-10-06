@@ -252,6 +252,16 @@ pub fn save_user_config_with_base(
     base_config: Option<&AppConfig>,
     session_database_key: Option<&str>,
 ) -> Result<AppSnapshot> {
+    save_user_config_with_vault(None, config, base_config, session_database_key)
+}
+
+/// Reconciles database-backed controls through the caller's current owner.
+pub fn save_user_config_with_vault(
+    vault: Option<&vault_core::Vault>,
+    config: &AppConfig,
+    base_config: Option<&AppConfig>,
+    session_database_key: Option<&str>,
+) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let previous_config = load_hydrated_config(&paths)
         .context("loading the current configuration before saving user changes")?;
@@ -276,13 +286,8 @@ pub fn save_user_config_with_base(
         current_app_lock_biometric_state(),
     )?;
     save_config(&paths, &next_config)?;
-    reconcile_ai_queue_controls_or_restore_config(
-        &paths,
-        &previous_config,
-        &next_config,
-        session_database_key,
-    )?;
-    app_snapshot(session_database_key)
+    reconcile_ai_queue_controls_or_restore_config(vault, &paths, &previous_config, &next_config)?;
+    app_snapshot_with_vault(vault, session_database_key)
 }
 
 /// Applies only the leaves the caller changed relative to its base snapshot to
@@ -330,18 +335,17 @@ pub(crate) fn apply_config_delta(current: &mut Value, base: &Value, proposed: &V
 }
 
 fn reconcile_ai_queue_controls_or_restore_config(
+    vault: Option<&vault_core::Vault>,
     paths: &vault_core::ProjectPaths,
     previous_config: &AppConfig,
     next_config: &AppConfig,
-    session_database_key: Option<&str>,
 ) -> Result<()> {
-    vault_core::reconcile_ai_queue_controls(
-        paths,
-        previous_config,
-        next_config,
-        session_database_key,
-    )
-    .or_else(|error| restore_config_after_ai_reconcile_failure(paths, previous_config, error))
+    if let Some(vault) = vault {
+        vault_core::reconcile_ai_queue_controls(vault, previous_config, next_config).or_else(
+            |error| restore_config_after_ai_reconcile_failure(paths, previous_config, error),
+        )?;
+    }
+    Ok(())
 }
 
 fn restore_config_after_ai_reconcile_failure(

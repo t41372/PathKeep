@@ -291,3 +291,40 @@ fn due_only_request_waits_for_startup_session_open() {
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old_root.as_deref());
     restore_env_var(TEST_KEYRING_OVERRIDE_ENV, old_ring.as_deref());
 }
+
+#[test]
+fn owner_queue_pages_use_the_supplied_vault_without_a_password() {
+    for key in [None, Some([88; 32])] {
+        let vault = vault_core::Vault::open_temp_with_key(key).unwrap();
+        for _ in 0..13 {
+            vault_core::ai_queue::enqueue_index_job(&vault, &Default::default(), false).unwrap();
+        }
+        let endpoint = tempfile::tempdir().unwrap();
+        let owner = vault.clone();
+        let _server = vault_owner_ipc::Server::start(endpoint.path(), move |request, progress| {
+            dispatch(request, progress, Ok(None), || Ok(owner.clone()))
+        })
+        .unwrap();
+        let client = vault_owner_ipc::Client::new(endpoint.path());
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let mut cursor = serde_json::Value::Null;
+        let mut ids = std::collections::BTreeSet::new();
+        loop {
+            let page =
+                runtime
+                    .block_on(client.request(
+                        Request::new("ai-jobs", json!({"limit":4,"cursor":cursor})),
+                        |_| {},
+                    ))
+                    .unwrap();
+            for item in page["items"].as_array().unwrap() {
+                assert!(ids.insert(item["id"].as_i64().unwrap()));
+            }
+            cursor = page["nextCursor"].clone();
+            if cursor.is_null() {
+                break;
+            }
+        }
+        assert_eq!(ids.len(), 13);
+    }
+}

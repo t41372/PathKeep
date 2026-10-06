@@ -59,21 +59,6 @@ impl RebuildMode {
         }
     }
 
-    /// Returns whether this rebuild mode recomputes visit-derived facts.
-    pub const fn requires_visit_derived_facts(self) -> bool {
-        matches!(self, Self::VisitDerive | Self::FullRebuild)
-    }
-
-    /// Returns whether this rebuild mode recomputes daily rollups.
-    pub const fn requires_daily_rollups(self) -> bool {
-        matches!(self, Self::DailyRollup | Self::FullRebuild)
-    }
-
-    /// Returns whether this rebuild mode recomputes structural entities.
-    pub const fn requires_structural_entities(self) -> bool {
-        matches!(self, Self::StructuralRebuild | Self::FullRebuild)
-    }
-
     /// Returns the built-in module descriptors touched by this rebuild mode.
     pub fn module_descriptors(self) -> Vec<&'static IntelligenceModuleDescriptor> {
         let requested = built_in_intelligence_module_descriptors()

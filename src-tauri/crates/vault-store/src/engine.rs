@@ -5,7 +5,7 @@
 //! a schema-qualified scratch pragma silently changes the main cache setting.
 //! Foreign keys can silently accept orphans when the engine default is retained.
 //! Tests: opening, scratch and foreign_keys tests.
-use crate::{Config, Db, Error, IoLayer, Result, Session, statements::StatementCache};
+use crate::{Config, Db, Error, IoLayer, Result, Session, statement_cache::StatementCache};
 use std::{
     fs,
     marker::PhantomData,
@@ -18,6 +18,8 @@ use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 pub(crate) struct Settings {
     pub path: PathBuf,
     pub scratch: Option<PathBuf>,
+    pub archive: Option<PathBuf>,
+    pub archive_key: Option<[u8; 32]>,
     pub key: Option<[u8; 32]>,
     pub scratch_key: Option<[u8; 32]>,
     pub io: Option<IoLayer>,
@@ -28,6 +30,12 @@ impl Settings {
         Self {
             path: config.paths.get(db).into(),
             scratch: (db != Db::Scratch).then(|| config.paths.scratch.clone()),
+            archive: (db == Db::Intelligence).then(|| config.paths.archive.clone()),
+            archive_key: if db == Db::Intelligence {
+                config.keys[Db::Archive as usize]
+            } else {
+                None
+            },
             key: config.keys[db as usize],
             scratch_key: config.keys[Db::Scratch as usize],
             io: config.io.clone(),
@@ -74,6 +82,7 @@ pub(crate) fn preflight(config: &Config) -> Result<()> {
                 let database = rt.block_on(settings.builder(true).build())?;
                 let conn = database.connect()?;
                 let session = Session {
+                    plans: None,
                     statements: std::cell::Cell::new(0),
                     runtime: &rt,
                     conn: &conn,
@@ -82,6 +91,8 @@ pub(crate) fn preflight(config: &Config) -> Result<()> {
                     _thread: PhantomData,
                     scratch: None,
                     scratch_read: Default::default(),
+                    archive: None,
+                    archive_read: Default::default(),
                 };
                 session.query_one("SELECT count(*) FROM sqlite_schema", (), |r| {
                     Ok(r.get::<i64>(0)?)
@@ -167,6 +178,7 @@ impl Engine {
     }
     pub fn session(&self, read_only: bool) -> Session<'_> {
         Session {
+            plans: None,
             statements: std::cell::Cell::new(0),
             runtime: &self.rt,
             conn: &self.conn,
@@ -175,6 +187,8 @@ impl Engine {
             _thread: PhantomData,
             scratch: None,
             scratch_read: Default::default(),
+            archive: None,
+            archive_read: Default::default(),
         }
     }
     fn configure(&self, settings: &Settings, read_only: bool) -> Result<()> {
@@ -195,6 +209,10 @@ impl Engine {
                 self.conn.execute("ATTACH ?1 AS scratch", [uri.as_str()]).await?;
                 // In 0.8.1 a schema-qualified cache_size still updates main.
                 // Leave the attachment's native bounded page cache alone.
+            }
+            if let Some(path) = &settings.archive {
+                let uri = scratch_uri(path, settings.archive_key.as_ref());
+                self.conn.execute("ATTACH ?1 AS archive", [uri.as_str()]).await?;
             }
             if read_only {
                 self.conn.execute("PRAGMA query_only=1", ()).await?;
@@ -233,6 +251,7 @@ impl Drop for Settings {
         use zeroize::Zeroize;
         self.key.zeroize();
         self.scratch_key.zeroize();
+        self.archive_key.zeroize();
     }
 }
 

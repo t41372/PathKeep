@@ -50,9 +50,9 @@ pub use vault::{ArchivePasswordWrong, BackupAlreadyRunning, EnvelopeMissing, Vau
 
 pub use agent_store::{
     AgentCitationRecord, AgentRunStatus, AgentRunTrace, AgentStepRecord, AppendAgentStep,
-    BeginAgentRun, append_agent_step, begin_agent_run, delete_conversation, ensure_agent_schema,
-    finalize_agent_run, list_conversations, load_agent_run, load_conversation,
-    open_agent_connection, record_agent_citations, rename_conversation, save_conversation,
+    BeginAgentRun, append_agent_step, begin_agent_run, delete_conversation, finalize_agent_run,
+    list_conversation_messages, list_conversations, load_agent_run, load_conversation,
+    record_agent_citations, rename_conversation, save_conversation,
 };
 pub use ai::{
     AgentJournal, AgentRunOutcome, AgentSystemContext, AgentToolContext, AiIntegrationPreview,
@@ -66,13 +66,13 @@ pub use ai::{
     IndexBackfillProgress, Int8Plane, Int8PlaneReader, Int8Vector, LimitsHit, LlmCapabilities,
     LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider, LlmResponseFormat,
     LlmRole, LlmStreamChunk, LlmToolCall, LlmToolDef, LlmUsage, MAX_FETCH_IDS,
-    MAX_GUEST_MEMORY_BYTES, MAX_HOST_CALLS, MAX_OUTPUT_BYTES, MAX_ROWS_PER_CALL, MAX_WORKING_SET,
-    METAL_SPEEDUP, ModelDownloadProgress, ModelFile, NarrativeSummary, NoopDownloadProgress,
-    PlaneBuildReport, PlaneHeader, QWEN3_QUERY_TASK, QueryFamilyFacts, ReverseMapHeader,
-    ReverseVisitMap, RigLlmProvider, STATIC_INAPP_BASE_URL, STATIC_MAX_INPUT_TOKENS,
-    StaticEmbeddingMatrix, StaticEmbeddingProvider, ToolRegistry, TopicFacts, VectorIndex,
-    VectorStore, VectorStoreHeader, VisitContentMap, WALL_TIME_BUDGET, WorkingSetCandidate,
-    WorkingSetConfig, ai_index_status, ai_queue_status, answer_history_question,
+    MAX_GUEST_MEMORY_BYTES, MAX_HOST_CALLS, MAX_OUTPUT_BYTES, MAX_ROWS_PER_CALL, METAL_SPEEDUP,
+    ModelDownloadProgress, ModelFile, NarrativeSummary, NoopDownloadProgress, PlaneBuildReport,
+    PlaneHeader, QWEN3_QUERY_TASK, QueryFamilyFacts, ReverseMapHeader, ReverseVisitMap,
+    RigLlmProvider, STATIC_INAPP_BASE_URL, STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix,
+    StaticEmbeddingProvider, ToolRegistry, TopicFacts, VectorIndex, VectorStore, VectorStoreHeader,
+    VisitContentMap, WALL_TIME_BUDGET, WorkingSetCandidate, WorkingSetConfig, WorkingSetPage,
+    ai_index_status, ai_queue_status, answer_history_question,
     answer_history_question_with_control, apply_role_instruction, binarize, binary_bytes_for_dim,
     build_agent_system_context, build_ai_index, build_ai_index_with_control,
     build_dedup_content_hash, build_planes_from_store, candle_repo_for_runtime,
@@ -127,6 +127,7 @@ pub use diagnostics::{load_runtime_diagnostics, record_frontend_error, record_ru
 pub use enrichment::content_fetch_api::{
     content_fetch_schedule_eta_secs, content_fetch_settings, drain_one_content_fetch_job,
     enqueue_content_fetch_now, enqueue_content_fetch_working_set, list_visit_enrichment,
+    reoffer_archived_candidates,
 };
 pub use enrichment::execute_enrichment_job_by_id;
 pub use intelligence::{
@@ -147,8 +148,8 @@ pub use intelligence::{
     upsert_search_engine_rule_for_settings,
 };
 pub use intelligence_runtime::{
-    cancel_intelligence_job, intelligence_job_stop_requested, load_intelligence_runtime,
-    retry_intelligence_job, update_intelligence_job_artifact,
+    cancel_intelligence_job, intelligence_job_stop_requested, list_intelligence_jobs,
+    load_intelligence_runtime, retry_intelligence_job, update_intelligence_job_artifact,
 };
 pub use intelligence_sections::build_core_intelligence_section_meta;
 pub use migration::{

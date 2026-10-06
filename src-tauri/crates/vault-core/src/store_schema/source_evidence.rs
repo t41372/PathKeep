@@ -96,6 +96,8 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_source_batches_run ON source_batches(run_id)",
     "CREATE INDEX idx_visit_search_evidence_batch ON visit_search_evidence(source_batch_id, source_profile_id)",
     "CREATE INDEX idx_visit_navigation_evidence_batch ON visit_navigation_evidence(source_batch_id, source_profile_id)",
+    "CREATE INDEX idx_visit_engagement_profile_visit ON visit_engagement_evidence(source_profile_id,source_visit_id)",
+    "CREATE INDEX idx_visit_context_profile_visit ON visit_context_evidence(source_profile_id,source_visit_id)",
     "CREATE INDEX idx_visit_engagement_evidence_batch ON visit_engagement_evidence(source_batch_id, source_profile_id)",
     "CREATE INDEX idx_visit_context_evidence_batch ON visit_context_evidence(source_batch_id, source_profile_id)",
     "CREATE INDEX idx_native_entities_batch_kind ON native_entities(source_batch_id, entity_kind)",

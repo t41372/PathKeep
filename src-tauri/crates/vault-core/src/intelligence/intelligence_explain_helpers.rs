@@ -1,3 +1,5 @@
+//! Failure modes: reads write schemas, a query escapes its owner, stale scopes leak,
+//! or bounded results lose continuation. Native render-path and paging tests cover these.
 //! Shared helper routines for Core Intelligence explainability.
 //!
 //! ## Responsibilities
@@ -23,7 +25,7 @@
 use super::normalize_query;
 use crate::models::ExplainabilityFactor;
 use anyhow::{Context, Result};
-use rusqlite::{Connection, params};
+use vault_store::{Session, params_owned as params};
 
 /// Creates a consistently shaped explainability factor so each explanation
 /// surface can focus on its evidence math instead of payload bookkeeping.
@@ -43,19 +45,6 @@ pub(super) fn parse_compare_set_entity_id(entity_id: &str) -> Result<(&str, &str
     payload
         .rsplit_once(':')
         .with_context(|| format!("compare_set explanations expect ids shaped like 'compare:<trail_id>:<page_category>', got {entity_id}"))
-}
-
-/// Reads `visitIds` from persisted evidence JSON while tolerating older rows
-/// that may have partial or malformed payloads.
-pub(super) fn extract_visit_ids_from_evidence_json(evidence_json: &str) -> Vec<i64> {
-    serde_json::from_str::<serde_json::Value>(evidence_json)
-        .ok()
-        .and_then(|value| value.get("visitIds").cloned())
-        .and_then(|value| value.as_array().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|value| value.as_i64())
-        .collect()
 }
 
 /// Parses the shared `<profile_id>::<entity>` id format used by several
@@ -86,121 +75,154 @@ pub(super) fn parse_path_flow_entity_id(entity_id: &str) -> Result<(&str, i64, &
     Ok((profile_id, step_count, flow_pattern))
 }
 
-/// Loads the exact search visit ids behind one query family by matching the
-/// normalized-query set stored in that family record.
+/// Pages navigation membership without hydrating every visit in a large session or trail.
+pub(super) fn load_membership_visit_ids(
+    s: &Session<'_>,
+    entity: &str,
+    trail: bool,
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<crate::models::IntelligencePage<i64>> {
+    let (table, key, index) = if trail {
+        ("search_trail_members_rows", "trail_id", "idx_search_trail_members_order")
+    } else {
+        ("visit_assignments", "session_id", "idx_assignments_generation_session")
+    };
+    let after = super::paging::cursor::<(i64, i64)>(cursor)?;
+    let base = format!(
+        "SELECT visit_id,ordinal FROM {table} INDEXED BY {index} WHERE generation IN (SELECT navigation FROM intelligence_generations) AND {key}=?1"
+    );
+    let map = |r: &vault_store::Row| {
+        let id = r.get::<i64>(0)?;
+        Ok((id, (r.get::<i64>(1)?, id)))
+    };
+    let rows = if let Some((ordinal, id)) = after {
+        let mut rows = s.query(
+            &format!("{base} AND ordinal=?2 AND visit_id>?3 ORDER BY ordinal,visit_id LIMIT ?4"),
+            params![entity, ordinal, id, (limit + 1) as i64],
+            map,
+        )?;
+        if rows.len() <= limit {
+            rows.extend(s.query(
+                &format!("{base} AND ordinal>?2 ORDER BY ordinal,visit_id LIMIT ?3"),
+                params![entity, ordinal, (limit + 1 - rows.len()) as i64],
+                map,
+            )?);
+        }
+        rows
+    } else {
+        s.query(
+            &format!("{base} ORDER BY ordinal,visit_id LIMIT ?2"),
+            params![entity, (limit + 1) as i64],
+            map,
+        )?
+    };
+    super::paging::finish(rows, limit)
+}
+
+/// Pages exact search evidence through the family's complete normalized query set.
 pub(super) fn load_query_family_visit_ids(
-    connection: &Connection,
+    connection: &Session<'_>,
     profile_id: &str,
     search_engine: &str,
     queries: &[String],
-) -> Result<Vec<i64>> {
-    if queries.is_empty() {
-        return Ok(Vec::new());
-    }
-    let normalized_queries = queries.iter().map(|query| normalize_query(query)).collect::<Vec<_>>();
-    let placeholders =
-        std::iter::repeat_n("?", normalized_queries.len()).collect::<Vec<_>>().join(", ");
-    let sql = format!(
-        "SELECT visit_id
-         FROM search_events
-         WHERE profile_id = ?1
-           AND search_engine = ?2
-           AND normalized_query IN ({placeholders})
-         ORDER BY visit_id ASC"
-    );
-    let mut statement = connection.prepare(&sql)?;
-    let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
-        .chain(std::iter::once(&search_engine as &dyn rusqlite::ToSql))
-        .chain(normalized_queries.iter().map(|query| query as &dyn rusqlite::ToSql));
-    statement
-        .query_map(rusqlite::params_from_iter(params), |row| row.get::<_, i64>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<crate::models::IntelligencePage<i64>> {
+    let normalized = queries.iter().map(|q| normalize_query(q)).collect::<Vec<_>>();
+    let after = super::paging::cursor::<i64>(cursor)?.unwrap_or(0);
+    let rows = connection.query(
+        "SELECT DISTINCT e.visit_id FROM json_each(?3) q
+         CROSS JOIN search_events e ON e.normalized_query=q.value
+         WHERE e.profile_id=?1 AND e.search_engine=?2 AND e.visit_id>?4
+         ORDER BY e.visit_id LIMIT ?5",
+        params![
+            profile_id,
+            search_engine,
+            serde_json::to_string(&normalized)?,
+            after,
+            (limit + 1) as i64
+        ],
+        |r| {
+            let id = r.get::<i64>(0)?;
+            Ok((id, id))
+        },
+    )?;
+    super::paging::finish(rows, limit)
 }
 
-/// Loads all visit ids for one registrable domain so domain-level explanations
-/// can point back to archive facts instead of just counts.
+/// Pages a habit's complete domain evidence using visit IDs as stable keys.
 pub(super) fn load_domain_visit_ids(
-    connection: &Connection,
+    connection: &Session<'_>,
     profile_id: &str,
     registrable_domain: &str,
-) -> Result<Vec<i64>> {
-    connection
-        .prepare(
-            "SELECT visit_id
-             FROM visit_derived_facts
-             WHERE profile_id = ?1
-               AND registrable_domain = ?2
-             ORDER BY visit_id ASC",
-        )?
-        .query_map(params![profile_id, registrable_domain], |row| row.get::<_, i64>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<crate::models::IntelligencePage<i64>> {
+    let after = super::paging::cursor::<i64>(cursor)?.unwrap_or(0);
+    let rows = connection.query(
+        "SELECT visit_id FROM visit_derived_facts WHERE profile_id=?1
+         AND registrable_domain=?2 AND visit_id>?3 ORDER BY visit_id LIMIT ?4",
+        params![profile_id, registrable_domain, after, (limit + 1) as i64],
+        |r| {
+            let id = r.get::<i64>(0)?;
+            Ok((id, id))
+        },
+    )?;
+    super::paging::finish(rows, limit)
 }
 
 /// Replays the most recent session-local domain sequence that matched a stored
 /// path-flow pattern without touching unrelated profiles.
 pub(super) fn load_recent_path_flow_visit_ids(
-    connection: &Connection,
+    connection: &Session<'_>,
     profile_id: &str,
     step_count: i64,
     flow_pattern: &str,
+    last_seen_ms: i64,
 ) -> Result<Vec<i64>> {
-    let target_domains =
-        flow_pattern.split(" → ").map(|value| value.to_string()).collect::<Vec<_>>();
+    let target = flow_pattern.rsplit(" → ").collect::<Vec<_>>();
     let mut statement = connection.prepare(
-        "SELECT visit_derived_facts.session_id,
-                visit_derived_facts.registrable_domain,
-                visit_derived_facts.visit_id,
-                visits.visit_time_ms
-         FROM visit_derived_facts
-         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
-         WHERE visit_derived_facts.profile_id = ?1
-           AND visit_derived_facts.session_id IS NOT NULL
-         ORDER BY visit_derived_facts.session_id ASC, visits.visit_time_ms ASC, visits.id ASC",
+        "SELECT a.session_id,f.registrable_domain,v.id
+         FROM archive.visits v INDEXED BY idx_visits_visible_profile_time_id
+         CROSS JOIN intelligence_generations g ON g.profile_id=?1
+         CROSS JOIN visit_derived_facts_rows f INDEXED BY idx_vdf_visit_generation ON f.visit_id=v.id AND f.generation=g.facts
+         CROSS JOIN visit_assignments a INDEXED BY idx_assignments_visit_generation ON a.visit_id=v.id AND a.generation=g.navigation
+         WHERE v.source_profile_id=(SELECT id FROM archive.source_profiles WHERE profile_key=?1)
+           AND v.reverted_at IS NULL AND v.visit_time_ms<=?2 AND a.session_id IS NOT NULL
+         ORDER BY v.visit_time_ms DESC,v.id DESC",
     )?;
-    let rows = statement
-        .query_map([profile_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut current_session = String::new();
-    let mut current_sequence = Vec::<(String, i64, i64)>::new();
-    let mut latest_match = None::<(i64, Vec<i64>)>;
-    for (session_id, domain, visit_id, visit_time_ms) in rows {
-        if current_session != session_id {
-            update_latest_path_flow_match(
-                &current_sequence,
-                step_count as usize,
-                &target_domains,
-                &mut latest_match,
-            );
-            current_session = session_id;
-            current_sequence.clear();
+    let rows = statement.query_map(params![profile_id, last_seen_ms], |r| {
+        Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?))
+    })?;
+    let mut session = String::new();
+    let mut recent = std::collections::VecDeque::<(String, i64)>::new();
+    for row in rows {
+        let (next_session, domain, id) = row?;
+        if next_session != session {
+            recent.clear();
+            session = next_session;
         }
-        if current_sequence.last().is_none_or(|(last_domain, _, _)| last_domain != &domain) {
-            current_sequence.push((domain, visit_id, visit_time_ms));
-        } else if let Some((_, last_visit_id, last_seen_ms)) = current_sequence.last_mut() {
-            *last_visit_id = visit_id;
-            *last_seen_ms = visit_time_ms;
+        // Descending traversal encounters the last visit in each repeated-domain run first.
+        if recent.back().is_some_and(|(previous, _)| previous == &domain) {
+            continue;
+        }
+        if recent.len() == step_count as usize {
+            recent.pop_front();
+        }
+        recent.push_back((domain, id));
+        if recent.len() == target.len()
+            && recent.iter().zip(&target).all(|((domain, _), target)| domain == target)
+        {
+            return Ok(recent.into_iter().rev().map(|(_, id)| id).collect());
         }
     }
-    update_latest_path_flow_match(
-        &current_sequence,
-        step_count as usize,
-        &target_domains,
-        &mut latest_match,
-    );
-    Ok(latest_match.map(|(_, visit_ids)| visit_ids).unwrap_or_default())
+    Ok(Vec::new())
 }
 
 /// Keeps only the newest matching sequence so path-flow explanations point to
 /// the most relevant evidence a user can still inspect.
+#[cfg(test)]
 fn update_latest_path_flow_match(
     sequence: &[(String, i64, i64)],
     step_count: usize,
@@ -230,9 +252,12 @@ mod tests {
 
     #[test]
     fn query_family_loader_returns_empty_without_schema_when_queries_are_empty() {
-        let connection = Connection::open_in_memory().expect("sqlite");
-        let ids = load_query_family_visit_ids(&connection, "chrome:Default", "google", &[])
-            .expect("empty query family visits");
+        let vault = crate::Vault::open_temp().unwrap();
+        let ids = vault
+            .read(vault_store::Db::Intelligence, |s| {
+                load_query_family_visit_ids(s, "chrome:Default", "google", &[], None, 50)
+            })
+            .unwrap();
         assert!(ids.is_empty());
     }
 
@@ -274,47 +299,43 @@ mod tests {
 
     #[test]
     fn recent_path_flow_loader_keeps_latest_visit_for_repeated_domains() {
-        let connection = Connection::open_in_memory().expect("sqlite");
-        connection
-            .execute_batch(
-                "
-                ATTACH DATABASE ':memory:' AS archive;
-                CREATE TABLE archive.visits (
-                    id INTEGER PRIMARY KEY,
-                    visit_time_ms INTEGER NOT NULL
-                );
-                CREATE TABLE visit_derived_facts (
-                    visit_id INTEGER PRIMARY KEY,
-                    profile_id TEXT NOT NULL,
-                    session_id TEXT,
-                    registrable_domain TEXT NOT NULL
-                );
-                ",
-            )
-            .expect("schema");
-        for (visit_id, domain, visit_time_ms) in
-            [(1_i64, "a.test", 10_i64), (2, "a.test", 20), (3, "b.test", 30)]
-        {
-            connection
-                .execute(
-                    "INSERT INTO archive.visits (id, visit_time_ms) VALUES (?1, ?2)",
-                    params![visit_id, visit_time_ms],
-                )
-                .expect("visit");
-            connection
-                .execute(
-                    "INSERT INTO visit_derived_facts
-                     (visit_id, profile_id, session_id, registrable_domain)
-                     VALUES (?1, 'chrome:Default', 'session:one', ?2)",
-                    params![visit_id, domain],
-                )
-                .expect("derived fact");
+        for key in [None, Some([29; 32])] {
+            let vault = crate::Vault::open_temp_with_key(key).unwrap();
+            vault.write(vault_store::Db::Archive,vault_store::Priority::Batch,|s| {
+                s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,profile_key,discovered_at) VALUES(1,'chrome','Default','/fixture','chrome:Default','')",())?;
+                for (id,domain,time) in [(1_i64,"a.test",10_i64),(2,"a.test",20),(3,"b.test",30)] {
+                    let url=format!("https://{domain}/{id}");
+                    s.execute("INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(?1,?2,?2,?3)",params![id,url,domain])?;
+                    s.execute("INSERT INTO urls(id,page_id,url,source_profile_id,created_by_run_id,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso) VALUES(?1,?1,?2,1,0,?3,'',?3,'')",params![id,url,time])?;
+                    s.execute("INSERT INTO visits(id,url_id,source_profile_id,created_by_run_id,visit_time_ms,visit_time_iso) VALUES(?1,?1,1,0,?2,'')",params![id,time])?;
+                }Ok(())
+            }).unwrap();
+            vault.write(vault_store::Db::Intelligence,vault_store::Priority::Batch,|s| {
+                s.execute("INSERT INTO intelligence_generations(profile_id) VALUES('chrome:Default')",())?;
+                for (id,domain) in [(1_i64,"a.test"),(2,"a.test"),(3,"b.test")] {
+                    s.execute("INSERT INTO visit_derived_facts_rows(visit_id,profile_id,registrable_domain,canonical_url,computed_at) VALUES(?1,'chrome:Default',?2,?3,'')",params![id,domain,format!("https://{domain}/{id}")])?;
+                    s.execute("INSERT INTO visit_assignments(visit_id,profile_id,session_id) VALUES(?1,'chrome:Default','session:one')",[id])?;
+                }Ok(())
+            }).unwrap();
+            vault.store().capture_query_plans(vault_store::Db::Intelligence, true).unwrap();
+            let ids = vault
+                .read(vault_store::Db::Intelligence, |s| {
+                    load_recent_path_flow_visit_ids(
+                        s,
+                        "chrome:Default",
+                        2,
+                        "a.test → b.test",
+                        i64::MAX,
+                    )
+                })
+                .unwrap();
+            assert_eq!(ids, vec![2, 3]);
+            let plans = vault.store().take_query_plans(vault_store::Db::Intelligence).unwrap();
+            assert!(
+                plans.iter().any(|plan| plan.steps.iter().any(|step| step.contains("SEARCH v")
+                    && step.contains("idx_visits_visible_profile_time_id"))),
+                "{plans:?}"
+            );
         }
-
-        let visit_ids =
-            load_recent_path_flow_visit_ids(&connection, "chrome:Default", 2, "a.test → b.test")
-                .expect("path flow visits");
-
-        assert_eq!(visit_ids, vec![2, 3]);
     }
 }

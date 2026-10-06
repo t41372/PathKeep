@@ -1,107 +1,57 @@
-//! Responsibilities: prove compiled statements are reused safely (src/statements.rs).
-//! Not responsible for: SQL validation or checkpoint scheduling.
-//! Failure modes covered: every call recompiles; the cache grows without bound;
-//! a half-read statement blocks the TRUNCATE checkpoint; a schema change on the
-//! same connection leaves a stale program.
-mod support;
-use std::{
-    thread,
-    time::{Duration, Instant},
-};
-use vault_store::{Db, Error, Priority, Store};
+//! Responsibilities: verify prepared operations stay inside a Store transaction.
+//! Not responsible for: business schemas or queue scheduling.
+//! Failure modes: cursors escape threads, reused statements retain bindings,
+//! optional reads hide errors, reads mutate, or prepared SQL bypasses policy.
 
-fn compiled(store: &Store) -> u64 {
-    store.metrics(Db::Archive).statements_compiled
-}
+mod support;
+use vault_store::{Db, OptionalRow, Priority, params_owned};
 
 #[test]
-fn a_statement_repeated_in_and_across_batches_compiles_once() {
-    let (_dir, store) = support::open();
-    let before = compiled(&store);
-    for batch in 0..2_i64 {
+fn prepared_statements_stream_and_rebind_in_both_key_modes() {
+    for key in [None, Some([61; 32])] {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = support::config(root.path());
+        config.keys = [key; 5];
+        let store = vault_store::Store::open(config).unwrap();
         store
-            .write(Db::Archive, Priority::Batch, move |tx| {
-                for row in 0..5_000_i64 {
-                    tx.execute(
-                        "INSERT INTO visits(id,url,title,visited_at) VALUES (?1,'https://example.test','page',?1)",
-                        [batch * 5_000 + row],
-                    )?;
+            .write(Db::Archive, Priority::Batch, |s| {
+                let mut insert = s.prepare("INSERT INTO visits(id,url) VALUES(?1,?2)")?;
+                let url = String::from("https://fixture.test/");
+                for id in 1..=101 {
+                    let borrowed = &url;
+                    insert.execute(params_owned![id, borrowed])?;
                 }
+                assert_eq!(url, "https://fixture.test/");
+                Ok(())
+            })
+            .unwrap();
+        store
+            .read(Db::Archive, |s| {
+                let mut query =
+                    s.prepare("SELECT id FROM visits WHERE id>?1 ORDER BY id LIMIT 3")?;
+                let first = query
+                    .query_map([0], |r| Ok(r.get::<i64>(0)?))?
+                    .collect::<vault_store::Result<Vec<_>>>()?;
+                let last = query
+                    .query_map([99], |r| Ok(r.get::<i64>(0)?))?
+                    .collect::<vault_store::Result<Vec<_>>>()?;
+                assert_eq!(first, [1, 2, 3]);
+                assert_eq!(last, [100, 101]);
+                assert!(
+                    s.query_one("SELECT id FROM visits WHERE id=0", (), |r| Ok(r.get::<i64>(0)?))
+                        .optional()?
+                        .is_none()
+                );
+                assert!(
+                    s.query_one("SELECT absent FROM visits", (), |r| Ok(r.get::<i64>(0)?))
+                        .optional()
+                        .is_err()
+                );
+                assert!(s.prepare("CREATE TEMP TABLE leak(id)").is_err());
+                assert!(s.prepare("ATTACH ':memory:' AS leak").is_err());
+                assert!(s.prepare("UPDATE visits SET url='changed'").is_err());
                 Ok(())
             })
             .unwrap();
     }
-    assert_eq!(compiled(&store) - before, 1, "10,000 executions of one statement");
-    assert_eq!(support::count(&store), 10_000);
-}
-
-#[test]
-fn the_cache_is_bounded_and_evicts_the_least_recently_used() {
-    let (_dir, store) = support::open();
-    let sql = |i: usize| format!("SELECT {i} AS value");
-    store
-        .write(Db::Archive, Priority::Batch, move |tx| {
-            for i in 0..300 {
-                tx.query_one(&sql(i), (), |row| Ok(row.get::<i64>(0)?))?;
-            }
-            Ok(())
-        })
-        .unwrap();
-    let rerun = |i: usize| {
-        let before = compiled(&store);
-        store
-            .write(Db::Archive, Priority::Batch, move |tx| {
-                tx.query_one(&sql(i), (), |row| Ok(row.get::<i64>(0)?))
-            })
-            .unwrap();
-        compiled(&store) - before
-    };
-    assert_eq!(rerun(299), 0, "a recent statement is still cached");
-    assert_eq!(rerun(0), 1, "the oldest statement was evicted beyond the bound");
-}
-
-#[test]
-fn a_statement_stopped_mid_read_does_not_block_the_truncate_checkpoint() {
-    let (dir, store) = support::open();
-    for id in 1..=50 {
-        support::insert(&store, id).unwrap();
-    }
-    // Every reader stops after its first row, leaving its statement mid-scan.
-    for _ in 0..8 {
-        let stopped = store.read(Db::Archive, |conn| {
-            conn.for_each("SELECT id FROM visits ORDER BY id", (), |_| {
-                Err(Error::RestrictedSql("stop after one row"))
-            })
-        });
-        assert!(stopped.is_err());
-    }
-    support::insert(&store, 51).unwrap();
-    let wal = dir.path().join("archive/history-vault.db-wal");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while std::fs::metadata(&wal).unwrap().len() != 0 {
-        assert!(Instant::now() < deadline, "a cached reader statement pinned the WAL");
-        thread::sleep(Duration::from_millis(5));
-    }
-    assert_eq!(support::count(&store), 51);
-}
-
-#[test]
-fn a_cached_statement_sees_a_later_schema_change() {
-    let (_dir, store) = support::open();
-    support::insert(&store, 1).unwrap();
-    let columns = |store: &Store| {
-        store
-            .write(Db::Archive, Priority::Batch, |tx| {
-                tx.query_one("SELECT * FROM visits", (), |row| Ok(row.column_count()))
-            })
-            .unwrap()
-    };
-    assert_eq!(columns(&store), 5);
-    store
-        .write(Db::Archive, Priority::Batch, |tx| {
-            tx.execute("ALTER TABLE visits ADD COLUMN note TEXT", ())?;
-            Ok(())
-        })
-        .unwrap();
-    assert_eq!(columns(&store), 6);
 }

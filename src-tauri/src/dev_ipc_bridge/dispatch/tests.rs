@@ -387,6 +387,101 @@ fn dispatch_rekey_refuses_the_mixed_storage_build_even_with_a_valid_password() {
     }
 }
 
+fn assert_agent_crud_after_keychain_unlock(state: &DevIpcBridgeState) {
+    for id in ["chat-a", "chat-b", "chat-c"] {
+        let messages: Vec<_> = (0..3)
+            .map(|seq| {
+                json!({
+                    "id":format!("{id}-{seq}"), "role":"user", "content":format!("message {seq}")
+                })
+            })
+            .collect();
+        ready_block_on(dispatch_command(
+            state,
+            "save_ai_conversation",
+            json!({"request":{
+                "id":id, "messages":messages
+            }}),
+        ))
+        .unwrap();
+    }
+    let mut cursor = Value::Null;
+    let mut ids = Vec::new();
+    loop {
+        let page = ready_block_on(dispatch_command(
+            state,
+            "list_ai_conversations",
+            json!({"request":{"limit":1,"cursor":cursor}}),
+        ))
+        .unwrap();
+        ids.extend(
+            page["conversations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap().to_owned()),
+        );
+        cursor = page["nextCursor"].clone();
+        if cursor.is_null() {
+            break;
+        }
+    }
+    ids.sort();
+    assert_eq!(ids, ["chat-a", "chat-b", "chat-c"]);
+    let mut cursor = Value::Null;
+    let mut messages = Vec::new();
+    loop {
+        let page = ready_block_on(dispatch_command(
+            state,
+            "list_ai_messages",
+            json!({"request":{"conversationId":"chat-a","limit":1,"cursor":cursor}}),
+        ))
+        .unwrap();
+        messages.extend(
+            page["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap().to_owned()),
+        );
+        cursor = page["nextCursor"].clone();
+        if cursor.is_null() {
+            break;
+        }
+    }
+    assert_eq!(messages, ["chat-a-0", "chat-a-1", "chat-a-2"]);
+    let loaded = ready_block_on(dispatch_command(
+        state,
+        "load_ai_conversation",
+        json!({"conversationId":"chat-a"}),
+    ))
+    .unwrap();
+    assert_eq!(loaded["messages"].as_array().unwrap().len(), 3);
+    let renamed = ready_block_on(dispatch_command(
+        state,
+        "rename_ai_conversation",
+        json!({"request":{"id":"chat-a","title":"Saved title"}}),
+    ))
+    .unwrap();
+    assert_eq!(renamed["title"], "Saved title");
+    let deleted = ready_block_on(dispatch_command(
+        state,
+        "delete_ai_conversation",
+        json!({"conversationId":"chat-a"}),
+    ))
+    .unwrap();
+    assert_eq!(deleted["deleted"], true);
+    assert!(
+        ready_block_on(dispatch_command(
+            state,
+            "load_ai_conversation",
+            json!({"conversationId":"chat-a"})
+        ))
+        .unwrap()
+        .is_null()
+    );
+}
+
 fn wrapped<T: Serialize>(request: T) -> Value {
     json!({ "request": request })
 }
@@ -520,12 +615,14 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     let date_range = DateRange { start: "1970-01-01".to_string(), end: "2100-01-01".to_string() };
     let scoped = ScopedDateRangeRequest { date_range: date_range.clone(), profile_id: None };
     let paged = PagedDateRangeRequest {
+        cursor: None,
         date_range: date_range.clone(),
         profile_id: None,
-        page: 0,
+
         page_size: 10,
     };
     let top_sites = TopSitesRequest {
+        cursor: None,
         date_range: date_range.clone(),
         profile_id: None,
         sort_by: None,
@@ -865,7 +962,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(
         &state,
         "list_ai_conversations",
-        wrapped(ListAgentConversationsRequest { limit: Some(10) }),
+        wrapped(ListAgentConversationsRequest { limit: Some(10), cursor: None }),
     );
     dispatch_for_coverage(
         &state,
@@ -896,19 +993,20 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         wrapped(CoreIntelligenceRebuildRequest::default()),
     );
     dispatch_for_coverage(&state, "get_sessions", wrapped(paged.clone()));
-    dispatch_for_coverage(&state, "get_session_detail", json!({ "sessionId": "missing" }));
+    dispatch_for_coverage(&state, "get_session_detail", wrapped(json!({ "sessionId": "missing" })));
     dispatch_for_coverage(
         &state,
         "get_search_trails",
         wrapped(SearchTrailQueryRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             engine: None,
-            page: 0,
+
             page_size: 10,
         }),
     );
-    dispatch_for_coverage(&state, "get_trail_detail", json!({ "trailId": "missing" }));
+    dispatch_for_coverage(&state, "get_trail_detail", wrapped(json!({ "trailId": "missing" })));
     dispatch_for_coverage(&state, "get_navigation_path", json!({ "visitId": 1 }));
     dispatch_for_coverage(&state, "get_hub_pages", wrapped(top_sites.clone()));
     dispatch_for_coverage(&state, "get_search_engine_ranking", wrapped(scoped.clone()));
@@ -937,6 +1035,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_top_search_concepts",
         wrapped(TopSearchConceptsRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(10),
@@ -946,6 +1045,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_frequent_searches",
         wrapped(FrequentSearchesRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(10),
@@ -962,7 +1062,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             domain: None,
             query: None,
             sort: None,
-            page: 0,
+            cursor: None,
             page_size: 10,
         }),
     );
@@ -971,6 +1071,8 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_query_family_detail",
         wrapped(QueryFamilyDetailRequest {
+            cursor: None,
+            page_size: None,
             family_id: "missing".to_string(),
             date_range: date_range.clone(),
             profile_id: None,
@@ -989,6 +1091,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_refind_pages",
         wrapped(RefindPagesRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(10),
@@ -998,6 +1101,9 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_refind_page_detail",
         wrapped(RefindPageDetailRequest {
+            visits_cursor: None,
+            trails_cursor: None,
+            page_size: None,
             canonical_url: "https://example.com/".to_string(),
             date_range: date_range.clone(),
             profile_id: None,
@@ -1007,6 +1113,9 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "explain_refind",
         wrapped(vault_core::ExplainRefindRequest {
+            profile_id: None,
+            cursor: None,
+            page_size: None,
             canonical_url: "https://example.com/".to_string(),
         }),
     );
@@ -1014,6 +1123,8 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "explain_entity",
         wrapped(EntityExplanationRequest {
+            cursor: None,
+            page_size: None,
             entity_type: "domain".to_string(),
             entity_id: "example.com".to_string(),
         }),
@@ -1036,6 +1147,8 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_search_effectiveness",
         wrapped(SearchEffectivenessRequest {
+            topics_cursor: None,
+            topics_limit: None,
             date_range: date_range.clone(),
             profile_id: None,
             engine: None,
@@ -1047,6 +1160,9 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_domain_deep_dive",
         wrapped(DomainDeepDiveRequest {
+            pages_cursor: None,
+            searches_cursor: None,
+            page_size: None,
             registrable_domain: "example.com".to_string(),
             date_range: date_range.clone(),
             profile_id: None,
@@ -1079,6 +1195,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_intelligence_embed_cards",
         wrapped(IntelligenceEmbedCardsRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(4),
@@ -1088,6 +1205,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_intelligence_widget_snapshot",
         wrapped(IntelligenceEmbedCardsRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(4),
@@ -1112,6 +1230,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_path_flows",
         wrapped(PathFlowRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             step_count: 2,
@@ -1465,6 +1584,8 @@ fn locked_snapshots_do_not_read_keychain_and_explicit_unlock_reads_once() {
     let before = vault_platform::test_support::keyring_secret_read_count(&keyring);
     ready_block_on(dispatch_command(&state, "unlock_archive_from_keychain", json!({}))).unwrap();
     assert_eq!(vault_platform::test_support::keyring_secret_read_count(&keyring), before + 1);
+    assert!(state.session.get_key().unwrap().is_none());
+    assert_agent_crud_after_keychain_unlock(&state);
     let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({}))).unwrap();
     assert_eq!(snapshot["archiveStatus"]["unlocked"], true);
     ready_block_on(dispatch_command(&state, "schedule_status", json!({}))).unwrap();
@@ -1485,3 +1606,62 @@ fn locked_snapshots_do_not_read_keychain_and_explicit_unlock_reads_once() {
 
 #[path = "native_reads_tests.rs"]
 mod native_reads;
+
+#[test]
+fn queue_history_dispatch_preserves_every_cursor_page() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+    }
+    let paths = vault_core::project_paths_with_root(root.path());
+    vault_core::save_config(
+        &paths,
+        &AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    let vault = state.session.vault().unwrap();
+    for id in 0..37 {
+        vault_core::ai_queue::enqueue_index_job(&vault, &AiIndexRequest::default(), false).unwrap();
+        vault_core::intelligence_runtime::enqueue_core_intelligence_job(
+            &vault,
+            "full-rebuild",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some(format!("profile-{id}")),
+                ..Default::default()
+            },
+            "fixture",
+        )
+        .unwrap();
+    }
+    for command in ["list_ai_jobs", "list_intelligence_jobs"] {
+        let mut cursor = Value::Null;
+        let mut ids = std::collections::BTreeSet::new();
+        loop {
+            let page = ready_block_on(dispatch_command(
+                &state,
+                command,
+                json!({"request":{"limit":5,"cursor":cursor}}),
+            ))
+            .unwrap();
+            for row in page["items"].as_array().unwrap() {
+                assert!(ids.insert(row["id"].as_i64().unwrap()));
+            }
+            cursor = page["nextCursor"].clone();
+            if cursor.is_null() {
+                break;
+            }
+        }
+        assert_eq!(ids.len(), 37);
+    }
+    state.session.close_vault().unwrap();
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+    }
+}

@@ -110,7 +110,8 @@ pub struct SearchQueryRow {
 pub struct SearchQueryListResult {
     pub rows: Vec<SearchQueryRow>,
     pub total: i64,
-    pub page: u32,
+    #[serde(default)]
+    pub next_cursor: Option<String>,
     pub page_size: u32,
 }
 
@@ -149,7 +150,7 @@ pub struct QueryFamily {
 pub struct QueryFamilyResult {
     pub families: Vec<QueryFamily>,
     pub total: i64,
-    pub page: u32,
+    pub next_cursor: Option<String>,
     pub page_size: u32,
 }
 
@@ -158,7 +159,7 @@ pub struct QueryFamilyResult {
 #[serde(rename_all = "camelCase")]
 pub struct QueryFamilyDetail {
     pub family: QueryFamily,
-    pub related_trails: Vec<TrailSummary>,
+    pub related_trails: crate::models::IntelligencePage<TrailSummary>,
 }
 
 /// Refind-page row summarizing cross-day reuse of one canonical URL.
@@ -204,6 +205,8 @@ pub struct RefindScoreFactor {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RefindExplanation {
+    pub profile_id: String,
+    pub visit_ids_next_cursor: Option<String>,
     pub canonical_url: String,
     pub refind_score: f32,
     pub factors: Vec<RefindScoreFactor>,
@@ -217,7 +220,7 @@ pub struct RefindPageDetail {
     pub page: RefindPage,
     pub explanation: RefindExplanation,
     pub recent_days: Vec<String>,
-    pub related_trails: Vec<TrailSummary>,
+    pub related_trails: crate::models::IntelligencePage<TrailSummary>,
 }
 
 /// Session summary row used by session lists and related-detail surfaces.
@@ -240,7 +243,7 @@ pub struct SessionSummary {
 pub struct SessionListResult {
     pub sessions: Vec<SessionSummary>,
     pub total: i64,
-    pub page: u32,
+    pub next_cursor: Option<String>,
     pub page_size: u32,
 }
 
@@ -282,6 +285,8 @@ pub struct TrailSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionDetail {
+    pub visits_next_cursor: Option<String>,
+    pub trails_next_cursor: Option<String>,
     pub session: SessionSummary,
     pub visits: Vec<SessionVisit>,
     pub trails: Vec<TrailSummary>,
@@ -293,7 +298,7 @@ pub struct SessionDetail {
 pub struct TrailListResult {
     pub trails: Vec<TrailSummary>,
     pub total: i64,
-    pub page: u32,
+    pub next_cursor: Option<String>,
     pub page_size: u32,
 }
 
@@ -317,6 +322,7 @@ pub struct TrailMember {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TrailDetail {
+    pub members_next_cursor: Option<String>,
     pub trail: TrailSummary,
     pub members: Vec<TrailMember>,
 }

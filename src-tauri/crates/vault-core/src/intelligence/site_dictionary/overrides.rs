@@ -1,3 +1,4 @@
+//! Failure modes: edits vanish, disabled rules classify visits, or reads bootstrap storage.
 //! SQLite ownership for user-managed site-dictionary overrides.
 //!
 //! ## Responsibilities
@@ -28,45 +29,18 @@ use crate::{
         DomainCategory, InteractionKind, PageCategory, TaxonomyOverride, TaxonomyOverrideTarget,
     },
 };
-use anyhow::{Context, Result};
-use rusqlite::{Connection, params};
+use anyhow::Result;
+use vault_store::{Session, params_owned as params};
 
 /// Schema for persisted user override rules. The unique target pair ensures one
 /// edit replaces the previous rule instead of creating ambiguous matches.
-const SITE_DICTIONARY_OVERRIDES_SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS site_dictionary_overrides (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  target_kind       TEXT NOT NULL,
-  target_value      TEXT NOT NULL,
-  domain_category   TEXT,
-  page_category     TEXT,
-  interaction_kind  TEXT,
-  display_name      TEXT,
-  search_engine     TEXT,
-  is_noisy          INTEGER NOT NULL DEFAULT 0,
-  note              TEXT,
-  created_at        TEXT NOT NULL,
-  updated_at        TEXT NOT NULL,
-  UNIQUE(target_kind, target_value)
-);
-CREATE INDEX IF NOT EXISTS idx_site_dictionary_overrides_target
-  ON site_dictionary_overrides(target_kind, target_value);
-"#;
-
 /// Ensures the override table exists before classification or Settings reads.
 /// This is idempotent and safe to call from each public owner boundary.
-pub(crate) fn ensure_site_dictionary_override_schema(connection: &Connection) -> Result<()> {
-    connection
-        .execute_batch(SITE_DICTIONARY_OVERRIDES_SCHEMA_SQL)
-        .context("ensuring site dictionary override schema")
-}
-
 /// Loads user overrides in deterministic order so equal-match behavior remains
 /// stable across rebuilds and test runs.
 pub(crate) fn load_site_dictionary_overrides(
-    connection: &Connection,
+    connection: &Session<'_>,
 ) -> Result<Vec<SiteDictionaryOverride>> {
-    ensure_site_dictionary_override_schema(connection)?;
     let mut statement = connection.prepare(
         "SELECT target_kind,
                 target_value,
@@ -81,23 +55,27 @@ pub(crate) fn load_site_dictionary_overrides(
          ORDER BY target_kind ASC, target_value ASC",
     )?;
     statement
-        .query_map([], |row| {
+        .query_map((), |row| {
             let target_kind = row
-                .get::<_, String>(0)
+                .get::<String>(0)
                 .ok()
                 .and_then(|value| SiteDictionaryOverrideTargetKind::from_str(&value))
-                .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
-            let target_value = row.get::<_, String>(1)?;
-            let domain_category = row.get::<_, Option<String>>(2)?;
-            let page_category = row.get::<_, Option<String>>(3)?;
-            let interaction_kind = row.get::<_, Option<String>>(4)?;
+                .ok_or_else(|| {
+                    vault_store::Error::Operation(Box::new(std::io::Error::other(
+                        "unknown site dictionary target",
+                    )))
+                })?;
+            let target_value = row.get::<String>(1)?;
+            let domain_category = row.get::<Option<String>>(2)?;
+            let page_category = row.get::<Option<String>>(3)?;
+            let interaction_kind = row.get::<Option<String>>(4)?;
             let taxonomy_override = build_taxonomy_override(
                 &target_kind,
                 &target_value,
                 domain_category.as_deref(),
                 page_category.as_deref(),
                 interaction_kind.as_deref(),
-                row.get::<_, Option<String>>(8)?.clone(),
+                row.get::<Option<String>>(8)?.clone(),
             );
             Ok(SiteDictionaryOverride {
                 target_kind,
@@ -105,11 +83,11 @@ pub(crate) fn load_site_dictionary_overrides(
                 taxonomy_override,
                 display_name: row.get(5)?,
                 search_engine: row.get(6)?,
-                is_noisy: row.get::<_, i64>(7)? != 0,
+                is_noisy: row.get::<i64>(7)? != 0,
                 note: row.get(8)?,
             })
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<vault_store::Result<Vec<_>>>()
         .map_err(Into::into)
 }
 
@@ -118,10 +96,9 @@ pub(crate) fn load_site_dictionary_overrides(
 /// to send explicit taxonomy keys or `None`.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn upsert_site_dictionary_override(
-    connection: &Connection,
+    connection: &Session<'_>,
     override_rule: &SiteDictionaryOverrideUpsert,
 ) -> Result<()> {
-    ensure_site_dictionary_override_schema(connection)?;
     let now = now_rfc3339();
     connection.execute(
         "INSERT INTO site_dictionary_overrides (

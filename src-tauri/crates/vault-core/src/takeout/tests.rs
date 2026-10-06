@@ -1,6 +1,7 @@
 //! Regression tests for the Takeout import boundary.
 
 mod browser_history;
+mod payload_watermarks;
 
 use super::*;
 use crate::test_support::store::Probe;

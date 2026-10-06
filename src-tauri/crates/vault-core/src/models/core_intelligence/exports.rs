@@ -51,6 +51,7 @@ pub struct IntelligenceEmbedCardPayload {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct IntelligenceWidgetSnapshot {
+    pub highlights_next_cursor: Option<String>,
     pub generated_at: String,
     pub date_range: DateRange,
     pub digest_summary: DigestSummary,
@@ -66,6 +67,7 @@ pub struct IntelligencePublicSnapshot {
     pub date_range: DateRange,
     pub digest_summary: DigestSummary,
     pub top_domains: Vec<String>,
+    pub top_domains_next_cursor: Option<String>,
     pub search_engines: Vec<EngineRanking>,
     pub discovery_trend: DiscoveryTrend,
     pub notes: Vec<String>,
@@ -82,6 +84,7 @@ pub struct IntelligenceLocalHostBundle {
     pub date_range: DateRange,
     pub profile_id: Option<String>,
     pub embed_cards: Vec<IntelligenceEmbedCardPayload>,
+    pub embed_cards_next_cursor: Option<String>,
     pub widget_snapshot: IntelligenceWidgetSnapshot,
     pub public_snapshot: IntelligencePublicSnapshot,
     pub trusted_only_card_ids: Vec<String>,

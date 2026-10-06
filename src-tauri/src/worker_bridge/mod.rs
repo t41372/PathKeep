@@ -435,9 +435,8 @@ mod tests {
         // W-AI-9-D: the read-only re-embed estimator returns a sized, honest report (no model load,
         // no embedding) — `gpu_available` tracks the `metal` feature, so it is false in the default
         // CPU-only build and true under `--all-features` (the authoritative coverage gate).
-        let estimate =
-            estimate_reembed_impl(ReembedScope::Full, session_key(&session).unwrap().as_deref())
-                .expect("estimate should compute over the seeded archive");
+        let estimate = estimate_reembed_impl(ReembedScope::Full, &session)
+            .expect("estimate should compute over the seeded archive");
         assert_eq!(estimate.scope, ReembedScope::Full);
         assert!(estimate.est_minutes_gpu <= estimate.est_minutes_cpu);
         assert_eq!(estimate.gpu_available, cfg!(feature = "metal"));
@@ -483,9 +482,8 @@ mod tests {
         assert!(!doctor.checks.is_empty());
         let runtime_before_rekey = (0..50)
             .find_map(|attempt| {
-                let runtime =
-                    load_intelligence_runtime_impl(session_key(&session).unwrap().as_deref())
-                        .expect("load intelligence runtime before rekey");
+                let runtime = load_intelligence_runtime_impl(&session)
+                    .expect("load intelligence runtime before rekey");
                 let only_deferred_network_backlog = runtime.queue.running == 0
                     && runtime.recent_jobs.iter().all(|job| {
                         job.state != "queued"
@@ -514,66 +512,69 @@ mod tests {
             DateRange { start: "1970-01-01".to_string(), end: "2100-01-01".to_string() };
         let scoped = ScopedDateRangeRequest { date_range: date_range.clone(), profile_id: None };
         let paged = PagedDateRangeRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
-            page: 0,
+
             page_size: 10,
         };
         let top_sites = TopSitesRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             sort_by: None,
             limit: Some(10),
         };
         let embed_cards = IntelligenceEmbedCardsRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(4),
         };
 
-        let _ = run_core_intelligence_now_impl(
-            CoreIntelligenceRebuildRequest::default(),
-            session_key(&session).unwrap().as_deref(),
-        )
-        .expect("run core intelligence through bridge");
+        let _ = run_core_intelligence_now_impl(CoreIntelligenceRebuildRequest::default(), &session)
+            .expect("run core intelligence through bridge");
         let queued_rebuild = queue_core_intelligence_rebuild_impl(
             CoreIntelligenceRebuildRequest::default(),
-            session_key(&session).unwrap().as_deref(),
+            &session,
         )
         .expect("queue core intelligence through bridge");
         assert!(queued_rebuild.job_id > 0);
-        let _ = retry_intelligence_job_impl(999_999, session_key(&session).unwrap().as_deref())
+        let _ = retry_intelligence_job_impl(999_999, &session)
             .expect_err("missing intelligence job retry should fail");
-        let _ = cancel_intelligence_job_impl(999_999, session_key(&session).unwrap().as_deref())
+        let _ = cancel_intelligence_job_impl(999_999, &session)
             .expect_err("missing intelligence job cancel should fail");
 
-        let _ = get_sessions_impl(paged.clone(), session_key(&session).unwrap().as_deref())
-            .expect("bridge sessions");
+        let _ = get_sessions_impl(paged.clone(), &session).expect("bridge sessions");
         let _ = get_session_detail_impl(
-            "missing-session".to_string(),
-            session_key(&session).unwrap().as_deref(),
+            vault_core::SessionDetailRequest {
+                session_id: "missing-session".into(),
+                ..Default::default()
+            },
+            &session,
         );
         let _ = get_search_trails_impl(
             SearchTrailQueryRequest {
+                cursor: None,
                 date_range: date_range.clone(),
                 profile_id: None,
                 engine: None,
-                page: 0,
+
                 page_size: 10,
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
         let _ = get_trail_detail_impl(
-            "missing-trail".to_string(),
-            session_key(&session).unwrap().as_deref(),
+            vault_core::TrailDetailRequest {
+                trail_id: "missing-trail".into(),
+                ..Default::default()
+            },
+            &session,
         );
-        let _ = get_navigation_path_impl(1, session_key(&session).unwrap().as_deref());
-        let _ = get_hub_pages_impl(top_sites.clone(), session_key(&session).unwrap().as_deref());
-        let _ = get_search_engine_ranking_impl(
-            scoped.clone(),
-            session_key(&session).unwrap().as_deref(),
-        );
-        let _ = list_search_engine_rules_impl(session_key(&session).unwrap().as_deref());
+        let _ = get_navigation_path_impl(1, &session);
+        let _ = get_hub_pages_impl(top_sites.clone(), &session);
+        let _ = get_search_engine_ranking_impl(scoped.clone(), &session);
+        let _ = list_search_engine_rules_impl(&session);
         let rules = upsert_search_engine_rule_impl(
             SearchEngineRuleInput {
                 rule_id: Some("bridge-fixture-search".to_string()),
@@ -586,22 +587,20 @@ mod tests {
                 note: Some("bridge coverage fixture".to_string()),
                 example_url: Some("https://bridge-search.example/search?q=pathkeep".to_string()),
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         )
         .expect("bridge upsert search rule");
         assert!(rules.iter().any(|rule| rule.rule_id == "bridge-fixture-search"));
-        let _ = delete_search_engine_rule_impl(
-            "bridge-fixture-search".to_string(),
-            session_key(&session).unwrap().as_deref(),
-        )
-        .expect("bridge delete search rule");
+        let _ = delete_search_engine_rule_impl("bridge-fixture-search".to_string(), &session)
+            .expect("bridge delete search rule");
         let _ = get_top_search_concepts_impl(
             TopSearchConceptsRequest {
+                cursor: None,
                 date_range: date_range.clone(),
                 profile_id: None,
                 limit: Some(10),
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
         let _ = get_search_queries_impl(
             SearchQueryListRequest {
@@ -612,99 +611,110 @@ mod tests {
                 domain: None,
                 query: None,
                 sort: None,
-                page: 0,
+                cursor: None,
                 page_size: 10,
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
-        let _ = get_query_families_impl(paged, session_key(&session).unwrap().as_deref());
+        let _ = get_query_families_impl(paged, &session);
         let _ = get_query_family_detail_impl(
             QueryFamilyDetailRequest {
+                cursor: None,
+                page_size: None,
                 family_id: "missing-family".to_string(),
                 date_range: date_range.clone(),
                 profile_id: None,
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
-        let _ = get_top_sites_impl(top_sites, session_key(&session).unwrap().as_deref());
+        let _ = get_top_sites_impl(top_sites, &session);
         let _ = get_domain_trend_impl(
             DomainTrendRequest {
                 registrable_domain: "example.com".to_string(),
                 date_range: date_range.clone(),
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
         let _ = get_refind_pages_impl(
             RefindPagesRequest {
+                cursor: None,
                 date_range: date_range.clone(),
                 profile_id: None,
                 limit: Some(10),
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
         let _ = get_refind_page_detail_impl(
             RefindPageDetailRequest {
+                visits_cursor: None,
+                trails_cursor: None,
+                page_size: None,
                 canonical_url: "https://example.com/".to_string(),
                 date_range: date_range.clone(),
                 profile_id: None,
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
         let _ = explain_refind_impl(
-            ExplainRefindRequest { canonical_url: "https://example.com/".to_string() },
-            session_key(&session).unwrap().as_deref(),
+            ExplainRefindRequest {
+                profile_id: None,
+                cursor: None,
+                page_size: None,
+                canonical_url: "https://example.com/".to_string(),
+            },
+            &session,
         );
         let _ = explain_entity_impl(
             EntityExplanationRequest {
+                cursor: None,
+                page_size: None,
                 entity_type: "domain".to_string(),
                 entity_id: "example.com".to_string(),
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
-        let _ = get_activity_mix_impl(scoped.clone(), session_key(&session).unwrap().as_deref());
+        let _ = get_activity_mix_impl(scoped.clone(), &session);
         let _ = get_activity_mix_trend_impl(
             GranularityDateRangeRequest {
                 date_range: date_range.clone(),
                 profile_id: None,
                 granularity: "day".to_string(),
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
-        let _ = get_digest_summary_impl(scoped.clone(), session_key(&session).unwrap().as_deref());
-        let _ = get_intelligence_primary_overview_impl(
-            scoped.clone(),
-            session_key(&session).unwrap().as_deref(),
-        );
-        let _ = get_intelligence_secondary_overview_impl(
-            scoped.clone(),
-            session_key(&session).unwrap().as_deref(),
-        );
-        let _ = get_stable_sources_impl(scoped.clone(), session_key(&session).unwrap().as_deref());
+        let _ = get_digest_summary_impl(scoped.clone(), &session);
+        let _ = get_intelligence_primary_overview_impl(scoped.clone(), &session);
+        let _ = get_intelligence_secondary_overview_impl(scoped.clone(), &session);
+        let _ = get_stable_sources_impl(vault_core::ScopedPageRequest::from(&scoped), &session);
         let _ = get_search_effectiveness_impl(
             SearchEffectivenessRequest {
+                topics_cursor: None,
+                topics_limit: None,
                 date_range: date_range.clone(),
                 profile_id: None,
                 engine: None,
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
-        let _ =
-            get_friction_signals_impl(scoped.clone(), session_key(&session).unwrap().as_deref());
+        let _ = get_friction_signals_impl(vault_core::ScopedPageRequest::from(&scoped), &session);
         let _ = get_reopened_investigations_impl(
-            scoped.clone(),
-            session_key(&session).unwrap().as_deref(),
+            vault_core::ScopedPageRequest::from(&scoped),
+            &session,
         );
         let _ = get_domain_deep_dive_impl(
             DomainDeepDiveRequest {
+                pages_cursor: None,
+                searches_cursor: None,
+                page_size: None,
                 registrable_domain: "example.com".to_string(),
                 date_range: date_range.clone(),
                 profile_id: None,
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
         let _ = get_day_insights_impl(
             DayInsightsRequest { date: "2026-04-01".to_string(), profile_id: None },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
         let _ = get_browsing_rhythm_impl(
             CategoryFilteredDateRangeRequest {
@@ -712,7 +722,7 @@ mod tests {
                 profile_id: None,
                 category: None,
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
         let _ = get_discovery_trend_impl(
             GranularityDateRangeRequest {
@@ -720,63 +730,44 @@ mod tests {
                 profile_id: None,
                 granularity: "week".to_string(),
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
-        let _ = get_on_this_day_impl(None, session_key(&session).unwrap().as_deref());
-        let _ = get_intelligence_embed_cards_impl(
-            embed_cards.clone(),
-            session_key(&session).unwrap().as_deref(),
-        );
-        let _ = get_intelligence_widget_snapshot_impl(
-            embed_cards,
-            session_key(&session).unwrap().as_deref(),
-        );
-        let _ = get_intelligence_public_snapshot_impl(
-            scoped.clone(),
-            session_key(&session).unwrap().as_deref(),
-        );
+        let _ = get_on_this_day_impl(None, &session);
+        let _ = get_intelligence_embed_cards_impl(embed_cards.clone(), &session);
+        let _ = get_intelligence_widget_snapshot_impl(embed_cards, &session);
+        let _ = get_intelligence_public_snapshot_impl(scoped.clone(), &session);
         let local_host_request = IntelligenceLocalHostRequest {
             date_range: date_range.clone(),
             profile_id: None,
             locale: "en".to_string(),
         };
-        let _ = preview_intelligence_local_host_impl(
-            local_host_request.clone(),
-            session_key(&session).unwrap().as_deref(),
-        );
-        let _ = build_intelligence_local_host_impl(
-            local_host_request,
-            session_key(&session).unwrap().as_deref(),
-        );
-        let _ = get_breadth_index_impl(scoped.clone(), session_key(&session).unwrap().as_deref());
-        let _ = get_habit_patterns_impl(scoped.clone(), session_key(&session).unwrap().as_deref());
-        let _ = get_interrupted_habits_impl(
-            ProfileScopedRequest { profile_id: None },
-            session_key(&session).unwrap().as_deref(),
-        );
+        let _ = preview_intelligence_local_host_impl(local_host_request.clone(), &session);
+        let _ = build_intelligence_local_host_impl(local_host_request, &session);
+        let _ = get_breadth_index_impl(scoped.clone(), &session);
+        let _ = get_habit_patterns_impl(scoped.clone(), &session);
+        let _ = get_interrupted_habits_impl(ProfileScopedRequest { profile_id: None }, &session);
         let _ = get_path_flows_impl(
             PathFlowRequest {
+                cursor: None,
                 date_range: date_range.clone(),
                 profile_id: None,
                 step_count: 2,
                 limit: Some(10),
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
-        let _ = get_observed_interactions_impl(
-            scoped.clone(),
-            session_key(&session).unwrap().as_deref(),
-        );
-        let _ = get_compare_sets_impl(scoped.clone(), session_key(&session).unwrap().as_deref());
+        let _ =
+            get_observed_interactions_impl(vault_core::ScopedPageRequest::from(&scoped), &session);
+        let _ = get_compare_sets_impl(scoped.clone(), &session);
         let _ = get_compare_set_detail_impl(
             CompareSetDetailRequest {
                 compare_set_id: "missing-compare-set".to_string(),
                 date_range,
                 profile_id: None,
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         );
-        let _ = get_multi_browser_diff_impl(scoped, session_key(&session).unwrap().as_deref());
+        let _ = get_multi_browser_diff_impl(scoped, &session);
 
         let request = RekeyRequest {
             new_mode: ArchiveMode::Encrypted,
@@ -790,8 +781,7 @@ mod tests {
             assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
         }
         let cleared_derived =
-            clear_derived_intelligence_impl(session_key(&session).unwrap().as_deref())
-                .expect("clear derived intelligence");
+            clear_derived_intelligence_impl(&session).expect("clear derived intelligence");
         assert!(!cleared_derived.notes.is_empty());
 
         let snapshot_again = app_snapshot_impl(&session).expect("app snapshot");
@@ -902,32 +892,34 @@ mod tests {
         let replay =
             replay_ai_job_impl(999, &session).expect_err("missing ai job should not replay");
         assert!(replay.message.contains("999"));
-        let cancel = cancel_ai_job_impl(999, session_key(&session).unwrap().as_deref())
-            .expect_err("missing ai job should not cancel");
+        let cancel =
+            cancel_ai_job_impl(999, &session).expect_err("missing ai job should not cancel");
         assert!(cancel.message.contains("999"));
 
         let intelligence_run = run_core_intelligence_now_impl(
             vault_core::CoreIntelligenceRebuildRequest { full_rebuild: true, ..Default::default() },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         )
         .expect("core intelligence run should complete");
         assert!(!intelligence_run.last_run_at.is_empty());
         let sessions = get_sessions_impl(
             vault_core::PagedDateRangeRequest {
+                cursor: None,
                 date_range: vault_core::DateRange {
                     start: "1970-01-01".to_string(),
                     end: "2100-01-01".to_string(),
                 },
                 profile_id: None,
-                page: 0,
+
                 page_size: 10,
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         )
         .expect("sessions should load after the rebuild");
         assert!(sessions.total >= 1, "{intelligence_run:?}");
         let refind_pages = get_refind_pages_impl(
             vault_core::RefindPagesRequest {
+                cursor: None,
                 date_range: vault_core::DateRange {
                     start: "1970-01-01".to_string(),
                     end: "2100-01-01".to_string(),
@@ -935,13 +927,18 @@ mod tests {
                 profile_id: None,
                 limit: Some(10),
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         )
         .expect("refind pages should load");
         if let Some(page) = refind_pages.data.first() {
             let explanation = explain_refind_impl(
-                vault_core::ExplainRefindRequest { canonical_url: page.canonical_url.clone() },
-                session_key(&session).unwrap().as_deref(),
+                vault_core::ExplainRefindRequest {
+                    profile_id: None,
+                    cursor: None,
+                    page_size: None,
+                    canonical_url: page.canonical_url.clone(),
+                },
+                &session,
             )
             .expect("refind explanation should load");
             assert!(!explanation.factors.is_empty());

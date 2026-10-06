@@ -1,36 +1,37 @@
+//! Responsibilities: read compare sets and browser/profile differences.
+//! Not responsible for: canonical facts or deterministic stage execution.
+//! Failure modes: reads write schemas, a query escapes its owner, stale scopes leak,
+//! or bounded results lose continuation. Native render-path and paging tests cover these.
 //! Phase 4 Core Intelligence read models.
 //!
 //! This module owns the backend heuristics for:
 //! - compare sets detected from search trails
 //! - multi-browser/profile behavioral diffs
 
-use super::{date_range_bounds, ensure_core_intelligence_schema, local_date_key};
-use crate::{
-    archive::open_intelligence_connection,
-    config::ProjectPaths,
-    models::{
-        AppConfig, BrowserCategoryDistribution, BrowserDiff, BrowserProfileSummary,
-        CategoryMixEntry, CompareSet, CompareSetDetail, CompareSetDetailRequest, CompareSetPage,
-        ExclusiveDomainEntry, ScopedDateRangeRequest, SessionSummary, TrailSummary,
-    },
+use super::{date_range_bounds, local_date_key};
+use crate::models::{
+    BrowserCategoryDistribution, BrowserDiff, BrowserProfileSummary, CategoryMixEntry, CompareSet,
+    CompareSetDetail, CompareSetDetailRequest, CompareSetPage, ExclusiveDomainEntry,
+    ScopedDateRangeRequest, SessionSummary, TrailSummary,
 };
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{BTreeSet, HashMap};
+use vault_store::{OptionalRow, Session, params_owned as params};
 
 pub fn get_compare_sets(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<CompareSet>> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    get_compare_sets_with_connection(&connection, request)
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
+
+        get_compare_sets_with_connection(connection, request)
+    })
 }
 
 pub(crate) fn get_compare_sets_with_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<CompareSet>> {
     let rows = load_compare_trail_members(connection, request, None)?;
@@ -49,18 +50,19 @@ pub(crate) fn get_compare_sets_with_connection(
 }
 
 pub fn get_compare_set_detail(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &CompareSetDetailRequest,
 ) -> Result<CompareSetDetail> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    get_compare_set_detail_with_connection(&connection, request)
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
+
+        get_compare_set_detail_with_connection(connection, request)
+    })
 }
 
 pub(crate) fn get_compare_set_detail_with_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &CompareSetDetailRequest,
 ) -> Result<CompareSetDetail> {
     let (trail_id, page_category) = parse_compare_set_id(&request.compare_set_id)?;
@@ -92,18 +94,19 @@ pub(crate) fn get_compare_set_detail_with_connection(
 }
 
 pub fn get_multi_browser_diff(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<BrowserDiff> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    get_multi_browser_diff_with_connection(&connection, request)
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
+
+        get_multi_browser_diff_with_connection(connection, request)
+    })
 }
 
 pub(crate) fn get_multi_browser_diff_with_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
 ) -> Result<BrowserDiff> {
     let profiles = load_browser_profile_summaries(connection, request)?;
@@ -289,7 +292,7 @@ fn path_prefix(url: &str) -> String {
 }
 
 fn load_compare_trail_members(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
     trail_id: Option<&str>,
 ) -> Result<Vec<CompareTrailMember>> {
@@ -329,7 +332,7 @@ fn load_compare_trail_members(
                 visit_time_ms: row.get(8)?,
             })
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<vault_store::Result<Vec<_>>>()
         .map_err(Into::into)
 }
 
@@ -344,9 +347,9 @@ fn parse_compare_set_id(compare_set_id: &str) -> Result<(&str, &str)> {
         .with_context(|| format!("compare set {compare_set_id} is missing page category"))
 }
 
-fn load_trail_summary(connection: &Connection, trail_id: &str) -> Result<TrailSummary> {
+fn load_trail_summary(connection: &Session<'_>, trail_id: &str) -> Result<TrailSummary> {
     connection
-        .query_row(
+        .query_one(
             "SELECT trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
                     landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
              FROM search_trails
@@ -357,9 +360,9 @@ fn load_trail_summary(connection: &Connection, trail_id: &str) -> Result<TrailSu
         .with_context(|| format!("trail {trail_id} was not found"))
 }
 
-fn load_session_summary(connection: &Connection, session_id: &str) -> Result<SessionSummary> {
+fn load_session_summary(connection: &Session<'_>, session_id: &str) -> Result<SessionSummary> {
     connection
-        .query_row(
+        .query_one(
             "SELECT session_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title
              FROM sessions
              WHERE session_id = ?1",
@@ -372,7 +375,7 @@ fn load_session_summary(connection: &Connection, session_id: &str) -> Result<Ses
                     visit_count: row.get(3)?,
                     search_count: row.get(4)?,
                     domain_count: row.get(5)?,
-                    is_deep_dive: row.get::<_, i64>(6)? != 0,
+                    is_deep_dive: row.get::< i64>(6)? != 0,
                     auto_title: row.get(7)?,
                 })
             },
@@ -381,7 +384,7 @@ fn load_session_summary(connection: &Connection, session_id: &str) -> Result<Ses
         .with_context(|| format!("session {session_id} was not found"))
 }
 
-fn trail_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrailSummary> {
+fn trail_summary_from_row(row: &vault_store::Row) -> vault_store::Result<TrailSummary> {
     Ok(TrailSummary {
         trail_id: row.get(0)?,
         session_id: row.get(1)?,
@@ -394,12 +397,12 @@ fn trail_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrailSumm
         first_visit_ms: row.get(8)?,
         last_visit_ms: row.get(9)?,
         max_depth: row.get(10)?,
-        queries: serde_json::from_str(&row.get::<_, String>(11)?).unwrap_or_default(),
+        queries: serde_json::from_str(&row.get::<String>(11)?).unwrap_or_default(),
     })
 }
 
 fn load_browser_profile_summaries(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<BrowserProfileSummary>> {
     let mut statement = connection.prepare(
@@ -427,12 +430,12 @@ fn load_browser_profile_summaries(
                 visit_count: row.get(4)?,
             })
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+        .collect::<vault_store::Result<Vec<_>>>()?;
     Ok(profiles)
 }
 
 fn load_profile_domain_counts(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
 ) -> Result<HashMap<String, Vec<(String, i64)>>> {
     let mut statement = connection.prepare(
@@ -445,9 +448,9 @@ fn load_profile_domain_counts(
     )?;
     let rows = statement
         .query_map(params![request.date_range.start, request.date_range.end], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            Ok((row.get::<String>(0)?, row.get::<String>(1)?, row.get::<i64>(2)?))
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+        .collect::<vault_store::Result<Vec<_>>>()?;
 
     let mut domains = HashMap::<String, Vec<(String, i64)>>::new();
     for (registrable_domain, profile_id, visit_count) in rows {
@@ -457,7 +460,7 @@ fn load_profile_domain_counts(
 }
 
 fn load_category_distributions(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<BrowserCategoryDistribution>> {
     let profile_totals = load_profile_totals(connection, request)?;
@@ -478,13 +481,13 @@ fn load_category_distributions(
     let rows = statement
         .query_map(params![request.date_range.start, request.date_range.end], |row| {
             Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
+                row.get::<String>(0)?,
+                row.get::<String>(1)?,
+                row.get::<String>(2)?,
+                row.get::<i64>(3)?,
             ))
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+        .collect::<vault_store::Result<Vec<_>>>()?;
 
     let mut grouped = HashMap::<String, BrowserCategoryDistribution>::new();
     for (profile_id, profile_name, domain_category, visit_count) in rows {
@@ -510,7 +513,7 @@ fn load_category_distributions(
 }
 
 fn load_profile_totals(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
 ) -> Result<HashMap<String, i64>> {
     let mut statement = connection.prepare(
@@ -522,9 +525,9 @@ fn load_profile_totals(
     )?;
     let rows = statement
         .query_map(params![request.date_range.start, request.date_range.end], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            Ok((row.get::<String>(0)?, row.get::<i64>(1)?))
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+        .collect::<vault_store::Result<Vec<_>>>()?;
     Ok(rows.into_iter().collect())
 }
 
@@ -537,7 +540,8 @@ mod tests {
         parse_compare_set_id, path_prefix,
     };
     use crate::models::{CompareSetDetailRequest, DateRange, ScopedDateRangeRequest};
-    use rusqlite::{Connection, params};
+    use crate::test_support::native::TestDatabase;
+    use vault_store::{Db, params_owned as params};
 
     fn request(profile_id: Option<&str>) -> ScopedDateRangeRequest {
         ScopedDateRangeRequest {
@@ -549,102 +553,28 @@ mod tests {
         }
     }
 
-    fn seed_phase_four_connection() -> Connection {
-        let connection = Connection::open_in_memory().expect("open in-memory phase four db");
-        connection
-            .execute_batch(
-                "
-                ATTACH DATABASE ':memory:' AS archive;
-                CREATE TABLE search_trails (
-                    trail_id TEXT PRIMARY KEY,
-                    session_id TEXT,
-                    initial_query TEXT NOT NULL,
-                    search_engine TEXT NOT NULL,
-                    reformulation_count INTEGER NOT NULL,
-                    visit_count INTEGER NOT NULL,
-                    landing_url TEXT,
-                    landing_domain TEXT,
-                    first_visit_ms INTEGER NOT NULL,
-                    last_visit_ms INTEGER NOT NULL,
-                    max_depth INTEGER NOT NULL,
-                    queries_json TEXT NOT NULL,
-                    profile_id TEXT NOT NULL
-                );
-                CREATE TABLE search_trail_members (
-                    trail_id TEXT NOT NULL,
-                    visit_id INTEGER NOT NULL,
-                    ordinal INTEGER NOT NULL
-                );
-                CREATE TABLE visit_derived_facts (
-                    visit_id INTEGER PRIMARY KEY,
-                    canonical_url TEXT NOT NULL,
-                    registrable_domain TEXT NOT NULL,
-                    page_category TEXT NOT NULL
-                );
-                CREATE TABLE sessions (
-                    session_id TEXT PRIMARY KEY,
-                    first_visit_ms INTEGER NOT NULL,
-                    last_visit_ms INTEGER NOT NULL,
-                    visit_count INTEGER NOT NULL,
-                    search_count INTEGER NOT NULL,
-                    domain_count INTEGER NOT NULL,
-                    is_deep_dive INTEGER NOT NULL,
-                    auto_title TEXT
-                );
-                CREATE TABLE domain_daily_rollups (
-                    profile_id TEXT NOT NULL,
-                    date_key TEXT NOT NULL,
-                    registrable_domain TEXT NOT NULL,
-                    visit_count INTEGER NOT NULL
-                );
-                CREATE TABLE category_daily_rollups (
-                    profile_id TEXT NOT NULL,
-                    date_key TEXT NOT NULL,
-                    domain_category TEXT NOT NULL,
-                    visit_count INTEGER NOT NULL
-                );
-                CREATE TABLE daily_summary_rollups (
-                    profile_id TEXT NOT NULL,
-                    date_key TEXT NOT NULL,
-                    total_visits INTEGER NOT NULL
-                );
-                CREATE TABLE archive.visits (
-                    id INTEGER PRIMARY KEY,
-                    url_id INTEGER NOT NULL,
-                    visit_time_ms INTEGER NOT NULL
-                );
-                CREATE TABLE archive.urls (
-                    id INTEGER PRIMARY KEY,
-                    url TEXT NOT NULL,
-                    title TEXT
-                );
-                CREATE TABLE archive.source_profiles (
-                    profile_key TEXT PRIMARY KEY,
-                    profile_name TEXT NOT NULL,
-                    browser_family TEXT,
-                    browser_kind TEXT
-                );
-                ",
+    fn seed_phase_four_connection() -> TestDatabase {
+        let vault = crate::Vault::open_temp().unwrap();
+        let connection = TestDatabase::new(&vault, Db::Intelligence);
+        let archive = TestDatabase::new(&vault, Db::Archive);
+        connection.execute("INSERT INTO intelligence_generations(profile_id) VALUES('profile-a'),('profile-b')",()).unwrap();
+        archive
+            .execute(
+                "INSERT INTO source_profiles(profile_key,profile_name,browser_family,browser_kind,profile_path,discovered_at) VALUES ('profile-a','Chrome Work','chrome','chromium','/fixture',''),
+('profile-b','Safari Personal',NULL,'safari','/fixture','')",
+                (),
             )
-            .expect("create phase four tables");
-
+            .expect("insert source profiles");
         let base_visit_ms = 1_800_000_000_000_i64;
         connection
             .execute(
-                "INSERT INTO sessions
-                 (session_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title)
-                 VALUES ('session-1', ?1, ?2, 4, 1, 2, 1, 'SQLite WAL research')",
+                "INSERT INTO sessions_rows(session_id,first_visit_ms,last_visit_ms,visit_count,search_count,domain_count,is_deep_dive,auto_title,profile_id,computed_at) VALUES ('session-1',?1,?2,4,1,2,1,'SQLite WAL research','profile-a','')",
                 params![base_visit_ms, base_visit_ms + 3_000],
             )
             .expect("insert session");
         connection
             .execute(
-                "INSERT INTO search_trails
-                 (trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
-                  landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json, profile_id)
-                 VALUES ('trail-1', 'session-1', 'sqlite wal', 'google', 1, 4,
-                         'https://sqlite.org/wal.html', 'sqlite.org', ?1, ?2, 2,
-                         '[\"sqlite wal\",\"sqlite checkpoint\"]', 'profile-a')",
+                "INSERT INTO search_trails_rows(trail_id,session_id,initial_query,search_engine,reformulation_count,visit_count,landing_url,landing_domain,first_visit_ms,last_visit_ms,max_depth,queries_json,profile_id,computed_at) VALUES ('trail-1','session-1','sqlite wal','google',1,4,'https://sqlite.org/wal.html','sqlite.org',?1,?2,2,'[\"sqlite wal\",\"sqlite checkpoint\"]','profile-a','')",
                 params![base_visit_ms, base_visit_ms + 3_000],
             )
             .expect("insert trail");
@@ -677,29 +607,28 @@ mod tests {
             ),
         ];
         for (visit_id, url, title, domain, category, visit_time_ms) in pages {
-            connection
+            archive.execute("INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(?1,?2,?2,?3) ON CONFLICT(url) DO NOTHING",params![visit_id,url,domain]).unwrap();
+            archive
                 .execute(
-                    "INSERT INTO archive.urls (id, url, title) VALUES (?1, ?2, ?3)",
+                    "INSERT INTO urls(id,url,title,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id,page_id) VALUES (?1,?2,?3,0,'',0,'',1,0,(SELECT id FROM pages WHERE url=?2))",
                     params![visit_id, url, title],
                 )
                 .expect("insert url");
-            connection
+            archive
                 .execute(
-                    "INSERT INTO archive.visits (id, url_id, visit_time_ms) VALUES (?1, ?1, ?2)",
+                    "INSERT INTO visits(id,url_id,visit_time_ms,source_profile_id,created_by_run_id,visit_time_iso) VALUES (?1,?1,?2,1,0,'')",
                     params![visit_id, visit_time_ms],
                 )
                 .expect("insert visit");
             connection
                 .execute(
-                    "INSERT INTO visit_derived_facts (visit_id, canonical_url, registrable_domain, page_category)
-                     VALUES (?1, ?2, ?3, ?4)",
+                    "INSERT INTO visit_derived_facts_rows(visit_id,canonical_url,registrable_domain,page_category,profile_id,computed_at) VALUES (?1,?2,?3,?4,'profile-a','')",
                     params![visit_id, url, domain, category],
                 )
                 .expect("insert derived fact");
             connection
                 .execute(
-                    "INSERT INTO search_trail_members (trail_id, visit_id, ordinal)
-                     VALUES ('trail-1', ?1, ?1)",
+                    "INSERT INTO search_trail_members_rows(trail_id,visit_id,ordinal,profile_id,role) VALUES ('trail-1',?1,?1,'profile-a','result')",
                     params![visit_id],
                 )
                 .expect("insert trail member");
@@ -707,37 +636,26 @@ mod tests {
 
         connection
             .execute(
-                "INSERT INTO archive.source_profiles (profile_key, profile_name, browser_family, browser_kind)
-                 VALUES ('profile-a', 'Chrome Work', 'chrome', 'chromium'),
-                        ('profile-b', 'Safari Personal', NULL, 'safari')",
-                [],
-            )
-            .expect("insert source profiles");
-        connection
-            .execute(
-                "INSERT INTO domain_daily_rollups (profile_id, date_key, registrable_domain, visit_count)
-                 VALUES ('profile-a', '2026-01-01', 'sqlite.org', 3),
-                        ('profile-a', '2026-01-01', 'shared.dev', 2),
-                        ('profile-b', '2026-01-01', 'apple.com', 5),
-                        ('profile-b', '2026-01-01', 'shared.dev', 1)",
-                [],
+                "INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,visit_count,domain_category,search_count,new_domain_visits,unique_urls) VALUES ('profile-a','2026-01-01','sqlite.org',3,'unknown',0,0,1),
+('profile-a','2026-01-01','shared.dev',2,'unknown',0,0,1),
+('profile-b','2026-01-01','apple.com',5,'unknown',0,0,1),
+('profile-b','2026-01-01','shared.dev',1,'unknown',0,0,1)",
+                (),
             )
             .expect("insert domain rollups");
         connection
             .execute(
-                "INSERT INTO category_daily_rollups (profile_id, date_key, domain_category, visit_count)
-                 VALUES ('profile-a', '2026-01-01', 'docs', 3),
-                        ('profile-a', '2026-01-01', 'tools', 2),
-                        ('profile-b', '2026-01-01', 'news', 3)",
-                [],
+                "INSERT INTO category_daily_rollups_rows(profile_id,date_key,domain_category,visit_count,unique_domains) VALUES ('profile-a','2026-01-01','docs',3,1),
+('profile-a','2026-01-01','tools',2,1),
+('profile-b','2026-01-01','news',3,1)",
+                (),
             )
             .expect("insert category rollups");
         connection
             .execute(
-                "INSERT INTO daily_summary_rollups (profile_id, date_key, total_visits)
-                 VALUES ('profile-a', '2026-01-01', 5),
-                        ('profile-b', '2026-01-01', 6)",
-                [],
+                "INSERT INTO daily_summary_rollups_rows(profile_id,date_key,total_visits,total_searches,new_domains,unique_domains) VALUES ('profile-a','2026-01-01',5,0,0,1),
+('profile-b','2026-01-01',6,0,0,1)",
+                (),
             )
             .expect("insert daily totals");
         connection
@@ -864,26 +782,42 @@ mod tests {
     #[test]
     fn compare_set_read_models_return_detail_and_parse_errors() {
         let connection = seed_phase_four_connection();
-        let sets = get_compare_sets_with_connection(&connection, &request(None)).unwrap();
+        let sets = {
+            connection
+                .read(move |session| get_compare_sets_with_connection(session, &request(None)))
+        }
+        .unwrap();
         assert_eq!(sets.len(), 1);
         assert_eq!(sets[0].compare_set_id, "compare:trail-1:docs_page");
         assert_eq!(sets[0].pages.len(), 2);
         assert!(sets[0].pages.iter().any(|page| page.is_landing));
 
-        let scoped_sets =
-            get_compare_sets_with_connection(&connection, &request(Some("profile-a"))).unwrap();
+        let scoped_sets = {
+            connection.read(move |session| {
+                get_compare_sets_with_connection(session, &request(Some("profile-a")))
+            })
+        }
+        .unwrap();
         assert_eq!(scoped_sets.len(), 1);
-        let empty_sets =
-            get_compare_sets_with_connection(&connection, &request(Some("profile-b"))).unwrap();
+        let empty_sets = {
+            connection.read(move |session| {
+                get_compare_sets_with_connection(session, &request(Some("profile-b")))
+            })
+        }
+        .unwrap();
         assert!(empty_sets.is_empty());
-        let direct_detail = get_compare_set_detail_with_connection(
-            &connection,
-            &CompareSetDetailRequest {
-                compare_set_id: "compare:trail-1:docs_page".to_string(),
-                date_range: request(None).date_range,
-                profile_id: None,
-            },
-        )
+        let direct_detail = {
+            connection.read(move |session| {
+                get_compare_set_detail_with_connection(
+                    session,
+                    &CompareSetDetailRequest {
+                        compare_set_id: "compare:trail-1:docs_page".to_string(),
+                        date_range: request(None).date_range,
+                        profile_id: None,
+                    },
+                )
+            })
+        }
         .expect("connection-scoped detail");
         assert_eq!(direct_detail.compare_set.compare_set_id, "compare:trail-1:docs_page");
         assert_eq!(direct_detail.trail.trail_id, "trail-1");
@@ -894,11 +828,9 @@ mod tests {
         assert!(!direct_detail.recent_days.is_empty());
 
         let root = tempfile::tempdir().expect("temp root");
-        let paths = crate::config::project_paths_with_root(root.path());
+        let _paths = crate::config::project_paths_with_root(root.path());
         let detail = get_compare_set_detail(
-            &paths,
-            &crate::models::AppConfig::default(),
-            None,
+            &crate::Vault::open_temp().unwrap(),
             &CompareSetDetailRequest {
                 compare_set_id: "compare:trail-1:docs_page".to_string(),
                 date_range: request(None).date_range,
@@ -915,18 +847,29 @@ mod tests {
         assert!(parse_compare_set_id("trail-1:docs_page").is_err());
         assert!(parse_compare_set_id("compare:trail-only").is_err());
 
-        let trail = load_trail_summary(&connection, "trail-1").unwrap();
+        let trail =
+            { connection.read(move |session| load_trail_summary(session, "trail-1")) }.unwrap();
         assert_eq!(trail.queries, vec!["sqlite wal", "sqlite checkpoint"]);
-        let session = load_session_summary(&connection, "session-1").unwrap();
+        let session =
+            { connection.read(move |session| load_session_summary(session, "session-1")) }.unwrap();
         assert!(session.is_deep_dive);
-        assert!(load_trail_summary(&connection, "missing").is_err());
-        assert!(load_session_summary(&connection, "missing").is_err());
+        assert!(
+            { connection.read(move |session| load_trail_summary(session, "missing")) }.is_err()
+        );
+        assert!(
+            { connection.read(move |session| load_session_summary(session, "missing")) }.is_err()
+        );
     }
 
     #[test]
     fn browser_diff_read_model_groups_shared_exclusive_and_category_mix() {
         let connection = seed_phase_four_connection();
-        let diff = get_multi_browser_diff_with_connection(&connection, &request(None)).unwrap();
+        let diff = {
+            connection.read(move |session| {
+                get_multi_browser_diff_with_connection(session, &request(None))
+            })
+        }
+        .unwrap();
 
         assert_eq!(diff.profiles.len(), 2);
         assert_eq!(diff.profiles[0].profile_name, "Chrome Work");

@@ -46,7 +46,7 @@ pub(crate) async fn get_sessions(
 ) -> Result<vault_core::SessionListResult, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_sessions", move || {
-        worker_bridge::get_sessions_impl(request, session_database_key_state.get_key()?.as_deref())
+        worker_bridge::get_sessions_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -55,15 +55,12 @@ pub(crate) async fn get_sessions(
 #[tauri::command]
 /// Loads one session detail read model off the UI thread.
 pub(crate) async fn get_session_detail(
-    session_id: String,
+    request: vault_core::SessionDetailRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::SessionDetail, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_session_detail", move || {
-        worker_bridge::get_session_detail_impl(
-            session_id,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_session_detail_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -77,10 +74,7 @@ pub(crate) async fn get_search_trails(
 ) -> Result<vault_core::TrailListResult, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_search_trails", move || {
-        worker_bridge::get_search_trails_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_search_trails_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -89,15 +83,12 @@ pub(crate) async fn get_search_trails(
 #[tauri::command]
 /// Loads the evidence trail and grouped visits for one search trail id off the UI thread.
 pub(crate) async fn get_trail_detail(
-    trail_id: String,
+    request: vault_core::TrailDetailRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::TrailDetail, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_trail_detail", move || {
-        worker_bridge::get_trail_detail_impl(
-            trail_id,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_trail_detail_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -111,10 +102,7 @@ pub(crate) async fn get_navigation_path(
 ) -> Result<vault_core::NavigationPath, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_navigation_path", move || {
-        worker_bridge::get_navigation_path_impl(
-            visit_id,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_navigation_path_impl(visit_id, &session_database_key_state)
     })
     .await
 }
@@ -125,10 +113,10 @@ pub(crate) async fn get_navigation_path(
 pub(crate) async fn get_hub_pages(
     request: vault_core::TopSitesRequest,
     state: State<'_, SessionState>,
-) -> Result<Vec<vault_core::HubPage>, CommandError> {
+) -> Result<vault_core::IntelligencePage<vault_core::HubPage>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_hub_pages", move || {
-        worker_bridge::get_hub_pages_impl(request, session_database_key_state.get_key()?.as_deref())
+        worker_bridge::get_hub_pages_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -143,10 +131,7 @@ pub(crate) async fn get_search_engine_ranking(
 {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_search_engine_ranking", move || {
-        worker_bridge::get_search_engine_ranking_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_search_engine_ranking_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -157,14 +142,15 @@ pub(crate) async fn get_search_engine_ranking(
 pub(crate) async fn get_top_search_concepts(
     request: vault_core::TopSearchConceptsRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::SearchConcept>>, CommandError>
-{
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<
+        vault_core::IntelligencePage<vault_core::SearchConcept>,
+    >,
+    CommandError,
+> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_top_search_concepts", move || {
-        worker_bridge::get_top_search_concepts_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_top_search_concepts_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -175,14 +161,15 @@ pub(crate) async fn get_top_search_concepts(
 pub(crate) async fn get_frequent_searches(
     request: vault_core::FrequentSearchesRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::FrequentSearch>>, CommandError>
-{
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<
+        vault_core::IntelligencePage<vault_core::FrequentSearch>,
+    >,
+    CommandError,
+> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_frequent_searches", move || {
-        worker_bridge::get_frequent_searches_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_frequent_searches_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -199,10 +186,7 @@ pub(crate) async fn get_search_queries(
 > {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_search_queries", move || {
-        worker_bridge::get_search_queries_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_search_queries_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -217,10 +201,7 @@ pub(crate) async fn get_query_families(
 {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_query_families", move || {
-        worker_bridge::get_query_families_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_query_families_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -235,10 +216,7 @@ pub(crate) async fn get_query_family_detail(
 {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_query_family_detail", move || {
-        worker_bridge::get_query_family_detail_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_query_family_detail_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -249,10 +227,13 @@ pub(crate) async fn get_query_family_detail(
 pub(crate) async fn get_top_sites(
     request: vault_core::TopSitesRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::TopSite>>, CommandError> {
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<vault_core::IntelligencePage<vault_core::TopSite>>,
+    CommandError,
+> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_top_sites", move || {
-        worker_bridge::get_top_sites_impl(request, session_database_key_state.get_key()?.as_deref())
+        worker_bridge::get_top_sites_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -266,10 +247,7 @@ pub(crate) async fn get_domain_trend(
 ) -> Result<vault_core::DomainTrend, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_domain_trend", move || {
-        worker_bridge::get_domain_trend_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_domain_trend_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -280,13 +258,13 @@ pub(crate) async fn get_domain_trend(
 pub(crate) async fn get_refind_pages(
     request: vault_core::RefindPagesRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::RefindPage>>, CommandError> {
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<vault_core::IntelligencePage<vault_core::RefindPage>>,
+    CommandError,
+> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_refind_pages", move || {
-        worker_bridge::get_refind_pages_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_refind_pages_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -300,10 +278,7 @@ pub(crate) async fn get_refind_page_detail(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RefindPageDetail>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_refind_page_detail", move || {
-        worker_bridge::get_refind_page_detail_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_refind_page_detail_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -317,10 +292,7 @@ pub(crate) async fn explain_refind(
 ) -> Result<vault_core::RefindExplanation, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("explain_refind", move || {
-        worker_bridge::explain_refind_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::explain_refind_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -334,10 +306,7 @@ pub(crate) async fn explain_entity(
 ) -> Result<vault_core::Explanation, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("explain_entity", move || {
-        worker_bridge::explain_entity_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::explain_entity_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -351,10 +320,7 @@ pub(crate) async fn get_activity_mix(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::ActivityMix>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_activity_mix", move || {
-        worker_bridge::get_activity_mix_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_activity_mix_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -368,10 +334,7 @@ pub(crate) async fn get_activity_mix_trend(
 ) -> Result<vault_core::ActivityMixTrend, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_activity_mix_trend", move || {
-        worker_bridge::get_activity_mix_trend_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_activity_mix_trend_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -385,10 +348,7 @@ pub(crate) async fn get_digest_summary(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DigestSummary>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_digest_summary", move || {
-        worker_bridge::get_digest_summary_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_digest_summary_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -397,16 +357,17 @@ pub(crate) async fn get_digest_summary(
 #[tauri::command]
 /// Loads stable source domains that repeatedly appear in the selected scope off the UI thread.
 pub(crate) async fn get_stable_sources(
-    request: vault_core::ScopedDateRangeRequest,
+    request: vault_core::ScopedPageRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::StableSource>>, CommandError>
-{
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<
+        vault_core::IntelligencePage<vault_core::StableSource>,
+    >,
+    CommandError,
+> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_stable_sources", move || {
-        worker_bridge::get_stable_sources_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_stable_sources_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -421,10 +382,7 @@ pub(crate) async fn get_search_effectiveness(
 {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_search_effectiveness", move || {
-        worker_bridge::get_search_effectiveness_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_search_effectiveness_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -433,16 +391,17 @@ pub(crate) async fn get_search_effectiveness(
 #[tauri::command]
 /// Loads friction signals inferred from deterministic browsing evidence off the UI thread.
 pub(crate) async fn get_friction_signals(
-    request: vault_core::ScopedDateRangeRequest,
+    request: vault_core::ScopedPageRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::FrictionSignal>>, CommandError>
-{
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<
+        vault_core::IntelligencePage<vault_core::FrictionSignal>,
+    >,
+    CommandError,
+> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_friction_signals", move || {
-        worker_bridge::get_friction_signals_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_friction_signals_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -451,18 +410,17 @@ pub(crate) async fn get_friction_signals(
 #[tauri::command]
 /// Loads reopened investigation candidates without running any assistant model, off the UI thread.
 pub(crate) async fn get_reopened_investigations(
-    request: vault_core::ScopedDateRangeRequest,
+    request: vault_core::ScopedPageRequest,
     state: State<'_, SessionState>,
 ) -> Result<
-    vault_core::CoreIntelligenceSectionResult<Vec<vault_core::ReopenedInvestigation>>,
+    vault_core::CoreIntelligenceSectionResult<
+        vault_core::IntelligencePage<vault_core::ReopenedInvestigation>,
+    >,
     CommandError,
 > {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_reopened_investigations", move || {
-        worker_bridge::get_reopened_investigations_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_reopened_investigations_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -476,10 +434,7 @@ pub(crate) async fn get_domain_deep_dive(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DomainDeepDive>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_domain_deep_dive", move || {
-        worker_bridge::get_domain_deep_dive_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_domain_deep_dive_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -493,10 +448,7 @@ pub(crate) async fn get_day_insights(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DayInsights>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_day_insights", move || {
-        worker_bridge::get_day_insights_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_day_insights_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -510,10 +462,7 @@ pub(crate) async fn get_browsing_rhythm(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::RhythmHeatmap>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_browsing_rhythm", move || {
-        worker_bridge::get_browsing_rhythm_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_browsing_rhythm_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -527,10 +476,7 @@ pub(crate) async fn get_discovery_trend(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::DiscoveryTrend>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_discovery_trend", move || {
-        worker_bridge::get_discovery_trend_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_discovery_trend_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -545,10 +491,7 @@ pub(crate) async fn get_on_this_day(
 {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_on_this_day", move || {
-        worker_bridge::get_on_this_day_impl(
-            profile_id,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_on_this_day_impl(profile_id, &session_database_key_state)
     })
     .await
 }
@@ -562,10 +505,7 @@ pub(crate) async fn get_breadth_index(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::BreadthIndex>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_breadth_index", move || {
-        worker_bridge::get_breadth_index_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_breadth_index_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -580,10 +520,7 @@ pub(crate) async fn get_habit_patterns(
 {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_habit_patterns", move || {
-        worker_bridge::get_habit_patterns_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_habit_patterns_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -600,10 +537,7 @@ pub(crate) async fn get_interrupted_habits(
 > {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_interrupted_habits", move || {
-        worker_bridge::get_interrupted_habits_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_interrupted_habits_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -614,13 +548,13 @@ pub(crate) async fn get_interrupted_habits(
 pub(crate) async fn get_path_flows(
     request: vault_core::PathFlowRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::PathFlow>>, CommandError> {
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<vault_core::IntelligencePage<vault_core::PathFlow>>,
+    CommandError,
+> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_path_flows", move || {
-        worker_bridge::get_path_flows_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_path_flows_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -629,18 +563,17 @@ pub(crate) async fn get_path_flows(
 #[tauri::command]
 /// Loads observed interaction signals for the selected scope off the UI thread.
 pub(crate) async fn get_observed_interactions(
-    request: vault_core::ScopedDateRangeRequest,
+    request: vault_core::ScopedPageRequest,
     state: State<'_, SessionState>,
 ) -> Result<
-    vault_core::CoreIntelligenceSectionResult<Vec<vault_core::ObservedInteraction>>,
+    vault_core::CoreIntelligenceSectionResult<
+        vault_core::IntelligencePage<vault_core::ObservedInteraction>,
+    >,
     CommandError,
 > {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_observed_interactions", move || {
-        worker_bridge::get_observed_interactions_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_observed_interactions_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -654,10 +587,7 @@ pub(crate) async fn get_compare_sets(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::CompareSet>>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_compare_sets", move || {
-        worker_bridge::get_compare_sets_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_compare_sets_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -671,10 +601,7 @@ pub(crate) async fn get_compare_set_detail(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::CompareSetDetail>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_compare_set_detail", move || {
-        worker_bridge::get_compare_set_detail_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_compare_set_detail_impl(request, &session_database_key_state)
     })
     .await
 }
@@ -688,10 +615,7 @@ pub(crate) async fn get_multi_browser_diff(
 ) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::BrowserDiff>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_multi_browser_diff", move || {
-        worker_bridge::get_multi_browser_diff_impl(
-            request,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::get_multi_browser_diff_impl(request, &session_database_key_state)
     })
     .await
 }

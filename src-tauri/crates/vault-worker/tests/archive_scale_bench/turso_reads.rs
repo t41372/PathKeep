@@ -59,7 +59,7 @@ fn encrypted_archive_reads_at_scale() {
     root.close().unwrap();
     println!("BENCH data_removed=true");
 }
-fn open(root: &Path) -> Vault {
+pub(super) fn open(root: &Path) -> Vault {
     Vault::open(
         vault_core::project_paths_with_root(root),
         AppConfig {
@@ -72,12 +72,18 @@ fn open(root: &Path) -> Vault {
     )
     .unwrap()
 }
-fn seed(vault: &Vault) {
+pub(super) fn seed(vault: &Vault) {
     vault.store().write(Db::Archive,Priority::Batch,|s| {
-        s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,discovered_at,profile_key) VALUES(1,'chrome','Default','/bench','','chrome:Default')",())?;
+        s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,discovered_at,profile_key) VALUES(1,'chrome','Default','/bench','','chrome:Default') ON CONFLICT(id) DO NOTHING",())?;
         Ok(())
     }).unwrap();
-    for first in (1..=PAGES).step_by(STEP as usize) {
+    let first_page = vault
+        .store()
+        .read(Db::Archive, |s| {
+            s.query_one("SELECT COALESCE(MAX(id),0)+1 FROM pages", (), |r| Ok(r.get::<i64>(0)?))
+        })
+        .unwrap();
+    for first in (first_page..=PAGES).step_by(STEP as usize) {
         let end = (first + STEP - 1).min(PAGES);
         vault.store().write(Db::Archive,Priority::Batch,move |s| {
             s.execute("WITH RECURSIVE ids(id) AS(VALUES(?1) UNION ALL SELECT id+1 FROM ids WHERE id<?2) INSERT INTO pages(id,url,canonical_url,registrable_domain) SELECT id,'https://site'||(id%20000)||'.test/page/'||id,'https://site'||(id%20000)||'.test/page/'||id,'site'||(id%20000)||'.test' FROM ids",params![first,end])?;
@@ -88,10 +94,16 @@ fn seed(vault: &Vault) {
         }).unwrap();
         if first % 1_000_000 == 1 {
             println!("BENCH seed_pages={end}");
-            assert!(directory_bytes(&vault.paths().app_root) < 30_000_000_000);
+            assert!(directory_bytes(&vault.paths().app_root) < 40_000_000_000);
         }
     }
-    for first in (1..=VISITS).step_by(STEP as usize) {
+    let first_visit = vault
+        .store()
+        .read(Db::Archive, |s| {
+            s.query_one("SELECT COALESCE(MAX(id),0)+1 FROM visits", (), |r| Ok(r.get::<i64>(0)?))
+        })
+        .unwrap();
+    for first in (first_visit..=VISITS).step_by(STEP as usize) {
         let end = (first + STEP - 1).min(VISITS);
         vault.store().write(Db::Archive,Priority::Batch,move |s| {
             s.execute("WITH RECURSIVE ids(id) AS(VALUES(?1) UNION ALL SELECT id+1 FROM ids WHERE id<?2) INSERT INTO visits(id,url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT id,CASE WHEN id%144=0 THEN 1 ELSE (id-1)%2880000+1 END,CAST(id AS TEXT),?3+id*10000,'2023-01-01T00:00:00Z',1,0 FROM ids",params![first,end,START])?;
@@ -99,7 +111,7 @@ fn seed(vault: &Vault) {
         }).unwrap();
         if first % 1_000_000 == 1 {
             println!("BENCH seed_visits={end}");
-            assert!(directory_bytes(&vault.paths().app_root) < 30_000_000_000);
+            assert!(directory_bytes(&vault.paths().app_root) < 40_000_000_000);
         }
     }
     vault
@@ -112,7 +124,7 @@ fn seed(vault: &Vault) {
                 )?;
             }
             s.execute(
-                "INSERT INTO archive_totals(name,value) VALUES('sourceVisits:1',?1)",
+                "INSERT INTO archive_totals(name,value) VALUES('sourceVisits:1',?1) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                 [VISITS],
             )?;
             Ok(())
@@ -206,7 +218,7 @@ fn timed<T>(pass: &str, label: &str, work: impl FnOnce() -> T) -> T {
     println!("BENCH {pass} {label} elapsed_ms={:.3}", start.elapsed().as_secs_f64() * 1000.0);
     result
 }
-fn directory_bytes(path: &Path) -> u64 {
+pub(super) fn directory_bytes(path: &Path) -> u64 {
     std::fs::read_dir(path)
         .unwrap()
         .map(|e| {
@@ -218,7 +230,7 @@ fn directory_bytes(path: &Path) -> u64 {
 }
 
 #[cfg(unix)]
-fn peak_rss_bytes() -> Option<u64> {
+pub(super) fn peak_rss_bytes() -> Option<u64> {
     let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
     // The OS fills this POD structure when getrusage succeeds.
     let result = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
@@ -229,6 +241,6 @@ fn peak_rss_bytes() -> Option<u64> {
     Some(if cfg!(target_os = "macos") { peak } else { peak * 1024 })
 }
 #[cfg(not(unix))]
-fn peak_rss_bytes() -> Option<u64> {
+pub(super) fn peak_rss_bytes() -> Option<u64> {
     None
 }

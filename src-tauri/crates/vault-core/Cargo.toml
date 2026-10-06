@@ -118,3 +118,7 @@ tokio.workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
+
+[[test]]
+name = "lmstudio_agent_e2e"
+required-features = ["test-fixtures"]

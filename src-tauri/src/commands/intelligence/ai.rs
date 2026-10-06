@@ -132,7 +132,7 @@ pub(crate) async fn cancel_ai_job(
 ) -> Result<vault_core::AiQueueJob, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("cancel_ai_job", move || {
-        worker_bridge::cancel_ai_job_impl(job_id, key_state.get_key()?.as_deref())
+        worker_bridge::cancel_ai_job_impl(job_id, &key_state)
     })
     .await
 }
@@ -179,7 +179,7 @@ pub(crate) async fn estimate_reembed(
 ) -> Result<vault_core::ReembedEstimate, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("estimate_reembed", move || {
-        worker_bridge::estimate_reembed_impl(scope, key_state.get_key()?.as_deref())
+        worker_bridge::estimate_reembed_impl(scope, &key_state)
     })
     .await
 }
@@ -217,13 +217,15 @@ pub(crate) async fn preview_ai_integrations()
 /// Persists (upsert) one assistant conversation and replaces its message transcript, off the UI
 /// thread.
 ///
-/// The agent sidecar is a keyless derived plane, so no session key is passed. The save is a full
-/// DELETE + re-INSERT of the transcript in SQLite, so it runs on the blocking thread pool.
+/// The session Vault owns the encrypted or plaintext Agent database. Transcript writes
+/// run on the blocking thread pool and commit atomically.
 pub(crate) async fn save_ai_conversation(
+    state: State<'_, SessionState>,
     request: vault_core::SaveAgentConversationRequest,
 ) -> Result<vault_core::AgentConversationSummary, CommandError> {
+    let state = state.inner().clone();
     run_blocking_command("save_ai_conversation", move || {
-        worker_bridge::save_ai_conversation_impl(request)
+        worker_bridge::save_ai_conversation_impl(&state, request)
     })
     .await
 }
@@ -232,10 +234,26 @@ pub(crate) async fn save_ai_conversation(
 #[tauri::command]
 /// Lists persisted conversations newest-first for the chat-history explorer, off the UI thread.
 pub(crate) async fn list_ai_conversations(
+    state: State<'_, SessionState>,
     request: vault_core::ListAgentConversationsRequest,
 ) -> Result<vault_core::AgentConversationListResponse, CommandError> {
+    let state = state.inner().clone();
     run_blocking_command("list_ai_conversations", move || {
-        worker_bridge::list_ai_conversations_impl(request)
+        worker_bridge::list_ai_conversations_impl(&state, request)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Reads the next transcript page off the UI thread.
+pub(crate) async fn list_ai_messages(
+    state: State<'_, SessionState>,
+    request: vault_core::ListAgentMessagesRequest,
+) -> Result<vault_core::AgentMessagePage, CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("list_ai_messages", move || {
+        worker_bridge::list_ai_messages_impl(&state, request)
     })
     .await
 }
@@ -244,10 +262,12 @@ pub(crate) async fn list_ai_conversations(
 #[tauri::command]
 /// Loads one persisted conversation plus its full message transcript, off the UI thread.
 pub(crate) async fn load_ai_conversation(
+    state: State<'_, SessionState>,
     conversation_id: String,
 ) -> Result<Option<vault_core::AgentConversationDetail>, CommandError> {
+    let state = state.inner().clone();
     run_blocking_command("load_ai_conversation", move || {
-        worker_bridge::load_ai_conversation_impl(conversation_id)
+        worker_bridge::load_ai_conversation_impl(&state, conversation_id)
     })
     .await
 }
@@ -256,10 +276,12 @@ pub(crate) async fn load_ai_conversation(
 #[tauri::command]
 /// Deletes one persisted conversation (cascading its messages), off the UI thread.
 pub(crate) async fn delete_ai_conversation(
+    state: State<'_, SessionState>,
     conversation_id: String,
 ) -> Result<vault_core::DeleteAgentConversationResult, CommandError> {
+    let state = state.inner().clone();
     run_blocking_command("delete_ai_conversation", move || {
-        worker_bridge::delete_ai_conversation_impl(conversation_id)
+        worker_bridge::delete_ai_conversation_impl(&state, conversation_id)
     })
     .await
 }
@@ -268,10 +290,12 @@ pub(crate) async fn delete_ai_conversation(
 #[tauri::command]
 /// Renames one persisted conversation, off the UI thread.
 pub(crate) async fn rename_ai_conversation(
+    state: State<'_, SessionState>,
     request: vault_core::RenameAgentConversationRequest,
 ) -> Result<Option<vault_core::AgentConversationSummary>, CommandError> {
+    let state = state.inner().clone();
     run_blocking_command("rename_ai_conversation", move || {
-        worker_bridge::rename_ai_conversation_impl(request)
+        worker_bridge::rename_ai_conversation_impl(&state, request)
     })
     .await
 }
@@ -318,7 +342,7 @@ pub(crate) async fn list_visit_enrichment(
 ) -> Result<Vec<vault_core::VisitEnrichmentRecord>, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("list_visit_enrichment", move || {
-        worker_bridge::list_visit_enrichment_impl(history_id, key_state.get_key()?.as_deref())
+        worker_bridge::list_visit_enrichment_impl(history_id, &key_state)
     })
     .await
 }

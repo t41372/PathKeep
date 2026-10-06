@@ -1,3 +1,4 @@
+//! Failure modes: batch boundaries split sessions, trails or equivalent query families.
 //! Session, trail, and query-family builders for structural Core Intelligence.
 //!
 //! ## Responsibilities
@@ -22,71 +23,32 @@
 //! - The batched query-family replay streams ordered search events instead of
 //!   materializing unrelated archive state.
 
-use super::intelligence_structural_state::SessionBuildState;
+#[cfg(test)]
+use super::SearchEventBatchCursor;
+use super::{QueryFamilyRecord, SearchEventRecord, query_token_set};
+#[cfg(test)]
 use super::{
-    QueryFamilyRecord, SearchEventBatchCursor, SearchEventRecord, SearchQueryKind,
-    TrailMemberRecord, TrailRecord, VisitRecord, classify_search_query_kind, normalize_query,
-    query_token_set,
+    SearchQueryKind, TrailMemberRecord, TrailRecord, VisitRecord, classify_search_query_kind,
+    normalize_query,
 };
+#[cfg(test)]
 use anyhow::Result;
-use rusqlite::{Connection, params};
+#[cfg(test)]
+use vault_store::{Session, params_owned as params};
 
 /// Minimal accumulator for building query families incrementally from ordered
 /// search events.
 #[derive(Debug, Default)]
 pub(super) struct QueryFamilyAccumulator {
     families: Vec<QueryFamilyRecord>,
-}
-
-/// Builds deterministic sessions from normalized visits while preserving the
-/// session ids needed by later trail and refind builders.
-pub(super) fn build_sessions(visits: &mut [VisitRecord]) -> Vec<super::SessionRecord> {
-    let mut sessions = Vec::new();
-    let mut current: Option<SessionBuildState> = None;
-    for visit in visits.iter_mut() {
-        let start_new = current.as_ref().is_none_or(|session| {
-            visit.visit_time_ms - session.record.last_visit_ms > super::SESSION_GAP_MS
-        });
-        if start_new {
-            if let Some(session) = current.take() {
-                sessions.push(session.finish());
-            }
-            current = Some(SessionBuildState::new(&super::StructuralVisitRecord {
-                visit_id: visit.visit_id,
-                profile_id: visit.profile_id.clone(),
-                url: visit.url.clone(),
-                visit_time_ms: visit.visit_time_ms,
-                from_visit: visit.from_visit,
-                registrable_domain: visit.registrable_domain.clone(),
-                search_engine: visit.search_engine.clone(),
-                search_query: visit.search_query.clone(),
-                is_new_domain: visit.is_new_domain,
-                is_search_event: visit.is_search_event,
-            }));
-        }
-        let session = current.as_mut().expect("current session");
-        session.push_visit(&super::StructuralVisitRecord {
-            visit_id: visit.visit_id,
-            profile_id: visit.profile_id.clone(),
-            url: visit.url.clone(),
-            visit_time_ms: visit.visit_time_ms,
-            from_visit: visit.from_visit,
-            registrable_domain: visit.registrable_domain.clone(),
-            search_engine: visit.search_engine.clone(),
-            search_query: visit.search_query.clone(),
-            is_new_domain: visit.is_new_domain,
-            is_search_event: visit.is_search_event,
-        });
-        visit.session_id = Some(session.record.session_id.clone());
-    }
-    if let Some(session) = current.take() {
-        sessions.push(session.finish());
-    }
-    sessions
+    by_token: std::collections::HashMap<(String, String, String), Vec<usize>>,
+    tokens: Vec<std::collections::HashSet<String>>,
+    queries: Vec<std::collections::HashSet<String>>,
 }
 
 /// Builds deterministic search trails and search-event rows from visits that
 /// have already been normalized and session-grouped.
+#[cfg(test)]
 pub(super) fn build_search_trails(
     visits: &mut [VisitRecord],
 ) -> (Vec<SearchEventRecord>, Vec<TrailRecord>) {
@@ -214,6 +176,7 @@ pub(super) fn build_search_trails(
 
 /// Groups keyword search events into deterministic families using the accepted
 /// normalized-query similarity heuristic.
+#[cfg(test)]
 pub(super) fn build_query_families(events: &[SearchEventRecord]) -> Vec<QueryFamilyRecord> {
     let mut families: Vec<QueryFamilyRecord> = Vec::new();
     for event in events.iter().filter(|event| event.query_kind.is_keyword()) {
@@ -265,7 +228,7 @@ pub(super) fn build_query_families(events: &[SearchEventRecord]) -> Vec<QueryFam
 /// order so in-memory and batched grouping can be compared directly.
 #[cfg(test)]
 pub(super) fn load_profile_search_events(
-    connection: &Connection,
+    connection: &Session<'_>,
     profile_id: &str,
 ) -> Result<Vec<SearchEventRecord>> {
     let mut statement = connection.prepare(
@@ -290,19 +253,20 @@ pub(super) fn load_profile_search_events(
                 search_engine: row.get(2)?,
                 raw_query: row.get(3)?,
                 normalized_query: row.get(4)?,
-                query_kind: super::parse_search_query_kind(&row.get::<_, String>(5)?),
+                query_kind: super::parse_search_query_kind(&row.get::<String>(5)?),
                 trail_id: row.get(6)?,
                 visit_time_ms: row.get(7)?,
             })
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<vault_store::Result<Vec<_>>>()
         .map_err(Into::into)
 }
 
 /// Streams persisted search events in visit-id order for the batched query
 /// family builder.
+#[cfg(test)]
 fn load_profile_search_event_batch(
-    connection: &Connection,
+    connection: &Session<'_>,
     profile_id: &str,
     after: Option<SearchEventBatchCursor>,
     limit: usize,
@@ -333,20 +297,21 @@ fn load_profile_search_event_batch(
                     search_engine: row.get(2)?,
                     raw_query: row.get(3)?,
                     normalized_query: row.get(4)?,
-                    query_kind: super::parse_search_query_kind(&row.get::<_, String>(5)?),
+                    query_kind: super::parse_search_query_kind(&row.get::<String>(5)?),
                     trail_id: row.get(6)?,
                     visit_time_ms: row.get(7)?,
                 })
             },
         )?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<vault_store::Result<Vec<_>>>()
         .map_err(Into::into)
 }
 
 /// Rebuilds query families by streaming persisted search events instead of
 /// loading unrelated structural aggregates into memory.
+#[cfg(test)]
 pub(super) fn build_query_families_from_batches(
-    connection: &Connection,
+    connection: &Session<'_>,
     profile_id: &str,
 ) -> Result<Vec<QueryFamilyRecord>> {
     let mut accumulator = QueryFamilyAccumulator::default();
@@ -372,33 +337,45 @@ pub(super) fn build_query_families_from_batches(
 impl QueryFamilyAccumulator {
     /// Merges one ordered search event into the current family set without
     /// materializing a second copy of every family token set.
-    fn add_event(&mut self, event: &SearchEventRecord) {
+    pub(super) fn add_event(&mut self, event: &SearchEventRecord) {
         let tokens = query_token_set(&event.normalized_query);
         if tokens.is_empty() {
             return;
         }
-        for family in &mut self.families {
-            if family.profile_id != event.profile_id || family.search_engine != event.search_engine
-            {
-                continue;
-            }
-            let family_tokens = query_token_set(&normalize_query(&family.anchor_query));
-            if super::jaccard(&tokens, &family_tokens) >= 0.5
-                || tokens.is_subset(&family_tokens)
+        let candidates = tokens
+            .iter()
+            .flat_map(|token| {
+                self.by_token
+                    .get(&(event.profile_id.clone(), event.search_engine.clone(), token.clone()))
+                    .into_iter()
+                    .flatten()
+                    .copied()
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        for index in candidates {
+            let family_tokens = &self.tokens[index];
+            if super::jaccard(&tokens, family_tokens) >= 0.5
+                || tokens.is_subset(family_tokens)
                 || family_tokens.is_subset(&tokens)
             {
+                let family = &mut self.families[index];
                 family.member_count += 1;
                 family.last_seen_ms = family.last_seen_ms.max(event.visit_time_ms);
-                if !family
-                    .queries
-                    .iter()
-                    .any(|query| normalize_query(query) == event.normalized_query)
-                {
+                if self.queries[index].insert(event.normalized_query.clone()) {
                     family.queries.push(event.raw_query.clone());
                 }
                 return;
             }
         }
+        let index = self.families.len();
+        for token in &tokens {
+            self.by_token
+                .entry((event.profile_id.clone(), event.search_engine.clone(), token.clone()))
+                .or_default()
+                .push(index);
+        }
+        self.tokens.push(tokens);
+        self.queries.push(std::collections::HashSet::from([event.normalized_query.clone()]));
         self.families.push(QueryFamilyRecord {
             family_id: format!("family:{}:{:04}", event.profile_id, self.families.len() + 1),
             profile_id: event.profile_id.clone(),
@@ -413,7 +390,7 @@ impl QueryFamilyAccumulator {
 
     /// Finishes the batched family build with stable ordering preserved from the
     /// streamed event input.
-    fn finish(self) -> Vec<QueryFamilyRecord> {
+    pub(super) fn finish(self) -> Vec<QueryFamilyRecord> {
         self.families
     }
 }
@@ -506,5 +483,50 @@ mod tests {
         let mut accumulator = QueryFamilyAccumulator::default();
         accumulator.add_event(&events[0]);
         assert!(accumulator.finish().is_empty());
+    }
+    #[test]
+    fn indexed_family_candidates_preserve_the_reference_first_match() {
+        let events = (0..1003)
+            .map(|i| {
+                let query = match i % 5 {
+                    0 => format!("topic{i} rust"),
+                    1 => format!("topic{} browser", i - 1),
+                    2 => "rust browser".into(),
+                    3 => format!("unrelated{i}"),
+                    _ => "browser".into(),
+                };
+                SearchEventRecord {
+                    visit_id: i,
+                    profile_id: format!("profile{}", i % 2),
+                    search_engine: format!("engine{}", i % 3),
+                    raw_query: query.clone(),
+                    normalized_query: query,
+                    query_kind: SearchQueryKind::Keyword,
+                    trail_id: None,
+                    visit_time_ms: i * 1000,
+                }
+            })
+            .collect::<Vec<_>>();
+        let expected = build_query_families(&events);
+        let mut stream = QueryFamilyAccumulator::default();
+        for event in &events {
+            stream.add_event(event);
+        }
+        let rows = |families: Vec<QueryFamilyRecord>| {
+            families
+                .into_iter()
+                .map(|f| {
+                    (
+                        f.family_id,
+                        f.anchor_query,
+                        f.member_count,
+                        f.queries,
+                        f.first_seen_ms,
+                        f.last_seen_ms,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(rows(stream.finish()), rows(expected));
     }
 }

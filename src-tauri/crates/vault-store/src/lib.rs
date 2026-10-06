@@ -9,8 +9,11 @@ mod engine;
 mod error;
 mod migration;
 mod owner_lock;
+mod query_plans;
 mod queue;
 mod session;
+mod statement_cache;
+pub use query_plans::QueryPlan;
 mod sql;
 mod statements;
 mod worker;
@@ -23,11 +26,12 @@ pub use migration::{Migration, MigrationRegistry};
 pub use owner_lock::OwnerLock;
 pub use queue::Priority;
 pub use session::Session;
+pub use statements::{MappedRows, OptionalRow, Rows, Statement};
 use std::sync::{
     Arc, Mutex, RwLock,
     atomic::{AtomicBool, Ordering},
 };
-pub use turso::{IntoParams, Row, Value, params};
+pub use turso::{IntoParams, Row, Value, params, params_from_iter};
 
 /// All handles are joined before the ownership file is released. Share Store via
 /// Arc between blocking command threads; a closure cannot recursively call it.
@@ -67,6 +71,17 @@ impl Store {
         // Keep scratch's database handle alive before any connection attaches it.
         for db in [Db::Scratch, Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent] {
             let scratch = store.workers.get_mut().unwrap().first().map(|(_, w)| w.gate.clone());
+            let archive = if db == Db::Intelligence {
+                store
+                    .workers
+                    .get_mut()
+                    .unwrap()
+                    .iter()
+                    .find(|(id, _)| *id == Db::Archive)
+                    .map(|(_, w)| w.gate.clone())
+            } else {
+                None
+            };
             let workers = worker::Workers::start(
                 db,
                 engine::Settings::new(&config, db),
@@ -74,6 +89,7 @@ impl Store {
                 config.readers_per_database.get(),
                 config.interactive_queue_capacity.get(),
                 scratch,
+                archive,
             )?;
             store.workers.get_mut().unwrap().push((db, workers));
         }
@@ -104,6 +120,17 @@ impl Store {
             .ok()
             .and_then(|workers| workers.iter().find(|(id, _)| *id == db).map(|(_, w)| w.metrics()))
             .unwrap_or_default()
+    }
+    /// Enables opt-in plan evidence without changing the application query path.
+    pub fn capture_query_plans(&self, db: Db, enabled: bool) -> Result<()> {
+        let workers = self.workers.read().unwrap();
+        workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1.plans.set_enabled(enabled);
+        Ok(())
+    }
+    /// Drains captured plans; callers decide which scans and sorts are acceptable.
+    pub fn take_query_plans(&self, db: Db) -> Result<Vec<QueryPlan>> {
+        let workers = self.workers.read().unwrap();
+        Ok(workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1.plans.take())
     }
     fn request<T: Send + 'static>(
         &self,

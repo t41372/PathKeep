@@ -245,20 +245,6 @@ pub(super) struct ProfileIdPayload {
     pub(super) profile_id: Option<String>,
 }
 
-/// Selects a browsing session in the deterministic intelligence read model.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct SessionIdPayload {
-    pub(super) session_id: String,
-}
-
-/// Selects a search trail in the deterministic intelligence read model.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct TrailIdPayload {
-    pub(super) trail_id: String,
-}
-
 /// Selects a search-engine rule for deletion while preserving the rule registry
 /// as the only owner of rule semantics.
 #[derive(Deserialize)]

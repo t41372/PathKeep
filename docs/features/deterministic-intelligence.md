@@ -571,9 +571,7 @@ M5 只有在以下條件成立時才算完成：
 - explainability 能回到 canonical Explorer evidence
 - 60-year / heavy-user envelope 至少對 deterministic pipeline 有 replayable benchmark 與 cost accounting
   - 2026-04-12 current replayable artifacts:
-    - `cargo run -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml -- --visits 100000 --window-days 365 --output artifacts/benchmarks/2026-04-12-intelligence-rewrite/100k.json`
-    - `cargo run -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml -- --visits 100000 --window-days 365 --horizon-days 21900 --output artifacts/benchmarks/2026-04-12-intelligence-rewrite/100k-60y.json`
-    - `cargo run -p vault-core --example intelligence-benchmark --manifest-path src-tauri/Cargo.toml -- --visits 1000000 --window-days 365 --horizon-days 21900 --output artifacts/benchmarks/2026-04-12-intelligence-rewrite/1m-60y.json`
+    - Native Turso: `CARGO_NET_OFFLINE=true cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --test archive_scale_bench turso_intelligence::encrypted_intelligence_at_scale -- --ignored --nocapture`. This uses one encrypted archive, enforces the 15 GB data budget, and removes it afterwards.
 
 ## 相關
 

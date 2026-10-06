@@ -25,24 +25,46 @@ use tokio::runtime::Runtime;
 /// }
 /// ```
 pub struct Session<'a> {
+    pub(crate) plans: Option<&'a crate::query_plans::PlanCapture>,
     pub(crate) statements: Cell<usize>,
     pub(crate) runtime: &'a Runtime,
     pub(crate) conn: &'a turso::Connection,
-    pub(crate) prepared: Option<&'a crate::statements::StatementCache>,
+    pub(crate) prepared: Option<&'a crate::statement_cache::StatementCache>,
     pub(crate) read_only: bool,
     pub(crate) _thread: PhantomData<Rc<()>>,
     pub(crate) scratch: Option<&'a crate::checkpoint::Gate>,
+    pub(crate) archive: Option<&'a crate::checkpoint::Gate>,
+    pub(crate) archive_read: RefCell<Option<crate::checkpoint::ReadGuard<'a>>>,
     pub(crate) scratch_read: RefCell<Option<crate::checkpoint::ReadGuard<'a>>>,
 }
 impl<'a> Session<'a> {
+    pub(crate) fn with_plans(mut self, plans: &'a crate::query_plans::PlanCapture) -> Self {
+        self.plans = Some(plans);
+        self
+    }
+    pub(crate) fn record_plan(&self, sql: &str, params: &turso::params::Params) -> Result<()> {
+        if let Some(plans) = self.plans {
+            plans.record(self, sql, params)?;
+        }
+        Ok(())
+    }
     pub(crate) fn with_scratch(mut self, gate: Option<&'a crate::checkpoint::Gate>) -> Self {
         self.scratch = gate;
         self
     }
-    fn check_sql(&self, sql: &str) -> Result<()> {
-        if crate::sql::validate(sql, self.read_only)?
-            && let Some(gate) = self.scratch
-        {
+    pub(crate) fn with_archive(mut self, gate: Option<&'a crate::checkpoint::Gate>) -> Self {
+        self.archive = gate;
+        self
+    }
+    pub(crate) fn check_sql(&self, sql: &str) -> Result<()> {
+        let (scratch, archive) = crate::sql::validate(sql, self.read_only)?;
+        if archive && let Some(gate) = self.archive {
+            let mut held = self.archive_read.borrow_mut();
+            if held.is_none() {
+                *held = Some(gate.enter());
+            }
+        }
+        if scratch && let Some(gate) = self.scratch {
             let mut held = self.scratch_read.borrow_mut();
             if held.is_none() {
                 *held = Some(gate.enter());
@@ -82,11 +104,20 @@ impl<'a> Session<'a> {
         work: impl FnOnce(&mut turso::Statement) -> Result<T>,
     ) -> Result<T> {
         self.check_sql(sql)?;
-        let mut statement = match self.prepared {
-            Some(cache) => cache.take(self.runtime, self.conn, sql)?,
-            None => self.runtime.block_on(self.conn.prepare(sql))?,
-        };
+        let mut statement = self.take_statement(sql)?;
         let result = work(&mut statement);
+        self.return_statement(sql, statement);
+        result
+    }
+    /// A compiled statement for `sql`: from this connection's cache, or newly compiled.
+    pub(crate) fn take_statement(&self, sql: &str) -> Result<turso::Statement> {
+        match self.prepared {
+            Some(cache) => cache.take(self.runtime, self.conn, sql),
+            None => Ok(self.runtime.block_on(self.conn.prepare(sql))?),
+        }
+    }
+    /// Gives a statement back for reuse; DDL instead invalidates the whole cache.
+    pub(crate) fn return_statement(&self, sql: &str, statement: turso::Statement) {
         if let Some(cache) = self.prepared {
             if changes_schema(sql) {
                 cache.clear();
@@ -94,7 +125,6 @@ impl<'a> Session<'a> {
                 cache.put(sql, statement);
             }
         }
-        result
     }
 
     /// Apply one statement within the transaction already owned by the facade.
@@ -124,7 +154,9 @@ impl<'a> Session<'a> {
         params: impl turso::IntoParams,
         map: impl FnOnce(&turso::Row) -> Result<T>,
     ) -> Result<T> {
+        let params = params.into_params()?;
         self.with_statement(sql, |statement| {
+            self.record_plan(sql, &params)?;
             self.runtime.block_on(async {
                 let mut rows = statement.query(params).await?;
                 let row = rows.next().await?.ok_or(turso::Error::QueryReturnedNoRows)?;
@@ -142,7 +174,9 @@ impl<'a> Session<'a> {
         params: impl turso::IntoParams,
         mut visit: impl FnMut(&turso::Row) -> Result<()>,
     ) -> Result<()> {
+        let params = params.into_params()?;
         self.with_statement(sql, |statement| {
+            self.record_plan(sql, &params)?;
             self.runtime.block_on(async {
                 let mut rows = statement.query(params).await?;
                 while let Some(row) = rows.next().await? {

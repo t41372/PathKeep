@@ -155,6 +155,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "exercises DNS resolution; run explicitly with network authorization"]
     fn url_target_is_blocked_covers_scheme_literal_and_resolution_paths() {
         // Unparseable / non-http(s) schemes are refused.
         assert!(url_target_is_blocked("not a url"));

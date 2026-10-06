@@ -1,15 +1,11 @@
-//! Intelligence projection storage for rebuildable AI and insight state.
-//!
-//! Canonical archive facts stay in `archive/history-vault.sqlite`. Optional AI,
-//! enrichment, and deterministic insight tables live in a separate SQLite
-//! plane, while read paths use the attached canonical archive directly.
+//! Responsibilities: retain the SQLCipher opener still used by maintenance and independent fixture inputs.
+//! Not responsible for: native intelligence, AI indexing, queues or enrichment storage.
+//! Failure modes: an excluded legacy caller opens a Turso file or an area-4 read
+//! accidentally returns to per-call SQLite setup. Native intelligence attaches Archive
+//! through Vault's read pool; its acceptance tests assert this opener is never called.
 
 use crate::{
-    ai::ensure_ai_schema,
-    ai_queue,
     config::{ProjectPaths, ensure_paths},
-    intelligence::ensure_core_intelligence_schema,
-    intelligence_runtime::ensure_intelligence_runtime_schema,
     models::{AppConfig, ArchiveMode},
 };
 use anyhow::{Context, Result};
@@ -27,9 +23,8 @@ use std::time::Duration as StdDuration;
 const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
 const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
 
-/// Intelligence databases whose schema was ensured in this process. Every intelligence read opens
-/// a connection; replaying a dozen `CREATE ... IF NOT EXISTS` and `ALTER` statements each time was
-/// measurable on the first-paint path.
+/// Cache legacy DDL setup for repeated maintenance and fixture connections.
+/// Native intelligence uses Vault and does not consult this cache.
 static INTELLIGENCE_SCHEMA_READY: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[cfg(test)]
@@ -40,8 +35,7 @@ static OPEN_INTELLIGENCE_CONNECTION_CALL_SITES: OnceLock<Mutex<Vec<String>>> = O
 static OPEN_INTELLIGENCE_CONNECTION_MONITOR_THREAD: OnceLock<Mutex<Option<ThreadId>>> =
     OnceLock::new();
 
-/// Opens the rebuildable intelligence SQLite plane and attaches the canonical
-/// archive for direct read access.
+/// Retains access to the legacy projection for wipe and independent fixture inputs.
 #[track_caller]
 pub fn open_intelligence_connection(
     paths: &ProjectPaths,
@@ -91,10 +85,7 @@ pub fn open_intelligence_connection(
     connection.pragma_update(Some("archive"), "cache_size", SQLITE_CACHE_SIZE_KIB)?;
     let _ = connection.pragma_update(Some("archive"), "mmap_size", SQLITE_MMAP_SIZE_BYTES);
     if !schema_ready {
-        ensure_ai_schema(&connection)?;
-        ai_queue::ensure_ai_queue_schema(&connection)?;
-        ensure_core_intelligence_schema(&connection)?;
-        ensure_intelligence_runtime_schema(&connection)?;
+        connection.execute_batch(LEGACY_AI_SCHEMA_SQL)?;
         INTELLIGENCE_SCHEMA_READY
             .get_or_init(Default::default)
             .lock()
@@ -151,6 +142,55 @@ fn attach_archive_database(
         .context("attaching canonical archive to intelligence storage")?;
     Ok(())
 }
+
+const LEGACY_AI_SCHEMA_SQL: &str = r#"
+    CREATE TABLE IF NOT EXISTS ai_embeddings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      history_id INTEGER NOT NULL,
+      profile_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      title TEXT,
+      domain TEXT NOT NULL,
+      visited_at TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      content_bytes INTEGER NOT NULL,
+      provider_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      indexed_at TEXT NOT NULL,
+      UNIQUE(history_id, provider_id, model, content_hash)
+    );
+    CREATE TABLE IF NOT EXISTS ai_assistant_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id INTEGER,
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      embedding_provider_id TEXT NOT NULL,
+      citations_json TEXT NOT NULL,
+      notes_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS ai_index_ledger (
+      provider_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      sidecar_table TEXT NOT NULL,
+      index_version TEXT NOT NULL,
+      state TEXT NOT NULL,
+      source_watermark INTEGER,
+      last_run_id INTEGER,
+      build_started_at TEXT,
+      build_finished_at TEXT,
+      last_indexed_at TEXT,
+      last_cleared_at TEXT,
+      last_failure_at TEXT,
+      failure_reason TEXT,
+      PRIMARY KEY(provider_id, model)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_provider_model
+      ON ai_embeddings(provider_id, model);
+    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_history_id
+      ON ai_embeddings(history_id);
+"#;
 
 #[cfg(test)]
 mod tests {

@@ -1,4 +1,7 @@
-//! Regression tests for the worker orchestration facade.
+//! Responsibilities: verify worker requests against their real storage and service boundaries.
+//! Not responsible for: frontend rendering or provider network integration.
+//! Failure modes: incorrect owner routing, lost progress or audit records, leaked locked
+//! sessions, a search assertion races index publication, or reverted facts remain visible.
 use super::*;
 #[cfg(coverage)]
 use crate::intelligence::{
@@ -464,7 +467,9 @@ fn app_snapshot_and_worker_cli_cover_main_local_flows() {
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
-    let config = initialized_config();
+    let mut config = initialized_config();
+    // This CLI fixture opens an ephemeral owner per call; queue execution is tested separately.
+    config.ai.job_queue_paused = true;
     let snapshot = initialize_archive_database(&config, None).expect("initialize archive");
     assert!(snapshot.archive_status.initialized);
     assert_eq!(snapshot.browser_profiles.len(), 1);
@@ -696,7 +701,7 @@ fn worker_cli_rejects_mcp_server_until_explicitly_enabled() {
 }
 
 #[test]
-fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
+fn mcp_surface_respects_native_visibility_and_locked_app_sessions() {
     let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
@@ -704,23 +709,35 @@ fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
     let mut config = configured_ai_config();
     config.ai.job_queue_paused = true;
-    initialize_archive_database(&config, None).expect("initialize archive");
-    let paths = project_paths().unwrap();
-    vault_core::test_support::legacy_fixtures::seed_reader_archive(
-        &paths,
-        &config,
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
+    Connection::open(chrome_root.join("Default/History"))
+        .unwrap()
+        .execute("UPDATE urls SET title='Imported',url='https://example.com/import'", [])
+        .unwrap();
+    let imported = import_browser_history_source(
+        &vault,
         None,
-        "https://example.com/import",
-        "Imported",
-    );
-    vault_core::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
+        &BrowserHistoryImportRequest {
+            source_path: chrome_root.join("Default/History").display().to_string(),
+            dry_run: false,
+            browser_family: Some("chromium".into()),
+            profile_id: Some("chrome:Default".into()),
+            browser_name: Some("Chrome".into()),
+            profile_name: Some("Default".into()),
+        },
+    )
+    .expect("native browser import");
+    let batch_id = imported.import_batch.unwrap().id;
+    // Publish the imported document before asserting lexical visibility. The
+    // revert below must still hide it before the next search-index cycle.
+    vault.search().cycle().unwrap();
     let visible = mcp_search_result(
         &vault,
         None,
@@ -735,13 +752,7 @@ fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
     .expect("visible mcp search");
     assert_eq!(visible.total, 1);
 
-    vault
-        .store()
-        .write(vault_store::Db::Archive, vault_store::Priority::Interactive, |s| {
-            s.execute("UPDATE visits SET reverted_at='2026-04-01'", ())?;
-            Ok(())
-        })
-        .unwrap();
+    revert_import_batch_detail(&vault, batch_id).expect("hide native import");
     let hidden = mcp_search_result(
         &vault,
         None,
@@ -866,11 +877,18 @@ fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
     assert!(!archive_status.unlocked);
     assert_eq!(archive_status.warning.as_deref(), Some("PathKeep is currently locked."));
 
-    let cli_error =
-        run_worker_cli(&["mcp-server".to_string()]).expect_err("locked mcp server should fail");
+    // The CLI connects to this already-open owner, as it does in the app.
+    let owner = vault.clone();
+    let _server =
+        vault_owner_ipc::Server::start(&vault.paths().app_root, move |request, progress| {
+            crate::owner_requests::dispatch(request, progress, Ok(None), || Ok(owner.clone()))
+        })
+        .unwrap();
+    let cli_error = crate::run_worker_cli(&["mcp-server".to_string()])
+        .expect_err("locked mcp server should fail");
     assert!(cli_error.to_string().contains("Unlock PathKeep"));
 
-    let scheduled_json = run_worker_cli(&["backup".to_string(), "--due-only".to_string()])
+    let scheduled_json = crate::run_worker_cli(&["backup".to_string(), "--due-only".to_string()])
         .expect("App Lock must not block the OS-scheduled backup executor");
     let scheduled: vault_core::BackupReport =
         serde_json::from_str(&scheduled_json).expect("scheduled backup report");
@@ -1006,7 +1024,7 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
     let chrome_root = chrome_user_data_fixture(dir.path());
     let keyring_root = dir.path().join("test-keyring");
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
@@ -1015,7 +1033,7 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
     let mut config = configured_ai_config();
     config.ai.job_queue_paused = true;
     assert!(config.ai.mcp_enabled);
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save mcp-on config");
 
     let served = mcp_search_result(
@@ -1100,16 +1118,15 @@ fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
     let mut config = configured_ai_config();
     config.ai.job_queue_paused = true;
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     let backup = run_backup_now(&vault, None, false).expect("backup");
-    seed_legacy_reader_fixture(None);
     vault.search().cycle().unwrap();
     assert_eq!(backup.run.expect("run").new_visits, 1);
 
@@ -1186,14 +1203,14 @@ fn queued_assistant_jobs_keep_their_enqueued_provider_snapshot() {
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
     let mut config = configured_ai_config();
     config.ai.job_queue_paused = true;
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save initial config");
 
     let queued = ask_ai_assistant(
@@ -1215,7 +1232,7 @@ fn queued_assistant_jobs_keep_their_enqueued_provider_snapshot() {
     save_user_config(&changed, None).expect("save changed config");
 
     let loaded =
-        load_ai_assistant_job(None, queued.job_id.expect("queued job id")).expect("load job");
+        load_ai_assistant_job(&vault, queued.job_id.expect("queued job id")).expect("load job");
     assert_eq!(loaded.state, "paused");
     assert_eq!(loaded.provider_id, "llm-primary");
     assert_eq!(loaded.embedding_provider_id, "embed-primary");
@@ -1236,13 +1253,13 @@ fn build_ai_index_returns_a_background_job_report_without_blocking_the_caller() 
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
     let config = configured_ai_config();
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save config");
 
     let report = build_ai_index_now(&vault, None, &AiIndexRequest::default())
@@ -1279,17 +1296,15 @@ fn manual_backup_refreshes_deterministic_insights_automatically() {
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
     let config = configured_ai_config();
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
 
-    seed_legacy_reader_fixture(None);
     let backup = run_backup_now(&vault, None, false).expect("backup");
-    seed_legacy_reader_fixture(None);
     assert_eq!(backup.run.expect("backup run").new_visits, 1);
     assert!(
         backup
@@ -1299,7 +1314,7 @@ fn manual_backup_refreshes_deterministic_insights_automatically() {
     );
 
     let mut runtime =
-        load_intelligence_runtime_snapshot(None).expect("load intelligence runtime snapshot");
+        load_intelligence_runtime_snapshot(&vault).expect("load intelligence runtime snapshot");
     for _ in 0..50 {
         if runtime
             .recent_jobs
@@ -1309,19 +1324,20 @@ fn manual_backup_refreshes_deterministic_insights_automatically() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
-        runtime =
-            load_intelligence_runtime_snapshot(None).expect("reload intelligence runtime snapshot");
+        runtime = load_intelligence_runtime_snapshot(&vault)
+            .expect("reload intelligence runtime snapshot");
     }
 
     let sessions = get_sessions(
-        None,
+        &vault,
         &PagedDateRangeRequest {
+            cursor: None,
             date_range: vault_core::DateRange {
                 start: "1970-01-01".to_string(),
                 end: "2100-01-01".to_string(),
             },
             profile_id: None,
-            page: 0,
+
             page_size: 10,
         },
     )
@@ -1583,7 +1599,9 @@ fn provider_resolution_helpers_cover_error_success_and_note_paths() {
     fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
         .expect("create archive parent");
     fs::write(&paths.archive_database_path, "not-a-database").expect("write invalid archive");
-    let derive_status = derive_ai_status(&paths, &config, Some("wrong-key"));
+    let owner = vault_core::Vault::open_temp().unwrap();
+    owner.store().close().unwrap();
+    let derive_status = derive_ai_status(Some(&owner), &config);
     assert!(derive_status.warning.is_some());
 
     let missing_provider = resolve_provider_runtime(
@@ -1692,7 +1710,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     let curl_path = install_fake_curl(&bin_dir, fake_curl_success_body());
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
         std::env::set_var("BHB_TEST_CURL_BIN", &curl_path);
@@ -1700,7 +1718,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
 
     let mut config = configured_ai_config();
     config.ai.auto_index_after_backup = true;
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save config");
 
     store_ai_provider_api_key(
@@ -1721,7 +1739,6 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     .expect("store llm key");
 
     run_backup_now(&vault, None, false).expect("backup with follow-up tasks");
-    seed_legacy_reader_fixture(None);
 
     let index =
         build_ai_index_now(&vault, None, &AiIndexRequest::default()).expect("build ai index");
@@ -1912,10 +1929,9 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
         vault_core::AiChatStreamChunk::Done | vault_core::AiChatStreamChunk::Error { .. }
     ));
     // The durable header was finalized and the journaled steps replay from agent.sqlite.
-    let agent_trace =
-        vault_core::load_agent_run(&project_paths().expect("paths"), &agent_ack.run_id)
-            .expect("load agent trace")
-            .expect("agent trace present");
+    let agent_trace = vault_core::load_agent_run(&vault, &agent_ack.run_id)
+        .expect("load agent trace")
+        .expect("agent trace present");
     assert!(agent_trace.steps.iter().any(|step| step.kind == "tool-result"));
     drop(agent_captured);
 
@@ -1937,7 +1953,7 @@ fn coverage_run_backup_now_reports_missing_follow_up_requirements() {
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
@@ -1949,11 +1965,10 @@ fn coverage_run_backup_now_reports_missing_follow_up_requirements() {
     // the static tier. The warning path now triggers when the SELECTED provider is UNUSABLE; here the
     // user's selected provider is disabled, which `selected_embedding_provider_runtime` rejects.
     config.ai.embedding_providers[0].enabled = false;
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save config");
 
     let report = run_backup_now(&vault, None, false).expect("backup with missing follow-ups");
-    seed_legacy_reader_fixture(None);
     assert!(report.warnings.iter().any(|warning| warning.contains("embedding provider")));
 
     unsafe {
@@ -1973,27 +1988,27 @@ fn coverage_ai_queue_paused_and_semantic_fallback_paths_stay_truthful() {
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
     let mut config = configured_ai_config();
     config.ai.job_queue_paused = true;
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save config");
     let paths = project_paths().expect("project paths");
     assert!(
-        !drain_one_ai_queue_job(&paths, None).expect("paused AI queue drain is idle"),
+        !drain_one_ai_queue_job(&vault, &paths, None).expect("paused AI queue drain is idle"),
         "paused AI queue must not claim work"
     );
     assert!(
-        !drain_one_priority_intelligence_job(&paths, None)
+        !drain_one_priority_intelligence_job(&vault)
             .expect("paused deterministic queue drain is idle"),
         "paused deterministic queue must not claim work"
     );
     assert!(
-        !drain_one_enrichment_intelligence_job(&paths, None)
+        !drain_one_enrichment_intelligence_job(&vault)
             .expect("paused enrichment queue drain is idle"),
         "paused enrichment queue must not claim work"
     );
@@ -2010,23 +2025,23 @@ fn coverage_ai_queue_paused_and_semantic_fallback_paths_stay_truthful() {
     assert!(drained.queued >= 1);
 
     let queued_rebuild = queue_core_intelligence_rebuild(
-        None,
+        &vault,
         &CoreIntelligenceRebuildRequest { profile_id: None, full_rebuild: true, limit: None },
     )
     .expect("queue paused deterministic rebuild");
     assert!(queued_rebuild.notes.iter().any(|note| note.contains("runtime queue is paused")));
     let runtime_snapshot =
-        load_intelligence_runtime_snapshot(None).expect("load paused runtime snapshot");
+        load_intelligence_runtime_snapshot(&vault).expect("load paused runtime snapshot");
     assert!(runtime_snapshot.queue.queued >= 1);
-    let cancelled_runtime = cancel_intelligence_job_now(None, queued_rebuild.job_id)
+    let cancelled_runtime = cancel_intelligence_job_now(&vault, queued_rebuild.job_id)
         .expect("cancel queued deterministic rebuild");
     assert!(cancelled_runtime.recent_jobs.iter().any(|job| job.id == queued_rebuild.job_id));
     let retried_runtime =
-        retry_intelligence_job_now(None, queued_rebuild.job_id).expect("retry runtime snapshot");
+        retry_intelligence_job_now(&vault, queued_rebuild.job_id).expect("retry runtime snapshot");
     assert!(retried_runtime.recent_jobs.iter().any(|job| job.id == queued_rebuild.job_id));
 
     let index_as_assistant =
-        load_ai_assistant_job(None, index_job_id).expect("load non-assistant job through facade");
+        load_ai_assistant_job(&vault, index_job_id).expect("load non-assistant job through facade");
     assert_eq!(index_as_assistant.job_id, Some(index_job_id));
     assert_eq!(index_as_assistant.provider_id, "llm-primary");
     assert_eq!(index_as_assistant.embedding_provider_id, "embed-primary");
@@ -2084,7 +2099,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
@@ -2098,10 +2113,9 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     batch_error_provider.id = "embed-batch-error-single-error".to_string();
     batch_error_provider.name = "Failing batch embedding".to_string();
     config.ai.embedding_providers.push(batch_error_provider);
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save config");
     run_backup_now(&vault, None, false).expect("backup");
-    seed_legacy_reader_fixture(None);
     store_ai_provider_api_key(
         &AiProviderSecretInput {
             provider_id: "embed-primary".to_string(),
@@ -2136,24 +2150,23 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     .expect("store batch error key");
 
     let paths = project_paths().expect("project paths");
-    let connection = vault_core::archive::open_intelligence_connection(&paths, &config, None)
-        .expect("intelligence connection");
+    let connection =
+        vault_core::test_support::native::TestDatabase::new(&vault, vault_store::Db::Intelligence);
     let job_state = |job_id: i64| -> String {
         connection
-            .query_row("SELECT state FROM ai_jobs WHERE id = ?1", [job_id], |row| row.get(0))
+            .query_row("SELECT state FROM ai_jobs WHERE id = ?1", [job_id], |row| Ok(row.get(0)?))
             .expect("ai job state")
     };
 
     let control_job =
-        vault_core::ai_queue::enqueue_index_job(&connection, &AiIndexRequest::default(), false)
+        vault_core::ai_queue::enqueue_index_job(&vault, &AiIndexRequest::default(), false)
             .expect("enqueue control job");
-    let _claimed_control =
-        vault_core::ai_queue::claim_ai_job_by_id(&connection, control_job.id, 300)
-            .expect("claim control job")
-            .expect("claimed control job");
-    vault_core::ai_queue::cancel_ai_job(&connection, control_job.id)
+    let _claimed_control = vault_core::ai_queue::claim_ai_job_by_id(&vault, control_job.id, 300)
+        .expect("claim control job")
+        .expect("claimed control job");
+    vault_core::ai_queue::cancel_ai_job(&vault, control_job.id)
         .expect("request control cancellation");
-    let control = start_ai_job_control(&paths, &config, None, control_job.id);
+    let control = start_ai_job_control(&vault, control_job.id);
     for _ in 0..100 {
         if control.cancelled() {
             break;
@@ -2175,27 +2188,20 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
         clear_only: true,
         ..AiIndexRequest::default()
     };
-    let index_job = vault_core::ai_queue::enqueue_index_job(&connection, &index_request, false)
+    let index_job = vault_core::ai_queue::enqueue_index_job(&vault, &index_request, false)
         .expect("enqueue index job");
-    let claimed_index = vault_core::ai_queue::claim_ai_job_by_id(&connection, index_job.id, 300)
+    let claimed_index = vault_core::ai_queue::claim_ai_job_by_id(&vault, index_job.id, 300)
         .expect("claim index")
         .expect("claimed index");
-    vault_core::ai_queue::cancel_ai_job(&connection, index_job.id)
-        .expect("request index cancellation");
+    vault_core::ai_queue::cancel_ai_job(&vault, index_job.id).expect("request index cancellation");
     connection
         .execute(
             "UPDATE ai_jobs SET state = 'running', stop_requested = 1 WHERE id = ?1",
             [index_job.id],
         )
         .expect("pin claimed index job to running stop-requested state");
-    let _ = complete_claimed_index_job(
-        &connection,
-        &paths,
-        &config,
-        None,
-        claimed_index,
-        &index_request,
-    );
+    let _ =
+        complete_claimed_index_job(&vault, &paths, &config, None, claimed_index, &index_request);
     assert_eq!(job_state(index_job.id), "cancelled");
 
     let cancelled_error_request = AiIndexRequest {
@@ -2203,18 +2209,18 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
         ..AiIndexRequest::default()
     };
     let cancelled_error_index =
-        vault_core::ai_queue::enqueue_index_job(&connection, &cancelled_error_request, false)
+        vault_core::ai_queue::enqueue_index_job(&vault, &cancelled_error_request, false)
             .expect("enqueue cancelled failing index job");
     let claimed_cancelled_error_index =
-        vault_core::ai_queue::claim_ai_job_by_id(&connection, cancelled_error_index.id, 300)
+        vault_core::ai_queue::claim_ai_job_by_id(&vault, cancelled_error_index.id, 300)
             .expect("claim cancelled failing index")
             .expect("claimed cancelled failing index");
-    vault_core::ai_queue::cancel_ai_job(&connection, cancelled_error_index.id)
+    vault_core::ai_queue::cancel_ai_job(&vault, cancelled_error_index.id)
         .expect("request failing index cancellation");
     let mut encrypted_without_key = config.clone();
     encrypted_without_key.archive_mode = ArchiveMode::Encrypted;
     let cancelled_index_error = complete_claimed_index_job(
-        &connection,
+        &vault,
         &paths,
         &encrypted_without_key,
         None,
@@ -2231,22 +2237,20 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
         domain: None,
     };
     let assistant_job = vault_core::ai_queue::enqueue_assistant_job(
-        &connection,
+        &vault,
         &assistant_request,
         "llm-primary",
         Some("embed-primary"),
         false,
     )
     .expect("enqueue assistant job");
-    let claimed_assistant =
-        vault_core::ai_queue::claim_ai_job_by_id(&connection, assistant_job.id, 300)
-            .expect("claim assistant")
-            .expect("claimed assistant");
-    vault_core::ai_queue::cancel_ai_job(&connection, assistant_job.id)
+    let claimed_assistant = vault_core::ai_queue::claim_ai_job_by_id(&vault, assistant_job.id, 300)
+        .expect("claim assistant")
+        .expect("claimed assistant");
+    vault_core::ai_queue::cancel_ai_job(&vault, assistant_job.id)
         .expect("request assistant cancellation");
     let _ = complete_claimed_assistant_job(
         &vault,
-        &connection,
         &paths,
         &config,
         None,
@@ -2270,7 +2274,6 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     };
     let payload_error = complete_claimed_assistant_job(
         &vault,
-        &connection,
         &paths,
         &config,
         None,
@@ -2281,7 +2284,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     assert!(payload_error.to_string().contains("did not contain an assistant payload"));
 
     let failing_assistant_job = vault_core::ai_queue::enqueue_assistant_job(
-        &connection,
+        &vault,
         &assistant_request,
         "llm-error",
         Some("embed-primary"),
@@ -2289,12 +2292,11 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     )
     .expect("enqueue failing assistant job");
     let claimed_failing_assistant =
-        vault_core::ai_queue::claim_ai_job_by_id(&connection, failing_assistant_job.id, 300)
+        vault_core::ai_queue::claim_ai_job_by_id(&vault, failing_assistant_job.id, 300)
             .expect("claim failing assistant")
             .expect("claimed failing assistant");
     let assistant_error = complete_claimed_assistant_job(
         &vault,
-        &connection,
         &paths,
         &config,
         None,
@@ -2306,7 +2308,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     assert_eq!(job_state(failing_assistant_job.id), "failed");
 
     let cancelled_error_assistant = vault_core::ai_queue::enqueue_assistant_job(
-        &connection,
+        &vault,
         &assistant_request,
         "llm-error",
         Some("embed-primary"),
@@ -2314,14 +2316,13 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     )
     .expect("enqueue cancelled failing assistant job");
     let claimed_cancelled_error_assistant =
-        vault_core::ai_queue::claim_ai_job_by_id(&connection, cancelled_error_assistant.id, 300)
+        vault_core::ai_queue::claim_ai_job_by_id(&vault, cancelled_error_assistant.id, 300)
             .expect("claim cancelled failing assistant")
             .expect("claimed cancelled failing assistant");
-    vault_core::ai_queue::cancel_ai_job(&connection, cancelled_error_assistant.id)
+    vault_core::ai_queue::cancel_ai_job(&vault, cancelled_error_assistant.id)
         .expect("request failing assistant cancellation");
     let cancelled_assistant_error = complete_claimed_assistant_job(
         &vault,
-        &connection,
         &paths,
         &config,
         None,
@@ -2337,14 +2338,14 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
     assert_eq!(job_state(cancelled_error_assistant.id), "cancelled");
 
     let answered = ask_ai_assistant(&vault, None, &assistant_request).expect("assistant answer");
-    let loaded = load_ai_assistant_job(None, answered.job_id.expect("assistant job id"))
+    let loaded = load_ai_assistant_job(&vault, answered.job_id.expect("assistant job id"))
         .expect("load completed assistant job");
     assert_eq!(loaded.state, "succeeded");
     assert!(loaded.run_id.is_some());
     assert_eq!(loaded.provider_id, "llm-primary");
 
     let foreground_index = vault_core::ai_queue::enqueue_index_job(
-        &connection,
+        &vault,
         &AiIndexRequest {
             provider_id: Some("embed-primary".to_string()),
             clear_only: true,
@@ -2353,26 +2354,28 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
         false,
     )
     .expect("enqueue foreground index job");
-    assert!(drain_one_ai_queue_job(&paths, None).expect("drain one foreground index job"));
+    assert!(drain_one_ai_queue_job(&vault, &paths, None).expect("drain one foreground index job"));
     assert!(
         matches!(job_state(foreground_index.id).as_str(), "succeeded" | "failed" | "cancelled"),
         "foreground index should leave the runnable queue"
     );
 
     let foreground_job = vault_core::ai_queue::enqueue_assistant_job(
-        &connection,
+        &vault,
         &assistant_request,
         "llm-primary",
         Some("embed-primary"),
         false,
     )
     .expect("enqueue foreground assistant job");
-    assert!(drain_one_ai_queue_job(&paths, None).expect("drain one foreground assistant job"));
+    assert!(
+        drain_one_ai_queue_job(&vault, &paths, None).expect("drain one foreground assistant job")
+    );
     assert!(
         matches!(job_state(foreground_job.id).as_str(), "succeeded" | "failed" | "cancelled"),
         "foreground assistant should leave the runnable queue"
     );
-    assert!(!drain_one_ai_queue_job(&paths, None).expect("idle AI queue drain"));
+    assert!(!drain_one_ai_queue_job(&vault, &paths, None).expect("idle AI queue drain"));
 
     let explicit_index = build_ai_index_now(
         &vault,
@@ -2421,17 +2424,16 @@ fn coverage_queue_spawn_and_foreground_drains_cover_worker_loops() {
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
     let mut config = configured_ai_config();
     config.ai.job_queue_concurrency = 2;
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save config");
     run_backup_now(&vault, None, false).expect("backup");
-    seed_legacy_reader_fixture(None);
     store_ai_provider_api_key(
         &AiProviderSecretInput {
             provider_id: "embed-primary".to_string(),
@@ -2449,11 +2451,10 @@ fn coverage_queue_spawn_and_foreground_drains_cover_worker_loops() {
     )
     .expect("store llm key");
 
-    let paths = project_paths().expect("project paths");
-    let connection = vault_core::archive::open_intelligence_connection(&paths, &config, None)
-        .expect("intelligence connection");
+    let connection =
+        vault_core::test_support::native::TestDatabase::new(&vault, vault_store::Db::Intelligence);
     let index = vault_core::ai_queue::enqueue_index_job(
-        &connection,
+        &vault,
         &AiIndexRequest {
             provider_id: Some("embed-primary".to_string()),
             clear_only: true,
@@ -2468,7 +2469,7 @@ fn coverage_queue_spawn_and_foreground_drains_cover_worker_loops() {
         domain: None,
     };
     let assistant = vault_core::ai_queue::enqueue_assistant_job(
-        &connection,
+        &vault,
         &assistant_request,
         "llm-primary",
         Some("embed-primary"),
@@ -2479,7 +2480,7 @@ fn coverage_queue_spawn_and_foreground_drains_cover_worker_loops() {
     assert!(status.queued <= 1);
     for job_id in [index.id, assistant.id] {
         let state: String = connection
-            .query_row("SELECT state FROM ai_jobs WHERE id = ?1", [job_id], |row| row.get(0))
+            .query_row("SELECT state FROM ai_jobs WHERE id = ?1", [job_id], |row| Ok(row.get(0)?))
             .expect("foreground job state");
         assert_ne!(state, "queued");
     }
@@ -2487,13 +2488,15 @@ fn coverage_queue_spawn_and_foreground_drains_cover_worker_loops() {
     let invalid_root = dir.path().join("invalid-spawn-config");
     fs::create_dir_all(&invalid_root).expect("invalid spawn root");
     fs::write(invalid_root.join("config.json"), "{not-json").expect("invalid spawn config");
-    let invalid_paths = vault_core::config::project_paths_with_root(&invalid_root);
-    maybe_spawn_ai_queue_drain(&invalid_paths, &config, None, 1);
-    maybe_spawn_intelligence_queue_drain(&invalid_paths, &config, None, 1);
+    let invalid_vault = vault_core::Vault::open_temp().unwrap();
+    fs::write(invalid_vault.paths().app_root.join("config.json"), "{not-json").unwrap();
+    let invalid_paths = invalid_vault.paths().clone();
+    maybe_spawn_ai_queue_drain(&invalid_vault, &invalid_paths, &config, None, 1);
+    maybe_spawn_intelligence_queue_drain(&invalid_vault.with_config(config.clone()), 1);
 
     let mut single_lane_config = config.clone();
     single_lane_config.ai.job_queue_concurrency = 1;
-    maybe_spawn_intelligence_queue_drain(&paths, &single_lane_config, None, 1);
+    maybe_spawn_intelligence_queue_drain(&vault.with_config(single_lane_config), 1);
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     unsafe {
@@ -2506,40 +2509,37 @@ fn coverage_queue_spawn_and_foreground_drains_cover_worker_loops() {
 #[cfg(coverage)]
 #[test]
 fn coverage_runtime_direct_execution_covers_claim_mismatch_and_success() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
     let config = configured_ai_config();
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save config");
-    let paths = project_paths().expect("project paths");
     assert!(
-        !drain_one_priority_intelligence_job(&paths, None).expect("idle priority drain"),
+        !drain_one_priority_intelligence_job(&vault).expect("idle priority drain"),
         "empty priority queue must stay idle"
     );
     assert!(
-        !drain_one_enrichment_intelligence_job(&paths, None).expect("idle enrichment drain"),
+        !drain_one_enrichment_intelligence_job(&vault).expect("idle enrichment drain"),
         "empty enrichment queue must stay idle"
     );
 
-    let missing =
-        execute_core_intelligence_job(&paths, &config, None, 99_999, FULL_REBUILD_JOB_TYPE)
-            .expect("missing job is a no-op");
+    let missing = execute_core_intelligence_job(&vault, 99_999, FULL_REBUILD_JOB_TYPE)
+        .expect("missing job is a no-op");
     assert!(!missing);
 
     let mismatch_id = {
-        let connection = vault_core::archive::open_intelligence_connection(&paths, &config, None)
-            .expect("intelligence");
         enqueue_core_intelligence_job(
-            &connection,
+            &vault,
             FULL_REBUILD_JOB_TYPE,
             &CoreIntelligenceRebuildRequest {
                 profile_id: Some("chrome:mismatch".to_string()),
@@ -2550,24 +2550,24 @@ fn coverage_runtime_direct_execution_covers_claim_mismatch_and_success() {
         )
         .expect("enqueue mismatch job")
     };
-    let mismatch_error =
-        execute_core_intelligence_job(&paths, &config, None, mismatch_id, VISIT_DERIVE_JOB_TYPE)
-            .expect_err("mismatched job type must be persisted and surfaced");
+    let mismatch_error = execute_core_intelligence_job(&vault, mismatch_id, VISIT_DERIVE_JOB_TYPE)
+        .expect_err("mismatched job type must be persisted and surfaced");
     assert!(mismatch_error.to_string().contains("did not match queued type"));
     let mismatch_state: String =
-        vault_core::archive::open_intelligence_connection(&paths, &config, None)
-            .expect("intelligence")
+        vault_core::test_support::native::TestDatabase::new(&vault, vault_store::Db::Intelligence)
             .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [mismatch_id], |row| {
-                row.get(0)
+                Ok(row.get(0)?)
             })
             .expect("mismatch state");
     assert_eq!(mismatch_state, "failed");
 
     let success_id = {
-        let connection = vault_core::archive::open_intelligence_connection(&paths, &config, None)
-            .expect("intelligence");
+        let connection = vault_core::test_support::native::TestDatabase::new(
+            &vault,
+            vault_store::Db::Intelligence,
+        );
         let job_id = enqueue_core_intelligence_job(
-            &connection,
+            &vault,
             VISIT_DERIVE_JOB_TYPE,
             &CoreIntelligenceRebuildRequest {
                 profile_id: Some("chrome:direct-success".to_string()),
@@ -2589,12 +2589,13 @@ fn coverage_runtime_direct_execution_covers_claim_mismatch_and_success() {
         assert_eq!(state, "queued");
         job_id
     };
-    let succeeded =
-        execute_core_intelligence_job(&paths, &config, None, success_id, VISIT_DERIVE_JOB_TYPE)
-            .expect("execute direct success job");
+    let succeeded = execute_core_intelligence_job(&vault, success_id, VISIT_DERIVE_JOB_TYPE)
+        .expect("execute direct success job");
     if !succeeded {
-        let connection = vault_core::archive::open_intelligence_connection(&paths, &config, None)
-            .expect("intelligence");
+        let connection = vault_core::test_support::native::TestDatabase::new(
+            &vault,
+            vault_store::Db::Intelligence,
+        );
         let debug: (String, String, String) = connection
             .query_row(
                 "SELECT job_type, state, payload_json FROM intelligence_jobs WHERE id = ?1",
@@ -2605,18 +2606,18 @@ fn coverage_runtime_direct_execution_covers_claim_mismatch_and_success() {
         panic!("direct success job was not claimed: {debug:?}");
     }
 
-    let connection = vault_core::archive::open_intelligence_connection(&paths, &config, None)
-        .expect("intelligence");
+    let connection =
+        vault_core::test_support::native::TestDatabase::new(&vault, vault_store::Db::Intelligence);
     let state: String = connection
         .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [success_id], |row| {
-            row.get(0)
+            Ok(row.get(0)?)
         })
         .expect("success job state");
     assert_eq!(state, "succeeded");
 
     for job_type in [DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE] {
         let job_id = enqueue_core_intelligence_job(
-            &connection,
+            &vault,
             job_type,
             &CoreIntelligenceRebuildRequest {
                 profile_id: Some(format!("chrome:{job_type}")),
@@ -2626,13 +2627,13 @@ fn coverage_runtime_direct_execution_covers_claim_mismatch_and_success() {
             "coverage direct typed label",
         )
         .expect("enqueue typed direct job");
-        let completed = execute_core_intelligence_job(&paths, &config, None, job_id, job_type)
+        let completed = execute_core_intelligence_job(&vault, job_id, job_type)
             .expect("execute typed direct job");
         assert!(completed);
     }
 
     let drained_job_id = enqueue_core_intelligence_job(
-        &connection,
+        &vault,
         VISIT_DERIVE_JOB_TYPE,
         &CoreIntelligenceRebuildRequest {
             profile_id: Some("chrome:drained-priority".to_string()),
@@ -2643,12 +2644,12 @@ fn coverage_runtime_direct_execution_covers_claim_mismatch_and_success() {
     )
     .expect("enqueue priority drain job");
     assert!(
-        drain_one_priority_intelligence_job(&paths, None).expect("drain one priority job"),
+        drain_one_priority_intelligence_job(&vault).expect("drain one priority job"),
         "priority drain must claim queued deterministic work"
     );
     let drained_state: String = connection
         .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [drained_job_id], |row| {
-            row.get(0)
+            Ok(row.get(0)?)
         })
         .expect("drained priority job state");
     assert_ne!(drained_state, "queued");
@@ -2663,24 +2664,23 @@ fn coverage_runtime_direct_execution_covers_claim_mismatch_and_success() {
         },
         "reason": "coverage unknown job type"
     });
-    connection
-        .execute(
+    let unknown_id = connection
+        .query_one(
             "INSERT INTO intelligence_jobs (
                 job_type, state, priority, attempt, dedupe_key, payload_json,
                 artifact_json, created_at, scheduled_at, updated_at
              )
-             VALUES ('unknown-runtime-kind', 'queued', 1, 0, 'coverage-unknown-runtime-kind', ?1, '{}', ?2, ?2, ?2)",
-            rusqlite::params![unknown_payload.to_string(), now],
+             VALUES ('unknown-runtime-kind', 'queued', 1, 0, 'coverage-unknown-runtime-kind', ?1, '{}', ?2, ?2, ?2) RETURNING id",
+            vault_store::params_owned![unknown_payload.to_string(), now],
+            |row| Ok(row.get::<i64>(0)?),
         )
         .expect("insert unknown direct job");
-    let unknown_id = connection.last_insert_rowid();
-    let unknown_error =
-        execute_core_intelligence_job(&paths, &config, None, unknown_id, "unknown-runtime-kind")
-            .expect_err("unknown job type should fail and mark the row failed");
+    let unknown_error = execute_core_intelligence_job(&vault, unknown_id, "unknown-runtime-kind")
+        .expect_err("unknown job type should fail and mark the row failed");
     assert!(unknown_error.to_string().contains("unknown-runtime-kind"));
     let unknown_state: String = connection
         .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [unknown_id], |row| {
-            row.get(0)
+            Ok(row.get(0)?)
         })
         .expect("unknown job state");
     assert_eq!(unknown_state, "failed");
@@ -2695,31 +2695,32 @@ fn coverage_runtime_direct_execution_covers_claim_mismatch_and_success() {
 #[cfg(coverage)]
 #[test]
 fn coverage_intelligence_queue_drain_covers_error_and_enrichment_lanes() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
     let config = configured_ai_config();
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save config");
-    let paths = project_paths().expect("project paths");
 
     let invalid_root = dir.path().join("invalid-runtime-config");
     fs::create_dir_all(&invalid_root).expect("invalid root");
     fs::write(invalid_root.join("config.json"), "{not-json").expect("invalid config");
-    let invalid_paths = vault_core::config::project_paths_with_root(&invalid_root);
-    assert!(drain_one_priority_intelligence_job(&invalid_paths, None).is_err());
-    assert!(drain_one_enrichment_intelligence_job(&invalid_paths, None).is_err());
+    let invalid_vault = vault_core::Vault::open_temp().unwrap();
+    fs::write(invalid_vault.paths().app_root.join("config.json"), "{not-json").unwrap();
+    assert!(drain_one_priority_intelligence_job(&invalid_vault).is_err());
+    assert!(drain_one_enrichment_intelligence_job(&invalid_vault).is_err());
 
-    let connection = vault_core::archive::open_intelligence_connection(&paths, &config, None)
-        .expect("intelligence connection");
+    let connection =
+        vault_core::test_support::native::TestDatabase::new(&vault, vault_store::Db::Intelligence);
     let now = chrono::Utc::now().to_rfc3339();
     connection
         .execute(
@@ -2728,7 +2729,7 @@ fn coverage_intelligence_queue_drain_covers_error_and_enrichment_lanes() {
                 payload_json, artifact_json, created_at, scheduled_at, updated_at
              )
              VALUES (?1, ?2, ?3, 'queued', 10, 0, ?4, ?5, '{}', ?6, ?6, ?6)",
-            rusqlite::params![
+            vault_store::params_owned![
                 "enrichment-plugin",
                 TITLE_NORMALIZATION_PLUGIN_ID,
                 777_i64,
@@ -2746,14 +2747,14 @@ fn coverage_intelligence_queue_drain_covers_error_and_enrichment_lanes() {
         .expect("insert queued enrichment job");
 
     assert!(
-        drain_one_enrichment_intelligence_job(&paths, None).expect("drain one enrichment job"),
+        drain_one_enrichment_intelligence_job(&vault).expect("drain one enrichment job"),
         "enrichment drain must claim queued enrichment work"
     );
     let state: String = connection
         .query_row(
             "SELECT state FROM intelligence_jobs WHERE dedupe_key = ?1",
             ["coverage-enrichment:999"],
-            |row| row.get(0),
+            |row| Ok(row.get(0)?),
         )
         .expect("enrichment job state");
     assert_ne!(state, "queued");
@@ -2777,7 +2778,7 @@ fn coverage_run_backup_now_surfaces_remote_and_index_failures_as_warnings() {
     let curl_path = install_fake_curl(&bin_dir, fake_curl_upload_failure_body());
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
         std::env::set_var("BHB_TEST_CURL_BIN", &curl_path);
@@ -2786,7 +2787,7 @@ fn coverage_run_backup_now_surfaces_remote_and_index_failures_as_warnings() {
     let mut config = configured_ai_config();
     config.ai.auto_index_after_backup = true;
     config.ai.embedding_providers[0].default_model.clear();
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save config");
 
     store_ai_provider_api_key(
@@ -2799,7 +2800,6 @@ fn coverage_run_backup_now_surfaces_remote_and_index_failures_as_warnings() {
     .expect("store embed key");
 
     run_backup_now(&vault, None, false).expect("backup with failing follow-up tasks");
-    seed_legacy_reader_fixture(None);
     let mut queue = load_ai_queue(&vault, None).expect("load ai queue");
     for _ in 0..50 {
         if queue.failed > 0 {
@@ -2828,7 +2828,7 @@ fn coverage_browser_import_and_paused_auto_index_cover_archive_followups() {
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
@@ -2836,7 +2836,7 @@ fn coverage_browser_import_and_paused_auto_index_cover_archive_followups() {
     let mut config = configured_ai_config();
     config.ai.auto_index_after_backup = true;
     config.ai.job_queue_paused = true;
-    initialize_archive_database(&config, None).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, None).expect("save config");
     store_ai_provider_api_key(
         &AiProviderSecretInput {
@@ -2857,12 +2857,10 @@ fn coverage_browser_import_and_paused_auto_index_cover_archive_followups() {
     };
     let imported = import_browser_history_source(&vault, None, &browser_history_request)
         .expect("browser direct import");
-    seed_legacy_reader_fixture(None);
     assert_eq!(imported.imported_items, 1);
     assert!(imported.notes.iter().any(|note| note.contains("Core Intelligence refresh jobs")));
 
     let backup = run_backup_now(&vault, None, false).expect("backup with paused auto-index");
-    seed_legacy_reader_fixture(None);
     assert!(backup.warnings.iter().any(|warning| warning.contains("AI auto-index queued job")));
 
     unsafe {
@@ -2882,7 +2880,7 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
     let keyring_root = dir.path().join("test-keyring");
 
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
@@ -2901,10 +2899,9 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
         dimensions: Some(1536),
         ..AiProviderConfig::default()
     });
-    initialize_archive_database(&config, Some("vault-passphrase")).expect("initialize archive");
+    vault_core::save_config(vault.paths(), &config).expect("save native config");
     save_user_config(&config, Some("vault-passphrase")).expect("save config");
     let backup = run_backup_now(&vault, Some("vault-passphrase"), false).expect("backup");
-    seed_legacy_reader_fixture(Some("vault-passphrase"));
     let run_id = backup.run.expect("backup run").id;
 
     let dashboard = dashboard_snapshot(&vault).expect("load dashboard snapshot");
@@ -2960,28 +2957,25 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
     let replay = replay_ai_job(&vault, Some("vault-passphrase"), 999)
         .expect_err("replay should fail for a missing job");
     assert!(replay.to_string().contains("999"));
-    let cancel = cancel_ai_job(Some("vault-passphrase"), 999)
-        .expect_err("cancel should fail for a missing job");
+    let cancel = cancel_ai_job(&vault, 999).expect_err("cancel should fail for a missing job");
     assert!(cancel.to_string().contains("999"));
-    let assistant_job = load_ai_assistant_job(Some("vault-passphrase"), 999)
-        .expect_err("assistant job should not exist");
+    let assistant_job =
+        load_ai_assistant_job(&vault, 999).expect_err("assistant job should not exist");
     assert!(assistant_job.to_string().contains("999"));
 
-    let run_report = run_core_intelligence_now(
-        Some("vault-passphrase"),
-        &CoreIntelligenceRebuildRequest::default(),
-    )
-    .expect("core intelligence run should complete");
+    let run_report = run_core_intelligence_now(&vault, &CoreIntelligenceRebuildRequest::default())
+        .expect("core intelligence run should complete");
     assert!(!run_report.last_run_at.is_empty());
     let sessions = get_sessions(
-        Some("vault-passphrase"),
+        &vault,
         &PagedDateRangeRequest {
+            cursor: None,
             date_range: vault_core::DateRange {
                 start: "1970-01-01".to_string(),
                 end: "2100-01-01".to_string(),
             },
             profile_id: None,
-            page: 0,
+
             page_size: 10,
         },
     )
@@ -2993,41 +2987,54 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
     let scoped =
         vault_core::ScopedDateRangeRequest { date_range: date_range.clone(), profile_id: None };
     let paged = vault_core::PagedDateRangeRequest {
+        cursor: None,
         date_range: date_range.clone(),
         profile_id: None,
-        page: 0,
+
         page_size: 10,
     };
     let top_sites = vault_core::TopSitesRequest {
+        cursor: None,
         date_range: date_range.clone(),
         profile_id: None,
         sort_by: None,
         limit: Some(10),
     };
     let embed_cards = vault_core::IntelligenceEmbedCardsRequest {
+        cursor: None,
         date_range: date_range.clone(),
         profile_id: None,
         limit: Some(4),
     };
 
     let _ = get_search_trails(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::SearchTrailQueryRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             engine: None,
-            page: 0,
+
             page_size: 10,
         },
     );
-    let _ = get_trail_detail(Some("vault-passphrase"), "missing-trail");
-    let _ = get_session_detail(Some("vault-passphrase"), "missing-session");
-    let _ = get_navigation_path(Some("vault-passphrase"), 1);
-    let _ = get_hub_pages(Some("vault-passphrase"), &top_sites);
-    let _ = get_search_engine_ranking(Some("vault-passphrase"), &scoped);
-    let _ = list_search_engine_rules(Some("vault-passphrase"));
+    let _ = get_trail_detail(
+        &vault,
+        &vault_core::TrailDetailRequest { trail_id: "missing-trail".into(), ..Default::default() },
+    );
+    let _ = get_session_detail(
+        &vault,
+        &vault_core::SessionDetailRequest {
+            session_id: "missing-session".into(),
+            ..Default::default()
+        },
+    );
+    let _ = get_navigation_path(&vault, 1);
+    let _ = get_hub_pages(&vault, &top_sites);
+    let _ = get_search_engine_ranking(&vault, &scoped);
+    let _ = list_search_engine_rules(&vault);
     let custom_rules = upsert_search_engine_rule(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::SearchEngineRuleInput {
             rule_id: Some("fixture-search".to_string()),
             engine_id: "fixture".to_string(),
@@ -3042,20 +3049,21 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
     )
     .expect("upsert search rule");
     assert!(custom_rules.iter().any(|rule| rule.rule_id == "fixture-search"));
-    let deleted_rules = delete_search_engine_rule(Some("vault-passphrase"), "fixture-search")
-        .expect("delete search rule");
+    let deleted_rules =
+        delete_search_engine_rule(&vault, "fixture-search").expect("delete search rule");
     assert!(!deleted_rules.iter().any(|rule| rule.rule_id == "fixture-search"));
-    let _ = get_intelligence_primary_overview(Some("vault-passphrase"), &scoped);
+    let _ = get_intelligence_primary_overview(&vault, &scoped);
     let _ = get_top_search_concepts(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::TopSearchConceptsRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(10),
         },
     );
     let _ = get_search_queries(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::SearchQueryListRequest {
             date_range: date_range.clone(),
             profile_id: None,
@@ -3064,81 +3072,98 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
             domain: None,
             query: None,
             sort: None,
-            page: 0,
+            cursor: None,
             page_size: 10,
         },
     );
-    let _ = get_query_families(Some("vault-passphrase"), &paged);
+    let _ = get_query_families(&vault, &paged);
     let _ = get_query_family_detail(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::QueryFamilyDetailRequest {
+            cursor: None,
+            page_size: None,
             family_id: "missing-family".to_string(),
             date_range: date_range.clone(),
             profile_id: None,
         },
     );
-    let _ = get_top_sites(Some("vault-passphrase"), &top_sites);
+    let _ = get_top_sites(&vault, &top_sites);
     let _ = get_domain_trend(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::DomainTrendRequest {
             registrable_domain: "example.com".to_string(),
             date_range: date_range.clone(),
         },
     );
     let _ = get_refind_page_detail(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::RefindPageDetailRequest {
+            visits_cursor: None,
+            trails_cursor: None,
+            page_size: None,
             canonical_url: "https://example.com/".to_string(),
             date_range: date_range.clone(),
             profile_id: None,
         },
     );
     let _ = explain_refind(
-        Some("vault-passphrase"),
-        &vault_core::ExplainRefindRequest { canonical_url: "https://example.com/".to_string() },
+        &vault,
+        &vault_core::ExplainRefindRequest {
+            profile_id: None,
+            cursor: None,
+            page_size: None,
+            canonical_url: "https://example.com/".to_string(),
+        },
     );
     let _ = explain_entity(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::EntityExplanationRequest {
+            cursor: None,
+            page_size: None,
             entity_type: "domain".to_string(),
             entity_id: "example.com".to_string(),
         },
     );
-    let _ = get_activity_mix(Some("vault-passphrase"), &scoped);
+    let _ = get_activity_mix(&vault, &scoped);
     let _ = get_activity_mix_trend(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::GranularityDateRangeRequest {
             date_range: date_range.clone(),
             profile_id: None,
             granularity: "day".to_string(),
         },
     );
-    let _ = get_digest_summary(Some("vault-passphrase"), &scoped);
-    let _ = get_stable_sources(Some("vault-passphrase"), &scoped);
+    let _ = get_digest_summary(&vault, &scoped);
+    let _ = get_stable_sources(&vault, &vault_core::ScopedPageRequest::from(&scoped));
     let _ = get_search_effectiveness(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::SearchEffectivenessRequest {
+            topics_cursor: None,
+            topics_limit: None,
             date_range: date_range.clone(),
             profile_id: None,
             engine: None,
         },
     );
-    let _ = get_friction_signals(Some("vault-passphrase"), &scoped);
-    let _ = get_reopened_investigations(Some("vault-passphrase"), &scoped);
+    let _ = get_friction_signals(&vault, &vault_core::ScopedPageRequest::from(&scoped));
+    let _ = get_reopened_investigations(&vault, &vault_core::ScopedPageRequest::from(&scoped));
     let _ = get_domain_deep_dive(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::DomainDeepDiveRequest {
+            pages_cursor: None,
+            searches_cursor: None,
+            page_size: None,
             registrable_domain: "example.com".to_string(),
             date_range: date_range.clone(),
             profile_id: None,
         },
     );
     let _ = get_day_insights(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::DayInsightsRequest { date: "2026-04-01".to_string(), profile_id: None },
     );
     let _ = get_browsing_rhythm(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::CategoryFilteredDateRangeRequest {
             date_range: date_range.clone(),
             profile_id: None,
@@ -3146,55 +3171,54 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
         },
     );
     let _ = get_discovery_trend(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::GranularityDateRangeRequest {
             date_range: date_range.clone(),
             profile_id: None,
             granularity: "week".to_string(),
         },
     );
-    let _ = get_on_this_day(Some("vault-passphrase"), None);
-    let _ = get_intelligence_embed_cards(Some("vault-passphrase"), &embed_cards);
-    let _ = get_intelligence_widget_snapshot(Some("vault-passphrase"), &embed_cards);
-    let _ = get_intelligence_public_snapshot(Some("vault-passphrase"), &scoped);
+    let _ = get_on_this_day(&vault, None);
+    let _ = get_intelligence_embed_cards(&vault, &embed_cards);
+    let _ = get_intelligence_widget_snapshot(&vault, &embed_cards);
+    let _ = get_intelligence_public_snapshot(&vault, &scoped);
     let local_host_request = vault_core::IntelligenceLocalHostRequest {
         date_range: date_range.clone(),
         profile_id: None,
         locale: "en".to_string(),
     };
-    let _ = preview_intelligence_local_host(Some("vault-passphrase"), &local_host_request);
-    let _ = build_intelligence_local_host(Some("vault-passphrase"), &local_host_request);
-    let _ = get_breadth_index(Some("vault-passphrase"), &scoped);
-    let _ = get_habit_patterns(Some("vault-passphrase"), &scoped);
-    let _ = get_interrupted_habits(
-        Some("vault-passphrase"),
-        &vault_core::ProfileScopedRequest { profile_id: None },
-    );
+    let _ = preview_intelligence_local_host(&vault, &local_host_request);
+    let _ = build_intelligence_local_host(&vault, &local_host_request);
+    let _ = get_breadth_index(&vault, &scoped);
+    let _ = get_habit_patterns(&vault, &scoped);
+    let _ = get_interrupted_habits(&vault, &vault_core::ProfileScopedRequest { profile_id: None });
     let _ = get_path_flows(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::PathFlowRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             step_count: 2,
             limit: Some(10),
         },
     );
-    let _ = get_observed_interactions(Some("vault-passphrase"), &scoped);
-    let _ = get_compare_sets(Some("vault-passphrase"), &scoped);
+    let _ = get_observed_interactions(&vault, &vault_core::ScopedPageRequest::from(&scoped));
+    let _ = get_compare_sets(&vault, &scoped);
     let _ = get_compare_set_detail(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::CompareSetDetailRequest {
             compare_set_id: "missing-compare-set".to_string(),
             date_range: date_range.clone(),
             profile_id: None,
         },
     );
-    let _ = get_multi_browser_diff(Some("vault-passphrase"), &scoped);
-    let _ = get_intelligence_secondary_overview(Some("vault-passphrase"), &scoped);
+    let _ = get_multi_browser_diff(&vault, &scoped);
+    let _ = get_intelligence_secondary_overview(&vault, &scoped);
 
     let refind_pages = get_refind_pages(
-        Some("vault-passphrase"),
+        &vault,
         &vault_core::RefindPagesRequest {
+            cursor: None,
             date_range: vault_core::DateRange {
                 start: "1970-01-01".to_string(),
                 end: "2100-01-01".to_string(),
@@ -3206,8 +3230,13 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
     .expect("refind pages should load");
     if let Some(page) = refind_pages.data.first() {
         let explain_report = explain_refind(
-            Some("vault-passphrase"),
-            &vault_core::ExplainRefindRequest { canonical_url: page.canonical_url.clone() },
+            &vault,
+            &vault_core::ExplainRefindRequest {
+                profile_id: None,
+                cursor: None,
+                page_size: None,
+                canonical_url: page.canonical_url.clone(),
+            },
         )
         .expect("explain refind should work from the persisted surface");
         assert!(!explain_report.factors.is_empty());

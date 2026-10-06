@@ -9,7 +9,7 @@ use crate::{Error, Result};
 // statement. Only one statement is allowed; migrations use one call per statement.
 // Identifiers are decoded, comments/string contents are skipped, and reserved
 // namespaces are excluded throughout (including trigger bodies and CTEs).
-pub(crate) fn validate(sql: &str, read_only: bool) -> Result<bool> {
+pub(crate) fn validate(sql: &str, read_only: bool) -> Result<(bool, bool)> {
     let words = tokens(sql)?;
     let Some(first) = words.first() else { return Err(Error::RestrictedSql("empty statement")) };
     let reading = matches!(first.as_str(), "SELECT" | "WITH" | "EXPLAIN");
@@ -56,7 +56,15 @@ pub(crate) fn validate(sql: &str, read_only: bool) -> Result<bool> {
     {
         return Err(Error::RestrictedSql("scratch writes belong to Db::Scratch"));
     }
-    Ok(words.iter().any(|word| word == "SCRATCH"))
+    if words.windows(2).any(|w| w[0] == "UPDATE" && w[1] == "ARCHIVE")
+        || words.windows(3).any(|w| {
+            matches!(w[0].as_str(), "INSERT" | "REPLACE" | "DELETE" | "CREATE" | "DROP" | "ALTER")
+                && w[2] == "ARCHIVE"
+        })
+    {
+        return Err(Error::RestrictedSql("archive writes belong to Db::Archive"));
+    }
+    Ok((words.iter().any(|word| word == "SCRATCH"), words.iter().any(|word| word == "ARCHIVE")))
 }
 fn tokens(sql: &str) -> Result<Vec<String>> {
     let b = sql.as_bytes();

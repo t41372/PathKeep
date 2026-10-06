@@ -1,58 +1,36 @@
-//! AI read models and integration preview surface.
+//! Responsibilities: expose AI readiness, counters, queue controls and saved run read models.
+//! Not responsible for: provider execution, indexing loops or database ownership.
+//! Failure modes: status opens another archive, metadata counters disagree with rows,
+//! recent-job pages hide work, or a read mutates recovery state.
 //!
-//! This module collects the non-generation-facing AI functions:
-//! schema bootstrapping, readiness/status, queue controls, connection reports,
-//! persisted assistant run loading, and manual integration preview.
-//!
-//! Keeping these together makes the public AI surface easier to scan without
-//! digging through embedding/search/assistant execution internals.
+//! Operations receive Vault and use its Intelligence read pool.
 
+use super::native_ledger::{
+    ai_embedding_token_estimate, ai_embeddings_storage_bytes, load_index_ledger,
+    provider_embedding_count, semantic_index_staleness_reason,
+};
 use super::provider::ProviderReadiness;
 use super::*;
 use crate::models::{BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID, StaticEmbeddingStatus};
-
-/// Ensures the AI compatibility tables exist in the rebuildable intelligence plane.
-pub fn ensure_ai_schema(connection: &Connection) -> Result<()> {
-    connection.execute_batch(AI_SCHEMA_SQL)?;
-    Ok(())
-}
+use vault_store::{Db, OptionalRow, Session, params_owned as params};
 
 /// Reports semantic-index readiness, queue state, and storage/readiness notes.
-pub fn ai_index_status(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<AiIndexStatus> {
-    let default_queue_status = AiQueueStatus {
-        paused: config.ai.job_queue_paused,
-        concurrency: config.ai.job_queue_concurrency,
-        ..AiQueueStatus::default()
-    };
-    if !config.initialized || !paths.archive_database_path.exists() {
-        return Ok(AiIndexStatus {
-            enabled: config.ai.enabled,
-            assistant_enabled: config.ai.assistant_enabled,
-            mcp_enabled: config.ai.mcp_enabled,
-            skill_enabled: config.ai.skill_enabled,
-            state: if config.ai.enabled { "blocked".to_string() } else { "disabled".to_string() },
-            llm_provider_id: config.ai.llm_provider_id.clone(),
-            embedding_provider_id: config.ai.embedding_provider_id.clone(),
-            // The static tier surface does not need the archive — surface it even before init so the
-            // Settings selector can render the download/ready state (F1).
-            static_embedding: static_embedding_status(paths, config),
-            queue_paused: default_queue_status.paused,
-            queue_concurrency: default_queue_status.concurrency,
-            warning: if config.ai.enabled {
-                Some(ai_index_warning_text(&AiIndexWarning::ArchiveNotInitialized))
-            } else {
-                None
-            },
-            warning_code: config.ai.enabled.then_some(AiIndexWarning::ArchiveNotInitialized),
-            ..AiIndexStatus::default()
-        });
-    }
-
-    ai_index_status_from(paths, config, &open_intelligence_connection(paths, config, key)?)
+pub fn ai_index_status(vault: &crate::Vault) -> Result<AiIndexStatus> {
+    let paths = vault.paths();
+    let config = vault.config();
+    let watermark = super::native_ledger::current_source_watermark(vault)?;
+    let paths = paths.clone();
+    let config = config.clone();
+    vault.read(Db::Intelligence, move |s| {
+        let mut status = ai_index_status_from(&paths, &config, s, watermark)?;
+        if !config.initialized && config.ai.enabled {
+            status.state = "blocked".into();
+            status.ready = false;
+            status.warning = Some(ai_index_warning_text(&AiIndexWarning::ArchiveNotInitialized));
+            status.warning_code = Some(AiIndexWarning::ArchiveNotInitialized);
+        }
+        Ok(status)
+    })
 }
 
 /// Reads the semantic-index status from an open intelligence connection. The caller has already
@@ -60,16 +38,16 @@ pub fn ai_index_status(
 pub(crate) fn ai_index_status_from(
     paths: &ProjectPaths,
     config: &AppConfig,
-    connection: &Connection,
+    connection: &Session<'_>,
+    watermark: i64,
 ) -> Result<AiIndexStatus> {
-    ensure_ai_schema(connection)?;
-    let queue_status = ai_queue::load_ai_queue_status(
+    let queue_status = ai_queue::store::load_ai_queue_status(
         connection,
         config.ai.job_queue_paused,
         config.ai.job_queue_concurrency,
         AI_QUEUE_RECENT_LIMIT,
     )?;
-    let index_queue_counts = ai_queue::load_queue_job_counts(
+    let index_queue_counts = ai_queue::store::load_queue_job_counts(
         connection,
         &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear],
     )?;
@@ -121,31 +99,28 @@ pub(crate) fn ai_index_status_from(
                 provider_id,
                 model,
                 ledger.source_watermark,
+                watermark,
                 ledger.last_indexed_at.as_deref(),
             )
         })
         .transpose()?
         .flatten();
-    let last_indexed_at = ledger.last_indexed_at.clone().or_else(|| {
-        provider_id.as_deref().zip(provider_readiness.selected_model.as_deref()).and_then(
-            |(provider_id, model)| {
-                connection
-                    .query_row(
-                        "SELECT indexed_at
-                     FROM ai_embeddings
-                     WHERE provider_id = ?1
-                       AND model = ?2
-                     ORDER BY indexed_at DESC
-                     LIMIT 1",
-                        params![provider_id, model],
-                        |row: &Row<'_>| row.get(0),
-                    )
-                    .optional()
-                    .ok()
-                    .flatten()
-            },
-        )
-    });
+    let last_indexed_at = if ledger.last_indexed_at.is_some() {
+        ledger.last_indexed_at.clone()
+    } else if let Some((provider, model)) =
+        provider_id.as_deref().zip(provider_readiness.selected_model.as_deref())
+    {
+        connection
+            .query_one(
+                "SELECT last_indexed_at FROM ai_embedding_totals WHERE provider_id=?1 AND model=?2",
+                params![provider, model],
+                |r| Ok(r.get::<Option<String>>(0)?),
+            )
+            .optional()?
+            .flatten()
+    } else {
+        None
+    };
     // F3: readiness keys off the REAL vector count, not the SQLite metadata-row count — "ready" must
     // mean "there are vectors semantic search can actually match", never "we recorded N rows".
     let ready = semantic_vector_count > 0 && provider_readiness.available;
@@ -178,6 +153,7 @@ pub(crate) fn ai_index_status_from(
         running_jobs: queue_status.running,
         failed_jobs: queue_status.failed,
         recent_jobs: queue_status.recent_jobs,
+        recent_jobs_next_cursor: queue_status.recent_jobs_next_cursor,
         semantic_sidecar_bytes,
         semantic_metadata_bytes,
         estimated_embedding_tokens,
@@ -346,25 +322,11 @@ fn static_model_size_bytes(model_dir: &std::path::Path) -> u64 {
 }
 
 /// Loads the persisted AI queue read model.
-pub fn ai_queue_status(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<AiQueueStatus> {
-    if !config.initialized || !paths.archive_database_path.exists() {
-        return Ok(AiQueueStatus {
-            paused: config.ai.job_queue_paused,
-            concurrency: config.ai.job_queue_concurrency,
-            ..AiQueueStatus::default()
-        });
-    }
-
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_ai_schema(&connection)?;
+pub fn ai_queue_status(vault: &crate::Vault) -> Result<AiQueueStatus> {
     ai_queue::load_ai_queue_status(
-        &connection,
-        config.ai.job_queue_paused,
-        config.ai.job_queue_concurrency,
+        vault,
+        vault.config().ai.job_queue_paused,
+        vault.config().ai.job_queue_concurrency,
         AI_QUEUE_RECENT_LIMIT,
     )
 }
@@ -381,44 +343,23 @@ const AI_QUEUE_RECOVERY_STALE_SECONDS: i64 = 300;
 /// the read-model `queued` count (which never sees an orphaned `running` job) let an interrupted index
 /// build sit wedged across every launch and never resume. Polling this lets the next status tick kick
 /// the drain, which reclaims the orphaned job from its persisted cursor.
-pub fn recoverable_ai_jobs(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<u32> {
-    if !config.initialized || !paths.archive_database_path.exists() {
-        return Ok(0);
-    }
-
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_ai_schema(&connection)?;
-    ai_queue::count_recoverable_ai_jobs(&connection, AI_QUEUE_RECOVERY_STALE_SECONDS)
+pub fn recoverable_ai_jobs(vault: &crate::Vault) -> Result<u32> {
+    ai_queue::count_recoverable_ai_jobs(vault, AI_QUEUE_RECOVERY_STALE_SECONDS)
 }
 
 /// Synchronizes persisted queue pause/resume controls with updated Settings.
 pub fn reconcile_ai_queue_controls(
-    paths: &ProjectPaths,
+    vault: &crate::Vault,
     previous_config: &AppConfig,
     next_config: &AppConfig,
-    key: Option<&str>,
 ) -> Result<()> {
-    if !next_config.initialized || !paths.archive_database_path.exists() {
-        return Ok(());
+    if previous_config.ai.job_queue_paused != next_config.ai.job_queue_paused {
+        if next_config.ai.job_queue_paused {
+            ai_queue::pause_queued_jobs(vault)?;
+        } else {
+            ai_queue::resume_paused_jobs(vault)?;
+        }
     }
-    if previous_config.ai.job_queue_paused == next_config.ai.job_queue_paused {
-        return Ok(());
-    }
-
-    let connection = open_intelligence_connection(paths, next_config, key)?;
-    ensure_ai_schema(&connection)?;
-    ai_queue::ensure_ai_queue_schema(&connection)?;
-
-    if next_config.ai.job_queue_paused {
-        ai_queue::pause_queued_jobs(&connection)?;
-    } else {
-        ai_queue::resume_paused_jobs(&connection)?;
-    }
-
     Ok(())
 }
 
@@ -483,54 +424,41 @@ pub fn provider_connection_failure_report(
 
 /// Loads one persisted assistant run into the public response shape.
 pub fn load_assistant_run_response(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     run_id: i64,
 ) -> Result<AiAssistantResponse> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_ai_schema(&connection)?;
-    connection
-        .query_row(
-            "SELECT answer, provider_id, embedding_provider_id, citations_json, notes_json
+    vault.read(Db::Intelligence, move |connection| {
+        connection
+            .query_one(
+                "SELECT answer, provider_id, embedding_provider_id, citations_json, notes_json
              FROM ai_assistant_runs
              WHERE run_id = ?1",
-            [run_id],
-            |row| {
-                let citations_json: String = row.get(3)?;
-                let notes_json: String = row.get(4)?;
-                let citations =
-                    serde_json::from_str::<Vec<AiCitation>>(&citations_json).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            3,
-                            rusqlite::types::Type::Text,
-                            Box::new(error),
-                        )
-                    })?;
-                let notes = serde_json::from_str::<Vec<String>>(&notes_json).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        4,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })?;
-                Ok(AiAssistantResponse {
-                    state: if citations.is_empty() {
-                        "insufficient-evidence".to_string()
-                    } else {
-                        "completed".to_string()
-                    },
-                    answer: row.get(0)?,
-                    job_id: None,
-                    run_id: Some(run_id),
-                    provider_id: row.get(1)?,
-                    embedding_provider_id: row.get(2)?,
-                    citations,
-                    notes,
-                })
-            },
-        )
-        .with_context(|| format!("loading AI assistant run {run_id}"))
+                [run_id],
+                |row| {
+                    let citations_json: String = row.get(3)?;
+                    let notes_json: String = row.get(4)?;
+                    let citations = serde_json::from_str::<Vec<AiCitation>>(&citations_json)
+                        .map_err(|error| vault_store::Error::Operation(Box::new(error)))?;
+                    let notes = serde_json::from_str::<Vec<String>>(&notes_json)
+                        .map_err(|error| vault_store::Error::Operation(Box::new(error)))?;
+                    Ok(AiAssistantResponse {
+                        state: if citations.is_empty() {
+                            "insufficient-evidence".to_string()
+                        } else {
+                            "completed".to_string()
+                        },
+                        answer: row.get(0)?,
+                        job_id: None,
+                        run_id: Some(run_id),
+                        provider_id: row.get(1)?,
+                        embedding_provider_id: row.get(2)?,
+                        citations,
+                        notes,
+                    })
+                },
+            )
+            .with_context(|| format!("loading AI assistant run {run_id}"))
+    })
 }
 
 /// Builds the manual MCP/skill integration preview shown in Settings.
@@ -633,6 +561,7 @@ pub fn preview_ai_integrations(
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::models::AiSettings;
 

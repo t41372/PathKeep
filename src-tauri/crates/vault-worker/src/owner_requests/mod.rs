@@ -123,6 +123,17 @@ pub fn dispatch(
                 )),
             }
         }
+        "ai-jobs" => encode(
+            intelligence::list_ai_jobs(&vault().map_err(failed)?, &params(request.params)?)
+                .map_err(failed)?,
+        ),
+        "intelligence-jobs" => encode(
+            intelligence::list_intelligence_jobs(
+                &vault().map_err(failed)?,
+                &params(request.params)?,
+            )
+            .map_err(failed)?,
+        ),
         "doctor" | "ai-index" | "ai-queue" => {
             let _: Empty = params(request.params)?;
             let key = resolve_key(session_key)?;

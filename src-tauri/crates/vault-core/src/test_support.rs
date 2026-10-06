@@ -118,4 +118,6 @@ pub(crate) fn assert_search_handoff(vault: &crate::Vault) {
     assert_eq!(vault.search().state().applied_seq, search_sequence(vault) as u64);
 }
 #[cfg(any(test, feature = "test-fixtures"))]
+pub mod native;
+#[cfg(any(test, feature = "test-fixtures"))]
 pub mod search;

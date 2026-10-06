@@ -1,5 +1,21 @@
 # Core Intelligence — Ultimate Design
 
+## Turso storage contract (2026-10)
+
+Deterministic reads use the session Vault's read pools. Rebuilds page Archive facts and
+commit Intelligence generations and checkpoints in Batch writes. A crash resumes the last
+committed batch; cancellation is checked between batches. Published generations remain
+available during replacement, and interactive Archive edits use their own writer.
+An ordinary append updates the affected tail/days; late visits or changed derivation rules
+require a chronological rebuild. Queue completion cannot erase a newer refresh trigger.
+
+List limits are page sizes with continuation cursors. Session/trail members, domain pages
+and queries, query-family trails, refind evidence, anniversary domains, and selected embed
+cards all expose continuation. Full frontend DTO details are in the
+[area-4 contract report](../architecture/research/2026-10-turso-area4.md); this backend change
+does not update frontend consumers.
+
+
 > **狀態：Accepted (2026-04-15 Core Intelligence reset baseline)**
 > **日期：2026-04-15**
 > **取代：** `deterministic-intelligence.md`（M5 baseline）、`intelligence.md` 中殘留的 deterministic/insights baseline 敘述、Codex 現有 insights 實現

@@ -1,3 +1,6 @@
+//! Not responsible for: archive ingestion, provider execution or connection ownership.
+//! Failure modes: duplicate claims, lost recovery progress, overwritten cancellation,
+//! hidden jobs, or a read initializes storage. Tests: runtime native queue regressions.
 //! Queue recovery helpers.
 //!
 //! ## Responsibilities
@@ -8,10 +11,10 @@
 
 use super::*;
 use crate::utils::now_rfc3339;
-use rusqlite::{Connection, params};
+use vault_store::{Session, params_owned as params};
 
-pub(crate) fn requeue_running_enrichment_jobs(connection: &Connection) -> Result<usize> {
-    ensure_intelligence_runtime_schema(connection)?;
+#[cfg(test)]
+pub(crate) fn requeue_running_enrichment_jobs(connection: &Session<'_>) -> Result<usize> {
     let now = now_rfc3339();
     let updated = connection.execute(
         "UPDATE intelligence_jobs
@@ -21,10 +24,10 @@ pub(crate) fn requeue_running_enrichment_jobs(connection: &Connection) -> Result
          WHERE job_type = ?2 AND state = 'running'",
         params![now, ENRICHMENT_JOB_TYPE],
     )?;
-    Ok(updated)
+    Ok(updated as usize)
 }
 
-pub(crate) fn recover_expired_intelligence_jobs(connection: &Connection) -> Result<()> {
+pub(crate) fn recover_expired_intelligence_jobs(connection: &Session<'_>) -> Result<()> {
     let now = now_rfc3339();
     let expired_at = Utc::now().to_rfc3339();
     connection.execute(
@@ -66,10 +69,9 @@ pub(crate) fn recover_expired_intelligence_jobs(connection: &Connection) -> Resu
 
 #[cfg(test)]
 pub(crate) fn requeue_running_enrichment_jobs_for_run(
-    connection: &Connection,
+    connection: &Session<'_>,
     run_id: i64,
 ) -> Result<usize> {
-    ensure_intelligence_runtime_schema(connection)?;
     let now = now_rfc3339();
     let updated = connection.execute(
         "UPDATE intelligence_jobs
@@ -79,43 +81,5 @@ pub(crate) fn requeue_running_enrichment_jobs_for_run(
          WHERE job_type = ?2 AND state = 'running' AND run_id = ?3",
         params![now, ENRICHMENT_JOB_TYPE, run_id],
     )?;
-    Ok(updated)
-}
-
-pub(crate) fn recover_interrupted_deterministic_jobs(connection: &Connection) -> Result<usize> {
-    let now = now_rfc3339();
-    let mut updated = 0;
-    for job_type in [
-        VISIT_DERIVE_JOB_TYPE,
-        DAILY_ROLLUP_JOB_TYPE,
-        STRUCTURAL_REBUILD_JOB_TYPE,
-        FULL_REBUILD_JOB_TYPE,
-    ] {
-        updated += connection.execute(
-            "UPDATE intelligence_jobs
-             SET state = 'queued',
-                 priority = ?2,
-                 scheduled_at = ?1,
-                 updated_at = ?1,
-                 started_at = NULL,
-                 finished_at = NULL,
-                 heartbeat_at = NULL,
-                 lease_owner = NULL,
-                 lease_expires_at = NULL,
-                 last_error = 'PathKeep restarted before this Core Intelligence job finished.',
-                 cancellation_reason = NULL,
-                 stop_requested = 0
-             WHERE job_type = ?3
-               AND state = 'running'",
-            params![now, core_intelligence_job_priority(job_type), job_type],
-        )?;
-    }
-    Ok(updated)
-}
-
-pub(crate) fn should_recover_runtime_jobs(archive_database_path: &Path) -> bool {
-    let recovered_archives = RECOVERED_RUNTIME_ARCHIVES.get_or_init(|| Mutex::new(HashSet::new()));
-    let mut recovered_archives =
-        recovered_archives.lock().expect("runtime recovery archive registry lock");
-    recovered_archives.insert(archive_database_path.display().to_string())
+    Ok(updated as usize)
 }

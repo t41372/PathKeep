@@ -1,77 +1,134 @@
-//! Responsibilities: keep one connection's compiled statements for reuse across jobs.
-//! Not responsible for: validating SQL (session.rs) or caching results.
-//! Failure modes: every call recompiles (Turso compiles on each `Connection::execute`,
-//! which made a 10,000-row evidence batch spend minutes in the compiler); dynamic SQL
-//! grows the cache without bound; a half-read statement keeps its read snapshot and
-//! blocks checkpoints; a schema change on the same connection leaves a stale program
-//! (Turso does not re-prepare `SELECT *` after this connection's own ALTER), so DDL
-//! clears the cache. Session calls never nest (a row callback cannot run SQL), so a
-//! statement is never reused while its rows are being read. Tests: tests/statements.rs.
-use crate::Result;
-use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-};
-use tokio::runtime::Runtime;
+//! Responsibilities: reuse native prepared statements and stream rows on the owning thread.
+//! Not responsible for: transactions, database selection or business SQL.
+//! Failure modes: rebinding overlaps a live cursor, a statement escapes its Session,
+//! policy is bypassed, or optional reads suppress failures. Tests: statements.rs.
 
-/// Distinct statements kept per connection. Application SQL is a fixed set of
-/// strings plus `IN` lists of a few lengths; the bound only matters for SQL that
-/// embeds values, which then recompiles instead of growing memory.
-const CAPACITY: usize = 256;
+use crate::{Error, Result, Row, Session};
 
-pub(crate) struct StatementCache {
-    entries: RefCell<HashMap<String, Entry>>,
-    clock: Cell<u64>,
-    compiled: Arc<AtomicU64>,
-}
-struct Entry {
-    statement: turso::Statement,
-    used: u64,
+/// Borrows its transaction so preparation cannot export a connection or a cursor.
+///
+/// ```compile_fail
+/// fn escape(store: &vault_store::Store) {
+///     store.read(vault_store::Db::Archive, |s| s.prepare("SELECT 1"));
+/// }
+/// ```
+pub struct Statement<'s, 'db> {
+    sql: String,
+    session: &'s Session<'db>,
+    /// Present until drop, which hands it back to the connection's cache.
+    native: Option<turso::Statement>,
 }
 
-impl StatementCache {
-    pub fn new(compiled: Arc<AtomicU64>) -> Self {
-        Self { entries: RefCell::default(), clock: Cell::new(0), compiled }
+impl<'db> Session<'db> {
+    /// Reuses compilation within a batch while retaining SQL policy and thread ownership.
+    pub fn prepare(&self, sql: &str) -> Result<Statement<'_, 'db>> {
+        self.check_sql(sql)?;
+        let native = self.take_statement(sql)?;
+        Ok(Statement { session: self, native: Some(native), sql: sql.to_owned() })
+    }
+}
+
+impl Drop for Statement<'_, '_> {
+    fn drop(&mut self) {
+        if let Some(native) = self.native.take() {
+            self.session.return_statement(&self.sql, native);
+        }
+    }
+}
+
+impl Statement<'_, '_> {
+    fn native(&mut self) -> &mut turso::Statement {
+        self.native.as_mut().expect("a statement keeps its native statement until drop")
+    }
+    /// Executes with fresh parameter bindings in the current transaction.
+    pub fn execute(&mut self, params: impl turso::IntoParams) -> Result<u64> {
+        let runtime = self.session.runtime;
+        Ok(runtime.block_on(self.native().execute(params))?)
     }
 
-    /// Takes the statement out while it runs; `put` returns it.
-    pub fn take(
-        &self,
-        runtime: &Runtime,
-        conn: &turso::Connection,
-        sql: &str,
-    ) -> Result<turso::Statement> {
-        if let Some(entry) = self.entries.borrow_mut().remove(sql) {
-            return Ok(entry.statement);
-        }
-        self.compiled.fetch_add(1, Ordering::Relaxed);
-        Ok(runtime.block_on(conn.prepare(sql))?)
+    /// Keeps the cursor tied to both this statement and its owning transaction.
+    pub fn query(&mut self, params: impl turso::IntoParams) -> Result<Rows<'_>> {
+        let params = params.into_params()?;
+        self.session.record_plan(&self.sql, &params)?;
+        let runtime = self.session.runtime;
+        let native = runtime.block_on(self.native().query(params))?;
+        Ok(Rows { runtime: self.session.runtime, native, _owner: std::marker::PhantomData })
     }
 
-    /// Resets before keeping, so a statement stopped mid-read releases its snapshot.
-    /// Turso re-prepares a kept statement itself after a schema change.
-    pub fn put(&self, sql: &str, statement: turso::Statement) {
-        if statement.reset().is_err() {
-            return;
-        }
-        let used = self.clock.get() + 1;
-        self.clock.set(used);
-        let mut entries = self.entries.borrow_mut();
-        if entries.len() >= CAPACITY
-            && let Some(oldest) =
-                entries.iter().min_by_key(|(_, entry)| entry.used).map(|(sql, _)| sql.clone())
-        {
-            entries.remove(&oldest);
-        }
-        entries.insert(sql.to_owned(), Entry { statement, used });
+    /// Requires one row without collecting the result set.
+    pub fn query_one<T>(
+        &mut self,
+        params: impl turso::IntoParams,
+        map: impl FnOnce(&Row) -> Result<T>,
+    ) -> Result<T> {
+        let mut rows = self.query(params)?;
+        let row = rows.next()?.ok_or(Error::Engine(turso::Error::QueryReturnedNoRows))?;
+        let value = map(&row)?;
+        while rows.next()?.is_some() {}
+        Ok(value)
     }
 
-    /// Schema changes invalidate every compiled program on this connection.
-    pub fn clear(&self) {
-        self.entries.borrow_mut().clear();
+    /// Decodes rows lazily; collecting is an explicit choice made by the business caller.
+    pub fn query_map<T, F>(
+        &mut self,
+        params: impl turso::IntoParams,
+        map: F,
+    ) -> Result<MappedRows<'_, F>>
+    where
+        F: FnMut(&Row) -> Result<T>,
+    {
+        Ok(MappedRows { rows: self.query(params)?, map })
     }
+}
+
+/// A streaming cursor cannot outlive or leave its transaction's thread.
+pub struct Rows<'a> {
+    runtime: &'a tokio::runtime::Runtime,
+    native: turso::Rows,
+    _owner: std::marker::PhantomData<&'a mut std::rc::Rc<()>>,
+}
+impl Rows<'_> {
+    /// Advances without collecting the remaining result into memory.
+    #[allow(clippy::should_implement_trait)]
+    pub fn next(&mut self) -> Result<Option<Row>> {
+        Ok(self.runtime.block_on(self.native.next())?)
+    }
+}
+
+/// Iterator decoding happens on the same thread as the connection.
+pub struct MappedRows<'a, F> {
+    rows: Rows<'a>,
+    map: F,
+}
+impl<T, F: FnMut(&Row) -> Result<T>> Iterator for MappedRows<'_, F> {
+    type Item = Result<T>;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.rows.next() {
+            Ok(Some(row)) => Some((self.map)(&row)),
+            Ok(None) => None,
+            Err(error) => Some(Err(error)),
+        }
+    }
+}
+
+/// Absence is ordinary for unique-key reads; other errors remain visible.
+pub trait OptionalRow<T> {
+    fn optional(self) -> Result<Option<T>>;
+}
+impl<T> OptionalRow<T> for Result<T> {
+    fn optional(self) -> Result<Option<T>> {
+        match self {
+            Ok(value) => Ok(Some(value)),
+            Err(Error::Engine(turso::Error::QueryReturnedNoRows)) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+/// Bind owned values without moving fields out of borrowed domain records.
+#[macro_export]
+macro_rules! params_owned {
+    ($($value:expr),* $(,)?) => {
+        $crate::params![$(($value).to_owned()),*]
+    };
 }

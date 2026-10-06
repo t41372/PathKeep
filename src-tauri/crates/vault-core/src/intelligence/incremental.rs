@@ -1,3 +1,6 @@
+//! Failure modes: late arrivals are mistaken for appends or recipe changes reuse stale facts.
+//! Responsibilities: compare source watermarks and derivation recipes.
+//! Not responsible for: archive ingestion or stage execution.
 //! Incremental Core Intelligence checkpoint helpers.
 //!
 //! These helpers keep the Core Intelligence rebuild stages honest about whether a
@@ -5,29 +8,12 @@
 
 use crate::{intelligence_catalog::RebuildMode, visit_taxonomy::taxonomy_version};
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::BTreeSet;
+#[cfg(test)]
+use vault_store::OptionalRow;
+use vault_store::{Session, params_owned as params};
 
-pub(super) const CORE_INTELLIGENCE_STAGE_CHECKPOINTS_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS core_intelligence_stage_checkpoints (
-  profile_id                TEXT NOT NULL,
-  stage                     TEXT NOT NULL,
-  stage_version             TEXT NOT NULL,
-  visible_visit_count       INTEGER NOT NULL DEFAULT 0,
-  max_visit_id              INTEGER NOT NULL DEFAULT 0,
-  max_url_last_visit_ms     INTEGER NOT NULL DEFAULT 0,
-  visible_search_term_count INTEGER NOT NULL DEFAULT 0,
-  last_processed_visit_id   INTEGER NOT NULL DEFAULT 0,
-  dirty_from_visit_ms       INTEGER,
-  dirty_date_key            TEXT,
-  last_run_id               INTEGER,
-  fallback_reason           TEXT,
-  updated_at                TEXT NOT NULL,
-  PRIMARY KEY(profile_id, stage)
-);
-"#;
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(super) struct ProfileSourceWatermark {
     pub visible_visit_count: i64,
     pub max_visit_id: i64,
@@ -35,7 +21,7 @@ pub(super) struct ProfileSourceWatermark {
     pub visible_search_term_count: i64,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(super) struct StageCheckpoint {
     pub profile_id: String,
     pub stage: String,
@@ -49,30 +35,6 @@ pub(super) struct StageCheckpoint {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum StageExecutionMode {
-    Incremental,
-    FallbackFull,
-    Noop,
-}
-
-impl StageExecutionMode {
-    pub(super) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Incremental => "incremental",
-            Self::FallbackFull => "fallback-full",
-            Self::Noop => "noop",
-        }
-    }
-}
-
-pub(super) fn ensure_core_intelligence_stage_checkpoint_schema(
-    connection: &Connection,
-) -> Result<()> {
-    connection.execute_batch(CORE_INTELLIGENCE_STAGE_CHECKPOINTS_SQL)?;
-    Ok(())
-}
-
 pub(super) fn stage_name(stage: RebuildMode) -> &'static str {
     match stage {
         RebuildMode::VisitDerive => "visit-derive",
@@ -82,12 +44,13 @@ pub(super) fn stage_name(stage: RebuildMode) -> &'static str {
     }
 }
 
-pub(super) fn stage_version(connection: &Connection, stage: RebuildMode) -> Result<String> {
+pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Result<String> {
     match stage {
         RebuildMode::VisitDerive => Ok(format!(
-            "visit-derived-facts-v2:{}:{}",
+            "visit-derived-facts-v2:{}:{}:{}",
             taxonomy_version(),
-            load_site_dictionary_signature(connection)?
+            load_site_dictionary_signature(connection)?,
+            super::intelligence_overview_snapshot::load_search_rule_signature(connection)?
         )),
         RebuildMode::DailyRollup => Ok("daily-rollups-v2".to_string()),
         RebuildMode::StructuralRebuild => Ok("structural-rebuild-v2".to_string()),
@@ -95,14 +58,14 @@ pub(super) fn stage_version(connection: &Connection, stage: RebuildMode) -> Resu
     }
 }
 
+#[cfg(test)]
 pub(super) fn load_stage_checkpoint(
-    connection: &Connection,
+    connection: &Session<'_>,
     profile_id: &str,
     stage: RebuildMode,
 ) -> Result<Option<StageCheckpoint>> {
-    ensure_core_intelligence_stage_checkpoint_schema(connection)?;
     connection
-        .query_row(
+        .query_one(
             "SELECT profile_id,
                     stage,
                     stage_version,
@@ -144,10 +107,9 @@ pub(super) fn load_stage_checkpoint(
 }
 
 pub(super) fn save_stage_checkpoint(
-    connection: &Connection,
+    connection: &Session<'_>,
     checkpoint: &StageCheckpoint,
 ) -> Result<()> {
-    ensure_core_intelligence_stage_checkpoint_schema(connection)?;
     connection.execute(
         "INSERT INTO core_intelligence_stage_checkpoints (
              profile_id,
@@ -196,89 +158,20 @@ pub(super) fn save_stage_checkpoint(
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn delete_stage_checkpoints(
-    connection: &Connection,
+    connection: &Session<'_>,
     profile_id: Option<&str>,
 ) -> Result<()> {
-    ensure_core_intelligence_stage_checkpoint_schema(connection)?;
     if let Some(profile_id) = profile_id {
         connection.execute(
             "DELETE FROM core_intelligence_stage_checkpoints WHERE profile_id = ?1",
             [profile_id],
         )?;
     } else {
-        connection.execute("DELETE FROM core_intelligence_stage_checkpoints", [])?;
+        connection.execute("DELETE FROM core_intelligence_stage_checkpoints", ())?;
     }
     Ok(())
-}
-
-pub(super) fn list_core_intelligence_profiles(
-    connection: &Connection,
-    requested_profile_id: Option<&str>,
-) -> Result<Vec<String>> {
-    ensure_core_intelligence_stage_checkpoint_schema(connection)?;
-    if let Some(profile_id) = requested_profile_id {
-        return Ok(vec![profile_id.to_string()]);
-    }
-    let mut profiles = BTreeSet::<String>::new();
-    let mut collect = |sql: &str| -> Result<()> {
-        let mut statement = connection.prepare(sql)?;
-        let rows = statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        profiles.extend(rows);
-        Ok(())
-    };
-    collect(
-        "SELECT DISTINCT source_profiles.profile_key
-         FROM archive.visits
-         JOIN archive.source_profiles ON archive.source_profiles.id = archive.visits.source_profile_id
-         WHERE archive.visits.reverted_at IS NULL",
-    )?;
-    collect("SELECT DISTINCT profile_id FROM visit_derived_facts")?;
-    collect("SELECT DISTINCT profile_id FROM core_intelligence_stage_checkpoints")?;
-    Ok(profiles.into_iter().collect())
-}
-
-pub(super) fn load_profile_source_watermark(
-    connection: &Connection,
-    profile_id: &str,
-) -> Result<ProfileSourceWatermark> {
-    let (visible_visit_count, max_visit_id, max_url_last_visit_ms) = connection.query_row(
-        "SELECT COUNT(*),
-                COALESCE(MAX(archive.visits.id), 0),
-                COALESCE(MAX(archive.urls.last_visit_ms), 0)
-         FROM archive.visits
-         JOIN archive.urls ON archive.urls.id = archive.visits.url_id
-         JOIN archive.source_profiles
-           ON archive.source_profiles.id = archive.visits.source_profile_id
-         WHERE archive.visits.reverted_at IS NULL
-           AND archive.source_profiles.profile_key = ?1",
-        [profile_id],
-        |row| {
-            Ok((
-                row.get::<_, i64>(0)?.max(0),
-                row.get::<_, i64>(1)?.max(0),
-                row.get::<_, i64>(2)?.max(0),
-            ))
-        },
-    )?;
-    let visible_search_term_count = connection
-        .query_row(
-            "SELECT COUNT(*)
-             FROM archive.search_terms
-             WHERE reverted_at IS NULL AND profile_id = ?1",
-            [profile_id],
-            |row| row.get::<_, i64>(0),
-        )
-        .unwrap_or(0)
-        .max(0);
-    Ok(ProfileSourceWatermark {
-        visible_visit_count,
-        max_visit_id,
-        max_url_last_visit_ms,
-        visible_search_term_count,
-    })
 }
 
 /// Enumerates the profiles the all-time overview fingerprint must fold in,
@@ -294,10 +187,9 @@ pub(super) fn load_profile_source_watermark(
 /// from a visit whose `source_profile_id` exists in `source_profiles`), so this
 /// never under-counts a profile that could contribute data.
 pub(super) fn list_fingerprint_profiles(
-    connection: &Connection,
+    connection: &Session<'_>,
     requested_profile_id: Option<&str>,
 ) -> Result<Vec<String>> {
-    ensure_core_intelligence_stage_checkpoint_schema(connection)?;
     if let Some(profile_id) = requested_profile_id {
         return Ok(vec![profile_id.to_string()]);
     }
@@ -305,8 +197,8 @@ pub(super) fn list_fingerprint_profiles(
     let mut collect = |sql: &str| -> Result<()> {
         let mut statement = connection.prepare(sql)?;
         let rows = statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            .query_map((), |row| Ok(row.get::<String>(0)?))?
+            .collect::<vault_store::Result<Vec<_>>>()?;
         profiles.extend(rows);
         Ok(())
     };
@@ -326,14 +218,13 @@ pub(super) fn list_fingerprint_profiles(
 /// scan without its cost. A profile with no checkpoint row yet contributes a
 /// zero watermark, which the archive-delta signature still moves on first data.
 pub(super) fn load_checkpoint_source_watermark(
-    connection: &Connection,
+    connection: &Session<'_>,
     profile_id: &str,
 ) -> Result<ProfileSourceWatermark> {
-    ensure_core_intelligence_stage_checkpoint_schema(connection)?;
     // One profile owns up to one row per rebuild stage, all sharing the same
     // source watermark at steady state; MAX collapses them to that watermark
     // without multiply-counting across stages.
-    let watermark = connection.query_row(
+    let watermark = connection.query_one(
         "SELECT COALESCE(MAX(visible_visit_count), 0),
                 COALESCE(MAX(max_visit_id), 0),
                 COALESCE(MAX(max_url_last_visit_ms), 0),
@@ -363,13 +254,14 @@ pub(super) fn load_checkpoint_source_watermark(
 /// reverts of existing visits that leave `MAX(visits.id)` unchanged. Both reads
 /// are constant-time, replacing the previous per-open full scan of the visible
 /// visit index plus ~N random probes into `urls`.
-pub(super) fn load_archive_delta_signature(connection: &Connection) -> Result<String> {
+pub(super) fn load_archive_delta_signature(connection: &Session<'_>) -> Result<String> {
     let max_visit_id: i64 =
-        connection
-            .query_row("SELECT COALESCE(MAX(id), 0) FROM archive.visits", [], |row| row.get(0))?;
-    let (run_count, max_run_id): (i64, i64) = connection.query_row(
+        connection.query_one("SELECT COALESCE(MAX(id), 0) FROM archive.visits", (), |row| {
+            Ok(row.get(0)?)
+        })?;
+    let (run_count, max_run_id): (i64, i64) = connection.query_one(
         "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM archive.runs",
-        [],
+        (),
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     Ok(format!("arch:{max_visit_id}:{run_count}:{max_run_id}"))
@@ -385,29 +277,12 @@ pub(super) fn watermark_regressed(
         || current.visible_search_term_count < previous.visible_search_term_count
 }
 
-pub(super) fn load_site_dictionary_signature(connection: &Connection) -> Result<String> {
-    connection.execute_batch(
-        "CREATE TABLE IF NOT EXISTS site_dictionary_overrides (
-           id                INTEGER PRIMARY KEY AUTOINCREMENT,
-           target_kind       TEXT NOT NULL,
-           target_value      TEXT NOT NULL,
-           domain_category   TEXT,
-           page_category     TEXT,
-           interaction_kind  TEXT,
-           display_name      TEXT,
-           search_engine     TEXT,
-           is_noisy          INTEGER NOT NULL DEFAULT 0,
-           note              TEXT,
-           created_at        TEXT NOT NULL,
-           updated_at        TEXT NOT NULL,
-           UNIQUE(target_kind, target_value)
-         )",
-    )?;
+pub(super) fn load_site_dictionary_signature(connection: &Session<'_>) -> Result<String> {
     connection
-        .query_row(
+        .query_one(
             "SELECT COUNT(*), COALESCE(MAX(updated_at), 'none') FROM site_dictionary_overrides",
-            [],
-            |row| Ok((row.get::<_, i64>(0)?.max(0), row.get::<_, String>(1)?)),
+            (),
+            |row| Ok((row.get::<i64>(0)?.max(0), row.get::<String>(1)?)),
         )
         .map(|(count, updated_at)| format!("overrides:{count}:{updated_at}"))
         .context("loading site dictionary signature")
@@ -419,78 +294,87 @@ mod tests {
 
     #[test]
     fn stage_checkpoint_helpers_cover_names_versions_and_scoped_deletes() {
-        let connection = Connection::open_in_memory().expect("memory");
-        ensure_core_intelligence_stage_checkpoint_schema(&connection).expect("schema");
+        let vault = crate::Vault::open_temp().unwrap();
+        vault
+            .write(
+                vault_store::Db::Intelligence,
+                vault_store::Priority::Interactive,
+                |connection| {
+                    assert_eq!(stage_name(RebuildMode::StructuralRebuild), "structural-rebuild");
+                    assert_eq!(stage_name(RebuildMode::FullRebuild), "full-rebuild");
+                    assert!(
+                        stage_version(connection, RebuildMode::VisitDerive)
+                            .expect("visit version")
+                            .starts_with("visit-derived-facts-v2:")
+                    );
+                    assert_eq!(
+                        stage_version(connection, RebuildMode::StructuralRebuild)
+                            .expect("structural version"),
+                        "structural-rebuild-v2"
+                    );
+                    assert_eq!(
+                        stage_version(connection, RebuildMode::FullRebuild).expect("full version"),
+                        "full-rebuild-v2"
+                    );
 
-        assert_eq!(stage_name(RebuildMode::StructuralRebuild), "structural-rebuild");
-        assert_eq!(stage_name(RebuildMode::FullRebuild), "full-rebuild");
-        assert!(
-            stage_version(&connection, RebuildMode::VisitDerive)
-                .expect("visit version")
-                .starts_with("visit-derived-facts-v2:")
-        );
-        assert_eq!(
-            stage_version(&connection, RebuildMode::StructuralRebuild).expect("structural version"),
-            "structural-rebuild-v2"
-        );
-        assert_eq!(
-            stage_version(&connection, RebuildMode::FullRebuild).expect("full version"),
-            "full-rebuild-v2"
-        );
+                    save_stage_checkpoint(
+                        connection,
+                        &StageCheckpoint {
+                            profile_id: "profile-a".to_string(),
+                            stage: stage_name(RebuildMode::DailyRollup).to_string(),
+                            stage_version: "daily-rollups-v2".to_string(),
+                            source_watermark: ProfileSourceWatermark {
+                                visible_visit_count: 1,
+                                max_visit_id: 1,
+                                max_url_last_visit_ms: 1,
+                                visible_search_term_count: 1,
+                            },
+                            last_processed_visit_id: 1,
+                            updated_at: "2026-04-26T00:00:00Z".to_string(),
+                            ..StageCheckpoint::default()
+                        },
+                    )
+                    .expect("checkpoint a");
+                    save_stage_checkpoint(
+                        connection,
+                        &StageCheckpoint {
+                            profile_id: "profile-b".to_string(),
+                            stage: stage_name(RebuildMode::DailyRollup).to_string(),
+                            stage_version: "daily-rollups-v2".to_string(),
+                            source_watermark: ProfileSourceWatermark {
+                                visible_visit_count: 2,
+                                max_visit_id: 2,
+                                max_url_last_visit_ms: 2,
+                                visible_search_term_count: 2,
+                            },
+                            last_processed_visit_id: 2,
+                            updated_at: "2026-04-26T00:00:01Z".to_string(),
+                            ..StageCheckpoint::default()
+                        },
+                    )
+                    .expect("checkpoint b");
 
-        save_stage_checkpoint(
-            &connection,
-            &StageCheckpoint {
-                profile_id: "profile-a".to_string(),
-                stage: stage_name(RebuildMode::DailyRollup).to_string(),
-                stage_version: "daily-rollups-v2".to_string(),
-                source_watermark: ProfileSourceWatermark {
-                    visible_visit_count: 1,
-                    max_visit_id: 1,
-                    max_url_last_visit_ms: 1,
-                    visible_search_term_count: 1,
+                    delete_stage_checkpoints(connection, Some("profile-a"))
+                        .expect("delete profile a");
+                    assert!(
+                        load_stage_checkpoint(connection, "profile-a", RebuildMode::DailyRollup)
+                            .expect("load profile a")
+                            .is_none()
+                    );
+                    assert!(
+                        load_stage_checkpoint(connection, "profile-b", RebuildMode::DailyRollup)
+                            .expect("load profile b")
+                            .is_some()
+                    );
+                    delete_stage_checkpoints(connection, None).expect("delete all");
+                    assert!(
+                        load_stage_checkpoint(connection, "profile-b", RebuildMode::DailyRollup)
+                            .expect("load profile b after delete")
+                            .is_none()
+                    );
+                    Ok(())
                 },
-                last_processed_visit_id: 1,
-                updated_at: "2026-04-26T00:00:00Z".to_string(),
-                ..StageCheckpoint::default()
-            },
-        )
-        .expect("checkpoint a");
-        save_stage_checkpoint(
-            &connection,
-            &StageCheckpoint {
-                profile_id: "profile-b".to_string(),
-                stage: stage_name(RebuildMode::DailyRollup).to_string(),
-                stage_version: "daily-rollups-v2".to_string(),
-                source_watermark: ProfileSourceWatermark {
-                    visible_visit_count: 2,
-                    max_visit_id: 2,
-                    max_url_last_visit_ms: 2,
-                    visible_search_term_count: 2,
-                },
-                last_processed_visit_id: 2,
-                updated_at: "2026-04-26T00:00:01Z".to_string(),
-                ..StageCheckpoint::default()
-            },
-        )
-        .expect("checkpoint b");
-
-        delete_stage_checkpoints(&connection, Some("profile-a")).expect("delete profile a");
-        assert!(
-            load_stage_checkpoint(&connection, "profile-a", RebuildMode::DailyRollup)
-                .expect("load profile a")
-                .is_none()
-        );
-        assert!(
-            load_stage_checkpoint(&connection, "profile-b", RebuildMode::DailyRollup)
-                .expect("load profile b")
-                .is_some()
-        );
-        delete_stage_checkpoints(&connection, None).expect("delete all");
-        assert!(
-            load_stage_checkpoint(&connection, "profile-b", RebuildMode::DailyRollup)
-                .expect("load profile b after delete")
-                .is_none()
-        );
+            )
+            .unwrap();
     }
 }

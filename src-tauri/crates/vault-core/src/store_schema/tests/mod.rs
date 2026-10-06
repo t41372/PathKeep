@@ -26,6 +26,7 @@ struct Catalog {
     db: Db,
     tables: &'static [&'static str],
     indexes: &'static [&'static str],
+    views: &'static [&'static str],
     rows: &'static [Fixture],
     foreign_keys: &'static [ForeignKey],
 }
@@ -34,6 +35,7 @@ const CATALOGS: &[Catalog] = &[
         db: Db::Archive,
         tables: archive::TABLES,
         indexes: archive::INDEXES,
+        views: &[],
         rows: archive::ROWS,
         foreign_keys: archive::FOREIGN_KEYS,
     },
@@ -41,6 +43,7 @@ const CATALOGS: &[Catalog] = &[
         db: Db::SourceEvidence,
         tables: source_evidence::TABLES,
         indexes: source_evidence::INDEXES,
+        views: &[],
         rows: source_evidence::ROWS,
         foreign_keys: source_evidence::FOREIGN_KEYS,
     },
@@ -48,6 +51,7 @@ const CATALOGS: &[Catalog] = &[
         db: Db::Intelligence,
         tables: intelligence::TABLES,
         indexes: intelligence::INDEXES,
+        views: intelligence::VIEWS,
         rows: intelligence::ROWS,
         foreign_keys: intelligence::FOREIGN_KEYS,
     },
@@ -55,10 +59,18 @@ const CATALOGS: &[Catalog] = &[
         db: Db::Agent,
         tables: agent::TABLES,
         indexes: agent::INDEXES,
+        views: &[],
         rows: agent::ROWS,
         foreign_keys: agent::FOREIGN_KEYS,
     },
-    Catalog { db: Db::Scratch, tables: &[], indexes: &[], rows: &[], foreign_keys: &[] },
+    Catalog {
+        db: Db::Scratch,
+        tables: &[],
+        indexes: &[],
+        views: &[],
+        rows: &[],
+        foreign_keys: &[],
+    },
 ];
 const KEYS: [Option<[u8; 32]>; 2] = [None, Some([0x5a; 32])];
 
@@ -89,7 +101,9 @@ fn number(store: &Store, db: Db, sql: &'static str) -> i64 {
     store.read(db, move |tx| tx.query_one(sql, (), |r| Ok(r.get(0)?))).unwrap()
 }
 fn assert_catalog(store: &Store, catalog: &'static Catalog) {
-    for (kind, expected) in [("table", catalog.tables), ("index", catalog.indexes)] {
+    for (kind, expected) in
+        [("table", catalog.tables), ("index", catalog.indexes), ("view", catalog.views)]
+    {
         let actual = store
             .read(catalog.db, move |tx| {
                 tx.query(
@@ -107,7 +121,7 @@ fn assert_catalog(store: &Store, catalog: &'static Catalog) {
         number(
             store,
             catalog.db,
-            "SELECT count(*) FROM sqlite_schema WHERE type IN ('view','trigger') OR upper(sql) LIKE '%VIRTUAL TABLE%'"
+            "SELECT count(*) FROM sqlite_schema WHERE type='trigger' OR upper(sql) LIKE '%VIRTUAL TABLE%'"
         ),
         0
     );
