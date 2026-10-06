@@ -336,25 +336,7 @@ fn upgrade_v020_plaintext_archive_migrates_cleanly() {
     assert!(index_exists(&conn, "idx_urls_registrable_domain"));
     drop(conn);
 
-    // 5. Search projection reprojects to the current schema and drops the stale doc.
-    let search_conn = Connection::open(&paths.search_database_path).expect("open search db");
-    let search_version: String = search_conn
-        .query_row(
-            "SELECT value FROM search_projection_meta WHERE key = 'schema_version'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("read search schema_version");
-    assert_eq!(search_version, "4", "search projection must reproject to current");
-    let search_docs: i64 = search_conn
-        .query_row("SELECT COUNT(*) FROM search_documents", [], |row| row.get(0))
-        .expect("count search documents");
-    assert_eq!(search_docs, 3, "reprojection must rebuild from the 3 urls");
-    let stale_docs: i64 = search_conn
-        .query_row("SELECT COUNT(*) FROM search_documents WHERE url_id = 999", [], |row| row.get(0))
-        .expect("count stale search documents");
-    assert_eq!(stale_docs, 0, "stale seeded doc must be dropped");
-    drop(search_conn);
+    // Search generation recovery is owned by the native Vault indexer (search::recovery_tests).
 
     // 6. Intelligence plane forward-applies past v6, preserves the marker, and is idempotent.
     crate::intelligence_status(&paths, &cfg, None).expect("intelligence forward-apply");
@@ -460,10 +442,6 @@ fn assess_archive_upgrade_reports_pending_then_clears_after_upgrade() {
     assert!(backfill.pending);
     assert!(backfill.streamed, "the backfill phase emits live progress");
     assert_eq!(backfill.estimated_total, 3, "every existing url row backfills (column is new)");
-    let reprojection = phase_total(ArchiveUpgradePhase::SearchReprojection);
-    assert!(reprojection.pending);
-    assert!(reprojection.streamed, "the reprojection phase emits live progress");
-    assert_eq!(reprojection.estimated_total, 3, "the v2→v4 reprojection rebuilds all 3 url docs");
     // The intelligence phase is reported (v6 < the current ceiling) but never gates
     // the screen, and is NOT streamed — it forward-applies lazily, not inside
     // ensure_archive_initialized, so the shell renders it as an informational line.
@@ -478,7 +456,9 @@ fn assess_archive_upgrade_reports_pending_then_clears_after_upgrade() {
     assert_eq!(done.current_schema_version, max_schema_version());
     assert!(!phase_total_for(&done, ArchiveUpgradePhase::SchemaMigration).pending);
     assert!(!phase_total_for(&done, ArchiveUpgradePhase::RegistrableDomainBackfill).pending);
-    assert!(!phase_total_for(&done, ArchiveUpgradePhase::SearchReprojection).pending);
+    assert!(
+        !done.phases.iter().any(|phase| phase.phase == ArchiveUpgradePhase::SearchReprojection)
+    );
 }
 
 /// Finds a phase entry in a completed assessment (which always carries the full
@@ -528,10 +508,6 @@ fn assess_archive_upgrade_reports_pending_without_search_or_intelligence_planes(
     let assessment =
         assess_archive_upgrade(&paths, &plaintext_v020_config(), None).expect("assess");
     assert!(assessment.pending, "a v0.2.0 archive with data is a pending upgrade");
-    assert!(
-        phase_total_for(&assessment, ArchiveUpgradePhase::SearchReprojection).pending,
-        "a missing search projection is a pending reprojection"
-    );
     // An absent intelligence plane reads as version 0 (< the ceiling) → reported
     // pending for completeness (it forward-applies lazily, so it never gates).
     assert!(phase_total_for(&assessment, ArchiveUpgradePhase::Intelligence).pending);
@@ -615,17 +591,7 @@ fn upgrade_v020_with_progress_streams_phases_and_migrates_cleanly() {
     assert_eq!(backfill.last().unwrap().processed, 3, "backfill completes to the row total");
     assert_eq!(backfill.last().unwrap().total, 3);
 
-    // Search-reprojection phase: initial 0/3 then 3/3.
-    let reprojection: Vec<_> =
-        events.iter().filter(|e| e.phase == ArchiveUpgradePhase::SearchReprojection).collect();
-    assert!(reprojection.len() >= 2, "reprojection emits real progress, not a single jump");
-    assert_eq!(reprojection.first().unwrap().processed, 0);
-    assert_eq!(
-        reprojection.last().unwrap().processed,
-        3,
-        "reprojection completes to the doc total"
-    );
-    assert_eq!(reprojection.last().unwrap().total, 3);
+    assert!(!events.iter().any(|event| event.phase == ArchiveUpgradePhase::SearchReprojection));
 
     // ── And the archive still migrated correctly (mirrors the loss-free regression). ──
     let conn = open_archive_connection(&paths, &cfg, None).expect("post-upgrade open");
@@ -652,26 +618,6 @@ fn upgrade_v020_with_progress_streams_phases_and_migrates_cleanly() {
         .expect("read registrable_domain 1");
     assert_eq!(bbc, "bbc.co.uk");
     drop(conn);
-
-    // Search projection reprojected to v4 with the 3 real docs; stale doc dropped.
-    let search_conn = Connection::open(&paths.search_database_path).expect("open search db");
-    let search_version: String = search_conn
-        .query_row(
-            "SELECT value FROM search_projection_meta WHERE key = 'schema_version'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("read search schema_version");
-    assert_eq!(search_version, "4", "search projection reprojects to current");
-    let search_docs: i64 = search_conn
-        .query_row("SELECT COUNT(*) FROM search_documents", [], |row| row.get(0))
-        .expect("count search documents");
-    assert_eq!(search_docs, 3, "reprojection rebuilds from the 3 urls");
-    let stale_docs: i64 = search_conn
-        .query_row("SELECT COUNT(*) FROM search_documents WHERE url_id = 999", [], |row| row.get(0))
-        .expect("count stale search documents");
-    assert_eq!(stale_docs, 0, "the stale v0.2.0 doc is dropped");
-    drop(search_conn);
 
     // Phase-E config<->disk consistency still holds after the progress upgrade.
     check_config_disk_consistency(&paths).expect("Phase-E invariant holds after progress upgrade");

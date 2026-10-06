@@ -376,6 +376,8 @@ fn a_new_archive_in_the_same_process_bootstraps_and_searches_after_a_wipe() {
     save_config(paths, &fixture.config).expect("config again");
     ensure_archive_initialized(paths, &fixture.config, None).expect("init again");
     super::super::tests::legacy_queries::seed_reader_archive(paths, &fixture.config);
+    let vault = crate::Vault::open(paths.clone(), fixture.config.clone(), None).unwrap();
+    crate::test_support::legacy_fixtures::copy_to_vault(&vault, paths, &fixture.config);
     let found = search_history(
         paths,
         &fixture.config,

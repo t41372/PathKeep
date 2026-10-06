@@ -747,17 +747,12 @@ fn export_heap_stays_bounded_as_archive_grows() {
     {
         return;
     }
-    let root = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let mut peaks = Vec::new();
     for visits in [10_000, 100_000] {
-        let archive_root = root.path().join(format!("bounded-{visits}"));
-        let config = seeded_archive(&archive_root, visits, None);
-        let paths = project_paths_with_root(&archive_root);
+        let vault = native_export_fixture(visits);
         let (heap, _) = report_memory("bounded export heap", 1, || {
-            let result = vault_core::export_search_history(
-                &paths,
-                &config,
-                None,
+            let result = vault_core::export_history(
+                &vault,
                 vault_core::ExportRequest {
                     export_id: None,
                     query: HistoryQuery::default(),
@@ -772,6 +767,26 @@ fn export_heap_stays_bounded_as_archive_grows() {
         peaks.push(heap);
     }
     assert!(peaks[1] <= peaks[0] + 256 * 1024, "export heap grew with archive size: {peaks:?}");
+}
+
+/// Independent canonical facts keep the allocator test on the same native read path
+/// as desktop exports, with five visits per page at both corpus sizes.
+fn native_export_fixture(visits: u64) -> vault_core::Vault {
+    use vault_store::{Db, Priority, params};
+    let vault = vault_core::Vault::open_temp().unwrap();
+    vault.store().write(Db::Archive, Priority::Batch, move |s| {
+        s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,discovered_at,profile_key) VALUES(1,'chrome','Default','/fixture','','chrome:Default')", ())?;
+        s.execute("WITH RECURSIVE ids(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM ids WHERE id<?1) INSERT INTO pages(id,url,canonical_url) SELECT id,'https://example.com/page/'||id,'https://example.com/page/'||id FROM ids", [visits as i64 / 5])?;
+        s.execute("INSERT INTO urls(id,page_id,url,title,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id) SELECT id,id,url,'Export page '||id,0,'',0,'',1,0 FROM pages", ())?;
+        for first in (1..=visits as i64).step_by(10_000) {
+            let last = (first + 9_999).min(visits as i64);
+            s.execute("WITH RECURSIVE ids(id) AS (VALUES(?1) UNION ALL SELECT id+1 FROM ids WHERE id<?2) INSERT INTO visits(id,url_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT id,(id-1)/5+1,1600000000000+id,'',1,0 FROM ids", params![first,last])?;
+        }
+        s.execute("UPDATE archive_totals SET value=CASE name WHEN 'sourceProfiles' THEN 1 WHEN 'urls' THEN ?1/5 WHEN 'visits' THEN ?1 ELSE value END", [visits as i64])?;
+        s.execute("INSERT INTO archive_totals(name,value) VALUES('sourceVisits:1',?1)", [visits as i64])?;
+        Ok(())
+    }).unwrap();
+    vault
 }
 
 #[path = "archive_scale_bench/turso_reads.rs"]

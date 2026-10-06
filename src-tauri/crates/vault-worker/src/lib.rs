@@ -117,3 +117,8 @@ pub(crate) use self::{
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+mod search;
+#[cfg(test)]
+mod search_tests;
+pub use search::{cancel_search, next_search_page, search_indexer_state, start_search};

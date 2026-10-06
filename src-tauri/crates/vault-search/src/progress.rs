@@ -17,6 +17,9 @@ use vault_crypto::EncryptedDirectory;
 
 pub(crate) struct Snapshot {
     pub searcher: Searcher,
+    pub _lease: Arc<()>,
+    pub last_seq: u64,
+    pub initial_build: bool,
     pub query: Box<dyn Query>,
     pub filters: Filters,
     pub plan: FilterPlan,
@@ -70,6 +73,42 @@ pub struct CountStep {
 }
 
 impl SearchSession {
+    /// Watermark of this reader, not a later writer commit.
+    pub fn last_applied_seq(&self) -> u64 {
+        self.snapshot.last_seq
+    }
+    /// Partial first-build readers never become complete just because indexing advanced.
+    pub fn initial_build_incomplete(&self) -> bool {
+        self.snapshot.initial_build
+    }
+
+    /// Changes the expression while retaining the same reader generation. Optional AI
+    /// can enumerate lexical ranks, then score their full union on this exact snapshot.
+    pub fn requery(&self, ast: crate::Ast, filters: Filters) -> Result<Self> {
+        let (_, fields) = crate::schema::schema();
+        let query = ast.compile(&fields)?;
+        let (query, plan) = checked(
+            crate::filter::plan(&self.snapshot.searcher, &fields, &filters, query),
+            self.snapshot.directory.as_ref(),
+        )?;
+        Ok(Self {
+            snapshot: Arc::new(Snapshot {
+                searcher: self.snapshot.searcher.clone(),
+                _lease: self.snapshot._lease.clone(),
+                last_seq: self.snapshot.last_seq,
+                initial_build: self.snapshot.initial_build,
+                query,
+                filters,
+                plan,
+                directory: self.snapshot.directory.clone(),
+            }),
+        })
+    }
+    /// Candidate batches let the owner join canonical eligibility before collecting top-k.
+    /// The batch size bounds memory, never the total number of reachable matches.
+    pub fn start_matches(&self, scoring: bool) -> Result<MatchHandle> {
+        Ok(MatchHandle { walker: Walker::new(self.snapshot.clone(), scoring)? })
+    }
     /// Makes the selected execution plan available for profiling.
     pub fn plan(&self) -> FilterPlan {
         self.snapshot.plan
@@ -92,12 +131,35 @@ impl SearchSession {
         }
         Ok(PageHandle {
             walker: Walker::new(self.snapshot.clone(), true)?,
-            collector: RankCollector::new(limit, after.map(|c| c.after)),
+            collector: RankCollector::new(
+                limit,
+                after.map(|c| c.after),
+                self.snapshot.filters.order,
+            ),
         })
     }
     /// Starts independent counting so ranking never waits for a total.
     pub fn start_count(&self) -> Result<CountHandle> {
         Ok(CountHandle { walker: Walker::new(self.snapshot.clone(), false)?, count: 0 })
+    }
+}
+/// A bounded, resumable posting walk with the same scores as a ranked page.
+pub struct MatchHandle {
+    walker: Walker,
+}
+pub struct MatchStep {
+    pub hits: Vec<Hit>,
+    pub provisional: bool,
+    pub progress: Progress,
+}
+impl MatchHandle {
+    pub fn step(&mut self, budget: Duration, batch_size: usize) -> Result<MatchStep> {
+        if batch_size == 0 {
+            return Err(Error::Input("match batch size must be positive".into()));
+        }
+        let mut hits = Vec::with_capacity(batch_size.min(1024));
+        self.walker.walk(budget, batch_size, |hit| hits.push(hit))?;
+        Ok(MatchStep { hits, provisional: !self.walker.done(), progress: self.walker.progress() })
     }
 }
 /// Resumable global top-k; no index-sized match list and no increasing offset heap.
@@ -128,7 +190,15 @@ pub struct CountHandle {
 impl CountHandle {
     /// Advances a monotone count under the same cooperative budget as ranking.
     pub fn step(&mut self, budget: Duration) -> Result<CountStep> {
-        self.walker.step(budget, |_| self.count += 1)?;
+        self.step_with(budget, |_| {})
+    }
+    /// Visit each newly counted page once, so callers can aggregate canonical measures
+    /// without a second match walk or retaining a complete result set.
+    pub fn step_with(&mut self, budget: Duration, mut visit: impl FnMut(u64)) -> Result<CountStep> {
+        self.walker.step(budget, |hit| {
+            self.count += 1;
+            visit(hit.page_id);
+        })?;
         Ok(CountStep {
             count: self.count,
             provisional: !self.walker.done(),
@@ -154,7 +224,11 @@ struct Walker {
 }
 impl Walker {
     fn new(snapshot: Arc<Snapshot>, scoring: bool) -> Result<Self> {
-        let statistics = Statistics::new(&*snapshot.query, &snapshot.searcher, scoring);
+        let statistics = Statistics::new(
+            &*snapshot.query,
+            &snapshot.searcher,
+            scoring && snapshot.filters.order == crate::SortOrder::Relevance,
+        );
         Ok(Self {
             snapshot,
             weight: None,
@@ -177,7 +251,16 @@ impl Walker {
             statistics_fields_total: self.statistics.total,
         }
     }
-    fn step(&mut self, budget: Duration, mut collect: impl FnMut(Hit)) -> Result<()> {
+    fn step(&mut self, budget: Duration, collect: impl FnMut(Hit)) -> Result<()> {
+        self.walk(budget, usize::MAX, collect)
+    }
+    fn walk(
+        &mut self,
+        budget: Duration,
+        batch_size: usize,
+        mut collect: impl FnMut(Hit),
+    ) -> Result<()> {
+        let mut collected = 0usize;
         let started = Instant::now();
         let mut chunk = 0;
         while !self.statistics.complete() {
@@ -190,14 +273,15 @@ impl Walker {
             }
         }
         if self.weight.is_none() {
-            let enabled = if self.scoring {
-                EnableScoring::enabled_from_statistics_provider(
-                    &self.statistics,
-                    &self.snapshot.searcher,
-                )
-            } else {
-                EnableScoring::disabled_from_searcher(&self.snapshot.searcher)
-            };
+            let enabled =
+                if self.scoring && self.snapshot.filters.order == crate::SortOrder::Relevance {
+                    EnableScoring::enabled_from_statistics_provider(
+                        &self.statistics,
+                        &self.snapshot.searcher,
+                    )
+                } else {
+                    EnableScoring::disabled_from_searcher(&self.snapshot.searcher)
+                };
             self.weight = Some(checked(
                 self.snapshot.query.weight(enabled),
                 self.snapshot.directory.as_ref(),
@@ -245,18 +329,43 @@ impl Walker {
                         .as_ref()
                         .is_none_or(|accept| accept(page_id))
                     {
+                        collected += 1;
                         collect(Hit {
                             page_id,
-                            newest_visit_ms: active
-                                .newest
+                            newest_visit_ms: self
+                                .snapshot
+                                .filters
+                                .newest_visit
                                 .as_ref()
-                                .and_then(|c| c.first(doc))
-                                .unwrap_or(0),
-                            score: if self.scoring { active.scorer.score() } else { 0.0 },
+                                .map_or_else(
+                                    || {
+                                        active
+                                            .newest
+                                            .as_ref()
+                                            .and_then(|c| c.first(doc))
+                                            .unwrap_or(0)
+                                    },
+                                    |newest| newest(page_id),
+                                ),
+                            score: if self.scoring
+                                && self.snapshot.filters.order == crate::SortOrder::Relevance
+                            {
+                                let score = active.scorer.score();
+                                self.snapshot
+                                    .filters
+                                    .score
+                                    .as_ref()
+                                    .map_or(score, |adjust| adjust(page_id, score))
+                            } else {
+                                0.0
+                            },
                         });
                     }
                 }
                 active.scorer.advance();
+                if collected == batch_size {
+                    return Ok(());
+                }
                 if chunk == 256 {
                     chunk = 0;
                     if started.elapsed() >= budget {

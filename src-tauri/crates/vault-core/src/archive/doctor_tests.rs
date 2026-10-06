@@ -2,7 +2,8 @@
 //! Not responsible for: legacy intelligence or file recovery.
 //! Failure modes: corruption reported healthy, schema checks omitted, cached totals
 //! drift, missing search documents/outbox notifications, incomplete artifact checks,
-//! repair restores hidden visits or records success after an artifact error.
+//! repair restores hidden visits or records success after an artifact error,
+//! a concurrent indexer consumes intentionally damaged outbox fixtures before diagnosis.
 use super::*;
 use vault_store::{Db, Priority};
 
@@ -30,6 +31,9 @@ fn healthy_native_files_need_no_repair() {
 fn repairs_counters_missing_documents_and_visibility_provenance_without_unhiding() {
     for key in [None, Some([79; 32])] {
         let vault = crate::archive::source_stats::tests::seeded_archive(key);
+        // Keep the corrupt fixture stable until doctor has diagnosed and repaired it.
+        // The live consumer is resumed below to verify that the repaired handoff applies.
+        let paused = vault.search().pause();
         vault
             .store()
             .write(Db::Archive, Priority::Batch, |s| {
@@ -74,6 +78,13 @@ fn repairs_counters_missing_documents_and_visibility_provenance_without_unhiding
                 Ok(())
             })
             .unwrap();
+        drop(paused);
+        vault.search().cycle().unwrap();
+        let result =
+            crate::search::page(&vault, crate::search::SearchRequest::default(), None).unwrap();
+        assert_eq!(result.count.value, 1);
+        assert_eq!(result.visits.value, 3);
+        assert_eq!(result.items[0].page_id, 1);
     }
 }
 

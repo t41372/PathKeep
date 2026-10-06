@@ -61,6 +61,7 @@ pub(super) fn build_router(
 
     Ok(Router::new()
         .route("/health", get(bridge_health))
+        .route("/searches/{session_id}/events", get(super::search::events))
         .route("/commands/{command}", post(bridge_invoke))
         .layer(cors)
         .with_state(state))

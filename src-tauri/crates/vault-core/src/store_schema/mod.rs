@@ -18,15 +18,12 @@ mod tests;
 use vault_store::{Db, Migration, MigrationRegistry};
 
 /// Doctor and startup agree on the current native archive revision.
-pub(crate) const ARCHIVE_SCHEMA_VERSION: i64 = 3;
+pub(crate) const ARCHIVE_SCHEMA_VERSION: i64 = 1;
 
 /// Gives the owner one complete schema contract before it opens any database.
 pub fn migration_registry() -> MigrationRegistry {
     let mut registry = MigrationRegistry::default();
-    registry.register(
-        Db::Archive,
-        vec![archive::migration(), archive::read_indexes(), archive::profile_totals()],
-    );
+    registry.register(Db::Archive, vec![archive::migration()]);
     registry.register(Db::SourceEvidence, vec![source_evidence::migration()]);
     registry.register(Db::Intelligence, vec![intelligence::migration()]);
     registry.register(Db::Agent, vec![agent::migration()]);

@@ -99,7 +99,7 @@ fn prefix_uses_bm25_and_internal_token_names_never_collide() {
     let field = raw.schema().get_field("title").unwrap();
     let query = tantivy::query::BoostQuery::new(
         Box::new(tantivy::query::TermQuery::new(
-            tantivy::Term::from_field_text(field, "^42"),
+            tantivy::Term::from_field_text(field, "^r42"),
             tantivy::schema::IndexRecordOption::WithFreqs,
         )),
         12.,

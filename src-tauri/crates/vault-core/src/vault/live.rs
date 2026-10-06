@@ -25,3 +25,38 @@ pub(crate) fn store(root: &Path) -> Option<Arc<Store>> {
         .and_then(Weak::upgrade)
         .filter(|s| s.is_open())
 }
+
+#[derive(Clone)]
+struct SearchOwner {
+    indexer: Weak<crate::search::Indexer>,
+    sessions: Weak<crate::search::SearchSessions>,
+}
+fn searches() -> &'static Mutex<HashMap<PathBuf, SearchOwner>> {
+    static SEARCH: OnceLock<Mutex<HashMap<PathBuf, SearchOwner>>> = OnceLock::new();
+    SEARCH.get_or_init(Default::default)
+}
+pub(super) fn register_search(
+    root: &Path,
+    indexer: &Arc<crate::search::Indexer>,
+    sessions: &Arc<crate::search::SearchSessions>,
+) {
+    let mut entries = searches().lock().unwrap();
+    entries.retain(|_, owner| owner.indexer.strong_count() > 0);
+    entries.insert(
+        root.to_owned(),
+        SearchOwner { indexer: Arc::downgrade(indexer), sessions: Arc::downgrade(sessions) },
+    );
+}
+pub(crate) fn search(
+    root: &Path,
+) -> anyhow::Result<(Arc<Store>, Arc<crate::search::Indexer>, Arc<crate::search::SearchSessions>)> {
+    let store =
+        store(root).ok_or_else(|| anyhow::anyhow!("search requires an open Vault owner"))?;
+    let entries = searches().lock().unwrap();
+    let owner = entries.get(root).ok_or_else(|| anyhow::anyhow!("search owner is closed"))?;
+    Ok((
+        store,
+        owner.indexer.upgrade().ok_or_else(|| anyhow::anyhow!("search owner closed"))?,
+        owner.sessions.upgrade().ok_or_else(|| anyhow::anyhow!("search sessions closed"))?,
+    ))
+}

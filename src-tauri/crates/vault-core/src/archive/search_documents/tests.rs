@@ -71,7 +71,7 @@ fn notes_and_tags_commit_with_the_document_and_outbox_or_not_at_all() {
         notes("Remember this").unwrap();
         tags("Research").unwrap();
         let result = vault.store().read(Db::Archive, |s| {
-            s.query_one("SELECT notes_text,tags_text,(SELECT COUNT(*) FROM search_outbox) FROM search_documents WHERE page_id=1", (), |r| Ok((r.get::<String>(0)?,r.get::<String>(1)?,r.get::<i64>(2)?)))
+            s.query_one("SELECT notes_text,tags_text,(SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name='search_outbox'),0)) FROM search_documents WHERE page_id=1", (), |r| Ok((r.get::<String>(0)?,r.get::<String>(1)?,r.get::<i64>(2)?)))
         }).unwrap();
         assert_eq!(result, ("Remember this".into(), "Research".into(), 3));
         vault
@@ -98,9 +98,32 @@ fn absent_enrichment_document_does_not_publish_a_phantom_change() {
             vault
                 .store()
                 .read(Db::Archive, |s| s
-                    .query_one("SELECT COUNT(*) FROM search_outbox", (), |r| Ok(r.get::<i64>(0)?)))
+                    .query_one("SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name='search_outbox'),0)", (), |r| Ok(r.get::<i64>(0)?)))
                 .unwrap(),
             0
         );
+    }
+}
+
+#[test]
+fn affected_page_refresh_seeks_its_urls_visits_and_search_terms() {
+    for key in [None, Some([47; 32])] {
+        let vault = Vault::open_temp_with_key(key).unwrap();
+        for (sql, index) in [
+            (TITLE_SELECT, "idx_visits_visible_url_time"),
+            (MEMBERSHIP_SELECT, "idx_visits_visible_url_time"),
+            (TERMS_SELECT, "idx_search_terms_profile_url_term"),
+        ] {
+            let plan = vault
+                .store()
+                .read(Db::Archive, move |s| {
+                    s.query(&format!("EXPLAIN QUERY PLAN {sql}"), [1], |r| Ok(r.get::<String>(3)?))
+                })
+                .unwrap()
+                .join("\n");
+            assert!(plan.contains("idx_urls_page_id"), "{plan}");
+            assert!(plan.contains(index), "{plan}");
+            assert!(!plan.contains("SCAN v") && !plan.contains("SCAN t"), "{plan}");
+        }
     }
 }

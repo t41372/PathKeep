@@ -5,9 +5,6 @@
 //! higher-level archive flows assume these migrations have already run.
 
 use crate::{
-    archive::search_projection::{
-        attach_search_database, search_reprojection_pending, seed_search_projection_with_progress,
-    },
     config::{ProjectPaths, ensure_paths},
     models::{
         AppConfig, ArchiveMode, ArchiveUpgradeAssessment, ArchiveUpgradePhase,
@@ -111,19 +108,8 @@ pub fn open_archive_connection(
     open_archive_connection_reporting(paths, config, key, &mut |_| {})
 }
 
-/// Progress-aware twin of [`open_archive_connection`]: identical open, bootstrap,
-/// attach, and seed, but threads `report` through the two heavy first-run
-/// phases — the schema-migration + registrable-domain backfill inside
-/// [`ensure_archive_bootstrapped_reporting`], and the search reprojection inside
-/// [`seed_search_projection_with_progress`].
-///
-/// [`open_archive_connection`] delegates here with a no-op callback, so the
-/// no-callback path is byte-for-byte the original open — same in-process
-/// bootstrap cache, so a re-open on an already-migrated archive still skips the
-/// heavy phases entirely (no extra scan). Progress is OBSERVATION ONLY: it
-/// changes no migration SQL, no backfill algorithm, and no reprojection logic,
-/// so the keyset-paged backfill stays idempotent and a mid-upgrade quit resumes
-/// cleanly.
+/// Reports only the legacy archive migrations still owned by maintenance. Search
+/// indexing belongs to the Vault owner and never runs while opening a read connection.
 pub(crate) fn open_archive_connection_reporting<F>(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -135,8 +121,6 @@ where
 {
     let connection = open_archive_connection_base(paths, config, key)?;
     ensure_archive_bootstrapped_reporting(&connection, &paths.archive_database_path, report)?;
-    attach_search_database(&connection, paths)?;
-    seed_search_projection_with_progress(&connection, paths, report)?;
     Ok(connection)
 }
 
@@ -538,15 +522,7 @@ pub fn assess_archive_upgrade(
         MIGRATIONS.iter().filter(|spec| spec.version > current).count() as u64;
     let schema_pending = schema_pending_steps > 0;
 
-    // Search reprojection: a projection-schema drift (drops + rebuilds) or an
-    // unseeded projection. Cheap — a version read plus a `LIMIT 1` doc probe.
-    let reprojection_pending = search_reprojection_pending(paths)?;
-
-    // The url document count sizes the backfill/reprojection bars, but it is an
-    // O(corpus) `COUNT` — pay it ONLY when a phase that needs it is actually
-    // pending (a genuine upgrade, where the user is already about to wait), never
-    // on the steady-state at-head launch.
-    let needs_url_total = schema_pending || reprojection_pending;
+    let needs_url_total = schema_pending;
     let url_total = if needs_url_total {
         let count: i64 = connection.query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))?;
         count.max(0) as u64
@@ -564,14 +540,13 @@ pub fn assess_archive_upgrade(
     // progress, by the real `ensure_archive_initialized`.
     let backfill_total = if current < 15 { url_total } else { 0 };
     let backfill_pending = backfill_total > 0;
-    let reprojection_total = if reprojection_pending { url_total } else { 0 };
 
     // Intelligence-plane drift — informational only (see the doc note above).
     // A never-created plane reports version 0, i.e. "will forward-apply".
     let intelligence_pending = recorded_intelligence_version(paths)
         < crate::intelligence::max_intelligence_schema_version();
 
-    let pending = schema_pending || backfill_pending || reprojection_pending;
+    let pending = schema_pending || backfill_pending;
 
     Ok(ArchiveUpgradeAssessment {
         pending,
@@ -589,12 +564,6 @@ pub fn assess_archive_upgrade(
                 backfill_pending,
                 true,
                 backfill_total,
-            ),
-            phase_assessment(
-                ArchiveUpgradePhase::SearchReprojection,
-                reprojection_pending,
-                true,
-                reprojection_total,
             ),
             // `streamed = false`: the intelligence plane forward-applies lazily on
             // its own first read, NOT inside `ensure_archive_initialized`, so the

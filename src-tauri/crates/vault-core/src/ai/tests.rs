@@ -438,18 +438,9 @@ fn prepared_archive() -> (ProjectPaths, AppConfig, Connection) {
 /// `url_id == history_id` here. Writes directly to the derived SEARCH plane (the same DB the lexical
 /// path projects into), so the semantic hydration JOIN finds an excerpt to cap. The other lexical
 /// columns are stubbed `''` because this path only reads `enrichment_text`.
-fn seed_enrichment_text(paths: &ProjectPaths, url_id: i64, url: &str, enrichment_text: &str) {
-    let search = Connection::open(&paths.search_database_path).expect("open search projection");
-    search
-        .execute(
-            "INSERT INTO search_documents
-               (url_id, url, title, search_terms, normalized_url, normalized_title,
-                normalized_search_terms, compact_text, cjk_grams, enrichment_text, updated_at)
-             VALUES (?1, ?2, '', '', '', '', '', '', '', ?3, ?4)
-             ON CONFLICT(url_id) DO UPDATE SET enrichment_text = excluded.enrichment_text",
-            params![url_id, url, enrichment_text, now_rfc3339()],
-        )
-        .expect("seed enrichment_text");
+fn seed_enrichment_text(paths: &ProjectPaths, history_id: i64, _url: &str, text: &str) {
+    let source = open_intelligence_connection(paths, &base_config(), None).unwrap();
+    source.execute("INSERT OR REPLACE INTO visit_content_enrichments(history_id,content_source,fetch_status,fetched_at,snippet_json,extraction_json,pipeline_version,extractor_version,enrichment_summary) VALUES(?1,'github-repo','success','2026-01-01','[]','{}','v1',1,?2)",params![history_id,text]).unwrap();
 }
 
 fn seed_failed_index_ledger(
@@ -1313,6 +1304,7 @@ fn build_assistant_preamble_covers_empty_and_seeded_context() {
     let with_context = build_assistant_preamble(
         &config,
         &AiSearchResponse {
+            search_state: None,
             total: 1,
             provider_id: "embed".to_string(),
             model: "text-embedding-3-small".to_string(),
@@ -1538,11 +1530,11 @@ fn search_history_internal_empty_query_returns_recent_visits() {
             .expect("empty query returns recent visits");
         assert_eq!(response.total, 2, "both visits surface for `{blank:?}`");
         assert_eq!(response.provider_id, "recent-visits");
-        // Newest visit (history_id 2, visit_time 99) sorts first; its recency score is the max (1.0).
+        // Blank search uses canonical chronology; both lexical scores are zero.
         assert_eq!(response.items[0].history_id, 2);
-        assert_eq!(response.items[0].score, 1.0);
+        assert_eq!(response.items[0].score, 0.0);
         assert_eq!(response.items[0].match_reason, MATCH_REASON_RECENT_VISIT);
-        assert!(response.items[1].score < response.items[0].score, "older row ranks lower");
+        assert_eq!(response.items[1].history_id, 1, "older row ranks lower");
         // The recency path is pure recall — no degradation notes, no semantic plane.
         assert!(response.notes.is_empty());
         assert!(response.note_codes.is_empty());
@@ -2718,6 +2710,7 @@ fn search_history_tool_definition_and_call_collect_citations() {
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/history", Some("History"), 1);
+    crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
     let citations = Arc::new(Mutex::new(Vec::new()));
     let tool = SearchHistoryTool {
         context: SearchContext {
@@ -2736,11 +2729,13 @@ fn search_history_tool_definition_and_call_collect_citations() {
 
     let definition = runtime.block_on(rig::tool::Tool::definition(&tool, String::new()));
     assert_eq!(definition.name, "search_history");
+    assert_eq!(definition.parameters["properties"]["cursor"]["type"], "string");
 
     let output = runtime
         .block_on(rig::tool::Tool::call(
             &tool,
             SearchHistoryArgs {
+                cursor: None,
                 query: "history".to_string(),
                 profile_id: None,
                 domain: None,
@@ -2775,6 +2770,7 @@ fn search_history_tool_definition_and_call_collect_citations() {
             .block_on(rig::tool::Tool::call(
                 &cancellation_tool,
                 SearchHistoryArgs {
+                    cursor: None,
                     query: "history".to_string(),
                     profile_id: None,
                     domain: None,
@@ -5452,7 +5448,7 @@ fn sort_oldest_returns_the_first_occurrence_across_years_not_the_recent_month() 
     );
     assert_eq!(oldest.provider_id, "date-ordered");
     assert!(oldest.has_more, "two more matches exist beyond the first page");
-    assert_eq!(oldest.next_cursor.as_deref(), Some("1"), "the cursor advances by the page size");
+    assert!(oldest.next_cursor.as_deref().is_some_and(|cursor| cursor.contains(':')));
 }
 
 #[test]
@@ -5781,21 +5777,15 @@ fn seed_keyword_visits_bulk(connection: &Connection, keyword: &str, first_id: i6
 }
 
 #[test]
-fn date_ordered_pagination_caps_honestly_at_the_window_without_looping() {
+fn date_ordered_pagination_reaches_every_match_without_overlap() {
     let vault = crate::Vault::open_temp().unwrap();
-    // THE BLOCKER regression test. The fixed contract: the date-ordered path reports the TRUE uncapped
-    // match count as `total`, stops the cursor at the 1000-row retrievable window (so the agent never
-    // loops on empty pages past the cap), and keeps `has_more == true` with NO `next_cursor` plus a
-    // "retrieval cap" note when matches exist beyond the window. The pre-fix code set `total =
-    // ordered.len()` (capped at 1000) and could hand back a cursor past the window — reverting either
-    // makes the assertions below fail.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
-    // 1001 matching visits on distinct ascending timestamps — ONE more than the 1000-row window cap.
     seed_keyword_visits_bulk(&connection, "mlx", 1, 1001);
-
-    let page = |cursor: Option<String>, limit: u32| {
-        runtime
+    let mut cursor = None;
+    let mut ids = Vec::new();
+    loop {
+        let response = runtime
             .block_on(search_history_internal(
                 &vault,
                 &paths,
@@ -5803,91 +5793,25 @@ fn date_ordered_pagination_caps_honestly_at_the_window_without_looping() {
                 None,
                 None,
                 &AiSearchRequest {
-                    query: "mlx".to_string(),
-                    limit: Some(limit),
-                    sort: Some("oldest".to_string()),
+                    query: "mlx".into(),
+                    limit: Some(10),
+                    sort: Some("oldest".into()),
                     cursor,
-                    ..AiSearchRequest::default()
+                    ..Default::default()
                 },
             ))
-            .expect("a date-ordered page")
-    };
-
-    // THE LETHAL ASSERTION: `total` is the TRUE uncapped match count (1001), NOT the 1000-row pool size.
-    let first = page(None, 10);
-    assert_eq!(
-        first.total, 1001,
-        "total must be the TRUE uncapped match count (1001), not the 1000-row window cap: got {}",
-        first.total
-    );
-    assert_eq!(first.provider_id, "date-ordered");
-    // sort=oldest correctness at scale: the first page's first row is the EARLIEST-dated seeded visit.
-    assert_eq!(
-        first.items[0].history_id, 1,
-        "sort:oldest must lead with the earliest-dated visit (history_id 1): got {}",
-        first.items[0].history_id
-    );
-
-    // Walk the cursor up to the window edge with a small page size and assert no overlap + termination.
-    let limit = 10_u32;
-    let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
-    let mut cursor: Option<String> = first.next_cursor.clone();
-    for item in &first.items {
-        assert!(seen.insert(item.history_id), "first page must not repeat ids");
-    }
-    let mut reached_edge = false;
-    let mut iterations = 0;
-    loop {
-        iterations += 1;
-        assert!(iterations <= 200, "pagination must terminate (no infinite loop)");
-        let Some(next) = cursor.clone() else { break };
-        let response = page(Some(next), limit);
-        for item in &response.items {
-            assert!(
-                seen.insert(item.history_id),
-                "paging must never re-yield an already-seen id (no overlap): {}",
-                item.history_id
-            );
-        }
-        // At/near the window edge (offset 990 → 1000) the cursor must stop with `has_more` still true
-        // and a "retrieval cap" note, NEVER handing back a cursor that pages past the 1000-row clamp.
-        match response.next_cursor.clone() {
-            Some(next) => {
-                let offset: usize = next.parse().expect("numeric cursor offset");
-                assert!(
-                    offset <= 1000,
-                    "the cursor must never advance past the 1000-row window: {offset}"
-                );
-                cursor = Some(next);
-            }
-            None => {
-                // The window edge: more matches exist (1001 > 1000) but the cursor stops to avoid an
-                // infinite loop on empty pages beyond the cap.
-                reached_edge = true;
-                assert!(
-                    response.has_more,
-                    "at the window edge has_more must STAY true (matches exist beyond the cap)"
-                );
-                assert!(
-                    response.notes.iter().any(|note| note.contains("retrieval cap")),
-                    "the window-edge page must carry a 'retrieval cap' note: {:?}",
-                    response.notes
-                );
-                break;
-            }
+            .unwrap();
+        assert_eq!(response.total, 1001);
+        assert!(!response.notes.iter().any(|note| note.contains("retrieval cap")));
+        assert_eq!(response.has_more, response.next_cursor.is_some());
+        ids.extend(response.items.into_iter().map(|item| item.history_id));
+        assert!(ids.len() <= 1001, "paging repeated matches");
+        cursor = response.next_cursor;
+        if cursor.is_none() {
+            break;
         }
     }
-    assert!(
-        reached_edge,
-        "the walk must reach the window edge and stop (cursor None) without looping"
-    );
-    // The retrievable window is exactly the 1000-row cap; the 1001st match is unreachable by paging.
-    assert_eq!(
-        seen.len(),
-        1000,
-        "paging covers exactly the 1000-row retrievable window: {}",
-        seen.len()
-    );
+    assert_eq!(ids, (1..=1001).collect::<Vec<_>>());
 }
 
 #[test]
@@ -5984,4 +5908,151 @@ fn sort_oldest_with_starred_only_returns_oldest_starred_match() {
         response.total
     );
     assert_eq!(response.provider_id, "date-ordered");
+}
+
+#[test]
+fn lexical_ai_cursors_reach_beyond_every_former_pool_and_date_window() {
+    let vault = crate::Vault::open_temp_with_key(Some([94; 32])).unwrap();
+    let (paths, config, connection) = prepared_archive();
+    for id in 1..=1107 {
+        seed_visit(
+            &connection,
+            id,
+            "chrome:Default",
+            &format!("https://all.test/{id}"),
+            Some("completepool"),
+            13_300_000_000_000_000 + id * 1000,
+        );
+    }
+    crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
+    let runtime = Runtime::new().unwrap();
+    for sort in [None, Some("oldest".to_owned()), Some("newest".to_owned())] {
+        let mut request = AiSearchRequest {
+            query: "completepool".into(),
+            limit: Some(73),
+            sort,
+            ..Default::default()
+        };
+        let mut ids = Vec::new();
+        loop {
+            let response = runtime
+                .block_on(super::search::search_history_internal(
+                    &vault, &paths, &config, None, None, &request,
+                ))
+                .unwrap();
+            assert_eq!(response.total, 1107);
+            ids.extend(response.items.iter().map(|item| item.history_id));
+            if response.next_cursor.is_none() {
+                break;
+            }
+            request.cursor = response.next_cursor;
+        }
+        ids.sort_unstable();
+        assert_eq!(ids, (1..=1107).collect::<Vec<_>>());
+    }
+}
+
+// These suites keep their original generated SQL fixture inputs while exercising the
+// real native owner on every search. No query result or engine behavior is mocked.
+async fn search_history_internal(
+    vault: &crate::Vault,
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    provider: Option<&AiProviderRuntime>,
+    request: &AiSearchRequest,
+) -> Result<AiSearchResponse> {
+    if request.cursor.is_none() {
+        crate::test_support::legacy_fixtures::copy_to_vault(vault, paths, config);
+        crate::test_support::legacy_fixtures::copy_search_metadata(vault, paths, config);
+    }
+    super::search::search_history_internal(vault, paths, config, key, provider, request).await
+}
+async fn semantic_matches(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    provider: &AiProviderRuntime,
+    request: &AiSearchRequest,
+    starred: Option<&[u64]>,
+) -> Result<super::search::SemanticMatchReport> {
+    let vault = crate::Vault::open_temp().unwrap();
+    crate::test_support::legacy_fixtures::copy_to_vault(&vault, paths, config);
+    crate::test_support::legacy_fixtures::copy_search_metadata(&vault, paths, config);
+    super::search::semantic_matches(&vault, paths, config, key, provider, request, starred).await
+}
+
+#[test]
+fn semantic_facets_find_eligible_pages_beyond_every_former_recall_pool() {
+    let vault = crate::Vault::open_temp_with_key(Some([108; 32])).unwrap();
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    let runtime = Runtime::new().unwrap();
+    let vector =
+        runtime.block_on(embed_query(&provider, "candidatephrase", EmbeddingRole::Query)).unwrap();
+    let mut vectors = Vec::new();
+    for id in 1..=1207 {
+        seed_visit(
+            &connection,
+            id,
+            if id == 1207 { "firefox:target" } else { "chrome:Default" },
+            &format!("https://scope.test/page/{id}"),
+            Some("Unrelated"),
+            13_300_000_000_000_000 + id * 1000,
+        );
+        vectors.push((
+            id,
+            id as u64,
+            if id == 1207 { vector.iter().map(|value| -value).collect() } else { vector.clone() },
+        ));
+    }
+    seed_vector_planes(&paths, &provider, &vectors);
+    let response = runtime
+        .block_on(search_history_internal(
+            &vault,
+            &paths,
+            &config,
+            None,
+            Some(&provider),
+            &AiSearchRequest {
+                query: "candidatephrase".into(),
+                profile_id: Some("firefox:target".into()),
+                limit: Some(1),
+                ..Default::default()
+            },
+        ))
+        .unwrap();
+    assert_eq!(response.total, 1);
+    assert_eq!(response.items[0].history_id, 1207);
+}
+
+async fn semantic_search_history(
+    vault: &crate::Vault,
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    provider: Option<&AiProviderRuntime>,
+    request: &AiSearchRequest,
+) -> Result<AiSearchResponse> {
+    if request.cursor.is_none() && paths.archive_database_path.exists() {
+        crate::test_support::legacy_fixtures::copy_to_vault(vault, paths, config);
+        crate::test_support::legacy_fixtures::copy_search_metadata(vault, paths, config);
+    }
+    super::search::semantic_search_history(vault, paths, config, key, provider, request).await
+}
+async fn answer_history_question(
+    vault: &crate::Vault,
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    llm: &AiProviderRuntime,
+    embedding: Option<&AiProviderRuntime>,
+    request: &AiAssistantRequest,
+) -> Result<AiAssistantResponse> {
+    if paths.archive_database_path.exists() {
+        crate::test_support::legacy_fixtures::copy_to_vault(vault, paths, config);
+        crate::test_support::legacy_fixtures::copy_search_metadata(vault, paths, config);
+    }
+    super::assistant::answer_history_question(vault, paths, config, key, llm, embedding, request)
+        .await
 }

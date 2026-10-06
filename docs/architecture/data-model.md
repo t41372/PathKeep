@@ -103,7 +103,7 @@ Turso 的新庫 schema 見 [store-schema.md](store-schema.md)：四個 durable `
 每頁搜尋文件與 transactional outbox，全文索引由 Tantivy 持有。各表用途、keys、
 索引、writer 與刪除清單以該文檔為準。archive 寫入、備份、Takeout / Browser Direct
 匯入、批次撤銷與恢復、筆記、標籤、星號和預覽圖已經透過 `Vault` 寫入 Turso。
-History 時間軸、日期統計、archive read models、來源統計、URL 詳情、圖片讀取、Doctor 與一般歷史匯出也已使用同一個 `Vault`。尚未移植的搜尋、intelligence、agent 與整庫維護仍使用下列 `.sqlite` 路徑；它們不是
+History 時間軸、日期統計、archive read models、來源統計、URL 詳情、圖片讀取、Doctor 與一般歷史匯出也已使用同一個 `Vault`。搜尋由同一 owner 的 vault-search 索引與 Turso 提供；尚未移植的 intelligence、agent 與整庫維護仍使用下列 `.sqlite` 路徑；它們不是
 [ADR-012](decisions/012-turso-storage-engine.md) 的目標設計。
 
 ### Migration in progress
@@ -117,16 +117,16 @@ status and chat cancellation do not need that password. Only attempts to open a
 SQLCipher connection return `storage-migration-incomplete` until the user supplies the
 archive password. A locked encrypted archive returns a successful snapshot with
 `encrypted: true, unlocked: false`; status reads never retrieve a keychain secret.
-Keyword/regex search (including grouped search and search exports), Insights and several maintenance readers still use the old SQLite files and do not see new Turso writes. There is no bridge
+Keyword, regex, grouped, AI and export search read the native archive through the owner search engine. Insights and several maintenance readers still use the old SQLite files and do not see new Turso writes. There is no bridge
 between the stores. The owner IPC prevents another process from opening databases;
 it does not make the unported readers current.
 
 This build refuses archive rekey (including its preview), encryption-mode changes on
 an initialized archive, full-archive migration export/import (including
-import preview), full-archive snapshot restore, archive encryption reconciliation, and the AI `is:starred` filter. They return the typed
+import preview), full-archive snapshot restore, archive encryption reconciliation. They return the typed
 `StorageMigrationIncomplete` error, exposed to desktop commands as
 `storage-migration-incomplete`: the operation is unavailable until the storage migration
-completes. The AI refusal applies to the public search, agent tools and code-mode entrypoints.
+completes. Search and its starred filter use the native owner across all entrypoints.
 The internal legacy read algorithms still have their own SQLite tests.
 
 Restore in area 6: the worker bundle tests
@@ -136,7 +136,7 @@ Restore in area 6: the worker bundle tests
 by refusal tests while mixed-store operations are unavailable. The full-archive worker
 restore success test is likewise replaced by a typed refusal; its legacy core tests remain.
 The desktop `migration_and_browse_insights_impls_cover_local_desktop_flows` bundle round-trip
-assertions also need restoring in area 6. Native archive reader tests use real Store files in plaintext and with a key; the bridge regression imports tied visits, reopens from the keychain without a password, follows both history and review cursors, and exports all rows. Excluded search/intelligence/maintenance tests retain independent legacy fixtures.
+assertions also need restoring in area 6. Native archive reader tests use real Store files in plaintext and with a key; the bridge regression imports tied visits, reopens from the keychain without a password, follows both history and review cursors, and exports all rows. Search contracts run through the native owner. Unported intelligence and maintenance tests retain independent legacy fixtures.
 
 ### Turso archive read contract
 
@@ -184,15 +184,15 @@ including a derived-only repair, retains its native run ledger entry.
 
 Desktop contracts (all payload fields are camelCase):
 
-| Command / response                                                   | Native read contract                                                                                                                                                          |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `query_history({ query })`                                           | Existing response fields and `time                                                                                                                                            | id`cursor. Timeline`page > 1` requires a cursor; there is no OFFSET. Page size is 1–1,000 (default 150). Search requests retain the area-3 dispatch. |
-| `load_recent_runs({ cursor?: number, limit?: number })`              | `{ items: BackupRunOverview[], nextCursor: number                                                                                                                             | null }`, run ID descending, default page size 12. The compatibility system run is excluded.                                                          |
-| `load_import_batches({ cursor?: string, limit?: number })`           | `{ items: ImportBatchOverview[], nextCursor: string                                                                                                                           | null }`, unfinished (`reverting`, `restoring`, `interrupted`) first, then ID descending, default page size 16.                                       |
-| `preview_import_batch({ batchId, cursor?: string, limit?: number })` | Existing detail plus `previewNextCursor: string                                                                                                                               | null`. Visible visits sort by time/ID descending. Default page size remains 24.                                                                      |
-| `AppSnapshot`                                                        | Adds `recentRunsNextCursor` and `recentImportBatchesNextCursor`; arrays remain the first pages. `directories.archiveDatabasePath` agrees with the native archive status path. |
-| `DashboardSnapshot`                                                  | Adds `recentRunsNextCursor`; existing counters and arrays retain their types.                                                                                                 |
-| `HealthRepairReport`                                                 | Adds `repairedTotalCounters`, `repairedBatchTotals`, `refreshedSearchPages`, `queuedSearchUpdates` (numbers, default 0 when decoding older payloads). Existing fields remain. |
+| Command / response                                                   | Native read contract                                                                                                                                                                        |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `query_history({ query })`                                           | Existing response fields and `time\|id` cursor. Timeline `page > 1` requires a cursor; there is no OFFSET. Page size is 1–1,000 (default 150). Search requests use the owner search engine. |
+| `load_recent_runs({ cursor?: number, limit?: number })`              | `{ items: BackupRunOverview[], nextCursor: number \| null }`, run ID descending, default page size 12. The compatibility system run is excluded.                                            |
+| `load_import_batches({ cursor?: string, limit?: number })`           | `{ items: ImportBatchOverview[], nextCursor: string \| null }`, unfinished (`reverting`, `restoring`, `interrupted`) first, then ID descending, default page size 16.                       |
+| `preview_import_batch({ batchId, cursor?: string, limit?: number })` | Existing detail plus `previewNextCursor: string \| null`. Visible visits sort by time/ID descending. Default page size remains 24.                                                          |
+| `AppSnapshot`                                                        | Adds `recentRunsNextCursor` and `recentImportBatchesNextCursor`; arrays remain the first pages. `directories.archiveDatabasePath` agrees with the native archive status path.               |
+| `DashboardSnapshot`                                                  | Adds `recentRunsNextCursor`; existing counters and arrays retain their types.                                                                                                               |
+| `HealthRepairReport`                                                 | Adds `repairedTotalCounters`, `repairedBatchTotals`, `refreshedSearchPages`, `queuedSearchUpdates` (numbers, default 0 when decoding older payloads). Existing fields remain.               |
 
 Run/import/review limits are page sizes (maximum 1,000), never total-result caps. Continue
 with the returned cursor; do not reconstruct it. Core OG prefetch/refetch reads likewise
@@ -209,7 +209,7 @@ and the en/zh-CN/zh-TW labels are documented in the
 ### Turso write path and ownership
 
 `Vault` opens one shared `Store` with the migration registry. Each durable database
-starts with a consolidated v1. Archive v2 adds read indexes; v3 initializes per-source counters from visible facts. Existing native v1/v2 files upgrade in place, preserving every field. Archive includes resumable visibility state, the batch
+starts with a consolidated v1, including all archive read and search indexes. Writers maintain per-source counters with the visible facts. Archive includes resumable visibility state, the batch
 URL index, indexed preview-image eviction, independent source cursors, cached totals,
 and canonical URL indexes. No released Turso schema needs a backfill. Fact transactions
 maintain the counters incrementally. Public writes receive `&Vault`; transaction helpers
@@ -283,7 +283,7 @@ because no enrichment result is recorded, a later candidate refresh offers the j
 again after its page reaches Turso. Legacy enrichment cache fan-out follows the job's
 source URL row; native search text covers every canonical variant. An absent search
 document produces no outbox event. No write path rebuilds an index; the separate
-`vault-search` consumer is not wired into these writes here.
+`vault-search` consumer applies the durable outbox independently of archive writes.
 
 Star lists paginate every sort with a complete tie-breaker: visit count when requested,
 star time, entity kind and key. Each item includes its canonical page's newest nonempty
@@ -374,8 +374,9 @@ writer results.
   - 這是 archive contract，不是 derived-state；remote/local bundle 必須和 canonical archive 一起打包
 - `derived/history-search.sqlite`
   - 只保存 lexical recall projection 與 bounded rollups
-  - 包含 versioned FTS5 Explorer keyword recall projection、Dashboard / deterministic baseline 的統計 projection
-  - M14 keyword projection 包含 raw / normalized URL、title、search term、compact text、CJK grams、unicode61 prefix table 與 trigram table
+  - Legacy artifact only; native search does not open this file.
+- `derived/search-index/`
+  - Versioned, rebuildable Tantivy generations; encrypted when the Vault is encrypted.
 - `derived/history-intelligence.sqlite`
   - 只保存 queue、enrichment metadata、deterministic read model、runtime state 與 compact semantic metadata / rebuild accounting
 - `derived/agent.sqlite`
@@ -394,7 +395,7 @@ writer results.
 當 `AppConfig.archive_mode == Encrypted` 時，**只有 canonical encrypted-tier 的兩個 DB 加密**（SQLCipher，`rusqlite` bundled-sqlcipher，每連線 `PRAGMA key`）：
 
 - **加密**：`archive/history-vault.sqlite` 與 `archive/source-evidence.sqlite`。兩者都是 archive contract、必須一起打包，因此必須一起以相同金鑰加密。
-- **明文（by design）**：`derived/` 下的 sidecar——`history-search.sqlite`（明文開啟，再由加密 archive 以 `ATTACH … KEY ''` 掛載）、`history-intelligence.sqlite`（明文開啟，attach 加密 archive）、`agent.sqlite`，以及 `derived/vectors/` 的 flat plane。它們是可丟棄/可重建的衍生狀態。**注意這是不完整的 at-rest 保護**：FTS / intelligence / chat 仍以明文存 URL / title / enrichment 摘要 / 對話。評估「全量加密」（性能 + 實作 + 威脅模型）見 [[WORK-ENCRYPT-AT-REST-ALL backlog]]。
+- **明文（by design）**：`derived/` 下的 sidecar——`history-search.sqlite`（明文開啟，再由加密 archive 以 `ATTACH … KEY ''` 掛載）、`history-intelligence.sqlite`（明文開啟，attach 加密 archive）、`agent.sqlite`，以及 `derived/vectors/` 的 flat plane。它們是可丟棄/可重建的衍生狀態。**注意這是不完整的 at-rest 保護**：舊 search.sqlite 殘留檔與未移植的 intelligence / chat 仍可能含明文資料；目前搜尋只使用加密的 search-index generation，不開啟舊 FTS 檔。評估「全量加密」（性能 + 實作 + 威脅模型）見 [[WORK-ENCRYPT-AT-REST-ALL backlog]]。
 
 **Rekey 必須 lockstep 遷移兩個 encrypted-tier DB。** `archive::maintenance::rekey_archive` 透過 `archive::at_rest::migrate_source_evidence_for_rekey` 在切換模式/輪換金鑰時同時重寫 `source-evidence.sqlite`（偵測檔案實際 on-disk 模式以選開啟金鑰，再以新模式/金鑰 export+atomic swap）。歷史 bug：舊 rekey 只重寫 archive，留下明文 `source-evidence`，而 `open_source_evidence_connection` 在 Encrypted 模式對它套 `PRAGMA key` → SQLCipher 把明文檔頭當密文 → page size 亂掉 → 每次備份 `SQLITE_NOMEM`。
 
@@ -407,14 +408,29 @@ writer results.
 - `visits`、`downloads`、`search_terms` 等 user-visible facts 用 `reverted_at` / `reverted_by_run_id` 表示 rollback visibility。
 - `urls` 和 `source_profiles` 作為 canonical anchors，不直接以 rollback 做 destructive delete；read model 以關聯 facts 的可見性來判斷是否顯示。
 
-### Legacy FTS projection 範圍（搜尋移植前）
+### Search documents and index
 
-- lexical recall 不再與 canonical archive 共住同一個 SQLite。FTS 只存在 `derived/history-search.sqlite`，作為 canonical URL-document 的 projection。
-- FTS 只索引 **URL、title、search term** 與由這些欄位 deterministic 派生出的 normalized / compact / CJK gram 欄位，以及後續明確挑選的 bounded enrichment projection 欄位。
-- 一筆 canonical `urls.id` 對應一份 URL-document search projection，Explorer keyword recall 透過 `MATCH` 命中 projection 後再 join 回可見 `visits`，避免 rollback hidden rows 洩漏回主查詢。
-- Turso 匯入、撤銷與恢復只維護 affected page documents 和 outbox，不寫這個 FTS database。舊 FTS 保留給尚未移植的查詢與測試。
-- 完整 refetch 文本、readable content、AI 生成摘要不直接塞進 FTS 主索引。
-- 若某個 enrichment 需要被全文搜尋，先經 projection / truncation / field whitelist 進入獨立 projection table，再由 FTS 索引。
+`search_documents` has one row per canonical page. Its text includes every visible
+profile title, visible search terms, notes, tags and the approved enrichment
+projection. `search_document_profiles` records visible profile membership;
+`search_outbox` is a durable ordered handoff, committed with the facts that changed
+search. Revocation refreshes all three in the same archive transaction.
+
+The owner indexer applies complete outbox prefixes to `vault-search` and then
+prunes acknowledged rows with a Batch write. The index commit records the highest
+sequence. Reopen replays unacknowledged changes. Rebuild streams page IDs and
+publishes a generation atomically; initial builds expose partial coverage and
+healthy rebuilds keep serving the old generation. Writer defaults are two threads,
+64 MiB arena and 128 MiB decrypted cache, matching the engine measurements.
+
+Search reads and hydration use Turso only. Eligibility binds date, profile and
+browser to the same visible visit. Ranking and exact counting are separate
+resumable walks over all matches. Revocation is checked in canonical storage even
+before the index catches up. There are no search windows, candidate limits,
+newest-first fallback, match-set cache or preparation phase. Regex scans complete
+canonical visit ranges. AI fusion uses complete candidate streams, and every
+transport shares session cursors. See [search.md](search.md) for ownership,
+recovery, cancellation and exact command/channel shapes.
 
 ### Aggregation strategy
 
@@ -483,8 +499,8 @@ writer results.
 
 - **AI 資產（embedding、向量索引、chat transcript、enrichment 文本、insight 衍生表）是可重建的衍生狀態**，不是核心數據。清空重跑不會丟失任何原始歷史紀錄。
 - **向量 payload 不進 SQLite**，而是寫到 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane；SQLite 只保留 compact metadata / rebuild accounting。
-- **語義搜尋不做全表掃描**。`FlatVectorIndex` 走 binary-recall（resident Hamming popcount）→ int8-rescore（disk-backed）兩階段，不退回 SQLite 全庫 cosine 掃描；14.4M 尾端的 RAM / 延遲信封仍建議補 profiling artifact（見 [ai-security-posture.md](ai-security-posture.md) §7 follow-ups）。
-- **AI 資產不能拖慢核心 archive**。FTS、intelligence runtime、embedding / 向量索引、正文 blob 都和 canonical archive 隔離。
+- **語義搜尋完整覆蓋向量集合**。搜尋逐段計算全部向量的分數，再按 canonical page 合併與篩選；候選數量不能限制可達資料。向量生成與 AI queue 的覆蓋由 area 4 負責。
+- **AI 資產不能拖慢核心 archive**。search index、intelligence runtime、embedding / 向量索引、正文 blob 都和 canonical archive 隔離。
 - **設定頁面應顯示各類資產的磁碟佔用**：core archive、search projection、intelligence projection、semantic / blob sidecars、快照等，讓用戶清楚知道空間花在哪裡，以及最近的增長趨勢。
 - 產品層的 storage analytics summary 現在先分成兩個 top-level bucket：`core history`（`history-vault.sqlite` + `source-evidence.sqlite`）與 `other data`（search / intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files）。這是給 Dashboard / Intelligence / Settings 共用的使用者心智，不改變底層 storage planes。
 - 更細的 storage detail 仍保留到 detail surface：`core history` 可再拆成 canonical archive / source evidence；`other data` 可再拆成 search projection、intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files。更細的 per-plugin / per-model accounting 仍可在後續里程碑再補。

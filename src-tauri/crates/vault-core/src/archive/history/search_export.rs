@@ -1,24 +1,18 @@
-//! Responsibilities: hand search exports to the existing area-3 recall function.
-//! Not responsible for: timeline reads or export formatting.
-//! Failure modes: search filters lost, cancellation ignored; legacy search tests retain coverage.
+//! Responsibilities: adapt root-based search export calls to the owner engine.
+//! Not responsible for: timeline reads, storage ownership or search implementation.
+//! Failure modes: lost search filters, cancellation ignored, legacy database opens.
 use super::*;
 use crate::{ExportRequest, ExportResult};
 
 pub fn export_search_history(
     paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    _config: &AppConfig,
+    _key: Option<&str>,
     request: ExportRequest,
 ) -> Result<ExportResult> {
     export::finish_export(request, |request, job| {
-        let connection = open_archive_connection(paths, config, key)?;
-        connection.pragma_update(None, "temp_store", "FILE")?;
-        if let Some(job) = job {
-            let job = std::sync::Arc::clone(job);
-            connection.progress_handler(1000, Some(move || job.is_cancelled()))?;
-        }
-        export::write_export(paths, request, job, None, |query| {
-            list_history_on_connection(&connection, query)
+        export::write_export(paths, request, job, None, |_| {
+            anyhow::bail!("search export requires a search query")
         })
     })
 }

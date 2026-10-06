@@ -356,6 +356,7 @@ impl BackupProgressEvent {
 pub enum ArchiveUpgradePhase {
     SchemaMigration,
     RegistrableDomainBackfill,
+    /// Legacy persisted phase; native search rebuilds report IndexerState instead.
     SearchReprojection,
     Intelligence,
     Finalizing,
@@ -817,24 +818,21 @@ pub struct HistoryEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryQueryResponse {
-    /// Exact match count; the size of this page when the caller skipped the count; or, when
-    /// `windowed`, the matches inside the window (a lower bound).
+    #[serde(default)]
+    pub search_state: Option<crate::search::SearchCoverage>,
+    /// Exact matching pages, or this page's size when include_total is false.
     pub total: usize,
-    /// False when the caller asked for `include_total: false`, or when `windowed`.
+    /// False when the caller asked for `include_total: false`.
     #[serde(default = "default_total_exact")]
     pub total_exact: bool,
     /// For `group_by_url` queries with a total: the matching visits across all `total` pages.
     /// `None` otherwise.
     #[serde(default)]
     pub total_visits: Option<usize>,
-    /// True when a keyword search matched more pages than one search ranks: only the most recently
-    /// archived matching pages inside the filters (the window) were ranked, listed and counted, so
-    /// `total` is "at least" and some older matches are not in the list. Adding a word or a filter
-    /// narrows the search under the window. See `archive/history/keyword_window.rs`.
+    /// Retained wire compatibility field; complete native search always returns false.
     #[serde(default)]
     pub windowed: bool,
-    /// Regex searches only: how far this chunk of the scan reached. Regex is scanned a time-boxed
-    /// chunk per request; `next_cursor` continues it. See `archive/history/regex_scan.rs`.
+    /// Retained legacy wire field; progressive native regex reports SearchStep instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub regex_scan: Option<RegexScanProgress>,
     pub items: Vec<HistoryEntry>,
@@ -865,6 +863,7 @@ pub struct RegexScanProgress {
 impl Default for HistoryQueryResponse {
     fn default() -> Self {
         Self {
+            search_state: None,
             total: 0,
             total_exact: true,
             total_visits: None,
@@ -905,8 +904,7 @@ pub struct ExportResult {
     pub format: ExportFormat,
     pub path: String,
     pub count: usize,
-    /// True when the export's keyword matched more pages than one search ranks, so only the
-    /// window of most recently archived matches was exported (`HistoryQueryResponse::windowed`).
+    /// Retained wire compatibility field; search exports always cover the complete reader.
     #[serde(default)]
     pub windowed: bool,
 }

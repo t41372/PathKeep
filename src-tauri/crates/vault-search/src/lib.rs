@@ -14,10 +14,13 @@ mod query;
 mod schema;
 mod statistics;
 
-pub use collector::Hit;
+pub use collector::{Hit, RankCollector};
 pub use error::{Error, Result};
-pub use filter::{FilterPlan, Filters};
+pub use filter::{FilterPlan, Filters, SortOrder};
 pub use index::{RebuildProgress, SearchIndex};
 pub use model::{Batch, Config, PageDocument, ReloadPolicy, TextField};
-pub use progress::{CountHandle, CountStep, Cursor, PageHandle, PageStep, Progress, SearchSession};
+pub use progress::{
+    CountHandle, CountStep, Cursor, MatchHandle, MatchStep, PageHandle, PageStep, Progress,
+    SearchSession,
+};
 pub use query::{Ast, PhraseTerm};

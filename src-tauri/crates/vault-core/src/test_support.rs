@@ -94,3 +94,28 @@ pub(crate) mod store;
 
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod legacy_fixtures;
+
+/// Durable handoff progress remains observable after acknowledged rows are pruned.
+#[cfg(test)]
+pub(crate) fn search_sequence(vault: &crate::Vault) -> i64 {
+    vault
+        .store()
+        .read(vault_store::Db::Archive, |s| {
+            s.query_one(
+                "SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name='search_outbox'),0)",
+                (),
+                |r| Ok(r.get::<i64>(0)?),
+            )
+        })
+        .unwrap()
+}
+/// Compares the physical index with independent canonical visibility after one real cycle.
+#[cfg(test)]
+pub(crate) fn assert_search_handoff(vault: &crate::Vault) {
+    vault.search().cycle().unwrap();
+    let expected=vault.store().read(vault_store::Db::Archive,|s|s.query("SELECT DISTINCT u.page_id FROM visits v JOIN urls u ON u.id=v.url_id WHERE v.reverted_at IS NULL ORDER BY u.page_id",(),|r|Ok(r.get::<i64>(0)? as u64))).unwrap();
+    assert_eq!(vault.search().indexed_ids().unwrap(), expected);
+    assert_eq!(vault.search().state().applied_seq, search_sequence(vault) as u64);
+}
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod search;

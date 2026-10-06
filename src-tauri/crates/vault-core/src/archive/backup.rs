@@ -48,7 +48,7 @@ pub fn run_backup_with_control(
 }
 
 #[cfg(test)]
-pub(super) fn run_backup_profiles(
+pub(crate) fn run_backup_profiles(
     vault: &Vault,
     due_only: bool,
     cancel: &CancelToken,

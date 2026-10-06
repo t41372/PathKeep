@@ -41,10 +41,10 @@ mod tests {
 #[cfg(test)]
 mod ai_boundary_tests {
     #[test]
-    fn public_ai_starred_filter_refuses_before_reading_either_store() {
+    fn public_ai_starred_filter_uses_the_native_owner() {
         let vault = crate::Vault::open_temp().unwrap();
         let request = crate::AiSearchRequest { starred_only: Some(true), ..Default::default() };
-        let error = tokio::runtime::Runtime::new()
+        let response = tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(crate::ai::semantic_search_history(
                 &vault,
@@ -54,7 +54,8 @@ mod ai_boundary_tests {
                 None,
                 &request,
             ))
-            .unwrap_err();
-        assert!(error.downcast_ref::<super::StorageMigrationIncomplete>().is_some());
+            .unwrap();
+        assert_eq!(response.total, 0);
+        assert!(response.search_state.is_some());
     }
 }

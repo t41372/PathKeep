@@ -16,8 +16,10 @@ mod import;
 mod intelligence;
 mod migration;
 mod schedule;
+mod search;
 mod security;
 mod stars;
+pub(crate) use search::*;
 
 // `annotations::*` is exercised only via the production command facade
 // (#[cfg(not(test))]); the worker_bridge test block doesn't drive notes/tags
@@ -292,6 +294,18 @@ mod tests {
         let backup = run_backup_now_impl(false, &session, |_| {}).expect("backup");
         let run = backup.run.unwrap();
         assert_eq!(run.new_visits, 1);
+        session.vault().unwrap().search().cycle().unwrap();
+        let history = query_history_impl(
+            HistoryQuery {
+                q: Some("example".to_string()),
+                limit: Some(10),
+                ..HistoryQuery::default()
+            },
+            &session,
+        )
+        .expect("query history");
+        assert_eq!(history.total, 1);
+
         let snapshot_path = session
             .vault()
             .unwrap()
@@ -327,17 +341,6 @@ mod tests {
         )
         .expect("run retention prune");
         assert!(retention_result.deleted_files > 0);
-
-        let history = query_history_impl(
-            HistoryQuery {
-                q: Some("example".to_string()),
-                limit: Some(10),
-                ..HistoryQuery::default()
-            },
-            &session,
-        )
-        .expect("query history");
-        assert_eq!(history.total, 1);
 
         let export = export_history_impl(
             ExportRequest {

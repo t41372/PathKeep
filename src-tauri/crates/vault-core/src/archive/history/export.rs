@@ -1,5 +1,6 @@
 //! Failure modes: missed ties, records beyond page size lost, writes block reads,
-//! cancellation publishes partial files, memory grows with the result.
+//! cancellation publishes partial files, memory grows with the result,
+//! search progress mislabels the whole archives visit total as matching pages.
 //! History export artifact rendering.
 //!
 //! ## Responsibilities
@@ -23,7 +24,7 @@
 
 mod progress;
 #[cfg(test)]
-mod regression_tests;
+pub(super) mod regression_tests;
 
 use crate::{
     Vault,
@@ -105,8 +106,9 @@ pub(super) fn write_export(
     check_cancel(job)?;
     fs::create_dir_all(&paths.exports_dir)?;
     sweep_temps_older_than(&paths.exports_dir, ABANDONED_EXPORT_AGE)?;
+    let search = request.query.q.as_ref().is_some_and(|q| !q.trim().is_empty());
     if let Some(job) = job {
-        job.total(total);
+        job.total(if search { None } else { total });
     }
     let format = request.format;
     let extension = match format {
@@ -129,7 +131,7 @@ pub(super) fn write_export(
         let mut counted = CountedWriter { writer: &mut buffer, bytes: 0, checked_at: 0, job };
         let render_result: Result<()> = (|| {
             let mut export = ExportWriter::new(&mut counted, &format)?;
-            windowed = walk_pages(&mut fetch, request.query, job, |item| {
+            let mut visit = |item: &HistoryEntry| -> Result<()> {
                 if let Some(delay) = crate::test_support::export_row_delay() {
                     std::thread::sleep(delay);
                 }
@@ -142,7 +144,17 @@ pub(super) fn write_export(
                     }
                 }
                 Ok(())
-            })?;
+            };
+            if search {
+                crate::search::walk_history_for_export(
+                    paths,
+                    request.query,
+                    job.map_or_else(vault_store::CancelToken::new, |job| job.token()),
+                    &mut visit,
+                )?;
+            } else {
+                windowed = walk_pages(&mut fetch, request.query, job, &mut visit)?;
+            }
             count = export.finish()?;
             Ok(())
         })();

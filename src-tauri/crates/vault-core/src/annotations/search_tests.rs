@@ -26,7 +26,7 @@ fn document_contains(vault: &crate::Vault, text: &str) -> bool {
                 |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?)),
             )?;
             assert!(
-                s.query_one("SELECT COUNT(*) FROM search_outbox WHERE page_id=1", (), |r| Ok(
+                s.query_one("SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name='search_outbox'),0)", (), |r| Ok(
                     r.get::<i64>(0)?
                 ))? > 0
             );
@@ -105,6 +105,7 @@ fn edited_note_is_findable_and_old_word_drops_via_refresh_hook() {
 fn note_is_published_once_per_page() {
     let vault = crate::Vault::open_temp().unwrap();
     search_fixture(&vault);
+    let before = crate::test_support::search_sequence(&vault);
     set_notes(
         &vault,
         SetNotesRequest {
@@ -115,15 +116,9 @@ fn note_is_published_once_per_page() {
     )
     .expect("set_notes");
     assert!(document_contains(&vault, "wasmtime"));
-    assert_eq!(
-        vault
-            .store()
-            .read(Db::Archive, |s| s
-                .query_one("SELECT COUNT(*) FROM search_outbox", (), |r| Ok(r.get::<i64>(0)?)))
-            .unwrap(),
-        1
-    );
+    assert_eq!(crate::test_support::search_sequence(&vault), before + 1);
 }
+
 #[test]
 fn cjk_note_is_findable_by_plain_keyword_search_in_search_document_and_outbox() {
     let vault = crate::Vault::open_temp().unwrap();

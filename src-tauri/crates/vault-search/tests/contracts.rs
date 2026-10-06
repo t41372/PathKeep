@@ -60,7 +60,7 @@ fn brute(
         .map(|(name, boost)| {
             Box::new(BoostQuery::new(
                 Box::new(TermQuery::new(
-                    Term::from_field_text(index.schema().get_field(name).unwrap(), "=needle"),
+                    Term::from_field_text(index.schema().get_field(name).unwrap(), "=rneedle"),
                     IndexRecordOption::WithFreqsAndPositions,
                 )),
                 boost,
@@ -147,6 +147,7 @@ fn pushed_and_collector_filters_and_same_visit_eligibility_match_brute_force() {
             domain: domain.map(str::to_owned),
             profile_id: profile,
             eligibility: Some(Arc::new(|id| id % 50 == 0)),
+            ..Filters::default()
         };
         let expected = brute(tmp.path(), &docs, |p| {
             domain.is_none_or(|d| p.domain == d)

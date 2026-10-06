@@ -1,5 +1,5 @@
 //! Responsibilities: own the shared Store, paths and config, and open the password envelope.
-//! Not responsible for: native keychain I/O, browser staging, IPC or indexing.
+//! Not responsible for: native keychain I/O, browser staging, IPC or search semantics.
 //! Failure modes: omitted migrations, two owners, incorrect database paths,
 //! unfinished runs surviving reopen as running, lost committed progress, ignored keys, reused sub-keys, invalid envelopes, unchecked upgrade passwords and lost envelopes creating new keys.
 //! Tests: vault::tests, using real plaintext and encrypted temporary stores.
@@ -21,6 +21,10 @@ static ENVELOPE_ACCESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// The application's one storage owner. Share this handle across blocking jobs.
 #[derive(Clone)]
 pub struct Vault {
+    // Shared owner lifetime closes retained service handles before artifact roots drop.
+    lifetime: Arc<Lifetime>,
+    search_sessions: Arc<crate::search::SearchSessions>,
+    search: Arc<crate::search::Indexer>,
     store: Arc<Store>,
     paths: ProjectPaths,
     config: AppConfig,
@@ -62,8 +66,32 @@ impl Vault {
             s.execute("UPDATE import_batches SET status='interrupted',previous_status='interrupted' WHERE status='running'", ())?;
             Ok(())
         })?;
+        let search = Arc::new(
+            crate::search::Indexer::open(
+                store.clone(),
+                &paths.derived_dir.join("search-index"),
+                key,
+            )
+            .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?,
+        );
+        let search_sessions = Arc::default();
         live::register(&paths.app_root, &store);
-        Ok(Self { store, paths, config, backup: Arc::default(), _temporary_root: None })
+        live::register_search(&paths.app_root, &search, &search_sessions);
+        let lifetime = Arc::new(Lifetime {
+            store: Arc::downgrade(&store),
+            search: Arc::downgrade(&search),
+            sessions: Arc::downgrade(&search_sessions),
+        });
+        Ok(Self {
+            lifetime,
+            search_sessions,
+            search,
+            store,
+            paths,
+            config,
+            backup: Arc::default(),
+            _temporary_root: None,
+        })
     }
 
     /// Password unlock is the only path that may create an envelope. The legacy
@@ -119,6 +147,19 @@ impl Vault {
     /// Routes requests to the single owner rather than opening per-operation connections.
     pub fn store(&self) -> &Arc<Store> {
         &self.store
+    }
+
+    /// The one indexer survives App Lock; closing a Vault joins it before Store shutdown.
+    pub fn search(&self) -> &Arc<crate::search::Indexer> {
+        &self.search
+    }
+
+    pub fn search_sessions(&self) -> &Arc<crate::search::SearchSessions> {
+        &self.search_sessions
+    }
+
+    pub fn close(&self) -> Result<()> {
+        self.lifetime.close()
     }
 
     /// Artifact paths accompany the database owner through backup and import jobs.
@@ -208,4 +249,29 @@ fn storage_config(
     }
     storage.migrations = crate::store_schema::migration_registry();
     Ok(storage)
+}
+
+struct Lifetime {
+    store: std::sync::Weak<Store>,
+    search: std::sync::Weak<crate::search::Indexer>,
+    sessions: std::sync::Weak<crate::search::SearchSessions>,
+}
+impl Lifetime {
+    fn close(&self) -> Result<()> {
+        if let Some(sessions) = self.sessions.upgrade() {
+            sessions.close();
+        }
+        if let Some(search) = self.search.upgrade() {
+            search.close();
+        }
+        if let Some(store) = self.store.upgrade() {
+            store.close()?;
+        }
+        Ok(())
+    }
+}
+impl Drop for Lifetime {
+    fn drop(&mut self) {
+        let _ = self.close();
+    }
 }

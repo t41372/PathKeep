@@ -292,59 +292,20 @@ fn newer_versions_are_refused() {
             );
             drop(Store::open(future).unwrap());
             assert!(
-                matches!(Store::open(config(root.path(), key)), Err(Error::SchemaTooNew { db: found_db, found: 5, supported }) if found_db == db && supported == if db == Db::Scratch {0} else if db == Db::Archive {3} else {1})
+                matches!(Store::open(config(root.path(), key)), Err(Error::SchemaTooNew { db: found_db, found: 5, supported }) if found_db == db && supported == if db == Db::Scratch {0} else {1})
             );
         }
     }
 }
 
-/// Existing native vaults must receive the read indexes without losing any stored field.
+/// Every durable database is created completely in one v1 transaction.
 #[test]
-fn archive_v1_upgrades_read_indexes_and_preserves_every_fact() {
-    for key in KEYS {
-        let root = tempfile::tempdir().unwrap();
-        let mut old = config(root.path(), key);
-        old.migrations.register(Db::Archive, vec![super::archive::migration()]);
-        let store = Store::open(old).unwrap();
-        store.write(Db::Archive, Priority::Batch, |s| seed(s, archive::ROWS)).unwrap();
-        assert_eq!(store.read(Db::Archive, |s| s.schema_version()).unwrap(), 1);
-        drop(store);
-        let store = Store::open(config(root.path(), key)).unwrap();
-        assert_eq!(store.read(Db::Archive, |s| s.schema_version()).unwrap(), 3);
-        assert_eq!(
-            number(
-                &store,
-                Db::Archive,
-                "SELECT value FROM archive_totals WHERE name='sourceVisits:1'"
-            ),
-            number(
-                &store,
-                Db::Archive,
-                "SELECT COUNT(*) FROM visits WHERE source_profile_id=1 AND reverted_at IS NULL"
-            )
-        );
-        assert_catalog(&store, &CATALOGS[0]);
-        store
-            .read(Db::Archive, |s| {
-                for row in archive::ROWS {
-                    let actual = s.query_one(
-                        &format!("SELECT {} FROM {} WHERE rowid=1", row.columns, row.table),
-                        (),
-                        |r| {
-                            (0..r.column_count())
-                                .map(|i| Ok(r.get_value(i)?))
-                                .collect::<vault_store::Result<Vec<_>>>()
-                        },
-                    )?;
-                    let expected = s.query_one(&format!("SELECT {}", row.values), (), |r| {
-                        (0..r.column_count())
-                            .map(|i| Ok(r.get_value(i)?))
-                            .collect::<vault_store::Result<Vec<_>>>()
-                    })?;
-                    assert_eq!(actual, expected, "{} after index upgrade", row.table);
-                }
-                Ok(())
-            })
-            .unwrap();
-    }
+fn consolidated_v1_contains_every_read_and_search_index() {
+    each_store(|store| {
+        for catalog in CATALOGS {
+            assert_catalog(store, catalog);
+            let expected = if catalog.db == Db::Scratch { 0 } else { 1 };
+            assert_eq!(store.read(catalog.db, |s| s.schema_version()).unwrap(), expected);
+        }
+    });
 }

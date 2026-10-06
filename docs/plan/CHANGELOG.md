@@ -2681,3 +2681,5 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - Doctor checks the Turso files and repairs what can be rebuilt, recording each repair. Turso has no `foreign_key_check`, so doctor checks those relationships with its own queries.
   - The export streams every matching row in pages: 14.4M encrypted visits in 34 s with 39 MiB peak memory. The first timeline page takes 2 ms cold, and a day's insights 26 ms. Measurements: `docs/architecture/research/2026-10-turso-archive-reads.md`.
   - Implemented by Codex (GPT 6 astra). Review findings are collected and fixed once every area is done.
+
+- [x] `WORK-TURSO-STORAGE` — Search covers every matching page through vault-search and Turso (2026-10-05). The owner indexer replays the durable outbox and rebuilds without replacing a healthy reader early. Search exposes provisional results, exact counts and index coverage through streaming sessions. History, regex, fuzzy, AI, code mode, the command palette, MCP and search export reach every matching page; canonical visibility excludes revoked data before indexing catches up.

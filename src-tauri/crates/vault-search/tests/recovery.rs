@@ -213,17 +213,26 @@ fn cancelled_at_commit_and_an_older_rebuild_leave_the_original_sequence() {
 fn an_engine_oversize_token_cannot_be_silently_acknowledged() {
     let tmp = tempfile::tempdir().unwrap();
     let index = create(tmp.path(), vec![page(1, "old")]);
-    // Tantivy otherwise silently drops a token above MAX_TOKEN_LEN. Our namespace
-    // consumes one byte too. The entire batch must remain replayable on rejection.
-    let oversized = "x".repeat(tantivy::tokenizer::MAX_TOKEN_LEN);
-    let result = index.apply(Batch {
-        last_seq: 2,
-        upserts: vec![page(2, "valid"), page(3, &oversized)],
-        deletes: vec![1],
-    });
-    assert!(matches!(result, Err(Error::Input(_))));
-    assert_eq!(index.last_applied_seq().unwrap(), 1);
-    assert_eq!(ids(&session(&index, Ast::And(vec![]))), vec![1]);
+    // A source title can exceed Tantivy's token limit; it must neither disappear
+    // nor strand every later canonical outbox event behind an input rejection.
+    let oversized = "x".repeat(tantivy::tokenizer::MAX_TOKEN_LEN + 10);
+    index
+        .apply(Batch {
+            last_seq: 2,
+            upserts: vec![page(2, "valid"), page(3, &oversized)],
+            deletes: vec![1],
+        })
+        .unwrap();
+    assert_eq!(index.last_applied_seq().unwrap(), 2);
+    assert_eq!(ids(&session(&index, term(&oversized))), vec![3]);
+    assert_eq!(
+        ids(&session(
+            &index,
+            Ast::Prefix { token: oversized[..oversized.len() - 1].into(), field: None }
+        )),
+        vec![3]
+    );
+    assert_eq!(ids(&session(&index, Ast::And(vec![]))), vec![2, 3]);
 }
 
 #[test]

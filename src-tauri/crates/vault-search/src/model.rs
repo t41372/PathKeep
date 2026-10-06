@@ -59,21 +59,6 @@ pub struct PageDocument {
     pub profile_ids: Vec<u64>,
 }
 impl PageDocument {
-    pub(crate) fn validate(&self) -> crate::Result<()> {
-        for (name, text) in TextField::NAMES.into_iter().zip(&self.text) {
-            if text
-                .split_ascii_whitespace()
-                .any(|token| token.len() >= tantivy::tokenizer::MAX_TOKEN_LEN)
-            {
-                return Err(crate::Error::Input(format!(
-                    "page {}: {name} has a token too long for Tantivy",
-                    self.page_id
-                )));
-            }
-        }
-        Ok(())
-    }
-
     /// Starts an empty projection so callers can fill all applicable fields explicitly.
     pub fn new(page_id: u64) -> Self {
         Self {
@@ -107,6 +92,8 @@ pub enum ReloadPolicy {
 /// Explicit resource settings. The writer budget is total arena memory, not total RSS.
 #[derive(Clone, Debug)]
 pub struct Config {
+    /// Caller-owned normalization revision; changes require rebuilding existing documents.
+    pub projection_version: u32,
     /// Total indexing arena budget, divided among writer_threads.
     pub writer_memory_bytes: usize,
     /// Fixed indexing concurrency; unlike Tantivy defaults, independent of host cores.
@@ -119,6 +106,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            projection_version: 1,
             writer_memory_bytes: 64 * 1024 * 1024,
             writer_threads: 2,
             cache_bytes: 128 * 1024 * 1024,

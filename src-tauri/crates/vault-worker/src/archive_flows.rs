@@ -462,13 +462,9 @@ fn append_og_image_cleanup_result(
 /// Queries visible archive history rows with the canonical filter contract.
 pub fn query_history(
     vault: &Vault,
-    session_database_key: Option<&str>,
+    _session_database_key: Option<&str>,
     query: HistoryQuery,
 ) -> Result<HistoryQueryResponse> {
-    if query.q.as_ref().is_some_and(|q| !q.trim().is_empty()) {
-        let paths = vault_core::project_paths()?;
-        return vault_core::search_history(&paths, vault.config(), session_database_key, query);
-    }
     list_history(vault, query)
 }
 
@@ -743,18 +739,9 @@ pub fn audit_run_detail(vault: &Vault, run_id: i64) -> Result<vault_core::AuditR
 /// Exports the currently visible history query in the requested format.
 pub fn export_query(
     vault: &Vault,
-    session_database_key: Option<&str>,
+    _session_database_key: Option<&str>,
     request: ExportRequest,
 ) -> Result<vault_core::ExportResult> {
-    if request.query.q.as_ref().is_some_and(|q| !q.trim().is_empty()) {
-        let paths = vault_core::project_paths()?;
-        return vault_core::export_search_history(
-            &paths,
-            vault.config(),
-            session_database_key,
-            request,
-        );
-    }
     export_history(vault, request)
 }
 

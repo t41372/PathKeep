@@ -153,8 +153,13 @@
 ### §6 implementation: `vault-search` (2026-10-05)
 
 The independent engine is implemented in
-[`vault-search`](../../src-tauri/crates/vault-search/README.md); vault-core's
-projection/outbox consumer and UI integration remain separate work.
+[`vault-search`](../../src-tauri/crates/vault-search/README.md). The vault-core owner
+now consumes the outbox, validates canonical eligibility and hydration, and exposes
+streaming sessions through worker, Tauri and dev IPC. History search, regex, fuzzy,
+AI retrieval, code mode, MCP and search export share complete paging. Frontend
+channel wiring is owned separately. See [search.md](search.md) for the exact wire
+contract and [validation](research/2026-10-search-integration-validation.md) for
+coverage outcomes, ports and failure modes.
 
 - Open/create accepts `Option<&vault_crypto::DataKey>`. `EncryptedDirectory` owns
   sub-key derivation; vault-search implements no encryption.

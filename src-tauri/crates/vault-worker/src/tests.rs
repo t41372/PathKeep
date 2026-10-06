@@ -720,10 +720,12 @@ fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
         "https://example.com/import",
         "Imported",
     );
+    vault_core::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
     let visible = mcp_search_result(
         &vault,
         None,
         McpSearchRequest {
+            cursor: None,
             query: "Imported".to_string(),
             profile_id: None,
             domain: None,
@@ -733,14 +735,18 @@ fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
     .expect("visible mcp search");
     assert_eq!(visible.total, 1);
 
-    vault_core::archive::open_archive_connection(&paths, &config, None)
-        .unwrap()
-        .execute("UPDATE visits SET reverted_at='2026-04-01'", [])
+    vault
+        .store()
+        .write(vault_store::Db::Archive, vault_store::Priority::Interactive, |s| {
+            s.execute("UPDATE visits SET reverted_at='2026-04-01'", ())?;
+            Ok(())
+        })
         .unwrap();
     let hidden = mcp_search_result(
         &vault,
         None,
         McpSearchRequest {
+            cursor: None,
             query: "Imported".to_string(),
             profile_id: None,
             domain: None,
@@ -759,20 +765,16 @@ fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
     assert!(unlocked_status.unlocked, "archive must read while unlocked");
 
     {
-        let audit_paths = project_paths().expect("audit project paths");
-        let audit_connection =
-            vault_core::archive::open_intelligence_connection(&audit_paths, &config, None)
-                .expect("open audit connection");
-        let mut audit = audit_connection
-            .prepare(
-                "SELECT trigger, stats_json FROM runs WHERE run_type = 'mcp_query' ORDER BY id",
-            )
-            .expect("prepare audit query");
-        let entries: Vec<(String, String)> = audit
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
-            .expect("query audit rows")
-            .collect::<Result<Vec<_>, _>>()
-            .expect("collect audit rows");
+        let entries = vault
+            .store()
+            .read(vault_store::Db::Archive, |s| {
+                s.query(
+                    "SELECT trigger,stats_json FROM runs WHERE run_type='mcp_query' ORDER BY id",
+                    (),
+                    |row| Ok((row.get::<String>(0)?, row.get::<String>(1)?)),
+                )
+            })
+            .unwrap();
         // Two searches + one status probe = three external touches recorded.
         assert_eq!(entries.len(), 3, "every external MCP touch must be audited");
         assert!(
@@ -849,6 +851,7 @@ fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
         &vault,
         None,
         McpSearchRequest {
+            cursor: None,
             query: "example".to_string(),
             profile_id: None,
             domain: None,
@@ -896,6 +899,7 @@ fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
 
 #[test]
 fn mcp_usage_guide_gates_on_skill_consent_and_audits_when_served() {
+    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -914,20 +918,13 @@ fn mcp_usage_guide_gates_on_skill_consent_and_audits_when_served() {
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save enabled config");
 
-    let count_usage_guide_runs = |config: &AppConfig| -> usize {
-        let paths = project_paths().expect("audit project paths");
-        let connection = vault_core::archive::open_intelligence_connection(&paths, config, None)
-            .expect("open audit connection");
-        connection
-            .query_row(
-                "SELECT COUNT(*) FROM runs WHERE run_type = 'mcp_query' AND stats_json LIKE '%usage-guide%'",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .expect("count usage-guide runs") as usize
+    let count_usage_guide_runs = |_config: &AppConfig| -> usize {
+        vault.store().read(vault_store::Db::Archive, |s| s.query_one(
+            "SELECT COUNT(*) FROM runs WHERE run_type='mcp_query' AND stats_json LIKE '%usage-guide%'",
+            (), |row| Ok(row.get::<i64>(0)? as usize))).unwrap()
     };
 
-    let enabled = mcp_usage_guide_result(None).expect("enabled usage guide");
+    let enabled = mcp_usage_guide_result(Some(&vault), None).expect("enabled usage guide");
     assert!(enabled.enabled, "guide must be served when skill_enabled");
     assert!(enabled.notice.is_none(), "no disabled notice when enabled");
     assert_eq!(enabled.version, 1);
@@ -957,7 +954,7 @@ fn mcp_usage_guide_gates_on_skill_consent_and_audits_when_served() {
     // empty body, and records nothing (no archive touch to audit).
     config.ai.skill_enabled = false;
     save_user_config(&config, None).expect("save disabled config");
-    let disabled = mcp_usage_guide_result(None).expect("disabled usage guide");
+    let disabled = mcp_usage_guide_result(Some(&vault), None).expect("disabled usage guide");
     assert!(!disabled.enabled, "guide is gated off when skill_enabled is false");
     assert!(disabled.sections.is_empty(), "disabled guide carries no procedural body");
     let notice = disabled.notice.expect("disabled notice");
@@ -980,7 +977,7 @@ fn mcp_usage_guide_gates_on_skill_consent_and_audits_when_served() {
     let locked = lock_app_ui_session(Some("manual")).expect("lock app session");
     assert!(locked.locked);
 
-    let locked_guide = mcp_usage_guide_result(None).expect("locked usage guide");
+    let locked_guide = mcp_usage_guide_result(Some(&vault), None).expect("locked usage guide");
     assert!(locked_guide.enabled, "the guide reads no archive rows, so it serves while locked");
     assert!(!locked_guide.sections.is_empty());
     assert_eq!(
@@ -1025,6 +1022,7 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
         &vault,
         None,
         McpSearchRequest {
+            cursor: None,
             query: "example".to_string(),
             profile_id: None,
             domain: None,
@@ -1044,6 +1042,7 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
         &vault,
         None,
         McpSearchRequest {
+            cursor: None,
             query: "example".to_string(),
             profile_id: None,
             domain: None,
@@ -1061,7 +1060,7 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
         .expect_err("status must refuse once MCP consent is revoked");
     assert!(status_error.to_string().contains("MCP"), "status refusal names MCP");
 
-    let guide_error = mcp_usage_guide_result(None)
+    let guide_error = mcp_usage_guide_result(Some(&vault), None)
         .expect_err("usage guide must refuse once MCP consent is revoked");
     assert!(guide_error.to_string().contains("MCP"), "usage-guide refusal names MCP");
 
@@ -1074,6 +1073,7 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
             &vault,
             None,
             McpSearchRequest {
+                cursor: None,
                 query: "example".to_string(),
                 profile_id: None,
                 domain: None,
@@ -1110,6 +1110,7 @@ fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
     initialize_archive_database(&config, None).expect("initialize archive");
     let backup = run_backup_now(&vault, None, false).expect("backup");
     seed_legacy_reader_fixture(None);
+    vault.search().cycle().unwrap();
     assert_eq!(backup.run.expect("run").new_visits, 1);
 
     let preview = preview_ai_integration_files().expect("preview integrations");
@@ -1351,7 +1352,6 @@ fn manual_backup_refreshes_deterministic_insights_automatically() {
 
 #[test]
 fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
-    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -1367,8 +1367,10 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
     let config = initialized_config();
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save user config");
+    let vault = vault_core::Vault::open(project_paths().unwrap(), config.clone(), None).unwrap();
     run_backup_now(&vault, None, false).expect("backup");
     seed_legacy_reader_fixture(None);
+    vault.search().cycle().unwrap();
 
     let queried = query_history(
         &vault,
@@ -1770,6 +1772,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
         &vault,
         None,
         McpSearchRequest {
+            cursor: None,
             query: "example".to_string(),
             profile_id: None,
             domain: None,
@@ -1795,6 +1798,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
         let routed_search = runtime
             .block_on(mcp_server.search_history(rmcp::handler::server::wrapper::Parameters(
                 McpSearchRequest {
+                    cursor: None,
                     query: "example".to_string(),
                     profile_id: None,
                     domain: None,
@@ -3790,3 +3794,6 @@ fn mixed_storage_refuses_unsafe_operations_before_touching_archive_files() {
     assert_eq!(vault_core::load_config(&paths).unwrap().archive_mode, config.archive_mode);
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old.as_deref());
 }
+
+#[path = "mcp_search_tests.rs"]
+mod search_contract;

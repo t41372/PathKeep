@@ -112,7 +112,10 @@ pub fn dispatch(
                 }
                 "usage-guide" => {
                     let _: Empty = params(call.arguments)?;
-                    encode(mcp::mcp_usage_guide_result(key.as_deref()).map_err(failed)?)
+                    encode(
+                        mcp::mcp_usage_guide_result(vault().ok().as_ref(), key.as_deref())
+                            .map_err(failed)?,
+                    )
                 }
                 _ => Err(RpcError::new(
                     ErrorCode::UnknownMethod,

@@ -153,21 +153,8 @@ pub const MAX_HOST_CALLS: u32 = 64;
 /// [`LimitsHit::Output`] marker is recorded (the model never receives an unbounded blob — 02 §F).
 pub const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
-/// Max rows any single host-API `query_history` call returns — the sandbox per-call ceiling, set to
-/// match `list_history`'s `[1, 1000]` fetch window (and `search::MAX_SEARCH_ROWS`).
-///
-/// DELIBERATELY 1000, not the 50-row cap the MODEL-FACING `search_history` tool enforces. The reason
-/// is the sandbox's defining property: rows fetched by `query_history` INSIDE the wasm sandbox NEVER
-/// enter the model's context — only the script's small `return` value does (bounded by
-/// [`MAX_OUTPUT_BYTES`]). So the per-call cap that protects the model's context on the direct tool
-/// path is pointless here; a low cap would only force a script to burn [`MAX_HOST_CALLS`] on tiny
-/// pages. With a 1000-row page a script can `query_history` + AGGREGATE the FULL result set
-/// efficiently (loop the cursor until `hasMore` is false) and return a small distilled summary. The
-/// reply (host→guest) carries the rows into the guest's [`MAX_GUEST_MEMORY_BYTES`] (64 MiB) linear
-/// memory, not over the guest→host request channel, so this does NOT touch [`MAX_REQUEST_FRAME_BYTES`]
-/// (the request frame is just the tiny query args); even a worst-case ~2 KiB/row × 1000 reply is ~2
-/// MiB, far under the 64 MiB cap. The underlying fetch stays bounded by `list_history`'s [1, 1000]
-/// window — no corpus scan even at 14.4M.
+/// One response fits the guest's memory and transport frame. Continuation cursors
+/// enumerate the complete engine result; this does not bound the candidate set.
 pub const MAX_ROWS_PER_CALL: u32 = 1000;
 
 /// Max ids a single `fetch_visits` call may request (hard cap on `ids.len()`).
@@ -548,6 +535,8 @@ impl HostState {
         // whether more rows exist beyond this page. `nextCursor` is `null` when this is the last page.
         let reply = json!({
             "rows": rows,
+            "total": response.total,
+            "searchState": response.search_state,
             "notes": response.notes,
             "hasMore": response.has_more,
             "nextCursor": response.next_cursor,
@@ -639,7 +628,6 @@ impl HostState {
         request: &AiSearchRequest,
         provider: Option<&super::AiProviderRuntime>,
     ) -> Result<crate::models::AiSearchResponse> {
-        super::search::check_storage_filter(request)?;
         let context = &self.context;
         let runtime = self.runtime.clone();
         tokio::task::block_in_place(|| {
@@ -654,44 +642,15 @@ impl HostState {
         })
     }
 
-    /// Bounded id lookup: resolves the requested visit ids to visible rows through the canonical
-    /// read model (`list_history` with no query → recent visits), filtered to the wanted ids.
-    ///
-    /// Reuses the EXISTING read path (no new SQL crosses into code-mode), is bounded (a capped recent
-    /// pool, never a corpus scan), and is honest: an id outside the recent pool / a reverted id simply
-    /// drops out (the script sees only the ids that resolve to a visible visit). WU-1 keeps this a
-    /// bounded recent-window resolver; a future keyed id→row index can widen the window without
-    /// changing the host-API contract.
+    /// Canonical identity lookup, including visits older than every previous recall window.
     fn block_on_fetch(&self, ids: &[i64]) -> Result<crate::models::AiSearchResponse> {
-        let wanted: std::collections::HashSet<i64> = ids.iter().copied().collect();
-        let listing = crate::archive::search_history(
-            &self.context.paths,
-            &self.context.config,
-            self.context.database_key.as_deref(),
-            crate::models::HistoryQuery {
-                q: None,
-                profile_id: None,
-                browser_kind: None,
-                domain: None,
-                start_time_ms: None,
-                end_time_ms: None,
-                sort: Some("newest".to_string()),
-                // A bounded recent pool (the largest `list_history` allows), filtered to the ids.
-                limit: Some(1_000),
-                page: None,
-                cursor: None,
-                regex_mode: Some(false),
-                include_total: Some(false),
-                group_by_url: None,
-            },
-        )?;
+        let listing = crate::search::visits(&self.context.vault, ids)?;
         let items: Vec<crate::models::AiSearchEntry> = listing
-            .items
             .iter()
-            .filter(|item| wanted.contains(&item.id))
             .map(|item| super::search::history_entry_to_search_entry(item, 1.0, "Fetched by id"))
             .collect();
         Ok(crate::models::AiSearchResponse {
+            search_state: None,
             total: items.len(),
             provider_id: "fetch-visits".to_string(),
             model: "none".to_string(),

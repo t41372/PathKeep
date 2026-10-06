@@ -50,7 +50,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變�
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
 - semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`failed`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新。
-- runtime contract：semantic retrieval 走 `FlatVectorIndex`（binary-recall → int8-rescore 兩階段），**不做全庫 cosine 掃描**；若 sidecar 缺失、過期或失敗，PathKeep 誠實退回 lexical recall。semantic metadata / queue 固定落在 `derived/history-intelligence.sqlite`、向量 payload 落在 `derived/vectors/`、assistant chat / agent trace 落在 `derived/agent.sqlite`；SQLite 不承擔向量 payload mirror。
+- 搜尋必須覆蓋全部可用的向量與詞彙匹配頁面；日期、profile 與星號篩選不能先套在有限候選池上。結果以游標接續，頁面大小不限制總覆蓋；若 sidecar 缺失、過期或失敗，PathKeep 誠實退回 lexical recall。semantic metadata / queue 固定落在 `derived/history-intelligence.sqlite`、向量 payload 落在 `derived/vectors/`、assistant chat / agent trace 落在 `derived/agent.sqlite`；SQLite 不承擔向量 payload mirror。
 - 搜尋 tuning（RRF `k`、lexical / semantic weight、starred boost）是 consent knob，入口在 Settings（W-AI-9-A），於 config load 時 clamp。
 
 ---

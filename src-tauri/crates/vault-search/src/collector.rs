@@ -4,6 +4,7 @@
 //! ordering loses winners; memory grows with depth. Tested against brute-force ranking and
 //! complete pagination in contracts.
 
+use crate::SortOrder;
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 
@@ -29,17 +30,19 @@ impl PartialOrd for Hit {
     }
 }
 
-pub(crate) struct RankCollector {
-    heap: BinaryHeap<Reverse<Hit>>,
+pub struct RankCollector {
+    heap: BinaryHeap<Reverse<Ranked>>,
+    order: SortOrder,
     limit: usize,
     after: Option<Hit>,
 }
 impl RankCollector {
-    pub fn new(limit: usize, after: Option<Hit>) -> Self {
-        Self { heap: BinaryHeap::new(), limit, after }
+    pub fn new(limit: usize, after: Option<Hit>, order: SortOrder) -> Self {
+        Self { heap: BinaryHeap::new(), limit, after, order }
     }
     pub fn collect(&mut self, hit: Hit) {
-        if self.after.is_some_and(|key| hit >= key) {
+        let hit = Ranked { hit, order: self.order };
+        if self.after.is_some_and(|key| hit >= Ranked { hit: key, order: self.order }) {
             return;
         }
         if self.heap.len() < self.limit {
@@ -49,8 +52,41 @@ impl RankCollector {
         }
     }
     pub fn hits(&self) -> Vec<Hit> {
-        let mut hits: Vec<_> = self.heap.iter().map(|hit| hit.0).collect();
-        hits.sort_unstable_by(|a, b| b.cmp(a));
+        let mut hits: Vec<_> = self.heap.iter().map(|hit| hit.0.hit).collect();
+        hits.sort_unstable_by(|a, b| compare(b, a, self.order));
         hits
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Ranked {
+    hit: Hit,
+    order: SortOrder,
+}
+impl PartialEq for Ranked {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+impl Eq for Ranked {}
+impl PartialOrd for Ranked {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for Ranked {
+    fn cmp(&self, other: &Self) -> Ordering {
+        compare(&self.hit, &other.hit, self.order)
+    }
+}
+fn compare(a: &Hit, b: &Hit, order: SortOrder) -> Ordering {
+    match order {
+        SortOrder::Relevance => a.cmp(b),
+        SortOrder::Newest => {
+            a.newest_visit_ms.cmp(&b.newest_visit_ms).then(a.page_id.cmp(&b.page_id))
+        }
+        SortOrder::Oldest => {
+            b.newest_visit_ms.cmp(&a.newest_visit_ms).then(a.page_id.cmp(&b.page_id))
+        }
     }
 }

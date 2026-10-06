@@ -5,9 +5,7 @@
 //!   same deterministic pipeline.
 //! - Own Unicode NFKC, OpenCC-compatible Traditional-to-Simplified folding,
 //!   lowercase normalization, compact text, and CJK gram generation.
-//! - Build FTS-safe term, CJK gram, and compact trigram query fragments.
-//! - Build bounded Latin fuzzy-candidate fragments and score those candidates
-//!   after SQLite has already reduced the recall set.
+//! - Validate Latin typo distance over every indexed candidate, without input windows.
 //!
 //! ## Not responsible for
 //! - Ranking or pagination policy.
@@ -32,8 +30,6 @@ use icu_normalizer::ComposingNormalizerBorrowed;
 use std::collections::BTreeSet;
 
 const FUZZY_MIN_CHARS: usize = 4;
-const FUZZY_MAX_CHARS: usize = 64;
-const FUZZY_COMPACT_SCAN_CHARS: usize = 512;
 const TITLE_FUZZY_PENALTY: f64 = 0.0;
 const URL_FUZZY_PENALTY: f64 = 0.08;
 const SEARCH_TERM_FUZZY_PENALTY: f64 = 0.12;
@@ -42,7 +38,7 @@ const QUERY_ALIASES: &[(&str, &[&str])] =
     &[("gh", &["github"]), ("yt", &["youtube"]), ("pr", &["pull request"])];
 
 /// Derived document fields stored in the rebuildable search projection.
-pub(super) struct LexicalDocument {
+pub(crate) struct LexicalDocument {
     pub normalized_url: String,
     pub normalized_title: String,
     pub normalized_search_terms: String,
@@ -50,32 +46,16 @@ pub(super) struct LexicalDocument {
     pub cjk_grams: String,
 }
 
-/// Parsed keyword query fragments used by the FTS-backed recall path.
+/// Latin typo targets evaluated without a candidate or text window.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct LexicalQuery {
-    pub terms_query: Option<String>,
-    pub trigram_query: Option<String>,
-    pub fuzzy_query: Option<FuzzyQuery>,
-}
-
-impl LexicalQuery {
-    /// Reports whether at least one indexed recall path can evaluate this query.
-    pub(super) fn is_empty(&self) -> bool {
-        self.terms_query.is_none() && self.trigram_query.is_none() && self.fuzzy_query.is_none()
-    }
-}
-
-/// Bounded fuzzy fallback produced from Latin query variants.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct FuzzyQuery {
-    pub candidate_query: String,
+pub(crate) struct FuzzyQuery {
     targets: Vec<String>,
 }
 
 impl FuzzyQuery {
-    /// Scores one already-bounded candidate document. Lower scores are better;
-    /// `None` means the trigram candidate was too far from every query target.
-    pub(super) fn score_document(&self, document: &FuzzyDocument<'_>) -> Option<f64> {
+    /// Scores one candidate document. Lower scores are better;
+    /// `None` means the document was too far from every query target.
+    pub(crate) fn score_document(&self, document: &FuzzyDocument<'_>) -> Option<f64> {
         let mut best = None;
         for target in &self.targets {
             best = best_score(
@@ -104,7 +84,7 @@ impl FuzzyQuery {
 }
 
 /// Borrowed search projection fields used by the Rust-side fuzzy scorer.
-pub(super) struct FuzzyDocument<'a> {
+pub(crate) struct FuzzyDocument<'a> {
     pub normalized_url: &'a str,
     pub normalized_title: &'a str,
     pub normalized_search_terms: &'a str,
@@ -120,7 +100,7 @@ pub(super) struct FuzzyDocument<'a> {
 /// contiguous-CJK note like "meta 的设计系统" recallable by a plain "设计系统" search — PathKeep's CJK
 /// recall is entirely gram/trigram-based, so the unicode61 `notes_text`/`tags_text` columns alone could
 /// only ever serve Latin. Empty notes/tags contribute nothing.
-pub(super) fn analyze_document(
+pub(crate) fn analyze_document(
     url: &str,
     title: &str,
     search_terms: &str,
@@ -139,7 +119,7 @@ pub(super) fn analyze_document(
         .chain(normalized_search_terms.variants.iter())
         .chain(normalized_notes.variants.iter())
         .chain(normalized_tags.variants.iter())
-        .map(|value| compact_text(value))
+        .flat_map(|value| value.split('|').map(compact_text))
         .filter(|value| !value.is_empty())
         .collect::<Vec<_>>();
     let compact_text = compact_variants
@@ -159,39 +139,18 @@ pub(super) fn analyze_document(
     }
 }
 
-/// Parses one user keyword query into FTS-safe recall fragments.
-pub(super) fn analyze_query(raw: &str) -> Option<LexicalQuery> {
-    let or_segments = split_query_or(raw);
-    if or_segments.len() > 1 {
-        return combine_lexical_or(
-            or_segments
-                .into_iter()
-                .filter_map(|segment| analyze_query_without_or(&segment))
-                .collect(),
-        );
+/// Enrichment joins the same compact/gram projection without changing field-specific text.
+pub(crate) fn append_enrichment(document: &mut LexicalDocument, text: &str) {
+    for variant in normalize_text(text).variants {
+        for part in variant.split('|') {
+            let compact = compact_text(part);
+            if !compact.is_empty() {
+                document.compact_text.push(' ');
+                document.compact_text.push_str(&compact);
+            }
+        }
     }
-    analyze_query_without_or(raw)
-}
-
-fn analyze_query_without_or(raw: &str) -> Option<LexicalQuery> {
-    let normalized = normalize_text(raw);
-    let variants = expand_query_aliases(normalized.variants);
-    let terms_query = variants
-        .iter()
-        .filter_map(|variant| terms_query_for_normalized_text(variant))
-        .collect::<Vec<_>>();
-    let terms_query = combine_fts_or(terms_query);
-    let trigram_query = variants
-        .iter()
-        .map(|variant| compact_text(variant))
-        .filter(|compact| compact.chars().count() >= 3)
-        .map(|compact| quote_fts_term(&compact))
-        .collect::<Vec<_>>();
-    let trigram_query = combine_fts_or(trigram_query);
-    let fuzzy_query = fuzzy_query_for_variants(&variants);
-    let query = LexicalQuery { terms_query, trigram_query, fuzzy_query };
-
-    (!query.is_empty()).then_some(query)
+    document.cjk_grams = cjk_grams_for_fields(document.compact_text.split_whitespace());
 }
 
 fn split_query_or(raw: &str) -> Vec<String> {
@@ -217,39 +176,12 @@ fn split_query_or(raw: &str) -> Vec<String> {
         .collect()
 }
 
-fn combine_lexical_or(queries: Vec<LexicalQuery>) -> Option<LexicalQuery> {
-    if queries.is_empty() {
-        return None;
-    }
-    let terms_query =
-        combine_fts_or(queries.iter().filter_map(|query| query.terms_query.clone()).collect());
-    let trigram_query =
-        combine_fts_or(queries.iter().filter_map(|query| query.trigram_query.clone()).collect());
-    let fuzzy_query =
-        combine_fuzzy_or(queries.into_iter().filter_map(|query| query.fuzzy_query).collect());
-    let query = LexicalQuery { terms_query, trigram_query, fuzzy_query };
-    (!query.is_empty()).then_some(query)
-}
-
-fn combine_fuzzy_or(queries: Vec<FuzzyQuery>) -> Option<FuzzyQuery> {
-    let mut candidate_fragments = Vec::new();
-    let mut targets = Vec::new();
-    for query in queries {
-        push_unique(&mut candidate_fragments, query.candidate_query);
-        for target in query.targets {
-            push_unique(&mut targets, target);
-        }
-    }
-    let candidate_query = combine_fts_or(candidate_fragments)?;
-    Some(FuzzyQuery { candidate_query, targets })
-}
-
 /// Produces normalized text variants for SQL-side advanced query filters.
 ///
 /// These filters intentionally reuse the keyword analyzer's NFKC/OpenCC/lowercase
 /// path so `-設定`, exact phrases, and field operators do not silently drift from
 /// the indexed keyword recall semantics.
-pub(super) fn normalized_filter_terms(raw: &str) -> Vec<String> {
+pub(crate) fn normalized_filter_terms(raw: &str) -> Vec<String> {
     normalize_text(raw).variants.into_iter().fold(Vec::<String>::new(), |mut unique, variant| {
         let trimmed = variant.trim();
         if !trimmed.is_empty() {
@@ -264,7 +196,7 @@ pub(super) fn normalized_filter_terms(raw: &str) -> Vec<String> {
 /// Exact and exclusion filters can check the compact projection, unlike
 /// `intitle:` or `inurl:` where compact variants would make a single field
 /// predicate too strict.
-pub(super) fn normalized_compact_filter_terms(raw: &str) -> Vec<String> {
+pub(crate) fn normalized_compact_filter_terms(raw: &str) -> Vec<String> {
     normalize_text(raw).variants.into_iter().fold(Vec::<String>::new(), |mut unique, variant| {
         let trimmed = variant.trim();
         if !trimmed.is_empty() {
@@ -276,34 +208,6 @@ pub(super) fn normalized_compact_filter_terms(raw: &str) -> Vec<String> {
         }
         unique
     })
-}
-
-fn terms_query_for_normalized_text(normalized: &str) -> Option<String> {
-    let compact = compact_text(normalized);
-    let terms = latin_prefix_terms(normalized)
-        .into_iter()
-        .map(|term| format!("{}*", quote_fts_term(&term)))
-        .collect::<Vec<_>>();
-    let cjk_grams = cjk_grams_for_fields([compact.as_str()])
-        .split_whitespace()
-        .map(quote_fts_term)
-        .collect::<Vec<_>>();
-    let terms_query = terms.into_iter().chain(cjk_grams).collect::<Vec<_>>().join(" AND ");
-    (!terms_query.is_empty()).then_some(terms_query)
-}
-
-fn combine_fts_or(fragments: Vec<String>) -> Option<String> {
-    let mut unique = Vec::new();
-    for fragment in fragments {
-        if !unique.iter().any(|existing| existing == &fragment) {
-            unique.push(fragment);
-        }
-    }
-    match unique.as_slice() {
-        [] => None,
-        [single] => Some(single.clone()),
-        _ => Some(format!("({})", unique.join(" OR "))),
-    }
 }
 
 struct NormalizedText {
@@ -352,51 +256,29 @@ fn aliases_for_variant(variant: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn latin_prefix_terms(normalized: &str) -> Vec<String> {
-    let mut terms = BTreeSet::new();
-    for token in normalized.split(|character: char| !character.is_alphanumeric()) {
-        if token.is_empty() || token.chars().all(is_cjk) {
-            continue;
-        }
-        terms.insert(token.to_string());
-    }
-    terms.into_iter().collect()
-}
-
 fn compact_text(normalized: &str) -> String {
     normalized.chars().filter(|character| character.is_alphanumeric()).collect()
 }
 
-fn fuzzy_query_for_variants(variants: &[String]) -> Option<FuzzyQuery> {
-    let mut targets = Vec::<String>::new();
-    let mut trigrams = Vec::<String>::new();
-    for variant in variants {
-        let compact = compact_text(variant);
-        if !is_latin_fuzzy_target(&compact) {
-            continue;
-        }
-        push_unique(&mut targets, compact.clone());
-        for trigram in latin_trigrams(&compact) {
-            push_unique(&mut trigrams, quote_fts_term(&trigram));
+/// Keeps every eligible query target; candidate retrieval belongs to vault-search.
+pub(crate) fn fuzzy_query(raw: &str) -> Option<FuzzyQuery> {
+    let mut targets = Vec::new();
+    for segment in split_query_or(raw) {
+        for variant in query_variants(&segment) {
+            let compact = compact_text(&normalized_tokens(&variant));
+            if is_latin_fuzzy_target(&compact) {
+                push_unique(&mut targets, compact);
+            }
         }
     }
-    let candidate_query = combine_fts_or(trigrams)?;
-    Some(FuzzyQuery { candidate_query, targets })
+    (!targets.is_empty()).then_some(FuzzyQuery { targets })
 }
 
 fn is_latin_fuzzy_target(compact: &str) -> bool {
     let count = compact.chars().count();
-    (FUZZY_MIN_CHARS..=FUZZY_MAX_CHARS).contains(&count)
+    count >= FUZZY_MIN_CHARS
         && compact.chars().any(|character| character.is_ascii_alphabetic())
         && compact.chars().all(|character| character.is_ascii_alphanumeric())
-}
-
-fn latin_trigrams(compact: &str) -> Vec<String> {
-    let chars = compact.chars().collect::<Vec<_>>();
-    if chars.len() < 3 {
-        return Vec::new();
-    }
-    chars.windows(3).map(|window| window.iter().collect::<String>()).collect()
 }
 
 fn best_token_score(target: &str, field: &str, penalty: f64) -> Option<f64> {
@@ -411,9 +293,14 @@ fn best_compact_score(target: &str, compact: &str, penalty: f64) -> Option<f64> 
     let target_len = target.chars().count();
     let mut best = None;
     for run in compact.split_whitespace() {
-        let chars = run.chars().take(FUZZY_COMPACT_SCAN_CHARS).collect::<Vec<_>>();
-        let min_window = target_len.saturating_sub(2).max(FUZZY_MIN_CHARS);
-        let max_window = (target_len + 2).min(chars.len());
+        let chars = run.chars().collect::<Vec<_>>();
+        if run.contains(target) {
+            best = best_score(best, Some(penalty));
+            continue;
+        }
+        let distance = max_allowed_distance(target_len);
+        let min_window = target_len.saturating_sub(distance).max(FUZZY_MIN_CHARS);
+        let max_window = target_len.saturating_add(distance).min(chars.len());
         for window_len in min_window..=max_window {
             for window in chars.windows(window_len) {
                 let candidate = window.iter().collect::<String>();
@@ -433,7 +320,8 @@ fn fuzzy_score(target: &str, candidate: &str, penalty: f64) -> Option<f64> {
     Some((distance as f64 / denominator) + penalty)
 }
 
-fn max_allowed_distance(target_len: usize) -> usize {
+/// Shares the edit bound so the index adapter cannot choose a lossy gram filter.
+pub(crate) fn max_allowed_distance(target_len: usize) -> usize {
     match target_len {
         0..=3 => 0,
         4..=5 => 1,
@@ -447,26 +335,38 @@ fn bounded_edit_distance(left: &[char], right: &[char], max_distance: usize) -> 
     if left.len().abs_diff(right.len()) > max_distance {
         return None;
     }
-
-    let mut previous = (0..=right.len()).collect::<Vec<_>>();
-    let mut current = vec![0usize; right.len() + 1];
-    for (left_index, left_character) in left.iter().enumerate() {
-        current[0] = left_index + 1;
+    if left == right {
+        return Some(0);
+    }
+    let outside = max_distance + 1;
+    let mut previous = vec![outside; right.len() + 1];
+    let mut current = vec![outside; right.len() + 1];
+    for (column, value) in previous.iter_mut().enumerate().take(max_distance + 1) {
+        *value = column;
+    }
+    for (index, ch) in left.iter().enumerate() {
+        let row = index + 1;
+        let first = row.saturating_sub(max_distance).max(1);
+        let last = (row + max_distance).min(right.len());
+        current[0] = row.min(outside);
+        if first > 1 {
+            current[first - 1] = outside;
+        }
+        if last < right.len() {
+            current[last + 1] = outside;
+        }
         let mut row_min = current[0];
-        for (right_index, right_character) in right.iter().enumerate() {
-            let substitution_cost = usize::from(left_character != right_character);
-            let insertion = current[right_index] + 1;
-            let deletion = previous[right_index + 1] + 1;
-            let substitution = previous[right_index] + substitution_cost;
-            current[right_index + 1] = insertion.min(deletion).min(substitution);
-            row_min = row_min.min(current[right_index + 1]);
+        for column in first..=last {
+            current[column] = (current[column - 1] + 1)
+                .min(previous[column] + 1)
+                .min(previous[column - 1] + usize::from(*ch != right[column - 1]));
+            row_min = row_min.min(current[column]);
         }
         if row_min > max_distance {
             return None;
         }
         std::mem::swap(&mut previous, &mut current);
     }
-
     (previous[right.len()] <= max_distance).then_some(previous[right.len()])
 }
 
@@ -487,18 +387,27 @@ fn push_unique(values: &mut Vec<String>, value: String) {
 fn cjk_grams_for_fields<'a>(fields: impl IntoIterator<Item = &'a str>) -> String {
     let mut grams = BTreeSet::new();
     for field in fields {
-        let mut run = Vec::new();
-        for character in field.chars() {
-            if is_cjk(character) {
-                run.push(character);
-            } else {
-                add_cjk_grams(&run, &mut grams);
-                run.clear();
-            }
+        for run in cjk_runs(field) {
+            add_cjk_grams(&run, &mut grams);
         }
-        add_cjk_grams(&run, &mut grams);
     }
     grams.into_iter().collect::<Vec<_>>().join(" ")
+}
+/// Shares the projection's script boundaries with the typed query adapter.
+pub(crate) fn cjk_runs(text: &str) -> Vec<Vec<char>> {
+    let mut runs = Vec::new();
+    let mut current = Vec::new();
+    for ch in text.chars() {
+        if is_cjk(ch) {
+            current.push(ch);
+        } else if !current.is_empty() {
+            runs.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        runs.push(current);
+    }
+    runs
 }
 
 fn add_cjk_grams(run: &[char], grams: &mut BTreeSet<String>) {
@@ -510,10 +419,6 @@ fn add_cjk_grams(run: &[char], grams: &mut BTreeSet<String>) {
             grams.insert(window.iter().collect::<String>());
         }
     }
-}
-
-fn quote_fts_term(term: &str) -> String {
-    format!("\"{}\"", term.replace('"', "\"\""))
 }
 
 fn is_cjk(character: char) -> bool {
@@ -531,70 +436,97 @@ fn is_cjk(character: char) -> bool {
     )
 }
 
+/// Shared tokenization for Tantivy's whitespace-only analyzer. ICU owns accent
+/// decomposition; the existing NFKC/OpenCC pipeline still owns script folding.
+pub(crate) fn index_tokens(raw: &str) -> String {
+    normalize_text(raw)
+        .variants
+        .iter()
+        .map(|variant| normalized_tokens(variant))
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// Tokenizes an already folded variant without making phrase positions cross variants.
+pub(crate) fn normalized_tokens(raw: &str) -> String {
+    let ccc = icu_normalizer::properties::CanonicalCombiningClassMapBorrowed::new();
+    let decomposer = icu_normalizer::DecomposingNormalizerBorrowed::new_nfd();
+    let mut result = String::new();
+    for ch in decomposer.normalize(raw).chars().filter(|ch| ccc.get_u8(*ch) == 0) {
+        if is_cjk(ch) {
+            if !result.ends_with(' ') && !result.is_empty() {
+                result.push(' ');
+            }
+            result.push(ch);
+            result.push(' ');
+        } else if ch == '|' {
+            if !result.ends_with(' ') && !result.is_empty() {
+                result.push(' ');
+            }
+            result.push_str("| ");
+        } else if ch.is_alphanumeric() {
+            result.push(ch);
+        } else if !result.ends_with(' ') && !result.is_empty() {
+            result.push(' ');
+        }
+    }
+    result.trim().to_owned()
+}
+
+pub(crate) fn query_variants(raw: &str) -> Vec<String> {
+    expand_query_aliases(normalize_text(raw).variants)
+}
+pub(crate) fn contains_cjk(raw: &str) -> bool {
+    raw.chars().any(is_cjk)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn folds_traditional_and_simplified_to_shared_query() {
-        let traditional = analyze_query("設定").expect("traditional query");
-        let simplified = analyze_query("设定").expect("simplified query");
-
-        assert_eq!(traditional.terms_query.as_deref(), Some("(\"设定\" OR \"设置\")"));
-        assert_eq!(simplified.terms_query.as_deref(), Some("\"设定\""));
+        assert_eq!(query_variants("設定"), vec!["设定", "设置"]);
+        assert_eq!(query_variants("设定"), vec!["设定"]);
     }
 
     #[test]
     fn ignores_chinese_spacing_and_punctuation_for_grams() {
-        let spaced = analyze_query("设 定").expect("spaced query");
-        let punctuated = analyze_query("设-定").expect("punctuated query");
-
-        assert_eq!(spaced, punctuated);
-        assert_eq!(spaced.terms_query.as_deref(), Some("\"设定\""));
+        let spaced = analyze_document("", "设 定", "", "", "");
+        let punctuated = analyze_document("", "设-定", "", "", "");
+        assert_eq!(spaced.cjk_grams, punctuated.cjk_grams);
+        assert_eq!(spaced.cjk_grams, "设定");
     }
 
     #[test]
     fn folds_full_width_latin_and_lowercase() {
-        let query = analyze_query("GitHUb").expect("query");
-        let full_width = analyze_query("ＧｉｔＨｕｂ").expect("full-width query");
-
-        assert_eq!(query.terms_query.as_deref(), Some("\"github\"*"));
-        assert_eq!(query.trigram_query.as_deref(), Some("\"github\""));
-        assert_eq!(full_width, query);
+        assert_eq!(index_tokens("GitHUb"), "github");
+        assert_eq!(index_tokens("ＧｉｔＨｕｂ"), "github");
+        assert_eq!(index_tokens("CAFÉ"), "cafe");
     }
 
     #[test]
     fn compact_query_ignores_latin_spaces() {
-        let query = analyze_query("git hub").expect("query");
-
-        assert_eq!(query.terms_query.as_deref(), Some("\"git\"* AND \"hub\"*"));
-        assert_eq!(query.trigram_query.as_deref(), Some("\"github\""));
-    }
-
-    #[test]
-    fn supports_google_style_or_between_rankable_terms() {
-        let query = analyze_query("github OR gitlab").expect("query");
-
-        assert_eq!(query.terms_query.as_deref(), Some("(\"github\"* OR \"gitlab\"*)"));
-        assert_eq!(query.trigram_query.as_deref(), Some("(\"github\" OR \"gitlab\")"));
-    }
-
-    #[test]
-    fn expands_short_aliases_into_canonical_query_forms() {
-        let query = analyze_query("gh").expect("query");
-
-        assert_eq!(query.terms_query.as_deref(), Some("(\"gh\"* OR \"github\"*)"));
-        assert_eq!(query.trigram_query.as_deref(), Some("\"github\""));
         assert_eq!(
-            query.fuzzy_query.as_ref().map(|fuzzy| fuzzy.candidate_query.as_str()),
-            Some("(\"git\" OR \"ith\" OR \"thu\" OR \"hub\")")
+            analyze_document("", "git hub", "", "", "").compact_text,
+            analyze_document("", "github", "", "", "").compact_text
         );
     }
 
     #[test]
+    fn supports_google_style_or_between_rankable_terms() {
+        assert_eq!(split_query_or("github OR gitlab"), vec!["github", "gitlab"]);
+    }
+
+    #[test]
+    fn expands_short_aliases_into_canonical_query_forms() {
+        assert_eq!(query_variants("gh"), vec!["gh", "github"]);
+        assert_eq!(fuzzy_query("gh").unwrap().targets, vec!["github"]);
+    }
+
+    #[test]
     fn fuzzy_query_scores_bounded_latin_typo_candidates() {
-        let query = analyze_query("gihub").expect("query");
-        let fuzzy = query.fuzzy_query.expect("fuzzy query");
+        let fuzzy = fuzzy_query("gihub").expect("fuzzy query");
         let candidate = FuzzyDocument {
             normalized_url: "https github com releases",
             normalized_title: "github actions manual",
@@ -608,14 +540,12 @@ mod tests {
             compact_text: "httpscalendarexample calendarnotes planning",
         };
 
-        assert!(fuzzy.candidate_query.contains("\"hub\""));
         assert!(fuzzy.score_document(&candidate).is_some_and(|score| score < 0.2));
         assert!(fuzzy.score_document(&distant).is_none());
     }
 
     #[test]
-    fn fuzzy_helpers_keep_candidate_generation_bounded() {
-        assert!(latin_trigrams("ab").is_empty());
+    fn fuzzy_policy_keeps_the_edit_distance_bound_without_candidate_limits() {
         assert!(!is_latin_fuzzy_target("abc"));
         assert!(!is_latin_fuzzy_target("設置"));
         assert!(is_latin_fuzzy_target("github"));
@@ -686,9 +616,73 @@ mod tests {
 
     #[test]
     fn punctuation_only_query_has_no_recall_path() {
-        let query = analyze_query("!!!");
-
-        assert!(query.is_none());
-        assert!(analyze_query("!!! OR ???").is_none());
+        assert!(index_tokens("!!!").is_empty());
+        assert!(fuzzy_query("!!! OR ???").is_none());
+    }
+    #[test]
+    fn fuzzy_validation_has_no_query_length_or_document_prefix_window() {
+        let target = "a".repeat(80) + "bcdef";
+        let candidate = "a".repeat(80) + "bcxef";
+        let fuzzy = fuzzy_query(&target).unwrap();
+        assert!(
+            fuzzy
+                .score_document(&FuzzyDocument {
+                    normalized_url: "",
+                    normalized_title: &candidate,
+                    normalized_search_terms: "",
+                    compact_text: ""
+                })
+                .is_some()
+        );
+        let text = "z".repeat(600) + " gihub";
+        assert!(
+            fuzzy_query("github")
+                .unwrap()
+                .score_document(&FuzzyDocument {
+                    normalized_url: "",
+                    normalized_title: "",
+                    normalized_search_terms: "",
+                    compact_text: &text
+                })
+                .is_some()
+        );
+    }
+    #[test]
+    fn distance_bands_equal_an_exhaustive_reference() {
+        let words = (0..81usize)
+            .map(|mut value| {
+                let mut word = Vec::new();
+                for _ in 0..4 {
+                    word.push(['a', 'b', 'c'][value % 3]);
+                    value /= 3;
+                }
+                word
+            })
+            .collect::<Vec<_>>();
+        for left in &words {
+            for right in &words {
+                let mut table = vec![vec![0; right.len() + 1]; left.len() + 1];
+                for (i, row) in table.iter_mut().enumerate() {
+                    row[0] = i;
+                }
+                for (j, value) in table[0].iter_mut().enumerate() {
+                    *value = j;
+                }
+                for i in 1..=left.len() {
+                    for j in 1..=right.len() {
+                        table[i][j] = (table[i - 1][j] + 1)
+                            .min(table[i][j - 1] + 1)
+                            .min(table[i - 1][j - 1] + usize::from(left[i - 1] != right[j - 1]));
+                    }
+                }
+                let expected = table[left.len()][right.len()];
+                for bound in 0..=4 {
+                    assert_eq!(
+                        bounded_edit_distance(left, right, bound),
+                        (expected <= bound).then_some(expected)
+                    );
+                }
+            }
+        }
     }
 }

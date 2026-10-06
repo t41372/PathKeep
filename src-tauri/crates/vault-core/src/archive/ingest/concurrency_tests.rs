@@ -139,14 +139,21 @@ fn varied_snapshot_with_urls(rows: i64, urls: i64) -> ProfileSnapshot {
 }
 
 fn assert_all_source_facts(vault: &Vault, rows: i64) {
-    vault.store().read(Db::Archive, move |s| {
-        for table in ["urls", "visits", "search_terms", "downloads", "favicons", "search_documents"] {
-            let actual = s.query_one(&format!("SELECT COUNT(*) FROM {table}"), (), |r| Ok(r.get::<i64>(0)?))?;
-            assert_eq!(actual, if table=="visits" {rows} else {rows.min(503)}, "{table}");
-        }
-        assert_eq!(s.query_one("SELECT COUNT(*) FROM pages p WHERE NOT EXISTS(SELECT 1 FROM search_outbox o WHERE o.page_id=p.id)",(),|r| Ok(r.get::<i64>(0)?))?,0);
-        Ok(())
-    }).unwrap();
+    vault
+        .store()
+        .read(Db::Archive, move |s| {
+            for table in
+                ["urls", "visits", "search_terms", "downloads", "favicons", "search_documents"]
+            {
+                let actual = s.query_one(&format!("SELECT COUNT(*) FROM {table}"), (), |r| {
+                    Ok(r.get::<i64>(0)?)
+                })?;
+                assert_eq!(actual, if table == "visits" { rows } else { rows.min(503) }, "{table}");
+            }
+            Ok(())
+        })
+        .unwrap();
+    crate::test_support::assert_search_handoff(vault);
 }
 
 fn count(vault: &Vault) -> i64 {

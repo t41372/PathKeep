@@ -62,6 +62,12 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         };
     }
 
+    if matches!(
+        command,
+        "start_search" | "next_search_page" | "cancel_search" | "search_indexer_state"
+    ) {
+        return super::search::dispatch(state, command, payload).await;
+    }
     match command {
         "app_build_info" => json_value!(worker_bridge::app_build_info_impl()),
         "app_snapshot" => {

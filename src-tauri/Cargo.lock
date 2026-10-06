@@ -5616,6 +5616,7 @@ dependencies = [
  "axum",
  "browser-history-fixtures",
  "chrono",
+ "futures-core",
  "log",
  "rusqlite",
  "serde",
@@ -9643,6 +9644,7 @@ dependencies = [
  "plist",
  "publicsuffix",
  "regex",
+ "regex-syntax",
  "reqwest 0.12.28",
  "rig-core",
  "rusqlite",
@@ -9659,6 +9661,7 @@ dependencies = [
  "ureq",
  "vault-crypto",
  "vault-metal-backend",
+ "vault-search",
  "vault-store",
  "walkdir",
  "wasmtime",
@@ -9741,9 +9744,11 @@ dependencies = [
 name = "vault-search"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "libc",
  "serde",
  "serde_json",
+ "sha2",
  "tantivy",
  "tempfile",
  "thiserror 2.0.18",

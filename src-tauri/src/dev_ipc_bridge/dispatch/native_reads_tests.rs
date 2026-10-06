@@ -1,8 +1,9 @@
 //! Responsibilities: verify native archive reads through serialized desktop requests.
-//! Not responsible for: search, frontend rendering or external providers.
+//! Not responsible for: ranking internals, frontend rendering or external providers.
 //! Failure modes: keychain-only reads use SQLCipher, tied visits disappear between
 //! pages, import review stops at its preview size, export inherits the screen cursor,
-//! snapshot paths/cursors disagree with the native owner, doctor repair stays refused.
+//! snapshot paths/cursors disagree with the native owner, doctor repair stays refused,
+//! search or search export requires a typed password after keychain unlock.
 use super::*;
 use std::collections::BTreeSet;
 
@@ -125,6 +126,27 @@ fn keychain_only_session_reads_imported_ties_and_exports_every_visit() {
         assert_eq!(export["count"], 41);
         assert_eq!(
             std::fs::read_to_string(export["path"].as_str().unwrap()).unwrap().lines().count(),
+            41
+        );
+        // Search shares this exact keychain-unlocked owner with timeline reads.
+        state.session.vault().unwrap().search().cycle().unwrap();
+        let search =
+            dispatch_command(&state, "query_history", json!({"query":{"q":"native","limit":4}}))
+                .await
+                .unwrap();
+        assert_eq!(search["total"], 41);
+        assert_eq!(search["searchState"]["coverageComplete"], true);
+        let search_export = dispatch_command(
+            &state,
+            "export_history",
+            json!({"request":{"format":"jsonl","query":{"q":"native","limit":1,"cursor":search["nextCursor"]}}}),
+        ).await.unwrap();
+        assert_eq!(search_export["count"], 41);
+        assert_eq!(
+            std::fs::read_to_string(search_export["path"].as_str().unwrap())
+                .unwrap()
+                .lines()
+                .count(),
             41
         );
         let health = dispatch_command(&state, "doctor_report", json!({})).await.unwrap();

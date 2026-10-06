@@ -281,6 +281,31 @@ impl ReverseVisitMap {
         Ok(keys)
     }
 
+    /// Streams the last-writer-wins projection without a full visit-ID map in RAM.
+    pub(super) fn visit_forward(
+        &self,
+        cancel: &vault_store::CancelToken,
+        mut visit: impl FnMut(i64, u64) -> Result<()>,
+    ) -> Result<()> {
+        let Some((mut file, header)) = open_sidecar(&self.forward_path, &FORWARD_MAP_MAGIC)? else {
+            return Ok(());
+        };
+        file.seek(SeekFrom::Start(data_start_offset(&header)?))?;
+        let mut reader = std::io::BufReader::new(file);
+        let mut record = [0u8; RECORD_LEN];
+        for position in 0..header.record_count {
+            if position % 1024 == 0 {
+                cancel.check()?;
+            }
+            reader.read_exact(&mut record).context("reading forward mapping")?;
+            visit(
+                i64::from_le_bytes(record[..8].try_into().unwrap()),
+                u64::from_le_bytes(record[8..].try_into().unwrap()),
+            )?;
+        }
+        Ok(())
+    }
+
     /// Deletes both sidecars if present, returning whether anything was removed.
     ///
     /// Used by the index "clear"/full-rebuild path; the sidecars are pure projections so a clean delete

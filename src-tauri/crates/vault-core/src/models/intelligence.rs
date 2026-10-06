@@ -1632,8 +1632,7 @@ pub enum AiSearchNote {
     /// localized "semantic unavailable: {reason}" sentence instead of receiving pre-baked English.
     #[serde(rename_all = "camelCase")]
     ProviderResolutionFailed { reason: String },
-    /// The keyword matched more pages than one search ranks, so only a window of them was searched
-    /// (`HistoryQueryResponse::windowed`); older matches can be missing.
+    /// Reads historical persisted traces. Native search never emits a windowed result.
     LexicalWindowed,
 }
 
@@ -1677,6 +1676,8 @@ impl AiSearchNote {
 #[serde(rename_all = "camelCase")]
 /// Full response for semantic-plus-lexical history search.
 pub struct AiSearchResponse {
+    #[serde(default)]
+    pub search_state: Option<crate::search::SearchCoverage>,
     pub total: usize,
     pub provider_id: String,
     pub model: String,

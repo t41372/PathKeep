@@ -1,2 +1,2 @@
--- Search projection moved to `derived/history-search.sqlite`.
--- The canonical archive no longer creates or maintains FTS tables in-place.
+-- Historical migration number retained for existing archive ledgers.
+-- Search is owned by vault-search; canonical schemas never create FTS tables.

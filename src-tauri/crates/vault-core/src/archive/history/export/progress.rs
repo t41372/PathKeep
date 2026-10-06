@@ -18,10 +18,7 @@ use crate::{
 use anyhow::{Result, bail};
 use std::{
     collections::HashMap,
-    sync::{
-        Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -40,7 +37,7 @@ struct JobData {
 
 pub(in crate::archive::history) struct ExportJob {
     data: Mutex<JobData>,
-    cancelled: AtomicBool,
+    cancelled: vault_store::CancelToken,
 }
 
 type Registry = HashMap<String, Arc<ExportJob>>;
@@ -71,10 +68,10 @@ pub fn cancel_export(export_id: &str) -> bool {
         return false;
     };
     let data = job.data.lock().unwrap();
-    if data.progress.state != ExportState::Running || job.cancelled.load(Ordering::Relaxed) {
+    if data.progress.state != ExportState::Running || job.cancelled.check().is_err() {
         return false;
     }
-    job.cancelled.store(true, Ordering::Relaxed);
+    job.cancelled.cancel();
     true
 }
 
@@ -107,7 +104,7 @@ impl ExportJob {
             }
         }
         let job = Arc::new(Self {
-            cancelled: AtomicBool::new(false),
+            cancelled: vault_store::CancelToken::new(),
             data: Mutex::new(JobData {
                 progress: ExportProgress {
                     export_id: export_id.to_owned(),
@@ -125,8 +122,12 @@ impl ExportJob {
         Ok(job)
     }
 
-    pub(in crate::archive::history) fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
+    pub(super) fn token(&self) -> vault_store::CancelToken {
+        self.cancelled.clone()
+    }
+
+    pub(super) fn is_cancelled(&self) -> bool {
+        self.cancelled.check().is_err()
     }
 
     pub(in crate::archive::history) fn check(&self) -> Result<()> {

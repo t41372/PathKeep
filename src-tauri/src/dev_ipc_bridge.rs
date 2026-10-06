@@ -39,6 +39,7 @@ mod config;
 mod dispatch;
 mod payloads;
 mod router;
+mod search;
 
 use config::{bridge_enabled, resolve_bridge_config_from_env};
 #[cfg(not(test))]
@@ -58,11 +59,12 @@ struct DevIpcBridgeState {
     app: Arc<RwLock<Option<DevIpcAppHandle>>>,
     session: SessionState,
     port: u16,
+    search_streams: search::Streams,
 }
 
 impl DevIpcBridgeState {
     fn new(app: Arc<RwLock<Option<DevIpcAppHandle>>>, session: SessionState, port: u16) -> Self {
-        Self { app, session, port }
+        Self { app, session, port, search_streams: Arc::default() }
     }
 
     #[cfg(test)]

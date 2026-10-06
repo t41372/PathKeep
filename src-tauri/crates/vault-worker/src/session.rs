@@ -308,7 +308,7 @@ impl VaultSession {
         state.result = Arc::default();
         let vault = state.vault.take();
         drop(state);
-        let result = vault.map_or(Ok(()), |vault| vault.store().close().map_err(|e| e.to_string()));
+        let result = vault.map_or(Ok(()), |vault| vault.close().map_err(|e| e.to_string()));
         lock.lock().expect("session state").transition = Transition::Idle;
         ready.notify_all();
         result

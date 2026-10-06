@@ -35,9 +35,9 @@ use std::collections::HashSet;
 use std::time::Instant;
 use vault_core::{
     BinaryPlane, EmbeddingDtype, EmbeddingFingerprint, EmbeddingPooling, FlatVectorIndex,
-    Int8Plane, RECALL_EXPANSION, RECALL_FLOOR, ReverseVisitMap, VectorIndex, VectorStore,
-    VisitContentMap, binarize, binary_bytes_for_dim, build_planes_from_store, dot_product,
-    hamming_distance, project_paths_with_root,
+    Int8Plane, ReverseVisitMap, VectorIndex, VectorStore, VisitContentMap, binarize,
+    binary_bytes_for_dim, build_planes_from_store, dot_product, hamming_distance,
+    project_paths_with_root,
 };
 
 /// Default scales swept when `PATHKEEP_S2_SCALES` is unset (1M / 5M / 14.4M, the 05 §3 envelope).
@@ -188,9 +188,7 @@ fn s2_flat_vector_index_scale_benchmark() {
     println!(
         "dim={dim}  queries={query_count}  exact_sample={exact_sample}  full_probes={full_probes}  top_k={TOP_K}  scales={scales:?}"
     );
-    println!(
-        "recall pool k' = max(top_k * {RECALL_EXPANSION}, RECALL_FLOOR={RECALL_FLOOR}) capped at n"
-    );
+    println!("all vectors are scored before output top-k selection");
     println!(
         "binary plane resident = {} (struct) + {} (packed bits) B/vec; int8 plane ON-DISK = {} B/vec (+ scale); f32 source = {} B/vec",
         binary_overhead,
@@ -300,8 +298,8 @@ fn run_scale(
     // recall@10 over the sampled population: flat (binary recall + int8 rescore) vs exact f32. We also
     // report the BINARY-RECALL coverage (does the stage-1 pool of k' candidates contain the exact
     // top-10?) so the report attributes any miss to recall (stage 1) vs rescore (stage 2). The pool is
-    // the SAME `max(k * expansion, RECALL_FLOOR)` the engine uses (X-1), capped at the sampled size.
-    let recall_pool = (TOP_K * RECALL_EXPANSION).max(RECALL_FLOOR).min(sample_n);
+    // the complete candidate set the search engine now scores.
+    let recall_pool = sample_n;
     let mut recall_hits = 0usize;
     let mut recall_total = 0usize;
     let mut binary_coverage_hits = 0usize;

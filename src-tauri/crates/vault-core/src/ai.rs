@@ -25,8 +25,12 @@ mod narrative;
 mod provider;
 mod read_model;
 pub(crate) use self::read_model::ai_index_status_from;
+mod assistant;
 mod reverse_visit_map;
 mod search;
+mod search_pages;
+mod search_ranking;
+mod search_store;
 mod traits;
 mod vector_index;
 mod vector_planes;
@@ -39,10 +43,7 @@ use crate::archive::create_schema;
 use crate::{
     ai_queue::{self},
     ai_sidecar::{self},
-    archive::{
-        attach_search_database, cap_enrichment_excerpt, open_archive_connection,
-        open_intelligence_connection, search_history,
-    },
+    archive::{open_archive_connection, open_intelligence_connection},
     config::ProjectPaths,
     enrichment::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
     models::{
@@ -50,7 +51,7 @@ use crate::{
         AiIndexStatus, AiIndexWarning, AiProviderCapabilityReport, AiProviderConfig,
         AiProviderConnectionTestReport, AiProviderPurpose, AiQueueJobType, AiQueueStatus,
         AiRequestFormat, AiSearchEntry, AiSearchNote, AiSearchRequest, AiSearchResponse,
-        AiSearchSort, AiSemanticStaleness, AppConfig, HistoryEntry, HistoryQuery,
+        AiSemanticStaleness, AppConfig, HistoryEntry,
     },
     utils::{now_rfc3339, url_domain},
 };
@@ -72,7 +73,6 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    cmp::Ordering,
     collections::HashMap,
     future::Future,
     sync::Arc,
@@ -81,6 +81,7 @@ use std::{
 use thiserror::Error;
 use tokio::sync::Mutex;
 
+pub use self::assistant::{answer_history_question, answer_history_question_with_control};
 pub use self::indexing::{build_ai_index, build_ai_index_with_control};
 pub use self::provider::test_provider_connection;
 pub use self::read_model::{
@@ -88,9 +89,7 @@ pub use self::read_model::{
     preview_ai_integrations, provider_capabilities, provider_connection_failure_report,
     reconcile_ai_queue_controls, recoverable_ai_jobs,
 };
-pub use self::search::{
-    answer_history_question, answer_history_question_with_control, semantic_search_history,
-};
+pub use self::search::semantic_search_history;
 
 pub use self::agent_harness::{
     AgentJournal, AgentRunOutcome, AgentRunSink, AgentSystemContext, DEFAULT_MAX_ITERATIONS,
@@ -137,9 +136,7 @@ pub use self::traits::{
     LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
     LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolCall, LlmToolDef, LlmUsage, VectorIndex,
 };
-pub use self::vector_index::{
-    ALLOWLIST_EXPANSION, FlatVectorIndex, RECALL_EXPANSION, RECALL_FLOOR, prepare_query,
-};
+pub use self::vector_index::FlatVectorIndex;
 pub use self::vector_planes::{
     BinaryPlane, Int8Plane, Int8PlaneReader, Int8Vector, PlaneBuildReport, PlaneHeader, binarize,
     binary_bytes_for_dim, build_planes_from_store, dequantize_int8, derived_plane_bytes,
@@ -152,6 +149,8 @@ pub use self::working_set::{
     WorkingSetConfig, estimate_reembed, reembed_estimate_for, score_candidate, select_working_set,
 };
 
+#[cfg(test)]
+use self::assistant::build_assistant_preamble;
 use self::control::{await_with_ai_cancellation, checkpoint_ai_run};
 use self::indexing::provider_embedding_count;
 #[cfg(test)]
@@ -173,8 +172,8 @@ use self::provider::{
 use self::search::semantic_index_staleness_reason;
 #[cfg(test)]
 use self::search::{
-    SearchContext, SearchHistoryArgs, SearchHistoryTool, StoredEmbedding, build_assistant_preamble,
-    cosine_similarity, search_history_internal, semantic_matches, sort_stored_embeddings_desc,
+    SearchContext, SearchHistoryArgs, SearchHistoryTool, StoredEmbedding, cosine_similarity,
+    sort_stored_embeddings_desc,
 };
 
 /// Resolved provider configuration plus the OPTIONAL secret for one AI operation.
@@ -369,3 +368,6 @@ const SQLITE_BATCH_SIZE: usize = 400;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+use std::cmp::Ordering;

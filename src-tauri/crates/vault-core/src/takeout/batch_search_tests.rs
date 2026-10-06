@@ -199,39 +199,15 @@ fn visibility_refresh_crosses_chunk_boundaries_without_skipping_urls() {
         }).unwrap();
         f.import("shared-across-boundary", 999, 3, 86_400_000);
         for restore in [false, true] {
-            f.vault
-                .store()
-                .write(Db::Archive, Priority::Interactive, |s| {
-                    s.execute("DELETE FROM search_outbox", ())?;
-                    Ok(())
-                })
-                .unwrap();
+            let sequence = crate::test_support::search_sequence(&f.vault);
             if restore {
                 restore_import_batch(&f.vault, batch).unwrap();
             } else {
                 revert_import_batch(&f.vault, batch).unwrap();
             }
             assert_eq!(f.visible(), if restore { 2_010 } else { 3 });
-            f.vault
-                .store()
-                .read(Db::Archive, |s| {
-                    assert_eq!(
-                        s.query_one("SELECT COUNT(*) FROM search_outbox", (), |r| Ok(
-                            r.get::<i64>(0)?
-                        ))?,
-                        2_003
-                    );
-                    assert_eq!(
-                        s.query_one(
-                            "SELECT COUNT(DISTINCT page_id) FROM search_outbox",
-                            (),
-                            |r| Ok(r.get::<i64>(0)?)
-                        )?,
-                        2_003
-                    );
-                    Ok(())
-                })
-                .unwrap();
+            assert_eq!(crate::test_support::search_sequence(&f.vault) - sequence, 2003);
+            crate::test_support::assert_search_handoff(&f.vault);
             f.assert_matches_rebuild();
         }
     }
@@ -314,14 +290,8 @@ fn visibility_crash_child() {
 fn process_exit_mid_revert_resumes_without_repeating_committed_pages() {
     for key in [None, Some([87; 32])] {
         let f = Fixture::new(1_105, key);
-        f.vault
-            .store()
-            .write(Db::Archive, Priority::Interactive, |s| {
-                s.execute("DELETE FROM search_outbox", ())?;
-                Ok(())
-            })
-            .unwrap();
-        f.vault.store().close().unwrap();
+        let sequence = crate::test_support::search_sequence(&f.vault);
+        f.vault.close().unwrap();
         let mut child = std::process::Command::new(std::env::current_exe().unwrap());
         child
             .args([
@@ -369,23 +339,11 @@ fn process_exit_mid_revert_resumes_without_repeating_committed_pages() {
                     )?,
                     0
                 );
-                assert_eq!(
-                    s.query_one(
-                        "SELECT COUNT(*) FROM search_outbox",
-                        (),
-                        |r| Ok(r.get::<i64>(0)?)
-                    )?,
-                    1_105
-                );
-                assert_eq!(
-                    s.query_one("SELECT COUNT(DISTINCT page_id) FROM search_outbox", (), |r| Ok(
-                        r.get::<i64>(0)?
-                    ))?,
-                    1_105
-                );
                 Ok(())
             })
             .unwrap();
+        assert_eq!(crate::test_support::search_sequence(&vault) - sequence, 1105);
+        crate::test_support::assert_search_handoff(&vault);
     }
 }
 

@@ -3,14 +3,13 @@ use super::*;
 use crate::{
     config::{ProjectPaths, project_paths_with_root},
     models::{
-        ArchiveMode, BrowserProfile, ExportFormat, ExportRequest, RetentionPruneRequest,
-        SnapshotRestoreRequest, TakeoutRequest,
+        ArchiveMode, BrowserProfile, RetentionPruneRequest, SnapshotRestoreRequest, TakeoutRequest,
     },
     utils::{restore_test_env_var, test_env_lock},
 };
 use browser_history_parser::{ContextEvidence, NativeEntity, TypedEvidenceBatch};
 use rusqlite::Connection;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use tempfile::tempdir;
 
 fn sample_paths(root: &Path) -> ProjectPaths {
@@ -318,64 +317,6 @@ fn seed_lexical_archive(paths: &ProjectPaths, config: &AppConfig) {
             )
             .expect("insert visit");
     }
-
-    rebuild_search_projection(paths, config, None).expect("rebuild search projection");
-}
-
-fn insert_lexical_history_row(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    id: i64,
-    url: &str,
-    title: &str,
-    visit_time: i64,
-    iso: &str,
-) {
-    let connection = open_archive_connection(paths, config, None).expect("open archive");
-    connection
-        .execute(
-            "INSERT INTO urls (
-               id,
-               url,
-               title,
-               visit_count,
-               typed_count,
-               first_visit_ms,
-               first_visit_iso,
-               last_visit_ms,
-               last_visit_iso,
-               source_profile_id,
-               created_by_run_id,
-               source_url_id,
-               hidden,
-               recorded_at
-             )
-             VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 0, ?1, 0, ?5)",
-            params![id, url, title, visit_time, iso],
-        )
-        .expect("insert url");
-    connection
-        .execute(
-            "INSERT INTO visits (
-               id,
-               url_id,
-               source_visit_id,
-               visit_time_ms,
-               visit_time_iso,
-               transition_type,
-               visit_duration_ms,
-               source_profile_id,
-               created_by_run_id,
-               app_id,
-               from_visit,
-               is_known_to_sync,
-               recorded_at
-             )
-             VALUES (?1, ?1, ?1, ?2, ?3, 805306368, 1000, 1, 0, NULL, NULL, 1, ?3)",
-            params![id, visit_time, iso],
-        )
-        .expect("insert visit");
-    rebuild_search_projection(paths, config, None).expect("rebuild search projection");
 }
 
 /// Stores one successful GitHub-repo enrichment for `history_id` (intelligence plane) and re-mirrors
@@ -409,109 +350,6 @@ fn store_lexical_enrichment(
         )
         .expect("insert enrichment");
     drop(intelligence);
-    // Mirror the just-stored enrichment into the projection's enrichment_text + its FTS column.
-    rebuild_search_projection(paths, config, None).expect("rebuild search projection");
-}
-
-#[test]
-fn lexical_search_surfaces_capped_enrichment_excerpt_only_for_enriched_results() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    seed_lexical_archive(&paths, &config);
-    // Enrich ONE of the seeded rows (url/visit id 3 = the GitHub Actions page) with a summary the
-    // search query will hit, and a `topics` keyword ("enrichkw") that only lives in enrichment_text.
-    store_lexical_enrichment(&paths, &config, 3, "Reusable workflow runner for CI pipelines");
-
-    // A keyword that matches the enriched page surfaces a capped excerpt on THAT result.
-    let enriched = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("github".to_string()), limit: Some(10), ..HistoryQuery::default() },
-    )
-    .expect("enriched query");
-    let actions_entry = enriched
-        .items
-        .iter()
-        .find(|entry| entry.title.as_deref() == Some("GitHub Actions manual"))
-        .expect("the enriched GitHub Actions row is recalled");
-    // The excerpt mirrors the projected enrichment_text: the summary plus the searchable metadata
-    // (topics/desc/language) the index carries — NOT just the bare summary.
-    let actions_excerpt =
-        actions_entry.enrichment_excerpt.as_deref().expect("the enriched row carries an excerpt");
-    assert!(
-        actions_excerpt.contains("Reusable workflow runner for CI pipelines"),
-        "an enriched search result must surface its enrichment summary: {actions_excerpt}"
-    );
-    assert!(
-        actions_excerpt.contains("enrichkw"),
-        "the excerpt carries the searchable enrichment metadata too: {actions_excerpt}"
-    );
-    // A different recalled result with NO stored enrichment leaves the excerpt None.
-    let plain_entry = enriched
-        .items
-        .iter()
-        .find(|entry| entry.title.as_deref() == Some("Git Hub spacing guide"))
-        .expect("the non-enriched Git Hub row is recalled");
-    assert_eq!(
-        plain_entry.enrichment_excerpt, None,
-        "a result without stored enrichment must leave the excerpt None"
-    );
-
-    // The enrichment text itself is keyword-searchable, and that match also carries the excerpt.
-    let by_enrichment_keyword = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("enrichkw".to_string()),
-            limit: Some(10),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("enrichment-keyword query");
-    assert_eq!(
-        by_enrichment_keyword.total, 1,
-        "a token that lives only in enrichment_text must recall exactly the enriched page"
-    );
-    assert!(
-        by_enrichment_keyword.items[0]
-            .enrichment_excerpt
-            .as_deref()
-            .is_some_and(|excerpt| excerpt.contains("Reusable workflow runner for CI pipelines")),
-        "the enrichment-keyword match also carries the excerpt"
-    );
-}
-
-#[test]
-fn lexical_search_caps_long_enrichment_excerpt_on_a_cjk_char_boundary() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    seed_lexical_archive(&paths, &config);
-    // A long CJK summary (> the 180-char cap) on the GitHub Actions row: the excerpt must be capped on
-    // a CHAR boundary (never panicking by splitting a multi-byte codepoint) and gain a trailing "…".
-    let long_summary = "工作流程".repeat(80); // 320 CJK chars, well over the cap.
-    store_lexical_enrichment(&paths, &config, 3, &long_summary);
-
-    let response = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("github".to_string()), limit: Some(10), ..HistoryQuery::default() },
-    )
-    .expect("capped query");
-    let excerpt = response
-        .items
-        .iter()
-        .find(|entry| entry.title.as_deref() == Some("GitHub Actions manual"))
-        .and_then(|entry| entry.enrichment_excerpt.clone())
-        .expect("the enriched row carries a capped excerpt");
-    // 180 capped chars + the trailing ellipsis = 181 chars; the long input was truncated, not panicked.
-    assert_eq!(excerpt.chars().count(), 181, "the excerpt is capped on a char boundary");
-    assert!(excerpt.ends_with('…'), "a truncated excerpt gains a trailing ellipsis");
-    assert!(excerpt.starts_with("工作流程"), "CJK codepoints survive the char-boundary cap");
 }
 
 #[test]
@@ -524,13 +362,11 @@ fn plain_browse_history_query_leaves_enrichment_excerpt_none() {
     // excerpt is a lexical-search-only affordance, so browse rows stay None regardless.
     store_lexical_enrichment(&paths, &config, 3, "Reusable workflow runner for CI pipelines");
 
-    let browse = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { limit: Some(50), ..HistoryQuery::default() },
-    )
-    .expect("plain browse query");
+    let vault = crate::Vault::open(paths.clone(), config.clone(), None).unwrap();
+    crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
+    crate::test_support::legacy_fixtures::copy_search_metadata(&vault, &paths, &config);
+    let browse = list_history(&vault, HistoryQuery { limit: Some(50), ..HistoryQuery::default() })
+        .expect("plain browse query");
     assert!(browse.total >= 7, "the browse path returns the full seeded set");
     assert!(
         browse.items.iter().all(|entry| entry.enrichment_excerpt.is_none()),
@@ -547,14 +383,15 @@ fn uncounted_history_pages_walk_the_same_rows_as_counted_pages() {
     let config = AppConfig::default();
     seed_lexical_archive(&paths, &config);
 
+    let vault = crate::Vault::open(paths.clone(), config.clone(), None).unwrap();
+    crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
+
     let walk = |q: Option<&str>| {
         let mut seen = Vec::new();
         let mut cursor = None;
         loop {
-            let page = search_history(
-                &paths,
-                &config,
-                None,
+            let page = list_history(
+                &vault,
                 HistoryQuery {
                     q: q.map(str::to_string),
                     limit: Some(3),
@@ -576,22 +413,15 @@ fn uncounted_history_pages_walk_the_same_rows_as_counted_pages() {
         }
     };
 
-    let counted = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { limit: Some(50), ..HistoryQuery::default() },
-    )
-    .expect("counted browse");
+    let counted = list_history(&vault, HistoryQuery { limit: Some(50), ..HistoryQuery::default() })
+        .expect("counted browse");
     assert!(counted.total_exact);
     let browse = walk(None);
     assert_eq!(browse, counted.items.iter().map(|entry| entry.url.clone()).collect::<Vec<_>>());
 
     let keyword = walk(Some("example"));
-    let counted_keyword = search_history(
-        &paths,
-        &config,
-        None,
+    let counted_keyword = list_history(
+        &vault,
         HistoryQuery { q: Some("example".to_string()), limit: Some(50), ..HistoryQuery::default() },
     )
     .expect("counted keyword");
@@ -600,662 +430,6 @@ fn uncounted_history_pages_walk_the_same_rows_as_counted_pages() {
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), keyword.len(), "no row may appear on two pages");
-}
-
-#[test]
-fn lexical_recall_matches_cjk_script_folding_and_compact_substrings() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    seed_lexical_archive(&paths, &config);
-
-    let simplified_query = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("设定".to_string()), limit: Some(10), ..HistoryQuery::default() },
-    )
-    .expect("simplified query");
-    assert_eq!(simplified_query.total, 2);
-    assert!(
-        simplified_query.items.iter().any(|entry| entry.title.as_deref() == Some("浏览器设定说明"))
-    );
-    assert!(
-        simplified_query.items.iter().any(|entry| entry.title.as_deref() == Some("瀏覽器設定中心")),
-        "simplified query should recall the traditional indexed title"
-    );
-
-    let traditional_query = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("設定".to_string()), limit: Some(10), ..HistoryQuery::default() },
-    )
-    .expect("traditional query");
-    assert_eq!(traditional_query.total, 2);
-    assert!(
-        traditional_query
-            .items
-            .iter()
-            .any(|entry| entry.title.as_deref() == Some("瀏覽器設定中心"))
-    );
-    assert!(
-        traditional_query
-            .items
-            .iter()
-            .any(|entry| entry.title.as_deref() == Some("浏览器设定说明")),
-        "traditional query should recall the simplified indexed title"
-    );
-
-    let cjk_substring = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("器设".to_string()), limit: Some(10), ..HistoryQuery::default() },
-    )
-    .expect("cjk substring query");
-    assert_eq!(cjk_substring.total, 2);
-
-    let compact_latin = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("github".to_string()), limit: Some(10), ..HistoryQuery::default() },
-    )
-    .expect("compact latin query");
-    assert!(
-        compact_latin
-            .items
-            .iter()
-            .any(|entry| entry.title.as_deref() == Some("Git Hub spacing guide")),
-        "compact trigram recall should match Git Hub when the query is github"
-    );
-
-    let full_width_latin = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("ＧｉｔＨｕｂ".to_string()),
-            limit: Some(10),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("full-width latin query");
-    assert!(
-        full_width_latin
-            .items
-            .iter()
-            .any(|entry| entry.title.as_deref() == Some("GitHub Actions manual")),
-        "NFKC recall should fold full-width GitHub into the indexed latin form"
-    );
-}
-
-#[test]
-fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    seed_lexical_archive(&paths, &config);
-
-    let github_alias = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("gh".to_string()), limit: Some(10), ..HistoryQuery::default() },
-    )
-    .expect("github alias query");
-    assert!(
-        github_alias
-            .items
-            .iter()
-            .any(|entry| entry.title.as_deref() == Some("GitHub Actions manual")),
-        "gh should expand to github before FTS recall"
-    );
-
-    let youtube_alias = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("yt".to_string()), limit: Some(10), ..HistoryQuery::default() },
-    )
-    .expect("youtube alias query");
-    assert!(
-        youtube_alias
-            .items
-            .iter()
-            .any(|entry| entry.title.as_deref() == Some("YouTube watch queue")),
-        "yt should expand to youtube before FTS recall"
-    );
-
-    let pull_request_alias = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("pr".to_string()), limit: Some(10), ..HistoryQuery::default() },
-    )
-    .expect("pull request alias query");
-    assert!(
-        pull_request_alias
-            .items
-            .iter()
-            .any(|entry| entry.title.as_deref() == Some("Pull Request review checklist")),
-        "pr should expand to pull request before FTS recall"
-    );
-
-    let fuzzy_first_page = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("gihub".to_string()), limit: Some(1), ..HistoryQuery::default() },
-    )
-    .expect("fuzzy typo query");
-    assert_eq!(fuzzy_first_page.total, 3);
-    assert_eq!(fuzzy_first_page.items[0].title.as_deref(), Some("GitHub Actions manual"));
-    assert!(fuzzy_first_page.next_cursor.as_deref().is_some_and(|cursor| cursor.starts_with("r|")));
-
-    let fuzzy_second_page = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("gihub".to_string()),
-            limit: Some(1),
-            cursor: fuzzy_first_page.next_cursor.clone(),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("fuzzy typo second page");
-    assert_eq!(fuzzy_second_page.items.len(), 1);
-    assert!(fuzzy_second_page.has_previous);
-    let fuzzy_second_page_by_number = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("gihub".to_string()),
-            limit: Some(1),
-            page: Some(2),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("fuzzy typo explicit second page");
-    assert_eq!(fuzzy_second_page_by_number.items.len(), 1);
-    assert_eq!(fuzzy_second_page_by_number.page, 2);
-
-    let fuzzy_newest = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("gihub".to_string()),
-            sort: Some("newest".to_string()),
-            limit: Some(1),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("fuzzy newest query");
-    assert_eq!(fuzzy_newest.items[0].title.as_deref(), Some("Git Hub spacing guide"));
-    let fuzzy_newest_second = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("gihub".to_string()),
-            sort: Some("newest".to_string()),
-            limit: Some(1),
-            cursor: fuzzy_newest.next_cursor.clone(),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("fuzzy newest second page");
-    assert_eq!(fuzzy_newest_second.items[0].title.as_deref(), Some("Release notes"));
-
-    let fuzzy_oldest = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("gihub".to_string()),
-            sort: Some("oldest".to_string()),
-            limit: Some(1),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("fuzzy oldest query");
-    assert_eq!(fuzzy_oldest.items[0].title.as_deref(), Some("GitHub Actions manual"));
-    let fuzzy_oldest_second = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("gihub".to_string()),
-            sort: Some("oldest".to_string()),
-            limit: Some(1),
-            cursor: fuzzy_oldest.next_cursor.clone(),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("fuzzy oldest second page");
-    assert_eq!(fuzzy_oldest_second.items[0].title.as_deref(), Some("Release notes"));
-}
-
-#[test]
-fn lexical_recall_defaults_to_relevance_and_accepts_time_sort_override() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    seed_lexical_archive(&paths, &config);
-
-    let relevance = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("github".to_string()), limit: Some(1), ..HistoryQuery::default() },
-    )
-    .expect("relevance query");
-    assert_eq!(relevance.items[0].title.as_deref(), Some("GitHub Actions manual"));
-    assert!(relevance.next_cursor.as_deref().is_some_and(|cursor| cursor.starts_with("r|")));
-
-    let explicit_relevance = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("github".to_string()),
-            sort: Some("relevance".to_string()),
-            limit: Some(1),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("explicit relevance query");
-    assert_eq!(explicit_relevance.items[0].title.as_deref(), Some("GitHub Actions manual"));
-
-    let second_relevance_page = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("github".to_string()),
-            limit: Some(1),
-            cursor: relevance.next_cursor.clone(),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("second relevance page");
-    assert_eq!(second_relevance_page.items.len(), 1);
-    assert!(second_relevance_page.has_previous);
-
-    let legacy_cursor_relevance_page = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("github".to_string()),
-            sort: Some("relevance".to_string()),
-            limit: Some(1),
-            cursor: Some("4000|4".to_string()),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("legacy chronological cursor with relevance query");
-    assert_eq!(
-        legacy_cursor_relevance_page.items[0].title.as_deref(),
-        Some("GitHub Actions manual")
-    );
-
-    let newest = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("github".to_string()),
-            sort: Some("newest".to_string()),
-            limit: Some(1),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("newest query");
-    assert_eq!(newest.items[0].title.as_deref(), Some("Git Hub spacing guide"));
-    assert!(newest.next_cursor.as_deref().is_some_and(|cursor| !cursor.starts_with("r|")));
-}
-
-#[test]
-fn history_keyword_query_supports_google_like_local_operators() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    seed_lexical_archive(&paths, &config);
-    insert_lexical_history_row(
-        &paths,
-        &config,
-        8,
-        "https://github.com/pathkeep/pathkeep/issues",
-        "PathKeep issue tracker",
-        8_000,
-        "2026-05-01T00:00:08+00:00",
-    );
-    insert_lexical_history_row(
-        &paths,
-        &config,
-        9,
-        "https://github.com/pathkeep/spec.pdf",
-        "PathKeep PDF spec",
-        9_000,
-        "2026-05-01T00:00:09+00:00",
-    );
-
-    let site_without_keyword = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("site:github.com -pathkeep".to_string()),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("site exclusion query");
-    assert_eq!(site_without_keyword.total, 1);
-    assert_eq!(site_without_keyword.items[0].title.as_deref(), Some("Release notes"));
-
-    let domain_without_keyword = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("-pathkeep".to_string()),
-            domain: Some("github.com".to_string()),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("domain exclusion query");
-    assert_eq!(domain_without_keyword.total, 1);
-    assert_eq!(domain_without_keyword.items[0].title.as_deref(), Some("Release notes"));
-
-    let exact_phrase = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("\"release notes\"".to_string()), ..HistoryQuery::default() },
-    )
-    .expect("exact phrase query");
-    assert_eq!(exact_phrase.total, 1);
-    assert_eq!(exact_phrase.items[0].title.as_deref(), Some("Release notes"));
-
-    let intersected_date_filters = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("site:github.com after:1970-01-01 before:1970-01-01".to_string()),
-            start_time_ms: Some(3_500),
-            end_time_ms: Some(4_500),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("intersected date filters");
-    assert_eq!(intersected_date_filters.total, 1);
-    assert_eq!(intersected_date_filters.items[0].title.as_deref(), Some("Release notes"));
-
-    let ui_time_only_filters = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            start_time_ms: Some(3_500),
-            end_time_ms: Some(4_500),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("ui time-only filters");
-    assert_eq!(ui_time_only_filters.total, 1);
-    assert_eq!(ui_time_only_filters.items[0].title.as_deref(), Some("Release notes"));
-
-    let title_operator = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("intitle:manual".to_string()), ..HistoryQuery::default() },
-    )
-    .expect("title operator query");
-    assert_eq!(title_operator.total, 1);
-    assert_eq!(title_operator.items[0].title.as_deref(), Some("GitHub Actions manual"));
-
-    let url_operator = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("inurl:pull-request".to_string()), ..HistoryQuery::default() },
-    )
-    .expect("url operator query");
-    assert_eq!(url_operator.total, 1);
-    assert_eq!(url_operator.items[0].title.as_deref(), Some("Pull Request review checklist"));
-
-    let filetype_operator = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery {
-            q: Some("site:github.com filetype:pdf".to_string()),
-            ..HistoryQuery::default()
-        },
-    )
-    .expect("filetype operator query");
-    assert_eq!(filetype_operator.total, 1);
-    assert_eq!(filetype_operator.items[0].title.as_deref(), Some("PathKeep PDF spec"));
-
-    let any_of_these_words = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("manual OR youtube".to_string()), ..HistoryQuery::default() },
-    )
-    .expect("or query");
-    assert_eq!(any_of_these_words.total, 2);
-    assert!(
-        any_of_these_words
-            .items
-            .iter()
-            .any(|entry| entry.title.as_deref() == Some("GitHub Actions manual"))
-    );
-    assert!(
-        any_of_these_words
-            .items
-            .iter()
-            .any(|entry| entry.title.as_deref() == Some("YouTube watch queue"))
-    );
-}
-
-#[test]
-fn history_keyword_query_supports_tag_and_note_operators_against_annotations() {
-    // feedback-2026-05-25 §3.3 A — annotations existed but the search
-    // surface only saw title / URL. This pins the new `tag:` /
-    // `note:` operators end-to-end: parser → SQL → archive results.
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    seed_lexical_archive(&paths, &config);
-
-    // Two extra URLs that only differ by their annotations — neither
-    // mentions "rust" or "design" in title or URL, so any match must
-    // come from the new tag/note filters.
-    insert_lexical_history_row(
-        &paths,
-        &config,
-        20,
-        "https://example.test/page-with-rust-tag",
-        "Generic page A",
-        20_000,
-        "2026-05-01T00:00:20+00:00",
-    );
-    insert_lexical_history_row(
-        &paths,
-        &config,
-        21,
-        "https://example.test/page-with-design-note",
-        "Generic page B",
-        21_000,
-        "2026-05-01T00:00:21+00:00",
-    );
-    insert_lexical_history_row(
-        &paths,
-        &config,
-        22,
-        "https://example.test/page-with-no-annotations",
-        "Generic page C",
-        22_000,
-        "2026-05-01T00:00:22+00:00",
-    );
-
-    // Seed annotations via the public surface so we exercise the same
-    // schema the detail panel writes to.
-    // Independent annotation facts exercise the unported query parser, not the Turso writer.
-    let db = open_archive_connection(&paths, &config, None).unwrap();
-    db.execute("INSERT INTO url_tags(url,tag,created_at) VALUES('https://example.test/page-with-rust-tag','Rust','2026-05-01')",[]).unwrap();
-    db.execute("INSERT INTO url_annotations(url,notes,created_at,updated_at) VALUES('https://example.test/page-with-design-note','Initial design doc for the cache layer','2026-05-01','2026-05-01')",[]).unwrap();
-    rebuild_search_projection(&paths, &config, None).unwrap();
-
-    // `tag:rust` — only the page tagged Rust matches (and the case is
-    // folded so the user can type either `tag:Rust` or `tag:rust`).
-    let tag_hit = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("tag:rust".to_string()), ..HistoryQuery::default() },
-    )
-    .expect("tag query");
-    assert_eq!(tag_hit.total, 1);
-    assert_eq!(tag_hit.items[0].url, "https://example.test/page-with-rust-tag",);
-
-    // `note:design` — substring match on `url_annotations.notes`,
-    // case-insensitive.
-    let note_hit = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("note:\"design doc\"".to_string()), ..HistoryQuery::default() },
-    )
-    .expect("note query");
-    assert_eq!(note_hit.total, 1);
-    assert_eq!(note_hit.items[0].url, "https://example.test/page-with-design-note",);
-
-    // `-tag:rust` — exclude any URL tagged Rust. Both Generic page B
-    // and Generic page C survive (along with every other seed row).
-    let tag_negated = search_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { q: Some("-tag:rust".to_string()), ..HistoryQuery::default() },
-    )
-    .expect("negated tag query");
-    assert!(
-        !tag_negated
-            .items
-            .iter()
-            .any(|entry| entry.url == "https://example.test/page-with-rust-tag"),
-        "expected -tag:rust to exclude the Rust-tagged row",
-    );
-    // And the un-tagged Generic page C is still in the result set,
-    // pinning that the exclusion is a soft filter (not "only show
-    // rows that have any tag").
-    assert!(
-        tag_negated
-            .items
-            .iter()
-            .any(|entry| { entry.url == "https://example.test/page-with-no-annotations" }),
-        "expected -tag:rust to keep un-tagged rows",
-    );
-}
-
-fn seed_firefox_fixture(root: &Path) -> PathBuf {
-    let firefox_root = root.join("firefox");
-    let profiles_dir = firefox_root.join("Profiles");
-    let profile_dir = profiles_dir.join("abcd.default-release");
-    fs::create_dir_all(&profile_dir).expect("create firefox profile dir");
-    fs::write(
-        firefox_root.join("profiles.ini"),
-        "[Profile0]\nName=Work Firefox\nPath=abcd.default-release\nIsRelative=1\n",
-    )
-    .expect("write firefox profiles.ini");
-
-    let history = Connection::open(profile_dir.join("places.sqlite")).expect("open firefox db");
-    history
-        .execute_batch(
-            "CREATE TABLE moz_places (
-               id INTEGER PRIMARY KEY,
-               url TEXT NOT NULL,
-               title TEXT,
-               visit_count INTEGER,
-               hidden INTEGER,
-               last_visit_date INTEGER
-             );
-             CREATE TABLE moz_historyvisits (
-               id INTEGER PRIMARY KEY,
-               place_id INTEGER NOT NULL,
-               visit_date INTEGER NOT NULL,
-               from_visit INTEGER,
-               visit_type INTEGER
-             );",
-        )
-        .expect("create firefox tables");
-    history
-        .execute(
-            "INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date)
-             VALUES (1, 'https://example.com/firefox', 'Firefox docs', 1, 0, 1744146000000000)",
-            [],
-        )
-        .expect("insert firefox place");
-    history
-        .execute(
-            "INSERT INTO moz_historyvisits (id, place_id, visit_date, from_visit, visit_type)
-             VALUES (1, 1, 1744146000000000, NULL, 1)",
-            [],
-        )
-        .expect("insert firefox visit");
-
-    profiles_dir
-}
-
-fn seed_safari_fixture(root: &Path) -> PathBuf {
-    let safari_root = root.join("Safari");
-    fs::create_dir_all(&safari_root).expect("create safari root");
-    let history = Connection::open(safari_root.join("History.db")).expect("open safari db");
-    history
-        .execute_batch(
-            "CREATE TABLE history_items (
-               id INTEGER PRIMARY KEY,
-               url TEXT NOT NULL
-             );
-             CREATE TABLE history_visits (
-               id INTEGER PRIMARY KEY,
-               history_item INTEGER NOT NULL,
-               title TEXT,
-               visit_time REAL NOT NULL
-             );",
-        )
-        .expect("create safari tables");
-    history
-        .execute("INSERT INTO history_items (id, url) VALUES (1, 'https://example.com/safari')", [])
-        .expect("insert safari item");
-    history
-        .execute(
-            "INSERT INTO history_visits (id, history_item, title, visit_time)
-             VALUES (1, 1, 'Safari docs', 765838800.0)",
-            [],
-        )
-        .expect("insert safari visit");
-    safari_root
-}
-
-fn seed_takeout_fixture(root: &Path) -> PathBuf {
-    let source_dir = root.join("takeout-source");
-    fs::create_dir_all(&source_dir).expect("create takeout dir");
-    fs::write(
-        source_dir.join("entries.jsonl"),
-        r#"{"url":"https://example.com/import","title":"Imported","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
-    )
-    .expect("write takeout fixture");
-    source_dir
 }
 
 #[test]
@@ -2823,3 +1997,96 @@ fn legacy_recent_runs(
         .collect::<rusqlite::Result<Vec<_>>>()
         .unwrap()
 }
+
+fn seed_firefox_fixture(root: &Path) -> PathBuf {
+    let firefox_root = root.join("firefox");
+    let profiles_dir = firefox_root.join("Profiles");
+    let profile_dir = profiles_dir.join("abcd.default-release");
+    fs::create_dir_all(&profile_dir).expect("create firefox profile dir");
+    fs::write(
+        firefox_root.join("profiles.ini"),
+        "[Profile0]\nName=Work Firefox\nPath=abcd.default-release\nIsRelative=1\n",
+    )
+    .expect("write firefox profiles.ini");
+
+    let history = Connection::open(profile_dir.join("places.sqlite")).expect("open firefox db");
+    history
+        .execute_batch(
+            "CREATE TABLE moz_places (
+               id INTEGER PRIMARY KEY,
+               url TEXT NOT NULL,
+               title TEXT,
+               visit_count INTEGER,
+               hidden INTEGER,
+               last_visit_date INTEGER
+             );
+             CREATE TABLE moz_historyvisits (
+               id INTEGER PRIMARY KEY,
+               place_id INTEGER NOT NULL,
+               visit_date INTEGER NOT NULL,
+               from_visit INTEGER,
+               visit_type INTEGER
+             );",
+        )
+        .expect("create firefox tables");
+    history
+        .execute(
+            "INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date)
+             VALUES (1, 'https://example.com/firefox', 'Firefox docs', 1, 0, 1744146000000000)",
+            [],
+        )
+        .expect("insert firefox place");
+    history
+        .execute(
+            "INSERT INTO moz_historyvisits (id, place_id, visit_date, from_visit, visit_type)
+             VALUES (1, 1, 1744146000000000, NULL, 1)",
+            [],
+        )
+        .expect("insert firefox visit");
+
+    profiles_dir
+}
+
+fn seed_safari_fixture(root: &Path) -> PathBuf {
+    let safari_root = root.join("Safari");
+    fs::create_dir_all(&safari_root).expect("create safari root");
+    let history = Connection::open(safari_root.join("History.db")).expect("open safari db");
+    history
+        .execute_batch(
+            "CREATE TABLE history_items (
+               id INTEGER PRIMARY KEY,
+               url TEXT NOT NULL
+             );
+             CREATE TABLE history_visits (
+               id INTEGER PRIMARY KEY,
+               history_item INTEGER NOT NULL,
+               title TEXT,
+               visit_time REAL NOT NULL
+             );",
+        )
+        .expect("create safari tables");
+    history
+        .execute("INSERT INTO history_items (id, url) VALUES (1, 'https://example.com/safari')", [])
+        .expect("insert safari item");
+    history
+        .execute(
+            "INSERT INTO history_visits (id, history_item, title, visit_time)
+             VALUES (1, 1, 'Safari docs', 765838800.0)",
+            [],
+        )
+        .expect("insert safari visit");
+    safari_root
+}
+
+fn seed_takeout_fixture(root: &Path) -> PathBuf {
+    let source_dir = root.join("takeout-source");
+    fs::create_dir_all(&source_dir).expect("create takeout dir");
+    fs::write(
+        source_dir.join("entries.jsonl"),
+        r#"{"url":"https://example.com/import","title":"Imported","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+    )
+    .expect("write takeout fixture");
+    source_dir
+}
+
+mod native_search;

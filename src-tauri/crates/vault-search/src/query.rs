@@ -17,13 +17,29 @@ use tantivy::schema::{Field, IndexRecordOption};
 /// caller-selected number of distinct matching Unicode grams, with no candidate cap.
 #[derive(Clone, Debug)]
 pub enum Ast {
-    Term { token: String, field: Option<TextField> },
-    Prefix { token: String, field: Option<TextField> },
-    Phrase { tokens: Vec<PhraseTerm>, field: Option<TextField> },
+    Term {
+        token: String,
+        field: Option<TextField>,
+    },
+    Prefix {
+        token: String,
+        field: Option<TextField>,
+    },
+    Phrase {
+        tokens: Vec<PhraseTerm>,
+        field: Option<TextField>,
+    },
     Not(Box<Ast>),
     And(Vec<Ast>),
     Or(Vec<Ast>),
-    Trigrams { text: String, minimum_match: usize },
+    Trigrams {
+        text: String,
+        minimum_match: usize,
+    },
+    /// Exact adjacent Unicode grams, for the caller-normalized compact text.
+    Substring {
+        text: String,
+    },
 }
 /// A phrase position can require an exact token or a prefix, without string syntax.
 #[derive(Clone, Debug)]
@@ -44,20 +60,20 @@ impl From<&str> for PhraseTerm {
 impl PhraseTerm {
     fn indexed(&self) -> String {
         match self {
-            Self::Exact(token) => format!("={token}"),
-            Self::Prefix(token) => format!("^{token}"),
+            Self::Exact(token) => crate::analyzer::indexed_token(token, false),
+            Self::Prefix(token) => crate::analyzer::indexed_token(token, true),
         }
     }
 }
 impl Ast {
     pub(crate) fn compile(&self, fields: &Fields) -> Result<Box<dyn Query>> {
         match self {
-            Self::Term { token, field } => {
-                across(fields, *field, |f| Ok(term(f, &format!("={token}"))))
-            }
-            Self::Prefix { token, field } => {
-                across(fields, *field, |f| Ok(term(f, &format!("^{token}"))))
-            }
+            Self::Term { token, field } => across(fields, *field, |f| {
+                Ok(term(f, &crate::analyzer::indexed_token(token, false)))
+            }),
+            Self::Prefix { token, field } => across(fields, *field, |f| {
+                Ok(term(f, &crate::analyzer::indexed_token(token, true)))
+            }),
             Self::Phrase { tokens, field } => across(fields, *field, |f| {
                 Ok(match tokens.as_slice() {
                     [] => Box::new(EmptyQuery),
@@ -76,6 +92,20 @@ impl Ast {
                 Ok(Box::new(BooleanQuery::intersection(compile_all(children, fields)?)))
             }
             Self::Or(children) => Ok(Box::new(BooleanQuery::union(compile_all(children, fields)?))),
+            Self::Substring { text } => {
+                let chars = text.chars().collect::<Vec<_>>();
+                let terms = chars
+                    .windows(3)
+                    .map(|gram| {
+                        Term::from_field_text(fields.grams, &gram.iter().collect::<String>())
+                    })
+                    .collect::<Vec<_>>();
+                Ok(match terms.as_slice() {
+                    [] => Box::new(EmptyQuery),
+                    [term] => Box::new(TermQuery::new(term.clone(), IndexRecordOption::WithFreqs)),
+                    _ => Box::new(PhraseQuery::new(terms)),
+                })
+            }
             Self::Trigrams { text, minimum_match } => {
                 if *minimum_match == 0 {
                     return Err(Error::Input("trigram minimum_match must be positive".into()));

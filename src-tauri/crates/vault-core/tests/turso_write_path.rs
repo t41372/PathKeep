@@ -50,7 +50,7 @@ fn imports_annotations_and_visibility_share_the_search_transaction() {
         )
         .unwrap();
         let document = || {
-            vault.store().read(Db::Archive,|s|s.query_one("SELECT notes_text,tags_text,newest_visit_ms,(SELECT COUNT(*) FROM search_document_profiles),(SELECT COUNT(*) FROM search_outbox) FROM search_documents",(),|r|Ok((r.get::<String>(0)?,r.get::<String>(1)?,r.get::<Option<i64>>(2)?,r.get::<i64>(3)?,r.get::<i64>(4)?)))).unwrap()
+            vault.store().read(Db::Archive,|s|s.query_one("SELECT notes_text,tags_text,newest_visit_ms,(SELECT COUNT(*) FROM search_document_profiles),(SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name='search_outbox'),0)) FROM search_documents",(),|r|Ok((r.get::<String>(0)?,r.get::<String>(1)?,r.get::<Option<i64>>(2)?,r.get::<i64>(3)?,r.get::<i64>(4)?)))).unwrap()
         };
         let before = document();
         assert_eq!(

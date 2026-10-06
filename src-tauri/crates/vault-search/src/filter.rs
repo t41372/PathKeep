@@ -1,7 +1,8 @@
 //! Responsibilities: Choose pushed intersections or fast-field checks by selectivity.
 //! Not responsible for: Computing same-visit eligibility from canonical data.
 //! Failure modes: Filters contribute to scores; missing domains match; multi-profile pages
-//! disappear; pushed/post-filter plans disagree. Tested in contracts.
+//! disappear; pushed/post-filter plans disagree; stale recency controls ties.
+//! Tested in contracts and canonical.
 
 use crate::schema::Fields;
 use std::sync::Arc;
@@ -14,8 +15,13 @@ use tantivy::{DocId, Searcher, SegmentReader, Term};
 /// A profile membership alone cannot prove a date and profile match the same visit.
 #[derive(Clone, Default)]
 pub struct Filters {
+    pub order: SortOrder,
+    /// Complete caller-owned scoring inputs (for example global RRF ranks), never a top-N pool.
+    pub score: Option<Arc<dyn Fn(u64, f32) -> f32 + Send + Sync>>,
     pub domain: Option<String>,
     pub profile_id: Option<u64>,
+    /// Canonical recency for this snapshot, including revokes not yet indexed.
+    pub newest_visit: Option<Arc<dyn Fn(u64) -> i64 + Send + Sync>>,
     pub eligibility: Option<Arc<dyn Fn(u64) -> bool + Send + Sync>>,
 }
 
@@ -107,4 +113,13 @@ impl SegmentFilter {
             .as_ref()
             .is_none_or(|(column, wanted)| column.values_for_doc(doc).any(|value| value == *wanted))
     }
+}
+
+/// Explicit caller ordering; relevance never switches to chronology automatically.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SortOrder {
+    #[default]
+    Relevance,
+    Newest,
+    Oldest,
 }

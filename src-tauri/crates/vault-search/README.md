@@ -17,23 +17,23 @@ One live document per `page_id`. An upsert deletes its old ID before adding a fu
 replacement. Rebuild input is strictly ordered by page ID, enforcing uniqueness
 with one previous ID rather than an archive-sized set.
 
-| Field                     | Type                                             | Weight |
-| ------------------------- | ------------------------------------------------ | -----: |
-| `url`                     | positioned text                                  |      6 |
-| `title`                   | positioned text                                  |     12 |
-| `search_terms`            | positioned text                                  |      4 |
-| `normalized_url`          | positioned text                                  |      5 |
-| `normalized_title`        | positioned text                                  |     10 |
-| `normalized_search_terms` | positioned text                                  |      4 |
-| `cjk_grams`               | positioned text                                  |      2 |
-| `enrichment_text`         | positioned text                                  |      7 |
-| `notes_text`              | positioned text                                  |      9 |
-| `tags_text`               | positioned text                                  |      6 |
-| `trigrams`                | Unicode 3-grams from `compact_text`, frequencies |      1 |
-| `page_id`                 | indexed u64, fast                                |      — |
-| `newest_visit_ms`         | i64, fast                                        |      — |
-| `domain`                  | exact indexed string, fast                       |      — |
-| `profile_ids`             | indexed u64, multi-valued fast                   |      — |
+| Field                     | Type                                           | Weight |
+| ------------------------- | ---------------------------------------------- | -----: |
+| `url`                     | positioned text                                |      6 |
+| `title`                   | positioned text                                |     12 |
+| `search_terms`            | positioned text                                |      4 |
+| `normalized_url`          | positioned text                                |      5 |
+| `normalized_title`        | positioned text                                |     10 |
+| `normalized_search_terms` | positioned text                                |      4 |
+| `cjk_grams`               | positioned text                                |      2 |
+| `enrichment_text`         | positioned text                                |      7 |
+| `notes_text`              | positioned text                                |      9 |
+| `tags_text`               | positioned text                                |      6 |
+| `trigrams`                | Unicode 3-grams from `compact_text`, positions |      1 |
+| `page_id`                 | indexed u64, fast                              |      — |
+| `newest_visit_ms`         | i64, fast                                      |      — |
+| `domain`                  | exact indexed string, fast                     |      — |
+| `profile_ids`             | indexed u64, multi-valued fast                 |      — |
 
 Text contains **already normalized, ASCII-whitespace-delimited tokens**. The
 crate performs no case folding, Unicode normalization, stemming, language
@@ -47,23 +47,23 @@ commit payload. Opening also compares the actual schema. A mismatch returns
 
 ### Complete prefixes with BM25
 
-Each normalized token produces an exact term (`=token`) and its Unicode prefixes
-(`^`, `^t`, `^to`, …, `^token`) in the same weighted field, all at its original
+Each normalized token produces an exact term (`=rtoken`) and its Unicode prefixes
+(`^r`, `^rt`, `^rto`, …, `^rtoken`) in the same weighted field, all at its original
 position. Phrase positions select exact or prefix terms. Every input token gets the namespace, including
 literal strings starting with `=` or `^`, so literals cannot collide with aliases.
 
 Tantivy's `PhrasePrefixQuery` caps expansions at 50 by default, including a lone
 prefix; its uncapped automaton query uses constant scores. Here `42*` becomes one
-BM25 term query for `^42`, with its own document and term frequencies, however many
+BM25 term query for `^r42`, with its own document and term frequencies, however many
 different words begin with `42`. There is no query-time vocabulary expansion,
 matching-document bitset or candidate limit. The cost is extra indexed terms and
 postings, measured in [the benchmark report](../../../docs/architecture/research/2026-10-vault-search-benchmark.md). Tantivy field norms count the
 aliases too. These are versioned Tantivy BM25 scores, not numerical FTS5 parity.
 
-Tantivy silently drops terms beyond `MAX_TOKEN_LEN`. Text tokens whose namespace
-would exceed that engine limit are rejected with `Error::Input`; the entire write
-rolls back without advancing the outbox watermark. The caller must correct the
-projection rather than acknowledge a partly searchable document.
+Tantivy silently drops terms beyond `MAX_TOKEN_LEN`. Raw namespaces cover short
+tokens; length-and-SHA256 namespaces preserve every long exact and prefix token.
+Rolling hashes avoid quadratic prefix bytes. See the oversized-token contract and
+[local dependency reproductions](../../../docs/architecture/search.md#dependency-behavior-reproduced-locally).
 
 ## Typed AST
 
@@ -72,6 +72,7 @@ projection rather than acknowledge a partly searchable document.
 | `Term { token, field }`            | Exact token; `None` searches all ten weighted fields.                                                                  |
 | `Prefix { token, field }`          | Literal prefix; empty matches any token in the field.                                                                  |
 | `Phrase { tokens, field }`         | Adjacent, ordered `PhraseTerm::Exact` or `Prefix` tokens within one field. One token is a term; empty matches nothing. |
+| `Substring { text }`               | Exact adjacent positioned trigrams for a compact fragment of at least three characters.                                |
 | `Not(child)`                       | All live pages except the child; contributes zero score.                                                               |
 | `And(children)`                    | Intersection; empty matches all live pages.                                                                            |
 | `Or(children)`                     | Union; empty matches nothing.                                                                                          |
@@ -102,8 +103,8 @@ membership, including every value of a multi-valued profile field.
 `Filters::eligibility` is the caller's **immutable** page-ID predicate. vault-core
 computes canonical visibility and correlated date/profile/same-visit eligibility.
 The predicate should use a cheap membership lookup, not a database request per page.
-A latest-visit field cannot prove an arbitrary historical interval. Ranking uses
-the supplied page's `newest_visit_ms`, not date-dependent recency recomputed here.
+A latest-visit field cannot prove an arbitrary historical interval. `Filters::newest_visit` can supply canonical eligible recency; `Filters::score`
+can supply complete AI fusion scores. `SortOrder` also supports chronological order.
 Hydration and final canonical validation remain with the caller.
 
 `index.search(ast, filters)` pins a reader snapshot, query and eligibility in a
@@ -116,7 +117,7 @@ match remains reachable once during concurrent writes, merges and rebuilds.
 Changing filters or canonical visibility starts a new session. In particular,
 discard sessions after a revoke when previously visible pages must immediately
 stop appearing. Cursors are in-process handles, not serialized tokens. Drop all
-sessions, cursors and progress handles when finished and on vault lock: they keep
+sessions, cursors and progress handles when finished and on Vault close: they keep
 readers and the encrypted directory alive. Retaining arbitrarily many snapshots
 necessarily retains their old segments and reader memory.
 
@@ -227,3 +228,13 @@ fields, term dictionaries, postings and segment metadata remain Tantivy-owned an
 scale with the index. The caller owns eligibility storage and session lifetimes.
 
 Every module begins with its responsibilities, its failure modes and the tests that cover them.
+
+## Owner integration
+
+vault-core uses `start_matches` to resolve canonical eligibility in bounded batches,
+then the same `RankCollector` for every eligible hit. A batch size bounds one unit
+of work, never total coverage. The caller normalization revision is durable in the
+commit payload alongside schema/analyzer revisions. `build_initial` publishes
+increasing prefixes and marks them incomplete; healthy `rebuild` keeps the old
+reader. Generation leases retain old directory files only while readers need them.
+The owner contract is documented in [search.md](../../../docs/architecture/search.md).

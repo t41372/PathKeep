@@ -5,7 +5,12 @@ edition = "2024"
 license.workspace = true
 description = "Encrypted, complete page search with stable ranking and incremental progress"
 
+[features]
+crash-points = []
+
 [dependencies]
+sha2.workspace = true
+hex.workspace = true
 tantivy = "0.26.2"
 vault-crypto = { path = "../vault-crypto" }
 serde.workspace = true

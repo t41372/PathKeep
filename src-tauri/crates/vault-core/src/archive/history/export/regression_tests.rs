@@ -1,6 +1,6 @@
 //! Real archive regressions for export failure modes documented in progress.rs.
 //! Responsibilities: real artifact, cancellation, paging and write-buffer contracts.
-//! Not responsible for: search recall or transport.
+//! Not responsible for: search ranking or transport.
 //! Failure modes: missed tied rows, cancelled artifacts published, shared cancellation, unbounded buffers.
 
 use super::*;
@@ -15,8 +15,9 @@ pub(crate) fn seeded_archive(rows: usize, key: Option<[u8; 32]>) -> crate::Vault
         s.execute("INSERT INTO urls(id,page_id,url,title,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id) VALUES(1,1,'https://example.com/?a=1&b=2','Title <中文>',0,'',0,'',1,0)",())?;
         s.execute("WITH RECURSIVE ids(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM ids WHERE id<?1) INSERT INTO visits(url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT 1,CAST(id AS TEXT),1700000000000+id/3,'',1,0 FROM ids",[rows as i64])?;
         s.execute("UPDATE archive_totals SET value=?1 WHERE name='visits'",[rows as i64])?;
-        Ok(())
+        crate::archive::search_documents::refresh(s, 1)
     }).unwrap();
+    vault.search().cycle().unwrap();
     vault
 }
 
@@ -127,6 +128,17 @@ fn streamed_output_matches_previous_page_walk_for_all_formats_and_filters() {
                 profile_id: Some("chrome:Default".into()),
                 domain: Some("example.com".into()),
                 start_time_ms: Some(1700000000100),
+                ..HistoryQuery::default()
+            },
+            HistoryQuery { q: Some("Title".into()), ..HistoryQuery::default() },
+            HistoryQuery {
+                q: Some("中文".into()),
+                regex_mode: Some(true),
+                ..HistoryQuery::default()
+            },
+            HistoryQuery {
+                q: Some("site:example.com".into()),
+                group_by_url: Some(true),
                 ..HistoryQuery::default()
             },
             HistoryQuery { domain: Some("no-matches".into()), ..HistoryQuery::default() },
@@ -264,5 +276,43 @@ fn exports_start_at_the_first_match_regardless_of_screen_pagination() {
         )
         .unwrap();
         assert_eq!(result.count, 1205);
+    }
+}
+
+#[test]
+fn invalid_search_export_records_a_terminal_failure_without_an_artifact() {
+    for key in [None, Some([76; 32])] {
+        let vault = seeded_archive(4, key);
+        let invalid =
+            HistoryQuery { q: Some("[".into()), regex_mode: Some(true), ..Default::default() };
+        assert!(
+            export_history(&vault, request("invalid-search", invalid, ExportFormat::Jsonl))
+                .is_err()
+        );
+        let progress = get_export_progress("invalid-search").unwrap();
+        assert_eq!(progress.state, ExportState::Failed);
+        assert!(progress.error.unwrap().contains("invalid regex"));
+        assert_eq!(fs::read_dir(&vault.paths().exports_dir).unwrap().count(), 0);
+    }
+}
+
+#[test]
+fn search_export_progress_does_not_report_the_archives_visit_total_as_matching_pages() {
+    for key in [None, Some([76; 32])] {
+        let vault = seeded_archive(4, key);
+        let result = export_history(
+            &vault,
+            request(
+                "search-progress",
+                HistoryQuery { q: Some("Title".into()), ..Default::default() },
+                ExportFormat::Jsonl,
+            ),
+        )
+        .unwrap();
+        assert_eq!(result.count, 1);
+        let progress = get_export_progress("search-progress").unwrap();
+        assert_eq!(progress.state, ExportState::Done);
+        assert_eq!(progress.rows_written, 1);
+        assert_eq!(progress.total_rows, None);
     }
 }

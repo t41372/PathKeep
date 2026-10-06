@@ -7,11 +7,10 @@ use crate::{PageDocument, TextField};
 use tantivy::schema::{
     FAST, Field, INDEXED, IndexRecordOption, STRING, Schema, TextFieldIndexing, TextOptions,
 };
-use tantivy::tokenizer::NgramTokenizer;
 use tantivy::{Index, TantivyDocument};
 
-pub(crate) const SCHEMA_VERSION: u32 = 1;
-pub(crate) const ANALYZER_VERSION: u32 = 1;
+pub(crate) const SCHEMA_VERSION: u32 = 2;
+pub(crate) const ANALYZER_VERSION: u32 = 3;
 
 #[derive(Clone)]
 pub(crate) struct Fields {
@@ -35,7 +34,7 @@ pub(crate) fn schema() -> (Schema, Fields) {
         TextOptions::default().set_indexing_options(
             TextFieldIndexing::default()
                 .set_tokenizer("grams")
-                .set_index_option(IndexRecordOption::WithFreqs),
+                .set_index_option(IndexRecordOption::WithFreqsAndPositions),
         ),
     );
     let fields = Fields {
@@ -50,9 +49,7 @@ pub(crate) fn schema() -> (Schema, Fields) {
 }
 pub(crate) fn register(index: &Index) {
     index.tokenizers().register("normalized", crate::analyzer::PrefixTokenizer::default());
-    index
-        .tokenizers()
-        .register("grams", NgramTokenizer::new(3, 3, false).expect("fixed valid ngram widths"));
+    index.tokenizers().register("grams", crate::analyzer::TrigramTokenizer);
 }
 impl Fields {
     pub fn document(&self, page: PageDocument) -> TantivyDocument {
