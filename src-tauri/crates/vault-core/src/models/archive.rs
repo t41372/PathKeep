@@ -484,6 +484,8 @@ pub struct DashboardSnapshot {
     /// `earliest_visit_at`; both are populated together or both are `None`.
     pub latest_visit_at: Option<String>,
     pub recent_runs: Vec<BackupRunOverview>,
+    #[serde(default)]
+    pub recent_runs_next_cursor: Option<i64>,
     pub storage: StorageSummary,
     pub next_action: Option<String>,
 }

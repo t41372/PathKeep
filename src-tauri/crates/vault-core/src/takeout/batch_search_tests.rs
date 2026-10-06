@@ -444,8 +444,9 @@ fn startup_lists_unfinished_visibility_even_outside_the_recent_batch_limit() {
     original.store().close().unwrap();
     f.vault = Vault::open(f.paths.clone(), original.config().clone(), None).unwrap();
     assert!(
-        load_import_batches(&f.vault)
+        load_import_batches(&f.vault, None, 16)
             .unwrap()
+            .items
             .iter()
             .any(|batch| batch.id == f.batch_id && batch.status == "reverting")
     );

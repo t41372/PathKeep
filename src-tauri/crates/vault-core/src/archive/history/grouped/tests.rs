@@ -72,7 +72,7 @@ impl Archive {
     }
 
     fn search(&self, query: HistoryQuery) -> HistoryQueryResponse {
-        list_history(
+        search_history(
             &self.paths,
             &self.config,
             None,
@@ -90,7 +90,7 @@ impl Archive {
         let mut rows = Vec::new();
         let mut cursor = None;
         loop {
-            let page = list_history(
+            let page = search_history(
                 &self.paths,
                 &self.config,
                 None,
@@ -287,7 +287,7 @@ fn a_typo_falls_back_to_fuzzy_matching_and_still_groups() {
         .index();
 
     for include_total in [true, false] {
-        let response = list_history(
+        let response = search_history(
             &archive.paths,
             &archive.config,
             None,

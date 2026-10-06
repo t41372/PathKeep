@@ -1,3 +1,5 @@
+//! Failure modes: snapshot provenance lost, missing source files, inconsistent artifact hashes.
+//! Tests: artifact reconstruction tests and checkpoint_restore suites.
 //! Archive artifact and source-payload helpers.
 //!
 //! ## Responsibilities
@@ -24,6 +26,8 @@
 use super::*;
 use serde::Serialize;
 
+type ProfileFields = (String, Option<String>, String, String, Option<String>);
+
 /// Audit-facing description of one saved snapshot artifact.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,58 +47,6 @@ pub(crate) struct SnapshotRecord {
     pub(crate) created_at: String,
     pub(crate) reason: Option<String>,
 }
-
-/// Records that a later run reused or consumed an existing snapshot artifact.
-///
-/// Restore and rekey flows use this instead of duplicating files when they only
-/// need an audit reference to an existing artifact.
-pub(crate) fn record_snapshot_reference(
-    connection: &Connection,
-    run_id: i64,
-    path: &Path,
-    reason: &str,
-    created_at: &str,
-) -> Result<()> {
-    let (file_size, checksum) = snapshot_artifact_bytes_and_checksum(path)?;
-    connection.execute(
-        "INSERT INTO snapshots (run_id, file_path, file_size, checksum, reason, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            run_id,
-            path.display().to_string(),
-            file_size as i64,
-            checksum,
-            reason,
-            created_at,
-        ],
-    )?;
-    Ok(())
-}
-
-/// Captures the schema payload of one staged source database for evidence/audit.
-///
-/// Ingest uses this before canonical rows are written so schema observations can
-/// be stored even when later row-level processing fails.
-pub(crate) fn collect_schema_payload(path: &Path) -> Result<Value> {
-    let connection = open_readonly_source(path)?;
-    let mut statement = connection.prepare(
-        "SELECT type, name, tbl_name, sql
-         FROM sqlite_master
-         WHERE sql IS NOT NULL
-         ORDER BY type, name",
-    )?;
-    let rows = statement.query_map([], |row| {
-        Ok(json!({
-            "type": row.get::<_, String>(0)?,
-            "name": row.get::<_, String>(1)?,
-            "tableName": row.get::<_, String>(2)?,
-            "sql": row.get::<_, String>(3)?,
-        }))
-    })?;
-    Ok(Value::Array(rows.collect::<rusqlite::Result<Vec<_>>>()?))
-}
-
-type ProfileFields = (String, Option<String>, String, String, Option<String>);
 
 /// Reconstructs a recorded source, even when the live discovery row no longer exists.
 pub(super) fn snapshot_browser_profile(
@@ -265,16 +217,6 @@ fn collect_path_file_hashes(root: &Path, path: &Path) -> Result<Vec<(String, Str
 
 /// Opens one staged source database in strict read-only mode.
 ///
-/// Schema inspection and payload extraction use this helper so source files are
-/// never mutated during backup/import analysis.
-fn open_readonly_source(path: &Path) -> Result<Connection> {
-    Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .with_context(|| format!("opening source {}", path.display()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

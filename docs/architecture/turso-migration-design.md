@@ -96,7 +96,8 @@
   - URL；
   - 搜尋文件的 upsert 和搜尋 outbox（Tantivy 由索引執行緒在交易之後追上）；
   - profile watermark；
-  - run 的進度。
+  - run 的進度；
+  - archive 與每個 source profile 的可見筆數快取。
 - **Run 的可見性：**
   - run 一開始就是 `running`；已提交的批次立刻可見，因為它們就是真實的歷史。
   - 全部批次完成後，run 才標成 `completed`。

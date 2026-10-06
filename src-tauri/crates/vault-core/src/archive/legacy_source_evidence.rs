@@ -1,3 +1,4 @@
+//! Failure modes: wrong legacy keys, mode drift, or omitted source-evidence tables. Tests: retained intelligence/maintenance fixtures.
 //! Responsibilities: open the source-evidence file for unported read/maintenance code.
 //! Not responsible for: Turso writes, backup or import. Removed with area 5.
 use crate::{
@@ -111,7 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_native_entities_batch_kind
   ON native_entities(source_batch_id, entity_kind);
 "#;
 
-pub fn open_source_evidence_connection(
+pub fn open_legacy_source_evidence_connection(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,

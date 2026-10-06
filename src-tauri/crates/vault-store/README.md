@@ -226,6 +226,15 @@ cancellation, too-new schemas and other engine failures. Engine failures retain
 cause. Native decryption errors do not distinguish a wrong key from damaged
 authentication data. No business code should inspect engine error strings.
 
+## Diagnostic reads
+
+Within a normal read-pool job, `Session::schema_version()` inspects Store's migration
+metadata and `Session::integrity_check()` runs the fixed read-only Turso integrity
+pragma. These methods expose neither a connection nor arbitrary PRAGMA access.
+Integrity checking can be long and cannot interrupt an in-flight statement in Turso
+0.8.1. Business-level relationship, outbox and cached-count checks belong to vault-core.
+The `health` integration test exercises both methods with plaintext and encrypted files.
+
 ## Dependencies and validation
 
 - `turso = "=0.8.1"`: the vetted engine, exactly pinned; default FTS/allocator

@@ -168,9 +168,7 @@ impl<'a> ArchiveChunkConsumer<'a> {
             let (next, cursor) = self.vault.write(Db::Archive, Priority::Batch, move |s| {
                 let before = progress.clone();
                 apply_batch(s, &context, batch, &mut progress, &mut watermark)?;
-                for (field, delta) in [("urls", progress.new_urls-before.new_urls), ("visits", progress.new_visits-before.new_visits), ("downloads", progress.new_downloads-before.new_downloads)] {
-                    crate::archive::totals::add(s, field, delta as i64)?;
-                }
+                crate::archive::totals::add_batch(s,context.source_profile_id,progress.new_urls-before.new_urls,progress.new_visits-before.new_visits,progress.new_downloads-before.new_downloads)?;
                 if context.tracks_watermark() {
                     save_watermark(s, &context.profile_id, &watermark)?;
                 } else {
@@ -534,10 +532,13 @@ mod statement_benchmark {
                         ("skippedRecords", 0),
                     ],
                 )?;
-                for (field, delta) in [("urls", progress.new_urls), ("visits", 0), ("downloads", 0)]
-                {
-                    crate::archive::totals::add(s, field, delta as i64)?;
-                }
+                crate::archive::totals::add_batch(
+                    s,
+                    context.source_profile_id,
+                    progress.new_urls,
+                    0,
+                    0,
+                )?;
                 let url_count = s.statement_count() - before;
                 let visits = (1..=size)
                     .map(|id| {
@@ -569,11 +570,13 @@ mod statement_benchmark {
                     context.run_id,
                     &[("newVisits", progress.new_visits)],
                 )?;
-                for (field, delta) in
-                    [("urls", 0), ("visits", progress.new_visits), ("downloads", 0)]
-                {
-                    crate::archive::totals::add(s, field, delta as i64)?;
-                }
+                crate::archive::totals::add_batch(
+                    s,
+                    context.source_profile_id,
+                    0,
+                    progress.new_visits,
+                    0,
+                )?;
                 Ok((url_count, s.statement_count() - before))
             })
             .unwrap();

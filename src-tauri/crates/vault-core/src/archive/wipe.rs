@@ -74,8 +74,9 @@
 //!   when no successful run has cached them. Folder sizes are a metadata walk.
 
 use super::{
-    count_visible_archive_totals, open_archive_connection, open_intelligence_connection,
-    read_models::load_cached_archive_totals,
+    count_visible_archive_totals,
+    legacy_totals::load_cached_archive_totals,
+    open_archive_connection, open_intelligence_connection,
     write_lock::{ARCHIVE_WRITE_LOCK_FILE, ArchiveOpGate, ArchiveWriteLock},
 };
 use crate::{

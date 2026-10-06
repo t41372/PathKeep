@@ -1,7 +1,7 @@
 //! Responsibilities: keep statements/cursors on one thread and scope each transaction.
 //! Not responsible for: scheduling, application SQL or accumulating large result sets.
 //! Failure modes: reads write; errors/panics leak transactions; cursor escape shares
-//! ownership; failed rollback is hidden. Tests: concurrency, api compile-fail docs.
+//! ownership; failed rollback is hidden; doctor cannot inspect encrypted files or metadata. Tests: concurrency, api compile-fail docs.
 use crate::{Error, Result};
 use std::{
     cell::{Cell, RefCell},
@@ -53,6 +53,24 @@ impl<'a> Session<'a> {
     /// Counts application statements in this job, for bounded-write diagnostics.
     pub fn statement_count(&self) -> usize {
         self.statements.get()
+    }
+
+    /// Doctor needs migration metadata without opening another database owner.
+    pub fn schema_version(&self) -> Result<i64> {
+        crate::migration::version(self)
+    }
+
+    /// Runs Turso's structural and row/index consistency checks on this snapshot.
+    /// This fixed read-only pragma does not expose arbitrary connection settings.
+    pub fn integrity_check(&self) -> Result<Vec<String>> {
+        self.runtime.block_on(async {
+            let mut rows = self.conn.query("PRAGMA integrity_check", ()).await?;
+            let mut messages = Vec::new();
+            while let Some(row) = rows.next().await? {
+                messages.push(row.get::<String>(0)?);
+            }
+            Ok(messages)
+        })
     }
 
     /// Apply one statement within the transaction already owned by the facade.

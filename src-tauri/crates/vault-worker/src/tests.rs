@@ -599,9 +599,13 @@ fn app_snapshot_stays_usable_when_archive_is_initialized_but_locked() {
 
     let mut config = initialized_config();
     config.archive_mode = ArchiveMode::Encrypted;
-    let snapshot =
-        initialize_archive_database(&config, Some("000000")).expect("initialize encrypted archive");
+    initialize_archive_database(&config, Some("000000")).expect("initialize encrypted archive");
+    let (vault, _key) =
+        vault_core::Vault::open_password(project_paths().unwrap(), config.clone(), "000000", None)
+            .unwrap();
+    let snapshot = app_snapshot_with_vault(Some(&vault), Some("000000")).unwrap();
     assert!(snapshot.archive_status.unlocked);
+    vault.store().close().unwrap();
 
     let locked_snapshot = app_snapshot(None).expect("locked archive snapshot");
     assert!(locked_snapshot.config.initialized);
@@ -639,23 +643,18 @@ fn app_snapshot_surfaces_recent_run_ledger_decode_failures() {
     let config = initialized_config();
     initialize_archive_database(&config, None).expect("initialize archive");
     run_backup_now(&vault, None, false).expect("seed a visible run");
-    seed_legacy_reader_fixture(None);
-    let paths = project_paths().expect("project paths");
-    let connection =
-        Connection::open(&paths.archive_database_path).expect("open archive for corruption");
-    connection
-        .execute(
-            "UPDATE runs
-             SET status = CAST(X'80' AS TEXT)
-             WHERE id = (SELECT MAX(id) FROM runs)",
-            [],
-        )
-        .expect("corrupt recent run payload");
-
-    let error = app_snapshot(None).expect_err("ledger decode failure must not look like no runs");
+    vault
+        .store()
+        .write(vault_store::Db::Archive, vault_store::Priority::Interactive, |s| {
+            s.execute("UPDATE runs SET status=X'80' WHERE id=(SELECT MAX(id) FROM runs)", ())?;
+            Ok(())
+        })
+        .unwrap();
+    let error = app_snapshot_with_vault(Some(&vault), None)
+        .expect_err("ledger decode failure must not look like no runs");
     assert!(
         format!("{error:#}").contains("loading the recent run ledger for the app snapshot"),
-        "unexpected error: {error:#}"
+        "{error:#}"
     );
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
@@ -755,7 +754,8 @@ fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
     // auditable `mcp_query` run the user can inspect. The status probe audits
     // too, so this call seeds an `archive-status` row alongside the two
     // `search-history` rows above.
-    let unlocked_status = mcp_archive_status_result(None).expect("unlocked archive status");
+    let unlocked_status =
+        mcp_archive_status_result(Some(&vault), None).expect("unlocked archive status");
     assert!(unlocked_status.unlocked, "archive must read while unlocked");
 
     {
@@ -858,7 +858,8 @@ fn mcp_surface_respects_legacy_visibility_and_locked_app_sessions() {
     .expect_err("locked app should reject mcp search");
     assert!(search_error.to_string().contains("currently locked"));
 
-    let archive_status = mcp_archive_status_result(None).expect("locked archive status");
+    let archive_status =
+        mcp_archive_status_result(Some(&vault), None).expect("locked archive status");
     assert!(!archive_status.unlocked);
     assert_eq!(archive_status.warning.as_deref(), Some("PathKeep is currently locked."));
 
@@ -1033,7 +1034,7 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
     .expect("search served while mcp consent is on");
     // It returned a result envelope (not an error), proving the served baseline.
     assert!(served.total >= served.items.len());
-    mcp_archive_status_result(None).expect("status served while mcp consent is on");
+    mcp_archive_status_result(Some(&vault), None).expect("status served while mcp consent is on");
 
     // Revoke MCP consent mid-session (the same way Settings would persist the toggle).
     config.ai.mcp_enabled = false;
@@ -1056,7 +1057,7 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
         "honest, actionable refusal naming the MCP server: {message}"
     );
 
-    let status_error = mcp_archive_status_result(None)
+    let status_error = mcp_archive_status_result(Some(&vault), None)
         .expect_err("status must refuse once MCP consent is revoked");
     assert!(status_error.to_string().contains("MCP"), "status refusal names MCP");
 
@@ -1370,6 +1371,7 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
     seed_legacy_reader_fixture(None);
 
     let queried = query_history(
+        &vault,
         None,
         HistoryQuery { q: Some("example".to_string()), limit: Some(10), ..HistoryQuery::default() },
     )
@@ -1377,6 +1379,7 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
     assert_eq!(queried.total, 1);
 
     let exported = export_query(
+        &vault,
         None,
         ExportRequest {
             export_id: None,
@@ -1463,7 +1466,7 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
     assert!(keyring_report().stored_secret);
     assert!(!clear_database_key_from_keyring().expect("clear db key").stored_secret);
 
-    let security = security_status(None).expect("security status");
+    let security = security_status(Some(&vault), None).expect("security status");
     assert_eq!(security.mode, "plaintext");
     assert!(security.initialized);
 
@@ -1497,7 +1500,7 @@ fn security_status_reports_uninitialized_archive_mode() {
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
     }
 
-    let security = security_status(None).expect("uninitialized security status");
+    let security = security_status(None, None).expect("uninitialized security status");
     let preview_error = preview_rekey_archive(&RekeyRequest {
         new_mode: ArchiveMode::Encrypted,
         new_key: Some("next".to_string()),
@@ -1776,7 +1779,8 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     .expect("search history tool");
     assert!(tool_result.total >= 1);
 
-    let archive_status = mcp_archive_status_result(None).expect("archive status tool");
+    let archive_status =
+        mcp_archive_status_result(Some(&vault), None).expect("archive status tool");
     assert!(archive_status.initialized);
 
     {
@@ -2899,12 +2903,12 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
     seed_legacy_reader_fixture(Some("vault-passphrase"));
     let run_id = backup.run.expect("backup run").id;
 
-    let dashboard = dashboard_snapshot(Some("vault-passphrase")).expect("load dashboard snapshot");
+    let dashboard = dashboard_snapshot(&vault).expect("load dashboard snapshot");
     assert_eq!(dashboard.total_visits, 1);
-    let detail = audit_run_detail(Some("vault-passphrase"), run_id).expect("load audit detail");
+    let detail = audit_run_detail(&vault, run_id).expect("load audit detail");
     assert_eq!(detail.run.id, run_id);
 
-    let doctor = doctor_report(Some("vault-passphrase")).expect("doctor report");
+    let doctor = doctor_report(&vault, Some("vault-passphrase")).expect("doctor report");
     assert!(!doctor.checks.is_empty());
     let repair = repair_health(&vault, Some("vault-passphrase")).expect("repair health");
     assert!(repair.run_id.is_none() || repair.run_id >= Some(run_id));
@@ -3238,7 +3242,7 @@ fn security_status_keeps_last_rekey_review_visible_when_archive_is_locked() {
     )
     .unwrap();
 
-    let security = security_status(None).expect("security status while locked");
+    let security = security_status(None, None).expect("security status while locked");
     assert_eq!(security.mode, "locked");
     assert!(security.last_rekey_run_id.is_some());
     assert!(security.last_rekey_at.is_some());
@@ -3331,7 +3335,12 @@ fn launch_recovery_heals_a_stale_plaintext_config_so_the_archive_is_not_bricked(
     let mut encrypted = initialized_config();
     encrypted.archive_mode = ArchiveMode::Encrypted;
     let init = initialize_archive_database(&encrypted, Some("000000")).expect("init encrypted");
-    assert!(init.archive_status.unlocked);
+    assert!(init.archive_status.initialized);
+    assert!(
+        vault_core::legacy_archive_status(&project_paths().unwrap(), &encrypted, Some("000000"))
+            .unwrap()
+            .unlocked
+    );
 
     // Overwrite config.json back to Plaintext while the file on disk stays encrypted (no journal):
     // the interrupted-rekey end state that bricked the open.
@@ -3426,7 +3435,12 @@ fn launch_recovery_heals_then_opens_the_archive_when_the_key_is_in_hand() {
     let mut encrypted = initialized_config();
     encrypted.archive_mode = ArchiveMode::Encrypted;
     let init = initialize_archive_database(&encrypted, Some("000000")).expect("init encrypted");
-    assert!(init.archive_status.unlocked);
+    assert!(init.archive_status.initialized);
+    assert!(
+        vault_core::legacy_archive_status(&project_paths().unwrap(), &encrypted, Some("000000"))
+            .unwrap()
+            .unlocked
+    );
 
     // Overwrite config.json back to Plaintext (the stale-config incident shape) while the file on
     // disk stays encrypted.
@@ -3441,7 +3455,13 @@ fn launch_recovery_heals_then_opens_the_archive_when_the_key_is_in_hand() {
     assert!(snapshot.config.initialized);
     assert!(snapshot.archive_status.initialized, "the healed archive is initialized");
     assert!(snapshot.archive_status.encrypted, "config healed to the encrypted file's real mode");
-    assert!(snapshot.archive_status.unlocked, "the in-hand key opened the healed archive");
+    let (vault, _key) =
+        vault_core::Vault::open_password(paths.clone(), snapshot.config.clone(), "000000", None)
+            .unwrap();
+    assert!(
+        app_snapshot_with_vault(Some(&vault), Some("000000")).unwrap().archive_status.unlocked,
+        "the in-hand key opened the native owner after recovery"
+    );
     assert!(matches!(
         vault_core::load_config(&paths).expect("load healed config").archive_mode,
         ArchiveMode::Encrypted,
@@ -3745,10 +3765,10 @@ fn mixed_storage_refuses_unsafe_operations_before_touching_archive_files() {
         new_key: Some("new password".into()),
         current_key: None,
     };
+    assert!(crate::repair_health(&vault, None).unwrap().run_id.is_none());
     let mut errors = vec![
         crate::rekey_archive_database(&request).unwrap_err(),
         crate::preview_rekey_archive(&request).unwrap_err(),
-        crate::repair_health(&vault, None).unwrap_err(),
         crate::export_app_data(None, root.path().join("export.pathkeep-bundle")).unwrap_err(),
         crate::preview_import(root.path().join("absent.pathkeep-bundle")).unwrap_err(),
         crate::apply_import(None, root.path().join("absent.pathkeep-bundle"), Default::default())

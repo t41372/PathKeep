@@ -25,11 +25,8 @@ pub(crate) fn app_snapshot_impl(
     state: &SessionState,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
     let key = state.get_key()?;
-    let mut snapshot = worker_result(vault_worker::app_snapshot(key.as_deref()))?;
-    if let Some(vault) = state.current_vault() {
-        snapshot.recent_import_batches = worker_result(vault_core::load_import_batches(&vault))?;
-    }
-    Ok(snapshot)
+    let vault = state.current_vault();
+    worker_result(vault_worker::app_snapshot_with_vault(vault.as_ref(), key.as_deref()))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -63,13 +60,14 @@ pub(crate) fn wipe_all_data_impl(
 pub(crate) fn save_config_with_base_impl(
     config: AppConfig,
     base_config: Option<AppConfig>,
-    session_database_key: Option<&str>,
+    state: &SessionState,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
     worker_result(vault_worker::save_user_config_with_base(
         &config,
         base_config.as_ref(),
-        session_database_key,
-    ))
+        state.get_key()?.as_deref(),
+    ))?;
+    app_snapshot_impl(state)
 }
 
 /// Caches a session-only database key in the in-process Tauri state.

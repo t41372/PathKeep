@@ -1,7 +1,7 @@
 //! Responsibilities: paginate a globally sorted star set and attach canonical notes/tags.
 //! Not responsible for: star mutation, source ingestion or frontend joins.
 //! Failure modes: limiting before sorting drops popular stars, tied keys repeat,
-//! metadata issues one query per result, or a cursor is reused under another sort.
+//! metadata issues one query per result, domain stars scan pages, grouping sorts all observations, or a cursor is reused under another sort.
 //! Tests: pagination_tests and stars::tests.
 use super::*;
 use crate::models::StarPage;
@@ -17,18 +17,30 @@ struct Cursor {
 }
 // Each branch starts with the star set and probes the appropriate page index.
 const COUNTS: &str = "WITH counts AS (
- SELECT st.entity_kind,st.entity_key,st.starred_at,COALESCE(SUM(u.visit_count),0) AS visits
- FROM star st LEFT JOIN pages p ON p.canonical_url=st.entity_key
- LEFT JOIN urls u ON u.page_id=p.id
- WHERE st.entity_kind='url' AND (?1 IS NULL OR ?1='url')
- GROUP BY st.entity_kind,st.entity_key,st.starred_at
- UNION ALL
- SELECT st.entity_kind,st.entity_key,st.starred_at,COALESCE(SUM(u.visit_count),0) AS visits
- FROM star st LEFT JOIN pages p ON p.registrable_domain=st.entity_key
- LEFT JOIN urls u ON u.page_id=p.id
- WHERE st.entity_kind='domain' AND (?1 IS NULL OR ?1='domain')
- GROUP BY st.entity_kind,st.entity_key,st.starred_at
+ SELECT st.entity_kind,st.entity_key,st.starred_at,
+ CASE WHEN st.entity_kind='url' THEN COALESCE((
+   SELECT SUM(u.visit_count) FROM pages p CROSS JOIN urls u ON u.page_id=p.id
+   WHERE p.canonical_url=st.entity_key
+ ),0) ELSE COALESCE((
+   SELECT SUM(u.visit_count) FROM pages p CROSS JOIN urls u ON u.page_id=p.id
+   WHERE p.registrable_domain IS NOT NULL AND p.registrable_domain=st.entity_key
+ ),0) END AS visits
+ FROM star st WHERE st.entity_kind IN ('url','domain') AND (?1 IS NULL OR st.entity_kind=?1)
 )";
+
+fn list_sql(revisited: bool) -> String {
+    let score = if revisited { "visits" } else { "(0+0)" };
+    format!(
+        "{COUNTS}
+ SELECT entity_kind,entity_key,starred_at,visits,
+ COALESCE((SELECT u.title FROM pages p JOIN urls u ON u.page_id=p.id
+ WHERE counts.entity_kind='url' AND p.canonical_url=counts.entity_key
+ ORDER BY u.last_visit_ms DESC,u.id DESC LIMIT 1),'')
+ FROM counts WHERE ?2=0 OR {score}<?3 OR ({score}=?3 AND
+ (starred_at<?4 OR (starred_at=?4 AND (entity_kind>?5 OR (entity_kind=?5 AND entity_key>?6)))))
+ ORDER BY {score} DESC,starred_at DESC,entity_kind,entity_key LIMIT ?7"
+    )
+}
 
 pub(super) fn page(
     vault: &Vault,
@@ -54,21 +66,11 @@ pub(super) fn page(
     }
     vault.read(Db::Archive, move |s| {
         let revisited = sort == StarSort::MostRevisited;
-        let score = if revisited { "visits" } else { "(0+0)" };
         let at = cursor.as_ref().map(|c| c.at.as_str()).unwrap_or("");
         let last_kind = cursor.as_ref().map(|c| c.kind.as_str()).unwrap_or("");
         let last_key = cursor.as_ref().map(|c| c.key.as_str()).unwrap_or("");
         let last_score = cursor.as_ref().map(|c| c.visits).unwrap_or(0);
-        let sql = format!(
-            "{COUNTS}
- SELECT entity_kind,entity_key,starred_at,visits,
- COALESCE((SELECT u.title FROM pages p JOIN urls u ON u.page_id=p.id
- WHERE counts.entity_kind='url' AND p.canonical_url=counts.entity_key
- ORDER BY u.last_visit_ms DESC,u.id DESC LIMIT 1),'')
- FROM counts WHERE ?2=0 OR {score}<?3 OR ({score}=?3 AND
- (starred_at<?4 OR (starred_at=?4 AND (entity_kind>?5 OR (entity_kind=?5 AND entity_key>?6)))))
- ORDER BY {score} DESC,starred_at DESC,entity_kind,entity_key LIMIT ?7"
-        );
+        let sql = list_sql(revisited);
         let mut items = s.query(
             &sql,
             params![
@@ -150,4 +152,43 @@ fn attach_annotations(s: &Session<'_>, items: &mut [StarListItem]) -> Result<()>
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+    /// Render enrichment must probe page/URL indexes even for a large corpus.
+    #[test]
+    fn starred_enrichment_seeks_page_and_url_indexes() {
+        for key in [None, Some([81; 32])] {
+            let vault = Vault::open_temp_with_key(key).unwrap();
+            vault
+                .read(Db::Archive, |s| {
+                    for sort in [false, true] {
+                        let plan = s
+                            .query(
+                                &format!("EXPLAIN QUERY PLAN {}", list_sql(sort)),
+                                params![Option::<String>::None, 0, 0, "", "", "", 20],
+                                |r| Ok(r.get::<String>(3)?),
+                            )?
+                            .join("\n");
+                        assert!(plan.contains("idx_urls_page_id"), "{plan}");
+                        assert!(
+                            plan.contains("idx_pages_canonical_url")
+                                && plan.contains("idx_pages_registrable_domain"),
+                            "{plan}"
+                        );
+                        assert!(!plan.contains("SCAN p"), "{plan}");
+                        assert!(
+                            !plan.contains("SCAN u")
+                                && !plan.contains("SCAN urls")
+                                && !plan.contains("SCAN visits"),
+                            "{plan}"
+                        );
+                    }
+                    Ok(())
+                })
+                .unwrap();
+        }
+    }
 }

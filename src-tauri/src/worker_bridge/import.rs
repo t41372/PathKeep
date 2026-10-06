@@ -59,9 +59,16 @@ pub(crate) fn import_browser_history_impl(
 /// Loads the detailed preview for one import batch.
 pub(crate) fn preview_import_batch_impl(
     batch_id: i64,
+    cursor: Option<String>,
+    limit: Option<usize>,
     state: &crate::session::SessionState,
 ) -> Result<vault_core::ImportBatchDetail, CommandError> {
-    worker_result(vault_worker::preview_import_batch_detail(&state.vault()?, batch_id))
+    worker_result(vault_core::preview_import_batch_page(
+        &state.vault()?,
+        batch_id,
+        cursor,
+        limit.unwrap_or(24),
+    ))
 }
 
 /// Hides one import batch from the visible archive surface.

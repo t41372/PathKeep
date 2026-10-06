@@ -2673,3 +2673,11 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - Pages carry an indexed canonical-URL key, so stars, notes and fetched page text reach every URL variant of a page. The star list pages through every star and includes each star's notes and tags. The Starred view loads more as it scrolls, where it used to stop at 500.
   - The branch is not usable as an app yet: History, Insights, search and maintenance still read the old SQLCipher files until their areas are ported. Operations that would mix the two stores refuse with `storage-migration-incomplete` (listed in `data-model.md`).
   - Backend implemented by Codex (GPT 6 astra); frontend changes here. Review findings are collected and fixed once every area is done.
+
+- [x] `WORK-TURSO-STORAGE` — Archive reads come from Turso (2026-10-05, `feat/turso-storage`).
+  - The History timeline, day insights, URL details, the overview, source stats, run and import lists, import review and the history export read through `Vault` on the read pool, so they never wait for a backup batch.
+  - Every list pages with a cursor instead of an offset or a cap; unfinished imports are listed first.
+  - Archive and source totals are kept up to date in the same transaction as the writes, so no read counts the whole archive.
+  - Doctor checks the Turso files and repairs what can be rebuilt, recording each repair. Turso has no `foreign_key_check`, so doctor checks those relationships with its own queries.
+  - The export streams every matching row in pages: 14.4M encrypted visits in 34 s with 39 MiB peak memory. The first timeline page takes 2 ms cold, and a day's insights 26 ms. Measurements: `docs/architecture/research/2026-10-turso-archive-reads.md`.
+  - Implemented by Codex (GPT 6 astra). Review findings are collected and fixed once every area is done.

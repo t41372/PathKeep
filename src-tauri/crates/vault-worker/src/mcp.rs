@@ -365,7 +365,10 @@ pub(crate) fn mcp_search_result(
 }
 
 /// Builds the MCP-facing archive status snapshot.
-pub(crate) fn mcp_archive_status_result(database_key: Option<&str>) -> Result<McpArchiveStatus> {
+pub(crate) fn mcp_archive_status_result(
+    vault: Option<&vault_core::Vault>,
+    database_key: Option<&str>,
+) -> Result<McpArchiveStatus> {
     let paths = vault_core::project_paths()?;
     let config = load_hydrated_config(&paths)?;
     // Re-check MCP consent on EVERY call (M-4): a status probe is still an external touch served by
@@ -374,9 +377,12 @@ pub(crate) fn mcp_archive_status_result(database_key: Option<&str>) -> Result<Mc
     ensure_ai_capability_enabled(&config, AiCapability::Mcp)?;
     let lock = resolved_app_lock_status(&paths, &config)?;
     let archive_status = if lock.locked {
-        vault_core::archive_status(&paths, &config, None).unwrap_or_default()
+        vault_core::archive_availability(&paths, &config)
     } else {
-        vault_core::archive_status(&paths, &config, database_key)?
+        match vault {
+            Some(vault) => vault_core::archive_status(vault)?,
+            None => vault_core::archive_availability(&paths, &config),
+        }
     };
     let ai_status = if lock.locked {
         AiIndexStatus {

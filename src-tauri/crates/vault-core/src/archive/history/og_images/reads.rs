@@ -1,11 +1,42 @@
 //! Responsibilities: read exact-page preview results and bounded fetch candidates.
 //! Not responsible for: fetching or changing cache state.
 //! Failure modes: host fallback serves another page, duplicate request URLs,
-//! negative cache retried early, prefetch includes HTTP or cached pages.
+//! negative cache retried early, prefetch includes HTTP or cached pages, tied candidates become unreachable.
 //! Tests: og_images::tests.
 use super::*;
 
-pub(super) const PREFETCH_SQL: &str = "SELECT url FROM urls INDEXED BY idx_urls_last_visit_ms WHERE url LIKE 'https://%' AND NOT EXISTS(SELECT 1 FROM og_images WHERE page_url=urls.url) ORDER BY last_visit_ms DESC LIMIT ?1";
+pub(super) fn prefetch_sql(ties: bool, after: bool) -> String {
+    let bounds = if ties {
+        "last_visit_ms=?1 AND id<?2"
+    } else if after {
+        "last_visit_ms<?1"
+    } else {
+        "last_visit_ms<=?1"
+    };
+    format!(
+        "SELECT url,last_visit_ms,id FROM urls INDEXED BY idx_urls_last_visit_ms WHERE url LIKE 'https://%' AND {bounds} AND NOT EXISTS(SELECT 1 FROM og_images WHERE page_url=urls.url) ORDER BY last_visit_ms DESC,id DESC LIMIT ?3"
+    )
+}
+fn refetch_sql(ties: bool, after: bool) -> String {
+    let bounds = if ties {
+        "refetch_after=?1 AND id>?2"
+    } else if after {
+        "refetch_after>?1"
+    } else {
+        "refetch_after>=?1"
+    };
+    format!(
+        "SELECT page_url,refetch_after,id FROM og_images WHERE refetch_after IS NOT NULL AND {bounds} AND refetch_after<=?3 ORDER BY refetch_after,id LIMIT ?4"
+    )
+}
+
+/// Background producers can continue a bounded candidate page without losing tied rows.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OgImageUrlPage {
+    pub items: Vec<String>,
+    pub next_cursor: Option<String>,
+}
 
 /// Hydrates only requested exact URLs so pages never share an unrelated preview.
 pub fn load_og_images(
@@ -38,16 +69,84 @@ pub fn load_og_images(
     })
 }
 
-/// Respects negative-cache deadlines before scheduling another fetch.
-pub fn list_urls_due_for_refetch(vault: &Vault, limit: usize) -> Result<Vec<String>> {
-    vault.read(Db::Archive,move |s|Ok(s.query("SELECT page_url FROM og_images WHERE refetch_after IS NOT NULL AND refetch_after<=?1 ORDER BY refetch_after ASC LIMIT ?2",
-        params![now_rfc3339(),limit.min(i64::MAX as usize) as i64],|r|Ok(r.get(0)?))?))
-}
-/// Bounds background work to uncached HTTPS pages.
-pub fn list_urls_for_prefetch(vault: &Vault, limit: usize) -> Result<Vec<String>> {
+/// Respects negative-cache deadlines and exposes every due row through a keyset.
+pub fn list_urls_due_for_refetch(
+    vault: &Vault,
+    limit: usize,
+    cursor: Option<String>,
+) -> Result<OgImageUrlPage> {
+    let after = cursor.is_some();
+    let (time, id): (String, i64) =
+        cursor.map(|s| serde_json::from_str(&s)).transpose()?.unwrap_or_default();
     vault.read(Db::Archive, move |s| {
-        Ok(s.query(PREFETCH_SQL, [limit.min(i64::MAX as usize) as i64], |r| Ok(r.get(0)?))?)
+        let limit = limit.min(1000);
+        let mut rows = Vec::new();
+        let now = now_rfc3339();
+        let map = |r: &vault_store::Row| -> vault_store::Result<_> {
+            Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?))
+        };
+        if limit > 0 {
+            if after {
+                rows = s.query(
+                    &refetch_sql(true, true),
+                    params![time.as_str(), id, now.as_str(), limit as i64 + 1],
+                    map,
+                )?;
+            }
+            if rows.len() <= limit {
+                rows.extend(s.query(
+                    &refetch_sql(false, after),
+                    params![time.as_str(), id, now.as_str(), (limit + 1 - rows.len()) as i64],
+                    map,
+                )?);
+            }
+        }
+        url_page(rows, limit)
     })
+}
+/// Reads uncached HTTPS observations in recency order; the cursor reaches the rest.
+pub fn list_urls_for_prefetch(
+    vault: &Vault,
+    limit: usize,
+    cursor: Option<String>,
+) -> Result<OgImageUrlPage> {
+    let after = cursor.is_some();
+    let (time, id): (i64, i64) =
+        cursor.map(|s| serde_json::from_str(&s)).transpose()?.unwrap_or((i64::MAX, i64::MAX));
+    vault.read(Db::Archive, move |s| {
+        let limit = limit.min(1000);
+        let mut rows = Vec::new();
+        let map = |r: &vault_store::Row| -> vault_store::Result<_> {
+            Ok((r.get::<String>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?))
+        };
+        if limit > 0 {
+            if after {
+                rows =
+                    s.query(&prefetch_sql(true, true), params![time, id, limit as i64 + 1], map)?;
+            }
+            if rows.len() <= limit {
+                rows.extend(s.query(
+                    &prefetch_sql(false, after),
+                    params![time, id, (limit + 1 - rows.len()) as i64],
+                    map,
+                )?);
+            }
+        }
+        url_page(rows, limit)
+    })
+}
+fn url_page<T: serde::Serialize>(
+    mut rows: Vec<(String, T, i64)>,
+    limit: usize,
+) -> Result<OgImageUrlPage> {
+    let more = rows.len() > limit;
+    rows.truncate(limit);
+    let next_cursor = if more {
+        rows.last().map(|(_, time, id)| serde_json::to_string(&(time, id))).transpose()?
+    } else {
+        None
+    };
+    Ok(OgImageUrlPage { items: rows.into_iter().map(|(url, _, _)| url).collect(), next_cursor })
 }
 /// Provides the cache footprint for storage controls.
 pub fn storage_stats(vault: &Vault) -> Result<OgImageStorageStats> {

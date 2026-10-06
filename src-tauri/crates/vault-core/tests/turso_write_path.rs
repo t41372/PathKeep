@@ -110,7 +110,8 @@ fn cancelled_import_keeps_batch_identity_and_committed_progress() {
             &cancel,
             |event| {
                 if event.imported_records.is_some_and(|n| n >= 10_000) {
-                    let batch = vault_core::load_import_batches(&vault).unwrap().remove(0);
+                    let batch =
+                        vault_core::load_import_batches(&vault, None, 16).unwrap().items.remove(0);
                     assert!(
                         vault_core::revert_import_batch(&vault, batch.id).is_err(),
                         "an active producer must not race batch reversal"
@@ -120,7 +121,7 @@ fn cancelled_import_keeps_batch_identity_and_committed_progress() {
             },
         );
         assert!(result.is_err());
-        let batches = vault_core::load_import_batches(&vault).unwrap();
+        let batches = vault_core::load_import_batches(&vault, None, 16).unwrap().items;
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].status, "interrupted");
         assert_eq!(batches[0].visible_items, 10_000);

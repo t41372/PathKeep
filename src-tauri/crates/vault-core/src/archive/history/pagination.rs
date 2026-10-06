@@ -1,3 +1,5 @@
+//! Failure modes: timestamp ties skipped, cursor kind confused, has-next inferred from an incomplete count.
+//! Tests: timeline_tests, grouped tests and regex_scan tests.
 //! Shared history pagination contract.
 //!
 //! ## Responsibilities

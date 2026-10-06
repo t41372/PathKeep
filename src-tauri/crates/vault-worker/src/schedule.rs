@@ -80,7 +80,7 @@ pub fn repair_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResu
 
 /// Loads the current schedule status and annotates it with the last successful backup.
 pub fn schedule_status(
-    session_database_key: Option<&str>,
+    vault: Option<&vault_core::Vault>,
     platform: Option<&str>,
     executable_path: Option<PathBuf>,
 ) -> Result<ScheduleStatus> {
@@ -98,9 +98,10 @@ pub fn schedule_status(
             check_interval_hours: native_schedule_interval_hours(&config),
         },
     )?;
-    status.last_successful_backup_at =
-        vault_core::archive_status(&paths, &config, session_database_key)?
-            .last_successful_backup_at;
+    status.last_successful_backup_at = vault
+        .map(vault_core::archive_status)
+        .transpose()?
+        .and_then(|status| status.last_successful_backup_at);
     let ledger = load_schedule_attempt_ledger(&paths, native_schedule_interval_hours(&config))?;
     status.last_scheduled_success_at = ledger.last_success_at;
     status.recent_attempts = ledger.attempts;

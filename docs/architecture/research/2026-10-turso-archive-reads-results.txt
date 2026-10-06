@@ -1,0 +1,77 @@
+BENCH database_bytes=5357121542 visits=14400000 pages=2880000
+
+running 1 test
+BENCH cold timeline-first 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH cold timeline-first elapsed_ms=1.998
+BENCH warm timeline-first 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH warm timeline-first elapsed_ms=0.316
+test turso_reads::encrypted_archive_reads_at_scale ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.03s
+
+
+running 1 test
+BENCH cold timeline-next 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH cold timeline-next elapsed_ms=0.792
+BENCH warm timeline-next 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH warm timeline-next elapsed_ms=0.425
+test turso_reads::encrypted_archive_reads_at_scale ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.02s
+
+
+running 1 test
+BENCH cold day-insights 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH cold day-insights elapsed_ms=26.477
+BENCH warm day-insights 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH warm day-insights elapsed_ms=9.020
+test turso_reads::encrypted_archive_reads_at_scale ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.05s
+
+
+running 1 test
+BENCH cold url-detail-many-visits 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH cold url-detail-many-visits elapsed_ms=1.885
+BENCH warm url-detail-many-visits 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH warm url-detail-many-visits elapsed_ms=0.490
+test turso_reads::encrypted_archive_reads_at_scale ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.02s
+
+
+running 1 test
+BENCH cold overview 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH cold overview elapsed_ms=1.176
+BENCH warm overview 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH warm overview elapsed_ms=0.603
+test turso_reads::encrypted_archive_reads_at_scale ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.02s
+
+
+running 1 test
+BENCH cold source-stats 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH cold source-stats elapsed_ms=0.286
+BENCH warm source-stats 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH warm source-stats elapsed_ms=0.677
+test turso_reads::encrypted_archive_reads_at_scale ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.02s
+
+
+running 1 test
+BENCH cold full-export 16:47  5 users, load averages: 5.01 7.71 6.53
+BENCH cold full-export elapsed_ms=33869.437
+BENCH cold export_process_peak_rss_bytes=Some(40517632)
+BENCH cold export_bytes=4643256843
+BENCH warm full-export 16:48  5 users, load averages: 4.74 7.36 6.45
+BENCH warm full-export elapsed_ms=19771.104
+BENCH warm export_process_peak_rss_bytes=Some(40648704)
+BENCH warm export_bytes=4643256843
+test turso_reads::encrypted_archive_reads_at_scale ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 53.81s
+
+BENCH all_operations_passed=true
+BENCH data_removed=true

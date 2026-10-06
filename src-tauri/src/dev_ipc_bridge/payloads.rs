@@ -148,6 +148,8 @@ pub(super) struct BrowserHistoryPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct BatchIdPayload {
     pub(super) batch_id: i64,
+    pub(super) cursor: Option<String>,
+    pub(super) limit: Option<usize>,
 }
 
 /// Lets dev automation ask for platform-specific schedule behavior while still
@@ -434,4 +436,20 @@ pub(super) struct ContentFetchWorkingSetPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct EnabledPayload {
     pub(super) enabled: bool,
+}
+
+/// Continues an audit-ledger page without an offset.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RunPagePayload {
+    pub(super) cursor: Option<i64>,
+    pub(super) limit: Option<usize>,
+}
+
+/// Continues an import-ledger page, including unfinished operations.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ImportBatchPagePayload {
+    pub(super) cursor: Option<String>,
+    pub(super) limit: Option<usize>,
 }

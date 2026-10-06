@@ -27,6 +27,7 @@ vault-core = { version = "0.1.0", path = "../vault-core" }
 vault-platform = { version = "0.1.0", path = "../vault-platform" }
 
 [dev-dependencies]
+libc.workspace = true
 vault-core = { path = "../vault-core", features = ["test-fixtures"] }
 rusqlite.workspace = true
 tempfile.workspace = true

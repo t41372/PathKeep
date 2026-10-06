@@ -20,13 +20,14 @@ pub(crate) fn initialize_archive_with_progress_impl(
     state: &SessionState,
     report_progress: impl FnMut(vault_core::ArchiveUpgradeProgress),
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    let snapshot = worker_result(vault_worker::initialize_archive_database_with_progress(
+    worker_result(vault_worker::initialize_archive_database_with_progress(
         &config,
         database_key.as_deref(),
         report_progress,
     ))?;
     update_session_key(state, database_key)?;
-    Ok(snapshot)
+    state.background_vault()?;
+    super::app_snapshot_impl(state)
 }
 
 /// Runs the cheap first-run upgrade pre-check the shell calls at bootstrap to
@@ -146,9 +147,14 @@ pub(crate) fn run_backup_now_impl(
 /// Executes one history query against visible archive facts.
 pub(crate) fn query_history_impl(
     query: HistoryQuery,
-    session_database_key: Option<&str>,
+    state: &SessionState,
 ) -> Result<vault_core::HistoryQueryResponse, CommandError> {
-    worker_result(vault_worker::query_history(session_database_key, query))
+    let key = if query.q.as_ref().is_some_and(|q| !q.trim().is_empty()) {
+        state.get_key()?
+    } else {
+        None
+    };
+    worker_result(vault_worker::query_history(&state.vault()?, key.as_deref(), query))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -156,9 +162,9 @@ pub(crate) fn query_history_impl(
 /// history query has painted.
 pub(crate) fn load_history_favicons_impl(
     entries: Vec<vault_core::HistoryFaviconLookupEntry>,
-    session_database_key: Option<&str>,
+    state: &SessionState,
 ) -> Result<Vec<vault_core::HistoryFaviconLookupResult>, CommandError> {
-    worker_result(vault_worker::load_history_favicons(session_database_key, entries))
+    worker_result(vault_worker::load_history_favicons(&state.vault()?, entries))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -249,52 +255,67 @@ pub(crate) fn run_og_image_cleanup_impl(
 #[cfg_attr(test, allow(dead_code))]
 /// Loads the dashboard snapshot for the current archive.
 pub(crate) fn dashboard_snapshot_impl(
-    session_database_key: Option<&str>,
+    state: &SessionState,
 ) -> Result<vault_core::DashboardSnapshot, CommandError> {
-    worker_result(vault_worker::dashboard_snapshot(session_database_key))
+    worker_result(vault_worker::dashboard_snapshot(&state.vault()?))
 }
 
 #[cfg_attr(test, allow(dead_code))]
 /// Loads per-source visit counts and date spans for Home and History.
 pub(crate) fn source_stats_impl(
-    session_database_key: Option<&str>,
+    state: &SessionState,
 ) -> Result<Vec<vault_core::SourceStats>, CommandError> {
-    worker_result(vault_worker::source_stats(session_database_key))
+    worker_result(vault_worker::source_stats(&state.vault()?))
 }
 
 #[cfg_attr(test, allow(dead_code))]
 /// Loads the History detail panel data for one exact URL.
 pub(crate) fn url_detail_impl(
     url: &str,
-    session_database_key: Option<&str>,
+    state: &SessionState,
 ) -> Result<vault_core::UrlDetail, CommandError> {
-    worker_result(vault_worker::url_detail(session_database_key, url))
+    worker_result(vault_worker::url_detail(&state.vault()?, url))
 }
 
 #[cfg_attr(test, allow(dead_code))]
 /// Aggregates one local-day Browse insights panel from the full archive.
 pub(crate) fn browse_day_insights_impl(
-    session_database_key: Option<&str>,
+    state: &SessionState,
     request: vault_core::BrowseDayInsightsRequest,
 ) -> Result<vault_core::BrowseDayInsights, CommandError> {
-    worker_result(vault_worker::browse_day_insights(session_database_key, request))
+    worker_result(vault_worker::browse_day_insights(&state.vault()?, request))
 }
 
 #[cfg_attr(test, allow(dead_code))]
 /// Loads the full audit detail for one run ID.
 pub(crate) fn audit_run_detail_impl(
     run_id: i64,
-    session_database_key: Option<&str>,
+    state: &SessionState,
 ) -> Result<vault_core::AuditRunDetail, CommandError> {
-    worker_result(vault_worker::audit_run_detail(session_database_key, run_id))
+    worker_result(vault_worker::audit_run_detail(&state.vault()?, run_id))
 }
 
 /// Exports a query result to the requested file format.
 pub(crate) fn export_history_impl(
     request: ExportRequest,
-    session_database_key: Option<&str>,
+    state: &SessionState,
 ) -> Result<vault_core::ExportResult, CommandError> {
-    let result = vault_worker::export_query(session_database_key, request);
+    let preflight = (|| -> anyhow::Result<_> {
+        let key = if request.query.q.as_ref().is_some_and(|q| !q.trim().is_empty()) {
+            state.get_key().map_err(anyhow::Error::msg)?
+        } else {
+            None
+        };
+        Ok((state.vault().map_err(anyhow::Error::msg)?, key))
+    })();
+    let (vault, key) = match preflight {
+        Ok(context) => context,
+        Err(error) => {
+            vault_core::record_export_failure(request.export_id.as_deref(), &error);
+            return worker_result(Err(error));
+        }
+    };
+    let result = vault_worker::export_query(&vault, key.as_deref(), request);
     if let Err(error) = &result {
         if error.downcast_ref::<vault_core::ExportCancelled>().is_some() {
             return Err(CommandError {
@@ -322,9 +343,9 @@ pub(crate) fn cancel_export_impl(export_id: &str) -> bool {
 
 /// Runs the archive doctor read path through the worker.
 pub(crate) fn doctor_report_impl(
-    session_database_key: Option<&str>,
+    state: &SessionState,
 ) -> Result<vault_core::HealthReport, CommandError> {
-    worker_result(vault_worker::doctor_report(session_database_key))
+    worker_result(vault_worker::doctor_report(&state.vault()?, state.get_key()?.as_deref()))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -335,4 +356,22 @@ pub(crate) fn repair_health_impl(
     let key = state.get_key()?;
     let session_database_key = key.as_deref();
     worker_result(vault_worker::repair_health(&state.vault()?, session_database_key))
+}
+
+/// Continues the run ledger beyond the snapshot's first page.
+pub(crate) fn load_recent_runs_impl(
+    cursor: Option<i64>,
+    limit: Option<usize>,
+    state: &SessionState,
+) -> Result<vault_core::RunPage, CommandError> {
+    worker_result(vault_core::load_recent_runs(&state.vault()?, cursor, limit.unwrap_or(12)))
+}
+
+/// Continues import history beyond the snapshot's first page.
+pub(crate) fn load_import_batches_impl(
+    cursor: Option<String>,
+    limit: Option<usize>,
+    state: &SessionState,
+) -> Result<vault_core::ImportBatchPage, CommandError> {
+    worker_result(vault_core::load_import_batches(&state.vault()?, cursor, limit.unwrap_or(16)))
 }

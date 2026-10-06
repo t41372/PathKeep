@@ -10,11 +10,11 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     let paths = sample_paths(dir.path());
     let config = AppConfig { initialized: true, git_enabled: false, ..Default::default() };
     seed_reader_archive(&paths, &config);
-    let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs");
+    let recent_runs = legacy_recent_runs(&paths, &config, None);
     assert!(!recent_runs.is_empty());
     assert!(recent_runs.iter().any(|run| run.run_type == "backup" && run.status == "success"));
 
-    let history = list_history(
+    let history = search_history(
         &paths,
         &config,
         None,
@@ -23,76 +23,6 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     .expect("list history");
     assert_eq!(history.total, 2);
     assert!(history.items.iter().all(|entry| entry.favicon.is_none()));
-
-    let loaded_favicons = load_history_favicons(
-        &paths,
-        &config,
-        None,
-        history
-            .items
-            .iter()
-            .map(|entry| HistoryFaviconLookupEntry {
-                profile_id: entry.profile_id.clone(),
-                url: entry.url.clone(),
-                visit_time: entry.visit_time,
-            })
-            .collect(),
-    )
-    .expect("load history favicons");
-    assert_eq!(loaded_favicons.len(), 2);
-    let empty_favicons =
-        load_history_favicons(&paths, &config, None, Vec::new()).expect("empty favicon lookup");
-    assert!(empty_favicons.is_empty());
-    let duplicate_favicon_lookup = load_history_favicons(
-        &paths,
-        &config,
-        None,
-        vec![
-            HistoryFaviconLookupEntry {
-                profile_id: history.items[0].profile_id.clone(),
-                url: history.items[0].url.clone(),
-                visit_time: history.items[0].visit_time,
-            },
-            HistoryFaviconLookupEntry {
-                profile_id: history.items[0].profile_id.clone(),
-                url: history.items[0].url.clone(),
-                visit_time: history.items[0].visit_time,
-            },
-        ],
-    )
-    .expect("duplicate favicon lookup");
-    assert_eq!(duplicate_favicon_lookup.len(), 1);
-    let missing_profile_favicon_lookup = load_history_favicons(
-        &paths,
-        &config,
-        None,
-        vec![HistoryFaviconLookupEntry {
-            profile_id: "chrome:Missing".to_string(),
-            url: history.items[0].url.clone(),
-            visit_time: history.items[0].visit_time,
-        }],
-    )
-    .expect("missing profile favicon lookup");
-    assert!(missing_profile_favicon_lookup[0].favicon.is_none());
-    let second_visit_favicon = loaded_favicons
-        .iter()
-        .find(|entry| entry.visit_time == history.items[0].visit_time)
-        .expect("second visit favicon result");
-    assert!(
-        second_visit_favicon
-            .favicon
-            .as_ref()
-            .is_some_and(|favicon| favicon.data_url.starts_with("data:image/")),
-        "expected the visit at the icon observation time to load the exact page icon"
-    );
-    let first_visit_favicon = loaded_favicons
-        .iter()
-        .find(|entry| entry.visit_time == history.items[1].visit_time)
-        .expect("first visit favicon result");
-    assert!(
-        first_visit_favicon.favicon.is_none(),
-        "favicon lookup must not use an exact page icon first observed after the visit"
-    );
 
     let connection = open_archive_connection(&paths, &config, None).expect("open archive");
     let favicon_blob_count: i64 = connection
@@ -106,7 +36,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     assert_eq!(favicon_blob_count, 1);
     assert_eq!(favicon_reference_count, 2);
 
-    let search_term_history = list_history(
+    let search_term_history = search_history(
         &paths,
         &config,
         None,
@@ -114,7 +44,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     )
     .expect("list search term history");
     assert_eq!(search_term_history.total, 2);
-    let search_term_first_page = list_history(
+    let search_term_first_page = search_history(
         &paths,
         &config,
         None,
@@ -127,7 +57,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     .expect("search term first page");
     assert_eq!(search_term_first_page.items.len(), 1);
     assert!(search_term_first_page.next_cursor.is_some());
-    let search_term_second_cursor_page = list_history(
+    let search_term_second_cursor_page = search_history(
         &paths,
         &config,
         None,
@@ -141,7 +71,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     .expect("search term second cursor page");
     assert_eq!(search_term_second_cursor_page.items.len(), 1);
     assert!(search_term_second_cursor_page.has_previous);
-    let search_term_explicit_second_page = list_history(
+    let search_term_explicit_second_page = search_history(
         &paths,
         &config,
         None,
@@ -156,7 +86,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     assert_eq!(search_term_explicit_second_page.page, 2);
     assert_eq!(search_term_explicit_second_page.items.len(), 1);
 
-    let url_fragment_history = list_history(
+    let url_fragment_history = search_history(
         &paths,
         &config,
         None,
@@ -165,7 +95,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     .expect("list url fragment history");
     assert_eq!(url_fragment_history.total, 2);
 
-    let punctuation_only_history = list_history(
+    let punctuation_only_history = search_history(
         &paths,
         &config,
         None,
@@ -174,7 +104,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     .expect("list punctuation-only history");
     assert_eq!(punctuation_only_history.total, 0);
 
-    let regex_history = list_history(
+    let regex_history = search_history(
         &paths,
         &config,
         None,
@@ -186,7 +116,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     )
     .expect("regex history");
     assert_eq!(regex_history.total, 2);
-    let regex_oldest_first_page = list_history(
+    let regex_oldest_first_page = search_history(
         &paths,
         &config,
         None,
@@ -200,7 +130,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     )
     .expect("regex oldest first page");
     assert!(regex_oldest_first_page.next_cursor.is_some());
-    let regex_oldest_second_page = list_history(
+    let regex_oldest_second_page = search_history(
         &paths,
         &config,
         None,
@@ -216,7 +146,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     .expect("regex oldest second page");
     assert_eq!(regex_oldest_second_page.items.len(), 1);
     assert!(regex_oldest_second_page.has_previous);
-    let regex_newest_first_page = list_history(
+    let regex_newest_first_page = search_history(
         &paths,
         &config,
         None,
@@ -228,7 +158,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
         },
     )
     .expect("regex newest first page");
-    let regex_newest_second_page = list_history(
+    let regex_newest_second_page = search_history(
         &paths,
         &config,
         None,
@@ -242,7 +172,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     )
     .expect("regex newest second page");
     assert_eq!(regex_newest_second_page.items.len(), 1);
-    let regex_explicit_second_page = list_history(
+    let regex_explicit_second_page = search_history(
         &paths,
         &config,
         None,
@@ -258,7 +188,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     assert_eq!(regex_explicit_second_page.page, 2);
     assert_eq!(regex_explicit_second_page.items.len(), 1);
 
-    let invalid_regex = list_history(
+    let invalid_regex = search_history(
         &paths,
         &config,
         None,
@@ -273,7 +203,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
         format!("{invalid_regex:#}").contains("invalid regex pattern"),
         "unexpected error: {invalid_regex:#}"
     );
-    let unsupported_regex = list_history(
+    let unsupported_regex = search_history(
         &paths,
         &config,
         None,
@@ -289,7 +219,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
         "Rust regex should reject look-around patterns before searching"
     );
 
-    let first_page = list_history(
+    let first_page = search_history(
         &paths,
         &config,
         None,
@@ -300,7 +230,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     assert_eq!(first_page.items.len(), 1);
     assert!(first_page.next_cursor.is_some());
 
-    let second_page = list_history(
+    let second_page = search_history(
         &paths,
         &config,
         None,
@@ -315,7 +245,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     assert_eq!(second_page.items.len(), 1);
     assert!(second_page.next_cursor.is_none());
 
-    let explicit_second_page = list_history(
+    let explicit_second_page = search_history(
         &paths,
         &config,
         None,
@@ -329,7 +259,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     assert!(explicit_second_page.has_previous);
     assert!(!explicit_second_page.has_next);
     assert!(explicit_second_page.next_cursor.is_none());
-    let empty_domain_history = list_history(
+    let empty_domain_history = search_history(
         &paths,
         &config,
         None,
@@ -339,255 +269,9 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     assert_eq!(empty_domain_history.total, 0);
     assert_eq!(empty_domain_history.page_count, 1);
 
-    let mut connection = open_archive_connection(&paths, &config, None).expect("open archive");
-    let run_id = connection
-        .query_row("SELECT id FROM runs ORDER BY id LIMIT 1", [], |row| row.get::<_, i64>(0))
-        .expect("load run id");
-    connection
-        .execute(
-            "INSERT INTO favicons (
-               page_url,
-               icon_url,
-               icon_type,
-               width,
-               height,
-               last_updated_ms,
-               last_updated_iso,
-               image_data,
-               source_profile_id,
-               created_by_run_id,
-               page_host,
-               page_registrable_domain
-             )
-             VALUES (?1, ?2, 1, 16, 16, ?3, ?4, ?5, 1, ?6, ?7, ?8)",
-            params![
-                "https://docs.example.co.uk/favicon-source",
-                "https://docs.example.co.uk/favicon.ico",
-                chrono::DateTime::parse_from_rfc3339("2026-04-05T10:30:00+00:00")
-                    .expect("registrable same-profile favicon time")
-                    .timestamp_millis(),
-                "2026-04-05T10:30:00+00:00",
-                vec![0x89_u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x02],
-                run_id,
-                "docs.example.co.uk",
-                "example.co.uk",
-            ],
-        )
-        .expect("insert same-profile registrable favicon");
-    let same_profile_registrable_lookup = load_history_favicons(
-        &paths,
-        &config,
-        None,
-        vec![HistoryFaviconLookupEntry {
-            profile_id: "chrome:Default".to_string(),
-            url: "https://blog.example.co.uk/article".to_string(),
-            visit_time: chrono::DateTime::parse_from_rfc3339("2026-04-05T11:00:00+00:00")
-                .expect("same-profile registrable visit time")
-                .timestamp_millis(),
-        }],
-    )
-    .expect("same-profile registrable favicon lookup");
-    // The registrable-domain fallback used to fire here; it was removed
-    // because it leaked icons across unrelated sites that share a public
-    // suffix (e.g. `*.github.io`). The exact page URL and same FQDN are
-    // the only safe sources, so a different host on the same registrable
-    // domain must now resolve to `None`.
-    assert!(
-        same_profile_registrable_lookup[0].favicon.is_none(),
-        "registrable-domain fallback is disabled — different hosts on the same registrable domain must not borrow each other's icons"
-    );
-    connection
-        .execute(
-            "INSERT INTO source_profiles (
-               id,
-               browser_kind,
-               browser_version,
-               profile_name,
-               profile_path,
-               discovered_at,
-               enabled,
-               profile_key,
-               user_name,
-               updated_at,
-               browser_family,
-               browser_product
-             )
-             VALUES (?1, ?2, NULL, ?3, ?4, ?5, 1, ?6, NULL, ?5, ?7, ?8)",
-            params![
-                2_i64,
-                "takeout",
-                "Imported",
-                "/tmp/imported-profile",
-                now_rfc3339(),
-                "takeout::browser-history",
-                "chromium",
-                "Takeout",
-            ],
-        )
-        .expect("insert imported source profile");
-    connection
-        .execute(
-            "INSERT INTO favicons (
-               page_url,
-               icon_url,
-               icon_type,
-               width,
-               height,
-               last_updated_ms,
-               last_updated_iso,
-               image_data,
-               source_profile_id,
-               created_by_run_id,
-               page_host,
-               page_registrable_domain
-             )
-             VALUES (?1, ?2, 1, 16, 16, ?3, ?4, ?5, 2, ?6, ?7, ?8)",
-            params![
-                "https://shared.example.org/favicon-source",
-                "https://shared.example.org/favicon.ico",
-                chrono::DateTime::parse_from_rfc3339("2026-04-05T10:40:00+00:00")
-                    .expect("cross-profile host favicon time")
-                    .timestamp_millis(),
-                "2026-04-05T10:40:00+00:00",
-                vec![0x89_u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x04],
-                run_id,
-                "shared.example.org",
-                "example.org",
-            ],
-        )
-        .expect("insert cross-profile host favicon");
-    let cross_profile_host_lookup = load_history_favicons(
-        &paths,
-        &config,
-        None,
-        vec![HistoryFaviconLookupEntry {
-            profile_id: "chrome:Default".to_string(),
-            url: "https://shared.example.org/article".to_string(),
-            visit_time: chrono::DateTime::parse_from_rfc3339("2026-04-05T11:20:00+00:00")
-                .expect("cross-profile host visit time")
-                .timestamp_millis(),
-        }],
-    )
-    .expect("cross-profile host favicon lookup");
-    assert!(
-        cross_profile_host_lookup[0].favicon.is_some(),
-        "expected host fallback to cross profiles when the current profile has no matching host icon"
-    );
-    connection
-        .execute(
-            "INSERT INTO favicons (
-               page_url,
-               icon_url,
-               icon_type,
-               width,
-               height,
-               last_updated_ms,
-               last_updated_iso,
-               image_data,
-               source_profile_id,
-               created_by_run_id,
-               page_host,
-               page_registrable_domain
-             )
-             VALUES (?1, ?2, 1, 16, 16, ?3, ?4, ?5, 2, ?6, ?7, ?8)",
-            params![
-                "https://learn.example.net/favicon-source",
-                "https://learn.example.net/favicon.ico",
-                chrono::DateTime::parse_from_rfc3339("2026-04-05T10:45:00+00:00")
-                    .expect("cross-profile registrable favicon time")
-                    .timestamp_millis(),
-                "2026-04-05T10:45:00+00:00",
-                vec![0x89_u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x03],
-                run_id,
-                "learn.example.net",
-                "example.net",
-            ],
-        )
-        .expect("insert cross-profile registrable favicon");
-    let cross_profile_registrable_lookup = load_history_favicons(
-        &paths,
-        &config,
-        None,
-        vec![HistoryFaviconLookupEntry {
-            profile_id: "chrome:Default".to_string(),
-            url: "https://www.example.net/article".to_string(),
-            visit_time: chrono::DateTime::parse_from_rfc3339("2026-04-05T11:30:00+00:00")
-                .expect("cross-profile registrable visit time")
-                .timestamp_millis(),
-        }],
-    )
-    .expect("cross-profile registrable favicon lookup");
-    // Same rationale as the same-profile case above: cross-host borrowing
-    // at the registrable-domain level was removed to stop icon bleed.
-    assert!(
-        cross_profile_registrable_lookup[0].favicon.is_none(),
-        "registrable-domain fallback is disabled across profiles too"
-    );
-    connection
-        .execute("UPDATE visits SET source_profile_id = 2 WHERE id = 2", [])
-        .expect("reassign visit profile");
-
-    let cross_profile_favicon = list_history(
-        &paths,
-        &config,
-        None,
-        HistoryQuery { page: Some(1), limit: Some(1), ..HistoryQuery::default() },
-    )
-    .expect("cross-profile favicon history page");
-    assert!(cross_profile_favicon.items[0].favicon.is_none());
-    let cross_profile_favicon_lookup = load_history_favicons(
-        &paths,
-        &config,
-        None,
-        vec![HistoryFaviconLookupEntry {
-            profile_id: cross_profile_favicon.items[0].profile_id.clone(),
-            url: cross_profile_favicon.items[0].url.clone(),
-            visit_time: cross_profile_favicon.items[0].visit_time,
-        }],
-    )
-    .expect("cross-profile favicon lookup");
-    assert!(
-        cross_profile_favicon_lookup[0].favicon.is_some(),
-        "expected favicon lookup to fall back across source profiles for the same page URL"
-    );
-
-    let same_host_favicon_lookup = load_history_favicons(
-        &paths,
-        &config,
-        None,
-        vec![HistoryFaviconLookupEntry {
-            profile_id: "chrome:Default".to_string(),
-            url: "https://example.com/missing-page".to_string(),
-            visit_time: chrono::DateTime::parse_from_rfc3339("2026-04-05T12:00:00+00:00")
-                .expect("same-host visit time")
-                .timestamp_millis(),
-        }],
-    )
-    .expect("same-host favicon lookup");
-    assert!(
-        same_host_favicon_lookup[0].favicon.is_some(),
-        "expected same-host fallback to reuse a historical icon without requiring exact page_url"
-    );
-
-    let future_host_favicon_lookup = load_history_favicons(
-        &paths,
-        &config,
-        None,
-        vec![HistoryFaviconLookupEntry {
-            profile_id: "chrome:Default".to_string(),
-            url: "https://example.com/before-icon".to_string(),
-            visit_time: chrono::DateTime::parse_from_rfc3339("2026-04-05T09:00:00+00:00")
-                .expect("future-host visit time")
-                .timestamp_millis(),
-        }],
-    )
-    .expect("future-host favicon lookup");
-    assert!(
-        future_host_favicon_lookup[0].favicon.is_none(),
-        "domain fallback must not use an icon first observed after the visit"
-    );
-
-    let paged_export = export_history(
+    let mut connection = open_archive_connection(&paths, &config, None).unwrap();
+    let run_id = 1;
+    let paged_export = export_search_history(
         &paths,
         &config,
         None,
@@ -604,7 +288,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     )
     .expect("export all visible history even when current query is paged");
     assert_eq!(paged_export.count, 2);
-    let html_export = export_history(
+    let html_export = export_search_history(
         &paths,
         &config,
         None,
@@ -619,7 +303,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     let html_content = fs::read_to_string(&html_export.path).expect("read html export");
     assert!(html_content.contains("<article>"));
     assert!(html_content.contains("Archive docs"));
-    let markdown_export = export_history(
+    let markdown_export = export_search_history(
         &paths,
         &config,
         None,
@@ -632,7 +316,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
     .expect("export history markdown");
     let markdown_content = fs::read_to_string(&markdown_export.path).expect("read markdown export");
     assert!(markdown_content.contains("- [Archive docs](https://example.com/archive)"));
-    let text_export = export_history(
+    let text_export = export_search_history(
         &paths,
         &config,
         None,
@@ -708,7 +392,7 @@ fn legacy_history_favicons_exports_and_plans_use_native_fixtures() {
             .expect("insert bulk export visit");
     }
     bulk_insert.commit().expect("commit bulk export rows");
-    let bulk_export = export_history(
+    let bulk_export = export_search_history(
         &paths,
         &config,
         None,

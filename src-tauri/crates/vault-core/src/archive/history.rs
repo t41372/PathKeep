@@ -1,3 +1,8 @@
+//! Responsibilities: expose native timeline reads and delegate existing search algorithms to area 3.
+//! Not responsible for: database ownership, schema setup or UI transport.
+//! Failure modes: search reaches the timeline by mistake, readers open SQLCipher,
+//! ties skip visits or totals scan the archive. Native regressions live in timeline_tests;
+//! the existing search tests remain with the search implementation during its separate port.
 //! Archive history query and export flows.
 //!
 //! This module owns the Explorer-facing read surface over canonical visits. It
@@ -21,6 +26,8 @@ use super::*;
 
 pub mod day_insights;
 mod export;
+mod search_export;
+pub use search_export::export_search_history;
 mod favicons;
 mod grouped;
 // `net_guard` is the SSRF guard reused by W-ENRICH-1's content-fetch egress (06 §2b: every page URL
@@ -31,6 +38,8 @@ pub mod og_images;
 pub mod og_images_fetch;
 pub mod og_images_synth;
 mod pagination;
+mod timeline;
+pub use timeline::list_history;
 mod regex_scan;
 
 pub use self::day_insights::{
@@ -283,7 +292,7 @@ pub(crate) fn build_history_regex(pattern: &str) -> Result<regex::Regex> {
 }
 
 /// Queries visible history rows with pagination, FTS, and regex support.
-pub fn list_history(
+pub fn search_history(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,

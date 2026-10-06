@@ -105,7 +105,10 @@ pub fn dispatch(
                 ),
                 "archive-status" => {
                     let _: Empty = params(call.arguments)?;
-                    encode(mcp::mcp_archive_status_result(key.as_deref()).map_err(failed)?)
+                    encode(
+                        mcp::mcp_archive_status_result(vault().ok().as_ref(), key.as_deref())
+                            .map_err(failed)?,
+                    )
                 }
                 "usage-guide" => {
                     let _: Empty = params(call.arguments)?;
@@ -121,7 +124,10 @@ pub fn dispatch(
             let _: Empty = params(request.params)?;
             let key = resolve_key(session_key)?;
             match request.method.as_str() {
-                "doctor" => encode(archive_flows::doctor_report(key.as_deref()).map_err(failed)?),
+                "doctor" => encode(
+                    archive_flows::doctor_report(&vault().map_err(failed)?, key.as_deref())
+                        .map_err(failed)?,
+                ),
                 "ai-index" => encode(
                     intelligence::build_ai_index_now(
                         &vault().map_err(failed)?,

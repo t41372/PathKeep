@@ -1,3 +1,5 @@
+//! Failure modes: missed ties, records beyond page size lost, writes block reads,
+//! cancellation publishes partial files, memory grows with the result.
 //! History export artifact rendering.
 //!
 //! ## Responsibilities
@@ -15,35 +17,33 @@
 //! - Archive export models and the configured project exports directory.
 //!
 //! ## Performance notes
-//! - Ordinary exports stream one statement; search exports hold one bounded recall page.
-//! - One archive connection retains its fixed SQLite cache for the entire walk.
+//! - Exports read short keyset pages through the reader pool with a captured upper visit ID.
+//! - Only one page and the fixed write buffer remain live between reads.
 //! - A 256 KiB write buffer never grows with archive size; see ipc-performance.md §9.
 
 mod progress;
 #[cfg(test)]
 mod regression_tests;
 
-use super::{history_entry_from_row, list_history_on_connection, prepare_advanced_search_filters};
 use crate::{
-    archive::{
-        list_history_bounds, list_history_sql, open_archive_connection,
-        read_models::load_cached_archive_totals, search_query::ParsedHistorySearchQuery,
-    },
+    Vault,
     config::ProjectPaths,
     durable_io::{atomic_durable_write_with, sweep_temps_older_than},
-    models::{AppConfig, ExportFormat, ExportRequest, ExportResult, HistoryEntry, HistoryQuery},
+    models::{
+        ExportFormat, ExportRequest, ExportResult, HistoryEntry, HistoryQuery, HistoryQueryResponse,
+    },
     utils::now_rfc3339,
 };
 use anyhow::{Context, Result};
-use progress::ExportJob;
+pub(super) use progress::ExportJob;
 pub use progress::{ExportCancelled, cancel_export, get_export_progress, record_export_failure};
-use rusqlite::{Connection, named_params};
 use std::{
     fs,
     io::{BufWriter, Write},
     sync::Arc,
     time::Duration,
 };
+use vault_store::Db;
 
 const EXPORT_PAGE_SIZE: u32 = 1_000;
 const EXPORT_BUFFER_BYTES: usize = 256 * 1024;
@@ -51,16 +51,38 @@ const PROGRESS_ROW_CHUNK: usize = 128;
 const WRITE_CHECK_BYTES: u64 = 64 * 1024;
 const ABANDONED_EXPORT_AGE: Duration = Duration::from_secs(60 * 60);
 
-/// Produces the same history artifact with one archive connection and bounded buffers.
-pub fn export_history(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+/// Streams complete history through short read transactions and bounded buffers.
+pub fn export_history(vault: &Vault, request: ExportRequest) -> Result<ExportResult> {
+    finish_export(request, |request, job| {
+        let (total, upper) = export_bounds(vault)?;
+        write_export(vault.paths(), request, job, total, |query| {
+            vault.read(Db::Archive, move |s| super::timeline::timeline_page(s, &query, upper))
+        })
+    })
+}
+
+fn export_bounds(vault: &Vault) -> Result<(Option<u64>, i64)> {
+    vault.read(Db::Archive, |s| {
+        let total = s
+            .query("SELECT value FROM archive_totals WHERE name='visits'", (), |r| {
+                Ok(r.get::<i64>(0)?)
+            })?
+            .pop()
+            .map(|n| n as u64);
+        let upper = s
+            .query("SELECT id FROM visits ORDER BY id DESC LIMIT 1", (), |r| Ok(r.get::<i64>(0)?))?
+            .pop()
+            .unwrap_or(0);
+        Ok((total, upper))
+    })
+}
+
+pub(super) fn finish_export(
     request: ExportRequest,
+    run: impl FnOnce(ExportRequest, Option<&Arc<ExportJob>>) -> Result<ExportResult>,
 ) -> Result<ExportResult> {
     let job = ExportJob::start(request.export_id.as_deref())?;
-    let result = write_export(paths, config, key, request, job.as_ref()).map_err(|error| {
-        // Includes early setup failures as well as SQLite's generic SQLITE_INTERRUPT.
+    let result = run(request, job.as_ref()).map_err(|error| {
         if job.as_ref().is_some_and(|job| job.is_cancelled()) {
             ExportCancelled.into()
         } else {
@@ -73,31 +95,18 @@ pub fn export_history(
     result
 }
 
-fn write_export(
+pub(super) fn write_export(
     paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
     request: ExportRequest,
     job: Option<&Arc<ExportJob>>,
+    total: Option<u64>,
+    mut fetch: impl FnMut(HistoryQuery) -> Result<HistoryQueryResponse>,
 ) -> Result<ExportResult> {
     check_cancel(job)?;
     fs::create_dir_all(&paths.exports_dir)?;
     sweep_temps_older_than(&paths.exports_dir, ABANDONED_EXPORT_AGE)?;
-    let connection = open_archive_connection(paths, config, key)?;
-    // Search ranking/grouping may need temporary B-trees: spill rather than grow with history.
-    connection.pragma_update(None, "temp_store", "FILE")?;
     if let Some(job) = job {
-        job.total(
-            // Legacy runs may have NULL or malformed stats. An advisory estimate must not
-            // prevent an export; the actual row walk still reports archive/read failures.
-            load_cached_archive_totals(&connection)
-                .ok()
-                .flatten()
-                .map(|totals| totals.total_visits as u64),
-        );
-        let job = Arc::clone(job);
-        // Also interrupt expensive filtering/sorting before SQLite yields its first row.
-        connection.progress_handler(1_000, Some(move || job.is_cancelled()))?;
+        job.total(total);
     }
     let format = request.format;
     let extension = match format {
@@ -120,7 +129,7 @@ fn write_export(
         let mut counted = CountedWriter { writer: &mut buffer, bytes: 0, checked_at: 0, job };
         let render_result: Result<()> = (|| {
             let mut export = ExportWriter::new(&mut counted, &format)?;
-            windowed = walk_history_for_export(&connection, request.query, job, |item| {
+            windowed = walk_pages(&mut fetch, request.query, job, |item| {
                 if let Some(delay) = crate::test_support::export_row_delay() {
                     std::thread::sleep(delay);
                 }
@@ -189,39 +198,30 @@ impl Write for CountedWriter<'_> {
     }
 }
 
-/// Ordinary browse exports stream one statement in existing time/id order. Search retains the
-/// shared cursor reader on this same connection. A regex search is scanned a time-boxed chunk per
-/// call (`regex_scan`), so the loop follows its cursor until the scan covers the whole archive;
-/// the connection's progress handler still interrupts a chunk when the export is cancelled.
-///
-/// Returns true when a keyword search was windowed (`grouped/window.rs`): the export then holds
-/// the most recently archived matches only, and `ExportResult::windowed` says so.
+#[cfg(test)]
 fn walk_history_for_export(
-    connection: &Connection,
+    vault: &Vault,
     query: HistoryQuery,
+    job: Option<&Arc<ExportJob>>,
+    visit: impl FnMut(&HistoryEntry) -> Result<()>,
+) -> Result<bool> {
+    let (_, upper) = export_bounds(vault)?;
+    walk_pages(
+        &mut |query| {
+            vault.read(Db::Archive, move |s| super::timeline::timeline_page(s, &query, upper))
+        },
+        query,
+        job,
+        visit,
+    )
+}
+
+fn walk_pages(
+    fetch: &mut impl FnMut(HistoryQuery) -> Result<HistoryQueryResponse>,
+    mut query: HistoryQuery,
     job: Option<&Arc<ExportJob>>,
     mut visit: impl FnMut(&HistoryEntry) -> Result<()>,
 ) -> Result<bool> {
-    if query.q.as_ref().is_none_or(|q| q.trim().is_empty()) {
-        prepare_advanced_search_filters(connection, &ParsedHistorySearchQuery::default())?;
-        let sort = query.sort.as_deref().unwrap_or("newest");
-        let (start, end, time, id) =
-            list_history_bounds(sort, query.start_time_ms, query.end_time_ms, None);
-        // LIMIT -1 with OFFSET 0 streams every row from the start of the keyset walk.
-        let mut statement = connection.prepare(list_history_sql(sort))?;
-        let mut rows = statement.query(named_params! {
-            ":profileId": query.profile_id, ":browserKind": query.browser_kind,
-            ":domainPattern": query.domain.filter(|value| !value.trim().is_empty()).map(|value| format!("%{value}%")),
-            ":startTimeMs": start, ":endTimeMs": end, ":cursorVisitTime": time,
-            ":cursorId": id, ":pageLimit": -1i64, ":pageOffset": 0i64,
-        })?;
-        while let Some(row) = rows.next()? {
-            check_cancel(job)?;
-            visit(&history_entry_from_row(row)?)?;
-        }
-        return Ok(false);
-    }
-    let mut query = query;
     query.page = None;
     query.cursor = None;
     query.limit = Some(EXPORT_PAGE_SIZE);
@@ -229,15 +229,13 @@ fn walk_history_for_export(
     let mut windowed = false;
     loop {
         check_cancel(job)?;
-        let page = list_history_on_connection(connection, query.clone())?;
+        let page = fetch(query.clone())?;
         windowed |= page.windowed;
         for item in &page.items {
             check_cancel(job)?;
             visit(item)?;
         }
-        let Some(cursor) = page.next_cursor else {
-            return Ok(windowed);
-        };
+        let Some(cursor) = page.next_cursor else { return Ok(windowed) };
         query.cursor = Some(cursor);
     }
 }

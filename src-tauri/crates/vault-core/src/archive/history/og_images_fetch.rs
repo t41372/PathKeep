@@ -775,7 +775,7 @@ mod tests {
             FetchedOgImage { fetch_status: fetch_status::HTTP_ERROR, ..blocked_outcome(page_url) };
         upsert_og_image(&connection, &previous.as_insert(page_url, Some("2000-01-01T00:00:00Z")))
             .expect("retryable row");
-        assert_eq!(list_urls_due_for_refetch(&connection, 10).unwrap(), [page_url]);
+        assert_eq!(list_urls_due_for_refetch(&connection, 10, None).unwrap().items, [page_url]);
 
         let client = build_fetch_client().expect("client");
         let outcome = fetch_og_image_for(&client, page_url);
@@ -784,7 +784,7 @@ mod tests {
         assert!(refetch_after.is_none());
         upsert_og_image(&connection, &outcome.as_insert(page_url, refetch_after.as_deref()))
             .expect("blocked row");
-        assert!(list_urls_due_for_refetch(&connection, 10).unwrap().is_empty());
+        assert!(list_urls_due_for_refetch(&connection, 10, None).unwrap().items.is_empty());
     }
 
     #[test]

@@ -47,7 +47,7 @@
 //!
 //! ## Dependencies
 //! - `archive::{export_archive_database, open_archive_connection,
-//!   open_source_evidence_connection, max_schema_version, run_migrations}`
+//!   open_legacy_source_evidence_connection, max_schema_version, run_migrations}`
 //!   for safe encrypted-db copy + forward migration.
 //! - `config::{ProjectPaths, load_config, save_config}` for the project
 //!   layout the bundle mirrors.
@@ -64,7 +64,7 @@ use crate::{
     archive::{
         ArchiveOpGate, ArchiveWriteLock, DiskEncryptionMode, apply_cipher_key,
         create_verified_safety_snapshot, detect_disk_encryption_mode, export_archive_database,
-        max_schema_version, open_archive_connection, open_source_evidence_connection,
+        max_schema_version, open_archive_connection, open_legacy_source_evidence_connection,
         remove_stale_sidecars, run_migrations,
     },
     config::{ProjectPaths, load_config, save_config},
@@ -1346,7 +1346,7 @@ fn copy_source_evidence_database_to(
     target_path: &Path,
 ) -> Result<()> {
     let target_key = encryption_key_for_copy(config, key)?;
-    let source = open_source_evidence_connection(paths, config, key)?;
+    let source = open_legacy_source_evidence_connection(paths, config, key)?;
     export_archive_database(&source, target_path, target_key)?;
     Ok(())
 }

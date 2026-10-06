@@ -1,14 +1,14 @@
-# Turso store schema v1
+# Turso store schema
 
 `vault_core::store_schema::migration_registry()` supplies a consolidated v1
-migration for Archive, SourceEvidence, Intelligence and Agent, with an empty list
+migration for Archive, SourceEvidence, Intelligence and Agent, followed by Archive v2 read indexes and v3 source totals, with an empty list
 for Scratch. Every statement runs through `vault_store::Session`; each database's
 v1 and migration record commit in one transaction. No SQLite migration replay,
 views, triggers, TEMP tables, FTS virtual tables, window functions or WITHOUT ROWID
 tables are used.
 
 This is the schema contract for the Turso port in [ADR-012](decisions/012-turso-storage-engine.md)
-and [the migration design](turso-migration-design.md). Archive mutation writers now use Vault and real Store transactions. Unported readers, intelligence and whole-file maintenance still use their existing SQLite files. The desktop session owns the shared Vault for ported commands.
+and [the migration design](turso-migration-design.md). Archive mutation writers now use Vault and real Store transactions. Native archive readers use the same Store. Search, intelligence and whole-file maintenance retain their existing SQLite files until their separate ports. The desktop session owns the shared Vault for ported commands.
 
 The baseline is the final effect of archive SQL migrations 001–016 and runtime
 DDL in archive schema/search/source evidence, intelligence schema and its runtime
@@ -19,7 +19,7 @@ definitions; they do not include or execute those legacy migration files.
 
 | Database        | File                         | Version | Application tables |
 | --------------- | ---------------------------- | ------- | ------------------ |
-| Archive         | `archive/history-vault.db`   | 4       | 22                 |
+| Archive         | `archive/history-vault.db`   | 3       | 22                 |
 | Source evidence | `archive/source-evidence.db` | 1       | 7                  |
 | Intelligence    | `derived/intelligence.db`    | 1       | 28                 |
 | Agent           | `derived/agent.db`           | 1       | 5                  |
@@ -128,7 +128,7 @@ invented between independently rebuilt intelligence tables.
 - Foreign key: `source_profile_id` → `source_profiles.id`; delete no action.
 - Index `idx_urls_page_id`: `urls(page_id)`.
 - Index `idx_urls_url`: `urls(url)`.
-- Index `idx_urls_last_visit_ms`: `urls(last_visit_ms DESC)`.
+- Index `idx_urls_last_visit_ms`: `urls(last_visit_ms DESC, id DESC)` (v2).
 - Unique index `idx_urls_profile_source_url_id`: `urls(source_profile_id, source_url_id)`.
 - Index `idx_urls_profile_last_visit`: `urls(source_profile_id, last_visit_ms DESC)`.
 
@@ -142,6 +142,7 @@ invented between independently rebuilt intelligence tables.
 - Index `idx_visits_visible_time_id`: `visits(visit_time_ms, id) WHERE reverted_at IS NULL`.
 - Index `idx_visits_visible_profile_time_id`: `visits(source_profile_id, visit_time_ms ASC, id ASC) WHERE reverted_at IS NULL`.
 - Index `idx_visits_visible_url_time`: `visits( url_id, visit_time_ms DESC, id DESC ) WHERE reverted_at IS NULL`.
+- Index `idx_visits_visible_batch_time_id`: `visits(import_batch_id, visit_time_ms DESC, id DESC) WHERE reverted_at IS NULL AND import_batch_id IS NOT NULL` (v2), for complete review pagination.
 - Index `idx_visits_import_batch_id`: `visits(import_batch_id)`.
 - Index `idx_visits_batch_url`: `visits(import_batch_id, url_id)`; keyset walks stay within the changed batch.
 - Resumable visibility uses `import_batches.previous_status`, `visibility_cursor`, and `visibility_run_id`; `reverting` / `restoring` resume from the last committed URL chunk. The schema also includes `idx_og_images_eviction` and `idx_og_images_lru` so eviction follows an index rather than sorting each page.
@@ -188,13 +189,14 @@ invented between independently rebuilt intelligence tables.
 - Primary key: `id`.
 - Foreign key: `parent_manifest_id` → `manifests.id`; delete no action.
 - Foreign key: `run_id` → `runs.id`; delete no action.
+- Index `idx_manifests_run_id`: `manifests(run_id, id DESC)` (v2).
 - Unique index `idx_manifests_content_hash`: `manifests(content_hash)`.
 
 **`snapshots`** — Saved snapshot paths, sizes, checksums and reasons. Writer: `archive/run_support; archive/maintenance`.
 
 - Primary key: `id`.
 - Foreign key: `run_id` → `runs.id`; delete no action.
-- No secondary indexes.
+- Index `idx_snapshots_run_id`: `snapshots(run_id, id)` (v2).
 
 **`profile_watermarks`** — Per-profile incremental cursors and last successful evidence batch. Writer: `archive/ingest/parser; takeout/payload_import`.
 
@@ -257,7 +259,7 @@ invented between independently rebuilt intelligence tables.
 **`search_outbox`** — Ordered upsert/delete notifications committed with page document changes. Writer: `Archive mutation writers; Tantivy consumer acknowledges rows (consumer pending)`.
 
 - Primary key: `seq`.
-- No secondary indexes.
+- Index `idx_search_outbox_page_seq`: `search_outbox(page_id, seq)` (v2), for latest-state consistency checks without repeated outbox scans.
 
 ### Source Evidence — `archive/source-evidence.db`
 
@@ -504,6 +506,30 @@ The archive retains the `runs.id = 0` system provenance row used by existing
 writers. It is data, not another migration. New run states remain text, so the
 batched writer model can record `running`, `completed` and `interrupted` without
 losing older audit statuses.
+
+## Archive v2 read indexes
+
+Version 1 remains the consolidated table baseline. Version 2 creates the batch-review,
+outbox-page, manifest-run and snapshot-run indexes and replaces the URL recency index
+with `(last_visit_ms DESC, id DESC)`. Store applies this transaction once at owner open;
+existing native v1 vaults keep all facts and encrypted files. A plaintext/encrypted
+upgrade test compares every persisted fixture field before and after the index step.
+No read path runs DDL. Doctor expects Archive v3 and v1 for the other durable databases.
+
+Version 3 initializes `archive_totals` keys named `sourceVisits:<source_profile_id>`
+with indexed counts of visible visits. Ingest applies one source delta per committed
+batch. Revert/restore consumes the changed rows' profile IDs through `RETURNING` and
+updates only those profiles in the same transaction. Duplicate imports and resumed
+visibility chunks do not double-count. Source statistics and profile/browser timeline
+totals perform counter lookups instead of walking every page/profile summary.
+Doctor compares these counters with canonical visits and repairs drift. Global counter
+readers select their six named keys, so per-source keys do not leak into manifest counts.
+
+Turso 0.8.1 requires explicit `IS NOT NULL` predicates for the partial host/domain/batch
+indexes in these query shapes. Timeline/review/media cursors use separate equality-tie
+and strict-range seeks rather than relying on tuple comparisons. Production-plan tests
+reject full fact/page scans and unwanted `SORTER` operations; details and minimal
+reproductions are in [the archive-read report](research/2026-10-turso-archive-reads.md).
 
 ## Verification
 

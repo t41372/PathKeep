@@ -178,12 +178,20 @@ fn resolve_browser_discovery_issue_core(
 
 /// Builds the canonical desktop snapshot for the current unlocked session.
 pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
+    app_snapshot_with_vault(None, session_database_key)
+}
+
+/// Uses the session owner for canonical reads, including keychain-only unlocks.
+pub fn app_snapshot_with_vault(
+    vault: Option<&vault_core::Vault>,
+    session_database_key: Option<&str>,
+) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let browser_discovery = snapshot_browser_profiles();
     // One archive open and one intelligence open for everything below; each open of an encrypted
     // archive derives its key again.
-    let reads = load_snapshot_reads(&paths, &config, session_database_key)?;
+    let reads = load_snapshot_reads(&paths, &config, session_database_key, vault)?;
     let ai_status = degrade_ai_status(&config, reads.ai_status);
     let intelligence_status = degrade_intelligence_status(reads.intelligence_status);
     let app_lock_status = resolved_app_lock_status(&paths, &config)?;
@@ -193,7 +201,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         directories: vault_core::AppDirectories {
             app_root: paths.app_root.display().to_string(),
             config_path: paths.config_path.display().to_string(),
-            archive_database_path: paths.archive_database_path.display().to_string(),
+            archive_database_path: reads.archive_status.database_path.clone(),
             search_database_path: paths.search_database_path.display().to_string(),
             intelligence_database_path: paths.intelligence_database_path.display().to_string(),
             audit_repo_path: paths.audit_repo_path.display().to_string(),
@@ -222,7 +230,9 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         browser_profiles: browser_discovery.profiles,
         browser_discovery_issue: browser_discovery.issue,
         recent_runs: reads.recent_runs,
+        recent_runs_next_cursor: reads.recent_runs_next_cursor,
         recent_import_batches: reads.recent_import_batches,
+        recent_import_batches_next_cursor: reads.recent_import_batches_next_cursor,
     })
 }
 

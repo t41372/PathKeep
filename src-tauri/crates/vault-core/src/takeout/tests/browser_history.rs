@@ -669,7 +669,7 @@ fn browser_import_retains_review_and_audit_without_advancing_live_cursors() {
         let mut saw_running = false;
         let imported = import_browser_history_with_progress(&vault, &request, |event| {
             if event.phase == "prepare" {
-                let batch = crate::load_import_batches(&vault).unwrap().remove(0);
+                let batch = crate::load_import_batches(&vault, None, 16).unwrap().items.remove(0);
                 let detail = crate::preview_import_batch(&vault, batch.id).unwrap();
                 assert_eq!(detail.batch.status, "running");
                 assert_eq!(detail.recognized_files.len(), 1);
@@ -743,7 +743,7 @@ fn failed_browser_import_retains_recognized_files_and_failure_notes() {
             &browser_history_request(&source, false, "chromium", "chrome:broken"),
         )
         .unwrap_err();
-        let batch = crate::load_import_batches(&vault).unwrap().remove(0);
+        let batch = crate::load_import_batches(&vault, None, 16).unwrap().items.remove(0);
         let detail = crate::preview_import_batch(&vault, batch.id).unwrap();
         assert_eq!(detail.batch.status, "failed");
         assert_eq!(detail.recognized_files.len(), 1);

@@ -245,7 +245,7 @@ fn the_dialect_is_the_rust_regex_crate() {
     let archive = archive_with_an_old_match();
     archive.index();
     let search = |pattern: &str| {
-        list_history(
+        search_history(
             &archive.paths,
             &archive.config,
             None,

@@ -664,7 +664,7 @@ impl HostState {
     /// changing the host-API contract.
     fn block_on_fetch(&self, ids: &[i64]) -> Result<crate::models::AiSearchResponse> {
         let wanted: std::collections::HashSet<i64> = ids.iter().copied().collect();
-        let listing = crate::archive::list_history(
+        let listing = crate::archive::search_history(
             &self.context.paths,
             &self.context.config,
             self.context.database_key.as_deref(),

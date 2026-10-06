@@ -1617,7 +1617,7 @@ pub(super) fn lexical_history_results(
     // W-PKG-A: thread the date filter into the lexical query. `list_history` already supports
     // `start_time_ms` / `end_time_ms` as Unix ms; we convert the "YYYY-MM-DD" strings here.
     let (start_time_ms, end_time_ms) = resolve_date_filter_ms(request);
-    list_history(
+    search_history(
         paths,
         config,
         key,

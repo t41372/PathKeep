@@ -199,7 +199,7 @@ pub(crate) async fn query_history(
 ) -> Result<vault_core::HistoryQueryResponse, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("query_history", move || {
-        worker_bridge::query_history_impl(query, session_database_key_state.get_key()?.as_deref())
+        worker_bridge::query_history_impl(query, &session_database_key_state)
     })
     .await
 }
@@ -214,10 +214,7 @@ pub(crate) async fn load_history_favicons(
 ) -> Result<Vec<vault_core::HistoryFaviconLookupResult>, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("load_history_favicons", move || {
-        worker_bridge::load_history_favicons_impl(
-            entries,
-            session_database_key_state.get_key()?.as_deref(),
-        )
+        worker_bridge::load_history_favicons_impl(entries, &session_database_key_state)
     })
     .await
 }
@@ -343,7 +340,7 @@ pub(crate) async fn load_dashboard_snapshot(
 ) -> Result<vault_core::DashboardSnapshot, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("load_dashboard_snapshot", move || {
-        worker_bridge::dashboard_snapshot_impl(key_state.get_key()?.as_deref())
+        worker_bridge::dashboard_snapshot_impl(&key_state)
     })
     .await
 }
@@ -355,10 +352,8 @@ pub(crate) async fn load_source_stats(
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::SourceStats>, CommandError> {
     let key_state = state.inner().clone();
-    run_blocking_command("load_source_stats", move || {
-        worker_bridge::source_stats_impl(key_state.get_key()?.as_deref())
-    })
-    .await
+    run_blocking_command("load_source_stats", move || worker_bridge::source_stats_impl(&key_state))
+        .await
 }
 
 #[cfg(not(test))]
@@ -369,10 +364,8 @@ pub(crate) async fn get_url_detail(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::UrlDetail, CommandError> {
     let key_state = state.inner().clone();
-    run_blocking_command("get_url_detail", move || {
-        worker_bridge::url_detail_impl(&url, key_state.get_key()?.as_deref())
-    })
-    .await
+    run_blocking_command("get_url_detail", move || worker_bridge::url_detail_impl(&url, &key_state))
+        .await
 }
 
 #[cfg(not(test))]
@@ -387,7 +380,7 @@ pub(crate) async fn get_browse_day_insights(
 ) -> Result<vault_core::BrowseDayInsights, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("get_browse_day_insights", move || {
-        worker_bridge::browse_day_insights_impl(key_state.get_key()?.as_deref(), request)
+        worker_bridge::browse_day_insights_impl(&key_state, request)
     })
     .await
 }
@@ -401,7 +394,7 @@ pub(crate) async fn load_audit_run_detail(
 ) -> Result<vault_core::AuditRunDetail, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("load_audit_run_detail", move || {
-        worker_bridge::audit_run_detail_impl(run_id, key_state.get_key()?.as_deref())
+        worker_bridge::audit_run_detail_impl(run_id, &key_state)
     })
     .await
 }
@@ -415,7 +408,7 @@ pub(crate) async fn export_history(
 ) -> Result<vault_core::ExportResult, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("export_history", move || {
-        worker_bridge::export_history_impl(request, key_state.get_key()?.as_deref())
+        worker_bridge::export_history_impl(request, &key_state)
     })
     .await
 }
@@ -441,10 +434,8 @@ pub(crate) async fn doctor_report(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::HealthReport, CommandError> {
     let key_state = state.inner().clone();
-    run_blocking_command("doctor_report", move || {
-        worker_bridge::doctor_report_impl(key_state.get_key()?.as_deref())
-    })
-    .await
+    run_blocking_command("doctor_report", move || worker_bridge::doctor_report_impl(&key_state))
+        .await
 }
 
 #[cfg(not(test))]
@@ -480,6 +471,36 @@ pub(crate) async fn clear_derived_intelligence(
     let key_state = state.inner().clone();
     run_blocking_command("clear_derived_intelligence", move || {
         worker_bridge::clear_derived_intelligence_impl(key_state.get_key()?.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Reads another page of the audit ledger on the session's reader pool.
+pub(crate) async fn load_recent_runs(
+    cursor: Option<i64>,
+    limit: Option<usize>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::RunPage, CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("load_recent_runs", move || {
+        worker_bridge::load_recent_runs_impl(cursor, limit, &state)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Reads another page of import history on the session's reader pool.
+pub(crate) async fn load_import_batches(
+    cursor: Option<String>,
+    limit: Option<usize>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ImportBatchPage, CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("load_import_batches", move || {
+        worker_bridge::load_import_batches_impl(cursor, limit, &state)
     })
     .await
 }

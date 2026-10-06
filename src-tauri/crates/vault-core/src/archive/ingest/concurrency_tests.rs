@@ -2,7 +2,7 @@
 //! Not responsible for: scheduler IPC or browser-owned SQLite locking.
 //! Failure modes: batch-size-dependent results, cancelled/crashed run loses its
 //! committed prefix, resume duplicates visits, stars wait until the backup ends,
-//! contending writes read an uncommitted watermark; early URL cursors skip search terms;
+//! contending writes read an uncommitted watermark; timeline reads wait on an open backup batch; early URL cursors skip search terms;
 //! resumed visits are rescanned; downloads or favicons disappear after a crash.
 
 use super::*;
@@ -740,4 +740,76 @@ fn resume_does_not_reupsert_committed_url_batches_or_skip_terms() {
             Ok(())
         })
         .unwrap();
+}
+
+/// A real multi-batch backup must leave its committed prefix readable while its next
+/// batch is queued behind an open transaction on the same writer.
+#[test]
+fn timeline_and_totals_remain_readable_during_a_multi_batch_backup() {
+    for key in [None, Some([84; 32])] {
+        let vault = Vault::open_temp_with_key(key).unwrap();
+        let source = snapshot(20_003);
+        let (committed, ready) = std::sync::mpsc::channel();
+        let (resume, paused) = std::sync::mpsc::channel();
+        let writer = vault.clone();
+        let backup = std::thread::spawn(move || {
+            let mut notified = false;
+            super::super::backup::run_backup_profiles(
+                &writer,
+                false,
+                &CancelToken::new(),
+                vec![source.profile],
+                |progress| {
+                    if !notified && progress.imported_records == Some(10_000) {
+                        notified = true;
+                        committed.send(()).unwrap();
+                        paused.recv().unwrap();
+                    }
+                },
+            )
+            .unwrap();
+        });
+        ready.recv().unwrap();
+        let (held, entered) = std::sync::mpsc::channel();
+        let (release, blocked) = std::sync::mpsc::channel();
+        let writer = vault.clone();
+        let transaction = std::thread::spawn(move || {
+            writer.store().write(Db::Archive, Priority::Batch, move |s| {
+                s.execute("UPDATE archive_totals SET value=999999 WHERE name='visits'", ())?;
+                held.send(()).unwrap();
+                blocked.recv().unwrap();
+                Err::<(), _>(vault_store::Error::Operation(Box::new(std::io::Error::other(
+                    "rollback fixture",
+                ))))
+            })
+        });
+        entered.recv().unwrap();
+        resume.send(()).unwrap();
+        wait_pending(&vault, false, 1);
+        let reader = vault.clone();
+        let (send, receive) = std::sync::mpsc::channel();
+        let read = std::thread::spawn(move || {
+            let timeline = crate::list_history(
+                &reader,
+                crate::HistoryQuery { limit: Some(2), ..Default::default() },
+            )
+            .unwrap();
+            let dashboard = crate::load_dashboard_snapshot(&reader).unwrap();
+            let sources = crate::load_source_stats(&reader).unwrap();
+            send.send((timeline, dashboard, sources)).unwrap();
+        });
+        let result = receive.recv_timeout(std::time::Duration::from_secs(5));
+        release.send(()).unwrap();
+        assert!(transaction.join().unwrap().is_err());
+        read.join().unwrap();
+        backup.join().unwrap();
+        let (timeline, dashboard, sources) =
+            result.expect("reads must finish before the next batch can commit");
+        assert_eq!(timeline.total, 10_000);
+        assert_eq!(timeline.items[0].source_visit_id, 10_000);
+        assert_eq!(dashboard.total_visits, 10_000);
+        assert_eq!(sources.iter().map(|s| s.visit_count).sum::<i64>(), 10000);
+        assert_eq!(dashboard.recent_runs[0].status, "running");
+        assert_eq!(crate::load_dashboard_snapshot(&vault).unwrap().total_visits, 20_003);
+    }
 }

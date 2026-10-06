@@ -73,7 +73,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let snapshot = worker_bridge::save_config_with_base_impl(
                 payload.config,
                 payload.base_config,
-                session_key(&state.session)?.as_deref(),
+                &state.session,
             )?;
             // Same follow-up as the Tauri command: menu language and icon.
             if let Ok(app) = require_app_handle(state) {
@@ -183,17 +183,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "query_history" => {
             let payload = parse_payload::<QueryHistoryPayload>(payload)?;
-            json_value!(worker_bridge::query_history_impl(
-                payload.query,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::query_history_impl(payload.query, &state.session)?)
         }
         "load_history_favicons" => {
             let payload = parse_payload::<HistoryFaviconPayload>(payload)?;
-            json_value!(worker_bridge::load_history_favicons_impl(
-                payload.entries,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::load_history_favicons_impl(payload.entries, &state.session)?)
         }
         "load_history_og_images" => {
             let payload = parse_payload::<HistoryOgImagePayload>(payload)?;
@@ -311,40 +305,45 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "load_dashboard_snapshot" => {
-            json_value!(worker_bridge::dashboard_snapshot_impl(
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::dashboard_snapshot_impl(&state.session)?)
         }
         "get_browse_day_insights" => {
             let payload = parse_payload::<BrowseDayInsightsPayload>(payload)?;
-            json_value!(worker_bridge::browse_day_insights_impl(
-                session_key(&state.session)?.as_deref(),
-                payload.request,
+            json_value!(worker_bridge::browse_day_insights_impl(&state.session, payload.request,)?)
+        }
+        "load_recent_runs" => {
+            let payload = parse_payload::<RunPagePayload>(payload)?;
+            json_value!(worker_bridge::load_recent_runs_impl(
+                payload.cursor,
+                payload.limit,
+                &state.session
+            )?)
+        }
+        "load_import_batches" => {
+            let payload = parse_payload::<ImportBatchPagePayload>(payload)?;
+            json_value!(worker_bridge::load_import_batches_impl(
+                payload.cursor,
+                payload.limit,
+                &state.session
             )?)
         }
         "load_source_stats" => {
-            json_value!(worker_bridge::source_stats_impl(session_key(&state.session)?.as_deref())?)
+            json_value!(worker_bridge::source_stats_impl(&state.session)?)
         }
         "get_url_detail" => {
             let payload = parse_payload::<UrlPayload>(payload)?;
-            json_value!(worker_bridge::url_detail_impl(
-                &payload.url,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::url_detail_impl(&payload.url, &state.session)?)
         }
         "load_audit_run_detail" => {
             let payload = parse_payload::<RunIdPayload>(payload)?;
-            json_value!(worker_bridge::audit_run_detail_impl(
-                payload.run_id,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::audit_run_detail_impl(payload.run_id, &state.session)?)
         }
         "export_history" => {
             let payload = parse_payload::<ExportPayload>(payload)?;
-            let key = session_key(&state.session)?;
+            let session = state.session.clone();
             // Keep the runtime free to serve polling/cancellation during a long export.
             let result = tokio::task::spawn_blocking(move || {
-                worker_bridge::export_history_impl(payload.request, key.as_deref())
+                worker_bridge::export_history_impl(payload.request, &session)
             })
             .await
             .unwrap_or_else(|error| join_failure("export_history", error))?;
@@ -387,7 +386,12 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "preview_import_batch" => {
             let payload = parse_payload::<BatchIdPayload>(payload)?;
-            json_value!(worker_bridge::preview_import_batch_impl(payload.batch_id, &state.session)?)
+            json_value!(worker_bridge::preview_import_batch_impl(
+                payload.batch_id,
+                payload.cursor,
+                payload.limit,
+                &state.session
+            )?)
         }
         "revert_import_batch" => {
             let payload = parse_payload::<BatchIdPayload>(payload)?;
@@ -406,10 +410,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "schedule_status" => {
             let payload = parse_payload::<PlatformPayload>(payload)?;
-            json_value!(worker_bridge::schedule_status_impl(
-                payload.platform,
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::schedule_status_impl(payload.platform, &state.session)?)
         }
         "apply_schedule" => {
             let payload = parse_payload::<PlanPayload>(payload)?;
@@ -424,7 +425,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::repair_schedule_impl(payload.plan)?)
         }
         "doctor_report" => {
-            json_value!(worker_bridge::doctor_report_impl(session_key(&state.session)?.as_deref())?)
+            json_value!(worker_bridge::doctor_report_impl(&state.session)?)
         }
         "repair_health" => {
             json_value!(worker_bridge::repair_health_impl(&state.session)?)
@@ -440,9 +441,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "keyring_status" => json_value!(worker_bridge::keyring_status_impl()),
-        "security_status" => json_value!(worker_bridge::security_status_impl(
-            session_key(&state.session)?.as_deref()
-        )?),
+        "security_status" => json_value!(worker_bridge::security_status_impl(&state.session)?),
         "unlock_archive_from_keychain" => {
             json_value!(worker_bridge::unlock_archive_from_keychain_impl(&state.session)?)
         }

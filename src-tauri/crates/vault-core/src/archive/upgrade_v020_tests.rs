@@ -33,7 +33,8 @@
 use crate::archive::{
     LaunchRecovery, assess_archive_upgrade, check_config_disk_consistency, current_version,
     ensure_archive_initialized_with_progress, max_schema_version, open_archive_connection,
-    open_intelligence_connection, open_source_evidence_connection, recover_archive_on_launch,
+    open_intelligence_connection, open_legacy_source_evidence_connection,
+    recover_archive_on_launch,
 };
 use crate::config::{ProjectPaths, ensure_paths, load_config, project_paths_with_root};
 use crate::models::{
@@ -257,7 +258,7 @@ fn upgrade_v020_plaintext_archive_migrates_cleanly() {
     build_v6_intelligence_db(&paths);
     std::fs::write(&paths.config_path, V020_CONFIG_JSON).expect("write v0.2.0 config.json");
     drop(
-        open_source_evidence_connection(&paths, &plaintext_v020_config(), None)
+        open_legacy_source_evidence_connection(&paths, &plaintext_v020_config(), None)
             .expect("materialize source-evidence"),
     );
 
@@ -565,7 +566,7 @@ fn upgrade_v020_with_progress_streams_phases_and_migrates_cleanly() {
     build_v6_intelligence_db(&paths);
     std::fs::write(&paths.config_path, V020_CONFIG_JSON).expect("write v0.2.0 config.json");
     drop(
-        open_source_evidence_connection(&paths, &plaintext_v020_config(), None)
+        open_legacy_source_evidence_connection(&paths, &plaintext_v020_config(), None)
             .expect("materialize source-evidence"),
     );
     let cfg = load_config(&paths).expect("v0.2.0 config must load");

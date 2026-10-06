@@ -5,7 +5,8 @@
 use super::*;
 use crate::{
     archive::{
-        archive_status, ensure_archive_initialized, list_history, tests::seed_chrome_fixture,
+        ensure_archive_initialized, legacy_archive_status, search_history,
+        tests::seed_chrome_fixture,
     },
     config::{load_config, project_paths_with_root, save_config},
     models::HistoryQuery,
@@ -62,7 +63,7 @@ fn backed_up_archive() -> Fixture {
     save_config(&paths, &config).expect("save config");
     ensure_archive_initialized(&paths, &config, None).expect("init archive");
     super::super::tests::legacy_queries::seed_reader_archive(&paths, &config);
-    drop(super::super::open_source_evidence_connection(&paths, &config, None).unwrap());
+    drop(super::super::open_legacy_source_evidence_connection(&paths, &config, None).unwrap());
 
     // Things a real install accumulates beside the archive.
     let write = |path: PathBuf, bytes: &[u8]| {
@@ -228,7 +229,7 @@ fn wipe_removes_everything_listed_and_nothing_else() {
 
     let config = load_config(paths).expect("config after wipe");
     assert!(!config.initialized);
-    assert!(!archive_status(paths, &config, None).expect("status").initialized);
+    assert!(!legacy_archive_status(paths, &config, None).expect("status").initialized);
 }
 
 #[test]
@@ -375,7 +376,7 @@ fn a_new_archive_in_the_same_process_bootstraps_and_searches_after_a_wipe() {
     save_config(paths, &fixture.config).expect("config again");
     ensure_archive_initialized(paths, &fixture.config, None).expect("init again");
     super::super::tests::legacy_queries::seed_reader_archive(paths, &fixture.config);
-    let found = list_history(
+    let found = search_history(
         paths,
         &fixture.config,
         None,

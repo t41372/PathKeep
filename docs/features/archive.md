@@ -194,6 +194,7 @@ Settings → General 的兩個開關。
 - import / onboarding finalization / manual backup 的 progress surface 必須持續回報 typed phase、current/total、percent、detail、目前 source/profile label、record-level processed/imported/duplicate/skipped counters，以及 structured `logEvents`（level / code / source label / counters / diagnostic）。legacy `logLines` 只作 fallback，產品 UI 不應把 raw backend prose 當成主要 copy；若單一大型檔案或 SQLite profile 在 active write 階段沒有可信 percent，UI 必須改成 indeterminate progress 並持續顯示遞增的 record counter，而不是長時間停在假 `0 / 1 · 0%`、假 `1 / 2 · 50%`、或只顯示 `1 / 1` 檔案 / profile 進度。post-import 的 backup / rebuild / shell refresh 只能作為 background-style follow-up，不能讓前景 overlay 因等待整串收尾而卡死；導入主路徑也不得同步重建整個 derived search projection，只能刷新本次 import batch 影響到的 bounded URL-document 集合。
 - import / manual backup 這類 archive-write 任務必須下沉到 shell-owned task store：Import route 只負責啟動與顯示 handoff card，Jobs 是 canonical live progress / console / recovery surface，sidebar footer 顯示 compact status；使用者切頁後不得丟失進度。當已有 archive-write task 正在跑時，第二個 import / backup action 必須連到現有任務並通知使用者，而不是啟動並行寫入。
 - 若 import batch 的 audit artifact 遺失或上一次 post-commit 寫入失敗，recent batch preview 與 doctor repair 都必須能重建同一批 JSON review artifact，而不是讓 committed batch 永久失去 review surface。
+- 批次列表與批次內的記錄都有續讀游標；16 個批次、24 筆預覽只是預設頁大小，不能讓較舊批次或其餘記錄無法到達。未完成的撤銷 / 恢復與 interrupted 批次優先顯示。後端契約見 [data-model](../architecture/data-model.md#turso-archive-read-contract)。
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
   - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。
   - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。
@@ -245,6 +246,8 @@ Settings → General 的兩個開關。
 - 匯出只包含**當前可見** query 結果；已回滾或 hidden 的 facts 不會進入 artifact。
 - 匯出報告記入審計日誌。
 - 匯出時 Settings 顯示進度條、已寫筆數 / 約總數 / 檔案大小與剩餘時間，可以停止。停止的匯出不留下任何檔案（連暫存檔都刪掉）；離開 Settings 再回來，進度還在。總數用 archive 快取的可見筆數，所以寫「約」。
+
+- Turso 一般歷史匯出逐頁讀取，不把整份結果留在記憶體；開始時固定最高 visit ID，忽略畫面當前頁與游標。每頁讀已提交的狀態，新增 ID 留給下一次匯出。加密 archive 同樣可匯出四種既有格式。
 
 ### 整機資料遷移（Export / Import）
 
@@ -310,10 +313,12 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 - 審計文字工件必須先作為普通檔案寫入本地 audit 目錄；Git 只是在可用時提供 optional local history，管理 manifests, schema snapshots, 排程設定草稿, 導入/匯出報告, 完整性報告。
 - fresh install 預設啟用 best-effort optional Git history；未來若提供 UI 開關，開關語義也只能控制 Git commit layer，不能控制 audit artifact 是否寫入。
 - 缺少 Git、Git repo 損壞或本機 policy 阻止 commit 時，不得讓已完成的 browser backup / import / doctor repair / retention prune 變成失敗；PathKeep 要保留 audit artifact，並在可回看的結果中暴露 optional Git history skipped warning。
-- 主 SQLite archive、raw 快照、cache 和 staging 不進 git。
+- 主 archive、raw 快照、cache 和 staging 不進 git。
 - Audit run detail 應直接暴露 manifest / artifact 路徑，並提供 open / copy path 動作，避免使用者自行猜測資料夾位置。
 - Audit run detail 可以用 `Summary / Artifacts / Warnings` 分頁降低資訊牆密度，但 open / copy path 動作與 warning honesty 不能被藏起來或延後載入。
-- Doctor / 健康檢查命令：重算 archive table hash 並出報告。
+- Doctor / 健康檢查命令：驗證四個 Turso 檔的完整性與 schema 版本、重新驗證 manifest 內容 hash，並把 outbox、快取統計與 canonical facts 比對。缺少引擎 `foreign_key_check` 時以明確關聯查詢檢查；不得把未檢查的項目宣稱為健康。
+- Audit runs 以 ID 游標續讀；最近 12 筆是第一頁，不是完整歷史的上限。
+- 原生 repair 可重建搜尋頁面摘要 / outbox 通知、快取總數和 import 可見筆數；不刪除或恢復可見 visits。回應須分別列出實際變更的數量。
 - doctor / repair baseline 至少要涵蓋 missing import audit artifact、broken visibility references、stale derived state，並把 repair 本身寫回 unified `runs` ledger。
 - local retention / prune 走 manual-first，但不是 hidden cleanup：Settings 必須提供 local snapshot / export / staging / quarantine 的 preview + explicit prune，並在 prune 後保留 run summary / manifest，而不是把 retention 寫成「只能自己去資料夾刪」。
 - prune snapshot artifact 時，PathKeep 會把對應 artifact path 從未來的 review surface 移除，但不刪除原本的 run summary / manifest / audit trail。

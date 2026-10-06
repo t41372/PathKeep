@@ -282,14 +282,10 @@ mod tests {
             .expect("assess archive upgrade");
         assert!(!upgrade.pending, "a freshly initialized archive has no pending upgrade");
         assert_eq!(
-            save_config_with_base_impl(
-                config.clone(),
-                None,
-                session_key(&session).unwrap().as_deref()
-            )
-            .expect("save config")
-            .config
-            .selected_profile_ids,
+            save_config_with_base_impl(config.clone(), None, &session)
+                .expect("save config")
+                .config
+                .selected_profile_ids,
             config.selected_profile_ids
         );
 
@@ -338,7 +334,7 @@ mod tests {
                 limit: Some(10),
                 ..HistoryQuery::default()
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         )
         .expect("query history");
         assert_eq!(history.total, 1);
@@ -349,7 +345,7 @@ mod tests {
                 query: HistoryQuery::default(),
                 format: vault_core::ExportFormat::Jsonl,
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         )
         .expect("export history");
         assert_eq!(export.count, 1);
@@ -369,8 +365,8 @@ mod tests {
         .expect("import takeout");
         let batch_id = imported.import_batch.expect("import batch").id;
         assert_eq!(imported.imported_items, 1);
-        let import_preview =
-            preview_import_batch_impl(batch_id, &session).expect("preview import batch");
+        let import_preview = preview_import_batch_impl(batch_id, None, None, &session)
+            .expect("preview import batch");
         assert_eq!(import_preview.batch.status, "imported");
         assert_eq!(import_preview.preview_entries.len(), 1);
         let reverted_batch =
@@ -476,14 +472,11 @@ mod tests {
         )
         .expect("remove schedule");
         assert!(!removed.applied);
-        let schedule_status = schedule_status_impl(
-            Some("linux".to_string()),
-            session_key(&session).unwrap().as_deref(),
-        )
-        .expect("schedule status");
+        let schedule_status =
+            schedule_status_impl(Some("linux".to_string()), &session).expect("schedule status");
         assert_eq!(schedule_status.install_state, "manual-review");
 
-        let doctor = doctor_report_impl(session_key(&session).unwrap().as_deref()).expect("doctor");
+        let doctor = doctor_report_impl(&session).expect("doctor");
         assert!(!doctor.checks.is_empty());
         let runtime_before_rekey = (0..50)
             .find_map(|attempt| {
@@ -801,8 +794,7 @@ mod tests {
         let snapshot_again = app_snapshot_impl(&session).expect("app snapshot");
         assert_eq!(snapshot_again.browser_profiles.len(), 1);
         assert!(!snapshot_again.archive_status.encrypted);
-        let security_status = security_status_impl(session_key(&session).unwrap().as_deref())
-            .expect("security status");
+        let security_status = security_status_impl(&session).expect("security status");
         assert_eq!(security_status.mode, "plaintext");
         fs::write(dir.path().join("vault.hold"), "secret vault").expect("write stronghold fixture");
         reset_local_secret_vault_impl().expect("reset local secret vault");
@@ -859,19 +851,16 @@ mod tests {
             |_| {},
         )
         .expect("initialize archive");
-        save_config_with_base_impl(config, None, session_key(&session).unwrap().as_deref())
-            .expect("save config");
+        save_config_with_base_impl(config, None, &session).expect("save config");
         seed_unported_readers(&session, &[("https://example.com", "Example")]);
         let report = run_backup_now_impl(false, &session, |_| {}).expect("run backup");
         let run_id = report.run.expect("backup run").id;
 
-        let dashboard = dashboard_snapshot_impl(session_key(&session).unwrap().as_deref())
-            .expect("dashboard snapshot");
+        let dashboard = dashboard_snapshot_impl(&session).expect("dashboard snapshot");
         assert_eq!(dashboard.total_visits, 1);
         assert!(!dashboard.recent_runs.is_empty());
 
-        let detail = audit_run_detail_impl(run_id, session_key(&session).unwrap().as_deref())
-            .expect("audit run detail");
+        let detail = audit_run_detail_impl(run_id, &session).expect("audit run detail");
         assert_eq!(detail.run.id, run_id);
 
         for error in [
@@ -988,8 +977,7 @@ mod tests {
         let config = initialized_config();
         initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
             .expect("initialize archive");
-        save_config_with_base_impl(config, None, session_key(&session).unwrap().as_deref())
-            .expect("save config");
+        save_config_with_base_impl(config, None, &session).expect("save config");
         run_backup_now_impl(false, &session, |_| {}).expect("backup");
 
         // Annotations PME loop: set notes, replace tags, read back, list, search.
@@ -1120,7 +1108,7 @@ mod tests {
         // the blocked_outcome branch instead of hitting the network.
         let mut blocked_config = initialized_config();
         blocked_config.og_image.blocked_hosts = vec!["blocked.example.test".to_string()];
-        save_config_with_base_impl(blocked_config, None, session_key(&session).unwrap().as_deref())
+        save_config_with_base_impl(blocked_config, None, &session)
             .expect("save blocked-hosts config");
         let blocked_count = super::refetch_og_images_impl(
             vec!["https://blocked.example.test/post".to_string()],
@@ -1131,12 +1119,8 @@ mod tests {
 
         let mut disabled_config = initialized_config();
         disabled_config.og_image.fetch_enabled = false;
-        save_config_with_base_impl(
-            disabled_config,
-            None,
-            session_key(&session).unwrap().as_deref(),
-        )
-        .expect("save og-image-disabled config");
+        save_config_with_base_impl(disabled_config, None, &session)
+            .expect("save og-image-disabled config");
         let disabled = super::refetch_og_images_impl(
             vec!["https://example.com/some-page".to_string()],
             &session,
@@ -1152,12 +1136,8 @@ mod tests {
         let mut off_mode_config = initialized_config();
         off_mode_config.og_image.fetch_enabled = true;
         off_mode_config.og_image.fetch_mode = vault_core::OgImageFetchMode::Off;
-        save_config_with_base_impl(
-            off_mode_config,
-            None,
-            session_key(&session).unwrap().as_deref(),
-        )
-        .expect("save fetch_mode=Off config");
+        save_config_with_base_impl(off_mode_config, None, &session)
+            .expect("save fetch_mode=Off config");
         let off_mode = super::refetch_og_images_impl(
             vec!["https://example.com/another-page".to_string()],
             &session,
@@ -1180,7 +1160,7 @@ mod tests {
             recovery_hint: None,
         })
         .expect("set app lock passcode for refetch err-arm coverage");
-        save_config_with_base_impl(locked_config, None, session_key(&session).unwrap().as_deref())
+        save_config_with_base_impl(locked_config, None, &session)
             .expect("save app-lock-enabled config");
         lock_app_session_impl(Some("manual".to_string()))
             .expect("lock app session for refetch err-arm coverage");
@@ -1242,8 +1222,7 @@ mod tests {
 
         config.app_lock.enabled = true;
         let saved_snapshot =
-            save_config_with_base_impl(config, None, session_key(&session).unwrap().as_deref())
-                .expect("enable app lock");
+            save_config_with_base_impl(config, None, &session).expect("enable app lock");
         assert!(saved_snapshot.config.app_lock.enabled);
 
         let owner = session.vault().unwrap().store().clone();
@@ -1269,8 +1248,8 @@ mod tests {
         assert_eq!(snapshot_error.action_hint.as_deref(), Some(ACTION_HINT_UNLOCK));
         assert_eq!(snapshot_error.retry_hint.as_deref(), Some(RETRY_HINT_AFTER_ACTION));
 
-        let dashboard_error = dashboard_snapshot_impl(session_key(&session).unwrap().as_deref())
-            .expect_err("dashboard should block");
+        let dashboard_error =
+            dashboard_snapshot_impl(&session).expect_err("dashboard should block");
         assert!(dashboard_error.message.contains("currently locked"));
         assert_eq!(dashboard_error.code.as_deref(), Some(ERROR_CODE_LOCK_REQUIRED));
 
@@ -1293,8 +1272,7 @@ mod tests {
 
         let snapshot = app_snapshot_impl(&session).expect("snapshot after unlock");
         assert!(snapshot.archive_status.initialized);
-        let dashboard =
-            dashboard_snapshot_impl(session_key(&session).unwrap().as_deref()).expect("dashboard");
+        let dashboard = dashboard_snapshot_impl(&session).expect("dashboard");
         assert!(dashboard.recent_runs.is_empty(), "unported readers do not see Turso writes");
         assert_eq!(
             owner
@@ -1343,8 +1321,7 @@ mod tests {
         let config = initialized_config();
         initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
             .expect("initialize archive");
-        save_config_with_base_impl(config, None, session_key(&session).unwrap().as_deref())
-            .expect("save config");
+        save_config_with_base_impl(config, None, &session).expect("save config");
         run_backup_now_impl(false, &session, |_| {}).expect("backup");
 
         // Browse-day insights: aggregates one local calendar day from the
@@ -1353,7 +1330,7 @@ mod tests {
         // succeed — we don't depend on a specific count here.
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let insights = super::browse_day_insights_impl(
-            session_key(&session).unwrap().as_deref(),
+            &session,
             BrowseDayInsightsRequest { date: today.clone(), profile_id: None },
         )
         .expect("browse day insights wrapper");

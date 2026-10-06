@@ -3,6 +3,7 @@
 //! Failure modes: crash loses cursor, shared pages lose visits, replay double-counts,
 //! restore turns a partial import into a complete import, concurrent producers change
 //! one batch twice, cancellation blocks the queue.
+//! Per-profile counters use only changed rows returned by the same transaction; no visit-sized allocation.
 //! Tests: batch_search_tests and turso_write_path.
 use super::*;
 use crate::{
@@ -122,20 +123,24 @@ fn chunk(s: &Session<'_>, batch: i64, restore: bool, run: i64) -> Result<usize> 
     let Some(last) = ids.last().copied() else { return Ok(0) };
     let at = now_rfc3339();
     let mut pages = std::collections::BTreeSet::new();
-    let mut visits = 0;
+    let mut visits = 0u64;
+    let mut by_profile = std::collections::BTreeMap::<i64, i64>::new();
     for id in &ids {
-        visits+=s.execute("UPDATE visits SET reverted_at=CASE WHEN ?3=1 THEN NULL ELSE ?4 END,
+        s.for_each("UPDATE visits SET reverted_at=CASE WHEN ?3=1 THEN NULL ELSE ?4 END,
             reverted_by_run_id=CASE WHEN ?3=1 THEN NULL ELSE ?5 END WHERE import_batch_id=?1 AND url_id=?2
-            AND ((?3=1 AND reverted_at IS NOT NULL) OR (?3=0 AND reverted_at IS NULL))",params![batch,*id,i64::from(restore),at.as_str(),run])?;
+            AND ((?3=1 AND reverted_at IS NOT NULL) OR (?3=0 AND reverted_at IS NULL)) RETURNING source_profile_id",
+            params![batch,*id,i64::from(restore),at.as_str(),run],|r| {
+                visits+=1;
+                *by_profile.entry(r.get::<i64>(0)?).or_default()+=if restore {1} else {-1};
+                Ok(())
+            })?;
         pages.insert(
             s.query_one("SELECT page_id FROM urls WHERE id=?1", [*id], |r| Ok(r.get::<i64>(0)?))?,
         );
     }
-    crate::archive::totals::add(
-        s,
-        "visits",
-        if restore { visits as i64 } else { -(visits as i64) },
-    )?;
+    for (profile, delta) in by_profile {
+        crate::archive::totals::add_visits(s, profile, delta)?;
+    }
     for page in pages {
         search_documents::refresh(s, page)?;
     }

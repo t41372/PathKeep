@@ -474,12 +474,9 @@ where
     // cached archive read) and prepended ahead of any existing leading system message so it is part
     // of the first turn but never displaces the caller's own system guidance.
     let mut request = setup.request;
-    let system_context =
-        vault_core::build_agent_system_context(&vault_core::resolve_agent_system_context(
-            &setup.paths,
-            &setup.config,
-            setup.session_database_key.as_deref(),
-        ));
+    let system_context = vault_core::build_agent_system_context(
+        &vault_core::resolve_agent_system_context(&setup.vault),
+    );
     request.messages.insert(0, LlmMessage::new(LlmRole::System, system_context));
 
     let outcome = stream_runtime.block_on(async {

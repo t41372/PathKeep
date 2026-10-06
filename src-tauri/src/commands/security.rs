@@ -34,10 +34,8 @@ pub(crate) async fn security_status(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::SecurityStatus, CommandError> {
     let key_state = state.inner().clone();
-    run_blocking_command("security_status", move || {
-        worker_bridge::security_status_impl(key_state.get_key()?.as_deref())
-    })
-    .await
+    run_blocking_command("security_status", move || worker_bridge::security_status_impl(&key_state))
+        .await
 }
 
 #[cfg(not(test))]

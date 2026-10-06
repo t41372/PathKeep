@@ -207,6 +207,8 @@ fn run_app() -> Result<()> {
             load_dashboard_snapshot,
             get_browse_day_insights,
             load_source_stats,
+            load_recent_runs,
+            load_import_batches,
             get_url_detail,
             load_audit_run_detail,
             export_history,

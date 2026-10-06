@@ -254,11 +254,11 @@ fn passwordless_native_unlock_refuses_only_legacy_database_opens() {
     let vault = Vault::open_temp_with_key(Some([65; 32])).unwrap();
     let paths = crate::project_paths_with_root(&vault.paths().app_root);
     let config = vault.config();
-    assert!(crate::archive_status(&paths, config, None).unwrap().unlocked);
+    assert!(crate::legacy_archive_status(&paths, config, None).unwrap().unlocked);
     let errors = [
         crate::archive::open_archive_connection(&paths, config, None).unwrap_err(),
         crate::archive::open_intelligence_connection(&paths, config, None).unwrap_err(),
-        crate::archive::open_source_evidence_connection(&paths, config, None).unwrap_err(),
+        crate::archive::open_legacy_source_evidence_connection(&paths, config, None).unwrap_err(),
     ];
     for error in errors {
         assert!(error.to_string().starts_with("storage-migration-incomplete:"), "{error:#}");

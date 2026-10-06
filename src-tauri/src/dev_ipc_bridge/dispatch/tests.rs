@@ -1280,26 +1280,16 @@ fn dispatch_export_progress_and_cancel_work_while_export_is_running() {
     let paths = vault_core::project_paths_with_root(root.path());
     let config = test_config();
     vault_core::save_config(&paths, &config).unwrap();
-    let archive = vault_core::archive::open_archive_connection(&paths, &config, None).unwrap();
-    archive.execute_batch(
-        "BEGIN;
-         INSERT INTO runs (id, run_type, trigger, started_at, status, due_only)
-         VALUES (1, 'backup', 'manual', '', 'success', 0);
-         INSERT INTO source_profiles
-           (id, browser_kind, profile_name, profile_path, discovered_at, enabled, profile_key)
-         VALUES (1, 'chrome', 'Default', '/fixture', '', 1, 'chrome:Default');
-         INSERT INTO urls
-           (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso,
-            last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden)
-         VALUES (1, 'https://example.com/', 'Export', 0, 0, 0, '', 0, '', 1, 1, 1, 0);
-         WITH RECURSIVE ids(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM ids WHERE id < 100000)
-         INSERT INTO visits (url_id, source_visit_id, visit_time_ms, visit_time_iso,
-           source_profile_id, created_by_run_id)
-         SELECT 1, CAST(id AS TEXT), 1700000000000 + id, '', 1, 1 FROM ids;
-         COMMIT;"
-    ).unwrap();
     let state =
         DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    state.session.vault().unwrap().store().write(vault_store::Db::Archive,vault_store::Priority::Batch,|s| {
+        s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,discovered_at,enabled,profile_key) VALUES(1,'chrome','Default','/fixture','',1,'chrome:Default')",())?;
+        s.execute("INSERT INTO pages(id,url,canonical_url) VALUES(1,'https://example.com/','https://example.com/')",())?;
+        s.execute("INSERT INTO urls(id,page_id,url,title,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id) VALUES(1,1,'https://example.com/','Export',0,'',0,'',1,0)",())?;
+        s.execute("WITH RECURSIVE ids(id) AS(VALUES(1) UNION ALL SELECT id+1 FROM ids WHERE id<100000) INSERT INTO visits(url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT 1,CAST(id AS TEXT),1700000000000+id,'',1,0 FROM ids",())?;
+        s.execute("UPDATE archive_totals SET value=100000 WHERE name='visits'",())?;
+        Ok(())
+    }).unwrap();
     ready_block_on(async {
         assert_eq!(
             dispatch_command(&state, "get_export_progress", json!({"exportId":"bridge-unknown"}))
@@ -1363,7 +1353,7 @@ fn dispatch_export_progress_and_cancel_work_while_export_is_running() {
                 .unwrap();
         assert_eq!(progress["state"], "done");
         assert_eq!(progress["bytesWritten"], 26);
-        assert_eq!(progress["totalRows"], Value::Null);
+        assert_eq!(progress["totalRows"], json!(100000));
         assert_eq!(
             dispatch_command(&state, "cancel_export", json!({"exportId":"bridge-done"}))
                 .await
@@ -1492,3 +1482,6 @@ fn locked_snapshots_do_not_read_keychain_and_explicit_unlock_reads_once() {
         }
     }
 }
+
+#[path = "native_reads_tests.rs"]
+mod native_reads;

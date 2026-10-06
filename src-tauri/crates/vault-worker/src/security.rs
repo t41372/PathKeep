@@ -27,7 +27,7 @@ use std::{
 };
 use vault_core::{
     AiProviderSecretInput, AppLockStatus, ArchiveMode, KeyringStatusReport, archive,
-    archive_status, clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
+    clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
     unlock_app_session_with_biometric,
 };
 #[cfg(not(coverage))]
@@ -40,10 +40,16 @@ use vault_platform::{
 type RekeyReviewSummary = (Option<String>, Option<i64>, Option<String>);
 
 /// Loads the security read model for the current archive/session state.
-pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core::SecurityStatus> {
+pub fn security_status(
+    vault: Option<&vault_core::Vault>,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::SecurityStatus> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let archive = archive_status(&paths, &config, session_database_key)?;
+    let archive = match vault {
+        Some(vault) => vault_core::archive_status(vault)?,
+        None => vault_core::archive_availability(&paths, &config),
+    };
     let keyring = keyring_status();
     let (warnings, warning_codes) =
         security_status_warnings(&config, &archive, &keyring, session_database_key);

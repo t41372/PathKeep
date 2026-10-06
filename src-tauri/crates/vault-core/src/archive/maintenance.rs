@@ -140,7 +140,7 @@ pub fn run_full_archive_snapshot_restore(
     // source-evidence postdating the snapshot; it is rebuildable-empty evidence, so this is safe and
     // guarantees a readable source-evidence — never a NOTADB from a mode-mismatched leftover.
     drop(
-        open_source_evidence_connection(paths, &restored_config, restored_key)
+        open_legacy_source_evidence_connection(paths, &restored_config, restored_key)
             .context("rebuilding an empty source-evidence after restore")?,
     );
 
@@ -806,7 +806,7 @@ fn rekey_swap_and_commit(
 
     // (9) The new state is now fully durable; finalize may drop the backstop.
     crate::fault_inject::checkpoint("rekey.after_config")?;
-    archive_status(paths, next_config, target_key)
+    legacy_archive_status(paths, next_config, target_key)
 }
 
 /// Captures a VERIFIED full-archive safety snapshot of the canonical history-vault into
@@ -1967,7 +1967,10 @@ mod tests {
         fs::copy(&paths.archive_database_path, &snapshot_path).expect("copy snapshot");
         super::at_rest::remove_stale_sidecars(&snapshot_path);
         // A pre-restore source-evidence is present so the rebuild path runs.
-        drop(open_source_evidence_connection(&paths, &config, Some(RESTORE_KEY)).expect("seed SE"));
+        drop(
+            open_legacy_source_evidence_connection(&paths, &config, Some(RESTORE_KEY))
+                .expect("seed SE"),
+        );
 
         // BREAK the canonical history-vault: zero its bytes so it can never decrypt/open.
         fs::write(&paths.archive_database_path, vec![0u8; 4096]).expect("brick canonical archive");
@@ -2010,7 +2013,7 @@ mod tests {
             .expect("a successful full-archive restore must leave config matching disk");
         // A fresh source-evidence opens.
         drop(
-            open_source_evidence_connection(&paths, &config, Some(RESTORE_KEY))
+            open_legacy_source_evidence_connection(&paths, &config, Some(RESTORE_KEY))
                 .expect("a fresh source-evidence opens"),
         );
         // An archive_restore audit run exists.

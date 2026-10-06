@@ -102,18 +102,19 @@ pub use app_lock::{
 pub use archive::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, ArchiveRecoveryKind, ArchiveRecoveryReport,
     BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
-    BrowseDayTopUrl, ExportCancelled, LaunchRecovery, ReconcileReport, WipeOutsideState,
-    archive_key_opens, archive_status, assess_archive_upgrade, cancel_export,
+    BrowseDayTopUrl, ExportCancelled, LaunchRecovery, ReconcileReport, RunPage, WipeOutsideState,
+    archive_availability, archive_key_opens, archive_status, assess_archive_upgrade, cancel_export,
     data_wipe_interrupted, doctor, ensure_archive_initialized,
-    ensure_archive_initialized_with_progress, export_history, finish_interrupted_data_wipe,
-    get_browse_day_insights, get_export_progress, get_url_detail, list_history,
-    list_recovery_snapshots, load_audit_run_detail, load_dashboard_snapshot, load_history_favicons,
-    load_recent_runs, load_source_stats, og_images, og_images_fetch,
-    open_source_evidence_connection, preview_data_wipe, preview_retention,
-    preview_snapshot_restore, reconcile_archive_encryption, record_export_failure,
-    recover_archive_on_launch, rekey_archive, repair_health_issues, request_running_jobs_stop,
-    run_backup, run_backup_with_progress, run_full_archive_snapshot_restore, run_retention_prune,
-    run_snapshot_restore, wipe_all_data,
+    ensure_archive_initialized_with_progress, export_history, export_search_history,
+    finish_interrupted_data_wipe, get_browse_day_insights, get_export_progress, get_url_detail,
+    legacy_archive_status, legacy_derived_health, list_history, list_recovery_snapshots,
+    load_audit_run_detail, load_dashboard_snapshot, load_history_favicons, load_recent_runs,
+    load_source_stats, og_images, og_images_fetch, open_legacy_source_evidence_connection,
+    preview_data_wipe, preview_retention, preview_snapshot_restore, reconcile_archive_encryption,
+    record_export_failure, recover_archive_on_launch, rekey_archive, repair_health_issues,
+    request_running_jobs_stop, run_backup, run_backup_with_progress,
+    run_full_archive_snapshot_restore, run_retention_prune, run_snapshot_restore, search_history,
+    wipe_all_data,
 };
 pub use browser_access::{
     DISCOVERY_ISSUE_DISCOVERY_ERROR, DISCOVERY_ISSUE_FULL_DISK_ACCESS,
@@ -168,10 +169,10 @@ pub use stars::{
     starred_history_ids, unset_star,
 };
 pub use takeout::{
-    import_browser_history, import_browser_history_with_progress, import_takeout,
+    ImportBatchPage, import_browser_history, import_browser_history_with_progress, import_takeout,
     import_takeout_with_progress, inspect_browser_history, inspect_takeout, load_import_batches,
-    preview_import_batch, restore_import_batch, restore_import_batch_with_control,
-    revert_import_batch, revert_import_batch_with_control,
+    preview_import_batch, preview_import_batch_page, restore_import_batch,
+    restore_import_batch_with_control, revert_import_batch, revert_import_batch_with_control,
 };
 /// Pure SHA-256 helpers (hex digest of bytes / of a file's contents). Re-exported so the worker's
 /// model-download tests + the candle e2e can pin digests against the same impl the manifest uses.

@@ -5,7 +5,7 @@
 
 // Failure modes (recorded before implementation):
 // (a) cancellation publishes a partial destination; publication must follow a cancellation barrier.
-// (b) a large SQL/write batch ignores cancellation; check SQL opcodes, rows and write chunks.
+// (b) a large SQL/write batch ignores cancellation; check between read pages, rows and write chunks.
 // (c) errors strand progress in running/finishing; every exit must record a terminal outcome.
 // (d) different ids share counters/stop flags or filenames; every job owns its state and artifact.
 // (e) output changes; retain the renderer and compare against the previous page walk.
@@ -38,7 +38,7 @@ struct JobData {
     finished: Option<Instant>,
 }
 
-pub(super) struct ExportJob {
+pub(in crate::archive::history) struct ExportJob {
     data: Mutex<JobData>,
     cancelled: AtomicBool,
 }
@@ -79,7 +79,7 @@ pub fn cancel_export(export_id: &str) -> bool {
 }
 
 impl ExportJob {
-    pub(super) fn start(export_id: Option<&str>) -> Result<Option<Arc<Self>>> {
+    pub(in crate::archive::history) fn start(export_id: Option<&str>) -> Result<Option<Arc<Self>>> {
         let Some(export_id) = export_id else {
             return Ok(None);
         };
@@ -125,32 +125,32 @@ impl ExportJob {
         Ok(job)
     }
 
-    pub(super) fn is_cancelled(&self) -> bool {
+    pub(in crate::archive::history) fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }
 
-    pub(super) fn check(&self) -> Result<()> {
+    pub(in crate::archive::history) fn check(&self) -> Result<()> {
         if self.is_cancelled() {
             return Err(ExportCancelled.into());
         }
         Ok(())
     }
 
-    pub(super) fn total(&self, total: Option<u64>) {
+    pub(in crate::archive::history) fn total(&self, total: Option<u64>) {
         self.data.lock().unwrap().progress.total_rows = total;
     }
 
-    pub(super) fn bytes(&self, bytes: u64) {
+    pub(in crate::archive::history) fn bytes(&self, bytes: u64) {
         self.data.lock().unwrap().progress.bytes_written = bytes;
     }
 
-    pub(super) fn update(&self, rows: u64, bytes: u64) {
+    pub(in crate::archive::history) fn update(&self, rows: u64, bytes: u64) {
         let mut data = self.data.lock().unwrap();
         data.progress.rows_written = rows;
         data.progress.bytes_written = bytes;
     }
 
-    pub(super) fn finishing(&self) -> Result<()> {
+    pub(in crate::archive::history) fn finishing(&self) -> Result<()> {
         // Shares the cancel lock: a true cancellation can never race past this barrier.
         let mut data = self.data.lock().unwrap();
         self.check()?;
@@ -158,7 +158,7 @@ impl ExportJob {
         Ok(())
     }
 
-    pub(super) fn complete<T>(&self, result: &Result<T>) {
+    pub(in crate::archive::history) fn complete<T>(&self, result: &Result<T>) {
         let mut data = self.data.lock().unwrap();
         data.progress.state = match result {
             Ok(_) => ExportState::Done,

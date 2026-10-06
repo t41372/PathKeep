@@ -4,7 +4,6 @@
 //! provenance, revert/restore diverges from search. Tests: takeout and batch_search_tests.
 
 mod batch_review;
-pub(crate) use self::batch_review::import_batches_from;
 mod batches;
 mod browser_history;
 mod import_flow;
@@ -39,7 +38,7 @@ use browser_history_parser::takeout::{
 use browser_history_parser::takeout::{
     TakeoutPayloadReport, parse_payload as parse_takeout_payload,
 };
-use rusqlite::{Connection, Row};
+
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -50,7 +49,9 @@ use walkdir::WalkDir;
 use zip::ZipArchive;
 
 pub use self::{
-    batch_review::{load_import_batches, preview_import_batch},
+    batch_review::{
+        ImportBatchPage, load_import_batches, preview_import_batch, preview_import_batch_page,
+    },
     batches::{
         restore_import_batch, restore_import_batch_with_control, revert_import_batch,
         revert_import_batch_with_control,

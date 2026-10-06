@@ -124,7 +124,7 @@ impl BackupStatus {
 /// Reads the archive's last successful backup and the scheduled-backup
 /// ledger. Blocking I/O; call it off the main thread.
 pub(crate) fn read_backup_status_from_disk(
-    database_key: Option<&str>,
+    vault: Option<&vault_core::Vault>,
     include_archive: bool,
 ) -> (Option<ArchiveReadiness>, Vec<DateTime<Utc>>) {
     let Ok(paths) = vault_core::project_paths() else {
@@ -136,7 +136,9 @@ pub(crate) fn read_backup_status_from_disk(
     let mut successes = Vec::new();
     let mut readiness = None;
     if include_archive {
-        match vault_core::archive_status(&paths, &config, database_key) {
+        match vault.map(vault_core::archive_status).transpose().map(|status| {
+            status.unwrap_or_else(|| vault_core::archive_availability(&paths, &config))
+        }) {
             Ok(status) if !status.initialized => readiness = Some(ArchiveReadiness::NotSetUp),
             Ok(status) if status.unlocked => {
                 readiness = Some(ArchiveReadiness::Ready);

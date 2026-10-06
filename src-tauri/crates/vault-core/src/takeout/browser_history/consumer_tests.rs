@@ -8,6 +8,7 @@ use crate::{
     config::{ensure_paths, project_paths_with_root},
     models::{AppConfig, ArchiveMode},
 };
+use rusqlite::Connection;
 use tempfile::tempdir;
 
 fn parsed_url(source_url_id: i64) -> ParsedUrl {

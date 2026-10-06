@@ -307,7 +307,7 @@ fn try_refetch_due_og_images(vault: &Vault, budget: usize) -> Result<(usize, u32
     if matches!(config.og_image.effective_mode(), OgImageFetchMode::Off) {
         return Ok((0, 0));
     }
-    let due_urls = { vault_core::og_images::list_urls_due_for_refetch(vault, budget)? };
+    let due_urls = { vault_core::og_images::list_urls_due_for_refetch(vault, budget, None)?.items };
     if due_urls.is_empty() {
         return Ok((0, 0));
     }
@@ -331,7 +331,7 @@ pub fn prefetch_og_images_on_demand(vault: &Vault, budget: u32) -> Result<(u32, 
     if budget == 0 {
         return Ok((0, 0));
     }
-    let urls = { vault_core::og_images::list_urls_for_prefetch(vault, budget)? };
+    let urls = { vault_core::og_images::list_urls_for_prefetch(vault, budget, None)?.items };
     if urls.is_empty() {
         return Ok((0, 0));
     }
@@ -358,7 +358,7 @@ fn try_prefetch_new_visit_og_images(vault: &Vault, budget: usize) -> Result<(usi
     if budget == 0 {
         return Ok((0, 0));
     }
-    let urls = { vault_core::og_images::list_urls_for_prefetch(vault, budget)? };
+    let urls = { vault_core::og_images::list_urls_for_prefetch(vault, budget, None)?.items };
     if urls.is_empty() {
         return Ok((0, 0));
     }
@@ -461,23 +461,24 @@ fn append_og_image_cleanup_result(
 
 /// Queries visible archive history rows with the canonical filter contract.
 pub fn query_history(
+    vault: &Vault,
     session_database_key: Option<&str>,
     query: HistoryQuery,
 ) -> Result<HistoryQueryResponse> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    list_history(&paths, &config, session_database_key, query)
+    if query.q.as_ref().is_some_and(|q| !q.trim().is_empty()) {
+        let paths = vault_core::project_paths()?;
+        return vault_core::search_history(&paths, vault.config(), session_database_key, query);
+    }
+    list_history(vault, query)
 }
 
 /// Loads favicon payloads for already-visible Explorer rows without blocking the
 /// main history query path on image bytes.
 pub fn load_history_favicons(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     entries: Vec<vault_core::HistoryFaviconLookupEntry>,
 ) -> Result<Vec<vault_core::HistoryFaviconLookupResult>> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::load_history_favicons(&paths, &config, session_database_key, entries)
+    vault_core::load_history_favicons(vault, entries)
 }
 
 /// Loads cached og:image payloads for already-visible card-mode rows.
@@ -707,25 +708,19 @@ fn host_throttle_wait(
 }
 
 /// Loads the dashboard snapshot read model for the current unlocked session.
-pub fn dashboard_snapshot(session_database_key: Option<&str>) -> Result<DashboardSnapshot> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    load_dashboard_snapshot(&paths, &config, session_database_key)
+pub fn dashboard_snapshot(vault: &Vault) -> Result<DashboardSnapshot> {
+    load_dashboard_snapshot(vault)
 }
 
 /// Loads per-source visit counts and date spans. Discovery in the app snapshot only knows file
 /// sizes, so Home and History ask for this separately.
-pub fn source_stats(session_database_key: Option<&str>) -> Result<Vec<vault_core::SourceStats>> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::load_source_stats(&paths, &config, session_database_key)
+pub fn source_stats(vault: &Vault) -> Result<Vec<vault_core::SourceStats>> {
+    vault_core::load_source_stats(vault)
 }
 
 /// Loads the History detail panel data for one exact URL.
-pub fn url_detail(session_database_key: Option<&str>, url: &str) -> Result<vault_core::UrlDetail> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::get_url_detail(&paths, &config, session_database_key, url)
+pub fn url_detail(vault: &Vault, url: &str) -> Result<vault_core::UrlDetail> {
+    vault_core::get_url_detail(vault, url)
 }
 
 /// Aggregates one local-calendar day's Browse-side insights (sparkline,
@@ -734,42 +729,33 @@ pub fn url_detail(session_database_key: Option<&str>, url: &str) -> Result<vault
 /// `aggregateDayInsights` which only ever saw the cards already loaded
 /// into the contact sheet — see feedback-2026-05-25 §3.1.
 pub fn browse_day_insights(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     request: BrowseDayInsightsRequest,
 ) -> Result<BrowseDayInsights> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    get_browse_day_insights(&paths, &config, session_database_key, &request)
+    get_browse_day_insights(vault, &request)
 }
 
 /// Loads audit detail for a specific run id.
-pub fn audit_run_detail(
-    session_database_key: Option<&str>,
-    run_id: i64,
-) -> Result<vault_core::AuditRunDetail> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    load_audit_run_detail(&paths, &config, session_database_key, run_id)
+pub fn audit_run_detail(vault: &Vault, run_id: i64) -> Result<vault_core::AuditRunDetail> {
+    load_audit_run_detail(vault, run_id)
 }
 
 /// Exports the currently visible history query in the requested format.
 pub fn export_query(
+    vault: &Vault,
     session_database_key: Option<&str>,
     request: ExportRequest,
 ) -> Result<vault_core::ExportResult> {
-    let preflight = (|| {
+    if request.query.q.as_ref().is_some_and(|q| !q.trim().is_empty()) {
         let paths = vault_core::project_paths()?;
-        let config = load_unlocked_config(&paths)?;
-        Ok((paths, config))
-    })();
-    let (paths, config) = match preflight {
-        Ok(context) => context,
-        Err(error) => {
-            vault_core::record_export_failure(request.export_id.as_deref(), &error);
-            return Err(error);
-        }
-    };
-    export_history(&paths, &config, session_database_key, request)
+        return vault_core::export_search_history(
+            &paths,
+            vault.config(),
+            session_database_key,
+            request,
+        );
+    }
+    export_history(vault, request)
 }
 
 /// Counts what [`clear_derived_intelligence`] would remove, without removing anything.
@@ -902,21 +888,17 @@ pub fn restore_import_batch_detail(vault: &Vault, batch_id: i64) -> Result<Impor
 }
 
 /// Runs doctor checks against the current archive.
-pub fn doctor_report(session_database_key: Option<&str>) -> Result<HealthReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    doctor(&paths, &config, session_database_key)
+pub fn doctor_report(vault: &Vault, key: Option<&str>) -> Result<HealthReport> {
+    let mut report = doctor(vault)?;
+    if let Some(check) = vault_core::legacy_derived_health(vault, key)? {
+        report.checks.push(check);
+    }
+    Ok(report)
 }
 
-/// Runs the repair path for doctor-detected issues.
-pub fn repair_health(
-    vault: &Vault,
-    session_database_key: Option<&str>,
-) -> Result<HealthRepairReport> {
-    vault_core::require_complete_storage_migration("doctor repair")?;
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    repair_health_issues(vault, &paths, &config, session_database_key)
+/// Applies the native repair and delegates existing intelligence work to area 4.
+pub fn repair_health(vault: &Vault, key: Option<&str>) -> Result<HealthRepairReport> {
+    repair_health_issues(vault, key)
 }
 
 fn backup_changed_archive(run: Option<&vault_core::BackupRunOverview>) -> bool {
@@ -1969,7 +1951,7 @@ mod tests {
         vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
 
         let insights = crate::archive_flows::browse_day_insights(
-            None,
+            &vault_core::Vault::open_temp().unwrap(),
             vault_core::BrowseDayInsightsRequest {
                 date: "2026-05-25".to_string(),
                 profile_id: None,

@@ -72,11 +72,13 @@ pub(crate) async fn import_browser_history(
 /// Loads the detailed preview for one previously recorded import batch, off the UI thread.
 pub(crate) async fn preview_import_batch(
     batch_id: i64,
+    cursor: Option<String>,
+    limit: Option<usize>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ImportBatchDetail, CommandError> {
     let state = state.inner().clone();
     run_blocking_command("preview_import_batch", move || {
-        worker_bridge::preview_import_batch_impl(batch_id, &state)
+        worker_bridge::preview_import_batch_impl(batch_id, cursor, limit, &state)
     })
     .await
 }

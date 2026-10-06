@@ -214,11 +214,11 @@ fn load_import_batches_returns_empty_for_uninitialized_archives() {
     let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
-    assert!(load_import_batches(&vault).expect("empty import batches").is_empty());
+    assert!(load_import_batches(&vault, None, 16).expect("empty import batches").items.is_empty());
 
     assert!(!paths.archive_database_path.exists());
     let initialized_but_missing_archive =
-        load_import_batches(&vault).expect("missing archive batches");
+        load_import_batches(&vault, None, 16).expect("missing archive batches").items;
     assert!(initialized_but_missing_archive.is_empty());
     assert!(!paths.archive_database_path.exists());
 }
@@ -532,7 +532,7 @@ fn import_takeout_marks_malformed_import_runs_failed() {
         .expect("failed import run");
     assert_eq!(status, "failed");
     assert!(error_message.contains("parsing Takeout payload"));
-    let batch = load_import_batches(&vault).unwrap().remove(0);
+    let batch = load_import_batches(&vault, None, 16).unwrap().items.remove(0);
     assert_eq!(batch.status, "failed");
     let detail = preview_import_batch(&vault, batch.id).unwrap();
     assert_eq!(detail.recognized_files.len(), 1);
@@ -578,7 +578,7 @@ fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
     assert!(imported.import_batch.is_none());
     assert_eq!(imported.imported_items, 0);
     assert_eq!(imported.quarantined_files.len(), 1);
-    assert_eq!(load_import_batches(&vault).expect("load batches").len(), 0);
+    assert_eq!(load_import_batches(&vault, None, 16).expect("load batches").items.len(), 0);
 }
 
 #[test]
@@ -837,7 +837,7 @@ fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
 
-    assert!(load_import_batches(&vault).expect("load batches").is_empty());
+    assert!(load_import_batches(&vault, None, 16).expect("load batches").items.is_empty());
 
     let source = write_takeout_fixture(dir.path());
     let dry_run = import_takeout(
@@ -863,7 +863,7 @@ fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
     )
     .expect("import with git");
     let batch_id = imported.import_batch.expect("batch").id;
-    let batches = load_import_batches(&vault).expect("load populated batches");
+    let batches = load_import_batches(&vault, None, 16).expect("load populated batches").items;
     assert_eq!(batches.len(), 1);
     assert_eq!(batches[0].id, batch_id);
     assert_eq!(batches[0].candidate_items, 2);
@@ -1178,7 +1178,7 @@ fn trailing_zip_checksum_failure_keeps_a_failed_import_prefix() {
         &TakeoutRequest { source_path: path.display().to_string(), dry_run: false },
     );
     assert!(result.is_err(), "a complete JSON value must not skip the ZIP checksum at EOF");
-    let batch = load_import_batches(&vault).unwrap().remove(0);
+    let batch = load_import_batches(&vault, None, 16).unwrap().items.remove(0);
     assert_eq!(batch.status, "failed");
     assert_eq!(batch.imported_items, 1);
 }

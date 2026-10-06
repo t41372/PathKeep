@@ -237,6 +237,24 @@ impl AiRunControl for CancelToken {
 /// provider so `search_history` runs the full hybrid pipeline.
 fn tool_context(paths: &ProjectPaths, config: &AppConfig) -> AgentToolContext {
     let vault = vault_core::Vault::open_temp().unwrap();
+    vault_core::test_support::legacy_fixtures::copy_to_vault(&vault, paths, config);
+    vault
+        .store()
+        .write(vault_store::Db::Archive, vault_store::Priority::Batch, |s| {
+            for (name, sql) in [
+                ("visits", "SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL"),
+                ("urls", "SELECT COUNT(*) FROM urls"),
+                ("sourceProfiles", "SELECT COUNT(*) FROM source_profiles WHERE enabled=1"),
+            ] {
+                let count = s.query_one(sql, (), |r| Ok(r.get::<i64>(0)?))?;
+                s.execute(
+                    "UPDATE archive_totals SET value=?2 WHERE name=?1",
+                    vault_store::params![name, count],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
     AgentToolContext {
         vault: vault.clone(),
         paths: paths.clone(),
@@ -324,8 +342,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     // test — without it the model has no clock (the sandbox `Date.now()` is 0) and guesses the wrong
     // year, searches empty date ranges, and loops. The retrieval guidance then tells it to enumerate
     // recent visits via an EMPTY query (the other half of the fix), which the seeded rows satisfy.
-    let system_context =
-        build_agent_system_context(&resolve_agent_system_context(&paths, &config, None));
+    let system_context = build_agent_system_context(&resolve_agent_system_context(&context.vault));
     eprintln!("agent e2e: injected system context = {system_context:?}");
     let request = LlmChatRequest::new(
         vec![

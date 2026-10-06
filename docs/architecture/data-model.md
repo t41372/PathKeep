@@ -103,7 +103,7 @@ Turso 的新庫 schema 見 [store-schema.md](store-schema.md)：四個 durable `
 每頁搜尋文件與 transactional outbox，全文索引由 Tantivy 持有。各表用途、keys、
 索引、writer 與刪除清單以該文檔為準。archive 寫入、備份、Takeout / Browser Direct
 匯入、批次撤銷與恢復、筆記、標籤、星號和預覽圖已經透過 `Vault` 寫入 Turso。
-尚未移植的讀取、intelligence、agent 與整庫維護仍使用下列 `.sqlite` 路徑；它們不是
+History 時間軸、日期統計、archive read models、來源統計、URL 詳情、圖片讀取、Doctor 與一般歷史匯出也已使用同一個 `Vault`。尚未移植的搜尋、intelligence、agent 與整庫維護仍使用下列 `.sqlite` 路徑；它們不是
 [ADR-012](decisions/012-turso-storage-engine.md) 的目標設計。
 
 ### Migration in progress
@@ -112,18 +112,17 @@ This branch is not usable as a complete archive application until migration area
 Archive writes use Turso `.db` files. Password unlock retains the exact typed archive
 password for unported SQLCipher readers, separately from the zeroized data key. Backend
 keychain auto-unlock has no typed password. The snapshot still reports `unlocked: true`,
-with empty results for its unported reader sections. Wipe, security status, schedule
+with native archive reads available, including history, run/import lists, totals and export. Its unported intelligence sections remain empty without a typed password. Wipe, security status, schedule
 status and chat cancellation do not need that password. Only attempts to open a
 SQLCipher connection return `storage-migration-incomplete` until the user supplies the
 archive password. A locked encrypted archive returns a successful snapshot with
 `encrypted: true, unlocked: false`; status reads never retrieve a keychain secret.
-History, Insights and several maintenance readers
-still use the old SQLite files and do not see new Turso writes. There is no bridge
+Keyword/regex search (including grouped search and search exports), Insights and several maintenance readers still use the old SQLite files and do not see new Turso writes. There is no bridge
 between the stores. The owner IPC prevents another process from opening databases;
 it does not make the unported readers current.
 
 This build refuses archive rekey (including its preview), encryption-mode changes on
-an initialized archive, doctor repair, full-archive migration export/import (including
+an initialized archive, full-archive migration export/import (including
 import preview), full-archive snapshot restore, archive encryption reconciliation, and the AI `is:starred` filter. They return the typed
 `StorageMigrationIncomplete` error, exposed to desktop commands as
 `storage-migration-incomplete`: the operation is unavailable until the storage migration
@@ -137,13 +136,80 @@ Restore in area 6: the worker bundle tests
 by refusal tests while mixed-store operations are unavailable. The full-archive worker
 restore success test is likewise replaced by a typed refusal; its legacy core tests remain.
 The desktop `migration_and_browse_insights_impls_cover_local_desktop_flows` bundle round-trip
-assertions also need restoring in area 6. Desktop wrapper tests seed SQLite read fixtures
-independently and inspect Turso writer results directly; they do not assert against copied data.
+assertions also need restoring in area 6. Native archive reader tests use real Store files in plaintext and with a key; the bridge regression imports tied visits, reopens from the keychain without a password, follows both history and review cursors, and exports all rows. Excluded search/intelligence/maintenance tests retain independent legacy fixtures.
+
+### Turso archive read contract
+
+Public archive readers receive `&Vault`; SQL helpers receive `&vault_store::Session`.
+Archive reads use `vault.read(Db::Archive, ...)`, never the writer queue or a per-call
+SQLCipher connection. A reader during a multi-batch backup sees its committed prefix,
+including `running` runs, while the next transaction is still open. Reads never initialize
+schemas or rebuild search projections. The old source-evidence opener is isolated with
+unported consumers as `open_legacy_source_evidence_connection`; native access belongs to Store.
+
+Timeline order is `(visit_time_ms, id)`, ascending for oldest and descending for newest.
+Every page reads one extra match to determine continuation. Turso 0.8.1 leaves tuple
+inequalities as residual filters and can select a weaker duplicate bound, so continuation
+uses a seek within the last timestamp followed by a strict remaining time range. Tests
+inspect the production query plans and the seek opcode. Date insights accumulate 4,096-row
+read pages, retaining counters for distinct URLs/domains/queries rather than all visits.
+The top-card counts remain summaries of the complete requested day.
+
+Archive and per-source totals come from `archive_totals`; source counters use `sourceVisits:<profile_id>` keys, updated in the same fact transaction. Exact-page lifetime visit counts come from the page/profile summaries. First/last visits
+are index seeks. Date/domain match counts and weekly histograms are indexed range
+aggregates, not substitutes for cached archive totals. Unknown URLs and empty sources
+remain valid empty read models. A zero `profilesProcessed` is preserved, not replaced
+by the number of requested profiles.
+
+Ordinary HTML, Markdown, text and JSONL exports read 1,000-row pages from the encrypted
+or plaintext Store, with a captured upper visit ID and a 256 KiB write buffer. The screen's
+page/cursor does not truncate an export. Each page gets a committed snapshot; later visit
+IDs wait for the next export. User visibility changes can be observed between pages.
+Publication, progress and cancellation keep their existing contract. Turso has no public
+running-statement interrupt; cancellation is checked between pages, rows and 64 KiB write
+chunks. Search exports delegate to the existing search function owned by area 3.
+
+Doctor uses Turso `integrity_check` for the four durable files and Store's schema-version
+inspection. Turso 0.8.1 also offers `quick_check`, but has no `foreign_key_check` pragma;
+Doctor checks canonical references with explicit indexed parent lookups. Full integrity
+checking is not interruptible. The MVCC/PASSIVE live-integrity timeout in the probes does
+not justify claiming a generic interrupt or using MVCC; this Store uses single-owner WAL.
+Doctor also checks every snapshot/manifest/import artifact, visibility provenance, latest
+outbox events, page/profile summaries, import visible counts and archive totals against
+facts. Repairs regenerate recoverable metadata and queue current page state without
+unhiding or deleting visits. Pending valid outbox entries are not corruption and are not
+pruned. Structural damage and unknown schema versions are reported, not fabricated away.
+Legacy intelligence checks/repairs delegate to their existing functions; any repair,
+including a derived-only repair, retains its native run ledger entry.
+
+Desktop contracts (all payload fields are camelCase):
+
+| Command / response                                                   | Native read contract                                                                                                                                                          |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `query_history({ query })`                                           | Existing response fields and `time                                                                                                                                            | id`cursor. Timeline`page > 1` requires a cursor; there is no OFFSET. Page size is 1–1,000 (default 150). Search requests retain the area-3 dispatch. |
+| `load_recent_runs({ cursor?: number, limit?: number })`              | `{ items: BackupRunOverview[], nextCursor: number                                                                                                                             | null }`, run ID descending, default page size 12. The compatibility system run is excluded.                                                          |
+| `load_import_batches({ cursor?: string, limit?: number })`           | `{ items: ImportBatchOverview[], nextCursor: string                                                                                                                           | null }`, unfinished (`reverting`, `restoring`, `interrupted`) first, then ID descending, default page size 16.                                       |
+| `preview_import_batch({ batchId, cursor?: string, limit?: number })` | Existing detail plus `previewNextCursor: string                                                                                                                               | null`. Visible visits sort by time/ID descending. Default page size remains 24.                                                                      |
+| `AppSnapshot`                                                        | Adds `recentRunsNextCursor` and `recentImportBatchesNextCursor`; arrays remain the first pages. `directories.archiveDatabasePath` agrees with the native archive status path. |
+| `DashboardSnapshot`                                                  | Adds `recentRunsNextCursor`; existing counters and arrays retain their types.                                                                                                 |
+| `HealthRepairReport`                                                 | Adds `repairedTotalCounters`, `repairedBatchTotals`, `refreshedSearchPages`, `queuedSearchUpdates` (numbers, default 0 when decoding older payloads). Existing fields remain. |
+
+Run/import/review limits are page sizes (maximum 1,000), never total-result caps. Continue
+with the returned cursor; do not reconstruct it. Core OG prefetch/refetch reads likewise
+return `{ items, nextCursor }` and accept an optional cursor; worker fetch budgets still
+choose one work page. Scalar latest/earliest/best-image selectors retain `LIMIT 1` because
+they select one value, rather than enumerate a truncated record set.
+
+Doctor adds the stable check codes `archive-integrity`, `source-evidence-integrity`,
+`intelligence-integrity`, `agent-integrity`, `canonical-references`, `cached-totals`,
+`search-outbox`. Existing artifact/visibility/schema codes remain. Frontend integration
+and the en/zh-CN/zh-TW labels are documented in the
+[read-port validation report](research/2026-10-turso-archive-reads.md).
 
 ### Turso write path and ownership
 
 `Vault` opens one shared `Store` with the migration registry. Each durable database
-has one initial schema version. Archive includes resumable visibility state, the batch
+starts with a consolidated v1. Archive v2 adds read indexes; v3 initializes per-source counters from visible facts. Existing native v1/v2 files upgrade in place, preserving every field. Archive includes resumable visibility state, the batch
 URL index, indexed preview-image eviction, independent source cursors, cached totals,
 and canonical URL indexes. No released Turso schema needs a backfill. Fact transactions
 maintain the counters incrementally. Public writes receive `&Vault`; transaction helpers
@@ -151,7 +217,7 @@ receive `&Session`. The ported paths do not bootstrap schemas or seed search on 
 
 Backup and import submit at most 10,000 source rows per `Priority::Batch` transaction.
 Each archive batch commits facts, URL bounds, affected search documents, profile
-memberships, outbox events and run/import progress together. The producer waits for its
+memberships, source visit counters, outbox events and run/import progress together. The producer waits for its
 commit, and interactive stars, notes and tags can overtake a queued batch. A second
 backup request in the same owner is rejected as `backup-already-running`. A colliding
 scheduled request is deferred with the existing `write-lock` reason. Checkpoint replay

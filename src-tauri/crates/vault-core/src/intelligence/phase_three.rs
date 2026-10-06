@@ -9,7 +9,7 @@
 
 use super::{date_range_bounds, ensure_core_intelligence_schema, rfc3339_from_millis};
 use crate::{
-    archive::{open_intelligence_connection, open_source_evidence_connection},
+    archive::{open_intelligence_connection, open_legacy_source_evidence_connection},
     config::ProjectPaths,
     intelligence::site_dictionary::display_name_for_domain,
     models::{
@@ -338,7 +338,7 @@ pub(crate) fn get_observed_interactions_with_connection(
         return Ok(Vec::new());
     }
 
-    let source_evidence = open_source_evidence_connection(paths, config, key)?;
+    let source_evidence = open_legacy_source_evidence_connection(paths, config, key)?;
     let evidence = load_engagement_evidence(&source_evidence, &visits)?;
     let mut interactions = observed_interactions_from_visits(visits, &evidence);
     interactions.sort_by_key(|interaction| std::cmp::Reverse(interaction.visit_id));

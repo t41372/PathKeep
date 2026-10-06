@@ -28,6 +28,7 @@ use browser_history_parser::{
     ChromiumReadCursor, HistoryBatchConsumer, HistoryDatabaseSet, StreamHistoryError,
     StreamedHistory, chromium, firefox, safari,
 };
+use rusqlite::Connection;
 use rusqlite::{MAIN_DB, OpenFlags};
 use tempfile::TempDir;
 

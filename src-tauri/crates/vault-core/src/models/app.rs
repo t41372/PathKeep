@@ -424,5 +424,9 @@ pub struct AppSnapshot {
     #[serde(default)]
     pub browser_discovery_issue: Option<String>,
     pub recent_runs: Vec<BackupRunOverview>,
+    #[serde(default)]
+    pub recent_runs_next_cursor: Option<i64>,
     pub recent_import_batches: Vec<ImportBatchOverview>,
+    #[serde(default)]
+    pub recent_import_batches_next_cursor: Option<String>,
 }

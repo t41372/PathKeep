@@ -1,3 +1,5 @@
+//! Failure modes: totals recount facts, bounds include reverted rows, run metadata loses provenance.
+//! Tests: read_model_tests, backup suites and run_support_failed_runs_and_due_windows_stay_truthful.
 //! Archive run-ledger and manifest helpers.
 //!
 //! ## Responsibilities
@@ -12,7 +14,7 @@
 //! - Mutating source-evidence batches or derived projections directly.
 //!
 //! ## Dependencies
-//! - SQLite run-ledger tables in the canonical archive.
+//! - The session-owned Turso archive and transactionally maintained totals.
 //! - `git_audit` for durable manifest artifact writes.
 //! - `chrono` and `iana_time_zone` for scheduler-aware timestamps.
 //!
@@ -30,11 +32,14 @@ use crate::{
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
 use iana_time_zone::get_timezone;
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use vault_store::Session;
+
+pub(super) const EARLIEST_VISIT_SQL: &str = "SELECT visit_time_iso FROM visits INDEXED BY idx_visits_visible_time_id WHERE reverted_at IS NULL AND visit_time_ms>=-9223372036854775808 ORDER BY visit_time_ms,id LIMIT 1";
+pub(super) const LATEST_VISIT_SQL: &str = "SELECT visit_time_iso FROM visits INDEXED BY idx_visits_visible_time_id WHERE reverted_at IS NULL AND visit_time_ms>=-9223372036854775808 ORDER BY visit_time_ms DESC,id DESC LIMIT 1";
 
 /// Visible-row counters + coverage bounds cached for read models and run
 /// summaries. The bounds let the dashboard's "Span" stat avoid a per-render
@@ -67,88 +72,6 @@ pub(crate) struct BackupManifest {
     pub(crate) parent_manifest_hash: Option<String>,
 }
 
-/// Parent-manifest pointer used to keep the manifest chain append-only.
-#[derive(Debug, Clone)]
-pub(crate) struct ManifestRow {
-    pub(crate) id: i64,
-}
-
-/// Persists one structured manifest payload and links it into the manifest chain.
-///
-/// Maintenance flows use this when they need manifest semantics identical to a
-/// backup run but already have the final JSON payload assembled.
-pub(crate) fn persist_structured_manifest(
-    connection: &Connection,
-    paths: &ProjectPaths,
-    run_id: i64,
-    finished_at: &str,
-    payload: &Value,
-) -> Result<(String, PathBuf)> {
-    let manifest_json = serde_json::to_string_pretty(payload)?;
-    let manifest_hash = crate::utils::sha256_hex(manifest_json.as_bytes());
-    let row_counts = archive_row_counts(connection)?;
-    let parent_manifest = latest_manifest_row(connection)?;
-    let manifest_path =
-        write_manifest_artifact(paths, run_id, finished_at, &manifest_hash, &manifest_json)?;
-    persist_manifest_row(
-        connection,
-        run_id,
-        parent_manifest.as_ref(),
-        &manifest_hash,
-        &manifest_path,
-        finished_at,
-        &row_counts,
-    )?;
-    Ok((manifest_hash, manifest_path))
-}
-
-/// Loads the most recent manifest row so the next run can chain to it.
-pub(crate) fn latest_manifest_row(connection: &Connection) -> Result<Option<ManifestRow>> {
-    connection
-        .query_row(
-            "SELECT id
-             FROM manifests
-             ORDER BY id DESC
-             LIMIT 1",
-            [],
-            |row| Ok(ManifestRow { id: row.get(0)? }),
-        )
-        .optional()
-        .map_err(Into::into)
-}
-
-/// Records one manifest row after its artifact has been written successfully.
-///
-/// Keeping the file write ahead of the SQL row avoids ledger entries that point
-/// at audit artifacts which were never created.
-pub(crate) fn persist_manifest_row(
-    connection: &Connection,
-    run_id: i64,
-    parent: Option<&ManifestRow>,
-    content_hash: &str,
-    file_path: &Path,
-    created_at: &str,
-    row_counts: &Value,
-) -> Result<()> {
-    connection.execute(
-        "INSERT INTO manifests (run_id, parent_manifest_id, content_hash, row_counts_json, created_at, file_path)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            run_id,
-            parent.map(|manifest| manifest.id),
-            content_hash,
-            serde_json::to_string(row_counts)?,
-            created_at,
-            file_path.display().to_string(),
-        ],
-    )?;
-    Ok(())
-}
-
-/// Collapses per-profile summaries into the stable run-overview contract.
-///
-/// Backup and maintenance flows both use this helper so their Audit rows stay
-/// structurally aligned even when their execution paths differ.
 pub(crate) fn backup_run_summary(
     run_type: &str,
     run_id: i64,
@@ -175,35 +98,6 @@ pub(crate) fn backup_run_summary(
     }
 }
 
-/// Counts the row families surfaced in manifest metadata.
-///
-/// These counts deliberately exclude reverted visits/downloads because the
-/// manifest is meant to describe the user-visible archive state.
-pub(crate) fn archive_row_counts(connection: &Connection) -> Result<Value> {
-    let urls: i64 = connection.query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))?;
-    let visits: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL",
-        [],
-        |row| row.get(0),
-    )?;
-    let downloads: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM downloads WHERE reverted_at IS NULL",
-        [],
-        |row| row.get(0),
-    )?;
-    let manifests: i64 =
-        connection.query_row("SELECT COUNT(*) FROM manifests", [], |row| row.get(0))?;
-    let snapshots: i64 =
-        connection.query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get(0))?;
-    Ok(json!({
-        "urls": urls,
-        "visits": visits,
-        "downloads": downloads,
-        "manifests": manifests,
-        "snapshots": snapshots,
-    }))
-}
-
 /// Writes the manifest JSON into the audit repo using a stable date-based path.
 ///
 /// The path format is part of PathKeep's audit review ergonomics, so this
@@ -220,69 +114,16 @@ pub(crate) fn write_manifest_artifact(
     git_audit::write_audit_file(&paths.audit_repo_path, &relative_path, manifest_json)
 }
 
-/// Merges run-local counters with the current visible archive totals.
-///
-/// This helper avoids a second ad-hoc shape for stats JSON, which keeps Audit,
-/// Dashboard, and takeout batch summaries aligned.
-pub(crate) fn stats_with_archive_totals(connection: &Connection, stats: Value) -> Result<Value> {
-    let totals = count_visible_archive_totals(connection)?;
-    let mut object = match stats {
-        Value::Object(map) => map,
-        _ => serde_json::Map::new(),
-    };
-    object.insert("totalProfiles".to_string(), json!(totals.total_profiles));
-    object.insert("totalUrls".to_string(), json!(totals.total_urls));
-    object.insert("totalVisits".to_string(), json!(totals.total_visits));
-    object.insert("totalDownloads".to_string(), json!(totals.total_downloads));
-    object.insert("earliestVisitAt".to_string(), json!(totals.earliest_visit_at));
-    object.insert("latestVisitAt".to_string(), json!(totals.latest_visit_at));
-    Ok(Value::Object(object))
-}
-
-/// Counts visible archive totals (plus coverage bounds) without including
-/// reverted history rows.
-///
-/// Read models use this as a fallback when cached totals are missing or
-/// stale. The bounds query is paid here once per backup-class run so the
-/// dashboard never has to scan every visit on render.
-pub(crate) fn count_visible_archive_totals(
-    connection: &Connection,
-) -> Result<ArchiveVisibleTotals> {
-    let total_profiles: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM source_profiles WHERE enabled = 1",
-        [],
-        |row| row.get(0),
-    )?;
-    let total_urls: i64 =
-        connection.query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))?;
-    let total_visits: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL",
-        [],
-        |row| row.get(0),
-    )?;
-    let total_downloads: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM downloads WHERE reverted_at IS NULL",
-        [],
-        |row| row.get(0),
-    )?;
-    let bounds: (Option<String>, Option<String>) = connection
-        .query_row(
-            "SELECT MIN(visit_time_iso), MAX(visit_time_iso)
-             FROM visits
-             WHERE reverted_at IS NULL",
-            [],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
-        )
-        .optional()?
-        .unwrap_or_default();
-
+/// Keeps render totals independent of archive size; bounds are two index seeks.
+pub(crate) fn visible_totals(s: &Session<'_>) -> Result<ArchiveVisibleTotals> {
+    let totals = super::totals::load_cached_archive_totals(s)?;
     Ok(ArchiveVisibleTotals {
-        total_profiles: total_profiles.max(0) as usize,
-        total_urls: total_urls.max(0) as usize,
-        total_visits: total_visits.max(0) as usize,
-        total_downloads: total_downloads.max(0) as usize,
-        earliest_visit_at: bounds.0,
-        latest_visit_at: bounds.1,
+        total_profiles: totals["sourceProfiles"] as usize,
+        total_urls: totals["urls"] as usize,
+        total_visits: totals["visits"] as usize,
+        total_downloads: totals["downloads"] as usize,
+        earliest_visit_at: s.query(EARLIEST_VISIT_SQL, (), |r| Ok(r.get::<String>(0)?))?.pop(),
+        latest_visit_at: s.query(LATEST_VISIT_SQL, (), |r| Ok(r.get::<String>(0)?))?.pop(),
     })
 }
 

@@ -44,11 +44,7 @@ pub(crate) async fn save_config(
 ) -> Result<vault_core::AppSnapshot, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("save_config", move || {
-        let snapshot = worker_bridge::save_config_with_base_impl(
-            config,
-            base_config,
-            key_state.get_key()?.as_deref(),
-        )?;
+        let snapshot = worker_bridge::save_config_with_base_impl(config, base_config, &key_state)?;
         crate::desktop_integration::config_saved(&app, &snapshot.config);
         Ok(snapshot)
     })

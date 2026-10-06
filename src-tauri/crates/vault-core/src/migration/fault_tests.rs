@@ -877,8 +877,9 @@ fn apply_import_rollback_preserves_a_not_yet_swapped_canonical_dbs_hot_wal() {
     // AFTER history-vault but BEFORE source-evidence would be touched, so the rollback's
     // source-evidence entry takes the "had_previous, no .bak -> leave untouched" branch.
     {
-        let conn = crate::archive::open_source_evidence_connection(&dest_paths, &dest_config, None)
-            .expect("seed dest source-evidence");
+        let conn =
+            crate::archive::open_legacy_source_evidence_connection(&dest_paths, &dest_config, None)
+                .expect("seed dest source-evidence");
         conn.pragma_update(None, "journal_mode", "WAL").expect("wal mode");
         conn.pragma_update(None, "wal_autocheckpoint", 0i64).expect("no autocheckpoint");
         conn.execute(
@@ -913,8 +914,9 @@ fn apply_import_rollback_preserves_a_not_yet_swapped_canonical_dbs_hot_wal() {
 
     // The rollback left source-evidence (never swapped) ENTIRELY untouched, including its
     // hot WAL: opening it replays the WAL and the committed sentinel survives.
-    let se = crate::archive::open_source_evidence_connection(&dest_paths, &dest_config, None)
-        .expect("open restored source-evidence");
+    let se =
+        crate::archive::open_legacy_source_evidence_connection(&dest_paths, &dest_config, None)
+            .expect("open restored source-evidence");
     let preserved: i64 = se
         .query_row(
             "SELECT COUNT(*) FROM source_batches WHERE schema_fingerprint = 'HOT_WAL_SE_SENTINEL'",
@@ -1102,8 +1104,9 @@ fn apply_import_omitting_source_evidence_does_not_leave_mode_drift() {
     let dest_config = seed_plain_archive(&dest_paths, b"dest marker");
     // The dest has a PLAINTEXT source-evidence present.
     {
-        let conn = crate::archive::open_source_evidence_connection(&dest_paths, &dest_config, None)
-            .expect("seed dest source-evidence");
+        let conn =
+            crate::archive::open_legacy_source_evidence_connection(&dest_paths, &dest_config, None)
+                .expect("seed dest source-evidence");
         drop(conn);
     }
     assert_eq!(
@@ -1546,8 +1549,9 @@ fn rekey_after_an_interrupted_import_recovers_first_and_does_not_brick() {
     let (_dest_dir, dest_paths) = fresh_paths();
     let dest_config = seed_plain_archive(&dest_paths, b"dest marker");
     {
-        let conn = crate::archive::open_source_evidence_connection(&dest_paths, &dest_config, None)
-            .expect("seed dest source-evidence");
+        let conn =
+            crate::archive::open_legacy_source_evidence_connection(&dest_paths, &dest_config, None)
+                .expect("seed dest source-evidence");
         drop(conn);
     }
     assert_eq!(
@@ -1632,7 +1636,7 @@ fn rekey_after_an_interrupted_import_recovers_first_and_does_not_brick() {
         archive.query_row("PRAGMA integrity_check", [], |row| row.get(0)).expect("integrity");
     assert_eq!(integrity, "ok");
     drop(archive);
-    let evidence = crate::archive::open_source_evidence_connection(
+    let evidence = crate::archive::open_legacy_source_evidence_connection(
         &dest_paths,
         &encrypted_config,
         Some(new_key),

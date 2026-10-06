@@ -3,8 +3,8 @@ use super::*;
 use crate::{
     config::{ProjectPaths, project_paths_with_root},
     models::{
-        ArchiveMode, BrowserProfile, ExportFormat, ExportRequest, HistoryFaviconLookupEntry,
-        RetentionPruneRequest, SnapshotRestoreRequest, TakeoutRequest,
+        ArchiveMode, BrowserProfile, ExportFormat, ExportRequest, RetentionPruneRequest,
+        SnapshotRestoreRequest, TakeoutRequest,
     },
     utils::{restore_test_env_var, test_env_lock},
 };
@@ -12,8 +12,6 @@ use browser_history_parser::{ContextEvidence, NativeEntity, TypedEvidenceBatch};
 use rusqlite::Connection;
 use std::collections::{BTreeMap, HashSet};
 use tempfile::tempdir;
-
-const TEST_CHROME_USER_DATA_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
 
 fn sample_paths(root: &Path) -> ProjectPaths {
     project_paths_with_root(root)
@@ -426,7 +424,7 @@ fn lexical_search_surfaces_capped_enrichment_excerpt_only_for_enriched_results()
     store_lexical_enrichment(&paths, &config, 3, "Reusable workflow runner for CI pipelines");
 
     // A keyword that matches the enriched page surfaces a capped excerpt on THAT result.
-    let enriched = list_history(
+    let enriched = search_history(
         &paths,
         &config,
         None,
@@ -462,7 +460,7 @@ fn lexical_search_surfaces_capped_enrichment_excerpt_only_for_enriched_results()
     );
 
     // The enrichment text itself is keyword-searchable, and that match also carries the excerpt.
-    let by_enrichment_keyword = list_history(
+    let by_enrichment_keyword = search_history(
         &paths,
         &config,
         None,
@@ -497,7 +495,7 @@ fn lexical_search_caps_long_enrichment_excerpt_on_a_cjk_char_boundary() {
     let long_summary = "工作流程".repeat(80); // 320 CJK chars, well over the cap.
     store_lexical_enrichment(&paths, &config, 3, &long_summary);
 
-    let response = list_history(
+    let response = search_history(
         &paths,
         &config,
         None,
@@ -526,7 +524,7 @@ fn plain_browse_history_query_leaves_enrichment_excerpt_none() {
     // excerpt is a lexical-search-only affordance, so browse rows stay None regardless.
     store_lexical_enrichment(&paths, &config, 3, "Reusable workflow runner for CI pipelines");
 
-    let browse = list_history(
+    let browse = search_history(
         &paths,
         &config,
         None,
@@ -553,7 +551,7 @@ fn uncounted_history_pages_walk_the_same_rows_as_counted_pages() {
         let mut seen = Vec::new();
         let mut cursor = None;
         loop {
-            let page = list_history(
+            let page = search_history(
                 &paths,
                 &config,
                 None,
@@ -578,7 +576,7 @@ fn uncounted_history_pages_walk_the_same_rows_as_counted_pages() {
         }
     };
 
-    let counted = list_history(
+    let counted = search_history(
         &paths,
         &config,
         None,
@@ -590,7 +588,7 @@ fn uncounted_history_pages_walk_the_same_rows_as_counted_pages() {
     assert_eq!(browse, counted.items.iter().map(|entry| entry.url.clone()).collect::<Vec<_>>());
 
     let keyword = walk(Some("example"));
-    let counted_keyword = list_history(
+    let counted_keyword = search_history(
         &paths,
         &config,
         None,
@@ -611,7 +609,7 @@ fn lexical_recall_matches_cjk_script_folding_and_compact_substrings() {
     let config = AppConfig::default();
     seed_lexical_archive(&paths, &config);
 
-    let simplified_query = list_history(
+    let simplified_query = search_history(
         &paths,
         &config,
         None,
@@ -627,7 +625,7 @@ fn lexical_recall_matches_cjk_script_folding_and_compact_substrings() {
         "simplified query should recall the traditional indexed title"
     );
 
-    let traditional_query = list_history(
+    let traditional_query = search_history(
         &paths,
         &config,
         None,
@@ -649,7 +647,7 @@ fn lexical_recall_matches_cjk_script_folding_and_compact_substrings() {
         "traditional query should recall the simplified indexed title"
     );
 
-    let cjk_substring = list_history(
+    let cjk_substring = search_history(
         &paths,
         &config,
         None,
@@ -658,7 +656,7 @@ fn lexical_recall_matches_cjk_script_folding_and_compact_substrings() {
     .expect("cjk substring query");
     assert_eq!(cjk_substring.total, 2);
 
-    let compact_latin = list_history(
+    let compact_latin = search_history(
         &paths,
         &config,
         None,
@@ -673,7 +671,7 @@ fn lexical_recall_matches_cjk_script_folding_and_compact_substrings() {
         "compact trigram recall should match Git Hub when the query is github"
     );
 
-    let full_width_latin = list_history(
+    let full_width_latin = search_history(
         &paths,
         &config,
         None,
@@ -700,7 +698,7 @@ fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
     let config = AppConfig::default();
     seed_lexical_archive(&paths, &config);
 
-    let github_alias = list_history(
+    let github_alias = search_history(
         &paths,
         &config,
         None,
@@ -715,7 +713,7 @@ fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
         "gh should expand to github before FTS recall"
     );
 
-    let youtube_alias = list_history(
+    let youtube_alias = search_history(
         &paths,
         &config,
         None,
@@ -730,7 +728,7 @@ fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
         "yt should expand to youtube before FTS recall"
     );
 
-    let pull_request_alias = list_history(
+    let pull_request_alias = search_history(
         &paths,
         &config,
         None,
@@ -745,7 +743,7 @@ fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
         "pr should expand to pull request before FTS recall"
     );
 
-    let fuzzy_first_page = list_history(
+    let fuzzy_first_page = search_history(
         &paths,
         &config,
         None,
@@ -756,7 +754,7 @@ fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
     assert_eq!(fuzzy_first_page.items[0].title.as_deref(), Some("GitHub Actions manual"));
     assert!(fuzzy_first_page.next_cursor.as_deref().is_some_and(|cursor| cursor.starts_with("r|")));
 
-    let fuzzy_second_page = list_history(
+    let fuzzy_second_page = search_history(
         &paths,
         &config,
         None,
@@ -770,7 +768,7 @@ fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
     .expect("fuzzy typo second page");
     assert_eq!(fuzzy_second_page.items.len(), 1);
     assert!(fuzzy_second_page.has_previous);
-    let fuzzy_second_page_by_number = list_history(
+    let fuzzy_second_page_by_number = search_history(
         &paths,
         &config,
         None,
@@ -785,7 +783,7 @@ fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
     assert_eq!(fuzzy_second_page_by_number.items.len(), 1);
     assert_eq!(fuzzy_second_page_by_number.page, 2);
 
-    let fuzzy_newest = list_history(
+    let fuzzy_newest = search_history(
         &paths,
         &config,
         None,
@@ -798,7 +796,7 @@ fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
     )
     .expect("fuzzy newest query");
     assert_eq!(fuzzy_newest.items[0].title.as_deref(), Some("Git Hub spacing guide"));
-    let fuzzy_newest_second = list_history(
+    let fuzzy_newest_second = search_history(
         &paths,
         &config,
         None,
@@ -813,7 +811,7 @@ fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
     .expect("fuzzy newest second page");
     assert_eq!(fuzzy_newest_second.items[0].title.as_deref(), Some("Release notes"));
 
-    let fuzzy_oldest = list_history(
+    let fuzzy_oldest = search_history(
         &paths,
         &config,
         None,
@@ -826,7 +824,7 @@ fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
     )
     .expect("fuzzy oldest query");
     assert_eq!(fuzzy_oldest.items[0].title.as_deref(), Some("GitHub Actions manual"));
-    let fuzzy_oldest_second = list_history(
+    let fuzzy_oldest_second = search_history(
         &paths,
         &config,
         None,
@@ -849,7 +847,7 @@ fn lexical_recall_defaults_to_relevance_and_accepts_time_sort_override() {
     let config = AppConfig::default();
     seed_lexical_archive(&paths, &config);
 
-    let relevance = list_history(
+    let relevance = search_history(
         &paths,
         &config,
         None,
@@ -859,7 +857,7 @@ fn lexical_recall_defaults_to_relevance_and_accepts_time_sort_override() {
     assert_eq!(relevance.items[0].title.as_deref(), Some("GitHub Actions manual"));
     assert!(relevance.next_cursor.as_deref().is_some_and(|cursor| cursor.starts_with("r|")));
 
-    let explicit_relevance = list_history(
+    let explicit_relevance = search_history(
         &paths,
         &config,
         None,
@@ -873,7 +871,7 @@ fn lexical_recall_defaults_to_relevance_and_accepts_time_sort_override() {
     .expect("explicit relevance query");
     assert_eq!(explicit_relevance.items[0].title.as_deref(), Some("GitHub Actions manual"));
 
-    let second_relevance_page = list_history(
+    let second_relevance_page = search_history(
         &paths,
         &config,
         None,
@@ -888,7 +886,7 @@ fn lexical_recall_defaults_to_relevance_and_accepts_time_sort_override() {
     assert_eq!(second_relevance_page.items.len(), 1);
     assert!(second_relevance_page.has_previous);
 
-    let legacy_cursor_relevance_page = list_history(
+    let legacy_cursor_relevance_page = search_history(
         &paths,
         &config,
         None,
@@ -906,7 +904,7 @@ fn lexical_recall_defaults_to_relevance_and_accepts_time_sort_override() {
         Some("GitHub Actions manual")
     );
 
-    let newest = list_history(
+    let newest = search_history(
         &paths,
         &config,
         None,
@@ -947,7 +945,7 @@ fn history_keyword_query_supports_google_like_local_operators() {
         "2026-05-01T00:00:09+00:00",
     );
 
-    let site_without_keyword = list_history(
+    let site_without_keyword = search_history(
         &paths,
         &config,
         None,
@@ -960,7 +958,7 @@ fn history_keyword_query_supports_google_like_local_operators() {
     assert_eq!(site_without_keyword.total, 1);
     assert_eq!(site_without_keyword.items[0].title.as_deref(), Some("Release notes"));
 
-    let domain_without_keyword = list_history(
+    let domain_without_keyword = search_history(
         &paths,
         &config,
         None,
@@ -974,7 +972,7 @@ fn history_keyword_query_supports_google_like_local_operators() {
     assert_eq!(domain_without_keyword.total, 1);
     assert_eq!(domain_without_keyword.items[0].title.as_deref(), Some("Release notes"));
 
-    let exact_phrase = list_history(
+    let exact_phrase = search_history(
         &paths,
         &config,
         None,
@@ -984,7 +982,7 @@ fn history_keyword_query_supports_google_like_local_operators() {
     assert_eq!(exact_phrase.total, 1);
     assert_eq!(exact_phrase.items[0].title.as_deref(), Some("Release notes"));
 
-    let intersected_date_filters = list_history(
+    let intersected_date_filters = search_history(
         &paths,
         &config,
         None,
@@ -999,7 +997,7 @@ fn history_keyword_query_supports_google_like_local_operators() {
     assert_eq!(intersected_date_filters.total, 1);
     assert_eq!(intersected_date_filters.items[0].title.as_deref(), Some("Release notes"));
 
-    let ui_time_only_filters = list_history(
+    let ui_time_only_filters = search_history(
         &paths,
         &config,
         None,
@@ -1013,7 +1011,7 @@ fn history_keyword_query_supports_google_like_local_operators() {
     assert_eq!(ui_time_only_filters.total, 1);
     assert_eq!(ui_time_only_filters.items[0].title.as_deref(), Some("Release notes"));
 
-    let title_operator = list_history(
+    let title_operator = search_history(
         &paths,
         &config,
         None,
@@ -1023,7 +1021,7 @@ fn history_keyword_query_supports_google_like_local_operators() {
     assert_eq!(title_operator.total, 1);
     assert_eq!(title_operator.items[0].title.as_deref(), Some("GitHub Actions manual"));
 
-    let url_operator = list_history(
+    let url_operator = search_history(
         &paths,
         &config,
         None,
@@ -1033,7 +1031,7 @@ fn history_keyword_query_supports_google_like_local_operators() {
     assert_eq!(url_operator.total, 1);
     assert_eq!(url_operator.items[0].title.as_deref(), Some("Pull Request review checklist"));
 
-    let filetype_operator = list_history(
+    let filetype_operator = search_history(
         &paths,
         &config,
         None,
@@ -1046,7 +1044,7 @@ fn history_keyword_query_supports_google_like_local_operators() {
     assert_eq!(filetype_operator.total, 1);
     assert_eq!(filetype_operator.items[0].title.as_deref(), Some("PathKeep PDF spec"));
 
-    let any_of_these_words = list_history(
+    let any_of_these_words = search_history(
         &paths,
         &config,
         None,
@@ -1119,7 +1117,7 @@ fn history_keyword_query_supports_tag_and_note_operators_against_annotations() {
 
     // `tag:rust` — only the page tagged Rust matches (and the case is
     // folded so the user can type either `tag:Rust` or `tag:rust`).
-    let tag_hit = list_history(
+    let tag_hit = search_history(
         &paths,
         &config,
         None,
@@ -1131,7 +1129,7 @@ fn history_keyword_query_supports_tag_and_note_operators_against_annotations() {
 
     // `note:design` — substring match on `url_annotations.notes`,
     // case-insensitive.
-    let note_hit = list_history(
+    let note_hit = search_history(
         &paths,
         &config,
         None,
@@ -1143,7 +1141,7 @@ fn history_keyword_query_supports_tag_and_note_operators_against_annotations() {
 
     // `-tag:rust` — exclude any URL tagged Rust. Both Generic page B
     // and Generic page C survive (along with every other seed row).
-    let tag_negated = list_history(
+    let tag_negated = search_history(
         &paths,
         &config,
         None,
@@ -1319,154 +1317,6 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
 
 #[path = "tests/legacy_queries.rs"]
 pub(super) mod legacy_queries;
-
-#[test]
-fn dashboard_read_models_cover_uninitialized_storage_and_cached_totals_edges() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let uninitialized = AppConfig::default();
-
-    let recent_runs =
-        load_recent_runs(&paths, &uninitialized, None).expect("uninitialized recent runs");
-    assert!(recent_runs.is_empty());
-
-    let snapshot =
-        load_dashboard_snapshot(&paths, &uninitialized, None).expect("uninitialized dashboard");
-    assert!(snapshot.next_action.as_deref().is_some_and(|copy| copy.contains("Initialize")));
-    assert_eq!(snapshot.storage.archive_database_bytes, 0);
-    assert_eq!(directory_size(&dir.path().join("missing-dir")), 0);
-
-    let file_instead_of_directory = dir.path().join("not-a-directory");
-    fs::write(&file_instead_of_directory, "plain file").expect("write file");
-    assert_eq!(directory_size(&file_instead_of_directory), 0);
-
-    let nested = dir.path().join("nested");
-    fs::create_dir_all(nested.join("child")).expect("create nested");
-    fs::write(nested.join("root.bin"), "1234").expect("write root");
-    fs::write(nested.join("child").join("leaf.bin"), "123456").expect("write child");
-    assert_eq!(directory_size(&nested), 10);
-
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    connection.execute("DELETE FROM runs", []).expect("clear bootstrap run rows");
-    drop(connection);
-    let initialized_empty =
-        load_dashboard_snapshot(&paths, &config, None).expect("initialized dashboard");
-    assert!(
-        initialized_empty.next_action.as_deref().is_some_and(|copy| copy.contains("manual backup"))
-    );
-
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    for (id, stats_json) in [
-        (100_i64, "{malformed"),
-        (99_i64, r#"{"totalProfiles":1}"#),
-        (98_i64, r#"{"totalProfiles":2,"totalUrls":3,"totalVisits":5,"totalDownloads":7}"#),
-    ] {
-        connection
-            .execute(
-                "INSERT INTO runs
-                 (id, run_type, trigger, started_at, timezone, status, profile_scope_json,
-                  warnings_json, stats_json, due_only)
-                 VALUES (?1, 'backup', 'manual', ?2, 'UTC', 'success', '[]', '[]', ?3, 0)",
-                params![id, now_rfc3339(), stats_json],
-            )
-            .expect("insert cached stats run");
-    }
-
-    let totals = read_models::load_cached_archive_totals(&connection)
-        .expect("cached totals")
-        .expect("valid cached totals");
-    assert_eq!(totals.total_profiles, 2);
-    assert_eq!(totals.total_urls, 3);
-    assert_eq!(totals.total_visits, 5);
-    assert_eq!(totals.total_downloads, 7);
-}
-
-#[test]
-fn dashboard_snapshot_reports_archive_coverage_bounds_for_imported_visits() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-
-    // Empty archive → both bounds are None and the FE renders an em-dash.
-    let empty = load_dashboard_snapshot(&paths, &config, None).expect("empty snapshot");
-    assert_eq!(empty.earliest_visit_at, None);
-    assert_eq!(empty.latest_visit_at, None);
-
-    // Seed two real-ish visits a year apart; mark one as reverted to prove
-    // we use the same visible filter the totals query uses (rolled-back
-    // visits must not widen the span).
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    connection
-        .execute_batch(
-            r#"
-            INSERT INTO runs (id, run_type, trigger, started_at, finished_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-              VALUES (1, 'backup', 'manual', '2026-04-14T00:00:00Z', '2026-04-14T00:00:01Z', 'UTC', 'success', '[]', '[]', '{}', 0);
-            INSERT INTO source_profiles (id, browser_kind, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
-              VALUES (1, 'chrome', 'Default', '/tmp', '2026-04-14T00:00:00Z', 1, 'chrome:Default', '2026-04-14T00:00:00Z');
-            INSERT INTO urls (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, recorded_at)
-              VALUES (1, 'https://example.com', 'Example', 1, 0, 0, '2025-04-22T00:00:00Z', 0, '2025-04-22T00:00:00Z', 1, 1, '2026-04-14T00:00:00Z');
-            INSERT INTO visits (id, url_id, visit_time_ms, visit_time_iso, source_profile_id, created_by_run_id)
-              VALUES (1, 1, 1745280000000, '2025-04-22T00:00:00Z', 1, 1);
-            INSERT INTO visits (id, url_id, visit_time_ms, visit_time_iso, source_profile_id, created_by_run_id)
-              VALUES (2, 1, 1776816000000, '2026-04-22T00:00:00Z', 1, 1);
-            INSERT INTO visits (id, url_id, visit_time_ms, visit_time_iso, source_profile_id, created_by_run_id, reverted_at)
-              VALUES (3, 1, 2208988800000, '2040-01-01T00:00:00Z', 1, 1, '2026-04-23T00:00:00Z');
-            "#,
-        )
-        .expect("seed archive");
-    drop(connection);
-
-    let populated = load_dashboard_snapshot(&paths, &config, None).expect("populated snapshot");
-    assert_eq!(populated.earliest_visit_at.as_deref(), Some("2025-04-22T00:00:00Z"));
-    assert_eq!(populated.latest_visit_at.as_deref(), Some("2026-04-22T00:00:00Z"));
-}
-
-#[test]
-fn load_recent_runs_excludes_compat_seed_baseline_row() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-
-    // The 002 migration seeds id=0/run_type='system'/trigger='compat'. It
-    // must exist on disk (legacy foreign keys depend on it) but never appear
-    // in the dashboard or audit ledger.
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    let seed_exists: i64 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM runs WHERE id = 0 AND run_type = 'system' AND trigger = 'compat'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("count seed");
-    assert_eq!(seed_exists, 1, "002 migration should seed the compat baseline");
-    drop(connection);
-
-    let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs");
-    assert!(
-        recent_runs.iter().all(|run| run.id != 0),
-        "compat seed must be filtered from the recent-runs read model"
-    );
-
-    // A real backup row (even id=1) must still appear in the ledger so the
-    // user can see their actual runs.
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    connection
-        .execute(
-            "INSERT INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-             VALUES (1, 'backup', 'manual', '2026-04-24T00:00:00Z', 'UTC', 'success', '[]', '[]', '{}', 0)",
-            [],
-        )
-        .expect("insert real run");
-    drop(connection);
-
-    let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs after backup");
-    assert!(recent_runs.iter().any(|run| run.id == 1));
-    assert!(recent_runs.iter().all(|run| run.id != 0));
-}
 
 #[test]
 fn backup_guards_initialization_selection_and_due_skip_before_profile_work() {
@@ -2028,401 +1878,6 @@ fn backup_keeps_readable_profiles_when_safari_staging_loses_access() {
 }
 
 #[test]
-fn doctor_detects_missing_snapshot_artifacts() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_paths(&paths).expect("ensure paths");
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    create_schema(&connection).expect("schema");
-    connection
-        .execute(
-            "INSERT INTO snapshots (run_id, file_path, file_size, checksum, reason, created_at)
-             VALUES (0, ?1, 0, 'missing', 'test', ?2)",
-            params![dir.path().join("missing").display().to_string(), now_rfc3339()],
-        )
-        .expect("insert missing snapshot");
-
-    let report = doctor(&paths, &config, None).expect("doctor");
-    assert!(report.checks.iter().any(|check| {
-        check.code == "snapshot-artifacts" && check.name == "Snapshot artifacts" && !check.ok
-    }));
-}
-
-#[test]
-fn doctor_labels_every_check_with_a_stable_kebab_code() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-
-    let report = doctor(&paths, &config, None).expect("doctor");
-    assert!(!report.checks.is_empty());
-    for check in &report.checks {
-        assert!(!check.code.is_empty(), "check {} is missing a code", check.name);
-        assert!(
-            check.code.chars().all(|character| character.is_ascii_lowercase() || character == '-'),
-            "check code {} is not kebab-case",
-            check.code
-        );
-    }
-    let codes = report.checks.iter().map(|check| check.code.as_str()).collect::<Vec<_>>();
-    for expected in [
-        "config",
-        "browser-sources",
-        "archive-db",
-        "archive-unlock",
-        "schema-version",
-        "manifest-chain",
-        "snapshot-artifacts",
-        "import-audit-artifacts",
-        "broken-visibility-references",
-        "derived-state-freshness",
-    ] {
-        assert!(codes.contains(&expected), "doctor report is missing check code {expected}");
-    }
-}
-
-#[test]
-fn doctor_detects_manifest_parent_and_hash_damage() {
-    let parent_dir = tempdir().expect("tempdir");
-    let parent_paths = sample_paths(parent_dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&parent_paths, &config, None).expect("init parent archive");
-    let parent_connection =
-        Connection::open(&parent_paths.archive_database_path).expect("open parent archive");
-    create_schema(&parent_connection).expect("parent schema");
-    parent_connection
-        .execute(
-            "INSERT INTO runs (run_type, trigger, started_at, finished_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-             VALUES ('backup', 'manual', ?1, ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
-            [now_rfc3339()],
-        )
-        .expect("insert parent run");
-    let run_id = parent_connection.last_insert_rowid();
-    parent_connection
-        .execute(
-            "INSERT INTO manifests (run_id, parent_manifest_id, content_hash, row_counts_json, created_at, file_path)
-             VALUES (?1, NULL, 'first-hash', '{}', ?2, NULL)",
-            params![run_id, now_rfc3339()],
-        )
-        .expect("insert first manifest");
-    parent_connection
-        .pragma_update(None, "foreign_keys", false)
-        .expect("disable foreign keys for damaged fixture");
-    parent_connection
-        .execute(
-            "INSERT INTO manifests (run_id, parent_manifest_id, content_hash, row_counts_json, created_at, file_path)
-             VALUES (?1, 9999, 'second-hash', '{}', ?2, NULL)",
-            params![run_id, now_rfc3339()],
-        )
-        .expect("insert broken parent manifest");
-
-    let parent_report = doctor(&parent_paths, &config, None).expect("doctor parent");
-    assert!(parent_report.checks.iter().any(|check| {
-        check.code == "manifest-chain"
-            && check.name == "Manifest chain"
-            && !check.ok
-            && check.detail.contains("does not point to the previous manifest")
-    }));
-
-    let hash_dir = tempdir().expect("tempdir");
-    let hash_paths = sample_paths(hash_dir.path());
-    ensure_archive_initialized(&hash_paths, &config, None).expect("init hash archive");
-    let hash_connection =
-        Connection::open(&hash_paths.archive_database_path).expect("open hash archive");
-    create_schema(&hash_connection).expect("hash schema");
-    hash_connection
-        .execute(
-            "INSERT INTO runs (run_type, trigger, started_at, finished_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-             VALUES ('backup', 'manual', ?1, ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
-            [now_rfc3339()],
-        )
-        .expect("insert hash run");
-    let run_id = hash_connection.last_insert_rowid();
-    let manifest_path = hash_dir.path().join("manifest.json");
-    fs::write(&manifest_path, r#"{"ok":true}"#).expect("write manifest artifact");
-    hash_connection
-        .execute(
-            "INSERT INTO manifests (run_id, parent_manifest_id, content_hash, row_counts_json, created_at, file_path)
-             VALUES (?1, NULL, 'not-the-real-hash', '{}', ?2, ?3)",
-            params![run_id, now_rfc3339(), manifest_path.display().to_string()],
-        )
-        .expect("insert hash mismatch manifest");
-
-    let hash_report = doctor(&hash_paths, &config, None).expect("doctor hash");
-    assert!(hash_report.checks.iter().any(|check| {
-        check.code == "manifest-chain"
-            && check.name == "Manifest chain"
-            && !check.ok
-            && check.detail.contains("manifest hash mismatch")
-    }));
-}
-
-#[test]
-fn doctor_detects_import_batches_without_audit_artifacts() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    create_schema(&connection).expect("schema");
-    connection
-        .execute(
-            "INSERT INTO import_batches (source_kind, source_path, profile_id, created_at, imported_at, status, summary_json, audit_path)
-             VALUES ('takeout', '/tmp/takeout', 'takeout::browser-history', ?1, ?1, 'imported', '{}', NULL)",
-            [now_rfc3339()],
-        )
-        .expect("insert import batch without audit path");
-
-    let report = doctor(&paths, &config, None).expect("doctor");
-    assert!(report.checks.iter().any(|check| {
-        check.code == "import-audit-artifacts"
-            && check.name == "Import audit artifacts"
-            && !check.ok
-            && check.detail.contains("does not have an audit artifact")
-    }));
-}
-
-#[test]
-fn doctor_repair_noops_on_healthy_archive() {
-    let vault = crate::Vault::open_temp().unwrap();
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-
-    let repair = repair_health_issues(&vault, &paths, &config, None).expect("repair health");
-
-    assert!(repair.run_id.is_none());
-    assert_eq!(repair.repaired_import_audits, 0);
-    assert_eq!(repair.repaired_visibility_rows, 0);
-    assert_eq!(repair.cleared_derived_rows, 0);
-    assert!(repair.notes.iter().any(|note| note.contains("found no actionable damage")));
-}
-
-#[test]
-fn doctor_repair_restores_missing_import_artifacts_visibility_and_derived_state() {
-    let vault = crate::Vault::open_temp().unwrap();
-    let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, git_enabled: false, ..AppConfig::default() };
-    let original_chrome = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
-    let chrome_root = seed_chrome_fixture(dir.path());
-    unsafe {
-        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
-    }
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-
-    let takeout_source = seed_takeout_fixture(dir.path());
-    let inspection = crate::takeout::import_takeout(
-        &vault,
-        &TakeoutRequest { source_path: takeout_source.display().to_string(), dry_run: false },
-    )
-    .expect("import takeout");
-    let batch = inspection.import_batch.expect("batch");
-    seed_legacy_import_fixture(&paths, &config, batch.audit_path.as_deref());
-    let audit_path = batch.audit_path.expect("audit path");
-    fs::remove_file(&audit_path).expect("remove import audit artifact");
-
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    create_schema(&connection).expect("schema");
-    connection
-        .execute(
-            "UPDATE visits SET reverted_at = ?1, reverted_by_run_id = NULL WHERE import_batch_id = ?2",
-            params![now_rfc3339(), batch.id],
-        )
-        .expect("break visibility");
-    let intelligence =
-        open_intelligence_connection(&paths, &config, None).expect("open intelligence");
-    intelligence
-        .execute(
-            "INSERT INTO ai_embeddings
-             (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at)
-             VALUES (999, 'takeout::browser-history', 'https://example.com/import', 'Imported', 'example.com', ?1, 'hash', 8, 'provider', 'model', ?1)",
-            rusqlite::params![now_rfc3339()],
-        )
-        .expect("insert stale ai embedding");
-    intelligence
-        .execute(
-            "INSERT INTO search_trail_members (trail_id, profile_id, visit_id, ordinal, role)
-             VALUES ('trail-1', 'takeout::browser-history', 999, 0, 'result')",
-            [],
-        )
-        .expect("insert stale trail member");
-    intelligence
-        .execute(
-            "INSERT INTO visit_derived_facts
-             (visit_id, profile_id, session_id, trail_id, registrable_domain, canonical_url, domain_category, page_category, search_engine, search_query, is_new_domain, is_search_event, evidence_tier, taxonomy_source, taxonomy_pack, taxonomy_version, computed_at)
-             VALUES (999, 'takeout::browser-history', 'session-1', 'trail-1', 'example.com', 'https://example.com/import', 'reference', 'article', NULL, NULL, 0, 0, 'tier-c', 'builtin', 'core-intelligence', 'test', ?1)",
-            [now_rfc3339()],
-        )
-        .expect("insert stale visit-derived facts");
-
-    let report = doctor(&paths, &config, None).expect("doctor before repair");
-    assert!(report.checks.iter().any(|check| {
-        check.code == "import-audit-artifacts"
-            && check.name == "Import audit artifacts"
-            && !check.ok
-    }));
-    assert!(report.checks.iter().any(|check| {
-        check.code == "broken-visibility-references"
-            && check.name == "Broken visibility references"
-            && !check.ok
-    }));
-    assert!(report.checks.iter().any(|check| {
-        check.code == "derived-state-freshness"
-            && check.name == "Derived state freshness"
-            && !check.ok
-    }));
-
-    let repair = repair_health_issues(&vault, &paths, &config, None).expect("repair health");
-    assert!(repair.run_id.is_some());
-    assert_eq!(repair.repaired_import_audits, 1);
-    assert_eq!(repair.repaired_visibility_rows, 1);
-    assert!(repair.cleared_derived_rows >= 2);
-
-    let repaired_report = doctor(&paths, &config, None).expect("doctor after repair");
-    assert!(repaired_report.checks.iter().all(|check| check.ok));
-    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_chrome.as_deref());
-}
-
-#[test]
-fn doctor_repair_tolerates_missing_optional_intelligence_tables() {
-    let vault = crate::Vault::open_temp().unwrap();
-    for dropped_tables in [
-        vec!["ai_embeddings", "search_trail_members"],
-        vec!["visit_derived_facts"],
-        vec!["search_trail_members", "visit_derived_facts"],
-    ] {
-        let dir = tempdir().expect("tempdir");
-        let paths = sample_paths(dir.path());
-        let config = AppConfig { initialized: true, ..AppConfig::default() };
-        ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let intelligence =
-            open_intelligence_connection(&paths, &config, None).expect("open intelligence");
-        for table in dropped_tables {
-            intelligence
-                .execute(&format!("DROP TABLE IF EXISTS {table}"), [])
-                .expect("drop optional intelligence table");
-        }
-        drop(intelligence);
-
-        let repair = repair_health_issues(&vault, &paths, &config, None).expect("repair health");
-
-        assert!(repair.run_id.is_none());
-        assert_eq!(repair.cleared_derived_rows, 0);
-    }
-}
-
-#[test]
-fn doctor_repair_restores_visibility_when_import_audits_are_intact() {
-    let vault = crate::Vault::open_temp().unwrap();
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, git_enabled: false, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-
-    let takeout_source = seed_takeout_fixture(dir.path());
-    let inspection = crate::takeout::import_takeout(
-        &vault,
-        &TakeoutRequest { source_path: takeout_source.display().to_string(), dry_run: false },
-    )
-    .expect("import takeout");
-    let batch = inspection.import_batch.expect("batch");
-    seed_legacy_import_fixture(&paths, &config, batch.audit_path.as_deref());
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    create_schema(&connection).expect("schema");
-    connection
-        .execute(
-            "UPDATE visits SET reverted_at = ?1, reverted_by_run_id = NULL WHERE import_batch_id = ?2",
-            params![now_rfc3339(), batch.id],
-        )
-        .expect("break visibility");
-
-    let repair = repair_health_issues(&vault, &paths, &config, None).expect("repair health");
-
-    assert_eq!(repair.repaired_import_audits, 0);
-    assert_eq!(repair.repaired_visibility_rows, 1);
-    assert!(repair.notes.iter().any(|note| note.contains("Re-linked 1 reverted visit rows")));
-}
-
-#[test]
-fn doctor_repair_records_rebuilt_import_artifacts_when_git_is_enabled() {
-    let vault = crate::Vault::open_temp().unwrap();
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let import_config = AppConfig { initialized: true, git_enabled: false, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &import_config, None).expect("init archive");
-
-    let takeout_source = seed_takeout_fixture(dir.path());
-    let inspection = crate::takeout::import_takeout(
-        &vault,
-        &TakeoutRequest { source_path: takeout_source.display().to_string(), dry_run: false },
-    )
-    .expect("import takeout");
-    let batch = inspection.import_batch.expect("batch");
-    seed_legacy_import_fixture(&paths, &import_config, batch.audit_path.as_deref());
-    fs::remove_file(batch.audit_path.expect("audit path")).expect("remove import audit artifact");
-    let repair_config = AppConfig { git_enabled: true, ..import_config };
-
-    let repair = repair_health_issues(&vault, &paths, &repair_config, None).expect("repair health");
-
-    assert_eq!(repair.repaired_import_audits, 1);
-    assert!(
-        repair
-            .notes
-            .iter()
-            .any(|note| note.contains("Recorded repaired import artifacts in audit commit")
-                || note.contains("optional Git history step was skipped"))
-    );
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    let git_commit: Option<String> = connection
-        .query_row("SELECT git_commit FROM import_batches WHERE id = ?1", [batch.id], |row| {
-            row.get(0)
-        })
-        .expect("git commit");
-    if let Some(git_commit) = git_commit {
-        assert!(!git_commit.is_empty());
-    }
-}
-
-#[test]
-fn doctor_repair_records_failed_run_when_audit_artifact_rewrite_fails() {
-    let vault = crate::Vault::open_temp().unwrap();
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    create_schema(&connection).expect("schema");
-    connection
-        .execute(
-            "INSERT INTO import_batches (source_kind, source_path, profile_id, created_at, imported_at, status, summary_json, audit_path)
-             VALUES ('takeout', '/tmp/takeout', 'takeout::browser-history', ?1, ?1, 'imported', '{}', NULL)",
-            [now_rfc3339()],
-        )
-        .expect("insert import batch without audit path");
-    fs::create_dir_all(&paths.audit_repo_path).expect("audit repo dir");
-    fs::write(paths.audit_repo_path.join("imports"), "not a directory")
-        .expect("block audit imports path");
-
-    let error = repair_health_issues(&vault, &paths, &config, None)
-        .expect_err("blocked audit repo should fail repair");
-
-    assert!(!error.to_string().is_empty());
-    let failed_runs: i64 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM runs WHERE run_type = 'doctor' AND status = 'failed'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("failed doctor run count");
-    assert_eq!(failed_runs, 1);
-}
-
-#[test]
 fn dashboard_snapshot_tracks_cached_totals_across_import_visibility_changes() {
     let vault = crate::Vault::open_temp().unwrap();
     let source = seed_takeout_fixture(&vault.paths().app_root);
@@ -2797,7 +2252,7 @@ fn retention_preview_and_prune_clear_local_artifacts_and_record_a_run() {
         .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get(0))
         .expect("snapshot count");
     assert_eq!(snapshot_count, 0);
-    let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs");
+    let recent_runs = legacy_recent_runs(&paths, &config, None);
     assert!(recent_runs.iter().any(|run| run.run_type == "retention_prune"));
 
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
@@ -2945,17 +2400,27 @@ fn rekey_archive_keeps_a_safety_snapshot() {
     assert!(!paths.archive_database_path.with_extension("backup.sqlite").exists());
 
     let encrypted_config = AppConfig { archive_mode: ArchiveMode::Encrypted, ..config.clone() };
-    let recent_runs = load_recent_runs(&paths, &encrypted_config, Some("vault-passphrase"))
-        .expect("recent runs after rekey");
+    let recent_runs = legacy_recent_runs(&paths, &encrypted_config, Some("vault-passphrase"));
     let rekey_run =
         recent_runs.iter().find(|run| run.run_type == "rekey").expect("rekey run in ledger");
-    let detail =
-        load_audit_run_detail(&paths, &encrypted_config, Some("vault-passphrase"), rekey_run.id)
-            .expect("rekey audit detail");
-    assert!(detail.manifest_path.is_some());
-    assert!(
-        detail.artifacts.iter().any(|artifact| artifact.reason.as_deref() == Some("before-rekey"))
-    );
+    let connection =
+        open_archive_connection(&paths, &encrypted_config, Some("vault-passphrase")).unwrap();
+    let manifest: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM manifests WHERE run_id=?1 AND file_path IS NOT NULL)",
+            [rekey_run.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let snapshot: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM snapshots WHERE run_id=?1 AND reason='before-rekey')",
+            [rekey_run.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(manifest && snapshot);
+    drop(connection);
 
     let plaintext_status = rekey_archive(
         &paths,
@@ -3336,18 +2801,25 @@ fn visit_event_fingerprint_is_stable() {
     assert_eq!(fingerprint, "da53df0772e36b09afd187a0454da559fe451c828a40353f4e5c7514d17ecc59");
 }
 
-/// Independent SQLite inputs for the unported doctor's repair contracts.
-/// These rows never come from a Turso query or validate a Turso writer.
-fn seed_legacy_import_fixture(paths: &ProjectPaths, config: &AppConfig, audit_path: Option<&str>) {
-    let db = open_archive_connection(paths, config, None).unwrap();
-    db.execute_batch("INSERT INTO runs(id,run_type,trigger,started_at,status) VALUES(1,'import','manual','2026-04-01','success');
-      INSERT INTO source_profiles(id,browser_kind,browser_family,browser_product,profile_name,profile_path,discovered_at,enabled,profile_key,updated_at)
-      VALUES(1,'takeout','takeout','Takeout','Takeout','/fixture','2026-04-01',1,'takeout::browser-history','2026-04-01');
-      INSERT INTO import_batches(id,source_kind,source_path,profile_id,created_at,status,summary_json) VALUES(1,'takeout','/fixture','takeout::browser-history','2026-04-01','imported','{}');
-      INSERT INTO urls(id,url,title,visit_count,typed_count,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id)
-      VALUES(1,'https://example.com/import','Imported',1,0,1,'2026-04-01T10:00:00+00:00',1,'2026-04-01T10:00:00+00:00',1,1);
-      INSERT INTO visits(id,source_profile_id,url_id,visit_time_ms,visit_time_iso,created_by_run_id,import_batch_id)
-      VALUES(1,1,1,1,'2026-04-01T10:00:00+00:00',1,1);").unwrap();
-    db.execute("UPDATE import_batches SET audit_path=?1 WHERE id=1", [audit_path]).unwrap();
-    rebuild_search_projection(paths, config, None).unwrap();
+/// These assertions belong to the unported maintenance scenarios, not native read models.
+fn legacy_recent_runs(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Vec<crate::BackupRunOverview> {
+    let connection = open_archive_connection(paths, config, key).unwrap();
+    connection
+        .prepare("SELECT id,run_type,status FROM runs WHERE id>0 ORDER BY id DESC")
+        .unwrap()
+        .query_map([], |r| {
+            Ok(crate::BackupRunOverview {
+                id: r.get(0)?,
+                run_type: r.get(1)?,
+                status: r.get(2)?,
+                ..Default::default()
+            })
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
 }

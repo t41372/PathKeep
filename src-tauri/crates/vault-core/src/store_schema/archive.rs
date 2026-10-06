@@ -3,7 +3,8 @@
 //! Failure modes: omitted columns/indexes, orphan facts, duplicate pages, profile
 //! observations merged, reverted visits retained in search filters, split document
 //! and outbox commits, reused outbox sequence numbers, lost deletion tombstones.
-//! Tests: catalog_and_crud, foreign_keys, pages_and_visibility, search_outbox.
+//! Tests: catalog_and_crud, foreign_keys, pages_and_visibility, search_outbox,
+//! archive_v1_upgrades_read_indexes_and_preserves_every_fact.
 //!
 //! Pages hold the exact URL string and its registrable domain, which do not vary
 //! by browser profile. Titles, counts, source IDs, observed timestamps, hidden
@@ -32,6 +33,35 @@
 //! shadow tables/indexes are replaced by the independent Tantivy index.
 
 use vault_store::Migration;
+
+/// Native v1 archives must acquire these indexes once, before their read pools open.
+pub(super) fn read_indexes() -> Migration {
+    Migration::rust(2, |s| {
+        s.execute("DROP INDEX idx_urls_last_visit_ms", ())?;
+        for sql in READ_INDEXES {
+            s.execute(sql, ())?;
+        }
+        Ok(())
+    })
+}
+
+/// Existing facts initialize source counters once; later batches maintain deltas.
+pub(super) fn profile_totals() -> Migration {
+    Migration::rust(super::ARCHIVE_SCHEMA_VERSION, |s| {
+        s.execute("INSERT INTO archive_totals(name,value) SELECT 'sourceVisits:'||p.id,
+            (SELECT COUNT(*) FROM visits INDEXED BY idx_visits_visible_profile_time_id WHERE source_profile_id=p.id AND reverted_at IS NULL)
+            FROM source_profiles p",())?;
+        Ok(())
+    })
+}
+
+const READ_INDEXES: &[&str] = &[
+    "CREATE INDEX idx_urls_last_visit_ms ON urls(last_visit_ms DESC,id DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_visits_visible_batch_time_id ON visits(import_batch_id,visit_time_ms DESC,id DESC) WHERE reverted_at IS NULL AND import_batch_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_search_outbox_page_seq ON search_outbox(page_id,seq)",
+    "CREATE INDEX IF NOT EXISTS idx_manifests_run_id ON manifests(run_id,id DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_snapshots_run_id ON snapshots(run_id,id)",
+];
 
 pub(super) fn migration() -> Migration {
     super::v1(STATEMENTS)
