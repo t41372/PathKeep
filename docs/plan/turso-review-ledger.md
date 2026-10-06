@@ -104,6 +104,21 @@ These are in `brief-area1-fixes3b.txt` (raw reports):
 - The changed request/response shapes are in `docs/architecture/research/2026-10-turso-area4.md`: list/detail cursors, job-history endpoints, enrichment provenance and agent output fragments. The frontend is mine.
 - 17 SQLite-engine tests deleted and 23 renamed. Check that the deletions are justified.
 
+### Area 4 profiling leads (Codex, incomplete benchmark; full text in the raw reports)
+- Serial batch writes run PASSIVE and TRUNCATE checkpoints between batches. Check whether vault-store checkpoints more often than its design needs during long rebuilds and backups.
+- Turso encrypts with a software AEGIS implementation even though the CPU has AES hardware. Check which cipher vault-store configures and whether the hardware path is available. This affects every encrypted read and write.
+- The intelligence rebuild benchmark at 14.4M never completed (network loss, then gVisor). Re-run it on vm.
+
+## Found on Linux (Modal)
+- `takeout::tests::import_takeout_persists_source_evidence_for_all_recognized_payloads` fails on Linux and passes on macOS: `last_source_batch_id` stays NULL for `takeout::browser-history`.
+  - Likely root cause: the Takeout import processes recognised files in directory order. That is sorted on APFS and hash order on Linux, and a later file's write resets the browser-history watermark.
+  - Fix the ordering dependence: per-file watermarks, or a deterministic order where no file overwrites another's.
+
+## Found while running E2E for feat/turso-storage (fixed, not deferred)
+- The first backup never finished. Turso compiled every SQL statement on every call (`Connection::execute` compiles each time), so a 10,000-row source-evidence batch spent minutes in the compiler.
+  - Fixed: vault-store keeps up to 256 compiled statements per connection, resets them before reuse and clears them on DDL.
+  - Also fixed: Turso's crates are built at `opt-level = 3` in dev builds.
+
 ## Found while moving checks to Modal (Linux, 16 cores)
 
 - `ai::code_mode::tests::the_async_bridge_is_safe_from_inside_a_runtime_worker` fails in the full suite with a `Time` trap but passes alone (32 s each in a debug build).

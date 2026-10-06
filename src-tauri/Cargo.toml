@@ -168,6 +168,21 @@ opt-level = 3
 [profile.dev.package.ctr]
 opt-level = 3
 
+# The storage engine runs every archive statement. Unoptimised, a debug build
+# executes the E2E fixture's first backup too slowly to finish, and the test
+# suites spend most of their time inside it.
+[profile.dev.package.turso_core]
+opt-level = 3
+
+[profile.dev.package.turso_parser]
+opt-level = 3
+
+[profile.dev.package.turso_sdk_kit]
+opt-level = 3
+
+[profile.dev.package.turso]
+opt-level = 3
+
 [profile.release]
 codegen-units = 1
 lto = "thin"

@@ -28,6 +28,7 @@ pub struct Session<'a> {
     pub(crate) statements: Cell<usize>,
     pub(crate) runtime: &'a Runtime,
     pub(crate) conn: &'a turso::Connection,
+    pub(crate) prepared: Option<&'a crate::statements::StatementCache>,
     pub(crate) read_only: bool,
     pub(crate) _thread: PhantomData<Rc<()>>,
     pub(crate) scratch: Option<&'a crate::checkpoint::Gate>,
@@ -73,10 +74,34 @@ impl<'a> Session<'a> {
         })
     }
 
+    /// Runs `work` with this connection's compiled statement for `sql`, compiling
+    /// it only the first time. The statement goes back to the cache afterwards.
+    fn with_statement<T>(
+        &self,
+        sql: &str,
+        work: impl FnOnce(&mut turso::Statement) -> Result<T>,
+    ) -> Result<T> {
+        self.check_sql(sql)?;
+        let mut statement = match self.prepared {
+            Some(cache) => cache.take(self.runtime, self.conn, sql)?,
+            None => self.runtime.block_on(self.conn.prepare(sql))?,
+        };
+        let result = work(&mut statement);
+        if let Some(cache) = self.prepared {
+            if changes_schema(sql) {
+                cache.clear();
+            } else {
+                cache.put(sql, statement);
+            }
+        }
+        result
+    }
+
     /// Apply one statement within the transaction already owned by the facade.
     pub fn execute(&self, sql: &str, params: impl turso::IntoParams) -> Result<u64> {
-        self.check_sql(sql)?;
-        Ok(self.runtime.block_on(self.conn.execute(sql, params))?)
+        self.with_statement(sql, |statement| {
+            Ok(self.runtime.block_on(statement.execute(params))?)
+        })
     }
     /// Collect a bounded application page. For unbounded queries use `for_each`.
     pub fn query<T>(
@@ -99,14 +124,15 @@ impl<'a> Session<'a> {
         params: impl turso::IntoParams,
         map: impl FnOnce(&turso::Row) -> Result<T>,
     ) -> Result<T> {
-        self.check_sql(sql)?;
-        self.runtime.block_on(async {
-            let mut rows = self.conn.query(sql, params).await?;
-            let row = rows.next().await?.ok_or(turso::Error::QueryReturnedNoRows)?;
-            let result = map(&row)?;
-            // Drain RETURNING so its statement completes before the transaction.
-            while rows.next().await?.is_some() {}
-            Ok(result)
+        self.with_statement(sql, |statement| {
+            self.runtime.block_on(async {
+                let mut rows = statement.query(params).await?;
+                let row = rows.next().await?.ok_or(turso::Error::QueryReturnedNoRows)?;
+                let result = map(&row)?;
+                // Drain RETURNING so its statement completes before the transaction.
+                while rows.next().await?.is_some() {}
+                Ok(result)
+            })
         })
     }
     /// Stream rows without an archive-sized allocation. Long walks should use Store::walk.
@@ -116,15 +142,21 @@ impl<'a> Session<'a> {
         params: impl turso::IntoParams,
         mut visit: impl FnMut(&turso::Row) -> Result<()>,
     ) -> Result<()> {
-        self.check_sql(sql)?;
-        self.runtime.block_on(async {
-            let mut rows = self.conn.query(sql, params).await?;
-            while let Some(row) = rows.next().await? {
-                visit(&row)?
-            }
-            Ok(())
+        self.with_statement(sql, |statement| {
+            self.runtime.block_on(async {
+                let mut rows = statement.query(params).await?;
+                while let Some(row) = rows.next().await? {
+                    visit(&row)?
+                }
+                Ok(())
+            })
         })
     }
+}
+
+fn changes_schema(sql: &str) -> bool {
+    let first = sql.trim_start().split(|c: char| !c.is_ascii_alphabetic()).next().unwrap_or("");
+    ["CREATE", "ALTER", "DROP"].iter().any(|ddl| first.eq_ignore_ascii_case(ddl))
 }
 
 pub(crate) fn catch_job<T>(work: impl FnOnce() -> Result<T>) -> Result<T> {

@@ -5,11 +5,12 @@
 //! a schema-qualified scratch pragma silently changes the main cache setting.
 //! Foreign keys can silently accept orphans when the engine default is retained.
 //! Tests: opening, scratch and foreign_keys tests.
-use crate::{Config, Db, Error, IoLayer, Result, Session};
+use crate::{Config, Db, Error, IoLayer, Result, Session, statements::StatementCache};
 use std::{
     fs,
     marker::PhantomData,
     path::{Path, PathBuf},
+    sync::{Arc, atomic::AtomicU64},
 };
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 
@@ -76,6 +77,7 @@ pub(crate) fn preflight(config: &Config) -> Result<()> {
                     statements: std::cell::Cell::new(0),
                     runtime: &rt,
                     conn: &conn,
+                    prepared: None,
                     read_only: true,
                     _thread: PhantomData,
                     scratch: None,
@@ -141,20 +143,25 @@ pub(crate) struct Engine {
     pub rt: Runtime,
     pub conn: turso::Connection,
     pub database: turso::Database,
+    prepared: StatementCache,
 }
 impl Engine {
-    pub fn open(settings: &Settings) -> Result<Self> {
+    pub fn open(settings: &Settings, compiled: Arc<AtomicU64>) -> Result<Self> {
         let rt = runtime()?;
         let database = rt.block_on(settings.builder(false).build())?;
         let conn = database.connect()?;
-        let engine = Self { rt, conn, database };
+        let engine = Self { rt, conn, database, prepared: StatementCache::new(compiled) };
         engine.configure(settings, false)?;
         Ok(engine)
     }
-    pub fn reader(database: turso::Database, settings: &Settings) -> Result<Self> {
+    pub fn reader(
+        database: turso::Database,
+        settings: &Settings,
+        compiled: Arc<AtomicU64>,
+    ) -> Result<Self> {
         let rt = runtime()?;
         let conn = database.connect()?;
-        let engine = Self { rt, conn, database };
+        let engine = Self { rt, conn, database, prepared: StatementCache::new(compiled) };
         engine.configure(settings, true)?;
         Ok(engine)
     }
@@ -163,6 +170,7 @@ impl Engine {
             statements: std::cell::Cell::new(0),
             runtime: &self.rt,
             conn: &self.conn,
+            prepared: Some(&self.prepared),
             read_only,
             _thread: PhantomData,
             scratch: None,
@@ -236,10 +244,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let config = Config::new(dir.path());
         prepare_paths(&config).unwrap();
-        let _scratch = Engine::open(&Settings::new(&config, Db::Scratch)).unwrap();
+        let _scratch =
+            Engine::open(&Settings::new(&config, Db::Scratch), Default::default()).unwrap();
         let settings = Settings::new(&config, Db::Archive);
-        let writer = Engine::open(&settings).unwrap();
-        let reader = Engine::reader(writer.database.clone(), &settings).unwrap();
+        let writer = Engine::open(&settings, Default::default()).unwrap();
+        let reader =
+            Engine::reader(writer.database.clone(), &settings, Default::default()).unwrap();
         for engine in [&writer, &reader] {
             let main = pragma_number(engine, "PRAGMA main.cache_size");
             let scratch = pragma_number(engine, "PRAGMA scratch.cache_size");

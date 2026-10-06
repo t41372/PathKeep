@@ -17,6 +17,9 @@ pub struct Metrics {
     pub last_checkpoint_frames: Option<i64>,
     pub last_checkpoint_backfilled: Option<i64>,
     pub last_checkpoint_error: Option<Arc<Error>>,
+    /// Statements compiled on this database's connections. Reused statements
+    /// don't count, so a batch that repeats one statement compiles it once.
+    pub statements_compiled: u64,
 }
 #[derive(Default)]
 struct Admission {
@@ -164,7 +167,7 @@ mod engine_measurements {
         crate::engine::prepare_paths(&config).unwrap();
         let mut settings = Settings::new(&config, Db::Archive);
         settings.scratch = None;
-        let engine = Engine::open(&settings).unwrap();
+        let engine = Engine::open(&settings, Default::default()).unwrap();
         engine
             .rt
             .block_on(
