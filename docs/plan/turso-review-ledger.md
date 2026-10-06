@@ -109,6 +109,14 @@ These are in `brief-area1-fixes3b.txt` (raw reports):
 - Turso encrypts with a software AEGIS implementation even though the CPU has AES hardware. Check which cipher vault-store configures and whether the hardware path is available. This affects every encrypted read and write.
 - The intelligence rebuild benchmark at 14.4M never completed (network loss, then gVisor). Re-run it on vm.
 
+## Area 6 work list (mine)
+- **Open-file limit:** the app peaked at 156 open files during the full E2E run (Linux; area 4 code not yet included).
+  - A macOS app launched from Finder gets a soft limit of 256.
+  - Raise the soft limit at startup (setrlimit, capped at what the platform allows), so a large archive with many index segments can't run out.
+  - Add a test that fails if one opened Vault uses more than a stated budget.
+- **`search-limits.spec.ts`** still checks the removed 25,000-page window ("N+ pages"). Rewrite it for the streamed search with exact counts.
+- **Insights E2E** (5 specs) failed before area 4 landed. Re-run after it.
+
 ## Found on Linux (Modal)
 - `takeout::tests::import_takeout_persists_source_evidence_for_all_recognized_payloads` fails on Linux and passes on macOS: `last_source_batch_id` stays NULL for `takeout::browser-history`.
   - Likely root cause: the Takeout import processes recognised files in directory order. That is sorted on APFS and hash order on Linux, and a later file's write resets the browser-history watermark.
