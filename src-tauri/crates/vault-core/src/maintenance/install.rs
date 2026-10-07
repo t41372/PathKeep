@@ -14,6 +14,8 @@ use std::{
 };
 
 const JOURNAL: &str = "archive/.pk-import-journal.json";
+/// Where an old-format import journal found next to a native archive is set aside.
+const STALE_LEGACY_JOURNAL: &str = "archive/.pk-import-journal.legacy-stale.json";
 
 /// Startup checks for recovery before it decides whether a native archive exists.
 pub fn pending(paths: &ProjectPaths) -> bool {
@@ -143,6 +145,13 @@ pub fn recover(paths: &ProjectPaths) -> Result<bool> {
         Err(error) => return Err(error.into()),
     };
     if serde_json::from_slice::<serde_json::Value>(&bytes)?.get("stage").is_none() {
+        // An import of the old SQLCipher format left this. Once the archive has been
+        // converted it predates the native files; rolling it back would put the old
+        // config.json over them. Keep it aside instead of acting on it.
+        if paths.app_root.join("archive/history-vault.db").exists() {
+            rename(&paths.app_root.join(JOURNAL), &paths.app_root.join(STALE_LEGACY_JOURNAL))?;
+            return Ok(false);
+        }
         return crate::migration::recover_interrupted_import(paths);
     }
     let journal: Journal = serde_json::from_slice(&bytes)?;

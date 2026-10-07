@@ -172,6 +172,14 @@ Unverified until the review pass. Full report: `docs/architecture/research/2026-
   - Converter tests carry the old agent and intelligence schemas as fixtures instead of borrowing production legacy openers.
 - **Decisions Codex made (check in review):** canonical-key collisions merge by newest timestamped content, deterministic ties, summed counters and unioned sets; every enrichment trigger is remapped; installation journals are recovered before credentials or conversion checks; the indexer can open deferred (no cycle until maintenance finishes); `experimental_encryption(true)` is now always set on Turso connections, also without a key.
 
+## Area 6 (old SQLCipher code), found while mapping it
+
+- [x] Conversion keeps the old `.sqlite` files, so three runtime paths could reach them on a native archive. Fixed:
+  - The wipe preview opened the old `history-vault.sqlite` (running its schema migrations on it) when no archive was open, and reported that file's visit count. It now counts from the open archive only.
+  - Asking running jobs to stop before a wipe only updated the old intelligence file and never the native job tables. It now asks the open archive's `ai_jobs` and `intelligence_jobs`.
+  - Install recovery rolled back any import journal without a `stage`, an old-format one, even next to a native archive, which would have put an old `config.json` over it. Such a journal is now set aside as `archive/.pk-import-journal.legacy-stale.json`.
+- Remaining: delete the old openers, the legacy maintenance/migration flows and their test suites; tests that seed through old archives switch to native seeding. Dependency map: most entry points have no production caller; `archive_key_opens`, legacy launch recovery and `list_recovery_snapshots` still serve unconverted archives and old snapshots.
+
 ## Area 5+
 
 (appended as blocks finish)

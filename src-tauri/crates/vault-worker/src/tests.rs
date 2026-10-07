@@ -3639,7 +3639,6 @@ fn full_restore_and_reconciliation_use_the_native_owner() {
 
 #[test]
 fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
-    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -3663,23 +3662,26 @@ fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
     keyring_set_provider_api_key("llm-primary", "sk-test").expect("store provider key");
     // A manual backup starts the intelligence queue workers in the background; the wipe has to
     // stop them before it deletes the databases they write.
+    let session = crate::VaultSession::default();
+    let vault = session.background_vault().expect("open the archive");
     let backup = run_backup_now(&vault, None, false).expect("backup");
-    seed_legacy_reader_fixture(None);
     assert_eq!(backup.run.expect("run").new_visits, 1);
 
-    let preview = preview_data_wipe(None).expect("preview");
+    let preview = preview_data_wipe().expect("preview");
     assert_eq!(preview.visit_count, 1);
     assert!(preview.clears_keychain);
-    assert!(preview.items.iter().any(|item| item.path.ends_with("history-vault.sqlite")));
+    assert!(preview.items.iter().any(|item| item.path.ends_with("history-vault.db")));
 
     for wrong in ["", "delete", "DELETE ", "Delete"] {
-        let error =
-            wipe_all_data(wrong, None, || Ok(())).expect_err("only the exact word is accepted");
+        let error = wipe_all_data(wrong, || Ok(())).expect_err("only the exact word is accepted");
         assert!(error.to_string().contains("DELETE"), "{error:#}");
     }
     assert!(app_snapshot(None).expect("snapshot").archive_status.initialized, "nothing deleted");
 
-    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, None, || Ok(())).expect("wipe");
+    drop(vault);
+    let report =
+        wipe_all_data(WIPE_CONFIRMATION_WORD, || session.close_vault().map_err(anyhow::Error::msg))
+            .expect("wipe");
     assert_eq!(report, vault_core::WipeReport::default(), "no automatic backup was installed");
     assert_eq!(crate::intelligence::running_background_workers(), 0);
     let snapshot = app_snapshot(None).expect("snapshot after wipe");
@@ -3693,16 +3695,17 @@ fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
         "the browser's own history must be untouched"
     );
 
-    wipe_all_data(WIPE_CONFIRMATION_WORD, None, || Ok(())).expect("a second wipe is a no-op");
+    wipe_all_data(WIPE_CONFIRMATION_WORD, || Ok(())).expect("a second wipe is a no-op");
     assert!(!finish_interrupted_data_wipe().expect("nothing interrupted"));
 
     // Onboarding again works in the same process.
     initialize_archive_database(&initialized_config(), None).expect("initialize again");
-    vault.store().close().unwrap();
-    let vault = vault_core::Vault::open_temp().unwrap();
+    let session = crate::VaultSession::default();
+    let vault = session.background_vault().expect("open the new archive");
     let again = run_backup_now(&vault, None, false).expect("backup again");
-    seed_legacy_reader_fixture(None);
     assert_eq!(again.run.expect("run").new_visits, 1);
+    drop(vault);
+    session.close_vault().unwrap();
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
     restore_env_var(CHROME_USER_DATA_OVERRIDE_ENV, original_chrome.as_deref());
@@ -3753,7 +3756,7 @@ fn delete_all_data_removes_the_installed_automatic_backup() {
     let installed = files_under(&sandbox);
     assert!(!installed.is_empty(), "the sandbox holds the installed task");
 
-    let preview = preview_data_wipe(None).expect("preview");
+    let preview = preview_data_wipe().expect("preview");
     assert!(preview.removes_schedule);
     assert!(!preview.schedule_items.is_empty());
     for item in &preview.schedule_items {
@@ -3763,7 +3766,7 @@ fn delete_all_data_removes_the_installed_automatic_backup() {
         );
     }
 
-    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, None, || Ok(())).expect("wipe");
+    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, || Ok(())).expect("wipe");
     assert_eq!(report, vault_core::WipeReport { schedule_removed: true, schedule_error: None });
     assert_eq!(files_under(&sandbox), Vec::<PathBuf>::new(), "no task is left in the OS");
     assert_eq!(

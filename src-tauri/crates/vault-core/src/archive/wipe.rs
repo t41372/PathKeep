@@ -73,12 +73,7 @@
 //! - The preview takes the visit count from the last backup's cached totals; it only counts rows
 //!   when no successful run has cached them. Folder sizes are a metadata walk.
 
-use super::{
-    count_visible_archive_totals,
-    legacy_totals::load_cached_archive_totals,
-    open_archive_connection, open_intelligence_connection,
-    write_lock::{ARCHIVE_WRITE_LOCK_FILE, ArchiveOpGate, ArchiveWriteLock},
-};
+use super::write_lock::{ARCHIVE_WRITE_LOCK_FILE, ArchiveOpGate, ArchiveWriteLock};
 use crate::{
     config::ProjectPaths,
     durable_io::{atomic_durable_write, remove_file_durably},
@@ -124,22 +119,16 @@ impl WipeOutsideState {
 ///
 /// `clears_keychain`, `removes_schedule` and `schedule_items` are left empty; the caller fills them
 /// from the platform keychain and scheduler.
-pub fn preview_data_wipe(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<WipePreview> {
-    // Counted before sizing: opening the archive can create the search database it attaches.
+pub fn preview_data_wipe(paths: &ProjectPaths) -> Result<WipePreview> {
+    // Read from the open archive's kept totals. Without an open archive (locked, or
+    // not created yet) there is nothing PathKeep can count, and the old-format files
+    // a conversion leaves behind are never opened here.
     let visit_count = if let Some(store) = crate::vault::live::store(&paths.app_root) {
         store.read(vault_store::Db::Archive, |s| {
             s.query_one("SELECT value FROM archive_totals WHERE name='visits'", (), |r| {
                 Ok(r.get(0)?)
             })
         })?
-    } else if config.archive_mode == crate::ArchiveMode::Encrypted && key.is_none() {
-        0
-    } else if config.initialized && paths.archive_database_path.exists() {
-        visible_visit_count(paths, config, key)?
     } else {
         0
     };
@@ -182,20 +171,15 @@ pub fn wipe_all_data(
 ///
 /// Called before a wipe with the archive still in place. A long rebuild that kept going could
 /// otherwise open fresh connections after the wipe and write the old archive's derived rows into
-/// whatever archive the user creates next.
-pub fn request_running_jobs_stop(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<()> {
-    if !paths.intelligence_database_path.exists() {
-        return Ok(());
-    }
-    open_intelligence_connection(paths, config, key)?
-        .execute_batch(
-            "UPDATE ai_jobs SET stop_requested = 1 WHERE state = 'running';
-             UPDATE intelligence_jobs SET stop_requested = 1 WHERE state = 'running';",
-        )
+/// whatever archive the user creates next. Jobs only run in a process with the archive open.
+pub fn request_running_jobs_stop(paths: &ProjectPaths) -> Result<()> {
+    let Some(store) = crate::vault::live::store(&paths.app_root) else { return Ok(()) };
+    store
+        .write(vault_store::Db::Intelligence, vault_store::Priority::Interactive, |s| {
+            s.execute("UPDATE ai_jobs SET stop_requested=1 WHERE state='running'", ())?;
+            s.execute("UPDATE intelligence_jobs SET stop_requested=1 WHERE state='running'", ())?;
+            Ok(())
+        })
         .context("asking running jobs to stop")
 }
 
@@ -343,15 +327,6 @@ fn path_size(path: &Path) -> u64 {
     fs::read_dir(path)
         .map(|entries| entries.flatten().map(|entry| path_size(&entry.path())).sum())
         .unwrap_or(0)
-}
-
-fn visible_visit_count(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Result<i64> {
-    let connection = open_archive_connection(paths, config, key)?;
-    let totals = match load_cached_archive_totals(&connection)? {
-        Some(cached) => cached,
-        None => count_visible_archive_totals(&connection)?,
-    };
-    Ok(i64::try_from(totals.total_visits).unwrap_or(i64::MAX))
 }
 
 fn wipe_marker_path(paths: &ProjectPaths) -> PathBuf {

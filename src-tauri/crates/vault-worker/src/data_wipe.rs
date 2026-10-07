@@ -37,10 +37,10 @@ pub const WIPE_CONFIRMATION_WORD: &str = "DELETE";
 const WORKER_STOP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Lists what "Delete all data" would remove.
-pub fn preview_data_wipe(session_database_key: Option<&str>) -> Result<WipePreview> {
+pub fn preview_data_wipe() -> Result<WipePreview> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let mut preview = vault_core::preview_data_wipe(&paths, &config, session_database_key)?;
+    let mut preview = vault_core::preview_data_wipe(&paths)?;
     preview.clears_keychain = keyring_status().stored_secret;
     if let Some(installed) = installed_schedule(&paths, &config) {
         preview.removes_schedule = true;
@@ -56,7 +56,6 @@ pub fn preview_data_wipe(session_database_key: Option<&str>) -> Result<WipePrevi
 /// report carries the error.
 pub fn wipe_all_data(
     confirmation: &str,
-    session_database_key: Option<&str>,
     close_store: impl FnOnce() -> Result<()>,
 ) -> Result<WipeReport> {
     if confirmation != WIPE_CONFIRMATION_WORD {
@@ -72,7 +71,7 @@ pub fn wipe_all_data(
         &paths,
         &outside,
         || {
-            stop_background_work(&paths, Some((&config, session_database_key)))?;
+            stop_background_work(&paths, true)?;
             close_store()
         },
         clear_keychain,
@@ -94,7 +93,7 @@ pub fn finish_interrupted_data_wipe() -> Result<bool> {
     log::warn!(target: "pathkeep::data_wipe", "finishing a data wipe that was interrupted");
     let report = vault_core::finish_interrupted_data_wipe(
         &paths,
-        || stop_background_work(&paths, None),
+        || stop_background_work(&paths, false),
         clear_keychain,
         |plan| remove_schedule(&paths, plan),
     )?;
@@ -164,15 +163,10 @@ fn log_schedule_outcome(report: &WipeReport) {
     }
 }
 
-/// Stops background work that writes under the app root. `archive` is the config and key the
-/// archive was opened with, when it is still there to ask running jobs to stop.
-fn stop_background_work(
-    paths: &ProjectPaths,
-    archive: Option<(&AppConfig, Option<&str>)>,
-) -> Result<()> {
-    if let Some((config, key)) = archive
-        && let Err(error) = vault_core::request_running_jobs_stop(paths, config, key)
-    {
+/// Stops background work that writes under the app root. `archive_open` says the
+/// archive is still there to ask its running jobs to stop.
+fn stop_background_work(paths: &ProjectPaths, archive_open: bool) -> Result<()> {
+    if archive_open && let Err(error) = vault_core::request_running_jobs_stop(paths) {
         // Workers still stop at their next config check; this only makes it sooner.
         log::warn!(target: "pathkeep::data_wipe", "could not ask running jobs to stop: {error:#}");
     }

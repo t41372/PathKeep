@@ -101,9 +101,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(snapshot)
         }
         "preview_wipe_all_data" => {
-            json_value!(worker_bridge::preview_wipe_all_data_impl(
-                session_key(&state.session)?.as_deref()
-            )?)
+            json_value!(worker_bridge::preview_wipe_all_data_impl()?)
         }
         "wipe_all_data" => {
             let payload = parse_payload::<WipeConfirmationPayload>(payload)?;

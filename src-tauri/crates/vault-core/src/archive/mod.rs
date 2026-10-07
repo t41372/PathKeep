@@ -44,7 +44,6 @@ pub(crate) use self::history::net_guard;
 pub(crate) mod ingest;
 mod intelligence_projection;
 mod legacy_status;
-mod legacy_totals;
 mod maintenance;
 mod read_models;
 pub use legacy_status::{
@@ -97,9 +96,7 @@ pub(crate) use self::intelligence_projection::{
     reset_open_intelligence_connection_call_count,
 };
 pub use self::legacy_source_evidence::open_legacy_source_evidence_connection;
-pub(crate) use self::maintenance_runs::{
-    count_visible_archive_totals, persist_structured_manifest, stats_with_archive_totals,
-};
+pub(crate) use self::maintenance_runs::{persist_structured_manifest, stats_with_archive_totals};
 use self::read_models::{decode_profile_scope, directory_size, file_size};
 pub(crate) use self::run_support::{ArchiveVisibleTotals, current_timezone_name};
 pub(crate) use self::schema::apply_cipher_key;

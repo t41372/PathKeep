@@ -48,3 +48,26 @@ fn a_published_generation_finishes_cleanup_without_restoring_old_files() {
     recover(&paths).unwrap();
     assert_eq!(std::fs::read(root.path().join("config.json")).unwrap(), b"new");
 }
+
+#[test]
+fn an_old_format_import_journal_next_to_a_native_archive_is_set_aside_not_rolled_back() {
+    let (root, vault, _) = super::tests::encrypted();
+    vault.close().unwrap();
+    let paths = crate::project_paths_with_root(root.path());
+    let config_before = std::fs::read(&paths.config_path).unwrap();
+    // The shape an interrupted old-format import left: no "stage", an old config to restore.
+    let journal = serde_json::json!({
+        "version": 1,
+        "previous_config": {"initialized": false},
+        "files": [{"target": "archive/history-vault.sqlite", "backup": "archive/history-vault.sqlite.bak"}],
+    });
+    let marker = root.path().join("archive/.pk-import-journal.json");
+    std::fs::write(&marker, serde_json::to_vec(&journal).unwrap()).unwrap();
+
+    assert!(!recover(&paths).unwrap());
+    assert!(!marker.exists());
+    assert!(root.path().join("archive/.pk-import-journal.legacy-stale.json").exists());
+    assert_eq!(std::fs::read(&paths.config_path).unwrap(), config_before);
+    let config = crate::load_config(&paths).unwrap();
+    assert!(crate::Vault::open_password(paths, config, "old password", None).is_ok());
+}

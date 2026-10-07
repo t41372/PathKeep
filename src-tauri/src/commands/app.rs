@@ -54,14 +54,8 @@ pub(crate) async fn save_config(
 #[cfg(not(test))]
 #[tauri::command]
 /// Lists what "Delete all data" would remove, with sizes, off the UI thread.
-pub(crate) async fn preview_wipe_all_data(
-    state: State<'_, SessionState>,
-) -> Result<vault_core::WipePreview, CommandError> {
-    let key_state = state.inner().clone();
-    run_blocking_command("preview_wipe_all_data", move || {
-        worker_bridge::preview_wipe_all_data_impl(key_state.get_key()?.as_deref())
-    })
-    .await
+pub(crate) async fn preview_wipe_all_data() -> Result<vault_core::WipePreview, CommandError> {
+    run_blocking_command("preview_wipe_all_data", worker_bridge::preview_wipe_all_data_impl).await
 }
 
 #[cfg(not(test))]
