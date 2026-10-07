@@ -7,46 +7,47 @@ use std::collections::HashMap;
 /// Adds (or refreshes) a star — see `vault_core::set_star`.
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn set_star_impl(
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
     request: vault_core::SetStarRequest,
 ) -> Result<(), CommandError> {
-    worker_result(vault_worker::set_star(session_database_key, request))
+    worker_result(vault_worker::set_star(&state.vault()?, request))
 }
 
 /// Removes a star — see `vault_core::unset_star`.
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn unset_star_impl(
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
     request: vault_core::SetStarRequest,
 ) -> Result<(), CommandError> {
-    worker_result(vault_worker::unset_star(session_database_key, request))
+    worker_result(vault_worker::unset_star(&state.vault()?, request))
 }
 
 /// Returns the starred status for the supplied (visible) keys only.
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn is_starred_batch_impl(
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
     kind: vault_core::StarEntityKind,
     keys: &[String],
 ) -> Result<HashMap<String, bool>, CommandError> {
-    worker_result(vault_worker::is_starred_batch(session_database_key, kind, keys))
+    worker_result(vault_worker::is_starred_batch(&state.vault()?, kind, keys))
 }
 
 /// Lists the Starred hub, enriched and ordered by the chosen sort.
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn list_stars_impl(
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
     kind: Option<vault_core::StarEntityKind>,
     sort: vault_core::StarSort,
     limit: Option<usize>,
-) -> Result<Vec<vault_core::StarListItem>, CommandError> {
-    worker_result(vault_worker::list_stars(session_database_key, kind, sort, limit))
+    cursor: Option<String>,
+) -> Result<vault_core::StarPage, CommandError> {
+    worker_result(vault_worker::list_stars(&state.vault()?, kind, sort, limit, cursor))
 }
 
 /// Rolls up per-kind star counts.
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn star_counts_impl(
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::StarCounts, CommandError> {
-    worker_result(vault_worker::star_counts(session_database_key))
+    worker_result(vault_worker::star_counts(&state.vault()?))
 }

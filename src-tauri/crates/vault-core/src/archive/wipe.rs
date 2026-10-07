@@ -74,8 +74,9 @@
 //!   when no successful run has cached them. Folder sizes are a metadata walk.
 
 use super::{
-    count_visible_archive_totals, open_archive_connection, open_intelligence_connection,
-    read_models::load_cached_archive_totals,
+    count_visible_archive_totals,
+    legacy_totals::load_cached_archive_totals,
+    open_archive_connection, open_intelligence_connection,
     write_lock::{ARCHIVE_WRITE_LOCK_FILE, ArchiveOpGate, ArchiveWriteLock},
 };
 use crate::{
@@ -129,7 +130,15 @@ pub fn preview_data_wipe(
     key: Option<&str>,
 ) -> Result<WipePreview> {
     // Counted before sizing: opening the archive can create the search database it attaches.
-    let visit_count = if config.initialized && paths.archive_database_path.exists() {
+    let visit_count = if let Some(store) = crate::vault::live::store(&paths.app_root) {
+        store.read(vault_store::Db::Archive, |s| {
+            s.query_one("SELECT value FROM archive_totals WHERE name='visits'", (), |r| {
+                Ok(r.get(0)?)
+            })
+        })?
+    } else if config.archive_mode == crate::ArchiveMode::Encrypted && key.is_none() {
+        0
+    } else if config.initialized && paths.archive_database_path.exists() {
         visible_visit_count(paths, config, key)?
     } else {
         0

@@ -11,7 +11,11 @@ pub struct Fixture {
 }
 impl Fixture {
     pub fn new() -> Self {
-        let root = tempfile::Builder::new().prefix("pk-owner-").tempdir_in("/private/tmp").unwrap();
+        // A short root keeps the owner's socket path under the Unix limit; macOS's
+        // own temp directory is too deep for it.
+        let base =
+            if cfg!(target_os = "macos") { "/private/tmp".into() } else { std::env::temp_dir() };
+        let root = tempfile::Builder::new().prefix("pk-owner-").tempdir_in(base).unwrap();
         let paths = vault_core::project_paths_with_root(root.path());
         vault_core::config::ensure_paths(&paths).unwrap();
         let mut config = AppConfig {
@@ -97,10 +101,34 @@ impl Fixture {
             .unwrap();
     }
 }
-pub struct AppProcess(pub u32);
-impl Drop for AppProcess {
+// This fixture links vault-store, which requires Rust 1.96 for native file locks.
+#[clippy::msrv = "1.96"]
+impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = Command::new("kill").args(["-TERM", &self.0.to_string()]).status();
+        let path = self.root.path().join("archive/.pk-owner.lock");
+        let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&path) else {
+            return;
+        };
+        if file.try_lock().is_ok() {
+            return;
+        }
+        let Some(pid) =
+            std::fs::read_to_string(&path).ok().and_then(|text| text.trim().parse::<u32>().ok())
+        else {
+            return;
+        };
+        if pid == std::process::id() {
+            return;
+        }
+        let _ = Command::new("kill").args(["-TERM", &pid.to_string()]).status();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while file.try_lock().is_err() {
+            if std::time::Instant::now() >= deadline {
+                let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).status();
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 }
 pub fn open_files(pid: u32) -> String {

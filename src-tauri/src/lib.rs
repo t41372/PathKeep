@@ -76,6 +76,7 @@ fn run_app() -> Result<()> {
     #[cfg(feature = "devtools-bridge")]
     let dev_bridge_state = session_state.clone();
 
+    let opening_session = session_state.clone();
     let launched_at_login =
         std::env::args().any(|argument| argument == desktop_integration::LAUNCHED_AT_LOGIN_ARG);
     let background = std::env::args().any(|argument| argument == "--background");
@@ -106,11 +107,17 @@ fn run_app() -> Result<()> {
     builder
         .setup(move |app| {
             let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
-            let owner_lock = vault_store::OwnerLock::acquire(&paths.app_root)
-                .map_err(anyhow::Error::from).map_err(tauri::Error::Anyhow)?;
+            let owner_lock = std::sync::Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)
+                .map_err(anyhow::Error::from).map_err(tauri::Error::Anyhow)?);
+            owner_session.reserve_owner(owner_lock.clone());
             vault_core::config::ensure_paths(&paths).map_err(tauri::Error::Anyhow)?;
             install_panic_hook(&paths);
             app.handle().plugin(build_logging_plugin(&paths))?;
+            // Before the archive opens: an app started from Finder may only open 256 files.
+            match vault_platform::raise_open_file_limit() {
+                Ok(limit) => log::info!("open-file limit: {limit}"),
+                Err(error) => log::warn!("could not raise the open-file limit: {error}"),
+            }
             // Before anything reads the config: a wipe the user confirmed but a crash cut short
             // is finished now. A failure is logged, not fatal; onboarding retries it.
             if let Err(error) = vault_worker::finish_interrupted_data_wipe() {
@@ -125,10 +132,25 @@ fn run_app() -> Result<()> {
                 tauri_plugin_stronghold::Builder::with_argon2(&paths.stronghold_salt_path).build(),
             )?;
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
-            // Shows the window, unless this is a login launch into the menu bar.
-            desktop_integration::setup(app.handle(), &config, launched_at_login, background);
+            if config.initialized { opening_session.begin_startup(); }
             use tauri::Manager;
-            app.manage(owner::OwnerService::start(&paths.app_root, owner_lock, owner_session, launches, background, app.webview_windows().len())?);
+            // Bind before opening databases. Connected clients wait on the session,
+            // so the client's connection deadline never limits a slow first open.
+            let startup_windows = if background || launched_at_login {0} else {app.webview_windows().len()};
+            match owner::OwnerService::start(&paths.app_root,owner_lock,owner_session,launches,background,startup_windows) {
+                Ok(service) => { app.manage(service); }
+                Err(error) => {
+                    opening_session.abort_startup(format!("owner-endpoint-unavailable: {error:#}"));
+                    owner::startup_failure(app.handle(),&paths,&format!("{error:#}"));
+                    return Ok(());
+                }
+            }
+            if config.initialized {
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Err(error)=opening_session.finish_startup() {log::warn!("archive awaits unlock: {error}");}
+                });
+            }
+            desktop_integration::setup(app.handle(), &config, launched_at_login, background);
             #[cfg(feature = "devtools-bridge")]
             let dev_bridge_handle = dev_ipc_bridge::maybe_launch(dev_bridge_state.clone())?;
             #[cfg(feature = "devtools-bridge")]
@@ -165,6 +187,10 @@ fn run_app() -> Result<()> {
             unlock_app_session,
             run_backup_now,
             query_history,
+            start_search,
+            next_search_page,
+            cancel_search,
+            search_indexer_state,
             load_history_favicons,
             load_history_og_images,
             mark_og_images_shown,
@@ -190,6 +216,8 @@ fn run_app() -> Result<()> {
             load_dashboard_snapshot,
             get_browse_day_insights,
             load_source_stats,
+            load_recent_runs,
+            load_import_batches,
             get_url_detail,
             load_audit_run_detail,
             export_history,
@@ -214,12 +242,15 @@ fn run_app() -> Result<()> {
             keyring_status,
             security_status,
             keyring_get_database_key,
+            unlock_archive_from_keychain,
             keyring_store_database_key,
             keyring_clear_database_key,
             store_ai_provider_api_key,
             clear_ai_provider_api_key,
             test_ai_provider_connection,
             load_ai_queue_status,
+            list_ai_jobs,
+            list_intelligence_jobs,
             run_ai_queue_jobs,
             replay_ai_job,
             cancel_ai_job,
@@ -233,6 +264,7 @@ fn run_app() -> Result<()> {
             cancel_ai_embedding_model_download,
             save_ai_conversation,
             list_ai_conversations,
+            list_ai_messages,
             load_ai_conversation,
             delete_ai_conversation,
             rename_ai_conversation,

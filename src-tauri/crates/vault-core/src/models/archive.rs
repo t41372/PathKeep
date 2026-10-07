@@ -356,6 +356,7 @@ impl BackupProgressEvent {
 pub enum ArchiveUpgradePhase {
     SchemaMigration,
     RegistrableDomainBackfill,
+    /// Legacy persisted phase; native search rebuilds report IndexerState instead.
     SearchReprojection,
     Intelligence,
     Finalizing,
@@ -484,6 +485,8 @@ pub struct DashboardSnapshot {
     /// `earliest_visit_at`; both are populated together or both are `None`.
     pub latest_visit_at: Option<String>,
     pub recent_runs: Vec<BackupRunOverview>,
+    #[serde(default)]
+    pub recent_runs_next_cursor: Option<i64>,
     pub storage: StorageSummary,
     pub next_action: Option<String>,
 }
@@ -815,26 +818,17 @@ pub struct HistoryEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryQueryResponse {
-    /// Exact match count; the size of this page when the caller skipped the count; or, when
-    /// `windowed`, the matches inside the window (a lower bound).
+    #[serde(default)]
+    pub search_state: Option<crate::search::SearchCoverage>,
+    /// Exact matching pages, or this page's size when include_total is false.
     pub total: usize,
-    /// False when the caller asked for `include_total: false`, or when `windowed`.
+    /// False when the caller asked for `include_total: false`.
     #[serde(default = "default_total_exact")]
     pub total_exact: bool,
     /// For `group_by_url` queries with a total: the matching visits across all `total` pages.
     /// `None` otherwise.
     #[serde(default)]
     pub total_visits: Option<usize>,
-    /// True when a keyword search matched more pages than one search ranks: only the most recently
-    /// archived matching pages inside the filters (the window) were ranked, listed and counted, so
-    /// `total` is "at least" and some older matches are not in the list. Adding a word or a filter
-    /// narrows the search under the window. See `archive/history/keyword_window.rs`.
-    #[serde(default)]
-    pub windowed: bool,
-    /// Regex searches only: how far this chunk of the scan reached. Regex is scanned a time-boxed
-    /// chunk per request; `next_cursor` continues it. See `archive/history/regex_scan.rs`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub regex_scan: Option<RegexScanProgress>,
     pub items: Vec<HistoryEntry>,
     pub page: usize,
     pub page_size: usize,
@@ -848,26 +842,13 @@ fn default_total_exact() -> bool {
     true
 }
 
-/// How far one chunk of a regex search got.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RegexScanProgress {
-    /// The visit time the scan has reached: every visit between the start of the scan (the newest
-    /// visit, or the oldest for `oldest` order) and this time has been checked. `None` before any.
-    pub scanned_to_ms: Option<i64>,
-    /// True once every visit inside the filters has been checked. Until then counts are "so far"
-    /// and a grouped row's `visit_count` covers only the visits found so far.
-    pub complete: bool,
-}
-
 impl Default for HistoryQueryResponse {
     fn default() -> Self {
         Self {
+            search_state: None,
             total: 0,
             total_exact: true,
             total_visits: None,
-            windowed: false,
-            regex_scan: None,
             items: Vec::new(),
             page: 1,
             page_size: 0,
@@ -903,10 +884,6 @@ pub struct ExportResult {
     pub format: ExportFormat,
     pub path: String,
     pub count: usize,
-    /// True when the export's keyword matched more pages than one search ranks, so only the
-    /// window of most recently archived matches was exported (`HistoryQueryResponse::windowed`).
-    #[serde(default)]
-    pub windowed: bool,
 }
 
 /// Pollable lifecycle of an export; finishing protects the durable publication barrier.

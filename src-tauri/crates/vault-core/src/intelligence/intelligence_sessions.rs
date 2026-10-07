@@ -1,3 +1,5 @@
+//! Failure modes: reads write schemas, a query escapes its owner, stale scopes leak,
+//! or bounded results lose continuation. Native render-path and paging tests cover these.
 //! Session and trail Core Intelligence read models.
 //!
 //! ## Responsibilities
@@ -23,65 +25,49 @@
 //! - Detail reads only load rows linked to one `session_id` or `trail_id`;
 //!   they do not scan unrelated sessions/trails in the same date range.
 
-use super::{date_range_bounds, ensure_core_intelligence_schema};
-use crate::{
-    archive::open_intelligence_connection,
-    config::ProjectPaths,
-    models::{
-        AppConfig, PagedDateRangeRequest, SearchTrailQueryRequest, SessionDetail,
-        SessionListResult, SessionSummary, SessionVisit, TrailDetail, TrailListResult, TrailMember,
-        TrailSummary,
-    },
+use super::date_range_bounds;
+use crate::models::{
+    PagedDateRangeRequest, SearchTrailQueryRequest, SessionListResult, SessionSummary,
+    TrailListResult, TrailSummary,
 };
-use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, Row, params};
-
-/// How far before a range a session may start and still be read as
-/// overlapping it; see `get_sessions`.
-const SESSION_LOOKBACK_MS: i64 = 86_400_000;
+use anyhow::Result;
+use vault_store::{Row, params_owned as params};
 
 /// Returns one page of deterministic sessions for the requested scope and date
 /// range.
 pub fn get_sessions(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &PagedDateRangeRequest,
 ) -> Result<SessionListResult> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence,move |connection| {
+let request=&request;
+
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-    // Sessions that overlap the range. `profile_id IN (...)` with a bound on
-    // `first_visit_ms` lets `idx_sessions_profile_time` seek instead of
-    // scanning every session. A session that started before the range still
-    // overlaps it if it ran into it, so the lower bound reaches back a day; a
-    // session (visits less than 30 minutes apart) longer than that is listed
-    // only from the day it started.
-    let longest_session_ms = SESSION_LOOKBACK_MS;
-    let total: i64 = connection.query_row(
+    // Exact interval overlap includes sessions spanning any number of days.
+    let total: i64 = connection.query_one(
         "SELECT COUNT(*)
          FROM sessions
          WHERE profile_id IN (
                  SELECT profile_key FROM archive.source_profiles
                  WHERE profile_key IS NOT NULL AND (?1 IS NULL OR profile_key = ?1))
-           AND first_visit_ms >= ?2 - ?4
            AND first_visit_ms < ?3
            AND last_visit_ms >= ?2",
-        params![request.profile_id.as_deref(), start_ms, end_ms, longest_session_ms],
-        |row| row.get(0),
+        params![request.profile_id.as_deref(), start_ms, end_ms],
+        |row| Ok(row.get(0)?),
     )?;
-    let offset = request.page.saturating_mul(request.page_size.max(1)) as i64;
+    let limit=request.page_size.clamp(1,1000) as usize;
+    let cursor=super::paging::cursor::<(i64,String)>(request.cursor.as_deref())?;
     let mut statement = connection.prepare(
         "SELECT session_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title
          FROM sessions
          WHERE profile_id IN (
                  SELECT profile_key FROM archive.source_profiles
                  WHERE profile_key IS NOT NULL AND (?1 IS NULL OR profile_key = ?1))
-           AND first_visit_ms >= ?2 - ?4
            AND first_visit_ms < ?3
            AND last_visit_ms >= ?2
-         ORDER BY first_visit_ms DESC, session_id DESC
-         LIMIT ?5 OFFSET ?6",
+           AND (?5 IS NULL OR first_visit_ms<?5 OR (first_visit_ms=?5 AND session_id<?6))
+         ORDER BY first_visit_ms DESC, session_id DESC LIMIT ?4",
     )?;
     let sessions = statement
         .query_map(
@@ -89,9 +75,8 @@ pub fn get_sessions(
                 request.profile_id.as_deref(),
                 start_ms,
                 end_ms,
-                longest_session_ms,
-                request.page_size.max(1) as i64,
-                offset
+                (limit+1) as i64,
+                cursor.as_ref().map(|c|c.0),cursor.as_ref().map(|c|c.1.as_str())
             ],
             |row| {
                 Ok(SessionSummary {
@@ -101,67 +86,31 @@ pub fn get_sessions(
                     visit_count: row.get(3)?,
                     search_count: row.get(4)?,
                     domain_count: row.get(5)?,
-                    is_deep_dive: row.get::<_, i64>(6)? != 0,
+                    is_deep_dive: row.get::< i64>(6)? != 0,
                     auto_title: row.get(7)?,
                 })
             },
         )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(SessionListResult { sessions, total, page: request.page, page_size: request.page_size })
+        .collect::<vault_store::Result<Vec<_>>>()?;
+    let page=super::paging::finish(sessions.into_iter().map(|row| {let key=(row.first_visit_ms,row.session_id.clone());(row,key)}).collect(),limit)?;
+    Ok(SessionListResult {sessions:page.items,total,next_cursor:page.next_cursor,page_size:limit as u32})
+
+})
 }
 
-/// Loads one session plus the visits and trails that belong to it so the
-/// frontend can inspect the deterministic grouping.
-pub fn get_session_detail(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    session_id: &str,
-) -> Result<SessionDetail> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    // The profile id comes along so the visit and trail lookups below can
-    // use the profile-led indexes; `session_id` alone scans every derived
-    // visit row (14.4M on a large archive).
-    let (profile_id, session) = connection
-        .query_row(
-            "SELECT profile_id, session_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title
-             FROM sessions WHERE session_id = ?1",
-            [session_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    SessionSummary {
-                        session_id: row.get(1)?,
-                        first_visit_ms: row.get(2)?,
-                        last_visit_ms: row.get(3)?,
-                        visit_count: row.get(4)?,
-                        search_count: row.get(5)?,
-                        domain_count: row.get(6)?,
-                        is_deep_dive: row.get::<_, i64>(7)? != 0,
-                        auto_title: row.get(8)?,
-                    },
-                ))
-            },
-        )
-        .optional()?
-        .with_context(|| format!("session {session_id} was not found"))?;
-    let visits = load_session_visits(&connection, &profile_id, session_id)?;
-    let trails = load_session_trails(&connection, &profile_id, &session)?;
-    Ok(SessionDetail { session, visits, trails })
-}
+pub use super::session_details::{get_session_detail, get_trail_detail};
 
 /// Returns one page of search trails for the requested scope and engine filter.
 pub fn get_search_trails(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &SearchTrailQueryRequest,
 ) -> Result<TrailListResult> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence,move |connection| {
+let request=&request;
+
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-    let total: i64 = connection.query_row(
+    let total: i64 = connection.query_one(
         "SELECT COUNT(*)
          FROM search_trails
          WHERE (?1 IS NULL OR profile_id = ?1)
@@ -169,9 +118,10 @@ pub fn get_search_trails(
            AND last_visit_ms >= ?3
            AND first_visit_ms < ?4",
         params![request.profile_id.as_deref(), request.engine.as_deref(), start_ms, end_ms],
-        |row| row.get(0),
+        |row| Ok(row.get(0)?),
     )?;
-    let offset = request.page.saturating_mul(request.page_size.max(1)) as i64;
+    let limit=request.page_size.clamp(1,1000) as usize;
+    let cursor=super::paging::cursor::<(i64,String)>(request.cursor.as_deref())?;
     let mut statement = connection.prepare(
         "SELECT trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
                 landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
@@ -180,8 +130,8 @@ pub fn get_search_trails(
            AND (?2 IS NULL OR search_engine = ?2)
            AND last_visit_ms >= ?3
            AND first_visit_ms < ?4
-         ORDER BY first_visit_ms DESC, trail_id DESC
-         LIMIT ?5 OFFSET ?6",
+           AND (?6 IS NULL OR first_visit_ms<?6 OR (first_visit_ms=?6 AND trail_id<?7))
+         ORDER BY first_visit_ms DESC, trail_id DESC LIMIT ?5",
     )?;
     let trails = statement
         .query_map(
@@ -190,130 +140,21 @@ pub fn get_search_trails(
                 request.engine.as_deref(),
                 start_ms,
                 end_ms,
-                request.page_size.max(1) as i64,
-                offset
+                (limit+1) as i64,
+                cursor.as_ref().map(|c|c.0),cursor.as_ref().map(|c|c.1.as_str())
             ],
             trail_summary_from_row,
         )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(TrailListResult { trails, total, page: request.page, page_size: request.page_size })
-}
+        .collect::<vault_store::Result<Vec<_>>>()?;
+    let page=super::paging::finish(trails.into_iter().map(|row| {let key=(row.first_visit_ms,row.trail_id.clone());(row,key)}).collect(),limit)?;
+    Ok(TrailListResult {trails:page.items,total,next_cursor:page.next_cursor,page_size:limit as u32})
 
-/// Loads one deterministic trail plus all ordered member visits that belong to
-/// it.
-pub fn get_trail_detail(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    trail_id: &str,
-) -> Result<TrailDetail> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    let trail = connection
-        .query_row(
-            "SELECT trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
-                    landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
-             FROM search_trails
-             WHERE trail_id = ?1",
-            [trail_id],
-            trail_summary_from_row,
-        )
-        .optional()?
-        .with_context(|| format!("trail {trail_id} was not found"))?;
-    let mut statement = connection.prepare(
-        "SELECT search_trail_members.trail_id, search_trail_members.visit_id, search_trail_members.ordinal,
-                search_trail_members.role, urls.url, visit_derived_facts.canonical_url, urls.title,
-                visit_derived_facts.registrable_domain, visits.visit_time_ms, visit_derived_facts.search_query
-         FROM search_trail_members
-         JOIN archive.visits AS visits ON visits.id = search_trail_members.visit_id
-         JOIN archive.urls AS urls ON urls.id = visits.url_id
-         LEFT JOIN visit_derived_facts ON visit_derived_facts.visit_id = visits.id
-         WHERE search_trail_members.trail_id = ?1
-         ORDER BY search_trail_members.ordinal ASC",
-    )?;
-    let members = statement
-        .query_map([trail_id], |row| {
-            Ok(TrailMember {
-                trail_id: row.get(0)?,
-                visit_id: row.get(1)?,
-                ordinal: row.get(2)?,
-                role: row.get(3)?,
-                url: row.get(4)?,
-                canonical_url: row.get(5)?,
-                title: row.get(6)?,
-                registrable_domain: row.get(7)?,
-                visit_time_ms: row.get(8)?,
-                search_query: row.get(9)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(TrailDetail { trail, members })
-}
-
-/// Loads all ordered visits that the given deterministic session references.
-fn load_session_visits(
-    connection: &Connection,
-    profile_id: &str,
-    session_id: &str,
-) -> Result<Vec<SessionVisit>> {
-    let mut statement = connection.prepare(
-        "SELECT visits.id, urls.url, urls.title, visit_derived_facts.registrable_domain, visits.visit_time_ms,
-                visit_derived_facts.is_search_event, visit_derived_facts.search_query,
-                visit_derived_facts.search_engine, visit_derived_facts.trail_id, visits.transition_type
-         FROM visit_derived_facts
-         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
-         JOIN archive.urls AS urls ON urls.id = visits.url_id
-         WHERE visit_derived_facts.profile_id = ?1
-           AND visit_derived_facts.session_id = ?2
-         ORDER BY visits.visit_time_ms ASC, visits.id ASC",
-    )?;
-    statement
-        .query_map(params![profile_id, session_id], |row| {
-            Ok(SessionVisit {
-                visit_id: row.get(0)?,
-                url: row.get(1)?,
-                title: row.get(2)?,
-                registrable_domain: row.get(3)?,
-                visit_time_ms: row.get(4)?,
-                is_search_event: row.get::<_, i64>(5)? != 0,
-                search_query: row.get(6)?,
-                search_engine: row.get(7)?,
-                trail_id: row.get(8)?,
-                transition_type: row.get::<_, Option<i64>>(9)?.map(|value| value.to_string()),
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-/// Loads all persisted trails that belong to one session. A trail starts
-/// inside its session, so the session's time span bounds the index range.
-fn load_session_trails(
-    connection: &Connection,
-    profile_id: &str,
-    session: &SessionSummary,
-) -> Result<Vec<TrailSummary>> {
-    let mut statement = connection.prepare(
-        "SELECT trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
-                landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
-         FROM search_trails
-         WHERE profile_id = ?1
-           AND first_visit_ms BETWEEN ?2 AND ?3
-           AND session_id = ?4
-         ORDER BY first_visit_ms ASC, trail_id ASC",
-    )?;
-    statement
-        .query_map(
-            params![profile_id, session.first_visit_ms, session.last_visit_ms, session.session_id],
-            trail_summary_from_row,
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
+})
 }
 
 /// Decodes one `search_trails` row into the shared summary type that multiple
 /// higher-level read models reuse.
-pub(super) fn trail_summary_from_row(row: &Row<'_>) -> rusqlite::Result<TrailSummary> {
+pub(super) fn trail_summary_from_row(row: &Row) -> vault_store::Result<TrailSummary> {
     Ok(TrailSummary {
         trail_id: row.get(0)?,
         session_id: row.get(1)?,
@@ -326,21 +167,17 @@ pub(super) fn trail_summary_from_row(row: &Row<'_>) -> rusqlite::Result<TrailSum
         first_visit_ms: row.get(8)?,
         last_visit_ms: row.get(9)?,
         max_depth: row.get(10)?,
-        queries: serde_json::from_str(&row.get::<_, String>(11)?).unwrap_or_default(),
+        queries: serde_json::from_str(&row.get::<String>(11)?).unwrap_or_default(),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::{get_search_trails, get_session_detail, get_sessions, get_trail_detail};
-    use crate::{
-        archive::{open_archive_connection, open_intelligence_connection},
-        config::{ProjectPaths, project_paths_with_root},
-        models::{
-            AppConfig, ArchiveMode, DateRange, PagedDateRangeRequest, SearchTrailQueryRequest,
-        },
+    use crate::models::{
+        AppConfig, ArchiveMode, DateRange, PagedDateRangeRequest, SearchTrailQueryRequest,
     };
-    use rusqlite::{Connection, params};
+    use vault_store::{Session, params_owned as params};
 
     fn range() -> DateRange {
         DateRange { start: "1970-01-01".to_string(), end: "2100-01-01".to_string() }
@@ -354,20 +191,19 @@ mod tests {
         }
     }
 
-    fn seed_archive(paths: &ProjectPaths, config: &AppConfig) {
-        let archive = open_archive_connection(paths, config, None).expect("archive connection");
+    fn seed_archive(archive: &Session<'_>) {
         archive
             .execute(
                 "INSERT INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
                  VALUES (1, 'backup', 'manual', '2026-04-14T00:00:00Z', 'UTC', 'success', '[]', '[]', '{}', 0)",
-                [],
+                (),
             )
             .expect("run");
         archive
             .execute(
                 "INSERT INTO source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
                  VALUES (1, 'chrome', '1', 'Default', '/tmp/profile', '2026-04-14T00:00:00Z', 1, 'profile-a', '2026-04-14T00:00:00Z')",
-                [],
+                (),
             )
             .expect("profile");
 
@@ -377,15 +213,16 @@ mod tests {
             (3_i64, "https://postgresql.org/docs/wal.html", "Postgres WAL"),
         ];
         for (id, url, title) in urls {
+            archive.execute("INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(?1,?2,?3,?4)",params![id,url,crate::pages::canonical_key(url),crate::visit_taxonomy::registrable_domain_for_url(url)]).unwrap();
             archive
                 .execute(
                     "INSERT INTO urls
                      (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso,
                       last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id,
-                      source_url_id, hidden, payload_hash, recorded_at)
+                      source_url_id, hidden, payload_hash, recorded_at, page_id)
                      VALUES (?1, ?2, ?3, 1, 0, ?4, '2027-01-15T08:00:00Z',
                              ?4, '2027-01-15T08:00:00Z', 1, 1, ?1, 0, ?5,
-                             '2026-04-14T00:00:00Z')",
+                             '2026-04-14T00:00:00Z', ?1)",
                     params![
                         id,
                         url,
@@ -416,37 +253,42 @@ mod tests {
         }
     }
 
-    fn seed_intelligence(connection: &Connection) {
+    fn seed_intelligence(connection: &Session<'_>) {
+        for profile in ["profile-a", "profile-b"] {
+            connection
+                .execute("INSERT INTO intelligence_generations(profile_id) VALUES(?1)", [profile])
+                .unwrap();
+        }
         connection
             .execute(
-                "INSERT INTO sessions
+                "INSERT INTO sessions_rows
                  (session_id, profile_id, first_visit_ms, last_visit_ms, visit_count, search_count,
                   domain_count, is_deep_dive, auto_title, computed_at)
-                 VALUES ('session-1', 'profile-a', 1_800_000_001_000, 1_800_000_003_000,
+                 VALUES ('session-1', 'profile-a', 1800000001000, 1800000003000,
                          3, 1, 3, 1, 'SQLite WAL research', '2026-04-14T00:00:00Z')",
-                [],
+                (),
             )
             .expect("session");
         connection
             .execute(
-                "INSERT INTO sessions
+                "INSERT INTO sessions_rows
                  (session_id, profile_id, first_visit_ms, last_visit_ms, visit_count, search_count,
                   domain_count, is_deep_dive, auto_title, computed_at)
                  VALUES ('session-old', 'profile-b', 500, 600, 1, 0, 1, 0, NULL, '2026-04-14T00:00:00Z')",
-                [],
+                (),
             )
             .expect("old session");
         connection
             .execute(
-                "INSERT INTO search_trails
+                "INSERT INTO search_trails_rows
                  (trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count,
                   visit_count, landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth,
                   queries_json, computed_at)
                  VALUES ('trail-1', 'profile-a', 'session-1', 'sqlite wal', 'google', 1, 3,
                          'https://sqlite.org/wal.html', 'sqlite.org',
-                         1_800_000_001_000, 1_800_000_003_000, 2,
+                         1800000001000, 1800000003000, 2,
                          '[\"sqlite wal\",\"sqlite checkpoint\"]', '2026-04-14T00:00:00Z')",
-                [],
+                (),
             )
             .expect("trail");
 
@@ -485,17 +327,17 @@ mod tests {
         for (visit_id, canonical_url, domain, page_category, is_search, query, engine, trail_id) in
             facts
         {
+            connection.execute("INSERT INTO visit_assignments(visit_id,profile_id,session_id,trail_id) VALUES(?1,'profile-a','session-1',?2)",params![visit_id,trail_id]).unwrap();
             connection
                 .execute(
-                    "INSERT INTO visit_derived_facts
-                     (visit_id, profile_id, session_id, trail_id, registrable_domain, canonical_url,
+                    "INSERT INTO visit_derived_facts_rows
+                     (visit_id, profile_id, registrable_domain, canonical_url,
                       domain_category, page_category, search_engine, search_query, is_search_event,
                       evidence_tier, taxonomy_source, computed_at)
-                     VALUES (?1, 'profile-a', 'session-1', ?2, ?3, ?4, 'reference',
-                             ?5, ?6, ?7, ?8, 'tier-a', 'test', '2026-04-14T00:00:00Z')",
+                     VALUES (?1, 'profile-a', ?2, ?3, 'reference',
+                             ?4, ?5, ?6, ?7, 'tier-a', 'test', '2026-04-14T00:00:00Z')",
                     params![
                         visit_id,
-                        trail_id,
                         domain,
                         canonical_url,
                         page_category,
@@ -507,7 +349,7 @@ mod tests {
                 .expect("derived fact");
             connection
                 .execute(
-                    "INSERT INTO search_trail_members (trail_id, profile_id, visit_id, ordinal, role)
+                    "INSERT INTO search_trail_members_rows (trail_id, profile_id, visit_id, ordinal, role)
                      VALUES ('trail-1', 'profile-a', ?1, ?1, ?2)",
                     params![visit_id, if is_search == 1 { "search" } else { "result" }],
                 )
@@ -515,94 +357,129 @@ mod tests {
         }
     }
 
-    fn seed_project() -> (tempfile::TempDir, ProjectPaths, AppConfig) {
-        let root = tempfile::tempdir().expect("temp project root");
-        let paths = project_paths_with_root(root.path());
-        let config = config();
-        seed_archive(&paths, &config);
-        let intelligence =
-            open_intelligence_connection(&paths, &config, None).expect("intelligence connection");
-        seed_intelligence(&intelligence);
-        (root, paths, config)
+    fn seed_project(key: Option<[u8; 32]>) -> crate::Vault {
+        let vault = crate::Vault::open_temp_with_key(key).unwrap().with_config(config());
+        vault
+            .write(vault_store::Db::Archive, vault_store::Priority::Batch, |s| {
+                seed_archive(s);
+                Ok(())
+            })
+            .unwrap();
+        vault
+            .write(vault_store::Db::Intelligence, vault_store::Priority::Batch, |s| {
+                seed_intelligence(s);
+                Ok(())
+            })
+            .unwrap();
+        vault
     }
 
     #[test]
     fn session_and_trail_public_reads_return_bounded_details() {
-        let (_root, paths, config) = seed_project();
-        let sessions = get_sessions(
-            &paths,
-            &config,
-            None,
-            &PagedDateRangeRequest {
-                date_range: range(),
-                profile_id: Some("profile-a".to_string()),
-                page: 0,
-                page_size: 10,
-            },
-        )
-        .expect("sessions");
-        assert_eq!(sessions.total, 1);
-        assert_eq!(sessions.sessions[0].session_id, "session-1");
-        assert!(sessions.sessions[0].is_deep_dive);
+        for key in [None, Some([30; 32])] {
+            let vault = seed_project(key);
+            let sessions = get_sessions(
+                &vault,
+                &PagedDateRangeRequest {
+                    cursor: None,
+                    date_range: range(),
+                    profile_id: Some("profile-a".to_string()),
 
-        let empty_page = get_sessions(
-            &paths,
-            &config,
-            None,
-            &PagedDateRangeRequest {
-                date_range: range(),
-                profile_id: Some("profile-a".to_string()),
-                page: 1,
-                page_size: 0,
-            },
-        )
-        .expect("sessions with saturated page size");
-        assert!(empty_page.sessions.is_empty());
-        assert_eq!(empty_page.page_size, 0);
+                    page_size: 10,
+                },
+            )
+            .expect("sessions");
+            assert_eq!(sessions.total, 1);
+            assert_eq!(sessions.sessions[0].session_id, "session-1");
+            assert!(sessions.sessions[0].is_deep_dive);
 
-        let detail =
-            get_session_detail(&paths, &config, None, "session-1").expect("session detail");
-        assert_eq!(detail.visits.len(), 3);
-        assert_eq!(detail.visits[0].transition_type.as_deref(), Some("1"));
-        assert_eq!(detail.visits[0].search_query.as_deref(), Some("sqlite wal"));
-        assert_eq!(detail.trails[0].queries, vec!["sqlite wal", "sqlite checkpoint"]);
-        assert!(get_session_detail(&paths, &config, None, "missing").is_err());
+            let empty_page = get_sessions(
+                &vault,
+                &PagedDateRangeRequest {
+                    cursor: None,
+                    date_range: range(),
+                    profile_id: Some("profile-a".to_string()),
 
-        let trails = get_search_trails(
-            &paths,
-            &config,
-            None,
-            &SearchTrailQueryRequest {
-                date_range: range(),
-                profile_id: Some("profile-a".to_string()),
-                engine: Some("google".to_string()),
-                page: 0,
-                page_size: 10,
-            },
-        )
-        .expect("trails");
-        assert_eq!(trails.total, 1);
-        assert_eq!(trails.trails[0].landing_domain.as_deref(), Some("sqlite.org"));
+                    page_size: 0,
+                },
+            )
+            .expect("sessions with saturated page size");
+            assert_eq!(empty_page.sessions.len(), 1);
+            assert_eq!(empty_page.page_size, 1);
 
-        let no_engine_match = get_search_trails(
-            &paths,
-            &config,
-            None,
-            &SearchTrailQueryRequest {
-                date_range: range(),
-                profile_id: Some("profile-a".to_string()),
-                engine: Some("duckduckgo".to_string()),
-                page: 0,
-                page_size: 10,
-            },
-        )
-        .expect("filtered trails");
-        assert!(no_engine_match.trails.is_empty());
+            let detail = get_session_detail(
+                &vault,
+                &crate::models::SessionDetailRequest {
+                    session_id: "session-1".into(),
+                    ..Default::default()
+                },
+            )
+            .expect("session detail");
+            assert_eq!(detail.visits.len(), 3);
+            assert_eq!(detail.visits[0].transition_type.as_deref(), Some("1"));
+            assert_eq!(detail.visits[0].search_query.as_deref(), Some("sqlite wal"));
+            assert_eq!(detail.trails[0].queries, vec!["sqlite wal", "sqlite checkpoint"]);
+            assert!(
+                get_session_detail(
+                    &vault,
+                    &crate::models::SessionDetailRequest {
+                        session_id: "missing".into(),
+                        ..Default::default()
+                    }
+                )
+                .is_err()
+            );
 
-        let trail = get_trail_detail(&paths, &config, None, "trail-1").expect("trail detail");
-        assert_eq!(trail.members.len(), 3);
-        assert_eq!(trail.members[0].role, "search");
-        assert_eq!(trail.members[1].registrable_domain.as_deref(), Some("sqlite.org"));
-        assert!(get_trail_detail(&paths, &config, None, "missing").is_err());
+            let trails = get_search_trails(
+                &vault,
+                &SearchTrailQueryRequest {
+                    cursor: None,
+                    date_range: range(),
+                    profile_id: Some("profile-a".to_string()),
+                    engine: Some("google".to_string()),
+
+                    page_size: 10,
+                },
+            )
+            .expect("trails");
+            assert_eq!(trails.total, 1);
+            assert_eq!(trails.trails[0].landing_domain.as_deref(), Some("sqlite.org"));
+
+            let no_engine_match = get_search_trails(
+                &vault,
+                &SearchTrailQueryRequest {
+                    cursor: None,
+                    date_range: range(),
+                    profile_id: Some("profile-a".to_string()),
+                    engine: Some("duckduckgo".to_string()),
+
+                    page_size: 10,
+                },
+            )
+            .expect("filtered trails");
+            assert!(no_engine_match.trails.is_empty());
+
+            let trail = get_trail_detail(
+                &vault,
+                &crate::models::TrailDetailRequest {
+                    trail_id: "trail-1".into(),
+                    ..Default::default()
+                },
+            )
+            .expect("trail detail");
+            assert_eq!(trail.members.len(), 3);
+            assert_eq!(trail.members[0].role, "search");
+            assert_eq!(trail.members[1].registrable_domain.as_deref(), Some("sqlite.org"));
+            assert!(
+                get_trail_detail(
+                    &vault,
+                    &crate::models::TrailDetailRequest {
+                        trail_id: "missing".into(),
+                        ..Default::default()
+                    }
+                )
+                .is_err()
+            );
+        }
     }
 }

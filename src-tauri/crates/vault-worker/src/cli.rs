@@ -18,6 +18,14 @@ pub fn run_worker_cli(arguments: &[String]) -> Result<String> {
             Request::new("backup", json!({"dueOnly":arguments.iter().any(|a| a == "--due-only")}))
         }
         "doctor" | "ai-index" | "ai-queue" | "ping" => Request::new(command, json!({})),
+        "ai-jobs" | "intelligence-jobs" => {
+            let params = arguments
+                .get(1)
+                .map(|value| serde_json::from_str(value))
+                .transpose()?
+                .unwrap_or_else(|| json!({}));
+            Request::new(command, params)
+        }
         other => anyhow::bail!("unknown worker command: {other}"),
     };
     let root = vault_core::project_paths()?.app_root;

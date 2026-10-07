@@ -24,6 +24,7 @@ import type {
   CoreIntelligenceSectionTiming,
   DateRange,
   KpiMetric,
+  Page,
 } from './types-primitives'
 import type { TrailSummary } from './types-navigation'
 import type {
@@ -62,10 +63,10 @@ export interface DigestSummary {
 export interface CoreIntelligencePrimaryOverview {
   digestSummary: CoreIntelligenceSectionResult<DigestSummary>
   onThisDay: CoreIntelligenceSectionResult<OnThisDayEntry[]>
-  topSites: CoreIntelligenceSectionResult<TopSite[]>
-  refindPages: CoreIntelligenceSectionResult<RefindPage[]>
+  topSites: CoreIntelligenceSectionResult<Page<TopSite>>
+  refindPages: CoreIntelligenceSectionResult<Page<RefindPage>>
   searchEngineRanking: CoreIntelligenceSectionResult<EngineRanking[]>
-  topSearchConcepts: CoreIntelligenceSectionResult<SearchConcept[]>
+  topSearchConcepts: CoreIntelligenceSectionResult<Page<SearchConcept>>
   queryFamilies: CoreIntelligenceSectionResult<QueryFamilyResult>
   activityMix: CoreIntelligenceSectionResult<ActivityMix>
   discoveryTrendDay: CoreIntelligenceSectionResult<DiscoveryTrend>
@@ -77,16 +78,18 @@ export interface CoreIntelligencePrimaryOverview {
 
 /** Deferred `/intelligence` payload for below-the-fold sections. */
 export interface CoreIntelligenceSecondaryOverview {
-  stableSources: CoreIntelligenceSectionResult<StableSource[]>
+  stableSources: CoreIntelligenceSectionResult<Page<StableSource>>
   searchEffectiveness: CoreIntelligenceSectionResult<SearchEffectiveness>
-  frictionSignals: CoreIntelligenceSectionResult<FrictionSignal[]>
-  reopenedInvestigations: CoreIntelligenceSectionResult<ReopenedInvestigation[]>
+  frictionSignals: CoreIntelligenceSectionResult<Page<FrictionSignal>>
+  reopenedInvestigations: CoreIntelligenceSectionResult<
+    Page<ReopenedInvestigation>
+  >
   discoveryTrendWeek: CoreIntelligenceSectionResult<DiscoveryTrend>
   breadthIndex: CoreIntelligenceSectionResult<BreadthIndex>
-  pathFlows: CoreIntelligenceSectionResult<PathFlow[]>
+  pathFlows: CoreIntelligenceSectionResult<Page<PathFlow>>
   compareSets: CoreIntelligenceSectionResult<CompareSet[]>
   multiBrowserDiff: CoreIntelligenceSectionResult<BrowserDiff>
-  observedInteractions: CoreIntelligenceSectionResult<ObservedInteraction[]>
+  observedInteractions: CoreIntelligenceSectionResult<Page<ObservedInteraction>>
   timings: CoreIntelligenceSectionTiming[]
   totalDurationMs: number
 }
@@ -104,9 +107,9 @@ export interface DayInsightsHourlyBucket {
 export interface DayInsights {
   date: string
   digestSummary: DigestSummary
-  topSites: TopSite[]
+  topSites: Page<TopSite>
   activityMix: ActivityMix
-  refindPages: RefindPage[]
+  refindPages: Page<RefindPage>
   queryFamilies: QueryFamilyResult
   hourlyActivity: DayInsightsHourlyBucket[]
   drilldown: DayInsightsDrilldown
@@ -122,6 +125,8 @@ export interface OnThisDayEntry {
   date: string
   totalVisits: number
   topDomains: string[]
+  /** More of that day's sites, through the top-sites read for that date. */
+  topDomainsNextCursor: string | null
   /** Human-readable summary, e.g. "在研究 Tauri v2 文檔" */
   summary?: string | null
   /** Deep dive sessions on that day */
@@ -206,7 +211,7 @@ export interface SearchQueryRow {
 export interface SearchQueryListResult {
   rows: SearchQueryRow[]
   total: number
-  page: number
+  nextCursor: string | null
   pageSize: number
 }
 
@@ -255,13 +260,13 @@ export interface QueryFamily {
 export interface QueryFamilyResult {
   families: QueryFamily[]
   total: number
-  page: number
+  nextCursor: string | null
   pageSize: number
 }
 
 export interface QueryFamilyDetail {
   family: QueryFamily
-  relatedTrails: TrailSummary[]
+  relatedTrails: Page<TrailSummary>
 }
 
 // ---------------------------------------------------------------------------
@@ -292,13 +297,16 @@ export interface RefindExplanation {
   refindScore: number
   factors: RefindScoreFactor[]
   visitIds: number[]
+  /** The profile this explanation was scored in. */
+  profileId: string
+  visitIdsNextCursor: string | null
 }
 
 export interface RefindPageDetail {
   page: RefindPage
   explanation: RefindExplanation
   recentDays: string[]
-  relatedTrails: TrailSummary[]
+  relatedTrails: Page<TrailSummary>
 }
 
 export interface RefindScoreFactor {

@@ -34,7 +34,6 @@ export const securityClient = {
   executeRekey: (request: RekeyRequest) =>
     call<AppSnapshot>('rekey_archive', { request }),
   getKeyringStatus: () => call<KeyringStatusReport>('keyring_status'),
-  getDatabaseKey: () => call<string | null>('keyring_get_database_key'),
   storeDatabaseKey: (value: string) =>
     call<KeyringStatusReport>('keyring_store_database_key', { value }),
   clearDatabaseKey: () =>

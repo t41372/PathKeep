@@ -826,6 +826,7 @@ dependencies = [
 name = "browser-history-parser"
 version = "0.1.0"
 dependencies = [
+ "browser-history-fixtures",
  "chrono",
  "hex",
  "rusqlite",
@@ -5615,6 +5616,7 @@ dependencies = [
  "axum",
  "browser-history-fixtures",
  "chrono",
+ "futures-core",
  "log",
  "rusqlite",
  "serde",
@@ -9642,6 +9644,7 @@ dependencies = [
  "plist",
  "publicsuffix",
  "regex",
+ "regex-syntax",
  "reqwest 0.12.28",
  "rig-core",
  "rusqlite",
@@ -9656,11 +9659,14 @@ dependencies = [
  "tokenizers",
  "tokio",
  "ureq",
+ "vault-crypto",
  "vault-metal-backend",
+ "vault-search",
  "vault-store",
  "walkdir",
  "wasmtime",
  "wasmtime-wasi",
+ "zeroize",
  "zip 2.4.2",
 ]
 
@@ -9735,6 +9741,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vault-search"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tantivy",
+ "tempfile",
+ "thiserror 2.0.18",
+ "vault-crypto",
+]
+
+[[package]]
 name = "vault-store"
 version = "0.1.0"
 dependencies = [
@@ -9742,6 +9763,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "turso",
+ "zeroize",
 ]
 
 [[package]]
@@ -9750,6 +9772,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "libc",
  "log",
  "rmcp",
  "rusqlite",
@@ -9758,9 +9781,11 @@ dependencies = [
  "tempfile",
  "tokio",
  "vault-core",
+ "vault-crypto",
  "vault-owner-ipc",
  "vault-platform",
  "vault-store",
+ "zeroize",
 ]
 
 [[package]]

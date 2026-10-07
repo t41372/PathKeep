@@ -1,3 +1,4 @@
+//! Failure modes: resumed streams duplicate members or change stable identifiers.
 //! Shared structural rebuild state machines for Core Intelligence.
 //!
 //! ## Responsibilities
@@ -28,10 +29,11 @@ use std::collections::HashMap;
 
 /// Tracks one in-progress browsing session while visits stream through the
 /// deterministic grouping rules.
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct SessionBuildState {
     pub(super) record: SessionRecord,
-    domain_counts: HashMap<String, usize>,
+    #[serde(skip)]
+    pub(super) domain_counts: HashMap<String, usize>,
     first_search_query: Option<String>,
     navigation_chain_depth: i64,
     new_domain_count: i64,
@@ -92,7 +94,7 @@ impl SessionBuildState {
 
 /// Tracks one in-progress search trail while streamed visits continue to land
 /// inside the same session-local search journey.
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct TrailBuildState {
     pub(super) record: TrailRecord,
     next_ordinal: i64,

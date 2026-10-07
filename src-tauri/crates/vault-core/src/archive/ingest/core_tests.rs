@@ -1,3 +1,5 @@
+//! Failure modes: missing URL parents, duplicate counters, incorrect raw cursors,
+//! missing checkpoint provenance and interrupted batches. Tests exercise real Store jobs.
 //! Core ingest orchestration regression tests.
 //!
 //! ## Responsibilities
@@ -16,23 +18,23 @@
 //! - Tests use tiny temp archives and do not generate large history corpora.
 
 use super::*;
-use browser_history_parser::{
-    CapabilitySnapshot, ContextEvidence, DatabaseInspection, EngagementEvidence, NativeEntity,
-    NavigationEvidence, ParsedFavicon, ParsedSearchTerm, ParsedUrl, ParsedVisit, ParserWarning,
-    SchemaObservation, SearchEvidence, StreamedHistory, TypedEvidenceBatch,
+use super::{
+    selection::{favicon_marker, url_marker},
+    writes::{track_url_visit_bounds, upsert_source_profile},
 };
+use crate::test_support::store::Probe;
+use browser_history_parser::{
+    CapabilitySnapshot, ContextEvidence, EngagementEvidence, NativeEntity, NavigationEvidence,
+    ParsedFavicon, ParsedSearchTerm, ParsedUrl, ParsedVisit, SchemaObservation, SearchEvidence,
+    TypedEvidenceBatch,
+};
+use browser_history_parser::{HistoryBatchConsumer, ParsedDownload};
 use rusqlite::Connection;
+use std::collections::HashMap;
 use tempfile::tempdir;
+use vault_store::{Db, Priority, Session};
 
-fn test_config() -> AppConfig {
-    AppConfig { initialized: true, ..AppConfig::default() }
-}
-
-fn test_paths(root: &Path) -> ProjectPaths {
-    crate::config::project_paths_with_root(root)
-}
-
-fn profile(family: &str, profile_id: &str) -> crate::models::BrowserProfile {
+pub(super) fn profile(family: &str, profile_id: &str) -> crate::models::BrowserProfile {
     crate::models::BrowserProfile {
         profile_id: profile_id.to_string(),
         profile_name: "Default".to_string(),
@@ -143,7 +145,7 @@ fn snapshot_with_history(
     }
 }
 
-fn seed_run(archive: &Transaction<'_>, run_id: i64) {
+fn seed_run(archive: &Session<'_>, run_id: i64) {
     archive
             .execute(
                 "INSERT INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
@@ -155,23 +157,21 @@ fn seed_run(archive: &Transaction<'_>, run_id: i64) {
 
 #[test]
 fn chunk_consumer_persists_batches_and_reports_duplicate_progress() {
-    let dir = tempdir().expect("tempdir");
-    let paths = test_paths(dir.path());
-    let config = test_config();
-    let mut archive = open_archive_connection(&paths, &config, None).expect("archive");
+    let vault = crate::Vault::open_temp().unwrap();
+    let archive = Probe::new(&vault);
     let profile = profile("chromium", "chrome:Default");
-    let transaction = archive.transaction().expect("transaction");
-    seed_run(&transaction, 42);
-    let source_profile_id = upsert_source_profile(&transaction, &profile).expect("source profile");
+    let (context, source_batch) = seed_context(&vault, 42, &profile);
+    let cancel = CancelToken::new();
     let mut progress_events = Vec::new();
 
     {
         let mut consumer = ArchiveChunkConsumer::new(
-            &transaction,
-            42,
-            source_profile_id,
-            &profile,
+            &vault,
+            context,
+            Watermark::default(),
+            &cancel,
             Some(Box::new(|progress| progress_events.push(progress))),
+            source_batch,
         );
         consumer.urls(vec![parsed_url(1, 2_000)]).expect("urls");
         consumer
@@ -186,12 +186,14 @@ fn chunk_consumer_persists_batches_and_reports_duplicate_progress() {
         consumer
             .search_terms(vec![
                 ParsedSearchTerm {
+                    url_last_visit_time: 0,
                     keyword_id: 1,
                     url_id: 404,
                     term: "ignored".to_string(),
                     normalized_term: "ignored".to_string(),
                 },
                 ParsedSearchTerm {
+                    url_last_visit_time: 0,
                     keyword_id: 2,
                     url_id: 1,
                     term: "deep recall".to_string(),
@@ -218,26 +220,25 @@ fn chunk_consumer_persists_batches_and_reports_duplicate_progress() {
     assert_eq!(progress_events[0].duplicate_records, 1);
     assert_eq!(progress_events[0].skipped_records, 1);
 
-    transaction.commit().expect("commit");
     let url_bounds: (i64, i64) = archive
         .query_row(
             "SELECT first_visit_ms, last_visit_ms FROM urls WHERE source_url_id = 1",
-            [],
+            (),
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("url bounds");
     assert_eq!(url_bounds, (1_000, 2_000));
     let visit_count: i64 = archive
-        .query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM visits", (), |row| Ok(row.get(0)?))
         .expect("visit count");
     let download_count: i64 = archive
-        .query_row("SELECT COUNT(*) FROM downloads", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM downloads", (), |row| Ok(row.get(0)?))
         .expect("download count");
     let search_count: i64 = archive
-        .query_row("SELECT COUNT(*) FROM search_terms", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM search_terms", (), |row| Ok(row.get(0)?))
         .expect("search count");
     let favicon_count: i64 = archive
-        .query_row("SELECT COUNT(*) FROM favicons", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM favicons", (), |row| Ok(row.get(0)?))
         .expect("favicon count");
     assert_eq!(visit_count, 2);
     assert_eq!(download_count, 1);
@@ -251,23 +252,21 @@ fn chunk_consumer_persists_batches_and_reports_duplicate_progress() {
 /// arrives before its source URL has populated `url_id_map`.
 #[test]
 fn chunk_consumer_skips_visits_when_url_batch_has_not_populated_the_map() {
-    let dir = tempdir().expect("tempdir");
-    let paths = test_paths(dir.path());
-    let config = test_config();
-    let mut archive = open_archive_connection(&paths, &config, None).expect("archive");
+    let vault = crate::Vault::open_temp().unwrap();
+    let archive = Probe::new(&vault);
     let profile = profile("chromium", "chrome:VisitBeforeUrl");
-    let transaction = archive.transaction().expect("transaction");
-    seed_run(&transaction, 43);
-    let source_profile_id = upsert_source_profile(&transaction, &profile).expect("source profile");
+    let (context, source_batch) = seed_context(&vault, 43, &profile);
+    let cancel = CancelToken::new();
     let mut progress_events = Vec::new();
 
     {
         let mut consumer = ArchiveChunkConsumer::new(
-            &transaction,
-            43,
-            source_profile_id,
-            &profile,
+            &vault,
+            context,
+            Watermark::default(),
+            &cancel,
             Some(Box::new(|progress| progress_events.push(progress))),
+            source_batch,
         );
         consumer.visits(vec![parsed_visit(1, 99, 1_000)]).expect("visits");
         let progress = consumer.finish().expect("finish");
@@ -284,8 +283,8 @@ fn chunk_consumer_skips_visits_when_url_batch_has_not_populated_the_map() {
     assert_eq!(progress_events[0].imported_records, 0);
     assert_eq!(progress_events[0].duplicate_records, 0);
     assert_eq!(progress_events[0].skipped_records, 1);
-    let visit_count: i64 = transaction
-        .query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0))
+    let visit_count: i64 = archive
+        .query_row("SELECT COUNT(*) FROM visits", (), |row| Ok(row.get(0)?))
         .expect("visit count");
     assert_eq!(visit_count, 0);
 }
@@ -344,8 +343,8 @@ fn skipped_profile_and_marker_helpers_cover_family_edges() {
     }));
 
     let firefox = profile("firefox", "firefox:Default");
-    assert_eq!(url_last_visit_marker(&firefox, &parsed_url(7, 123)), 123);
-    assert_eq!(favicon_last_updated_marker(&firefox, &parsed_favicon(456)), 456);
+    assert_eq!(url_marker(&firefox.browser_family, &parsed_url(7, 123)), 123);
+    assert_eq!(favicon_marker(&firefox.browser_family, &parsed_favicon(456)), 456);
 
     // Chromium watermark precision: when the parser exposes the raw
     // chrome_micros value via `source_last_visit_marker`, the marker MUST
@@ -357,7 +356,7 @@ fn skipped_profile_and_marker_helpers_cover_family_edges() {
     let mut precise = parsed_url(11, 1_355_526_400_500); // ms-precision parsed value
     let raw_chrome_micros = 13_000_000_000_500_123_i64; // arbitrary sub-ms chrome_time
     precise.source_last_visit_marker = Some(raw_chrome_micros);
-    assert_eq!(url_last_visit_marker(&chromium, &precise), raw_chrome_micros);
+    assert_eq!(url_marker(&chromium.browser_family, &precise), raw_chrome_micros);
 
     // Legacy chromium path (no native marker exposed): falls back to the
     // truncating round-trip so existing serialised ParsedUrl payloads keep
@@ -365,7 +364,7 @@ fn skipped_profile_and_marker_helpers_cover_family_edges() {
     // the conversion easy to read.
     let mut legacy = parsed_url(13, 1_500);
     legacy.source_last_visit_marker = None;
-    let recovered = url_last_visit_marker(&chromium, &legacy);
+    let recovered = url_marker(&chromium.browser_family, &legacy);
     // `unix_micros_to_chrome_time(1_500 * 1_000) = 1_500_000 + OFFSET`.
     let expected_legacy = 1_500_i64 * 1_000 + 11_644_473_600_000_000_i64;
     assert_eq!(recovered, expected_legacy);
@@ -395,201 +394,206 @@ fn ingest_stream_helpers_cover_favicon_toggle_and_parse_error_mapping() {
 
 #[test]
 fn streamed_profile_summary_records_checkpoint_and_evidence_plan() {
-    let dir = tempdir().expect("tempdir");
-    let paths = test_paths(dir.path());
-    let config = test_config();
-    let mut archive = open_archive_connection(&paths, &config, None).expect("archive");
-    let snapshot =
-        snapshot_with_history(tempdir().expect("snapshot"), profile("chromium", "chrome:Default"));
-    let transaction = archive.transaction().expect("transaction");
-    seed_run(&transaction, 42);
-    let source_profile_id =
-        upsert_source_profile(&transaction, &snapshot.profile).expect("source profile");
-    let watermark = Watermark {
-        last_visit_id: 1,
-        last_url_last_visit_time: 10,
-        last_download_id: 1,
-        last_favicon_last_updated: 10,
-        last_checkpoint_at: Some("2020-01-01T00:00:00+00:00".to_string()),
-        last_schema_hash: Some("same-schema".to_string()),
-        updated_at: "2020-01-01T00:00:00+00:00".to_string(),
-        ..Watermark::default()
+    let vault = crate::Vault::open_temp().unwrap();
+    let (context, _) = seed_context(&vault, 42, &profile("chromium", "chrome:Default"));
+    let dir = tempdir().unwrap();
+    let history = dir.path().join("History");
+    use browser_history_fixtures::{
+        ChromiumHistoryFixture, ChromiumKeywordSearchTermRow, ChromiumUrlRow, ChromiumVisitRow,
     };
-    let mut snapshot_artifacts = Vec::new();
-    let mut source_evidence_plans = Vec::new();
-    let streamed = StreamedHistory {
-        inspection: DatabaseInspection { table_names: vec!["urls".to_string()], warnings: vec![] },
-        schema_observation: SchemaObservation::default(),
-        capability_snapshot: CapabilitySnapshot::default(),
-        typed_evidence: TypedEvidenceBatch {
-            search: vec![SearchEvidence {
-                source_visit_id: Some(2),
-                source_url_id: Some(1),
-                evidence_key: "query".to_string(),
-                evidence_value: "pathkeep".to_string(),
-                normalized_value: Some("pathkeep".to_string()),
-                source_field: "keyword_search_terms.term".to_string(),
-            }],
-            ..TypedEvidenceBatch::default()
-        },
-        native_entities: vec![NativeEntity {
-            entity_kind: "visit".to_string(),
-            native_primary_key: "2".to_string(),
-            parent_native_primary_key: None,
-            payload_json: "{}".to_string(),
-            metadata: BTreeMap::new(),
+    let favicons = dir.path().join("Favicons");
+    let fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 7,
+            url: "https://checkpoint.test".into(),
+            title: Some("checkpoint".into()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: 1_800_000_000_003,
+            hidden: false,
+        })
+        .add_visit(ChromiumVisitRow {
+            id: 11,
+            url_id: 7,
+            visit_time_unix_ms: 1_800_000_000_003,
+            from_visit: None,
+            transition: Some(1),
+            visit_duration_micros: None,
+            is_known_to_sync: false,
+            visited_link_id: None,
+            external_referrer_url: None,
+            app_id: None,
+        })
+        .add_search_term(ChromiumKeywordSearchTermRow {
+            keyword_id: 1,
+            url_id: 7,
+            term: "checkpoint term".into(),
+            normalized_term: "checkpoint term".into(),
+        })
+        .add_download(browser_history_fixtures::ChromiumDownloadRow {
+            id: 21,
+            guid: Some("download-21".into()),
+            current_path: None,
+            target_path: Some("/tmp/file".into()),
+            start_time_unix_ms: Some(1_800_000_000_004),
+            received_bytes: Some(1),
+            total_bytes: Some(1),
+            state: Some(1),
+            mime_type: None,
+            original_mime_type: None,
+        })
+        .add_favicon(browser_history_fixtures::ChromiumFaviconRow {
+            id: 31,
+            icon_url: "https://checkpoint.test/favicon.ico".into(),
+            icon_type: Some(1),
+            width: 16,
+            height: 16,
+            last_updated_unix_ms: 1_800_000_000_005,
+            image_data: Some(vec![1, 2, 3]),
+        })
+        .add_icon_mapping(browser_history_fixtures::ChromiumIconMappingRow {
+            page_url: "https://checkpoint.test".into(),
+            icon_id: 31,
+        });
+    fixture.write(&history).unwrap();
+    fixture.write_favicons(&favicons).unwrap();
+    let snapshot = ProfileSnapshot {
+        profile: profile("chromium", "chrome:Default"),
+        temp_dir: dir,
+        history_path: history,
+        favicons_path: Some(favicons),
+        source_hashes: vec![FileFingerprint {
+            path: "History".into(),
+            sha256: "hash-history".into(),
         }],
-        warnings: vec![ParserWarning {
-            code: "partial".to_string(),
-            message: "partial source".to_string(),
-        }],
     };
-    let progress = ArchiveStreamProgress {
-        new_urls: 1,
-        new_visits: 2,
-        new_downloads: 1,
-        inserted_search_terms: 1,
-        url_count: 1,
-        visit_count: 2,
-        download_count: 1,
-        search_term_count: 1,
-        last_visit_id: 2,
-        last_url_marker: Some(20),
-        last_download_id: Some(3),
-        last_favicon_marker: Some(30),
-        ..ArchiveStreamProgress::default()
-    };
-
-    let summary = process_streamed_profile_snapshot(
-        &transaction,
-        42,
-        &paths,
-        &config,
+    let summary = process_profile_snapshot(
+        &vault,
+        context.run_id,
         &snapshot,
-        source_profile_id,
-        "same-schema",
-        &watermark,
-        &mut snapshot_artifacts,
-        &mut source_evidence_plans,
         true,
-        streamed,
-        progress,
+        true,
+        &CancelToken::new(),
+        None,
     )
-    .expect("streamed summary");
-
+    .unwrap();
     assert!(summary.checkpoint_created);
-    assert_eq!(summary.new_urls, 1);
-    assert!(summary.notes.iter().any(|note| note.contains("partial source")));
-    assert!(summary.notes.iter().any(|note| note.contains("search term rows")));
-    assert_eq!(snapshot_artifacts.len(), 1);
-    let artifact_json = serde_json::to_value(&snapshot_artifacts[0]).expect("artifact json");
-    assert_eq!(artifact_json["reason"], "periodic-checkpoint");
-    assert_eq!(source_evidence_plans.len(), 1);
-    assert!(
-        source_evidence_plans[0]
-            .source_batch
-            .artifact_refs_json
-            .as_deref()
-            .is_some_and(|json| json.contains("hash-history"))
+    let saved = vault.store().read(Db::Archive, |s| load_watermark(s, "chrome:Default")).unwrap();
+    assert_eq!(saved.last_visit_id, 11);
+    assert_eq!(saved.last_download_id, 21);
+    assert_eq!(
+        saved.last_favicon_last_updated,
+        crate::utils::unix_micros_to_chrome_time(1_800_000_000_005_000)
     );
-
-    let saved = load_watermark(&transaction, "chrome:Default").expect("watermark");
-    assert_eq!(saved.last_visit_id, 2);
-    assert_eq!(saved.last_download_id, 3);
-    assert_eq!(saved.last_url_last_visit_time, 20);
-    assert_eq!(saved.last_favicon_last_updated, 30);
+    assert_eq!(
+        saved.last_url_last_visit_time,
+        crate::utils::unix_micros_to_chrome_time(1_800_000_000_003_000)
+    );
+    assert!(saved.last_schema_hash.is_some());
+    assert_eq!(summary.new_visits, 1);
+    assert!(
+        summary
+            .note_details
+            .iter()
+            .any(|warning| warning.code == "profile-search-terms-captured"
+                && warning.count == Some(1))
+    );
+    assert!(saved.last_checkpoint_at.is_some());
+    assert!(saved.last_source_batch_id.is_some());
+    let path: String = Probe::new(&vault)
+        .query_row("SELECT file_path FROM snapshots", (), |r| Ok(r.get(0)?))
+        .unwrap();
+    assert!(Path::new(&path).join("History").exists());
+    let evidence = Probe::for_db(&vault, Db::SourceEvidence);
+    let artifacts: String = evidence
+        .query_row(
+            "SELECT artifact_refs_json FROM source_batches ORDER BY id DESC LIMIT 1",
+            (),
+            |r| Ok(r.get(0)?),
+        )
+        .unwrap();
+    assert!(artifacts.contains("hash-history"));
 }
 
 #[test]
 fn ingest_low_level_helpers_cover_empty_product_and_unsupported_family_edges() {
-    let dir = tempdir().expect("tempdir");
-    let paths = test_paths(dir.path());
-    let config = test_config();
-    let mut archive = open_archive_connection(&paths, &config, None).expect("archive");
-    let transaction = archive.transaction().expect("transaction");
-    seed_run(&transaction, 12);
-
-    let mut empty_product = profile("chromium", "chrome:Default");
-    empty_product.browser_name = " ".to_string();
-    let source_profile_id =
-        upsert_source_profile(&transaction, &empty_product).expect("source profile");
-    let product = transaction
+    let vault = crate::Vault::open_temp().unwrap();
+    let mut profile = profile("chromium", "chrome:Default");
+    profile.browser_name = " ".into();
+    let (context, _) = seed_context(&vault, 12, &profile);
+    let product: String = Probe::new(&vault)
         .query_row(
-            "SELECT browser_product FROM source_profiles WHERE id = ?1",
-            [source_profile_id],
-            |row| row.get::<_, String>(0),
+            "SELECT browser_product FROM source_profiles WHERE id=?1",
+            [context.source_profile_id],
+            |r| Ok(r.get(0)?),
         )
-        .expect("browser product");
+        .unwrap();
     assert_eq!(product, "chrome");
-
     let mut bounds = HashMap::new();
-    track_url_visit_bounds(&mut bounds, 1, &parsed_visit(1, 1, 3_000));
-    track_url_visit_bounds(&mut bounds, 1, &parsed_visit(2, 1, 1_000));
-    let bounds = bounds.get(&1).expect("bounds");
-    assert_eq!(bounds.first_visit_ms, 1_000);
-    assert_eq!(bounds.last_visit_ms, 3_000);
+    track_url_visit_bounds(&mut bounds, 1, &parsed_visit(1, 1, 3000));
+    track_url_visit_bounds(&mut bounds, 1, &parsed_visit(2, 1, 1000));
+    assert_eq!((bounds[&1].first_visit_ms, bounds[&1].last_visit_ms), (1000, 3000));
+    profile.browser_family = "opera".into();
+    let snapshot = snapshot_with_history(tempdir().unwrap(), profile);
+    assert!(
+        process_profile_snapshot(&vault, 12, &snapshot, false, false, &CancelToken::new(), None)
+            .unwrap_err()
+            .to_string()
+            .contains("not supported")
+    );
+}
 
-    let temp_snapshot_dir = tempdir().expect("snapshot tempdir");
-    let unsupported_snapshot =
-        snapshot_with_history(temp_snapshot_dir, profile("opera", "opera:Default"));
-    let mut snapshot_artifacts = Vec::new();
-    let mut source_evidence_plans = Vec::new();
-    let error = process_profile_snapshot(
-        &transaction,
-        12,
-        &paths,
-        &config,
-        &unsupported_snapshot,
-        &mut snapshot_artifacts,
-        &mut source_evidence_plans,
-        false,
-        false,
+pub(super) fn seed_context(
+    vault: &crate::Vault,
+    run: i64,
+    profile: &crate::models::BrowserProfile,
+) -> (WriteContext, i64) {
+    let owned = profile.clone();
+    let id = vault
+        .write(Db::Archive, Priority::Batch, move |s| {
+            seed_run(s, run);
+            Ok(upsert_source_profile(s, &owned)?)
+        })
+        .unwrap();
+    let input = SourceBatchInput {
+        source_profile_id: id,
+        run_id: Some(run),
+        source_kind: "local_db".into(),
+        browser_version: None,
+        schema_version_text: None,
+        schema_version_int: None,
+        schema_fingerprint: "test".into(),
+        capability_snapshot: CapabilitySnapshot::default(),
+        coverage_stats_json: "{}".into(),
+        artifact_refs_json: None,
+        notes_json: None,
+    };
+    let batch = vault
+        .write(Db::SourceEvidence, Priority::Batch, move |s| upsert_source_batch(s, &input))
+        .unwrap();
+    (
+        WriteContext {
+            run_id: run,
+            source_profile_id: id,
+            profile_id: profile.profile_id.clone(),
+            browser_family: profile.browser_family.clone(),
+            import: None,
+        },
+        batch,
     )
-    .expect_err("unsupported browser family");
-    assert!(error.to_string().contains("not supported"));
 }
 
 #[test]
-fn persist_source_evidence_plans_commits_payload_and_updates_watermark() {
-    let dir = tempdir().expect("tempdir");
-    let paths = test_paths(dir.path());
-    let config = test_config();
-    let mut archive = open_archive_connection(&paths, &config, None).expect("archive");
-    let profile = profile("chromium", "chrome:Default");
-    let source_profile_id = {
-        let transaction = archive.transaction().expect("transaction");
-        seed_run(&transaction, 77);
-        let source_profile_id =
-            upsert_source_profile(&transaction, &profile).expect("source profile");
-        save_watermark(
-            &transaction,
-            &profile.profile_id,
-            &Watermark { updated_at: now_rfc3339(), ..Watermark::default() },
-        )
-        .expect("seed watermark");
-        transaction.commit().expect("commit");
-        source_profile_id
-    };
-    let mut source_evidence =
-        open_source_evidence_connection(&paths, &config, None).expect("source evidence");
-    let plans = vec![SourceEvidencePlan {
-        profile_id: profile.profile_id.clone(),
-        source_profile_id,
-        source_batch: SourceBatchInput {
-            source_profile_id,
-            run_id: Some(77),
-            source_kind: "local_db".to_string(),
-            browser_version: profile.browser_version.clone(),
-            schema_version_text: Some("schema-text".to_string()),
-            schema_version_int: Some(1),
-            schema_fingerprint: "schema-hash".to_string(),
-            capability_snapshot: CapabilitySnapshot::default(),
-            coverage_stats_json: "{}".to_string(),
-            artifact_refs_json: Some("{} ".trim().to_string()),
-            notes_json: Some("[]".to_string()),
-        },
-        schema_observation: SchemaObservation::default(),
-        source_evidence_payload: DeferredSourceEvidencePayload::InMemory(SourceEvidencePayload {
+fn source_evidence_commits_before_the_matching_watermark() {
+    for key in [None, Some([78; 32])] {
+        let vault = crate::Vault::open_temp_with_key(key).unwrap();
+        let (context, batch) = seed_context(&vault, 77, &profile("chromium", "chrome:Default"));
+        vault
+            .write(Db::SourceEvidence, Priority::Batch, move |s| {
+                record_schema_observation(s, batch, "test", &SchemaObservation::default())
+            })
+            .unwrap();
+        let payload = SourceEvidencePayload {
             typed_evidence: TypedEvidenceBatch {
                 search: vec![SearchEvidence {
                     source_visit_id: Some(1),
@@ -629,31 +633,37 @@ fn persist_source_evidence_plans_commits_payload_and_updates_watermark() {
                 payload_json: "{}".to_string(),
                 metadata: BTreeMap::new(),
             }],
-        }),
-    }];
-
-    persist_source_evidence_plans(&mut source_evidence, &archive, &plans).expect("persist plans");
-
-    for table in [
-        "source_batches",
-        "schema_observations",
-        "visit_search_evidence",
-        "visit_navigation_evidence",
-        "visit_engagement_evidence",
-        "visit_context_evidence",
-        "native_entities",
-    ] {
-        let count: i64 = source_evidence
-            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
-            .expect("count source evidence table");
-        assert_eq!(count, 1, "{table}");
+        };
+        let cancel = CancelToken::new();
+        let mut consumer =
+            ArchiveChunkConsumer::new(&vault, context, Watermark::default(), &cancel, None, batch);
+        consumer.urls(vec![parsed_url(1, 1000)]).unwrap();
+        consumer.visits(vec![parsed_visit(1, 1, 1000)]).unwrap();
+        consumer
+            .source_evidence(browser_history_parser::SourceEvidenceChunk {
+                typed_evidence: payload.typed_evidence,
+                native_entities: payload.native_entities,
+            })
+            .unwrap();
+        consumer.finish().unwrap();
+        let evidence = Probe::for_db(&vault, Db::SourceEvidence);
+        for table in [
+            "source_batches",
+            "schema_observations",
+            "visit_search_evidence",
+            "visit_navigation_evidence",
+            "visit_engagement_evidence",
+            "visit_context_evidence",
+            "native_entities",
+        ] {
+            let count: i64 = evidence
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), (), |r| Ok(r.get(0)?))
+                .unwrap();
+            assert_eq!(count, 1, "{table}");
+        }
+        let saved =
+            vault.store().read(Db::Archive, |s| load_watermark(s, "chrome:Default")).unwrap();
+        assert_eq!(saved.last_source_batch_id, Some(batch));
+        assert_eq!(saved.last_visit_id, 1);
     }
-    let last_source_batch_id: Option<i64> = archive
-        .query_row(
-            "SELECT last_source_batch_id FROM profile_watermarks WHERE profile_id = ?1",
-            [&profile.profile_id],
-            |row| row.get(0),
-        )
-        .expect("updated watermark");
-    assert!(last_source_batch_id.is_some());
 }

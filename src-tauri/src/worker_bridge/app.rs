@@ -22,9 +22,11 @@ pub(crate) fn app_build_info_impl() -> vault_core::AppBuildInfo {
 
 /// Loads the current worker-composed desktop snapshot.
 pub(crate) fn app_snapshot_impl(
-    session_database_key: Option<&str>,
+    state: &SessionState,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    worker_result(vault_worker::app_snapshot(session_database_key))
+    let key = state.get_key()?;
+    let vault = state.current_vault();
+    worker_result(vault_worker::app_snapshot_with_vault(vault.as_ref(), key.as_deref()))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -41,8 +43,10 @@ pub(crate) fn wipe_all_data_impl(
     confirmation: &str,
     state: &SessionState,
 ) -> Result<vault_core::WipeReport, CommandError> {
-    let key = state.get_key();
-    let report = worker_result(vault_worker::wipe_all_data(confirmation, key.as_deref()))?;
+    let key = state.get_key()?;
+    let report = worker_result(vault_worker::wipe_all_data(confirmation, key.as_deref(), || {
+        state.close_vault().map_err(anyhow::Error::msg)
+    }))?;
     update_session_key(state, None)?;
     Ok(report)
 }
@@ -56,13 +60,15 @@ pub(crate) fn wipe_all_data_impl(
 pub(crate) fn save_config_with_base_impl(
     config: AppConfig,
     base_config: Option<AppConfig>,
-    session_database_key: Option<&str>,
+    state: &SessionState,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    worker_result(vault_worker::save_user_config_with_base(
+    worker_result(vault_worker::save_user_config_with_vault(
+        state.current_vault().as_ref(),
         &config,
         base_config.as_ref(),
-        session_database_key,
-    ))
+        state.get_key()?.as_deref(),
+    ))?;
+    app_snapshot_impl(state)
 }
 
 /// Caches a session-only database key in the in-process Tauri state.
@@ -102,7 +108,8 @@ pub(crate) fn clear_app_lock_passcode_impl() -> Result<vault_core::AppLockStatus
 pub(crate) fn lock_app_session_impl(
     reason: Option<String>,
 ) -> Result<vault_core::AppLockStatus, CommandError> {
-    worker_result(vault_worker::lock_app_ui_session(reason.as_deref()))
+    let status = worker_result(vault_worker::lock_app_ui_session(reason.as_deref()))?;
+    Ok(status)
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -110,5 +117,6 @@ pub(crate) fn lock_app_session_impl(
 pub(crate) fn unlock_app_session_impl(
     request: UnlockAppSessionRequest,
 ) -> Result<vault_core::AppLockStatus, CommandError> {
-    worker_result(vault_worker::unlock_app_ui_session(&request))
+    let status = worker_result(vault_worker::unlock_app_ui_session(&request))?;
+    Ok(status)
 }

@@ -142,6 +142,8 @@ pub struct ImportBatchOverview {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportBatchDetail {
+    #[serde(default)]
+    pub preview_next_cursor: Option<String>,
     pub batch: ImportBatchOverview,
     pub preview_entries: Vec<TakeoutPreviewEntry>,
     pub recognized_files: Vec<TakeoutFileReport>,

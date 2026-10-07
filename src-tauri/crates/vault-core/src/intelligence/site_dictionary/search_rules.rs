@@ -1,3 +1,4 @@
+//! Failure modes: edits vanish, disabled rules classify visits, or reads bootstrap storage.
 //! Search-engine rule persistence and merged built-in rule ownership.
 //!
 //! ## Responsibilities
@@ -27,31 +28,13 @@ use crate::{
     models::{SearchEngineRule, SearchEngineRuleInput},
     utils::now_rfc3339,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::Utc;
-use rusqlite::{Connection, params};
 use std::collections::HashMap;
+use vault_store::{Session, params_owned as params};
 
 /// Schema for user-defined search rules. Built-ins are intentionally not
 /// persisted so app upgrades can ship corrected defaults without migrations.
-const SEARCH_ENGINE_RULES_SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS search_engine_rules (
-  rule_id           TEXT PRIMARY KEY,
-  engine_id         TEXT NOT NULL,
-  display_name      TEXT NOT NULL,
-  host_pattern      TEXT NOT NULL,
-  path_prefix       TEXT,
-  query_param_key   TEXT NOT NULL,
-  enabled           INTEGER NOT NULL DEFAULT 1,
-  note              TEXT,
-  example_url       TEXT,
-  created_at        TEXT NOT NULL,
-  updated_at        TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_search_engine_rules_host
-  ON search_engine_rules(host_pattern, enabled);
-"#;
-
 /// Compact checked-in definition for one built-in search engine rule.
 #[derive(Debug, Clone, Copy)]
 struct BuiltinSearchEngineRule {
@@ -215,15 +198,9 @@ const BUILTIN_SEARCH_ENGINE_RULES: &[BuiltinSearchEngineRule] = &[
 
 /// Ensures the custom-rule table exists before Settings or rebuild consumers
 /// request the merged rule set.
-pub(crate) fn ensure_search_engine_rule_schema(connection: &Connection) -> Result<()> {
-    connection
-        .execute_batch(SEARCH_ENGINE_RULES_SCHEMA_SQL)
-        .context("ensuring search engine rule schema")
-}
-
 /// Returns the Settings-facing merged rule list with built-ins and custom
 /// entries sorted predictably for review.
-pub(crate) fn list_search_engine_rules(connection: &Connection) -> Result<Vec<SearchEngineRule>> {
+pub(crate) fn list_search_engine_rules(connection: &Session<'_>) -> Result<Vec<SearchEngineRule>> {
     let mut rules = builtin_search_engine_rules();
     rules.extend(load_custom_search_engine_rules(connection)?);
     rules.sort_by(|left, right| {
@@ -239,10 +216,9 @@ pub(crate) fn list_search_engine_rules(connection: &Connection) -> Result<Vec<Se
 /// Inserts or replaces one custom search rule, normalizing host and query-param
 /// keys before returning the refreshed merged list.
 pub(crate) fn upsert_search_engine_rule(
-    connection: &Connection,
+    connection: &Session<'_>,
     input: &SearchEngineRuleInput,
 ) -> Result<Vec<SearchEngineRule>> {
-    ensure_search_engine_rule_schema(connection)?;
     let now = now_rfc3339();
     let rule_id = input
         .rule_id
@@ -293,10 +269,9 @@ pub(crate) fn upsert_search_engine_rule(
 /// Deletes one custom rule and returns the refreshed Settings list. Built-ins
 /// are not persisted, so deleting a built-in id is a harmless no-op.
 pub(crate) fn delete_search_engine_rule(
-    connection: &Connection,
+    connection: &Session<'_>,
     rule_id: &str,
 ) -> Result<Vec<SearchEngineRule>> {
-    ensure_search_engine_rule_schema(connection)?;
     connection.execute("DELETE FROM search_engine_rules WHERE rule_id = ?1", [rule_id])?;
     list_search_engine_rules(connection)
 }
@@ -304,7 +279,7 @@ pub(crate) fn delete_search_engine_rule(
 /// Builds a display-name map from the current merged rule set for aggregate
 /// read models that only store engine ids.
 pub(crate) fn load_search_engine_display_names(
-    connection: &Connection,
+    connection: &Session<'_>,
 ) -> Result<HashMap<String, String>> {
     let rules = list_search_engine_rules(connection)?;
     Ok(rules.into_iter().map(|rule| (rule.engine_id, rule.display_name)).collect::<HashMap<_, _>>())
@@ -322,7 +297,7 @@ pub(crate) fn display_name_for_search_engine_with_map(
 /// Loads only enabled rules for hot-path visit classification, with custom
 /// rules first so user edits can override built-in matching.
 pub(crate) fn load_enabled_search_engine_rules(
-    connection: &Connection,
+    connection: &Session<'_>,
 ) -> Result<Vec<SearchEngineRuleConfig>> {
     let mut rules = load_custom_search_engine_rules(connection)?
         .into_iter()
@@ -334,8 +309,9 @@ pub(crate) fn load_enabled_search_engine_rules(
 
 /// Reads custom search rules from SQLite in newest-first order so Settings
 /// edits remain easy to inspect before final sorting.
-fn load_custom_search_engine_rules(connection: &Connection) -> Result<Vec<SearchEngineRuleConfig>> {
-    ensure_search_engine_rule_schema(connection)?;
+fn load_custom_search_engine_rules(
+    connection: &Session<'_>,
+) -> Result<Vec<SearchEngineRuleConfig>> {
     let mut statement = connection.prepare(
         "SELECT rule_id,
                 engine_id,
@@ -350,7 +326,7 @@ fn load_custom_search_engine_rules(connection: &Connection) -> Result<Vec<Search
          ORDER BY updated_at DESC, rule_id DESC",
     )?;
     statement
-        .query_map([], |row| {
+        .query_map((), |row| {
             Ok(SearchEngineRuleConfig {
                 rule_id: row.get(0)?,
                 engine_id: row.get(1)?,
@@ -358,13 +334,13 @@ fn load_custom_search_engine_rules(connection: &Connection) -> Result<Vec<Search
                 host_pattern: row.get(3)?,
                 path_prefix: row.get(4)?,
                 query_param_key: row.get(5)?,
-                enabled: row.get::<_, i64>(6)? != 0,
+                enabled: row.get::<i64>(6)? != 0,
                 note: row.get(7)?,
                 example_url: row.get(8)?,
                 built_in: false,
             })
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<vault_store::Result<Vec<_>>>()
         .map_err(Into::into)
 }
 

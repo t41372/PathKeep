@@ -1,3 +1,5 @@
+//! Failure modes: reads write schemas, a query escapes its owner, stale scopes leak,
+//! or bounded results lose continuation. Native render-path and paging tests cover these.
 //! Shared Core Intelligence utility helpers.
 //!
 //! ## Responsibilities
@@ -28,8 +30,8 @@ use crate::models::DateRange;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Utc};
 use reqwest::Url;
-use rusqlite::{Connection, params};
 use std::collections::HashSet;
+use vault_store::{Session, params_owned as params};
 
 /// Returns the local calendar day key used by deterministic daily rollups.
 pub(super) fn local_date_key(visit_time_ms: i64) -> String {
@@ -142,20 +144,20 @@ pub(super) fn previous_date_range(range: &DateRange) -> Result<DateRange> {
 /// Counts refind pages that overlap the supplied local date range without
 /// materializing page payloads.
 pub(super) fn count_refind_pages_in_range(
-    connection: &Connection,
+    connection: &Session<'_>,
     range: &DateRange,
     profile_id: Option<&str>,
 ) -> Result<i64> {
     let (start_ms, end_ms) = date_range_bounds(range)?;
     connection
-        .query_row(
+        .query_one(
             "SELECT COUNT(*)
              FROM refind_pages
              WHERE (?1 IS NULL OR profile_id = ?1)
                AND last_seen_ms >= ?2
                AND first_seen_ms < ?3",
             params![profile_id, start_ms, end_ms],
-            |row| row.get(0),
+            |row| Ok(row.get(0)?),
         )
         .map_err(Into::into)
 }

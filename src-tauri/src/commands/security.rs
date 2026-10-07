@@ -1,4 +1,7 @@
-//! Tauri commands for keyring and security-status surfaces.
+//! Responsibilities: expose security status, key presence and backend-only unlocking.
+//! Not responsible for: key storage, envelope cryptography or archive queries.
+//! Failure modes: key bytes cross IPC or blocking keychain/Store work stalls the UI.
+//! Tests: dev_ipc_bridge::dispatch::tests.
 //!
 //! Every command here touches the OS keyring or the security read model (disk + keyring), all of
 //! which is blocking I/O that can stall — on some platforms a keyring access even prompts the user.
@@ -30,24 +33,22 @@ pub(crate) async fn keyring_status() -> Result<vault_core::KeyringStatusReport, 
 pub(crate) async fn security_status(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::SecurityStatus, CommandError> {
-    let key = state.get_key();
-    run_blocking_command("security_status", move || {
-        worker_bridge::security_status_impl(key.as_deref())
-    })
-    .await
+    let key_state = state.inner().clone();
+    run_blocking_command("security_status", move || worker_bridge::security_status_impl(&key_state))
+        .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Reads the archive database key from the native keyring, off the UI thread.
-pub(crate) async fn keyring_get_database_key() -> Result<Option<String>, CommandError> {
+/// Reports whether a data key is stored; the value never enters the WebView.
+pub(crate) async fn keyring_get_database_key() -> Result<bool, CommandError> {
     run_blocking_command("keyring_get_database_key", worker_bridge::keyring_get_database_key_impl)
         .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Stores the archive database key in the native keyring, off the UI thread.
+/// Uses the supplied archive password to remember the envelope data key.
 pub(crate) async fn keyring_store_database_key(
     value: String,
 ) -> Result<vault_core::KeyringStatusReport, CommandError> {
@@ -75,4 +76,16 @@ pub(crate) async fn keyring_clear_database_key()
 pub(crate) async fn reset_local_secret_vault() -> Result<(), CommandError> {
     run_blocking_command("reset_local_secret_vault", worker_bridge::reset_local_secret_vault_impl)
         .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) async fn unlock_archive_from_keychain(
+    state: State<'_, SessionState>,
+) -> Result<(), CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("unlock_archive_from_keychain", move || {
+        worker_bridge::unlock_archive_from_keychain_impl(&state)
+    })
+    .await
 }

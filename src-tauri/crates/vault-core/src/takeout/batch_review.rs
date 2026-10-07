@@ -1,133 +1,137 @@
-//! Takeout batch review read models and audit-artifact repair helpers.
-//!
-//! ## Responsibilities
-//! - Load recent import-batch overviews and detailed preview rows.
-//! - Recreate missing audit artifacts for already-persisted batches.
-//! - Rebuild review metadata from stored batch summary JSON.
-//!
-//! ## Not responsible for
-//! - Running the main import transaction.
-//! - Reverting/restoring visit visibility.
-//! - Parsing Takeout payloads or writing source-evidence rows.
-//!
-//! ## Dependencies
-//! - Canonical archive helpers from `crate::archive`.
-//! - Audit-repo helpers from `crate::git_audit`.
-//! - Batch mutation helpers from `super::batches`.
-//!
-//! ## Performance notes
-//! - All preview queries are bounded and capped by `PREVIEW_LIMIT`.
-//! - Audit-artifact repair only reopens the archive when the stored pointer is
-//!   actually missing, so normal batch reads stay cheap.
+//! Responsibilities: read bounded batch previews and repair their audit artifacts.
+//! Not responsible for: parsing or changing canonical visit visibility.
+//! Failure modes: hidden visits in previews, missing batch provenance or audit files.
+//! Tests: takeout::tests and batch_review_tests in plaintext and encrypted stores.
+//! Failure modes: fixed caps hide old imports or tied preview rows; active imports vanish.
 
 use super::*;
 
-/// Loads recent import batches, newest first.
-pub fn load_import_batches(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<Vec<ImportBatchOverview>> {
-    if !config.initialized || !paths.archive_database_path.exists() {
-        return Ok(Vec::new());
-    }
-
-    import_batches_from(&open_archive_connection(paths, config, key)?)
+/// A complete keyset page of imports, unfinished operations first.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportBatchPage {
+    pub items: Vec<ImportBatchOverview>,
+    pub next_cursor: Option<String>,
 }
 
-/// Reads the 16 newest import batches from an open archive.
-///
-/// No `create_schema` here: `open_archive_connection` already bootstraps the schema once per
-/// process, and running it again took a `BEGIN IMMEDIATE` write lock on every app snapshot, which
-/// waited out the 5 s busy timeout and failed the snapshot whenever a backup was writing.
-pub(crate) fn import_batches_from(connection: &Connection) -> Result<Vec<ImportBatchOverview>> {
-    const LOAD_IMPORT_BATCHES_SQL: &str = "SELECT id, source_kind, source_path, profile_id, created_at, imported_at, reverted_at, status, summary_json, audit_path, git_commit, (SELECT COUNT(*) FROM visits WHERE import_batch_id = import_batches.id AND reverted_at IS NULL) AS visible_items FROM import_batches ORDER BY id DESC LIMIT 16";
-    let mut statement = connection.prepare(LOAD_IMPORT_BATCHES_SQL)?;
-    let rows = statement.query_map([], |row: &Row<'_>| {
-        let summary_json: String = row.get(8)?;
-        let visible_items: i64 = row.get(11)?;
-        Ok(import_batch_overview_from_summary(ImportBatchOverviewRow {
-            id: row.get(0)?,
-            source_kind: row.get(1)?,
-            source_path: row.get(2)?,
-            profile_id: row.get(3)?,
-            created_at: row.get(4)?,
-            imported_at: row.get(5)?,
-            reverted_at: row.get(6)?,
-            status: row.get(7)?,
-            summary_json,
-            visible_items: visible_items.max(0) as usize,
-            audit_path: row.get(9)?,
-            git_commit: row.get(10)?,
-        }))
-    })?;
-
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+pub fn load_import_batches(
+    vault: &crate::Vault,
+    cursor: Option<String>,
+    limit: usize,
+) -> Result<ImportBatchPage> {
+    vault.read(vault_store::Db::Archive,move |s| {
+        let (active,id)=match cursor.as_deref() {
+            None=>(2,i64::MAX),
+            Some(raw)=>{let (active,id)=raw.split_once('|').context("invalid-cursor: import batch")?;(active.parse::<i64>()?,id.parse::<i64>()?)},
+        };
+        let limit=limit.max(1);
+        let sql="SELECT id,source_kind,source_path,profile_id,created_at,imported_at,reverted_at,status,summary_json,audit_path,git_commit,visible_items FROM import_batches WHERE (CASE WHEN status IN ('reverting','restoring','interrupted') THEN 1 ELSE 0 END,id)<(?1,?2) ORDER BY CASE WHEN status IN ('reverting','restoring','interrupted') THEN 1 ELSE 0 END DESC,id DESC LIMIT ?3";
+        let mut items=s.query(sql,vault_store::params![active,id,limit as i64+1],|r| {
+            Ok(import_batch_overview_from_summary(ImportBatchOverviewRow {
+                id:r.get(0)?,source_kind:r.get(1)?,source_path:r.get(2)?,profile_id:r.get(3)?,created_at:r.get(4)?,imported_at:r.get(5)?,reverted_at:r.get(6)?,status:r.get(7)?,summary_json:r.get(8)?,audit_path:r.get(9)?,git_commit:r.get(10)?,visible_items:r.get::<i64>(11)? as usize,
+            }))
+        })?;
+        let more=items.len()>limit;items.truncate(limit);
+        let next_cursor=more.then(||items.last().map(|b|format!("{}|{}",i64::from(matches!(b.status.as_str(),"reverting"|"restoring"|"interrupted")),b.id))).flatten();
+        Ok(ImportBatchPage{items,next_cursor})
+    })
 }
 
 /// Loads one import batch detail and recreates its audit artifact if it is missing.
-pub fn preview_import_batch(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+pub fn preview_import_batch(vault: &crate::Vault, batch_id: i64) -> Result<ImportBatchDetail> {
+    preview_import_batch_page(vault, batch_id, None, PREVIEW_LIMIT)
+}
+
+/// Makes every visible visit in an import reachable from its review panel.
+pub fn preview_import_batch_page(
+    vault: &crate::Vault,
     batch_id: i64,
+    cursor: Option<String>,
+    limit: usize,
 ) -> Result<ImportBatchDetail> {
-    let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
-    let detail = load_import_batch_detail(&connection, batch_id)?;
-    let audit_missing = detail
-        .batch
-        .audit_path
-        .as_deref()
-        .is_none_or(|path| path.trim().is_empty() || !Path::new(path).exists());
-    if !audit_missing {
+    let read_cursor = cursor.clone();
+    let detail = vault.read(vault_store::Db::Archive, move |s| {
+        load_import_batch_detail_page(s, batch_id, read_cursor.as_deref(), limit)
+    })?;
+    if matches!(detail.batch.status.as_str(), "running" | "reverting" | "restoring")
+        || detail.batch.audit_path.as_deref().is_some_and(|p| Path::new(p).exists())
+    {
         return Ok(detail);
     }
-
-    drop(connection);
-    super::batches::ensure_import_batch_audit_artifact(paths, config, key, batch_id, None)?;
-
-    let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
-    load_import_batch_detail(&connection, batch_id)
+    super::batches::ensure_import_batch_audit_artifact(vault, batch_id, None)?;
+    vault.read(vault_store::Db::Archive, move |s| {
+        load_import_batch_detail_page(s, batch_id, cursor.as_deref(), limit)
+    })
 }
 
 /// Loads the full review detail for one import batch.
 pub(super) fn load_import_batch_detail(
-    connection: &Connection,
+    connection: &vault_store::Session<'_>,
     batch_id: i64,
 ) -> Result<ImportBatchDetail> {
+    load_import_batch_detail_page(connection, batch_id, None, PREVIEW_LIMIT)
+}
+
+fn load_import_batch_detail_page(
+    connection: &vault_store::Session<'_>,
+    batch_id: i64,
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<ImportBatchDetail> {
+    let (time, id) = match cursor {
+        None => (i64::MAX, i64::MAX),
+        Some(raw) => {
+            let (time, id) = raw.split_once('|').context("invalid-cursor: batch visits")?;
+            (time.parse::<i64>()?, id.parse::<i64>()?)
+        }
+    };
+    let limit = limit.clamp(1, 1000);
     let batch = load_import_batch_record(connection, batch_id)?
         .with_context(|| format!("import batch {batch_id} was not found"))?;
 
-    const PREVIEW_IMPORT_BATCH_SQL: &str = r#"
-        SELECT urls.url, urls.title, visits.visit_time_iso, visits.source_visit_id
-        FROM visits
-        JOIN urls ON urls.id = visits.url_id
-        WHERE visits.import_batch_id = ?1
-          AND visits.reverted_at IS NULL
-        ORDER BY visits.visit_time_ms DESC, visits.id DESC
-        LIMIT ?2
-    "#;
-    let mut statement = connection.prepare(PREVIEW_IMPORT_BATCH_SQL)?;
-    let rows = statement.query_map(params![batch_id, PREVIEW_LIMIT as i64], |row: &Row<'_>| {
-        Ok(TakeoutPreviewEntry {
-            source_path: batch.overview.source_path.clone(),
-            url: row.get(0)?,
-            title: row.get(1)?,
-            visited_at: row.get(2)?,
-            source_visit_id: row
-                .get::<_, Option<String>>(3)?
-                .and_then(|value| value.parse::<i64>().ok())
-                .unwrap_or_default(),
-            status: "imported".to_string(),
-        })
-    })?;
-    let preview_entries = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    let map = |row: &vault_store::Row| -> vault_store::Result<_> {
+        Ok((
+            TakeoutPreviewEntry {
+                source_path: batch.overview.source_path.clone(),
+                url: row.get(0)?,
+                title: row.get(1)?,
+                visited_at: row.get(2)?,
+                source_visit_id: row
+                    .get::<Option<String>>(3)?
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_default(),
+                status: "imported".into(),
+            },
+            row.get::<i64>(4)?,
+            row.get::<i64>(5)?,
+        ))
+    };
+    let mut rows = if cursor.is_some() {
+        connection.query(
+            &batch_visits_sql(true, true),
+            vault_store::params![batch_id, time, id, limit as i64 + 1],
+            map,
+        )?
+    } else {
+        Vec::new()
+    };
+    if rows.len() <= limit {
+        rows.extend(connection.query(
+            &batch_visits_sql(false, cursor.is_some()),
+            vault_store::params![batch_id, time, id, (limit + 1 - rows.len()) as i64],
+            map,
+        )?);
+    }
 
+    let more = rows.len() > limit;
+    rows.truncate(limit);
+    let preview_next_cursor =
+        more.then(|| rows.last().map(|(_, time, id)| format!("{time}|{id}"))).flatten();
+    let preview_entries = rows.into_iter().map(|(entry, _, _)| entry).collect();
     Ok(ImportBatchDetail {
         batch: batch.overview,
         preview_entries,
+        preview_next_cursor,
         recognized_files: batch.recognized_files,
         quarantined_files: batch.quarantined_files,
         notes: batch.notes,
@@ -138,13 +142,27 @@ pub(super) fn load_import_batch_detail(
     })
 }
 
+fn batch_visits_sql(ties: bool, after: bool) -> String {
+    let bounds = if ties {
+        "visits.visit_time_ms=?2 AND visits.id<?3"
+    } else if after {
+        "visits.visit_time_ms<?2"
+    } else {
+        "visits.visit_time_ms<=?2"
+    };
+    format!("SELECT urls.url,urls.title,visits.visit_time_iso,visits.source_visit_id,visits.visit_time_ms,visits.id
+        FROM visits INDEXED BY idx_visits_visible_batch_time_id CROSS JOIN urls ON urls.id=visits.url_id
+        WHERE visits.import_batch_id IS NOT NULL AND visits.import_batch_id=?1 AND visits.reverted_at IS NULL AND {bounds}
+        ORDER BY visits.visit_time_ms DESC,visits.id DESC LIMIT ?4")
+}
+
 /// Loads the persisted batch row and reconstructs its review metadata.
 pub(super) fn load_import_batch_record(
-    connection: &Connection,
+    connection: &vault_store::Session<'_>,
     batch_id: i64,
 ) -> Result<Option<ImportBatchRecord>> {
     let row = connection
-        .query_row(
+        .query(
             "SELECT
                 id,
                 source_kind,
@@ -157,28 +175,28 @@ pub(super) fn load_import_batch_record(
                 summary_json,
                 audit_path,
                 git_commit,
-                (SELECT COUNT(*) FROM visits WHERE import_batch_id = import_batches.id AND reverted_at IS NULL) AS visible_items
+                visible_items
              FROM import_batches
              WHERE id = ?1",
             [batch_id],
-            |row: &Row<'_>| {
+            |row| {
                 Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, String>(7)?,
-                    row.get::<_, String>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, Option<String>>(10)?,
-                    row.get::<_, i64>(11)?,
+                    row.get::<i64>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<String>(2)?,
+                    row.get::<String>(3)?,
+                    row.get::<String>(4)?,
+                    row.get::<Option<String>>(5)?,
+                    row.get::<Option<String>>(6)?,
+                    row.get::<String>(7)?,
+                    row.get::<String>(8)?,
+                    row.get::<Option<String>>(9)?,
+                    row.get::<Option<String>>(10)?,
+                    row.get::<i64>(11)?,
                 ))
             },
-        )
-        .optional()?;
+        )?
+        .pop();
 
     let Some((
         id,
@@ -272,3 +290,7 @@ fn import_batch_overview_from_summary(row: ImportBatchOverviewRow) -> ImportBatc
 fn summary_count(summary: &Value, key: &str) -> usize {
     summary.get(key).and_then(Value::as_u64).unwrap_or(0) as usize
 }
+
+#[cfg(test)]
+#[path = "batch_review_tests.rs"]
+mod tests;

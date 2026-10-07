@@ -1,4 +1,6 @@
-//! SQLite `ai_embeddings` compatibility-row helpers + embed-batch shape validation.
+//! Native embedding metadata and embed-batch validation.
+//! Failure modes: metadata totals drift on replacement or rollback, cleanup monopolizes a writer,
+//! stale rows remain indexed, or a returned vector batch loses its input alignment.
 //!
 //! ## Responsibilities
 //! - upsert / count / clear / stale-prune the lightweight `ai_embeddings` provenance rows that the
@@ -12,6 +14,7 @@
 
 use super::super::*;
 use super::IndexedVisit;
+use vault_store::{Session, params_owned as params};
 
 /// Validates one embedded batch against its CONTENT KEYS and pairs each vector with its key (W-AI-4c).
 ///
@@ -74,45 +77,53 @@ pub(in crate::ai) fn chunk_size(remaining: Option<usize>) -> usize {
     }
 }
 
-/// Deletes SQLite compatibility rows whose canonical history ids are no longer visible.
-pub(in crate::ai) fn cleanup_stale_embeddings(
-    connection: &Connection,
+/// Clears or prunes metadata with one bounded writer job at a time.
+fn remove_metadata(
+    vault: &crate::Vault,
     provider: &AiProviderRuntime,
+    all: bool,
+    control: Option<&Arc<dyn AiRunControl>>,
 ) -> Result<usize> {
-    #[rustfmt::skip]
-    let removed = connection.execute(
-        DELETE_STALE_EMBEDDINGS_SQL,
-        params![provider.config.id, provider.config.default_model],
-    )?;
+    let mut after = 0;
+    let mut removed = 0;
+    let upper = vault.read(vault_store::Db::Intelligence, |s| {
+        Ok(s.query_one("SELECT COALESCE(MAX(id),0) FROM ai_embeddings", (), |r| {
+            Ok(r.get::<i64>(0)?)
+        })?)
+    })?;
+    loop {
+        checkpoint_ai_run(control, "Index cleanup was cancelled between batches.")?;
+        let provider = provider.clone();
+        let (last,count)=vault.write(vault_store::Db::Intelligence,vault_store::Priority::Batch,move |s| {
+            let rows=s.query("SELECT id,content_bytes,metadata_bytes,CASE WHEN ?5=1 THEN 1 ELSE NOT EXISTS(SELECT 1 FROM archive.visits WHERE id=ai_embeddings.history_id AND reverted_at IS NULL LIMIT 1 OFFSET 0) END FROM ai_embeddings INDEXED BY idx_ai_embeddings_provider_id WHERE provider_id=?1 AND model=?2 AND id>?3 AND id<=?4 ORDER BY id LIMIT 512",params![provider.config.id,provider.config.default_model,after,upper,i64::from(all)],|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?,r.get::<i64>(3)?!=0)))?;
+            let last=rows.last().map(|r|r.0);let mut count=0;let mut content=0;let mut metadata=0;
+            let mut delete=s.prepare("DELETE FROM ai_embeddings WHERE id=?1")?;
+            for (id,bytes,meta,remove) in rows {if remove {delete.execute([id])?;count+=1;content+=bytes;metadata+=meta;}}
+            drop(delete);
+            if count>0 {s.execute("UPDATE ai_embedding_totals SET last_indexed_at=CASE WHEN item_count-?3=0 THEN NULL ELSE last_indexed_at END,item_count=item_count-?3,content_bytes=content_bytes-?4,metadata_bytes=metadata_bytes-?5 WHERE provider_id=?1 AND model=?2",params![provider.config.id,provider.config.default_model,count,content,metadata])?;}
+            Ok((last,count as usize))
+        })?;
+        removed += count;
+        let Some(last) = last else {
+            break;
+        };
+        after = last;
+    }
     Ok(removed)
 }
-
-/// Counts the current number of SQLite compatibility rows for one provider/model pair.
-pub(in crate::ai) fn provider_embedding_count(
-    connection: &Connection,
-    provider_id: &str,
-    model: &str,
-) -> Result<i64> {
-    #[rustfmt::skip]
-    let count = connection.query_row(
-        "SELECT COUNT(*) FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2",
-        params![provider_id, model],
-        |row: &Row<'_>| row.get::<_, i64>(0),
-    )?;
-    Ok(count)
-}
-
-/// Clears all SQLite compatibility rows for one provider/model pair.
 pub(in crate::ai) fn clear_provider_embeddings(
-    connection: &Connection,
+    vault: &crate::Vault,
     provider: &AiProviderRuntime,
-) -> Result<()> {
-    #[rustfmt::skip]
-    connection.execute(
-        CLEAR_PROVIDER_EMBEDDINGS_SQL,
-        params![provider.config.id, provider.config.default_model],
-    )?;
-    Ok(())
+    control: Option<&Arc<dyn AiRunControl>>,
+) -> Result<usize> {
+    remove_metadata(vault, provider, true, control)
+}
+pub(in crate::ai) fn cleanup_stale_embeddings(
+    vault: &crate::Vault,
+    provider: &AiProviderRuntime,
+    control: Option<&Arc<dyn AiRunControl>>,
+) -> Result<usize> {
+    remove_metadata(vault, provider, false, control)
 }
 
 /// Upserts one SQLite compatibility row after a semantic embedding was produced.
@@ -120,19 +131,27 @@ pub(in crate::ai) fn clear_provider_embeddings(
 /// Returns whether a metadata row for this `(history_id, provider, model)` already existed BEFORE
 /// the write, so the backfill can count re-embeds (changed content) separately from first-time
 /// embeds. The row keeps the lightweight provenance the read models report; the vector itself
-/// lives only on the `derived/vectors/` plane, never in SQLite (02 §A).
+/// lives only on the `derived/vectors/` plane, never in Turso (02 §A).
 pub(in crate::ai) fn upsert_embedding(
-    connection: &Connection,
+    connection: &Session<'_>,
     provider: &AiProviderRuntime,
     visit: &IndexedVisit,
     indexed_at: &str,
 ) -> Result<bool> {
-    let prior_rows: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM ai_embeddings
+    let (prior_rows,prior_content,prior_metadata): (i64,i64,i64) = connection.query_one(
+        "SELECT COUNT(*),COALESCE(SUM(content_bytes),0),COALESCE(SUM(metadata_bytes),0) FROM ai_embeddings
          WHERE history_id = ?1 AND provider_id = ?2 AND model = ?3",
         params![visit.history_id, provider.config.id, provider.config.default_model],
-        |row: &Row<'_>| row.get(0),
+        |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
     )?;
+    let metadata_bytes = (visit.url.len()
+        + visit.title.as_ref().map_or(0, String::len)
+        + visit.domain.len()
+        + visit.visited_at.len()
+        + visit.content_hash.len()
+        + provider.config.id.len()
+        + provider.config.default_model.len()
+        + 8) as i64;
     let existed = prior_rows > 0;
     // Clear any prior row for this (history_id, provider, model) so a content-hash change does not
     // leave a duplicate UNIQUE(history_id, provider, model, content_hash) row behind.
@@ -155,8 +174,90 @@ pub(in crate::ai) fn upsert_embedding(
             visit.content.len() as i64,
             provider.config.id,
             provider.config.default_model,
-            indexed_at
+            indexed_at,
+            metadata_bytes
         ],
     )?;
+    connection.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(provider_id,model) DO UPDATE SET item_count=item_count+excluded.item_count,content_bytes=content_bytes+excluded.content_bytes,metadata_bytes=metadata_bytes+excluded.metadata_bytes,last_indexed_at=excluded.last_indexed_at",params![provider.config.id,provider.config.default_model,1-prior_rows,visit.content.len() as i64-prior_content,metadata_bytes-prior_metadata,indexed_at])?;
     Ok(existed)
+}
+
+#[cfg(test)]
+mod native_tests {
+    use super::*;
+    use vault_store::{Db, Priority};
+    #[test]
+    fn native_embedding_totals_follow_replacement_and_rollback() {
+        for key in [None, Some([83; 32])] {
+            let vault = crate::Vault::open_temp_with_key(key).unwrap();
+            let provider = AiProviderRuntime {
+                config: AiProviderConfig {
+                    id: "fixture".into(),
+                    default_model: "model".into(),
+                    purpose: AiProviderPurpose::Embedding,
+                    ..Default::default()
+                },
+                api_key: None,
+            };
+            let visit = IndexedVisit {
+                history_id: 1,
+                profile_id: "profile".into(),
+                url: "https://example.com/資料".into(),
+                title: Some("書籤".into()),
+                domain: "example.com".into(),
+                visited_at: String::new(),
+                content: "first".into(),
+                content_hash: "hash".into(),
+                content_key: 1,
+                needs_embedding: true,
+            };
+            let p = provider.clone();
+            let first = visit.clone();
+            vault
+                .write(Db::Intelligence, Priority::Batch, move |s| {
+                    assert!(!upsert_embedding(s, &p, &first, "now")?);
+                    Ok(())
+                })
+                .unwrap();
+            let p = provider.clone();
+            let mut replacement = visit.clone();
+            replacement.content = "longer replacement".into();
+            let bytes = replacement.content.len() as u64;
+            vault
+                .write(Db::Intelligence, Priority::Batch, move |s| {
+                    assert!(upsert_embedding(s, &p, &replacement, "later")?);
+                    Ok(())
+                })
+                .unwrap();
+            let p = provider.clone();
+            let mut failed = visit.clone();
+            failed.history_id = 2;
+            let result: vault_store::Result<()> =
+                vault.store().write(Db::Intelligence, Priority::Batch, move |s| {
+                    upsert_embedding(s, &p, &failed, "failed").unwrap();
+                    Err(vault_store::Error::cancelled())
+                });
+            assert!(result.is_err());
+            vault
+                .read(Db::Intelligence, move |s| {
+                    assert_eq!(
+                        super::super::super::native_ledger::provider_embedding_count(
+                            s, "fixture", "model"
+                        )?,
+                        1
+                    );
+                    assert_eq!(
+                        super::super::super::native_ledger::ai_embedding_token_estimate(s)?,
+                        bytes.div_ceil(4)
+                    );
+                    let physical =
+                        s.query_one("SELECT SUM(content_bytes) FROM ai_embeddings", (), |r| {
+                            Ok(r.get::<i64>(0)?)
+                        })?;
+                    assert_eq!(physical as u64, bytes);
+                    Ok(())
+                })
+                .unwrap();
+        }
+    }
 }

@@ -148,6 +148,8 @@ pub(super) struct BrowserHistoryPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct BatchIdPayload {
     pub(super) batch_id: i64,
+    pub(super) cursor: Option<String>,
+    pub(super) limit: Option<usize>,
 }
 
 /// Lets dev automation ask for platform-specific schedule behavior while still
@@ -243,20 +245,6 @@ pub(super) struct ProfileIdPayload {
     pub(super) profile_id: Option<String>,
 }
 
-/// Selects a browsing session in the deterministic intelligence read model.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct SessionIdPayload {
-    pub(super) session_id: String,
-}
-
-/// Selects a search trail in the deterministic intelligence read model.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct TrailIdPayload {
-    pub(super) trail_id: String,
-}
-
 /// Selects a search-engine rule for deletion while preserving the rule registry
 /// as the only owner of rule semantics.
 #[derive(Deserialize)]
@@ -302,6 +290,7 @@ pub(super) struct ExportConversationFilePayload {
 pub(super) struct AnnotationSearchPayload {
     pub(super) query: String,
     pub(super) limit: Option<usize>,
+    pub(super) cursor: Option<String>,
 }
 
 /// Bridge envelope for the annotation-list command — mirrors the desktop
@@ -310,6 +299,7 @@ pub(super) struct AnnotationSearchPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct AnnotationLimitPayload {
     pub(super) limit: Option<usize>,
+    pub(super) cursor: Option<String>,
 }
 
 /// Bridge envelope for set_url_notes / replace_url_tags — both desktop
@@ -324,7 +314,7 @@ pub(super) type SetStarPayload = WrappedRequest<SetStarRequest>;
 pub(super) type StarStatusPayload = WrappedRequest<StarStatusRequest>;
 
 /// Bridge envelope for list_stars — the desktop command takes an optional kind
-/// filter, a sort, and an optional row cap as top-level fields.
+/// filter, sort, page size and cursor as top-level fields.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ListStarsPayload {
@@ -334,6 +324,7 @@ pub(super) struct ListStarsPayload {
     pub(super) sort: StarSort,
     #[serde(default)]
     pub(super) limit: Option<usize>,
+    pub cursor: Option<String>,
 }
 
 /// Bridge envelope for get_browse_day_insights — the desktop command
@@ -431,4 +422,20 @@ pub(super) struct ContentFetchWorkingSetPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct EnabledPayload {
     pub(super) enabled: bool,
+}
+
+/// Continues an audit-ledger page without an offset.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RunPagePayload {
+    pub(super) cursor: Option<i64>,
+    pub(super) limit: Option<usize>,
+}
+
+/// Continues an import-ledger page, including unfinished operations.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ImportBatchPagePayload {
+    pub(super) cursor: Option<String>,
+    pub(super) limit: Option<usize>,
 }

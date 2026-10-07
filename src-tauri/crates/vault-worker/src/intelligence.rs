@@ -1,3 +1,4 @@
+//! Failure modes: wrappers bypass the session Vault or queue workers outlive shutdown accounting.
 //! Intelligence, queue, and derived-state worker flows.
 //!
 //! ## Responsibilities
@@ -29,34 +30,33 @@ mod route_queries;
 mod runtime;
 mod section_queries;
 
-use crate::context::load_unlocked_config;
 use anyhow::Result;
 use chrono::Local;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use vault_core::{
-    ActivityMix, ActivityMixTrend, AppConfig, BreadthIndex, BrowserDiff,
-    CategoryFilteredDateRangeRequest, CompareSet, CompareSetDetail, CompareSetDetailRequest,
-    CoreIntelligencePrimaryOverview, CoreIntelligenceSecondaryOverview,
-    CoreIntelligenceSectionResult, CoreIntelligenceSectionWindow, DayInsights, DayInsightsRequest,
-    DigestSummary, DiscoveryTrend, DomainDeepDive, DomainDeepDiveRequest, DomainTrend,
-    DomainTrendRequest, EngineRanking, EntityExplanationRequest, Explanation, FrequentSearch,
-    FrequentSearchesRequest, FrictionSignal, GranularityDateRangeRequest, HabitPattern, HubPage,
-    IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest, IntelligenceLocalHostBuildResult,
-    IntelligenceLocalHostPreview, IntelligenceLocalHostRequest, IntelligencePublicSnapshot,
-    IntelligenceWidgetSnapshot, InterruptedHabit, NavigationPath, ObservedInteraction,
-    OnThisDayEntry, PagedDateRangeRequest, PathFlow, PathFlowRequest, ProfileScopedRequest,
-    QueryFamilyDetail, QueryFamilyDetailRequest, QueryFamilyResult, RefindExplanation, RefindPage,
-    RefindPageDetail, RefindPageDetailRequest, RefindPagesRequest, ReopenedInvestigation,
-    RhythmHeatmap, ScopedDateRangeRequest, SearchConcept, SearchEffectiveness,
-    SearchEffectivenessRequest, SearchEngineRule, SearchEngineRuleInput, SearchQueryListRequest,
-    SearchQueryListResult, SearchTrailQueryRequest, SessionDetail, SessionListResult, StableSource,
-    TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail, TrailListResult,
-    build_core_intelligence_section_meta, intelligence,
+    ActivityMix, ActivityMixTrend, BreadthIndex, BrowserDiff, CategoryFilteredDateRangeRequest,
+    CompareSet, CompareSetDetail, CompareSetDetailRequest, CoreIntelligencePrimaryOverview,
+    CoreIntelligenceSecondaryOverview, CoreIntelligenceSectionResult,
+    CoreIntelligenceSectionWindow, DayInsights, DayInsightsRequest, DigestSummary, DiscoveryTrend,
+    DomainDeepDive, DomainDeepDiveRequest, DomainTrend, DomainTrendRequest, EngineRanking,
+    EntityExplanationRequest, Explanation, FrequentSearch, FrequentSearchesRequest, FrictionSignal,
+    GranularityDateRangeRequest, HabitPattern, HubPage, IntelligenceEmbedCardPayload,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostBuildResult, IntelligenceLocalHostPreview,
+    IntelligenceLocalHostRequest, IntelligencePublicSnapshot, IntelligenceWidgetSnapshot,
+    InterruptedHabit, NavigationPath, ObservedInteraction, OnThisDayEntry, PagedDateRangeRequest,
+    PathFlow, PathFlowRequest, ProfileScopedRequest, QueryFamilyDetail, QueryFamilyDetailRequest,
+    QueryFamilyResult, RefindExplanation, RefindPage, RefindPageDetail, RefindPageDetailRequest,
+    RefindPagesRequest, ReopenedInvestigation, RhythmHeatmap, ScopedDateRangeRequest,
+    SearchConcept, SearchEffectiveness, SearchEffectivenessRequest, SearchEngineRule,
+    SearchEngineRuleInput, SearchQueryListRequest, SearchQueryListResult, SearchTrailQueryRequest,
+    SessionDetail, SessionListResult, StableSource, TopSearchConceptsRequest, TopSite,
+    TopSitesRequest, TrailDetail, TrailListResult, build_core_intelligence_section_meta,
+    intelligence,
 };
 
 pub use self::agent_store::{
-    delete_ai_conversation, list_ai_conversations, load_ai_conversation, rename_ai_conversation,
-    save_ai_conversation,
+    delete_ai_conversation, list_ai_conversations, list_ai_messages, load_ai_conversation,
+    rename_ai_conversation, save_ai_conversation,
 };
 pub(crate) use self::ai_queue::maybe_spawn_ai_queue_drain;
 pub use self::ai_queue::{
@@ -70,6 +70,7 @@ pub(crate) use self::ai_queue::{
     start_ai_job_control,
 };
 pub use self::chat::{ai_chat_cancel, ai_chat_send};
+pub(crate) use self::content_fetch::maybe_spawn_content_fetch_drain;
 pub use self::content_fetch::{
     content_fetch_now, content_fetch_settings, enqueue_content_fetch_working_set,
     list_visit_enrichment, set_content_fetch_settings,
@@ -122,41 +123,42 @@ pub(crate) fn running_background_workers() -> usize {
     .sum()
 }
 
-/// Opens the unlocked project context required by deterministic intelligence reads.
-///
-/// The worker uses this helper so every read-model wrapper resolves paths and config
-/// the same way, without each function reimplementing archive bootstrap logic.
+/// Keeps route wrappers independent of storage details.
 fn with_core_intelligence<R>(
-    _session_database_key: Option<&str>,
-    f: impl FnOnce(&vault_core::ProjectPaths, &AppConfig) -> Result<R>,
+    vault: &vault_core::Vault,
+    f: impl FnOnce(&vault_core::Vault) -> Result<R>,
 ) -> Result<R> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    f(&paths, &config)
+    f(vault)
 }
 
-/// Wraps one Core Intelligence section payload with the persisted runtime metadata.
-///
-/// The UI needs the section payload and its freshness/empty-state context together.
-/// Centralizing that composition here prevents every worker wrapper from drifting on
-/// `section_id`, window semantics, or what qualifies as an empty dataset.
+/// Reads section data and its runtime metadata through the same owner.
 fn with_core_intelligence_section<R>(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     section_id: &str,
     window: CoreIntelligenceSectionWindow,
-    fetch: impl FnOnce(&vault_core::ProjectPaths, &AppConfig) -> Result<R>,
+    fetch: impl FnOnce(&vault_core::Vault) -> Result<R>,
     is_empty: impl FnOnce(&R) -> bool,
 ) -> Result<CoreIntelligenceSectionResult<R>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        let data = fetch(paths, config)?;
-        let meta = build_core_intelligence_section_meta(
-            paths,
-            config,
-            session_database_key,
-            section_id,
-            window,
-            is_empty(&data),
-        )?;
-        Ok(CoreIntelligenceSectionResult { data, meta })
-    })
+    let data = fetch(vault)?;
+    let meta = build_core_intelligence_section_meta(vault, section_id, window, is_empty(&data))?;
+    Ok(CoreIntelligenceSectionResult { data, meta })
+}
+
+/// Continues AI history beyond the status preview without starting a worker.
+pub fn list_ai_jobs(
+    vault: &vault_core::Vault,
+    request: &vault_core::ListAiJobsRequest,
+) -> Result<vault_core::ai_queue::AiJobPage> {
+    vault_core::ai_queue::list_ai_jobs(vault, request.cursor, request.limit.unwrap_or(20) as usize)
+}
+/// Continues deterministic and enrichment job history on the same owner.
+pub fn list_intelligence_jobs(
+    vault: &vault_core::Vault,
+    request: &vault_core::ListIntelligenceJobsRequest,
+) -> Result<vault_core::IntelligenceJobPage> {
+    vault_core::list_intelligence_jobs(
+        vault,
+        request.cursor.clone(),
+        request.limit.unwrap_or(20) as usize,
+    )
 }

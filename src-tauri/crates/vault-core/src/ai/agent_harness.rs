@@ -294,16 +294,12 @@ pub fn build_agent_system_context(context: &AgentSystemContext) -> String {
 /// plus visible count) reuses the Dashboard "Span" read model (`load_dashboard_snapshot`), which is
 /// cached and bounded so it never scans the corpus even at 14.4M visits. A read failure degrades to
 /// an empty-archive context (the run still gets the date/time, never blocked on the span).
-pub fn resolve_agent_system_context(
-    paths: &crate::config::ProjectPaths,
-    config: &crate::models::AppConfig,
-    key: Option<&str>,
-) -> AgentSystemContext {
+pub fn resolve_agent_system_context(vault: &crate::Vault) -> AgentSystemContext {
     let now = chrono::Local::now();
     // Archive span via the cached Dashboard read model; degrade to empty on any read error so the
     // run is never blocked from getting at least the date/time context.
     let (archive_earliest, archive_latest, archive_visit_count) =
-        match crate::load_dashboard_snapshot(paths, config, key) {
+        match crate::load_dashboard_snapshot(vault) {
             Ok(snapshot) => (
                 snapshot.earliest_visit_at.as_deref().map(iso_date_only),
                 snapshot.latest_visit_at.as_deref().map(iso_date_only),
@@ -1533,12 +1529,14 @@ mod tests {
     }
 
     fn tool_context() -> (tempfile::TempDir, AgentToolContext) {
+        let vault = crate::Vault::open_temp().unwrap();
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
         let mut config = AppConfig::default();
         config.ai.enabled = true;
         config.ai.assistant_enabled = true;
         let context = AgentToolContext {
+            vault: vault.clone(),
             paths,
             config,
             database_key: None,
@@ -2790,6 +2788,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_host_call_budget_run_code_is_bounded_with_the_host_calls_limit() {
+        let vault = crate::Vault::open_temp().unwrap();
         // A script that loops issuing query_history past the host-call budget trips HostCalls (the
         // host refuses overflow calls), and the run completes bounded — driven through the tool path
         // over an initialized-but-empty archive (each call is fast + deterministic).
@@ -2804,6 +2803,7 @@ mod tests {
             crate::archive::open_archive_connection(&paths, &config, None).expect("open archive");
         crate::archive::create_schema(&archive).expect("schema");
         let context = AgentToolContext {
+            vault: vault.clone(),
             paths,
             config,
             database_key: None,
@@ -2988,12 +2988,8 @@ mod tests {
         // The resolver reads the HOST clock (a real, non-empty date/time/weekday/tz) and a bounded
         // archive read. Over an initialized-but-empty archive the span is None and the count 0, but
         // the date/time facts are always populated (the clock the sandbox lacks).
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(dir.path());
-        let config = AppConfig { initialized: true, ..AppConfig::default() };
-        crate::archive::ensure_archive_initialized(&paths, &config, None).expect("init archive");
-
-        let resolved = resolve_agent_system_context(&paths, &config, None);
+        let vault = crate::Vault::open_temp().unwrap();
+        let resolved = resolve_agent_system_context(&vault);
         // The host date is `YYYY-MM-DD` (10 chars) and a real weekday/timezone — never blank.
         assert_eq!(resolved.current_date.len(), 10, "got {}", resolved.current_date);
         assert!(resolved.current_date.starts_with("20"));
@@ -3013,24 +3009,10 @@ mod tests {
 
     #[test]
     fn resolve_agent_system_context_degrades_to_empty_span_on_read_error() {
-        // A read error (here: an initialized config whose archive file is corrupt, not a real DB)
-        // makes `load_dashboard_snapshot` fail. The resolver swallows it to the empty-archive span
-        // rather than blocking the date/time facts — the run still gets its clock context.
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(dir.path());
-        // The archive path must EXIST so `load_dashboard_snapshot` proceeds past its
-        // not-initialized early return into the live query, which then fails on the garbage file.
-        std::fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
-            .expect("create archive dir");
-        std::fs::write(&paths.archive_database_path, b"not a sqlite database")
-            .expect("write corrupt archive");
-        let config = AppConfig {
-            initialized: true,
-            archive_mode: crate::models::ArchiveMode::Plaintext,
-            ..AppConfig::default()
-        };
-
-        let resolved = resolve_agent_system_context(&paths, &config, None);
+        // A closed session cannot read; the host clock remains available.
+        let vault = crate::Vault::open_temp().unwrap();
+        vault.store().close().unwrap();
+        let resolved = resolve_agent_system_context(&vault);
         // The span degrades to empty (the read failed) but the date/time facts are still populated.
         assert_eq!(resolved.archive_visit_count, 0);
         assert_eq!(resolved.archive_earliest, None);

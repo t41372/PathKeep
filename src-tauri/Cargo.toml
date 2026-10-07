@@ -26,6 +26,7 @@ members = [
   "crates/vault-owner-ipc",
   "crates/vault-core",
   "crates/vault-crypto",
+  "crates/vault-search",
   "crates/vault-metal-backend",
   "crates/vault-platform",
   "crates/vault-worker",
@@ -109,6 +110,7 @@ bytes = "1.10.1"
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 
 [dependencies]
+futures-core.workspace = true
 anyhow.workspace = true
 axum = { version = "0.8.6", optional = true }
 chrono.workspace = true
@@ -132,6 +134,7 @@ vault-store = { path = "crates/vault-store" }
 vault-worker = { version = "0.1.0", path = "crates/vault-worker" }
 
 [dev-dependencies]
+vault-core = { path = "crates/vault-core", features = ["test-fixtures"] }
 browser-history-fixtures = { path = "crates/browser-history-fixtures" }
 rusqlite.workspace = true
 tauri = { version = "2.8.5", features = ["test"] }
@@ -163,6 +166,21 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.ctr]
+opt-level = 3
+
+# The storage engine runs every archive statement. Unoptimised, a debug build
+# executes the E2E fixture's first backup too slowly to finish, and the test
+# suites spend most of their time inside it.
+[profile.dev.package.turso_core]
+opt-level = 3
+
+[profile.dev.package.turso_parser]
+opt-level = 3
+
+[profile.dev.package.turso_sdk_kit]
+opt-level = 3
+
+[profile.dev.package.turso]
 opt-level = 3
 
 [profile.release]

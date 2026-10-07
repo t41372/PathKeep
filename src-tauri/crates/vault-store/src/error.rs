@@ -39,6 +39,9 @@ pub enum Error {
     Engine(#[source] turso::Error),
     #[error("storage I/O: {0}")]
     Io(#[from] std::io::Error),
+    /// A caller's validation or serialization failure also rolls back its job.
+    #[error("storage operation: {0}")]
+    Operation(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("invalid store configuration: {0}")]
     InvalidConfig(String),
     #[error("SQL is outside the storage contract: {0}")]

@@ -41,6 +41,8 @@ export const appClient = {
   setSessionDatabaseKey: (databaseKey: string) =>
     call<void>('set_session_database_key', { databaseKey }),
   clearSessionDatabaseKey: () => call<void>('clear_session_database_key'),
+  /** Opens the archive with the keychain's key; the key never reaches the WebView. */
+  unlockArchiveFromKeychain: () => call<void>('unlock_archive_from_keychain'),
   setAppLockPasscode: (request: SetAppLockPasscodeRequest) =>
     call<AppLockStatus>('set_app_lock_passcode', { request }),
   clearAppLockPasscode: () => call<AppLockStatus>('clear_app_lock_passcode'),

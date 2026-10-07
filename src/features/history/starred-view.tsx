@@ -6,12 +6,11 @@ import { Star } from 'lucide-react'
 import { useCallback, useMemo } from 'react'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
-import type { UrlAnnotation } from '@/lib/backend-client/annotations'
 import type { StarListItem } from '@/lib/backend-client/stars'
 import type { DetailTarget } from './history-types'
 import { PreviewThumb } from './link-preview'
 import { StateMessage } from './state-message'
-import { useAnnotationList, useLatestVisit, useStarList } from './queries'
+import { useLatestVisit, useStarList } from './queries'
 import { VirtualRows } from './virtual-rows'
 
 const ROW_HEIGHT = 62
@@ -20,12 +19,10 @@ const ROW_TAGS = 3
 
 function StarRow({
   item,
-  annotation,
   selected,
   onPick,
 }: {
   item: StarListItem
-  annotation: UrlAnnotation | undefined
   selected: boolean
   onPick: (item: StarListItem) => void
 }) {
@@ -46,8 +43,8 @@ function StarRow({
   const title = isSite ? item.domain : item.title.trim() || item.entityKey
   const detail = isSite
     ? t('common.visits', { count: item.visitCount })
-    : annotation?.notes.trim() || item.entityKey
-  const tags = isSite ? [] : (annotation?.tags ?? [])
+    : item.notes.trim() || item.entityKey
+  const tags = item.tags
 
   return (
     <button
@@ -106,11 +103,14 @@ export function StarredView({
 }) {
   const { t } = useI18n()
   const stars = useStarList()
-  const annotations = useAnnotationList()
-  const byUrl = useMemo(
-    () => new Map((annotations.data ?? []).map((entry) => [entry.url, entry])),
-    [annotations.data],
+  const rows = useMemo(
+    () => stars.data?.pages.flatMap((page) => page.items) ?? [],
+    [stars.data],
   )
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = stars
+  const onEndReached = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   const onPick = useCallback(
     (item: StarListItem) => {
@@ -133,12 +133,11 @@ export function StarredView({
     (item: StarListItem) => (
       <StarRow
         item={item}
-        annotation={byUrl.get(item.entityKey)}
         selected={item.entityKind === 'url' && item.entityKey === selectedUrl}
         onPick={onPick}
       />
     ),
-    [byUrl, selectedUrl, onPick],
+    [selectedUrl, onPick],
   )
 
   if (stars.isPending) return <StateMessage loading />
@@ -151,7 +150,7 @@ export function StarredView({
       />
     )
   }
-  if (!stars.data || stars.data.length === 0) {
+  if (rows.length === 0) {
     return (
       <StateMessage
         icon="star"
@@ -162,10 +161,11 @@ export function StarredView({
   }
   return (
     <VirtualRows
-      rows={stars.data}
+      rows={rows}
       rowKey={rowKey}
       rowHeight={rowHeight}
       renderRow={renderRow}
+      onEndReached={onEndReached}
       label={t('history.views.starred')}
     />
   )

@@ -22,6 +22,7 @@
  * - Prefer additive, explicit fields over ambiguous catch-all objects so the trust surface stays auditable.
  */
 
+import type { SearchCoverage } from '../backend-client/search'
 import type { ScheduleGeneratedFile } from './schedule'
 
 /**
@@ -737,8 +738,6 @@ export type AiSearchNote =
   | { code: 'configDriftFingerprint' }
   | { code: 'stale'; reason: AiSemanticStaleness }
   | { code: 'providerResolutionFailed'; reason: string }
-  /** The keyword matched more pages than one search ranks; only a window of them was searched. */
-  | { code: 'lexicalWindowed' }
 
 export interface AiSearchResponse {
   total: number
@@ -756,6 +755,8 @@ export interface AiSearchResponse {
    */
   noteCodes?: AiSearchNote[]
   nextCursor?: string | null
+  /** Whether the search index covered the whole archive for this answer. */
+  searchState?: SearchCoverage | null
 }
 
 /**
@@ -1054,7 +1055,9 @@ export interface SaveAgentConversationRequest {
  * Request payload for `list_ai_conversations`: a bounded, newest-first page cap.
  */
 export interface ListAgentConversationsRequest {
+  /** Page size; the cursor reaches every conversation. */
   limit?: number | null
+  cursor?: string | null
 }
 
 /**
@@ -1062,6 +1065,7 @@ export interface ListAgentConversationsRequest {
  */
 export interface AgentConversationListResponse {
   conversations: AgentConversationSummary[]
+  nextCursor: string | null
 }
 
 /**

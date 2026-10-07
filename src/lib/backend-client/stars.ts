@@ -47,6 +47,16 @@ export interface StarListItem {
   domain: string
   title: string
   visitCount: number
+  /** The page's note, merged across its URL variants; empty for sites. */
+  notes: string
+  /** The page's tags, merged across its URL variants; empty for sites. */
+  tags: string[]
+}
+
+/** One page of stars. Pass `nextCursor` back unchanged for the next page. */
+export interface StarPage {
+  items: StarListItem[]
+  nextCursor: string | null
 }
 
 /** Per-kind rollup of how many things the user has starred. */
@@ -61,10 +71,16 @@ export const starsClient = {
   /** Map of the supplied raw keys → starred boolean. Visible rows only. */
   getStarStatus: (request: StarStatusRequest) =>
     call<Record<string, boolean>>('get_star_status', { request }),
-  listStars: (kind: StarEntityKind | null, sort: StarSort, limit?: number) =>
-    call<StarListItem[]>('list_stars', {
+  listStars: (
+    kind: StarEntityKind | null,
+    sort: StarSort,
+    cursor: string | null,
+    limit?: number,
+  ) =>
+    call<StarPage>('list_stars', {
       kind: kind ?? null,
       sort,
+      cursor,
       limit: limit ?? null,
     }),
   getStarCounts: () => call<StarCounts>('get_star_counts', {}),

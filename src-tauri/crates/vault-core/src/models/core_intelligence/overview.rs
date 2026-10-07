@@ -54,10 +54,11 @@ pub struct DigestSummary {
 pub struct CoreIntelligencePrimaryOverview {
     pub digest_summary: CoreIntelligenceSectionResult<DigestSummary>,
     pub on_this_day: CoreIntelligenceSectionResult<Vec<OnThisDayEntry>>,
-    pub top_sites: CoreIntelligenceSectionResult<Vec<TopSite>>,
-    pub refind_pages: CoreIntelligenceSectionResult<Vec<RefindPage>>,
+    pub top_sites: CoreIntelligenceSectionResult<crate::models::IntelligencePage<TopSite>>,
+    pub refind_pages: CoreIntelligenceSectionResult<crate::models::IntelligencePage<RefindPage>>,
     pub search_engine_ranking: CoreIntelligenceSectionResult<Vec<EngineRanking>>,
-    pub top_search_concepts: CoreIntelligenceSectionResult<Vec<SearchConcept>>,
+    pub top_search_concepts:
+        CoreIntelligenceSectionResult<crate::models::IntelligencePage<SearchConcept>>,
     pub query_families: CoreIntelligenceSectionResult<QueryFamilyResult>,
     pub activity_mix: CoreIntelligenceSectionResult<ActivityMix>,
     pub discovery_trend_day: CoreIntelligenceSectionResult<DiscoveryTrend>,
@@ -71,16 +72,20 @@ pub struct CoreIntelligencePrimaryOverview {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CoreIntelligenceSecondaryOverview {
-    pub stable_sources: CoreIntelligenceSectionResult<Vec<StableSource>>,
+    pub stable_sources:
+        CoreIntelligenceSectionResult<crate::models::IntelligencePage<StableSource>>,
     pub search_effectiveness: CoreIntelligenceSectionResult<SearchEffectiveness>,
-    pub friction_signals: CoreIntelligenceSectionResult<Vec<FrictionSignal>>,
-    pub reopened_investigations: CoreIntelligenceSectionResult<Vec<ReopenedInvestigation>>,
+    pub friction_signals:
+        CoreIntelligenceSectionResult<crate::models::IntelligencePage<FrictionSignal>>,
+    pub reopened_investigations:
+        CoreIntelligenceSectionResult<crate::models::IntelligencePage<ReopenedInvestigation>>,
     pub discovery_trend_week: CoreIntelligenceSectionResult<DiscoveryTrend>,
     pub breadth_index: CoreIntelligenceSectionResult<BreadthIndex>,
-    pub path_flows: CoreIntelligenceSectionResult<Vec<PathFlow>>,
+    pub path_flows: CoreIntelligenceSectionResult<crate::models::IntelligencePage<PathFlow>>,
     pub compare_sets: CoreIntelligenceSectionResult<Vec<CompareSet>>,
     pub multi_browser_diff: CoreIntelligenceSectionResult<BrowserDiff>,
-    pub observed_interactions: CoreIntelligenceSectionResult<Vec<ObservedInteraction>>,
+    pub observed_interactions:
+        CoreIntelligenceSectionResult<crate::models::IntelligencePage<ObservedInteraction>>,
     pub timings: Vec<CoreIntelligenceSectionTiming>,
     pub total_duration_ms: u64,
 }
@@ -106,9 +111,9 @@ pub struct DayInsightsHourlyBucket {
 pub struct DayInsights {
     pub date: String,
     pub digest_summary: DigestSummary,
-    pub top_sites: Vec<TopSite>,
+    pub top_sites: crate::models::IntelligencePage<TopSite>,
     pub activity_mix: ActivityMix,
-    pub refind_pages: Vec<RefindPage>,
+    pub refind_pages: crate::models::IntelligencePage<RefindPage>,
     pub query_families: QueryFamilyResult,
     pub hourly_activity: Vec<DayInsightsHourlyBucket>,
     pub drilldown: DayInsightsDrilldown,
@@ -118,6 +123,7 @@ pub struct DayInsights {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct OnThisDayEntry {
+    pub top_domains_next_cursor: Option<String>,
     pub year: i32,
     pub date: String,
     pub total_visits: i64,

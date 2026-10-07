@@ -16,6 +16,7 @@ mod keyring;
 mod launcher;
 mod locale;
 mod login_item;
+mod open_files;
 mod sandbox;
 mod scheduler;
 pub mod test_support;
@@ -45,6 +46,8 @@ pub use login_item::{
     LAUNCHED_AT_LOGIN_ARG, LOGIN_ITEM_LABEL, LoginItemStore, login_item_program_arguments,
     login_item_store,
 };
+/// Lifts the per-process open-file limit before the archive opens.
+pub use open_files::raise_open_file_limit;
 /// Debug-only redirect of scheduler and login-item state into a directory.
 pub use sandbox::{SANDBOX_DIR_ENV, sandbox_dir};
 /// Preview/apply/remove schedule adapters backed by the native scheduler.

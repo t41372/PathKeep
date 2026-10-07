@@ -6,11 +6,9 @@
 //! degraded-state rules so the frontend does not need to guess.
 
 use crate::{
-    ProjectPaths,
     intelligence_runtime::load_intelligence_runtime,
     models::{
-        AppConfig, CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow,
-        IntelligenceRuntimeSnapshot,
+        CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow, IntelligenceRuntimeSnapshot,
     },
     utils::now_rfc3339,
 };
@@ -406,14 +404,12 @@ pub fn build_core_intelligence_section_meta_with_runtime(
 /// Builds one `/intelligence` section metadata payload from the section
 /// registry plus the latest runtime snapshot.
 pub fn build_core_intelligence_section_meta(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     section_id: &str,
     window: CoreIntelligenceSectionWindow,
     is_empty: bool,
 ) -> Result<CoreIntelligenceSectionMeta> {
-    let runtime = load_intelligence_runtime(paths, config, key)?;
+    let runtime = load_intelligence_runtime(vault)?;
     build_core_intelligence_section_meta_with_runtime(section_id, window, is_empty, &runtime)
 }
 
@@ -433,6 +429,7 @@ mod tests {
         modules: Vec<DeterministicModuleRuntimeStatus>,
     ) -> IntelligenceRuntimeSnapshot {
         IntelligenceRuntimeSnapshot {
+            recent_jobs_next_cursor: None,
             queue: IntelligenceQueueStatus::default(),
             plugins: Vec::new(),
             modules,

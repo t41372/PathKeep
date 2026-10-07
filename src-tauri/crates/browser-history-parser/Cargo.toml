@@ -16,4 +16,5 @@ walkdir.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
+browser-history-fixtures = { path = "../browser-history-fixtures" }
 tempfile.workspace = true

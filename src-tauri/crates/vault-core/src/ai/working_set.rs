@@ -1,40 +1,17 @@
-//! Heavy-working-set priority selector — the shared hook for the heavy tier + enrichment (W-AI-4c).
+//! Responsibilities: enumerate canonical pages and score star, recency, annotation and frequency signals.
+//! Not responsible for: embeddings, content fetching or canonical-URL normalization.
+//! Failure modes: a pool cap hides pages, variants duplicate candidates, a sparse page loses
+//! continuation, or a scalar signal query groups the whole archive once per candidate.
 //!
-//! ## Responsibilities
-//! - rank/select UNIQUE-CONTENT candidates (one entry per canonical URL — the dedup unit, 05 §1) for
-//!   the HEAVY embedding tier (Qwen3, W-AI-4d) and the enrichment fetch queue (W-ENRICH-1) by the
-//!   declared working-set signals (05 §4/§8): **starred (top weight) ∪ recent (configurable window)
-//!   ∪ tagged/noted (annotations) ∪ high-frequency (refind / visit-count)**.
-//! - keep the candidate gather BOUNDED + INDEXED (no full 14.4M in-memory scan): each signal feeds a
-//!   bounded query off an existing index, the union is capped, and the final ranking is a small
-//!   in-memory sort over the (bounded) candidate set.
-//!
-//! ## Not responsible for
-//! - actually embedding the heavy tier (W-AI-4d) or fetching enrichment (W-ENRICH-1) — this only
-//!   SELECTS + RANKS; the consumers run the work. The STATIC base tier embeds 100% and does NOT need
-//!   this selector (05 §4) — this is purely the heavy/enrichment prioritization hook.
-//! - canonical URL identity (it reuses `visit_taxonomy::normalize_visit_url`, the same
-//!   canonicalization stars/annotations/refind use) or the `star` schema.
-//!
-//! ## Why this module exists
-//! 05 §4/§8 + 06 §5 both want the SAME prioritized candidate list ("a small set of URLs carries most
-//! queries / most enrichment value"). Putting it in ONE queryable, bounded, indexed selector means
-//! W-AI-4d (heavy tier) and W-ENRICH-1 (content fetch) consume one ranking rather than each
-//! re-deriving the working set — and resolves the `// TODO(W-AI-4c/heavy-tier)` seams left in
-//! `stars.rs` / `indexing.rs`.
-//!
-//! ## Performance notes
-//! - The four signal queries each ride an existing index: `star` via `idx_star_kind_starred_at`,
-//!   recency via `idx_urls_profile_last_visit` / `last_visit_ms`, high-frequency via `visit_count`,
-//!   annotations via `url_annotations`/`idx_url_tags_tag`. None scans the whole `urls`/`visits` table
-//!   unbounded; the per-signal `LIMIT` keeps each gather O(window), and the final ranking sorts only
-//!   the (bounded) union — so the selector stays cheap at the 14.4M tail.
+//! Reads seek the next canonical representative by page ID and return an ID cursor.
+//! Signal scores become queue priorities; they never impose a total candidate cap.
+//! Native paging and plan tests cover plaintext and encrypted archives past both former caps.
 
 use crate::models::{ReembedEstimate, ReembedScope};
-use crate::utils::url_domain;
+#[cfg(test)]
 use crate::visit_taxonomy::{normalize_visit_url, registrable_domain_for_url};
-use anyhow::{Context, Result};
-use rusqlite::Connection;
+use anyhow::Result;
+#[cfg(test)]
 use std::collections::HashMap;
 
 /// Tunable weights + window for the working-set ranking (05 §8: user can configure each dimension).
@@ -96,14 +73,7 @@ pub struct CandidateSignals {
 pub struct WorkingSetCandidate {
     /// Canonical URL (the dedup unit) the candidate represents.
     pub canonical_url: String,
-    /// One RAW stored url that collapses onto this canonical URL (first-writer-wins, newest-first).
-    ///
-    /// The canonical URL strips tracking params / lowercases the host, so it may NOT equal any stored
-    /// `urls.url`. Enrichment resolves a live visit by matching the RAW stored url (riding
-    /// `idx_urls_url`); without a raw url, a candidate whose stored url carried `utm_*`/`gclid`/mixed
-    /// host casing would resolve to None and be silently dropped from the fetch queue (CORR-2). `None`
-    /// only for a candidate created by a URL-star alone (no surfaced visit) — the consumer falls back
-    /// to the canonical URL then.
+    /// A stored URL variant for fetching. Canonical identity is resolved through Archive pages.
     pub raw_url: Option<String>,
     /// Registrable-ish domain (via the shared `url_domain`) for grouping/display.
     pub domain: String,
@@ -140,81 +110,51 @@ pub fn score_candidate(signals: &CandidateSignals, config: &WorkingSetConfig) ->
     score
 }
 
-/// Upper bound on how many candidates one [`select_working_set`] call returns.
-///
-/// The heavy tier + enrichment queue are BOUNDED working sets (05 §4: never the whole corpus), so a
-/// generous-but-finite cap keeps the selection — and everything downstream consumes from it —
-/// bounded even on the 14.4M tail. A caller may pass a smaller limit; this is the hard ceiling.
-pub const MAX_WORKING_SET: usize = 50_000;
+/// A bounded traversal page. The queue uses scores as priorities after enumeration.
+#[derive(Debug, Clone)]
+pub struct WorkingSetPage {
+    pub items: Vec<WorkingSetCandidate>,
+    pub next_cursor: Option<i64>,
+}
 
-/// Per-signal gather cap, so each bounded query contributes at most this many rows to the union.
-///
-/// Each of the four signals pulls its top rows off an index (recent by `last_visit_ms`, frequent by
-/// `visit_count`, etc.); capping each keeps the union — and the in-memory ranking sort — bounded
-/// regardless of archive size. Sized at a FRACTION of [`MAX_WORKING_SET`] (a quarter) so no single
-/// signal can fill the union on its own (finding S6): even if recency alone could supply 50k rows, it
-/// contributes at most this many, leaving room for the other declared signals (starred / annotated /
-/// frequent) to genuinely blend into the working set rather than one signal dominating it. The four
-/// signals together can still comfortably fill `MAX_WORKING_SET`.
-const PER_SIGNAL_GATHER_CAP: usize = MAX_WORKING_SET / 4;
-
-/// Selects + ranks the heavy-tier / enrichment working set from the canonical archive (bounded).
-///
-/// The shared hook (05 §4/§8, 06 §5): gathers candidates from the four declared signals — each via a
-/// bounded, indexed query — canonicalizes every raw URL through the SAME `normalize_visit_url`
-/// stars/annotations/refind use (so one canonical page is ONE candidate however it was reached, 05
-/// §1), merges the signals per canonical URL, scores each, and returns the top `limit` by score
-/// (descending; ties broken by canonical URL for determinism). `now_ms` is the current Chrome-epoch
-/// time the recency window is measured against (passed in so the ranking is deterministic + testable).
-///
-/// The STATIC base tier does NOT call this (it embeds 100%); this is purely the heavy-tier /
-/// enrichment prioritizer. Returns at most `min(limit, MAX_WORKING_SET)` candidates, all with a
-/// non-zero score (a page with no active signal is never a working-set member).
+/// Enumerates canonical pages without limiting any signal's coverage.
+/// `now_ms` is Unix milliseconds. Reuse the ID cursor even when a page has no
+/// positive-scoring candidates; limits bound one read, never the reachable set.
 pub fn select_working_set(
-    connection: &Connection,
+    vault: &crate::Vault,
     config: &WorkingSetConfig,
     now_ms: i64,
     limit: usize,
-) -> Result<Vec<WorkingSetCandidate>> {
-    let cap = limit.min(MAX_WORKING_SET);
-    if cap == 0 {
-        return Ok(Vec::new());
-    }
-
-    // Per-canonical-URL accumulator: signals merged across however many raw URLs collapse onto it.
-    let mut by_canonical: HashMap<String, CandidateState> = HashMap::new();
-
-    let recency_cutoff_ms = recency_cutoff_ms(now_ms, config.recency_window_months);
-    gather_url_signals(connection, recency_cutoff_ms, &mut by_canonical)?;
-    gather_annotation_signals(connection, &mut by_canonical)?;
-    gather_starred_signals(connection, &mut by_canonical)?;
-
-    // Score + rank the (bounded) union. The sort is over the candidate set only — never the archive.
-    let mut ranked: Vec<WorkingSetCandidate> = by_canonical
-        .into_iter()
-        .filter_map(|(canonical_url, state)| {
-            let score = score_candidate(&state.signals, config);
-            if score <= 0.0 {
-                return None; // No active signal → not a working-set member.
-            }
-            Some(WorkingSetCandidate {
-                domain: url_domain(&canonical_url),
-                title: state.title,
-                raw_url: state.raw_url,
-                score,
-                signals: state.signals,
-                canonical_url,
-            })
-        })
-        .collect();
-    ranked.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.canonical_url.cmp(&b.canonical_url))
-    });
-    ranked.truncate(cap);
-    Ok(ranked)
+    cursor: Option<i64>,
+) -> Result<WorkingSetPage> {
+    let config = *config;
+    let limit = limit.clamp(1, 4096);
+    vault.read(vault_store::Db::Archive, move |s| {
+        let mut page=s.query(
+            "SELECT p.id,p.canonical_url,p.url,COALESCE(p.registrable_domain,''),
+                (SELECT d.title FROM pages variant JOIN search_documents d ON d.page_id=variant.id
+                 WHERE variant.canonical_url=p.canonical_url ORDER BY d.newest_visit_ms DESC,d.page_id DESC LIMIT 1),
+                COALESCE((SELECT SUM(f.visible_visit_count) FROM pages variant JOIN search_document_profiles f ON f.page_id=variant.id WHERE variant.canonical_url=p.canonical_url LIMIT 1 OFFSET 0),0),
+                COALESCE((SELECT MAX(f.newest_visit_ms) FROM pages variant JOIN search_document_profiles f ON f.page_id=variant.id WHERE variant.canonical_url=p.canonical_url LIMIT 1 OFFSET 0),0),
+                EXISTS(SELECT 1 FROM star WHERE entity_kind='url' AND entity_key=p.canonical_url)
+                 OR EXISTS(SELECT 1 FROM star WHERE entity_kind='domain' AND entity_key=p.registrable_domain),
+                EXISTS(SELECT 1 FROM url_annotations WHERE canonical_url=p.canonical_url AND TRIM(notes)<>'')
+                 OR EXISTS(SELECT 1 FROM url_tags WHERE canonical_url=p.canonical_url)
+             FROM pages p WHERE p.id>?1
+               AND p.id=(SELECT MIN(variant.id) FROM pages variant WHERE variant.canonical_url=p.canonical_url LIMIT 1 OFFSET 0)
+             ORDER BY p.id LIMIT ?2",
+            vault_store::params![cursor.unwrap_or(0),limit as i64+1],|r| {
+                let signals=CandidateSignals {visit_count:r.get::<i64>(5)? as u32,
+                    recent:r.get::<i64>(6)?>=recency_cutoff_ms(now_ms,config.recency_window_months),
+                    starred:r.get::<i64>(7)?!=0,annotated:r.get::<i64>(8)?!=0};
+                Ok((r.get::<i64>(0)?,WorkingSetCandidate { canonical_url:r.get(1)?,raw_url:Some(r.get(2)?),
+                    domain:r.get(3)?,title:r.get(4)?,score:score_candidate(&signals,&config),signals }))
+            })?;
+        let next_cursor=if page.len()>limit {page.pop();Some(page.last().unwrap().0)} else {None};
+        let mut items:Vec<_>=page.into_iter().map(|(_,item)|item).filter(|row|row.score>0.0 && (row.signals.visit_count>0 || row.signals.starred || row.signals.annotated)).collect();
+        items.sort_by(|a,b|b.score.total_cmp(&a.score).then_with(||a.canonical_url.cmp(&b.canonical_url)));
+        Ok(WorkingSetPage {items,next_cursor})
+    })
 }
 
 /// Measured single-text candle throughput on the 4-core/8 GB CPU baseline, in documents per second.
@@ -237,27 +177,36 @@ pub const METAL_SPEEDUP: f64 = 10.0;
 ///
 /// PURE math over BOUNDED reads + the S1 constants — it NEVER loads a model, opens a network socket, or
 /// embeds anything, so it is 100%-coverable and cheap to call before every re-embed:
-/// - [`ReembedScope::WorkingSet`] → `page_count` is the bounded working-set length (`select_working_set`,
-///   itself hard-capped at [`MAX_WORKING_SET`]).
+/// - [`ReembedScope::WorkingSet`] counts every eligible canonical page through `select_working_set`
+///   continuation pages.
 /// - [`ReembedScope::Full`] / [`ReembedScope::Incremental`] → `page_count` is the unique-page count, read
-///   as `COUNT(*)` over the `urls` table (one row per unique URL — a single indexed count, never a
-///   14.4M-visit scan). Incremental's true count is "new/changed only", but the honest UPPER bound the
+///   as `COUNT(*)` over the native `pages` table, never over the visit table. Incremental's true count is "new/changed only", but the honest UPPER bound the
 ///   estimate shows is the full unique-page count, so the displayed cost is never an under-promise.
 ///
 /// `est_minutes_cpu = page_count / CANDLE_CPU_DOCS_PER_SEC / 60`; `est_minutes_gpu = est_minutes_cpu /
 /// METAL_SPEEDUP`. `gpu_available = cfg!(feature = "metal")` — the single honest source of whether THIS
 /// binary can actually run the GPU path.
 pub fn estimate_reembed(
-    connection: &Connection,
+    vault: &crate::Vault,
     config: &WorkingSetConfig,
     now_ms: i64,
     scope: ReembedScope,
 ) -> Result<ReembedEstimate> {
     let page_count = match scope {
         ReembedScope::WorkingSet => {
-            select_working_set(connection, config, now_ms, MAX_WORKING_SET)?.len() as u64
+            let mut count = 0;
+            let mut cursor = None;
+            loop {
+                let page = select_working_set(vault, config, now_ms, 4096, cursor)?;
+                count += page.items.len() as u64;
+                cursor = page.next_cursor;
+                if cursor.is_none() {
+                    break;
+                }
+            }
+            count
         }
-        ReembedScope::Full | ReembedScope::Incremental => unique_page_count(connection)?,
+        ReembedScope::Full | ReembedScope::Incremental => unique_page_count(vault)?,
     };
     Ok(reembed_estimate_for(scope, page_count))
 }
@@ -282,24 +231,21 @@ pub fn reembed_estimate_for(scope: ReembedScope, page_count: u64) -> ReembedEsti
 /// Counts unique pages as `COUNT(*)` over `urls` (one row per unique URL — a single indexed count).
 ///
 /// Bounded: never scans `visits`; the count is the upper bound on pages a full re-embed would touch.
-fn unique_page_count(connection: &Connection) -> Result<u64> {
-    let count: i64 = connection
-        .query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))
-        .context("counting unique pages for the re-embed estimate")?;
-    Ok(count.max(0) as u64)
+fn unique_page_count(vault: &crate::Vault) -> Result<u64> {
+    vault.read(vault_store::Db::Archive, |s| {
+        Ok(s.query_one("SELECT COUNT(*) FROM pages", (), |r| Ok(r.get::<i64>(0)?))? as u64)
+    })
 }
 
 /// Mutable per-canonical accumulator while signals from the four queries are merged.
+#[cfg(test)]
 #[derive(Debug, Default)]
 struct CandidateState {
     signals: CandidateSignals,
     title: Option<String>,
-    /// One RAW stored url that canonicalizes onto this candidate (first writer wins). The recency
-    /// query feeds rows newest-first, so the first raw url is the freshest variant — the one the
-    /// enrichment resolver matches against `urls.url` to find a live visit (CORR-2).
-    raw_url: Option<String>,
 }
 
+#[cfg(test)]
 impl CandidateState {
     /// Records the freshest non-empty title seen for this canonical URL (first writer wins, and the
     /// recency query feeds rows newest-first, so the first title is the freshest).
@@ -308,14 +254,6 @@ impl CandidateState {
             if let Some(title) = title.filter(|value| !value.trim().is_empty()) {
                 self.title = Some(title);
             }
-        }
-    }
-
-    /// Records the freshest raw url that collapsed onto this candidate (first writer wins, newest
-    /// first), mirroring [`CandidateState::note_title`]. An empty raw url is ignored.
-    fn note_raw_url(&mut self, raw_url: &str) {
-        if self.raw_url.is_none() && !raw_url.trim().is_empty() {
-            self.raw_url = Some(raw_url.to_string());
         }
     }
 
@@ -346,153 +284,7 @@ fn recency_cutoff_ms(now_ms: i64, window_months: u32) -> i64 {
     now_ms.saturating_sub(window_ms).max(0)
 }
 
-/// Gathers the recency + frequency signals (and titles) from `urls`, bounded by index-ordered limits.
-///
-/// Two bounded queries off `urls`: the most-recently-visited rows (recency signal + the recency
-/// window check) and the highest-visit-count rows (frequency signal). Both are `LIMIT`-capped and
-/// ride `last_visit_ms` / `visit_count` orderings, so neither scans the whole table. Each raw URL is
-/// canonicalized so tracking-param variants of one page merge into a single candidate.
-fn gather_url_signals(
-    connection: &Connection,
-    recency_cutoff_ms: i64,
-    by_canonical: &mut HashMap<String, CandidateState>,
-) -> Result<()> {
-    // Recency: newest-visited first; mark `recent` only for rows inside the window.
-    let mut recency = connection
-        .prepare(
-            "SELECT url, title, visit_count, last_visit_ms
-             FROM urls
-             ORDER BY last_visit_ms DESC
-             LIMIT ?1",
-        )
-        .context("preparing working-set recency query")?;
-    let mut rows = recency.query([PER_SIGNAL_GATHER_CAP as i64])?;
-    while let Some(row) = rows.next()? {
-        let raw_url: String = row.get(0)?;
-        let title: Option<String> = row.get(1)?;
-        let visit_count: i64 = row.get(2)?;
-        let last_visit_ms: i64 = row.get(3)?;
-        let Some(canonical) = canonicalize(&raw_url) else { continue };
-        let state = by_canonical.entry(canonical).or_default();
-        state.note_title(title);
-        state.note_raw_url(&raw_url);
-        if last_visit_ms >= recency_cutoff_ms {
-            state.signals.recent = true;
-        }
-        state.note_visit_count(visit_count);
-    }
-
-    // Frequency: highest visit_count first, so a heavily-revisited page is captured even if it has
-    // not been visited recently (it would fall outside the recency LIMIT window otherwise).
-    let mut frequency = connection
-        .prepare(
-            "SELECT url, title, visit_count
-             FROM urls
-             WHERE visit_count > 0
-             ORDER BY visit_count DESC
-             LIMIT ?1",
-        )
-        .context("preparing working-set frequency query")?;
-    let mut rows = frequency.query([PER_SIGNAL_GATHER_CAP as i64])?;
-    while let Some(row) = rows.next()? {
-        let raw_url: String = row.get(0)?;
-        let title: Option<String> = row.get(1)?;
-        let visit_count: i64 = row.get(2)?;
-        let Some(canonical) = canonicalize(&raw_url) else { continue };
-        let state = by_canonical.entry(canonical).or_default();
-        state.note_title(title);
-        state.note_raw_url(&raw_url);
-        state.note_visit_count(visit_count);
-    }
-    Ok(())
-}
-
-/// Gathers the annotation signal: any URL with a note or a tag is a deliberate keep signal.
-///
-/// Annotations key by RAW url (05 §1 / migration 011), so each raw key is canonicalized to merge onto
-/// the same candidate the URL signals built. Both reads are bounded and ride the annotation tables'
-/// own (small) row counts — users annotate hundreds of pages, not millions.
-fn gather_annotation_signals(
-    connection: &Connection,
-    by_canonical: &mut HashMap<String, CandidateState>,
-) -> Result<()> {
-    let mut mark = |raw_url: String| {
-        if let Some(canonical) = canonicalize(&raw_url) {
-            let state = by_canonical.entry(canonical).or_default();
-            state.signals.annotated = true;
-            // Annotations key by raw url, so record it for the enrichment resolver (CORR-2) in case no
-            // recency/frequency row surfaced this page (an annotated-but-stale page is still fetched).
-            state.note_raw_url(&raw_url);
-        }
-    };
-
-    // Notes: a non-empty notes body marks the URL annotated.
-    let mut notes = connection
-        .prepare("SELECT url FROM url_annotations WHERE TRIM(notes) <> '' LIMIT ?1")
-        .context("preparing working-set notes query")?;
-    let mut rows = notes.query([PER_SIGNAL_GATHER_CAP as i64])?;
-    while let Some(row) = rows.next()? {
-        mark(row.get::<_, String>(0)?);
-    }
-
-    // Tags: any tag marks the URL annotated (DISTINCT so a multi-tag URL is counted once).
-    let mut tags = connection
-        .prepare("SELECT DISTINCT url FROM url_tags LIMIT ?1")
-        .context("preparing working-set tags query")?;
-    let mut rows = tags.query([PER_SIGNAL_GATHER_CAP as i64])?;
-    while let Some(row) = rows.next()? {
-        mark(row.get::<_, String>(0)?);
-    }
-    Ok(())
-}
-
-/// Gathers the starred signal (top weight) from the `star` table.
-///
-/// URL stars already key by `canonical_url` (stars canonicalize on write), so they merge directly.
-/// Domain stars mark EVERY candidate on that registrable domain — the user starred the source, so
-/// every page under it inherits the top signal. The starred set is tiny (users star hundreds), so
-/// both reads ride `idx_star_kind_starred_at` and the domain match is an in-memory suffix check over
-/// the (already bounded) candidate union rather than a `urls` scan.
-fn gather_starred_signals(
-    connection: &Connection,
-    by_canonical: &mut HashMap<String, CandidateState>,
-) -> Result<()> {
-    let mut statement = connection
-        .prepare("SELECT entity_kind, entity_key FROM star LIMIT ?1")
-        .context("preparing working-set star query")?;
-    let mut rows = statement.query([PER_SIGNAL_GATHER_CAP as i64])?;
-    let mut starred_domains: Vec<String> = Vec::new();
-    while let Some(row) = rows.next()? {
-        let kind: String = row.get(0)?;
-        let key: String = row.get(1)?;
-        match kind.as_str() {
-            "url" => {
-                // A URL star's key is already canonical; mark it (creating the candidate if a star
-                // exists for a page the archive has not surfaced via the other signals yet). The star
-                // key IS canonical, so it doubles as a raw-url fallback for the enrichment resolver
-                // when no actual raw variant surfaced this page (CORR-2).
-                let state = by_canonical.entry(key.clone()).or_default();
-                state.signals.starred = true;
-                state.note_raw_url(&key);
-            }
-            "domain" => starred_domains.push(key),
-            _ => {} // Unknown/future kinds (e.g. query_family) are ignored, not errored.
-        }
-    }
-    // Domain stars: mark every candidate whose canonical URL is on a starred registrable domain.
-    if !starred_domains.is_empty() {
-        apply_starred_domains(&starred_domains, by_canonical);
-    }
-    Ok(())
-}
-
-/// Marks every candidate whose canonical URL sits on a starred registrable domain.
-///
-/// Split out so it is unit-testable directly with a synthetic candidate map (no SQL): for each
-/// candidate, derive its REGISTRABLE domain (the same form a domain star keys by — `set_star`
-/// canonicalizes a domain via `registrable_domain_for_url`) and mark it starred if that domain was
-/// starred. Bounded by the candidate union size (already capped), so this is O(candidates ×
-/// starred_domains) over small sets, never an archive scan.
+#[cfg(test)]
 fn apply_starred_domains(
     starred_domains: &[String],
     by_canonical: &mut HashMap<String, CandidateState>,
@@ -512,6 +304,7 @@ fn apply_starred_domains(
 /// Returns `None` for an unparseable URL so a single garbage row is skipped rather than failing the
 /// whole gather. Centralized so every signal collapses tracking-param + host-casing variants of one
 /// page onto the same candidate.
+#[cfg(test)]
 fn canonicalize(raw_url: &str) -> Option<String> {
     normalize_visit_url(raw_url).map(|normalized| normalized.canonical_url)
 }
@@ -568,19 +361,6 @@ mod tests {
     fn reembed_scope_defaults_to_incremental() {
         // The `#[serde(default)]` default must be Incremental so a frozen payload keeps prior behavior.
         assert_eq!(ReembedScope::default(), ReembedScope::Incremental);
-    }
-
-    #[test]
-    fn per_signal_cap_is_a_strict_fraction_of_max_so_no_signal_dominates() {
-        // S6: a per-signal cap equal to MAX would let ONE signal fill the entire union, contradicting
-        // the "no single signal can dominate" intent. It must be a strict fraction of MAX. These are
-        // compile-time invariants over consts, so assert them in `const` blocks (clippy guidance).
-        const {
-            assert!(PER_SIGNAL_GATHER_CAP < MAX_WORKING_SET);
-            assert!(PER_SIGNAL_GATHER_CAP == MAX_WORKING_SET / 4);
-            // The four signals together still comfortably exceed MAX, so the union can fill it.
-            assert!(PER_SIGNAL_GATHER_CAP * 4 >= MAX_WORKING_SET);
-        }
     }
 
     #[test]

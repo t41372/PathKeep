@@ -41,8 +41,20 @@ pub struct HistoryDatabaseSet {
 pub struct ChromiumReadCursor {
     pub after_visit_id: i64,
     pub after_url_last_visit_time: i64,
+    pub after_search_url_time: i64,
+    pub url_scan: Option<UrlScan>,
     pub after_download_id: i64,
     pub after_favicon_last_updated: i64,
+}
+
+/// The immutable source filter and last row committed during one URL phase.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UrlScan {
+    pub after_id: i64,
+    pub time_floor: i64,
+    pub visit_floor: i64,
+    pub visit_ceiling: i64,
+    pub full: bool,
 }
 
 /// Non-fatal issue discovered while inspecting or parsing a source database.
@@ -161,6 +173,8 @@ pub struct ParsedDownload {
 /// Parsed Chromium keyword-search term row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedSearchTerm {
+    #[serde(default)]
+    pub url_last_visit_time: i64,
     pub keyword_id: i64,
     pub url_id: i64,
     pub term: String,
@@ -293,6 +307,12 @@ pub struct StreamedHistory {
 /// for one giant `ParsedHistory` allocation to complete first.
 pub trait HistoryBatchConsumer {
     type Error;
+
+    /// The archive persists this source snapshot boundary with each URL batch.
+    /// Collectors need no durable cursor and leave this notification unused.
+    fn begin_urls(&mut self, _scan: UrlScan) -> Result<(), Self::Error> {
+        Ok(())
+    }
 
     fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error>;
 
@@ -451,6 +471,7 @@ mod tests {
             .expect("download default no-op");
         consumer
             .search_terms(vec![ParsedSearchTerm {
+                url_last_visit_time: 0,
                 keyword_id: 1,
                 url_id: 1,
                 term: "pathkeep".to_string(),

@@ -1,88 +1,20 @@
-//! Flat two-stage vector index: binary Hamming recall → int8 rescore (W-AI-5, 05 §3/§6).
-//!
-//! ## Responsibilities
-//! - implement the [`VectorIndex`] boundary trait with a HAND-ROLLED flat engine (no vector-index
-//!   crate — 05 §6 / 04 §6 start flat-binary-in-RAM; an indexed backend can drop in behind this same
-//!   trait LATER if the S2 benchmark proves flat insufficient at 14.4M).
-//! - run the two-stage search: stage 1 is a SIMD-friendly popcount Hamming sweep over the
-//!   RAM-resident binary plane to recall the top `k'` candidates; stage 2 dequantizes only those
-//!   candidates from the int8 plane and re-ranks by dot product (= cosine, vectors are L2-normalized),
-//!   returning the top `k`.
-//! - apply an allowlist as a POST-filter (04 §6 / 02 §D.1): recall an EXPANDED `k'`, drop ids not in
-//!   the allowlist, then take `k`, so a tight facet filter still surfaces enough true matches.
-//! - keep tie-breaking deterministic (score desc, then content_key asc) so identical-score results
-//!   rank stably across runs and platforms.
-//!
-//! ## Not responsible for
-//! - producing/persisting the planes (the [`super::vector_planes`] projection owns that; this index
-//!   only READS them) or the f32 `.pkvec` source (the [`super::vector_store`] owns it);
-//! - embedding the query (the caller embeds + binarizes before calling [`VectorIndex::search`]);
-//! - hydrating content_key → visit (the search layer joins through the `.pkmap`).
-//!
-//! ## Why flat (no HNSW/IVF yet)
-//! Binary Hamming over 14.4M × 32 B packed (~0.9 GB resident incl. Rust overhead, hardware popcount) is
-//! fast enough flat at this scale (S2: p50 ~105ms @14.4M, 05 §10); HNSW/IVF add a graph/centroid
-//! structure + (for IVF) periodic retraining that only
-//! pay off past ~1–2M when a flat sweep stops being interactive (05 §6). Hiding the engine behind
-//! [`VectorIndex`] means that upgrade is a swap, not a rewrite. The S2 benchmark is the data that
-//! decides whether/when the swap is warranted.
-//!
-//! ## Performance notes
-//! - ONLY the binary plane is held resident (`Vec<(u64, Vec<u8>)>`); the recall sweep is O(n) popcount,
-//!   the compiler vectorizes [`super::vector_planes::hamming_distance`]'s `u64::count_ones` chunking.
-//!   At 14.4M/256-dim that is ~0.9 GB incl. Rust `(u64, Vec<u8>)` overhead — within the 8 GB envelope.
-//! - the int8 rescore plane is NOT resident (C1/C2, 05 §10): a plane-backed index seeks each recalled
-//!   candidate's int8 record off disk by its POSITION (the binary-recall position, the two planes are
-//!   positionally aligned by the lockstep projection), so resident RAM = binary only. The ~3.7 GB int8
-//!   plane stays on disk; a few thousand random reads/query is cheap vs the O(n) binary sweep and warms
-//!   the page cache. An in-memory index (no on-disk planes, e.g. tests/bench) keeps int8 resident.
-//! - rescore touches only `k'` int8 vectors, dequantizing each once — O(k'·dim), independent of n.
-//! - `append`/`remove` mutate the resident binary (and, for an in-memory index, int8) plane in place;
-//!   `save`/`load` are deferred to the projection step (the planes ARE the persistence), so this
-//!   engine's `save` is a no-op and `load` re-reads the on-disk binary plane (int8 stays on disk).
+//! Responsibilities: persist vector planes and score every stored vector for search.
+//! Not responsible for: canonical eligibility, page fusion, query transport or vector generation.
+//! Failure modes: finite binary recall hides the true winner; facets hide eligible old keys;
+//! vector dimensions drift; disk/resident planes disagree; ties vary between queries.
+//! Tests: vector_index contracts, exact winner beyond 2,000, AI complete semantic pool tests.
 
 use crate::ai::traits::VectorIndex;
 use crate::ai::vector_planes::{
-    BinaryPlane, Int8Plane, Int8Vector, binarize, dequantize_int8, dot_product, hamming_distance,
-    quantize_int8,
+    BinaryPlane, Int8Plane, Int8Vector, binarize, dequantize_int8, dot_product, quantize_int8,
 };
 use crate::config::ProjectPaths;
 use anyhow::Result;
 use std::collections::HashSet;
 
-/// Floor on the binary-recall candidate pool `k'` regardless of `k` (X-1, 05 §10).
+/// A flat vector store with complete scoring over its int8 plane.
 ///
-/// The stage-1 Hamming sweep is O(n) whether `k'` is 64 or 2000, and the stage-2 int8 rescore of a
-/// few thousand candidates is sub-millisecond, so a DEEPER recall floor is ~free latency-wise and a
-/// real robustness win: a shallow pool (`k=8 → k'=64`) leaves stage 2 with too few candidates to
-/// recover binary-recall's mis-orderings on dense near-duplicate neighbourhoods, and made the no-facet
-/// pool SHALLOWER than the faceted one (the inversion this floor removes). It is NOT a "3× quality"
-/// claim — the S2 recall@10-vs-exact is partly a synthetic near-duplicate artifact — but a tuning win
-/// at ~zero cost. Capped at the index size, so a small index simply rescores everything it has.
-pub const RECALL_FLOOR: usize = 2000;
-
-/// Multiplier applied to `k` to size the binary-recall candidate pool `k'` (05 §3, 02 §D.1).
-///
-/// Stage 1 (Hamming) is a coarse filter: binary distance correlates with but does not equal cosine,
-/// so recalling more candidates than the final `k` gives stage 2 (int8 rescore) room to recover the
-/// true top-`k` that binary alone would have mis-ordered. The pool is `max(k * RECALL_EXPANSION,
-/// RECALL_FLOOR)` capped at the index size (X-1): this expansion scales the pool with large `k`, while
-/// [`RECALL_FLOOR`] guarantees a deep-enough floor for small `k` (the interactive default `k=8` would
-/// otherwise recall only 64). Both are nearly free because stage 1 is O(n) regardless of `k'` and the
-/// int8 rescore of a few thousand candidates is sub-millisecond.
-pub const RECALL_EXPANSION: usize = 8;
-
-/// Extra expansion applied to `k'` when an allowlist post-filter is in effect (04 §6).
-///
-/// A post-filter drops recalled ids that are not permitted, so a tight facet (e.g. one starred
-/// domain) could leave fewer than `k` survivors from the base pool. This larger factor recalls deeper
-/// so the filter still yields a full `k`. It is a CEILING on work, not a guarantee: an allowlist with
-/// fewer than `k` total members simply returns everything it has.
-pub const ALLOWLIST_EXPANSION: usize = 64;
-
-/// A hand-rolled flat two-stage vector index over the derived binary + int8 planes.
-///
-/// Holds the BINARY plane resident (it drives the Hamming recall sweep); the int8 rescore plane is
+/// Holds the binary plane for key/position alignment; the int8 score plane is
 /// seeked off disk by position for a plane-backed index (C1/C2 — resident = binary only), or held
 /// resident for an in-memory index (tests/bench, no on-disk plane). Construct via
 /// [`FlatVectorIndex::open`] (reads the on-disk binary plane, seeks int8) or [`FlatVectorIndex::empty`]
@@ -150,6 +82,38 @@ impl FlatVectorIndex {
         self.dim
     }
 
+    /// Scores every stored vector with bounded buffers. Search callers apply canonical
+    /// filters before selecting a page, so a distant candidate can never be hidden by recall_k.
+    pub(super) fn visit_scores(
+        &self,
+        query: &[f32],
+        cancel: &vault_store::CancelToken,
+        mut visit: impl FnMut(u64, f32) -> Result<()>,
+    ) -> Result<()> {
+        if self.binary.is_empty() {
+            return Ok(());
+        }
+        if self.int8.is_empty() {
+            let Some(planes) = &self.planes else { return Ok(()) };
+            let mut reader = planes.int8.reader()?;
+            for position in 0..self.binary.len() {
+                if position % 256 == 0 {
+                    cancel.check()?;
+                }
+                let (key, vector) = reader.record_at(position)?;
+                visit(key, dot_product(query, &dequantize_int8(&vector)))?;
+            }
+        } else {
+            for (position, (key, vector)) in self.int8.iter().enumerate() {
+                if position % 256 == 0 {
+                    cancel.check()?;
+                }
+                visit(*key, dot_product(query, &dequantize_int8(vector)))?;
+            }
+        }
+        Ok(())
+    }
+
     /// Ingests one f32 vector into both resident planes, binarizing + int8-quantizing it.
     ///
     /// The first ingested vector fixes the dim (D4); a later vector of a different length errors
@@ -170,120 +134,6 @@ impl FlatVectorIndex {
         self.int8.push((key, quantize_int8(vector)));
         Ok(())
     }
-
-    /// Runs the two-stage flat search for a BINARIZED+int8 query, returning top-`k` `(key, score)`.
-    ///
-    /// `query_bits` is the sign-bit binarization of the query (stage 1 input); `query_int8` is its
-    /// dequantized-f32 form used as the rescore reference (stage 2). The caller binarizes/quantizes
-    /// the embedded query once via [`prepare_query`]. Splitting the prepared inputs from
-    /// [`VectorIndex::search`] keeps the hot path allocation-free per call and unit-testable directly.
-    fn search_prepared(
-        &self,
-        query_bits: &[u8],
-        query_ref: &[f32],
-        k: usize,
-        allowlist: Option<&HashSet<u64>>,
-    ) -> Result<Vec<(u64, f32)>> {
-        if k == 0 || self.binary.is_empty() {
-            return Ok(Vec::new());
-        }
-        // Stage 1 — binary Hamming recall. Size k' as `max(k * expansion, RECALL_FLOOR)` (X-1): the
-        // expansion scales the pool with large `k`, the floor guarantees a deep-enough pool for the
-        // interactive default `k=8`. Expand FURTHER when an allowlist post-filter will drop recalled
-        // ids (04 §6). Both branches apply the floor so the no-facet pool is never shallower than the
-        // faceted one (removing the prior inversion). Capped at the index size.
-        let expansion = if allowlist.is_some() { ALLOWLIST_EXPANSION } else { RECALL_EXPANSION };
-        let recall_k = k.saturating_mul(expansion).max(RECALL_FLOOR).min(self.binary.len());
-        let candidates = self.recall(query_bits, recall_k, allowlist);
-
-        // Stage 2 — int8 rescore over only the recalled candidates. When the int8 plane is NOT resident
-        // (a plane-backed index loaded via `open`/`load`, the production query path), seek each
-        // candidate's int8 record off disk by its POSITION (resident = binary only, C1). When int8 IS
-        // resident (an in-memory `empty`+`build`/`append` index, tests/bench), read it directly. Either
-        // way `position` is the binary-recall position and the planes are positionally aligned, so the
-        // record fetched is exactly that candidate's. (`self.int8` is empty for a plane-backed index
-        // even when the binary plane has rows, so the seek branch owns that case.)
-        let mut scored: Vec<(u64, f32)> = if self.int8.is_empty() {
-            let handles = self
-                .planes
-                .as_ref()
-                .expect("a non-empty binary plane with no resident int8 is always plane-backed");
-            let mut reader = handles.int8.reader()?;
-            let mut out = Vec::with_capacity(candidates.len());
-            for position in candidates {
-                let (key, int8) = reader.record_at(position)?;
-                out.push((key, dot_product(query_ref, &dequantize_int8(&int8))));
-            }
-            out
-        } else {
-            candidates
-                .into_iter()
-                .map(|position| {
-                    let (key, int8) = &self.int8[position];
-                    (*key, dot_product(query_ref, &dequantize_int8(int8)))
-                })
-                .collect()
-        };
-        // Deterministic tie-break: score desc, then content_key asc.
-        scored.sort_by(|left, right| {
-            right
-                .1
-                .partial_cmp(&left.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(left.0.cmp(&right.0))
-        });
-        scored.truncate(k);
-        Ok(scored)
-    }
-
-    /// Stage 1: returns the binary-plane POSITIONS of the `recall_k` smallest-Hamming candidates.
-    ///
-    /// Applies the allowlist as a post-filter (skips ids not permitted) during the sweep so the pool is
-    /// already filtered before truncation. Uses a BOUNDED top-k selection (`select_nth_unstable_by` then
-    /// truncate, C3) instead of a full sort of all n: it partitions the n candidates around the k'-th in
-    /// O(n) average rather than O(n log n), then sorts only the kept k' for deterministic stage-2 order.
-    /// The comparator (Hamming asc, then content_key asc) is a STRICT TOTAL ORDER because content_key is
-    /// unique within the pool, so the selection is deterministic across runs/platforms. Positions (not
-    /// keys) are returned so stage 2 fetches the aligned int8 record by position.
-    fn recall(
-        &self,
-        query_bits: &[u8],
-        recall_k: usize,
-        allowlist: Option<&HashSet<u64>>,
-    ) -> Vec<usize> {
-        // (distance, key, position) so the order tie-breaks deterministically on key.
-        let mut scored: Vec<(u32, u64, usize)> = self
-            .binary
-            .iter()
-            .enumerate()
-            .filter(|(_, (key, _))| allowlist.is_none_or(|allow| allow.contains(key)))
-            .map(|(position, (key, bits))| (hamming_distance(query_bits, bits), *key, position))
-            .collect();
-        // Hamming asc, then content_key asc — a strict total order (unique key) so selection + the
-        // tail sort are both deterministic.
-        let cmp = |left: &(u32, u64, usize), right: &(u32, u64, usize)| {
-            left.0.cmp(&right.0).then(left.1.cmp(&right.1))
-        };
-        if recall_k < scored.len() {
-            // Partition so the smallest `recall_k` by `cmp` occupy `[0, recall_k)`, then drop the rest.
-            scored.select_nth_unstable_by(recall_k - 1, cmp);
-            scored.truncate(recall_k);
-        }
-        // Sort the kept pool so stage 2 sees candidates in deterministic best-first order.
-        scored.sort_unstable_by(cmp);
-        scored.into_iter().map(|(_, _, position)| position).collect()
-    }
-}
-
-/// Binarizes + keeps an f32 reference copy of an embedded query for [`FlatVectorIndex`] search.
-///
-/// The binary form drives stage-1 Hamming; the f32 reference is the stage-2 rescore reference. We
-/// rescore against the QUERY's f32 (not its int8) so query quantization error never compounds with
-/// the stored vectors' int8 error — only the indexed side is lossy, matching how the recall@10
-/// benchmark is framed (binary-recall + int8-rescore vs exact f32). Returned as an owned pair the
-/// caller passes to [`VectorIndex::search`] via the trait's f32 `query` slice.
-pub fn prepare_query(query: &[f32]) -> (Vec<u8>, Vec<f32>) {
-    (binarize(query), query.to_vec())
 }
 
 impl VectorIndex for FlatVectorIndex {
@@ -314,21 +164,25 @@ impl VectorIndex for FlatVectorIndex {
         Ok(())
     }
 
-    /// Returns the top-`k` `(content_key, score)` matches for the embedded f32 `query`.
-    ///
-    /// `query` is the f32 query embedding; this binarizes it for stage-1 recall and rescores against
-    /// its f32 in stage 2. `allowlist`, when `Some`, restricts results to those content keys via a
-    /// post-filter over an EXPANDED recall pool (04 §6). An empty index returns no results (never an
-    /// error) so a never-built index degrades gracefully.
+    /// Ranks the complete eligible vector set; k limits output, never candidates.
     fn search(
         &self,
         query: &[f32],
         k: usize,
         allowlist: Option<&[u64]>,
     ) -> Result<Vec<(u64, f32)>> {
-        let (query_bits, query_ref) = prepare_query(query);
-        let allow_set: Option<HashSet<u64>> = allowlist.map(|ids| ids.iter().copied().collect());
-        self.search_prepared(&query_bits, &query_ref, k, allow_set.as_ref())
+        let allow: Option<HashSet<u64>> = allowlist.map(|ids| ids.iter().copied().collect());
+        let mut scores = Vec::new();
+        self.visit_scores(query, &vault_store::CancelToken::new(), |key, score| {
+            if allow.as_ref().is_none_or(|set| set.contains(&key)) {
+                scores.push((key, score));
+            }
+            Ok(())
+        })?;
+        scores
+            .sort_unstable_by(|left, right| right.1.total_cmp(&left.1).then(left.0.cmp(&right.0)));
+        scores.truncate(k);
+        Ok(scores)
     }
 
     /// No-op: the projected planes ARE the persistence (written by [`super::vector_planes`]).
@@ -370,6 +224,9 @@ impl VectorIndex for FlatVectorIndex {
 
 #[cfg(test)]
 mod tests {
+    const FORMER_RECALL_FLOOR: usize = 2000;
+    const FORMER_RECALL_EXPANSION: usize = 8;
+    const FORMER_ALLOWLIST_EXPANSION: usize = 64;
     use super::*;
     use crate::ai::vector_planes::build_planes_from_store;
     use crate::ai::vector_store::VectorStore;
@@ -584,57 +441,45 @@ mod tests {
     }
 
     #[test]
-    fn recall_floor_lifts_the_no_facet_pool_past_k_times_expansion() {
-        // X-1: with k=1 the no-facet pool would be k*RECALL_EXPANSION = 8 without the floor. Place the
-        // true winner at Hamming rank 12 (12 Hamming-0 decoys ahead of it): a pool of 8 misses it, but
-        // RECALL_FLOOR (capped at the 13-vector index) recalls all 13 so the int8 winner is found.
+    fn exact_vector_search_reaches_a_winner_beyond_every_former_recall_pool() {
+        let (corpus, query, winner) = winner_beyond_shallow_pool(16, 2207);
+        let mut index = FlatVectorIndex::empty();
+        index.build(&corpus).unwrap();
+        assert_eq!(index.search(&query, 1, None).unwrap()[0].0, winner);
+    }
+
+    #[test]
+    fn exact_scoring_recovers_a_winner_beyond_the_former_expansion() {
         const DECOYS: usize = 12;
-        // Compile-time invariants the scenario depends on: the winner sits BEYOND the un-floored pool
-        // (k=1 → RECALL_EXPANSION) yet WITHIN the floor (capped at len=DECOYS+1), so only the floor
-        // recalls it.
-        const _: () = assert!(DECOYS + 1 > RECALL_EXPANSION);
-        const _: () = assert!(DECOYS < RECALL_FLOOR);
+        const _: () = assert!(DECOYS + 1 > FORMER_RECALL_EXPANSION);
+        const _: () = assert!(DECOYS < FORMER_RECALL_FLOOR);
         let (corpus, query, winner_key) = winner_beyond_shallow_pool(16, DECOYS);
         let mut index = FlatVectorIndex::empty();
         index.build(&corpus).expect("build");
         let top = index.search(&query, 1, None).expect("search")[0].0;
-        assert_eq!(top, winner_key, "the floor must recall deep enough to rescore the true winner");
+        assert_eq!(top, winner_key, "complete scoring must reach the true winner");
     }
 
     #[test]
-    fn recall_floor_lifts_the_faceted_pool_past_k_times_allowlist_expansion() {
-        // X-1 (facet branch): with k=1 the faceted pool would be k*ALLOWLIST_EXPANSION = 64 without the
-        // floor. Place the winner at Hamming rank 70 (70 Hamming-0 decoys ahead): a pool of 64 misses
-        // it, RECALL_FLOOR (capped at the 71-vector index) recalls all so the int8 winner is found. The
-        // allowlist admits every key so the post-filter itself never drops the winner — only pool depth.
+    fn exact_scoring_respects_the_allowlist_before_selection() {
         const DECOYS: usize = 70;
-        // Compile-time invariants: the winner sits BEYOND the un-floored faceted pool (k=1 →
-        // ALLOWLIST_EXPANSION) yet WITHIN the floor (capped at len=DECOYS+1), so only the floor reaches.
-        const _: () = assert!(DECOYS + 1 > ALLOWLIST_EXPANSION);
-        const _: () = assert!(DECOYS < RECALL_FLOOR);
+        const _: () = assert!(DECOYS + 1 > FORMER_ALLOWLIST_EXPANSION);
+        const _: () = assert!(DECOYS < FORMER_RECALL_FLOOR);
         let (corpus, query, winner_key) = winner_beyond_shallow_pool(16, DECOYS);
         let allow: Vec<u64> = corpus.iter().map(|(key, _)| *key).collect();
         let mut index = FlatVectorIndex::empty();
         index.build(&corpus).expect("build");
         let top = index.search(&query, 1, Some(&allow)).expect("search")[0].0;
-        assert_eq!(top, winner_key, "the floor must lift the faceted pool to the true winner too");
+        assert_eq!(top, winner_key, "the allowlist must preserve the true winner");
     }
 
     #[test]
-    fn bounded_selection_partitions_when_index_exceeds_the_recall_floor() {
-        // C3: when the index has MORE than RECALL_FLOOR vectors and k=1, recall_k = RECALL_FLOOR < n, so
-        // the `recall_k < scored.len()` branch fires and `select_nth_unstable_by` + truncate actually
-        // partition the pool below n (the small-index tests recall the whole index, never reaching this
-        // branch). The result must still be a correct, deterministic top-1 across repeated runs.
+    fn exact_topk_is_stable_above_the_former_pool_size() {
         let dim = 16usize;
-        let n = RECALL_FLOOR + 200;
+        let n = FORMER_RECALL_FLOOR + 200;
         let query = unit(vec![1.0; dim]);
-        // The winner is the exact query at the LOWEST content_key, so even though every vector here is
-        // Hamming-0 to the all-positive query (the tie-break that orders the partition is content_key
-        // asc), the winner is kept in the floored pool AND its exact-cosine rescore tops the result.
         let winner_key = 1u64;
         let mut corpus: Vec<(u64, Vec<f32>)> = vec![(winner_key, query.clone())];
-        // Distinct positive decoys (Hamming-0, spiky direction → lower cosine) at higher keys.
         for key in 2..=n as u64 {
             let mut vector = vec![0.05f32; dim];
             vector[(key as usize) % dim] += 1.0;
@@ -643,34 +488,21 @@ mod tests {
 
         let mut index = FlatVectorIndex::empty();
         index.build(&corpus).expect("build");
-        assert!(
-            index.len() > RECALL_FLOOR,
-            "index must exceed the floor to exercise the partition"
-        );
+        assert!(index.len() > FORMER_RECALL_FLOOR, "the corpus exceeds the former recall pool");
         let first = index.search(&query, 1, None).expect("search");
-        assert_eq!(
-            first[0].0, winner_key,
-            "the exact-query vector tops even through the partition"
-        );
+        assert_eq!(first[0].0, winner_key, "the exact-query vector ranks first");
         for _ in 0..5 {
             assert_eq!(
                 index.search(&query, 1, None).expect("repeat"),
                 first,
-                "stable under partition"
+                "stable complete ranking"
             );
         }
     }
 
     #[test]
-    fn bounded_selection_is_deterministic_across_runs() {
-        // C3: `recall` now uses `select_nth_unstable_by` (a partial, unstable partition) instead of a
-        // full sort, then sorts the kept pool. The comparator is a strict total order (Hamming asc,
-        // then UNIQUE content_key asc), so even with equal Hamming distances the selected pool — and
-        // thus the final ranking — is identical on every run. Many tied-Hamming vectors + a deep enough
-        // pool exercise the partition path; the result must be byte-identical run to run.
+    fn exact_topk_breaks_ties_deterministically() {
         let mut corpus: Vec<(u64, Vec<f32>)> = Vec::new();
-        // 40 vectors all at the SAME Hamming distance from the query (all-positive, distinct directions)
-        // so the tie-break (content_key) is the only thing ordering them — the determinism stress.
         for key in 0..40u64 {
             let mut vector = vec![0.1f32; 8];
             vector[(key % 8) as usize] += key as f32 * 0.01 + 0.5;
@@ -687,7 +519,6 @@ mod tests {
                 "ranking must be stable"
             );
         }
-        // The kept pool is sorted, so scores are non-increasing and the tie-break is content_key asc.
         for window in first.windows(2) {
             assert!(window[0].1 >= window[1].1, "scores descend");
         }
@@ -720,5 +551,31 @@ mod tests {
             .0;
         assert_eq!(flat_top, exact_top);
         assert_eq!(flat_top, 1);
+    }
+}
+
+#[cfg(test)]
+mod complete_search_tests {
+    use super::*;
+    #[test]
+    fn the_complete_score_stream_has_no_recall_pool_and_observes_cancellation() {
+        let mut index = FlatVectorIndex::empty();
+        index
+            .build(
+                &(1..=1207).map(|id| (id, vec![1., id as f32 / 1207., 0., 0.])).collect::<Vec<_>>(),
+            )
+            .unwrap();
+        let cancel = vault_store::CancelToken::new();
+        let mut keys = Vec::new();
+        index
+            .visit_scores(&[1., 0., 0., 0.], &cancel, |key, score| {
+                assert!(score.is_finite());
+                keys.push(key);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(keys, (1..=1207).collect::<Vec<_>>());
+        cancel.cancel();
+        assert!(index.visit_scores(&[1., 0., 0., 0.], &cancel, |_, _| Ok(())).is_err());
     }
 }

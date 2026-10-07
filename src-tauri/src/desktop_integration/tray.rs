@@ -9,7 +9,7 @@
 //!   status line says (`status.rs`, `copy.rs`).
 
 use tauri::{
-    AppHandle, Emitter, Manager, Runtime,
+    AppHandle, Emitter, Runtime,
     image::Image,
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
@@ -17,7 +17,6 @@ use tauri::{
 
 use super::copy::{MenuLanguage, menu_labels, status_text};
 use super::status::{BackupSource, BackupStatus, run_backup};
-use crate::session::SessionState;
 
 /// Id of PathKeep's one tray icon.
 pub(crate) const TRAY_ID: &str = "pathkeep";
@@ -155,11 +154,10 @@ fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     match event.id().as_ref() {
         ITEM_BACK_UP => {
             let app = app.clone();
-            let key = app.try_state::<SessionState>().and_then(|state| state.get_key());
             std::thread::spawn(move || {
                 // The result reaches the user through the status line and
                 // the backup-finished event; log failures for diagnostics.
-                if let Err(error) = run_backup(&app, BackupSource::MenuBar, false, key.as_deref()) {
+                if let Err(error) = run_backup(&app, BackupSource::MenuBar, false) {
                     log::warn!("menu bar backup failed: {}", error.message);
                 }
             });

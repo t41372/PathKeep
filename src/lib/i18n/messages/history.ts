@@ -52,12 +52,8 @@ export const history = defineMessages({
       pagesAndVisits: '{pages} · {visits} · {mode}',
       pages: '{pages} · {mode}',
       pagesMore: '{count}+ pages · {mode}',
-      windowed:
-        'Not every match was ranked, only the most recently saved ones. Add a word to narrow the search.',
-      regexStarting: 'Searching every visit…',
-      regexProgress: '{count}+ pages so far · searched back to {date}',
-      keepSearching: 'Keep searching',
-      stopSearching: 'Stop',
+      searching: 'Searching…',
+      sorting: 'Still ranking',
       relevance: 'Relevance {percent}',
       listLabel: 'History results',
       timelineLabel: 'History timeline',
@@ -78,7 +74,20 @@ export const history = defineMessages({
       noStarredBody: 'Star a page from the detail panel to keep it here.',
       errorTitle: 'Couldn’t load history',
       searchErrorTitle: 'The search didn’t run',
+      noResultsPartialTitle: 'Nothing found yet',
+      noResultsPartialBody:
+        'No visits match “{query}” in the part of your history indexed so far. The rest is still being indexed.',
+      searchConnectionLost: 'The connection to the search was lost. Try again.',
       untitled: 'Untitled page',
+    },
+    coverage: {
+      building:
+        'The search index is still being built: {done} of {total} pages so far. Pages not indexed yet won’t show up here.',
+      updating:
+        'Some recent changes aren’t searchable yet. They will be in a moment.',
+      failed:
+        'The search index couldn’t be updated, so some pages can’t be found: {error}',
+      progressLabel: 'Search index progress',
     },
     sites: {
       latest: 'Latest: {title}',
@@ -168,12 +177,8 @@ export const history = defineMessages({
       pagesAndVisits: '找到 {pages} · {visits} · {mode}',
       pages: '找到 {pages} · {mode}',
       pagesMore: '找到 {count}+ 个页面 · {mode}',
-      windowed:
-        '没有为每个结果排序，只排了最近保存的那些。再加一个词可以缩小范围。',
-      regexStarting: '正在搜索所有访问记录…',
-      regexProgress: '目前找到 {count}+ 个页面 · 已搜索到 {date}',
-      keepSearching: '继续搜索',
-      stopSearching: '停止',
+      searching: '正在搜索…',
+      sorting: '仍在排序',
       relevance: '相关度 {percent}',
       listLabel: '历史搜索结果',
       timelineLabel: '历史时间线',
@@ -194,7 +199,18 @@ export const history = defineMessages({
       noStarredBody: '在右侧详情里点星标，重要的页面就会出现在这里。',
       errorTitle: '没能加载历史',
       searchErrorTitle: '搜索没有执行成功',
+      noResultsPartialTitle: '暂时没有找到',
+      noResultsPartialBody:
+        '在目前已建立索引的历史中，没有与“{query}”相符的记录。其余部分仍在建立索引。',
+      searchConnectionLost: '与搜索的连接中断了，请重试。',
       untitled: '无标题页面',
+    },
+    coverage: {
+      building:
+        '搜索索引仍在建立：目前已处理 {done} / {total} 个页面。尚未建立索引的页面暂时不会出现在这里。',
+      updating: '部分最近的变更还搜索不到，稍后就能搜到。',
+      failed: '搜索索引无法更新，部分页面可能搜不到：{error}',
+      progressLabel: '搜索索引进度',
     },
     sites: {
       latest: '最近：{title}',
@@ -284,12 +300,8 @@ export const history = defineMessages({
       pagesAndVisits: '找到 {pages} · {visits} · {mode}',
       pages: '找到 {pages} · {mode}',
       pagesMore: '找到 {count}+ 個頁面 · {mode}',
-      windowed:
-        '沒有為每個結果排序，只排了最近儲存的那些。再加一個詞可以縮小範圍。',
-      regexStarting: '正在搜尋所有瀏覽記錄…',
-      regexProgress: '目前找到 {count}+ 個頁面 · 已搜尋到 {date}',
-      keepSearching: '繼續搜尋',
-      stopSearching: '停止',
+      searching: '正在搜尋…',
+      sorting: '仍在排序',
       relevance: '相關度 {percent}',
       listLabel: '歷史搜尋結果',
       timelineLabel: '歷史時間線',
@@ -310,7 +322,18 @@ export const history = defineMessages({
       noStarredBody: '在右側詳情裡點星號，重要的頁面就會出現在這裡。',
       errorTitle: '無法載入歷史',
       searchErrorTitle: '搜尋沒有執行成功',
+      noResultsPartialTitle: '暫時沒有找到',
+      noResultsPartialBody:
+        '在目前已建立索引的歷史中，沒有符合「{query}」的記錄。其餘部分仍在建立索引。',
+      searchConnectionLost: '與搜尋的連線中斷了，請再試一次。',
       untitled: '未命名頁面',
+    },
+    coverage: {
+      building:
+        '搜尋索引仍在建立：目前已處理 {done} / {total} 個頁面。還沒建立索引的頁面暫時不會出現在這裡。',
+      updating: '部分最近的變更還搜尋不到，稍後就能搜到。',
+      failed: '搜尋索引無法更新，部分頁面可能搜不到：{error}',
+      progressLabel: '搜尋索引進度',
     },
     sites: {
       latest: '最近：{title}',

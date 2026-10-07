@@ -9,8 +9,13 @@ import {
   useQuery,
   type QueryClient,
 } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { annotationsClient } from '@/lib/backend-client/annotations'
+import type {
+  IndexerState,
+  SearchCount,
+  SearchRequest,
+} from '@/lib/backend-client/search'
 import { explorerClient } from '@/lib/backend-client/explorer'
 import { insightsClient, localDateKey } from '@/lib/backend-client/insights'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
@@ -27,6 +32,7 @@ import {
   type HistoryFilters,
   type VisitItem,
 } from './history-types'
+import { searchRevisionKey, useSearchStream } from './use-search-stream'
 
 const key = (...parts: unknown[]) => [
   ...queryKeys.archiveData,
@@ -40,14 +46,12 @@ const key = (...parts: unknown[]) => [
  * run before tagging would keep showing nothing for five minutes.
  */
 export function invalidateSearches(client: QueryClient) {
-  void client.invalidateQueries({ queryKey: key('list') })
-  void client.invalidateQueries({ queryKey: key('search-total') })
+  void client.invalidateQueries({ queryKey: searchRevisionKey })
 }
 
 const PAGE_SIZE = 100
-/** Where the list key says what it lists: `'visits'` (timeline) or `'pages'` (search). */
-const LIST_KIND_AT = key('list').length
 const SEMANTIC_PAGE_SIZE = 50
+const SITES_PAGE_SIZE = 200
 
 function fromEntry(entry: HistoryEntry): VisitItem {
   return {
@@ -61,53 +65,24 @@ function fromEntry(entry: HistoryEntry): VisitItem {
   }
 }
 
-function lexicalQuery(search: SearchSpec, filters: HistoryFilters) {
-  return {
-    q: search.text ? search.pattern : null,
-    regexMode: search.mode === 'regex',
-    sort:
-      search.text && search.mode === 'full'
-        ? ('relevance' as const)
-        : ('newest' as const),
-    ...filters,
-  }
-}
-
-/** How much a search matched, once counted. */
-export interface SearchTotals {
-  pages: number
-  /** Matching visits; unknown for semantic search, which returns pages only. */
-  visits: number | null
-  /**
-   * The word matched more pages than one search ranks, so only the most
-   * recently archived ones were ranked and counted: `pages` is "at least".
-   */
-  windowed: boolean
-}
-
-/** How far a regex search has scanned the archive. */
-export interface RegexProgress {
-  /** Visit time the scan has reached; null before the first chunk. */
-  scannedToMs: number | null
-  /** Every visit inside the filters has been checked. */
-  complete: boolean
-  /** The list keeps asking for chunks without the user scrolling. */
-  running: boolean
-  /** Scan on until another page of results turns up, or the archive ends. */
-  keepSearching: () => void
-  /** Stop asking for chunks; scrolling down still continues. */
-  stop: () => void
+/** What a search knows so far. */
+export interface SearchStatus {
+  /** Matching pages; a lower bound until `exact`. */
+  pages: SearchCount
+  /** Matching visits; null for semantic search, which returns pages only. */
+  visits: SearchCount | null
+  /** The order of the rows shown can still change. */
+  sorting: boolean
+  /** False while the search index hasn't caught up with the archive: pages can be missing. */
+  coverageComplete: boolean
+  indexer: IndexerState | null
 }
 
 /** The pages of a visit list, flattened. */
 export interface VisitList {
   items: VisitItem[]
-  /** Search totals once counted; always null for the timeline. */
-  totals: SearchTotals | null
-  /** A loaded page of a full-text search came from a window of the matches. */
-  windowed: boolean
-  /** Regex searches only: the scan's progress and controls. */
-  regex: RegexProgress | null
+  /** Searches only. */
+  search: SearchStatus | null
   isPending: boolean
   isPlaceholder: boolean
   error: Error | null
@@ -118,16 +93,11 @@ export interface VisitList {
 }
 
 /**
- * The timeline and the search results share one list. The timeline lists
- * every visit; full-text and regex results list each page once
- * (`searchPages`), both read by cursor without an exact count. Semantic
- * results come from the AI search, which also returns one row per page.
- *
- * Regex is scanned by the backend a time-boxed chunk per request, newest
- * first. A chunk can come back empty and a page can show up again in a later
- * chunk with more visits, so regex rows are merged by URL here, and the list
- * asks for the next chunk by itself until it has a page of rows (or the user
- * stops it), then waits for scrolling or "Keep searching".
+ * The timeline and the search results share one list. The timeline lists every
+ * visit, read by cursor. Full-text and regex searches stream from the search
+ * index (one row per page): the first rows arrive while ranking and counting
+ * continue, and the count is a lower bound until it is exact. Semantic results
+ * come from the AI search, which also returns one row per page.
  */
 export function useVisitList(
   search: SearchSpec,
@@ -135,42 +105,58 @@ export function useVisitList(
   enabled: boolean,
 ): VisitList {
   const semantic = search.mode === 'semantic' && search.text !== ''
-  const regex = search.mode === 'regex' && search.text !== ''
-  const lexicalEnabled = enabled && !semantic && !search.regexError
+  // An invalid regex keeps the last valid search and its rows (dimmed) on screen.
+  const streamed = search.text !== '' && !semantic
 
-  const lexical = useInfiniteQuery({
-    enabled: lexicalEnabled,
-    queryKey: key(
-      'list',
-      search.text ? 'pages' : 'visits',
-      search.text,
-      search.mode,
-      filters,
-    ),
+  const timeline = useInfiniteQuery({
+    enabled: enabled && search.text === '',
+    queryKey: key('list', 'visits', filters),
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) => {
-      const query = {
-        ...lexicalQuery(search, filters),
+    queryFn: ({ pageParam }) =>
+      explorerClient.queryHistory({
+        q: null,
+        regexMode: false,
+        sort: 'newest',
+        ...filters,
         limit: PAGE_SIZE,
         cursor: pageParam,
         includeTotal: false,
-      }
-      return search.text
-        ? explorerClient.searchPages(query)
-        : explorerClient.queryHistory(query)
-    },
+      }),
     getNextPageParam: (last: HistoryQueryResponse) =>
       last.hasNext ? (last.nextCursor ?? undefined) : undefined,
-    // Keep the previous rows on screen while the next query loads, but only
-    // when they are the same kind of rows: the timeline lists visits and a
-    // search lists pages, so the timeline shown under "History results" put
-    // one page on several rows until the search answered.
-    placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[LIST_KIND_AT] ===
-      (search.text ? 'pages' : 'visits')
-        ? previous
-        : undefined,
+    placeholderData: keepPreviousData,
   })
+
+  const { startTimeMs, endTimeMs, browserKind, domain } = filters
+  const typed = useMemo<SearchRequest | null>(
+    () =>
+      enabled && streamed && !search.regexError
+        ? {
+            query: search.pattern,
+            regex: search.mode === 'regex',
+            sort: search.mode === 'full' ? 'relevance' : 'newest',
+            pageSize: PAGE_SIZE,
+            startTimeMs,
+            endTimeMs,
+            browserKind,
+            domain,
+          }
+        : null,
+    [
+      enabled,
+      streamed,
+      search.regexError,
+      search.pattern,
+      search.mode,
+      startTimeMs,
+      endTimeMs,
+      browserKind,
+      domain,
+    ],
+  )
+  const [lastValid, setLastValid] = useState(typed)
+  if (!search.regexError && lastValid !== typed) setLastValid(typed)
+  const stream = useSearchStream(search.regexError ? lastValid : typed)
 
   const smart = useInfiniteQuery({
     enabled: enabled && semantic,
@@ -187,18 +173,16 @@ export function useVisitList(
     placeholderData: keepPreviousData,
   })
 
-  // A regex count comes from the scan itself; a separate count would scan again.
-  const totals = useSearchTotals(search, filters, lexicalEnabled && !regex)
-  const active = semantic ? smart : lexical
-  const { startTimeMs, endTimeMs, browserKind } = filters
-  const clientFiltered =
-    semantic && (startTimeMs !== null || browserKind !== null)
-
+  const shown = stream.current ?? stream.placeholder
   const items = useMemo(() => {
-    if (regex) return mergePages(lexical.data?.pages ?? [])
+    if (streamed) {
+      return (shown?.pages ?? []).flatMap((page) =>
+        page.items.map((hit) => fromEntry(hit.visit)),
+      )
+    }
     if (!semantic) {
       return (
-        lexical.data?.pages.flatMap((page) => page.items.map(fromEntry)) ?? []
+        timeline.data?.pages.flatMap((page) => page.items.map(fromEntry)) ?? []
       )
     }
     // The AI search cannot filter by date or browser, so narrow its results here.
@@ -221,143 +205,63 @@ export function useVisitList(
             browserKindOf(item.profileId) === browserKind),
       )
   }, [
-    regex,
+    streamed,
+    shown,
     semantic,
     smart.data,
-    lexical.data,
+    timeline.data,
     startTimeMs,
     endTimeMs,
     browserKind,
   ])
 
-  const scan = useRegexScan(regex, search, filters, lexical, items.length)
+  if (streamed) {
+    const current = stream.current
+    const last = current?.pages.at(-1)
+    return {
+      items,
+      search: last
+        ? {
+            pages: last.count,
+            visits: last.visits,
+            sorting: current?.pages.some((page) => page.provisional) ?? false,
+            coverageComplete: last.coverageComplete,
+            indexer: current?.indexer ?? last.indexer,
+          }
+        : null,
+      isPending: enabled && shown === null,
+      isPlaceholder: current === null && shown !== null,
+      error: current?.error ? new Error(current.error) : null,
+      hasNextPage: stream.hasNextPage,
+      isFetchingNextPage: current?.loadingNext ?? false,
+      fetchNextPage: stream.fetchNextPage,
+      refetch: stream.refetch,
+    }
+  }
 
-  const semanticTotal = smart.data?.pages[0]?.total
+  const active = semantic ? smart : timeline
+  const first = smart.data?.pages[0]
+  // The AI search cannot filter by date or browser itself; a count would describe other rows.
+  const clientFiltered = startTimeMs !== null || browserKind !== null
   return {
     items,
-    totals: semantic
-      ? clientFiltered || semanticTotal === undefined
-        ? null
-        : { pages: semanticTotal, visits: null, windowed: false }
-      : regex
-        ? scan?.complete
-          ? {
-              pages: items.length,
-              visits: items.reduce(
-                (sum, item) => sum + (item.visitCount ?? 0),
-                0,
-              ),
-              windowed: false,
-            }
-          : null
-        : totals,
-    windowed:
-      !semantic &&
-      (lexical.data?.pages.some((page) => page.windowed === true) ?? false),
-    regex: scan,
-    isPending: (lexicalEnabled || (enabled && semantic)) && active.isPending,
+    search:
+      semantic && first && !clientFiltered
+        ? {
+            pages: { value: first.total, exact: true },
+            visits: null,
+            sorting: false,
+            coverageComplete: first.searchState?.coverageComplete ?? true,
+            indexer: first.searchState?.indexer ?? null,
+          }
+        : null,
+    isPending: enabled && (semantic || search.text === '') && active.isPending,
     isPlaceholder: active.isPlaceholderData,
     error: active.error,
     hasNextPage: active.hasNextPage,
     isFetchingNextPage: active.isFetchingNextPage,
     fetchNextPage: () => void active.fetchNextPage(),
     refetch: () => void active.refetch(),
-  }
-}
-
-/** Regex rows of every chunk so far, one per page, with the visits of each chunk added up. */
-function mergePages(pages: HistoryQueryResponse[]): VisitItem[] {
-  const byUrl = new Map<string, VisitItem>()
-  for (const entry of pages.flatMap((page) => page.items)) {
-    const known = byUrl.get(entry.url)
-    if (known) {
-      known.visitCount = (known.visitCount ?? 0) + (entry.visitCount ?? 0)
-    } else {
-      byUrl.set(entry.url, fromEntry(entry))
-    }
-  }
-  return [...byUrl.values()]
-}
-
-interface ScanGoal {
-  key: string
-  rows: number
-  stopped: boolean
-}
-
-/**
- * Keeps a regex scan going until the list has `rows` rows, the user stops
- * it, or the archive ends. Each chunk is one short request, so stopping only
- * means not asking for the next one.
- */
-function useRegexScan(
-  regex: boolean,
-  search: SearchSpec,
-  filters: HistoryFilters,
-  lexical: {
-    data?: { pages: HistoryQueryResponse[] }
-    hasNextPage: boolean
-    isFetchingNextPage: boolean
-    isFetching: boolean
-    isPlaceholderData: boolean
-    fetchNextPage: () => unknown
-  },
-  rowCount: number,
-): RegexProgress | null {
-  const scanKey = JSON.stringify([search.text, search.mode, filters])
-  const fresh = { key: scanKey, rows: PAGE_SIZE, stopped: false }
-  const [stored, setGoal] = useState<ScanGoal>(fresh)
-  const goal = stored.key === scanKey ? stored : fresh
-  const { hasNextPage, isFetching, isPlaceholderData, fetchNextPage } = lexical
-  const running = regex && hasNextPage && !goal.stopped && rowCount < goal.rows
-
-  useEffect(() => {
-    if (running && !isFetching && !isPlaceholderData) void fetchNextPage()
-  }, [running, isFetching, isPlaceholderData, fetchNextPage])
-
-  const keepSearching = useCallback(
-    () => setGoal({ key: scanKey, rows: rowCount + PAGE_SIZE, stopped: false }),
-    [scanKey, rowCount],
-  )
-  const stop = useCallback(
-    () => setGoal({ key: scanKey, rows: rowCount, stopped: true }),
-    [scanKey, rowCount],
-  )
-  const last =
-    regex && !isPlaceholderData ? lexical.data?.pages.at(-1) : undefined
-  if (!last) return null
-  return {
-    scannedToMs: last.regexScan?.scannedToMs ?? null,
-    complete: last.regexScan?.complete ?? !hasNextPage,
-    running,
-    keepSearching,
-    stop,
-  }
-}
-
-/** Counting matches is slower than fetching a page, so it runs beside the list, not before it. */
-function useSearchTotals(
-  search: SearchSpec,
-  filters: HistoryFilters,
-  enabled: boolean,
-): SearchTotals | null {
-  const query = useQuery({
-    enabled: enabled && search.text !== '',
-    queryKey: key('search-total', search.text, search.mode, filters),
-    queryFn: () =>
-      explorerClient.searchPages({
-        ...lexicalQuery(search, filters),
-        limit: 1,
-        includeTotal: true,
-      }),
-  })
-  const response = query.data
-  const windowed = response?.windowed === true
-  if (!response || !(response.totalExact || windowed)) return null
-  return {
-    pages: response.total,
-    visits: response.totalVisits ?? null,
-    windowed,
   }
 }
 
@@ -417,7 +321,10 @@ export interface SiteCount {
   visits: number
 }
 
-/** Top sites for the date filter, summed across the profiles of the chosen browser. */
+/**
+ * Every site visited in the date filter, most visited first, a page at a time.
+ * The backend sums the profiles of the chosen browser; no site is cut off.
+ */
 export function useTopSites(
   range: DayRange | null,
   profileIds: string[] | null,
@@ -429,35 +336,29 @@ export function useTopSites(
   const end = range?.end ?? localDateKey(new Date())
   const ready = range !== null || !dashboard.isPending
 
-  return useQuery({
+  return useInfiniteQuery({
     enabled: ready,
     queryKey: key('top-sites', start, end, profileIds),
-    queryFn: async () => {
-      const dateRange = { start, end }
-      const sections = await Promise.all(
-        (profileIds ?? [null]).map((profileId) =>
-          insightsClient.topSites({ dateRange, profileId }, 200),
-        ),
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
+      const section = await insightsClient.topSites(
+        { dateRange: { start, end }, profileIds: profileIds ?? [] },
+        SITES_PAGE_SIZE,
+        pageParam,
       )
-      const merged = new Map<string, number>()
-      for (const section of sections) {
-        for (const site of section.data) {
-          merged.set(
-            site.registrableDomain,
-            (merged.get(site.registrableDomain) ?? 0) + site.visitCount,
-          )
-        }
-      }
-      const sites: SiteCount[] = [...merged]
-        .map(([domain, visits]) => ({ domain, visits }))
-        .sort((a, b) => b.visits - a.visits)
       return {
-        sites,
-        stale: sections.some((section) => section.meta?.state === 'stale'),
+        sites: section.data.items.map<SiteCount>((site) => ({
+          domain: site.registrableDomain,
+          visits: site.visitCount,
+        })),
+        nextCursor: section.data.nextCursor,
+        stale: section.meta?.state === 'stale',
       }
     },
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     placeholderData: keepPreviousData,
-    refetchInterval: (query) => (query.state.data?.stale ? 5_000 : false),
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) => page.stale) ? 5_000 : false,
   })
 }
 
@@ -479,13 +380,14 @@ export function useLatestVisit(domain: string, filters: HistoryFilters | null) {
   })
 }
 
-const STAR_LIST_LIMIT = 500
-
+/** Every star, newest first, a page at a time as the list scrolls. */
 export function useStarList() {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['stars', 'list'],
-    queryFn: () =>
-      starsClient.listStars(null, 'recently_starred', STAR_LIST_LIMIT),
+    queryFn: ({ pageParam }) =>
+      starsClient.listStars(null, 'recently_starred', pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
   })
 }
 
@@ -493,14 +395,6 @@ export function useStarCounts() {
   return useQuery({
     queryKey: ['stars', 'counts'],
     queryFn: starsClient.getStarCounts,
-  })
-}
-
-/** Note text per page, for the Starred previews. */
-export function useAnnotationList() {
-  return useQuery({
-    queryKey: ['annotations', 'list'],
-    queryFn: () => annotationsClient.listUrlAnnotations(2000),
   })
 }
 

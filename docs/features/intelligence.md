@@ -33,10 +33,33 @@ M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變�
 - §2 assistant 的 `queued` / `insufficient-evidence` 狀態與 `jobId` / `runId` 顯示、共享 profile scope、seeded prompt 以外的修復入口。Ask 有四個範例問題與「去 Settings → AI」。
 - §3 Integrations 的 generated-artifact review（MCP JSON、skill markdown、consent summary）。
 - §4 Insights 的 V1 洞察卡：2026-10 補上 Threads（回頭再看的事）、Explore vs Exploit（探索還是專注，只用 breadth index 與新網站數；discovery rate 在合成資料上幾乎全為 0，沒有做成卡）、Habits、多瀏覽器對比，以及 day / site / search / page drill-in；每張卡有 freshness（`meta.state` 為 stale 時顯示「更新中」並輪詢，degraded / disabled 顯示「部分可用」與 `stateReason`）與 ⓘ 說明（計算時間、日期範圍、算法），重開頁面的 drill-in 列出分數的每個訊號與權重。仍沒做、原因是後端沒有可信的資料：Open Loops（沒有命令）；Search effectiveness 與 Friction（每條 trail 只有一個 query，`avgReformulations` 恆為 0，friction 恆為空）；Source Role Map（`get_stable_sources` 是整段歷史的計數、每個設定檔一列、從不輸出 `entry`）；Periodic Summaries / Topic Timeline / Query Ladder / Contrastive Summary（沒有 2026-10 介面）。scope 標示：Insights 一律是整個 archive，沒有 profile scope。
-- §6 Job Queue 的使用者控制：2026-10-04 起在 Settings → Background work（隊列數、執行中與最近完成 / 失敗的工作、進度、暫停 / 恢復、併發 1–4、單筆重試 / 取消、手動「重建洞察」與「立即抓取」網頁摘要）。沒有：一次重排全部失敗任務、清理失敗任務（後端沒有批次命令）、前景「立即執行」(`run_ai_queue_jobs` 會在一次 IPC 內跑完工作，索引建置可長達數分鐘，所以不接)。最近工作只列後端回傳的 12 筆。
+- §6 Job Queue 的使用者控制：2026-10-04 起在 Settings → Background work（隊列數、執行中與最近完成 / 失敗的工作、進度、暫停 / 恢復、併發 1–4、單筆重試 / 取消、手動「重建洞察」與「立即抓取」網頁摘要）。沒有：一次重排全部失敗任務、清理失敗任務（後端沒有批次命令）、前景「立即執行」(`run_ai_queue_jobs` 會在一次 IPC 內跑完工作，索引建置可長達數分鐘，所以不接)。最近工作目前顯示第一頁；Turso 後端另提供 continuation cursor 與完整工作列表命令。
 - 搜尋 tuning：2026-10-04 起在 Settings → AI「搜尋排序」（RRF `k`、文字 / 意思權重、加星加分；預設值、範圍、說明、恢復預設值；範圍與 `normalize_search_knobs` 一致）。
 
 ---
+
+## Turso storage contracts (2026-10)
+
+AI queue state and embedding metadata use the session's `Vault` in `Db::Intelligence`;
+vectors remain in their documented sidecars. Queue recovery returns abandoned claims to
+pending without repeating completed jobs. Backfill visits every captured candidate, using
+`limit` as a batch size. Working-set scoring sets priority and does not remove candidates
+through a global or per-signal pool cap.
+
+Recent-job snapshots expose continuation cursors. `list_ai_jobs` and
+`list_intelligence_jobs` retrieve the remaining history. The frontend still needs to consume
+these cursors; a first page is not the complete job history.
+
+Enrichment candidates come from native canonical pages, including pages with no visit.
+`awaiting_archive` jobs are offered again once their page exists. The cache is keyed by
+canonical URL and content source; a stored fetch result survives interruption between cache
+storage and Archive publication and is replayed without another fetch. Later URL variants
+reuse the same content. Existing fetch consent and transport behavior are unchanged.
+
+Agent intelligence reports and annotations expose `output_cursor` fragments when the whole
+JSON cannot fit one response. Notes retain their full text. Fragment cursors pin the content
+revision; changed content requests a restart. Deterministic list/detail DTO changes and all
+continuation fields are listed in the [area-4 contract report](../architecture/research/2026-10-turso-area4.md).
 
 ## 1. 語義搜尋（Semantic Search）
 
@@ -50,12 +73,20 @@ M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變�
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
 - semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`failed`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新。
-- runtime contract：semantic retrieval 走 `FlatVectorIndex`（binary-recall → int8-rescore 兩階段），**不做全庫 cosine 掃描**；若 sidecar 缺失、過期或失敗，PathKeep 誠實退回 lexical recall。semantic metadata / queue 固定落在 `derived/history-intelligence.sqlite`、向量 payload 落在 `derived/vectors/`、assistant chat / agent trace 落在 `derived/agent.sqlite`；SQLite 不承擔向量 payload mirror。
+- 搜尋必須覆蓋全部可用的向量與詞彙匹配頁面；日期、profile 與星號篩選不能先套在有限候選池上。結果以游標接續，頁面大小不限制總覆蓋；若 sidecar 缺失、過期或失敗，PathKeep 誠實退回 lexical recall。semantic metadata / queue 固定落在 `derived/intelligence.db`、向量 payload 落在 `derived/vectors/`、assistant chat / agent trace 落在 `derived/agent.db`；Turso 不承擔向量 payload mirror。
 - 搜尋 tuning（RRF `k`、lexical / semantic weight、starred boost）是 consent knob，入口在 Settings（W-AI-9-A），於 config load 時 clamp。
 
 ---
 
 ## 2. AI 助手（Ask My History）
+
+2026-10 Turso agent storage: transcripts and run journals use the session's
+`Vault` and `derived/agent.db`. Conversation lists return `nextCursor`, so the old
+200-row limit bounds one page. `list_ai_messages` provides sequence-based message
+pages. Full transcript loading and atomic whole-transcript saving keep their existing
+contract. The frontend must follow list cursors to expose all conversations; it must
+not submit a partial message page as a complete transcript. Request/response fields
+are specified in [data-model.md](../architecture/data-model.md#migration-in-progress).
 
 **作為**用戶，**我想要**用自然語言問我的歷史紀錄問題，**以便**能在不手動翻閱的情況下回顧過去的研究。
 
@@ -74,7 +105,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變�
 - queued assistant request 可在執行前 replay / cancel；running AI / deterministic job 改為 cooperative stop request，而不是假裝立即中斷。UI 必須清楚說明「已請求取消，會在目前 phase / chunk 邊界停止」。
 - Assistant 必須尊重 shell 的共享 profile scope；若使用者透過 deep-link 帶進明確 `profileId`，頁面級 scope 優先於共享 scope。
 - Assistant 的 empty / AI-disabled state 不能只剩靜態說明；至少要提供 seeded prompt 建議、queue / settings 修復入口，以及在共享 profile scope 生效時明講目前回答邊界是 scoped view。
-- shipped（W-AI-1/2/3/7）：Assistant 現在是 streaming chat surface——token / reasoning / tool-use 即時可視，markdown 串流渲染，引用的頁面可連回 History（`/history?q=<標題>&visit=<id>`）。底層是 durable agent harness（journal-before-observe + replay，崩潰可續跑不重複收費），可呼叫 5 個工具：`search_history`（hybrid）、`search_bm25`、`search_vector`、`search_hybrid`、`run_code`（code-mode 沙箱，見 §4-code-mode）。chat 持久化在 `derived/agent.sqlite`，transcript **不進 export**。整個 surface gated on `ai.enabled && assistant_enabled`（預設關）。
+- shipped（W-AI-1/2/3/7）：Assistant 現在是 streaming chat surface——token / reasoning / tool-use 即時可視，markdown 串流渲染，引用的頁面可連回 History（`/history?q=<標題>&visit=<id>`）。底層是 durable agent harness（journal-before-observe + replay，崩潰可續跑不重複收費），可呼叫 5 個工具：`search_history`（hybrid）、`search_bm25`、`search_vector`、`search_hybrid`、`run_code`（code-mode 沙箱，見 §4-code-mode）。chat 持久化在 `derived/agent.db`，transcript **不進 export**。整個 surface gated on `ai.enabled && assistant_enabled`（預設關）。
 
 ---
 
@@ -343,7 +374,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變�
 - **成功**：結果寫入對應的表，標記任務完成。
 - **失敗**：記錄錯誤原因，按可配置的策略自動重試（最多 N 次，指數退避）。
 - **暫停**：用戶可以隨時暫停所有計算任務，之後恢復。
-- queue persistence 現在存在 `derived/history-intelligence.sqlite` 的 `ai_jobs` / `intelligence_jobs`；sidecar 只保存可重建的 embedding / vector 資產，不承擔 job state。
+- queue persistence 現在存在 `derived/intelligence.db` 的 `ai_jobs` / `intelligence_jobs`；sidecar 只保存可重建的 embedding / vector 資產，不承擔 job state。
 - queue state 精確包含 `queued`、`running`、`succeeded`、`failed`、`paused`、`cancelled`、`stale`。
 - manual replay 只允許 `failed` / `cancelled` / `paused` / `stale` job；`running` job 在當前 worker 不支援 mid-flight cancel。
 

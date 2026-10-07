@@ -13,7 +13,7 @@ use vault_store::{Config, Db, Migration, Priority, Result, Store};
 
 fn open_archive() -> Result<Arc<Store>> {
     let mut config = Config::new("/path/to/archive-root");
-    config.key = None; // Or Some(already_derived_32_byte_database_key).
+    config.keys = [None; 5]; // Or an independent derived key for each Db.
     config.migrations.register(Db::Archive, vec![
         Migration::sql(1, "CREATE TABLE notes(page_id INTEGER PRIMARY KEY, body TEXT)"),
     ]);
@@ -37,19 +37,21 @@ reply; neither belongs on the frontend or an async executor's polling thread.
 Closures and returned values must be `Send + 'static`. A `Session` is borrowed,
 not Send or Sync, and cannot escape its closure. It exposes synchronous
 `execute`, `query_one`, `query` (for bounded result pages), and `for_each` (row
-streaming). It never exposes a Turso connection, statement, or cursor. Nested
-synchronous Store requests from an owner thread return `Reentrant`.
+streaming). `prepare` provides a reusable statement wrapper whose statement and streaming
+rows borrow the Session; neither can escape or move to another thread. It never exposes a
+raw Turso connection or statement. Nested synchronous Store requests from an owner thread
+return `Reentrant`. `OptionalRow` treats only a missing row as absence and preserves errors.
 
 `Db` identifies Archive, SourceEvidence, Intelligence, Agent and Scratch. The
 caller can replace every `config.paths` entry. Defaults under `config.root` are:
 
-| Database | Path |
-| --- | --- |
-| Archive | `archive/history-vault.db` |
+| Database       | Path                         |
+| -------------- | ---------------------------- |
+| Archive        | `archive/history-vault.db`   |
 | SourceEvidence | `archive/source-evidence.db` |
-| Intelligence | `derived/intelligence.db` |
-| Agent | `derived/agent.db` |
-| Scratch | `derived/scratch.db` |
+| Intelligence   | `derived/intelligence.db`    |
+| Agent          | `derived/agent.db`           |
+| Scratch        | `derived/scratch.db`         |
 
 Use the same root for every attempt to open a given set of files. The root is
 the ownership identity, not a discovery mechanism for unrelated file sets.
@@ -103,18 +105,22 @@ A returned error rolls back the transaction. A closure panic is caught, its
 transaction rolls back, and its owner remains usable. `JobPanicked` is returned;
 the application's normal panic hook still runs. Commit is acknowledged before
 idle reader draining, so a reader cannot hold up a successful write reply.
-Shutdown closes queues and joins all threads before releasing the ownership
-file. Scratch's owners outlive the attached connections.
+`Store::close()` revokes every retained handle, waits for admitted requests, closes queues and joins all threads before releasing the ownership
+file when no app reservation remains. `Config::owner` can share the app's startup `Arc<OwnerLock>` for the same root. It is idempotent; subsequent reads and writes return `Closed`. Drop uses the same closure path. Explicit shutdown or archive-session clearing closes retained handles; App Lock keeps the owner open. Scratch's owners outlive the attached connections.
 
 ## Encryption and scratch
 
-`key: Option<[u8; 32]>` is the already-derived database key. `None` selects
+`keys: [Option<[u8; 32]>; 5]` supplies each `Db` its already-derived key. `[None; 5]` selects
 plaintext for all five databases. A key is hex-encoded with standard-library
 formatting and passed to native `EncryptionOpts { cipher: "aegis256", hexkey }`
-with `experimental_encryption(true)`. Scratch attachments use the same native
+with `experimental_encryption(true)`. Scratch attachments use the separately supplied scratch
 key through a bound `file:...?cipher=aegis256&hexkey=...` URI. URI paths are
 percent-encoded, including non-ASCII characters and `?`, `#`, and quotes.
-Configuration has no Debug implementation that could print the key.
+Configuration has no Debug implementation that could print the key. Configuration and
+connection settings zeroize their owned key arrays when dropped. Temporary hexadecimal
+keys and scratch URI strings are zeroized too. The Turso SDK receives its own owned
+`hexkey` string and retains internal parsed key/URI copies for its connections; their
+memory lifetime and erasure are controlled by Turso, not this facade.
 
 `IoLayer = Arc<dyn turso::core::IO>` is the optional caller-supplied IO boundary,
 passed unchanged to `Builder::with_io_impl`. For protected spill files, the
@@ -163,7 +169,7 @@ counts and the last maintenance error with its cause. An unsuccessful checkpoint
 is retried at a later job or reader-completion boundary, without a busy loop.
 
 **Measured correction to the probe report:** stock cached Turso 0.8.1 ignores
-`wal_autocheckpoint=0`, but it does not backfill on *every* small commit. Its
+`wal_autocheckpoint=0`, but it does not backfill on _every_ small commit. Its
 `WalFile::should_checkpoint` checks whether unbackfilled frames exceed 1,000
 (`storage/wal.rs:4099`, threshold initialization at 4845); the commit state
 machine only enters AutoCheckpoint when that condition holds
@@ -212,7 +218,7 @@ arbitrary ATTACH/DETACH, PRAGMA and transaction control are rejected. Migration
 metadata and pragma table functions are private. SQL is one statement per call;
 use multiple calls within the closure for multi-statement work. Multi-statement
 trigger definitions are outside this SQL surface. Values belong in bound
-parameters. Scratch-qualified mutations are rejected on attached connections;
+parameters. Archive-qualified mutations are rejected outside its writer. Scratch-qualified mutations are rejected on attached connections;
 use its dedicated writer. Reader connections additionally enforce query-only
 mode in Turso, including for a mutation hidden behind a WITH clause.
 
@@ -221,6 +227,15 @@ cancellation, too-new schemas and other engine failures. Engine failures retain
 `std::error::Error::source`; cooperative cancellation has no underlying engine
 cause. Native decryption errors do not distinguish a wrong key from damaged
 authentication data. No business code should inspect engine error strings.
+
+## Diagnostic reads
+
+Within a normal read-pool job, `Session::schema_version()` inspects Store's migration
+metadata and `Session::integrity_check()` runs the fixed read-only Turso integrity
+pragma. These methods expose neither a connection nor arbitrary PRAGMA access.
+Integrity checking can be long and cannot interrupt an in-flight statement in Turso
+0.8.1. Business-level relationship, outbox and cached-count checks belong to vault-core.
+The `health` integration test exercises both methods with plaintext and encrypted files.
 
 ## Dependencies and validation
 
@@ -249,3 +264,14 @@ CARGO_NET_OFFLINE=true cargo test -p vault-store --release --test benchmark \
 ```
 
 Each module's header lists the ways it can fail and the tests that cover them.
+
+## Intelligence archive reads and plan evidence
+
+Intelligence connections attach the owner's canonical Archive file using its own derived
+key. They do not open a database per operation. A transaction mentioning `archive` joins
+Archive's reader admission accounting, so checkpointing cannot truncate under that snapshot.
+All mutations still use `write(Db::Archive, ...)`.
+
+`capture_query_plans(db, true)` enables opt-in diagnostics for actual query SQL and bound
+parameters, including prepared reads. `take_query_plans(db)` drains that evidence. Capture
+is disabled by default and runs on the existing reader, without a second database owner.

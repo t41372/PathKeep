@@ -10,6 +10,10 @@
 //! - Loading browser rows from canonical archive tables.
 //! - Persisting canonical URLs.
 //!
+//! Failure modes: URL variants receive different canonical keys, semantic query values
+//! are lost, or decoding an escaped delimiter changes the path. Tests: pages::tests
+//! and visit_taxonomy::tests.
+//!
 //! ## Dependencies
 //! - `reqwest::Url` for URL parsing and canonical query serialization.
 //! - `publicsuffix` plus a small fallback list for common multi-label suffixes.
@@ -59,6 +63,7 @@ pub fn normalize_visit_url(raw_url: &str) -> Option<NormalizedVisitUrl> {
         preserved_query.push((key, value));
     }
 
+    parsed.set_path(&canonical_path(parsed.path()));
     parsed.set_query(None);
     if !preserved_query.is_empty() {
         let mut serializer = parsed.query_pairs_mut();
@@ -180,4 +185,32 @@ fn subdomain_for_host_and_domain(host: &str, registrable_domain: &str) -> Option
     }
     let suffix = format!(".{registrable_domain}");
     host.strip_suffix(&suffix).map(|value| value.to_string()).filter(|value| !value.is_empty())
+}
+
+// Only unreserved bytes are decoded; encoded slashes and other reserved bytes keep
+// their meaning. Uppercase escapes make equivalent percent spellings one key.
+fn canonical_path(path: &str) -> String {
+    let mut output = String::new();
+    let bytes = path.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && let (Some(a), Some(b)) =
+                ((bytes[index + 1] as char).to_digit(16), (bytes[index + 2] as char).to_digit(16))
+        {
+            let byte = (a * 16 + b) as u8;
+            if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+                output.push(byte as char);
+            } else {
+                output.push_str(&format!("%{byte:02X}"));
+            }
+            index += 3;
+        } else {
+            let ch = path[index..].chars().next().expect("path character");
+            output.push(ch);
+            index += ch.len_utf8();
+        }
+    }
+    output
 }

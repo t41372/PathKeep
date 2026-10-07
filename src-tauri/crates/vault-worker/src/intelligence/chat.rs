@@ -1,3 +1,4 @@
+//! Failure modes: chat loads another root, loses cancellation or skips the durable journal before exposing output.
 //! Worker-side streaming chat orchestration (W-AI-1) + tool-executing agent harness (W-AI-7).
 //!
 //! ## Responsibilities
@@ -5,13 +6,13 @@
 //! - start a background streaming chat run, forwarding each chunk to the desktop emit sink
 //!   as an `AiChatStreamEvent` until a terminal `Done`/`Error`
 //! - when `toolsEnabled`, instead drive the durable W-AI-7 agent harness (probe tool capability,
-//!   build the owned tool registry, journal every step to `derived/agent.sqlite`, finalize the run)
+//!   build the owned tool registry, journal every step to `derived/agent.db`, finalize the run)
 //! - request cooperative cancellation of a live run by id (shared by both paths)
 //!
 //! ## Not responsible for
 //! - emitting Tauri events (the desktop command supplies the sink closure)
 //! - the agent loop / tool execution itself (vault-core `agent_harness` / `agent_tools`)
-//! - the agent.sqlite schema/CRUD (vault-core `agent_store`; this only writes through it)
+//! - the agent.db schema/CRUD (vault-core `agent_store`; this only writes through it)
 //!
 //! ## Performance notes
 //! - both paths run on a dedicated worker thread with its own scoped runtime, so the UI thread is
@@ -83,6 +84,7 @@ fn to_llm_request(request: &AiChatSendRequest) -> LlmChatRequest {
 /// Bundled so the (blocking) provider/config/registry resolution happens on the calling thread
 /// while the run id is minted, then the whole bundle moves onto the background thread.
 struct AgentRunSetup {
+    vault: vault_core::Vault,
     llm_runtime: AiProviderRuntime,
     embedding_runtime: Option<AiProviderRuntime>,
     request: LlmChatRequest,
@@ -104,6 +106,7 @@ struct AgentRunSetup {
 /// is the desktop `AppHandle::emit` wrapper; it must be `Send + Sync + 'static` so the background
 /// thread can own it.
 pub fn ai_chat_send<E>(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     request: &AiChatSendRequest,
     emit: E,
@@ -132,6 +135,7 @@ where
         // is not fatal to the agent run, so treat it as "no embedding provider" rather than aborting.
         let embedding_runtime = selected_optional_embedding_runtime(&config).ok().flatten();
         let setup = AgentRunSetup {
+            vault: vault.clone(),
             llm_runtime: runtime,
             embedding_runtime,
             request: to_llm_request(request),
@@ -304,19 +308,19 @@ impl AiRunControl for WorkerCancelControl {
     }
 }
 
-/// Durable journal that writes the harness's steps/citations to `derived/agent.sqlite` (W-AI-7).
+/// Durable journal that writes the harness's steps/citations to `derived/agent.db` (W-AI-7).
 ///
 /// JOURNAL-BEFORE-OBSERVE: the harness calls these BEFORE emitting the matching chunk, so a crash
 /// mid-run leaves an interrupted partial trace and a resume = replay (never a model re-call). The
 /// `run_id` anchors every write to the run header opened by [`spawn_agent_run`]. Citations are
 /// converted to the canonical-url-keyed record (the W-STAR key) here, deriving the canonical url
 /// from each citation's raw url so WU-6 can star a cited page.
-struct AgentSqliteJournal {
-    paths: ProjectPaths,
+struct AgentVaultJournal {
+    vault: vault_core::Vault,
     run_id: String,
 }
 
-impl AgentJournal for AgentSqliteJournal {
+impl AgentJournal for AgentVaultJournal {
     fn journal_step(
         &self,
         turn: u32,
@@ -326,7 +330,7 @@ impl AgentJournal for AgentSqliteJournal {
         payload: &str,
     ) -> Result<()> {
         append_agent_step(
-            &self.paths,
+            &self.vault,
             &AppendAgentStep {
                 run_id: self.run_id.clone(),
                 turn: turn as i64,
@@ -361,7 +365,7 @@ impl AgentJournal for AgentSqliteJournal {
                 score: citation.score,
             })
             .collect();
-        record_agent_citations(&self.paths, &self.run_id, &records)?;
+        record_agent_citations(&self.vault, &self.run_id, &records)?;
         Ok(())
     }
 }
@@ -439,15 +443,16 @@ where
         provider_id: Some(setup.llm_runtime.config.id.clone()),
         embedding_provider_id: setup.embedding_runtime.as_ref().map(|p| p.config.id.clone()),
     };
-    if let Err(error) = begin_agent_run(&setup.paths, &begin) {
+    if let Err(error) = begin_agent_run(&setup.vault, &begin) {
         return emit_error(error.to_string());
     }
 
     let provider = RigLlmProvider::new(setup.llm_runtime.clone());
     let registry = ToolRegistry::with_default_search_tools();
-    let journal = AgentSqliteJournal { paths: setup.paths.clone(), run_id: run_id.to_string() };
+    let journal = AgentVaultJournal { vault: setup.vault.clone(), run_id: run_id.to_string() };
     let control: Arc<dyn AiRunControl> = Arc::new(WorkerCancelControl { cancel });
     let tool_context = AgentToolContext {
+        vault: setup.vault.clone(),
         paths: setup.paths.clone(),
         config: setup.config.clone(),
         database_key: setup.session_database_key.clone(),
@@ -470,12 +475,9 @@ where
     // cached archive read) and prepended ahead of any existing leading system message so it is part
     // of the first turn but never displaces the caller's own system guidance.
     let mut request = setup.request;
-    let system_context =
-        vault_core::build_agent_system_context(&vault_core::resolve_agent_system_context(
-            &setup.paths,
-            &setup.config,
-            setup.session_database_key.as_deref(),
-        ));
+    let system_context = vault_core::build_agent_system_context(
+        &vault_core::resolve_agent_system_context(&setup.vault),
+    );
     request.messages.insert(0, LlmMessage::new(LlmRole::System, system_context));
 
     let outcome = stream_runtime.block_on(async {
@@ -524,7 +526,7 @@ where
         }
     };
     let _ = finalize_agent_run(
-        &setup.paths,
+        &setup.vault,
         run_id,
         status,
         iterations as i64,
@@ -606,13 +608,15 @@ mod tests {
 
     #[test]
     fn empty_message_request_is_rejected_before_provider_resolution() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         let request = AiChatSendRequest::default();
-        let error = ai_chat_send(None, &request, |_| {}).expect_err("empty request");
+        let error = ai_chat_send(&vault, None, &request, |_| {}).expect_err("empty request");
         assert!(error.to_string().contains("at least one message"));
     }
 
     #[test]
     fn chat_send_refuses_when_master_ai_or_assistant_consent_is_off() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         // A non-empty request with a configured provider+key must STILL refuse while the master AI
         // switch (or the assistant sub-flag) is off — a previously-configured provider must not let
         // the agent/streaming run fire with consent withdrawn (H-1 / M-2). The gate bails before any
@@ -641,7 +645,7 @@ mod tests {
             tools_enabled: true,
             ..Default::default()
         };
-        let error = ai_chat_send(None, &request, |_| panic!("sink must never be reached"))
+        let error = ai_chat_send(&vault, None, &request, |_| panic!("sink must never be reached"))
             .expect_err("master AI off must refuse");
         let message = error.to_string();
         assert!(
@@ -653,7 +657,7 @@ mod tests {
         config.ai.enabled = true;
         config.ai.assistant_enabled = false;
         vault_core::save_config(&paths, &config).expect("save config");
-        let error = ai_chat_send(None, &request, |_| panic!("sink must never be reached"))
+        let error = ai_chat_send(&vault, None, &request, |_| panic!("sink must never be reached"))
             .expect_err("assistant sub-flag off must refuse");
         assert!(error.to_string().contains("assistant"), "names the assistant capability");
 
@@ -674,14 +678,13 @@ mod tests {
         // The journal pins one row per history_id. W-AI-7 resolves the W-STAR star key
         // (canonical_url) at the tool-call site, so record_citations must PREFER the carried value
         // and only re-derive it from the raw url for a citation that lacks one. This exercises both
-        // arms of the `unwrap_or_else` plus the history_id dedup, against a real agent.sqlite.
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = vault_core::config::project_paths_with_root(dir.path());
+        // arms of the `unwrap_or_else` plus the history_id dedup, against a real agent.db.
+        let vault = vault_core::Vault::open_temp().unwrap();
         let journal =
-            AgentSqliteJournal { paths: paths.clone(), run_id: "run-cite-pref".to_string() };
+            AgentVaultJournal { vault: vault.clone(), run_id: "run-cite-pref".to_string() };
         // begin a header so the citation FK has a parent row to cascade from.
         vault_core::begin_agent_run(
-            &paths,
+            &vault,
             &vault_core::BeginAgentRun {
                 id: "run-cite-pref".to_string(),
                 conversation_id: None,
@@ -727,7 +730,7 @@ mod tests {
             ])
             .expect("record citations");
 
-        let trace = vault_core::load_agent_run(&paths, "run-cite-pref")
+        let trace = vault_core::load_agent_run(&vault, "run-cite-pref")
             .expect("load trace")
             .expect("trace present");
         assert_eq!(trace.citations.len(), 2, "history_id 1 was deduped");
@@ -850,6 +853,7 @@ mod tests {
         config.ai.enabled = true;
         config.ai.assistant_enabled = true;
         AgentRunSetup {
+            vault: vault_core::Vault::open_temp().unwrap(),
             llm_runtime: stub_runtime(id),
             embedding_runtime: None,
             request: to_llm_request(&AiChatSendRequest {
@@ -888,11 +892,11 @@ mod tests {
     #[test]
     fn coverage_agent_run_completes_and_finalizes_a_durable_trace() {
         // The full happy path: probe (floor → capable), drive the two-turn stub harness, journal each
-        // step to agent.sqlite, then finalize the header as Completed. Asserts the emitted terminal
+        // step to agent.db, then finalize the header as Completed. Asserts the emitted terminal
         // Done AND the durable trace the worker persisted (resume = replay reads exactly this).
         let dir = tempdir().expect("tempdir");
         let setup = agent_setup(dir.path(), "llm-agent-ok");
-        let paths = setup.paths.clone();
+        let vault = setup.vault.clone();
         let (events, sink) = agent_events_sink();
         let cancel = Arc::new(AtomicBool::new(false));
         run_agent_stream("run-agent-ok", setup, cancel, &sink);
@@ -911,7 +915,7 @@ mod tests {
 
         // The durable header was finalized as Completed, linked to the chat turn, with the journaled
         // steps replayable in order (the worker's record of the run).
-        let trace = vault_core::load_agent_run(&paths, "run-agent-ok")
+        let trace = vault_core::load_agent_run(&vault, "run-agent-ok")
             .expect("load trace")
             .expect("trace present");
         assert_eq!(trace.status, AgentRunStatus::Completed);
@@ -935,7 +939,7 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let mut setup = agent_setup(dir.path(), "llm-agent-lazy-conv");
         setup.conversation_id = Some("conv-unsaved".to_string());
-        let paths = setup.paths.clone();
+        let vault = setup.vault.clone();
         let (events, sink) = agent_events_sink();
         let cancel = Arc::new(AtomicBool::new(false));
         run_agent_stream("run-agent-lazy", setup, cancel, &sink);
@@ -950,7 +954,7 @@ mod tests {
         drop(captured);
 
         // The durable header was finalized as Completed and links to the lazily-persisted id.
-        let trace = vault_core::load_agent_run(&paths, "run-agent-lazy")
+        let trace = vault_core::load_agent_run(&vault, "run-agent-lazy")
             .expect("load trace")
             .expect("trace present");
         assert_eq!(trace.status, AgentRunStatus::Completed);
@@ -964,7 +968,7 @@ mod tests {
         // Cancelled, which the worker maps onto a Cancelled header (not Failed) — matching plain chat.
         let dir = tempdir().expect("tempdir");
         let setup = agent_setup(dir.path(), "llm-agent-cancel");
-        let paths = setup.paths.clone();
+        let vault = setup.vault.clone();
         let (events, sink) = agent_events_sink();
         let cancel = Arc::new(AtomicBool::new(true));
         run_agent_stream("run-agent-cancel", setup, cancel, &sink);
@@ -976,7 +980,7 @@ mod tests {
             "a cooperative cancel never emits Error"
         );
         drop(captured);
-        let trace = vault_core::load_agent_run(&paths, "run-agent-cancel")
+        let trace = vault_core::load_agent_run(&vault, "run-agent-cancel")
             .expect("load trace")
             .expect("trace present");
         assert_eq!(trace.status, AgentRunStatus::Cancelled);
@@ -989,7 +993,7 @@ mod tests {
         // ends Failed and the worker records a Failed header carrying the error message.
         let dir = tempdir().expect("tempdir");
         let setup = agent_setup(dir.path(), "llm-agent-stream-error");
-        let paths = setup.paths.clone();
+        let vault = setup.vault.clone();
         let (events, sink) = agent_events_sink();
         let cancel = Arc::new(AtomicBool::new(false));
         run_agent_stream("run-agent-failed", setup, cancel, &sink);
@@ -1000,7 +1004,7 @@ mod tests {
             AiChatStreamChunk::Error { .. }
         ));
         drop(captured);
-        let trace = vault_core::load_agent_run(&paths, "run-agent-failed")
+        let trace = vault_core::load_agent_run(&vault, "run-agent-failed")
             .expect("load trace")
             .expect("trace present");
         assert_eq!(trace.status, AgentRunStatus::Failed);
@@ -1016,7 +1020,7 @@ mod tests {
         // force the real probe round-trip; `network-error` makes the stubbed probe chat fail.
         let dir = tempdir().expect("tempdir");
         let setup = agent_setup(dir.path(), "llm-agent-probe-roundtrip-network-error");
-        let paths = setup.paths.clone();
+        let vault = setup.vault.clone();
         let (events, sink) = agent_events_sink();
         let cancel = Arc::new(AtomicBool::new(false));
         run_agent_stream("run-agent-probe", setup, cancel, &sink);
@@ -1028,7 +1032,7 @@ mod tests {
                 .any(|event| matches!(&event.chunk, AiChatStreamChunk::Error { message } if message.contains("refused")))
         );
         drop(captured);
-        let trace = vault_core::load_agent_run(&paths, "run-agent-probe")
+        let trace = vault_core::load_agent_run(&vault, "run-agent-probe")
             .expect("load trace")
             .expect("trace present");
         assert_eq!(trace.status, AgentRunStatus::Failed);
@@ -1042,7 +1046,7 @@ mod tests {
         // worker emits one terminal Error and never persists a run trace.
         let dir = tempdir().expect("tempdir");
         let setup = agent_setup(dir.path(), "llm-agent-runtime-error");
-        let paths = setup.paths.clone();
+        let vault = setup.vault.clone();
         let (events, sink) = agent_events_sink();
         let cancel = Arc::new(AtomicBool::new(false));
         run_agent_stream("run-agent-runtime", setup, cancel, &sink);
@@ -1053,21 +1057,18 @@ mod tests {
         drop(captured);
         // No header was opened (the failure preceded begin_agent_run).
         assert!(
-            vault_core::load_agent_run(&paths, "run-agent-runtime").expect("load trace").is_none()
+            vault_core::load_agent_run(&vault, "run-agent-runtime").expect("load trace").is_none()
         );
     }
 
     #[cfg(coverage)]
     #[test]
     fn coverage_agent_run_emits_error_when_the_header_open_fails() {
-        // A begin_agent_run failure (forced by an unwritable agent.sqlite parent) must surface one
+        // A begin_agent_run failure (forced by a closed Vault) must surface one
         // terminal Error and abort before any model call — the worker's header-open guard.
         let dir = tempdir().expect("tempdir");
-        let mut setup = agent_setup(dir.path(), "llm-agent-header");
-        // Point the agent database at a path whose parent is a FILE, so open/create cannot succeed.
-        let blocker = dir.path().join("not-a-dir");
-        std::fs::write(&blocker, b"x").expect("write blocker file");
-        setup.paths.agent_database_path = blocker.join("agent.sqlite");
+        let setup = agent_setup(dir.path(), "llm-agent-header");
+        setup.vault.store().close().unwrap();
         let (events, sink) = agent_events_sink();
         let cancel = Arc::new(AtomicBool::new(false));
         run_agent_stream("run-agent-header", setup, cancel, &sink);
@@ -1080,6 +1081,7 @@ mod tests {
     #[cfg(coverage)]
     #[test]
     fn coverage_agent_send_routes_tools_enabled_through_the_agent_path() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         // End-to-end through `ai_chat_send` with toolsEnabled: resolves the provider, mints a run id,
         // and (under coverage) drives the agent harness inline so the tools_enabled branch + the
         // embedding-optional resolution are exercised. Requires a configured project root.
@@ -1098,6 +1100,7 @@ mod tests {
 
         let (events, sink) = agent_events_sink();
         let ack = ai_chat_send(
+            &vault,
             None,
             &AiChatSendRequest {
                 provider_id: Some("llm-primary".to_string()),

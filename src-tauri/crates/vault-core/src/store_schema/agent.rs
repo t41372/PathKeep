@@ -67,8 +67,10 @@ const STATEMENTS: &[&str] = &[
   score REAL,
   PRIMARY KEY(run_id, history_id)
 )",
-    "CREATE INDEX idx_conversations_updated ON conversations(updated_at DESC)",
-    "CREATE INDEX idx_messages_conversation_seq ON messages(conversation_id, seq)",
+    "CREATE INDEX idx_conversations_updated ON conversations(updated_at DESC, id DESC)",
+    "CREATE UNIQUE INDEX idx_messages_conversation_seq ON messages(conversation_id, seq)",
     "CREATE INDEX idx_agent_runs_conversation ON agent_runs(conversation_id)",
+    "CREATE INDEX idx_agent_runs_message ON agent_runs(conversation_id, message_id, updated_at DESC, id DESC)",
     "CREATE INDEX idx_agent_steps_run_seq ON agent_steps(run_id, seq)",
+    "CREATE UNIQUE INDEX idx_agent_steps_tool_call ON agent_steps(run_id, kind, tool_call_id) WHERE tool_call_id IS NOT NULL",
 ];

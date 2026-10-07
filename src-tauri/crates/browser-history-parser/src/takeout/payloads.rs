@@ -26,7 +26,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) fn stream_payload<C>(
     source_path: &str,
     kind: &str,
-    bytes: &[u8],
+    reader: impl std::io::Read,
     chunk_size: usize,
     options: TakeoutStreamOptions,
     consumer: &mut C,
@@ -40,7 +40,7 @@ where
             browser_history::stream_browser_history_payload(
                 source_path,
                 kind,
-                bytes,
+                reader,
                 chunk_size,
                 options,
                 consumer,
@@ -51,14 +51,13 @@ where
                 NativeOnlyPayloadSpec {
                     source_path,
                     kind,
-                    bytes,
                     chunk_size,
                     entity_kind: "takeout-typed-url",
                     record_keys: &["TypedUrl", "Typed Url", "TypedUrls", "typedUrl"],
                     capability_key: "context.takeout.typed_url",
                     options,
                 },
-                consumer,
+                reader, consumer,
             )
         }
         KIND_SESSION_JSON => {
@@ -66,14 +65,13 @@ where
                 NativeOnlyPayloadSpec {
                     source_path,
                     kind,
-                    bytes,
                     chunk_size,
                     entity_kind: "takeout-session",
                     record_keys: &["Session", "Sessions", "session"],
                     capability_key: "context.takeout.session",
                     options,
                 },
-                consumer,
+                reader, consumer,
             )
         }
         KIND_INDEX => Ok(empty_stream_report(source_path, kind, vec![ParserWarning {
@@ -90,7 +88,6 @@ where
 struct NativeOnlyPayloadSpec<'a> {
     source_path: &'a str,
     kind: &'a str,
-    bytes: &'a [u8],
     chunk_size: usize,
     entity_kind: &'a str,
     record_keys: &'a [&'a str],
@@ -100,6 +97,7 @@ struct NativeOnlyPayloadSpec<'a> {
 
 fn stream_native_only_payload<C>(
     spec: NativeOnlyPayloadSpec<'_>,
+    reader: impl std::io::Read,
     consumer: &mut C,
 ) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
 where
@@ -110,7 +108,7 @@ where
     let mut pending_native_entities = Vec::new();
     let chunk_size = spec.chunk_size.max(1);
     let record_count = json_stream::stream_payload_records(
-        spec.bytes,
+        reader,
         spec.source_path,
         spec.record_keys,
         |record, ordinal| {

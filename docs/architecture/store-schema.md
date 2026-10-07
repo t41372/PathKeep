@@ -1,17 +1,17 @@
-# Turso store schema v1
+# Turso store schema
 
-`vault_core::store_schema::migration_registry()` supplies one consolidated v1
-migration for Archive, SourceEvidence, Intelligence and Agent, and an empty list
+`vault_core::store_schema::migration_registry()` supplies a consolidated v1
+migration for Archive, SourceEvidence, Intelligence and Agent, with an empty list
 for Scratch. Every statement runs through `vault_store::Session`; each database's
-v1 and migration record commit in one transaction. No SQLite migration replay,
-views, triggers, TEMP tables, FTS virtual tables, window functions or WITHOUT ROWID
-tables are used.
+v1 and migration record commit in one transaction. No SQLite migration replay, triggers, TEMP tables, FTS virtual tables, window
+functions or WITHOUT ROWID tables are used. Intelligence has sixteen generation views.
 
 This is the schema contract for the Turso port in [ADR-012](decisions/012-turso-storage-engine.md)
-and [the migration design](turso-migration-design.md). Existing rusqlite writers
-and readers are unchanged and still use the old files. Writer names below identify
-ownership in the current source tree; they are not a claim that those modules
-already write Turso. This change does not switch the running application.
+and [the migration design](turso-migration-design.md). Archive mutation writers and readers use
+Vault and real Store transactions. Search uses the native archive and the owner's vault-search
+index. Intelligence, AI queues/indexing, enrichment and agent storage use the native files.
+Whole-file maintenance retains legacy openers until its separate port. The desktop session
+owns the shared Vault for ported commands.
 
 The baseline is the final effect of archive SQL migrations 001–016 and runtime
 DDL in archive schema/search/source evidence, intelligence schema and its runtime
@@ -20,15 +20,16 @@ definitions; they do not include or execute those legacy migration files.
 
 ## Files and lifecycle
 
-| Database | File | Version | Application tables |
-| --- | --- | --- | --- |
-| Archive | `archive/history-vault.db` | 1 | 21 |
-| Source evidence | `archive/source-evidence.db` | 1 | 7 |
-| Intelligence | `derived/intelligence.db` | 1 | 28 |
-| Agent | `derived/agent.db` | 1 | 5 |
-| Scratch | `derived/scratch.db` | 0 | None |
+| Database        | File                         | Version | Application tables |
+| --------------- | ---------------------------- | ------- | ------------------ |
+| Archive         | `archive/history-vault.db`   | 3       | 22                 |
+| Source evidence | `archive/source-evidence.db` | 1       | 7                  |
+| Intelligence    | `derived/intelligence.db`    | 1       | 36                 |
+| Agent           | `derived/agent.db`           | 1       | 5                  |
+| Scratch         | `derived/scratch.db`         | 0       | None               |
 
-All five files take the same optional 32-byte data key through `vault-store`.
+The owner derives a distinct 32-byte HKDF sub-key for each file from the data key,
+using vault-crypto purpose labels, and supplies those optional sub-keys to `vault-store`.
 No database stores a key, password or key envelope. The owner uses `vault-crypto`
 for the external envelope. Store resets scratch only after successful preflight;
 operation-specific staging tables are not part of the durable schema.
@@ -73,7 +74,8 @@ weighted text fields are `url`, `title`, `search_terms`, `normalized_url`,
 it is distinct from the registrable domain used for domain stars. `newest_visit_ms`
 is the maximum visible visit time across profiles, or NULL with no visible visits.
 `updated_at` records projection freshness. Text normalization and weighting remain
-owned by search code, not SQL.
+owned by search code, not SQL. The title includes every visible profile title,
+with phrase boundaries between copies. Compact/CJK text also includes approved enrichment.
 
 `search_document_profiles` has primary key `(page_id, source_profile_id)`, a positive
 `visible_visit_count` and non-null `newest_visit_ms`. A join table avoids a fixed
@@ -91,8 +93,7 @@ checks that both filters match the same canonical visible visit.
 being reused after pruning, including across reopen. There is deliberately no
 page FK: a deletion tombstone must outlive the page. Page IDs also never reuse a
 committed identity. The Tantivy consumer records its acknowledged sequence in the
-index commit before pruning outbox rows. Neither that consumer nor production
-mutation writers are implemented by this schema task. There are no implicit
+index commit before pruning outbox rows. The archive writers append the outbox; the Vault owner indexer consumes and acknowledges it independently. There are no implicit
 triggers: the caller must use one Store write transaction.
 
 ## Table reference
@@ -116,11 +117,12 @@ invented between independently rebuilt intelligence tables.
 - Primary key: `id`.
 - Unique index `idx_source_profiles_profile_key`: `source_profiles(profile_key)`.
 
-**`pages`** — Exact URL identity shared by every profile; registrable domain is a page fact. Writer: `Archive ingest/import writers (Turso port pending)`.
+**`pages`** — Exact URL identity shared by every profile; registrable domain is a page fact. Writer: `Archive ingest/import writers (Turso)`.
 
 - Primary key: `id`.
 - Index `idx_pages_registrable_domain`: `pages(registrable_domain) WHERE registrable_domain IS NOT NULL`.
 - Unique: `url` (automatic index).
+- Index `idx_pages_canonical_url`: `pages(canonical_url)`, computed by the shared vault-core URL normalizer.
 
 **`urls`** — Browser profile observations: source URL ID, title, counts, times, hidden flag and provenance. Writer: `archive/ingest/writes; takeout`.
 
@@ -130,7 +132,7 @@ invented between independently rebuilt intelligence tables.
 - Foreign key: `source_profile_id` → `source_profiles.id`; delete no action.
 - Index `idx_urls_page_id`: `urls(page_id)`.
 - Index `idx_urls_url`: `urls(url)`.
-- Index `idx_urls_last_visit_ms`: `urls(last_visit_ms DESC)`.
+- Index `idx_urls_last_visit_ms`: `urls(last_visit_ms DESC, id DESC)`.
 - Unique index `idx_urls_profile_source_url_id`: `urls(source_profile_id, source_url_id)`.
 - Index `idx_urls_profile_last_visit`: `urls(source_profile_id, last_visit_ms DESC)`.
 
@@ -144,7 +146,10 @@ invented between independently rebuilt intelligence tables.
 - Index `idx_visits_visible_time_id`: `visits(visit_time_ms, id) WHERE reverted_at IS NULL`.
 - Index `idx_visits_visible_profile_time_id`: `visits(source_profile_id, visit_time_ms ASC, id ASC) WHERE reverted_at IS NULL`.
 - Index `idx_visits_visible_url_time`: `visits( url_id, visit_time_ms DESC, id DESC ) WHERE reverted_at IS NULL`.
+- Index `idx_visits_visible_batch_time_id`: `visits(import_batch_id, visit_time_ms DESC, id DESC) WHERE reverted_at IS NULL AND import_batch_id IS NOT NULL`, for complete review pagination.
 - Index `idx_visits_import_batch_id`: `visits(import_batch_id)`.
+- Index `idx_visits_batch_url`: `visits(import_batch_id, url_id)`; keyset walks stay within the changed batch.
+- Resumable visibility uses `import_batches.previous_status`, `visibility_cursor`, and `visibility_run_id`; `reverting` / `restoring` resume from the last committed URL chunk. The schema also includes `idx_og_images_eviction` and `idx_og_images_lru` so eviction follows an index rather than sorting each page.
 - Unique index `idx_visits_profile_event_fingerprint`: `visits(source_profile_id, event_fingerprint) WHERE event_fingerprint IS NOT NULL AND event_fingerprint != ''`.
 - Unique index `idx_visits_profile_source_visit_id`: `visits(source_profile_id, source_visit_id)`.
 - Index `idx_visits_profile_time`: `visits(source_profile_id, visit_time_ms DESC)`.
@@ -188,13 +193,14 @@ invented between independently rebuilt intelligence tables.
 - Primary key: `id`.
 - Foreign key: `parent_manifest_id` → `manifests.id`; delete no action.
 - Foreign key: `run_id` → `runs.id`; delete no action.
+- Index `idx_manifests_run_id`: `manifests(run_id, id DESC)`.
 - Unique index `idx_manifests_content_hash`: `manifests(content_hash)`.
 
 **`snapshots`** — Saved snapshot paths, sizes, checksums and reasons. Writer: `archive/run_support; archive/maintenance`.
 
 - Primary key: `id`.
 - Foreign key: `run_id` → `runs.id`; delete no action.
-- No secondary indexes.
+- Index `idx_snapshots_run_id`: `snapshots(run_id, id)`.
 
 **`profile_watermarks`** — Per-profile incremental cursors and last successful evidence batch. Writer: `archive/ingest/parser; takeout/payload_import`.
 
@@ -208,11 +214,13 @@ invented between independently rebuilt intelligence tables.
 
 - Primary key: `url`.
 - Index `idx_url_annotations_updated_at`: `url_annotations(updated_at DESC)`.
+- Index `idx_url_annotations_canonical`: `url_annotations(canonical_url, updated_at DESC, url)`.
 
 **`url_tags`** — User tags shared across profiles, one row per exact URL/tag. Writer: `annotations`.
 
 - Primary key: `url, tag`.
 - Index `idx_url_tags_tag`: `url_tags(tag, url)`.
+- Index `idx_url_tags_canonical`: `url_tags(canonical_url, created_at, tag)`.
 
 **`og_image_blobs`** — Content-addressed preview image bytes and dimensions. Writer: `archive/history/og_images`.
 
@@ -238,24 +246,24 @@ invented between independently rebuilt intelligence tables.
 - Primary key: `id`.
 - No secondary indexes.
 
-**`search_documents`** — One searchable document per page, including bounded enrichment, notes and tags. Writer: `archive/search_projection and archive mutation writers (Turso port pending)`.
+**`search_documents`** — One searchable document per page, including bounded enrichment, notes and tags. Writer: `archive/search_documents and archive mutation writers (Turso)`.
 
 - Primary key: `page_id`.
 - Foreign key: `page_id` → `pages.id`; delete cascade.
 - Index `idx_search_documents_newest`: `search_documents(newest_visit_ms DESC, page_id DESC)`.
 - Index `idx_search_documents_domain_time`: `search_documents(domain, newest_visit_ms DESC, page_id DESC)`.
 
-**`search_document_profiles`** — Visible visit count and newest time for each page/profile pair. Writer: `Archive mutation writers (Turso port pending)`.
+**`search_document_profiles`** — Visible visit count and newest time for each page/profile pair. Writer: `Archive mutation writers (Turso)`.
 
 - Primary key: `page_id, source_profile_id`.
 - Foreign key: `source_profile_id` → `source_profiles.id`; delete no action.
 - Foreign key: `page_id` → `search_documents.page_id`; delete cascade.
 - Index `idx_search_document_profiles_profile`: `search_document_profiles(source_profile_id, newest_visit_ms DESC, page_id)`.
 
-**`search_outbox`** — Ordered upsert/delete notifications committed with page document changes. Writer: `Archive mutation writers; Tantivy consumer acknowledges rows (ports pending)`.
+**`search_outbox`** — Ordered upsert/delete notifications committed with page document changes. Writer: `Archive mutation writers; owner indexer acknowledges committed rows with a Batch write`.
 
 - Primary key: `seq`.
-- No secondary indexes.
+- Index `idx_search_outbox_page_seq`: `search_outbox(page_id, seq)`, for latest-state consistency checks without repeated outbox scans.
 
 ### Source Evidence — `archive/source-evidence.db`
 
@@ -297,177 +305,121 @@ invented between independently rebuilt intelligence tables.
 
 ### Intelligence — `derived/intelligence.db`
 
-**`visit_derived_facts`** — Per-visit domain, taxonomy, search, session and trail explanation facts. Writer: `intelligence/intelligence_visit_records; intelligence/intelligence_core_persist`.
+Consolidated v1 has 36 application tables and sixteen logical read views. Public operations
+use `Vault`; SQL runs through `Session`. Rebuild writers live in `intelligence/build_pipeline`,
+`build_rows`, `build_stages`, `build_refind` and `intelligence_structural_stream`. The logical
+views below select published generations. Their physical names append `_rows`, and their
+primary keys prepend `generation` to the logical key shown here.
 
-- Primary key: `visit_id`.
-- Index `idx_vdf_profile_visit_id`: `visit_derived_facts(profile_id, visit_id)`.
-- Index `idx_vdf_profile_search`: `visit_derived_facts(profile_id, is_search_event, search_engine)`.
-- Index `idx_vdf_profile_domain`: `visit_derived_facts(profile_id, registrable_domain)`.
-- Index `idx_vdf_profile_trail`: `visit_derived_facts(profile_id, trail_id)`.
-- Index `idx_vdf_profile_session`: `visit_derived_facts(profile_id, session_id)`.
+| Logical view              | Logical key                                | Meaning                                                                                                     |
+| ------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `visit_derived_facts`     | `visit_id`                                 | Domain, canonical URL, taxonomy and search classification; session/trail IDs come from `visit_assignments`. |
+| `domain_daily_rollups`    | `date_key, profile_id, registrable_domain` | Visit/search/discovery counts and distinct URLs.                                                            |
+| `category_daily_rollups`  | `date_key, profile_id, domain_category`    | Visits and distinct domains.                                                                                |
+| `engine_daily_rollups`    | `date_key, profile_id, search_engine`      | Daily searches.                                                                                             |
+| `daily_summary_rollups`   | `date_key, profile_id`                     | Totals, concentration and discovery.                                                                        |
+| `sessions`                | `session_id`                               | Session span, counts, deep-dive state and title.                                                            |
+| `search_trails`           | `trail_id`                                 | Search/landing chain, depth, span and queries.                                                              |
+| `search_trail_members`    | `trail_id, visit_id`                       | Ordered members and roles.                                                                                  |
+| `search_events`           | `visit_id`                                 | Search text, normalized query, kind, trail and visit time.                                                  |
+| `search_event_terms`      | `visit_id, term`                           | Keyword concept terms.                                                                                      |
+| `query_families`          | `family_id`                                | Related queries and repetition counts.                                                                      |
+| `refind_pages`            | `profile_id, canonical_url`                | Reuse signals, score and bounded persisted evidence sample. Public evidence is paged from facts.            |
+| `source_effectiveness`    | `profile_id, registrable_domain`           | Source role and trail-resolution signals.                                                                   |
+| `habit_patterns`          | `profile_id, registrable_domain`           | Cadence and interruption state.                                                                             |
+| `reopened_investigations` | `investigation_id`                         | Recurring query/page anchors. Reference evidence resolves through the refind row.                           |
+| `path_flows`              | `profile_id, flow_pattern, step_count`     | Repeated all-time navigation windows.                                                                       |
 
-**`domain_daily_rollups`** — Daily visit/search/discovery counts per profile/domain. Writer: `intelligence/intelligence_daily_rollups`.
+Generation and checkpoint tables:
 
-- Primary key: `date_key, profile_id, registrable_domain`.
+- `intelligence_generations(profile_id, facts, daily, navigation, aggregates)` selects the
+  published generation of each group; `profile_id` is the primary key.
+- `intelligence_builds(id, profile_id, state_json, updated_at)` stores captured source/rule
+  state, cursors, dirty days, stage completion flags and the structural stream checkpoint.
+- `intelligence_counts(generation, profile_id, table_name, value)` provides cached counts.
+- `intelligence_day_counts(generation, profile_id, date_key, domains, categories, engines,
+summaries)` records committed day totals for idempotent replay.
+- `intelligence_seen_domains(generation, profile_id, domain)` preserves first-domain state.
+- `visit_assignments(generation, visit_id, profile_id, session_id, trail_id, ordinal)` has
+  primary key `(generation, visit_id)`. Session reads seek `(generation, session_id, ordinal,
+visit_id)`; visit/generation and trail indexes support point hydration.
+- `session_domains(generation, profile_id, session_id, domain, visit_count)` has primary key
+  `(generation, session_id, domain)` and restores open-session counts without visit replay.
 
-**`category_daily_rollups`** — Daily visits and distinct domains per profile/category. Writer: `intelligence/intelligence_daily_rollups`.
+Full builds retain published rows until replacement stages commit. Append builds extend the
+fact/daily/navigation groups and replace aggregates. Checkpoints and their writes commit in
+one batch; superseded generations are reclaimed in bounded writes. No TEMP tables are used.
 
-- Primary key: `date_key, profile_id, domain_category`.
+**`page_content_enrichments`** has primary key `id` and unique `(canonical_url, content_source)`.
+It stores status/time, final URL, language, title, blob path/size/hash, snippets, extraction JSON,
+pipeline/extractor versions, summary, retry time and HTTP status. Canonical/source and
+status/time lookups are indexed. Every visit of a canonical page shares this cache.
 
-**`engine_daily_rollups`** — Daily search counts per profile/engine. Writer: `intelligence/intelligence_daily_rollups`.
+**`site_dictionary_overrides`** has primary key `id` and unique `(target_kind, target_value)`.
+**`search_engine_rules`** has primary key `rule_id` and a host/enabled lookup index. They hold
+user edits; built-in rules stay in code.
 
-- Primary key: `date_key, profile_id, search_engine`.
+**`core_intelligence_stage_checkpoints`** has primary key `(profile_id, stage)` and retains
+stage versions, source watermarks, dirty ranges and fallback reasons.
+**`intelligence_overview_snapshots`** has primary key `(scope_key, band)`, fingerprint and
+serialized payload. Producers warm it after publication; render reads do not write it.
 
-**`daily_summary_rollups`** — Daily totals and concentration/discovery scores per profile. Writer: `intelligence/intelligence_daily_rollups`.
+**`intelligence_jobs`** has primary key `id`, unique `dedupe_key`, state/priority/attempt,
+payload/artifact JSON, scheduling and lease timestamps, errors and cancellation state.
+`canonical_url` indexes parked enrichment work. `trigger_cursor` captures requests covered by
+a claim. A newer trigger leaves the job queued after completion. Artifact `contentStored`
+records the cache-to-Archive publication handoff so recovery never refetches committed content.
 
-- Primary key: `date_key, profile_id`.
+**`intelligence_job_triggers`** has primary key `id`, `job_id` with delete cascade, run/reason/time,
+and index `(job_id, id)`. **`deterministic_module_runtime`** has primary key `module_id`, module
+version/dependencies, build/invalidation state and notes; `invalidation_revision` prevents
+older completions from clearing newer stale state.
 
-**`sessions`** — Derived browsing sessions and titles. Writer: `intelligence/intelligence_core_persist; intelligence/intelligence_structural_stream`.
+**`ai_embeddings`** stores compact per-visit metadata, never vectors or full text. It has
+primary key `id`, unique `(history_id, provider_id, model, content_hash)`, history/provider/model
+indexes and a provider/model/ID cleanup index. `metadata_bytes` and `content_bytes` support
+exact delta accounting. Writer: `ai/indexing/store_rows`.
 
-- Primary key: `session_id`.
-- Index `idx_sessions_profile_time`: `sessions(profile_id, first_visit_ms DESC)`.
+**`ai_embedding_totals`** is keyed by `(provider_id, model)` and stores `item_count`,
+`content_bytes`, `metadata_bytes`, `last_indexed_at`. Replacements, rollback, cleanup and repair
+update metadata and totals in the same transaction.
 
-**`search_trails`** — Search-to-landing trails, queries, depths and timing. Writer: `intelligence/intelligence_core_persist; intelligence/intelligence_structural_stream`.
+**`ai_assistant_runs`** retains question/answer, citations and provider trace under primary key
+`id`. Its search producer remains area 3's responsibility. **`ai_index_ledger`**, keyed by
+`(provider_id, model)`, stores index/run/watermark outcomes; writer: `ai/native_ledger`.
+**`ai_jobs`** has primary key `id` and durable payload, retry, lease, cancellation and outcome
+fields. Its state/availability/priority/ID index serves claims; ID cursors expose complete history.
 
-- Primary key: `trail_id`.
-- Index `idx_search_trails_profile_time_trail`: `search_trails(profile_id, first_visit_ms ASC, trail_id ASC)`.
-- Index `idx_search_trails_profile_time`: `search_trails(profile_id, first_visit_ms DESC)`.
-
-**`search_trail_members`** — Ordered visits and roles in a trail. Writer: `intelligence/intelligence_core_persist; intelligence/intelligence_structural_stream`.
-
-- Primary key: `trail_id, visit_id`.
-- Index `idx_search_trail_members_profile_visit`: `search_trail_members(profile_id, visit_id)`.
-
-**`search_events`** — Search query, kind, engine and visit time for range reads. Writer: `intelligence/intelligence_core_persist; intelligence/intelligence_structural_stream`.
-
-- Primary key: `visit_id`.
-- Index `idx_search_events_profile_query`: `search_events(profile_id,normalized_query)`.
-- Index `idx_search_events_kind_time`: `search_events(query_kind,visit_time_ms)`.
-- Index `idx_search_events_profile_kind`: `search_events(profile_id,query_kind)`.
-- Index `idx_search_events_profile_visit`: `search_events(profile_id, visit_id)`.
-- Index `idx_search_events_profile_engine`: `search_events(profile_id, search_engine)`.
-
-**`search_event_terms`** — Individual normalized query terms for a search event. Writer: `intelligence/intelligence_core_persist; intelligence/intelligence_structural_stream`.
-
-- Primary key: `visit_id, term`.
-- Index `idx_search_event_terms_profile_term`: `search_event_terms(profile_id, term)`.
-
-**`query_families`** — Related search queries and recurrence times. Writer: `intelligence/intelligence_core_persist; intelligence/intelligence_structural_persist`.
-
-- Primary key: `family_id`.
-- Index `idx_query_families_profile_time`: `query_families(profile_id, last_seen_ms DESC)`.
-
-**`refind_pages`** — Repeated page discovery signals and scores per profile. Writer: `intelligence/intelligence_core_persist; intelligence/intelligence_structural_persist`.
-
-- Primary key: `profile_id, canonical_url`.
-- Index `idx_refind_pages_profile_score`: `refind_pages(profile_id, refind_score DESC, last_seen_ms DESC)`.
-
-**`source_effectiveness`** — Per-domain trail outcomes and stable landing scores. Writer: `intelligence/intelligence_core_persist; intelligence/intelligence_structural_persist`.
-
-- Primary key: `profile_id, registrable_domain`.
-- Index `idx_source_effectiveness_profile_score`: `source_effectiveness(profile_id, effectiveness_score DESC)`.
-
-**`habit_patterns`** — Per-domain recurrence intervals and interruption state. Writer: `intelligence/intelligence_core_persist; intelligence/intelligence_structural_persist`.
-
-- Primary key: `profile_id, registrable_domain`.
-
-**`reopened_investigations`** — Repeated investigations across distinct days. Writer: `intelligence/intelligence_core_persist; intelligence/intelligence_structural_persist`.
-
-- Primary key: `investigation_id`.
-- Index `idx_reopened_investigations_profile_time`: `reopened_investigations(profile_id, last_seen_ms DESC)`.
-
-**`path_flows`** — Repeated navigation patterns per profile. Writer: `intelligence/intelligence_core_persist; intelligence/intelligence_structural_persist`.
-
-- Primary key: `profile_id, flow_pattern, step_count`.
-
-**`visit_content_enrichments`** — Fetched metadata, bounded summary, blob pointer and retry/extractor state. Writer: `enrichment; enrichment/content_fetch`.
-
-- Primary key: `id`.
-- Index `idx_visit_content_enrichments_status`: `visit_content_enrichments(fetch_status, fetched_at)`.
-- Index `idx_visit_content_enrichments_history_id`: `visit_content_enrichments(history_id)`.
-- Unique: `history_id, content_source` (automatic index).
-
-**`site_dictionary_overrides`** — User-authored taxonomy and classification overrides. Writer: `intelligence/site_dictionary/overrides`.
-
-- Primary key: `id`.
-- Index `idx_site_dictionary_overrides_target`: `site_dictionary_overrides(target_kind, target_value)`.
-- Unique: `target_kind, target_value` (automatic index).
-
-**`search_engine_rules`** — User-authored search engine detection rules; built-ins remain code. Writer: `intelligence/site_dictionary/search_rules`.
-
-- Primary key: `rule_id`.
-- Index `idx_search_engine_rules_host`: `search_engine_rules(host_pattern, enabled)`.
-
-**`core_intelligence_stage_checkpoints`** — Incremental stage cursors, dirty ranges and fallback reasons. Writer: `intelligence/incremental`.
-
-- Primary key: `profile_id, stage`.
-
-**`intelligence_overview_snapshots`** — Persisted overview payload and fingerprint per scope/band. Writer: `intelligence/intelligence_overview_snapshot`.
-
-- Primary key: `scope_key, band`.
-
-**`intelligence_jobs`** — Durable derived-work queue, deduplication, leases and cancellation. Writer: `intelligence_runtime`.
-
-- Primary key: `id`.
-- Index `idx_intelligence_jobs_plugin_state`: `intelligence_jobs(plugin_id, state, updated_at DESC)`.
-- Index `idx_intelligence_jobs_state`: `intelligence_jobs(job_type, state, updated_at DESC)`.
-- Unique: `dedupe_key` (automatic index).
-
-**`intelligence_job_triggers`** — Requests that caused a queue job, with run/reason/time. Writer: `intelligence_runtime/enqueue`.
-
-- Primary key: `id`.
-- Foreign key: `job_id` → `intelligence_jobs.id`; delete cascade.
-- Index `idx_intelligence_job_triggers_job_id`: `intelligence_job_triggers(job_id, requested_at DESC)`.
-
-**`deterministic_module_runtime`** — Module version, dependencies, build/invalidation state and notes. Writer: `intelligence_runtime/enqueue; intelligence/intelligence_rebuild`.
-
-- Primary key: `module_id`.
-
-**`ai_embeddings`** — Compact embedding metadata; vector bytes live in sidecars. Writer: `ai/indexing/store_rows; ai/ledger`.
-
-- Primary key: `id`.
-- Index `idx_ai_embeddings_history_id`: `ai_embeddings(history_id)`.
-- Index `idx_ai_embeddings_provider_model`: `ai_embeddings(provider_id, model)`.
-- Unique: `history_id, provider_id, model, content_hash` (automatic index).
-
-**`ai_assistant_runs`** — Assistant question/answer records with citations and provider trace. Writer: `ai/search`.
-
-- Primary key: `id`.
-- No secondary indexes.
-
-**`ai_index_ledger`** — Per-provider/model semantic index state and rebuild accounting. Writer: `ai/ledger`.
-
-- Primary key: `provider_id, model`.
-
-**`ai_jobs`** — Optional AI queue with retries, leases and stop requests. Writer: `ai_queue`.
-
-- Primary key: `id`.
-- Index `idx_ai_jobs_state_available`: `ai_jobs(state, available_at, priority DESC, id ASC)`.
+Render indexes cover search kind/time and normalized query/time, refind score and canonical
+identity, session overlap/order, trail member order, domain/date rollups and queue traversal.
+Exact physical DDL is `src-tauri/crates/vault-core/src/store_schema/intelligence.rs`.
 
 ### Agent — `derived/agent.db`
 
 **`conversations`** — Conversation title, provider, timestamps and message count. Writer: `agent_store`.
 
 - Primary key: `id`.
-- Index `idx_conversations_updated`: `conversations(updated_at DESC)`.
+- Index `idx_conversations_updated`: `conversations(updated_at DESC, id DESC)`; complete cursor order for tied timestamps.
 
 **`messages`** — Ordered transcript messages, reasoning and tool call payloads. Writer: `agent_store`.
 
 - Primary key: `id`.
 - Foreign key: `conversation_id` → `conversations.id`; delete cascade.
-- Index `idx_messages_conversation_seq`: `messages(conversation_id, seq)`.
+- Unique index `idx_messages_conversation_seq`: `messages(conversation_id, seq)`; persisted transcript order and page cursor.
 
 **`agent_runs`** — Durable agent execution status, providers and token accounting. Writer: `agent_store`.
 
 - Primary key: `id`.
 - Foreign key: `conversation_id` → `conversations.id`; delete cascade.
 - Index `idx_agent_runs_conversation`: `agent_runs(conversation_id)`.
+- Index `idx_agent_runs_message`: `agent_runs(conversation_id, message_id, updated_at DESC, id DESC)`; latest answering run for a message page.
 
 **`agent_steps`** — Ordered model/tool journal used to resume a run. Writer: `agent_store`.
 
 - Primary key: `id`.
 - Foreign key: `run_id` → `agent_runs.id`; delete cascade.
 - Index `idx_agent_steps_run_seq`: `agent_steps(run_id, seq)`.
+- Unique partial index `idx_agent_steps_tool_call`: `agent_steps(run_id, kind, tool_call_id) WHERE tool_call_id IS NOT NULL`; replayed tool results keep their original sequence.
 
 **`agent_citations`** — Evidence pinned to a run independently of transcript replacement. Writer: `agent_store`.
 
@@ -503,6 +455,28 @@ writers. It is data, not another migration. New run states remain text, so the
 batched writer model can record `running`, `completed` and `interrupted` without
 losing older audit statuses.
 
+## Archive read indexes and source totals
+
+The consolidated v1 includes the batch-review, outbox-page, manifest-run and
+snapshot-run indexes, and the URL recency index `(last_visit_ms DESC, id DESC)`.
+No read path runs DDL. Doctor expects v1 for every durable database. The catalog,
+reopen and consolidated-version tests cover the schema in plaintext and with a key.
+
+`archive_totals` keys named `sourceVisits:<source_profile_id>` track visible visits.
+Ingest applies one source delta per committed
+batch. Revert/restore consumes the changed rows' profile IDs through `RETURNING` and
+updates only those profiles in the same transaction. Duplicate imports and resumed
+visibility chunks do not double-count. Source statistics and profile/browser timeline
+totals perform counter lookups instead of walking every page/profile summary.
+Doctor compares these counters with canonical visits and repairs drift. Global counter
+readers select their six named keys, so per-source keys do not leak into manifest counts.
+
+Turso 0.8.1 requires explicit `IS NOT NULL` predicates for the partial host/domain/batch
+indexes in these query shapes. Timeline/review/media cursors use separate equality-tie
+and strict-range seeks rather than relying on tuple comparisons. Production-plan tests
+reject full fact/page scans and unwanted `SORTER` operations; details and minimal
+reproductions are in [the archive-read report](research/2026-10-turso-archive-reads.md).
+
 ## Verification
 
 The `store_schema` tests use temporary real Store files in plaintext and with a
@@ -521,3 +495,31 @@ CARGO_NET_OFFLINE=true cargo test -p vault-core store_schema
 CARGO_NET_OFFLINE=true cargo test -p vault-core
 CARGO_NET_OFFLINE=true cargo build --workspace
 ```
+
+Archive runtime metadata (part of version 1):
+
+- `profile_watermarks.last_search_url_time` is independent from the URL cursor.
+  `url_scan_json` records the last committed source rowid and the original time filter,
+  visit floor/ceiling and full/incremental selection for every browser family.
+- `archive_totals(name, value)` caches enabled source profiles, URLs, visible visits,
+  visible downloads, manifest rows and snapshot rows. It starts at zero; fact
+  transactions apply deltas.
+- `import_batches.visible_items` changes with visit visibility; `previous_status`
+  is non-null with the `imported` default. New imports explicitly start it as `running`
+  and update it to their terminal import state.
+- `pages.canonical_url`, `url_annotations.canonical_url` and `url_tags.canonical_url`
+  use the shared URL normalizer and have indexes for variant equality lookups.
+
+Area-4 render indexes include visit/generation point lookups, canonical-page visit traversal,
+session overlap/order, trail member order, search kind/time and normalized query/time, refind
+score/canonical traversal, parked jobs and recent-job tie breakers. SourceEvidence v1 adds
+`(source_profile_id, source_visit_id)` indexes for engagement and context hydration. Batched
+lookups drive these indexes with VALUES rows rather than relying on Turso's secondary-index
+IN planning. Exact DDL is in `src-tauri/crates/vault-core/src/store_schema/intelligence.rs`
+and `source_evidence.rs`; the reported logical keys above omit the physical generation prefix.
+
+The v1 area-4 index set omits redundant profile/session, profile/trail, profile/search and
+profile/visit indexes on generation facts/assignments. Membership reads use the
+`(generation, session_id, ordinal, visit_id)` index; trail assignment lookup is partial on
+`trail_id IS NOT NULL`. These choices avoid writing duplicate per-visit entries while
+preserving the tested render and resume plans.

@@ -240,11 +240,11 @@ function DaySitesCard({ date }: { date: string }) {
       <QueryBody
         query={day}
         skeleton={<ListSkeleton rows={6} />}
-        isEmpty={(result) => result.data.topSites.length === 0}
+        isEmpty={(result) => result.data.topSites.items.length === 0}
         empty={t('insights.day.empty')}
       >
         {(result) => {
-          const sites = result.data.topSites.slice(0, 6)
+          const sites = result.data.topSites.items.slice(0, 6)
           const max = Math.max(1, ...sites.map((site) => site.visitCount))
           return (
             <ul className="flex flex-col gap-1.5">

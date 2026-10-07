@@ -178,12 +178,20 @@ fn resolve_browser_discovery_issue_core(
 
 /// Builds the canonical desktop snapshot for the current unlocked session.
 pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
+    app_snapshot_with_vault(None, session_database_key)
+}
+
+/// Uses the session owner for canonical reads, including keychain-only unlocks.
+pub fn app_snapshot_with_vault(
+    vault: Option<&vault_core::Vault>,
+    session_database_key: Option<&str>,
+) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let browser_discovery = snapshot_browser_profiles();
     // One archive open and one intelligence open for everything below; each open of an encrypted
     // archive derives its key again.
-    let reads = load_snapshot_reads(&paths, &config, session_database_key)?;
+    let reads = load_snapshot_reads(&paths, &config, session_database_key, vault)?;
     let ai_status = degrade_ai_status(&config, reads.ai_status);
     let intelligence_status = degrade_intelligence_status(reads.intelligence_status);
     let app_lock_status = resolved_app_lock_status(&paths, &config)?;
@@ -193,7 +201,7 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         directories: vault_core::AppDirectories {
             app_root: paths.app_root.display().to_string(),
             config_path: paths.config_path.display().to_string(),
-            archive_database_path: paths.archive_database_path.display().to_string(),
+            archive_database_path: reads.archive_status.database_path.clone(),
             search_database_path: paths.search_database_path.display().to_string(),
             intelligence_database_path: paths.intelligence_database_path.display().to_string(),
             audit_repo_path: paths.audit_repo_path.display().to_string(),
@@ -222,7 +230,9 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         browser_profiles: browser_discovery.profiles,
         browser_discovery_issue: browser_discovery.issue,
         recent_runs: reads.recent_runs,
+        recent_runs_next_cursor: reads.recent_runs_next_cursor,
         recent_import_batches: reads.recent_import_batches,
+        recent_import_batches_next_cursor: reads.recent_import_batches_next_cursor,
     })
 }
 
@@ -242,6 +252,16 @@ pub fn save_user_config_with_base(
     base_config: Option<&AppConfig>,
     session_database_key: Option<&str>,
 ) -> Result<AppSnapshot> {
+    save_user_config_with_vault(None, config, base_config, session_database_key)
+}
+
+/// Reconciles database-backed controls through the caller's current owner.
+pub fn save_user_config_with_vault(
+    vault: Option<&vault_core::Vault>,
+    config: &AppConfig,
+    base_config: Option<&AppConfig>,
+    session_database_key: Option<&str>,
+) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let previous_config = load_hydrated_config(&paths)
         .context("loading the current configuration before saving user changes")?;
@@ -254,6 +274,9 @@ pub fn save_user_config_with_base(
         Some(base_config) => merge_config_change(&previous_config, base_config, config)?,
         None => config.clone(),
     };
+    if previous_config.initialized && previous_config.archive_mode != next_config.archive_mode {
+        vault_core::require_complete_storage_migration("encryption-mode switch")?;
+    }
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
     validate_app_lock_change(
@@ -263,13 +286,8 @@ pub fn save_user_config_with_base(
         current_app_lock_biometric_state(),
     )?;
     save_config(&paths, &next_config)?;
-    reconcile_ai_queue_controls_or_restore_config(
-        &paths,
-        &previous_config,
-        &next_config,
-        session_database_key,
-    )?;
-    app_snapshot(session_database_key)
+    reconcile_ai_queue_controls_or_restore_config(vault, &paths, &previous_config, &next_config)?;
+    app_snapshot_with_vault(vault, session_database_key)
 }
 
 /// Applies only the leaves the caller changed relative to its base snapshot to
@@ -317,18 +335,17 @@ pub(crate) fn apply_config_delta(current: &mut Value, base: &Value, proposed: &V
 }
 
 fn reconcile_ai_queue_controls_or_restore_config(
+    vault: Option<&vault_core::Vault>,
     paths: &vault_core::ProjectPaths,
     previous_config: &AppConfig,
     next_config: &AppConfig,
-    session_database_key: Option<&str>,
 ) -> Result<()> {
-    vault_core::reconcile_ai_queue_controls(
-        paths,
-        previous_config,
-        next_config,
-        session_database_key,
-    )
-    .or_else(|error| restore_config_after_ai_reconcile_failure(paths, previous_config, error))
+    if let Some(vault) = vault {
+        vault_core::reconcile_ai_queue_controls(vault, previous_config, next_config).or_else(
+            |error| restore_config_after_ai_reconcile_failure(paths, previous_config, error),
+        )?;
+    }
+    Ok(())
 }
 
 fn restore_config_after_ai_reconcile_failure(
@@ -386,6 +403,9 @@ where
     // Only to tell whether Touch ID is being turned on; a first run has no config yet.
     let previous_config = load_hydrated_config(&paths).unwrap_or_default();
     let mut next_config = config.clone();
+    if previous_config.initialized && previous_config.archive_mode != next_config.archive_mode {
+        vault_core::require_complete_storage_migration("encryption-mode switch")?;
+    }
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
     validate_app_lock_change(
@@ -456,6 +476,7 @@ pub fn parse_archive_recovery_required(message: &str) -> Option<ArchiveRecoveryR
 /// The archive is opened with the request's verified current password, never
 /// with a key the caller merely holds (see [`crate::current_password`]).
 pub fn rekey_archive_database(request: &RekeyRequest) -> Result<AppSnapshot> {
+    vault_core::require_complete_storage_migration("archive rekey")?;
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let old_key = crate::current_password::verified_current_key(&paths, &config, request)?;
@@ -477,6 +498,7 @@ pub fn rekey_archive_database(request: &RekeyRequest) -> Result<AppSnapshot> {
 /// write lock for its whole duration, so a SEPARATE scheduled backup can never race it on
 /// source-evidence, and a SECOND same-process top-level op excludes on the gate.
 pub fn reconcile_archive_encryption(session_database_key: Option<&str>) -> Result<ReconcileReport> {
+    vault_core::require_complete_storage_migration("archive encryption reconciliation")?;
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     vault_core::reconcile_archive_encryption(&paths, &config, session_database_key)

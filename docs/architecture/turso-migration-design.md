@@ -96,7 +96,8 @@
   - URL；
   - 搜尋文件的 upsert 和搜尋 outbox（Tantivy 由索引執行緒在交易之後追上）；
   - profile watermark；
-  - run 的進度。
+  - run 的進度；
+  - archive 與每個 source profile 的可見筆數快取。
 - **Run 的可見性：**
   - run 一開始就是 `running`；已提交的批次立刻可見，因為它們就是真實的歷史。
   - 全部批次完成後，run 才標成 `completed`。
@@ -148,6 +149,41 @@
   - code mode 只看最新 1,000 筆；
   - 命令面板不續掃；
   - 標註 API 的上限。
+
+### §6 implementation: `vault-search` (2026-10-05)
+
+The independent engine is implemented in
+[`vault-search`](../../src-tauri/crates/vault-search/README.md). The vault-core owner
+now consumes the outbox, validates canonical eligibility and hydration, and exposes
+streaming sessions through worker, Tauri and dev IPC. History search, regex, fuzzy,
+AI retrieval, code mode, MCP and search export share complete paging. Frontend
+channel wiring is owned separately. See [search.md](search.md) for the exact wire
+contract and [validation](research/2026-10-search-integration-validation.md) for
+coverage outcomes, ports and failure modes.
+
+- Open/create accepts `Option<&vault_crypto::DataKey>`. `EncryptedDirectory` owns
+  sub-key derivation; vault-search implements no encryption.
+- Ten weighted positioned fields, Unicode trigrams, page ID, recency, domain and
+  multi-valued profile fast fields. Schema/analyzer versions accompany the durable
+  outbox sequence in every encrypted commit payload.
+- Exact and prefix token namespaces share the ten fields. Complete Unicode prefix
+  aliases provide BM25 frequency/length scoring without query-time expansion caps.
+  Field norms include the aliases. This preserves the projection weights, not
+  numerical FTS5 scores. The measured storage/build cost is documented in the crate.
+- A bounded heap ranks all eligible matches by score, recency and page ID. Domain
+  and profile estimates choose pushed zero-score intersections or fast-field
+  predicates; canonical same-visit eligibility remains caller-owned.
+- Session-owned snapshots and continuation keys keep every result reachable during
+  writes and rebuilds. Ranking and counting retain their segment position between
+  time slices; provisional results become exact only at completion.
+- Rebuild streams new segments alongside the published commit, then atomically
+  replaces Tantivy metadata. Cancelled/failed input never publishes. Crash replay
+  starts after the committed sequence; fresh writers first collect uncommitted
+  deletion files that would otherwise collide with replayed opstamp filenames.
+
+The crate [README](../../src-tauri/crates/vault-search/README.md) defines caller
+obligations and API contracts; the
+[measurements](research/2026-10-vault-search-benchmark.md) justify its defaults.
 
 ## 7. 維護操作
 

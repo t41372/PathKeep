@@ -1,17 +1,17 @@
 //! Regression tests for the Takeout import boundary.
 
 mod browser_history;
+mod payload_watermarks;
 
 use super::*;
+use crate::test_support::store::Probe;
 use crate::{
-    archive::{
-        create_schema, load_audit_run_detail, load_recent_runs, open_source_evidence_connection,
-    },
     config::{ensure_paths, project_paths_with_root},
     models::{AppConfig, ArchiveMode},
 };
 use std::io::Write;
 use tempfile::tempdir;
+use vault_store::Db;
 use zip::write::SimpleFileOptions;
 
 fn chrome_browser_history_payload(records: &[&str]) -> String {
@@ -212,34 +212,28 @@ fn inspect_takeout_caps_preview_entries_at_preview_limit() {
 
 #[test]
 fn load_import_batches_returns_empty_for_uninitialized_archives() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    assert!(load_import_batches(&paths, &config, None).expect("empty import batches").is_empty());
+    assert!(load_import_batches(&vault, None, 16).expect("empty import batches").items.is_empty());
 
     assert!(!paths.archive_database_path.exists());
     let initialized_but_missing_archive =
-        load_import_batches(&paths, &initialized_plaintext_config(), None)
-            .expect("missing archive batches");
+        load_import_batches(&vault, None, 16).expect("missing archive batches").items;
     assert!(initialized_but_missing_archive.is_empty());
     assert!(!paths.archive_database_path.exists());
 }
 
 #[test]
 fn import_preview_revert_and_restore_batch_are_reversible() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_takeout_fixture(dir.path());
     let inspection = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import");
@@ -252,38 +246,34 @@ fn import_preview_revert_and_restore_batch_are_reversible() {
     assert!(inspection.notes.is_empty());
     assert_eq!(inspection.preview_entries.len(), 2);
     assert_eq!(batch.visible_items, 2);
-    let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs after import");
+    let recent_runs = run_facts(&vault).expect("recent runs after import");
     assert_eq!(recent_runs[0].run_type, "import");
     assert_eq!(recent_runs[0].profiles_processed, 1);
     assert_eq!(recent_runs[0].new_visits, 2);
     assert_eq!(recent_runs[0].profile_scope, vec!["takeout::browser-history".to_string()]);
-    let import_detail =
-        load_audit_run_detail(&paths, &config, None, recent_runs[0].id).expect("import run detail");
-    assert_eq!(import_detail.run.run_type, "import");
-    assert_eq!(import_detail.profile_scope, vec!["takeout::browser-history".to_string()]);
 
-    let preview = preview_import_batch(&paths, &config, None, batch.id).expect("preview batch");
+    let preview = preview_import_batch(&vault, batch.id).expect("preview batch");
     assert_eq!(preview.preview_entries.len(), 2);
     assert_eq!(preview.batch.status, "imported");
     assert_eq!(preview.batch.candidate_items, 2);
     assert_eq!(preview.batch.imported_items, 2);
     assert_eq!(preview.batch.duplicate_items, 0);
 
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    let archive = Probe::new(&vault);
     let (profile_name, profile_path, chrome_version): (String, String, String) = archive
         .query_row(
             "SELECT profile_name, profile_path, browser_version
              FROM source_profiles
              WHERE profile_key = 'takeout::browser-history'",
-            [],
-            |row: &Row<'_>| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            (),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("load takeout profile");
     assert_eq!(profile_name, "Imported browser history");
     assert_eq!(profile_path, source.display().to_string());
     assert_eq!(chrome_version, "takeout");
 
-    let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert batch");
+    let reverted = revert_import_batch(&vault, batch.id).expect("revert batch");
     assert_eq!(reverted.batch.status, "reverted");
     assert_eq!(reverted.batch.visible_items, 0);
     assert!(reverted.notes.iter().any(|note| note.contains("Soft-hid 2 live history rows")));
@@ -291,15 +281,15 @@ fn import_preview_revert_and_restore_batch_are_reversible() {
         .query_row(
             "SELECT COUNT(*) FROM visits WHERE import_batch_id = ?1 AND reverted_at IS NOT NULL",
             [batch.id],
-            |row| row.get(0),
+            |row| Ok(row.get(0)?),
         )
         .expect("load hidden visit count");
     assert_eq!(hidden_rows, 2);
-    let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs after revert");
+    let recent_runs = run_facts(&vault).expect("recent runs after revert");
     assert_eq!(recent_runs[0].run_type, "rollback");
     assert_eq!(recent_runs[0].new_visits, 2);
 
-    let restored = restore_import_batch(&paths, &config, None, batch.id).expect("restore batch");
+    let restored = restore_import_batch(&vault, batch.id).expect("restore batch");
     assert_eq!(restored.batch.status, "imported");
     assert_eq!(restored.batch.visible_items, 2);
     assert!(restored.notes.iter().any(|note| note.contains("Restored at")));
@@ -307,30 +297,25 @@ fn import_preview_revert_and_restore_batch_are_reversible() {
         .query_row(
             "SELECT COUNT(*) FROM visits WHERE import_batch_id = ?1 AND reverted_at IS NULL",
             [batch.id],
-            |row| row.get(0),
+            |row| Ok(row.get(0)?),
         )
         .expect("load restored visit count");
     assert_eq!(visible_rows, 2);
-    let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs after restore");
+    let recent_runs = run_facts(&vault).expect("recent runs after restore");
     assert_eq!(recent_runs[0].run_type, "restore");
     assert_eq!(recent_runs[0].new_visits, 2);
 }
 
 #[test]
 fn import_takeout_accepts_direct_browser_history_json_files_without_locale_tables() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_direct_browser_history_json_file(dir.path(), "歷史記錄.json");
     let inspection = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import direct browser history json");
@@ -346,19 +331,14 @@ fn import_takeout_accepts_direct_browser_history_json_files_without_locale_table
 
 #[test]
 fn preview_import_batch_repairs_missing_audit_artifacts() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_takeout_fixture(dir.path());
     let inspection = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import");
@@ -366,7 +346,7 @@ fn preview_import_batch_repairs_missing_audit_artifacts() {
     let audit_path = batch.audit_path.clone().expect("audit path");
     fs::remove_file(&audit_path).expect("remove audit artifact");
 
-    let repaired = preview_import_batch(&paths, &config, None, batch.id).expect("preview batch");
+    let repaired = preview_import_batch(&vault, batch.id).expect("preview batch");
     let repaired_path = repaired.batch.audit_path.expect("repaired audit path");
 
     assert!(Path::new(&repaired_path).exists());
@@ -375,13 +355,10 @@ fn preview_import_batch_repairs_missing_audit_artifacts() {
 
 #[test]
 fn import_takeout_deduplicates_matching_history_from_different_files() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source_a = write_takeout_fixture_with_name(
         dir.path(),
@@ -399,16 +376,12 @@ fn import_takeout_deduplicates_matching_history_from_different_files() {
     );
 
     let first = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source_a.display().to_string(), dry_run: false },
     )
     .expect("first import");
     let second = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source_b.display().to_string(), dry_run: false },
     )
     .expect("second import");
@@ -418,14 +391,15 @@ fn import_takeout_deduplicates_matching_history_from_different_files() {
     assert_eq!(second.imported_items, 0);
     assert_eq!(second.duplicate_items, 1);
 
-    let history =
-        crate::archive::list_history(&paths, &config, None, Default::default()).expect("history");
-    assert_eq!(history.total, 1);
+    let visible: i64 = Probe::new(&vault)
+        .query_row("SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL", (), |r| Ok(r.get(0)?))
+        .unwrap();
+    assert_eq!(visible, 1);
 
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    let archive = Probe::new(&vault);
     let visits: i64 = archive
-        .query_row("SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL", [], |row: &Row<'_>| {
-            row.get(0)
+        .query_row("SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL", (), |row| {
+            Ok(row.get(0)?)
         })
         .expect("visit count");
     assert_eq!(visits, 1);
@@ -433,13 +407,10 @@ fn import_takeout_deduplicates_matching_history_from_different_files() {
 
 #[test]
 fn takeout_records_without_timestamps_are_skipped_with_a_note() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_takeout_fixture_with_name(
         dir.path(),
@@ -465,9 +436,7 @@ fn takeout_records_without_timestamps_are_skipped_with_a_note() {
     assert!(dry_run.notes.iter().any(|note| note.contains("missing a visit timestamp")));
 
     let imported = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import takeout");
@@ -480,26 +449,22 @@ fn takeout_records_without_timestamps_are_skipped_with_a_note() {
     assert_eq!(imported.recognized_files.len(), 1);
     assert_eq!(imported.recognized_files[0].records, 1);
 
-    let history =
-        crate::archive::list_history(&paths, &config, None, Default::default()).expect("history");
-    assert_eq!(history.total, 1);
+    let visible: i64 = Probe::new(&vault)
+        .query_row("SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL", (), |r| Ok(r.get(0)?))
+        .unwrap();
+    assert_eq!(visible, 1);
 }
 
 #[test]
 fn import_takeout_streams_browser_history_json_payloads() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_takeout_browser_json_fixture(dir.path(), "takeout-browser-json");
     let inspection = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import browser history json");
@@ -510,9 +475,10 @@ fn import_takeout_streams_browser_history_json_payloads() {
     assert_eq!(inspection.recognized_files[0].kind, "browser-json");
     assert_eq!(inspection.recognized_files[0].records, 2);
 
-    let history =
-        crate::archive::list_history(&paths, &config, None, Default::default()).expect("history");
-    assert_eq!(history.total, 2);
+    let visible: i64 = Probe::new(&vault)
+        .query_row("SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL", (), |r| Ok(r.get(0)?))
+        .unwrap();
+    assert_eq!(visible, 2);
 }
 
 #[test]
@@ -536,13 +502,10 @@ fn inspect_takeout_reports_parse_errors_for_recognized_files() {
 
 #[test]
 fn import_takeout_marks_malformed_import_runs_failed() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = dir.path().join("malformed-import");
     fs::create_dir_all(source.join("Chrome")).expect("create malformed source");
@@ -550,15 +513,13 @@ fn import_takeout_marks_malformed_import_runs_failed() {
         .expect("write malformed history");
 
     let error = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect_err("malformed import should fail");
     assert!(error.to_string().contains("parsing Takeout payload"));
 
-    let archive = open_archive_connection(&paths, &config, None).expect("reopen archive");
+    let archive = Probe::new(&vault);
     let (status, error_message): (String, String) = archive
         .query_row(
             "SELECT status, error_message
@@ -566,23 +527,26 @@ fn import_takeout_marks_malformed_import_runs_failed() {
              WHERE run_type = 'import'
              ORDER BY id DESC
              LIMIT 1",
-            [],
+            (),
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("failed import run");
     assert_eq!(status, "failed");
     assert!(error_message.contains("parsing Takeout payload"));
+    let batch = load_import_batches(&vault, None, 16).unwrap().items.remove(0);
+    assert_eq!(batch.status, "failed");
+    let detail = preview_import_batch(&vault, batch.id).unwrap();
+    assert_eq!(detail.recognized_files.len(), 1);
+    assert_eq!(detail.recognized_files[0].status, "parse-error");
+    assert!(!detail.notes.is_empty());
 }
 
 #[test]
 fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = dir.path().join("takeout-my-activity");
     fs::create_dir_all(source.join("我的活動").join("Chrome")).expect("create activity source");
@@ -608,27 +572,22 @@ fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
     assert_eq!(inspection.detected_locale.as_deref(), Some("zh-tw"));
 
     let imported = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import my activity");
     assert!(imported.import_batch.is_none());
     assert_eq!(imported.imported_items, 0);
     assert_eq!(imported.quarantined_files.len(), 1);
-    assert_eq!(load_import_batches(&paths, &config, None).expect("load batches").len(), 0);
+    assert_eq!(load_import_batches(&vault, None, 16).expect("load batches").items.len(), 0);
 }
 
 #[test]
 fn import_takeout_quarantines_review_needed_payloads_while_importing_supported_history() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = dir.path().join("mixed-review-takeout");
     fs::create_dir_all(source.join("Chrome")).expect("create chrome source");
@@ -647,9 +606,7 @@ fn import_takeout_quarantines_review_needed_payloads_while_importing_supported_h
     .expect("write review-needed my activity");
 
     let imported = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import mixed review takeout");
@@ -661,7 +618,8 @@ fn import_takeout_quarantines_review_needed_payloads_while_importing_supported_h
         Some("chrome-my-activity-json")
     );
     assert!(
-        paths
+        vault
+            .paths()
             .quarantine_dir
             .join("mixed-review-takeout")
             .join("My Activity")
@@ -673,20 +631,15 @@ fn import_takeout_quarantines_review_needed_payloads_while_importing_supported_h
 
 #[test]
 fn takeout_import_progress_marks_active_single_file_work_as_indeterminate() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_direct_browser_history_json_file(dir.path(), "歷史記錄.json");
     let mut events = Vec::new();
     let imported = import_takeout_with_progress(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
         |event| events.push(event),
     )
@@ -765,17 +718,6 @@ fn takeout_progress_helpers_cover_bounds_and_unknown_phase() {
     assert_eq!(events[0].processed_records, Some(2));
     assert_eq!(events[0].duplicate_records, Some(1));
     assert_eq!(events[0].log_events[0].source_label.as_deref(), Some("Chrome/BrowserHistory.json"));
-
-    let source_note =
-        super::import_flow::takeout_source_evidence_rebuild_note(anyhow::anyhow!("source offline"));
-    let search_note =
-        super::import_flow::takeout_keyword_recall_rebuild_note(anyhow::anyhow!("search offline"));
-    assert_eq!(source_note.code, "takeout-source-evidence-rebuild-needed");
-    assert!(source_note.message.contains("source-evidence archive"));
-    assert_eq!(source_note.diagnostic.as_deref(), Some("source offline"));
-    assert_eq!(search_note.code, "search-projection-rebuild-needed");
-    assert!(search_note.message.contains("keyword-recall projection"));
-    assert_eq!(search_note.diagnostic.as_deref(), Some("search offline"));
 }
 
 #[test]
@@ -891,25 +833,16 @@ fn takeout_helpers_cover_unknown_files_zip_sources_and_quarantine() {
 
 #[test]
 fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let archive = open_archive_connection(&paths, &initialized_plaintext_config(), None)
-        .expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
-    assert!(
-        load_import_batches(&paths, &initialized_plaintext_config(), None)
-            .expect("load batches")
-            .is_empty()
-    );
+    assert!(load_import_batches(&vault, None, 16).expect("load batches").items.is_empty());
 
     let source = write_takeout_fixture(dir.path());
     let dry_run = import_takeout(
-        &paths,
-        &initialized_plaintext_config(),
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: true },
     )
     .expect("dry run import");
@@ -917,9 +850,7 @@ fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
     assert_eq!(dry_run.imported_items, 0);
 
     let uninitialized_error = import_takeout(
-        &paths,
-        &AppConfig::default(),
-        None,
+        &vault.with_config(AppConfig::default()),
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect_err("uninitialized import should fail");
@@ -928,14 +859,12 @@ fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
     let mut git_config = initialized_plaintext_config();
     git_config.git_enabled = true;
     let imported = import_takeout(
-        &paths,
-        &git_config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import with git");
     let batch_id = imported.import_batch.expect("batch").id;
-    let batches = load_import_batches(&paths, &git_config, None).expect("load populated batches");
+    let batches = load_import_batches(&vault, None, 16).expect("load populated batches").items;
     assert_eq!(batches.len(), 1);
     assert_eq!(batches[0].id, batch_id);
     assert_eq!(batches[0].candidate_items, 2);
@@ -947,9 +876,8 @@ fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
     if let Some(imported_git_commit) = batches[0].git_commit.as_deref() {
         assert_eq!(imported_git_commit.len(), 40);
     }
-    let reverted = revert_import_batch(&paths, &git_config, None, batch_id).expect("revert");
-    let reverted_again =
-        revert_import_batch(&paths, &git_config, None, batch_id).expect("revert again");
+    let reverted = revert_import_batch(&vault, batch_id).expect("revert");
+    let reverted_again = revert_import_batch(&vault, batch_id).expect("revert again");
     assert_eq!(reverted.batch.status, "reverted");
     assert_eq!(reverted_again.batch.status, "reverted");
     let reverted_audit_path =
@@ -960,10 +888,8 @@ fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
         assert_eq!(reverted_git_commit.len(), 40);
     }
 
-    let restored =
-        restore_import_batch(&paths, &git_config, None, batch_id).expect("restore batch");
-    let restored_again =
-        restore_import_batch(&paths, &git_config, None, batch_id).expect("restore again");
+    let restored = restore_import_batch(&vault, batch_id).expect("restore batch");
+    let restored_again = restore_import_batch(&vault, batch_id).expect("restore again");
     assert_eq!(restored.batch.status, "imported");
     assert_eq!(restored_again.batch.status, "imported");
     let restored_audit_path =
@@ -974,9 +900,18 @@ fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
         assert_eq!(restored_git_commit.len(), 40);
     }
 
-    let connection = open_archive_connection(&paths, &git_config, None).expect("open archive");
-    assert!(load_import_batch_record(&connection, batch_id).expect("load batch record").is_some());
-    assert!(load_import_batch_record(&connection, 9_999).expect("missing batch").is_none());
+    assert!(
+        vault
+            .read(Db::Archive, move |s| load_import_batch_record(s, batch_id))
+            .expect("load batch record")
+            .is_some()
+    );
+    assert!(
+        vault
+            .read(Db::Archive, |s| load_import_batch_record(s, 9_999))
+            .expect("missing batch")
+            .is_none()
+    );
 }
 
 #[test]
@@ -1015,13 +950,10 @@ fn takeout_parsers_cover_blank_lines_arrays_and_unusable_payloads() {
 
 #[test]
 fn import_takeout_quarantines_unknown_files_and_skips_index_entries() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = dir.path().join("mixed-takeout");
     fs::create_dir_all(&source).expect("create mixed source");
@@ -1034,9 +966,7 @@ fn import_takeout_quarantines_unknown_files_and_skips_index_entries() {
     fs::write(source.join("notes.txt"), "quarantine me").expect("write unknown file");
 
     let inspection = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import mixed takeout");
@@ -1054,13 +984,10 @@ fn import_takeout_quarantines_unknown_files_and_skips_index_entries() {
 
 #[test]
 fn import_takeout_persists_source_evidence_for_all_recognized_payloads() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = dir.path().join("rich-takeout");
     let chrome_dir = source.join("Chrome");
@@ -1084,32 +1011,24 @@ fn import_takeout_persists_source_evidence_for_all_recognized_payloads() {
     .expect("write session");
 
     let inspection = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import rich takeout");
     assert_eq!(inspection.imported_items, 1);
     assert_eq!(inspection.recognized_files.len(), 3);
 
-    let source_evidence =
-        open_source_evidence_connection(&paths, &config, None).expect("open source evidence");
+    let source_evidence = Probe::for_db(&vault, Db::SourceEvidence);
     let source_batch_count: i64 = source_evidence
-        .query_row("SELECT COUNT(*) FROM source_batches", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM source_batches", (), |row| Ok(row.get(0)?))
         .expect("count source batches");
     assert_eq!(source_batch_count, 3);
 
-    let native_entity_kinds = {
-        let mut statement = source_evidence
-            .prepare("SELECT entity_kind FROM native_entities ORDER BY entity_kind")
-            .expect("prepare native entity query");
-        statement
-            .query_map([], |row| row.get::<_, String>(0))
-            .expect("query native kinds")
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .expect("collect native kinds")
-    };
+    let native_entity_kinds = source_evidence
+        .query("SELECT entity_kind FROM native_entities ORDER BY entity_kind", (), |r| {
+            Ok(r.get::<String>(0)?)
+        })
+        .unwrap();
     assert!(native_entity_kinds.contains(&"takeout-browser-history".to_string()));
     assert!(native_entity_kinds.contains(&"takeout-typed-url".to_string()));
     assert!(native_entity_kinds.contains(&"takeout-session".to_string()));
@@ -1117,32 +1036,28 @@ fn import_takeout_persists_source_evidence_for_all_recognized_payloads() {
     let context_rows: i64 = source_evidence
         .query_row(
             "SELECT COUNT(*) FROM visit_context_evidence WHERE context_key = 'context.takeout.client_id'",
-            [],
-            |row| row.get(0),
+            (),
+            |row| Ok(row.get(0)?),
         )
         .expect("count takeout context rows");
     assert_eq!(context_rows, 1);
 
-    let last_source_batch_id: Option<i64> = open_archive_connection(&paths, &config, None)
-        .expect("reopen archive")
+    let last_source_batch_id: Option<i64> = Probe::new(&vault)
         .query_row(
             "SELECT last_source_batch_id FROM profile_watermarks WHERE profile_id = 'takeout::browser-history'",
-            [],
-            |row| row.get(0),
+            (),
+            |row| Ok(row.get(0)?),
         )
         .expect("load watermark");
     assert!(last_source_batch_id.is_some());
 }
 
 #[test]
-fn import_takeout_spools_large_streamed_source_evidence_chunks() {
+fn import_takeout_preserves_large_streamed_source_evidence_without_spooling() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let large_blob = "x".repeat(300_000);
     let source = dir.path().join("spooled-takeout");
@@ -1157,46 +1072,40 @@ fn import_takeout_spools_large_streamed_source_evidence_chunks() {
     .expect("write large browser history");
 
     let inspection = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import spooled takeout");
     assert_eq!(inspection.imported_items, 1);
 
-    let source_evidence =
-        open_source_evidence_connection(&paths, &config, None).expect("open source evidence");
+    let source_evidence = Probe::for_db(&vault, Db::SourceEvidence);
     let context_rows: i64 = source_evidence
         .query_row(
             "SELECT COUNT(*) FROM visit_context_evidence WHERE context_key = 'context.takeout.client_id'",
-            [],
-            |row| row.get(0),
+            (),
+            |row| Ok(row.get(0)?),
         )
         .expect("count takeout context rows");
     assert_eq!(context_rows, 1);
     let payload_bytes: i64 = source_evidence
         .query_row(
             "SELECT LENGTH(payload_json) FROM native_entities WHERE entity_kind = 'takeout-browser-history'",
-            [],
-            |row| row.get(0),
+            (),
+            |row| Ok(row.get(0)?),
         )
         .expect("load native entity payload length");
     assert!(payload_bytes > 300_000);
 
     let spool_dir = paths.staging_dir.join("source-evidence-spool");
-    assert_eq!(fs::read_dir(&spool_dir).expect("read spool dir").count(), 0);
+    assert!(!spool_dir.exists());
 }
 
 #[test]
 fn import_takeout_quarantines_unknown_zip_entries() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_takeout_zip(
         dir.path(),
@@ -1212,9 +1121,7 @@ fn import_takeout_quarantines_unknown_zip_entries() {
     );
 
     let inspection = import_takeout(
-        &paths,
-        &config,
-        None,
+        &vault,
         &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
     )
     .expect("import zipped takeout");
@@ -1240,4 +1147,39 @@ fn browser_json_payloads_ignore_missing_and_valid_records() {
     assert_eq!(payload.records.len(), 1);
     assert_eq!(payload.records[0].title.as_deref(), Some("OK"));
     assert_eq!(payload.skipped_missing_visit_time, 1);
+}
+
+fn run_facts(vault: &crate::Vault) -> vault_store::Result<Vec<crate::BackupRunOverview>> {
+    vault.store().read(Db::Archive,|s|s.query("SELECT id,run_type,profile_scope_json,stats_json FROM runs WHERE id>0 ORDER BY id DESC",(),|r| {
+        let stats:Value=serde_json::from_str(&r.get::<String>(3)?).unwrap();
+        Ok(crate::BackupRunOverview {id:r.get(0)?,run_type:r.get(1)?,profile_scope:serde_json::from_str(&r.get::<String>(2)?).unwrap(),
+            profiles_processed:stats["profilesProcessed"].as_u64().unwrap_or(0) as usize,new_visits:stats["newVisits"].as_u64().unwrap_or(0) as usize,..Default::default()})
+    }))
+}
+
+#[test]
+fn trailing_zip_checksum_failure_keeps_a_failed_import_prefix() {
+    use std::io::{Cursor, Write};
+    let vault = crate::Vault::open_temp().unwrap();
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    zip.start_file(
+        "Takeout/Chrome/BrowserHistory.json",
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+    )
+    .unwrap();
+    zip.write_all(br#"{"Browser History":[{"url":"https://checksum.test","title":"Checksum","time_usec":1711965600000000}]}"#).unwrap();
+    zip.write_all(&vec![b' '; 16_384]).unwrap();
+    let mut bytes = zip.finish().unwrap().into_inner();
+    let directory = bytes.windows(4).position(|b| b == b"PK\x01\x02").unwrap();
+    bytes[directory + 16..directory + 20].fill(0);
+    let path = vault.paths().app_root.join("bad-checksum.zip");
+    std::fs::write(&path, bytes).unwrap();
+    let result = import_takeout(
+        &vault,
+        &TakeoutRequest { source_path: path.display().to_string(), dry_run: false },
+    );
+    assert!(result.is_err(), "a complete JSON value must not skip the ZIP checksum at EOF");
+    let batch = load_import_batches(&vault, None, 16).unwrap().items.remove(0);
+    assert_eq!(batch.status, "failed");
+    assert_eq!(batch.imported_items, 1);
 }

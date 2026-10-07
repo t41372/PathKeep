@@ -1,3 +1,4 @@
+//! Failure modes: profile loss, reverted rows counted, wrong week bounds, unknown URL errors, full scans.
 //! Per-URL detail for the History panel.
 //!
 //! ## Responsibilities
@@ -9,69 +10,55 @@
 //! ## Performance notes
 //! - `idx_urls_url` finds the URL rows (one per source profile). Every visit query then runs on
 //!   `idx_visits_visible_url_time (url_id, visit_time_ms DESC, id DESC)`, which covers the count,
-//!   first/last seek and each weekly range, so no visit row is read even for a URL with 100k visits.
+//!   first/last seek and each weekly range. Lifetime counts come from the page/profile summaries.
 
 use super::source_stats::rfc3339_from_ms;
 use crate::{
+    Vault,
     chrome::browser_display_name,
-    config::ProjectPaths,
-    models::{AppConfig, UrlDetail, UrlWeeklyVisits},
+    models::{UrlDetail, UrlWeeklyVisits},
     utils::url_domain,
 };
 use anyhow::{Context, Result};
 use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone};
-use rusqlite::{Connection, OptionalExtension, params};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use vault_store::{Db, Session, params};
 
 const WEEKS: i64 = 12;
 
 /// Loads the detail panel data for `url` from the canonical archive.
-pub fn get_url_detail(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    url: &str,
-) -> Result<UrlDetail> {
-    let connection = super::open_archive_connection(paths, config, key)?;
-    url_detail_for_connection(&connection, url, Local::now().date_naive())
+pub fn get_url_detail(vault: &Vault, url: &str) -> Result<UrlDetail> {
+    let url = url.to_owned();
+    vault.read(Db::Archive, move |s| url_detail_for_session(s, &url, Local::now().date_naive()))
 }
 
-pub(crate) fn url_detail_for_connection(
-    connection: &Connection,
+const URL_ROWS_SQL: &str = "SELECT urls.id,urls.title,urls.last_visit_ms,source_profiles.browser_kind,source_profiles.id FROM urls CROSS JOIN source_profiles ON source_profiles.id=urls.source_profile_id WHERE urls.url=?1 AND EXISTS(SELECT 1 FROM visits WHERE url_id=urls.id AND reverted_at IS NULL)";
+const URL_COUNTS_SQL: &str = "SELECT source_profile_id,visible_visit_count FROM search_document_profiles WHERE page_id=(SELECT id FROM pages WHERE url=?1)";
+const URL_FIRST_SQL: &str = "SELECT visit_time_ms FROM visits INDEXED BY idx_visits_visible_url_time WHERE url_id=?1 AND reverted_at IS NULL ORDER BY visit_time_ms,id LIMIT 1";
+const URL_LAST_SQL: &str = "SELECT visit_time_ms FROM visits INDEXED BY idx_visits_visible_url_time WHERE url_id=?1 AND reverted_at IS NULL ORDER BY visit_time_ms DESC,id DESC LIMIT 1";
+const URL_RANGE_SQL: &str = "SELECT COUNT(*) FROM visits INDEXED BY idx_visits_visible_url_time WHERE url_id=?1 AND reverted_at IS NULL AND visit_time_ms>=?2 AND visit_time_ms<?3";
+const URL_DOMAIN_SQL: &str = "SELECT registrable_domain FROM pages WHERE url=?1";
+
+pub(crate) fn url_detail_for_session(
+    s: &Session<'_>,
     url: &str,
     today: NaiveDate,
 ) -> Result<UrlDetail> {
     let weeks = week_bounds(today)?;
-
-    let mut statement = connection.prepare(
-        "SELECT urls.id, urls.title, urls.last_visit_ms, source_profiles.browser_kind
-         FROM urls JOIN source_profiles ON source_profiles.id = urls.source_profile_id
-         WHERE urls.url = ?1",
-    )?;
-    let rows = statement
-        .query_map([url], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-
-    let mut count = connection
-        .prepare("SELECT COUNT(*) FROM visits WHERE url_id = ?1 AND reverted_at IS NULL")?;
-    let mut first = connection.prepare(
-        "SELECT MIN(visit_time_ms) FROM visits WHERE url_id = ?1 AND reverted_at IS NULL",
-    )?;
-    let mut last = connection.prepare(
-        "SELECT MAX(visit_time_ms) FROM visits WHERE url_id = ?1 AND reverted_at IS NULL",
-    )?;
-    let mut in_range = connection.prepare(
-        "SELECT COUNT(*) FROM visits
-         WHERE url_id = ?1 AND reverted_at IS NULL AND visit_time_ms >= ?2 AND visit_time_ms < ?3",
-    )?;
-
+    let rows = s.query(URL_ROWS_SQL, [url], |r| {
+        Ok((
+            r.get::<i64>(0)?,
+            r.get::<Option<String>>(1)?,
+            r.get::<i64>(2)?,
+            r.get::<String>(3)?,
+            r.get::<i64>(4)?,
+        ))
+    })?;
+    let counts = s
+        .query(URL_COUNTS_SQL, [url], |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?)))?
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+    let mut counted_profiles = HashSet::new();
     let mut total = 0_i64;
     let mut first_ms: Option<i64> = None;
     let mut last_ms: Option<i64> = None;
@@ -79,19 +66,19 @@ pub(crate) fn url_detail_for_connection(
     let mut weekly = vec![0_i64; WEEKS as usize];
     let mut title: Option<(i64, Option<String>)> = None;
 
-    for (url_id, row_title, row_last_visit, browser_kind) in &rows {
-        let visits: i64 = count.query_row([url_id], |row| row.get(0))?;
-        if visits == 0 {
-            continue;
+    for (url_id, row_title, row_last_visit, browser_kind, profile) in &rows {
+        if counted_profiles.insert(*profile) {
+            let visits = counts[profile];
+            total += visits;
+            *by_browser.entry(browser_display_name(browser_kind)).or_default() += visits;
         }
-        total += visits;
-        *by_browser.entry(browser_display_name(browser_kind)).or_default() += visits;
-        let row_first: Option<i64> = first.query_row([url_id], |row| row.get(0))?;
-        let row_last: Option<i64> = last.query_row([url_id], |row| row.get(0))?;
+        let row_first: Option<i64> = s.query(URL_FIRST_SQL, [*url_id], |r| Ok(r.get(0)?))?.pop();
+        let row_last: Option<i64> = s.query(URL_LAST_SQL, [*url_id], |r| Ok(r.get(0)?))?.pop();
         first_ms = min_option(first_ms, row_first);
         last_ms = max_option(last_ms, row_last);
         for (index, (start, end)) in weeks.iter().enumerate() {
-            let in_week: i64 = in_range.query_row(params![url_id, start, end], |row| row.get(0))?;
+            let in_week: i64 =
+                s.query_one(URL_RANGE_SQL, params![*url_id, *start, *end], |r| Ok(r.get(0)?))?;
             weekly[index] += in_week;
         }
         if title.as_ref().is_none_or(|(seen, _)| row_last_visit > seen) {
@@ -102,13 +89,10 @@ pub(crate) fn url_detail_for_connection(
     let mut browsers: Vec<(String, i64)> = by_browser.into_iter().collect();
     browsers.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
 
-    let domain = connection
-        .query_row(
-            "SELECT registrable_domain FROM urls WHERE url = ?1 AND registrable_domain IS NOT NULL LIMIT 1",
-            [url],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
+    let domain = s
+        .query(URL_DOMAIN_SQL, [url], |r| Ok(r.get::<Option<String>>(0)?))?
+        .pop()
+        .flatten()
         .unwrap_or_else(|| url_domain(url));
 
     Ok(UrlDetail {
@@ -173,65 +157,5 @@ fn local_midnight_ms(day: NaiveDate) -> Result<i64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::archive::source_stats::tests::seeded_archive;
-
-    fn ms(day: NaiveDate, hour: u32) -> i64 {
-        let local = day.and_hms_opt(hour, 0, 0).expect("time");
-        Local.from_local_datetime(&local).earliest().expect("local").timestamp_millis()
-    }
-
-    #[test]
-    fn buckets_are_twelve_monday_weeks_ending_this_week() {
-        let (_root, paths, config) = seeded_archive();
-        let connection =
-            crate::archive::open_archive_connection(&paths, &config, None).expect("open");
-        let today = NaiveDate::from_ymd_opt(2026, 10, 3).expect("date"); // Saturday
-        let this_monday = NaiveDate::from_ymd_opt(2026, 9, 28).expect("monday");
-        connection
-            .execute_batch(&format!(
-                "DELETE FROM visits;
-                 INSERT INTO visits (url_id, visit_time_ms, visit_time_iso, source_profile_id, created_by_run_id, reverted_at) VALUES
-                   (1, {a}, '', 1, 1, NULL),
-                   (1, {b}, '', 1, 1, NULL),
-                   (1, {c}, '', 1, 1, NULL),
-                   (2, {d}, '', 2, 1, NULL),
-                   (1, {e}, '', 1, 1, '2026-01-01T00:00:00Z');",
-                a = ms(this_monday, 0),
-                b = ms(today, 12),
-                c = ms(this_monday - Duration::days(1), 23),
-                d = ms(this_monday - Duration::weeks(11), 9),
-                e = ms(today, 13),
-            ))
-            .expect("visits");
-
-        let detail =
-            url_detail_for_connection(&connection, "https://example.com/a", today).expect("detail");
-        assert_eq!(detail.total_visits, 4);
-        assert_eq!(detail.weekly_visits.len(), 12);
-        assert_eq!(detail.weekly_visits[11].week_start, "2026-09-28");
-        assert_eq!(detail.weekly_visits[0].week_start, "2026-07-13");
-        let counts: Vec<i64> = detail.weekly_visits.iter().map(|week| week.visits).collect();
-        assert_eq!(counts, vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2]);
-        // Chrome recorded three of the four visible visits, so it is listed first.
-        assert_eq!(detail.browsers, vec!["Google Chrome", "Firefox"]);
-        assert_eq!(detail.title.as_deref(), Some("A"));
-        assert_eq!(detail.domain, "example.com");
-        assert!(detail.first_visit_at < detail.last_visit_at);
-    }
-
-    #[test]
-    fn unknown_url_yields_an_empty_detail() {
-        let (_root, paths, config) = seeded_archive();
-        let connection =
-            crate::archive::open_archive_connection(&paths, &config, None).expect("open");
-        let today = NaiveDate::from_ymd_opt(2026, 10, 3).expect("date");
-        let detail = url_detail_for_connection(&connection, "https://nowhere.test/x", today)
-            .expect("detail");
-        assert_eq!(detail.total_visits, 0);
-        assert!(detail.browsers.is_empty() && detail.first_visit_at.is_none());
-        assert_eq!(detail.weekly_visits.len(), 12);
-        assert_eq!(detail.domain, "nowhere.test");
-    }
-}
+#[path = "url_detail_tests.rs"]
+mod tests;

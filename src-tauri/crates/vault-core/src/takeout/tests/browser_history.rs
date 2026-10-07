@@ -1,8 +1,10 @@
+//! Failure modes: family/source detection drift, duplicate reimports, lost
+//! evidence, missing timestamps, invalid files. Tests use the real importer.
 //! Browser Direct import regressions for local history databases.
 
-use super::{initialized_plaintext_config, sample_paths};
+use super::sample_paths;
+use crate::test_support::store::Probe;
 use crate::{
-    archive::{create_schema, open_archive_connection, open_source_evidence_connection},
     config::ensure_paths,
     models::BrowserHistoryImportRequest,
     takeout::{
@@ -13,6 +15,7 @@ use crate::{
 use rusqlite::{Connection, params};
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
+use vault_store::Db;
 
 fn browser_history_request(
     source: &Path,
@@ -236,11 +239,11 @@ fn write_firefox_history_db(dir: &Path) -> PathBuf {
 
 #[test]
 fn inspect_browser_history_previews_safari_database() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let fixture_path = write_safari_history_db(dir.path());
     let inspection = inspect_browser_history(
-        &sample_paths(dir.path()),
-        None,
+        &vault,
         &browser_history_request(&fixture_path, true, "safari", "safari:reference"),
     )
     .expect("inspect safari browser history");
@@ -258,17 +261,14 @@ fn inspect_browser_history_previews_safari_database() {
 
 #[test]
 fn import_browser_history_safari_import_batch_is_reversible_and_deduplicated() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_safari_history_db(dir.path());
     let request = browser_history_request(&source, false, "safari", "safari:primary");
-    let first = import_browser_history(&paths, &config, None, &request).expect("import safari");
+    let first = import_browser_history(&vault, &request).expect("import safari");
     let batch = first.import_batch.clone().expect("import batch");
 
     assert_eq!(batch.source_kind, "browser-history");
@@ -278,87 +278,79 @@ fn import_browser_history_safari_import_batch_is_reversible_and_deduplicated() {
     assert_eq!(first.recognized_files[0].kind, "safari-history-db");
     assert_eq!(first.preview_entries.len(), 2);
 
-    let second = import_browser_history(&paths, &config, None, &request).expect("re-import safari");
+    let second = import_browser_history(&vault, &request).expect("re-import safari");
     assert_eq!(second.imported_items, 0);
     assert_eq!(second.duplicate_items, 2);
 
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    let archive = Probe::new(&vault);
     let profile_family: String = archive
         .query_row(
             "SELECT browser_family FROM source_profiles WHERE profile_key = 'safari:primary'",
-            [],
-            |row| row.get(0),
+            (),
+            |row| Ok(row.get(0)?),
         )
         .expect("load safari profile");
     assert_eq!(profile_family, "safari");
 
-    let source_evidence =
-        open_source_evidence_connection(&paths, &config, None).expect("open source evidence");
+    let source_evidence = Probe::for_db(&vault, Db::SourceEvidence);
     let navigation_rows: i64 = source_evidence
-        .query_row("SELECT COUNT(*) FROM visit_navigation_evidence", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM visit_navigation_evidence", (), |row| Ok(row.get(0)?))
         .expect("navigation evidence count");
     let native_rows: i64 = source_evidence
-        .query_row("SELECT COUNT(*) FROM native_entities", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM native_entities", (), |row| Ok(row.get(0)?))
         .expect("native evidence count");
     assert_eq!(navigation_rows, 4);
     assert!(native_rows >= 4);
 
-    let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert batch");
+    let reverted = revert_import_batch(&vault, batch.id).expect("revert batch");
     assert_eq!(reverted.batch.status, "reverted");
     assert_eq!(reverted.batch.visible_items, 0);
-    let restored = restore_import_batch(&paths, &config, None, batch.id).expect("restore batch");
+    let restored = restore_import_batch(&vault, batch.id).expect("restore batch");
     assert_eq!(restored.batch.status, "imported");
     assert_eq!(restored.batch.visible_items, 2);
 }
 
 #[test]
 fn import_browser_history_accepts_chromium_history_database() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_chromium_history_db(dir.path());
     let request = browser_history_request(&source, false, "chromium", "chrome:Primary");
-    let inspection =
-        import_browser_history(&paths, &config, None, &request).expect("import chromium");
+    let inspection = import_browser_history(&vault, &request).expect("import chromium");
 
     assert_eq!(inspection.imported_items, 1);
     assert_eq!(inspection.duplicate_items, 0);
     assert_eq!(inspection.recognized_files[0].kind, "chromium-history-db");
     assert_eq!(inspection.import_batch.expect("import batch").source_kind, "browser-history");
 
-    let search = Connection::open(&paths.search_database_path).expect("open search projection");
+    let search = Probe::new(&vault);
     let search_documents: i64 = search
-        .query_row("SELECT COUNT(*) FROM search_documents", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM search_documents", (), |row| Ok(row.get(0)?))
         .expect("search document count");
     let chrome_matches: i64 = search
         .query_row(
-            "SELECT COUNT(*) FROM history_search_terms WHERE history_search_terms MATCH ?1",
-            ["chrome"],
-            |row| row.get(0),
+            "SELECT COUNT(*) FROM search_documents WHERE normalized_title LIKE ?1",
+            ["%chrome%"],
+            |row| Ok(row.get(0)?),
         )
-        .expect("fts chrome match count");
+        .expect("search document normalized title");
     assert_eq!(search_documents, 1);
     assert_eq!(chrome_matches, 1);
 }
 
 #[test]
 fn import_browser_history_preserves_microsoft_edge_product_metadata() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_chromium_history_db(dir.path());
     let request = edge_browser_history_request(&source, false);
-    let first = import_browser_history(&paths, &config, None, &request).expect("import edge");
+    let first = import_browser_history(&vault, &request).expect("import edge");
     let batch = first.import_batch.clone().expect("import batch");
 
     assert_eq!(batch.source_kind, "browser-history");
@@ -367,13 +359,13 @@ fn import_browser_history_preserves_microsoft_edge_product_metadata() {
     assert_eq!(first.duplicate_items, 0);
     assert_eq!(first.recognized_files[0].kind, "chromium-history-db");
 
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    let archive = Probe::new(&vault);
     let (profile_family, profile_product): (String, String) = archive
         .query_row(
             "SELECT browser_family, browser_product
                FROM source_profiles
               WHERE profile_key = 'edge:Default'",
-            [],
+            (),
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("load edge profile");
@@ -381,33 +373,30 @@ fn import_browser_history_preserves_microsoft_edge_product_metadata() {
     assert_eq!(profile_product, "Microsoft Edge");
     drop(archive);
 
-    let second = import_browser_history(&paths, &config, None, &request).expect("re-import edge");
+    let second = import_browser_history(&vault, &request).expect("re-import edge");
     assert_eq!(second.imported_items, 0);
     assert_eq!(second.duplicate_items, 1);
 
-    let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert edge");
+    let reverted = revert_import_batch(&vault, batch.id).expect("revert edge");
     assert_eq!(reverted.batch.status, "reverted");
     assert_eq!(reverted.batch.visible_items, 0);
-    let restored = restore_import_batch(&paths, &config, None, batch.id).expect("restore edge");
+    let restored = restore_import_batch(&vault, batch.id).expect("restore edge");
     assert_eq!(restored.batch.status, "imported");
     assert_eq!(restored.batch.visible_items, 1);
 }
 
 #[test]
 fn import_browser_history_accepts_firefox_places_database_and_review_contract() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let profile_dir = dir.path().join("FirefoxProfile");
     std::fs::create_dir_all(&profile_dir).expect("profile dir");
     let source = write_firefox_history_db(&profile_dir);
     let request = browser_history_request(&profile_dir, false, "firefox", "firefox:Primary");
-    let first = import_browser_history(&paths, &config, None, &request).expect("import firefox");
+    let first = import_browser_history(&vault, &request).expect("import firefox");
     let batch = first.import_batch.clone().expect("import batch");
 
     assert_eq!(batch.source_kind, "browser-history");
@@ -424,13 +413,13 @@ fn import_browser_history_accepts_firefox_places_database_and_review_contract() 
             .any(|note| note.contains("Firefox baseline ingest captures visits and URLs"))
     );
 
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    let archive = Probe::new(&vault);
     let (profile_family, profile_product): (String, String) = archive
         .query_row(
             "SELECT browser_family, browser_product
                FROM source_profiles
               WHERE profile_key = 'firefox:Primary'",
-            [],
+            (),
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("load firefox profile");
@@ -438,58 +427,51 @@ fn import_browser_history_accepts_firefox_places_database_and_review_contract() 
     assert_eq!(profile_product, "Firefox");
     drop(archive);
 
-    let source_evidence =
-        open_source_evidence_connection(&paths, &config, None).expect("open source evidence");
+    let source_evidence = Probe::for_db(&vault, Db::SourceEvidence);
     let source_batches: i64 = source_evidence
-        .query_row("SELECT COUNT(*) FROM source_batches", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM source_batches", (), |row| Ok(row.get(0)?))
         .expect("source batch count");
     let native_rows: i64 = source_evidence
-        .query_row("SELECT COUNT(*) FROM native_entities", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM native_entities", (), |row| Ok(row.get(0)?))
         .expect("native evidence count");
     assert_eq!(source_batches, 1);
     assert!(native_rows >= 2);
 
-    let second =
-        import_browser_history(&paths, &config, None, &request).expect("re-import firefox");
+    let second = import_browser_history(&vault, &request).expect("re-import firefox");
     assert_eq!(second.imported_items, 0);
     assert_eq!(second.duplicate_items, 2);
 
-    let search = Connection::open(&paths.search_database_path).expect("open search projection");
+    let search = Probe::new(&vault);
     let firefox_matches: i64 = search
         .query_row(
-            "SELECT COUNT(*) FROM history_search_terms WHERE history_search_terms MATCH ?1",
-            ["firefox"],
-            |row| row.get(0),
+            "SELECT COUNT(*) FROM search_documents WHERE normalized_title LIKE ?1",
+            ["%firefox%"],
+            |row| Ok(row.get(0)?),
         )
         .expect("fts firefox match count");
     assert_eq!(firefox_matches, 2);
 
-    let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert firefox");
+    let reverted = revert_import_batch(&vault, batch.id).expect("revert firefox");
     assert_eq!(reverted.batch.status, "reverted");
     assert_eq!(reverted.batch.visible_items, 0);
-    let restored = restore_import_batch(&paths, &config, None, batch.id).expect("restore firefox");
+    let restored = restore_import_batch(&vault, batch.id).expect("restore firefox");
     assert_eq!(restored.batch.status, "imported");
     assert_eq!(restored.batch.visible_items, 2);
 }
 
 #[test]
 fn import_browser_history_progress_reports_record_batches() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_chromium_history_db(dir.path());
     let request = browser_history_request(&source, false, "chromium", "chrome:Primary");
     let mut events = Vec::new();
     let inspection =
-        import_browser_history_with_progress(&paths, &config, None, &request, |event| {
-            events.push(event)
-        })
-        .expect("import chromium with progress");
+        import_browser_history_with_progress(&vault, &request, |event| events.push(event))
+            .expect("import chromium with progress");
 
     assert_eq!(inspection.imported_items, 1);
     let record_event = events
@@ -504,17 +486,14 @@ fn import_browser_history_progress_reports_record_batches() {
 
 #[test]
 fn import_browser_history_preserves_chatgpt_atlas_product_and_review_contract() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_chromium_history_db(dir.path());
     let request = atlas_browser_history_request(&source, false);
-    let first = import_browser_history(&paths, &config, None, &request).expect("import atlas");
+    let first = import_browser_history(&vault, &request).expect("import atlas");
     let batch = first.import_batch.clone().expect("import batch");
 
     assert_eq!(batch.source_kind, "browser-history");
@@ -523,13 +502,13 @@ fn import_browser_history_preserves_chatgpt_atlas_product_and_review_contract() 
     assert_eq!(first.duplicate_items, 0);
     assert_eq!(first.recognized_files[0].kind, "chromium-history-db");
 
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    let archive = Probe::new(&vault);
     let (profile_family, profile_product): (String, String) = archive
         .query_row(
             "SELECT browser_family, browser_product
                FROM source_profiles
               WHERE profile_key = 'atlas:user-test'",
-            [],
+            (),
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("load atlas profile");
@@ -537,42 +516,38 @@ fn import_browser_history_preserves_chatgpt_atlas_product_and_review_contract() 
     assert_eq!(profile_product, "ChatGPT Atlas");
     drop(archive);
 
-    let source_evidence =
-        open_source_evidence_connection(&paths, &config, None).expect("open source evidence");
+    let source_evidence = Probe::for_db(&vault, Db::SourceEvidence);
     let source_batches: i64 = source_evidence
-        .query_row("SELECT COUNT(*) FROM source_batches", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM source_batches", (), |row| Ok(row.get(0)?))
         .expect("source batch count");
     let native_rows: i64 = source_evidence
-        .query_row("SELECT COUNT(*) FROM native_entities", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM native_entities", (), |row| Ok(row.get(0)?))
         .expect("native evidence count");
     assert_eq!(source_batches, 1);
     assert!(native_rows >= 2);
 
-    let second = import_browser_history(&paths, &config, None, &request).expect("re-import atlas");
+    let second = import_browser_history(&vault, &request).expect("re-import atlas");
     assert_eq!(second.imported_items, 0);
     assert_eq!(second.duplicate_items, 1);
 
-    let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert atlas");
+    let reverted = revert_import_batch(&vault, batch.id).expect("revert atlas");
     assert_eq!(reverted.batch.status, "reverted");
     assert_eq!(reverted.batch.visible_items, 0);
-    let restored = restore_import_batch(&paths, &config, None, batch.id).expect("restore atlas");
+    let restored = restore_import_batch(&vault, batch.id).expect("restore atlas");
     assert_eq!(restored.batch.status, "imported");
     assert_eq!(restored.batch.visible_items, 1);
 }
 
 #[test]
 fn import_browser_history_preserves_perplexity_comet_product_and_review_contract() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let source = write_chromium_history_db(dir.path());
     let request = comet_browser_history_request(&source, false);
-    let first = import_browser_history(&paths, &config, None, &request).expect("import comet");
+    let first = import_browser_history(&vault, &request).expect("import comet");
     let batch = first.import_batch.clone().expect("import batch");
 
     assert_eq!(batch.source_kind, "browser-history");
@@ -581,13 +556,13 @@ fn import_browser_history_preserves_perplexity_comet_product_and_review_contract
     assert_eq!(first.duplicate_items, 0);
     assert_eq!(first.recognized_files[0].kind, "chromium-history-db");
 
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    let archive = Probe::new(&vault);
     let (profile_family, profile_product): (String, String) = archive
         .query_row(
             "SELECT browser_family, browser_product
                FROM source_profiles
               WHERE profile_key = 'comet:Default'",
-            [],
+            (),
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("load comet profile");
@@ -595,36 +570,35 @@ fn import_browser_history_preserves_perplexity_comet_product_and_review_contract
     assert_eq!(profile_product, "Perplexity Comet");
     drop(archive);
 
-    let source_evidence =
-        open_source_evidence_connection(&paths, &config, None).expect("open source evidence");
+    let source_evidence = Probe::for_db(&vault, Db::SourceEvidence);
     let source_batches: i64 = source_evidence
-        .query_row("SELECT COUNT(*) FROM source_batches", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM source_batches", (), |row| Ok(row.get(0)?))
         .expect("source batch count");
     let native_rows: i64 = source_evidence
-        .query_row("SELECT COUNT(*) FROM native_entities", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM native_entities", (), |row| Ok(row.get(0)?))
         .expect("native evidence count");
     assert_eq!(source_batches, 1);
     assert!(native_rows >= 2);
 
-    let second = import_browser_history(&paths, &config, None, &request).expect("re-import comet");
+    let second = import_browser_history(&vault, &request).expect("re-import comet");
     assert_eq!(second.imported_items, 0);
     assert_eq!(second.duplicate_items, 1);
 
-    let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert comet");
+    let reverted = revert_import_batch(&vault, batch.id).expect("revert comet");
     assert_eq!(reverted.batch.status, "reverted");
     assert_eq!(reverted.batch.visible_items, 0);
-    let restored = restore_import_batch(&paths, &config, None, batch.id).expect("restore comet");
+    let restored = restore_import_batch(&vault, batch.id).expect("restore comet");
     assert_eq!(restored.batch.status, "imported");
     assert_eq!(restored.batch.visible_items, 1);
 }
 
 #[test]
 fn inspect_browser_history_reports_safari_access_guidance_for_unreadable_files() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let source = dir.path().join("History.db");
     let error = inspect_browser_history(
-        &sample_paths(dir.path()),
-        None,
+        &vault,
         &browser_history_request(&source, true, "safari", "safari:blocked"),
     )
     .expect_err("missing safari db should explain access");
@@ -636,13 +610,10 @@ fn inspect_browser_history_reports_safari_access_guidance_for_unreadable_files()
 /// for the same source profile, and the import then adds exactly that many.
 #[test]
 fn inspect_browser_history_counts_visits_the_archive_already_has() {
+    let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = initialized_plaintext_config();
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
-    drop(archive);
 
     let profile_dir = dir.path().join("FirefoxProfile");
     std::fs::create_dir_all(&profile_dir).expect("profile dir");
@@ -651,10 +622,10 @@ fn inspect_browser_history_counts_visits_the_archive_already_has() {
     let import = browser_history_request(&source, false, "firefox", "firefox:Probe");
 
     // Nothing archived yet: every visit is new.
-    let fresh = inspect_browser_history(&paths, Some((&config, None)), &preview).expect("fresh");
+    let fresh = inspect_browser_history(&vault, &preview).expect("fresh");
     assert_eq!((fresh.candidate_items, fresh.duplicate_items), (2, 0));
     assert!(fresh.preview_entries.iter().all(|entry| entry.status == "candidate"));
-    import_browser_history(&paths, &config, None, &import).expect("first import");
+    import_browser_history(&vault, &import).expect("first import");
 
     // One more visit in the browser: the preview sees 1 new, 2 already archived.
     let connection = Connection::open(&source).expect("open firefox db");
@@ -662,23 +633,126 @@ fn inspect_browser_history_counts_visits_the_archive_already_has() {
         .execute(
             "INSERT INTO moz_historyvisits (id, place_id, visit_date, from_visit, visit_type)
              VALUES (3, 2, 1744146005000000, NULL, 1)",
-            [],
+            (),
         )
         .expect("append visit");
     drop(connection);
-    let again = inspect_browser_history(&paths, Some((&config, None)), &preview).expect("again");
+    let again = inspect_browser_history(&vault, &preview).expect("again");
     assert_eq!((again.candidate_items, again.duplicate_items), (3, 2));
     assert_eq!(again.preview_entries.iter().filter(|entry| entry.status == "duplicate").count(), 2);
     // Without the archive nothing is compared.
-    let blind = inspect_browser_history(&paths, None, &preview).expect("blind");
+    let blind =
+        inspect_browser_history(&crate::Vault::open_temp().unwrap(), &preview).expect("blind");
     assert_eq!(blind.duplicate_items, 0);
 
-    let second = import_browser_history(&paths, &config, None, &import).expect("second import");
+    let second = import_browser_history(&vault, &import).expect("second import");
     assert_eq!(second.imported_items, again.candidate_items - again.duplicate_items);
     assert_eq!(second.duplicate_items, again.duplicate_items);
 
     // Another profile id is another source: nothing counts as a duplicate.
     let other = browser_history_request(&source, true, "firefox", "firefox:Other");
-    let other = inspect_browser_history(&paths, Some((&config, None)), &other).expect("other");
+    let other = inspect_browser_history(&vault, &other).expect("other");
     assert_eq!((other.candidate_items, other.duplicate_items), (3, 0));
+}
+
+#[test]
+fn browser_import_retains_review_and_audit_without_advancing_live_cursors() {
+    for key in [None, Some([86; 32])] {
+        let vault = crate::Vault::open_temp_with_key(key).unwrap();
+        let root = tempdir().unwrap();
+        let source = write_safari_history_db(root.path());
+        let request = browser_history_request(&source, false, "safari", "safari:primary");
+        vault.store().write(vault_store::Db::Archive,vault_store::Priority::Interactive,|s| {
+            s.execute("INSERT INTO profile_watermarks(profile_id,last_visit_id,last_url_last_visit_time,last_download_id,last_favicon_last_updated,updated_at)
+                VALUES('safari:primary',98,1234,55,12345,'kept')",())?;Ok(())
+        }).unwrap();
+        let mut saw_running = false;
+        let imported = import_browser_history_with_progress(&vault, &request, |event| {
+            if event.phase == "prepare" {
+                let batch = crate::load_import_batches(&vault, None, 16).unwrap().items.remove(0);
+                let detail = crate::preview_import_batch(&vault, batch.id).unwrap();
+                assert_eq!(detail.batch.status, "running");
+                assert_eq!(detail.recognized_files.len(), 1);
+                assert!(
+                    detail.batch.audit_path.is_none(),
+                    "an in-flight preview must not freeze a partial audit artifact"
+                );
+                saw_running = true;
+            }
+        })
+        .unwrap();
+        assert!(saw_running);
+        assert_eq!(
+            vault
+                .store()
+                .read(Db::Archive, |s| s.query_one(
+                    "SELECT value FROM archive_totals WHERE name='sourceProfiles'",
+                    (),
+                    |r| Ok(r.get::<i64>(0)?)
+                ))
+                .unwrap(),
+            1
+        );
+        let batch = imported.import_batch.as_ref().unwrap();
+        assert!(Path::new(batch.audit_path.as_ref().unwrap()).is_file());
+        let detail = crate::preview_import_batch(&vault, batch.id).unwrap();
+        assert_eq!(detail.batch.status, "imported");
+        assert_eq!(detail.recognized_files.len(), 1);
+        assert_eq!(detail.recognized_files[0].kind, "safari-history-db");
+        assert_eq!(detail.recognized_files[0].path, source.display().to_string());
+        assert_eq!(detail.quarantined_files.len(), imported.quarantined_files.len());
+        assert_eq!(detail.notes, imported.notes);
+        assert!(detail.preview_range_start.is_some());
+        assert!(detail.preview_range_end.is_some());
+        assert_eq!(detail.preview_range_start, imported.preview_range_start);
+        assert_eq!(detail.preview_range_end, imported.preview_range_end);
+        vault.store().read(vault_store::Db::Archive,|s| {
+            assert_eq!(s.query_one("SELECT last_visit_id,last_url_last_visit_time,last_download_id,last_favicon_last_updated,last_source_batch_id,updated_at FROM profile_watermarks WHERE profile_id='safari:primary'",(),|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?,r.get::<i64>(3)?,r.get::<i64>(4)?,r.get::<String>(5)?)))?,(98,1234,55,12345,1,"kept".into()));
+            assert_eq!(s.query_one("SELECT COUNT(*) FROM pages p WHERE NOT EXISTS(SELECT 1 FROM search_outbox o WHERE o.page_id=p.id)",(),|r|Ok(r.get::<i64>(0)?))?,0);
+            Ok(())
+        }).unwrap();
+        vault.store().read(vault_store::Db::SourceEvidence,|s| {
+            let (fingerprint,observation)=s.query_one("SELECT b.schema_fingerprint,o.observation_json FROM source_batches b JOIN schema_observations o ON o.source_batch_id=b.id",(),|r|Ok((r.get::<String>(0)?,r.get::<String>(1)?)))?;
+            assert_eq!(fingerprint,crate::utils::sha256_hex(observation.as_bytes()));
+            Ok(())
+        }).unwrap();
+    }
+}
+
+#[test]
+fn failed_browser_import_retains_recognized_files_and_failure_notes() {
+    for fail_parsing in [true, false] {
+        let vault = crate::Vault::open_temp().unwrap();
+        let root = tempdir().unwrap();
+        let source = write_chromium_history_db(root.path());
+        if fail_parsing {
+            Connection::open(&source)
+                .unwrap()
+                .execute("UPDATE visits SET visit_time='not an integer'", [])
+                .unwrap();
+        } else {
+            vault
+                .store()
+                .write(Db::SourceEvidence, vault_store::Priority::Batch, |s| {
+                    s.execute("DROP TABLE source_batches", ())
+                })
+                .unwrap();
+        }
+        let error = import_browser_history(
+            &vault,
+            &browser_history_request(&source, false, "chromium", "chrome:broken"),
+        )
+        .unwrap_err();
+        let batch = crate::load_import_batches(&vault, None, 16).unwrap().items.remove(0);
+        let detail = crate::preview_import_batch(&vault, batch.id).unwrap();
+        assert_eq!(detail.batch.status, "failed");
+        assert_eq!(detail.recognized_files.len(), 1);
+        assert_eq!(detail.recognized_files[0].path, source.display().to_string());
+        assert!(!detail.notes.is_empty());
+        assert!(
+            detail.notes.iter().any(|note| note.contains(&error.to_string())),
+            "{:?}: {error:#}",
+            detail.notes
+        );
+    }
 }

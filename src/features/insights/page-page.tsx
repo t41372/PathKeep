@@ -146,12 +146,12 @@ export default function PagePage() {
           <QueryBody
             query={refind}
             skeleton={<ListSkeleton rows={3} />}
-            isEmpty={(result) => result.data.relatedTrails.length === 0}
+            isEmpty={(result) => result.data.relatedTrails.items.length === 0}
             empty={t('insights.page.noSearches')}
           >
             {(result) => {
               const byQuery = new Map<string, { count: number; last: number }>()
-              for (const trail of result.data.relatedTrails) {
+              for (const trail of result.data.relatedTrails.items) {
                 const seen = byQuery.get(trail.initialQuery)
                 byQuery.set(trail.initialQuery, {
                   count: (seen?.count ?? 0) + 1,

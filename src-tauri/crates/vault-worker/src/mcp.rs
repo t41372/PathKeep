@@ -10,8 +10,7 @@
 
 use crate::{
     context::{
-        ai_archive_connection, derive_ai_status, load_hydrated_config, load_unlocked_config,
-        resolved_app_lock_status,
+        derive_ai_status, load_hydrated_config, load_unlocked_config, resolved_app_lock_status,
     },
     intelligence::search_ai_history,
 };
@@ -39,12 +38,17 @@ pub(crate) struct McpSearchRequest {
     pub(crate) domain: Option<String>,
     /// Optional result limit.
     pub(crate) limit: Option<u32>,
+    /// Opaque continuation from the previous response; it never denotes a bounded window.
+    #[serde(default)]
+    pub(crate) cursor: Option<String>,
 }
 
 /// MCP search response returned to external AI tools.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct McpSearchResult {
+    pub(crate) next_cursor: Option<String>,
+    pub(crate) search_state: Option<vault_core::search::SearchCoverage>,
     /// Total matching items in the returned search mode.
     pub(crate) total: usize,
     /// Provider id used for the current search mode.
@@ -186,7 +190,7 @@ fn build_mcp_usage_guide(enabled: bool) -> McpUsageGuide {
                 title: "Bounds — read-only, capped, and respectful of the user's privacy".to_string(),
                 points: vec![
                     "Every tool here is strictly read-only. There is no way to modify, delete, or export the archive through this surface, and there is no filesystem or network access.".to_string(),
-                    "Each search-history call returns a bounded page; `limit` is capped by the server, so a single call cannot pull the whole archive. Compose a few targeted calls instead of trying to widen one.".to_string(),
+                    "Each search-history call returns a page. Pass its nextCursor as cursor to continue through every matching page; keep the other filters unchanged. Limit controls page size, not search coverage.".to_string(),
                     "Queries only see currently-visible history: reverted or hidden visits never appear, and the server refuses to read while PathKeep is locked.".to_string(),
                     "Every call you make is recorded in the user's local audit log. Query the minimum needed to answer, and treat the user's history as private.".to_string(),
                     "Use archive-status to check whether the archive is initialized, unlocked, and whether semantic search is available before relying on a particular recall mode.".to_string(),
@@ -262,46 +266,28 @@ impl BrowserHistoryMcpServer {
 /// raw archive rows are never written here, and never leave the worker
 /// process.
 fn record_mcp_query_run(
-    connection: &rusqlite::Connection,
+    vault: &vault_core::Vault,
     tool: &str,
     profile_scope: &[String],
     warnings: &[String],
     summary: serde_json::Value,
 ) -> Result<i64> {
     let now = chrono::Utc::now().to_rfc3339();
-    connection.execute(
-        "INSERT INTO runs (
-           run_type,
-           trigger,
-           started_at,
-           finished_at,
-           timezone,
-           status,
-           profile_scope_json,
-           warnings_json,
-           stats_json,
-           due_only
-         )
-         VALUES ('mcp_query', 'external', ?1, ?2, 'UTC', 'success', ?3, ?4, ?5, 0)",
-        rusqlite::params![
-            now,
-            now,
-            serde_json::to_string(profile_scope)?,
-            serde_json::to_string(warnings)?,
-            serde_json::to_string(&{
-                let mut stats = summary;
-                if let serde_json::Value::Object(map) = &mut stats {
-                    map.insert("tool".to_string(), serde_json::json!(tool));
-                }
-                stats
-            })?,
-        ],
-    )?;
-    Ok(connection.last_insert_rowid())
+    let scope = serde_json::to_string(profile_scope)?;
+    let warnings = serde_json::to_string(warnings)?;
+    let mut stats = summary;
+    if let serde_json::Value::Object(map) = &mut stats {
+        map.insert("tool".into(), serde_json::json!(tool));
+    }
+    let stats = serde_json::to_string(&stats)?;
+    Ok(vault.store().write(vault_store::Db::Archive,vault_store::Priority::Interactive,move|s| {
+        s.query_one("INSERT INTO runs(run_type,trigger,started_at,finished_at,timezone,status,profile_scope_json,warnings_json,stats_json,due_only) VALUES('mcp_query','external',?1,?1,'UTC','success',?2,?3,?4,0) RETURNING id",vault_store::params![now,scope,warnings,stats],|r|Ok(r.get::<i64>(0)?))
+    })?)
 }
 
 /// Runs one MCP search request against the normal worker search surface.
 pub(crate) fn mcp_search_result(
+    vault: &vault_core::Vault,
     database_key: Option<&str>,
     request: McpSearchRequest,
 ) -> Result<McpSearchResult> {
@@ -317,17 +303,16 @@ pub(crate) fn mcp_search_result(
         profile_id: request.profile_id.clone(),
         domain: request.domain.clone(),
         limit: request.limit,
-        cursor: None,
+        cursor: request.cursor.clone(),
         sort: None,
         // The MCP face does not expose the `is:starred` facet yet (W-AI-9 carryover); unfiltered.
         starred_only: None,
         start_date: None,
         end_date: None,
     };
-    let response = search_ai_history(database_key, &search_request)?;
-    let connection = ai_archive_connection(&paths, &config, database_key)?;
+    let response = search_ai_history(vault, database_key, &search_request)?;
     record_mcp_query_run(
-        &connection,
+        vault,
         "search-history",
         &request.profile_id.as_ref().map(|profile_id| vec![profile_id.clone()]).unwrap_or_default(),
         &response.notes,
@@ -342,6 +327,8 @@ pub(crate) fn mcp_search_result(
         }),
     )?;
     Ok(McpSearchResult {
+        next_cursor: response.next_cursor,
+        search_state: response.search_state,
         total: response.total,
         provider_id: response.provider_id,
         model: response.model,
@@ -364,7 +351,10 @@ pub(crate) fn mcp_search_result(
 }
 
 /// Builds the MCP-facing archive status snapshot.
-pub(crate) fn mcp_archive_status_result(database_key: Option<&str>) -> Result<McpArchiveStatus> {
+pub(crate) fn mcp_archive_status_result(
+    vault: Option<&vault_core::Vault>,
+    _database_key: Option<&str>,
+) -> Result<McpArchiveStatus> {
     let paths = vault_core::project_paths()?;
     let config = load_hydrated_config(&paths)?;
     // Re-check MCP consent on EVERY call (M-4): a status probe is still an external touch served by
@@ -373,9 +363,12 @@ pub(crate) fn mcp_archive_status_result(database_key: Option<&str>) -> Result<Mc
     ensure_ai_capability_enabled(&config, AiCapability::Mcp)?;
     let lock = resolved_app_lock_status(&paths, &config)?;
     let archive_status = if lock.locked {
-        vault_core::archive_status(&paths, &config, None).unwrap_or_default()
+        vault_core::archive_availability(&paths, &config)
     } else {
-        vault_core::archive_status(&paths, &config, database_key)?
+        match vault {
+            Some(vault) => vault_core::archive_status(vault)?,
+            None => vault_core::archive_availability(&paths, &config),
+        }
     };
     let ai_status = if lock.locked {
         AiIndexStatus {
@@ -388,16 +381,16 @@ pub(crate) fn mcp_archive_status_result(database_key: Option<&str>) -> Result<Mc
             ..AiIndexStatus::default()
         }
     } else {
-        derive_ai_status(&paths, &config, database_key)
+        derive_ai_status(vault, &config)
     };
     // Audit the status probe too, so the user sees every external touch — not
     // just searches. We can only write when unlocked: a locked status reads
     // nothing from the encrypted archive and we hold no writable connection,
     // so there is no archive access to record.
     if !lock.locked {
-        let connection = ai_archive_connection(&paths, &config, database_key)?;
+        let vault = vault.ok_or_else(|| anyhow::anyhow!("MCP audit requires an open Vault"))?;
         record_mcp_query_run(
-            &connection,
+            vault,
             "archive-status",
             &[],
             &[],
@@ -438,7 +431,10 @@ pub(crate) fn mcp_archive_status_result(database_key: Option<&str>) -> Result<Mc
 /// auditable as any other external touch (Sub-block B completeness). The audit
 /// write needs a writable connection, which we only hold while unlocked; a
 /// disabled or locked fetch reads nothing and writes nothing.
-pub(crate) fn mcp_usage_guide_result(database_key: Option<&str>) -> Result<McpUsageGuide> {
+pub(crate) fn mcp_usage_guide_result(
+    vault: Option<&vault_core::Vault>,
+    _database_key: Option<&str>,
+) -> Result<McpUsageGuide> {
     let paths = vault_core::project_paths()?;
     let config = load_hydrated_config(&paths)?;
     // Re-check MCP consent on EVERY call (M-4): when the user turns the MCP server off mid-session no
@@ -449,9 +445,9 @@ pub(crate) fn mcp_usage_guide_result(database_key: Option<&str>) -> Result<McpUs
     ensure_ai_capability_enabled(&config, AiCapability::Mcp)?;
     let guide = build_mcp_usage_guide(config.ai.skill_enabled);
     if guide.enabled && !resolved_app_lock_status(&paths, &config)?.locked && config.initialized {
-        let connection = ai_archive_connection(&paths, &config, database_key)?;
+        let vault = vault.ok_or_else(|| anyhow::anyhow!("MCP audit requires an open Vault"))?;
         record_mcp_query_run(
-            &connection,
+            vault,
             "usage-guide",
             &[],
             &[],

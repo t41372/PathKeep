@@ -30,6 +30,8 @@ mod migration;
 pub mod owner_requests;
 mod schedule;
 mod security;
+mod session;
+pub use session::VaultSession;
 mod stars;
 
 #[cfg(all(test, coverage))]
@@ -41,10 +43,10 @@ pub use self::migration::{apply_import, export_app_data, preview_import};
 pub use self::{
     annotations::{get_annotation, list_annotations, replace_tags, search_annotations, set_notes},
     app::{
-        RekeyRequest, app_snapshot, assess_archive_upgrade, initialize_archive_database,
-        initialize_archive_database_with_progress, parse_archive_recovery_required,
-        reconcile_archive_encryption, rekey_archive_database, save_user_config,
-        save_user_config_with_base,
+        RekeyRequest, app_snapshot, app_snapshot_with_vault, assess_archive_upgrade,
+        initialize_archive_database, initialize_archive_database_with_progress,
+        parse_archive_recovery_required, reconcile_archive_encryption, rekey_archive_database,
+        save_user_config, save_user_config_with_base, save_user_config_with_vault,
     },
     archive_flows::{
         audit_run_detail, browse_day_insights, clear_derived_intelligence, clear_og_image_cache,
@@ -83,11 +85,12 @@ pub use self::{
         get_reopened_investigations, get_search_effectiveness, get_search_engine_ranking,
         get_search_queries, get_search_trails, get_session_detail, get_sessions,
         get_stable_sources, get_top_search_concepts, get_top_sites, get_trail_detail,
-        list_ai_conversations, list_search_engine_rules, list_visit_enrichment,
-        load_ai_assistant_job, load_ai_conversation, load_ai_queue,
-        load_intelligence_runtime_snapshot, preview_ai_integration_files,
-        preview_intelligence_local_host, queue_core_intelligence_rebuild, rename_ai_conversation,
-        replay_ai_job, reset_ai_index_build, retry_intelligence_job_now, run_ai_queue_jobs,
+        list_ai_conversations, list_ai_jobs, list_ai_messages, list_intelligence_jobs,
+        list_search_engine_rules, list_visit_enrichment, load_ai_assistant_job,
+        load_ai_conversation, load_ai_queue, load_intelligence_runtime_snapshot,
+        preview_ai_integration_files, preview_intelligence_local_host,
+        queue_core_intelligence_rebuild, rename_ai_conversation, replay_ai_job,
+        reset_ai_index_build, retry_intelligence_job_now, run_ai_queue_jobs,
         run_core_intelligence_now, save_ai_conversation, search_ai_history,
         set_content_fetch_settings, test_ai_provider_connection_report, upsert_search_engine_rule,
     },
@@ -99,8 +102,8 @@ pub use self::{
         clear_ai_provider_api_key, clear_database_key_from_keyring, configure_app_lock_passcode,
         keyring_report, load_app_lock_status, lock_app_ui_session, preview_rekey_archive,
         read_database_key_from_keyring, remove_app_lock_passcode, reset_local_secret_vault,
-        security_status, store_ai_provider_api_key, unlock_app_ui_session,
-        write_database_key_to_keyring,
+        security_status, store_ai_provider_api_key, store_data_key_in_keyring,
+        unlock_app_ui_session, write_database_key_to_keyring,
     },
     stars::{is_starred_batch, list_stars, set_star, star_counts, unset_star},
 };
@@ -115,3 +118,8 @@ pub(crate) use self::{
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+mod search;
+#[cfg(test)]
+mod search_tests;
+pub use search::{cancel_search, next_search_page, search_indexer_state, start_search};

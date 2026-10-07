@@ -7,7 +7,7 @@ mod scheduled;
 pub(crate) mod test_client;
 #[cfg(test)]
 mod tests;
-use crate::{archive_flows, intelligence, mcp, security::read_database_key_from_keyring};
+use crate::{archive_flows, intelligence, mcp};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use vault_owner_ipc::{ErrorCode, Progress, Request, RpcError};
@@ -38,11 +38,8 @@ fn encode(value: impl serde::Serialize) -> Result<Value, RpcError> {
         .map_err(|e| RpcError::new(ErrorCode::OperationFailed, e.to_string()))
 }
 
-fn resolve_key(session_key: Option<String>) -> Result<Option<String>, RpcError> {
-    match session_key {
-        Some(key) => Ok(Some(key)),
-        None => read_database_key_from_keyring().map_err(failed),
-    }
+fn resolve_key(session_key: Result<Option<String>, String>) -> Result<Option<String>, RpcError> {
+    session_key.map_err(|message| failed(anyhow::Error::msg(message)))
 }
 
 /// Called only by the app's locked owner service, on a blocking worker thread.
@@ -50,7 +47,8 @@ fn resolve_key(session_key: Option<String>) -> Result<Option<String>, RpcError> 
 pub fn dispatch(
     request: Request,
     progress: Progress,
-    session_key: Option<String>,
+    session_key: Result<Option<String>, String>,
+    vault: impl Fn() -> anyhow::Result<vault_core::Vault>,
 ) -> Result<Value, RpcError> {
     match request.method.as_str() {
         "ping" => {
@@ -60,17 +58,28 @@ pub fn dispatch(
         "backup" => {
             let backup: Backup = params(request.params)?;
             if backup.due_only {
-                let report = scheduled::run_scheduled_backup_cli(&progress).map_err(failed)?;
+                let report = scheduled::run_scheduled_backup_cli(
+                    &progress,
+                    &vault,
+                    session_key.as_ref().ok().and_then(|key| key.as_deref()),
+                )
+                .map_err(failed)?;
                 serde_json::from_str(&report)
                     .map_err(|e| RpcError::new(ErrorCode::OperationFailed, e.to_string()))
             } else {
-                let key = resolve_key(session_key)?;
+                let key = session_key.ok().flatten();
                 encode(
-                    archive_flows::run_backup_now_with_progress(key.as_deref(), false, |event| {
-                        progress.send(
-                            serde_json::to_value(event).expect("backup progress is serializable"),
-                        );
-                    })
+                    archive_flows::run_backup_now_with_progress(
+                        &vault().map_err(failed)?,
+                        key.as_deref(),
+                        false,
+                        |event| {
+                            progress.send(
+                                serde_json::to_value(event)
+                                    .expect("backup progress is serializable"),
+                            );
+                        },
+                    )
                     .map_err(failed)?,
                 )
             }
@@ -87,16 +96,26 @@ pub fn dispatch(
             let key = resolve_key(session_key)?;
             match call.tool.as_str() {
                 "search-history" => encode(
-                    mcp::mcp_search_result(key.as_deref(), params(call.arguments)?)
-                        .map_err(failed)?,
+                    mcp::mcp_search_result(
+                        &vault().map_err(failed)?,
+                        key.as_deref(),
+                        params(call.arguments)?,
+                    )
+                    .map_err(failed)?,
                 ),
                 "archive-status" => {
                     let _: Empty = params(call.arguments)?;
-                    encode(mcp::mcp_archive_status_result(key.as_deref()).map_err(failed)?)
+                    encode(
+                        mcp::mcp_archive_status_result(vault().ok().as_ref(), key.as_deref())
+                            .map_err(failed)?,
+                    )
                 }
                 "usage-guide" => {
                     let _: Empty = params(call.arguments)?;
-                    encode(mcp::mcp_usage_guide_result(key.as_deref()).map_err(failed)?)
+                    encode(
+                        mcp::mcp_usage_guide_result(vault().ok().as_ref(), key.as_deref())
+                            .map_err(failed)?,
+                    )
                 }
                 _ => Err(RpcError::new(
                     ErrorCode::UnknownMethod,
@@ -104,19 +123,41 @@ pub fn dispatch(
                 )),
             }
         }
+        "ai-jobs" => encode(
+            intelligence::list_ai_jobs(&vault().map_err(failed)?, &params(request.params)?)
+                .map_err(failed)?,
+        ),
+        "intelligence-jobs" => encode(
+            intelligence::list_intelligence_jobs(
+                &vault().map_err(failed)?,
+                &params(request.params)?,
+            )
+            .map_err(failed)?,
+        ),
         "doctor" | "ai-index" | "ai-queue" => {
             let _: Empty = params(request.params)?;
             let key = resolve_key(session_key)?;
             match request.method.as_str() {
-                "doctor" => encode(archive_flows::doctor_report(key.as_deref()).map_err(failed)?),
+                "doctor" => encode(
+                    archive_flows::doctor_report(&vault().map_err(failed)?, key.as_deref())
+                        .map_err(failed)?,
+                ),
                 "ai-index" => encode(
                     intelligence::build_ai_index_now(
+                        &vault().map_err(failed)?,
                         key.as_deref(),
                         &vault_core::AiIndexRequest::default(),
                     )
                     .map_err(failed)?,
                 ),
-                _ => encode(intelligence::run_ai_queue_jobs(key.as_deref(), None).map_err(failed)?),
+                _ => encode(
+                    intelligence::run_ai_queue_jobs(
+                        &vault().map_err(failed)?,
+                        key.as_deref(),
+                        None,
+                    )
+                    .map_err(failed)?,
+                ),
             }
         }
         _ => Err(RpcError::new(

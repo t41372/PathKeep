@@ -40,7 +40,11 @@ pub(crate) fn repair_schedule_impl(
 /// Loads status for the selected native scheduler implementation.
 pub(crate) fn schedule_status_impl(
     platform: Option<String>,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::ScheduleStatus, CommandError> {
-    worker_result(vault_worker::schedule_status(session_database_key, platform.as_deref(), None))
+    worker_result(vault_worker::schedule_status(
+        state.current_vault().as_ref(),
+        platform.as_deref(),
+        None,
+    ))
 }

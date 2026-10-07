@@ -27,7 +27,7 @@
 //! ## Why this exists
 //! The historical rekey migrated only the archive, leaving `source-evidence` in
 //! its prior at-rest mode. When the prior mode was plaintext and the new mode
-//! encrypted, `open_source_evidence_connection` then applied `PRAGMA key` to a
+//! encrypted, `open_legacy_source_evidence_connection` then applied `PRAGMA key` to a
 //! plaintext file; SQLCipher decoded the plaintext header as ciphertext, derived
 //! a bogus page size, and aborted with `SQLITE_NOMEM` (out of memory) on *every*
 //! backup — foreground and scheduled. Reconciling the at-rest *mode* fixes that
@@ -1020,7 +1020,9 @@ fn finalize_repair_run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::archive::{open_archive_connection, open_source_evidence_connection, rekey_archive};
+    use crate::archive::{
+        open_archive_connection, open_legacy_source_evidence_connection, rekey_archive,
+    };
     use crate::config::{load_config, project_paths_with_root};
     use tempfile::tempdir;
 
@@ -1067,8 +1069,8 @@ mod tests {
     /// Seeds a *plaintext* source-evidence database with one row, exactly the
     /// drifted state an archive-only rekey leaves behind.
     fn seed_plaintext_source_evidence(paths: &ProjectPaths) {
-        let connection =
-            open_source_evidence_connection(paths, &plaintext_config(), None).expect("seed open");
+        let connection = open_legacy_source_evidence_connection(paths, &plaintext_config(), None)
+            .expect("seed open");
         connection
             .execute(
                 "INSERT INTO source_batches (
@@ -1104,7 +1106,7 @@ mod tests {
     #[test]
     fn reproduces_oom_then_self_heals_plaintext_source_evidence() {
         // The regression: an encrypted config over a plaintext source-evidence
-        // makes `open_source_evidence_connection` apply PRAGMA key to a plaintext
+        // makes `open_legacy_source_evidence_connection` apply PRAGMA key to a plaintext
         // file, which SQLCipher rejects (NOMEM/NOTADB) — the live "out of memory"
         // backup failure.
         let dir = tempdir().expect("tempdir");
@@ -1121,7 +1123,7 @@ mod tests {
 
         // Bug present: opening source-evidence as if encrypted errors out.
         assert!(
-            open_source_evidence_connection(&paths, &config, Some(KEY)).is_err(),
+            open_legacy_source_evidence_connection(&paths, &config, Some(KEY)).is_err(),
             "plaintext source-evidence opened as encrypted should fail (the OOM)"
         );
 
@@ -1137,8 +1139,8 @@ mod tests {
         );
 
         // Fix proven: the encrypted open now succeeds AND preserves the row.
-        let healed =
-            open_source_evidence_connection(&paths, &config, Some(KEY)).expect("encrypted re-open");
+        let healed = open_legacy_source_evidence_connection(&paths, &config, Some(KEY))
+            .expect("encrypted re-open");
         let rows: i64 = healed
             .query_row("SELECT COUNT(*) FROM source_batches", [], |row| row.get(0))
             .expect("count");
@@ -1272,7 +1274,8 @@ mod tests {
             DiskEncryptionMode::Encrypted
         );
         let encrypted =
-            open_source_evidence_connection(&paths, &encrypted_config(), Some(KEY)).expect("open");
+            open_legacy_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("open");
         assert_eq!(
             encrypted
                 .query_row("SELECT COUNT(*) FROM source_batches", [], |row| row.get::<_, i64>(0))
@@ -1418,7 +1421,7 @@ mod tests {
                 .expect("encrypted history-vault"),
         );
         drop(
-            open_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
+            open_legacy_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
                 .expect("encrypted source-evidence"),
         );
         save_config(&paths, &plaintext_config()).expect("write stale plaintext config");
@@ -1571,7 +1574,7 @@ mod tests {
                 .expect("plaintext history-vault"),
         );
         drop(
-            open_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
+            open_legacy_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
                 .expect("encrypted source-evidence"),
         );
         save_config(&paths, &plaintext_config()).expect("write plaintext config");
@@ -1960,7 +1963,7 @@ mod tests {
                 .expect("encrypted history-vault"),
         );
         drop(
-            open_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
+            open_legacy_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
                 .expect("encrypted source-evidence"),
         );
         save_config(&paths, &encrypted_config()).expect("encrypted config");
@@ -2351,7 +2354,7 @@ mod tests {
         // Already consistent: encrypted archive + encrypted source-evidence under an encrypted config.
         drop(open_archive_connection(&paths, &encrypted_config(), Some(KEY)).expect("enc archive"));
         drop(
-            open_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
+            open_legacy_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
                 .expect("enc source-evidence"),
         );
 
@@ -2459,7 +2462,8 @@ mod tests {
         let enc = project_paths_with_root(enc_dir.path());
         drop(open_archive_connection(&enc, &encrypted_config(), Some(KEY)).expect("enc archive"));
         drop(
-            open_source_evidence_connection(&enc, &encrypted_config(), Some(KEY)).expect("enc SE"),
+            open_legacy_source_evidence_connection(&enc, &encrypted_config(), Some(KEY))
+                .expect("enc SE"),
         );
         save_config(&enc, &encrypted_config()).expect("save encrypted config");
         check_config_disk_consistency(&enc).expect("a consistent encrypted archive must pass");
@@ -2480,7 +2484,7 @@ mod tests {
         let paths = project_paths_with_root(dir.path());
         drop(open_archive_connection(&paths, &encrypted_config(), Some(KEY)).expect("enc archive"));
         drop(
-            open_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
+            open_legacy_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
                 .expect("enc SE"),
         );
         save_config(&paths, &plaintext_config()).expect("write the stale Plaintext config");

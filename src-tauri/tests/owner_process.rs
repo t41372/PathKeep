@@ -23,7 +23,6 @@ fn cold_client_backup_single_instance_handoff_and_mcp_use_only_owner() {
     assert!(output.status.success(), "{}\n{startup_log}", String::from_utf8_lossy(&output.stderr));
     let ping: Value = serde_json::from_slice(&output.stdout).unwrap();
     let pid = ping["pid"].as_u64().unwrap() as u32;
-    let _app = support::AppProcess(pid);
     assert_eq!(ping["background"], true);
     assert_eq!(ping["startupWindows"], 0);
     assert!(vault_store::OwnerLock::acquire(fixture.root.path()).is_err());
@@ -83,4 +82,23 @@ fn cold_client_backup_single_instance_handoff_and_mcp_use_only_owner() {
     mcp.kill().ok();
     mcp.wait().unwrap();
     fixture.artifact(json!({"ownerPid":pid,"coldPing":ping,"backup":report,"dueSkip":skipped,"mcp":tool,"clientOpenFiles":files,"progress":String::from_utf8_lossy(&backup.stderr)}));
+}
+
+#[test]
+fn failed_ping_still_cleans_up_the_started_owner() {
+    let fixture = support::Fixture::new();
+    let mut child = fixture.command().arg("--background").spawn().unwrap();
+    let client = Client::new(fixture.root.path());
+    let result = tokio::runtime::Runtime::new().unwrap().block_on(client.request_with_start(
+        Request::new("ping", json!({"invalid":true})),
+        |_| {},
+        Duration::from_secs(30),
+        || Ok(()),
+    ));
+    assert!(result.is_err());
+    drop(fixture);
+    assert!(
+        !child.wait().unwrap().success(),
+        "the fixture must terminate the owner after a failed ping"
+    );
 }

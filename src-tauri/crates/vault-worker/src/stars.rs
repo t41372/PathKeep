@@ -8,51 +8,42 @@
 //! (migration 014), so every call respects the same encryption-key flow as
 //! the rest of the archive surfaces.
 
-use crate::context::load_unlocked_config;
 use anyhow::Result;
 use std::collections::HashMap;
-use vault_core::{SetStarRequest, StarCounts, StarEntityKind, StarListItem, StarSort};
+use vault_core::Vault;
+use vault_core::{SetStarRequest, StarCounts, StarEntityKind, StarPage, StarSort};
 
 /// Adds (or refreshes) a star for the canonical entity.
-pub fn set_star(session_database_key: Option<&str>, request: SetStarRequest) -> Result<()> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::set_star(&paths, &config, session_database_key, request)
+pub fn set_star(vault: &Vault, request: SetStarRequest) -> Result<()> {
+    vault_core::set_star(vault, request)
 }
 
 /// Removes a star for the canonical entity (no-op when not starred).
-pub fn unset_star(session_database_key: Option<&str>, request: SetStarRequest) -> Result<()> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::unset_star(&paths, &config, session_database_key, request)
+pub fn unset_star(vault: &Vault, request: SetStarRequest) -> Result<()> {
+    vault_core::unset_star(vault, request)
 }
 
 /// Returns the starred status for the supplied (visible) keys only.
 pub fn is_starred_batch(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     kind: StarEntityKind,
     keys: &[String],
 ) -> Result<HashMap<String, bool>> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::is_starred_batch(&paths, &config, session_database_key, kind, keys)
+    vault_core::is_starred_batch(vault, kind, keys)
 }
 
 /// Lists the Starred hub, enriched and ordered by the chosen sort.
 pub fn list_stars(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     kind: Option<StarEntityKind>,
     sort: StarSort,
     limit: Option<usize>,
-) -> Result<Vec<StarListItem>> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::list_stars(&paths, &config, session_database_key, kind, sort, limit)
+    cursor: Option<String>,
+) -> Result<StarPage> {
+    vault_core::list_stars(vault, kind, sort, limit, cursor)
 }
 
 /// Rolls up per-kind star counts for the Starred hub header / nav badge.
-pub fn star_counts(session_database_key: Option<&str>) -> Result<StarCounts> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::star_counts(&paths, &config, session_database_key)
+pub fn star_counts(vault: &Vault) -> Result<StarCounts> {
+    vault_core::star_counts(vault)
 }

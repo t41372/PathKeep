@@ -163,14 +163,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (!triedKeyring.current && canAutoUnlock(snapshot)) {
         triedKeyring.current = true
         try {
-          const key = await securityClient.getDatabaseKey()
-          if (key) {
-            await appClient.setSessionDatabaseKey(key)
-            void appClient.reconcileArchiveEncryption().catch(() => undefined)
-            snapshot = await appClient.getSnapshot()
-          }
+          await appClient.unlockArchiveFromKeychain()
+          void appClient.reconcileArchiveEncryption().catch(() => undefined)
+          snapshot = await appClient.getSnapshot()
         } catch {
-          // Keychain access can be denied; fall back to the password prompt.
+          // No stored key, or keychain access was denied: ask for the password.
         }
       }
 

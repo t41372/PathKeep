@@ -99,8 +99,15 @@ export function SitesView({
 }) {
   const { t } = useI18n()
   const query = useTopSites(range, profileIds)
-  const sites = query.data?.sites
+  const sites = useMemo(
+    () => query.data?.pages.flatMap((page) => page.sites),
+    [query.data],
+  )
   const max = Math.max(1, sites?.[0]?.visits ?? 1)
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query
+  const onEndReached = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   const rowKey = useCallback((site: SiteCount) => site.domain, [])
   const rowHeight = useCallback(() => ROW_HEIGHT, [])
@@ -132,6 +139,7 @@ export function SitesView({
       renderRow={renderRow}
       label={t('history.views.sites')}
       resetKey={resetKey}
+      onEndReached={onEndReached}
     />
   )
 }

@@ -313,6 +313,8 @@ fn test_keyring_path(root: &Path, user: &str) -> PathBuf {
 }
 
 fn test_keyring_get(root: &Path, user: &str) -> Result<Option<String>> {
+    #[cfg(debug_assertions)]
+    crate::test_support::record_keyring_secret_read(root);
     let path = test_keyring_path(root, user);
     if !path.exists() {
         return Ok(None);

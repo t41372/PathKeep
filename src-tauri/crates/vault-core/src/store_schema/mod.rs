@@ -17,6 +17,9 @@ mod tests;
 
 use vault_store::{Db, Migration, MigrationRegistry};
 
+/// Doctor and startup agree on the current native archive revision.
+pub(crate) const ARCHIVE_SCHEMA_VERSION: i64 = 1;
+
 /// Gives the owner one complete schema contract before it opens any database.
 pub fn migration_registry() -> MigrationRegistry {
     let mut registry = MigrationRegistry::default();

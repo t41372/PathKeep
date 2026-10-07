@@ -20,6 +20,7 @@
  */
 
 import type { DomainTrendPoint } from './types-overview'
+import type { Page } from './types-primitives'
 import type { SessionSummary, TrailSummary } from './types-navigation'
 
 // ---------------------------------------------------------------------------
@@ -40,10 +41,10 @@ export interface DomainDeepDive {
   pageCount: number
   /** Searches whose trail landed on this site in the window. */
   landingSearchCount: number
-  /** At most 10, most visited first. */
-  topPages: DomainPageStat[]
-  /** At most 8, most frequent first. */
-  landingSearches: DomainSearchStat[]
+  /** Most visited first; one page of them, continued by `nextCursor`. */
+  topPages: Page<DomainPageStat>
+  /** Most frequent first; one page of them, continued by `nextCursor`. */
+  landingSearches: Page<DomainSearchStat>
   /** Days without visits are left out. */
   visitTrend: DomainTrendPoint[]
 }
@@ -80,8 +81,8 @@ export interface StableSource {
 
 export interface SearchEffectiveness {
   engineStats: EngineEffectiveness[]
-  topResolvingSources: StableSource[]
-  hardestTopics: HardTopic[]
+  topResolvingSources: Page<StableSource>
+  hardestTopics: Page<HardTopic>
 }
 
 export interface EngineEffectiveness {

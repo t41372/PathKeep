@@ -16,8 +16,10 @@ mod import;
 mod intelligence;
 mod migration;
 mod schedule;
+mod search;
 mod security;
 mod stars;
+pub(crate) use search::*;
 
 // `annotations::*` is exercised only via the production command facade
 // (#[cfg(not(test))]); the worker_bridge test block doesn't drive notes/tags
@@ -134,6 +136,17 @@ mod tests {
         config
     }
 
+    fn seed_unported_readers(session: &SessionState, pages: &[(&str, &str)]) {
+        let paths = vault_core::project_paths().unwrap();
+        let config = vault_core::load_config(&paths).unwrap();
+        vault_core::test_support::legacy_fixtures::seed_reader_pages(
+            &paths,
+            &config,
+            session_key(session).unwrap().as_deref(),
+            pages,
+        );
+    }
+
     fn chrome_user_data_fixture(root: &Path) -> PathBuf {
         let chrome_root = root.join("chrome-user-data");
         let profile_dir = chrome_root.join("Default");
@@ -240,6 +253,8 @@ mod tests {
 
     #[test]
     fn command_helpers_cover_local_desktop_flows() {
+        let session = SessionState::default();
+
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let chrome_root = chrome_user_data_fixture(dir.path());
@@ -251,15 +266,13 @@ mod tests {
             std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
             std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
         }
-
-        let session = SessionState::default();
         let config = initialized_config();
 
         set_session_database_key_impl("transient-session-key".to_string(), &session)
             .expect("set transient session key");
-        assert_eq!(session_key(&session), Some("transient-session-key".to_string()));
+        assert_eq!(session_key(&session).unwrap(), Some("transient-session-key".to_string()));
         clear_session_database_key_impl(&session).expect("clear transient session key");
-        assert_eq!(session_key(&session), None);
+        assert_eq!(session_key(&session).unwrap(), None);
 
         let snapshot =
             initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
@@ -267,27 +280,46 @@ mod tests {
         assert!(snapshot.archive_status.initialized);
         // The cheap upgrade pre-check runs off this bridge too: a freshly
         // initialized (at-head, data-empty) archive reports no pending upgrade.
-        let upgrade = assess_archive_upgrade_impl(session_key(&session).as_deref())
+        let upgrade = assess_archive_upgrade_impl(session_key(&session).unwrap().as_deref())
             .expect("assess archive upgrade");
         assert!(!upgrade.pending, "a freshly initialized archive has no pending upgrade");
         assert_eq!(
-            save_config_with_base_impl(config.clone(), None, session_key(&session).as_deref())
+            save_config_with_base_impl(config.clone(), None, &session)
                 .expect("save config")
                 .config
                 .selected_profile_ids,
             config.selected_profile_ids
         );
 
-        let backup =
-            run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
-        assert_eq!(backup.run.expect("run").new_visits, 1);
-        let backup_run_id = app_snapshot_impl(session_key(&session).as_deref())
-            .expect("snapshot after backup")
-            .recent_runs[0]
-            .id;
-        let backup_detail = audit_run_detail_impl(backup_run_id, session_key(&session).as_deref())
-            .expect("backup audit detail");
-        let snapshot_path = backup_detail.artifacts[0].path.clone();
+        let backup = run_backup_now_impl(false, &session, |_| {}).expect("backup");
+        let run = backup.run.unwrap();
+        assert_eq!(run.new_visits, 1);
+        session.vault().unwrap().search().cycle().unwrap();
+        let history = query_history_impl(
+            HistoryQuery {
+                q: Some("example".to_string()),
+                limit: Some(10),
+                ..HistoryQuery::default()
+            },
+            &session,
+        )
+        .expect("query history");
+        assert_eq!(history.total, 1);
+
+        let snapshot_path = session
+            .vault()
+            .unwrap()
+            .store()
+            .read(vault_store::Db::Archive, move |s| {
+                s.query_one(
+                    "SELECT file_path FROM snapshots WHERE run_id=?1 ORDER BY id LIMIT 1",
+                    [run.id],
+                    |r| Ok(r.get::<String>(0)?),
+                )
+            })
+            .unwrap();
+        // SQLite read-model fixtures are independent of the Turso backup results.
+        seed_unported_readers(&session, &[("https://example.com", "Example")]);
         let restore_preview = preview_snapshot_restore_impl(
             vault_core::SnapshotRestoreRequest { snapshot_path: snapshot_path.clone() },
             &session,
@@ -310,24 +342,13 @@ mod tests {
         .expect("run retention prune");
         assert!(retention_result.deleted_files > 0);
 
-        let history = query_history_impl(
-            HistoryQuery {
-                q: Some("example".to_string()),
-                limit: Some(10),
-                ..HistoryQuery::default()
-            },
-            session_key(&session).as_deref(),
-        )
-        .expect("query history");
-        assert_eq!(history.total, 1);
-
         let export = export_history_impl(
             ExportRequest {
                 export_id: None,
                 query: HistoryQuery::default(),
                 format: vault_core::ExportFormat::Jsonl,
             },
-            session_key(&session).as_deref(),
+            &session,
         )
         .expect("export history");
         assert_eq!(export.count, 1);
@@ -341,33 +362,38 @@ mod tests {
 
         let imported = import_takeout_impl(
             TakeoutRequest { source_path: takeout_source, dry_run: false },
-            session_key(&session).as_deref(),
+            &session,
             |_| {},
         )
         .expect("import takeout");
         let batch_id = imported.import_batch.expect("import batch").id;
         assert_eq!(imported.imported_items, 1);
-        let import_preview = preview_import_batch_impl(batch_id, session_key(&session).as_deref())
+        let import_preview = preview_import_batch_impl(batch_id, None, None, &session)
             .expect("preview import batch");
         assert_eq!(import_preview.batch.status, "imported");
         assert_eq!(import_preview.preview_entries.len(), 1);
-        let reverted_batch = revert_import_batch_impl(batch_id, session_key(&session).as_deref())
-            .expect("revert import batch");
+        let reverted_batch =
+            revert_import_batch_impl(batch_id, &session).expect("revert import batch");
         assert_eq!(reverted_batch.batch.status, "reverted");
         assert_eq!(reverted_batch.batch.visible_items, 0);
-        let restored_batch = restore_import_batch_impl(batch_id, session_key(&session).as_deref())
-            .expect("restore import batch");
+        let restored_batch =
+            restore_import_batch_impl(batch_id, &session).expect("restore import batch");
         assert_eq!(restored_batch.batch.status, "imported");
         assert_eq!(restored_batch.batch.visible_items, 1);
 
-        let keyring = keyring_store_database_key_impl("session-secret".to_string())
-            .expect("store database key");
+        let key_root = tempdir().unwrap();
+        let (key_vault, data_key) = vault_core::Vault::open_password(
+            vault_core::project_paths_with_root(key_root.path()),
+            AppConfig::default(),
+            "session-secret",
+            None,
+        )
+        .unwrap();
+        let keyring = vault_worker::store_data_key_in_keyring(&data_key).unwrap();
         assert!(keyring.stored_secret);
         assert_eq!(keyring_status_impl().stored_secret, keyring.stored_secret);
-        assert_eq!(
-            keyring_get_database_key_impl().expect("read database key"),
-            Some("session-secret".to_string())
-        );
+        assert!(keyring_get_database_key_impl().expect("read database key"));
+        drop(key_vault);
         assert!(!keyring_clear_database_key_impl().expect("clear keyring key").stored_secret);
 
         let provider_snapshot = store_ai_provider_api_key_impl(
@@ -375,19 +401,26 @@ mod tests {
                 provider_id: "llm-primary".to_string(),
                 api_key: "secret".to_string(),
             },
-            session_key(&session).as_deref(),
+            session_key(&session).unwrap().as_deref(),
         )
         .expect("store provider key");
         assert!(provider_snapshot.config.ai.llm_providers[0].api_key_saved);
         let cleared_provider_snapshot = clear_ai_provider_api_key_impl(
             "llm-primary".to_string(),
-            session_key(&session).as_deref(),
+            session_key(&session).unwrap().as_deref(),
         )
         .expect("clear provider key");
         assert!(!cleared_provider_snapshot.config.ai.llm_providers[0].api_key_saved);
+        seed_unported_readers(
+            &session,
+            &[
+                ("https://example.com", "Example"),
+                ("https://example.com/imported", "Imported example"),
+            ],
+        );
         let ai_index_report = build_ai_index_impl(
             AiIndexRequest { limit: Some(5), ..AiIndexRequest::default() },
-            session_key(&session).as_deref(),
+            &session,
         )
         .expect("index build should queue a background job report");
         assert!(ai_index_report.job_id.is_some());
@@ -402,12 +435,12 @@ mod tests {
         // W-AI-9-D: the read-only re-embed estimator returns a sized, honest report (no model load,
         // no embedding) — `gpu_available` tracks the `metal` feature, so it is false in the default
         // CPU-only build and true under `--all-features` (the authoritative coverage gate).
-        let estimate = estimate_reembed_impl(ReembedScope::Full, session_key(&session).as_deref())
+        let estimate = estimate_reembed_impl(ReembedScope::Full, &session)
             .expect("estimate should compute over the seeded archive");
         assert_eq!(estimate.scope, ReembedScope::Full);
         assert!(estimate.est_minutes_gpu <= estimate.est_minutes_cpu);
         assert_eq!(estimate.gpu_available, cfg!(feature = "metal"));
-        let _ = run_ai_queue_jobs_impl(Some(1), session_key(&session).as_deref())
+        let _ = run_ai_queue_jobs_impl(Some(1), &session)
             .expect("drain queued index job before immediate assistant claim");
 
         let ai_search = search_ai_history_impl(
@@ -422,7 +455,7 @@ mod tests {
                 start_date: None,
                 end_date: None,
             },
-            session_key(&session).as_deref(),
+            &session,
         )
         .expect("ai search");
         assert_eq!(ai_search.total, 2);
@@ -442,15 +475,14 @@ mod tests {
         .expect("remove schedule");
         assert!(!removed.applied);
         let schedule_status =
-            schedule_status_impl(Some("linux".to_string()), session_key(&session).as_deref())
-                .expect("schedule status");
+            schedule_status_impl(Some("linux".to_string()), &session).expect("schedule status");
         assert_eq!(schedule_status.install_state, "manual-review");
 
-        let doctor = doctor_report_impl(session_key(&session).as_deref()).expect("doctor");
+        let doctor = doctor_report_impl(&session).expect("doctor");
         assert!(!doctor.checks.is_empty());
         let runtime_before_rekey = (0..50)
             .find_map(|attempt| {
-                let runtime = load_intelligence_runtime_impl(session_key(&session).as_deref())
+                let runtime = load_intelligence_runtime_impl(&session)
                     .expect("load intelligence runtime before rekey");
                 let only_deferred_network_backlog = runtime.queue.running == 0
                     && runtime.recent_jobs.iter().all(|job| {
@@ -480,61 +512,70 @@ mod tests {
             DateRange { start: "1970-01-01".to_string(), end: "2100-01-01".to_string() };
         let scoped = ScopedDateRangeRequest { date_range: date_range.clone(), profile_id: None };
         let paged = PagedDateRangeRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
-            page: 0,
+
             page_size: 10,
         };
         let top_sites = TopSitesRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
+            profile_ids: Vec::new(),
             sort_by: None,
             limit: Some(10),
         };
         let embed_cards = IntelligenceEmbedCardsRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(4),
         };
 
-        let _ = run_core_intelligence_now_impl(
-            CoreIntelligenceRebuildRequest::default(),
-            session_key(&session).as_deref(),
-        )
-        .expect("run core intelligence through bridge");
+        let _ = run_core_intelligence_now_impl(CoreIntelligenceRebuildRequest::default(), &session)
+            .expect("run core intelligence through bridge");
         let queued_rebuild = queue_core_intelligence_rebuild_impl(
             CoreIntelligenceRebuildRequest::default(),
-            session_key(&session).as_deref(),
+            &session,
         )
         .expect("queue core intelligence through bridge");
         assert!(queued_rebuild.job_id > 0);
-        let _ = retry_intelligence_job_impl(999_999, session_key(&session).as_deref())
+        let _ = retry_intelligence_job_impl(999_999, &session)
             .expect_err("missing intelligence job retry should fail");
-        let _ = cancel_intelligence_job_impl(999_999, session_key(&session).as_deref())
+        let _ = cancel_intelligence_job_impl(999_999, &session)
             .expect_err("missing intelligence job cancel should fail");
 
-        let _ = get_sessions_impl(paged.clone(), session_key(&session).as_deref())
-            .expect("bridge sessions");
+        let _ = get_sessions_impl(paged.clone(), &session).expect("bridge sessions");
         let _ = get_session_detail_impl(
-            "missing-session".to_string(),
-            session_key(&session).as_deref(),
+            vault_core::SessionDetailRequest {
+                session_id: "missing-session".into(),
+                ..Default::default()
+            },
+            &session,
         );
         let _ = get_search_trails_impl(
             SearchTrailQueryRequest {
+                cursor: None,
                 date_range: date_range.clone(),
                 profile_id: None,
                 engine: None,
-                page: 0,
+
                 page_size: 10,
             },
-            session_key(&session).as_deref(),
+            &session,
         );
-        let _ =
-            get_trail_detail_impl("missing-trail".to_string(), session_key(&session).as_deref());
-        let _ = get_navigation_path_impl(1, session_key(&session).as_deref());
-        let _ = get_hub_pages_impl(top_sites.clone(), session_key(&session).as_deref());
-        let _ = get_search_engine_ranking_impl(scoped.clone(), session_key(&session).as_deref());
-        let _ = list_search_engine_rules_impl(session_key(&session).as_deref());
+        let _ = get_trail_detail_impl(
+            vault_core::TrailDetailRequest {
+                trail_id: "missing-trail".into(),
+                ..Default::default()
+            },
+            &session,
+        );
+        let _ = get_navigation_path_impl(1, &session);
+        let _ = get_hub_pages_impl(top_sites.clone(), &session);
+        let _ = get_search_engine_ranking_impl(scoped.clone(), &session);
+        let _ = list_search_engine_rules_impl(&session);
         let rules = upsert_search_engine_rule_impl(
             SearchEngineRuleInput {
                 rule_id: Some("bridge-fixture-search".to_string()),
@@ -547,22 +588,20 @@ mod tests {
                 note: Some("bridge coverage fixture".to_string()),
                 example_url: Some("https://bridge-search.example/search?q=pathkeep".to_string()),
             },
-            session_key(&session).as_deref(),
+            &session,
         )
         .expect("bridge upsert search rule");
         assert!(rules.iter().any(|rule| rule.rule_id == "bridge-fixture-search"));
-        let _ = delete_search_engine_rule_impl(
-            "bridge-fixture-search".to_string(),
-            session_key(&session).as_deref(),
-        )
-        .expect("bridge delete search rule");
+        let _ = delete_search_engine_rule_impl("bridge-fixture-search".to_string(), &session)
+            .expect("bridge delete search rule");
         let _ = get_top_search_concepts_impl(
             TopSearchConceptsRequest {
+                cursor: None,
                 date_range: date_range.clone(),
                 profile_id: None,
                 limit: Some(10),
             },
-            session_key(&session).as_deref(),
+            &session,
         );
         let _ = get_search_queries_impl(
             SearchQueryListRequest {
@@ -573,95 +612,110 @@ mod tests {
                 domain: None,
                 query: None,
                 sort: None,
-                page: 0,
+                cursor: None,
                 page_size: 10,
             },
-            session_key(&session).as_deref(),
+            &session,
         );
-        let _ = get_query_families_impl(paged, session_key(&session).as_deref());
+        let _ = get_query_families_impl(paged, &session);
         let _ = get_query_family_detail_impl(
             QueryFamilyDetailRequest {
+                cursor: None,
+                page_size: None,
                 family_id: "missing-family".to_string(),
                 date_range: date_range.clone(),
                 profile_id: None,
             },
-            session_key(&session).as_deref(),
+            &session,
         );
-        let _ = get_top_sites_impl(top_sites, session_key(&session).as_deref());
+        let _ = get_top_sites_impl(top_sites, &session);
         let _ = get_domain_trend_impl(
             DomainTrendRequest {
                 registrable_domain: "example.com".to_string(),
                 date_range: date_range.clone(),
             },
-            session_key(&session).as_deref(),
+            &session,
         );
         let _ = get_refind_pages_impl(
             RefindPagesRequest {
+                cursor: None,
                 date_range: date_range.clone(),
                 profile_id: None,
                 limit: Some(10),
             },
-            session_key(&session).as_deref(),
+            &session,
         );
         let _ = get_refind_page_detail_impl(
             RefindPageDetailRequest {
+                visits_cursor: None,
+                trails_cursor: None,
+                page_size: None,
                 canonical_url: "https://example.com/".to_string(),
                 date_range: date_range.clone(),
                 profile_id: None,
             },
-            session_key(&session).as_deref(),
+            &session,
         );
         let _ = explain_refind_impl(
-            ExplainRefindRequest { canonical_url: "https://example.com/".to_string() },
-            session_key(&session).as_deref(),
+            ExplainRefindRequest {
+                profile_id: None,
+                cursor: None,
+                page_size: None,
+                canonical_url: "https://example.com/".to_string(),
+            },
+            &session,
         );
         let _ = explain_entity_impl(
             EntityExplanationRequest {
+                cursor: None,
+                page_size: None,
                 entity_type: "domain".to_string(),
                 entity_id: "example.com".to_string(),
             },
-            session_key(&session).as_deref(),
+            &session,
         );
-        let _ = get_activity_mix_impl(scoped.clone(), session_key(&session).as_deref());
+        let _ = get_activity_mix_impl(scoped.clone(), &session);
         let _ = get_activity_mix_trend_impl(
             GranularityDateRangeRequest {
                 date_range: date_range.clone(),
                 profile_id: None,
                 granularity: "day".to_string(),
             },
-            session_key(&session).as_deref(),
+            &session,
         );
-        let _ = get_digest_summary_impl(scoped.clone(), session_key(&session).as_deref());
-        let _ = get_intelligence_primary_overview_impl(
-            scoped.clone(),
-            session_key(&session).as_deref(),
-        );
-        let _ = get_intelligence_secondary_overview_impl(
-            scoped.clone(),
-            session_key(&session).as_deref(),
-        );
-        let _ = get_stable_sources_impl(scoped.clone(), session_key(&session).as_deref());
+        let _ = get_digest_summary_impl(scoped.clone(), &session);
+        let _ = get_intelligence_primary_overview_impl(scoped.clone(), &session);
+        let _ = get_intelligence_secondary_overview_impl(scoped.clone(), &session);
+        let _ = get_stable_sources_impl(vault_core::ScopedPageRequest::from(&scoped), &session);
         let _ = get_search_effectiveness_impl(
             SearchEffectivenessRequest {
+                topics_cursor: None,
+                topics_limit: None,
                 date_range: date_range.clone(),
                 profile_id: None,
                 engine: None,
             },
-            session_key(&session).as_deref(),
+            &session,
         );
-        let _ = get_friction_signals_impl(scoped.clone(), session_key(&session).as_deref());
-        let _ = get_reopened_investigations_impl(scoped.clone(), session_key(&session).as_deref());
+        let _ = get_friction_signals_impl(vault_core::ScopedPageRequest::from(&scoped), &session);
+        let _ = get_reopened_investigations_impl(
+            vault_core::ScopedPageRequest::from(&scoped),
+            &session,
+        );
         let _ = get_domain_deep_dive_impl(
             DomainDeepDiveRequest {
+                pages_cursor: None,
+                searches_cursor: None,
+                page_size: None,
                 registrable_domain: "example.com".to_string(),
                 date_range: date_range.clone(),
                 profile_id: None,
             },
-            session_key(&session).as_deref(),
+            &session,
         );
         let _ = get_day_insights_impl(
             DayInsightsRequest { date: "2026-04-01".to_string(), profile_id: None },
-            session_key(&session).as_deref(),
+            &session,
         );
         let _ = get_browsing_rhythm_impl(
             CategoryFilteredDateRangeRequest {
@@ -669,7 +723,7 @@ mod tests {
                 profile_id: None,
                 category: None,
             },
-            session_key(&session).as_deref(),
+            &session,
         );
         let _ = get_discovery_trend_impl(
             GranularityDateRangeRequest {
@@ -677,91 +731,76 @@ mod tests {
                 profile_id: None,
                 granularity: "week".to_string(),
             },
-            session_key(&session).as_deref(),
+            &session,
         );
-        let _ = get_on_this_day_impl(None, session_key(&session).as_deref());
-        let _ = get_intelligence_embed_cards_impl(
-            embed_cards.clone(),
-            session_key(&session).as_deref(),
-        );
-        let _ =
-            get_intelligence_widget_snapshot_impl(embed_cards, session_key(&session).as_deref());
-        let _ =
-            get_intelligence_public_snapshot_impl(scoped.clone(), session_key(&session).as_deref());
+        let _ = get_on_this_day_impl(None, &session);
+        let _ = get_intelligence_embed_cards_impl(embed_cards.clone(), &session);
+        let _ = get_intelligence_widget_snapshot_impl(embed_cards, &session);
+        let _ = get_intelligence_public_snapshot_impl(scoped.clone(), &session);
         let local_host_request = IntelligenceLocalHostRequest {
             date_range: date_range.clone(),
             profile_id: None,
             locale: "en".to_string(),
         };
-        let _ = preview_intelligence_local_host_impl(
-            local_host_request.clone(),
-            session_key(&session).as_deref(),
-        );
-        let _ = build_intelligence_local_host_impl(
-            local_host_request,
-            session_key(&session).as_deref(),
-        );
-        let _ = get_breadth_index_impl(scoped.clone(), session_key(&session).as_deref());
-        let _ = get_habit_patterns_impl(scoped.clone(), session_key(&session).as_deref());
-        let _ = get_interrupted_habits_impl(
-            ProfileScopedRequest { profile_id: None },
-            session_key(&session).as_deref(),
-        );
+        let _ = preview_intelligence_local_host_impl(local_host_request.clone(), &session);
+        let _ = build_intelligence_local_host_impl(local_host_request, &session);
+        let _ = get_breadth_index_impl(scoped.clone(), &session);
+        let _ = get_habit_patterns_impl(scoped.clone(), &session);
+        let _ = get_interrupted_habits_impl(ProfileScopedRequest { profile_id: None }, &session);
         let _ = get_path_flows_impl(
             PathFlowRequest {
+                cursor: None,
                 date_range: date_range.clone(),
                 profile_id: None,
                 step_count: 2,
                 limit: Some(10),
             },
-            session_key(&session).as_deref(),
+            &session,
         );
-        let _ = get_observed_interactions_impl(scoped.clone(), session_key(&session).as_deref());
-        let _ = get_compare_sets_impl(scoped.clone(), session_key(&session).as_deref());
+        let _ =
+            get_observed_interactions_impl(vault_core::ScopedPageRequest::from(&scoped), &session);
+        let _ = get_compare_sets_impl(scoped.clone(), &session);
         let _ = get_compare_set_detail_impl(
             CompareSetDetailRequest {
                 compare_set_id: "missing-compare-set".to_string(),
                 date_range,
                 profile_id: None,
             },
-            session_key(&session).as_deref(),
-        );
-        let _ = get_multi_browser_diff_impl(scoped, session_key(&session).as_deref());
-
-        let rekey_preview = preview_rekey_archive_impl(RekeyRequest {
-            new_mode: ArchiveMode::Encrypted,
-            new_key: None,
-            current_key: None,
-        })
-        .expect("preview rekey archive");
-        assert!(rekey_preview.requires_new_key);
-        let rekeyed_snapshot = rekey_archive_impl(
-            RekeyRequest {
-                new_mode: ArchiveMode::Encrypted,
-                new_key: Some("vault-passphrase".to_string()),
-                current_key: None,
-            },
             &session,
-        )
-        .expect("rekey archive");
-        assert!(rekeyed_snapshot.archive_status.encrypted);
-        let cleared_derived = clear_derived_intelligence_impl(session_key(&session).as_deref())
-            .expect("clear derived intelligence");
+        );
+        let _ = get_multi_browser_diff_impl(scoped, &session);
+
+        let request = RekeyRequest {
+            new_mode: ArchiveMode::Encrypted,
+            new_key: Some("vault-passphrase".into()),
+            current_key: None,
+        };
+        for error in [
+            preview_rekey_archive_impl(request.clone()).unwrap_err(),
+            rekey_archive_impl(request, &session).unwrap_err(),
+        ] {
+            assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
+        }
+        let cleared_derived =
+            clear_derived_intelligence_impl(&session).expect("clear derived intelligence");
         assert!(!cleared_derived.notes.is_empty());
 
-        let snapshot_again =
-            app_snapshot_impl(session_key(&session).as_deref()).expect("app snapshot");
+        let snapshot_again = app_snapshot_impl(&session).expect("app snapshot");
         assert_eq!(snapshot_again.browser_profiles.len(), 1);
-        assert!(snapshot_again.archive_status.encrypted);
-        let security_status =
-            security_status_impl(session_key(&session).as_deref()).expect("security status");
-        assert_eq!(security_status.mode, "encrypted");
+        assert!(!snapshot_again.archive_status.encrypted);
+        let security_status = security_status_impl(&session).expect("security status");
+        assert_eq!(security_status.mode, "plaintext");
         fs::write(dir.path().join("vault.hold"), "secret vault").expect("write stronghold fixture");
         reset_local_secret_vault_impl().expect("reset local secret vault");
         assert!(!dir.path().join("vault.hold").exists());
-        let owner_lock = vault_store::OwnerLock::acquire(dir.path()).expect("owner reservation");
-        let owner = vault_owner_ipc::Server::start(dir.path(), |request, progress| {
-            vault_worker::owner_requests::dispatch(request, progress, None)
+        let owner_session = session.clone();
+        let owner = vault_owner_ipc::Server::start(dir.path(), move |request, progress| {
+            vault_worker::owner_requests::dispatch(
+                request,
+                progress,
+                owner_session.get_key(),
+                || owner_session.background_vault().map_err(anyhow::Error::msg),
+            )
         })
         .expect("owner endpoint");
         let worker_payload = run_with_arguments(&[
@@ -773,7 +812,6 @@ mod tests {
         .expect("worker payload");
         assert!(worker_payload.contains("checks"));
         drop(owner);
-        drop(owner_lock);
         assert!(run_with_arguments(&["pathkeep".to_string()]).is_ok());
 
         unsafe {
@@ -785,6 +823,8 @@ mod tests {
 
     #[test]
     fn worker_bridge_covers_dashboard_audit_and_ai_wrapper_edges() {
+        let session = SessionState::default();
+
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let chrome_root = chrome_user_data_fixture(dir.path());
@@ -795,9 +835,9 @@ mod tests {
             std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
             std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
         }
-
-        let session = SessionState::default();
-        let config = initialized_config();
+        let mut config = initialized_config();
+        // This test rebuilds its independent SQLite fixture synchronously.
+        config.ai.job_queue_paused = true;
         initialize_archive_with_progress_impl(
             config.clone(),
             Some("vault-passphrase".to_string()),
@@ -805,30 +845,22 @@ mod tests {
             |_| {},
         )
         .expect("initialize archive");
-        save_config_with_base_impl(config, None, session_key(&session).as_deref())
-            .expect("save config");
-        let report = run_backup_now_impl(false, session_key(&session).as_deref(), |_| {})
-            .expect("run backup");
+        save_config_with_base_impl(config, None, &session).expect("save config");
+        seed_unported_readers(&session, &[("https://example.com", "Example")]);
+        let report = run_backup_now_impl(false, &session, |_| {}).expect("run backup");
         let run_id = report.run.expect("backup run").id;
 
-        let dashboard =
-            dashboard_snapshot_impl(session_key(&session).as_deref()).expect("dashboard snapshot");
+        let dashboard = dashboard_snapshot_impl(&session).expect("dashboard snapshot");
         assert_eq!(dashboard.total_visits, 1);
         assert!(!dashboard.recent_runs.is_empty());
 
-        let detail = audit_run_detail_impl(run_id, session_key(&session).as_deref())
-            .expect("audit run detail");
+        let detail = audit_run_detail_impl(run_id, &session).expect("audit run detail");
         assert_eq!(detail.run.id, run_id);
 
-        let repair =
-            repair_health_impl(session_key(&session).as_deref()).expect("repair health report");
-        assert!(repair.run_id.is_none() || repair.run_id > Some(run_id));
-
-        // Unlock-time encryption reconcile: a consistent archive needs no repair.
-        // Exercises the full glue chain (bridge → worker → vault-core).
-        let reconcile =
-            reconcile_archive_encryption_impl(&session).expect("reconcile archive encryption");
-        assert!(!reconcile.repaired, "a consistent archive needs no at-rest repair");
+        // Doctor repairs the Turso archive; encryption changes wait for the conversion.
+        repair_health_impl(&session).expect("repair health");
+        let error = reconcile_archive_encryption_impl(&session).unwrap_err();
+        assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
 
         // OPTIONAL key: Test-connection against a provider with NO stored key must PROBE it, not
         // pre-fail on PathKeep's own missing-key precondition. This crate links the REAL vault-core,
@@ -842,7 +874,7 @@ mod tests {
                 provider_id: "embed-primary".to_string(),
                 purpose: AiProviderPurpose::Embedding,
             },
-            session_key(&session).as_deref(),
+            session_key(&session).unwrap().as_deref(),
         )
         .expect("a keyless provider probe must run, not bail on a missing key");
         assert_eq!(connection_probe.provider_id, "embed-primary");
@@ -851,42 +883,42 @@ mod tests {
             "the probe must contact the provider, not pre-empt on a missing key: {connection_probe:?}"
         );
 
-        let queue = load_ai_queue_status_impl(session_key(&session).as_deref())
-            .expect("load ai queue status");
+        let queue = load_ai_queue_status_impl(&session).expect("load ai queue status");
         assert!(queue.recent_jobs.is_empty());
-        let drained = run_ai_queue_jobs_impl(None, session_key(&session).as_deref())
-            .expect("run empty ai queue");
+        let drained = run_ai_queue_jobs_impl(None, &session).expect("run empty ai queue");
         assert!(drained.recent_jobs.is_empty());
 
-        let replay = replay_ai_job_impl(999, session_key(&session).as_deref())
-            .expect_err("missing ai job should not replay");
+        let replay =
+            replay_ai_job_impl(999, &session).expect_err("missing ai job should not replay");
         assert!(replay.message.contains("999"));
-        let cancel = cancel_ai_job_impl(999, session_key(&session).as_deref())
-            .expect_err("missing ai job should not cancel");
+        let cancel =
+            cancel_ai_job_impl(999, &session).expect_err("missing ai job should not cancel");
         assert!(cancel.message.contains("999"));
 
         let intelligence_run = run_core_intelligence_now_impl(
-            vault_core::CoreIntelligenceRebuildRequest::default(),
-            session_key(&session).as_deref(),
+            vault_core::CoreIntelligenceRebuildRequest { full_rebuild: true, ..Default::default() },
+            &session,
         )
         .expect("core intelligence run should complete");
         assert!(!intelligence_run.last_run_at.is_empty());
         let sessions = get_sessions_impl(
             vault_core::PagedDateRangeRequest {
+                cursor: None,
                 date_range: vault_core::DateRange {
                     start: "1970-01-01".to_string(),
                     end: "2100-01-01".to_string(),
                 },
                 profile_id: None,
-                page: 0,
+
                 page_size: 10,
             },
-            session_key(&session).as_deref(),
+            &session,
         )
         .expect("sessions should load after the rebuild");
-        assert!(sessions.total >= 1);
+        assert!(sessions.total >= 1, "{intelligence_run:?}");
         let refind_pages = get_refind_pages_impl(
             vault_core::RefindPagesRequest {
+                cursor: None,
                 date_range: vault_core::DateRange {
                     start: "1970-01-01".to_string(),
                     end: "2100-01-01".to_string(),
@@ -894,13 +926,18 @@ mod tests {
                 profile_id: None,
                 limit: Some(10),
             },
-            session_key(&session).as_deref(),
+            &session,
         )
         .expect("refind pages should load");
         if let Some(page) = refind_pages.data.first() {
             let explanation = explain_refind_impl(
-                vault_core::ExplainRefindRequest { canonical_url: page.canonical_url.clone() },
-                session_key(&session).as_deref(),
+                vault_core::ExplainRefindRequest {
+                    profile_id: None,
+                    cursor: None,
+                    page_size: None,
+                    canonical_url: page.canonical_url.clone(),
+                },
+                &session,
             )
             .expect("refind explanation should load");
             assert!(!explanation.factors.is_empty());
@@ -924,6 +961,8 @@ mod tests {
 
     #[test]
     fn annotations_and_og_image_impls_cover_local_desktop_flows() {
+        let session = SessionState::default();
+
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let chrome_root = chrome_user_data_fixture(dir.path());
@@ -934,26 +973,21 @@ mod tests {
             std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
             std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
         }
-
-        let session = SessionState::default();
         let config = initialized_config();
         initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
             .expect("initialize archive");
-        save_config_with_base_impl(config, None, session_key(&session).as_deref())
-            .expect("save config");
-        run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
+        save_config_with_base_impl(config, None, &session).expect("save config");
+        run_backup_now_impl(false, &session, |_| {}).expect("backup");
 
         // Annotations PME loop: set notes, replace tags, read back, list, search.
         let url = "https://example.com/seed";
         assert!(
-            super::get_annotation_impl(session_key(&session).as_deref(), url)
-                .expect("read missing annotation")
-                .is_none(),
+            super::get_annotation_impl(&session, url).expect("read missing annotation").is_none(),
             "fresh archive must not have annotations",
         );
 
         super::set_notes_impl(
-            session_key(&session).as_deref(),
+            &session,
             vault_core::SetNotesRequest {
                 url: url.to_string(),
                 notes: "rust internals research".to_string(),
@@ -963,7 +997,7 @@ mod tests {
         .expect("set notes");
 
         super::replace_tags_impl(
-            session_key(&session).as_deref(),
+            &session,
             vault_core::ReplaceTagsRequest {
                 url: url.to_string(),
                 tags: vec!["rust".to_string(), "tokio".to_string()],
@@ -972,26 +1006,25 @@ mod tests {
         )
         .expect("replace tags");
 
-        let after = super::get_annotation_impl(session_key(&session).as_deref(), url)
+        let after = super::get_annotation_impl(&session, url)
             .expect("read after writes")
             .expect("annotation present");
         assert_eq!(after.notes, "rust internals research");
         assert!(after.tags.iter().any(|tag| tag == "rust"));
 
-        let listed = super::list_annotations_impl(session_key(&session).as_deref(), Some(10))
-            .expect("list annotations");
-        assert!(listed.iter().any(|record| record.url == url));
+        let listed =
+            super::list_annotations_impl(&session, Some(10), None).expect("list annotations");
+        assert!(listed.items.iter().any(|record| record.url == url));
 
-        let searched =
-            super::search_annotations_impl(session_key(&session).as_deref(), "internals", Some(10))
-                .expect("search annotations");
-        assert!(searched.iter().any(|record| record.url == url));
+        let searched = super::search_annotations_impl(&session, "internals", Some(10), None)
+            .expect("search annotations");
+        assert!(searched.items.iter().any(|record| record.url == url));
 
         // Stars PME loop — toggle, batched status, list, and counts across
         // both the worker_bridge `_impl` surface AND the vault-worker fns it
         // delegates to (cross-crate coverage runs under `--workspace`).
         super::set_star_impl(
-            session_key(&session).as_deref(),
+            &session,
             vault_core::SetStarRequest {
                 entity_kind: vault_core::StarEntityKind::Url,
                 entity_key: url.to_string(),
@@ -1000,7 +1033,7 @@ mod tests {
         )
         .expect("set url star");
         super::set_star_impl(
-            session_key(&session).as_deref(),
+            &session,
             vault_core::SetStarRequest {
                 entity_kind: vault_core::StarEntityKind::Domain,
                 entity_key: "example.com".to_string(),
@@ -1010,7 +1043,7 @@ mod tests {
         .expect("set domain star");
 
         let status = super::is_starred_batch_impl(
-            session_key(&session).as_deref(),
+            &session,
             vault_core::StarEntityKind::Url,
             &[url.to_string()],
         )
@@ -1018,21 +1051,22 @@ mod tests {
         assert_eq!(status.get(url), Some(&true));
 
         let listed_stars = super::list_stars_impl(
-            session_key(&session).as_deref(),
+            &session,
             None,
             vault_core::StarSort::MostRevisited,
             Some(50),
+            None,
         )
-        .expect("list stars");
+        .expect("list stars")
+        .items;
         assert!(listed_stars.iter().any(|item| item.entity_key == url));
 
-        let counts =
-            super::star_counts_impl(session_key(&session).as_deref()).expect("star counts");
+        let counts = super::star_counts_impl(&session).expect("star counts");
         assert_eq!(counts.urls, 1);
         assert_eq!(counts.domains, 1);
 
         super::unset_star_impl(
-            session_key(&session).as_deref(),
+            &session,
             vault_core::SetStarRequest {
                 entity_kind: vault_core::StarEntityKind::Url,
                 entity_key: url.to_string(),
@@ -1040,36 +1074,32 @@ mod tests {
             },
         )
         .expect("unset url star");
-        let after_unstar = super::star_counts_impl(session_key(&session).as_deref())
-            .expect("star counts after unstar");
+        let after_unstar = super::star_counts_impl(&session).expect("star counts after unstar");
         assert_eq!(after_unstar.urls, 0);
 
         // Og:image impls — every PME boundary except the network refetch
         // (covered by og_images_fetch unit tests). Empty + no-blob inputs
         // exercise the bulk path; stats / cleanup / clear close the loop.
-        let empty_lookup =
-            super::load_history_og_images_impl(Vec::new(), session_key(&session).as_deref())
-                .expect("empty og:image lookup");
+        let empty_lookup = super::load_history_og_images_impl(Vec::new(), &session)
+            .expect("empty og:image lookup");
         assert!(empty_lookup.is_empty());
 
-        super::mark_og_images_shown_impl(vec![url.to_string()], session_key(&session).as_deref())
+        super::mark_og_images_shown_impl(vec![url.to_string()], &session)
             .expect("mark og:image shown for URL with no cached blob");
 
-        let _initial_stats = super::og_image_storage_stats_impl(session_key(&session).as_deref())
-            .expect("og:image storage stats");
+        let _initial_stats =
+            super::og_image_storage_stats_impl(&session).expect("og:image storage stats");
 
-        let coverage = super::og_image_coverage_stats_impl(session_key(&session).as_deref())
-            .expect("og:image coverage stats");
+        let coverage =
+            super::og_image_coverage_stats_impl(&session).expect("og:image coverage stats");
         assert!(coverage.eligible_pages >= coverage.pages_with_image);
 
-        let _cleanup = super::run_og_image_cleanup_impl(session_key(&session).as_deref())
-            .expect("og:image cleanup pass");
+        let _cleanup = super::run_og_image_cleanup_impl(&session).expect("og:image cleanup pass");
 
-        let _cleared = super::clear_og_image_cache_impl(session_key(&session).as_deref())
-            .expect("clear og:image cache");
+        let _cleared = super::clear_og_image_cache_impl(&session).expect("clear og:image cache");
 
         // Refetch impl: empty URL list + blocked-host path + fetch_enabled=false fast-path.
-        let zero = super::refetch_og_images_impl(Vec::new(), session_key(&session).as_deref())
+        let zero = super::refetch_og_images_impl(Vec::new(), &session)
             .expect("refetch with empty url list");
         assert_eq!(zero, 0);
 
@@ -1077,22 +1107,22 @@ mod tests {
         // the blocked_outcome branch instead of hitting the network.
         let mut blocked_config = initialized_config();
         blocked_config.og_image.blocked_hosts = vec!["blocked.example.test".to_string()];
-        save_config_with_base_impl(blocked_config, None, session_key(&session).as_deref())
+        save_config_with_base_impl(blocked_config, None, &session)
             .expect("save blocked-hosts config");
         let blocked_count = super::refetch_og_images_impl(
             vec!["https://blocked.example.test/post".to_string()],
-            session_key(&session).as_deref(),
+            &session,
         )
         .expect("refetch with a blocked host");
         assert_eq!(blocked_count, 0, "blocked host should not count as success");
 
         let mut disabled_config = initialized_config();
         disabled_config.og_image.fetch_enabled = false;
-        save_config_with_base_impl(disabled_config, None, session_key(&session).as_deref())
+        save_config_with_base_impl(disabled_config, None, &session)
             .expect("save og-image-disabled config");
         let disabled = super::refetch_og_images_impl(
             vec!["https://example.com/some-page".to_string()],
-            session_key(&session).as_deref(),
+            &session,
         )
         .expect("refetch with fetch_enabled=false");
         assert_eq!(disabled, 0);
@@ -1105,11 +1135,11 @@ mod tests {
         let mut off_mode_config = initialized_config();
         off_mode_config.og_image.fetch_enabled = true;
         off_mode_config.og_image.fetch_mode = vault_core::OgImageFetchMode::Off;
-        save_config_with_base_impl(off_mode_config, None, session_key(&session).as_deref())
+        save_config_with_base_impl(off_mode_config, None, &session)
             .expect("save fetch_mode=Off config");
         let off_mode = super::refetch_og_images_impl(
             vec!["https://example.com/another-page".to_string()],
-            session_key(&session).as_deref(),
+            &session,
         )
         .expect("refetch with fetch_mode=Off");
         assert_eq!(off_mode, 0);
@@ -1129,13 +1159,13 @@ mod tests {
             recovery_hint: None,
         })
         .expect("set app lock passcode for refetch err-arm coverage");
-        save_config_with_base_impl(locked_config, None, session_key(&session).as_deref())
+        save_config_with_base_impl(locked_config, None, &session)
             .expect("save app-lock-enabled config");
         lock_app_session_impl(Some("manual".to_string()))
             .expect("lock app session for refetch err-arm coverage");
         let err = super::refetch_og_images_impl(
             vec!["https://example.com/while-locked".to_string()],
-            session_key(&session).as_deref(),
+            &session,
         )
         .expect_err("refetch must surface lock error from effective_mode helper");
         assert!(
@@ -1163,6 +1193,8 @@ mod tests {
 
     #[test]
     fn app_lock_bridge_guards_desktop_read_models_until_unlock() {
+        let session = SessionState::default();
+
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let chrome_root = chrome_user_data_fixture(dir.path());
@@ -1173,12 +1205,10 @@ mod tests {
             std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
             std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
         }
-
-        let session = SessionState::default();
         let mut config = initialized_config();
         initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
             .expect("initialize archive");
-        run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
+        run_backup_now_impl(false, &session, |_| {}).expect("backup");
 
         let passcode_status = set_app_lock_passcode_impl(SetAppLockPasscodeRequest {
             passcode: "2468".to_string(),
@@ -1191,16 +1221,25 @@ mod tests {
 
         config.app_lock.enabled = true;
         let saved_snapshot =
-            save_config_with_base_impl(config, None, session_key(&session).as_deref())
-                .expect("enable app lock");
+            save_config_with_base_impl(config, None, &session).expect("enable app lock");
         assert!(saved_snapshot.config.app_lock.enabled);
 
+        let owner = session.vault().unwrap().store().clone();
+        let key_before_lock = session.get_key();
+        let chat_token = vault_core::register_ai_chat_run("app-lock-bridge-chat");
         let locked = lock_app_session_impl(Some("manual".to_string())).expect("lock app session");
         assert!(locked.locked);
+        assert_eq!(session.get_key(), key_before_lock);
+        assert!(
+            !chat_token.load(std::sync::atomic::Ordering::SeqCst),
+            "App Lock must not cancel a running chat"
+        );
+        vault_core::deregister_ai_chat_run("app-lock-bridge-chat");
+
+        assert!(std::sync::Arc::ptr_eq(&owner, session.background_vault().unwrap().store()));
         assert_eq!(locked.lock_reason.as_deref(), Some("manual"));
 
-        let snapshot_error =
-            app_snapshot_impl(session_key(&session).as_deref()).expect_err("snapshot should block");
+        let snapshot_error = app_snapshot_impl(&session).expect_err("snapshot should block");
         assert!(snapshot_error.message.contains("currently locked"));
         // The frontend routes to the unlock gate off the machine-readable code,
         // never by sniffing this message — so the envelope must classify it.
@@ -1208,8 +1247,8 @@ mod tests {
         assert_eq!(snapshot_error.action_hint.as_deref(), Some(ACTION_HINT_UNLOCK));
         assert_eq!(snapshot_error.retry_hint.as_deref(), Some(RETRY_HINT_AFTER_ACTION));
 
-        let dashboard_error = dashboard_snapshot_impl(session_key(&session).as_deref())
-            .expect_err("dashboard should block");
+        let dashboard_error =
+            dashboard_snapshot_impl(&session).expect_err("dashboard should block");
         assert!(dashboard_error.message.contains("currently locked"));
         assert_eq!(dashboard_error.code.as_deref(), Some(ERROR_CODE_LOCK_REQUIRED));
 
@@ -1230,12 +1269,24 @@ mod tests {
         .expect("unlock app session");
         assert!(!unlocked.locked);
 
-        let snapshot =
-            app_snapshot_impl(session_key(&session).as_deref()).expect("snapshot after unlock");
+        let snapshot = app_snapshot_impl(&session).expect("snapshot after unlock");
         assert!(snapshot.archive_status.initialized);
-        let dashboard =
-            dashboard_snapshot_impl(session_key(&session).as_deref()).expect("dashboard");
-        assert!(!dashboard.recent_runs.is_empty());
+        let dashboard = dashboard_snapshot_impl(&session).expect("dashboard");
+        assert_eq!(
+            dashboard.recent_runs.len(),
+            1,
+            "the dashboard reads the backup from the archive"
+        );
+        assert_eq!(
+            owner
+                .read(vault_store::Db::Archive, |s| s.query_one(
+                    "SELECT COUNT(*) FROM runs WHERE run_type='backup'",
+                    (),
+                    |r| Ok(r.get::<i64>(0)?)
+                ))
+                .unwrap(),
+            1
+        );
         let cleared = clear_app_lock_passcode_impl().expect("clear app lock passcode");
         assert!(!cleared.enabled);
         assert!(!cleared.passcode_configured);
@@ -1249,6 +1300,8 @@ mod tests {
 
     #[test]
     fn migration_and_browse_insights_impls_cover_local_desktop_flows() {
+        let session = SessionState::default();
+
         // Drives the Settings → Data Migration wrappers (export / preview /
         // apply) and the Browse-day insights / og:image prefetch wrappers
         // through their `_impl` entry points. These are thin adapters over
@@ -1268,14 +1321,11 @@ mod tests {
             std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
             std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
         }
-
-        let session = SessionState::default();
         let config = initialized_config();
         initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
             .expect("initialize archive");
-        save_config_with_base_impl(config, None, session_key(&session).as_deref())
-            .expect("save config");
-        run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
+        save_config_with_base_impl(config, None, &session).expect("save config");
+        run_backup_now_impl(false, &session, |_| {}).expect("backup");
 
         // Browse-day insights: aggregates one local calendar day from the
         // archive. The seeded Chrome fixture emits a single visit dated
@@ -1283,7 +1333,7 @@ mod tests {
         // succeed — we don't depend on a specific count here.
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let insights = super::browse_day_insights_impl(
-            session_key(&session).as_deref(),
+            &session,
             BrowseDayInsightsRequest { date: today.clone(), profile_id: None },
         )
         .expect("browse day insights wrapper");
@@ -1294,41 +1344,29 @@ mod tests {
         // the worker (no network, no archive scan) so this is safe inside
         // the test harness even with the seed fixture present. The wrapper
         // still exercises `worker_result` around the `(u32, u32)` return.
-        let prefetch = super::prefetch_og_images_impl(0, session_key(&session).as_deref())
-            .expect("prefetch og images wrapper");
+        let prefetch =
+            super::prefetch_og_images_impl(0, &session).expect("prefetch og images wrapper");
         assert_eq!(prefetch, (0, 0));
 
-        // Export / Import round-trip. Re-uses the just-initialised project
-        // as the export source; importing it back onto the same tree
-        // exercises the `confirm_overwrite=true` overwrite branch.
+        // Whole-archive bundle operations must remain unavailable until area 6.
         let bundle_target = dir.path().join("bundle.pathkeep");
-        let exported =
-            super::export_app_data_impl(session_key(&session).as_deref(), bundle_target.clone())
-                .expect("export app data wrapper");
-        assert_eq!(exported.bundle_path, bundle_target);
-        assert!(bundle_target.exists(), "bundle file should land at the chosen target path");
-
-        let preview = super::preview_app_data_import_impl(bundle_target.clone())
-            .expect("preview app data import wrapper");
-        assert!(
-            preview.will_overwrite_existing,
-            "preview should flag overwrite because the source tree is already initialised",
-        );
-
-        let applied = super::apply_app_data_import_impl(
-            session_key(&session).as_deref(),
-            bundle_target.clone(),
-            vault_core::ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
-        )
-        .expect("apply app data import wrapper");
-        assert_eq!(applied.final_schema_version, vault_core::archive::max_schema_version());
-
-        // Error transport: a missing bundle should surface through
-        // `worker_result` as a non-empty string carrying the cause chain.
-        let bogus = dir.path().join("does-not-exist.pathkeep");
-        let preview_err = super::preview_app_data_import_impl(bogus)
-            .expect_err("missing bundle should surface as a string error");
-        assert!(!preview_err.message.is_empty());
+        for error in [
+            super::export_app_data_impl(
+                session_key(&session).unwrap().as_deref(),
+                bundle_target.clone(),
+            )
+            .unwrap_err(),
+            super::preview_app_data_import_impl(bundle_target.clone()).unwrap_err(),
+            super::apply_app_data_import_impl(
+                session_key(&session).unwrap().as_deref(),
+                bundle_target.clone(),
+                vault_core::ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
+            )
+            .unwrap_err(),
+        ] {
+            assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
+        }
+        assert!(!bundle_target.exists());
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

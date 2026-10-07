@@ -15,6 +15,7 @@ mod import;
 mod intelligence;
 mod migration;
 mod schedule;
+mod search;
 mod security;
 mod stars;
 mod support;
@@ -24,5 +25,5 @@ mod update;
 /// Re-exports the full production command surface for `tauri::generate_handler!`.
 pub(crate) use self::{
     ai_chat::*, annotations::*, app::*, archive::*, desktop::*, import::*, intelligence::*,
-    migration::*, schedule::*, security::*, stars::*, support::*, update::*,
+    migration::*, schedule::*, search::*, security::*, stars::*, support::*, update::*,
 };

@@ -19,9 +19,12 @@
 //! These tests intentionally cross configured fallback batch sizes. They compare
 //! persisted rows instead of holding large expected structures in memory.
 
+use super::fixtures::sync_archive_totals;
+use crate::test_support::native::TestDatabase;
+
 use super::super::{
-    DAILY_ROLLUP_FALLBACK_BATCH_SIZE, ProfileSourceWatermark, QueryFamilyRecord, RefindPageRecord,
-    TrailRecord, VISIT_DERIVE_FALLBACK_BATCH_SIZE, VisitRecord,
+    DAILY_ROLLUP_FALLBACK_BATCH_SIZE, QueryFamilyRecord, RefindPageRecord, TrailRecord,
+    VISIT_DERIVE_FALLBACK_BATCH_SIZE, VisitRecord,
     intelligence_daily_rollups::load_profile_derived_visits,
     intelligence_rebuild::{run_core_intelligence, run_core_intelligence_job_type_with_progress},
     intelligence_structural_aggregates::{
@@ -32,9 +35,9 @@ use super::super::{
         build_query_families, build_query_families_from_batches, load_profile_search_events,
     },
     intelligence_structural_stage::{
-        build_source_effectiveness_from_database, execute_structural_stage,
-        expand_structural_rebuild_start, load_profile_dirty_date_keys,
-        load_profile_first_visible_visit_ms, load_profile_trails, load_structural_delta_summary,
+        build_source_effectiveness_from_database, expand_structural_rebuild_start,
+        load_profile_dirty_date_keys, load_profile_first_visible_visit_ms, load_profile_trails,
+        load_structural_delta_summary,
     },
     site_dictionary::normalize_query,
 };
@@ -43,7 +46,6 @@ use super::fixtures::{
     load_visit_derived_fact_rows, seed_core_intelligence_fixture,
 };
 use crate::{
-    archive::{open_archive_connection, open_intelligence_connection},
     config::project_paths_with_root,
     models::{AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest},
 };
@@ -86,14 +88,21 @@ fn aggregate_visit(visit_id: i64, domain: &str, day: i64, session_id: Option<&st
 #[test]
 fn batched_query_family_builder_matches_in_memory_builder() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(move |s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
     for visit_id in 4..=24 {
         let timestamp = 1712145600000 + ((visit_id - 4) * 60_000);
         let query = if visit_id % 2 == 0 {
@@ -101,26 +110,37 @@ fn batched_query_family_builder_matches_in_memory_builder() {
         } else {
             format!("tauri ipc bridge {}", visit_id % 4)
         };
-        append_fixture_visit(
-            &archive,
-            visit_id,
-            &format!("https://www.google.com/search?q={}", query.replace(' ', "+")),
-            &format!("Search {query}"),
-            timestamp,
-            None,
-            Some(&query),
-        );
+        archive
+            .write(move |s| {
+                append_fixture_visit(
+                    s,
+                    visit_id,
+                    &format!("https://www.google.com/search?q={}", query.replace(' ', "+")),
+                    &format!("Search {query}"),
+                    timestamp,
+                    None,
+                    Some(&query),
+                );
+                Ok(())
+            })
+            .unwrap();
     }
+    sync_archive_totals(&archive);
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("full rebuild");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("full rebuild");
 
-    let intelligence = open_intelligence_connection(&paths, &config, None).expect("intelligence");
-    let all_events =
-        load_profile_search_events(&intelligence, "chrome:Default").expect("search events");
+    let intelligence = TestDatabase::new(&vault, vault_store::Db::Intelligence);
+    let all_events = intelligence
+        .read(move |s| load_profile_search_events(s, "chrome:Default"))
+        .expect("search events");
     let in_memory = build_query_families(&all_events);
-    let batched = build_query_families_from_batches(&intelligence, "chrome:Default")
+    let batched = intelligence
+        .read(move |s| build_query_families_from_batches(s, "chrome:Default"))
         .expect("batched query families");
 
     let to_summary = |families: Vec<QueryFamilyRecord>| {
@@ -145,66 +165,103 @@ fn batched_query_family_builder_matches_in_memory_builder() {
 #[test]
 fn batched_structural_aggregates_match_in_memory_builders() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
-    append_fixture_visit(
-        &archive,
-        4,
-        "https://docs.example.com/sqlite/wal-checkpoint",
-        "SQLite WAL Checkpoint",
-        1712102400000,
-        None,
-        None,
-    );
-    append_fixture_visit(
-        &archive,
-        5,
-        "https://alpha-docs.dev/guide",
-        "Guide",
-        1712145600000,
-        None,
-        None,
-    );
-    append_fixture_visit(
-        &archive,
-        6,
-        "https://beta-community.dev/thread",
-        "Thread",
-        1712145660000,
-        Some(5),
-        None,
-    );
-    append_fixture_visit(
-        &archive,
-        7,
-        "https://gamma-news.dev/article",
-        "Article",
-        1712145720000,
-        Some(6),
-        None,
-    );
-    append_fixture_visit(
-        &archive,
-        8,
-        "https://delta-shop.dev/item",
-        "Item",
-        1712145780000,
-        Some(7),
-        None,
-    );
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(move |s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                4,
+                "https://docs.example.com/sqlite/wal-checkpoint",
+                "SQLite WAL Checkpoint",
+                1712102400000,
+                None,
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                5,
+                "https://alpha-docs.dev/guide",
+                "Guide",
+                1712145600000,
+                None,
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                6,
+                "https://beta-community.dev/thread",
+                "Thread",
+                1712145660000,
+                Some(5),
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                7,
+                "https://gamma-news.dev/article",
+                "Article",
+                1712145720000,
+                Some(6),
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                8,
+                "https://delta-shop.dev/item",
+                "Item",
+                1712145780000,
+                Some(7),
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
+    sync_archive_totals(&archive);
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("full rebuild");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("full rebuild");
 
-    let intelligence = open_intelligence_connection(&paths, &config, None).expect("intelligence");
-    let visits = load_profile_derived_visits(&intelligence, "chrome:Default", None, None)
+    let intelligence = TestDatabase::new(&vault, vault_store::Db::Intelligence);
+    let visits = intelligence
+        .read(move |s| load_profile_derived_visits(s, "chrome:Default", None, None))
         .expect("derived visits");
     let mut in_memory_refind = build_refind_pages(&visits)
         .into_iter()
@@ -219,9 +276,9 @@ fn batched_structural_aggregates_match_in_memory_builders() {
         .map(|habit| (habit.registrable_domain, habit.habit_type, habit.visit_count))
         .collect::<Vec<_>>();
 
-    let (batched_refind, batched_flows, batched_habits) =
-        build_structural_profile_aggregates_from_batches(&intelligence, "chrome:Default")
-            .expect("batched aggregates");
+    let (batched_refind, batched_flows, batched_habits) = intelligence
+        .read(move |s| build_structural_profile_aggregates_from_batches(s, "chrome:Default"))
+        .expect("batched aggregates");
     let mut batched_refind = batched_refind
         .into_iter()
         .map(|page| (page.canonical_url, page.refind_score, page.cross_day_count))
@@ -261,51 +318,78 @@ fn batched_structural_aggregates_match_in_memory_builders() {
 #[test]
 fn batched_source_effectiveness_matches_in_memory_builder() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
-    append_fixture_visit(
-        &archive,
-        4,
-        "https://docs.example.com/sqlite/wal-checkpoint",
-        "SQLite WAL Checkpoint",
-        1712102400000,
-        None,
-        None,
-    );
-    append_fixture_visit(
-        &archive,
-        5,
-        "https://alpha-docs.dev/guide",
-        "Guide",
-        1712145600000,
-        None,
-        None,
-    );
-    append_fixture_visit(
-        &archive,
-        6,
-        "https://beta-community.dev/thread",
-        "Thread",
-        1712145660000,
-        Some(5),
-        None,
-    );
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(move |s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                4,
+                "https://docs.example.com/sqlite/wal-checkpoint",
+                "SQLite WAL Checkpoint",
+                1712102400000,
+                None,
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                5,
+                "https://alpha-docs.dev/guide",
+                "Guide",
+                1712145600000,
+                None,
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                6,
+                "https://beta-community.dev/thread",
+                "Thread",
+                1712145660000,
+                Some(5),
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
+    sync_archive_totals(&archive);
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("full rebuild");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("full rebuild");
 
-    let intelligence = open_intelligence_connection(&paths, &config, None).expect("intelligence");
-    let trails = load_profile_trails(&intelligence, "chrome:Default").expect("trails");
-    let (refind_pages, _, _) =
-        build_structural_profile_aggregates_from_batches(&intelligence, "chrome:Default")
-            .expect("aggregates");
+    let intelligence = TestDatabase::new(&vault, vault_store::Db::Intelligence);
+    let trails =
+        intelligence.read(move |s| load_profile_trails(s, "chrome:Default")).expect("trails");
+    let (refind_pages, _, _) = intelligence
+        .read(move |s| build_structural_profile_aggregates_from_batches(s, "chrome:Default"))
+        .expect("aggregates");
     let mut in_memory = build_source_effectiveness(&trails, &refind_pages)
         .into_iter()
         .map(|record| {
@@ -320,22 +404,22 @@ fn batched_source_effectiveness_matches_in_memory_builder() {
             )
         })
         .collect::<Vec<_>>();
-    let mut batched =
-        build_source_effectiveness_from_database(&intelligence, "chrome:Default", &refind_pages)
-            .expect("batched source effectiveness")
-            .into_iter()
-            .map(|record| {
-                (
-                    record.registrable_domain,
-                    record.source_role,
-                    record.trail_count,
-                    record.stable_landing_count,
-                    record.effectiveness_score,
-                    record.first_seen_ms,
-                    record.last_seen_ms,
-                )
-            })
-            .collect::<Vec<_>>();
+    let mut batched = intelligence
+        .read(move |s| build_source_effectiveness_from_database(s, "chrome:Default", &refind_pages))
+        .expect("batched source effectiveness")
+        .into_iter()
+        .map(|record| {
+            (
+                record.registrable_domain,
+                record.source_role,
+                record.trail_count,
+                record.stable_landing_count,
+                record.effectiveness_score,
+                record.first_seen_ms,
+                record.last_seen_ms,
+            )
+        })
+        .collect::<Vec<_>>();
     in_memory.sort_by(|left, right| {
         left.0
             .cmp(&right.0)
@@ -538,65 +622,85 @@ fn structural_aggregate_builders_cover_roles_flows_reopened_and_habits() {
 #[test]
 fn structural_stage_helpers_cover_noop_delta_and_dirty_windows() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
-    append_fixture_visit(
-        &archive,
-        4,
-        "https://docs.example.com/sqlite/wal-checkpoint",
-        "SQLite WAL Checkpoint",
-        1712102400000,
-        None,
-        None,
-    );
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(move |s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                4,
+                "https://docs.example.com/sqlite/wal-checkpoint",
+                "SQLite WAL Checkpoint",
+                1712102400000,
+                None,
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
+    sync_archive_totals(&archive);
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("full rebuild");
-    let intelligence = open_intelligence_connection(&paths, &config, None).expect("intelligence");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("full rebuild");
+    let intelligence = TestDatabase::new(&vault, vault_store::Db::Intelligence);
 
-    let dirty_keys = load_profile_dirty_date_keys(&intelligence, "chrome:Default", None, None)
+    let dirty_keys = intelligence
+        .read(move |s| load_profile_dirty_date_keys(s, "chrome:Default", None, None))
         .expect("all dirty dates");
     assert!(!dirty_keys.is_empty());
-    let filtered_keys =
-        load_profile_dirty_date_keys(&intelligence, "chrome:Default", Some(1712102400000), Some(2))
-            .expect("filtered dirty dates");
+    let filtered_keys = intelligence
+        .read(move |s| {
+            load_profile_dirty_date_keys(s, "chrome:Default", Some(1712102400000), Some(2))
+        })
+        .expect("filtered dirty dates");
     assert!(!filtered_keys.is_empty());
 
-    let delta = load_structural_delta_summary(&intelligence, "chrome:Default", 2)
+    let delta = intelligence
+        .read(move |s| load_structural_delta_summary(s, "chrome:Default", 2))
         .expect("structural delta");
     assert!(delta.delta_count >= 1);
     assert!(delta.dirty_from_visit_ms.is_some());
     assert!(!delta.dirty_date_keys.is_empty());
 
-    let first_visible = load_profile_first_visible_visit_ms(&intelligence, "chrome:Default")
+    let first_visible = intelligence
+        .read(move |s| load_profile_first_visible_visit_ms(s, "chrome:Default"))
         .expect("first visible visit")
         .expect("first visible visit exists");
-    let expanded =
-        expand_structural_rebuild_start(&intelligence, "chrome:Default", first_visible + 60_000)
-            .expect("expanded structural start");
+    let expanded = intelligence
+        .read(move |s| expand_structural_rebuild_start(s, "chrome:Default", first_visible + 60_000))
+        .expect("expanded structural start");
     assert!(expanded <= first_visible + 60_000);
 
-    let empty_report = execute_structural_stage(
-        &intelligence,
-        "empty-profile",
-        &ProfileSourceWatermark::default(),
-        false,
-        99,
-        "2026-04-14T00:00:00Z",
+    let empty_report = run_core_intelligence_job_type_with_progress(
+        &vault,
+        "structural-rebuild",
+        &CoreIntelligenceRebuildRequest {
+            profile_id: Some("empty-profile".into()),
+            ..Default::default()
+        },
+        |_| Ok(()),
     )
-    .expect("empty structural stage");
+    .unwrap();
     assert_eq!(empty_report.execution_mode.as_deref(), Some("noop"));
-    assert_eq!(empty_report.affected_profiles, vec!["empty-profile"]);
-    assert_eq!(empty_report.notes[0].code, "structural-cleared-no-visits");
-    assert_eq!(empty_report.notes[0].profile_id.as_deref(), Some("empty-profile"));
-    assert!(empty_report.notes[0].message.contains("No visible visits remained"));
+    assert_eq!(empty_report.processed_visits, 0);
+    assert!(empty_report.notes.iter().any(|n| n.contains("No visible visits")));
 }
 
 /// Regression coverage for visit derive fallback matches clean full rebuild across batches.
@@ -604,48 +708,53 @@ fn structural_stage_helpers_cover_noop_delta_and_dirty_windows() {
 fn visit_derive_fallback_matches_clean_full_rebuild_across_batches() {
     let fallback_root = tempfile::tempdir().expect("fallback tempdir");
     let clean_root = tempfile::tempdir().expect("clean tempdir");
-    let fallback_paths = project_paths_with_root(fallback_root.path());
-    let clean_paths = project_paths_with_root(clean_root.path());
+    let _fallback_paths = project_paths_with_root(fallback_root.path());
+    let _clean_paths = project_paths_with_root(clean_root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
+    let fallback_vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let clean_vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _fallback_paths = fallback_vault.paths().clone();
+    let _clean_paths = clean_vault.paths().clone();
     let reverted_visit_id = 1200_i64;
 
-    let fallback_archive =
-        open_archive_connection(&fallback_paths, &config, None).expect("fallback archive");
-    seed_core_intelligence_fixture(&fallback_archive);
-    append_many_fixture_visits(
-        &fallback_archive,
-        4,
-        VISIT_DERIVE_FALLBACK_BATCH_SIZE + 17,
-        1712145600000,
-    );
+    let fallback_archive = TestDatabase::new(&fallback_vault, vault_store::Db::Archive);
+    fallback_archive
+        .write(move |s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
+    fallback_archive
+        .write(move |s| {
+            append_many_fixture_visits(s, 4, VISIT_DERIVE_FALLBACK_BATCH_SIZE + 17, 1712145600000);
+            Ok(())
+        })
+        .unwrap();
+    sync_archive_totals(&fallback_archive);
     drop(fallback_archive);
 
     run_core_intelligence(
-        &fallback_paths,
-        &config,
-        None,
+        &fallback_vault.with_config(config.clone()),
         &CoreIntelligenceRebuildRequest::default(),
     )
     .expect("fallback full rebuild");
 
-    let fallback_archive =
-        open_archive_connection(&fallback_paths, &config, None).expect("fallback archive");
+    let fallback_archive = TestDatabase::new(&fallback_vault, vault_store::Db::Archive);
     fallback_archive
         .execute(
             "UPDATE visits SET reverted_at = '2026-04-16T00:00:00Z' WHERE id = ?1",
             [reverted_visit_id],
         )
         .expect("revert fallback visit");
+    sync_archive_totals(&fallback_archive);
     drop(fallback_archive);
 
     let fallback_report = run_core_intelligence_job_type_with_progress(
-        &fallback_paths,
-        &config,
-        None,
+        &fallback_vault.with_config(config.clone()),
         "visit-derive",
         &CoreIntelligenceRebuildRequest {
             profile_id: Some("chrome:Default".to_string()),
@@ -657,33 +766,39 @@ fn visit_derive_fallback_matches_clean_full_rebuild_across_batches() {
     assert_eq!(fallback_report.execution_mode.as_deref(), Some("fallback-full"));
     assert!(fallback_report.visit_derived_facts > VISIT_DERIVE_FALLBACK_BATCH_SIZE);
 
-    let clean_archive =
-        open_archive_connection(&clean_paths, &config, None).expect("clean archive");
-    seed_core_intelligence_fixture(&clean_archive);
-    append_many_fixture_visits(
-        &clean_archive,
-        4,
-        VISIT_DERIVE_FALLBACK_BATCH_SIZE + 17,
-        1712145600000,
-    );
+    let clean_archive = TestDatabase::new(&clean_vault, vault_store::Db::Archive);
+    clean_archive
+        .write(move |s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
+    clean_archive
+        .write(move |s| {
+            append_many_fixture_visits(s, 4, VISIT_DERIVE_FALLBACK_BATCH_SIZE + 17, 1712145600000);
+            Ok(())
+        })
+        .unwrap();
     clean_archive
         .execute(
             "UPDATE visits SET reverted_at = '2026-04-16T00:00:00Z' WHERE id = ?1",
             [reverted_visit_id],
         )
         .expect("revert clean visit");
+    sync_archive_totals(&clean_archive);
     drop(clean_archive);
 
-    run_core_intelligence(&clean_paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("clean full rebuild");
+    run_core_intelligence(
+        &clean_vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("clean full rebuild");
 
-    let fallback_intelligence = open_intelligence_connection(&fallback_paths, &config, None)
-        .expect("fallback intelligence");
-    let clean_intelligence =
-        open_intelligence_connection(&clean_paths, &config, None).expect("clean intelligence");
+    let fallback_intelligence = TestDatabase::new(&fallback_vault, vault_store::Db::Intelligence);
+    let clean_intelligence = TestDatabase::new(&clean_vault, vault_store::Db::Intelligence);
     assert_eq!(
-        load_visit_derived_fact_rows(&fallback_intelligence),
-        load_visit_derived_fact_rows(&clean_intelligence)
+        fallback_intelligence.read(move |s| Ok(load_visit_derived_fact_rows(s))).unwrap(),
+        clean_intelligence.read(move |s| Ok(load_visit_derived_fact_rows(s))).unwrap()
     );
 }
 
@@ -692,48 +807,53 @@ fn visit_derive_fallback_matches_clean_full_rebuild_across_batches() {
 fn daily_rollup_fallback_matches_clean_full_rebuild_across_batches() {
     let fallback_root = tempfile::tempdir().expect("fallback tempdir");
     let clean_root = tempfile::tempdir().expect("clean tempdir");
-    let fallback_paths = project_paths_with_root(fallback_root.path());
-    let clean_paths = project_paths_with_root(clean_root.path());
+    let _fallback_paths = project_paths_with_root(fallback_root.path());
+    let _clean_paths = project_paths_with_root(clean_root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
+    let fallback_vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let clean_vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _fallback_paths = fallback_vault.paths().clone();
+    let _clean_paths = clean_vault.paths().clone();
     let reverted_visit_id = 1200_i64;
 
-    let fallback_archive =
-        open_archive_connection(&fallback_paths, &config, None).expect("fallback archive");
-    seed_core_intelligence_fixture(&fallback_archive);
-    append_many_fixture_visits(
-        &fallback_archive,
-        4,
-        DAILY_ROLLUP_FALLBACK_BATCH_SIZE + 17,
-        1712145600000,
-    );
+    let fallback_archive = TestDatabase::new(&fallback_vault, vault_store::Db::Archive);
+    fallback_archive
+        .write(move |s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
+    fallback_archive
+        .write(move |s| {
+            append_many_fixture_visits(s, 4, DAILY_ROLLUP_FALLBACK_BATCH_SIZE + 17, 1712145600000);
+            Ok(())
+        })
+        .unwrap();
+    sync_archive_totals(&fallback_archive);
     drop(fallback_archive);
 
     run_core_intelligence(
-        &fallback_paths,
-        &config,
-        None,
+        &fallback_vault.with_config(config.clone()),
         &CoreIntelligenceRebuildRequest::default(),
     )
     .expect("fallback full rebuild");
 
-    let fallback_archive =
-        open_archive_connection(&fallback_paths, &config, None).expect("fallback archive");
+    let fallback_archive = TestDatabase::new(&fallback_vault, vault_store::Db::Archive);
     fallback_archive
         .execute(
             "UPDATE visits SET reverted_at = '2026-04-16T00:00:00Z' WHERE id = ?1",
             [reverted_visit_id],
         )
         .expect("revert fallback visit");
+    sync_archive_totals(&fallback_archive);
     drop(fallback_archive);
 
     run_core_intelligence_job_type_with_progress(
-        &fallback_paths,
-        &config,
-        None,
+        &fallback_vault.with_config(config.clone()),
         "visit-derive",
         &CoreIntelligenceRebuildRequest {
             profile_id: Some("chrome:Default".to_string()),
@@ -743,9 +863,7 @@ fn daily_rollup_fallback_matches_clean_full_rebuild_across_batches() {
     )
     .expect("visit derive fallback");
     let fallback_report = run_core_intelligence_job_type_with_progress(
-        &fallback_paths,
-        &config,
-        None,
+        &fallback_vault.with_config(config.clone()),
         "daily-rollup",
         &CoreIntelligenceRebuildRequest {
             profile_id: Some("chrome:Default".to_string()),
@@ -757,44 +875,66 @@ fn daily_rollup_fallback_matches_clean_full_rebuild_across_batches() {
     assert_eq!(fallback_report.execution_mode.as_deref(), Some("fallback-full"));
     assert!(fallback_report.processed_visits > DAILY_ROLLUP_FALLBACK_BATCH_SIZE);
 
-    let clean_archive =
-        open_archive_connection(&clean_paths, &config, None).expect("clean archive");
-    seed_core_intelligence_fixture(&clean_archive);
-    append_many_fixture_visits(
-        &clean_archive,
-        4,
-        DAILY_ROLLUP_FALLBACK_BATCH_SIZE + 17,
-        1712145600000,
-    );
+    let clean_archive = TestDatabase::new(&clean_vault, vault_store::Db::Archive);
+    clean_archive
+        .write(move |s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
+    clean_archive
+        .write(move |s| {
+            append_many_fixture_visits(s, 4, DAILY_ROLLUP_FALLBACK_BATCH_SIZE + 17, 1712145600000);
+            Ok(())
+        })
+        .unwrap();
     clean_archive
         .execute(
             "UPDATE visits SET reverted_at = '2026-04-16T00:00:00Z' WHERE id = ?1",
             [reverted_visit_id],
         )
         .expect("revert clean visit");
+    sync_archive_totals(&clean_archive);
     drop(clean_archive);
 
-    run_core_intelligence(&clean_paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("clean full rebuild");
+    run_core_intelligence(
+        &clean_vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("clean full rebuild");
 
-    let fallback_intelligence = open_intelligence_connection(&fallback_paths, &config, None)
-        .expect("fallback intelligence");
-    let clean_intelligence =
-        open_intelligence_connection(&clean_paths, &config, None).expect("clean intelligence");
+    let fallback_intelligence = TestDatabase::new(&fallback_vault, vault_store::Db::Intelligence);
+    let clean_intelligence = TestDatabase::new(&clean_vault, vault_store::Db::Intelligence);
     assert_eq!(
-        load_daily_rollup_rows(&fallback_intelligence, "domain_daily_rollups"),
-        load_daily_rollup_rows(&clean_intelligence, "domain_daily_rollups")
+        fallback_intelligence
+            .read(move |s| Ok(load_daily_rollup_rows(s, "domain_daily_rollups")))
+            .unwrap(),
+        clean_intelligence
+            .read(move |s| Ok(load_daily_rollup_rows(s, "domain_daily_rollups")))
+            .unwrap()
     );
     assert_eq!(
-        load_daily_rollup_rows(&fallback_intelligence, "category_daily_rollups"),
-        load_daily_rollup_rows(&clean_intelligence, "category_daily_rollups")
+        fallback_intelligence
+            .read(move |s| Ok(load_daily_rollup_rows(s, "category_daily_rollups")))
+            .unwrap(),
+        clean_intelligence
+            .read(move |s| Ok(load_daily_rollup_rows(s, "category_daily_rollups")))
+            .unwrap()
     );
     assert_eq!(
-        load_daily_rollup_rows(&fallback_intelligence, "engine_daily_rollups"),
-        load_daily_rollup_rows(&clean_intelligence, "engine_daily_rollups")
+        fallback_intelligence
+            .read(move |s| Ok(load_daily_rollup_rows(s, "engine_daily_rollups")))
+            .unwrap(),
+        clean_intelligence
+            .read(move |s| Ok(load_daily_rollup_rows(s, "engine_daily_rollups")))
+            .unwrap()
     );
     assert_eq!(
-        load_daily_rollup_rows(&fallback_intelligence, "daily_summary_rollups"),
-        load_daily_rollup_rows(&clean_intelligence, "daily_summary_rollups")
+        fallback_intelligence
+            .read(move |s| Ok(load_daily_rollup_rows(s, "daily_summary_rollups")))
+            .unwrap(),
+        clean_intelligence
+            .read(move |s| Ok(load_daily_rollup_rows(s, "daily_summary_rollups")))
+            .unwrap()
     );
 }

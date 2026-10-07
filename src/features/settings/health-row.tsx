@@ -36,6 +36,13 @@ const knownChecks = [
   'import-audit-artifacts',
   'broken-visibility-references',
   'derived-state-freshness',
+  'archive-integrity',
+  'source-evidence-integrity',
+  'intelligence-integrity',
+  'agent-integrity',
+  'canonical-references',
+  'cached-totals',
+  'search-outbox',
 ] as const
 
 type CheckCode = (typeof knownChecks)[number]

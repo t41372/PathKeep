@@ -31,7 +31,7 @@ pub(super) enum JsonRecordStreamError<E> {
 /// The payload may either be a top-level array or an object that stores the
 /// relevant rows under one of `array_keys`.
 pub(super) fn stream_payload_records<F, E>(
-    bytes: &[u8],
+    reader: impl std::io::Read,
     source_path: &str,
     array_keys: &[&str],
     mut on_record: F,
@@ -50,7 +50,7 @@ where
         Ok(())
     };
     let visitor = RootRecordVisitor { array_keys, on_record: &mut callback };
-    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    let mut deserializer = serde_json::Deserializer::from_reader(reader);
     if let Err(source) = deserializer.deserialize_any(visitor) {
         if let Some(error) = callback_error {
             return Err(JsonRecordStreamError::Callback(error));

@@ -26,35 +26,46 @@
 mod artifacts;
 mod at_rest;
 mod backup;
+mod backup_manifest;
+mod browser_schema;
+mod checkpoint_restore;
 mod doctor;
+mod doctor_derived;
+mod doctor_facts;
+pub use doctor_derived::legacy_derived_health;
 mod history;
 // Re-export the SSRF guard module so the W-ENRICH-1 enrichment plane can reach
 // `crate::archive::history::net_guard::url_target_is_blocked` through the same chokepoint og:image
 // fetching uses (history itself is a private module, so the path needs a crate-visible re-export).
 pub(crate) use self::history::net_guard;
-mod ingest;
+pub(crate) mod ingest;
 mod intelligence_projection;
+mod legacy_status;
+mod legacy_totals;
 mod maintenance;
 mod read_models;
-pub(crate) use self::read_models::{archive_status_from_open, recent_runs_from};
+pub use legacy_status::{
+    ensure_archive_initialized, ensure_archive_initialized_with_progress, legacy_archive_status,
+};
+pub(crate) mod totals;
+pub(crate) use self::read_models::recent_runs_from;
+mod maintenance_runs;
 mod run_support;
 mod schema;
-mod search_lexical;
+pub(crate) mod search_documents;
+pub(crate) mod write_runs;
+pub use search_documents::set_enrichment_text;
+mod legacy_source_evidence;
+pub(crate) mod search_lexical;
 mod search_opencc;
-mod search_projection;
-mod search_query;
-mod source_evidence;
-mod source_evidence_builder;
+pub(crate) mod search_query;
+pub(crate) mod source_evidence;
 mod source_stats;
 mod url_detail;
 mod wipe;
 mod write_lock;
 
-pub(crate) use self::artifacts::{
-    SnapshotArtifact, collect_schema_payload, create_snapshot_artifact,
-    load_checkpoint_profile_snapshot, load_snapshot_record, record_snapshot_reference,
-    serialize_payload,
-};
+pub(crate) use self::artifacts::SnapshotArtifact;
 pub use self::at_rest::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, ArchiveRecoveryKind, ArchiveRecoveryReport, LaunchRecovery,
     ReconcileReport, list_recovery_snapshots, reconcile_archive_encryption,
@@ -62,14 +73,18 @@ pub use self::at_rest::{
 };
 pub(crate) use self::at_rest::{
     DiskEncryptionMode, detect_disk_encryption_mode, migrate_source_evidence_for_rekey,
-    reconcile_source_evidence_with_archive, remove_stale_sidecars,
+    remove_stale_sidecars,
 };
+pub(crate) use browser_schema::collect_schema_payload;
+pub(crate) use maintenance_runs::record_snapshot_reference;
 // The config↔disk at-rest invariant checker is a TEST-facing post-condition (threaded into every
 // archive-mutation success/crash test), never a production hot path — so it + its re-export exist
 // only in the measured test build, mirroring `fault_inject`'s `#[cfg(test)]` arming helpers.
 #[cfg(test)]
 pub(crate) use self::at_rest::check_config_disk_consistency;
-pub use self::backup::{run_backup, run_backup_with_progress};
+#[cfg(test)]
+pub(crate) use self::backup::run_backup_profiles;
+pub use self::backup::{run_backup, run_backup_with_control, run_backup_with_progress};
 pub(crate) use self::history::cap_enrichment_excerpt;
 pub use self::intelligence_projection::open_intelligence_connection;
 #[cfg(test)]
@@ -77,13 +92,12 @@ pub(crate) use self::intelligence_projection::{
     open_intelligence_connection_call_count, open_intelligence_connection_call_sites,
     reset_open_intelligence_connection_call_count,
 };
-use self::read_models::{decode_profile_scope, directory_size, file_size};
-pub(crate) use self::run_support::{
-    ArchiveVisibleTotals, BackupManifest, archive_row_counts, backup_run_summary,
-    count_visible_archive_totals, current_timezone_name, finalize_failed_run,
-    finalize_successful_run, latest_manifest_row, persist_manifest_row,
-    persist_structured_manifest, stats_with_archive_totals, write_manifest_artifact,
+pub use self::legacy_source_evidence::open_legacy_source_evidence_connection;
+pub(crate) use self::maintenance_runs::{
+    count_visible_archive_totals, persist_structured_manifest, stats_with_archive_totals,
 };
+use self::read_models::{decode_profile_scope, directory_size, file_size};
+pub(crate) use self::run_support::{ArchiveVisibleTotals, current_timezone_name};
 pub(crate) use self::schema::apply_cipher_key;
 pub(crate) use self::schema::export_archive_database;
 pub(crate) use self::schema::open_archive_connection_reporting;
@@ -91,19 +105,11 @@ pub use self::schema::{
     archive_key_opens, assess_archive_upgrade, create_schema, open_archive_connection,
 };
 pub use self::schema::{current_version, max_schema_version, run_migrations};
-pub(crate) use self::search_projection::{
-    attach_search_database, rebuild_search_projection, refresh_enrichment_text_for_history,
-    refresh_notes_tags_text_for_url, refresh_search_projection_for_import_batch,
-};
-pub use self::source_evidence::open_source_evidence_connection;
+pub(crate) use self::search_documents::enrichment_text_for_index;
 pub(crate) use self::source_evidence::{
-    DeferredSourceEvidencePayload, SourceBatchInput, SourceEvidencePayload,
-    defer_source_evidence_payload, record_schema_observation, upsert_source_batch,
+    SourceBatchInput, SourceEvidencePayload, record_schema_observation, upsert_source_batch,
 };
-pub(crate) use self::source_evidence_builder::{
-    DeferredSourceEvidenceBuilder, SourceEvidenceCounts, coverage_stats_json_from_counts,
-    coverage_stats_json_from_parts,
-};
+
 pub use self::source_stats::load_source_stats;
 pub use self::url_detail::get_url_detail;
 pub use self::wipe::{
@@ -133,40 +139,37 @@ pub use self::{
     doctor::{doctor, repair_health_issues},
     history::{
         BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
-        BrowseDayTopUrl, ExportCancelled, cancel_export, export_history, get_browse_day_insights,
-        get_export_progress, list_history, load_history_favicons, og_images, og_images_fetch,
-        record_export_failure,
+        BrowseDayTopUrl, ExportCancelled, cancel_export, export_history, export_search_history,
+        get_browse_day_insights, get_export_progress, list_history, load_history_favicons,
+        og_images, og_images_fetch, record_export_failure, search_history,
     },
     maintenance::{
         preview_retention, preview_snapshot_restore, rekey_archive,
         run_full_archive_snapshot_restore, run_retention_prune, run_snapshot_restore,
     },
     read_models::{
-        archive_status, ensure_archive_initialized, ensure_archive_initialized_with_progress,
-        load_audit_run_detail, load_dashboard_snapshot, load_recent_runs,
+        RunPage, archive_availability, archive_status, load_audit_run_detail,
+        load_dashboard_snapshot, load_recent_runs,
     },
 };
 use crate::{
-    chrome::{FileFingerprint, ProfileSnapshot, discover_profiles},
+    chrome::{FileFingerprint, ProfileSnapshot},
     config::{ProjectPaths, ensure_paths, save_config},
     git_audit,
     models::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
         BackupReport, BackupRunOverview, DashboardSnapshot, FullArchiveRestoreReport, HealthCheck,
-        HealthRepairReport, HealthReport, HistoryEntry, HistoryQuery, HistoryQueryResponse,
-        RecoverySnapshot, RetentionBucket, RetentionPreview, RetentionPruneRequest,
-        RetentionPruneResult, SnapshotRestorePreview, SnapshotRestoreRequest, StorageSummary,
-        backup_warning_messages,
+        HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse, RecoverySnapshot,
+        RetentionBucket, RetentionPreview, RetentionPruneRequest, RetentionPruneResult,
+        SnapshotRestorePreview, SnapshotRestoreRequest, StorageSummary, backup_warning_messages,
     },
     utils::{
         file_sha256_hex, filesystem_safe_path_segment, identifier_from_filesystem_segment,
-        now_rfc3339, sha256_hex, unix_micros_to_chrome_time, url_domain,
+        now_rfc3339, sha256_hex, unix_micros_to_chrome_time,
     },
 };
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
-use regex::RegexBuilder;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, named_params, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -182,110 +185,6 @@ use tempfile::tempdir;
 /// `idx_visits_visible_time_id` (migration 016) and stop after one page instead of sorting every
 /// visible visit. Callers bind sentinels for "no bound": see [`list_history_bounds`]. The two
 /// directions share one body so the filters cannot drift apart.
-macro_rules! list_history_sql {
-    ($cursor_comparison:literal, $direction:literal) => {
-        concat!(
-            r#"
-SELECT
-  visits.id,
-  source_profiles.profile_key,
-  urls.url,
-  urls.title,
-  visits.visit_time_ms,
-  visits.visit_duration_ms,
-  visits.transition_type,
-  visits.source_visit_id,
-  visits.app_id
-FROM visits
-JOIN urls
-  ON urls.id = visits.url_id
-JOIN source_profiles
-  ON source_profiles.id = visits.source_profile_id
-WHERE visits.reverted_at IS NULL
-  AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
-  AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
-  AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_sites AS advanced_filter WHERE LOWER(urls.url) NOT LIKE '%' || advanced_filter.value || '%')
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_sites AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%')
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_filetypes AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%.' || advanced_filter.value OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '?%' OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '#%'))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_filetypes AS advanced_filter WHERE LOWER(urls.url) LIKE '%.' || advanced_filter.value OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '?%' OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '#%')
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_url_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_url LIKE '%' || advanced_filter.value || '%')))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_url_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_url LIKE '%' || advanced_filter.value || '%'))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_title_terms AS advanced_filter WHERE NOT (LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%')))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_title_terms AS advanced_filter WHERE LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%'))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_exact_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%'))))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%')))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_tags AS advanced_filter WHERE NOT EXISTS (SELECT 1 FROM url_tags WHERE url_tags.url = urls.url AND LOWER(url_tags.tag) = advanced_filter.value))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_tags AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_tags WHERE url_tags.url = urls.url AND LOWER(url_tags.tag) = advanced_filter.value))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_notes AS advanced_filter WHERE NOT EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_notes AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
-  AND visits.visit_time_ms >= :startTimeMs
-  AND visits.visit_time_ms <= :endTimeMs
-  AND (visits.visit_time_ms, visits.id) "#,
-            $cursor_comparison,
-            " (:cursorVisitTime, :cursorId)\nORDER BY visits.visit_time_ms ",
-            $direction,
-            ", visits.id ",
-            $direction,
-            "\nLIMIT :pageLimit\nOFFSET :pageOffset\n"
-        )
-    };
-}
-
-const LIST_HISTORY_NEWEST_SQL: &str = list_history_sql!("<", "DESC");
-const LIST_HISTORY_OLDEST_SQL: &str = list_history_sql!(">", "ASC");
-
-/// The list query for a sort order; anything but `"oldest"` reads newest first.
-fn list_history_sql(sort: &str) -> &'static str {
-    if sort == "oldest" { LIST_HISTORY_OLDEST_SQL } else { LIST_HISTORY_NEWEST_SQL }
-}
-
-/// Binds "no bound" as sentinels the list query can compare against: the time range opens to the
-/// full `i64` span and a missing cursor starts before the first row in the sort direction.
-/// Returns `(start, end, cursor_time, cursor_id)`.
-fn list_history_bounds(
-    sort: &str,
-    start_time_ms: Option<i64>,
-    end_time_ms: Option<i64>,
-    cursor: Option<(i64, i64)>,
-) -> (i64, i64, i64, i64) {
-    let (cursor_time, cursor_id) = cursor.unwrap_or(if sort == "oldest" {
-        (i64::MIN, i64::MIN)
-    } else {
-        (i64::MAX, i64::MAX)
-    });
-    (start_time_ms.unwrap_or(i64::MIN), end_time_ms.unwrap_or(i64::MAX), cursor_time, cursor_id)
-}
-
-const COUNT_HISTORY_SQL: &str = r#"
-SELECT COUNT(*)
-FROM visits
-JOIN urls
-  ON urls.id = visits.url_id
-JOIN source_profiles
-  ON source_profiles.id = visits.source_profile_id
-WHERE visits.reverted_at IS NULL
-  AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
-  AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
-  AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_sites AS advanced_filter WHERE LOWER(urls.url) NOT LIKE '%' || advanced_filter.value || '%')
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_sites AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%')
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_filetypes AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%.' || advanced_filter.value OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '?%' OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '#%'))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_filetypes AS advanced_filter WHERE LOWER(urls.url) LIKE '%.' || advanced_filter.value OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '?%' OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '#%')
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_url_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_url LIKE '%' || advanced_filter.value || '%')))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_url_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_url LIKE '%' || advanced_filter.value || '%'))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_title_terms AS advanced_filter WHERE NOT (LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%')))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_title_terms AS advanced_filter WHERE LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%'))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_exact_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%'))))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%')))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_tags AS advanced_filter WHERE NOT EXISTS (SELECT 1 FROM url_tags WHERE url_tags.url = urls.url AND LOWER(url_tags.tag) = advanced_filter.value))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_tags AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_tags WHERE url_tags.url = urls.url AND LOWER(url_tags.tag) = advanced_filter.value))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_required_notes AS advanced_filter WHERE NOT EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
-  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_notes AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
-  AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
-  AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
-"#;
-
 const RECENT_RUNS_SQL: &str = r#"
 SELECT
   runs.id,
@@ -526,3 +425,6 @@ mod tests;
 
 #[cfg(test)]
 mod upgrade_v020_tests;
+
+#[cfg(test)]
+pub(crate) use source_stats::tests::seeded_archive as seed_read_archive;

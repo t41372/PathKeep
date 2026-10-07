@@ -1,3 +1,4 @@
+//! Failure modes: cursor replay loses the open session or persisted assignments duplicate.
 //! Streamed structural replay and persistence for Core Intelligence.
 //!
 //! ## Responsibilities
@@ -27,95 +28,114 @@
 //! - Range deletes stay scoped to one profile and one dirty window so large
 //!   rebuilds do not rewrite unaffected structural rows.
 
-use super::intelligence_structural_persist::clear_structural_tail_state;
 use super::intelligence_structural_state::{SessionBuildState, TrailBuildState};
 use super::{
     StructuralTailStreamReport, StructuralVisitRecord, TrailRecord, classify_search_query_kind,
-    load_archive_source_profile_id, normalize_query, tokenize_query_terms,
+    normalize_query, tokenize_query_terms,
 };
 use anyhow::Result;
-use rusqlite::{Connection, params};
 use std::collections::BTreeSet;
+use vault_store::{Session, params_owned as params};
 
 /// Cursor used by streamed structural replay to resume the next ordered visit
 /// batch without re-reading prior rows.
-#[derive(Debug, Clone, Copy)]
-struct StructuralVisitBatchCursor {
-    visit_time_ms: i64,
-    visit_id: i64,
-}
-
 /// Prepared statements for streamed structural replay so each visit does not
 /// pay repeated SQLite prepare costs.
-struct StructuralTailPersist<'tx> {
-    assignment_statement: rusqlite::Statement<'tx>,
-    session_statement: rusqlite::Statement<'tx>,
-    trail_statement: rusqlite::Statement<'tx>,
-    trail_member_statement: rusqlite::Statement<'tx>,
-    search_event_statement: rusqlite::Statement<'tx>,
-    search_event_kind_statement: rusqlite::Statement<'tx>,
-    search_event_term_delete_statement: rusqlite::Statement<'tx>,
-    search_term_statement: rusqlite::Statement<'tx>,
+pub(super) struct StructuralTailPersist<'tx, 'db> {
+    generation: i64,
+    profile_id: String,
+    assignment_statement: vault_store::Statement<'tx, 'db>,
+    domain_statement: vault_store::Statement<'tx, 'db>,
+    domain_updates: std::collections::BTreeMap<(String, String), i64>,
+    session_statement: vault_store::Statement<'tx, 'db>,
+    trail_statement: vault_store::Statement<'tx, 'db>,
+    trail_member_statement: vault_store::Statement<'tx, 'db>,
+    search_event_statement: vault_store::Statement<'tx, 'db>,
+    search_event_kind_statement: vault_store::Statement<'tx, 'db>,
+    search_event_term_delete_statement: vault_store::Statement<'tx, 'db>,
+    search_term_statement: vault_store::Statement<'tx, 'db>,
 }
 
-impl<'tx> StructuralTailPersist<'tx> {
+impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
     /// Prepares the structural replay write set inside one transaction.
-    fn new(tx: &'tx rusqlite::Transaction<'tx>) -> Result<Self> {
+    pub(super) fn new(tx: &'tx Session<'db>, generation: i64, profile_id: &str) -> Result<Self> {
         Ok(Self {
+            generation,profile_id:profile_id.to_owned(),
+            domain_updates:Default::default(),
+            domain_statement:tx.prepare("INSERT INTO session_domains(generation,profile_id,session_id,domain,visit_count) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(generation,session_id,domain) DO UPDATE SET visit_count=visit_count+excluded.visit_count")?,
             assignment_statement: tx.prepare(
-                "UPDATE visit_derived_facts
-                 SET session_id = ?2, trail_id = ?3, computed_at = ?4
-                 WHERE visit_id = ?1",
+                "INSERT OR REPLACE INTO visit_assignments (generation,profile_id,visit_id,session_id,trail_id,ordinal)
+                 VALUES (?1,?2,?3,?4,?5,?6)",
             )?,
             session_statement: tx.prepare(
-                "INSERT INTO sessions
-                 (session_id, profile_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title, computed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                "INSERT OR REPLACE INTO sessions_rows (generation,session_id, profile_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title, computed_at) VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             )?,
             trail_statement: tx.prepare(
-                "INSERT INTO search_trails
-                 (trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
-                  landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json, computed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                "INSERT OR REPLACE INTO search_trails_rows (generation,trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
+                  landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json, computed_at) VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             )?,
             trail_member_statement: tx.prepare(
-                "INSERT INTO search_trail_members (trail_id, profile_id, visit_id, ordinal, role)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT OR REPLACE INTO search_trail_members_rows (generation,trail_id, profile_id, visit_id, ordinal, role) VALUES (?1,?2, ?3, ?4, ?5, ?6)",
             )?,
             search_event_statement: tx.prepare(
-                "INSERT INTO search_events
-                 (visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind, trail_id, computed_at, visit_time_ms)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT OR REPLACE INTO search_events_rows (generation,visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind, trail_id, computed_at, visit_time_ms) VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             )?,
             search_event_kind_statement: tx.prepare(
-                "UPDATE search_events SET query_kind = ?2 WHERE visit_id = ?1",
+                "UPDATE search_events_rows SET query_kind=?3 WHERE generation=?1 AND visit_id=?2",
             )?,
             search_event_term_delete_statement: tx.prepare(
-                "DELETE FROM search_event_terms WHERE visit_id = ?1",
+                "DELETE FROM search_event_terms_rows WHERE generation=?1 AND visit_id=?2",
             )?,
             search_term_statement: tx.prepare(
-                "INSERT INTO search_event_terms (visit_id, profile_id, term)
-                 VALUES (?1, ?2, ?3)",
+                "INSERT OR REPLACE INTO search_event_terms_rows (generation,visit_id, profile_id, term) VALUES (?1,?2, ?3, ?4)",
             )?,
         })
     }
 
     /// Updates one derived visit assignment with the newly computed
     /// session/trail ids.
-    fn persist_assignment(
+    pub(super) fn persist_assignment(
         &mut self,
         visit_id: i64,
         session_id: &str,
         trail_id: Option<&str>,
-        computed_at: &str,
+        ordinal: i64,
+        domain: &str,
     ) -> Result<()> {
-        self.assignment_statement.execute(params![visit_id, session_id, trail_id, computed_at])?;
+        self.assignment_statement.execute(params![
+            self.generation,
+            self.profile_id,
+            visit_id,
+            session_id,
+            trail_id,
+            ordinal
+        ])?;
+        *self.domain_updates.entry((session_id.to_owned(), domain.to_owned())).or_default() += 1;
+        Ok(())
+    }
+
+    /// Saves domain deltas in the same transaction as assignments and the replay cursor.
+    pub(super) fn flush_domain_counts(&mut self) -> Result<()> {
+        for ((session, domain), count) in std::mem::take(&mut self.domain_updates) {
+            self.domain_statement.execute(params![
+                self.generation,
+                self.profile_id,
+                session,
+                domain,
+                count
+            ])?;
+        }
         Ok(())
     }
 
     /// Persists one completed session row.
-    fn persist_session(&mut self, session: &super::SessionRecord, computed_at: &str) -> Result<()> {
+    pub(super) fn persist_session(
+        &mut self,
+        session: &super::SessionRecord,
+        computed_at: &str,
+    ) -> Result<()> {
         self.session_statement.execute(params![
+            self.generation,
             session.session_id,
             session.profile_id,
             session.first_visit_ms,
@@ -131,8 +151,9 @@ impl<'tx> StructuralTailPersist<'tx> {
     }
 
     /// Persists one completed trail row.
-    fn persist_trail(&mut self, trail: &TrailRecord, computed_at: &str) -> Result<()> {
+    pub(super) fn persist_trail(&mut self, trail: &TrailRecord, computed_at: &str) -> Result<()> {
         self.trail_statement.execute(params![
+            self.generation,
             trail.trail_id,
             trail.profile_id,
             trail.session_id,
@@ -152,8 +173,9 @@ impl<'tx> StructuralTailPersist<'tx> {
     }
 
     /// Persists one trail member row.
-    fn persist_trail_member(&mut self, member: &super::TrailMemberRecord) -> Result<()> {
+    pub(super) fn persist_trail_member(&mut self, member: &super::TrailMemberRecord) -> Result<()> {
         self.trail_member_statement.execute(params![
+            self.generation,
             member.trail_id,
             member.profile_id,
             member.visit_id,
@@ -165,12 +187,13 @@ impl<'tx> StructuralTailPersist<'tx> {
 
     /// Persists the search-event row that seeded a trail and, when needed, its
     /// token rows.
-    fn persist_search_event(
+    pub(super) fn persist_search_event(
         &mut self,
         event: &super::SearchEventRecord,
         computed_at: &str,
     ) -> Result<()> {
         self.search_event_statement.execute(params![
+            self.generation,
             event.visit_id,
             event.profile_id,
             event.search_engine,
@@ -186,6 +209,7 @@ impl<'tx> StructuralTailPersist<'tx> {
                 tokenize_query_terms(&event.normalized_query).into_iter().collect::<BTreeSet<_>>()
             {
                 self.search_term_statement.execute(params![
+                    self.generation,
                     event.visit_id,
                     event.profile_id,
                     term
@@ -204,12 +228,21 @@ impl<'tx> StructuralTailPersist<'tx> {
         normalized_query: &str,
         query_kind: super::SearchQueryKind,
     ) -> Result<()> {
-        self.search_event_kind_statement.execute(params![visit_id, query_kind.as_str()])?;
-        self.search_event_term_delete_statement.execute([visit_id])?;
+        self.search_event_kind_statement.execute(params![
+            self.generation,
+            visit_id,
+            query_kind.as_str()
+        ])?;
+        self.search_event_term_delete_statement.execute(params![self.generation, visit_id])?;
         if query_kind.is_keyword() {
             for term in tokenize_query_terms(normalized_query).into_iter().collect::<BTreeSet<_>>()
             {
-                self.search_term_statement.execute(params![visit_id, profile_id, term])?;
+                self.search_term_statement.execute(params![
+                    self.generation,
+                    visit_id,
+                    profile_id,
+                    term
+                ])?;
             }
         }
         Ok(())
@@ -218,21 +251,21 @@ impl<'tx> StructuralTailPersist<'tx> {
 
 /// Holds the current session/trail replay state while structural visits stream
 /// through one rebuild transaction.
-#[derive(Default)]
-struct StructuralTailStreamState {
-    current_session: Option<SessionBuildState>,
-    current_trail: Option<TrailBuildState>,
-    report: StructuralTailStreamReport,
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
+pub(super) struct StructuralTailStreamState {
+    pub(super) current_session: Option<SessionBuildState>,
+    pub(super) current_trail: Option<TrailBuildState>,
+    pub(super) report: StructuralTailStreamReport,
 }
 
 impl StructuralTailStreamState {
     /// Replays one structural visit into the current session/trail state and
     /// persists any completed boundaries.
-    fn process_visit(
+    pub(super) fn process_visit(
         &mut self,
         visit: StructuralVisitRecord,
         computed_at: &str,
-        persist: &mut StructuralTailPersist<'_>,
+        persist: &mut StructuralTailPersist<'_, '_>,
     ) -> Result<()> {
         self.report.processed_visits += 1;
         self.report.first_visit_ms.get_or_insert(visit.visit_time_ms);
@@ -249,6 +282,7 @@ impl StructuralTailStreamState {
         let session = self.current_session.as_mut().expect("structural session");
         session.push_visit(&visit);
         let session_id = session.record.session_id.clone();
+        let ordinal = session.record.visit_count - 1;
         let mut trail_id = None::<String>;
 
         if visit.is_search_event {
@@ -266,6 +300,13 @@ impl StructuralTailStreamState {
                 trail_id: Some(trail.record.trail_id.clone()),
                 visit_time_ms: visit.visit_time_ms,
             };
+            if event.query_kind.is_keyword() {
+                self.report.term_count += tokenize_query_terms(&event.normalized_query)
+                    .into_iter()
+                    .collect::<BTreeSet<_>>()
+                    .len();
+            }
+            self.report.member_count += 1;
             persist.persist_search_event(&event, computed_at)?;
             persist.persist_trail_member(&trail.search_event_member(visit.visit_id))?;
             trail_id = Some(trail.record.trail_id.clone());
@@ -278,7 +319,9 @@ impl StructuralTailStreamState {
             } else {
                 let member = trail.append_visit(&visit);
                 trail_id = Some(trail.record.trail_id.clone());
+                self.report.member_count += 1;
                 persist.persist_trail_member(&member)?;
+                trail.record.members.truncate(1);
             }
         }
 
@@ -286,7 +329,8 @@ impl StructuralTailStreamState {
             visit.visit_id,
             &session_id,
             trail_id.as_deref(),
-            computed_at,
+            ordinal,
+            &visit.registrable_domain,
         )?;
         Ok(())
     }
@@ -295,7 +339,7 @@ impl StructuralTailStreamState {
     fn finish_trail(
         &mut self,
         computed_at: &str,
-        persist: &mut StructuralTailPersist<'_>,
+        persist: &mut StructuralTailPersist<'_, '_>,
     ) -> Result<()> {
         if let Some(trail) = self.current_trail.take() {
             if let Some(search_visit_id) =
@@ -307,6 +351,21 @@ impl StructuralTailStreamState {
                     &normalized_query,
                     trail.record.landing_domain.as_deref(),
                 );
+                let initial = classify_search_query_kind(
+                    &trail.record.initial_query,
+                    &normalized_query,
+                    None,
+                );
+                let terms = tokenize_query_terms(&normalized_query)
+                    .into_iter()
+                    .collect::<BTreeSet<_>>()
+                    .len();
+                if initial.is_keyword() && !query_kind.is_keyword() {
+                    self.report.term_count -= terms;
+                }
+                if !initial.is_keyword() && query_kind.is_keyword() {
+                    self.report.term_count += terms;
+                }
                 persist.update_search_event_kind(
                     search_visit_id,
                     &trail.record.profile_id,
@@ -324,7 +383,7 @@ impl StructuralTailStreamState {
     fn finish_session(
         &mut self,
         computed_at: &str,
-        persist: &mut StructuralTailPersist<'_>,
+        persist: &mut StructuralTailPersist<'_, '_>,
     ) -> Result<()> {
         if let Some(session) = self.current_session.take() {
             persist.persist_session(&session.finish(), computed_at)?;
@@ -334,141 +393,38 @@ impl StructuralTailStreamState {
     }
 
     /// Finishes any in-progress session/trail after the final batch.
-    fn finish(&mut self, computed_at: &str, persist: &mut StructuralTailPersist<'_>) -> Result<()> {
+    pub(super) fn finish(
+        &mut self,
+        computed_at: &str,
+        persist: &mut StructuralTailPersist<'_, '_>,
+    ) -> Result<()> {
         self.finish_trail(computed_at, persist)?;
         self.finish_session(computed_at, persist)
     }
 }
 
-/// Streams structural visits from `visit_derived_facts` in chronological order
-/// for one profile scope.
-fn load_structural_visit_batch(
-    connection: &Connection,
-    profile_id: &str,
-    source_profile_id: i64,
-    start_ms: Option<i64>,
-    after: Option<StructuralVisitBatchCursor>,
-    limit: usize,
-) -> Result<Vec<StructuralVisitRecord>> {
-    let mut statement = connection.prepare(
-        "SELECT visit_derived_facts.visit_id,
-                ?1,
-                urls.url,
-                visits.visit_time_ms,
-                visits.from_visit,
-                visit_derived_facts.registrable_domain,
-                visit_derived_facts.search_engine,
-                visit_derived_facts.search_query,
-                visit_derived_facts.is_new_domain,
-                visit_derived_facts.is_search_event
-         FROM archive.visits AS visits
-         JOIN visit_derived_facts ON visit_derived_facts.visit_id = visits.id
-         JOIN archive.urls AS urls ON urls.id = visits.url_id
-         WHERE visits.reverted_at IS NULL
-           AND visits.source_profile_id = ?2
-           AND (?3 IS NULL OR visits.visit_time_ms >= ?3)
-           AND (
-             ?4 IS NULL
-             OR visits.visit_time_ms > ?4
-             OR (visits.visit_time_ms = ?4 AND visits.id > ?5)
-           )
-         ORDER BY visits.visit_time_ms ASC, visits.id ASC
-         LIMIT ?6",
-    )?;
-    statement
-        .query_map(
-            params![
-                profile_id,
-                source_profile_id,
-                start_ms,
-                after.map(|cursor| cursor.visit_time_ms),
-                after.map(|cursor| cursor.visit_id),
-                limit.max(1) as i64,
-            ],
-            |row| {
-                Ok(StructuralVisitRecord {
-                    visit_id: row.get(0)?,
-                    profile_id: row.get(1)?,
-                    url: row.get(2)?,
-                    visit_time_ms: row.get(3)?,
-                    from_visit: row.get(4)?,
-                    registrable_domain: row.get(5)?,
-                    search_engine: row.get(6)?,
-                    search_query: row.get(7)?,
-                    is_new_domain: row.get::<_, i64>(8)? != 0,
-                    is_search_event: row.get::<_, i64>(9)? != 0,
-                })
-            },
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-/// Replays one profile's structural tail in chronological batches and persists
-/// the rebuilt session/trail/search-event rows in one transaction.
-pub(super) fn rebuild_structural_tail_state(
-    connection: &Connection,
-    profile_id: &str,
-    start_ms: Option<i64>,
-    computed_at: &str,
-    batch_size: usize,
-) -> Result<StructuralTailStreamReport> {
-    let source_profile_id = load_archive_source_profile_id(connection, profile_id)?;
-    let tx = connection.unchecked_transaction()?;
-    clear_structural_tail_state(&tx, profile_id, start_ms)?;
-    let mut persist = StructuralTailPersist::new(&tx)?;
-    let mut state = StructuralTailStreamState::default();
-    let mut cursor = None::<StructuralVisitBatchCursor>;
-
-    loop {
-        let batch = load_structural_visit_batch(
-            &tx,
-            profile_id,
-            source_profile_id,
-            start_ms,
-            cursor,
-            batch_size,
-        )?;
-        if batch.is_empty() {
-            break;
-        }
-        let next_cursor = batch.last().map(|visit| StructuralVisitBatchCursor {
-            visit_time_ms: visit.visit_time_ms,
-            visit_id: visit.visit_id,
-        });
-        for visit in batch {
-            state.process_visit(visit, computed_at, &mut persist)?;
-        }
-        cursor = next_cursor;
-    }
-
-    state.finish(computed_at, &mut persist)?;
-    drop(persist);
-    tx.commit()?;
-    Ok(state.report)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::intelligence::{SearchQueryKind, ensure_core_intelligence_schema};
+    use crate::intelligence::SearchQueryKind;
 
     #[test]
     fn search_event_kind_update_rewrites_keyword_terms() {
-        let connection = Connection::open_in_memory().expect("open intelligence connection");
-        ensure_core_intelligence_schema(&connection).expect("schema");
+        let vault = crate::Vault::open_temp().unwrap();
+        vault.write(vault_store::Db::Intelligence,vault_store::Priority::Batch,|connection| {
+        connection.execute("INSERT INTO intelligence_generations(profile_id,facts,daily,navigation,aggregates) VALUES('chrome:Default',1,1,1,1)",())?;
         connection
             .execute(
-                "INSERT INTO search_events
-                 (visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind, trail_id, computed_at)
-                 VALUES (42, 'chrome:Default', 'Google', 'GitHub Rust coverage', 'github rust coverage', 'navigational', 'trail-42', '2026-04-26T00:00:00Z')",
-                [],
+                "INSERT INTO search_events_rows
+                 (generation,visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind, trail_id, computed_at)
+                 VALUES (1,42, 'chrome:Default', 'Google', 'GitHub Rust coverage', 'github rust coverage', 'navigational', 'trail-42', '2026-04-26T00:00:00Z')",
+                (),
             )
             .expect("insert search event");
 
         {
-            let tx = connection.unchecked_transaction().expect("transaction");
-            let mut persist = StructuralTailPersist::new(&tx).expect("persist");
+            let tx = connection;
+            let mut persist = StructuralTailPersist::new(tx,1,"chrome:Default").expect("persist");
             persist
                 .update_search_event_kind(
                     42,
@@ -478,12 +434,11 @@ mod tests {
                 )
                 .expect("update to keyword");
             drop(persist);
-            tx.commit().expect("commit keyword update");
         }
 
         let keyword_kind: String = connection
-            .query_row("SELECT query_kind FROM search_events WHERE visit_id = 42", [], |row| {
-                row.get(0)
+            .query_one("SELECT query_kind FROM search_events WHERE visit_id = 42", (), |row| {
+                Ok(row.get(0)?)
             })
             .expect("query kind");
         assert_eq!(keyword_kind, "keyword");
@@ -491,15 +446,15 @@ mod tests {
         let keyword_terms = connection
             .prepare("SELECT term FROM search_event_terms WHERE visit_id = 42 ORDER BY term")
             .expect("prepare terms")
-            .query_map([], |row| row.get::<_, String>(0))
+            .query_map((), |row| Ok(row.get::< String>(0)?))
             .expect("map terms")
-            .collect::<rusqlite::Result<Vec<_>>>()
+            .collect::<vault_store::Result<Vec<_>>>()
             .expect("collect terms");
         assert_eq!(keyword_terms, vec!["coverage", "github", "rust"]);
 
         {
-            let tx = connection.unchecked_transaction().expect("transaction");
-            let mut persist = StructuralTailPersist::new(&tx).expect("persist");
+            let tx = connection;
+            let mut persist = StructuralTailPersist::new(tx,1,"chrome:Default").expect("persist");
             persist
                 .update_search_event_kind(
                     42,
@@ -509,31 +464,33 @@ mod tests {
                 )
                 .expect("update to navigational");
             drop(persist);
-            tx.commit().expect("commit navigational update");
         }
 
         let navigational_kind: String = connection
-            .query_row("SELECT query_kind FROM search_events WHERE visit_id = 42", [], |row| {
-                row.get(0)
+            .query_one("SELECT query_kind FROM search_events WHERE visit_id = 42", (), |row| {
+                Ok(row.get(0)?)
             })
             .expect("query kind");
         assert_eq!(navigational_kind, "navigational");
 
         let term_count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM search_event_terms WHERE visit_id = 42", [], |row| {
-                row.get(0)
+            .query_one("SELECT COUNT(*) FROM search_event_terms WHERE visit_id = 42", (), |row| {
+                Ok(row.get(0)?)
             })
             .expect("term count");
         assert_eq!(term_count, 0);
+        Ok(())
+        }).unwrap();
     }
 
     #[test]
     fn stream_state_flushes_trails_on_gap_and_updates_search_event_kind() {
-        let connection = Connection::open_in_memory().expect("open intelligence connection");
-        ensure_core_intelligence_schema(&connection).expect("schema");
+        let vault = crate::Vault::open_temp().unwrap();
+        vault.write(vault_store::Db::Intelligence,vault_store::Priority::Batch,|connection| {
+        connection.execute("INSERT INTO intelligence_generations(profile_id,facts,daily,navigation,aggregates) VALUES('chrome:Default',1,1,1,1)",())?;
         let computed_at = "2026-04-26T00:00:00Z";
-        let tx = connection.unchecked_transaction().expect("transaction");
-        let mut persist = StructuralTailPersist::new(&tx).expect("persist");
+        let tx = connection;
+        let mut persist = StructuralTailPersist::new(tx,1,"chrome:Default").expect("persist");
         let mut state = StructuralTailStreamState::default();
 
         state
@@ -578,15 +535,14 @@ mod tests {
             .expect("session gap visit");
         state.finish(computed_at, &mut persist).expect("finish stream");
         drop(persist);
-        tx.commit().expect("commit structural stream");
 
         let (query_kind, trail_count): (String, i64) = connection
-            .query_row(
+            .query_one(
                 "SELECT search_events.query_kind,
                         (SELECT COUNT(*) FROM search_trails)
                  FROM search_events
                  WHERE search_events.visit_id = 1",
-                [],
+                (),
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("persisted search event");
@@ -594,6 +550,8 @@ mod tests {
         assert_eq!(trail_count, 1);
         assert_eq!(state.report.trails, 1);
         assert_eq!(state.report.sessions, 2);
+        Ok(())
+        }).unwrap();
     }
 
     fn structural_visit(

@@ -2656,3 +2656,67 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - Wiping all data keeps the owner lock file, so ownership survives a wipe.
   - `owner_process.rs` runs the real app, CLI and MCP processes against a fixture, with a macOS sandbox denying the clients any access to `archive/` and `derived/`. It passes. Windows code type-checks but was not linked or run here.
   - Implemented by Codex (GPT 6 astra); reviewed here. See `docs/architecture/owner-process.md`.
+
+- [x] `WORK-TURSO-STORAGE` — The search index: `vault-search` (2026-10-05, `feat/turso-storage`).
+  - A Tantivy index over vault-crypto's encrypted directory: one document per page, the ten weighted fields of today's search projection, a trigram field for typos and unsegmented Chinese, and fast fields for recency, domain and profiles.
+  - Queries are built from a typed tree, never parsed from text. Prefixes are exact and BM25-scored with no expansion cap, because every prefix of every word is indexed; that roughly quadruples the index (1.5 GB at 2.9M pages) but costs no memory at query time.
+  - Ranking keeps an exact top-k by score, then newest visit, then page id; paging continues after the last key, so every match is reachable exactly once. Counts are exact. Searches and counts can also run segment by segment within a time budget, returning provisional results, for slow machines.
+  - Each commit records the highest search-outbox sequence it applied, so a crash replays from there; a rebuild serves the old index until the new one is complete.
+  - At 2.9M encrypted pages: a common word's first page in 40 ms warm and about 350 ms in a fresh process, its exact count in 14 ms warm; steady memory 305–335 MB. Measurements: `docs/architecture/research/2026-10-vault-search-benchmark.md`.
+  - Implemented by Codex (GPT 6 astra); reviewed here. Not yet wired to vault-core.
+- [x] `WORK-TURSO-STORAGE` — Archive writes go to Turso (2026-10-05, `feat/turso-storage`).
+  - `vault_core::Vault` is the one handle to the store. Backups, Takeout and browser-file imports, import undo and redo, notes, tags, stars, link previews and source evidence write through it.
+  - Backups and imports commit in batches of up to 10,000 rows, with the source watermarks in the same transaction. An interrupted run is marked `interrupted`, and the next one continues after the last committed batch. A star or note saved during a long backup lands between batches instead of waiting for the end.
+  - Resuming reads each browser's tables by row id, so a first backup of millions of URLs reads every row once. Visits that Chrome sync adds to an older URL are still picked up.
+  - The full search rebuild after every backup is gone. Each write that changes what search shows updates that page's search document and appends to the search outbox in the same transaction. The Tantivy index consumes the outbox (area 3).
+  - Encrypted archives: the password unwraps a stored data key, and each database opens with its own key derived from it. The keychain stores that data key, which never reaches the WebView: the frontend asks the backend to unlock from the keychain. Locking the app keeps the archive open, so scheduled backups still run.
+  - Pages carry an indexed canonical-URL key, so stars, notes and fetched page text reach every URL variant of a page. The star list pages through every star and includes each star's notes and tags. The Starred view loads more as it scrolls, where it used to stop at 500.
+  - The branch is not usable as an app yet: History, Insights, search and maintenance still read the old SQLCipher files until their areas are ported. Operations that would mix the two stores refuse with `storage-migration-incomplete` (listed in `data-model.md`).
+  - Backend implemented by Codex (GPT 6 astra); frontend changes here. Review findings are collected and fixed once every area is done.
+
+- [x] `WORK-TURSO-STORAGE` — Archive reads come from Turso (2026-10-05, `feat/turso-storage`).
+  - The History timeline, day insights, URL details, the overview, source stats, run and import lists, import review and the history export read through `Vault` on the read pool, so they never wait for a backup batch.
+  - Every list pages with a cursor instead of an offset or a cap; unfinished imports are listed first.
+  - Archive and source totals are kept up to date in the same transaction as the writes, so no read counts the whole archive.
+  - Doctor checks the Turso files and repairs what can be rebuilt, recording each repair. Turso has no `foreign_key_check`, so doctor checks those relationships with its own queries.
+  - The export streams every matching row in pages: 14.4M encrypted visits in 34 s with 39 MiB peak memory. The first timeline page takes 2 ms cold, and a day's insights 26 ms. Measurements: `docs/architecture/research/2026-10-turso-archive-reads.md`.
+  - Implemented by Codex (GPT 6 astra). Review findings are collected and fixed once every area is done.
+
+- [x] `WORK-TURSO-STORAGE` — Search covers every matching page through vault-search and Turso (2026-10-05). The owner indexer replays the durable outbox and rebuilds without replacing a healthy reader early. Search exposes provisional results, exact counts and index coverage through streaming sessions. History, regex, fuzzy, AI, code mode, the command palette, MCP and search export reach every matching page; canonical visibility excludes revoked data before indexing catches up.
+- [x] `WORK-TURSO-STORAGE` — Intelligence rebuilds, AI queues and indexing, enrichment, and agent chats use the session’s Turso Vault (2026-10-06). Rebuilds resume committed batches while archive edits remain available. Lists and evidence have continuation cursors, AI backfill covers every page, and canonical enrichment reoffers pages that arrive later and replays stored content after interruption. Assistant results use native ledgers, and evidence-only Takeout payloads retain source-batch provenance.
+
+- [x] `WORK-TURSO-STORAGE` — The History screen streams search, and paged lists load as they scroll (2026-10-06).
+  - Full-text and regex search open a search session and show results as they arrive: the first rows within one step, "Still ranking" until the order is final, then exact page and visit counts. Scrolling asks the same session for the next page. Under Tauri the steps arrive on a channel; through the dev bridge (E2E, `dev:demo`) as server-sent events.
+  - While the index is still being built or catching up, the results line (and the command palette's page results) says so, with progress, and an empty result reads "Nothing found yet" instead of "No results". When the index catches up, the search runs once more. The indexer's reported state now counts writes it hasn't picked up yet; it used to say "ready" while paused or busy, so History searched again too early and then never again.
+  - Searches no longer restart on every archive write. A steady stream of writes (a backup, link previews, page text) used to restart a regex search forever. Loading a result rechecks it against the archive as it is now, so reverted visits and removed text never show.
+  - Regex search seeks to its cursor for each chunk. Turso ignored the index for the old cursor condition and reread from the newest visit every time, which made a whole-archive regex grow with the square of the archive.
+  - A regex containing a word of three or more letters or digits reads only the pages the index says contain it, plus pages written since the index last caught up; other patterns still read every visit. While a pattern is invalid, the last valid results stay on screen.
+  - Sites, the Ask conversation list and every Insights list follow the backend's cursors instead of a fixed first page. Sites can filter by several profiles.
+  - The app raises its open-file limit to 10,240 at startup (an app opened from Finder gets 256). An open archive holds about 175 files, and that number doesn't grow with imports or searches; a test keeps it so.
+  - CI and Modal run the checks with a virtual display and a session bus, so the owner-process test (it starts the real app) runs on Linux too.
+  - Removed: the 25,000-page search window's leftovers (`windowed`, `regexScan`, the `lexicalWindowed` AI note).
+
+- [x] `WORK-TURSO-STORAGE` — Password changes rewrap the native key envelope. Encryption-mode changes, encrypted portable bundles, safety snapshots, restore, retention and startup recovery use Turso with verified copies and journaled installation. Bundles preserve archive, source evidence, agent conversations and encrypted provenance while rebuilding search at the destination. The resumable SQLCipher converter recomputes current URL, annotation, favorite and enrichment keys, merges canonical enrichment/refind collisions without losing counters, sets or triggers, verifies counts and content digests, rebuilds search, and retains every original SQLCipher file. Startup recovers pending installations before selecting native storage or conversion.
+
+- [x] `WORK-TURSO-STORAGE` — Maintenance screens for the Turso archive, and conversion from the old format (2026-10-07).
+  - Moving to another computer asks for a password for the file, typed twice. The file is always encrypted with it, and on the computer that opens it, it becomes the archive's password. A wrong password is refused in plain words and changes nothing. E2E: `move.spec.ts` exports, tries a wrong password, then imports and checks the archive.
+  - Export, import, encryption changes and restores show what step they are on and how far along, with a Stop button; a stopped operation says nothing was changed.
+  - An archive still in the old SQLCipher format opens on an update screen: its size, the free space it needs, that the old files stay, that an interrupted update continues, and its password when it is encrypted. Steps and progress are named in all three languages.
+  - The converter now follows the Insights storage that landed alongside it: fetched page text moves to the per-page table (newest fetch wins) and is checked row by row, search gets each page's best text, embedding hashes and totals match live indexing, and Insights rebuild once after conversion.
+  - Copies made by maintenance keep the database's views; without them Insights and Doctor broke after an encryption change, a restore or an import.
+  - A fresh install no longer creates old-format files that the next step took for an archive to convert.
+
+- [x] `WORK-TURSO-STORAGE` — A background PathKeep leaves when its work is done; saved page text moves with the archive (2026-10-07).
+  - A scheduled backup, the CLI or MCP start PathKeep hidden in the background. It used to stay until logout. Now, if no window was opened and the menu bar icon is off, it exits two minutes after its last request, queue job or index update; the next client starts it again.
+  - The move-to-another-computer file now carries the saved text of fetched pages too, sealed with the export password. It is the user's data, and a page fetched again may have changed or gone.
+
+- [x] `WORK-TURSO-STORAGE` — Old-format code is split by who still needs it (2026-10-07).
+  - Someone updating from v0.1–v0.3 straight after a crash in the old app still gets their archive back. Recovery for an archive not yet converted (an import, password change or restore the old app left half-done, then config matched to the file's real mode) moved into the converter and now runs before the update screen counts anything. Before, it only ran on the setup path, which the update screen skips. An archive it can't bring back opens the recovery screen. Old `.sqlite` safety snapshots are still offered there and when pruning.
+  - Deleted from vault-core: the old export/import, password change, retention, full restore and at-rest reconcile flows, the old maintenance ledger, and the check of a password against an old archive. A password change only ever runs on a converted archive. Opening with a password next to an archive that wasn't converted now refuses instead of starting an empty archive beside it.
+  - The config-vs-files invariant from the 2026-06-30 incident is now checked against the native databases, after a mode switch, a restore and an interrupted install. The old-format recovery tests check it against the old files. Tests that used to kill a deleted flow mid-way now build the state it left on disk.
+  - The Doctor's derived-data check lost its unused key parameter.
+
+- [x] `WORK-TURSO-STORAGE` — vault-core no longer opens the old SQLCipher files (2026-10-07).
+  - Deleted the rusqlite openers for the archive, source evidence and Insights, the old schema migrations and their SQL, the old archive status reader, the "storage migration incomplete" refusal that only guarded them, and the fixture layer that built an old-format archive and copied it into the native one. Only the converter reads the old format now.
+  - Tests write their data the way the app does: `test_support::history::History` goes through the same ingest path as a backup, the AI tests through their native fixtures. Conversion and recovery tests build old-format files from the schema the old releases shipped (`vault_convert_sqlcipher::test_support`).
+  - The SQLCipher scale benchmarks went with the old format; the native read, export and Insights benchmarks remain.

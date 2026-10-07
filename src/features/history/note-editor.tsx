@@ -47,7 +47,7 @@ export function NoteField({
       })
       saved.current = value
       client.setQueryData(['annotations', 'url', url], annotation)
-      void client.invalidateQueries({ queryKey: ['annotations', 'list'] })
+      void client.invalidateQueries({ queryKey: ['stars', 'list'] })
       invalidateSearches(client)
       setState('saved')
       clearTimeout(fade.current)

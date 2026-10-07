@@ -123,7 +123,7 @@ test('delete all data previews, deletes, and returns to onboarding', async ({
     'app_snapshot',
   )
   expect(snapshot.config.initialized).toBe(false)
-  expect(await backend<string | null>('keyring_get_database_key')).toBeNull()
+  expect(await backend<boolean>('keyring_get_database_key')).toBe(false)
   if (schedulerSupported) {
     expect(await installState()).toBe('not-installed')
     expect(sandboxedSchedulerFiles(), 'no task left in the OS').toEqual([])

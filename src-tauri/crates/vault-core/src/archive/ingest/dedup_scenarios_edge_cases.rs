@@ -1,3 +1,8 @@
+//! Responsibilities: verify parser-to-archive dedup contracts on real Turso.
+//! Not responsible for: browser-owned SQLite engine behavior.
+//! Failure modes: duplicate visits, changed URL metadata, cursor loss, timestamp
+//! truncation, lost optional fields or source evidence. Scenarios below pin each.
+
 //! Edge-case and contract-pinning ingest scenarios.
 //!
 //! These tests complement `dedup_scenarios.rs` (main Chromium dedup paths)
@@ -24,37 +29,26 @@ use tempfile::tempdir;
 
 // ── Shared helpers (mirror dedup_scenarios.rs patterns) ─────────────
 
-fn test_config() -> AppConfig {
-    AppConfig { initialized: true, ..AppConfig::default() }
-}
-
-fn test_paths(root: &Path) -> ProjectPaths {
-    crate::config::project_paths_with_root(root)
-}
-
 /// Holds the long-lived resources one scenario needs across multiple
 /// imports (same as dedup_scenarios::ScenarioEnv).
 struct ScenarioEnv {
-    _root: tempfile::TempDir,
-    paths: ProjectPaths,
-    config: AppConfig,
+    vault: crate::Vault,
 }
 
 impl ScenarioEnv {
-    fn new() -> Self {
-        let root = tempdir().expect("scenario root tempdir");
-        let paths = test_paths(root.path());
-        let config = test_config();
+    fn new(key: Option<[u8; 32]>) -> Self {
+        let vault = crate::Vault::open_temp_with_key(key).expect("temporary vault");
+        let paths = vault.paths().clone();
         crate::config::ensure_paths(&paths).expect("ensure paths");
-        Self { _root: root, paths, config }
+        Self { vault }
     }
 
-    fn open_archive(&self) -> rusqlite::Connection {
-        open_archive_connection(&self.paths, &self.config, None).expect("open archive")
+    fn open_archive(&self) -> crate::test_support::store::Probe {
+        crate::test_support::store::Probe::new(&self.vault)
     }
 }
 
-fn seed_run(archive: &Transaction<'_>, run_id: i64) {
+fn seed_run(archive: &crate::test_support::store::Probe, run_id: i64) {
     archive
         .execute(
             "INSERT INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
@@ -70,25 +64,17 @@ fn run_one_ingest(
     snapshot: &ProfileSnapshot,
     use_watermark: bool,
 ) -> BackupProfileSummary {
-    let mut archive = env.open_archive();
-    let transaction = archive.transaction().expect("scenario transaction");
-    seed_run(&transaction, run_id);
-    let mut snapshot_artifacts = Vec::new();
-    let mut source_evidence_plans = Vec::new();
-    let summary = process_profile_snapshot(
-        &transaction,
+    seed_run(&env.open_archive(), run_id);
+    process_profile_snapshot(
+        &env.vault,
         run_id,
-        &env.paths,
-        &env.config,
         snapshot,
-        &mut snapshot_artifacts,
-        &mut source_evidence_plans,
         false,
         use_watermark,
+        &vault_store::CancelToken::new(),
+        None,
     )
-    .expect("process profile snapshot");
-    transaction.commit().expect("commit scenario transaction");
-    summary
+    .expect("process profile snapshot")
 }
 
 fn run_one_ingest_with_persisted_source_evidence(
@@ -96,36 +82,23 @@ fn run_one_ingest_with_persisted_source_evidence(
     run_id: i64,
     snapshot: &ProfileSnapshot,
 ) -> BackupProfileSummary {
-    let mut archive = env.open_archive();
-    let transaction = archive.transaction().expect("scenario transaction");
-    seed_run(&transaction, run_id);
-    let mut snapshot_artifacts = Vec::new();
-    let mut source_evidence_plans = Vec::new();
-    let summary = process_profile_snapshot(
-        &transaction,
+    seed_run(&env.open_archive(), run_id);
+    process_profile_snapshot(
+        &env.vault,
         run_id,
-        &env.paths,
-        &env.config,
         snapshot,
-        &mut snapshot_artifacts,
-        &mut source_evidence_plans,
         false,
         false,
+        &vault_store::CancelToken::new(),
+        None,
     )
-    .expect("process profile snapshot");
-    transaction.commit().expect("commit scenario transaction");
-
-    let mut source_evidence = open_source_evidence_connection(&env.paths, &env.config, None)
-        .expect("open source evidence");
-    persist_source_evidence_plans(&mut source_evidence, &archive, &source_evidence_plans)
-        .expect("persist source evidence plans");
-    summary
+    .expect("process profile snapshot")
 }
 
 fn count_archive_rows(env: &ScenarioEnv, table: &str) -> i64 {
     let archive = env.open_archive();
     archive
-        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), (), |row| Ok(row.get(0)?))
         .expect("count rows")
 }
 
@@ -137,7 +110,7 @@ fn count_urls_for_profile(env: &ScenarioEnv, profile_key: &str) -> i64 {
              JOIN source_profiles ON source_profiles.id = urls.source_profile_id
              WHERE source_profiles.profile_key = ?1",
             [profile_key],
-            |row| row.get(0),
+            |row| Ok(row.get(0)?),
         )
         .expect("count urls for profile")
 }
@@ -150,7 +123,7 @@ fn count_visits_for_profile(env: &ScenarioEnv, profile_key: &str) -> i64 {
              JOIN source_profiles ON source_profiles.id = visits.source_profile_id
              WHERE source_profiles.profile_key = ?1",
             [profile_key],
-            |row| row.get(0),
+            |row| Ok(row.get(0)?),
         )
         .expect("count visits for profile")
 }

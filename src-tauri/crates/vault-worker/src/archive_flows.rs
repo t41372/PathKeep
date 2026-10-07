@@ -14,10 +14,11 @@
 //! payloads.
 
 use crate::{
-    context::{ai_archive_connection, load_unlocked_config, selected_embedding_provider_runtime},
+    context::{load_unlocked_config, selected_embedding_provider_runtime},
     intelligence::{maybe_spawn_ai_queue_drain, maybe_spawn_intelligence_queue_drain},
 };
 use anyhow::{Context, Result};
+use vault_core::Vault;
 use vault_core::{
     AiIndexRequest, AiQueueJob, BackupProgressEvent, BackupReport, BackupWarning,
     BrowseDayInsights, BrowseDayInsightsRequest, BrowserHistoryImportRequest,
@@ -45,22 +46,18 @@ use vault_core::og_images_fetch::{FetchClient, FetchedOgImage};
 
 /// Previews replaying a saved browser-source checkpoint into the canonical archive.
 pub fn preview_snapshot_restore_plan(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     request: &vault_core::SnapshotRestoreRequest,
 ) -> Result<vault_core::SnapshotRestorePreview> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::preview_snapshot_restore(&paths, &config, session_database_key, request)
+    vault_core::preview_snapshot_restore(vault, request)
 }
 
 /// Executes the saved-checkpoint replay flow and returns the resulting backup report.
 pub fn run_snapshot_restore_plan(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     request: &vault_core::SnapshotRestoreRequest,
 ) -> Result<vault_core::BackupReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::run_snapshot_restore(&paths, &config, session_database_key, request)
+    vault_core::run_snapshot_restore(vault, request)
 }
 
 /// Lists the verified full-archive safety snapshots the Phase-D recovery GUI offers for a one-click
@@ -79,6 +76,7 @@ pub fn run_full_archive_restore(
     session_database_key: Option<&str>,
     request: &vault_core::SnapshotRestoreRequest,
 ) -> Result<vault_core::FullArchiveRestoreReport> {
+    vault_core::require_complete_storage_migration("full archive restore")?;
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths).unwrap_or_default();
     vault_core::run_full_archive_snapshot_restore(&paths, &config, session_database_key, request)
@@ -105,10 +103,11 @@ pub fn run_retention_plan(
 
 /// Runs a backup without exposing per-profile progress.
 pub fn run_backup_now(
+    vault: &Vault,
     session_database_key: Option<&str>,
     due_only: bool,
 ) -> Result<vault_core::BackupReport> {
-    run_backup_now_with_progress(session_database_key, due_only, |_| {})
+    run_backup_now_with_progress(vault, session_database_key, due_only, |_| {})
 }
 
 /// Runs a backup and optionally executes configured post-backup follow-ups.
@@ -118,6 +117,7 @@ pub fn run_backup_now(
 /// can distinguish “archive write succeeded” from “secondary automation also
 /// succeeded”.
 pub fn run_backup_now_with_progress<F>(
+    vault: &Vault,
     session_database_key: Option<&str>,
     due_only: bool,
     report_progress: F,
@@ -127,20 +127,29 @@ where
 {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    run_backup_with_loaded_config(&paths, &config, session_database_key, due_only, report_progress)
+    run_backup_with_loaded_config(
+        vault,
+        &paths,
+        &config,
+        session_database_key,
+        due_only,
+        report_progress,
+    )
 }
 
 /// Keeps scheduled progress on the same backup path and App Lock exception.
 pub(crate) fn run_scheduled_backup_with_progress(
+    vault: &Vault,
     paths: &vault_core::ProjectPaths,
     config: &vault_core::AppConfig,
     database_key: Option<&str>,
     progress: impl FnMut(BackupProgressEvent),
 ) -> Result<vault_core::BackupReport> {
-    run_backup_with_loaded_config(paths, config, database_key, true, progress)
+    run_backup_with_loaded_config(vault, paths, config, database_key, true, progress)
 }
 
 fn run_backup_with_loaded_config<F>(
+    vault: &Vault,
     paths: &vault_core::ProjectPaths,
     config: &vault_core::AppConfig,
     session_database_key: Option<&str>,
@@ -151,7 +160,7 @@ where
     F: FnMut(BackupProgressEvent),
 {
     let mut report =
-        run_backup_with_progress(paths, config, session_database_key, due_only, |event| {
+        run_backup_with_progress(&vault.with_config(config.clone()), due_only, |event| {
             report_progress(event);
         })?;
     if !report.due_skipped
@@ -165,13 +174,16 @@ where
                     provider_id: Some(provider.config.id),
                     ..AiIndexRequest::default()
                 };
-                if append_ai_auto_index_archive_result(
+                if append_ai_auto_index_enqueue_result(
                     &mut report,
-                    ai_archive_connection(paths, config, session_database_key),
-                    &auto_index_request,
+                    ai_queue::enqueue_index_job(
+                        vault,
+                        &auto_index_request,
+                        config.ai.job_queue_paused,
+                    ),
                     config.ai.job_queue_paused,
                 ) {
-                    maybe_spawn_ai_queue_drain(paths, config, session_database_key, 1);
+                    maybe_spawn_ai_queue_drain(vault, paths, config, session_database_key, 1);
                 }
             }
             Err(error) => append_ai_auto_index_provider_warning(&mut report, error),
@@ -188,13 +200,20 @@ where
             .collect::<Vec<_>>();
         append_core_refresh_backup_result(
             &mut report,
-            enqueue_and_spawn_deterministic_refresh(
-                paths,
-                config,
-                session_database_key,
-                &dirty_profiles,
-            ),
+            enqueue_and_spawn_deterministic_refresh(vault, &dirty_profiles),
         );
+        if config.ai.content_fetch_enabled {
+            match vault_core::reoffer_archived_candidates(vault) {
+                Ok(count) if count > 0 => {
+                    crate::intelligence::maybe_spawn_content_fetch_drain(vault, config)
+                }
+                Ok(_) => {}
+                Err(error) => report.push_warning(vault_core::BackupWarning::new(
+                    "enrichment-reoffer-failed",
+                    format!("{error:#}"),
+                )),
+            }
+        }
     }
     // Daily og:image cache hygiene. Runs even when the user-selected
     // eviction mode is `Off` because vault_core::og_images::run_cleanup
@@ -206,7 +225,7 @@ where
     // was skipped (due_skipped) because the OS scheduler is the one
     // driving daily cadence and a manual run shouldn't double-fire.
     if !report.due_skipped {
-        append_og_image_cleanup_result(&mut report, run_og_image_cleanup(session_database_key));
+        append_og_image_cleanup_result(&mut report, run_og_image_cleanup(vault));
         // Negative-cache auto-refetch: try again for any URL whose
         // `refetch_after` has elapsed. Bounded by NEGATIVE_CACHE_DAILY_BUDGET
         // so a single overnight backlog can't burst-fire hundreds of
@@ -231,14 +250,14 @@ where
             .unwrap_or((clamp_budget(50), clamp_budget(100)));
         append_og_image_refetch_due_result(
             &mut report,
-            try_refetch_due_og_images(session_database_key, refetch_budget),
+            try_refetch_due_og_images(vault, refetch_budget),
         );
         // Background-mode prefetch: warm the cache for URLs the user
         // visited but the worker hasn't seen yet. OnDemand / Off
         // short-circuit inside `try_prefetch_new_visit_og_images`.
         append_og_image_prefetch_result(
             &mut report,
-            try_prefetch_new_visit_og_images(session_database_key, prefetch_budget),
+            try_prefetch_new_visit_og_images(vault, prefetch_budget),
         );
     }
     Ok(report)
@@ -276,12 +295,8 @@ pub fn effective_og_image_fetch_mode() -> Result<vault_core::OgImageFetchMode> {
 /// them back to `refetch_og_images` for a second attempt. Returns the
 /// (count_due, count_succeeded) pair so the caller can surface both in
 /// the backup warning channel.
-fn try_refetch_due_og_images(
-    session_database_key: Option<&str>,
-    budget: usize,
-) -> Result<(usize, u32)> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
+fn try_refetch_due_og_images(vault: &Vault, budget: usize) -> Result<(usize, u32)> {
+    let config = vault.config();
     use vault_core::OgImageFetchMode;
     // `effective_mode` folds in the legacy `fetch_enabled` kill switch;
     // OnDemand intentionally also runs the daily refetch because the
@@ -290,16 +305,12 @@ fn try_refetch_due_og_images(
     if matches!(config.og_image.effective_mode(), OgImageFetchMode::Off) {
         return Ok((0, 0));
     }
-    let due_urls = {
-        let connection =
-            vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
-        vault_core::og_images::list_urls_due_for_refetch(&connection, budget)?
-    };
+    let due_urls = { vault_core::og_images::list_urls_due_for_refetch(vault, budget, None)?.items };
     if due_urls.is_empty() {
         return Ok((0, 0));
     }
     let due_count = due_urls.len();
-    let successful = refetch_og_images(session_database_key, due_urls)?;
+    let successful = refetch_og_images(vault, due_urls)?;
     Ok((due_count, successful))
 }
 
@@ -309,12 +320,8 @@ fn try_refetch_due_og_images(
 /// hard kill switch and the per-tick budget hard cap. Returns
 /// `(enqueued, succeeded)`. Lives on the worker so the UI command in
 /// `worker_bridge/archive.rs` has a typed entry point.
-pub fn prefetch_og_images_on_demand(
-    session_database_key: Option<&str>,
-    budget: u32,
-) -> Result<(u32, u32)> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
+pub fn prefetch_og_images_on_demand(vault: &Vault, budget: u32) -> Result<(u32, u32)> {
+    let config = vault.config();
     if !config.og_image.fetch_enabled {
         return Ok((0, 0));
     }
@@ -322,16 +329,12 @@ pub fn prefetch_og_images_on_demand(
     if budget == 0 {
         return Ok((0, 0));
     }
-    let urls = {
-        let connection =
-            vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
-        vault_core::og_images::list_urls_for_prefetch(&connection, budget)?
-    };
+    let urls = { vault_core::og_images::list_urls_for_prefetch(vault, budget, None)?.items };
     if urls.is_empty() {
         return Ok((0, 0));
     }
     let enqueued = u32::try_from(urls.len()).unwrap_or(u32::MAX);
-    let successful = refetch_og_images(session_database_key, urls)?;
+    let successful = refetch_og_images(vault, urls)?;
     Ok((enqueued, successful))
 }
 
@@ -344,12 +347,8 @@ pub fn prefetch_og_images_on_demand(
 /// Returns the (count_enqueued, count_succeeded) pair so the caller
 /// can surface it in the backup warnings channel alongside the
 /// existing refetch + cleanup outcomes.
-fn try_prefetch_new_visit_og_images(
-    session_database_key: Option<&str>,
-    budget: usize,
-) -> Result<(usize, u32)> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
+fn try_prefetch_new_visit_og_images(vault: &Vault, budget: usize) -> Result<(usize, u32)> {
+    let config = vault.config();
     use vault_core::OgImageFetchMode;
     if !matches!(config.og_image.effective_mode(), OgImageFetchMode::Background) {
         return Ok((0, 0));
@@ -357,16 +356,12 @@ fn try_prefetch_new_visit_og_images(
     if budget == 0 {
         return Ok((0, 0));
     }
-    let urls = {
-        let connection =
-            vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
-        vault_core::og_images::list_urls_for_prefetch(&connection, budget)?
-    };
+    let urls = { vault_core::og_images::list_urls_for_prefetch(vault, budget, None)?.items };
     if urls.is_empty() {
         return Ok((0, 0));
     }
     let enqueued = urls.len();
-    let successful = refetch_og_images(session_database_key, urls)?;
+    let successful = refetch_og_images(vault, urls)?;
     Ok((enqueued, successful))
 }
 
@@ -464,93 +459,61 @@ fn append_og_image_cleanup_result(
 
 /// Queries visible archive history rows with the canonical filter contract.
 pub fn query_history(
-    session_database_key: Option<&str>,
+    vault: &Vault,
+    _session_database_key: Option<&str>,
     query: HistoryQuery,
 ) -> Result<HistoryQueryResponse> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    list_history(&paths, &config, session_database_key, query)
+    list_history(vault, query)
 }
 
 /// Loads favicon payloads for already-visible Explorer rows without blocking the
 /// main history query path on image bytes.
 pub fn load_history_favicons(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     entries: Vec<vault_core::HistoryFaviconLookupEntry>,
 ) -> Result<Vec<vault_core::HistoryFaviconLookupResult>> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::load_history_favicons(&paths, &config, session_database_key, entries)
+    vault_core::load_history_favicons(vault, entries)
 }
 
 /// Loads cached og:image payloads for already-visible card-mode rows.
 pub fn load_history_og_images(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     entries: Vec<vault_core::HistoryOgImageLookupEntry>,
 ) -> Result<Vec<vault_core::HistoryOgImageLookupResult>> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::og_images::load_og_images(&paths, &config, session_database_key, entries)
+    vault_core::og_images::load_og_images(vault, entries)
 }
 
 /// Bumps `last_shown_at` for the given page URLs. Frontend calls this in
 /// a debounced batch after cards settle into view so user-configured
 /// LRU eviction has a real signal.
-pub fn mark_og_images_shown(session_database_key: Option<&str>, urls: Vec<String>) -> Result<()> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let connection =
-        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
-    vault_core::og_images::mark_og_images_shown(&connection, &urls)
+pub fn mark_og_images_shown(vault: &Vault, urls: Vec<String>) -> Result<()> {
+    vault_core::og_images::mark_og_images_shown(vault, &urls)
 }
 
 /// Reports cache footprint to the Settings → Storage panel.
-pub fn og_image_storage_stats(
-    session_database_key: Option<&str>,
-) -> Result<vault_core::OgImageStorageStats> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let connection =
-        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
-    vault_core::og_images::storage_stats(&connection)
+pub fn og_image_storage_stats(vault: &Vault) -> Result<vault_core::OgImageStorageStats> {
+    vault_core::og_images::storage_stats(vault)
 }
 
 /// Reports og:image coverage (share of web pages with a preview image) for
 /// Settings → Link previews. On-demand only — the eligible-page count scans the
 /// `urls` table, so this never runs on a hot path.
-pub fn og_image_coverage_stats(
-    session_database_key: Option<&str>,
-) -> Result<vault_core::OgImageCoverageStats> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let connection =
-        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
-    vault_core::og_images::coverage_stats(&connection)
+pub fn og_image_coverage_stats(vault: &Vault) -> Result<vault_core::OgImageCoverageStats> {
+    vault_core::og_images::coverage_stats(vault)
 }
 
 /// Drops every og:image cache row and its blob bytes. Behind the
 /// Settings → "Clear all link previews" confirm dialog.
-pub fn clear_og_image_cache(
-    session_database_key: Option<&str>,
-) -> Result<vault_core::OgImageCleanupReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let connection =
-        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
-    vault_core::og_images::clear_cache(&connection)
+pub fn clear_og_image_cache(vault: &Vault) -> Result<vault_core::OgImageCleanupReport> {
+    vault_core::og_images::clear_cache(vault)
 }
 
 /// Runs one cleanup pass using the user's configured eviction mode.
 /// Settings exposes this as "Run cleanup now"; the daily schedule tick
 /// will also call this in C5.
-pub fn run_og_image_cleanup(
-    session_database_key: Option<&str>,
-) -> Result<vault_core::OgImageCleanupReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let connection =
-        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
-    vault_core::og_images::run_cleanup(&connection, config.og_image.cleanup)
+pub fn run_og_image_cleanup(vault: &Vault) -> Result<vault_core::OgImageCleanupReport> {
+    let config = vault.config();
+    vault_core::og_images::run_cleanup(vault, config.og_image.cleanup)
 }
 
 /// Fetches og:image previews for the given URLs synchronously, one at
@@ -571,7 +534,7 @@ pub fn run_og_image_cleanup(
 /// channel and only the main thread writes to the archive. The Rust
 /// reqwest client is `Send + Sync` and is cloned via Arc to the
 /// workers.
-pub fn refetch_og_images(session_database_key: Option<&str>, urls: Vec<String>) -> Result<u32> {
+pub fn refetch_og_images(vault: &Vault, urls: Vec<String>) -> Result<u32> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::{Duration, Instant};
@@ -579,16 +542,13 @@ pub fn refetch_og_images(session_database_key: Option<&str>, urls: Vec<String>) 
     const WORKER_POOL_SIZE: usize = 2;
     const RATE_LIMIT_PER_HOST: Duration = Duration::from_millis(500);
 
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
+    let config = vault.config();
     if !config.og_image.fetch_enabled {
         return Ok(0);
     }
     if urls.is_empty() {
         return Ok(0);
     }
-    let connection =
-        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
     let client = Arc::new(
         vault_core::og_images_fetch::build_fetch_client()
             .context("building og:image fetch client")?,
@@ -630,13 +590,7 @@ pub fn refetch_og_images(session_database_key: Option<&str>, urls: Vec<String>) 
     let mut successful = 0_u32;
     let mut last_persist_error: Option<anyhow::Error> = None;
     while let Ok((url, outcome)) = receiver.recv() {
-        record_refetch_outcome(
-            &connection,
-            &url,
-            &outcome,
-            &mut successful,
-            &mut last_persist_error,
-        );
+        record_refetch_outcome(vault, &url, &outcome, &mut successful, &mut last_persist_error);
     }
     for handle in handles {
         let _ = handle.join();
@@ -694,7 +648,7 @@ fn drain_one_worker_url(
 /// captures the *last* persist error so the parent function can surface
 /// it after the worker pool joins.
 fn record_refetch_outcome(
-    connection: &rusqlite::Connection,
+    vault: &Vault,
     url: &str,
     outcome: &FetchedOgImage,
     successful: &mut u32,
@@ -709,7 +663,7 @@ fn record_refetch_outcome(
     let refetch_after =
         vault_core::og_images_fetch::default_refetch_after_for_status(outcome.fetch_status());
     if let Err(error) = vault_core::og_images::upsert_og_image(
-        connection,
+        vault,
         &outcome.as_insert(url, refetch_after.as_deref()),
     ) {
         *last_persist_error = Some(error);
@@ -748,25 +702,19 @@ fn host_throttle_wait(
 }
 
 /// Loads the dashboard snapshot read model for the current unlocked session.
-pub fn dashboard_snapshot(session_database_key: Option<&str>) -> Result<DashboardSnapshot> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    load_dashboard_snapshot(&paths, &config, session_database_key)
+pub fn dashboard_snapshot(vault: &Vault) -> Result<DashboardSnapshot> {
+    load_dashboard_snapshot(vault)
 }
 
 /// Loads per-source visit counts and date spans. Discovery in the app snapshot only knows file
 /// sizes, so Home and History ask for this separately.
-pub fn source_stats(session_database_key: Option<&str>) -> Result<Vec<vault_core::SourceStats>> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::load_source_stats(&paths, &config, session_database_key)
+pub fn source_stats(vault: &Vault) -> Result<Vec<vault_core::SourceStats>> {
+    vault_core::load_source_stats(vault)
 }
 
 /// Loads the History detail panel data for one exact URL.
-pub fn url_detail(session_database_key: Option<&str>, url: &str) -> Result<vault_core::UrlDetail> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::get_url_detail(&paths, &config, session_database_key, url)
+pub fn url_detail(vault: &Vault, url: &str) -> Result<vault_core::UrlDetail> {
+    vault_core::get_url_detail(vault, url)
 }
 
 /// Aggregates one local-calendar day's Browse-side insights (sparkline,
@@ -775,60 +723,34 @@ pub fn url_detail(session_database_key: Option<&str>, url: &str) -> Result<vault
 /// `aggregateDayInsights` which only ever saw the cards already loaded
 /// into the contact sheet — see feedback-2026-05-25 §3.1.
 pub fn browse_day_insights(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     request: BrowseDayInsightsRequest,
 ) -> Result<BrowseDayInsights> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    get_browse_day_insights(&paths, &config, session_database_key, &request)
+    get_browse_day_insights(vault, &request)
 }
 
 /// Loads audit detail for a specific run id.
-pub fn audit_run_detail(
-    session_database_key: Option<&str>,
-    run_id: i64,
-) -> Result<vault_core::AuditRunDetail> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    load_audit_run_detail(&paths, &config, session_database_key, run_id)
+pub fn audit_run_detail(vault: &Vault, run_id: i64) -> Result<vault_core::AuditRunDetail> {
+    load_audit_run_detail(vault, run_id)
 }
 
 /// Exports the currently visible history query in the requested format.
 pub fn export_query(
-    session_database_key: Option<&str>,
+    vault: &Vault,
+    _session_database_key: Option<&str>,
     request: ExportRequest,
 ) -> Result<vault_core::ExportResult> {
-    let preflight = (|| {
-        let paths = vault_core::project_paths()?;
-        let config = load_unlocked_config(&paths)?;
-        Ok((paths, config))
-    })();
-    let (paths, config) = match preflight {
-        Ok(context) => context,
-        Err(error) => {
-            vault_core::record_export_failure(request.export_id.as_deref(), &error);
-            return Err(error);
-        }
-    };
-    export_history(&paths, &config, session_database_key, request)
+    export_history(vault, request)
 }
 
 /// Counts what [`clear_derived_intelligence`] would remove, without removing anything.
-pub fn preview_clear_derived_intelligence(
-    session_database_key: Option<&str>,
-) -> Result<ClearDerivedIntelligenceReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    preview_derived_intelligence_clear(&paths, &config, session_database_key)
+pub fn preview_clear_derived_intelligence(vault: &Vault) -> Result<ClearDerivedIntelligenceReport> {
+    preview_derived_intelligence_clear(vault)
 }
 
 /// Clears rebuildable intelligence state while leaving canonical archive facts intact.
-pub fn clear_derived_intelligence(
-    session_database_key: Option<&str>,
-) -> Result<ClearDerivedIntelligenceReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    clear_derived_intelligence_state(&paths, &config, session_database_key)
+pub fn clear_derived_intelligence(vault: &Vault) -> Result<ClearDerivedIntelligenceReport> {
+    clear_derived_intelligence_state(vault)
 }
 
 /// Inspects a Takeout source without mutating the archive.
@@ -842,24 +764,24 @@ pub fn inspect_takeout_source(request: &TakeoutRequest) -> Result<TakeoutInspect
 /// Reads the archive (hence App Lock and the session key) only to count the
 /// visits it already holds, so the preview can say how many are new.
 pub fn inspect_browser_history_source(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     request: &BrowserHistoryImportRequest,
 ) -> Result<TakeoutInspection> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    inspect_browser_history(&paths, Some((&config, session_database_key)), request)
+    inspect_browser_history(vault, request)
 }
 
 /// Imports a Takeout source into the canonical archive.
 pub fn import_takeout_source(
+    vault: &Vault,
     session_database_key: Option<&str>,
     request: &TakeoutRequest,
 ) -> Result<TakeoutInspection> {
-    import_takeout_source_with_progress(session_database_key, request, |_| {})
+    import_takeout_source_with_progress(vault, session_database_key, request, |_| {})
 }
 
 pub fn import_takeout_source_with_progress<F>(
-    session_database_key: Option<&str>,
+    vault: &Vault,
+    _session_database_key: Option<&str>,
     request: &TakeoutRequest,
     report_progress: F,
 ) -> Result<TakeoutInspection>
@@ -868,20 +790,13 @@ where
 {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let mut inspection = import_takeout_with_progress(
-        &paths,
-        &config,
-        session_database_key,
-        request,
-        report_progress,
-    )?;
+    let mut inspection =
+        import_takeout_with_progress(&vault.with_config(config.clone()), request, report_progress)?;
     if inspection.imported_items > 0 {
         append_core_refresh_import_result(
             &mut inspection.notes,
             enqueue_and_spawn_deterministic_refresh(
-                &paths,
-                &config,
-                session_database_key,
+                vault,
                 &["takeout::browser-history".to_string()],
             ),
         );
@@ -891,14 +806,16 @@ where
 
 /// Imports one local browser history database into the canonical archive.
 pub fn import_browser_history_source(
+    vault: &Vault,
     session_database_key: Option<&str>,
     request: &BrowserHistoryImportRequest,
 ) -> Result<TakeoutInspection> {
-    import_browser_history_source_with_progress(session_database_key, request, |_| {})
+    import_browser_history_source_with_progress(vault, session_database_key, request, |_| {})
 }
 
 pub fn import_browser_history_source_with_progress<F>(
-    session_database_key: Option<&str>,
+    vault: &Vault,
+    _session_database_key: Option<&str>,
     request: &BrowserHistoryImportRequest,
     report_progress: F,
 ) -> Result<TakeoutInspection>
@@ -908,9 +825,7 @@ where
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let mut inspection = import_browser_history_with_progress(
-        &paths,
-        &config,
-        session_database_key,
+        &vault.with_config(config.clone()),
         request,
         report_progress,
     )?;
@@ -920,12 +835,7 @@ where
         {
             append_core_refresh_import_result(
                 &mut inspection.notes,
-                enqueue_and_spawn_deterministic_refresh(
-                    &paths,
-                    &config,
-                    session_database_key,
-                    &[profile_id],
-                ),
+                enqueue_and_spawn_deterministic_refresh(vault, &[profile_id]),
             );
         }
     }
@@ -933,47 +843,32 @@ where
 }
 
 /// Loads the preview/read-model detail for one import batch.
-pub fn preview_import_batch_detail(
-    session_database_key: Option<&str>,
-    batch_id: i64,
-) -> Result<ImportBatchDetail> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    preview_import_batch(&paths, &config, session_database_key, batch_id)
+pub fn preview_import_batch_detail(vault: &Vault, batch_id: i64) -> Result<ImportBatchDetail> {
+    preview_import_batch(vault, batch_id)
 }
 
 /// Soft-hides one imported batch and returns its updated detail.
-pub fn revert_import_batch_detail(
-    session_database_key: Option<&str>,
-    batch_id: i64,
-) -> Result<ImportBatchDetail> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    revert_import_batch(&paths, &config, session_database_key, batch_id)
+pub fn revert_import_batch_detail(vault: &Vault, batch_id: i64) -> Result<ImportBatchDetail> {
+    revert_import_batch(vault, batch_id)
 }
 
 /// Restores one previously reverted import batch to visible status.
-pub fn restore_import_batch_detail(
-    session_database_key: Option<&str>,
-    batch_id: i64,
-) -> Result<ImportBatchDetail> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    restore_import_batch(&paths, &config, session_database_key, batch_id)
+pub fn restore_import_batch_detail(vault: &Vault, batch_id: i64) -> Result<ImportBatchDetail> {
+    restore_import_batch(vault, batch_id)
 }
 
 /// Runs doctor checks against the current archive.
-pub fn doctor_report(session_database_key: Option<&str>) -> Result<HealthReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    doctor(&paths, &config, session_database_key)
+pub fn doctor_report(vault: &Vault, key: Option<&str>) -> Result<HealthReport> {
+    let mut report = doctor(vault)?;
+    if let Some(check) = vault_core::legacy_derived_health(vault, key)? {
+        report.checks.push(check);
+    }
+    Ok(report)
 }
 
-/// Runs the repair path for doctor-detected issues.
-pub fn repair_health(session_database_key: Option<&str>) -> Result<HealthRepairReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    repair_health_issues(&paths, &config, session_database_key)
+/// Applies the native repair and delegates existing intelligence work to area 4.
+pub fn repair_health(vault: &Vault, key: Option<&str>) -> Result<HealthRepairReport> {
+    repair_health_issues(vault, key)
 }
 
 fn backup_changed_archive(run: Option<&vault_core::BackupRunOverview>) -> bool {
@@ -981,14 +876,11 @@ fn backup_changed_archive(run: Option<&vault_core::BackupRunOverview>) -> bool {
 }
 
 fn enqueue_and_spawn_deterministic_refresh(
-    paths: &vault_core::ProjectPaths,
-    config: &vault_core::AppConfig,
-    session_database_key: Option<&str>,
+    vault: &Vault,
     dirty_profiles: &[String],
 ) -> Result<Vec<i64>> {
-    let connection = ai_archive_connection(paths, config, session_database_key)?;
     mark_all_deterministic_modules_stale(
-        &connection,
+        vault,
         vault_core::DERIVED_STALE_ARCHIVE_DATA_CHANGED,
         "Archive data changed and Core Intelligence refresh jobs were queued.",
     )?;
@@ -997,7 +889,7 @@ fn enqueue_and_spawn_deterministic_refresh(
     for request in &rebuild_scopes {
         let scope_label = request.profile_id.as_deref().unwrap_or("all profiles").to_string();
         job_ids.push(enqueue_core_intelligence_job(
-            &connection,
+            vault,
             VISIT_DERIVE_JOB_TYPE,
             request,
             &format!(
@@ -1005,20 +897,20 @@ fn enqueue_and_spawn_deterministic_refresh(
             ),
         )?);
         job_ids.push(enqueue_core_intelligence_job(
-            &connection,
+            vault,
             DAILY_ROLLUP_JOB_TYPE,
             request,
             &format!("Archive data changed and daily rollups need a refresh for {scope_label}."),
         )?);
         job_ids.push(enqueue_core_intelligence_job(
-            &connection,
+            vault,
             STRUCTURAL_REBUILD_JOB_TYPE,
             request,
             &format!("Archive data changed and structural Core Intelligence entities need a refresh for {scope_label}."),
         )?);
     }
-    if !config.ai.job_queue_paused {
-        maybe_spawn_intelligence_queue_drain(paths, config, session_database_key, job_ids.len());
+    if !vault.config().ai.job_queue_paused {
+        maybe_spawn_intelligence_queue_drain(vault, job_ids.len());
     }
     Ok(job_ids)
 }
@@ -1060,24 +952,6 @@ fn append_ai_auto_index_enqueue_result(
                 )
                 .with_diagnostic(format!("{error}")),
             );
-            false
-        }
-    }
-}
-
-fn append_ai_auto_index_archive_result(
-    report: &mut BackupReport,
-    connection: Result<rusqlite::Connection>,
-    request: &AiIndexRequest,
-    queue_paused: bool,
-) -> bool {
-    match connection {
-        Ok(connection) => {
-            let enqueued = ai_queue::enqueue_index_job(&connection, request, queue_paused);
-            append_ai_auto_index_enqueue_result(report, enqueued, queue_paused)
-        }
-        Err(error) => {
-            append_ai_auto_index_provider_warning(report, error);
             false
         }
     }
@@ -1126,13 +1000,12 @@ fn core_refresh_rebuild_scopes(dirty_profiles: &[String]) -> Vec<CoreIntelligenc
 #[cfg(test)]
 mod tests {
     use super::{
-        PER_TICK_BUDGET_HARD_CAP, append_ai_auto_index_archive_result,
-        append_ai_auto_index_enqueue_result, append_ai_auto_index_provider_warning,
-        append_core_refresh_backup_result, append_core_refresh_import_result,
-        append_og_image_cleanup_result, append_og_image_prefetch_result,
-        append_og_image_refetch_due_result, clamp_budget, core_refresh_import_note,
-        core_refresh_rebuild_scopes, drain_one_worker_url, finalize_refetch_run,
-        host_throttle_wait, lock_or_recover, prefetch_og_images_on_demand,
+        PER_TICK_BUDGET_HARD_CAP, append_ai_auto_index_enqueue_result,
+        append_ai_auto_index_provider_warning, append_core_refresh_backup_result,
+        append_core_refresh_import_result, append_og_image_cleanup_result,
+        append_og_image_prefetch_result, append_og_image_refetch_due_result, clamp_budget,
+        core_refresh_import_note, core_refresh_rebuild_scopes, drain_one_worker_url,
+        finalize_refetch_run, host_throttle_wait, lock_or_recover, prefetch_og_images_on_demand,
         try_prefetch_new_visit_og_images, try_refetch_due_og_images,
     };
     use crate::tests::{
@@ -1297,9 +1170,8 @@ mod tests {
 
     #[test]
     fn record_refetch_outcome_increments_successful_for_ok_outcomes() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         use crate::archive_flows::record_refetch_outcome as recorder;
-        let connection = rusqlite::Connection::open_in_memory().expect("memory db");
-        vault_core::archive::create_schema(&connection).expect("schema");
 
         let png_bytes: [u8; 9] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xFF];
         let ok_outcome = vault_core::og_images_fetch::ok_outcome_for_test(
@@ -1311,36 +1183,31 @@ mod tests {
 
         let mut successful = 0_u32;
         let mut last_error = None;
-        recorder(
-            &connection,
-            "https://example.com/x",
-            &ok_outcome,
-            &mut successful,
-            &mut last_error,
-        );
+        recorder(&vault, "https://example.com/x", &ok_outcome, &mut successful, &mut last_error);
         assert_eq!(successful, 1);
         assert!(last_error.is_none());
     }
 
     #[test]
     fn record_refetch_outcome_records_persist_error_when_schema_is_absent() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         use crate::archive_flows::record_refetch_outcome as recorder;
         // A connection with no schema makes `upsert_og_image` fail with
         // "no such table: og_images". This drives the
         // `if let Err(error) = upsert_og_image(...) { last_persist_error = ... }`
         // branch end-to-end with no network or worker pool involvement.
-        let connection = rusqlite::Connection::open_in_memory().expect("memory db");
+        vault
+            .store()
+            .write(vault_store::Db::Archive, vault_store::Priority::Interactive, |s| {
+                s.execute("DROP TABLE og_images", ())?;
+                Ok(())
+            })
+            .unwrap();
 
         let outcome = vault_core::og_images_fetch::blocked_outcome("https://example.com/blocked");
         let mut successful = 0_u32;
         let mut last_error = None;
-        recorder(
-            &connection,
-            "https://example.com/blocked",
-            &outcome,
-            &mut successful,
-            &mut last_error,
-        );
+        recorder(&vault, "https://example.com/blocked", &outcome, &mut successful, &mut last_error);
         // outcome.is_ok() == false for blocked → success counter stays put
         // and the persist call surfaces the missing-table error.
         assert_eq!(successful, 0);
@@ -1496,6 +1363,7 @@ mod tests {
 
     #[test]
     fn try_refetch_due_og_images_short_circuits_when_fetch_disabled() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
@@ -1515,7 +1383,7 @@ mod tests {
         write_test_config(&paths, &config);
         vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
 
-        let result = try_refetch_due_og_images(None, 10);
+        let result = try_refetch_due_og_images(&vault.with_config(config.clone()), 10);
         assert_eq!(result.expect("try_refetch returns"), (0, 0));
 
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
@@ -1524,6 +1392,7 @@ mod tests {
 
     #[test]
     fn try_refetch_due_og_images_returns_zero_when_no_due_rows_exist() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
@@ -1545,7 +1414,8 @@ mod tests {
         // Archive has no og:image rows, so the due list is empty and
         // `try_refetch_due_og_images` returns (0, 0) without ever calling
         // `refetch_og_images`.
-        let result = try_refetch_due_og_images(None, 10).expect("try_refetch returns");
+        let result = try_refetch_due_og_images(&vault.with_config(config.clone()), 10)
+            .expect("try_refetch returns");
         assert_eq!(result, (0, 0));
 
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
@@ -1554,6 +1424,7 @@ mod tests {
 
     #[test]
     fn try_refetch_due_og_images_drives_refetch_for_due_urls() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
@@ -1595,10 +1466,11 @@ mod tests {
             fetch_attempts: 1,
             created_by_run_id: None,
         };
-        vault_core::og_images::upsert_og_image(&connection, &insert).expect("insert");
+        vault_core::og_images::upsert_og_image(&vault, &insert).expect("insert");
         drop(connection);
 
-        let (due, _successful) = try_refetch_due_og_images(None, 10).expect("try_refetch");
+        let (due, _successful) =
+            try_refetch_due_og_images(&vault.with_config(config.clone()), 10).expect("try_refetch");
         assert_eq!(due, 1, "the seeded row must surface as the one due URL");
 
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
@@ -1607,6 +1479,7 @@ mod tests {
 
     #[test]
     fn try_prefetch_new_visit_short_circuits_when_mode_is_not_background() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
@@ -1628,7 +1501,7 @@ mod tests {
         config.og_image.fetch_enabled = false;
         write_test_config(&paths, &config);
         vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let result = try_prefetch_new_visit_og_images(None, 100);
+        let result = try_prefetch_new_visit_og_images(&vault.with_config(config.clone()), 100);
         assert_eq!(result.expect("prefetch returns"), (0, 0));
 
         // Re-enable but pick OnDemand — prefetch should still skip
@@ -1640,7 +1513,7 @@ mod tests {
         };
         config.og_image.fetch_mode = vault_core::OgImageFetchMode::OnDemand;
         write_test_config(&paths, &config);
-        let result = try_prefetch_new_visit_og_images(None, 100);
+        let result = try_prefetch_new_visit_og_images(&vault.with_config(config.clone()), 100);
         assert_eq!(result.expect("prefetch returns"), (0, 0));
 
         // Zero budget short-circuits even when mode is Background.
@@ -1650,7 +1523,7 @@ mod tests {
             ..AppConfig::default()
         };
         write_test_config(&paths, &config);
-        let result = try_prefetch_new_visit_og_images(None, 0);
+        let result = try_prefetch_new_visit_og_images(&vault.with_config(config.clone()), 0);
         assert_eq!(result.expect("prefetch returns"), (0, 0));
 
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
@@ -1659,6 +1532,7 @@ mod tests {
 
     #[test]
     fn try_prefetch_new_visit_returns_zero_when_archive_has_no_visited_urls() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
@@ -1678,7 +1552,8 @@ mod tests {
         vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
 
         // No visits + no og_images rows → empty due list → (0, 0).
-        let result = try_prefetch_new_visit_og_images(None, 100).expect("prefetch");
+        let result = try_prefetch_new_visit_og_images(&vault.with_config(config.clone()), 100)
+            .expect("prefetch");
         assert_eq!(result, (0, 0));
 
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
@@ -1687,6 +1562,7 @@ mod tests {
 
     #[test]
     fn prefetch_og_images_on_demand_respects_kill_switch_and_zero_budget() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
         let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
@@ -1706,7 +1582,7 @@ mod tests {
         config.og_image.fetch_enabled = false;
         write_test_config(&paths, &config);
         vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let result = prefetch_og_images_on_demand(None, 100);
+        let result = prefetch_og_images_on_demand(&vault.with_config(config.clone()), 100);
         assert_eq!(result.expect("on-demand prefetch"), (0, 0));
 
         // Re-enable but pass budget = 0 → short-circuit at the budget
@@ -1717,11 +1593,11 @@ mod tests {
             ..AppConfig::default()
         };
         write_test_config(&paths, &config);
-        let result = prefetch_og_images_on_demand(None, 0);
+        let result = prefetch_og_images_on_demand(&vault.with_config(config.clone()), 0);
         assert_eq!(result.expect("on-demand prefetch zero"), (0, 0));
 
         // Default config with non-zero budget but empty archive → (0, 0).
-        let result = prefetch_og_images_on_demand(None, 100);
+        let result = prefetch_og_images_on_demand(&vault.with_config(config.clone()), 100);
         assert_eq!(result.expect("on-demand prefetch empty"), (0, 0));
 
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
@@ -1730,6 +1606,7 @@ mod tests {
 
     #[test]
     fn refetch_og_images_short_circuits_when_kill_switch_is_off() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         // After A1 (Codex C1), every external caller of
         // `refetch_og_images` pre-gates on `effective_mode != Off`. The
         // inner `if !config.og_image.fetch_enabled` check at the top of
@@ -1757,7 +1634,7 @@ mod tests {
         vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
 
         let result =
-            super::refetch_og_images(None, vec!["https://example.com/never-reached".to_string()]);
+            super::refetch_og_images(&vault, vec!["https://example.com/never-reached".to_string()]);
         assert_eq!(result.expect("kill-switch short-circuits"), 0);
 
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
@@ -1858,10 +1735,9 @@ mod tests {
             false,
         ));
         append_ai_auto_index_provider_warning(&mut ai_report, anyhow::anyhow!("provider missing"));
-        assert!(!append_ai_auto_index_archive_result(
+        assert!(!append_ai_auto_index_enqueue_result(
             &mut ai_report,
             Err(anyhow::anyhow!("archive unavailable")),
-            &vault_core::AiIndexRequest::default(),
             false,
         ));
         let ai_warnings = ai_report.warnings.clone();
@@ -1941,6 +1817,7 @@ mod tests {
 
     #[test]
     fn prefetch_og_images_on_demand_enqueues_visited_urls_and_drives_worker_pool() {
+        let vault = vault_core::Vault::open_temp().unwrap();
         // Exercises the `urls.is_empty() == false` branch of
         // `prefetch_og_images_on_demand` (the assignment to `enqueued`
         // and the subsequent `refetch_og_images` call). Every URL is on
@@ -1974,8 +1851,10 @@ mod tests {
             seed_url(&connection, 1, "https://blocked.test/page", 5_000);
         }
 
+        vault_core::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
         let (enqueued, succeeded) =
-            prefetch_og_images_on_demand(None, 10).expect("on-demand prefetch");
+            prefetch_og_images_on_demand(&vault.with_config(config.clone()), 10)
+                .expect("on-demand prefetch");
         assert_eq!(enqueued, 1, "the seeded https URL must be enqueued");
         // Blocked host outcome counts as non-success on the refetch path
         // (it persists a missing/blocked row but doesn't bump the
@@ -2014,7 +1893,7 @@ mod tests {
         vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
 
         let insights = crate::archive_flows::browse_day_insights(
-            None,
+            &vault_core::Vault::open_temp().unwrap(),
             vault_core::BrowseDayInsightsRequest {
                 date: "2026-05-25".to_string(),
                 profile_id: None,

@@ -10,23 +10,29 @@ use crate::{
 };
 use std::{
     cell::Cell,
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     thread::{self, JoinHandle},
 };
 
 type Reply = Box<dyn FnOnce() + Send>;
-type Job = Box<dyn FnOnce(&Engine, Option<&Gate>) -> Reply + Send>;
+type Job = Box<dyn FnOnce(&Engine, Option<&Gate>, Option<&Gate>) -> Reply + Send>;
 thread_local! {static IN_OWNER:Cell<bool>=const{Cell::new(false)};}
 pub(crate) fn check_caller() -> Result<()> {
     if IN_OWNER.with(Cell::get) { Err(Error::Reentrant) } else { Ok(()) }
 }
 
 pub(crate) struct Workers {
+    pub plans: Arc<crate::query_plans::PlanCapture>,
     writer: Arc<Queue<Job>>,
     readers: Arc<Queue<Job>>,
     threads: Vec<JoinHandle<()>>,
     pub gate: Arc<Gate>,
     metrics: Arc<Mutex<Metrics>>,
+    compiled: Arc<AtomicU64>,
 }
 impl Workers {
     pub fn start(
@@ -36,6 +42,7 @@ impl Workers {
         reader_count: usize,
         capacity: usize,
         scratch_gate: Option<Arc<Gate>>,
+        archive_gate: Option<Arc<Gate>>,
     ) -> Result<Self> {
         let writer = Arc::new(Queue::<Job>::new(capacity));
         let readers = Arc::new(Queue::<Job>::new(capacity));
@@ -46,23 +53,31 @@ impl Workers {
             }
         }));
         let metrics = Arc::new(Mutex::new(Metrics::default()));
+        let compiled = Arc::new(AtomicU64::new(0));
         let mut owners = Self {
+            plans: Arc::default(),
             writer: writer.clone(),
             readers: readers.clone(),
             threads: Vec::new(),
             gate: gate.clone(),
             metrics: metrics.clone(),
+            compiled: compiled.clone(),
         };
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let write_settings = settings.clone();
         let write_scratch = scratch_gate.clone();
+        let write_compiled = compiled.clone();
+        let write_archive = archive_gate.clone();
         owners.threads.push(thread::Builder::new().name(format!("store-{db:?}-writer")).spawn(
             move || {
                 IN_OWNER.with(|v| v.set(true));
                 let opened = crate::session::catch_job(|| {
-                    let engine = Engine::open(&write_settings)?;
+                    let engine = Engine::open(&write_settings, write_compiled)?;
                     crate::migration::apply(
-                        &engine.session(false).with_scratch(write_scratch.as_deref()),
+                        &engine
+                            .session(false)
+                            .with_scratch(write_scratch.as_deref())
+                            .with_archive(write_archive.as_deref()),
                         db,
                         &steps,
                     )?;
@@ -83,7 +98,8 @@ impl Workers {
                     let mut completion = None;
                     match writer.next() {
                         Next::Job(priority, job) => {
-                            let reply = job(&engine, write_scratch.as_deref());
+                            let reply =
+                                job(&engine, write_scratch.as_deref(), write_archive.as_deref());
                             dirty = true;
                             if priority == Priority::Batch {
                                 crate::checkpoint::run(&engine, false, &metrics);
@@ -121,20 +137,22 @@ impl Workers {
             let queue = readers.clone();
             let gate = owners.gate.clone();
             let scratch = scratch_gate.clone();
+            let compiled = compiled.clone();
+            let archive = archive_gate.clone();
             let (ready_tx, ready_rx) = mpsc::sync_channel(1);
             owners.threads.push(
                 thread::Builder::new().name(format!("store-{db:?}-reader-{index}")).spawn(
                     move || {
                         IN_OWNER.with(|v| v.set(true));
-                        let engine =
-                            match crate::session::catch_job(|| Engine::reader(database, &settings))
-                            {
-                                Ok(e) => e,
-                                Err(error) => {
-                                    let _ = ready_tx.send(Err(error));
-                                    return;
-                                }
-                            };
+                        let engine = match crate::session::catch_job(|| {
+                            Engine::reader(database, &settings, compiled)
+                        }) {
+                            Ok(e) => e,
+                            Err(error) => {
+                                let _ = ready_tx.send(Err(error));
+                                return;
+                            }
+                        };
                         if ready_tx.send(Ok(())).is_err() {
                             return;
                         }
@@ -142,7 +160,8 @@ impl Workers {
                             match queue.next() {
                                 Next::Job(_, job) => {
                                     let guard = gate.enter();
-                                    let reply = job(&engine, scratch.as_deref());
+                                    let reply =
+                                        job(&engine, scratch.as_deref(), archive.as_deref());
                                     drop(guard);
                                     reply();
                                 }
@@ -165,9 +184,16 @@ impl Workers {
     ) -> Result<T> {
         check_caller()?;
         let (tx, rx) = mpsc::sync_channel(1);
-        let job: Job = Box::new(move |engine, scratch| {
-            let result =
-                crate::session::transaction(&engine.session(read).with_scratch(scratch), work);
+        let plans = self.plans.clone();
+        let job: Job = Box::new(move |engine, scratch, archive| {
+            let result = crate::session::transaction(
+                &engine
+                    .session(read)
+                    .with_scratch(scratch)
+                    .with_archive(archive)
+                    .with_plans(&plans),
+                work,
+            );
             Box::new(move || {
                 let _ = tx.send(result);
             })
@@ -182,6 +208,7 @@ impl Workers {
     pub fn metrics(&self) -> Metrics {
         let mut m = self.metrics.lock().unwrap().clone();
         (m.interactive_pending, m.batch_pending) = self.writer.pending();
+        m.statements_compiled = self.compiled.load(Ordering::Relaxed);
         m
     }
 }

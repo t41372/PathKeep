@@ -396,3 +396,6 @@ mod tests {
         assert_eq!(inspection.note_details.len(), 2);
     }
 }
+
+mod intelligence_pages;
+pub use intelligence_pages::*;

@@ -27,10 +27,6 @@ use super::super::{
     get_top_search_concepts, get_top_sites,
     intelligence_domain::path_from_url,
     intelligence_rebuild::run_core_intelligence,
-    intelligence_schema::{
-        count_core_intelligence_job_triggers, ensure_core_intelligence_schema,
-        sum_table_row_counts, table_row_count,
-    },
     intelligence_shared::{
         build_kpi, classify_search_query_kind, collapse_date_key, jaccard, local_date_key,
         local_datetime_from_millis, previous_date_range, query_token_set, tokenize_query_terms,
@@ -39,20 +35,15 @@ use super::super::{
     site_dictionary::normalize_query,
 };
 use super::fixtures::{
-    append_fixture_visit, has_index, seed_core_intelligence_fixture,
-    seed_search_keyword_noise_fixture,
+    append_fixture_visit, seed_core_intelligence_fixture, seed_search_keyword_noise_fixture,
 };
+use crate::test_support::native::TestDatabase;
 use crate::{
     archive::{
-        open_archive_connection, open_intelligence_connection,
         open_intelligence_connection_call_count, open_intelligence_connection_call_sites,
         reset_open_intelligence_connection_call_count,
     },
     config::project_paths_with_root,
-    intelligence_runtime::{
-        load_intelligence_runtime_from_connection_call_count,
-        reset_load_intelligence_runtime_from_connection_call_count,
-    },
     models::{
         AppConfig, ArchiveMode, CategoryFilteredDateRangeRequest, CoreIntelligenceRebuildRequest,
         DateRange, DayInsightsRequest, DomainDeepDiveRequest, ExplainRefindRequest,
@@ -62,22 +53,9 @@ use crate::{
     },
 };
 use chrono::{Datelike, Local, TimeZone};
-use rusqlite::{Connection, params};
-use std::collections::HashSet;
+use vault_store::params_owned as params;
 
-fn has_table(connection: &Connection, table_name: &str) -> bool {
-    connection
-        .query_row(
-            "SELECT COUNT(*)
-             FROM sqlite_master
-             WHERE type = 'table'
-               AND name = ?1",
-            [table_name],
-            |row| row.get::<_, i64>(0),
-        )
-        .expect("table lookup")
-        > 0
-}
+use std::collections::HashSet;
 
 /// Regression coverage for collapse date key supports week and month.
 #[test]
@@ -135,192 +113,6 @@ fn normalize_query_trims_and_lowercases() {
 
 /// Regression coverage for ensure core intelligence schema records versioned migrations.
 #[test]
-fn ensure_core_intelligence_schema_records_versioned_migrations() {
-    let connection = Connection::open_in_memory().expect("in memory sqlite");
-    connection
-        .execute("CREATE TABLE insight_cards (id INTEGER PRIMARY KEY)", [])
-        .expect("legacy insight table");
-    ensure_core_intelligence_schema(&connection).expect("ensure intelligence schema");
-    ensure_core_intelligence_schema(&connection).expect("ensure intelligence schema twice");
-
-    let migration_count: i64 = connection
-        .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
-        .expect("migration count");
-    assert_eq!(migration_count, 10);
-    assert!(has_index(&connection, "idx_search_events_profile_query"));
-    assert!(has_index(&connection, "idx_vdf_profile_visit_id"));
-    assert!(has_index(&connection, "idx_search_trails_profile_time_trail"));
-    assert!(has_index(&connection, "idx_search_events_profile_visit"));
-    assert!(has_index(&connection, "idx_search_events_kind_time"));
-    assert!(has_index(&connection, "idx_search_events_profile_kind"));
-    assert!(has_table(&connection, "intelligence_overview_snapshots"));
-    assert!(!has_table(&connection, "insight_cards"));
-    // W-ENRICH-1 (intelligence migration v8): the content-enrichment columns are present.
-    let enrichment_columns: i64 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('visit_content_enrichments')
-             WHERE name IN ('extractor_version', 'enrichment_summary', 'refetch_after', 'http_status')",
-            [],
-            |row| row.get(0),
-        )
-        .expect("enrichment columns");
-    assert_eq!(enrichment_columns, 4, "W-ENRICH-1 columns must be added by migration v8");
-}
-
-/// Forward test for the W-ENRICH-1 (migration "015"/intelligence-v8) column add on a DB that already
-/// created the baseline enrichment table WITHOUT the new columns (an upgrade-in-place path).
-#[test]
-fn intelligence_v8_adds_w_enrich_columns_to_a_legacy_enrichment_table() {
-    let connection = Connection::open_in_memory().expect("in memory sqlite");
-    // Stand up the pre-W-ENRICH-1 enrichment table shape (no extractor_version / enrichment_summary /
-    // refetch_after / http_status), then run the migration helper directly to add them.
-    connection
-        .execute_batch(
-            "CREATE TABLE visit_content_enrichments (
-               id INTEGER PRIMARY KEY AUTOINCREMENT,
-               history_id INTEGER NOT NULL,
-               content_source TEXT NOT NULL,
-               fetch_status TEXT NOT NULL,
-               fetched_at TEXT NOT NULL,
-               final_url TEXT,
-               language TEXT,
-               readable_title TEXT,
-               readable_text_blob_path TEXT,
-               readable_text_bytes INTEGER NOT NULL DEFAULT 0,
-               text_hash TEXT,
-               snippet_json TEXT NOT NULL,
-               extraction_json TEXT NOT NULL,
-               pipeline_version TEXT NOT NULL,
-               UNIQUE(history_id, content_source)
-             );",
-        )
-        .expect("legacy enrichment table");
-
-    crate::enrichment::add_visit_content_enrichment_w_enrich_columns(&connection)
-        .expect("add w-enrich columns");
-    // Idempotent: a second run is a no-op (duplicate column name is swallowed).
-    crate::enrichment::add_visit_content_enrichment_w_enrich_columns(&connection)
-        .expect("add w-enrich columns again");
-
-    let count: i64 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('visit_content_enrichments')
-             WHERE name IN ('extractor_version', 'enrichment_summary', 'refetch_after', 'http_status')",
-            [],
-            |row| row.get(0),
-        )
-        .expect("column count");
-    assert_eq!(count, 4);
-}
-
-/// The W-ENRICH-1 column-add helper surfaces non-"duplicate column" errors instead of swallowing them
-/// (e.g. the table is missing entirely), so a genuine schema fault is loud rather than silent.
-#[test]
-fn intelligence_v8_column_add_propagates_a_genuine_alter_error() {
-    let connection = Connection::open_in_memory().expect("in memory sqlite");
-    // No `visit_content_enrichments` table at all → ALTER fails with "no such table", which is NOT a
-    // "duplicate column name" no-op, so the helper must return an error.
-    let error = crate::enrichment::add_visit_content_enrichment_w_enrich_columns(&connection)
-        .expect_err("ALTER on a missing table must error");
-    assert!(error.to_string().contains("no such table"), "got: {error}");
-}
-
-/// Regression coverage for legacy search event tables receiving query-kind metadata.
-#[test]
-fn ensure_core_intelligence_schema_migrates_legacy_search_query_kind() {
-    let connection = Connection::open_in_memory().expect("in memory sqlite");
-    connection
-        .execute_batch(
-            "
-            CREATE TABLE search_trails (
-              trail_id TEXT PRIMARY KEY,
-              profile_id TEXT NOT NULL,
-              session_id TEXT,
-              initial_query TEXT NOT NULL,
-              search_engine TEXT NOT NULL,
-              reformulation_count INTEGER NOT NULL DEFAULT 0,
-              visit_count INTEGER NOT NULL,
-              landing_url TEXT,
-              landing_domain TEXT,
-              first_visit_ms INTEGER NOT NULL,
-              last_visit_ms INTEGER NOT NULL,
-              max_depth INTEGER NOT NULL DEFAULT 0,
-              queries_json TEXT NOT NULL,
-              computed_at TEXT NOT NULL
-            );
-            CREATE TABLE search_events (
-              visit_id INTEGER PRIMARY KEY,
-              profile_id TEXT NOT NULL,
-              search_engine TEXT NOT NULL,
-              raw_query TEXT NOT NULL,
-              normalized_query TEXT NOT NULL,
-              trail_id TEXT,
-              computed_at TEXT NOT NULL
-            );
-            ",
-        )
-        .expect("legacy schema");
-    connection
-        .execute(
-            "INSERT INTO search_trails
-             (trail_id, profile_id, initial_query, search_engine, visit_count, landing_domain,
-              first_visit_ms, last_visit_ms, queries_json, computed_at)
-             VALUES ('trail-keyword', 'chrome:Default', 'pathkeep sqlite', 'google', 1,
-                     'github.com', 1, 1, '[]', 'now')",
-            [],
-        )
-        .expect("keyword trail");
-    connection
-        .execute(
-            "INSERT INTO search_trails
-             (trail_id, profile_id, initial_query, search_engine, visit_count, landing_domain,
-              first_visit_ms, last_visit_ms, queries_json, computed_at)
-             VALUES ('trail-nav', 'chrome:Default', 'asu.edu', 'google', 1,
-                     'asu.edu', 1, 1, '[]', 'now')",
-            [],
-        )
-        .expect("nav trail");
-    for (visit_id, raw_query, trail_id) in
-        [(1_i64, "pathkeep sqlite", "trail-keyword"), (2_i64, "asu.edu", "trail-nav")]
-    {
-        connection
-            .execute(
-                "INSERT INTO search_events
-                 (visit_id, profile_id, search_engine, raw_query, normalized_query, trail_id, computed_at)
-                 VALUES (?1, 'chrome:Default', 'google', ?2, ?2, ?3, 'now')",
-                params![visit_id, raw_query, trail_id],
-            )
-            .expect("legacy event");
-    }
-
-    ensure_core_intelligence_schema(&connection).expect("migrate legacy schema");
-
-    assert!(has_index(&connection, "idx_search_events_profile_kind"));
-    let query_kinds = connection
-        .prepare("SELECT visit_id, query_kind FROM search_events ORDER BY visit_id")
-        .expect("query kind statement")
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
-        .expect("query kinds")
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .expect("query kind rows");
-    assert_eq!(query_kinds, vec![(1, "keyword".to_string()), (2, "navigational".to_string())]);
-}
-
-/// Regression coverage for schema row-count helpers on fresh or partial stores.
-#[test]
-fn schema_count_helpers_tolerate_missing_tables() {
-    let connection = Connection::open_in_memory().expect("in memory sqlite");
-
-    assert_eq!(table_row_count(&connection, "missing_table").expect("missing count"), 0);
-    assert_eq!(
-        sum_table_row_counts(&connection, &["missing_a", "missing_b"]).expect("missing sum"),
-        0
-    );
-    assert_eq!(count_core_intelligence_job_triggers(&connection).expect("missing triggers"), 0);
-}
-
-/// Regression coverage for classifies url like search queries as navigational noise.
-#[test]
 fn classifies_url_like_search_queries_as_navigational_noise() {
     assert_eq!(
         classify_search_query_kind("https://asu.edu", "https://asu.edu", Some("asu.edu")),
@@ -356,26 +148,34 @@ fn classifies_url_like_search_queries_as_navigational_noise() {
 #[test]
 fn primary_overview_reuses_single_connection_and_runtime_snapshot() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(|s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("full rebuild");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("full rebuild");
 
     reset_open_intelligence_connection_call_count();
-    reset_load_intelligence_runtime_from_connection_call_count();
+    vault.store().capture_query_plans(vault_store::Db::Intelligence, true).unwrap();
 
     let overview = get_intelligence_primary_overview(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &ScopedDateRangeRequest {
             date_range: DateRange {
                 start: "2024-04-01".to_string(),
@@ -388,11 +188,16 @@ fn primary_overview_reuses_single_connection_and_runtime_snapshot() {
 
     assert_eq!(
         open_intelligence_connection_call_count(),
-        1,
+        0,
         "{:?}",
         open_intelligence_connection_call_sites()
     );
-    assert_eq!(load_intelligence_runtime_from_connection_call_count(), 1);
+    let plans = vault.store().take_query_plans(vault_store::Db::Intelligence).unwrap();
+    assert_eq!(
+        plans.iter().filter(|p| p.sql.contains("FROM deterministic_module_runtime")).count(),
+        1,
+        "one runtime query per overview"
+    );
     assert_eq!(overview.timings.len(), 11);
     assert_eq!(overview.digest_summary.meta.section_id, "digest-summary");
     assert_eq!(overview.search_engine_ranking.meta.section_id, "search-activity");
@@ -404,36 +209,48 @@ fn primary_overview_reuses_single_connection_and_runtime_snapshot() {
 #[test]
 fn all_time_primary_overview_serves_persisted_snapshot() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(|s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("full rebuild");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("full rebuild");
 
     let all_time = ScopedDateRangeRequest {
-        date_range: DateRange { start: "1900-01-01".to_string(), end: "2026-12-31".to_string() },
+        date_range: DateRange {
+            start: "1900-01-01".to_string(),
+            end: chrono::Local::now().format("%Y-%m-%d").to_string(),
+        },
         profile_id: None,
     };
 
-    let first = get_intelligence_primary_overview(&paths, &config, None, &all_time)
+    let first = get_intelligence_primary_overview(&vault.with_config(config.clone()), &all_time)
         .expect("first all-time");
 
     // The archive-wide all-time scope must now have exactly one persisted snapshot.
-    let connection =
-        open_intelligence_connection(&paths, &config, None).expect("intelligence connection");
+    let connection = TestDatabase::new(&vault, vault_store::Db::Intelligence);
     let stored: i64 = connection
-        .query_row(
+        .query_one(
             "SELECT COUNT(*) FROM intelligence_overview_snapshots
              WHERE scope_key = 'all-time:archive-wide' AND band = 'primary'",
-            [],
-            |row| row.get(0),
+            (),
+            |row| Ok(row.get(0)?),
         )
         .expect("snapshot count");
     assert_eq!(stored, 1);
@@ -454,7 +271,7 @@ fn all_time_primary_overview_serves_persisted_snapshot() {
         .expect("doctor payload");
     drop(connection);
 
-    let second = get_intelligence_primary_overview(&paths, &config, None, &all_time)
+    let second = get_intelligence_primary_overview(&vault.with_config(config.clone()), &all_time)
         .expect("second all-time");
     assert_eq!(
         second.total_duration_ms, 4242,
@@ -467,7 +284,8 @@ fn all_time_primary_overview_serves_persisted_snapshot() {
         profile_id: None,
     };
     let scoped_overview =
-        get_intelligence_primary_overview(&paths, &config, None, &scoped).expect("scoped overview");
+        get_intelligence_primary_overview(&vault.with_config(config.clone()), &scoped)
+            .expect("scoped overview");
     assert_ne!(scoped_overview.total_duration_ms, 4242);
 }
 
@@ -476,35 +294,47 @@ fn all_time_primary_overview_serves_persisted_snapshot() {
 #[test]
 fn all_time_secondary_overview_serves_persisted_snapshot() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(|s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("full rebuild");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("full rebuild");
 
     let all_time = ScopedDateRangeRequest {
-        date_range: DateRange { start: "1900-01-01".to_string(), end: "2026-12-31".to_string() },
+        date_range: DateRange {
+            start: "1900-01-01".to_string(),
+            end: chrono::Local::now().format("%Y-%m-%d").to_string(),
+        },
         profile_id: None,
     };
 
-    let first = get_intelligence_secondary_overview(&paths, &config, None, &all_time)
+    let first = get_intelligence_secondary_overview(&vault.with_config(config.clone()), &all_time)
         .expect("first all-time secondary");
 
-    let connection =
-        open_intelligence_connection(&paths, &config, None).expect("intelligence connection");
+    let connection = TestDatabase::new(&vault, vault_store::Db::Intelligence);
     let stored: i64 = connection
-        .query_row(
+        .query_one(
             "SELECT COUNT(*) FROM intelligence_overview_snapshots
              WHERE scope_key = 'all-time:archive-wide' AND band = 'secondary'",
-            [],
-            |row| row.get(0),
+            (),
+            |row| Ok(row.get(0)?),
         )
         .expect("snapshot count");
     assert_eq!(stored, 1);
@@ -523,7 +353,7 @@ fn all_time_secondary_overview_serves_persisted_snapshot() {
         .expect("doctor payload");
     drop(connection);
 
-    let second = get_intelligence_secondary_overview(&paths, &config, None, &all_time)
+    let second = get_intelligence_secondary_overview(&vault.with_config(config.clone()), &all_time)
         .expect("second all-time secondary");
     assert_eq!(
         second.total_duration_ms, 7373,
@@ -534,8 +364,9 @@ fn all_time_secondary_overview_serves_persisted_snapshot() {
         date_range: DateRange { start: "2024-04-01".to_string(), end: "2024-04-30".to_string() },
         profile_id: None,
     };
-    let scoped_overview = get_intelligence_secondary_overview(&paths, &config, None, &scoped)
-        .expect("scoped secondary overview");
+    let scoped_overview =
+        get_intelligence_secondary_overview(&vault.with_config(config.clone()), &scoped)
+            .expect("scoped secondary overview");
     assert_ne!(scoped_overview.total_duration_ms, 7373);
 }
 
@@ -543,18 +374,18 @@ fn all_time_secondary_overview_serves_persisted_snapshot() {
 #[test]
 fn primary_overview_marks_empty_digest_as_flat() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    open_archive_connection(&paths, &config, None).expect("archive");
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    TestDatabase::new(&vault, vault_store::Db::Archive);
 
     let overview = get_intelligence_primary_overview(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &ScopedDateRangeRequest {
             date_range: DateRange {
                 start: "2024-04-01".to_string(),
@@ -573,26 +404,34 @@ fn primary_overview_marks_empty_digest_as_flat() {
 #[test]
 fn secondary_overview_reuses_single_connection_and_runtime_snapshot() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(|s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("full rebuild");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("full rebuild");
 
     reset_open_intelligence_connection_call_count();
-    reset_load_intelligence_runtime_from_connection_call_count();
+    vault.store().capture_query_plans(vault_store::Db::Intelligence, true).unwrap();
 
     let overview = get_intelligence_secondary_overview(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &ScopedDateRangeRequest {
             date_range: DateRange {
                 start: "2024-04-01".to_string(),
@@ -605,11 +444,16 @@ fn secondary_overview_reuses_single_connection_and_runtime_snapshot() {
 
     assert_eq!(
         open_intelligence_connection_call_count(),
-        1,
+        0,
         "{:?}",
         open_intelligence_connection_call_sites()
     );
-    assert_eq!(load_intelligence_runtime_from_connection_call_count(), 1);
+    let plans = vault.store().take_query_plans(vault_store::Db::Intelligence).unwrap();
+    assert_eq!(
+        plans.iter().filter(|p| p.sql.contains("FROM deterministic_module_runtime")).count(),
+        1,
+        "one runtime query per overview"
+    );
     assert_eq!(overview.timings.len(), 10);
     assert_eq!(overview.stable_sources.meta.section_id, "stable-sources");
     assert_eq!(overview.path_flows.meta.section_id, "path-flows");
@@ -620,14 +464,16 @@ fn secondary_overview_reuses_single_connection_and_runtime_snapshot() {
 #[test]
 fn discovery_trend_reports_available_years_and_respects_profile_scope() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let intelligence = open_intelligence_connection(&paths, &config, None).expect("runtime");
-    ensure_core_intelligence_schema(&intelligence).expect("ensure intelligence schema");
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let intelligence = TestDatabase::new(&vault, vault_store::Db::Intelligence);
+    intelligence.execute("INSERT INTO intelligence_generations(profile_id) VALUES('chrome:Default'),('firefox:Default')",()).unwrap();
 
     for (date_key, profile_id, total_visits, new_domains) in [
         ("2024-04-18", "chrome:Default", 3_i64, 1_i64),
@@ -636,7 +482,7 @@ fn discovery_trend_reports_available_years_and_respects_profile_scope() {
     ] {
         intelligence
             .execute(
-                "INSERT INTO daily_summary_rollups
+                "INSERT INTO daily_summary_rollups_rows
                  (date_key, profile_id, total_visits, total_searches, new_domains, unique_domains, hhi_score, discovery_rate)
                  VALUES (?1, ?2, ?3, 0, ?4, ?4, 0.0, 0.0)",
                 params![date_key, profile_id, total_visits, new_domains],
@@ -646,9 +492,7 @@ fn discovery_trend_reports_available_years_and_respects_profile_scope() {
     drop(intelligence);
 
     let archive_wide = get_discovery_trend(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &GranularityDateRangeRequest {
             date_range: DateRange {
                 start: "2025-01-01".to_string(),
@@ -664,9 +508,7 @@ fn discovery_trend_reports_available_years_and_respects_profile_scope() {
     assert_eq!(archive_wide.points[0].date_key, "2025-04-18");
 
     let scoped = get_discovery_trend(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &GranularityDateRangeRequest {
             date_range: DateRange {
                 start: "2025-01-01".to_string(),
@@ -686,24 +528,32 @@ fn discovery_trend_reports_available_years_and_respects_profile_scope() {
 #[test]
 fn day_insights_compose_exact_day_entities_and_drilldown_metadata() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(|s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("rebuild intelligence");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("rebuild intelligence");
 
     let first_day = local_date_key(1711929600000);
     let insights = get_day_insights(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &DayInsightsRequest {
             date: first_day.clone(),
             profile_id: Some("chrome:Default".to_string()),
@@ -725,24 +575,32 @@ fn day_insights_compose_exact_day_entities_and_drilldown_metadata() {
 #[test]
 fn domain_deep_dive_keeps_day_scoped_trend_consistent_with_exact_day_insights() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(|s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("rebuild intelligence");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("rebuild intelligence");
 
     let first_day = local_date_key(1711929600000);
     let day = get_day_insights(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &DayInsightsRequest {
             date: first_day.clone(),
             profile_id: Some("chrome:Default".to_string()),
@@ -750,10 +608,11 @@ fn domain_deep_dive_keeps_day_scoped_trend_consistent_with_exact_day_insights() 
     )
     .expect("day insights");
     let domain = get_domain_deep_dive(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &DomainDeepDiveRequest {
+            pages_cursor: None,
+            searches_cursor: None,
+            page_size: None,
             registrable_domain: "github.com".to_string(),
             date_range: DateRange { start: first_day.clone(), end: first_day.clone() },
             profile_id: Some("chrome:Default".to_string()),
@@ -777,59 +636,85 @@ fn domain_calendar_rhythm_and_flow_helpers_cover_multi_visit_edges() {
     assert_eq!(path_from_url("not-a-url"), "/");
 
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
-    append_fixture_visit(
-        &archive,
-        91,
-        "https://github.com/example/repo/issues/43",
-        "Issue 43",
-        1711929720000,
-        Some(2),
-        None,
-    );
-    append_fixture_visit(
-        &archive,
-        92,
-        "https://github.com/example/repo/pulls/44",
-        "Pull Request 44",
-        1711929780000,
-        Some(91),
-        None,
-    );
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(|s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                91,
+                "https://github.com/example/repo/issues/43",
+                "Issue 43",
+                1711929720000,
+                Some(2),
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                92,
+                "https://github.com/example/repo/pulls/44",
+                "Pull Request 44",
+                1711929780000,
+                Some(91),
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
     let today = Local::now();
     let anniversary_ms = Local
         .with_ymd_and_hms(today.year() - 1, today.month(), today.day(), 12, 0, 0)
         .single()
         .expect("anniversary local timestamp")
         .timestamp_millis();
-    append_fixture_visit(
-        &archive,
-        93,
-        "https://anniversary.example/path",
-        "Anniversary",
-        anniversary_ms,
-        None,
-        None,
-    );
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                93,
+                "https://anniversary.example/path",
+                "Anniversary",
+                anniversary_ms,
+                None,
+                None,
+            );
+            Ok(())
+        })
+        .unwrap();
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("rebuild intelligence");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("rebuild intelligence");
 
     let date_range =
         DateRange { start: local_date_key(1711929600000), end: "2024-04-30".to_string() };
     let domain = get_domain_deep_dive(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &DomainDeepDiveRequest {
+            pages_cursor: None,
+            searches_cursor: None,
+            page_size: None,
             registrable_domain: "github.com".to_string(),
             date_range: date_range.clone(),
             profile_id: Some("chrome:Default".to_string()),
@@ -850,9 +735,7 @@ fn domain_calendar_rhythm_and_flow_helpers_cover_multi_visit_edges() {
     assert_eq!(domain.visit_trend.iter().map(|point| point.visit_count).sum::<i64>(), 4);
 
     let rhythm = get_browsing_rhythm(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &CategoryFilteredDateRangeRequest {
             date_range: date_range.clone(),
             profile_id: Some("chrome:Default".to_string()),
@@ -863,27 +746,25 @@ fn domain_calendar_rhythm_and_flow_helpers_cover_multi_visit_edges() {
     assert!(rhythm.max_count > 0);
     assert!(rhythm.cells.iter().any(|cell| cell.visit_count == rhythm.max_count));
 
-    let on_this_day =
-        get_on_this_day(&paths, &config, None, Some("chrome:Default")).expect("on this day");
+    let on_this_day = get_on_this_day(&vault.with_config(config.clone()), Some("chrome:Default"))
+        .expect("on this day");
     assert!(on_this_day.iter().any(|entry| {
         entry.year == today.year() - 1
             && entry.top_domains.iter().any(|domain| domain == "anniversary.example")
     }));
 
-    let intelligence = open_intelligence_connection(&paths, &config, None).expect("runtime");
+    let intelligence = TestDatabase::new(&vault, vault_store::Db::Intelligence);
     intelligence
         .execute(
-            "INSERT OR REPLACE INTO daily_summary_rollups
-             (date_key, profile_id, total_visits, total_searches, new_domains, unique_domains, hhi_score, discovery_rate)
-             VALUES ('2024-04-03', 'chrome:Default', 0, 0, 0, 0, 0.0, 0.0)",
-            [],
+            "INSERT OR REPLACE INTO daily_summary_rollups_rows
+             (generation,date_key, profile_id, total_visits, total_searches, new_domains, unique_domains, hhi_score, discovery_rate)
+             VALUES ((SELECT daily FROM intelligence_generations WHERE profile_id='chrome:Default'),'2024-04-03', 'chrome:Default', 0, 0, 0, 0, 0.0, 0.0)",
+            (),
         )
         .expect("insert zero total daily rollup");
     drop(intelligence);
     let discovery = get_discovery_trend(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &GranularityDateRangeRequest {
             date_range: DateRange {
                 start: "2024-04-03".to_string(),
@@ -902,58 +783,83 @@ fn domain_calendar_rhythm_and_flow_helpers_cover_multi_visit_edges() {
 #[test]
 fn search_queries_reuse_family_and_trail_identity() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
-    append_fixture_visit(
-        &archive,
-        10,
-        "https://www.google.com/search?q=rust+ownership",
-        "rust ownership - Google Search",
-        1711929720000,
-        None,
-        Some("rust ownership"),
-    );
-    append_fixture_visit(
-        &archive,
-        11,
-        "https://www.google.com/search?q=sqlite+wal+checkpoint",
-        "sqlite wal checkpoint - Google Search",
-        1711929780000,
-        None,
-        Some("sqlite wal checkpoint"),
-    );
-    append_fixture_visit(
-        &archive,
-        12,
-        "https://www.google.com/search?q=sqlite+wal",
-        "sqlite wal - Google Search",
-        1711929840000,
-        None,
-        Some("sqlite wal"),
-    );
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(|s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                10,
+                "https://www.google.com/search?q=rust+ownership",
+                "rust ownership - Google Search",
+                1711929720000,
+                None,
+                Some("rust ownership"),
+            );
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                11,
+                "https://www.google.com/search?q=sqlite+wal+checkpoint",
+                "sqlite wal checkpoint - Google Search",
+                1711929780000,
+                None,
+                Some("sqlite wal checkpoint"),
+            );
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(move |s| {
+            append_fixture_visit(
+                s,
+                12,
+                "https://www.google.com/search?q=sqlite+wal",
+                "sqlite wal - Google Search",
+                1711929840000,
+                None,
+                Some("sqlite wal"),
+            );
+            Ok(())
+        })
+        .unwrap();
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("rebuild intelligence");
-    let intelligence = open_intelligence_connection(&paths, &config, None).expect("intelligence");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("rebuild intelligence");
+    let intelligence = TestDatabase::new(&vault, vault_store::Db::Intelligence);
     intelligence
         .execute(
-            "INSERT OR REPLACE INTO query_families (
-                family_id, profile_id, anchor_query, member_count, search_engine,
+            "INSERT OR REPLACE INTO query_families_rows (
+                generation,family_id, profile_id, anchor_query, member_count, search_engine,
                 first_seen_ms, last_seen_ms, queries_json, computed_at
              ) VALUES
              (
-                'family:small-sqlite', 'chrome:Default', 'sqlite wal', 1, 'google',
+                (SELECT aggregates FROM intelligence_generations WHERE profile_id='chrome:Default'),'family:small-sqlite', 'chrome:Default', 'sqlite wal', 1, 'google',
                 1711929600000, 1711929840000, ?1, '2026-04-14T00:00:00Z'
              ),
              (
-                'family:large-sqlite', 'chrome:Default', 'sqlite wal tuning', 7, 'google',
+                (SELECT aggregates FROM intelligence_generations WHERE profile_id='chrome:Default'),'family:large-sqlite', 'chrome:Default', 'sqlite wal tuning', 7, 'google',
                 1711929600000, 1711929900000, ?1, '2026-04-14T00:00:00Z'
              )",
             params![serde_json::json!(["sqlite wal"]).to_string()],
@@ -962,9 +868,7 @@ fn search_queries_reuse_family_and_trail_identity() {
     drop(intelligence);
 
     let queries = get_search_queries(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &SearchQueryListRequest {
             date_range: DateRange {
                 start: local_date_key(1711929600000),
@@ -976,7 +880,7 @@ fn search_queries_reuse_family_and_trail_identity() {
             domain: None,
             query: Some("sqlite".to_string()),
             sort: Some("family-frequency".to_string()),
-            page: 0,
+            cursor: None,
             page_size: 10,
         },
     )
@@ -990,10 +894,10 @@ fn search_queries_reuse_family_and_trail_identity() {
     assert_eq!(top_row.display_name.as_deref(), Some("Google"));
 
     let detail = get_query_family_detail(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &QueryFamilyDetailRequest {
+            cursor: None,
+            page_size: None,
             family_id: top_row.family_id.clone().expect("family id"),
             profile_id: Some("chrome:Default".to_string()),
             date_range: DateRange {
@@ -1011,9 +915,7 @@ fn search_queries_reuse_family_and_trail_identity() {
 
     for sort in ["exact-frequency", "alphabetical"] {
         let sorted = get_search_queries(
-            &paths,
-            &config,
-            None,
+            &vault.with_config(config.clone()),
             &SearchQueryListRequest {
                 date_range: DateRange {
                     start: local_date_key(1711929600000),
@@ -1025,7 +927,7 @@ fn search_queries_reuse_family_and_trail_identity() {
                 domain: None,
                 query: Some("sqlite".to_string()),
                 sort: Some(sort.to_string()),
-                page: 0,
+                cursor: None,
                 page_size: 2,
             },
         )
@@ -1034,9 +936,7 @@ fn search_queries_reuse_family_and_trail_identity() {
     }
 
     let empty_queries = get_search_queries(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &SearchQueryListRequest {
             date_range: DateRange {
                 start: "2030-01-01".to_string(),
@@ -1048,7 +948,7 @@ fn search_queries_reuse_family_and_trail_identity() {
             domain: None,
             query: Some("sqlite".to_string()),
             sort: Some("family-frequency".to_string()),
-            page: 0,
+            cursor: None,
             page_size: 10,
         },
     )
@@ -1060,23 +960,39 @@ fn search_queries_reuse_family_and_trail_identity() {
 #[test]
 fn keyword_surfaces_filter_navigational_noise_and_support_domain_reads() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
-    seed_search_keyword_noise_fixture(&archive);
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(|s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
+    archive
+        .write(|s| {
+            seed_search_keyword_noise_fixture(s);
+            Ok(())
+        })
+        .unwrap();
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("rebuild intelligence");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("rebuild intelligence");
 
-    let intelligence = open_intelligence_connection(&paths, &config, None).expect("runtime");
-    let search_events =
-        load_profile_search_events(&intelligence, "chrome:Default").expect("search events");
+    let intelligence = TestDatabase::new(&vault, vault_store::Db::Intelligence);
+    let search_events = intelligence
+        .read(|s| load_profile_search_events(s, "chrome:Default"))
+        .expect("search events");
     let navigation_event = search_events
         .iter()
         .find(|event| event.raw_query == "https://asu.edu")
@@ -1086,9 +1002,7 @@ fn keyword_surfaces_filter_navigational_noise_and_support_domain_reads() {
     let fixture_day = local_date_key(1711929600000);
 
     let google_queries = get_search_queries(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &SearchQueryListRequest {
             date_range: DateRange { start: fixture_day.clone(), end: "2024-04-30".to_string() },
             profile_id: Some("chrome:Default".to_string()),
@@ -1097,7 +1011,7 @@ fn keyword_surfaces_filter_navigational_noise_and_support_domain_reads() {
             domain: Some("google.com".to_string()),
             query: None,
             sort: Some("newest".to_string()),
-            page: 0,
+            cursor: None,
             page_size: 20,
         },
     )
@@ -1106,9 +1020,7 @@ fn keyword_surfaces_filter_navigational_noise_and_support_domain_reads() {
     assert_eq!(google_queries.rows[0].raw_query, "sqlite wal");
 
     let github_queries = get_search_queries(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &SearchQueryListRequest {
             date_range: DateRange { start: fixture_day.clone(), end: "2024-04-30".to_string() },
             profile_id: Some("chrome:Default".to_string()),
@@ -1117,7 +1029,7 @@ fn keyword_surfaces_filter_navigational_noise_and_support_domain_reads() {
             domain: Some("github.com".to_string()),
             query: None,
             sort: Some("newest".to_string()),
-            page: 0,
+            cursor: None,
             page_size: 20,
         },
     )
@@ -1126,17 +1038,16 @@ fn keyword_surfaces_filter_navigational_noise_and_support_domain_reads() {
     assert_eq!(github_queries.rows[0].raw_query, "pathkeep sqlite");
 
     let concepts = get_top_search_concepts(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &TopSearchConceptsRequest {
+            cursor: None,
             date_range: DateRange { start: fixture_day, end: "2024-04-30".to_string() },
             profile_id: Some("chrome:Default".to_string()),
             limit: Some(20),
         },
     )
     .expect("top concepts");
-    let terms = concepts.into_iter().map(|concept| concept.term).collect::<HashSet<_>>();
+    let terms = concepts.items.into_iter().map(|concept| concept.term).collect::<HashSet<_>>();
     assert!(terms.contains("sqlite"));
     assert!(terms.contains("pathkeep"));
     assert!(!terms.contains("https"));
@@ -1148,27 +1059,37 @@ fn keyword_surfaces_filter_navigational_noise_and_support_domain_reads() {
 #[test]
 fn refind_navigation_and_hub_reads_reuse_persisted_structural_context() {
     let root = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(root.path());
+    let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
         ..AppConfig::default()
     };
-    let archive = open_archive_connection(&paths, &config, None).expect("archive");
-    seed_core_intelligence_fixture(&archive);
+    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
+    let _paths = vault.paths().clone();
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive
+        .write(|s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
     drop(archive);
 
-    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
-        .expect("rebuild intelligence");
+    run_core_intelligence(
+        &vault.with_config(config.clone()),
+        &CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("rebuild intelligence");
 
     let date_range = DateRange { start: "2024-04-01".to_string(), end: "2024-04-30".to_string() };
     let top_by_visits = get_top_sites(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &TopSitesRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: Some("chrome:Default".to_string()),
+            profile_ids: Vec::new(),
             sort_by: None,
             limit: Some(10),
         },
@@ -1177,12 +1098,12 @@ fn refind_navigation_and_hub_reads_reuse_persisted_structural_context() {
     assert_eq!(top_by_visits[0].registrable_domain, "github.com");
 
     let top_by_days = get_top_sites(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &TopSitesRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: Some("chrome:Default".to_string()),
+            profile_ids: Vec::new(),
             sort_by: Some("unique_days".to_string()),
             limit: Some(10),
         },
@@ -1191,12 +1112,12 @@ fn refind_navigation_and_hub_reads_reuse_persisted_structural_context() {
     assert!(top_by_days[0].unique_days >= top_by_visits[0].unique_days);
 
     let top_by_average = get_top_sites(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &TopSitesRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: Some("chrome:Default".to_string()),
+            profile_ids: Vec::new(),
             sort_by: Some("average_daily_visits".to_string()),
             limit: Some(10),
         },
@@ -1205,10 +1126,9 @@ fn refind_navigation_and_hub_reads_reuse_persisted_structural_context() {
     assert!(top_by_average[0].average_daily_visits >= 1.0);
 
     let refind_pages = get_refind_pages(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &RefindPagesRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: Some("chrome:Default".to_string()),
             limit: Some(10),
@@ -1222,42 +1142,45 @@ fn refind_navigation_and_hub_reads_reuse_persisted_structural_context() {
     assert!(refind_page.cross_day_count >= 2);
 
     let explanation = explain_refind(
-        &paths,
-        &config,
-        None,
-        &ExplainRefindRequest { canonical_url: refind_page.canonical_url.clone() },
+        &vault.with_config(config.clone()),
+        &ExplainRefindRequest {
+            profile_id: None,
+            cursor: None,
+            page_size: None,
+            canonical_url: refind_page.canonical_url.clone(),
+        },
     )
     .expect("refind explanation");
     assert!(!explanation.factors.is_empty());
     assert!(explanation.visit_ids.len() >= 2);
 
-    let intelligence = open_intelligence_connection(&paths, &config, None).expect("runtime");
+    let intelligence = TestDatabase::new(&vault, vault_store::Db::Intelligence);
     for (ordinal, visit_id) in explanation.visit_ids.iter().enumerate() {
         intelligence
             .execute(
-                "UPDATE visit_derived_facts
+                "UPDATE visit_assignments
                  SET trail_id = 'trail-refind-detail'
                  WHERE visit_id = ?1",
-                [visit_id],
+                [*visit_id],
             )
             .expect("link refind evidence to trail");
         intelligence
             .execute(
-                "INSERT OR REPLACE INTO search_trail_members
-                 (trail_id, profile_id, visit_id, ordinal, role)
-                 VALUES ('trail-refind-detail', 'chrome:Default', ?1, ?2, 'landing')",
+                "INSERT OR REPLACE INTO search_trail_members_rows
+                 (generation,trail_id, profile_id, visit_id, ordinal, role)
+                 VALUES ((SELECT navigation FROM intelligence_generations WHERE profile_id='chrome:Default'),'trail-refind-detail', 'chrome:Default', ?1, ?2, 'landing')",
                 params![visit_id, ordinal as i64],
             )
             .expect("link refind evidence as trail member");
     }
     intelligence
         .execute(
-            "INSERT OR REPLACE INTO search_trails (
-                trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count,
+            "INSERT OR REPLACE INTO search_trails_rows (
+                generation,trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count,
                 visit_count, landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth,
                 queries_json, computed_at
              ) VALUES (
-                'trail-refind-detail', 'chrome:Default', 'session-refind-detail', 'sqlite wal',
+                (SELECT navigation FROM intelligence_generations WHERE profile_id='chrome:Default'),'trail-refind-detail', 'chrome:Default', 'session-refind-detail', 'sqlite wal',
                 'google', 1, 2, ?1, 'github.com', 1711929600000, 1712016000000, 1,
                 '[\"sqlite wal\"]', '2026-04-14T00:00:00Z'
              )",
@@ -1267,10 +1190,11 @@ fn refind_navigation_and_hub_reads_reuse_persisted_structural_context() {
     drop(intelligence);
 
     let detail = get_refind_page_detail(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &RefindPageDetailRequest {
+            visits_cursor: None,
+            trails_cursor: None,
+            page_size: None,
             canonical_url: refind_page.canonical_url.clone(),
             date_range: date_range.clone(),
             profile_id: Some("chrome:Default".to_string()),
@@ -1283,36 +1207,37 @@ fn refind_navigation_and_hub_reads_reuse_persisted_structural_context() {
     assert!(detail.recent_days.iter().all(|day| day.len() == 10 && day.contains('-')));
     assert!(!detail.related_trails.is_empty());
 
-    let path = get_navigation_path(&paths, &config, None, 2).expect("navigation path");
+    let path = get_navigation_path(&vault.with_config(config.clone()), 2).expect("navigation path");
     assert_eq!(path.target_visit_id, 2);
     assert_eq!(path.steps.iter().map(|step| step.visit_id).collect::<Vec<_>>(), vec![1, 2]);
     assert_eq!(path.steps[0].depth, 0);
     assert_eq!(path.steps[1].depth, 1);
 
-    let archive = open_archive_connection(&paths, &config, None).expect("archive reopen");
-    archive.execute("UPDATE visits SET from_visit = 999 WHERE id = 2", []).expect("missing parent");
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive.execute("UPDATE visits SET from_visit = 999 WHERE id = 2", ()).expect("missing parent");
     drop(archive);
     let missing_parent_path =
-        get_navigation_path(&paths, &config, None, 2).expect("missing parent path");
+        get_navigation_path(&vault.with_config(config.clone()), 2).expect("missing parent path");
     assert_eq!(
         missing_parent_path.steps.iter().map(|step| step.visit_id).collect::<Vec<_>>(),
         vec![2]
     );
 
-    let archive = open_archive_connection(&paths, &config, None).expect("archive reopen");
-    archive.execute("UPDATE visits SET from_visit = 2 WHERE id = 1", []).expect("cycle parent");
-    archive.execute("UPDATE visits SET from_visit = 1 WHERE id = 2", []).expect("cycle target");
+    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
+    archive.execute("UPDATE visits SET from_visit = 2 WHERE id = 1", ()).expect("cycle parent");
+    archive.execute("UPDATE visits SET from_visit = 1 WHERE id = 2", ()).expect("cycle target");
     drop(archive);
-    let cyclic_path = get_navigation_path(&paths, &config, None, 2).expect("cyclic path");
+    let cyclic_path =
+        get_navigation_path(&vault.with_config(config.clone()), 2).expect("cyclic path");
     assert_eq!(cyclic_path.steps.iter().map(|step| step.visit_id).collect::<Vec<_>>(), vec![1, 2]);
 
     let hub_pages = get_hub_pages(
-        &paths,
-        &config,
-        None,
+        &vault.with_config(config.clone()),
         &TopSitesRequest {
+            cursor: None,
             date_range,
             profile_id: Some("chrome:Default".to_string()),
+            profile_ids: Vec::new(),
             sort_by: None,
             limit: Some(5),
         },

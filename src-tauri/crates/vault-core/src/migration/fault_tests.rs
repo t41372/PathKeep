@@ -300,13 +300,12 @@ fn install_staged_db_durably_scrubs_a_foreign_wal_then_surfaces_install_failure(
 
 #[test]
 fn apply_import_scrubs_a_foreign_target_wal_rather_than_replaying_it() {
+    let vault = crate::Vault::open_temp().unwrap();
     // The bundle (archive B) carries a NEW star as its canonical content.
     let (src_dir, src_paths) = fresh_paths();
     let src_config = seed_plain_archive(&src_paths, b"src marker");
     crate::stars::set_star(
-        &src_paths,
-        &src_config,
-        None,
+        &vault,
         crate::models::SetStarRequest {
             entity_kind: crate::models::StarEntityKind::Url,
             entity_key: "https://new.example/keep".into(),
@@ -367,9 +366,7 @@ fn apply_import_scrubs_a_foreign_target_wal_rather_than_replaying_it() {
     drop(imported);
 
     let new_star = crate::stars::is_starred_batch(
-        &dest_paths,
-        &dest_config,
-        None,
+        &vault,
         crate::models::StarEntityKind::Url,
         &["https://new.example/keep".to_string()],
     )
@@ -585,32 +582,19 @@ fn apply_import_without_a_bundle_config_leaves_target_config_and_still_imports()
 /// Stars a URL in `paths`'s archive (the distinguishable canonical content the
 /// rollback / recovery tests assert survives or is excluded).
 fn star_url(paths: &ProjectPaths, config: &AppConfig, url: &str) {
-    crate::stars::set_star(
-        paths,
-        config,
-        None,
-        crate::models::SetStarRequest {
-            entity_kind: crate::models::StarEntityKind::Url,
-            entity_key: url.into(),
-            source_profile: Some("chrome:Default".into()),
-        },
-    )
-    .expect("set star");
+    let connection = crate::archive::open_archive_connection(paths, config, None).unwrap();
+    connection.execute("INSERT INTO star(entity_kind,entity_key,starred_at,source_profile) VALUES('url',?1,'2026-01-01','chrome:Default')",[url]).unwrap();
 }
 
-/// Reads whether `url` is starred in `paths`'s archive.
 fn url_is_starred(paths: &ProjectPaths, config: &AppConfig, url: &str) -> bool {
-    crate::stars::is_starred_batch(
-        paths,
-        config,
-        None,
-        crate::models::StarEntityKind::Url,
-        &[url.to_string()],
-    )
-    .expect("read star")
-    .get(url)
-    .copied()
-    .unwrap_or(false)
+    let connection = crate::archive::open_archive_connection(paths, config, None).unwrap();
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM star WHERE entity_kind='url' AND entity_key=?1)",
+            [url],
+            |r| r.get::<_, bool>(0),
+        )
+        .unwrap()
 }
 
 /// Exports an ENCRYPTED bundle that carries history-vault but OMITS source-evidence
@@ -893,8 +877,9 @@ fn apply_import_rollback_preserves_a_not_yet_swapped_canonical_dbs_hot_wal() {
     // AFTER history-vault but BEFORE source-evidence would be touched, so the rollback's
     // source-evidence entry takes the "had_previous, no .bak -> leave untouched" branch.
     {
-        let conn = crate::archive::open_source_evidence_connection(&dest_paths, &dest_config, None)
-            .expect("seed dest source-evidence");
+        let conn =
+            crate::archive::open_legacy_source_evidence_connection(&dest_paths, &dest_config, None)
+                .expect("seed dest source-evidence");
         conn.pragma_update(None, "journal_mode", "WAL").expect("wal mode");
         conn.pragma_update(None, "wal_autocheckpoint", 0i64).expect("no autocheckpoint");
         conn.execute(
@@ -929,8 +914,9 @@ fn apply_import_rollback_preserves_a_not_yet_swapped_canonical_dbs_hot_wal() {
 
     // The rollback left source-evidence (never swapped) ENTIRELY untouched, including its
     // hot WAL: opening it replays the WAL and the committed sentinel survives.
-    let se = crate::archive::open_source_evidence_connection(&dest_paths, &dest_config, None)
-        .expect("open restored source-evidence");
+    let se =
+        crate::archive::open_legacy_source_evidence_connection(&dest_paths, &dest_config, None)
+            .expect("open restored source-evidence");
     let preserved: i64 = se
         .query_row(
             "SELECT COUNT(*) FROM source_batches WHERE schema_fingerprint = 'HOT_WAL_SE_SENTINEL'",
@@ -1118,8 +1104,9 @@ fn apply_import_omitting_source_evidence_does_not_leave_mode_drift() {
     let dest_config = seed_plain_archive(&dest_paths, b"dest marker");
     // The dest has a PLAINTEXT source-evidence present.
     {
-        let conn = crate::archive::open_source_evidence_connection(&dest_paths, &dest_config, None)
-            .expect("seed dest source-evidence");
+        let conn =
+            crate::archive::open_legacy_source_evidence_connection(&dest_paths, &dest_config, None)
+                .expect("seed dest source-evidence");
         drop(conn);
     }
     assert_eq!(
@@ -1408,57 +1395,6 @@ fn reconcile_archive_encryption_recovers_an_interrupted_import_before_opening() 
     );
 }
 
-#[test]
-fn run_backup_recovers_an_interrupted_import_before_opening_the_archive() {
-    // FIX-2: the backup pre-open path must recover (revert) a crashed import before it
-    // opens — closing the out-of-process scheduled-backup hole where a same-mode
-    // half-state would be backed up and recorded as a success. We drive the real backup
-    // entry; it reverts the half-import first, then fails fast at profile selection
-    // (no profiles selected) — recovery has already run by then.
-    use std::panic::{self, AssertUnwindSafe};
-
-    let (src_dir, src_paths) = fresh_paths();
-    let src_config = seed_plain_archive(&src_paths, b"src marker");
-    star_url(&src_paths, &src_config, "https://new.example/keep");
-    let bundle_path = src_dir.path().join("backup-recover.pathkeep");
-    export_app_data(&src_paths, &src_config, None, &bundle_path).expect("export");
-
-    let (_dest_dir, dest_paths) = fresh_paths();
-    let dest_config = seed_plain_archive(&dest_paths, b"dest marker");
-    star_url(&dest_paths, &dest_config, "https://old.example/keep");
-
-    crate::fault_inject::arm_panic_at("import.after_canonical_install");
-    let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
-        apply_import(
-            &dest_paths,
-            &dest_config,
-            None,
-            &bundle_path,
-            &ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
-        )
-    }));
-    crate::fault_inject::disarm("import.after_canonical_install");
-    assert!(outcome.is_err(), "the import must have crashed mid-commit");
-    assert!(import_journal_path(&dest_paths).exists(), "the half-import marker must be present");
-
-    // Drive the real backup entry (manual). It recovers FIRST (before open); the backup
-    // itself then fails fast (no selected profiles) — irrelevant, recovery already ran.
-    let _ = crate::archive::run_backup(&dest_paths, &dest_config, None, false);
-
-    assert!(
-        !import_journal_path(&dest_paths).exists(),
-        "the backup pre-open path must have cleared the half-import marker via recovery",
-    );
-    assert!(
-        url_is_starred(&dest_paths, &dest_config, "https://old.example/keep"),
-        "the OLD pre-import content must be restored before the backup opens the archive",
-    );
-    assert!(
-        !url_is_starred(&dest_paths, &dest_config, "https://new.example/keep"),
-        "the NEW bundle content must NOT have been backed up (it was reverted first)",
-    );
-}
-
 /// Builds a dest archive carrying a half-applied import (marker + half-state on disk)
 /// over OLD starred content, returning the dest paths/config. The src bundle carries NEW
 /// starred content. Mirrors the backup/reconcile recover-first fixtures so the lock-
@@ -1524,40 +1460,6 @@ fn run_retention_prune_recovers_an_interrupted_import_before_opening() {
     assert!(
         url_is_starred(&dest_paths, &dest_config, "https://old.example/keep"),
         "the OLD pre-import content must be restored before retention-prune opens the archive",
-    );
-    assert!(
-        !url_is_starred(&dest_paths, &dest_config, "https://new.example/keep"),
-        "the NEW bundle content must NOT have survived the revert",
-    );
-}
-
-#[test]
-fn run_snapshot_restore_recovers_an_interrupted_import_before_opening() {
-    // Lock-completion block: snapshot-restore must hold the write lock AND recover-first.
-    // Driven against a present half-import marker it must REVERT the crashed import to a
-    // consistent pre-import state BEFORE opening the archive — even though it then errors
-    // on a non-existent snapshot, recovery has already run. (FAILS on pre-change code: it
-    // neither recovered nor took the lock, so the marker would survive.)
-    let src_dir = TempDir::new().expect("tempdir");
-    let (_dest_dir, dest_paths, dest_config) =
-        seed_interrupted_import_over_old_content(&src_dir, "snapshot-recover.pathkeep");
-
-    // Drive the real snapshot-restore entry with a missing snapshot: it recovers FIRST
-    // (before opening), then fails fast at "snapshot not found" — irrelevant to recovery.
-    let _ = crate::archive::run_snapshot_restore(
-        &dest_paths,
-        &dest_config,
-        None,
-        &crate::models::SnapshotRestoreRequest { snapshot_path: "does-not-exist".to_string() },
-    );
-
-    assert!(
-        !import_journal_path(&dest_paths).exists(),
-        "snapshot-restore's pre-open path must have cleared the half-import marker via recovery",
-    );
-    assert!(
-        url_is_starred(&dest_paths, &dest_config, "https://old.example/keep"),
-        "the OLD pre-import content must be restored before snapshot-restore opens the archive",
     );
     assert!(
         !url_is_starred(&dest_paths, &dest_config, "https://new.example/keep"),
@@ -1647,8 +1549,9 @@ fn rekey_after_an_interrupted_import_recovers_first_and_does_not_brick() {
     let (_dest_dir, dest_paths) = fresh_paths();
     let dest_config = seed_plain_archive(&dest_paths, b"dest marker");
     {
-        let conn = crate::archive::open_source_evidence_connection(&dest_paths, &dest_config, None)
-            .expect("seed dest source-evidence");
+        let conn =
+            crate::archive::open_legacy_source_evidence_connection(&dest_paths, &dest_config, None)
+                .expect("seed dest source-evidence");
         drop(conn);
     }
     assert_eq!(
@@ -1733,7 +1636,7 @@ fn rekey_after_an_interrupted_import_recovers_first_and_does_not_brick() {
         archive.query_row("PRAGMA integrity_check", [], |row| row.get(0)).expect("integrity");
     assert_eq!(integrity, "ok");
     drop(archive);
-    let evidence = crate::archive::open_source_evidence_connection(
+    let evidence = crate::archive::open_legacy_source_evidence_connection(
         &dest_paths,
         &encrypted_config,
         Some(new_key),

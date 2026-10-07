@@ -1,3 +1,4 @@
+//! Failure modes: built-in rules override user choices or canonical query extraction changes across batches.
 //! Per-visit site classification and search-query extraction.
 //!
 //! ## Responsibilities

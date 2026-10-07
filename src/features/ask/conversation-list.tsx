@@ -6,7 +6,7 @@
  */
 import { useQueryClient } from '@tanstack/react-query'
 import { MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   AlertDialog,
@@ -153,6 +153,14 @@ export function ConversationList({
         </div>
       ))}
 
+      <LoadMore
+        enabled={conversations.hasNextPage && !conversations.isFetchingNextPage}
+        onVisible={conversations.fetchNextPage}
+      />
+      {conversations.isFetchingNextPage && (
+        <Skeleton className="mt-1 h-[52px] rounded-[10px]" />
+      )}
+
       <RenameDialog
         conversation={renaming}
         onClose={() => setRenaming(null)}
@@ -193,6 +201,27 @@ export function ConversationList({
       </AlertDialog>
     </aside>
   )
+}
+
+/** Asks for the next page of conversations when the end of the list scrolls into view. */
+function LoadMore({
+  enabled,
+  onVisible,
+}: {
+  enabled: boolean
+  onVisible: () => unknown
+}) {
+  const sentinel = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const node = sentinel.current
+    if (!enabled || !node) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void onVisible()
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [enabled, onVisible])
+  return <div ref={sentinel} aria-hidden className="h-px" />
 }
 
 function GroupLabel({ children }: { children: string }) {

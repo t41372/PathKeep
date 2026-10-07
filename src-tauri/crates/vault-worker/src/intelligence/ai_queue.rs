@@ -1,3 +1,4 @@
+//! Failure modes: the wrong owner is used, a claim loses its cursor, cancellation becomes success, or current provider settings replace a queued snapshot.
 //! Worker-side AI queue and assistant/search orchestration.
 //!
 //! ## Responsibilities
@@ -25,8 +26,8 @@
 
 use super::AI_QUEUE_ACTIVE_WORKERS;
 use crate::context::{
-    ai_archive_connection, load_unlocked_config, provider_config_for_request,
-    queue_failure_from_error, resolve_provider_runtime, search_response_with_resolution_note,
+    load_unlocked_config, provider_config_for_request, queue_failure_from_error,
+    resolve_provider_runtime, search_response_with_resolution_note,
     selected_embedding_provider_runtime, selected_llm_provider_runtime,
     selected_optional_embedding_runtime, tokio_runtime,
 };
@@ -59,32 +60,16 @@ const AI_JOB_CONTROL_HEARTBEAT_EVERY: Duration = Duration::from_secs(30);
 /// cancellation requests interrupt long-running jobs without guessing whether a
 /// provider call is still alive.
 pub(crate) fn start_ai_job_control(
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     job_id: i64,
 ) -> Arc<BackgroundJobControl> {
-    let paths = paths.clone();
-    let config = config.clone();
-    let session_database_key = session_database_key.map(ToOwned::to_owned);
+    let heartbeat = vault.clone();
+    let cancellation = vault.clone();
     Arc::new(BackgroundJobControl::spawn(
         AI_JOB_CONTROL_POLL_INTERVAL,
         AI_JOB_CONTROL_HEARTBEAT_EVERY,
-        {
-            let paths = paths.clone();
-            let config = config.clone();
-            let session_database_key = session_database_key.clone();
-            move || {
-                let connection =
-                    ai_archive_connection(&paths, &config, session_database_key.as_deref())?;
-                ai_queue::heartbeat_ai_job(&connection, job_id)
-            }
-        },
-        move || {
-            let connection =
-                ai_archive_connection(&paths, &config, session_database_key.as_deref())?;
-            ai_queue::ai_job_stop_requested(&connection, job_id)
-        },
+        move || ai_queue::heartbeat_ai_job(&heartbeat, job_id),
+        move || ai_queue::ai_job_stop_requested(&cancellation, job_id),
     ))
 }
 
@@ -96,16 +81,12 @@ pub(crate) fn start_ai_job_control(
 /// whole archive (02 §C.6 R1). It opens a fresh connection per call (cheap, bounded) so it never
 /// has to share the drain loop's connection across the async embed boundary.
 struct IndexCursorLedger {
-    paths: vault_core::ProjectPaths,
-    config: AppConfig,
-    session_database_key: Option<String>,
+    vault: vault_core::Vault,
     job_id: i64,
 }
 
 impl vault_core::IndexBackfillLedger for IndexCursorLedger {
     fn record(&self, progress: vault_core::IndexBackfillProgress) -> Result<()> {
-        let connection =
-            ai_archive_connection(&self.paths, &self.config, self.session_database_key.as_deref())?;
         let cursor = ai_queue::IndexBackfillCursor {
             next_history_id: progress.next_history_id,
             embedded_so_far: progress.embedded_so_far,
@@ -117,7 +98,7 @@ impl vault_core::IndexBackfillLedger for IndexCursorLedger {
             embed_target: progress.embed_target,
         };
         let summary = format!("Embedded {} row(s) so far.", progress.embedded_so_far);
-        match ai_queue::persist_index_cursor(&connection, self.job_id, &cursor, Some(&summary))? {
+        match ai_queue::persist_index_cursor(&self.vault, self.job_id, &cursor, Some(&summary))? {
             // A reclaimed lease (the stale-sweep moved this row out of `running`) means another
             // worker now owns the job. We MUST abort here so this de-leased worker stops embedding +
             // appending to the vector store while the new owner also writes it (HIGH-3): the Err
@@ -161,10 +142,10 @@ fn index_start_embedded(payload: &ai_queue::AiJobPayload) -> u64 {
 /// to manually coordinate success/failure writes, cancellation checks, and the
 /// final user-visible summary.
 pub(crate) fn complete_claimed_index_job(
-    connection: &rusqlite::Connection,
-    paths: &vault_core::ProjectPaths,
+    vault: &vault_core::Vault,
+    _paths: &vault_core::ProjectPaths,
     config: &AppConfig,
-    session_database_key: Option<&str>,
+    _session_database_key: Option<&str>,
     claimed: ai_queue::StoredAiJob,
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
@@ -177,17 +158,11 @@ pub(crate) fn complete_claimed_index_job(
         // seed the cumulative embedded count so the progress bar keeps climbing across the reclaim.
         let start_history_id = index_start_history_id(&claimed.payload);
         let start_embedded = index_start_embedded(&claimed.payload);
-        let run_control = start_ai_job_control(paths, config, session_database_key, claimed.id);
-        let ledger: Arc<dyn vault_core::IndexBackfillLedger> = Arc::new(IndexCursorLedger {
-            paths: paths.clone(),
-            config: config.clone(),
-            session_database_key: session_database_key.map(ToOwned::to_owned),
-            job_id: claimed.id,
-        });
+        let run_control = start_ai_job_control(vault, claimed.id);
+        let ledger: Arc<dyn vault_core::IndexBackfillLedger> =
+            Arc::new(IndexCursorLedger { vault: vault.clone(), job_id: claimed.id });
         let result = runtime.block_on(build_ai_index_with_control(
-            paths,
-            config,
-            session_database_key,
+            vault,
             &provider,
             request,
             Some(run_control.clone()),
@@ -207,7 +182,7 @@ pub(crate) fn complete_claimed_index_job(
                 report.indexed_items, report.updated_items
             );
             mark_successful_ai_job_or_cancelled(
-                connection,
+                vault,
                 claimed.id,
                 report.run_id,
                 Some(summary.as_str()),
@@ -217,15 +192,15 @@ pub(crate) fn complete_claimed_index_job(
         }
         Err(error) => {
             let failure = queue_failure_from_error(&error);
-            if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
+            if ai_queue::ai_job_stop_requested(vault, claimed.id)? {
                 let _ = ai_queue::mark_running_ai_job_cancelled(
-                    connection,
+                    vault,
                     claimed.id,
                     Some("Index build cancelled from the UI."),
                 )?;
             } else {
                 ai_queue::mark_ai_job_failed(
-                    connection,
+                    vault,
                     claimed.id,
                     None,
                     &failure,
@@ -243,7 +218,7 @@ pub(crate) fn complete_claimed_index_job(
 /// Centralizing the state transition logic here keeps the queue contract honest
 /// for both background drains and foreground "run now" paths.
 pub(crate) fn complete_claimed_assistant_job(
-    connection: &rusqlite::Connection,
+    vault: &vault_core::Vault,
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
@@ -263,8 +238,9 @@ pub(crate) fn complete_claimed_assistant_job(
             .map(|provider_id| selected_embedding_provider_runtime(config, Some(provider_id)))
             .transpose()?;
         let runtime = tokio_runtime()?;
-        let run_control = start_ai_job_control(paths, config, session_database_key, claimed.id);
+        let run_control = start_ai_job_control(vault, claimed.id);
         let result = runtime.block_on(answer_history_question_with_control(
+            vault,
             paths,
             config,
             session_database_key,
@@ -282,7 +258,7 @@ pub(crate) fn complete_claimed_assistant_job(
             response.job_id = Some(claimed.id);
             let summary = format!("Answered with {} citation(s).", response.citations.len());
             mark_successful_ai_job_or_cancelled(
-                connection,
+                vault,
                 claimed.id,
                 response.run_id,
                 Some(summary.as_str()),
@@ -292,15 +268,15 @@ pub(crate) fn complete_claimed_assistant_job(
         }
         Err(error) => {
             let failure = queue_failure_from_error(&error);
-            if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
+            if ai_queue::ai_job_stop_requested(vault, claimed.id)? {
                 let _ = ai_queue::mark_running_ai_job_cancelled(
-                    connection,
+                    vault,
                     claimed.id,
                     Some("Assistant run cancelled from the UI."),
                 )?;
             } else {
                 ai_queue::mark_ai_job_failed(
-                    connection,
+                    vault,
                     claimed.id,
                     None,
                     &failure,
@@ -313,19 +289,19 @@ pub(crate) fn complete_claimed_assistant_job(
 }
 
 fn mark_successful_ai_job_or_cancelled(
-    connection: &rusqlite::Connection,
+    vault: &vault_core::Vault,
     job_id: i64,
     run_id: Option<i64>,
     success_summary: Option<&str>,
     cancellation_summary: Option<&str>,
 ) -> Result<bool> {
-    let cancelled = if ai_queue::ai_job_stop_requested(connection, job_id)? {
+    let cancelled = if ai_queue::ai_job_stop_requested(vault, job_id)? {
         true
     } else {
-        !ai_queue::mark_ai_job_succeeded(connection, job_id, run_id, success_summary)?
+        !ai_queue::mark_ai_job_succeeded(vault, job_id, run_id, success_summary)?
     };
     if cancelled {
-        let _ = ai_queue::mark_running_ai_job_cancelled(connection, job_id, cancellation_summary)?;
+        let _ = ai_queue::mark_running_ai_job_cancelled(vault, job_id, cancellation_summary)?;
     }
     Ok(cancelled)
 }
@@ -335,23 +311,16 @@ fn mark_successful_ai_job_or_cancelled(
 /// This path is used when the UI wants an answer right away instead of waiting
 /// for the background drain loop to notice a newly enqueued request.
 pub(crate) fn execute_assistant_job(
-    connection: &rusqlite::Connection,
+    vault: &vault_core::Vault,
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
     job_id: i64,
     request: &AiAssistantRequest,
 ) -> Result<AiAssistantResponse> {
-    let claimed = ai_queue::claim_ai_job_by_id(connection, job_id, 300)?
+    let claimed = ai_queue::claim_ai_job_by_id(vault, job_id, 300)?
         .with_context(|| format!("AI assistant job {job_id} is not ready to run"))?;
-    complete_claimed_assistant_job(
-        connection,
-        paths,
-        config,
-        session_database_key,
-        claimed,
-        request,
-    )
+    complete_claimed_assistant_job(vault, paths, config, session_database_key, claimed, request)
 }
 
 /// Starts background AI queue workers when there is queued work to drain.
@@ -360,6 +329,7 @@ pub(crate) fn execute_assistant_job(
 /// new AI jobs. Keeping the spawn decision here ensures archive flows and queue
 /// callers share the same paused-state and concurrency guard.
 pub(crate) fn maybe_spawn_ai_queue_drain(
+    vault: &vault_core::Vault,
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
@@ -369,6 +339,7 @@ pub(crate) fn maybe_spawn_ai_queue_drain(
         return;
     }
     spawn_ai_queue_drain(
+        vault,
         paths.clone(),
         config.ai.job_queue_concurrency.max(1) as usize,
         session_database_key.map(ToOwned::to_owned),
@@ -381,16 +352,18 @@ pub(crate) fn maybe_spawn_ai_queue_drain(
 /// opened, or config says the AI queue is paused. The shared atomic counter keeps
 /// the host from exceeding the configured concurrency.
 fn spawn_ai_queue_drain(
+    vault: &vault_core::Vault,
     paths: vault_core::ProjectPaths,
     desired_workers: usize,
     session_database_key: Option<String>,
 ) {
+    let vault = vault.clone();
     maybe_spawn_worker_pool(
         "pathkeep-ai-queue",
         &AI_QUEUE_ACTIVE_WORKERS,
         desired_workers,
         move || loop {
-            match drain_one_ai_queue_job(&paths, session_database_key.as_deref()) {
+            match drain_one_ai_queue_job(&vault, &paths, session_database_key.as_deref()) {
                 Ok(true) => {}
                 Ok(false) => break,
                 Err(error) => {
@@ -403,6 +376,7 @@ fn spawn_ai_queue_drain(
 }
 
 pub(crate) fn drain_one_ai_queue_job(
+    vault: &vault_core::Vault,
     paths: &vault_core::ProjectPaths,
     session_database_key: Option<&str>,
 ) -> Result<bool> {
@@ -410,17 +384,14 @@ pub(crate) fn drain_one_ai_queue_job(
     if !config.initialized || config.ai.job_queue_paused {
         return Ok(false);
     }
-    let connection = ai_archive_connection(paths, &config, session_database_key)
-        .context("open archive for AI queue work")?;
-    let Some(job) =
-        ai_queue::claim_next_ai_job(&connection, 300).context("claim next AI queue job")?
+    let Some(job) = ai_queue::claim_next_ai_job(vault, 300).context("claim next AI queue job")?
     else {
         return Ok(false);
     };
     match job.payload.clone() {
         ai_queue::AiJobPayload::Index { request, .. } => {
             let _ = complete_claimed_index_job(
-                &connection,
+                vault,
                 paths,
                 &config,
                 session_database_key,
@@ -430,7 +401,7 @@ pub(crate) fn drain_one_ai_queue_job(
         }
         ai_queue::AiJobPayload::Assistant { payload } => {
             let _ = complete_claimed_assistant_job(
-                &connection,
+                vault,
                 paths,
                 &config,
                 session_database_key,
@@ -446,18 +417,21 @@ pub(crate) fn drain_one_ai_queue_job(
 ///
 /// The returned snapshot doubles as a lazy "kick the drain loop if needed"
 /// surface, which keeps queue work moving even when the UI only polls status.
-pub fn load_ai_queue(session_database_key: Option<&str>) -> Result<AiQueueStatus> {
-    let paths = vault_core::project_paths()?;
+pub fn load_ai_queue(
+    vault: &vault_core::Vault,
+    session_database_key: Option<&str>,
+) -> Result<AiQueueStatus> {
+    let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
-    let status = vault_core::ai_queue_status(&paths, &config, session_database_key)?;
+    let status = vault_core::ai_queue_status(&vault.with_config(config.clone()))?;
     // Kick the drain on RECOVERABLE work, not just `status.queued`. `queued` never includes a job
     // orphaned in `running` by a dead worker (app quit/crash), so gating on it left an interrupted
     // index build wedged forever — the drain that would reclaim it from its cursor was never spawned.
     // `recoverable_ai_jobs` also counts those orphans, so the periodic status poll self-heals the wedge.
     // It reads the same intelligence connection `ai_queue_status` just opened above, so propagating its
     // error (rather than swallowing it) keeps the two reads consistent.
-    let drainable = vault_core::recoverable_ai_jobs(&paths, &config, session_database_key)?;
-    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, drainable);
+    let drainable = vault_core::recoverable_ai_jobs(vault)?;
+    maybe_spawn_ai_queue_drain(vault, &paths, &config, session_database_key, drainable);
     Ok(status)
 }
 
@@ -466,25 +440,25 @@ pub fn load_ai_queue(session_database_key: Option<&str>) -> Result<AiQueueStatus
 /// This is the explicit "run now" path used by review/debug surfaces that want
 /// deterministic progress instead of waiting for background workers.
 pub fn run_ai_queue_jobs(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     max_jobs: Option<u32>,
 ) -> Result<AiQueueStatus> {
-    let paths = vault_core::project_paths()?;
+    let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
     if config.ai.job_queue_paused {
-        return vault_core::ai_queue_status(&paths, &config, session_database_key);
+        return vault_core::ai_queue_status(&vault.with_config(config.clone()));
     }
 
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
     let limit = max_jobs.unwrap_or(config.ai.job_queue_concurrency.max(1));
     for _ in 0..limit {
-        let Some(job) = ai_queue::claim_next_ai_job(&connection, 300)? else {
+        let Some(job) = ai_queue::claim_next_ai_job(vault, 300)? else {
             break;
         };
         match job.payload.clone() {
             ai_queue::AiJobPayload::Index { request, .. } => {
                 let _ = complete_claimed_index_job(
-                    &connection,
+                    vault,
                     &paths,
                     &config,
                     session_database_key,
@@ -494,7 +468,7 @@ pub fn run_ai_queue_jobs(
             }
             ai_queue::AiJobPayload::Assistant { payload } => {
                 let _ = complete_claimed_assistant_job(
-                    &connection,
+                    vault,
                     &paths,
                     &config,
                     session_database_key,
@@ -505,16 +479,20 @@ pub fn run_ai_queue_jobs(
         }
     }
 
-    vault_core::ai_queue_status(&paths, &config, session_database_key)
+    vault_core::ai_queue_status(&vault.with_config(config.clone()))
 }
 
 /// Marks one AI job as replayable and restarts the drain loop if it became queued again.
-pub fn replay_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<AiQueueJob> {
-    let paths = vault_core::project_paths()?;
+pub fn replay_ai_job(
+    vault: &vault_core::Vault,
+    session_database_key: Option<&str>,
+    job_id: i64,
+) -> Result<AiQueueJob> {
+    let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    let job = ai_queue::replay_ai_job(&connection, job_id, config.ai.job_queue_paused)?;
+    let job = ai_queue::replay_ai_job(vault, job_id, config.ai.job_queue_paused)?;
     maybe_spawn_ai_queue_drain(
+        vault,
         &paths,
         &config,
         session_database_key,
@@ -524,11 +502,10 @@ pub fn replay_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<
 }
 
 /// Cancels one queued or retryable AI job without touching finished run artifacts.
-pub fn cancel_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<AiQueueJob> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    ai_queue::cancel_ai_job(&connection, job_id)
+pub fn cancel_ai_job(vault: &vault_core::Vault, job_id: i64) -> Result<AiQueueJob> {
+    let paths = vault.paths().clone();
+    let _config = load_unlocked_config(&paths)?;
+    ai_queue::cancel_ai_job(vault, job_id)
 }
 
 /// Recovers a WEDGED or DEGRADED semantic-index build: clears the stuck index job(s) and re-enqueues
@@ -549,15 +526,14 @@ pub fn cancel_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<
 /// and a 0-vector index genuinely self-heals. The returned [`AiIndexReport`] is the new job's
 /// acknowledgement, exactly like a manual build.
 pub fn reset_ai_index_build(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    let cleared = ai_queue::clear_index_jobs(&connection)?;
+    let paths = vault.paths().clone();
+    let _config = load_unlocked_config(&paths)?;
+    let cleared = ai_queue::clear_index_jobs(vault)?;
     // Drop the connection before `build_ai_index_now` opens its own (it re-resolves paths/config).
-    drop(connection);
     // Coerce to a full rebuild so the degraded 0-vector index actually re-embeds (see fn docs). Only
     // the provider selection survives from the caller; the rebuild owns the rest. This cannot be
     // subverted by a caller that forgot to ask for a full rebuild (the FE, the dev bridge, or a
@@ -569,7 +545,7 @@ pub fn reset_ai_index_build(
         limit: None,
         scope: ReembedScope::Full,
     };
-    let mut report = build_ai_index_now(session_database_key, &rebuild)?;
+    let mut report = build_ai_index_now(vault, session_database_key, &rebuild)?;
     report.notes.insert(
         0,
         format!(
@@ -581,10 +557,11 @@ pub fn reset_ai_index_build(
 
 /// Enqueues an AI index build and starts background work when the queue is active.
 pub fn build_ai_index_now(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
-    let paths = vault_core::project_paths()?;
+    let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
     // Consent gate at the firing site (M-3): a BUILD/re-embed enqueues an embedding job (provider
     // egress + ~59 GB of derived vectors), so it requires the master AI switch AND the semantic-index
@@ -602,9 +579,7 @@ pub fn build_ai_index_now(
     )?;
     let queued_request =
         AiIndexRequest { provider_id: Some(provider_config.id.clone()), ..request.clone() };
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    let queued =
-        ai_queue::enqueue_index_job(&connection, &queued_request, config.ai.job_queue_paused)?;
+    let queued = ai_queue::enqueue_index_job(vault, &queued_request, config.ai.job_queue_paused)?;
 
     if config.ai.job_queue_paused {
         return Ok(AiIndexReport {
@@ -623,7 +598,7 @@ pub fn build_ai_index_now(
             )],
         });
     }
-    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, 1);
+    maybe_spawn_ai_queue_drain(vault, &paths, &config, session_database_key, 1);
     Ok(AiIndexReport {
         job_id: Some(queued.id),
         run_id: None,
@@ -648,42 +623,46 @@ pub fn build_ai_index_now(
 /// embeds, or touches the network. Surfaced to the FE BEFORE a re-embed fires so the user sees the
 /// cost (PME). `gpu_available` reflects whether THIS binary was built with the `metal` feature.
 pub fn estimate_reembed_now(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     scope: ReembedScope,
 ) -> Result<ReembedEstimate> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    // The working-set selector + unique-page count read the canonical `archive` schema; the
-    // intelligence connection attaches it, but the selector queries unqualified table names, so run
-    // the estimate against the archive connection directly (mirrors `enqueue_content_fetch_working_set`).
-    let archive =
-        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
-    // `urls.last_visit_ms` is Chrome-epoch ms; derive "now" in the same frame for the recency window.
-    const CHROME_EPOCH_OFFSET_MS: i64 = 11_644_473_600_000;
-    let now_ms = chrono::Utc::now().timestamp_millis() + CHROME_EPOCH_OFFSET_MS;
-    estimate_reembed(&archive, &WorkingSetConfig::default(), now_ms, scope)
+    estimate_reembed(
+        vault,
+        &WorkingSetConfig::default(),
+        chrono::Utc::now().timestamp_millis(),
+        scope,
+    )
 }
 
 /// Runs semantic search and degrades to lexical recall when embeddings are unavailable.
 pub fn search_ai_history(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     request: &AiSearchRequest,
 ) -> Result<AiSearchResponse> {
-    let paths = vault_core::project_paths()?;
+    let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
     let embedding_provider = match selected_optional_embedding_runtime(&config) {
         Ok(provider) => provider,
         Err(error) => {
             let lexical =
-                run_semantic_search(&paths, &config, session_database_key, None, request)?;
+                run_semantic_search(vault, &paths, &config, session_database_key, None, request)?;
             return Ok(search_response_with_resolution_note(lexical, Some(error)));
         }
     };
-    run_semantic_search(&paths, &config, session_database_key, embedding_provider.as_ref(), request)
+    run_semantic_search(
+        vault,
+        &paths,
+        &config,
+        session_database_key,
+        embedding_provider.as_ref(),
+        request,
+    )
 }
 
 /// Executes one semantic-search request using the optional embedding provider.
 fn run_semantic_search(
+    vault: &vault_core::Vault,
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
@@ -691,6 +670,7 @@ fn run_semantic_search(
     request: &AiSearchRequest,
 ) -> Result<AiSearchResponse> {
     tokio_runtime()?.block_on(semantic_search_history(
+        vault,
         paths,
         config,
         session_database_key,
@@ -701,16 +681,16 @@ fn run_semantic_search(
 
 /// Enqueues one assistant request and executes it immediately when the queue is active.
 pub fn ask_ai_assistant(
+    vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     request: &AiAssistantRequest,
 ) -> Result<AiAssistantResponse> {
-    let paths = vault_core::project_paths()?;
+    let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
     let llm_provider = provider_config_for_request(&config, None, AiProviderPurpose::Llm)?;
     let embedding_provider = config.ai.embedding_provider_id.clone();
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
     let queued = ai_queue::enqueue_assistant_job(
-        &connection,
+        vault,
         request,
         &llm_provider.id,
         embedding_provider.as_deref(),
@@ -734,21 +714,20 @@ pub fn ask_ai_assistant(
         });
     }
 
-    execute_assistant_job(&connection, &paths, &config, session_database_key, queued.id, request)
+    execute_assistant_job(vault, &paths, &config, session_database_key, queued.id, request)
 }
 
 /// Loads one assistant job state, including the persisted answer when ready.
 pub fn load_ai_assistant_job(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     job_id: i64,
 ) -> Result<AiAssistantResponse> {
-    let paths = vault_core::project_paths()?;
+    let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
-    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
-    let job = ai_queue::load_ai_job(&connection, job_id)?;
+    let job = ai_queue::load_ai_job(vault, job_id)?;
     let Some(run_id) = job.run_id else {
         let (provider_id, embedding_provider_id) =
-            match ai_queue::load_ai_job_payload(&connection, job_id)? {
+            match ai_queue::load_ai_job_payload(vault, job_id)? {
                 ai_queue::AiJobPayload::Assistant { payload } => (
                     payload.llm_provider_id,
                     payload.embedding_provider_id.unwrap_or_else(|| "lexical-fallback".to_string()),
@@ -776,7 +755,7 @@ pub fn load_ai_assistant_job(
                 .unwrap_or_else(|| vec!["Assistant job has not finished yet.".to_string()]),
         });
     };
-    let mut response = load_assistant_run_response(&paths, &config, session_database_key, run_id)?;
+    let mut response = load_assistant_run_response(vault, run_id)?;
     response.job_id = Some(job.id);
     response.state = job.state;
     Ok(response)
@@ -817,41 +796,44 @@ pub fn test_ai_provider_connection_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
+    use vault_core::test_support::native::TestDatabase;
+    use vault_store::Db;
 
-    fn claimed_index_job(connection: &Connection) -> i64 {
-        ai_queue::ensure_ai_queue_schema(connection).expect("queue schema");
-        let queued = ai_queue::enqueue_index_job(connection, &AiIndexRequest::default(), false)
-            .expect("enqueue index job");
-        ai_queue::claim_ai_job_by_id(connection, queued.id, 300)
+    fn claimed_index_job(connection: &TestDatabase) -> i64 {
+        let queued =
+            ai_queue::enqueue_index_job(&connection.vault, &AiIndexRequest::default(), false)
+                .expect("enqueue index job");
+        ai_queue::claim_ai_job_by_id(&connection.vault, queued.id, 300)
             .expect("claim index job")
             .expect("claimed index job");
         queued.id
     }
 
-    fn job_state(connection: &Connection, job_id: i64) -> String {
+    fn job_state(connection: &TestDatabase, job_id: i64) -> String {
         connection
-            .query_row("SELECT state FROM ai_jobs WHERE id = ?1", [job_id], |row| row.get(0))
+            .query_row("SELECT state FROM ai_jobs WHERE id = ?1", [job_id], |row| Ok(row.get(0)?))
             .expect("job state")
     }
 
-    fn job_error(connection: &Connection, job_id: i64) -> String {
+    fn job_error(connection: &TestDatabase, job_id: i64) -> String {
         connection
             .query_row("SELECT error_message FROM ai_jobs WHERE id = ?1", [job_id], |row| {
-                row.get(0)
+                Ok(row.get(0)?)
             })
             .expect("job error")
     }
 
     #[test]
     fn index_provider_preflight_failure_is_persisted() {
-        let connection = Connection::open_in_memory().expect("memory queue");
+        let vault = vault_core::Vault::open_temp().unwrap();
+        let connection = TestDatabase::new(&vault, Db::Intelligence);
         let request = AiIndexRequest {
             provider_id: Some("deleted-embedding".to_string()),
             ..Default::default()
         };
-        let queued = ai_queue::enqueue_index_job(&connection, &request, false).expect("enqueue");
-        let claimed = ai_queue::claim_ai_job_by_id(&connection, queued.id, 300)
+        let queued =
+            ai_queue::enqueue_index_job(&connection.vault, &request, false).expect("enqueue");
+        let claimed = ai_queue::claim_ai_job_by_id(&connection.vault, queued.id, 300)
             .expect("claim")
             .expect("claimed");
         let dir = tempfile::tempdir().expect("tempdir");
@@ -859,7 +841,7 @@ mod tests {
         let config = AppConfig::default();
 
         let error =
-            complete_claimed_index_job(&connection, &paths, &config, None, claimed, &request)
+            complete_claimed_index_job(&connection.vault, &paths, &config, None, claimed, &request)
                 .expect_err("missing frozen provider must fail");
 
         assert!(error.to_string().contains("deleted-embedding"));
@@ -869,25 +851,38 @@ mod tests {
 
     #[test]
     fn assistant_provider_preflight_failure_is_persisted() {
-        let connection = Connection::open_in_memory().expect("memory queue");
+        let _vault = vault_core::Vault::open_temp().unwrap();
+        let vault = vault_core::Vault::open_temp().unwrap();
+        let connection = TestDatabase::new(&vault, Db::Intelligence);
         let request = AiAssistantRequest {
             question: "What did I visit?".to_string(),
             profile_id: None,
             domain: None,
         };
-        let queued =
-            ai_queue::enqueue_assistant_job(&connection, &request, "deleted-llm", None, false)
-                .expect("enqueue");
-        let claimed = ai_queue::claim_ai_job_by_id(&connection, queued.id, 300)
+        let queued = ai_queue::enqueue_assistant_job(
+            &connection.vault,
+            &request,
+            "deleted-llm",
+            None,
+            false,
+        )
+        .expect("enqueue");
+        let claimed = ai_queue::claim_ai_job_by_id(&connection.vault, queued.id, 300)
             .expect("claim")
             .expect("claimed");
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = vault_core::config::project_paths_with_root(dir.path());
         let config = AppConfig::default();
 
-        let error =
-            complete_claimed_assistant_job(&connection, &paths, &config, None, claimed, &request)
-                .expect_err("missing frozen provider must fail");
+        let error = complete_claimed_assistant_job(
+            &connection.vault,
+            &paths,
+            &config,
+            None,
+            claimed,
+            &request,
+        )
+        .expect_err("missing frozen provider must fail");
 
         assert!(error.to_string().contains("deleted-llm"));
         assert_eq!(job_state(&connection, queued.id), "failed");
@@ -901,9 +896,7 @@ mod tests {
     /// cfg (vault-core as a plain dependency builds the disk-loading engine, which would need the model
     /// downloaded). The established pattern for real-build worker tests is the coverage gate.
     #[cfg(coverage)]
-    fn static_indexed_env() -> (vault_core::ProjectPaths, AppConfig, tempfile::TempDir) {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = vault_core::config::project_paths_with_root(dir.path());
+    fn static_indexed_env() -> (vault_core::Vault, AppConfig) {
         let provider = vault_core::built_in_static_embedding_provider();
         let config = AppConfig {
             initialized: true,
@@ -918,44 +911,51 @@ mod tests {
             },
             ..AppConfig::default()
         };
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        (paths, config, dir)
+        let vault = vault_core::Vault::open_temp().unwrap().with_config(config.clone());
+        vault_core::save_config(vault.paths(), &config).unwrap();
+        (vault, config)
     }
 
     /// Seeds one canonical visible page (run + profile + url + visit) on the attached archive.
     #[cfg(coverage)]
-    fn seed_canonical_page(connection: &Connection, id: i64, url: &str, title: &str) {
+    fn seed_canonical_page(db: &TestDatabase, id: i64, url: &str, title: &str) {
+        let connection = TestDatabase::new(&db.vault, Db::Archive);
+        connection.execute("INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(?1,?2,?3,'example.com')",vault_store::params_owned![id,url,url]).unwrap();
         connection
             .execute(
-                "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+                "INSERT OR IGNORE INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
                  VALUES (1, 'backup', 'test', '2026-06-21T00:00:00Z', 'UTC', 'success', '[]', '[]', '{}', 0)",
-                [],
+                (),
             )
             .expect("seed run");
         connection
             .execute(
-                "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+                "INSERT OR IGNORE INTO source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
                  VALUES (1, 'chrome', 'test', 'Default', '/tmp/Default', '2026-06-21T00:00:00Z', 1, 'chrome:Default', '2026-06-21T00:00:00Z')",
-                [],
+                (),
             )
             .expect("seed profile");
         let visit_ms = 1_700_000_000_000_i64 + id;
         connection
             .execute(
-                "INSERT INTO archive.urls
-                 (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
-                 VALUES (?1, ?2, ?3, 1, 0, ?4, '2026-06-21T00:00:00Z', ?4, '2026-06-21T00:00:00Z', 1, 1, ?1, 0, ?5, '2026-06-21T00:00:00Z')",
-                rusqlite::params![id, url, title, visit_ms, format!("payload-{id}")],
+                "INSERT INTO urls
+                 (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at, page_id)
+                 VALUES (?1, ?2, ?3, 1, 0, ?4, '2026-06-21T00:00:00Z', ?4, '2026-06-21T00:00:00Z', 1, 1, ?1, 0, ?5, '2026-06-21T00:00:00Z',?1)",
+                vault_store::params_owned![id, url, title, visit_ms, format!("payload-{id}")],
             )
             .expect("seed url");
         connection
             .execute(
-                "INSERT INTO archive.visits
+                "INSERT INTO visits
                  (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
                  VALUES (?1, ?1, ?2, ?3, '2026-06-21T00:00:00Z', 805306368, 0, 1, 1, NULL, 1, 0, NULL, NULL, ?4, ?5, '2026-06-21T00:00:00Z')",
-                rusqlite::params![id, id.to_string(), visit_ms, format!("fp-{id}"), format!("payload-{id}")],
+                vault_store::params_owned![id, id.to_string(), visit_ms, format!("fp-{id}"), format!("payload-{id}")],
             )
             .expect("seed visit");
+        connection
+            .execute("UPDATE archive_totals SET value=value+1 WHERE name IN ('visits','urls')", ())
+            .unwrap();
+        connection.execute("INSERT INTO archive_totals(name,value) VALUES('sourceVisits:1',1) ON CONFLICT(name) DO UPDATE SET value=value+1",()).unwrap();
     }
 
     #[cfg(coverage)]
@@ -992,43 +992,60 @@ mod tests {
     #[cfg(coverage)]
     #[test]
     fn real_worker_resume_finishes_the_exact_id_set_from_the_persisted_cursor() {
-        // HEADLINE (F2 + F4): a limit-bounded index job stops mid-corpus and persists its cursor into
-        // the payload; after the job is left STALE (an interrupted worker), it is RE-CLAIMED and the
-        // REAL worker `complete_claimed_index_job` path resumes FROM THE PAYLOAD CURSOR (never a
-        // hand-passed integer) and runs to completion. The final `.pkvec` holds the EXACT id-set with
-        // no dup / no miss and non-zero bytes — exercised through the real in-memory static engine.
+        // A durable first batch survives interruption. The worker then resumes only
+        // from its queue payload, preserving every vector and the visit map.
         let _guard = crate::tests::lock_env();
-        let (paths, config, dir) = static_indexed_env();
-        let original_keyring = set_keyring_override(dir.path());
-        let connection = ai_archive_connection(&paths, &config, None).expect("connection");
-        // Four distinct pages; a per-run limit of 2 forces a mid-corpus stop after the first run.
+        let (vault, config) = static_indexed_env();
+        let paths = vault.paths().clone();
+        let original_keyring = set_keyring_override(&paths.app_root);
+        let connection = TestDatabase::new(&vault, Db::Intelligence);
+        // Four distinct pages; the ledger interrupts after the first two-row batch.
         for id in 1..=4 {
             seed_canonical_page(&connection, id, &format!("https://example.com/{id}"), "kestrel");
         }
         let provider = &config.ai.embedding_providers[0];
 
-        // RUN 1: claim + complete with limit 2 → embeds 2 pages, persists the cursor, marks succeeded.
+        // Claim, persist one real batch, then interrupt before the next batch.
         let request = AiIndexRequest { limit: Some(2), ..AiIndexRequest::default() };
-        let queued = ai_queue::enqueue_index_job(&connection, &request, false).expect("enqueue");
-        let claimed = ai_queue::claim_ai_job_by_id(&connection, queued.id, 300)
+        let queued =
+            ai_queue::enqueue_index_job(&connection.vault, &request, false).expect("enqueue");
+        let claimed = ai_queue::claim_ai_job_by_id(&connection.vault, queued.id, 300)
             .expect("claim")
             .expect("claimable");
-        let first = complete_claimed_index_job(
-            &connection,
-            &paths,
-            &config,
-            None,
-            claimed.clone(),
-            &index_request_from(&claimed.payload),
-        )
-        .expect("first partial build");
-        assert_eq!(first.indexed_items, 2, "the limit stops the build at 2 rows");
+        struct InterruptAfterBatch(IndexCursorLedger);
+        impl vault_core::IndexBackfillLedger for InterruptAfterBatch {
+            fn record(&self, progress: vault_core::IndexBackfillProgress) -> Result<()> {
+                let has_batch = progress.embedded_so_far > 0;
+                self.0.record(progress)?;
+                if has_batch {
+                    anyhow::bail!("fixture interrupted after durable batch");
+                }
+                Ok(())
+            }
+        }
+        let runtime = tokio_runtime().unwrap();
+        let runtime_provider = selected_embedding_provider_runtime(&config, None).unwrap();
+        let first = runtime
+            .block_on(build_ai_index_with_control(
+                &vault,
+                &runtime_provider,
+                &request,
+                None,
+                0,
+                0,
+                Some(Arc::new(InterruptAfterBatch(IndexCursorLedger {
+                    vault: vault.clone(),
+                    job_id: claimed.id,
+                }))),
+            ))
+            .expect_err("interrupted first batch");
+        assert!(first.to_string().contains("fixture interrupted"));
         let store =
             vault_core::VectorStore::for_provider(&paths, &provider.id, &provider.default_model);
         assert_eq!(store.count().expect("count"), 2, "two vectors after the partial run");
 
         // The cursor advanced PAST the origin and is durable in the payload (real progress, not 0).
-        match ai_queue::load_ai_job_payload(&connection, queued.id).expect("payload") {
+        match ai_queue::load_ai_job_payload(&connection.vault, queued.id).expect("payload") {
             ai_queue::AiJobPayload::Index { cursor, .. } => {
                 assert!(
                     cursor.next_history_id > 0,
@@ -1048,14 +1065,14 @@ mod tests {
             .expect("leave stale");
 
         // RUN 2 (RESUME): the real claim → complete path reads the cursor from the PAYLOAD and finishes.
-        let reclaimed = ai_queue::claim_next_ai_job(&connection, 300)
+        let reclaimed = ai_queue::claim_next_ai_job(&connection.vault, 300)
             .expect("re-claim")
             .expect("stale job is re-claimable within budget");
         assert_eq!(reclaimed.id, queued.id);
         // The resume watermark comes from the payload, NOT a hand-passed integer.
         assert!(index_start_history_id(&reclaimed.payload) > 0);
         let second = complete_claimed_index_job(
-            &connection,
+            &connection.vault,
             &paths,
             &config,
             None,
@@ -1081,6 +1098,7 @@ mod tests {
 
     #[test]
     fn reset_ai_index_build_clears_stuck_jobs_and_reenqueues() {
+        let _vault = vault_core::Vault::open_temp().unwrap();
         // HEADLINE (F2): a wedged build is recovered — `reset_ai_index_build` clears the stuck index
         // job(s) and re-enqueues a clean one, so the queue is no longer jammed by the old job. Runs
         // against the GLOBAL project root (the reset path resolves `project_paths()` itself), with the
@@ -1109,15 +1127,19 @@ mod tests {
         };
         vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
         vault_core::save_config(&paths, &config).expect("persist config");
-        let connection = ai_archive_connection(&paths, &config, None).expect("connection");
+        let vault = vault_core::Vault::open_temp().unwrap().with_config(config.clone());
+        let paths = vault.paths().clone();
+        vault_core::save_config(&paths, &config).unwrap();
+        let connection = TestDatabase::new(&vault, Db::Intelligence);
         // A stuck index job left in `stale` (the interrupted state the reset must clear).
-        let stuck = ai_queue::enqueue_index_job(&connection, &AiIndexRequest::default(), false)
-            .expect("enqueue stuck");
+        let stuck =
+            ai_queue::enqueue_index_job(&connection.vault, &AiIndexRequest::default(), false)
+                .expect("enqueue stuck");
         connection
             .execute("UPDATE ai_jobs SET state = 'stale' WHERE id = ?1", [stuck.id])
             .expect("wedge it");
 
-        let report = reset_ai_index_build(None, &AiIndexRequest::default()).expect("reset");
+        let report = reset_ai_index_build(&vault, None, &AiIndexRequest::default()).expect("reset");
         assert!(
             report.notes.iter().any(|note| note.contains("Reset the semantic index")),
             "the reset reports what it cleared: {:?}",
@@ -1128,8 +1150,8 @@ mod tests {
         let fresh: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM ai_jobs WHERE job_type = 'index-build' AND state = 'paused'",
-                [],
-                |row| row.get(0),
+                (),
+                |row| Ok(row.get(0)?),
             )
             .expect("fresh count");
         assert_eq!(fresh, 1, "a clean build was re-enqueued (staged paused)");
@@ -1141,8 +1163,8 @@ mod tests {
             .query_row(
                 "SELECT payload_json FROM ai_jobs \
                  WHERE job_type = 'index-build' AND state = 'paused'",
-                [],
-                |row| row.get(0),
+                (),
+                |row| Ok(row.get(0)?),
             )
             .expect("fresh payload");
         assert!(
@@ -1161,12 +1183,13 @@ mod tests {
 
     #[test]
     fn mark_successful_ai_job_or_cancelled_honors_stop_requests() {
-        let connection = Connection::open_in_memory().expect("memory connection");
+        let vault = vault_core::Vault::open_temp().unwrap();
+        let connection = TestDatabase::new(&vault, Db::Intelligence);
         let job_id = claimed_index_job(&connection);
-        ai_queue::cancel_ai_job(&connection, job_id).expect("request cancellation");
+        ai_queue::cancel_ai_job(&connection.vault, job_id).expect("request cancellation");
 
         let cancelled = mark_successful_ai_job_or_cancelled(
-            &connection,
+            &connection.vault,
             job_id,
             Some(42),
             Some("success summary"),
@@ -1180,11 +1203,12 @@ mod tests {
 
     #[test]
     fn mark_successful_ai_job_or_cancelled_marks_uncancelled_jobs_succeeded() {
-        let connection = Connection::open_in_memory().expect("memory connection");
+        let vault = vault_core::Vault::open_temp().unwrap();
+        let connection = TestDatabase::new(&vault, Db::Intelligence);
         let job_id = claimed_index_job(&connection);
 
         let cancelled = mark_successful_ai_job_or_cancelled(
-            &connection,
+            &connection.vault,
             job_id,
             Some(42),
             Some("success summary"),
@@ -1209,8 +1233,10 @@ mod tests {
             ..AppConfig::default()
         };
         vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let connection =
-            ai_archive_connection(&paths, &config, None).expect("intelligence connection");
+        let vault = vault_core::Vault::open_temp().unwrap().with_config(config.clone());
+        let paths = vault.paths().clone();
+        vault_core::save_config(&paths, &config).unwrap();
+        let connection = TestDatabase::new(&vault, Db::Intelligence);
 
         let job_id = claimed_index_job(&connection);
         // Reclaim: move the job out of `running` as a competing worker / stale-sweep would.
@@ -1218,12 +1244,7 @@ mod tests {
             .execute("UPDATE ai_jobs SET state = 'stale' WHERE id = ?1", [job_id])
             .expect("reclaim lease");
 
-        let ledger = IndexCursorLedger {
-            paths: paths.clone(),
-            config: config.clone(),
-            session_database_key: None,
-            job_id,
-        };
+        let ledger = IndexCursorLedger { vault: vault.clone(), job_id };
         let error = vault_core::IndexBackfillLedger::record(
             &ledger,
             vault_core::IndexBackfillProgress {
@@ -1247,16 +1268,13 @@ mod tests {
             ..AppConfig::default()
         };
         vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let connection =
-            ai_archive_connection(&paths, &config, None).expect("intelligence connection");
+        let vault = vault_core::Vault::open_temp().unwrap().with_config(config.clone());
+        let paths = vault.paths().clone();
+        vault_core::save_config(&paths, &config).unwrap();
+        let connection = TestDatabase::new(&vault, Db::Intelligence);
         let job_id = claimed_index_job(&connection);
 
-        let ledger = IndexCursorLedger {
-            paths: paths.clone(),
-            config: config.clone(),
-            session_database_key: None,
-            job_id,
-        };
+        let ledger = IndexCursorLedger { vault: vault.clone(), job_id };
         vault_core::IndexBackfillLedger::record(
             &ledger,
             vault_core::IndexBackfillProgress {
@@ -1268,7 +1286,7 @@ mod tests {
         )
         .expect("running job cursor persists");
 
-        match ai_queue::load_ai_job_payload(&connection, job_id).expect("payload") {
+        match ai_queue::load_ai_job_payload(&connection.vault, job_id).expect("payload") {
             ai_queue::AiJobPayload::Index { cursor, .. } => {
                 assert_eq!(cursor.next_history_id, 9);
                 assert_eq!(cursor.embedded_so_far, 8);

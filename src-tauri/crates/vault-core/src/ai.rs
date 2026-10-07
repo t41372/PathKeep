@@ -10,6 +10,7 @@
 
 mod agent_harness;
 mod agent_tools;
+mod assistant;
 mod chat_stream;
 mod code_mode;
 mod control;
@@ -19,14 +20,17 @@ mod embedding_external;
 mod embedding_static;
 mod fingerprint;
 mod indexing;
-mod ledger;
 mod llm;
 mod narrative;
+mod native_ledger;
 mod provider;
 mod read_model;
-pub(crate) use self::read_model::ai_index_status_from;
+mod report_pages;
 mod reverse_visit_map;
 mod search;
+mod search_pages;
+mod search_ranking;
+mod search_store;
 mod traits;
 mod vector_index;
 mod vector_planes;
@@ -35,14 +39,10 @@ mod visit_content_map;
 mod working_set;
 
 #[cfg(test)]
-use crate::archive::create_schema;
+use crate::archive::{create_schema, open_archive_connection, open_intelligence_connection};
 use crate::{
     ai_queue::{self},
     ai_sidecar::{self},
-    archive::{
-        attach_search_database, cap_enrichment_excerpt, list_history, open_archive_connection,
-        open_intelligence_connection,
-    },
     config::ProjectPaths,
     enrichment::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
     models::{
@@ -50,7 +50,7 @@ use crate::{
         AiIndexStatus, AiIndexWarning, AiProviderCapabilityReport, AiProviderConfig,
         AiProviderConnectionTestReport, AiProviderPurpose, AiQueueJobType, AiQueueStatus,
         AiRequestFormat, AiSearchEntry, AiSearchNote, AiSearchRequest, AiSearchResponse,
-        AiSearchSort, AiSemanticStaleness, AppConfig, HistoryEntry, HistoryQuery,
+        AiSemanticStaleness, AppConfig, HistoryEntry,
     },
     utils::{now_rfc3339, url_domain},
 };
@@ -67,12 +67,10 @@ use rig::{
     completion::ToolDefinition,
     tool::{Tool, ToolDyn},
 };
-use rusqlite::{Connection, OptionalExtension, Row, params};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    cmp::Ordering,
     collections::HashMap,
     future::Future,
     sync::Arc,
@@ -81,16 +79,15 @@ use std::{
 use thiserror::Error;
 use tokio::sync::Mutex;
 
+pub use self::assistant::{answer_history_question, answer_history_question_with_control};
 pub use self::indexing::{build_ai_index, build_ai_index_with_control};
 pub use self::provider::test_provider_connection;
 pub use self::read_model::{
-    ai_index_status, ai_queue_status, ensure_ai_schema, load_assistant_run_response,
-    preview_ai_integrations, provider_capabilities, provider_connection_failure_report,
-    reconcile_ai_queue_controls, recoverable_ai_jobs,
+    ai_index_status, ai_queue_status, load_assistant_run_response, preview_ai_integrations,
+    provider_capabilities, provider_connection_failure_report, reconcile_ai_queue_controls,
+    recoverable_ai_jobs,
 };
-pub use self::search::{
-    answer_history_question, answer_history_question_with_control, semantic_search_history,
-};
+pub use self::search::semantic_search_history;
 
 pub use self::agent_harness::{
     AgentJournal, AgentRunOutcome, AgentRunSink, AgentSystemContext, DEFAULT_MAX_ITERATIONS,
@@ -137,9 +134,7 @@ pub use self::traits::{
     LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
     LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolCall, LlmToolDef, LlmUsage, VectorIndex,
 };
-pub use self::vector_index::{
-    ALLOWLIST_EXPANSION, FlatVectorIndex, RECALL_EXPANSION, RECALL_FLOOR, prepare_query,
-};
+pub use self::vector_index::FlatVectorIndex;
 pub use self::vector_planes::{
     BinaryPlane, Int8Plane, Int8PlaneReader, Int8Vector, PlaneBuildReport, PlaneHeader, binarize,
     binary_bytes_for_dim, build_planes_from_store, dequantize_int8, derived_plane_bytes,
@@ -148,19 +143,17 @@ pub use self::vector_planes::{
 pub use self::vector_store::{VectorStore, VectorStoreHeader, vector_plane_bytes};
 pub use self::visit_content_map::{VisitContentMap, visit_map_plane_bytes};
 pub use self::working_set::{
-    CANDLE_CPU_DOCS_PER_SEC, CandidateSignals, MAX_WORKING_SET, METAL_SPEEDUP, WorkingSetCandidate,
-    WorkingSetConfig, estimate_reembed, reembed_estimate_for, score_candidate, select_working_set,
+    CANDLE_CPU_DOCS_PER_SEC, CandidateSignals, METAL_SPEEDUP, WorkingSetCandidate,
+    WorkingSetConfig, WorkingSetPage, estimate_reembed, reembed_estimate_for, score_candidate,
+    select_working_set,
 };
 
+#[cfg(test)]
+use self::assistant::build_assistant_preamble;
 use self::control::{await_with_ai_cancellation, checkpoint_ai_run};
-use self::indexing::provider_embedding_count;
 #[cfg(test)]
 use self::indexing::{build_embedding_content, cleanup_stale_embeddings, collect_visits_to_index};
-use self::ledger::{
-    AiIndexLedgerRow, ai_embedding_token_estimate, ai_embeddings_storage_bytes, begin_ai_run,
-    current_source_watermark, finalize_ai_run_failure, finalize_ai_run_success, load_index_ledger,
-    record_index_ledger_failure, record_index_ledger_start, record_index_ledger_success,
-};
+use self::native_ledger::AiIndexLedgerRow;
 use self::provider::{
     classify_provider_error, embed_query, embedding_provider_readiness, run_llm_agent,
     validate_provider,
@@ -170,11 +163,10 @@ use self::provider::{
     embed_batch_with_retry, embed_single_with_retry, embedding_error_is_rate_limited,
     provider_connection_report_from_probe,
 };
-use self::search::semantic_index_staleness_reason;
 #[cfg(test)]
 use self::search::{
-    SearchContext, SearchHistoryArgs, SearchHistoryTool, StoredEmbedding, build_assistant_preamble,
-    cosine_similarity, search_history_internal, semantic_matches, sort_stored_embeddings_desc,
+    SearchContext, SearchHistoryArgs, SearchHistoryTool, StoredEmbedding, cosine_similarity,
+    sort_stored_embeddings_desc,
 };
 
 /// Resolved provider configuration plus the OPTIONAL secret for one AI operation.
@@ -288,61 +280,9 @@ pub struct AiIntegrationPreview {
     pub warnings: Vec<String>,
 }
 
-const AI_SCHEMA_SQL: &str = r#"
-    CREATE TABLE IF NOT EXISTS ai_embeddings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      history_id INTEGER NOT NULL,
-      profile_id TEXT NOT NULL,
-      url TEXT NOT NULL,
-      title TEXT,
-      domain TEXT NOT NULL,
-      visited_at TEXT NOT NULL,
-      content_hash TEXT NOT NULL,
-      content_bytes INTEGER NOT NULL,
-      provider_id TEXT NOT NULL,
-      model TEXT NOT NULL,
-      indexed_at TEXT NOT NULL,
-      UNIQUE(history_id, provider_id, model, content_hash)
-    );
-    CREATE TABLE IF NOT EXISTS ai_assistant_runs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id INTEGER,
-      question TEXT NOT NULL,
-      answer TEXT NOT NULL,
-      provider_id TEXT NOT NULL,
-      embedding_provider_id TEXT NOT NULL,
-      citations_json TEXT NOT NULL,
-      notes_json TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS ai_index_ledger (
-      provider_id TEXT NOT NULL,
-      model TEXT NOT NULL,
-      sidecar_table TEXT NOT NULL,
-      index_version TEXT NOT NULL,
-      state TEXT NOT NULL,
-      source_watermark INTEGER,
-      last_run_id INTEGER,
-      build_started_at TEXT,
-      build_finished_at TEXT,
-      last_indexed_at TEXT,
-      last_cleared_at TEXT,
-      last_failure_at TEXT,
-      failure_reason TEXT,
-      PRIMARY KEY(provider_id, model)
-    );
-    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_provider_model
-      ON ai_embeddings(provider_id, model);
-    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_history_id
-      ON ai_embeddings(history_id);
-"#;
-
-const CLEAR_PROVIDER_EMBEDDINGS_SQL: &str =
-    "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2";
 /// Correlated `NOT EXISTS` so each row is checked by a primary-key lookup; a `NOT IN` subquery
 /// would first copy every visible visit id into a temporary index.
-const DELETE_STALE_EMBEDDINGS_SQL: &str = "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2 AND NOT EXISTS (SELECT 1 FROM archive.visits AS visits WHERE visits.id = ai_embeddings.history_id AND visits.reverted_at IS NULL)";
-const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
+const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at, metadata_bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
 const INSERT_ASSISTANT_RUN_SQL: &str = "INSERT INTO ai_assistant_runs (run_id, question, answer, provider_id, embedding_provider_id, citations_json, notes_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
 const AI_QUEUE_RECENT_LIMIT: usize = 8;
 const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
@@ -369,3 +309,6 @@ const SQLITE_BATCH_SIZE: usize = 400;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+use std::cmp::Ordering;

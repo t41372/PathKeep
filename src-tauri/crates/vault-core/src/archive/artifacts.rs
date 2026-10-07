@@ -1,3 +1,5 @@
+//! Failure modes: snapshot provenance lost, missing source files, inconsistent artifact hashes.
+//! Tests: artifact reconstruction tests and checkpoint_restore suites.
 //! Archive artifact and source-payload helpers.
 //!
 //! ## Responsibilities
@@ -24,14 +26,16 @@
 use super::*;
 use serde::Serialize;
 
+type ProfileFields = (String, Option<String>, String, String, Option<String>);
+
 /// Audit-facing description of one saved snapshot artifact.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SnapshotArtifact {
-    kind: String,
-    path: String,
-    checksum: String,
-    reason: String,
+    pub(crate) kind: String,
+    pub(crate) path: String,
+    pub(crate) checksum: String,
+    pub(crate) reason: String,
 }
 
 /// Snapshot metadata loaded from the archive ledger before replay or inspection.
@@ -44,254 +48,13 @@ pub(crate) struct SnapshotRecord {
     pub(crate) reason: Option<String>,
 }
 
-/// Stable hash wrapper returned when one source payload has been serialized.
-#[derive(Debug)]
-pub(crate) struct SerializedPayload {
-    pub(crate) hash: String,
-}
-
-/// Copies one staged browser snapshot into the raw-checkpoint archive.
-///
-/// Backup ingest uses this only after the caller has already decided a
-/// checkpoint is warranted. The returned artifact is append-only audit
-/// metadata; callers still own the higher-level checkpoint policy.
-pub(crate) fn create_snapshot_artifact(
-    archive: &Transaction<'_>,
-    run_id: i64,
-    paths: &ProjectPaths,
-    snapshot: &ProfileSnapshot,
-    reason: &str,
-) -> Result<SnapshotArtifact> {
-    let checkpoint_dir = paths
-        .raw_snapshots_dir
-        .join(filesystem_safe_path_segment(&snapshot.profile.profile_id))
-        .join(now_rfc3339().replace(':', "-"));
-    fs::create_dir_all(&checkpoint_dir)?;
-
-    let mut copied = Vec::<(String, String)>::new();
-    let history_target = checkpoint_dir.join("History");
-    fs::copy(&snapshot.history_path, &history_target)?;
-    copied.push((
-        history_target.display().to_string(),
-        crate::utils::file_sha256_hex(&history_target)?,
-    ));
-    if let Some(favicons_path) = &snapshot.favicons_path {
-        let target = checkpoint_dir.join("Favicons");
-        fs::copy(favicons_path, &target)?;
-        copied.push((target.display().to_string(), crate::utils::file_sha256_hex(&target)?));
-    }
-
-    let metadata_json = serde_json::to_string(&copied)?;
-    let checksum = sha256_hex(metadata_json.as_bytes());
-    let file_path = checkpoint_dir.display().to_string();
-    let file_size = copied
-        .iter()
-        .map(|(path, _)| fs::metadata(path).map(|meta| meta.len()).unwrap_or_default())
-        .sum::<u64>() as i64;
-
-    archive.execute(
-        "INSERT INTO snapshots (run_id, file_path, file_size, checksum, reason, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![run_id, file_path, file_size, checksum, reason, now_rfc3339()],
-    )?;
-
-    Ok(SnapshotArtifact {
-        kind: "raw-source-checkpoint".to_string(),
-        path: checkpoint_dir.display().to_string(),
-        checksum,
-        reason: reason.to_string(),
-    })
-}
-
-/// Loads one snapshot ledger row by its recorded filesystem path.
-///
-/// Maintenance flows use this before previewing or replaying a checkpoint, so
-/// the path lookup remains strict and returns `None` only when the ledger has
-/// no matching record.
-pub(crate) fn load_snapshot_record(
-    connection: &Connection,
-    snapshot_path: &str,
-) -> Result<Option<SnapshotRecord>> {
-    connection
-        .query_row(
-            "SELECT snapshots.run_id, runs.profile_scope_json, snapshots.file_path, snapshots.created_at, snapshots.reason
-             FROM snapshots
-             JOIN runs
-               ON runs.id = snapshots.run_id
-             WHERE snapshots.file_path = ?1
-             LIMIT 1",
-            [snapshot_path],
-            |row| {
-                Ok(SnapshotRecord {
-                    run_id: row.get(0)?,
-                    profile_scope: decode_profile_scope(row.get::<_, Option<String>>(1)?.as_deref()),
-                    file_path: row.get(2)?,
-                    created_at: row.get(3)?,
-                    reason: row.get(4)?,
-                })
-            },
-        )
-        .optional()
-        .map_err(Into::into)
-}
-
-/// Rebuilds a `ProfileSnapshot` view over one saved raw checkpoint directory.
-///
-/// Restore preview and execute flows call this after validating that the saved
-/// snapshot is directory-backed rather than a full safety-copy file.
-pub(crate) fn load_checkpoint_profile_snapshot(
-    connection: &Connection,
-    snapshot_path: &Path,
-    snapshot: &SnapshotRecord,
-) -> Result<ProfileSnapshot> {
-    let profile_id = checkpoint_profile_id_for_snapshot(snapshot_path, snapshot)
-        .context("snapshot restore requires a recorded profile scope")?;
-    let history_path = snapshot_path.join("History");
-    if !history_path.exists() {
-        anyhow::bail!(
-            "snapshot {} is not a saved browser source checkpoint",
-            snapshot_path.display()
-        );
-    }
-    let favicons_path = snapshot_path.join("Favicons");
-    let profile = load_snapshot_browser_profile(
-        connection,
-        &profile_id,
-        &history_path,
-        favicons_path.exists(),
-    )?;
-    let source_hashes = snapshot_file_fingerprints(
-        &history_path,
-        favicons_path.exists().then_some(favicons_path.as_path()),
-    )?;
-    Ok(ProfileSnapshot {
-        profile,
-        temp_dir: tempdir().context("allocating restore snapshot tempdir")?,
-        history_path,
-        favicons_path: favicons_path.exists().then_some(favicons_path),
-        source_hashes,
-    })
-}
-
-/// Chooses the profile id that actually owns one saved checkpoint directory.
-///
-/// Multi-profile backup runs persist one snapshot row per profile but only one
-/// run-level `profile_scope_json`. When that scope contains multiple profile
-/// ids, the checkpoint directory name is the only stable way to decide whether
-/// this artifact belongs to Firefox, Safari, or Chromium.
-fn checkpoint_profile_id_for_snapshot(
-    snapshot_path: &Path,
-    snapshot: &SnapshotRecord,
-) -> Option<String> {
-    if snapshot.profile_scope.len() <= 1 {
-        return snapshot
-            .profile_scope
-            .first()
-            .cloned()
-            .or_else(|| checkpoint_profile_id_from_path(snapshot_path));
-    }
-    checkpoint_profile_id_from_path(snapshot_path)
-        .or_else(|| snapshot.profile_scope.first().cloned())
-}
-
-/// Records that a later run reused or consumed an existing snapshot artifact.
-///
-/// Restore and rekey flows use this instead of duplicating files when they only
-/// need an audit reference to an existing artifact.
-pub(crate) fn record_snapshot_reference(
-    connection: &Connection,
-    run_id: i64,
-    path: &Path,
-    reason: &str,
-    created_at: &str,
-) -> Result<()> {
-    let (file_size, checksum) = snapshot_artifact_bytes_and_checksum(path)?;
-    connection.execute(
-        "INSERT INTO snapshots (run_id, file_path, file_size, checksum, reason, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            run_id,
-            path.display().to_string(),
-            file_size as i64,
-            checksum,
-            reason,
-            created_at,
-        ],
-    )?;
-    Ok(())
-}
-
-/// Captures the schema payload of one staged source database for evidence/audit.
-///
-/// Ingest uses this before canonical rows are written so schema observations can
-/// be stored even when later row-level processing fails.
-pub(crate) fn collect_schema_payload(path: &Path) -> Result<Value> {
-    let connection = open_readonly_source(path)?;
-    let mut statement = connection.prepare(
-        "SELECT type, name, tbl_name, sql
-         FROM sqlite_master
-         WHERE sql IS NOT NULL
-         ORDER BY type, name",
-    )?;
-    let rows = statement.query_map([], |row| {
-        Ok(json!({
-            "type": row.get::<_, String>(0)?,
-            "name": row.get::<_, String>(1)?,
-            "tableName": row.get::<_, String>(2)?,
-            "sql": row.get::<_, String>(3)?,
-        }))
-    })?;
-    Ok(Value::Array(rows.collect::<rusqlite::Result<Vec<_>>>()?))
-}
-
-/// Serializes one parsed source row and returns the stable hash of that payload.
-///
-/// Canonical ingest uses the hash for deduplication/audit fields. Callers
-/// should pass one already-bounded payload at a time rather than whole
-/// collections to keep memory use predictable.
-pub(crate) fn serialize_payload<T: Serialize>(value: &T) -> Result<SerializedPayload> {
-    let json = serde_json::to_string(value)?;
-    let hash = sha256_hex(json.as_bytes());
-    Ok(SerializedPayload { hash })
-}
-
-/// Derives the profile id encoded in a checkpoint directory layout.
-///
-/// This is a fallback for older snapshot rows whose profile scope was not
-/// recorded explicitly.
-fn checkpoint_profile_id_from_path(snapshot_path: &Path) -> Option<String> {
-    snapshot_path.parent()?.file_name()?.to_str().map(identifier_from_filesystem_segment)
-}
-
-/// Rehydrates minimal browser-profile metadata for a saved checkpoint.
-///
-/// When the original `source_profiles` row is missing, this falls back to a
-/// best-effort profile derived from the checkpoint path so restore preview can
-/// still explain what it is replaying.
-fn load_snapshot_browser_profile(
-    connection: &Connection,
+/// Reconstructs a recorded source, even when the live discovery row no longer exists.
+pub(super) fn snapshot_browser_profile(
     profile_id: &str,
     history_path: &Path,
     has_favicons: bool,
-) -> Result<crate::models::BrowserProfile> {
-    let row = connection
-        .query_row(
-            "SELECT browser_kind, browser_version, profile_name, profile_path, user_name
-             FROM source_profiles
-             WHERE profile_key = ?1
-             LIMIT 1",
-            [profile_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                ))
-            },
-        )
-        .optional()?;
+    row: Option<ProfileFields>,
+) -> crate::models::BrowserProfile {
     let (browser_kind, browser_version, profile_name, profile_path, user_name) = row
         .unwrap_or_else(|| {
             let browser_kind = profile_id.split(':').next().unwrap_or("archive").to_string();
@@ -310,7 +73,7 @@ fn load_snapshot_browser_profile(
         .filter(|path| path.exists())
         .map(|path| file_size(path))
         .unwrap_or_default();
-    Ok(crate::models::BrowserProfile {
+    crate::models::BrowserProfile {
         profile_id: profile_id.to_string(),
         profile_name,
         browser_family: browser_family_for_profile(&browser_kind),
@@ -330,7 +93,7 @@ fn load_snapshot_browser_profile(
         favicons_bytes,
         supporting_bytes: 0,
         retention_boundary: crate::browser_retention::retention_boundary_for_browser(&browser_kind),
-    })
+    }
 }
 
 /// Builds a display path for the directory that owns the history database.
@@ -392,7 +155,7 @@ fn history_file_name_for_profile(browser_kind: &str) -> String {
 ///
 /// Restore preview uses these hashes to keep the replayed checkpoint tied to
 /// the exact saved source bytes rather than only the directory name.
-fn snapshot_file_fingerprints(
+pub(super) fn snapshot_file_fingerprints(
     history_path: &Path,
     favicons_path: Option<&Path>,
 ) -> Result<Vec<FileFingerprint>> {
@@ -415,7 +178,7 @@ fn snapshot_file_fingerprints(
 ///
 /// File-backed safety snapshots hash the file directly. Directory-backed raw
 /// checkpoints hash the sorted file list plus each child checksum.
-fn snapshot_artifact_bytes_and_checksum(path: &Path) -> Result<(u64, Option<String>)> {
+pub(super) fn snapshot_artifact_bytes_and_checksum(path: &Path) -> Result<(u64, Option<String>)> {
     if !path.exists() {
         return Ok((0, None));
     }
@@ -454,16 +217,6 @@ fn collect_path_file_hashes(root: &Path, path: &Path) -> Result<Vec<(String, Str
 
 /// Opens one staged source database in strict read-only mode.
 ///
-/// Schema inspection and payload extraction use this helper so source files are
-/// never mutated during backup/import analysis.
-fn open_readonly_source(path: &Path) -> Result<Connection> {
-    Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .with_context(|| format!("opening source {}", path.display()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,8 +224,7 @@ mod tests {
 
     #[test]
     fn checkpoint_profile_reconstruction_covers_missing_source_rows_and_artifact_edges() {
-        let connection = Connection::open_in_memory().expect("sqlite");
-        create_schema(&connection).expect("archive schema");
+        let vault = crate::Vault::open_temp().unwrap();
         let root = tempdir().expect("tempdir");
         let checkpoint = root.path().join("checkpoint");
         fs::create_dir_all(checkpoint.join("nested")).expect("checkpoint dirs");
@@ -480,13 +232,8 @@ mod tests {
         fs::write(checkpoint.join("Favicons"), "favicons").expect("favicons");
         fs::write(checkpoint.join("nested").join("child.txt"), "child").expect("child");
 
-        let profile = load_snapshot_browser_profile(
-            &connection,
-            "firefox:default",
-            &checkpoint.join("History"),
-            true,
-        )
-        .expect("fallback profile");
+        let profile =
+            snapshot_browser_profile("firefox:default", &checkpoint.join("History"), true, None);
         assert_eq!(profile.browser_family, "firefox");
         assert_eq!(profile.browser_name, "Firefox");
         assert_eq!(profile.history_file_name, "places.sqlite");
@@ -520,15 +267,14 @@ mod tests {
         let broken_snapshot = SnapshotRecord {
             run_id: 1,
             profile_scope: vec!["chrome:Default".to_string()],
-            file_path: checkpoint.display().to_string(),
+            file_path: root.path().join("missing-history-checkpoint").display().to_string(),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             reason: Some("test".to_string()),
         };
         let missing_history = root.path().join("missing-history-checkpoint");
         fs::create_dir_all(&missing_history).expect("missing history dir");
-        let error =
-            load_checkpoint_profile_snapshot(&connection, &missing_history, &broken_snapshot)
-                .expect_err("missing history should fail");
+        let error = super::super::checkpoint_restore::checkpoint(&vault, &broken_snapshot)
+            .expect_err("missing history should fail");
         assert!(format!("{error:#}").contains("saved browser source checkpoint"));
 
         let encoded_checkpoint = root.path().join("firefox%3Adefault-release").join("2026");
@@ -543,8 +289,30 @@ mod tests {
             reason: Some("test".to_string()),
         };
         assert_eq!(
-            checkpoint_profile_id_for_snapshot(&encoded_checkpoint, &encoded_snapshot).as_deref(),
-            Some("firefox:default-release")
+            super::super::checkpoint_restore::profile_id(&encoded_checkpoint, &encoded_snapshot)
+                .unwrap(),
+            "firefox:default-release"
+        );
+    }
+
+    #[test]
+    fn checkpoint_profile_scope_keeps_the_legacy_directory_fallback() {
+        let path = Path::new("/snapshots/firefox%3Adefault/2026");
+        let mut record = SnapshotRecord {
+            run_id: 1,
+            profile_scope: Vec::new(),
+            file_path: path.display().to_string(),
+            created_at: "2026".into(),
+            reason: None,
+        };
+        assert_eq!(
+            super::super::checkpoint_restore::profile_id(path, &record).unwrap(),
+            "firefox:default"
+        );
+        record.profile_scope = vec!["chrome:recorded".into()];
+        assert_eq!(
+            super::super::checkpoint_restore::profile_id(path, &record).unwrap(),
+            "chrome:recorded"
         );
     }
 

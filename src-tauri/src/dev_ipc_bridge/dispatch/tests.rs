@@ -64,13 +64,13 @@ async fn dispatch_command_handles_session_round_trip_without_tauri_app() {
             .await
             .expect("set session key");
     assert_eq!(set, Value::Null);
-    assert_eq!(session_key(&state.session), Some("secret".to_string()));
+    assert_eq!(session_key(&state.session).unwrap(), Some("secret".to_string()));
 
     let clear = dispatch_command(&state, "clear_session_database_key", json!({}))
         .await
         .expect("clear session key");
     assert_eq!(clear, Value::Null);
-    assert_eq!(session_key(&state.session), None);
+    assert_eq!(session_key(&state.session).unwrap(), None);
 }
 
 #[tokio::test]
@@ -233,6 +233,7 @@ fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session
     assert_eq!(preview["scheduleItems"], json!([]));
     assert!(preview["items"][0]["path"].is_string() && preview["items"][0]["bytes"].is_u64());
 
+    let owner = state.session.vault().unwrap().store().clone();
     let refused = ready_block_on(dispatch_command(
         &state,
         "wipe_all_data",
@@ -240,7 +241,7 @@ fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session
     ))
     .expect_err("a lowercase word must be refused");
     assert!(refused.message.contains("DELETE"), "{}", refused.message);
-    assert_eq!(session_key(&state.session), Some("session-key".to_string()));
+    assert!(std::sync::Arc::ptr_eq(&owner, state.session.vault().unwrap().store()));
 
     let wiped = ready_block_on(dispatch_command(
         &state,
@@ -249,7 +250,11 @@ fn dispatch_wipe_all_data_previews_refuses_the_wrong_word_and_resets_the_session
     ))
     .expect("wipe over the bridge");
     assert_eq!(wiped, json!({ "scheduleRemoved": false, "scheduleError": null }));
-    assert_eq!(session_key(&state.session), None, "the stale archive key must be forgotten");
+    assert_eq!(
+        session_key(&state.session).unwrap(),
+        None,
+        "the stale archive key must be forgotten"
+    );
     let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({})))
         .expect("snapshot after wipe");
     assert_eq!(snapshot["config"]["initialized"], json!(false));
@@ -285,7 +290,7 @@ async fn blocking_join_failures_report_the_command_without_a_remediation_code() 
 }
 
 #[test]
-fn dispatch_rekey_cannot_borrow_the_session_key_instead_of_the_current_password() {
+fn dispatch_rekey_refuses_the_mixed_storage_build_even_with_a_valid_password() {
     // The dev bridge is the path an automation (or anyone with the localhost port) uses.
     // Holding an unlocked session must not be enough to change or remove the encryption:
     // a wrong or missing `currentKey` is refused even though the session holds the right
@@ -309,7 +314,9 @@ fn dispatch_rekey_cannot_borrow_the_session_key_instead_of_the_current_password(
         json!({ "config": config, "databaseKey": password }),
     ))
     .expect("initialize encrypted archive");
-    assert_eq!(session_key(&state.session).as_deref(), Some(password));
+    assert_eq!(session_key(&state.session).unwrap().as_deref(), Some(password));
+    let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({}))).unwrap();
+    assert_eq!(snapshot["archiveStatus"]["unlocked"], true);
 
     let refusals = [
         ("preview_rekey_archive", json!({ "newMode": "Plaintext", "newKey": null })),
@@ -323,32 +330,156 @@ fn dispatch_rekey_cannot_borrow_the_session_key_instead_of_the_current_password(
         let error =
             ready_block_on(dispatch_command(&state, command, json!({ "request": request })))
                 .expect_err("refused without the current password");
-        let expected = if request.get("currentKey").is_some() {
-            crate::command_error::ERROR_CODE_ARCHIVE_PASSWORD_WRONG
-        } else {
-            crate::command_error::ERROR_CODE_ARCHIVE_PASSWORD_REQUIRED
-        };
+        let expected = "storage-migration-incomplete";
         assert_eq!(error.code.as_deref(), Some(expected), "{command}: {}", error.message);
         assert!(!error.message.contains("intruder password") && !error.message.contains("guess"));
     }
-    assert_eq!(session_key(&state.session).as_deref(), Some(password));
+    assert_eq!(session_key(&state.session).unwrap().as_deref(), Some(password));
 
     ready_block_on(dispatch_command(&state, "clear_session_database_key", json!({})))
         .expect("clear session key");
-    let snapshot = ready_block_on(dispatch_command(
+    let error = ready_block_on(dispatch_command(
         &state,
         "rekey_archive",
         json!({ "request": { "newMode": "Encrypted", "newKey": "next password", "currentKey": password } }),
     ))
-    .expect("the right current password works without a session key");
-    assert_eq!(snapshot["archiveStatus"]["unlocked"], json!(true));
-    assert_eq!(session_key(&state.session).as_deref(), Some("next password"));
+    .expect_err("rekey is unavailable even with a valid current password");
+    assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
+    assert!(session_key(&state.session).unwrap().is_none());
+    ready_block_on(dispatch_command(
+        &state,
+        "keyring_store_database_key",
+        json!({"value": password}),
+    ))
+    .unwrap();
+    assert_eq!(
+        ready_block_on(dispatch_command(&state, "keyring_get_database_key", json!({}))).unwrap(),
+        json!(true)
+    );
+    assert_eq!(
+        ready_block_on(dispatch_command(&state, "unlock_archive_from_keychain", json!({})))
+            .unwrap(),
+        Value::Null
+    );
+    assert!(state.session.background_vault().is_ok());
+    let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({}))).unwrap();
+    assert_eq!(snapshot["archiveStatus"]["unlocked"], true);
+    assert!(snapshot["recentRuns"].as_array().unwrap().is_empty());
+    ready_block_on(dispatch_command(&state, "security_status", json!({}))).unwrap();
+    ready_block_on(dispatch_command(&state, "preview_wipe_all_data", json!({}))).unwrap();
+    ready_block_on(dispatch_command(
+        &state,
+        "set_session_database_key",
+        json!({"databaseKey": password}),
+    ))
+    .unwrap();
+    assert_eq!(
+        ready_block_on(dispatch_command(&state, "app_snapshot", json!({}))).unwrap()["archiveStatus"]
+            ["unlocked"],
+        true
+    );
+    state.session.close_vault().unwrap();
 
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
         std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
         std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
     }
+}
+
+fn assert_agent_crud_after_keychain_unlock(state: &DevIpcBridgeState) {
+    for id in ["chat-a", "chat-b", "chat-c"] {
+        let messages: Vec<_> = (0..3)
+            .map(|seq| {
+                json!({
+                    "id":format!("{id}-{seq}"), "role":"user", "content":format!("message {seq}")
+                })
+            })
+            .collect();
+        ready_block_on(dispatch_command(
+            state,
+            "save_ai_conversation",
+            json!({"request":{
+                "id":id, "messages":messages
+            }}),
+        ))
+        .unwrap();
+    }
+    let mut cursor = Value::Null;
+    let mut ids = Vec::new();
+    loop {
+        let page = ready_block_on(dispatch_command(
+            state,
+            "list_ai_conversations",
+            json!({"request":{"limit":1,"cursor":cursor}}),
+        ))
+        .unwrap();
+        ids.extend(
+            page["conversations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap().to_owned()),
+        );
+        cursor = page["nextCursor"].clone();
+        if cursor.is_null() {
+            break;
+        }
+    }
+    ids.sort();
+    assert_eq!(ids, ["chat-a", "chat-b", "chat-c"]);
+    let mut cursor = Value::Null;
+    let mut messages = Vec::new();
+    loop {
+        let page = ready_block_on(dispatch_command(
+            state,
+            "list_ai_messages",
+            json!({"request":{"conversationId":"chat-a","limit":1,"cursor":cursor}}),
+        ))
+        .unwrap();
+        messages.extend(
+            page["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap().to_owned()),
+        );
+        cursor = page["nextCursor"].clone();
+        if cursor.is_null() {
+            break;
+        }
+    }
+    assert_eq!(messages, ["chat-a-0", "chat-a-1", "chat-a-2"]);
+    let loaded = ready_block_on(dispatch_command(
+        state,
+        "load_ai_conversation",
+        json!({"conversationId":"chat-a"}),
+    ))
+    .unwrap();
+    assert_eq!(loaded["messages"].as_array().unwrap().len(), 3);
+    let renamed = ready_block_on(dispatch_command(
+        state,
+        "rename_ai_conversation",
+        json!({"request":{"id":"chat-a","title":"Saved title"}}),
+    ))
+    .unwrap();
+    assert_eq!(renamed["title"], "Saved title");
+    let deleted = ready_block_on(dispatch_command(
+        state,
+        "delete_ai_conversation",
+        json!({"conversationId":"chat-a"}),
+    ))
+    .unwrap();
+    assert_eq!(deleted["deleted"], true);
+    assert!(
+        ready_block_on(dispatch_command(
+            state,
+            "load_ai_conversation",
+            json!({"conversationId":"chat-a"})
+        ))
+        .unwrap()
+        .is_null()
+    );
 }
 
 fn wrapped<T: Serialize>(request: T) -> Value {
@@ -484,14 +615,17 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     let date_range = DateRange { start: "1970-01-01".to_string(), end: "2100-01-01".to_string() };
     let scoped = ScopedDateRangeRequest { date_range: date_range.clone(), profile_id: None };
     let paged = PagedDateRangeRequest {
+        cursor: None,
         date_range: date_range.clone(),
         profile_id: None,
-        page: 0,
+
         page_size: 10,
     };
     let top_sites = TopSitesRequest {
+        cursor: None,
         date_range: date_range.clone(),
         profile_id: None,
+        profile_ids: Vec::new(),
         sort_by: None,
         limit: Some(10),
     };
@@ -829,7 +963,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(
         &state,
         "list_ai_conversations",
-        wrapped(ListAgentConversationsRequest { limit: Some(10) }),
+        wrapped(ListAgentConversationsRequest { limit: Some(10), cursor: None }),
     );
     dispatch_for_coverage(
         &state,
@@ -860,19 +994,20 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         wrapped(CoreIntelligenceRebuildRequest::default()),
     );
     dispatch_for_coverage(&state, "get_sessions", wrapped(paged.clone()));
-    dispatch_for_coverage(&state, "get_session_detail", json!({ "sessionId": "missing" }));
+    dispatch_for_coverage(&state, "get_session_detail", wrapped(json!({ "sessionId": "missing" })));
     dispatch_for_coverage(
         &state,
         "get_search_trails",
         wrapped(SearchTrailQueryRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             engine: None,
-            page: 0,
+
             page_size: 10,
         }),
     );
-    dispatch_for_coverage(&state, "get_trail_detail", json!({ "trailId": "missing" }));
+    dispatch_for_coverage(&state, "get_trail_detail", wrapped(json!({ "trailId": "missing" })));
     dispatch_for_coverage(&state, "get_navigation_path", json!({ "visitId": 1 }));
     dispatch_for_coverage(&state, "get_hub_pages", wrapped(top_sites.clone()));
     dispatch_for_coverage(&state, "get_search_engine_ranking", wrapped(scoped.clone()));
@@ -901,6 +1036,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_top_search_concepts",
         wrapped(TopSearchConceptsRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(10),
@@ -910,6 +1046,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_frequent_searches",
         wrapped(FrequentSearchesRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(10),
@@ -926,7 +1063,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             domain: None,
             query: None,
             sort: None,
-            page: 0,
+            cursor: None,
             page_size: 10,
         }),
     );
@@ -935,6 +1072,8 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_query_family_detail",
         wrapped(QueryFamilyDetailRequest {
+            cursor: None,
+            page_size: None,
             family_id: "missing".to_string(),
             date_range: date_range.clone(),
             profile_id: None,
@@ -953,6 +1092,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_refind_pages",
         wrapped(RefindPagesRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(10),
@@ -962,6 +1102,9 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_refind_page_detail",
         wrapped(RefindPageDetailRequest {
+            visits_cursor: None,
+            trails_cursor: None,
+            page_size: None,
             canonical_url: "https://example.com/".to_string(),
             date_range: date_range.clone(),
             profile_id: None,
@@ -971,6 +1114,9 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "explain_refind",
         wrapped(vault_core::ExplainRefindRequest {
+            profile_id: None,
+            cursor: None,
+            page_size: None,
             canonical_url: "https://example.com/".to_string(),
         }),
     );
@@ -978,6 +1124,8 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "explain_entity",
         wrapped(EntityExplanationRequest {
+            cursor: None,
+            page_size: None,
             entity_type: "domain".to_string(),
             entity_id: "example.com".to_string(),
         }),
@@ -1000,6 +1148,8 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_search_effectiveness",
         wrapped(SearchEffectivenessRequest {
+            topics_cursor: None,
+            topics_limit: None,
             date_range: date_range.clone(),
             profile_id: None,
             engine: None,
@@ -1011,6 +1161,9 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_domain_deep_dive",
         wrapped(DomainDeepDiveRequest {
+            pages_cursor: None,
+            searches_cursor: None,
+            page_size: None,
             registrable_domain: "example.com".to_string(),
             date_range: date_range.clone(),
             profile_id: None,
@@ -1043,6 +1196,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_intelligence_embed_cards",
         wrapped(IntelligenceEmbedCardsRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(4),
@@ -1052,6 +1206,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_intelligence_widget_snapshot",
         wrapped(IntelligenceEmbedCardsRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             limit: Some(4),
@@ -1076,6 +1231,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         &state,
         "get_path_flows",
         wrapped(PathFlowRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
             step_count: 2,
@@ -1244,26 +1400,16 @@ fn dispatch_export_progress_and_cancel_work_while_export_is_running() {
     let paths = vault_core::project_paths_with_root(root.path());
     let config = test_config();
     vault_core::save_config(&paths, &config).unwrap();
-    let archive = vault_core::archive::open_archive_connection(&paths, &config, None).unwrap();
-    archive.execute_batch(
-        "BEGIN;
-         INSERT INTO runs (id, run_type, trigger, started_at, status, due_only)
-         VALUES (1, 'backup', 'manual', '', 'success', 0);
-         INSERT INTO source_profiles
-           (id, browser_kind, profile_name, profile_path, discovered_at, enabled, profile_key)
-         VALUES (1, 'chrome', 'Default', '/fixture', '', 1, 'chrome:Default');
-         INSERT INTO urls
-           (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso,
-            last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden)
-         VALUES (1, 'https://example.com/', 'Export', 0, 0, 0, '', 0, '', 1, 1, 1, 0);
-         WITH RECURSIVE ids(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM ids WHERE id < 100000)
-         INSERT INTO visits (url_id, source_visit_id, visit_time_ms, visit_time_iso,
-           source_profile_id, created_by_run_id)
-         SELECT 1, CAST(id AS TEXT), 1700000000000 + id, '', 1, 1 FROM ids;
-         COMMIT;"
-    ).unwrap();
     let state =
         DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    state.session.vault().unwrap().store().write(vault_store::Db::Archive,vault_store::Priority::Batch,|s| {
+        s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,discovered_at,enabled,profile_key) VALUES(1,'chrome','Default','/fixture','',1,'chrome:Default')",())?;
+        s.execute("INSERT INTO pages(id,url,canonical_url) VALUES(1,'https://example.com/','https://example.com/')",())?;
+        s.execute("INSERT INTO urls(id,page_id,url,title,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id) VALUES(1,1,'https://example.com/','Export',0,'',0,'',1,0)",())?;
+        s.execute("WITH RECURSIVE ids(id) AS(VALUES(1) UNION ALL SELECT id+1 FROM ids WHERE id<100000) INSERT INTO visits(url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT 1,CAST(id AS TEXT),1700000000000+id,'',1,0 FROM ids",())?;
+        s.execute("UPDATE archive_totals SET value=100000 WHERE name='visits'",())?;
+        Ok(())
+    }).unwrap();
     ready_block_on(async {
         assert_eq!(
             dispatch_command(&state, "get_export_progress", json!({"exportId":"bridge-unknown"}))
@@ -1327,7 +1473,7 @@ fn dispatch_export_progress_and_cancel_work_while_export_is_running() {
                 .unwrap();
         assert_eq!(progress["state"], "done");
         assert_eq!(progress["bytesWritten"], 26);
-        assert_eq!(progress["totalRows"], Value::Null);
+        assert_eq!(progress["totalRows"], json!(100000));
         assert_eq!(
             dispatch_command(&state, "cancel_export", json!({"exportId":"bridge-done"}))
                 .await
@@ -1352,6 +1498,170 @@ fn dispatch_export_progress_and_cancel_work_while_export_is_running() {
         assert_eq!(progress["state"], "failed");
         assert!(progress["error"].as_str().is_some());
     });
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+    }
+}
+
+#[test]
+fn ui_snapshot_waits_for_startup_open() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let old_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let old_ring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
+    }
+    vault_worker::initialize_archive_database(&test_config(), None).unwrap();
+    let session = SessionState::default();
+    session.begin_startup();
+    let opening = session.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let read = std::thread::spawn(move || {
+        let state = DevIpcBridgeState::without_app(session, DEFAULT_DEV_IPC_BRIDGE_PORT);
+        tx.send(ready_block_on(dispatch_command(&state, "app_snapshot", json!({})))).unwrap();
+    });
+    assert!(rx.recv_timeout(std::time::Duration::from_millis(50)).is_err());
+    opening.finish_startup().unwrap();
+    assert_eq!(rx.recv().unwrap().unwrap()["archiveStatus"]["unlocked"], true);
+    read.join().unwrap();
+    opening.close_vault().unwrap();
+    unsafe {
+        match old_root {
+            Some(value) => std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, value),
+            None => std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV),
+        }
+        match old_ring {
+            Some(value) => std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, value),
+            None => std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV),
+        }
+    }
+}
+
+#[test]
+fn locked_snapshots_do_not_read_keychain_and_explicit_unlock_reads_once() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let names = [
+        PROJECT_ROOT_OVERRIDE_ENV,
+        TEST_KEYRING_OVERRIDE_ENV,
+        CHROME_USER_DATA_OVERRIDE_ENV,
+        vault_platform::SANDBOX_DIR_ENV,
+    ];
+    let old = names.map(std::env::var_os);
+    let keyring = root.path().join("keyring");
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring);
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, root.path().join("chrome"));
+        std::env::set_var(vault_platform::SANDBOX_DIR_ENV, root.path().join("platform"));
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    let config = AppConfig { archive_mode: ArchiveMode::Encrypted, ..test_config() };
+    ready_block_on(dispatch_command(
+        &state,
+        "initialize_archive",
+        json!({"config":config,"databaseKey":"password"}),
+    ))
+    .unwrap();
+    state.session.close_vault().unwrap();
+    vault_platform::keyring_clear_database_key().unwrap();
+    for stored in [false, true] {
+        if stored {
+            vault_worker::write_database_key_to_keyring("password").unwrap();
+        }
+        let before = vault_platform::test_support::keyring_secret_read_count(&keyring);
+        for _ in 0..2 {
+            let snapshot =
+                ready_block_on(dispatch_command(&state, "app_snapshot", json!({}))).unwrap();
+            assert_eq!(snapshot["archiveStatus"]["encrypted"], true);
+            assert_eq!(snapshot["archiveStatus"]["unlocked"], false);
+            assert!(state.session.current_vault().is_none());
+        }
+        assert_eq!(vault_platform::test_support::keyring_secret_read_count(&keyring), before);
+    }
+    let before = vault_platform::test_support::keyring_secret_read_count(&keyring);
+    ready_block_on(dispatch_command(&state, "unlock_archive_from_keychain", json!({}))).unwrap();
+    assert_eq!(vault_platform::test_support::keyring_secret_read_count(&keyring), before + 1);
+    assert!(state.session.get_key().unwrap().is_none());
+    assert_agent_crud_after_keychain_unlock(&state);
+    let snapshot = ready_block_on(dispatch_command(&state, "app_snapshot", json!({}))).unwrap();
+    assert_eq!(snapshot["archiveStatus"]["unlocked"], true);
+    ready_block_on(dispatch_command(&state, "schedule_status", json!({}))).unwrap();
+    ready_block_on(dispatch_command(&state, "ai_chat_cancel", json!({"runId":"no-live-run"})))
+        .unwrap();
+    assert_eq!(vault_platform::test_support::keyring_secret_read_count(&keyring), before + 1);
+    ready_block_on(dispatch_command(&state, "wipe_all_data", json!({"confirmation":"DELETE"})))
+        .unwrap();
+    for (name, value) in names.into_iter().zip(old) {
+        unsafe {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+}
+
+#[path = "native_reads_tests.rs"]
+mod native_reads;
+
+#[test]
+fn queue_history_dispatch_preserves_every_cursor_page() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+    }
+    let paths = vault_core::project_paths_with_root(root.path());
+    vault_core::save_config(
+        &paths,
+        &AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    let vault = state.session.vault().unwrap();
+    for id in 0..37 {
+        vault_core::ai_queue::enqueue_index_job(&vault, &AiIndexRequest::default(), false).unwrap();
+        vault_core::intelligence_runtime::enqueue_core_intelligence_job(
+            &vault,
+            "full-rebuild",
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some(format!("profile-{id}")),
+                ..Default::default()
+            },
+            "fixture",
+        )
+        .unwrap();
+    }
+    for command in ["list_ai_jobs", "list_intelligence_jobs"] {
+        let mut cursor = Value::Null;
+        let mut ids = std::collections::BTreeSet::new();
+        loop {
+            let page = ready_block_on(dispatch_command(
+                &state,
+                command,
+                json!({"request":{"limit":5,"cursor":cursor}}),
+            ))
+            .unwrap();
+            for row in page["items"].as_array().unwrap() {
+                assert!(ids.insert(row["id"].as_i64().unwrap()));
+            }
+            cursor = page["nextCursor"].clone();
+            if cursor.is_null() {
+                break;
+            }
+        }
+        assert_eq!(ids.len(), 37);
+    }
+    state.session.close_vault().unwrap();
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
     }

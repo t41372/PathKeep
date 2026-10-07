@@ -21,19 +21,16 @@
 > 量測方式：版本庫追蹤中的 `src/`、`src-tauri/` 下 `.ts` / `.tsx` / `.rs` / `.css` / `.sql` / `.mjs` 檔，`wc -l`，列出 1000 行以上的（AGENTS.md：重構超過 1000 行的檔案前，先做審查階段）。量測時是 `redesign/v0.4` 的 `5edf5645`；同時有其他分支在改 Rust，行數會有小幅出入。
 > 「程式碼」的行數包含同檔的 `#[cfg(test)]` 區塊。舊表中 `vault-core/src/intelligence_runtime.rs`、`vault-core/src/models.rs`、`vault-core/src/remote.rs`、`src/pages/intelligence/sections.tsx` 已不存在（前三個拆成目錄或刪除，最後一個隨舊前端刪除）。
 
-共 53 個檔案。前端只有三個：兩個是照原樣保留的 EvilCharts 圖表，一個是型別定義；手寫的畫面元件最大的是 `src/features/onboarding/onboarding-page.tsx`（441 行）。
+共 53 個檔案（2026-10-07 區塊 6 刪掉舊格式程式碼後，`archive/maintenance.rs`、`archive/schema.rs` 已刪除，`migration.rs`、`archive/at_rest.rs` 降到 1000 行以下，剩 49 個）。前端只有三個：兩個是照原樣保留的 EvilCharts 圖表，一個是型別定義；手寫的畫面元件最大的是 `src/features/onboarding/onboarding-page.tsx`（441 行）。
 
 | 檔案                                                                    | 行數 | 類型                               |
 | ----------------------------------------------------------------------- | ---- | ---------------------------------- |
 | `src-tauri/crates/vault-core/src/ai/tests.rs`                           | 5871 | 測試檔                             |
 | `src-tauri/crates/vault-core/src/archive/tests.rs`                      | 4540 | 測試檔                             |
-| `src-tauri/crates/vault-core/src/archive/maintenance.rs`                | 3610 | 程式碼                             |
 | `src-tauri/crates/vault-worker/src/tests.rs`                            | 3574 | 測試檔                             |
-| `src-tauri/crates/vault-core/src/migration.rs`                          | 3092 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/ai/agent_harness.rs`                   | 3047 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/ai/agent_tools.rs`                     | 2945 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/models/intelligence.rs`                | 2713 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/archive/at_rest.rs`                    | 2689 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/agent_store.rs`                        | 2318 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/migration/fault_tests.rs`              | 2063 | 測試檔                             |
 | `src-tauri/crates/vault-core/src/ai/embedding_candle.rs`                | 2056 | 程式碼                             |
@@ -54,7 +51,6 @@
 | `src-tauri/src/worker_bridge/mod.rs`                                    | 1337 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/archive/history/og_images.rs`          | 1326 | 程式碼                             |
 | `src-tauri/crates/vault-worker/src/intelligence/ai_queue.rs`            | 1312 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/archive/schema.rs`                     | 1286 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/takeout/browser_history.rs`            | 1284 | 程式碼                             |
 | `src/components/evilcharts/charts/recharts-area-chart.tsx`              | 1282 | vendored（EvilCharts，照原樣保留） |
 | `src-tauri/crates/vault-core/src/ai/embedding_static.rs`                | 1249 | 程式碼                             |
@@ -75,7 +71,6 @@
 | `src-tauri/crates/vault-core/src/intelligence/host_artifacts.rs`        | 1098 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/intelligence/phase_three.rs`           | 1091 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/ai_queue.rs`                           | 1081 | 程式碼                             |
-| `src-tauri/crates/vault-core/examples/intelligence-benchmark.rs`        | 1042 | benchmark 範例                     |
 | `src-tauri/crates/vault-platform/src/scheduler/macos.rs`                | 1023 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/archive/history/day_insights.rs`       | 1017 | 程式碼                             |
 
@@ -120,8 +115,7 @@
 - [`src-tauri/crates/vault-core/src/archive/mod.rs`](../../../src-tauri/crates/vault-core/src/archive/mod.rs) 目前仍承擔 backup orchestration、history query、export、rekey、doctor 等多項責任，但 M1-A 已把主 runtime 切到 canonical `runs` / `source_profiles` / `urls` / `visits` / `downloads` / `search_terms` / `favicons` 寫入面。
 - [`src-tauri/crates/vault-core/src/intelligence/mod.rs`](../../../src-tauri/crates/vault-core/src/intelligence/mod.rs) 9152 行、[`src-tauri/crates/vault-core/src/intelligence_runtime.rs`](../../../src-tauri/crates/vault-core/src/intelligence_runtime.rs) 2172 行，很多 intelligence 相關邏輯仍集中在少數主檔。[`src-tauri/crates/vault-core/src/ai.rs`](../../../src-tauri/crates/vault-core/src/ai.rs) 已從早期的 ~2116 行 mega-file 拆成 `ai/` submodule tree，主檔本身只剩 ~320 行；AI-redesign-2026 引進的新大檔盤點見下方 `AI-redesign-2026 模組大小盤點`。
 - Rust workspace 現在已有 `browser-history-parser` crate，且 `vault-core` 已用它接通 Chromium、Firefox 與 Safari baseline backup ingest；後續重點已從「多瀏覽器是否存在」轉成 parser 深度、capability caveat 與 fixture 擴充。
-- canonical schema v1 + v2 runtime foundation 已落在 [`migrations/001_initial.sql`](../../../src-tauri/crates/vault-core/src/migrations/001_initial.sql) 與 [`migrations/002_archive_runtime_foundation.sql`](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql)；archive init 已統一走 migration executor。
-- [`src-tauri/crates/vault-core/src/archive/schema.rs`](../../../src-tauri/crates/vault-core/src/archive/schema.rs) 現在已退回 canonical archive bootstrap；search / intelligence plane 不再靠 archive-side compatibility views 或 runtime backfill 存活。
+- 原生 schema 在 `vault-core/src/store_schema/`。舊 SQLCipher 格式的 migration SQL（001–016）只留在轉換器的測試 fixture（`vault-convert-sqlcipher/src/test_support/legacy-schema/`），vault-core 不再開舊檔。
 - [`src-tauri/src/lib.rs`](../../../src-tauri/src/lib.rs) 暴露了很多 Tauri commands，但命令集合和命名仍然緊貼舊 UI 與舊產品假設。
 - [`src-tauri/crates/vault-worker/src/lib.rs`](../../../src-tauri/crates/vault-worker/src/lib.rs) 與 [`src-tauri/crates/vault-core/src/chrome.rs`](../../../src-tauri/crates/vault-core/src/chrome.rs) 已在後續 work blocks 裡大幅瘦身；它們仍是重要邊界，但不再是 repo 目前最大的 mega-file hotspot。
 - [`src-tauri/crates/vault-platform/src/lib.rs`](../../../src-tauri/crates/vault-platform/src/lib.rs) 已具備 macOS preview / manual / apply 與 Windows / Linux preview / manual schedule surface，Linux timer contract 也已明確切到 `OnCalendar=` + `Persistent=true`，並透過較小 calendar 步長 + worker `--due-only` 支援分鐘級自訂備份間隔。

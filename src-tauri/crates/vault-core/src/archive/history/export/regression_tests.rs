@@ -1,37 +1,24 @@
 //! Real archive regressions for export failure modes documented in progress.rs.
-//! Owns fixture construction and artifact assertions, not transport or UI behavior.
+//! Responsibilities: real artifact, cancellation, paging and write-buffer contracts.
+//! Not responsible for: search ranking or transport.
+//! Failure modes: missed tied rows, cancelled artifacts published, shared cancellation, unbounded buffers.
 
 use super::*;
-use crate::{
-    models::{ArchiveMode, ExportState},
-    project_paths_with_root,
-};
+use crate::models::ExportState;
 use std::{io, thread, time::Instant};
 
-pub(crate) fn seeded_archive(rows: usize) -> (tempfile::TempDir, ProjectPaths, AppConfig) {
-    let root = tempfile::tempdir().unwrap();
-    let paths = project_paths_with_root(root.path());
-    let config = AppConfig { archive_mode: ArchiveMode::Plaintext, ..AppConfig::default() };
-    let connection = open_archive_connection(&paths, &config, None).unwrap();
-    connection.execute_batch(&format!(
-        "BEGIN;
-         INSERT INTO runs (id, run_type, trigger, started_at, status, due_only, stats_json)
-         VALUES (1, 'backup', 'manual', '', 'success', 0,
-           '{{\"totalUrls\":1,\"totalVisits\":{rows},\"totalDownloads\":0,\"totalProfiles\":1}}');
-         INSERT INTO source_profiles
-           (id, browser_kind, profile_name, profile_path, discovered_at, enabled, profile_key)
-         VALUES (1, 'chrome', 'Default', '/fixture', '', 1, 'chrome:Default');
-         INSERT INTO urls
-           (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso,
-            last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden)
-         VALUES (1, 'https://example.com/?a=1&b=2', 'Title <中文>', 0, 0, 0, '', 0, '', 1, 1, 1, 0);
-         WITH RECURSIVE ids(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM ids WHERE id < {rows})
-         INSERT INTO visits (url_id, source_visit_id, visit_time_ms, visit_time_iso,
-           source_profile_id, created_by_run_id)
-         SELECT 1, CAST(id AS TEXT), 1700000000000 + id / 3, '', 1, 1 FROM ids;
-         COMMIT;"
-    )).unwrap();
-    (root, paths, config)
+pub(crate) fn seeded_archive(rows: usize, key: Option<[u8; 32]>) -> crate::Vault {
+    let vault = crate::Vault::open_temp_with_key(key).unwrap();
+    vault.store().write(vault_store::Db::Archive,vault_store::Priority::Batch,move |s| {
+        s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,discovered_at,enabled,profile_key) VALUES(1,'chrome','Default','/fixture','',1,'chrome:Default')",())?;
+        s.execute("INSERT INTO pages(id,url,canonical_url) VALUES(1,'https://example.com/?a=1&b=2','https://example.com/?a=1&b=2')",())?;
+        s.execute("INSERT INTO urls(id,page_id,url,title,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id) VALUES(1,1,'https://example.com/?a=1&b=2','Title <中文>',0,'',0,'',1,0)",())?;
+        s.execute("WITH RECURSIVE ids(id) AS (VALUES(1) UNION ALL SELECT id+1 FROM ids WHERE id<?1) INSERT INTO visits(url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT 1,CAST(id AS TEXT),1700000000000+id/3,'',1,0 FROM ids",[rows as i64])?;
+        s.execute("UPDATE archive_totals SET value=?1 WHERE name='visits'",[rows as i64])?;
+        crate::archive::search_documents::refresh(s, 1)
+    }).unwrap();
+    vault.search().cycle().unwrap();
+    vault
 }
 
 fn request(id: &str, query: HistoryQuery, format: ExportFormat) -> ExportRequest {
@@ -53,136 +40,143 @@ fn poll_until(id: &str, ready: impl Fn(&crate::ExportProgress) -> bool) -> crate
 
 #[test]
 fn cancellation_during_writing_removes_temp_and_isolates_other_exports() {
-    let (_root, paths, config) = seeded_archive(100_000);
-    thread::scope(|scope| {
-        let cancel = scope.spawn(|| {
-            export_history(
-                &paths,
-                &config,
-                None,
-                request("cancel-writing", HistoryQuery::default(), ExportFormat::Jsonl),
-            )
+    for key in [None, Some([76; 32])] {
+        let vault = seeded_archive(100_000, key);
+        let paths = vault.paths();
+        thread::scope(|scope| {
+            let cancel = scope.spawn(|| {
+                export_history(
+                    &vault,
+                    request("cancel-writing", HistoryQuery::default(), ExportFormat::Jsonl),
+                )
+            });
+            let keep = scope.spawn(|| {
+                export_history(
+                    &vault,
+                    request("keep-writing", HistoryQuery::default(), ExportFormat::Jsonl),
+                )
+            });
+            let progress = poll_until("cancel-writing", |progress| {
+                progress.state == ExportState::Running && progress.rows_written >= 128
+            });
+            assert_eq!(progress.state, ExportState::Running);
+            assert_eq!(progress.total_rows, Some(100_000));
+            let started = Instant::now();
+            assert!(cancel_export("cancel-writing"));
+            let error = cancel.join().unwrap().unwrap_err();
+            assert!(error.downcast_ref::<ExportCancelled>().is_some(), "{error:#}");
+            assert!(started.elapsed() < Duration::from_secs(1));
+            let result = keep.join().unwrap().unwrap();
+            assert_eq!(result.count, 100_000);
+            let files: Vec<_> = fs::read_dir(&paths.exports_dir).unwrap().collect();
+            assert_eq!(files.len(), 1, "cancel must leave neither a temp nor a destination");
+            let done = get_export_progress("keep-writing").unwrap();
+            assert_eq!(done.state, ExportState::Done);
+            assert_eq!(done.rows_written, 100_000);
+            assert_eq!(done.bytes_written, fs::metadata(&result.path).unwrap().len());
+            assert!(done.error.is_none());
+            assert!(!cancel_export("keep-writing"));
+            assert_eq!(
+                get_export_progress("cancel-writing").unwrap().state,
+                ExportState::Cancelled
+            );
         });
-        let keep = scope.spawn(|| {
-            export_history(
-                &paths,
-                &config,
-                None,
-                request("keep-writing", HistoryQuery::default(), ExportFormat::Jsonl),
-            )
-        });
-        let progress = poll_until("cancel-writing", |progress| progress.rows_written >= 128);
-        assert_eq!(progress.state, ExportState::Running);
-        assert_eq!(progress.total_rows, Some(100_000));
-        let started = Instant::now();
-        assert!(cancel_export("cancel-writing"));
-        let error = cancel.join().unwrap().unwrap_err();
-        assert!(error.downcast_ref::<ExportCancelled>().is_some(), "{error:#}");
-        assert!(started.elapsed() < Duration::from_secs(1));
-        let result = keep.join().unwrap().unwrap();
-        assert_eq!(result.count, 100_000);
-        let files: Vec<_> = fs::read_dir(&paths.exports_dir).unwrap().collect();
-        assert_eq!(files.len(), 1, "cancel must leave neither a temp nor a destination");
-        let done = get_export_progress("keep-writing").unwrap();
-        assert_eq!(done.state, ExportState::Done);
-        assert_eq!(done.rows_written, 100_000);
-        assert_eq!(done.bytes_written, fs::metadata(&result.path).unwrap().len());
-        assert!(done.error.is_none());
-        assert!(!cancel_export("keep-writing"));
-        assert_eq!(get_export_progress("cancel-writing").unwrap().state, ExportState::Cancelled);
-    });
+    }
 }
 
 #[test]
 fn failures_at_setup_and_during_query_always_become_terminal() {
-    let (_root, paths, config) = seeded_archive(4);
-    let invalid =
-        HistoryQuery { q: Some("[".into()), regex_mode: Some(true), ..HistoryQuery::default() };
-    assert!(
-        export_history(
-            &paths,
-            &config,
-            None,
-            request("failed-query", invalid, ExportFormat::Jsonl)
-        )
-        .is_err()
-    );
-    let progress = get_export_progress("failed-query").unwrap();
-    assert_eq!(progress.state, ExportState::Failed);
-    assert!(progress.error.unwrap().contains("invalid regex"));
-    assert_eq!(fs::read_dir(&paths.exports_dir).unwrap().count(), 0);
-    fs::remove_dir(&paths.exports_dir).unwrap();
-    fs::write(&paths.exports_dir, b"not a directory").unwrap();
-    assert!(
-        export_history(
-            &paths,
-            &config,
-            None,
-            request("failed-setup", HistoryQuery::default(), ExportFormat::Html)
-        )
-        .is_err()
-    );
-    assert_eq!(get_export_progress("failed-setup").unwrap().state, ExportState::Failed);
-    assert!(!cancel_export("failed-setup"));
+    for key in [None, Some([76; 32])] {
+        let vault = seeded_archive(4, key);
+        let paths = vault.paths();
+        fs::create_dir_all(&paths.exports_dir).unwrap();
+        vault.store().close().unwrap();
+        assert!(
+            export_history(
+                &vault,
+                request("failed-query", HistoryQuery::default(), ExportFormat::Jsonl)
+            )
+            .is_err()
+        );
+        let progress = get_export_progress("failed-query").unwrap();
+        assert_eq!(progress.state, ExportState::Failed);
+        assert_eq!(fs::read_dir(&paths.exports_dir).unwrap().count(), 0);
+        let vault = seeded_archive(4, key);
+        let paths = vault.paths();
+        fs::create_dir_all(paths.exports_dir.parent().unwrap()).unwrap();
+        fs::write(&paths.exports_dir, b"not a directory").unwrap();
+        assert!(
+            export_history(
+                &vault,
+                request("failed-setup", HistoryQuery::default(), ExportFormat::Html)
+            )
+            .is_err()
+        );
+        assert_eq!(get_export_progress("failed-setup").unwrap().state, ExportState::Failed);
+        assert!(!cancel_export("failed-setup"));
+    }
 }
 
 #[test]
 fn streamed_output_matches_previous_page_walk_for_all_formats_and_filters() {
-    let (_root, paths, config) = seeded_archive(1_205);
-    for query in [
-        HistoryQuery::default(),
-        HistoryQuery { sort: Some("oldest".into()), ..HistoryQuery::default() },
-        HistoryQuery {
-            profile_id: Some("chrome:Default".into()),
-            domain: Some("example.com".into()),
-            start_time_ms: Some(1700000000100),
-            ..HistoryQuery::default()
-        },
-        HistoryQuery { q: Some("Title".into()), ..HistoryQuery::default() },
-        HistoryQuery {
-            q: Some("中文".into()), regex_mode: Some(true), ..HistoryQuery::default()
-        },
-        HistoryQuery {
-            q: Some("site:example.com".into()),
-            group_by_url: Some(true),
-            ..HistoryQuery::default()
-        },
-        HistoryQuery { domain: Some("no-matches".into()), ..HistoryQuery::default() },
-    ] {
-        for format in
-            [ExportFormat::Jsonl, ExportFormat::Html, ExportFormat::Markdown, ExportFormat::Text]
-        {
-            // The old algorithm: independent public list calls, page/limit reset, render each row.
-            let mut old_query = query.clone();
-            old_query.limit = Some(EXPORT_PAGE_SIZE);
-            old_query.page = None;
-            old_query.cursor = None;
-            old_query.include_total = Some(false);
-            let mut expected = Vec::new();
-            let mut old = ExportWriter::new(&mut expected, &format).unwrap();
-            loop {
-                let page =
-                    super::super::super::list_history(&paths, &config, None, old_query.clone())
-                        .unwrap();
-                for item in &page.items {
-                    old.item(item).unwrap();
+    for key in [None, Some([76; 32])] {
+        let vault = seeded_archive(1_205, key);
+        for query in [
+            HistoryQuery::default(),
+            HistoryQuery { sort: Some("oldest".into()), ..HistoryQuery::default() },
+            HistoryQuery {
+                profile_id: Some("chrome:Default".into()),
+                domain: Some("example.com".into()),
+                start_time_ms: Some(1700000000100),
+                ..HistoryQuery::default()
+            },
+            HistoryQuery { q: Some("Title".into()), ..HistoryQuery::default() },
+            HistoryQuery {
+                q: Some("中文".into()),
+                regex_mode: Some(true),
+                ..HistoryQuery::default()
+            },
+            HistoryQuery {
+                q: Some("site:example.com".into()),
+                group_by_url: Some(true),
+                ..HistoryQuery::default()
+            },
+            HistoryQuery { domain: Some("no-matches".into()), ..HistoryQuery::default() },
+        ] {
+            for format in [
+                ExportFormat::Jsonl,
+                ExportFormat::Html,
+                ExportFormat::Markdown,
+                ExportFormat::Text,
+            ] {
+                // The old algorithm: independent public list calls, page/limit reset, render each row.
+                let mut old_query = query.clone();
+                old_query.limit = Some(EXPORT_PAGE_SIZE);
+                old_query.page = None;
+                old_query.cursor = None;
+                old_query.include_total = Some(false);
+                let mut expected = Vec::new();
+                let mut old = ExportWriter::new(&mut expected, &format).unwrap();
+                loop {
+                    let page = crate::list_history(&vault, old_query.clone()).unwrap();
+                    for item in &page.items {
+                        old.item(item).unwrap();
+                    }
+                    let Some(cursor) = page.next_cursor else {
+                        break;
+                    };
+                    old_query.cursor = Some(cursor);
                 }
-                let Some(cursor) = page.next_cursor else {
-                    break;
-                };
-                old_query.cursor = Some(cursor);
+                let count = old.finish().unwrap();
+                let result = export_history(
+                    &vault,
+                    ExportRequest { export_id: None, query: query.clone(), format },
+                )
+                .unwrap();
+                assert_eq!(result.count, count);
+                assert_eq!(fs::read(&result.path).unwrap(), expected);
+                fs::remove_file(result.path).unwrap();
             }
-            let count = old.finish().unwrap();
-            let result = export_history(
-                &paths,
-                &config,
-                None,
-                ExportRequest { export_id: None, query: query.clone(), format },
-            )
-            .unwrap();
-            assert_eq!(result.count, count);
-            assert_eq!(fs::read(&result.path).unwrap(), expected);
-            fs::remove_file(result.path).unwrap();
         }
     }
 }
@@ -221,58 +215,104 @@ fn large_fields_are_chunked_and_cancel_without_publishing_partial_artifacts() {
 
 #[test]
 fn ordinary_walk_consumes_rows_immediately_and_keeps_only_fixed_write_buffers() {
-    let (_root, paths, config) = seeded_archive(100_000);
-    let connection = open_archive_connection(&paths, &config, None).unwrap();
-    let mut buffer = BufWriter::with_capacity(EXPORT_BUFFER_BYTES, io::sink());
-    let mut visited = 0usize;
-    let format = ExportFormat::Jsonl;
-    let mut writer = ExportWriter::new(&mut buffer, &format).unwrap();
-    walk_history_for_export(&connection, HistoryQuery::default(), None, |row| {
-        writer.item(row)?;
-        visited += 1;
-        assert!(writer.writer.buffer().len() <= EXPORT_BUFFER_BYTES);
-        Ok(())
-    })
-    .unwrap();
-    assert_eq!(visited, 100_000);
-    assert_eq!(writer.finish().unwrap(), visited);
-    assert_eq!(buffer.capacity(), EXPORT_BUFFER_BYTES);
-}
-
-#[test]
-fn sqlite_work_can_be_interrupted_before_it_yields_a_row() {
-    let (_root, paths, config) = seeded_archive(4);
-    let connection = open_archive_connection(&paths, &config, None).unwrap();
-    let job = ExportJob::start(Some("cancel-sql")).unwrap().unwrap();
-    let flag = job.clone();
-    connection.progress_handler(1_000, Some(move || flag.is_cancelled())).unwrap();
-    thread::scope(|scope| {
-        scope.spawn(|| {
-            thread::sleep(Duration::from_millis(20));
-            assert!(cancel_export("cancel-sql"));
-        });
-        let started = Instant::now();
-        let result = connection.query_row("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000000000) SELECT sum(x) FROM n", [], |row| row.get::<_, i64>(0));
-        assert!(result.is_err());
-        assert!(started.elapsed() < Duration::from_secs(1));
-    });
-    job.complete::<()>(&Err(ExportCancelled.into()));
+    for key in [None, Some([76; 32])] {
+        let vault = seeded_archive(100_000, key);
+        let mut buffer = BufWriter::with_capacity(EXPORT_BUFFER_BYTES, io::sink());
+        let mut visited = 0usize;
+        let format = ExportFormat::Jsonl;
+        let mut writer = ExportWriter::new(&mut buffer, &format).unwrap();
+        walk_history_for_export(&vault, HistoryQuery::default(), None, |row| {
+            writer.item(row)?;
+            visited += 1;
+            assert!(writer.writer.buffer().len() <= EXPORT_BUFFER_BYTES);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(visited, 100_000);
+        assert_eq!(writer.finish().unwrap(), visited);
+        assert_eq!(buffer.capacity(), EXPORT_BUFFER_BYTES);
+    }
 }
 
 #[test]
 fn absent_cached_totals_do_not_prevent_a_tracked_export() {
-    let (_root, paths, config) = seeded_archive(4);
-    let connection = open_archive_connection(&paths, &config, None).unwrap();
-    connection.execute("UPDATE runs SET stats_json = NULL", []).unwrap();
-    let result = export_history(
-        &paths,
-        &config,
-        None,
-        request("missing-totals", HistoryQuery::default(), ExportFormat::Jsonl),
-    )
-    .unwrap();
-    assert_eq!(result.count, 4);
-    let progress = get_export_progress("missing-totals").unwrap();
-    assert_eq!(progress.state, ExportState::Done);
-    assert_eq!(progress.total_rows, None);
+    for key in [None, Some([76; 32])] {
+        let vault = seeded_archive(4, key);
+        vault
+            .store()
+            .write(vault_store::Db::Archive, vault_store::Priority::Interactive, |s| {
+                s.execute("DELETE FROM archive_totals WHERE name='visits'", ())?;
+                Ok(())
+            })
+            .unwrap();
+        let result = export_history(
+            &vault,
+            request("missing-totals", HistoryQuery::default(), ExportFormat::Jsonl),
+        )
+        .unwrap();
+        assert_eq!(result.count, 4);
+        let progress = get_export_progress("missing-totals").unwrap();
+        assert_eq!(progress.state, ExportState::Done);
+        assert_eq!(progress.total_rows, None);
+    }
+}
+
+#[test]
+fn exports_start_at_the_first_match_regardless_of_screen_pagination() {
+    for key in [None, Some([76; 32])] {
+        let vault = seeded_archive(1205, key);
+        let result = export_history(
+            &vault,
+            ExportRequest {
+                export_id: None,
+                query: HistoryQuery {
+                    page: Some(9),
+                    cursor: Some("1700000000100|400".into()),
+                    limit: Some(1),
+                    ..Default::default()
+                },
+                format: ExportFormat::Jsonl,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.count, 1205);
+    }
+}
+
+#[test]
+fn invalid_search_export_records_a_terminal_failure_without_an_artifact() {
+    for key in [None, Some([76; 32])] {
+        let vault = seeded_archive(4, key);
+        let invalid =
+            HistoryQuery { q: Some("[".into()), regex_mode: Some(true), ..Default::default() };
+        assert!(
+            export_history(&vault, request("invalid-search", invalid, ExportFormat::Jsonl))
+                .is_err()
+        );
+        let progress = get_export_progress("invalid-search").unwrap();
+        assert_eq!(progress.state, ExportState::Failed);
+        assert!(progress.error.unwrap().contains("invalid regex"));
+        assert_eq!(fs::read_dir(&vault.paths().exports_dir).unwrap().count(), 0);
+    }
+}
+
+#[test]
+fn search_export_progress_does_not_report_the_archives_visit_total_as_matching_pages() {
+    for key in [None, Some([76; 32])] {
+        let vault = seeded_archive(4, key);
+        let result = export_history(
+            &vault,
+            request(
+                "search-progress",
+                HistoryQuery { q: Some("Title".into()), ..Default::default() },
+                ExportFormat::Jsonl,
+            ),
+        )
+        .unwrap();
+        assert_eq!(result.count, 1);
+        let progress = get_export_progress("search-progress").unwrap();
+        assert_eq!(progress.state, ExportState::Done);
+        assert_eq!(progress.rows_written, 1);
+        assert_eq!(progress.total_rows, None);
+    }
 }

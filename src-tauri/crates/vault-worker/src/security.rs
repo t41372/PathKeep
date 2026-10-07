@@ -27,7 +27,7 @@ use std::{
 };
 use vault_core::{
     AiProviderSecretInput, AppLockStatus, ArchiveMode, KeyringStatusReport, archive,
-    archive_status, clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
+    clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
     unlock_app_session_with_biometric,
 };
 #[cfg(not(coverage))]
@@ -40,10 +40,16 @@ use vault_platform::{
 type RekeyReviewSummary = (Option<String>, Option<i64>, Option<String>);
 
 /// Loads the security read model for the current archive/session state.
-pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core::SecurityStatus> {
+pub fn security_status(
+    vault: Option<&vault_core::Vault>,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::SecurityStatus> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let archive = archive_status(&paths, &config, session_database_key)?;
+    let archive = match vault {
+        Some(vault) => vault_core::archive_status(vault)?,
+        None => vault_core::archive_availability(&paths, &config),
+    };
     let keyring = keyring_status();
     let (warnings, warning_codes) =
         security_status_warnings(&config, &archive, &keyring, session_database_key);
@@ -60,6 +66,7 @@ pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core:
 
     let (last_rekey_at, last_rekey_run_id, last_rekey_snapshot_path) = if archive.initialized
         && archive.unlocked
+        && (config.archive_mode == ArchiveMode::Plaintext || session_database_key.is_some())
     {
         let connection = archive::open_archive_connection(&paths, &config, session_database_key)?;
         archive::create_schema(&connection)?;
@@ -325,6 +332,7 @@ fn biometric_authentication_error(message: String) -> anyhow::Error {
 /// [`crate::current_password`]), so a wrong one is refused on the first step
 /// instead of after the user has read the plan.
 pub fn preview_rekey_archive(request: &RekeyRequest) -> Result<vault_core::RekeyPreview> {
+    vault_core::require_complete_storage_migration("archive rekey")?;
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     if !config.initialized || !paths.archive_database_path.exists() {
@@ -377,13 +385,20 @@ pub fn preview_rekey_archive(request: &RekeyRequest) -> Result<vault_core::Rekey
 }
 
 /// Reads the stored archive key from the native keyring, if present.
-pub fn read_database_key_from_keyring() -> Result<Option<String>> {
-    keyring_get_database_key()
+pub fn read_database_key_from_keyring() -> Result<Option<zeroize::Zeroizing<String>>> {
+    Ok(keyring_get_database_key()?.map(zeroize::Zeroizing::new))
 }
 
 /// Stores the archive key in the native keyring and returns the updated keyring status.
 pub fn write_database_key_to_keyring(key: &str) -> Result<KeyringStatusReport> {
-    keyring_set_database_key(key)?;
+    let paths = vault_core::project_paths()?;
+    let data_key = vault_core::Vault::unlock_data_key(&paths, key)?;
+    store_data_key_in_keyring(&data_key)
+}
+
+/// Stores an already unwrapped data key in the existing OS credential entry.
+pub fn store_data_key_in_keyring(key: &vault_crypto::DataKey) -> Result<KeyringStatusReport> {
+    keyring_set_database_key(&crate::session::encode_data_key(key))?;
     Ok(keyring_status())
 }
 

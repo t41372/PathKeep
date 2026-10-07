@@ -3,7 +3,8 @@
 //! Failure modes: omitted columns/indexes, orphan facts, duplicate pages, profile
 //! observations merged, reverted visits retained in search filters, split document
 //! and outbox commits, reused outbox sequence numbers, lost deletion tombstones.
-//! Tests: catalog_and_crud, foreign_keys, pages_and_visibility, search_outbox.
+//! Tests: catalog_and_crud, foreign_keys, pages_and_visibility, search_outbox,
+//! consolidated_v1_contains_every_read_and_search_index.
 //!
 //! Pages hold the exact URL string and its registrable domain, which do not vary
 //! by browser profile. Titles, counts, source IDs, observed timestamps, hidden
@@ -69,6 +70,7 @@ const STATEMENTS: &[&str] = &[
     r"CREATE TABLE pages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   url TEXT NOT NULL UNIQUE,
+  canonical_url TEXT NOT NULL,
   registrable_domain TEXT
 )",
     r"CREATE TABLE urls (
@@ -189,7 +191,9 @@ const STATEMENTS: &[&str] = &[
   last_checkpoint_at TEXT,
   last_schema_hash TEXT,
   updated_at TEXT NOT NULL,
-  last_source_batch_id INTEGER
+  last_source_batch_id INTEGER,
+  last_search_url_time INTEGER NOT NULL DEFAULT 0,
+  url_scan_json TEXT
 )",
     r"CREATE TABLE favicon_blobs (
   blob_hash TEXT PRIMARY KEY,
@@ -198,6 +202,7 @@ const STATEMENTS: &[&str] = &[
 )",
     r"CREATE TABLE url_annotations (
   url TEXT PRIMARY KEY,
+  canonical_url TEXT NOT NULL,
   notes TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -205,6 +210,7 @@ const STATEMENTS: &[&str] = &[
 )",
     r"CREATE TABLE url_tags (
   url TEXT NOT NULL,
+  canonical_url TEXT NOT NULL,
   tag TEXT NOT NULL,
   created_at TEXT NOT NULL,
   source_profile TEXT,
@@ -251,7 +257,11 @@ const STATEMENTS: &[&str] = &[
   status TEXT NOT NULL,
   summary_json TEXT NOT NULL,
   audit_path TEXT,
-  git_commit TEXT
+  git_commit TEXT,
+  previous_status TEXT NOT NULL DEFAULT 'imported',
+  visibility_cursor INTEGER NOT NULL DEFAULT 0,
+  visibility_run_id INTEGER,
+  visible_items INTEGER NOT NULL DEFAULT 0
 )",
     r"CREATE TABLE search_documents (
   page_id INTEGER PRIMARY KEY REFERENCES pages(id) ON DELETE CASCADE,
@@ -311,7 +321,7 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_og_images_blob_hash ON og_images(image_blob_hash) WHERE image_blob_hash IS NOT NULL",
     "CREATE INDEX idx_og_images_refetch ON og_images(refetch_after) WHERE refetch_after IS NOT NULL",
     "CREATE INDEX idx_og_images_last_shown ON og_images(last_shown_at) WHERE last_shown_at IS NOT NULL",
-    "CREATE INDEX idx_urls_last_visit_ms ON urls(last_visit_ms DESC)",
+    "CREATE INDEX idx_urls_last_visit_ms ON urls(last_visit_ms DESC,id DESC)",
     "CREATE INDEX idx_star_kind_starred_at ON star(entity_kind, starred_at DESC)",
     "CREATE INDEX idx_urls_url ON urls(url)",
     "CREATE INDEX idx_visits_visible_time_id ON visits(visit_time_ms, id) WHERE reverted_at IS NULL",
@@ -321,4 +331,16 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_search_documents_newest ON search_documents(newest_visit_ms DESC, page_id DESC)",
     "CREATE INDEX idx_search_document_profiles_profile ON search_document_profiles(source_profile_id, newest_visit_ms DESC, page_id)",
     "INSERT INTO runs(id,run_type,trigger,started_at,finished_at,timezone,status,profile_scope_json,stats_json,warnings_json,due_only) VALUES(0,'system','compat','1970-01-01T00:00:00+00:00','1970-01-01T00:00:00+00:00','UTC','success','[]','{}','[]',0)",
+    "CREATE TABLE archive_totals(name TEXT PRIMARY KEY,value INTEGER NOT NULL)",
+    "INSERT INTO archive_totals VALUES('sourceProfiles',0),('urls',0),('visits',0),('downloads',0),('manifests',0),('snapshots',0)",
+    "CREATE INDEX idx_visits_batch_url ON visits(import_batch_id,url_id)",
+    "CREATE INDEX idx_og_images_eviction ON og_images(fetched_at,id)",
+    "CREATE INDEX idx_og_images_lru ON og_images(last_shown_at IS NULL DESC,last_shown_at,fetched_at,id)",
+    "CREATE INDEX idx_pages_canonical_url ON pages(canonical_url)",
+    "CREATE INDEX idx_url_annotations_canonical ON url_annotations(canonical_url,updated_at DESC,url)",
+    "CREATE INDEX idx_url_tags_canonical ON url_tags(canonical_url,created_at,tag)",
+    "CREATE INDEX idx_visits_visible_batch_time_id ON visits(import_batch_id,visit_time_ms DESC,id DESC) WHERE reverted_at IS NULL AND import_batch_id IS NOT NULL",
+    "CREATE INDEX idx_search_outbox_page_seq ON search_outbox(page_id,seq)",
+    "CREATE INDEX idx_manifests_run_id ON manifests(run_id,id DESC)",
+    "CREATE INDEX idx_snapshots_run_id ON snapshots(run_id,id)",
 ];

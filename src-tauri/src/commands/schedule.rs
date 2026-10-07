@@ -62,9 +62,9 @@ pub(crate) async fn schedule_status(
     platform: Option<String>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ScheduleStatus, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("schedule_status", move || {
-        worker_bridge::schedule_status_impl(platform, key.as_deref())
+        worker_bridge::schedule_status_impl(platform, &key_state)
     })
     .await
 }

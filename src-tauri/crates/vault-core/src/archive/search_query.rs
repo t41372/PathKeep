@@ -26,11 +26,9 @@
 use super::search_lexical::{normalized_compact_filter_terms, normalized_filter_terms};
 use chrono::{Datelike, NaiveDate, TimeZone, Utc};
 
-const MAX_FILTER_VALUES: usize = 16;
-
 /// Parsed local-history equivalent of Google-style advanced search operators.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct ParsedHistorySearchQuery {
+pub(crate) struct ParsedHistorySearchQuery {
     pub keyword_text: Option<String>,
     pub exact_terms: Vec<String>,
     pub excluded_terms: Vec<String>,
@@ -60,7 +58,7 @@ pub(super) struct ParsedHistorySearchQuery {
 }
 
 /// Parses the Explorer keyword box into local advanced-search constraints.
-pub(super) fn parse_history_search_query(raw: &str) -> ParsedHistorySearchQuery {
+pub(crate) fn parse_history_search_query(raw: &str) -> ParsedHistorySearchQuery {
     let tokens = tokenize_query(raw);
     let mut parsed = ParsedHistorySearchQuery::default();
     let mut keyword_terms = Vec::<String>::new();
@@ -74,6 +72,8 @@ pub(super) fn parse_history_search_query(raw: &str) -> ParsedHistorySearchQuery 
 
         let (operator, operand) = split_operator(value);
         match operator.as_deref() {
+            // Page search owns the star predicate; it is not part of a typo target.
+            Some("is") if !negated && operand.eq_ignore_ascii_case("starred") => {}
             Some("site") => {
                 push_filter_values(
                     if negated { &mut parsed.excluded_sites } else { &mut parsed.required_sites },
@@ -143,7 +143,7 @@ pub(super) fn parse_history_search_query(raw: &str) -> ParsedHistorySearchQuery 
     parsed
 }
 
-fn tokenize_query(raw: &str) -> Vec<QueryToken> {
+pub(crate) fn tokenize_query(raw: &str) -> Vec<QueryToken> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
@@ -189,12 +189,12 @@ fn push_token(tokens: &mut Vec<QueryToken>, current: &mut String, quoted: bool) 
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct QueryToken {
-    value: String,
-    quoted: bool,
+pub(crate) struct QueryToken {
+    pub value: String,
+    pub quoted: bool,
 }
 
-fn split_operator(value: &str) -> (Option<String>, &str) {
+pub(crate) fn split_operator(value: &str) -> (Option<String>, &str) {
     let Some(separator) = value.find(':') else {
         return (None, value);
     };
@@ -264,9 +264,6 @@ fn push_normalized_compact_filter_values(target: &mut Vec<String>, raw: &str) {
 
 fn push_filter_values(target: &mut Vec<String>, values: Vec<String>) {
     for value in values {
-        if target.len() >= MAX_FILTER_VALUES {
-            return;
-        }
         let trimmed = value.trim();
         if !trimmed.is_empty() && !target.iter().any(|existing| existing == trimmed) {
             target.push(trimmed.to_string());
@@ -388,12 +385,12 @@ mod tests {
     }
 
     #[test]
-    fn caps_filter_values_and_ignores_or_as_keyword_noise() {
+    fn retains_every_filter_and_preserves_or_syntax() {
         let parsed = parse_history_search_query(
             "-a -b -c -d -e -f -g -h -i -j -k -l -m -n -o -p -q github OR gitlab",
         );
 
-        assert_eq!(parsed.excluded_terms.len(), MAX_FILTER_VALUES);
+        assert_eq!(parsed.excluded_terms.len(), 17);
         assert_eq!(parsed.keyword_text.as_deref(), Some("github OR gitlab"));
     }
 }

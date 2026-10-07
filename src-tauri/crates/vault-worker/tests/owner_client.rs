@@ -29,7 +29,7 @@ fn sidecar_and_mcp_forward_to_owner_and_recheck_consent() {
             std::env::set_var(key, value);
         }
     }
-    let _lock = vault_store::OwnerLock::acquire(root.path()).unwrap();
+    let lock = Arc::new(vault_store::OwnerLock::acquire(root.path()).unwrap());
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
@@ -38,11 +38,13 @@ fn sidecar_and_mcp_forward_to_owner_and_recheck_consent() {
     };
     vault_core::save_config(&paths, &config).unwrap();
     vault_core::ensure_archive_initialized(&paths, &config, None).unwrap();
+    let vault =
+        vault_core::Vault::open_owned(paths.clone(), config.clone(), None, Some(lock)).unwrap();
     let methods = Arc::new(Mutex::new(Vec::new()));
     let recorded = methods.clone();
     let _server = vault_owner_ipc::Server::start(root.path(), move |request, progress| {
         recorded.lock().unwrap().push(request.method.clone());
-        vault_worker::owner_requests::dispatch(request, progress, None)
+        vault_worker::owner_requests::dispatch(request, progress, Ok(None), || Ok(vault.clone()))
     })
     .unwrap();
     let command = || {

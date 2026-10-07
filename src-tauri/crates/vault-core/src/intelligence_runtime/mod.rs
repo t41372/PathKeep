@@ -1,7 +1,8 @@
+//! Failure modes: recovery repeats completed jobs or snapshots mutate queue state.
 //! Deterministic intelligence runtime boundary.
 //!
 //! ## Responsibilities
-//! - Own the persisted queue/runtime schema for deterministic rebuild and
+//! - Expose the persisted queue/runtime contract for deterministic rebuild and
 //!   enrichment jobs.
 //! - Define the shared runtime payloads, module/plugin catalogs, and lease
 //!   helpers used across enqueue, recovery, and snapshot code.
@@ -14,7 +15,7 @@
 //! - UI-specific copy shaping beyond the persisted runtime snapshot fields.
 //!
 //! ## Dependencies
-//! - `archive::open_intelligence_connection` for the derived intelligence DB.
+//! - `Vault` and `Session` for the dedicated intelligence database.
 //! - `intelligence_catalog` for built-in module metadata and rebuild labels.
 //! - `models` for the serialized runtime snapshot surface shared with the shell.
 //!
@@ -49,101 +50,24 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
-#[cfg(test)]
-use std::thread::ThreadId;
-use std::{
-    collections::HashSet,
-    path::Path,
-    sync::{Mutex, OnceLock},
-};
+use serde_json::Value;
 
-pub(crate) use self::claims::claim_enrichment_job_by_id;
-#[cfg(test)]
-pub(crate) use self::claims::claim_enrichment_jobs;
+pub(crate) use self::claims::intelligence_job_stop_requested_in_session;
 pub(crate) use self::claims::{
     claim_content_fetch_job_by_id, content_fetch_job_due, requeue_content_fetch_job_after,
 };
-pub use self::claims::{
-    claim_core_intelligence_job, claim_deterministic_rebuild_job, intelligence_job_stop_requested,
-    next_content_fetch_schedule_eta_secs, next_queued_content_fetch_job,
-    next_queued_enrichment_job, next_queued_intelligence_job,
-};
+pub(crate) use self::claims::{claim_enrichment_job_by_id, claim_result};
 pub(crate) use self::enqueue::enqueue_content_fetch_job;
 #[cfg(test)]
 pub(crate) use self::enqueue::enqueue_enrichment_job;
-pub use self::enqueue::mark_all_deterministic_modules_stale;
 pub(crate) use self::enqueue::persist_deterministic_module_runtime_updates;
-pub use self::enqueue::{enqueue_core_intelligence_job, enqueue_deterministic_rebuild_job};
-pub use self::job_control::{
-    cancel_intelligence_job, mark_intelligence_job_failed, mark_intelligence_job_succeeded,
-    mark_running_intelligence_job_cancelled, retry_intelligence_job,
-    update_intelligence_job_artifact,
-};
-pub use self::snapshot::load_intelligence_runtime;
-pub(crate) use self::snapshot::load_intelligence_runtime_from_connection;
-#[cfg(test)]
-pub(crate) use self::snapshot::{
-    load_intelligence_runtime_from_connection_call_count,
-    reset_load_intelligence_runtime_from_connection_call_count,
+pub(crate) use self::job_control::{
+    mark_intelligence_job_failed_in_session, mark_intelligence_job_succeeded_in_session,
+    mark_running_intelligence_job_cancelled_in_session,
 };
 
-pub(super) const INTELLIGENCE_RUNTIME_SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS intelligence_jobs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  job_type TEXT NOT NULL,
-  plugin_id TEXT,
-  run_id INTEGER,
-  state TEXT NOT NULL,
-  priority INTEGER NOT NULL DEFAULT 100,
-  attempt INTEGER NOT NULL DEFAULT 0,
-  dedupe_key TEXT NOT NULL,
-  payload_json TEXT NOT NULL,
-  artifact_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL,
-  scheduled_at TEXT NOT NULL,
-  started_at TEXT,
-  finished_at TEXT,
-  heartbeat_at TEXT,
-  lease_owner TEXT,
-  lease_expires_at TEXT,
-  updated_at TEXT NOT NULL,
-  last_error TEXT,
-  cancellation_reason TEXT,
-  stop_requested INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(dedupe_key)
-);
-CREATE INDEX IF NOT EXISTS idx_intelligence_jobs_state
-  ON intelligence_jobs(job_type, state, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_intelligence_jobs_plugin_state
-  ON intelligence_jobs(plugin_id, state, updated_at DESC);
-CREATE TABLE IF NOT EXISTS intelligence_job_triggers (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  job_id INTEGER NOT NULL REFERENCES intelligence_jobs(id) ON DELETE CASCADE,
-  run_id INTEGER,
-  reason TEXT,
-  requested_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_intelligence_job_triggers_job_id
-  ON intelligence_job_triggers(job_id, requested_at DESC);
-CREATE TABLE IF NOT EXISTS deterministic_module_runtime (
-  module_id TEXT PRIMARY KEY,
-  version TEXT NOT NULL,
-  status TEXT NOT NULL,
-  depends_on_json TEXT NOT NULL,
-  derived_tables_json TEXT NOT NULL,
-  last_run_id INTEGER,
-  last_built_at TEXT,
-  last_invalidated_at TEXT,
-  stale_reason TEXT,
-  stale_reason_code TEXT,
-  notes_json TEXT NOT NULL DEFAULT '[]',
-  updated_at TEXT NOT NULL
-);
-"#;
+pub(crate) use self::snapshot::load_intelligence_runtime_from_connection;
 
 /// Queue job type identifier used for enrichment plugin jobs.
 pub(crate) const ENRICHMENT_JOB_TYPE: &str = "enrichment-plugin";
@@ -175,15 +99,6 @@ pub(super) const INTELLIGENCE_JOB_LEASE_SECONDS: i64 = 300;
 pub(crate) const LOCAL_PLUGIN_SOURCE_KIND: &str = "local";
 /// Source-kind identifier for network-backed enrichment plugins.
 pub(crate) const NETWORK_PLUGIN_SOURCE_KIND: &str = "network";
-
-pub(super) static RECOVERED_RUNTIME_ARCHIVES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-#[cfg(test)]
-pub(super) static LOAD_INTELLIGENCE_RUNTIME_FROM_CONNECTION_CALLS: AtomicUsize =
-    AtomicUsize::new(0);
-#[cfg(test)]
-pub(super) static LOAD_INTELLIGENCE_RUNTIME_FROM_CONNECTION_MONITOR_THREAD: OnceLock<
-    Mutex<Option<ThreadId>>,
-> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct EnrichmentPluginDefinition {
@@ -217,8 +132,8 @@ pub(crate) struct DeterministicModuleRuntimeUpdate {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EnrichmentJobPayload {
-    pub history_id: i64,
-    pub profile_id: String,
+    pub history_id: Option<i64>,
+    pub profile_id: Option<String>,
     pub url: String,
     pub title: Option<String>,
 }
@@ -283,26 +198,6 @@ pub(super) const BUILT_IN_ENRICHMENT_PLUGINS: [EnrichmentPluginDefinition; 2] = 
         priority: 30,
     },
 ];
-
-/// Ensures the persistent intelligence runtime tables exist.
-pub(crate) fn ensure_intelligence_runtime_schema(connection: &Connection) -> Result<()> {
-    connection.execute_batch(INTELLIGENCE_RUNTIME_SCHEMA_SQL)?;
-    // Runtime tables are created with `CREATE TABLE IF NOT EXISTS`, so a database written before
-    // this column existed keeps its old shape.
-    let has_stale_reason: bool = connection.query_row(
-        "SELECT EXISTS (SELECT 1 FROM pragma_table_info('deterministic_module_runtime')
-                        WHERE name = 'stale_reason_code')",
-        [],
-        |row| row.get(0),
-    )?;
-    if !has_stale_reason {
-        connection.execute(
-            "ALTER TABLE deterministic_module_runtime ADD COLUMN stale_reason_code TEXT",
-            [],
-        )?;
-    }
-    Ok(())
-}
 
 pub(super) fn is_core_intelligence_job_type(job_type: &str) -> bool {
     matches!(
@@ -390,4 +285,189 @@ pub(crate) fn enrichment_plugin_enabled(config: &AppConfig, plugin_id: &str) -> 
         .find(|plugin| plugin.plugin_id == plugin_id)
         .map(|plugin| plugin.enabled)
         .unwrap_or(false)
+}
+
+use crate::Vault;
+use vault_store::{Db, Priority};
+
+/// Executes `intelligence_job_stop_requested` on the current storage owner.
+pub fn intelligence_job_stop_requested(vault: &Vault, job_id: i64) -> Result<bool> {
+    vault.read(Db::Intelligence, move |s| {
+        claims::intelligence_job_stop_requested_in_session(s, job_id)
+    })
+}
+
+/// Executes `claim_core_intelligence_job` on the current storage owner.
+pub fn claim_core_intelligence_job(
+    vault: &Vault,
+    job_id: i64,
+) -> Result<Option<DeterministicRebuildJobPayload>> {
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        claims::claim_result(claims::claim_core_intelligence_job_in_session(s, job_id))
+    })?
+}
+
+/// Executes `claim_deterministic_rebuild_job` on the current storage owner.
+pub fn claim_deterministic_rebuild_job(
+    vault: &Vault,
+    job_id: i64,
+) -> Result<Option<DeterministicRebuildJobPayload>> {
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        claims::claim_result(claims::claim_deterministic_rebuild_job_in_session(s, job_id))
+    })?
+}
+
+/// Executes `next_queued_intelligence_job` on the current storage owner.
+pub fn next_queued_intelligence_job(vault: &Vault) -> Result<Option<QueuedIntelligenceJob>> {
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        claims::next_queued_intelligence_job_in_session(s)
+    })
+}
+
+/// Executes `next_queued_enrichment_job` on the current storage owner.
+pub fn next_queued_enrichment_job(vault: &Vault) -> Result<Option<i64>> {
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        claims::next_queued_enrichment_job_in_session(s)
+    })
+}
+
+/// Executes `next_queued_content_fetch_job` on the current storage owner.
+pub fn next_queued_content_fetch_job(vault: &Vault) -> Result<Option<i64>> {
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        claims::next_queued_content_fetch_job_in_session(s)
+    })
+}
+
+/// Executes `next_content_fetch_schedule_eta_secs` on the current storage owner.
+pub fn next_content_fetch_schedule_eta_secs(vault: &Vault) -> Result<Option<u64>> {
+    vault.read(Db::Intelligence, claims::next_content_fetch_schedule_eta_secs_in_session)
+}
+
+/// Executes `enqueue_core_intelligence_job` on the current storage owner.
+pub fn enqueue_core_intelligence_job(
+    vault: &Vault,
+    job_type: &str,
+    request: &CoreIntelligenceRebuildRequest,
+    reason: &str,
+) -> Result<i64> {
+    let job_type = job_type.to_owned();
+    let request = request.clone();
+    let reason = reason.to_owned();
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        enqueue::enqueue_core_intelligence_job_in_session(s, &job_type, &request, &reason)
+    })
+}
+
+/// Executes `enqueue_deterministic_rebuild_job` on the current storage owner.
+pub fn enqueue_deterministic_rebuild_job(
+    vault: &Vault,
+    request: &CoreIntelligenceRebuildRequest,
+    reason: &str,
+) -> Result<i64> {
+    let request = request.clone();
+    let reason = reason.to_owned();
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        enqueue::enqueue_deterministic_rebuild_job_in_session(s, &request, &reason)
+    })
+}
+
+/// Executes `mark_all_deterministic_modules_stale` on the current storage owner.
+pub fn mark_all_deterministic_modules_stale(
+    vault: &Vault,
+    reason_code: &str,
+    reason: &str,
+) -> Result<()> {
+    let reason_code = reason_code.to_owned();
+    let reason = reason.to_owned();
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        enqueue::mark_all_deterministic_modules_stale_in_session(s, &reason_code, &reason)
+    })
+}
+
+/// Executes `mark_intelligence_job_succeeded` on the current storage owner.
+pub fn mark_intelligence_job_succeeded(
+    vault: &Vault,
+    job_id: i64,
+    artifact: &Value,
+) -> Result<bool> {
+    let artifact = artifact.clone();
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        job_control::mark_intelligence_job_succeeded_in_session(s, job_id, &artifact)
+    })
+}
+
+/// Executes `update_intelligence_job_artifact` on the current storage owner.
+pub fn update_intelligence_job_artifact(
+    vault: &Vault,
+    job_id: i64,
+    artifact: &Value,
+) -> Result<()> {
+    let artifact = artifact.clone();
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        job_control::update_intelligence_job_artifact_in_session(s, job_id, &artifact)
+    })
+}
+
+/// Executes `mark_intelligence_job_failed` on the current storage owner.
+pub fn mark_intelligence_job_failed(vault: &Vault, job_id: i64, error: &str) -> Result<bool> {
+    let error = error.to_owned();
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        job_control::mark_intelligence_job_failed_in_session(s, job_id, &error)
+    })
+}
+
+/// Executes `mark_running_intelligence_job_cancelled` on the current storage owner.
+pub fn mark_running_intelligence_job_cancelled(
+    vault: &Vault,
+    job_id: i64,
+    reason: &str,
+) -> Result<bool> {
+    let reason = reason.to_owned();
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        job_control::mark_running_intelligence_job_cancelled_in_session(s, job_id, &reason)
+    })
+}
+
+/// Executes `retry_intelligence_job` on the current storage owner.
+pub fn retry_intelligence_job(vault: &Vault, job_id: i64) -> Result<IntelligenceRuntimeSnapshot> {
+    let paths = vault.paths().clone();
+    let config = vault.config().clone();
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        job_control::retry_intelligence_job_in_session(s, &paths, &config, job_id)
+    })
+}
+
+/// Executes `cancel_intelligence_job` on the current storage owner.
+pub fn cancel_intelligence_job(vault: &Vault, job_id: i64) -> Result<IntelligenceRuntimeSnapshot> {
+    let paths = vault.paths().clone();
+    let config = vault.config().clone();
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        job_control::cancel_intelligence_job_in_session(s, &paths, &config, job_id)
+    })
+}
+
+/// Reads runtime state without opening files, installing schemas or recovering jobs.
+pub fn load_intelligence_runtime(vault: &Vault) -> Result<IntelligenceRuntimeSnapshot> {
+    let paths = vault.paths().clone();
+    let config = vault.config().clone();
+    vault.read(Db::Intelligence, move |s| {
+        snapshot::load_intelligence_runtime_from_connection(s, &paths, &config)
+    })
+}
+
+/// The exclusive owner reclaims unfinished work once at open, preserving completed jobs.
+pub(crate) fn recover_owner_claims(store: &vault_store::Store) -> vault_store::Result<()> {
+    store.write(Db::Intelligence,Priority::Interactive,|s| {
+        s.execute("UPDATE intelligence_jobs SET state=CASE WHEN stop_requested=1 THEN 'cancelled' ELSE 'queued' END,scheduled_at=?1,updated_at=?1,started_at=NULL,finished_at=CASE WHEN stop_requested=1 THEN ?1 ELSE NULL END,lease_owner=NULL,lease_expires_at=NULL,heartbeat_at=NULL WHERE state='running'",[crate::utils::now_rfc3339()])?;
+        Ok(())
+    })
+}
+
+/// Reads every queue record through explicit continuation.
+pub fn list_intelligence_jobs(
+    vault: &Vault,
+    cursor: Option<crate::models::IntelligenceJobCursor>,
+    limit: usize,
+) -> Result<crate::models::IntelligenceJobPage> {
+    vault.read(Db::Intelligence, move |s| snapshot::load_job_page(s, cursor.as_ref(), limit))
 }

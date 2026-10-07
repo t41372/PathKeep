@@ -11,9 +11,12 @@
 //!   re-fetches by the negative cache + extractor version.
 //!
 //! ## Not responsible for
-//! - The dedup content_hash / FTS5 mirror (the indexing + search-projection layers consume the stored
-//!   `enrichment_summary`), the working-set ranking ([`crate::ai::working_set`] is the prioritization
+//! - The dedup content_hash or index consumption, the working-set ranking ([`crate::ai::working_set`] is the prioritization
 //!   hook the enqueue caller feeds in), or extractor parsing (the extractors own that).
+//!
+//! Failure modes: enrichment misses its canonical document, an absent document publishes
+//! a phantom event, a failed outbox write is reported as a completed fetch job. Tests:
+//! finish_fans_enrichment_out_to_sibling_visits_and_publishes_outbox and search_documents tests.
 //!
 //! ## Privacy posture (06 §2 — these GATE acceptance)
 //! - Egress ONLY through `build_fetch_client` (desktop Chrome UA, no Referer/cookies/fingerprint).
@@ -30,18 +33,37 @@ use super::rate_limit::{acquire_host_token, next_token_eta_secs};
 use super::{
     EnrichmentResult, default_enrichment_refetch_after_for_status, store_enrichment_with_cache,
 };
+#[cfg(not(test))]
 use crate::archive::net_guard::url_target_is_blocked;
-use crate::config::ProjectPaths;
+
+// Unit fixtures never resolve DNS. Literal-address checks still exercise the real classifier.
+#[cfg(test)]
+fn url_target_is_blocked(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return true;
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return true;
+    }
+    let Some(host) = url.host_str() else {
+        return true;
+    };
+    let literal = host.trim_start_matches('[').trim_end_matches(']');
+    match literal.parse::<std::net::IpAddr>() {
+        Ok(ip) => crate::archive::net_guard::ip_is_non_public(ip),
+        Err(_) => host == "localhost" || host.ends_with(".localhost"),
+    }
+}
 use crate::intelligence_runtime::{
     ClaimedEnrichmentJob, EnrichmentJobPayload, claim_content_fetch_job_by_id,
-    intelligence_job_stop_requested, mark_intelligence_job_succeeded,
+    intelligence_job_stop_requested, mark_intelligence_job_failed,
     mark_running_intelligence_job_cancelled, requeue_content_fetch_job_after,
 };
 use crate::models::{AppConfig, content_extractor_enabled, content_fetch_domain_blocked};
 use crate::utils::url_domain;
 use anyhow::Result;
-use rusqlite::{Connection, params};
 use serde_json::json;
+use vault_store::{Db, Priority, Session, params_owned as params};
 
 /// Per-redirect-hop SSRF guard: true when the redirected URL targets a non-public address (SEC-3).
 ///
@@ -98,6 +120,10 @@ pub(crate) enum FetchOutcome {
 /// mockito-backed fetcher so every routing/guard/negative-cache branch is covered without the coverage
 /// gate flagging the production socket call.
 pub(crate) trait Fetcher {
+    /// Distinguishes offline fixtures from transports covered by the debug egress switch.
+    fn networked(&self) -> bool {
+        true
+    }
     /// GETs `url` as HTML (Accept: text/html, body capped at `MAX_HTML_BODY_BYTES`).
     fn fetch_html(&self, url: &str) -> FetchOutcome;
     /// GETs `url` as a JSON API resource (Accept: application/json, body capped at `cap`).
@@ -134,6 +160,8 @@ pub(crate) enum ContentFetchJobOutcome {
     Deferred,
     /// The id was not a claimable queued content-fetch row.
     NotClaimable,
+    /// No canonical page has reached the archive yet; a later candidate pass can requeue it.
+    AwaitingArchive,
 }
 
 /// Runs one content-fetch attempt for a payload through an injected [`Fetcher`] (PURE of real egress).
@@ -151,7 +179,7 @@ pub(crate) fn run_content_fetch_with_fetcher(
     let extractor = resolve_extractor(&payload.url)
         .unwrap_or_else(|| Box::new(super::extractors::GenericReadableExtractor));
     // Avoid DNS and rate-limit deferrals as well as the actual HTML/API requests.
-    if crate::test_support::network_is_blocked() {
+    if fetcher.networked() && crate::test_support::network_is_blocked() {
         return ContentFetchResult {
             content_source: extractor.id().to_string(),
             enrichment: failure_enrichment(
@@ -377,16 +405,10 @@ pub(crate) fn content_fetch_allowed(config: &AppConfig, url: &str) -> bool {
 /// (left non-failed); a rate-limited job is REQUEUED for a later drain (SEC-2) rather than terminally
 /// cancelled. Returns the [`ContentFetchJobOutcome`] so the drain knows whether more work is due now.
 #[cfg(not(any(test, coverage)))]
-pub fn execute_content_fetch_job_by_id(
-    paths: &ProjectPaths,
-    connection: &Connection,
-    config: &AppConfig,
-    job_id: i64,
-) -> Result<bool> {
+pub fn execute_content_fetch_job_by_id(vault: &crate::Vault, job_id: i64) -> Result<bool> {
     let fetcher = SharedClientFetcher::new()?;
-    let outcome =
-        execute_content_fetch_job_with_fetcher(paths, connection, config, job_id, &fetcher)?;
-    Ok(outcome == ContentFetchJobOutcome::Ran)
+    let outcome = execute_content_fetch_job_with_fetcher(vault, job_id, &fetcher)?;
+    Ok(matches!(outcome, ContentFetchJobOutcome::Ran | ContentFetchJobOutcome::AwaitingArchive))
 }
 
 /// Test/coverage stub for the production entry: the worker still links, but real egress is excluded.
@@ -398,20 +420,9 @@ pub fn execute_content_fetch_job_by_id(
 /// drain's run/defer signal honest under the coverage build (BUG-3): a job whose egress bucket is
 /// exhausted defers → `false`, so the lane idles + sleeps rather than busy-looping the parked row.
 #[cfg(any(test, coverage))]
-pub fn execute_content_fetch_job_by_id(
-    paths: &ProjectPaths,
-    connection: &Connection,
-    config: &AppConfig,
-    job_id: i64,
-) -> Result<bool> {
-    let outcome = execute_content_fetch_job_with_fetcher(
-        paths,
-        connection,
-        config,
-        job_id,
-        &OfflineStubFetcher,
-    )?;
-    Ok(outcome == ContentFetchJobOutcome::Ran)
+pub fn execute_content_fetch_job_by_id(vault: &crate::Vault, job_id: i64) -> Result<bool> {
+    let outcome = execute_content_fetch_job_with_fetcher(vault, job_id, &OfflineStubFetcher)?;
+    Ok(matches!(outcome, ContentFetchJobOutcome::Ran | ContentFetchJobOutcome::AwaitingArchive))
 }
 
 /// An offline fetcher for the coverage build: returns a small benign body for any URL (no socket), so a
@@ -423,6 +434,9 @@ struct OfflineStubFetcher;
 
 #[cfg(any(test, coverage))]
 impl Fetcher for OfflineStubFetcher {
+    fn networked(&self) -> bool {
+        false
+    }
     fn fetch_html(&self, _url: &str) -> FetchOutcome {
         FetchOutcome::Body {
             bytes: b"<html><head><title>Stub</title></head><body><main><p>Stub.</p></main></body></html>".to_vec(),
@@ -449,88 +463,116 @@ impl Fetcher for OfflineStubFetcher {
 /// acquires the per-egress rate-limit token at the REAL host) → store. The SSRF/https page guard runs
 /// BEFORE any rate-limit acquire so a blocked/non-https job never burns a token (SEC-4).
 pub(crate) fn execute_content_fetch_job_with_fetcher(
-    paths: &ProjectPaths,
-    connection: &Connection,
-    config: &AppConfig,
+    vault: &crate::Vault,
     job_id: i64,
     fetcher: &dyn Fetcher,
 ) -> Result<ContentFetchJobOutcome> {
-    let Some(job) = claim_content_fetch_job_by_id(connection, job_id)? else {
+    let Some(job) = vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        crate::intelligence_runtime::claim_result(claim_content_fetch_job_by_id(s, job_id))
+    })??
+    else {
         return Ok(ContentFetchJobOutcome::NotClaimable);
     };
 
-    // Consent gate (06 §2a): the master switch may have been turned OFF after the job was queued, or
-    // the per-domain block added. A denied job is parked (left non-failed) so re-enabling consent
-    // simply lets the next drain pick it up.
-    if !content_fetch_allowed(config, &job.payload.url) {
-        let _ = mark_running_intelligence_job_cancelled(
-            connection,
-            job.id,
-            "content fetch is disabled for this URL",
-        );
-        return Ok(ContentFetchJobOutcome::Ran);
-    }
-
-    // Page-URL SSRF guard + https-only (06 §2b), BEFORE any rate-limit acquire (SEC-4): a blocked /
-    // non-https job must not burn a token, and the stored row must carry the RESOLVED extractor's
-    // `content_source` + `extractor_version` so `content_fetch_job_due` matches it and the working set
-    // stops re-enqueuing it (a "blocked-content" source would never match → infinite re-enqueue).
-    if crate::test_support::network_is_blocked()
-        || !job.payload.url.starts_with("https://")
-        || url_target_is_blocked(&job.payload.url)
-    {
-        let extractor = resolve_extractor(&job.payload.url)
-            .unwrap_or_else(|| Box::new(super::extractors::GenericReadableExtractor));
-        let blocked = EnrichmentResult {
-            status: "blocked".to_string(),
-            final_url: Some(job.payload.url.clone()),
-            extraction: json!({
-                "extractor": extractor.id(),
-                "error": "The page URL is not https or resolves to a non-public address.",
-            }),
-            extractor_version: Some(extractor.version() as i64),
-            ..EnrichmentResult::default()
-        };
-        finish_content_fetch_job(paths, connection, &job, extractor.id(), &blocked, None)?;
-        return Ok(ContentFetchJobOutcome::Ran);
-    }
-
-    let result = run_content_fetch_with_fetcher(fetcher, &job.payload);
-
-    // A throttled egress is BACK-PRESSURE, not a failure (SEC-2): requeue the job for the host's
-    // token-refill ETA instead of cancelling it (which the queued-only drain would never re-pick). The
-    // deferred row is invisible to `next_queued_content_fetch_job` until its `scheduled_at` passes, so
-    // the drain reports idle and the worker lane sleeps until then.
-    if result.enrichment.status == "rate-limited" {
-        // A UI cancel (`cancel_intelligence_job`, no job-type filter) can land on this STILL-`running`
-        // row during the throttled fetch. The requeue below clears `stop_requested` and re-queues, so
-        // it would silently swallow that cancel — honour it FIRST (BUG-2): if a stop was requested,
-        // cancel the running job and report `Ran` rather than re-running it on the next drain.
-        if intelligence_job_stop_requested(connection, job.id)? {
-            let _ =
-                mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
+    let outcome = (|| -> Result<ContentFetchJobOutcome> {
+        let artifact = vault.read(Db::Intelligence, move |s| {
+            Ok(s.query_one(
+                "SELECT artifact_json FROM intelligence_jobs WHERE id=?1",
+                [job_id],
+                |r| Ok(r.get::<String>(0)?),
+            )?)
+        })?;
+        let artifact: serde_json::Value = serde_json::from_str(&artifact)?;
+        if artifact["contentStored"].as_bool() == Some(true) {
+            let source =
+                artifact["contentSource"].as_str().expect("stored handoff records its source");
+            publish_stored_content(vault, &job, source)?;
             return Ok(ContentFetchJobOutcome::Ran);
         }
-        // Read the deferral ETA from the bucket the attempt ACTUALLY charged (SEC-1) — the API host for
-        // a JsonApi extractor (`api.github.com`), NOT the page host (`github.com`, whose separate bucket
-        // is always full → 0s ETA → a ~1Hz drain thrash for the whole refill window). `egress_host` is
-        // always the real targeted host, so no fallback is needed here (BUG-1).
-        let eta_secs = next_token_eta_secs(&result.egress_host).max(1);
-        let scheduled_at = (chrono::Utc::now() + chrono::Duration::seconds(eta_secs as i64))
-            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-        requeue_content_fetch_job_after(connection, job.id, &scheduled_at)?;
-        return Ok(ContentFetchJobOutcome::Deferred);
-    }
+        // Consent gate (06 §2a): the master switch may have been turned OFF after the job was queued, or
+        // the per-domain block added. A denied job is parked (left non-failed) so re-enabling consent
+        // simply lets the next drain pick it up.
+        if !content_fetch_allowed(vault.config(), &job.payload.url) {
+            let _ = mark_running_intelligence_job_cancelled(
+                vault,
+                job.id,
+                "content fetch is disabled for this URL",
+            );
+            return Ok(ContentFetchJobOutcome::Ran);
+        }
 
-    finish_content_fetch_job(
-        paths,
-        connection,
-        &job,
-        &result.content_source,
-        &result.enrichment,
-        result.refetch_after.as_deref(),
-    )?;
-    Ok(ContentFetchJobOutcome::Ran)
+        if super::search_text::pages(vault, &job.payload.url)?.is_empty() {
+            vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+                await_archive(s, job.id)
+            })?;
+            return Ok(ContentFetchJobOutcome::AwaitingArchive);
+        }
+
+        // Page-URL SSRF guard + https-only (06 §2b), BEFORE any rate-limit acquire (SEC-4): a blocked /
+        // non-https job must not burn a token, and the stored row must carry the RESOLVED extractor's
+        // `content_source` + `extractor_version` so `content_fetch_job_due` matches it and the working set
+        // stops re-enqueuing it (a "blocked-content" source would never match → infinite re-enqueue).
+        if (fetcher.networked() && crate::test_support::network_is_blocked())
+            || !job.payload.url.starts_with("https://")
+            || url_target_is_blocked(&job.payload.url)
+        {
+            let extractor = resolve_extractor(&job.payload.url)
+                .unwrap_or_else(|| Box::new(super::extractors::GenericReadableExtractor));
+            let blocked = EnrichmentResult {
+                status: "blocked".to_string(),
+                final_url: Some(job.payload.url.clone()),
+                extraction: json!({
+                    "extractor": extractor.id(),
+                    "error": "The page URL is not https or resolves to a non-public address.",
+                }),
+                extractor_version: Some(extractor.version() as i64),
+                ..EnrichmentResult::default()
+            };
+            finish_content_fetch_job(vault, &job, extractor.id(), &blocked, None)?;
+            return Ok(ContentFetchJobOutcome::Ran);
+        }
+
+        let result = run_content_fetch_with_fetcher(fetcher, &job.payload);
+
+        // A throttled egress is BACK-PRESSURE, not a failure (SEC-2): requeue the job for the host's
+        // token-refill ETA instead of cancelling it (which the queued-only drain would never re-pick). The
+        // deferred row is invisible to `next_queued_content_fetch_job` until its `scheduled_at` passes, so
+        // the drain reports idle and the worker lane sleeps until then.
+        if result.enrichment.status == "rate-limited" {
+            // A UI cancel (`cancel_intelligence_job`, no job-type filter) can land on this STILL-`running`
+            // row during the throttled fetch. The requeue below clears `stop_requested` and re-queues, so
+            // it would silently swallow that cancel — honour it FIRST (BUG-2): if a stop was requested,
+            // cancel the running job and report `Ran` rather than re-running it on the next drain.
+            if intelligence_job_stop_requested(vault, job.id)? {
+                let _ = mark_running_intelligence_job_cancelled(vault, job.id, "cancelled from UI");
+                return Ok(ContentFetchJobOutcome::Ran);
+            }
+            // Read the deferral ETA from the bucket the attempt ACTUALLY charged (SEC-1) — the API host for
+            // a JsonApi extractor (`api.github.com`), NOT the page host (`github.com`, whose separate bucket
+            // is always full → 0s ETA → a ~1Hz drain thrash for the whole refill window). `egress_host` is
+            // always the real targeted host, so no fallback is needed here (BUG-1).
+            let eta_secs = next_token_eta_secs(&result.egress_host).max(1);
+            let scheduled_at = (chrono::Utc::now() + chrono::Duration::seconds(eta_secs as i64))
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+                requeue_content_fetch_job_after(s, job.id, &scheduled_at)
+            })?;
+            return Ok(ContentFetchJobOutcome::Deferred);
+        }
+
+        finish_content_fetch_job(
+            vault,
+            &job,
+            &result.content_source,
+            &result.enrichment,
+            result.refetch_after.as_deref(),
+        )?;
+        Ok(ContentFetchJobOutcome::Ran)
+    })();
+    if let Err(error) = &outcome {
+        mark_intelligence_job_failed(vault, job_id, &format!("{error:#}"))?;
+    }
+    outcome
 }
 
 /// Persists one content-fetch outcome + marks the job terminal (succeeded for any stored row).
@@ -546,98 +588,82 @@ pub(crate) fn execute_content_fetch_job_with_fetcher(
 /// and the page double-embeds, violating 05 §1). Then the FTS `enrichment_text` projection is refreshed
 /// for that URL so a fetched page is immediately findable WITHOUT a full rebuild (CORR-1).
 fn finish_content_fetch_job(
-    paths: &ProjectPaths,
-    connection: &Connection,
+    vault: &crate::Vault,
     job: &ClaimedEnrichmentJob,
     content_source: &str,
     enrichment: &EnrichmentResult,
     refetch_after: Option<&str>,
 ) -> Result<bool> {
-    if intelligence_job_stop_requested(connection, job.id)? {
-        let _ = mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
-        return Ok(true);
-    }
-
-    // Fan the enrichment out to every sibling visit of this page (the fetched history_id is always one
-    // of them). Resolving siblings is best-effort: if the lookup fails (e.g. the archive attach is
-    // unavailable) we still store the primary visit's row so the job is never lost.
-    let mut history_ids = sibling_history_ids(connection, &job.payload.url).unwrap_or_default();
-    if !history_ids.contains(&job.payload.history_id) {
-        history_ids.push(job.payload.history_id);
-    }
-    for history_id in &history_ids {
-        store_enrichment_with_cache(
-            paths,
-            connection,
-            *history_id,
-            content_source,
-            enrichment,
-            refetch_after,
-        )?;
-    }
-
-    // Refresh the FTS `enrichment_text` projection for this URL (CORR-1) so the fetched summary/topics
-    // are keyword-searchable immediately. Siblings share ONE canonical URL ⇒ ONE `url_id`, so a single
-    // refresh keyed off any visit covers them. Best-effort: never fail the job on a projection hiccup.
-    let _ = crate::archive::refresh_enrichment_text_for_history(
-        paths,
-        connection,
-        job.payload.history_id,
-    );
-
-    let artifact = json!({
-        "contentSource": content_source,
-        "status": enrichment.status,
-        "hasSummary": enrichment.enrichment_summary.is_some(),
-        "fannedOutVisits": history_ids.len(),
-    });
-    if !mark_intelligence_job_succeeded(connection, job.id, &artifact)? {
-        let _ = mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
+    let paths = vault.paths().clone();
+    let key = crate::pages::canonical_key(&job.payload.url);
+    let source = content_source.to_owned();
+    let result = enrichment.clone();
+    let refetch = refetch_after.map(str::to_owned);
+    let id = job.id;
+    let stored=vault.write(Db::Intelligence,Priority::Batch,move |s| {
+        if crate::intelligence_runtime::intelligence_job_stop_requested_in_session(s,id)? {
+            crate::intelligence_runtime::mark_running_intelligence_job_cancelled_in_session(s,id,"cancelled from UI")?;
+            return Ok(false);
+        }
+        store_enrichment_with_cache(&paths,s,&key,&source,&result,refetch.as_deref())?;
+        s.execute("UPDATE intelligence_jobs SET artifact_json=?2,updated_at=?3 WHERE id=?1",params![id,json!({"contentStored":true,"contentSource":source,"status":result.status,"hasSummary":result.enrichment_summary.is_some()}).to_string(),crate::utils::now_rfc3339()])?;
+        Ok(true)
+    })?;
+    if stored {
+        publish_stored_content(vault, job, content_source)?;
     }
     Ok(true)
 }
 
-/// Resolves every non-reverted visit `history_id` whose canonical URL equals `url`'s (CORR-3 fan-out).
-///
-/// The fetch is URL-keyed, so its enrichment belongs to ALL visits of the page (05 §1 / 06 §3). We
-/// canonicalize the job URL the SAME way stars/annotations/the working set do, then enumerate the raw
-/// `urls` rows that share the page's host+path prefix — a BOUNDED range seek off `idx_urls_url` (a page
-/// has only a few tracking-param / casing variants), NEVER a full-table scan (14.4M perf). Each
-/// candidate raw url is re-canonicalized in Rust so only true variants of the same page collapse
-/// together; the matching url_ids' visits become the fan-out set. Resolved via the intelligence
-/// connection's attached `archive` schema. Returns an empty vec on any lookup failure (best-effort).
-fn sibling_history_ids(connection: &Connection, url: &str) -> Result<Vec<i64>> {
-    let canonical = crate::visit_taxonomy::normalize_visit_url(url)
-        .map(|normalized| normalized.canonical_url)
-        .unwrap_or_else(|| url.trim().to_string());
-    // The prefix is the canonical url up to (but excluding) any `?`/`#`: tracking-param + fragment
-    // variants of one page all share it, so a `>= prefix AND < prefix\u{10FFFF}` range seek bounds the
-    // candidate set to this page's variants via `idx_urls_url` rather than scanning every URL.
-    let prefix: String = canonical.split(['?', '#']).next().unwrap_or(&canonical).to_string();
-    let mut upper = prefix.clone();
-    upper.push('\u{10ffff}');
-    let mut statement = connection.prepare(
-        "SELECT visits.id, urls.url
-         FROM archive.urls AS urls
-         JOIN archive.visits AS visits ON visits.url_id = urls.id
-         WHERE visits.reverted_at IS NULL
-           AND urls.url >= ?1
-           AND urls.url < ?2",
-    )?;
-    let rows = statement.query_map(params![prefix, upper], |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-    })?;
-    let mut ids = Vec::new();
-    for row in rows {
-        let (history_id, raw_url) = row?;
-        let row_canonical = crate::visit_taxonomy::normalize_visit_url(&raw_url)
-            .map(|normalized| normalized.canonical_url)
-            .unwrap_or_else(|| raw_url.trim().to_string());
-        if row_canonical == canonical {
-            ids.push(history_id);
-        }
+/// Replays a committed cache/outbox handoff without fetching the same page again after a crash.
+fn publish_stored_content(
+    vault: &crate::Vault,
+    job: &ClaimedEnrichmentJob,
+    source: &str,
+) -> Result<()> {
+    let pages = super::search_text::pages(vault, &job.payload.url)?;
+    if pages.is_empty() {
+        let id = job.id;
+        vault.write(Db::Intelligence, Priority::Interactive, move |s| await_archive(s, id))?;
+        return Ok(());
     }
-    Ok(ids)
+    let key = crate::pages::canonical_key(&job.payload.url);
+    let source = source.to_owned();
+    let text=vault.read(Db::Intelligence,move |s| {
+        let (summary,metadata)=s.query_one("SELECT enrichment_summary,extraction_json FROM page_content_enrichments WHERE canonical_url=?1 AND content_source=?2",params![key,source],|r|Ok((r.get::<Option<String>>(0)?,r.get::<String>(1)?)))?;
+        Ok(crate::archive::enrichment_text_for_index(summary.as_deref(),Some(&metadata)))
+    })?;
+    super::search_text::publish(vault, pages, text)?;
+    let id = job.id;
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        let artifact =
+            s.query_one("SELECT artifact_json FROM intelligence_jobs WHERE id=?1", [id], |r| {
+                Ok(r.get::<String>(0)?)
+            })?;
+        let artifact = serde_json::from_str(&artifact)?;
+        if !crate::intelligence_runtime::mark_intelligence_job_succeeded_in_session(
+            s, id, &artifact,
+        )? {
+            crate::intelligence_runtime::mark_running_intelligence_job_cancelled_in_session(
+                s,
+                id,
+                "cancelled from UI",
+            )?;
+        }
+        Ok(())
+    })
+}
+
+fn await_archive(connection: &Session<'_>, job: i64) -> Result<()> {
+    let artifact = connection.query_one(
+        "SELECT artifact_json FROM intelligence_jobs WHERE id=?1",
+        [job],
+        |r| Ok(r.get::<String>(0)?),
+    )?;
+    let mut artifact: serde_json::Value = serde_json::from_str(&artifact)?;
+    artifact["code"] = json!("archive-page-missing");
+    connection.execute("UPDATE intelligence_jobs SET state='awaiting_archive',finished_at=?2,updated_at=?2,lease_owner=NULL,lease_expires_at=NULL,last_error=NULL,artifact_json=?3 WHERE id=?1 AND state='running'",params![job,crate::utils::now_rfc3339(),artifact.to_string()])?;
+    Ok(())
 }
 
 /// Production fetcher backed by the shared `build_fetch_client()` egress (06 §2b).
@@ -803,1233 +829,4 @@ fn read_capped<R: std::io::Read>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::archive::open_intelligence_connection;
-    use crate::config::{ensure_paths, project_paths_with_root};
-    use crate::enrichment::rate_limit;
-    use crate::intelligence_runtime::{
-        claim_content_fetch_job_by_id, enqueue_content_fetch_job,
-        ensure_intelligence_runtime_schema,
-    };
-    use crate::models::{AppConfig, ContentFetchDomainRule, ContentFetchExtractorPreference};
-    use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
-    use tempfile::tempdir;
-
-    /// Process-global lock serializing tests that touch the SHARED `api.github.com` bucket.
-    ///
-    /// That host's bucket is process-global, so a test that DRAINS it (the BUG-1 deferral test) would
-    /// otherwise race with the full-bucket github routing tests running in parallel. Each github-bucket
-    /// test holds `GITHUB_BUCKET_LOCK` for its duration (acquired INLINE, never via a helper returning a
-    /// `'static`-annotated guard — the coverage verifier's test-block masker mishandles a `'` lifetime
-    /// token as a char literal) so they never overlap; tests on unique hosts need no lock.
-    static GITHUB_BUCKET_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-    /// A scripted fetcher: maps a URL to a canned outcome so every routing branch is deterministic.
-    struct FakeFetcher {
-        html: HashMap<String, FetchOutcome>,
-        json: Mutex<HashMap<String, FetchOutcome>>,
-    }
-
-    impl FakeFetcher {
-        fn new() -> Self {
-            Self { html: HashMap::new(), json: Mutex::new(HashMap::new()) }
-        }
-        fn with_html(mut self, url: &str, outcome: FetchOutcome) -> Self {
-            self.html.insert(url.to_string(), outcome);
-            self
-        }
-        fn with_json(self, url: &str, outcome: FetchOutcome) -> Self {
-            self.json.lock().unwrap().insert(url.to_string(), outcome);
-            self
-        }
-    }
-
-    impl Fetcher for FakeFetcher {
-        fn fetch_html(&self, url: &str) -> FetchOutcome {
-            self.html.get(url).cloned().unwrap_or(FetchOutcome::Failed {
-                status: "fetch-error".to_string(),
-                http_status: None,
-                detail: "no fixture".to_string(),
-            })
-        }
-        fn fetch_json(&self, url: &str, _cap: usize) -> FetchOutcome {
-            self.json.lock().unwrap().get(url).cloned().unwrap_or(FetchOutcome::Failed {
-                status: "fetch-error".to_string(),
-                http_status: None,
-                detail: "no fixture".to_string(),
-            })
-        }
-    }
-
-    fn consenting_config() -> AppConfig {
-        let mut config = AppConfig { initialized: true, ..AppConfig::default() };
-        config.ai.content_fetch_enabled = true;
-        config
-    }
-
-    fn body(bytes: &[u8], content_type: &str) -> FetchOutcome {
-        FetchOutcome::Body {
-            bytes: bytes.to_vec(),
-            content_type: Some(content_type.to_string()),
-            final_url: None,
-            http_status: 200,
-        }
-    }
-
-    #[test]
-    fn run_content_fetch_routes_github_url_to_github_extractor() {
-        let _bucket = GITHUB_BUCKET_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        rate_limit::reset_host_bucket_for_test("api.github.com");
-        let fetcher = FakeFetcher::new().with_json(
-            "https://api.github.com/repos/o/r",
-            body(
-                br#"{"full_name":"o/r","description":"A repo","topics":["x"]}"#,
-                "application/json",
-            ),
-        );
-        let payload = EnrichmentJobPayload {
-            history_id: 1,
-            profile_id: "chrome:Default".to_string(),
-            url: "https://github.com/o/r".to_string(),
-            title: None,
-        };
-        let result = run_content_fetch_with_fetcher(&fetcher, &payload);
-        assert_eq!(result.content_source, "github-repo");
-        assert_eq!(result.enrichment.status, "success");
-        assert_eq!(result.enrichment.enrichment_summary.as_deref(), Some("A repo"));
-        // A success schedules NO retry.
-        assert!(result.refetch_after.is_none());
-    }
-
-    #[test]
-    fn run_content_fetch_routes_generic_url_to_readable_extractor() {
-        rate_limit::reset_host_bucket_for_test("example.com");
-        let html = "<html><head><title>Generic Doc</title></head><body><main><p>Body.</p></main></body></html>";
-        let fetcher = FakeFetcher::new()
-            .with_html("https://example.com/post", body(html.as_bytes(), "text/html"));
-        let payload = EnrichmentJobPayload {
-            history_id: 2,
-            profile_id: "chrome:Default".to_string(),
-            url: "https://example.com/post".to_string(),
-            title: None,
-        };
-        let result = run_content_fetch_with_fetcher(&fetcher, &payload);
-        assert_eq!(result.content_source, "generic-readable");
-        assert_eq!(result.enrichment.readable_title.as_deref(), Some("Generic Doc"));
-    }
-
-    #[test]
-    fn run_content_fetch_records_honest_failure_and_negative_cache() {
-        rate_limit::reset_host_bucket_for_test("example.com");
-        let fetcher = FakeFetcher::new().with_html(
-            "https://example.com/paywall",
-            FetchOutcome::Failed {
-                status: "unsupported-content".to_string(),
-                http_status: Some(200),
-                detail: "PDF".to_string(),
-            },
-        );
-        let payload = EnrichmentJobPayload {
-            history_id: 3,
-            profile_id: "chrome:Default".to_string(),
-            url: "https://example.com/paywall".to_string(),
-            title: None,
-        };
-        let result = run_content_fetch_with_fetcher(&fetcher, &payload);
-        assert_eq!(result.enrichment.status, "unsupported-content");
-        // A structural failure schedules a (long) retry — the negative cache.
-        assert!(result.refetch_after.is_some());
-        assert_eq!(result.enrichment.extractor_version, Some(1));
-    }
-
-    #[test]
-    fn run_content_fetch_blocks_private_github_api_subresource() {
-        // The github extractor wants api.github.com, but we route through guard_then_fetch_json which
-        // SSRF-checks. Use a github URL whose API base would be public; assert the guard path via the
-        // unit test of guard_then_fetch_json below. Here we cover the JSON primary-failure path.
-        let _bucket = GITHUB_BUCKET_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        rate_limit::reset_host_bucket_for_test("api.github.com");
-        let fetcher = FakeFetcher::new(); // no fixture → fetch_json returns fetch-error
-        let payload = EnrichmentJobPayload {
-            history_id: 4,
-            profile_id: "chrome:Default".to_string(),
-            url: "https://github.com/o/r".to_string(),
-            title: None,
-        };
-        let result = run_content_fetch_with_fetcher(&fetcher, &payload);
-        assert_eq!(result.enrichment.status, "fetch-error");
-    }
-
-    #[test]
-    fn content_fetch_allowed_honors_master_switch_extractor_and_domain_gates() {
-        // Master OFF → never allowed.
-        let mut off = AppConfig::default();
-        off.ai.content_fetch_enabled = false;
-        assert!(!content_fetch_allowed(&off, "https://github.com/o/r"));
-
-        // Master ON, default extractor prefs (github + generic enabled) → allowed.
-        let on = consenting_config();
-        assert!(content_fetch_allowed(&on, "https://github.com/o/r"));
-        assert!(content_fetch_allowed(&on, "https://example.com/post"));
-
-        // Per-extractor disable github → github URL denied, generic still allowed.
-        let mut github_off = consenting_config();
-        github_off.ai.content_fetch_extractors = vec![ContentFetchExtractorPreference {
-            extractor_id: "github-repo".to_string(),
-            enabled: false,
-        }];
-        assert!(!content_fetch_allowed(&github_off, "https://github.com/o/r"));
-        assert!(content_fetch_allowed(&github_off, "https://example.com/post"));
-
-        // Per-domain block example.com → that domain denied.
-        let mut domain_block = consenting_config();
-        domain_block.ai.content_fetch_domains =
-            vec![ContentFetchDomainRule { domain: "example.com".to_string(), allowed: false }];
-        assert!(!content_fetch_allowed(&domain_block, "https://example.com/post"));
-        assert!(content_fetch_allowed(&domain_block, "https://other.com/post"));
-    }
-
-    #[test]
-    fn guard_then_fetch_json_blocks_private_api_url() {
-        let fetcher = FakeFetcher::new();
-        let request =
-            ApiRequest { url: "https://127.0.0.1/repos/o/r".to_string(), body_cap_bytes: 1024 };
-        let blocked = guard_then_fetch_json(&fetcher, &request);
-        assert!(matches!(blocked, FetchOutcome::Failed { status, .. } if status == "blocked"));
-    }
-
-    #[test]
-    fn run_content_fetch_blocks_private_github_api_via_guard() {
-        // A github URL whose resolved API base is loopback must short-circuit with a `blocked` row
-        // BEFORE any fetch — the API sub-resource SSRF guard (06 §2b). We use the production github
-        // extractor (api.github.com is public), so to exercise the guard we drive `guard_then_fetch_json`
-        // directly above; here we confirm the runner stores a `blocked` enrichment when the guard trips
-        // via a fake whose api_request points at loopback is not possible (extractor pins the base), so
-        // this test documents that the guard is the gate and the direct test above covers it.
-        let fetcher = FakeFetcher::new();
-        let request = ApiRequest {
-            url: "http://169.254.169.254/latest/meta-data/".to_string(),
-            body_cap_bytes: 1024,
-        };
-        let blocked = guard_then_fetch_json(&fetcher, &request);
-        assert!(matches!(blocked, FetchOutcome::Failed { status, .. } if status == "blocked"));
-    }
-
-    #[test]
-    fn execute_content_fetch_job_stores_enrichment_and_marks_succeeded() {
-        rate_limit::reset_host_bucket_for_test("example.com");
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        ensure_paths(&paths).expect("paths");
-        let connection =
-            Connection::open(&paths.intelligence_database_path).expect("intelligence db");
-        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
-        crate::enrichment::ensure_visit_content_enrichment_schema(&connection)
-            .expect("enrich schema");
-
-        let config = consenting_config();
-        let payload = EnrichmentJobPayload {
-            history_id: 7,
-            profile_id: "chrome:Default".to_string(),
-            url: "https://example.com/article".to_string(),
-            title: Some("Article".to_string()),
-        };
-        let job_id = enqueue_content_fetch_job(&connection, &payload).expect("enqueue");
-
-        let html = "<html><head><title>Stored Title</title></head><body><main><p>Stored body.</p></main></body></html>";
-        let fetcher = FakeFetcher::new()
-            .with_html("https://example.com/article", body(html.as_bytes(), "text/html"));
-
-        assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, job_id, &fetcher)
-                .expect("execute"),
-            ContentFetchJobOutcome::Ran
-        );
-
-        let state: String = connection
-            .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [job_id], |row| {
-                row.get(0)
-            })
-            .expect("state");
-        assert_eq!(state, "succeeded");
-
-        let (summary, version): (Option<String>, Option<i64>) = connection
-            .query_row(
-                "SELECT enrichment_summary, extractor_version
-                 FROM visit_content_enrichments
-                 WHERE history_id = 7 AND content_source = 'generic-readable'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("stored row");
-        assert_eq!(summary.as_deref(), Some("Stored Title"));
-        assert_eq!(version, Some(1));
-    }
-
-    #[test]
-    fn execute_content_fetch_job_parks_when_consent_disabled() {
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        ensure_paths(&paths).expect("paths");
-        let connection =
-            Connection::open(&paths.intelligence_database_path).expect("intelligence db");
-        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
-
-        let payload = EnrichmentJobPayload {
-            history_id: 8,
-            profile_id: "chrome:Default".to_string(),
-            url: "https://example.com/denied".to_string(),
-            title: None,
-        };
-        let job_id = enqueue_content_fetch_job(&connection, &payload).expect("enqueue");
-
-        // Master switch OFF (default): the job is parked (cancelled), not run, and nothing is fetched.
-        let off = AppConfig { initialized: true, ..AppConfig::default() };
-        let fetcher = FakeFetcher::new();
-        assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &off, job_id, &fetcher)
-                .expect("execute"),
-            ContentFetchJobOutcome::Ran
-        );
-        let state: String = connection
-            .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [job_id], |row| {
-                row.get(0)
-            })
-            .expect("state");
-        assert_eq!(state, "cancelled");
-    }
-
-    #[test]
-    fn execute_content_fetch_job_blocks_non_https_page_url() {
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        ensure_paths(&paths).expect("paths");
-        let connection =
-            Connection::open(&paths.intelligence_database_path).expect("intelligence db");
-        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
-        crate::enrichment::ensure_visit_content_enrichment_schema(&connection)
-            .expect("enrich schema");
-
-        let payload = EnrichmentJobPayload {
-            history_id: 9,
-            profile_id: "chrome:Default".to_string(),
-            url: "http://example.com/insecure".to_string(),
-            title: None,
-        };
-        let job_id = enqueue_content_fetch_job(&connection, &payload).expect("enqueue");
-        let config = consenting_config();
-        let fetcher = FakeFetcher::new();
-        assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, job_id, &fetcher)
-                .expect("execute"),
-            ContentFetchJobOutcome::Ran
-        );
-        // SEC-4: a blocked/non-https row stores the RESOLVED extractor's content_source + version (not
-        // the old "blocked-content" sentinel) so `content_fetch_job_due` matches it and the working set
-        // stops re-enqueuing it.
-        let (status, source, version): (String, String, Option<i64>) = connection
-            .query_row(
-                "SELECT fetch_status, content_source, extractor_version
-                 FROM visit_content_enrichments WHERE history_id = 9",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .expect("stored blocked row");
-        assert_eq!(status, "blocked");
-        assert_eq!(source, "generic-readable");
-        assert_eq!(version, Some(1));
-    }
-
-    #[test]
-    fn execute_content_fetch_job_is_noop_for_missing_job() {
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        ensure_paths(&paths).expect("paths");
-        let connection =
-            Connection::open(&paths.intelligence_database_path).expect("intelligence db");
-        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
-        let config = consenting_config();
-        let fetcher = FakeFetcher::new();
-        assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, 4040, &fetcher)
-                .expect("missing job no-op"),
-            ContentFetchJobOutcome::NotClaimable
-        );
-    }
-
-    // ── SharedClientFetcher real-socket acceptance (mockito, mirrors og:image) ───────────────────
-
-    fn shared_fetcher() -> SharedClientFetcher {
-        SharedClientFetcher::new().expect("shared client")
-    }
-
-    #[test]
-    fn network_switch_blocks_content_fetch_without_connecting() {
-        if !cfg!(debug_assertions) {
-            return;
-        }
-        if !crate::test_support::network_test_child() {
-            crate::test_support::run_network_test(
-                "enrichment::content_fetch::tests::network_switch_blocks_content_fetch_without_connecting",
-                Some("1"),
-            );
-            return;
-        }
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
-        listener.set_nonblocking(true).expect("nonblocking listener");
-        let url = format!("http://{}/article", listener.local_addr().unwrap());
-        let fetcher = shared_fetcher();
-        for outcome in [fetcher.fetch_html(&url), fetcher.fetch_json(&url, 1024)] {
-            match outcome {
-                FetchOutcome::Failed { status, http_status, .. } => {
-                    assert_eq!(status, "blocked");
-                    assert!(http_status.is_none());
-                }
-                other => panic!("expected blocked, got {other:?}"),
-            }
-        }
-        assert_eq!(listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
-
-        // Even an exhausted API budget must produce a terminal blocked result,
-        // rather than deferring a job that will never be allowed to fetch.
-        for _ in 0..100 {
-            let _ = rate_limit::acquire_host_token("api.github.com");
-        }
-        let result =
-            run_content_fetch_with_fetcher(&fetcher, &payload("https://github.com/o/r", 1));
-        assert_eq!(result.content_source, "github-repo");
-        assert_eq!(result.enrichment.status, "blocked");
-        assert!(result.refetch_after.is_none());
-
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        ensure_paths(&paths).expect("paths");
-        let connection =
-            Connection::open(&paths.intelligence_database_path).expect("intelligence db");
-        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
-        crate::enrichment::ensure_visit_content_enrichment_schema(&connection)
-            .expect("enrich schema");
-        let job_id = enqueue_content_fetch_job(&connection, &payload("https://github.com/o/r", 1))
-            .expect("enqueue");
-        assert_eq!(
-            execute_content_fetch_job_with_fetcher(
-                &paths,
-                &connection,
-                &consenting_config(),
-                job_id,
-                &fetcher
-            )
-            .expect("execute"),
-            ContentFetchJobOutcome::Ran,
-        );
-        let state: String = connection
-            .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [job_id], |row| {
-                row.get(0)
-            })
-            .expect("job state");
-        assert_eq!(state, "succeeded");
-        let (status, refetch): (String, Option<String>) = connection.query_row(
-            "SELECT fetch_status, refetch_after FROM visit_content_enrichments WHERE history_id = 1 AND content_source = 'github-repo'", [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).expect("stored blocked result");
-        assert_eq!(status, "blocked");
-        assert!(refetch.is_none());
-    }
-
-    #[test]
-    fn shared_fetcher_returns_html_body_for_a_readable_article() {
-        let mut server = mockito::Server::new();
-        let _mock = server
-            .mock("GET", "/article")
-            .with_status(200)
-            .with_header("content-type", "text/html; charset=utf-8")
-            .with_body("<html><head><title>Article</title></head><body><p>Body</p></body></html>")
-            .create();
-        let outcome = shared_fetcher().fetch_html(&format!("{}/article", server.url()));
-        match outcome {
-            FetchOutcome::Body { bytes, content_type, http_status, .. } => {
-                assert_eq!(http_status, 200);
-                assert_eq!(content_type.as_deref(), Some("text/html"));
-                assert!(String::from_utf8_lossy(&bytes).contains("Article"));
-            }
-            other => panic!("expected Body, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn shared_fetcher_reports_rate_limited_on_429() {
-        let mut server = mockito::Server::new();
-        let _mock = server.mock("GET", "/r").with_status(429).create();
-        let outcome = shared_fetcher().fetch_html(&format!("{}/r", server.url()));
-        assert!(matches!(outcome, FetchOutcome::Failed { status, .. } if status == "rate-limited"));
-    }
-
-    #[test]
-    fn shared_fetcher_reports_unsupported_content_for_non_html() {
-        let mut server = mockito::Server::new();
-        let _mock = server
-            .mock("GET", "/doc.pdf")
-            .with_status(200)
-            .with_header("content-type", "application/pdf")
-            .with_body("%PDF-1.7")
-            .create();
-        let outcome = shared_fetcher().fetch_html(&format!("{}/doc.pdf", server.url()));
-        assert!(
-            matches!(outcome, FetchOutcome::Failed { status, .. } if status == "unsupported-content")
-        );
-    }
-
-    #[test]
-    fn shared_fetcher_reports_fetch_error_on_4xx_5xx() {
-        let mut server = mockito::Server::new();
-        let _not_found = server.mock("GET", "/missing").with_status(404).create();
-        let outcome = shared_fetcher().fetch_html(&format!("{}/missing", server.url()));
-        assert!(
-            matches!(outcome, FetchOutcome::Failed { status, http_status: Some(404), .. } if status == "fetch-error")
-        );
-    }
-
-    #[test]
-    fn shared_fetcher_reports_decode_error_when_html_body_exceeds_cap() {
-        let mut server = mockito::Server::new();
-        let huge = vec![b'a'; MAX_HTML_BODY_BYTES + 4096];
-        let _mock = server
-            .mock("GET", "/huge")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body(huge)
-            .create();
-        let outcome = shared_fetcher().fetch_html(&format!("{}/huge", server.url()));
-        assert!(matches!(outcome, FetchOutcome::Failed { status, .. } if status == "decode-error"));
-    }
-
-    #[test]
-    fn shared_fetcher_returns_github_repo_json() {
-        let mut server = mockito::Server::new();
-        let _mock = server
-            .mock("GET", "/repos/o/r")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"full_name":"o/r","description":"A repo","topics":["x"]}"#)
-            .create();
-        let outcome = shared_fetcher().fetch_json(&format!("{}/repos/o/r", server.url()), 65536);
-        match outcome {
-            FetchOutcome::Body { bytes, .. } => {
-                assert!(String::from_utf8_lossy(&bytes).contains("\"full_name\":\"o/r\""));
-            }
-            other => panic!("expected Body, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn shared_fetcher_treats_github_403_as_rate_limited() {
-        let mut server = mockito::Server::new();
-        let _mock = server.mock("GET", "/repos/o/r").with_status(403).create();
-        let outcome = shared_fetcher().fetch_json(&format!("{}/repos/o/r", server.url()), 65536);
-        assert!(matches!(outcome, FetchOutcome::Failed { status, .. } if status == "rate-limited"));
-    }
-
-    #[test]
-    fn shared_fetcher_caps_json_body() {
-        let mut server = mockito::Server::new();
-        let huge = vec![b'{'; 4096];
-        let _mock = server
-            .mock("GET", "/big")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(huge)
-            .create();
-        let outcome = shared_fetcher().fetch_json(&format!("{}/big", server.url()), 1024);
-        assert!(matches!(outcome, FetchOutcome::Failed { status, .. } if status == "decode-error"));
-    }
-
-    #[test]
-    fn shared_fetcher_follows_a_redirect_chain_to_the_final_html() {
-        let mut server = mockito::Server::new();
-        let _redirect = server
-            .mock("GET", "/start")
-            .with_status(301)
-            .with_header("location", "/final")
-            .create();
-        let _final = server
-            .mock("GET", "/final")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body("<html><head><title>Final</title></head><body>ok</body></html>")
-            .create();
-        let outcome = shared_fetcher().fetch_html(&format!("{}/start", server.url()));
-        match outcome {
-            FetchOutcome::Body { final_url, bytes, .. } => {
-                assert!(final_url.as_deref().unwrap().ends_with("/final"));
-                assert!(String::from_utf8_lossy(&bytes).contains("Final"));
-            }
-            other => panic!("expected Body after redirect, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn shared_fetcher_reports_fetch_error_on_unreachable_host() {
-        // An unresolvable host fails at connect → honest fetch-error, never a fake success.
-        let outcome = shared_fetcher().fetch_html("https://content-fetch-test.invalid./x");
-        assert!(matches!(outcome, FetchOutcome::Failed { status, .. } if status == "fetch-error"));
-        let json_outcome =
-            shared_fetcher().fetch_json("https://content-fetch-test.invalid./api", 1024);
-        assert!(
-            matches!(json_outcome, FetchOutcome::Failed { status, .. } if status == "fetch-error")
-        );
-    }
-
-    #[test]
-    fn read_capped_drains_under_cap_and_rejects_over_cap() {
-        // Exercise the body-cap helper directly through mockito so both arms are covered.
-        let mut server = mockito::Server::new();
-        let _ok = server
-            .mock("GET", "/ok")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body("{\"k\":1}")
-            .create();
-        let outcome = shared_fetcher().fetch_json(&format!("{}/ok", server.url()), 1024);
-        assert!(matches!(outcome, FetchOutcome::Body { .. }));
-    }
-
-    // ── W-ENRICH-1 fix coverage (SEC-1/2/3/4, CORR-1/3, COV-1) ───────────────────────────────────
-
-    /// A test-only `JsonApi` extractor that uses the DEFAULT `api_request`/`secondary_api_request`
-    /// (both `None`) so the "no API request to fetch" branch + the trait defaults are covered.
-    struct NoApiJsonExtractor;
-    impl Extractor for NoApiJsonExtractor {
-        fn id(&self) -> &'static str {
-            "no-api-json"
-        }
-        fn version(&self) -> u32 {
-            1
-        }
-        fn matches(&self, _url: &str) -> bool {
-            true
-        }
-        fn fetch_kind(&self) -> ExtractKind {
-            ExtractKind::JsonApi
-        }
-        fn extract(&self, _ctx: &ExtractContext) -> EnrichmentResult {
-            EnrichmentResult { status: "success".to_string(), ..EnrichmentResult::default() }
-        }
-    }
-
-    /// A test-only `JsonApi` extractor with a configurable primary + optional secondary on any host, so
-    /// the secondary-present/absent + per-egress-host paths are exercised WITHOUT the shared
-    /// `api.github.com` bucket (which parallel github tests would race on).
-    struct StubJsonExtractor {
-        primary: String,
-        secondary: Option<String>,
-    }
-    impl Extractor for StubJsonExtractor {
-        fn id(&self) -> &'static str {
-            "stub-json"
-        }
-        fn version(&self) -> u32 {
-            1
-        }
-        fn matches(&self, _url: &str) -> bool {
-            true
-        }
-        fn fetch_kind(&self) -> ExtractKind {
-            ExtractKind::JsonApi
-        }
-        fn api_request(&self, _url: &str) -> Option<ApiRequest> {
-            Some(ApiRequest { url: self.primary.clone(), body_cap_bytes: 4096 })
-        }
-        fn secondary_api_request(&self, _url: &str) -> Option<ApiRequest> {
-            self.secondary.as_ref().map(|url| ApiRequest { url: url.clone(), body_cap_bytes: 4096 })
-        }
-        fn extract(&self, ctx: &ExtractContext) -> EnrichmentResult {
-            EnrichmentResult {
-                status: "success".to_string(),
-                enrichment_summary: Some("stub".to_string()),
-                extraction: json!({ "hasSecondary": ctx.secondary_body.is_some() }),
-                extractor_version: Some(1),
-                ..EnrichmentResult::default()
-            }
-        }
-    }
-
-    /// A unique per-test host so the process-global rate-limit registry never leaks between tests.
-    fn unique_host(tag: &str) -> String {
-        format!("wenrich-{tag}-{}.example", std::process::id())
-    }
-
-    fn intelligence_connection(paths: &ProjectPaths) -> Connection {
-        let connection =
-            Connection::open(&paths.intelligence_database_path).expect("intelligence db");
-        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
-        crate::enrichment::ensure_visit_content_enrichment_schema(&connection)
-            .expect("enrich schema");
-        connection
-    }
-
-    #[test]
-    fn fetch_json_api_with_no_api_request_is_fetch_error() {
-        // Covers the `api_request() == None` branch + the trait DEFAULT api/secondary methods. With no
-        // API request there is no egress, so the (unused-by-the-deferral-path) reported host is the page
-        // host (BUG-1: this arm yields `fetch-error`, never `rate-limited`).
-        let fetcher = FakeFetcher::new();
-        let (result, egress_host) =
-            fetch_json_api(&fetcher, &NoApiJsonExtractor, "https://api.example.com/x");
-        assert_eq!(result.status, "fetch-error");
-        assert_eq!(result.extraction["error"], "No API request to fetch.");
-        assert_eq!(egress_host, "api.example.com");
-        // Direct trait-default coverage (extractors.rs api_request/secondary_api_request).
-        assert!(NoApiJsonExtractor.api_request("https://x").is_none());
-        assert!(NoApiJsonExtractor.secondary_api_request("https://x").is_none());
-    }
-
-    #[test]
-    fn fetch_json_api_keeps_a_successful_secondary_and_tolerates_a_failed_one() {
-        // A successful secondary body is kept (covers `Some(secondary) => Body => Some(bytes)`); a
-        // failed secondary is non-fatal (covers `Failed => None`); a no-secondary extractor covers the
-        // `None` arm. Driven on UNIQUE hosts via a stub extractor so the shared github bucket is never
-        // touched (deterministic under parallel tests).
-        let primary = format!("https://{}/api", unique_host("sec-ok-p"));
-        let secondary = format!("https://{}/readme", unique_host("sec-ok-s"));
-        let fetcher = FakeFetcher::new()
-            .with_json(&primary, body(b"{}", "application/json"))
-            .with_json(&secondary, body(b"{}", "application/json"));
-        let extractor =
-            StubJsonExtractor { primary: primary.clone(), secondary: Some(secondary.clone()) };
-        let (result, egress_host) = fetch_json_api(&fetcher, &extractor, "https://page.example/x");
-        assert_eq!(result.status, "success");
-        assert_eq!(result.extraction["hasSecondary"], true);
-        // BUG-1: the reported egress host is the PRIMARY API host (where the GET lands), not the page.
-        assert_eq!(egress_host, url_domain(&primary));
-
-        // A failing secondary is tolerated (the body is omitted, the primary still extracts).
-        let fetcher_fail = FakeFetcher::new().with_json(&primary, body(b"{}", "application/json"));
-        let extractor_fail =
-            StubJsonExtractor { primary: primary.clone(), secondary: Some(secondary.clone()) };
-        let (result, _) = fetch_json_api(&fetcher_fail, &extractor_fail, "https://page.example/x");
-        assert_eq!(result.status, "success");
-        assert_eq!(result.extraction["hasSecondary"], false);
-
-        // No secondary declared at all (covers the `None` arm).
-        let fetcher_none = FakeFetcher::new().with_json(&primary, body(b"{}", "application/json"));
-        let extractor_none = StubJsonExtractor { primary, secondary: None };
-        let (result, _) = fetch_json_api(&fetcher_none, &extractor_none, "https://page.example/x");
-        assert_eq!(result.status, "success");
-        assert_eq!(result.extraction["hasSecondary"], false);
-    }
-
-    fn payload(url: &str, history_id: i64) -> EnrichmentJobPayload {
-        EnrichmentJobPayload {
-            history_id,
-            profile_id: "chrome:Default".to_string(),
-            url: url.to_string(),
-            title: None,
-        }
-    }
-
-    #[test]
-    fn html_egress_parks_when_host_bucket_is_empty() {
-        // SEC-1/SEC-2: drain a unique host's bucket, then the HTML egress returns `rate-limited`
-        // (covers the per-egress acquire + `rate_limit_detail`). Drain past the default burst (8).
-        let host = unique_host("html-rl");
-        let url = format!("https://{host}/post");
-        for _ in 0..16 {
-            let _ = rate_limit::acquire_host_token(&host);
-        }
-        let fetcher = FakeFetcher::new(); // never reached — the bucket is empty
-        let result = run_content_fetch_with_fetcher(&fetcher, &payload(&url, 1));
-        assert_eq!(result.enrichment.status, "rate-limited");
-        assert!(
-            result.enrichment.extraction["error"]
-                .as_str()
-                .unwrap()
-                .contains("per-host request budget")
-        );
-    }
-
-    #[test]
-    fn json_egress_parks_when_host_bucket_is_empty() {
-        // SEC-1/SEC-2 on the JSON path: drain a unique API host's bucket, then `guard_then_fetch_json`
-        // returns `rate-limited` (covers the JSON per-egress acquire failure branch).
-        let host = unique_host("json-rl");
-        let api = format!("https://{host}/repos/o/r");
-        for _ in 0..16 {
-            let _ = rate_limit::acquire_host_token(host.split('.').next().unwrap_or(&host));
-            let _ = rate_limit::acquire_host_token(&host);
-        }
-        let fetcher = FakeFetcher::new(); // never reached
-        let outcome =
-            guard_then_fetch_json(&fetcher, &ApiRequest { url: api, body_cap_bytes: 4096 });
-        assert!(matches!(outcome, FetchOutcome::Failed { status, .. } if status == "rate-limited"));
-    }
-
-    #[test]
-    fn read_capped_handles_under_cap_over_cap_and_a_broken_stream() {
-        use std::io::{Error, ErrorKind, Read};
-
-        // A reader that returns some bytes, then errors — stands in for a connection broken mid-body
-        // (which mockito cannot deterministically produce). Covers the read-error arm of `read_capped`.
-        struct FlakyReader {
-            served: bool,
-        }
-        impl Read for FlakyReader {
-            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-                if self.served {
-                    return Err(Error::new(ErrorKind::ConnectionReset, "stream broke"));
-                }
-                self.served = true;
-                buf[..3].copy_from_slice(b"abc");
-                Ok(3)
-            }
-        }
-        let broken = read_capped(FlakyReader { served: false }, 1024);
-        assert!(broken.is_err(), "a broken stream must surface a read error");
-        assert!(broken.unwrap_err().contains("could not be read"));
-
-        // Under-cap reads succeed; over-cap is rejected (both arms via in-memory slices).
-        assert_eq!(read_capped(&b"hello"[..], 1024).expect("under cap"), b"hello".to_vec());
-        assert!(read_capped(&b"too-long-body"[..], 4).is_err(), "over-cap must be rejected");
-    }
-
-    #[test]
-    fn shared_fetcher_reports_fetch_error_on_json_5xx() {
-        // Covers the SharedClientFetcher JSON non-success (non-403/429) branch.
-        let mut server = mockito::Server::new();
-        let _err = server.mock("GET", "/repos/o/r").with_status(500).create();
-        let outcome = shared_fetcher().fetch_json(&format!("{}/repos/o/r", server.url()), 4096);
-        assert!(
-            matches!(outcome, FetchOutcome::Failed { status, http_status: Some(500), .. } if status == "fetch-error")
-        );
-    }
-
-    #[test]
-    fn guard_final_url_blocks_a_private_redirect_landing() {
-        // SEC-3 defence-in-depth: a body whose post-redirect final_url is private becomes a `blocked`
-        // outcome (the bytes are dropped, never parsed). Drive a generic page whose fetcher reports a
-        // loopback final_url.
-        let host = unique_host("final-guard");
-        let url = format!("https://{host}/post");
-        let fetcher = FakeFetcher::new().with_html(
-            &url,
-            FetchOutcome::Body {
-                bytes: b"<html><title>X</title></html>".to_vec(),
-                content_type: Some("text/html".to_string()),
-                final_url: Some("https://127.0.0.1/internal".to_string()),
-                http_status: 200,
-            },
-        );
-        let result = run_content_fetch_with_fetcher(&fetcher, &payload(&url, 1));
-        assert_eq!(result.enrichment.status, "blocked");
-    }
-
-    #[test]
-    fn run_content_fetch_falls_back_to_generic_for_unresolved_scheme() {
-        // Covers `resolve_extractor` returning None + the defensive generic-readable fallback in
-        // `run_content_fetch_with_fetcher` (a non-http(s) URL matches no extractor).
-        let fetcher = FakeFetcher::new();
-        let result = run_content_fetch_with_fetcher(&fetcher, &payload("ftp://example.com/x", 1));
-        assert_eq!(result.content_source, "generic-readable");
-    }
-
-    #[test]
-    fn content_fetch_allowed_is_false_for_non_http_scheme() {
-        // Covers `content_fetch_allowed`'s `resolve_extractor == None` early-out (ftp matches nothing).
-        let on = consenting_config();
-        assert!(!content_fetch_allowed(&on, "ftp://example.com/x"));
-    }
-
-    #[test]
-    fn execute_defers_a_rate_limited_job_for_a_later_drain() {
-        // SEC-2: a throttled PRIMARY egress requeues the job (queued + future scheduled_at) instead of
-        // cancelling it, and the execute call reports `Deferred`.
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        ensure_paths(&paths).expect("paths");
-        let connection = intelligence_connection(&paths);
-
-        let host = unique_host("defer");
-        let url = format!("https://{host}/post");
-        for _ in 0..16 {
-            let _ = rate_limit::acquire_host_token(&host);
-        }
-        let config = consenting_config();
-        let job_id = enqueue_content_fetch_job(&connection, &payload(&url, 1)).expect("enqueue");
-        let fetcher = FakeFetcher::new();
-        assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, job_id, &fetcher)
-                .expect("execute"),
-            ContentFetchJobOutcome::Deferred
-        );
-        let (state, scheduled): (String, String) = connection
-            .query_row(
-                "SELECT state, scheduled_at FROM intelligence_jobs WHERE id = ?1",
-                [job_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("row");
-        assert_eq!(state, "queued");
-        // The deferral pushes the schedule into the future.
-        let scheduled = chrono::DateTime::parse_from_rfc3339(&scheduled).expect("scheduled ts");
-        assert!(scheduled > chrono::Utc::now() - chrono::Duration::seconds(1));
-        // No enrichment row was stored (the job is parked, not finished).
-        let stored: i64 = connection
-            .query_row("SELECT COUNT(*) FROM visit_content_enrichments", [], |row| row.get(0))
-            .expect("count");
-        assert_eq!(stored, 0);
-    }
-
-    #[test]
-    fn execute_defers_a_github_job_for_the_egress_api_host_eta() {
-        // BUG-1: a GitHub page (`github.com`) routes to a JsonApi extractor that GETs `api.github.com`,
-        // so the deferral ETA must read the EGRESS (`api.github.com`) bucket — the one actually charged
-        // — not the always-full page bucket. We drain `api.github.com` to empty, then the requeue must
-        // push `scheduled_at` meaningfully into the future (≈60s GitHub refill), proving the ETA tracks
-        // the egress bucket rather than collapsing to the page host's 0s (which `.max(1)` would mask as
-        // a 1s thrash). Exercises the JsonApi arm of the egress-host derivation.
-        // Serialize with the full-bucket github routing tests (shared `api.github.com` bucket).
-        let _bucket = GITHUB_BUCKET_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        ensure_paths(&paths).expect("paths");
-        let connection = intelligence_connection(&paths);
-
-        // Drain the SHARED `api.github.com` bucket (the egress host) until empty.
-        while rate_limit::acquire_host_token("api.github.com") {}
-        // The page host bucket stays full — if the deferral read THIS bucket the ETA would be 0s/1s.
-        rate_limit::reset_host_bucket_for_test("github.com");
-
-        let config = consenting_config();
-        let job_id = enqueue_content_fetch_job(&connection, &payload("https://github.com/o/r", 1))
-            .expect("enqueue");
-        let fetcher = FakeFetcher::new(); // never reached — the api.github.com bucket is empty
-        assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, job_id, &fetcher)
-                .expect("execute"),
-            ContentFetchJobOutcome::Deferred
-        );
-        let scheduled: String = connection
-            .query_row(
-                "SELECT scheduled_at FROM intelligence_jobs WHERE id = ?1",
-                [job_id],
-                |row| row.get(0),
-            )
-            .expect("scheduled");
-        let scheduled = chrono::DateTime::parse_from_rfc3339(&scheduled)
-            .expect("scheduled ts")
-            .with_timezone(&chrono::Utc);
-        // The egress (api.github.com) refill ETA is ≈60s; assert it is pushed well past a 1s thrash.
-        assert!(
-            scheduled > chrono::Utc::now() + chrono::Duration::seconds(30),
-            "the deferral must track the egress api.github.com bucket (~60s), got {scheduled}"
-        );
-
-        // Refill the shared bucket so a later parallel github test starts clean.
-        rate_limit::reset_host_bucket_for_test("api.github.com");
-    }
-
-    /// A `Fetcher` that, when invoked, sets `stop_requested = 1` on a job row (modelling a UI cancel
-    /// that lands DURING the fetch) and then returns a `rate-limited` outcome. Used to drive the BUG-2
-    /// concurrent-stop branch deterministically single-threaded: the side-effect runs after the claim
-    /// (which cleared the flag) and before the rate-limited requeue reads it.
-    struct StopRequestingFetcher {
-        database_path: std::path::PathBuf,
-        job_id: i64,
-    }
-    impl StopRequestingFetcher {
-        fn request_stop(&self) {
-            let connection = Connection::open(&self.database_path).expect("stop-set db");
-            connection
-                .execute(
-                    "UPDATE intelligence_jobs SET stop_requested = 1 WHERE id = ?1",
-                    [self.job_id],
-                )
-                .expect("set stop");
-        }
-        fn rate_limited() -> FetchOutcome {
-            FetchOutcome::Failed {
-                status: "rate-limited".to_string(),
-                http_status: Some(429),
-                detail: "the host rate-limited the request".to_string(),
-            }
-        }
-    }
-    impl Fetcher for StopRequestingFetcher {
-        fn fetch_html(&self, _url: &str) -> FetchOutcome {
-            self.request_stop();
-            Self::rate_limited()
-        }
-        fn fetch_json(&self, _url: &str, _cap: usize) -> FetchOutcome {
-            self.request_stop();
-            Self::rate_limited()
-        }
-    }
-
-    #[test]
-    fn execute_honours_a_concurrent_stop_during_a_rate_limited_fetch() {
-        // BUG-2: a UI cancel landing on the STILL-`running` row during a throttled fetch must NOT be
-        // swallowed by the requeue (which clears `stop_requested` + re-queues). With a stop requested,
-        // the rate-limited branch cancels the job (outcome `Ran`, state `cancelled`) instead of deferring
-        // it (which would leave the row `queued` and re-run it on the next drain).
-        //
-        // Deterministic driver: a unique host with a FULL bucket so `acquire_host_token` SUCCEEDS and
-        // the fetcher IS invoked; the fetcher then sets `stop_requested = 1` (after the claim cleared it)
-        // and returns a `rate-limited` HTTP-429 outcome, so the rate-limited branch observes the stop.
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        ensure_paths(&paths).expect("paths");
-        let connection = intelligence_connection(&paths);
-
-        let host = unique_host("concurrent-stop");
-        rate_limit::reset_host_bucket_for_test(&host); // full bucket → the fetcher runs
-        let url = format!("https://{host}/post");
-        let config = consenting_config();
-        let job_id = enqueue_content_fetch_job(&connection, &payload(&url, 1)).expect("enqueue");
-
-        let fetcher = StopRequestingFetcher {
-            database_path: paths.intelligence_database_path.clone(),
-            job_id,
-        };
-        assert_eq!(
-            execute_content_fetch_job_with_fetcher(&paths, &connection, &config, job_id, &fetcher)
-                .expect("execute"),
-            ContentFetchJobOutcome::Ran,
-            "a concurrent stop during a throttled fetch cancels the job (Ran), not Deferred"
-        );
-        let state: String = connection
-            .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [job_id], |row| {
-                row.get(0)
-            })
-            .expect("state");
-        assert_eq!(state, "cancelled", "the stop must win — the row is cancelled, not re-queued");
-    }
-
-    #[test]
-    fn finish_content_fetch_job_cancels_when_stop_requested_mid_run() {
-        // Covers the stop-requested check INSIDE finish (the cancel-after-claim, before-store branch).
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        ensure_paths(&paths).expect("paths");
-        let connection = intelligence_connection(&paths);
-        let job_id = enqueue_content_fetch_job(&connection, &payload("https://example.com/x", 5))
-            .expect("enqueue");
-        let job = claim_content_fetch_job_by_id(&connection, job_id)
-            .expect("claim")
-            .expect("claimed job");
-        // Request a stop on the now-running row, then finish must cancel (not store).
-        connection
-            .execute("UPDATE intelligence_jobs SET stop_requested = 1 WHERE id = ?1", [job_id])
-            .expect("request stop");
-        let enrichment =
-            EnrichmentResult { status: "success".to_string(), ..EnrichmentResult::default() };
-        assert!(
-            finish_content_fetch_job(
-                &paths,
-                &connection,
-                &job,
-                "generic-readable",
-                &enrichment,
-                None
-            )
-            .expect("finish")
-        );
-        let state: String = connection
-            .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [job_id], |row| {
-                row.get(0)
-            })
-            .expect("state");
-        assert_eq!(state, "cancelled");
-        // Nothing was stored — the cancel short-circuited before the store.
-        let stored: i64 = connection
-            .query_row("SELECT COUNT(*) FROM visit_content_enrichments", [], |row| row.get(0))
-            .expect("count");
-        assert_eq!(stored, 0);
-    }
-
-    #[test]
-    fn finish_marks_cancelled_when_succeed_loses_to_a_concurrent_stop() {
-        // Covers the `!mark_intelligence_job_succeeded => cancel` arm: a stop_requested set AFTER the
-        // store (so finish's early stop check passed) makes `mark_intelligence_job_succeeded` return
-        // false (its WHERE requires stop_requested = 0), so finish falls through to the cancel.
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        ensure_paths(&paths).expect("paths");
-        let connection = intelligence_connection(&paths);
-        let job_id = enqueue_content_fetch_job(&connection, &payload("https://example.com/y", 6))
-            .expect("enqueue");
-        let job =
-            claim_content_fetch_job_by_id(&connection, job_id).expect("claim").expect("claimed");
-        // A trigger-free way to make `mark_succeeded` fail without tripping finish's early stop check:
-        // finish reads stop_requested BEFORE the store, so it must be 0 then. We can't interleave from
-        // here, so instead drive the race by setting stop_requested = 1 and patching it so finish's
-        // FIRST read sees 0 — not possible single-threaded. Use a stored-procedure-like approach: set
-        // stop AFTER finish's read by abusing that `intelligence_job_stop_requested` is read twice is
-        // false. Simplest deterministic path: temporarily mark succeeded ourselves so the row is no
-        // longer `running`, making `mark_intelligence_job_succeeded` return false, then finish cancels.
-        connection
-            .execute("UPDATE intelligence_jobs SET state = 'succeeded' WHERE id = ?1", [job_id])
-            .expect("pre-succeed");
-        let enrichment =
-            EnrichmentResult { status: "success".to_string(), ..EnrichmentResult::default() };
-        // finish: stop check reads 0 (running flag irrelevant) → stores → mark_succeeded sees state !=
-        // running → returns false → cancel attempt (also a no-op since not running). The job stays
-        // succeeded; the point is the `!mark...` arm executes.
-        assert!(
-            finish_content_fetch_job(
-                &paths,
-                &connection,
-                &job,
-                "generic-readable",
-                &enrichment,
-                None
-            )
-            .expect("finish")
-        );
-    }
-
-    #[test]
-    fn finish_fans_enrichment_out_to_sibling_visits_and_refreshes_fts() {
-        // CORR-3 (store-time fan-out) + CORR-1 (FTS enrichment_text refresh) end-to-end via the
-        // intelligence connection with an attached plaintext archive. Two visits of ONE canonical URL
-        // must BOTH receive the enrichment, and the FTS term mirror must match a fetched token without
-        // a full rebuild.
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        ensure_paths(&paths).expect("paths");
-        let config = AppConfig {
-            initialized: true,
-            archive_mode: crate::models::ArchiveMode::Plaintext,
-            ai: {
-                let mut ai = AppConfig::default().ai;
-                ai.content_fetch_enabled = true;
-                ai
-            },
-            ..AppConfig::default()
-        };
-        // Seed the canonical archive: one url, TWO visits (siblings), plus a search_documents row so
-        // the FTS refresh has something to update.
-        let archive =
-            crate::archive::open_archive_connection(&paths, &config, None).expect("archive");
-        seed_run_profile(&archive);
-        archive
-            .execute(
-                "INSERT INTO urls (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id)
-                 VALUES (1, 'https://github.com/o/r', 'o/r', 2, 0, 1, '', 2, '', 1, 1)",
-                [],
-            )
-            .expect("url");
-        for (vid, ts) in [(10_i64, 1_i64), (11, 2)] {
-            archive
-                .execute(
-                    "INSERT INTO visits (id, url_id, source_profile_id, visit_time_ms, visit_time_iso, created_by_run_id)
-                     VALUES (?1, 1, 1, ?2, '2026-01-01T00:00:00Z', 1)",
-                    params![vid, ts],
-                )
-                .expect("visit");
-        }
-        // Seed a search_documents row for url_id 1 so the enrichment_text refresh has a row to update.
-        archive
-            .execute(
-                "INSERT INTO search.search_documents (
-                   url_id, url, title, search_terms, normalized_url, normalized_title,
-                   normalized_search_terms, compact_text, cjk_grams, enrichment_text, updated_at
-                 )
-                 VALUES (1, 'https://github.com/o/r', 'o/r', '', 'https://github.com/o/r', 'o/r',
-                         '', 'githubor', '', '', datetime('now'))",
-                [],
-            )
-            .expect("seed search doc");
-        archive
-            .execute(
-                "INSERT INTO search.history_search_terms(rowid, url, title, search_terms, normalized_url, normalized_title, normalized_search_terms, cjk_grams, enrichment_text)
-                 VALUES (1, 'https://github.com/o/r', 'o/r', '', 'https://github.com/o/r', 'o/r', '', '', '')",
-                [],
-            )
-            .expect("seed fts row");
-        drop(archive);
-
-        // Open the intelligence connection (attaches the archive) + claim a fetch for visit 10. We call
-        // `finish_content_fetch_job` directly with a pre-built github enrichment so the test never
-        // touches the shared `api.github.com` rate-limit bucket (deterministic under parallel tests).
-        let connection = open_intelligence_connection(&paths, &config, None).expect("intelligence");
-        crate::enrichment::ensure_visit_content_enrichment_schema(&connection)
-            .expect("enrich schema");
-        let job_id = enqueue_content_fetch_job(&connection, &payload("https://github.com/o/r", 10))
-            .expect("enqueue");
-        let job =
-            claim_content_fetch_job_by_id(&connection, job_id).expect("claim").expect("claimed");
-
-        let enrichment = EnrichmentResult {
-            status: "success".to_string(),
-            enrichment_summary: Some("Wasmtime sandbox runtime".to_string()),
-            extraction: json!({
-                "extractor": "github-repo",
-                "fullName": "o/r",
-                "description": "Wasmtime sandbox runtime",
-                "topics": ["wasm"],
-            }),
-            extractor_version: Some(1),
-            ..EnrichmentResult::default()
-        };
-        assert!(
-            finish_content_fetch_job(&paths, &connection, &job, "github-repo", &enrichment, None)
-                .expect("finish")
-        );
-
-        // CORR-3: BOTH sibling visits got the same enrichment_summary.
-        let mut summaries: Vec<(i64, Option<String>)> = connection
-            .prepare(
-                "SELECT history_id, enrichment_summary FROM visit_content_enrichments ORDER BY history_id",
-            )
-            .unwrap()
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .unwrap()
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .unwrap();
-        summaries.sort();
-        assert_eq!(summaries.len(), 2, "both sibling visits must be enriched");
-        assert_eq!(summaries[0].1.as_deref(), Some("Wasmtime sandbox runtime"));
-        assert_eq!(summaries[1].1.as_deref(), Some("Wasmtime sandbox runtime"));
-
-        // CORR-1: the FTS term mirror matches a fetched token WITHOUT a full rebuild.
-        let search = Connection::open(&paths.search_database_path).expect("search db");
-        let hits: i64 = search
-            .query_row(
-                "SELECT COUNT(*) FROM history_search_terms WHERE history_search_terms MATCH 'wasmtime'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("fts match");
-        assert_eq!(
-            hits, 1,
-            "the fetched summary must be keyword-searchable without a full rebuild"
-        );
-    }
-
-    fn seed_run_profile(archive: &Connection) {
-        archive
-            .execute(
-                "INSERT OR IGNORE INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-                 VALUES (1, 'backup', 'test', '2026-01-01', 'UTC', 'success', '[]', '[]', '{}', 0)",
-                [],
-            )
-            .expect("run");
-        archive
-            .execute(
-                "INSERT OR IGNORE INTO source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
-                 VALUES (1, 'chrome', 'x', 'p', '/p', '2026-01-01', 1, 'chrome:Default', '2026-01-01')",
-                [],
-            )
-            .expect("profile");
-    }
-}
+pub(super) mod tests;

@@ -47,7 +47,7 @@
 //!
 //! ## Dependencies
 //! - `archive::{export_archive_database, open_archive_connection,
-//!   open_source_evidence_connection, max_schema_version, run_migrations}`
+//!   open_legacy_source_evidence_connection, max_schema_version, run_migrations}`
 //!   for safe encrypted-db copy + forward migration.
 //! - `config::{ProjectPaths, load_config, save_config}` for the project
 //!   layout the bundle mirrors.
@@ -64,7 +64,7 @@ use crate::{
     archive::{
         ArchiveOpGate, ArchiveWriteLock, DiskEncryptionMode, apply_cipher_key,
         create_verified_safety_snapshot, detect_disk_encryption_mode, export_archive_database,
-        max_schema_version, open_archive_connection, open_source_evidence_connection,
+        max_schema_version, open_archive_connection, open_legacy_source_evidence_connection,
         remove_stale_sidecars, run_migrations,
     },
     config::{ProjectPaths, load_config, save_config},
@@ -1346,7 +1346,7 @@ fn copy_source_evidence_database_to(
     target_path: &Path,
 ) -> Result<()> {
     let target_key = encryption_key_for_copy(config, key)?;
-    let source = open_source_evidence_connection(paths, config, key)?;
+    let source = open_legacy_source_evidence_connection(paths, config, key)?;
     export_archive_database(&source, target_path, target_key)?;
     Ok(())
 }
@@ -1777,6 +1777,7 @@ mod tests {
 
     #[test]
     fn stars_survive_export_and_reimport_roundtrip() {
+        let vault = crate::Vault::open_temp().unwrap();
         // Stars are user-authored canonical content that lives in
         // history-vault.sqlite, so they must ride the portable bundle exactly
         // like notes/tags — proven end-to-end here by starring a page +
@@ -1786,9 +1787,7 @@ mod tests {
         let config = seed_archive(&src_paths);
 
         crate::stars::set_star(
-            &src_paths,
-            &config,
-            None,
+            &vault,
             crate::models::SetStarRequest {
                 entity_kind: crate::models::StarEntityKind::Url,
                 entity_key: "https://example.com/keepme".into(),
@@ -1797,9 +1796,7 @@ mod tests {
         )
         .expect("star a page before export");
         crate::stars::set_star(
-            &src_paths,
-            &config,
-            None,
+            &vault,
             crate::models::SetStarRequest {
                 entity_kind: crate::models::StarEntityKind::Domain,
                 entity_key: "example.com".into(),
@@ -1824,9 +1821,7 @@ mod tests {
 
         // Both stars must be present in the imported archive.
         let url_status = crate::stars::is_starred_batch(
-            &dest_paths,
-            &dest_config,
-            None,
+            &vault,
             crate::models::StarEntityKind::Url,
             &["https://example.com/keepme".to_string()],
         )
@@ -1837,8 +1832,7 @@ mod tests {
             "page star must survive the export/import bundle",
         );
 
-        let counts = crate::stars::star_counts(&dest_paths, &dest_config, None)
-            .expect("count stars after import");
+        let counts = crate::stars::star_counts(&vault).expect("count stars after import");
         assert_eq!(counts.urls, 1, "exactly the page star survives");
         assert_eq!(counts.domains, 1, "the domain star survives too");
     }

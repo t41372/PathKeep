@@ -13,7 +13,9 @@ pub(super) const TABLES: &[&str] = &[
 ];
 pub(super) const INDEXES: &[&str] = &[
     "idx_agent_runs_conversation",
+    "idx_agent_runs_message",
     "idx_agent_steps_run_seq",
+    "idx_agent_steps_tool_call",
     "idx_conversations_updated",
     "idx_messages_conversation_seq",
     "sqlite_autoindex_agent_citations_1",

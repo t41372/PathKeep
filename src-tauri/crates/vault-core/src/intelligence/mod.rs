@@ -1,17 +1,27 @@
+//! Failure modes: a public entry point bypasses Vault or reads an unpublished generation.
+//! Responsibilities: expose deterministic intelligence reads and resumable rebuilds.
+//! Not responsible for: canonical archive writes, provider work or database ownership.
 //! Core Intelligence backend.
 //!
 //! This module owns the deterministic, non-LLM Core Intelligence read/write
-//! plane introduced by the 2026-04-15 hard reset. The intelligence SQLite
+//! plane introduced by the 2026-04-15 hard reset. The intelligence Turso
 //! plane stays rebuildable: canonical archive facts remain in
 //! `archive/history-vault.sqlite`, while this module materializes sessions,
 //! search trails, refind pages, rollups, and related analytics in
 //! `derived/history-intelligence.sqlite`.
 
+mod build_pipeline;
+mod build_refind;
+mod build_rows;
+mod build_stages;
+mod build_state;
 mod day_insights;
 mod host_artifacts;
 mod incremental;
+#[cfg(test)]
 mod intelligence_core_persist;
 mod intelligence_daily_rollup_state;
+#[cfg(test)]
 mod intelligence_daily_rollups;
 mod intelligence_domain;
 mod intelligence_explain;
@@ -23,63 +33,49 @@ mod intelligence_overview_snapshot;
 mod intelligence_rebuild;
 mod intelligence_refind;
 mod intelligence_schema;
-pub(crate) use self::intelligence_schema::intelligence_status_from;
-mod intelligence_schema_sql;
 mod intelligence_search_metrics;
 mod intelligence_search_queries;
 mod intelligence_sessions;
 mod intelligence_shared;
 mod intelligence_structural_aggregates;
 mod intelligence_structural_build;
+#[cfg(test)]
 mod intelligence_structural_persist;
+#[cfg(test)]
 mod intelligence_structural_stage;
 mod intelligence_structural_state;
 mod intelligence_structural_stream;
 mod intelligence_summary;
-mod intelligence_visit_derive;
 mod intelligence_visit_records;
+mod paging;
+mod path_flows;
 mod phase_four;
 mod phase_three;
+mod refind_evidence;
+mod search_queries;
+mod session_details;
 mod site_dictionary;
 
 #[cfg(test)]
 mod tests;
 
 use self::incremental::{
-    ProfileSourceWatermark, StageCheckpoint, StageExecutionMode, delete_stage_checkpoints,
-    ensure_core_intelligence_stage_checkpoint_schema, list_core_intelligence_profiles,
-    load_profile_source_watermark, load_stage_checkpoint, save_stage_checkpoint, stage_name,
-    stage_version, watermark_regressed,
-};
-use self::intelligence_core_persist::persist_core_state_for_job_kind;
-use self::intelligence_daily_rollup_state::{build_daily_rollups, merge_rollups};
-use self::intelligence_daily_rollups::{
-    ensure_unique_domain_rollup_rows, execute_daily_rollup_stage, load_profile_derived_visit_batch,
+    ProfileSourceWatermark, StageCheckpoint, save_stage_checkpoint, stage_name, stage_version,
 };
 #[cfg(test)]
-pub(crate) use self::intelligence_schema::apply_intelligence_migrations_through;
-pub(crate) use self::intelligence_schema::ensure_core_intelligence_schema;
+use self::intelligence_daily_rollups::load_profile_derived_visit_batch;
+
 use self::intelligence_shared::{
     build_kpi, classify_search_query_kind, collapse_date_key, count_refind_pages_in_range,
     date_range_bounds, jaccard, local_date_key, local_datetime_from_millis, previous_date_range,
     query_token_set, rfc3339_from_millis, tokenize_query_terms,
 };
-use self::intelligence_visit_derive::execute_visit_derive_stage;
-use self::intelligence_visit_records::{
-    build_profile_state, compute_is_new_domain, compute_is_new_domain_with_seen,
-    hydrate_search_terms, load_seen_domains, load_visible_visits, persist_visit_derived_facts,
-    unique_date_keys, visit_from_row,
-};
+use self::intelligence_visit_records::visit_from_row;
 use self::site_dictionary::{
-    SiteDictionaryEntry, classify_visit, delete_search_engine_rule, display_name_for_domain,
+    classify_visit, delete_search_engine_rule, display_name_for_domain,
     display_name_for_search_engine, display_name_for_search_engine_with_map,
-    ensure_search_engine_rule_schema, ensure_site_dictionary_override_schema,
     list_search_engine_rules, load_enabled_search_engine_rules, load_search_engine_display_names,
     load_site_dictionary_overrides, normalize_query, upsert_search_engine_rule,
-};
-use self::{
-    intelligence_rebuild::load_archive_source_profile_id,
-    intelligence_schema::clear_core_tables_for_job_kind,
 };
 use crate::{
     intelligence_catalog::RebuildMode,
@@ -135,17 +131,8 @@ pub use self::phase_three::{
 
 const SESSION_GAP_MS: i64 = 30 * 60 * 1_000;
 const TRAIL_GAP_MS: i64 = 15 * 60 * 1_000;
-const CORE_PHASES: &[(&str, &str)] = &[
-    ("visit-derived-facts", "Normalizing visits and site dictionary facts"),
-    ("daily-rollups", "Computing daily rollups"),
-    ("sessions", "Building browsing sessions"),
-    ("search-trails", "Building search trails and query families"),
-    ("refind-pages", "Computing refind pages and source effectiveness"),
-    ("activity-mix", "Composing digest and activity mix surfaces"),
-    ("deep-intelligence", "Computing Phase 2 Core Intelligence surfaces"),
-];
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CoreIntelligenceProgress {
     pub phase: String,
     pub detail: String,
@@ -154,7 +141,7 @@ pub struct CoreIntelligenceProgress {
     pub progress_percent: Option<f32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct VisitRecord {
     visit_id: i64,
     profile_id: String,
@@ -186,7 +173,7 @@ struct VisitRecord {
     trail_id: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct SessionRecord {
     session_id: String,
     profile_id: String,
@@ -199,7 +186,7 @@ struct SessionRecord {
     auto_title: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct SearchEventRecord {
     visit_id: i64,
     profile_id: String,
@@ -211,7 +198,7 @@ struct SearchEventRecord {
     visit_time_ms: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum SearchQueryKind {
     Keyword,
     Navigational,
@@ -237,7 +224,7 @@ fn parse_search_query_kind(value: &str) -> SearchQueryKind {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct TrailRecord {
     trail_id: String,
     profile_id: String,
@@ -255,7 +242,7 @@ struct TrailRecord {
     members: Vec<TrailMemberRecord>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct TrailMemberRecord {
     trail_id: String,
     profile_id: String,
@@ -264,7 +251,7 @@ struct TrailMemberRecord {
     role: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct StructuralVisitRecord {
     visit_id: i64,
     profile_id: String,
@@ -278,7 +265,7 @@ struct StructuralVisitRecord {
     is_search_event: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct QueryFamilyRecord {
     family_id: String,
     profile_id: String,
@@ -290,7 +277,7 @@ struct QueryFamilyRecord {
     queries: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct RefindPageRecord {
     profile_id: String,
     canonical_url: String,
@@ -307,7 +294,7 @@ struct RefindPageRecord {
     last_seen_ms: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct SourceEffectivenessRecord {
     profile_id: String,
     registrable_domain: String,
@@ -320,7 +307,7 @@ struct SourceEffectivenessRecord {
     last_seen_ms: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct ReopenedInvestigationRecord {
     investigation_id: String,
     profile_id: String,
@@ -334,7 +321,7 @@ struct ReopenedInvestigationRecord {
     evidence_json: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct PathFlowRecord {
     profile_id: String,
     flow_pattern: String,
@@ -343,7 +330,7 @@ struct PathFlowRecord {
     last_seen_ms: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct HabitPatternRecord {
     profile_id: String,
     registrable_domain: String,
@@ -355,7 +342,7 @@ struct HabitPatternRecord {
     is_interrupted: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct DailyRollupBundle {
     domain_rows: Vec<(String, String, String, String, i64, i64, i64, i64)>,
     category_rows: Vec<(String, String, String, i64, i64)>,
@@ -363,7 +350,7 @@ struct DailyRollupBundle {
     summary_rows: Vec<(String, String, i64, i64, i64, i64, f32, f32)>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct StageRunResult {
     processed_visits: usize,
     visit_derived_facts: usize,
@@ -389,45 +376,55 @@ struct StageRunResult {
 // These batch sizes stay well below the low-RAM envelope we benchmark against,
 // but they cut a large amount of repeated SQLite scan/statement overhead on
 // multi-million-row rebuilds.
+#[cfg(test)]
 const STRUCTURAL_AGGREGATE_BATCH_SIZE: usize = 8_192;
+#[cfg(test)]
 const STRUCTURAL_TAIL_STREAM_BATCH_SIZE: usize = 8_192;
+#[cfg(test)]
 const VISIT_DERIVE_FALLBACK_BATCH_SIZE: usize = 8_192;
+#[cfg(test)]
 const DAILY_ROLLUP_FALLBACK_BATCH_SIZE: usize = 8_192;
 
-#[derive(Debug, Clone, Copy)]
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 struct DerivedVisitBatchCursor {
     visit_time_ms: i64,
     visit_id: i64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 struct SearchEventBatchCursor {
     visit_id: i64,
 }
 
-#[derive(Debug, Clone)]
+#[cfg(test)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct TrailBatchCursor {
     first_visit_ms: i64,
     trail_id: String,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 struct VisibleVisitBatchCursor {
     visit_time_ms: i64,
     visit_id: i64,
 }
 
-#[derive(Debug, Clone)]
+#[cfg(test)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct StructuralDeltaSummary {
     delta_count: usize,
     dirty_date_keys: Vec<String>,
     dirty_from_visit_ms: Option<i64>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct StructuralTailStreamReport {
     processed_visits: usize,
     sessions: usize,
     trails: usize,
+    member_count: usize,
+    term_count: usize,
     first_visit_ms: Option<i64>,
 }

@@ -1,7 +1,7 @@
 use std::{env, process};
 
 use vault_core::{
-    archive::open_source_evidence_connection, config::load_config, config::project_paths,
+    archive::open_legacy_source_evidence_connection, config::load_config, config::project_paths,
 };
 
 fn main() {
@@ -22,7 +22,7 @@ fn run() -> anyhow::Result<()> {
     let entity_kind = &args[0];
     let paths = project_paths()?;
     let config = load_config(&paths)?;
-    let connection = open_source_evidence_connection(&paths, &config, None)?;
+    let connection = open_legacy_source_evidence_connection(&paths, &config, None)?;
 
     let total_matching: i64 = connection.query_row(
         "SELECT COUNT(*)

@@ -70,8 +70,10 @@ fn base_config() -> AppConfig {
 /// Builds an empty (no archive) context — enough for the security/limit tests, which never need
 /// real rows (an empty archive returns zero rows honestly, never an error).
 fn empty_context() -> (crate::config::ProjectPaths, AgentToolContext) {
+    let vault = crate::Vault::open_temp().unwrap();
     let paths = test_paths();
     let context = AgentToolContext {
+        vault: vault.clone(),
         paths: paths.clone(),
         config: base_config(),
         database_key: None,
@@ -578,10 +580,9 @@ fn query_history_in_the_sandbox_finds_the_first_occurrence_and_exposes_next_curs
         "sort:oldest returns the EARLIEST (2024) match in the sandbox: {distilled}"
     );
     assert_eq!(distilled["hasMore"], serde_json::json!(true), "more matches exist: {distilled}");
-    assert_eq!(
-        distilled["nextCursor"].as_str(),
-        Some("1"),
-        "the sandbox reply exposes the pagination cursor: {distilled}"
+    assert!(
+        distilled["nextCursor"].as_str().is_some_and(|cursor| cursor.contains(':')),
+        "the sandbox exposes its continuation: {distilled}"
     );
 }
 
@@ -1173,6 +1174,7 @@ fn query_history_matches_a_direct_search_over_the_same_plane() {
 
     let direct = rt
         .block_on(search_history_internal(
+            &context.vault,
             &context.paths,
             &context.config,
             None,
@@ -1653,4 +1655,53 @@ fn the_scoped_wasi_stream_glue_is_inert_where_the_sync_path_skips_it() {
         RequestOutput(channel.clone()).ready().await;
         NullSink.ready().await;
     });
+}
+
+fn run_code_in_sandbox(
+    source: &str,
+    context: &AgentToolContext,
+    runtime: tokio::runtime::Handle,
+    control: Option<Arc<dyn AiRunControl>>,
+) -> CodeOutcome {
+    if context.paths.archive_database_path.exists() {
+        crate::test_support::legacy_fixtures::copy_to_vault(
+            &context.vault,
+            &context.paths,
+            &context.config,
+        );
+        crate::test_support::legacy_fixtures::copy_search_metadata(
+            &context.vault,
+            &context.paths,
+            &context.config,
+        );
+    }
+    super::run_code_in_sandbox(source, context, runtime, control)
+}
+
+#[test]
+fn code_mode_pages_and_id_lookups_reach_beyond_the_old_newest_window() {
+    let _budget = WallTimeBudgetGuard::set(Duration::from_secs(120));
+    let (_paths, context) = empty_context();
+    crate::test_support::search::seed_pages(&context.vault, 1107);
+    let rt = runtime();
+    let source = r#"
+        const old=fetch_visits([1,1107,999999]);
+        let cursor=null;
+        let count=0;
+        const seen=new Set();
+        do {
+            const page=query_history({query:'common',plane:'bm25',sort:'oldest',limit:500,cursor});
+            if (!page.searchState.coverageComplete || page.total !== 1107) throw new Error('missing exact coverage');
+            for (const row of page.rows) {seen.add(row.id);count++;}
+            cursor=page.nextCursor;
+        } while(cursor);
+        return {old:old.rows.map(row=>row.id),count,unique:seen.size};
+    "#;
+    let outcome = super::run_code_in_sandbox(source, &context, rt.handle().clone(), None);
+    assert!(outcome.error.is_none(), "{:?}", outcome.error);
+    assert_eq!(outcome.limits_hit, None);
+    let result: Value = serde_json::from_str(&outcome.model_text).unwrap();
+    assert_eq!(result["old"], json!([1, 1107]));
+    assert_eq!(result["count"], 1107);
+    assert_eq!(result["unique"], 1107);
 }

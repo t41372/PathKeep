@@ -16,18 +16,12 @@
 //!   archive three times and the intelligence database twice; now it pays two derivations.
 
 use crate::{
-    ai::ai_index_status_from,
-    archive::{
-        archive_status_from_open, open_archive_connection, open_intelligence_connection,
-        recent_runs_from,
-    },
+    archive::recent_runs_from,
     config::{ProjectPaths, ensure_paths},
-    intelligence::intelligence_status_from,
     models::{
         AiIndexStatus, AppConfig, ArchiveStatus, BackupRunOverview, ImportBatchOverview,
         IntelligenceStatus,
     },
-    takeout::import_batches_from,
 };
 use anyhow::{Context, Result};
 
@@ -37,8 +31,10 @@ pub struct SnapshotReads {
     pub archive_status: ArchiveStatus,
     /// Empty unless the archive opened.
     pub recent_runs: Vec<BackupRunOverview>,
+    pub recent_runs_next_cursor: Option<i64>,
     /// Empty unless the archive opened.
     pub recent_import_batches: Vec<ImportBatchOverview>,
+    pub recent_import_batches_next_cursor: Option<String>,
     pub ai_status: Result<AiIndexStatus>,
     pub intelligence_status: Result<IntelligenceStatus>,
 }
@@ -50,45 +46,45 @@ pub struct SnapshotReads {
 pub fn load_snapshot_reads(
     paths: &ProjectPaths,
     config: &AppConfig,
-    key: Option<&str>,
+    _key: Option<&str>,
+    vault: Option<&crate::Vault>,
 ) -> Result<SnapshotReads> {
     ensure_paths(paths)?;
-    let initialized = config.initialized && paths.archive_database_path.exists();
-    let archive = initialized.then(|| open_archive_connection(paths, config, key));
-    let archive_status = archive_status_from_open(paths, config, archive.as_ref())?;
-    let (recent_runs, recent_import_batches) = match archive.as_ref() {
-        Some(Ok(connection)) => (
-            recent_runs_from(connection)
-                .context("loading the recent run ledger for the app snapshot")?,
-            import_batches_from(connection)
-                .context("loading the recent import ledger for the app snapshot")?,
-        ),
-        _ => (Vec::new(), Vec::new()),
+    let archive_status = match vault {
+        Some(vault) => crate::archive_status(vault)?,
+        None => crate::archive_availability(paths, config),
     };
-    drop(archive);
-
-    let (ai_status, intelligence_status) = if initialized {
-        match open_intelligence_connection(paths, config, key) {
-            Ok(connection) => (
-                ai_index_status_from(paths, config, &connection),
-                intelligence_status_from(paths, &connection),
-            ),
-            // Both reads fail the same way; each caller-facing status carries the reason.
-            Err(error) => {
-                let reason = format!("{error:#}");
-                (Err(anyhow::anyhow!(reason.clone())), Err(anyhow::anyhow!(reason)))
-            }
+    let (recent_runs, recent_runs_next_cursor) = match vault {
+        Some(vault) => {
+            let page = vault
+                .read(vault_store::Db::Archive, |s| recent_runs_from(s, None, 12))
+                .context("loading the recent run ledger for the app snapshot")?;
+            (page.items, page.next_cursor)
         }
-    } else {
-        // Nothing has been derived before onboarding, and opening the intelligence database
-        // would create it (and attach an archive that does not exist yet).
-        (crate::ai_index_status(paths, config, key), Ok(IntelligenceStatus::default()))
+        None => (Vec::new(), None),
+    };
+    let (recent_import_batches, recent_import_batches_next_cursor) = match vault {
+        Some(vault) => {
+            let page = crate::load_import_batches(vault, None, 16)?;
+            (page.items, page.next_cursor)
+        }
+        None => (Vec::new(), None),
+    };
+    let ai_status = match vault {
+        Some(vault) => crate::ai_index_status(vault),
+        None => Ok(AiIndexStatus::default()),
+    };
+    let intelligence_status = match vault {
+        Some(vault) => crate::intelligence_status(vault),
+        None => Ok(IntelligenceStatus::default()),
     };
 
     Ok(SnapshotReads {
         archive_status,
         recent_runs,
+        recent_runs_next_cursor,
         recent_import_batches,
+        recent_import_batches_next_cursor,
         ai_status,
         intelligence_status,
     })
