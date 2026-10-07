@@ -8,6 +8,7 @@ import argparse
 import ast
 import collections
 import json
+import os
 import pathlib
 import queue
 import re
@@ -50,6 +51,8 @@ def main():
     pauses = 0.0
     phase_io = {}
     trace_log = output.with_suffix(".samples.jsonl").open("w")
+    event_log = output.with_suffix(".events.jsonl").open("w")
+    inferior_log = output.with_suffix(".inferior.log").open("w", buffering=1)
 
     def io_counters():
         if pid is None:
@@ -85,8 +88,19 @@ def main():
             except (SyntaxError, ValueError):
                 text = line
             console.append(text)
-        if "INTELLIGENCE_BENCH" in text or "test result:" in text or "panicked at" in text:
+        if "Python Exception" in text:
+            raise RuntimeError(text)
+        benchmark_line = any(marker in text for marker in
+                             ("INTELLIGENCE_BENCH", "INTELLIGENCE_REPORT", "test result:", "panicked at"))
+        native_line = line.startswith("@") or (line and
+            not line.startswith(("=", "*", "~", "&", "(gdb)")) and not re.match(r"^\d+\^", line))
+        if native_line:
+            inferior_log.write(text if text.endswith("\n") else text+"\n")
+        if benchmark_line or native_line:
             print(text, end="" if text.endswith("\n") else "\n", flush=True)
+        if benchmark_line:
+            event_log.write(json.dumps({"time_ns": time.monotonic_ns(), "text": text}) + "\n")
+            event_log.flush()
             marker = re.search(r"phase=([a-z-]+)", text)
             if marker and marker.group(1) != phase:
                 phase = marker.group(1)
@@ -112,6 +126,12 @@ def main():
         command("-gdb-set debuginfod enabled off")
         command("-gdb-set print frame-arguments none")
         command('-interpreter-exec console "handle SIGPIPE nostop noprint pass"')
+        if os.environ.get("PATHKEEP_PROFILE_CHECKPOINTS") == "1":
+            helper = pathlib.Path(__file__).with_name("profile-checkpoints-gdb.py")
+            command('-interpreter-exec console ' + json.dumps(f"source {helper}"))
+        if os.environ.get("PATHKEEP_PROFILE_STAGES") == "1":
+            helper = pathlib.Path(__file__).with_name("profile-stages-gdb.py")
+            command('-interpreter-exec console ' + json.dumps(f"source {helper}"))
         command("-exec-run")
         next_sample = time.monotonic() + args.interval
         while exited is None:
@@ -120,6 +140,7 @@ def main():
                 if line.startswith("*stopped") and exited is None:
                     command("-exec-continue")
             except queue.Empty:
+                began_ns = time.monotonic_ns()
                 began = time.monotonic()
                 command("-exec-interrupt --all")
                 while exited is None and not stopped:
@@ -134,7 +155,9 @@ def main():
                 command("-exec-continue")
                 pause = time.monotonic() - began
                 pauses += pause
-                sample = {"phase": phase, "pause_seconds": pause, "io": counters, "trace": trace}
+                sample = {"phase": phase, "pause_seconds": pause,
+                    "started_ns": began_ns, "finished_ns": time.monotonic_ns(),
+                    "io": counters, "trace": trace}
                 sample_count += 1
                 for stack in re.split(r"(?m)^Thread ", trace):
                     leaf = re.search(r"(?m)^#0\s+(?:0x[0-9a-f]+\s+in\s+)?(.+)", stack)
@@ -149,6 +172,8 @@ def main():
             debugger.terminate()
         debugger.wait(timeout=30)
         trace_log.close()
+        event_log.close()
+        inferior_log.close()
         output.write_text(json.dumps({"program": program, "exit": exited,
             "sampling_pause_seconds": pauses, "phase_io": phase_io,
             "sample_count": sample_count, "samples_file": str(output.with_suffix(".samples.jsonl"))}, indent=2))
