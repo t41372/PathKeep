@@ -140,17 +140,6 @@ mod tests {
         config
     }
 
-    fn seed_unported_readers(session: &SessionState, pages: &[(&str, &str)]) {
-        let paths = vault_core::project_paths().unwrap();
-        let config = vault_core::load_config(&paths).unwrap();
-        vault_core::test_support::legacy_fixtures::seed_reader_pages(
-            &paths,
-            &config,
-            session_key(session).unwrap().as_deref(),
-            pages,
-        );
-    }
-
     fn chrome_user_data_fixture(root: &Path) -> PathBuf {
         let chrome_root = root.join("chrome-user-data");
         let profile_dir = chrome_root.join("Default");
@@ -323,8 +312,6 @@ mod tests {
                 )
             })
             .unwrap();
-        // SQLite read-model fixtures are independent of the Turso backup results.
-        seed_unported_readers(&session, &[("https://example.com", "Example")]);
         let restore_preview = preview_snapshot_restore_impl(
             vault_core::SnapshotRestoreRequest { snapshot_path: snapshot_path.clone() },
             &session,
@@ -416,13 +403,6 @@ mod tests {
         )
         .expect("clear provider key");
         assert!(!cleared_provider_snapshot.config.ai.llm_providers[0].api_key_saved);
-        seed_unported_readers(
-            &session,
-            &[
-                ("https://example.com", "Example"),
-                ("https://example.com/imported", "Imported example"),
-            ],
-        );
         let ai_index_report = build_ai_index_impl(
             AiIndexRequest { limit: Some(5), ..AiIndexRequest::default() },
             &session,
@@ -857,7 +837,6 @@ mod tests {
         )
         .expect("initialize archive");
         save_config_with_base_impl(config, None, &session).expect("save config");
-        seed_unported_readers(&session, &[("https://example.com", "Example")]);
         let report = run_backup_now_impl(false, &session, |_| {}).expect("run backup");
         let run_id = report.run.expect("backup run").id;
 

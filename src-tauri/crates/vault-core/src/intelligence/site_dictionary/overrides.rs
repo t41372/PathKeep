@@ -12,7 +12,7 @@
 //! - Surfacing Settings UI payloads.
 //!
 //! ## Dependencies
-//! - `rusqlite` for the derived intelligence SQLite plane.
+//! - The Insights database, through `vault_store::Session`.
 //! - `utils::now_rfc3339` for stable audit timestamps.
 //! - `visit_taxonomy` enum contracts.
 //!

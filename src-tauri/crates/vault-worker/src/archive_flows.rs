@@ -1436,7 +1436,7 @@ mod tests {
         };
         config.og_image.fetch_enabled = false;
         write_test_config(&paths, &config);
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
 
         let result = try_refetch_due_og_images(&vault.with_config(config.clone()), 10);
         assert_eq!(result.expect("try_refetch returns"), (0, 0));
@@ -1464,7 +1464,7 @@ mod tests {
             ..AppConfig::default()
         };
         write_test_config(&paths, &config);
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
 
         // Archive has no og:image rows, so the due list is empty and
         // `try_refetch_due_og_images` returns (0, 0) without ever calling
@@ -1501,12 +1501,10 @@ mod tests {
         // upsert paths.
         config.og_image.blocked_hosts = vec!["blocked.test".to_string()];
         write_test_config(&paths, &config);
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
 
         // Pre-seed a row whose refetch_after window is already in the
         // past so `list_urls_due_for_refetch` returns it.
-        let connection = vault_core::archive::open_archive_connection(&paths, &config, None)
-            .expect("connection");
         let insert = vault_core::og_images::OgImageInsert {
             page_url: "https://blocked.test/page",
             page_host: Some("blocked.test"),
@@ -1522,7 +1520,6 @@ mod tests {
             created_by_run_id: None,
         };
         vault_core::og_images::upsert_og_image(&vault, &insert).expect("insert");
-        drop(connection);
 
         let (due, _successful) =
             try_refetch_due_og_images(&vault.with_config(config.clone()), 10).expect("try_refetch");
@@ -1555,7 +1552,7 @@ mod tests {
         // must short-circuit.
         config.og_image.fetch_enabled = false;
         write_test_config(&paths, &config);
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
         let result = try_prefetch_new_visit_og_images(&vault.with_config(config.clone()), 100);
         assert_eq!(result.expect("prefetch returns"), (0, 0));
 
@@ -1604,7 +1601,7 @@ mod tests {
             ..AppConfig::default()
         };
         write_test_config(&paths, &config);
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
 
         // No visits + no og_images rows → empty due list → (0, 0).
         let result = try_prefetch_new_visit_og_images(&vault.with_config(config.clone()), 100)
@@ -1636,7 +1633,7 @@ mod tests {
         };
         config.og_image.fetch_enabled = false;
         write_test_config(&paths, &config);
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
         let result = prefetch_og_images_on_demand(&vault.with_config(config.clone()), 100);
         assert_eq!(result.expect("on-demand prefetch"), (0, 0));
 
@@ -1686,7 +1683,7 @@ mod tests {
         };
         config.og_image.fetch_enabled = false;
         write_test_config(&paths, &config);
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
 
         let result =
             super::refetch_og_images(&vault, vec!["https://example.com/never-reached".to_string()]);
@@ -1815,61 +1812,6 @@ mod tests {
         assert_eq!(scoped[0].profile_id.as_deref(), Some("chrome:Default"));
     }
 
-    /// Inserts a `source_profiles` row + a `runs` row so subsequent
-    /// `urls` inserts satisfy the schema's FK constraints. Idempotent so
-    /// callers can call it more than once per archive without duplicate
-    /// PK errors.
-    fn seed_url_parents(connection: &rusqlite::Connection) {
-        let existing: i64 = connection
-            .query_row("SELECT COUNT(*) FROM source_profiles WHERE id = 1", [], |row| row.get(0))
-            .unwrap_or(0);
-        if existing > 0 {
-            return;
-        }
-        connection
-            .execute(
-                "INSERT INTO source_profiles (
-                   id, browser_kind, browser_version, profile_name, profile_path,
-                   discovered_at, enabled, profile_key, user_name, updated_at,
-                   browser_family, browser_product
-                 ) VALUES (1, 'chrome', NULL, 'Default', '/tmp/profile',
-                           '2026-01-01T00:00:00Z', 1, 'chrome:Default', NULL,
-                           '2026-01-01T00:00:00Z', 'chromium', 'Chrome')",
-                [],
-            )
-            .expect("seed source profile");
-        connection
-            .execute(
-                "INSERT INTO runs (
-                   id, run_type, trigger, started_at, timezone, status,
-                   profile_scope_json, warnings_json, stats_json, due_only
-                 ) VALUES (1, 'backup', 'manual', '2026-01-01T00:00:00Z', 'UTC',
-                           'success', '[]', '[]', '{}', 0)",
-                [],
-            )
-            .expect("seed run");
-    }
-
-    /// Inserts a visited `urls` row. The OG-image prefetch query keys on
-    /// `last_visit_ms DESC` and `LIKE 'https://%'`, so the URL must use
-    /// https and carry a non-null last_visit timestamp.
-    fn seed_url(connection: &rusqlite::Connection, id: i64, url: &str, last_visit_ms: i64) {
-        seed_url_parents(connection);
-        let iso = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(last_visit_ms)
-            .unwrap_or_else(chrono::Utc::now)
-            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-        connection
-            .execute(
-                "INSERT INTO urls (
-                   id, url, title, visit_count, typed_count,
-                   first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
-                   source_profile_id, created_by_run_id
-                 ) VALUES (?1, ?2, NULL, 1, 0, ?3, ?4, ?3, ?4, 1, 1)",
-                rusqlite::params![id, url, last_visit_ms, iso],
-            )
-            .expect("seed url");
-    }
-
     #[test]
     fn prefetch_og_images_on_demand_enqueues_visited_urls_and_drives_worker_pool() {
         let vault = vault_core::Vault::open_temp().unwrap();
@@ -1896,17 +1838,12 @@ mod tests {
         };
         config.og_image.blocked_hosts = vec!["blocked.test".to_string()];
         write_test_config(&paths, &config);
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
 
-        {
-            let connection = vault_core::archive::open_archive_connection(&paths, &config, None)
-                .expect("connection");
-            // Seed a visited https:// URL with no og_images row so
-            // list_urls_for_prefetch returns it.
-            seed_url(&connection, 1, "https://blocked.test/page", 5_000);
-        }
-
-        vault_core::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
+        // A visited https:// URL with no og_images row, so list_urls_for_prefetch returns it.
+        vault_core::test_support::history::History::chrome(&vault)
+            .page(1, "https://blocked.test/page", None, 5_000)
+            .commit();
         let (enqueued, succeeded) =
             prefetch_og_images_on_demand(&vault.with_config(config.clone()), 10)
                 .expect("on-demand prefetch");
@@ -1945,7 +1882,7 @@ mod tests {
             ..AppConfig::default()
         };
         write_test_config(&paths, &config);
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
 
         let insights = crate::archive_flows::browse_day_insights(
             &vault_core::Vault::open_temp().unwrap(),

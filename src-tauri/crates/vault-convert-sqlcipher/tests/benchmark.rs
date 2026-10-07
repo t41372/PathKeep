@@ -125,14 +125,14 @@ fn generate(root: &Path, visits: i64, pages: i64) {
     };
     vault_core::config::ensure_paths(&paths).unwrap();
     vault_core::save_config(&paths, &config).unwrap();
-    vault_core::test_support::legacy_fixtures::seed_reader_pages(
+    vault_convert_sqlcipher::test_support::seed_reader_pages(
         &paths,
         &config,
         Some(PASSWORD),
         &[("https://example.com/page/1", "Topic page 1")],
     );
     let mut db =
-        vault_core::archive::open_archive_connection(&paths, &config, Some(PASSWORD)).unwrap();
+        vault_convert_sqlcipher::test_support::open_archive(&paths, &config, Some(PASSWORD));
     for first in (2..=pages).step_by(10_000) {
         let tx = db.transaction().unwrap();
         {

@@ -7,10 +7,12 @@ mod enrichments;
 mod legacy_recovery;
 mod snapshot;
 mod source;
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod test_support;
 mod transfer;
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 pub use legacy_recovery::{list_legacy_snapshots, recover_on_launch};
+use serde::{Deserialize, Serialize};
 pub use snapshot::restore_snapshot;
 use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
 use vault_core::{

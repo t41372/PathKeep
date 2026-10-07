@@ -160,9 +160,6 @@ fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str
             return (Some(code), None);
         }
     }
-    if message.contains("storage-migration-incomplete:") {
-        return (Some("storage-migration-incomplete"), None);
-    }
     if message.contains("backup-already-running:") {
         return (Some("backup-already-running"), None);
     }

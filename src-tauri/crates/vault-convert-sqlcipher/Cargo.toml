@@ -5,6 +5,11 @@ edition = "2024"
 license.workspace = true
 description = "Verified, resumable SQLCipher to Turso conversion for PathKeep"
 
+[features]
+# Old-format archive fixtures for tests of everything that reads them, here and in the worker
+# and desktop crates.
+test-fixtures = []
+
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
@@ -21,3 +26,27 @@ vault-store = { path = "../vault-store" }
 browser-history-fixtures = { path = "../browser-history-fixtures" }
 libc.workspace = true
 vault-core = { path = "../vault-core", features = ["test-fixtures"] }
+
+[[test]]
+name = "benchmark"
+required-features = ["test-fixtures"]
+
+[[test]]
+name = "collisions"
+required-features = ["test-fixtures"]
+
+[[test]]
+name = "conversion"
+required-features = ["test-fixtures"]
+
+[[test]]
+name = "ingest_parity"
+required-features = ["test-fixtures"]
+
+[[test]]
+name = "old_versions"
+required-features = ["test-fixtures"]
+
+[[test]]
+name = "snapshot"
+required-features = ["test-fixtures"]

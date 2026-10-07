@@ -20,7 +20,7 @@ fn conversion_matches_native_ingestion_for_the_same_browser_facts() {
             ..Default::default()
         };
         let password = (mode == ArchiveMode::Encrypted).then_some("parity password");
-        vault_core::test_support::legacy_fixtures::seed_reader_pages(
+        vault_convert_sqlcipher::test_support::seed_reader_pages(
             &paths,
             &config,
             password,
@@ -29,7 +29,7 @@ fn conversion_matches_native_ingestion_for_the_same_browser_facts() {
                 ("https://example.com/~alice", "Current Alice"),
             ],
         );
-        let db = vault_core::archive::open_archive_connection(&paths, &config, password).unwrap();
+        let db = vault_convert_sqlcipher::test_support::open_archive(&paths, &config, password);
         let rows = db
             .prepare("SELECT id,url,title,last_visit_ms FROM urls ORDER BY id")
             .unwrap()

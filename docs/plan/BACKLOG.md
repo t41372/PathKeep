@@ -694,6 +694,7 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 驗收：實機跑一次真實 build，全程看得到進度且數字誠實；pause/resume/cancel 與 retry 都實際生效；錯誤有可重試的呈現；`bun run check`；更新對應 `docs/features/` 與（若改了 schema/runtime）`docs/architecture/`。
 
 - [ ] **WORK-ENCRYPT-AT-REST-ALL** — 評估並（評估後）實作「全量加密」衍生資料庫（需先做設計/性能評估階段）
+  - 2026-10 狀態：Turso 版每個原生資料庫（archive、source evidence、intelligence、agent、scratch）都用同一把資料金鑰加密，搜尋索引用加密的 Tantivy Directory。下面提到的 SQLCipher 原語（`at_rest.rs` reconcile、`open_archive_connection`、`search_projection.rs`、`intelligence_projection.rs`）已刪除。剩下要評估的只有語意搜尋的平面檔（`.pkvec` / `.pkmap` / `.pkbin` / `.pki8`）是否加密。
   - 來源：2026-06-28 使用者指示。修 backup OOM 時確認：開啟加密只加密 canonical encrypted-tier（`history-vault.sqlite` + `source-evidence.sqlite`）；衍生 sidecar（`derived/history-search.sqlite` FTS、`derived/history-intelligence.sqlite`、`derived/agent.sqlite` 對話）目前**明文**落盤，內含 URL / 標題 / enrichment 摘要 / 聊天內容。使用者選擇本輪先只修 source-evidence，並要求把「encrypt EVERYTHING 的性能與實現設計評估」記成待辦，評估後再決定是否實作。
   - 讀先：`docs/architecture/`（at-rest posture，本輪新增/更新）；`src-tauri/crates/vault-core/src/archive/at_rest.rs`（本輪的 reconcile/rewrite 原語，可推廣到 sidecar）；`schema.rs`（`open_archive_connection` 的 `ATTACH … KEY ''` 慣例）、`search_projection.rs`（`open_search_connection` 明文開啟）、`intelligence_projection.rs`（明文 + attach archive）；W-AI-3 `agent.sqlite` migration；`scripts/verify-rust-coverage.mjs`。
   - 設計問題（先評估再下結論，量測為準）：(1) **性能**——SQLCipher 對 14.4M 級 FTS5 / 向量 sidecar 的查詢/重建吞吐與 RAM 影響（目標機 4 核 / 8GB）；semantic plane（`.pkbin`/`.pki8`/`.pkvec`/`.pkmap` flat sidecar）本身不是 SQLite，是否一併加密、怎麼加密（檔案層 vs 應用層）。(2) **實現模型**——衍生資料可丟棄/可重建，加密它們 vs「鎖時不可讀、解鎖才解密」的取捨；rekey 時是否要連 sidecar 一起 lockstep（推廣 `migrate_*_for_rekey`）；明文→加密的遷移/重建路徑與 blast radius。(3) **威脅模型**——衍生明文到底洩漏多少（URL/標題/摘要/對話），是否值得這個性能與複雜度成本。
@@ -701,6 +702,7 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 驗收：設計+量測文檔成立並獲使用者批准 → 若實作：開啟加密後 sidecar 不再明文落盤、查詢/備份/重建在目標機仍流暢、rekey lockstep、`bun run check` 綠。
 
 - [ ] **WORK-ENCRYPT-KEYDRIFT-A** — 回收以「舊密碼」加密的 source-evidence（passphrase 輪換殘留）
+  - 2026-10 狀態：原生版不會再產生 key drift（所有資料庫共用一把資料金鑰，改密碼只重包金鑰）。舊安裝仍可能帶著這種 source-evidence 來轉換：轉換器用 archive 密碼讀它會失敗。要決定的是轉換時怎麼處理這個檔（見 `docs/plan/turso-review-ledger.md` 區塊 6）。
   - 來源：2026-06-28 backup-OOM 修復的獨立審查 finding #4。本輪的 at-rest reconcile 只處理 **mode drift**（明文↔加密，靠檔頭偵測，無需金鑰）。它無法偵測/修復 **key drift**：在舊版「只 rekey archive」的時代做過 Encrypted→Encrypted 密碼輪換的安裝，其 `source-evidence.sqlite` 會以**舊密碼**加密、而 config/archive 用新密碼——檔頭看起來與正確金鑰的檔案完全相同，reconcile 視為一致而 no-op，之後 `open_source_evidence_connection` 用新金鑰開舊金鑰檔 → 仍 OOM；且後續 rekey 會因開不了該檔而 finalize 成 failed。
   - 範圍/稀有度：只影響「舊代碼下輪換過密碼」的安裝（本次確診的使用者是 mode-drift，已修）。自動修復不可能無中生有舊密碼。
   - 目標（設計優先）：偵測 key-drift（嘗試用目前金鑰開 source-evidence，失敗即 drift）→ 給誠實、可行動的 UX（提示輸入舊密碼以重新加密，或在確認資料可由 archive 重建時安全重建 source-evidence），而非靜默 OOM 或讓 rekey 失敗。

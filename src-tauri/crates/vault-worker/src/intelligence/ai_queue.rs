@@ -1125,7 +1125,7 @@ mod tests {
             },
             ..AppConfig::default()
         };
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
         vault_core::save_config(&paths, &config).expect("persist config");
         let vault = vault_core::Vault::open_temp().unwrap().with_config(config.clone());
         let paths = vault.paths().clone();
@@ -1232,7 +1232,7 @@ mod tests {
             archive_mode: vault_core::ArchiveMode::Plaintext,
             ..AppConfig::default()
         };
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
         let vault = vault_core::Vault::open_temp().unwrap().with_config(config.clone());
         let paths = vault.paths().clone();
         vault_core::save_config(&paths, &config).unwrap();
@@ -1267,7 +1267,7 @@ mod tests {
             archive_mode: vault_core::ArchiveMode::Plaintext,
             ..AppConfig::default()
         };
-        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::config::ensure_paths(&paths).expect("paths");
         let vault = vault_core::Vault::open_temp().unwrap().with_config(config.clone());
         let paths = vault.paths().clone();
         vault_core::save_config(&paths, &config).unwrap();

@@ -274,7 +274,7 @@ pub(crate) fn initialized_config() -> AppConfig {
 /// Turso has it; launch recovery and conversion start from this.
 fn legacy_archive(config: &AppConfig, key: Option<&str>) {
     let paths = project_paths().unwrap();
-    vault_core::ensure_archive_initialized(&paths, config, key).expect("old-format archive");
+    drop(vault_convert_sqlcipher::test_support::open_archive(&paths, config, key));
 }
 
 pub(crate) fn configured_ai_config() -> AppConfig {
@@ -3371,11 +3371,12 @@ fn launch_recovery_heals_a_stale_plaintext_config_so_the_archive_is_not_bricked(
     let mut encrypted = initialized_config();
     encrypted.archive_mode = ArchiveMode::Encrypted;
     legacy_archive(&encrypted, Some("000000"));
-    assert!(
-        vault_core::legacy_archive_status(&project_paths().unwrap(), &encrypted, Some("000000"))
-            .unwrap()
-            .unlocked
-    );
+    // The password opens it.
+    drop(vault_convert_sqlcipher::test_support::open_archive(
+        &project_paths().unwrap(),
+        &encrypted,
+        Some("000000"),
+    ));
 
     // Overwrite config.json back to Plaintext while the file on disk stays encrypted (no journal):
     // the interrupted-rekey end state that bricked the open.
@@ -3470,11 +3471,12 @@ fn launch_recovery_heals_then_opens_the_archive_when_the_key_is_in_hand() {
     let mut encrypted = initialized_config();
     encrypted.archive_mode = ArchiveMode::Encrypted;
     legacy_archive(&encrypted, Some("000000"));
-    assert!(
-        vault_core::legacy_archive_status(&project_paths().unwrap(), &encrypted, Some("000000"))
-            .unwrap()
-            .unlocked
-    );
+    // The password opens it.
+    drop(vault_convert_sqlcipher::test_support::open_archive(
+        &project_paths().unwrap(),
+        &encrypted,
+        Some("000000"),
+    ));
 
     // Overwrite config.json back to Plaintext (the stale-config incident shape) while the file on
     // disk stays encrypted.
@@ -3855,12 +3857,11 @@ fn delete_all_data_removes_the_installed_automatic_backup() {
 fn seed_legacy_reader_fixture(key: Option<&str>) {
     let paths = vault_core::project_paths().unwrap();
     let config = vault_core::load_config(&paths).unwrap();
-    vault_core::test_support::legacy_fixtures::seed_reader_archive(
+    vault_convert_sqlcipher::test_support::seed_reader_pages(
         &paths,
         &config,
         key,
-        "https://example.com",
-        "Example",
+        &[("https://example.com", "Example")],
     );
 }
 

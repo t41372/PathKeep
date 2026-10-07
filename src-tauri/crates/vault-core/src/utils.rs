@@ -6,8 +6,6 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::types::ValueRef;
-use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::{
     fs::File,
@@ -178,29 +176,7 @@ pub fn image_data_to_data_url(bytes: &[u8]) -> Option<String> {
     Some(format!("data:{mime_type};base64,{}", base64_blob(bytes)))
 }
 
-/// Converts one SQLite value into a JSON value for diagnostics and audit payloads.
-pub fn sqlite_value_to_json(value: ValueRef<'_>) -> Value {
-    match value {
-        ValueRef::Null => Value::Null,
-        ValueRef::Integer(v) => Value::from(v),
-        ValueRef::Real(v) => Value::from(v),
-        ValueRef::Text(v) => Value::from(String::from_utf8_lossy(v).to_string()),
-        ValueRef::Blob(v) => Value::from(format!("base64:{}", base64_blob(v))),
-    }
-}
-
-/// Converts an entire SQLite row into a JSON object keyed by column name.
-pub fn sqlite_row_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
-    let mut object = Map::new();
-    for index in 0..row.as_ref().column_count() {
-        let name = row.as_ref().column_name(index)?.to_string();
-        let value = row.get_ref(index)?;
-        object.insert(name, sqlite_value_to_json(value));
-    }
-    Ok(Value::Object(object))
-}
-
-/// Base64-encodes SQLite blob bytes for JSON transport.
+/// Base64-encodes bytes for a `data:` URL.
 fn base64_blob(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut output = String::new();
@@ -292,7 +268,6 @@ pub(crate) fn restore_test_env_var(name: &str, value: Option<&std::ffi::OsStr>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
     use tempfile::tempdir;
 
     #[test]
@@ -419,34 +394,5 @@ mod tests {
             )
         );
         assert!(image_data_to_data_url(b"not-an-image").is_none());
-    }
-
-    #[test]
-    fn sqlite_row_and_value_are_serialized_to_json() {
-        let connection = Connection::open_in_memory().expect("db");
-        connection
-            .execute("CREATE TABLE sample (id INTEGER, title TEXT, payload BLOB, ratio REAL, missing TEXT)", [])
-            .expect("create");
-        connection
-            .execute(
-                "INSERT INTO sample (id, title, payload, ratio, missing) VALUES (1, 'hello', X'0102', 1.5, NULL)",
-                [],
-            )
-            .expect("insert");
-
-        let value =
-            connection.query_row("SELECT * FROM sample", [], sqlite_row_to_json).expect("row json");
-
-        assert_eq!(value["id"], 1);
-        assert_eq!(value["title"], "hello");
-        assert_eq!(value["ratio"], 1.5);
-        assert_eq!(value["missing"], Value::Null);
-        assert_eq!(value["payload"], "base64:AQI=");
-    }
-
-    #[test]
-    fn blob_serialization_covers_base64_padding_edges() {
-        assert_eq!(sqlite_value_to_json(ValueRef::Blob(&[0x01])), "base64:AQ==");
-        assert_eq!(sqlite_value_to_json(ValueRef::Blob(&[0x01, 0x02, 0x03])), "base64:AQID");
     }
 }

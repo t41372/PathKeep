@@ -20,7 +20,7 @@ fn old_variants_merge_content_counters_sets_and_triggers_even_after_resume() {
         let password = (mode == ArchiveMode::Encrypted).then_some(PASSWORD);
         vault_core::config::ensure_paths(&paths).unwrap();
         vault_core::save_config(&paths, &config).unwrap();
-        vault_core::test_support::legacy_fixtures::seed_reader_pages(
+        vault_convert_sqlcipher::test_support::seed_reader_pages(
             &paths,
             &config,
             password,
@@ -29,9 +29,7 @@ fn old_variants_merge_content_counters_sets_and_triggers_even_after_resume() {
                 ("https://example.com/~alice", "Decoded"),
             ],
         );
-        let db = vault_core::test_support::legacy_fixtures::open_legacy_intelligence_database(
-            &paths, password,
-        );
+        let db = vault_convert_sqlcipher::test_support::open_intelligence(&paths, password);
         // The lower ID is newer despite its earlier textual date (different UTC offset).
         for (id, url, at, title, attempt, count, profiles, visits) in [
             (

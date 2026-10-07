@@ -23,7 +23,7 @@ fn assessment_and_bootstrap_finish_a_published_mode_switch_after_process_exit() 
         ..Default::default()
     };
     vault_core::save_config(&paths, &config).unwrap();
-    vault_core::test_support::legacy_fixtures::seed_reader_pages(
+    vault_convert_sqlcipher::test_support::seed_reader_pages(
         &paths,
         &config,
         Some("old password"),

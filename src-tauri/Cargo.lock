@@ -5633,6 +5633,7 @@ dependencies = [
  "tokio",
  "tower-http",
  "url",
+ "vault-convert-sqlcipher",
  "vault-core",
  "vault-owner-ipc",
  "vault-platform",

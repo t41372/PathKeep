@@ -2798,10 +2798,6 @@ mod tests {
         let mut config = AppConfig::default();
         config.ai.enabled = true;
         config.ai.assistant_enabled = true;
-        crate::archive::ensure_archive_initialized(&paths, &config, None).expect("init archive");
-        let archive =
-            crate::archive::open_archive_connection(&paths, &config, None).expect("open archive");
-        crate::archive::create_schema(&archive).expect("schema");
         let context = AgentToolContext {
             vault: vault.clone(),
             paths,

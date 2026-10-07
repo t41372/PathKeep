@@ -92,9 +92,6 @@ mod tests {
 #[cfg(test)]
 pub(crate) mod store;
 
-#[cfg(any(test, feature = "test-fixtures"))]
-pub mod legacy_fixtures;
-
 /// Durable handoff progress remains observable after acknowledged rows are pruned.
 #[cfg(test)]
 pub(crate) fn search_sequence(vault: &crate::Vault) -> i64 {
@@ -117,6 +114,8 @@ pub(crate) fn assert_search_handoff(vault: &crate::Vault) {
     assert_eq!(vault.search().indexed_ids().unwrap(), expected);
     assert_eq!(vault.search().state().applied_seq, search_sequence(vault) as u64);
 }
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod history;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod native;
 #[cfg(any(test, feature = "test-fixtures"))]

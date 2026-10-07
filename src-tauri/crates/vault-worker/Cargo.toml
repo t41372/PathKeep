@@ -30,6 +30,7 @@ vault-platform = { version = "0.1.0", path = "../vault-platform" }
 [dev-dependencies]
 libc.workspace = true
 vault-core = { path = "../vault-core", features = ["test-fixtures"] }
+vault-convert-sqlcipher = { path = "../vault-convert-sqlcipher", features = ["test-fixtures"] }
 rusqlite.workspace = true
 tempfile.workspace = true
 

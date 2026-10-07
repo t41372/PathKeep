@@ -167,28 +167,7 @@ fn seed_missing_chrome_history_fixture(root: &Path) -> PathBuf {
     chrome_root
 }
 
-fn seed_lexical_archive(paths: &ProjectPaths, config: &AppConfig) {
-    let connection = open_archive_connection(paths, config, None).expect("open archive");
-    connection
-        .execute(
-            "INSERT INTO source_profiles (
-               id,
-               browser_kind,
-               browser_version,
-               profile_name,
-               profile_path,
-               discovered_at,
-               enabled,
-               profile_key,
-               user_name,
-               updated_at,
-               browser_product
-             )
-             VALUES (1, 'chrome', '146.0.0.0', 'Default', '/tmp/profile', '2026-05-01T00:00:00+00:00', 1, 'chrome:Default', NULL, '2026-05-01T00:00:00+00:00', 'Google Chrome')",
-            [],
-        )
-        .expect("insert source profile");
-
+fn seed_lexical_archive(vault: &crate::Vault) {
     let rows = [
         (
             1,
@@ -235,99 +214,41 @@ fn seed_lexical_archive(paths: &ProjectPaths, config: &AppConfig) {
         ),
     ];
 
-    for (id, url, title, visit_time, iso) in rows {
-        connection
-            .execute(
-                "INSERT INTO urls (
-                   id,
-                   url,
-                   title,
-                   visit_count,
-                   typed_count,
-                   first_visit_ms,
-                   first_visit_iso,
-                   last_visit_ms,
-                   last_visit_iso,
-                   source_profile_id,
-                   created_by_run_id,
-                   source_url_id,
-                   hidden,
-                   recorded_at
-                 )
-                 VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 0, ?1, 0, ?5)",
-                params![id, url, title, visit_time, iso],
-            )
-            .expect("insert url");
-        connection
-            .execute(
-                "INSERT INTO visits (
-                   id,
-                   url_id,
-                   source_visit_id,
-                   visit_time_ms,
-                   visit_time_iso,
-                   transition_type,
-                   visit_duration_ms,
-                   source_profile_id,
-                   created_by_run_id,
-                   app_id,
-                   from_visit,
-                   is_known_to_sync,
-                   recorded_at
-                 )
-                 VALUES (?1, ?1, ?1, ?2, ?3, 805306368, 1000, 1, 0, NULL, NULL, 1, ?3)",
-                params![id, visit_time, iso],
-            )
-            .expect("insert visit");
+    let mut history = crate::test_support::history::History::chrome(vault);
+    for (id, url, title, visit_time, _iso) in rows {
+        history = history.page(id, url, Some(title), visit_time);
     }
+    history.commit();
 }
 
-/// Stores one successful GitHub-repo enrichment for `history_id` (intelligence plane) and re-mirrors
-/// it into the search projection so a subsequent `list_history` lexical search can surface the excerpt.
-///
-/// `summary` doubles as the GitHub `description` (the indexer de-dupes the two) and `topics` carries an
-/// extra searchable keyword, mirroring how `enrichment_text_for_index` builds the projected text.
-fn store_lexical_enrichment(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    history_id: i64,
-    summary: &str,
-) {
-    let intelligence =
-        open_intelligence_connection(paths, config, None).expect("open intelligence");
-    crate::enrichment::ensure_visit_content_enrichment_schema(&intelligence)
-        .expect("enrichment schema");
-    intelligence
-        .execute(
-            "INSERT OR REPLACE INTO visit_content_enrichments
-             (history_id, content_source, fetch_status, fetched_at, snippet_json, extraction_json,
-              pipeline_version, extractor_version, enrichment_summary)
-             VALUES (?1, 'github-repo', 'success', '2026-06-21T00:00:00Z', '[]', ?2, 'v1', 1, ?3)",
-            params![
-                history_id,
-                format!(
-                    r#"{{"fullName":"o/r","description":"{summary}","topics":["enrichkw"],"language":"Rust"}}"#
-                ),
-                summary,
-            ],
-        )
-        .expect("insert enrichment");
-    drop(intelligence);
+/// Publishes one GitHub-repo enrichment's search text for the page of visit `history_id`, the way
+/// enrichment does, so a lexical search can surface the excerpt. `summary` doubles as the GitHub
+/// `description` and `topics` carries an extra searchable keyword.
+fn store_lexical_enrichment(vault: &crate::Vault, history_id: i64, summary: &str) {
+    let extraction = format!(
+        r#"{{"fullName":"o/r","description":"{summary}","topics":["enrichkw"],"language":"Rust"}}"#
+    );
+    let text = crate::archive::enrichment_text_for_index(Some(summary), Some(&extraction));
+    let page = vault
+        .read(vault_store::Db::Archive, move |s| {
+            Ok(s.query_one(
+                "SELECT u.page_id FROM visits v JOIN urls u ON u.id=v.url_id WHERE v.id=?1",
+                [history_id],
+                |r| Ok(r.get::<i64>(0)?),
+            )?)
+        })
+        .expect("seeded page");
+    crate::archive::set_enrichment_text(vault, page, &text).expect("enrichment text");
+    vault.search().cycle().expect("index");
 }
 
 #[test]
 fn plain_browse_history_query_leaves_enrichment_excerpt_none() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    seed_lexical_archive(&paths, &config);
+    let vault = crate::Vault::open_temp().unwrap();
+    seed_lexical_archive(&vault);
     // Enrichment exists for a row, but a non-search browse query must NOT attach any excerpt: the
     // excerpt is a lexical-search-only affordance, so browse rows stay None regardless.
-    store_lexical_enrichment(&paths, &config, 3, "Reusable workflow runner for CI pipelines");
-
-    let vault = crate::Vault::open(paths.clone(), config.clone(), None).unwrap();
-    crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
-    crate::test_support::legacy_fixtures::copy_search_metadata(&vault, &paths, &config);
+    store_lexical_enrichment(&vault, 3, "Reusable workflow runner for CI pipelines");
     let browse = list_history(&vault, HistoryQuery { limit: Some(50), ..HistoryQuery::default() })
         .expect("plain browse query");
     assert!(browse.total >= 7, "the browse path returns the full seeded set");
@@ -341,13 +262,8 @@ fn plain_browse_history_query_leaves_enrichment_excerpt_none() {
 fn uncounted_history_pages_walk_the_same_rows_as_counted_pages() {
     // History's infinite list sends `includeTotal: false` so a page never pays an archive-wide
     // COUNT. Walking with the cursor must still reach every row exactly once and stop cleanly.
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    seed_lexical_archive(&paths, &config);
-
-    let vault = crate::Vault::open(paths.clone(), config.clone(), None).unwrap();
-    crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
+    let vault = crate::Vault::open_temp().unwrap();
+    seed_lexical_archive(&vault);
 
     let walk = |q: Option<&str>| {
         let mut seen = Vec::new();
@@ -452,9 +368,6 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
 }
 
-#[path = "tests/legacy_queries.rs"]
-pub(super) mod legacy_queries;
-
 #[test]
 fn backup_guards_initialization_selection_and_due_skip_before_profile_work() {
     let vault = crate::Vault::open_temp().unwrap();
@@ -466,7 +379,7 @@ fn backup_guards_initialization_selection_and_due_skip_before_profile_work() {
     assert!(uninitialized.to_string().contains("archive has not been initialized"));
 
     let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let no_selection = run_backup(&vault.with_config(config.clone()), false)
         .expect_err("empty selected profiles should fail");
     assert!(
@@ -534,7 +447,7 @@ fn backup_rejects_selected_profiles_that_are_not_readable() {
         selected_profile_ids: vec!["chrome:Missing".to_string()],
         ..AppConfig::default()
     };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
 
     let error = run_backup(&vault.with_config(config.clone()), false)
         .expect_err("unreadable selected profile should fail");
@@ -681,7 +594,7 @@ fn backup_surfaces_a_degraded_staging_fallback_as_a_run_warning() {
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
 
     let report = run_backup(&vault.with_config(config.clone()), false);
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
@@ -721,7 +634,7 @@ fn backup_marks_run_failed_when_readable_profile_cannot_be_staged() {
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
 
     let error =
         run_backup(&vault.with_config(config.clone()), false).expect_err("staging should fail");
@@ -761,7 +674,7 @@ fn backup_skips_unreadable_selected_profile_when_another_profile_is_readable() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let report = run_backup(&vault.with_config(config.clone()), false)
         .expect("run backup with skipped profile");
 
@@ -807,7 +720,7 @@ fn multi_browser_backup_ingests_firefox_and_safari_history() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let report =
         run_backup(&vault.with_config(config.clone()), false).expect("run multi-browser backup");
     assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
@@ -853,7 +766,7 @@ fn safari_backup_baseline_ingests_history_without_firefox_or_chrome_dependency()
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let report = run_backup(&vault.with_config(config.clone()), false).expect("run safari backup");
     assert_eq!(report.run.as_ref().expect("run").new_visits, 1);
     assert_eq!(report.run.as_ref().expect("run").new_urls, 1);
@@ -891,7 +804,7 @@ fn backup_keeps_chrome_successful_when_selected_safari_is_unreadable() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let report = run_backup(&vault.with_config(config.clone()), false).expect("run backup");
     assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
     assert_eq!(report.profiles.len(), 1);
@@ -934,7 +847,7 @@ fn backup_keeps_readable_profiles_when_safari_staging_loses_access() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let report = run_backup(&vault.with_config(config.clone()), false).expect("run backup");
     assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
     assert_eq!(report.profiles.len(), 1);
@@ -1001,7 +914,7 @@ fn snapshot_restore_preview_and_run_record_the_saved_checkpoint() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let backup = run_backup(&vault.with_config(config.clone()), false).expect("run backup");
     let snapshot_path: String = crate::test_support::store::Probe::new(&vault)
         .query_row(
@@ -1080,7 +993,7 @@ fn snapshot_restore_records_failed_run_when_replay_cannot_persist() {
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     run_backup(&vault.with_config(config.clone()), false).expect("run backup");
     let connection = crate::test_support::store::Probe::new(&vault);
     let snapshot_path: String = connection
@@ -1227,7 +1140,7 @@ fn snapshot_restore_preview_sizes_firefox_and_safari_checkpoints() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     run_backup(&vault.with_config(config.clone()), false).expect("run multi-browser backup");
 
     let snapshot_paths = vault

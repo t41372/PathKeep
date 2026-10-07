@@ -38,8 +38,6 @@ mod vector_store;
 mod visit_content_map;
 mod working_set;
 
-#[cfg(test)]
-use crate::archive::{create_schema, open_archive_connection, open_intelligence_connection};
 use crate::{
     ai_queue::{self},
     ai_sidecar::{self},

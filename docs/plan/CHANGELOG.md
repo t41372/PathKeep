@@ -2715,3 +2715,8 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - Deleted from vault-core: the old export/import, password change, retention, full restore and at-rest reconcile flows, the old maintenance ledger, and the check of a password against an old archive. A password change only ever runs on a converted archive. Opening with a password next to an archive that wasn't converted now refuses instead of starting an empty archive beside it.
   - The config-vs-files invariant from the 2026-06-30 incident is now checked against the native databases, after a mode switch, a restore and an interrupted install. The old-format recovery tests check it against the old files. Tests that used to kill a deleted flow mid-way now build the state it left on disk.
   - The Doctor's derived-data check lost its unused key parameter.
+
+- [x] `WORK-TURSO-STORAGE` — vault-core no longer opens the old SQLCipher files (2026-10-07).
+  - Deleted the rusqlite openers for the archive, source evidence and Insights, the old schema migrations and their SQL, the old archive status reader, the "storage migration incomplete" refusal that only guarded them, and the fixture layer that built an old-format archive and copied it into the native one. Only the converter reads the old format now.
+  - Tests write their data the way the app does: `test_support::history::History` goes through the same ingest path as a backup, the AI tests through their native fixtures. Conversion and recovery tests build old-format files from the schema the old releases shipped (`vault_convert_sqlcipher::test_support`).
+  - The SQLCipher scale benchmarks went with the old format; the native read, export and Insights benchmarks remain.

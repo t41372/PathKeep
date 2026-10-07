@@ -6,7 +6,8 @@ use super::*;
 use crate::ai::search::semantic_search_history;
 use crate::test_support::native::TestDatabase;
 use vault_store::{Db, Priority, params_owned as params};
-pub(super) mod fixtures;
+/// Shared with the code-mode and agent-tool suites, which seed the same native archive.
+pub(in crate::ai) mod fixtures;
 use fixtures::{
     embedding_count, prepared_archive, put_embedding, seed_embedding, seed_extra_visit,
     seed_failed_index_ledger, seed_visit,

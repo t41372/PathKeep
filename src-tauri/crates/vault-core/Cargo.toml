@@ -19,7 +19,7 @@ license.workspace = true
 # in default/CI), not in lock bytes.
 [features]
 default = []
-# Real fixture sharing for the still-unported SQLite consumers in workspace tests.
+# Native seeding fixtures (`test_support`) shared with the worker and desktop test crates.
 test-fixtures = []
 # `metal` — opt-in Apple-Silicon Metal backend across the three candle crates (05 §7). OFF in
 # default/coverage/CI: Metal cannot run on the CI box (no GPU), and the metal crates only enter the
@@ -121,6 +121,3 @@ tokio.workspace = true
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
 
-[[test]]
-name = "lmstudio_agent_e2e"
-required-features = ["test-fixtures"]

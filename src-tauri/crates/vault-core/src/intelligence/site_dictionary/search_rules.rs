@@ -14,7 +14,7 @@
 //!
 //! ## Dependencies
 //! - `models::{SearchEngineRule, SearchEngineRuleInput}` for public payloads.
-//! - `rusqlite` for custom rule storage.
+//! - `vault_store::Session` for custom rule storage.
 //! - `chrono` only for generating new custom rule ids.
 //!
 //! ## Performance notes

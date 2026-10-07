@@ -37,7 +37,7 @@ fn sidecar_and_mcp_forward_to_owner_and_recheck_consent() {
         ..Default::default()
     };
     vault_core::save_config(&paths, &config).unwrap();
-    vault_core::ensure_archive_initialized(&paths, &config, None).unwrap();
+    vault_core::config::ensure_paths(&paths).unwrap();
     let vault =
         vault_core::Vault::open_owned(paths.clone(), config.clone(), None, Some(lock)).unwrap();
     let methods = Arc::new(Mutex::new(Vec::new()));

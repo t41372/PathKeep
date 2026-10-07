@@ -110,14 +110,12 @@ pub use archive::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, ArchiveRecoveryKind, ArchiveRecoveryReport,
     BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
     BrowseDayTopUrl, DiskEncryptionMode, ExportCancelled, LaunchRecovery, ReconcileReport, RunPage,
-    WipeOutsideState, archive_availability, archive_status, assess_archive_upgrade, cancel_export,
-    data_wipe_interrupted, derived_health, detect_disk_encryption_mode, doctor,
-    ensure_archive_initialized, ensure_archive_initialized_with_progress, export_history,
-    export_search_history, finish_interrupted_data_wipe, get_browse_day_insights,
-    get_export_progress, get_url_detail, legacy_archive_status, list_history,
-    load_audit_run_detail, load_dashboard_snapshot, load_history_favicons, load_recent_runs,
-    load_source_stats, og_images, og_images_fetch, open_legacy_source_evidence_connection,
-    preview_data_wipe, preview_snapshot_restore, record_export_failure, recover_archive_on_launch,
+    WipeOutsideState, archive_availability, archive_status, cancel_export, data_wipe_interrupted,
+    derived_health, detect_disk_encryption_mode, doctor, export_history, export_search_history,
+    finish_interrupted_data_wipe, get_browse_day_insights, get_export_progress, get_url_detail,
+    list_history, load_audit_run_detail, load_dashboard_snapshot, load_history_favicons,
+    load_recent_runs, load_source_stats, og_images, og_images_fetch, preview_data_wipe,
+    preview_snapshot_restore, record_export_failure, recover_archive_on_launch,
     repair_health_issues, request_running_jobs_stop, run_backup, run_backup_with_progress,
     run_snapshot_restore, search_history, wipe_all_data,
 };
@@ -182,8 +180,5 @@ pub use takeout::{
 /// Pure SHA-256 helpers (hex digest of bytes / of a file's contents). Re-exported so the worker's
 /// model-download tests + the candle e2e can pin digests against the same impl the manifest uses.
 pub use utils::{file_sha256_hex, sha256_hex};
-
-mod storage_migration;
-pub use storage_migration::{StorageMigrationIncomplete, require_complete_storage_migration};
 
 pub mod search;

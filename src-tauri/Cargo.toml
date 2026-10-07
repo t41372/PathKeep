@@ -136,6 +136,7 @@ vault-worker = { version = "0.1.0", path = "crates/vault-worker" }
 
 [dev-dependencies]
 vault-core = { path = "crates/vault-core", features = ["test-fixtures"] }
+vault-convert-sqlcipher = { path = "crates/vault-convert-sqlcipher", features = ["test-fixtures"] }
 browser-history-fixtures = { path = "crates/browser-history-fixtures" }
 rusqlite.workspace = true
 tauri = { version = "2.8.5", features = ["test"] }

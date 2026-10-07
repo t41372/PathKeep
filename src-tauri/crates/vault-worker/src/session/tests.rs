@@ -204,7 +204,7 @@ fn legacy_storage_waits_for_explicit_conversion_before_session_open() {
     let paths = vault_core::project_paths_with_root(root.path());
     let config =
         AppConfig { initialized: true, archive_mode: ArchiveMode::Plaintext, ..Default::default() };
-    drop(vault_core::archive::open_archive_connection(&paths, &config, None).unwrap());
+    drop(vault_convert_sqlcipher::test_support::open_archive(&paths, &config, None));
     let state = VaultSession::default();
     let error = state.open_store(paths.clone(), config, None, None).unwrap_err();
     assert!(error.starts_with("archive-conversion-required:"));

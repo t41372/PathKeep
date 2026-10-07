@@ -17,7 +17,7 @@ fn fixture() -> (tempfile::TempDir, vault_core::ProjectPaths, AppConfig) {
     };
     vault_core::config::ensure_paths(&paths).unwrap();
     vault_core::save_config(&paths, &config).unwrap();
-    vault_core::test_support::legacy_fixtures::seed_reader_pages(
+    vault_convert_sqlcipher::test_support::seed_reader_pages(
         &paths,
         &config,
         Some("old password"),
@@ -26,29 +26,26 @@ fn fixture() -> (tempfile::TempDir, vault_core::ProjectPaths, AppConfig) {
             ("https://example.com/~alice", "Current rule page"),
         ],
     );
-    let db = vault_core::archive::open_archive_connection(&paths, &config, Some("old password"))
-        .unwrap();
+    let db =
+        vault_convert_sqlcipher::test_support::open_archive(&paths, &config, Some("old password"));
     db.execute("INSERT INTO star(entity_kind,entity_key,starred_at,source_profile) VALUES('url','https://example.com/%7Ealice','saved','chrome:Default')",[]).unwrap();
     db.execute("INSERT INTO url_annotations(url,notes,created_at,updated_at) VALUES('https://example.com/%7Ealice','legacy note','saved','saved')",[]).unwrap();
-    let intelligence = vault_core::test_support::legacy_fixtures::open_legacy_intelligence_database(
-        &paths,
-        Some("old password"),
-    );
+    let intelligence =
+        vault_convert_sqlcipher::test_support::open_intelligence(&paths, Some("old password"));
     let payload = serde_json::json!({"historyId":1,"profileId":"chrome:Default","url":"https://example.com/%7Ealice?utm_source=old","title":"Escaped page"});
     intelligence.execute("INSERT INTO intelligence_jobs(id,job_type,plugin_id,state,dedupe_key,payload_json,created_at,scheduled_at,updated_at) VALUES(1,'enrichment-plugin','content-fetch','queued','content-fetch:https://example.com/%7Ealice',?1,'saved','saved','saved')",[payload.to_string()]).unwrap();
     intelligence.execute("INSERT INTO visit_content_enrichments(history_id,content_source,fetch_status,fetched_at,snippet_json,extraction_json,pipeline_version,enrichment_summary) VALUES(1,'content-fetch','success','saved','{}','{}','v1','summarylegacytoken')",[]).unwrap();
     intelligence.execute("INSERT INTO ai_embeddings(history_id,profile_id,url,title,domain,visited_at,content_hash,content_bytes,provider_id,model,indexed_at) VALUES(1,'chrome:Default','https://example.com/%7Ealice?utm_source=old','Escaped page','example.com','saved','old-stored-hash',12,'local','fixture','saved')",[]).unwrap();
-    let evidence = vault_core::archive::open_legacy_source_evidence_connection(
+    let evidence = vault_convert_sqlcipher::test_support::open_source_evidence(
         &paths,
         &config,
         Some("old password"),
-    )
-    .unwrap();
+    );
     evidence.execute("INSERT INTO source_batches(id,source_profile_id,source_kind,schema_fingerprint,parser_version,capability_snapshot_json,coverage_stats_json,created_at) VALUES(1,1,'fixture','hash','v1','{}','{}','saved')",[]).unwrap();
     for _ in 0..2 {
         evidence.execute("INSERT INTO schema_observations VALUES(1,'History','{\"field\":\"kept\"}','saved')",[]).unwrap();
     }
-    let agent = vault_core::test_support::legacy_fixtures::open_legacy_agent_database(&paths);
+    let agent = vault_convert_sqlcipher::test_support::open_agent(&paths);
     agent.execute("INSERT INTO conversations(id,title,created_at,updated_at) VALUES('c','Converted conversation','saved','saved')",[]).unwrap();
     agent.execute("INSERT INTO messages(id,conversation_id,seq,role,content,created_at) VALUES('m','c',1,'user','Keep this message','saved')",[]).unwrap();
     agent.execute("INSERT INTO agent_runs(id,conversation_id,status,created_at,updated_at) VALUES('r','c','completed','saved','saved')",[]).unwrap();
@@ -206,8 +203,8 @@ fn interrupted_conversion_resumes_without_duplicate_visits() {
 #[test]
 fn stars_that_now_share_a_canonical_key_keep_the_latest_star_time() {
     let (_root, paths, config) = fixture();
-    let db = vault_core::archive::open_archive_connection(&paths, &config, Some("old password"))
-        .unwrap();
+    let db =
+        vault_convert_sqlcipher::test_support::open_archive(&paths, &config, Some("old password"));
     db.execute("INSERT INTO star(entity_kind,entity_key,starred_at,source_profile) VALUES('url','https://example.com/~alice','zz-latest','chrome:Other')",[]).unwrap();
     drop(db);
     let result =
@@ -300,8 +297,7 @@ fn conversion_crash_child() {
 fn assessment_includes_committed_legacy_wal_bytes_and_retained_sidecars() {
     let (_root, paths, config) = fixture();
     let connection =
-        vault_core::archive::open_archive_connection(&paths, &config, Some("old password"))
-            .unwrap();
+        vault_convert_sqlcipher::test_support::open_archive(&paths, &config, Some("old password"));
     connection.execute_batch("PRAGMA wal_autocheckpoint=0").unwrap();
     connection.execute("INSERT INTO star(entity_kind,entity_key,starred_at) VALUES('url','https://example.com/wal','saved')", []).unwrap();
     let wal = paths.archive_database_path.with_file_name("history-vault.sqlite-wal");

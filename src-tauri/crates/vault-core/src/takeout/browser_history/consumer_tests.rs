@@ -4,9 +4,8 @@
 use super::*;
 use crate::test_support::store::Probe;
 use crate::{
-    archive::{create_schema, open_archive_connection},
     config::{ensure_paths, project_paths_with_root},
-    models::{AppConfig, ArchiveMode},
+    models::AppConfig,
 };
 use rusqlite::Connection;
 use tempfile::tempdir;
@@ -265,13 +264,6 @@ fn browser_import_note_and_failure_helpers_keep_review_contract() {
     let root = tempdir().expect("tempdir");
     let paths = project_paths_with_root(root.path());
     ensure_paths(&paths).expect("ensure paths");
-    let config = AppConfig {
-        initialized: true,
-        archive_mode: ArchiveMode::Plaintext,
-        ..AppConfig::default()
-    };
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("schema");
     let vault = Vault::open_temp().unwrap();
     let archive = Probe::new(&vault);
     let run_id = crate::archive::write_runs::start(&vault, "import", "manual", &[]).unwrap();

@@ -35,6 +35,7 @@ mod checkpoint_restore;
 mod doctor;
 mod doctor_derived;
 mod doctor_facts;
+mod favicon_metadata;
 pub use doctor_derived::derived_health;
 mod history;
 // Re-export the SSRF guard module so the W-ENRICH-1 enrichment plane can reach
@@ -42,21 +43,14 @@ mod history;
 // fetching uses (history itself is a private module, so the path needs a crate-visible re-export).
 pub(crate) use self::history::net_guard;
 pub(crate) mod ingest;
-mod intelligence_projection;
-mod legacy_status;
 mod read_models;
-pub use legacy_status::{
-    ensure_archive_initialized, ensure_archive_initialized_with_progress, legacy_archive_status,
-};
 pub(crate) mod totals;
 pub(crate) use self::read_models::recent_runs_from;
 mod run_support;
 pub(crate) use run_support::write_manifest_artifact;
-mod schema;
 pub(crate) mod search_documents;
 pub(crate) mod write_runs;
 pub use search_documents::set_enrichment_text;
-mod legacy_source_evidence;
 pub(crate) mod search_lexical;
 mod search_opencc;
 pub(crate) mod search_query;
@@ -78,19 +72,8 @@ pub use self::at_rest::{
 pub(crate) use self::backup::run_backup_profiles;
 pub use self::backup::{run_backup, run_backup_with_control, run_backup_with_progress};
 pub(crate) use self::history::cap_enrichment_excerpt;
-pub use self::intelligence_projection::open_intelligence_connection;
-#[cfg(test)]
-pub(crate) use self::intelligence_projection::{
-    open_intelligence_connection_call_count, open_intelligence_connection_call_sites,
-    reset_open_intelligence_connection_call_count,
-};
-pub use self::legacy_source_evidence::open_legacy_source_evidence_connection;
 use self::read_models::{decode_profile_scope, directory_size, file_size};
 pub(crate) use self::run_support::current_timezone_name;
-pub(crate) use self::schema::apply_cipher_key;
-pub(crate) use self::schema::open_archive_connection_reporting;
-pub use self::schema::{assess_archive_upgrade, create_schema, open_archive_connection};
-pub use self::schema::{current_version, max_schema_version, run_migrations};
 pub(crate) use self::search_documents::enrichment_text_for_index;
 pub(crate) use self::source_evidence::{
     SourceBatchInput, SourceEvidencePayload, record_schema_observation, upsert_source_batch,
@@ -123,7 +106,7 @@ pub use self::{
 };
 use crate::{
     chrome::{FileFingerprint, ProfileSnapshot},
-    config::{ProjectPaths, ensure_paths, save_config},
+    config::ProjectPaths,
     git_audit,
     models::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
@@ -137,7 +120,7 @@ use crate::{
     },
 };
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OpenFlags, OptionalExtension};
+use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -328,9 +311,6 @@ pub(crate) fn visit_event_fingerprint(
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod upgrade_v020_tests;
 
 #[cfg(test)]
 pub(crate) use source_stats::tests::seeded_archive as seed_read_archive;

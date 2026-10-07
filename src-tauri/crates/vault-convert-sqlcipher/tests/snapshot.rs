@@ -17,7 +17,7 @@ fn legacy_full_snapshot_restores_to_turso_in_both_modes() {
             ..Default::default()
         };
         let password = (mode == ArchiveMode::Encrypted).then_some("snapshot password");
-        vault_core::test_support::legacy_fixtures::seed_reader_pages(
+        vault_convert_sqlcipher::test_support::seed_reader_pages(
             &paths,
             &config,
             password,

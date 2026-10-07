@@ -5,23 +5,9 @@
 //! Failure modes: a table or column added after that release is assumed to exist, rows of an
 //! older shape are dropped, an archive that skipped versions can't be opened at all.
 use rusqlite::{Connection, params};
-use vault_convert_sqlcipher::{assess, convert};
+use vault_convert_sqlcipher::{assess, convert, test_support::ARCHIVE_MIGRATIONS};
 use vault_core::{ArchiveMode, ProjectPaths, project_paths_with_root};
 use vault_store::{CancelToken, Db};
-
-/// The archive schema migrations exactly as v0.2.0 shipped them (001–010).
-const V020_MIGRATIONS: [&str; 10] = [
-    include_str!("fixtures/legacy-schema/001_initial.sql"),
-    include_str!("fixtures/legacy-schema/002_archive_runtime_foundation.sql"),
-    include_str!("fixtures/legacy-schema/003_history_search_fts.sql"),
-    include_str!("fixtures/legacy-schema/004_favicon_recall_index.sql"),
-    include_str!("fixtures/legacy-schema/005_visits_recall_lookup.sql"),
-    include_str!("fixtures/legacy-schema/006_source_evidence_provenance.sql"),
-    include_str!("fixtures/legacy-schema/007_visible_profile_time_index.sql"),
-    include_str!("fixtures/legacy-schema/008_favicon_page_lookup.sql"),
-    include_str!("fixtures/legacy-schema/009_favicon_blob_dedup.sql"),
-    include_str!("fixtures/legacy-schema/010_favicon_domain_fallback.sql"),
-];
 
 /// A v0.2.0 `config.json`: `remoteBackup` present (removed later), `ogImage` absent (added later).
 const V020_CONFIG_JSON: &str = r#"{
@@ -50,7 +36,8 @@ fn v020_archive(paths: &ProjectPaths) {
     vault_core::config::ensure_paths(paths).unwrap();
     let db = Connection::open(&paths.archive_database_path).unwrap();
     db.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-    for (index, sql) in V020_MIGRATIONS.iter().enumerate() {
+    // v0.2.0 shipped migrations 001–010.
+    for (index, sql) in ARCHIVE_MIGRATIONS[..10].iter().enumerate() {
         db.execute_batch(sql).unwrap();
         db.execute(
             "INSERT INTO schema_migrations(version, applied_at, checksum, backup_path) VALUES (?1, '2026-04-24T00:00:00Z', 'v0.2.0', NULL)",

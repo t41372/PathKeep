@@ -5,9 +5,9 @@ use super::*;
 // The match-reason CODE vocabulary the search pipeline stamps (see `ai::search`); the fixtures
 // below carry codes, not prose, so they stay honest about the shape the summarizer really sees.
 use super::super::search::{MATCH_REASON_LEXICAL, MATCH_REASON_LEXICAL_DATE_ORDERED};
+use crate::ai::tests::native::fixtures::{SeedVisit, seed_visits};
 use crate::config::project_paths_with_root;
 use crate::models::{AiProviderConfig, AiProviderPurpose, AiRequestFormat};
-use rusqlite::params;
 use secrecy::SecretString;
 
 /// The UTC offset the tests render LOCAL times with — deterministic, host-clock-independent.
@@ -60,70 +60,19 @@ fn context_with(embedding: Option<AiProviderRuntime>) -> (tempfile::TempDir, Age
 /// dispatch over them can prove the MODEL-FACING tool still caps its returned page at 50 rows even
 /// when the caller asks for more (context protection), distinct from the sandbox's larger ceiling.
 fn seed_matching_visits(context: &AgentToolContext, token: &str, count: i64) {
-    crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
-        .expect("init archive");
-    let archive = crate::archive::open_archive_connection(&context.paths, &context.config, None)
-        .expect("open archive");
-    crate::archive::create_schema(&archive).expect("create schema");
-    let connection =
-        crate::archive::open_intelligence_connection(&context.paths, &context.config, None)
-            .expect("open intelligence");
-    let now = crate::utils::now_rfc3339();
-    let profile_id = "chrome:Default";
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-             VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
-            [now.clone()],
-        )
-        .expect("seed run");
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
-             VALUES (1, 'chrome', 'test', ?1, '/tmp/p', ?2, 1, ?1, ?2)",
-            params![profile_id, now.clone()],
-        )
-        .expect("seed profile");
     let base_ms = 13_300_000_000_000_i64;
-    for index in 0..count {
-        let history_id = 50_000 + index;
-        let visit_ms = base_ms + index * 60_000;
-        connection
-            .execute(
-                "INSERT OR IGNORE INTO archive.urls
-                 (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
-                 VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 1, ?1, 0, ?6, ?5)",
-                params![
-                    history_id,
-                    format!("https://site.example/{token}/page-{index}"),
-                    format!("{token} entry {index}"),
-                    visit_ms,
-                    now.clone(),
-                    format!("payload-{history_id}"),
-                ],
+    let visits = (0..count)
+        .map(|index| {
+            SeedVisit::unix_ms(
+                50_000 + index,
+                "chrome:Default",
+                &format!("https://site.example/{token}/page-{index}"),
+                Some(&format!("{token} entry {index}")),
+                base_ms + index * 60_000,
             )
-            .expect("seed url");
-        connection
-            .execute(
-                "INSERT INTO archive.visits
-                 (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
-                 VALUES (?1, ?1, ?2, ?3, ?4, 805306368, 0, 1, 1, NULL, 1, 0, NULL, NULL, ?5, ?6, ?4)",
-                params![
-                    history_id,
-                    history_id.to_string(),
-                    visit_ms,
-                    now.clone(),
-                    format!("fp-{history_id}"),
-                    format!("payload-{history_id}"),
-                ],
-            )
-            .expect("seed visit");
-    }
-    crate::test_support::legacy_fixtures::copy_to_vault(
-        &context.vault,
-        &context.paths,
-        &context.config,
-    );
+        })
+        .collect();
+    seed_visits(&context.vault, visits);
 }
 
 #[tokio::test]
@@ -1183,8 +1132,6 @@ async fn intelligence_report_remaining_arms_run_on_a_ready_plane() {
 async fn intelligence_report_not_ready_when_plane_is_empty() {
     // Test 3 (keep a not-ready arm) — an initialized-but-empty plane returns the honest note.
     let (_dir, context) = context_with(None);
-    crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
-        .expect("init archive");
     let tool = IntelligenceReportTool;
     let outcome = tool
         .call(json!({ "report": "top_sites" }), &context)
@@ -1230,8 +1177,6 @@ async fn intelligence_report_pages_over_budget_json_without_losing_unicode() {
 async fn list_stars_returns_seeded_star_details() {
     // Test 4 — list_stars over a SEEDED archive returns the starred page's domain/title/visit-count.
     let (_dir, context) = context_with(None);
-    crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
-        .expect("init archive");
     // Star a URL through the public API (the same canonicalization the tool resolves).
     crate::stars::set_star(
         &context.vault,
@@ -1293,8 +1238,6 @@ async fn list_stars_renders_untitled_branch() {
     // Test 4 — the "(untitled)" formatting branch: a starred URL with no title row renders the
     // sentinel rather than an empty title. A regression dropping the branch fails this.
     let (_dir, context) = context_with(None);
-    crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
-        .expect("init archive");
     crate::stars::set_star(
         &context.vault,
         crate::models::SetStarRequest {
@@ -1317,8 +1260,6 @@ async fn list_stars_renders_untitled_branch() {
 async fn list_annotations_returns_notes_and_tags_branch() {
     // Test 4 — list_annotations over SEEDED annotations returns the note + the tags-present branch.
     let (_dir, context) = context_with(None);
-    crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
-        .expect("init archive");
     let url = "https://example.com/tagged";
     crate::annotations::set_notes(
         &context.vault,
@@ -1351,8 +1292,6 @@ async fn list_annotations_returns_notes_and_tags_branch() {
 async fn list_annotations_renders_no_tags_branch() {
     // Test 4 — the no-tags branch: a note with no tags renders without a "[...]" segment.
     let (_dir, context) = context_with(None);
-    crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
-        .expect("init archive");
     crate::annotations::set_notes(
         &context.vault,
         crate::models::SetNotesRequest {
