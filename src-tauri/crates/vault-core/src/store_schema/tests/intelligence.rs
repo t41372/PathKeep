@@ -123,6 +123,14 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_vdf_generation_canonical_visit",
     "idx_refind_pages_score",
     "idx_refind_pages_canonical",
+    "idx_sessions_recent",
+    "idx_search_trails_recent",
+    "idx_search_trails_friction",
+    "idx_query_families_recent",
+    "idx_query_families_members",
+    "idx_source_effectiveness_rank",
+    "idx_reopened_investigations_recent",
+    "idx_path_flows_profile_rank",
 ];
 pub(super) const ROWS: &[Fixture] = &[
     Fixture {

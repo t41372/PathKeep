@@ -137,16 +137,29 @@ pub(super) fn get_refind_pages_with_connection(
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let limit = request.limit.unwrap_or(20).clamp(1, 1000) as usize;
     let cursor = super::paging::cursor::<(f64, i64, String, String)>(request.cursor.as_deref())?;
+    // Through the `refind_pages` view Turso sorts the whole generation on every page and builds
+    // a temporary index over it for the per-URL lookups. The rows table is read in list order
+    // through idx_refind_pages_score and seeks to the cursor, which must be in the bounded form
+    // and only present after the first page; the lookups use idx_refind_pages_canonical.
+    let after = if cursor.is_some() {
+        "AND p.refind_score<=?4 AND (p.refind_score<?4 OR (p.last_seen_ms<=?5 AND (p.last_seen_ms<?5 OR (p.canonical_url>=?6 AND (p.canonical_url>?6 OR p.profile_id>?7)))))"
+    } else {
+        ""
+    };
+    let other = "refind_pages_rows other INDEXED BY idx_refind_pages_canonical WHERE other.canonical_url=p.canonical_url
+        AND other.generation IN (SELECT aggregates FROM intelligence_generations) AND other.last_seen_ms>=?2 AND other.first_seen_ms<?3";
     let rows=connection.query(
-        "SELECT p.profile_id,p.canonical_url,p.url,p.title,p.registrable_domain,p.cross_day_count,p.trail_count,
+        &format!("SELECT p.profile_id,p.canonical_url,p.url,p.title,p.registrable_domain,p.cross_day_count,p.trail_count,
             p.search_arrival_count,p.typed_revisit_count,p.refind_score,p.first_seen_ms,p.last_seen_ms,
-            CASE WHEN ?1 IS NOT NULL THEN 1 ELSE (SELECT COUNT(*) FROM refind_pages other WHERE other.canonical_url=p.canonical_url AND other.last_seen_ms>=?2 AND other.first_seen_ms<?3 LIMIT 1 OFFSET 0) END
-         FROM refind_pages p WHERE (?1 IS NULL OR p.profile_id=?1) AND p.last_seen_ms>=?2 AND p.first_seen_ms<?3
-           AND (?1 IS NOT NULL OR NOT EXISTS(SELECT 1 FROM refind_pages other WHERE other.canonical_url=p.canonical_url AND other.last_seen_ms>=?2 AND other.first_seen_ms<?3
+            CASE WHEN ?1 IS NOT NULL THEN 1 ELSE (SELECT COUNT(*) FROM {other} LIMIT 1 OFFSET 0) END
+         FROM refind_pages_rows p INDEXED BY idx_refind_pages_score
+         WHERE p.generation IN (SELECT aggregates FROM intelligence_generations)
+           AND (?1 IS NULL OR p.profile_id=?1) AND p.last_seen_ms>=?2 AND p.first_seen_ms<?3
+           AND (?1 IS NOT NULL OR NOT EXISTS(SELECT 1 FROM {other}
               AND (other.refind_score>p.refind_score OR (other.refind_score=p.refind_score AND (other.last_seen_ms>p.last_seen_ms OR (other.last_seen_ms=p.last_seen_ms AND other.profile_id<p.profile_id)))) LIMIT 1 OFFSET 0))
-           AND (?5 IS NULL OR p.refind_score<?5 OR (p.refind_score=?5 AND (p.last_seen_ms<?6 OR (p.last_seen_ms=?6 AND (p.canonical_url>?7 OR (p.canonical_url=?7 AND p.profile_id>?8))))))
-         ORDER BY p.refind_score DESC,p.last_seen_ms DESC,p.canonical_url ASC,p.profile_id ASC LIMIT ?4",
-         params![request.profile_id.as_deref(),start_ms,end_ms,(limit+1) as i64,cursor.as_ref().map(|c|c.0),cursor.as_ref().map(|c|c.1),cursor.as_ref().map(|c|c.2.as_str()),cursor.as_ref().map(|c|c.3.as_str())],|r|Ok((refind_page_from_row(r)?,(r.get::<f64>(9)?,r.get::<i64>(11)?,r.get::<String>(1)?,r.get::<String>(0)?))))?;
+           {after}
+         ORDER BY p.refind_score DESC,p.last_seen_ms DESC,p.canonical_url ASC,p.profile_id ASC LIMIT ?8"),
+         params![request.profile_id.as_deref(),start_ms,end_ms,cursor.as_ref().map(|c|c.0),cursor.as_ref().map(|c|c.1),cursor.as_ref().map(|c|c.2.as_str()),cursor.as_ref().map(|c|c.3.as_str()),(limit+1) as i64],|r|Ok((refind_page_from_row(r)?,(r.get::<f64>(9)?,r.get::<i64>(11)?,r.get::<String>(1)?,r.get::<String>(0)?))))?;
     super::paging::finish(rows, limit)
 }
 

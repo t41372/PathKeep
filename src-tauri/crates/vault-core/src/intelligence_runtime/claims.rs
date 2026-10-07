@@ -279,10 +279,7 @@ pub(super) fn queued_enrichment_candidates_page(
 
     if let Some(after) = after {
         query.push_str(
-            " AND (
-                priority > ?
-                OR (priority = ? AND (created_at > ? OR (created_at = ? AND id > ?)))
-              )",
+            " AND priority >= ? AND (priority > ? OR (created_at >= ? AND (created_at > ? OR id > ?)))",
         );
         bindings.push(SqlValue::from(after.priority));
         bindings.push(SqlValue::from(after.priority));

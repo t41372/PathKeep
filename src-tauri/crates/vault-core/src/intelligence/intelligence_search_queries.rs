@@ -68,24 +68,33 @@ pub(super) fn get_query_families_with_connection(
     )?;
     let limit = request.page_size.clamp(1, 1000) as usize;
     let cursor = super::paging::cursor::<(i64, String)>(request.cursor.as_deref())?;
-    let mut statement = connection.prepare(
-        "SELECT family_id, anchor_query, member_count, search_engine, first_seen_ms, last_seen_ms, queries_json
-         FROM query_families
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND last_seen_ms >= ?2
-           AND first_seen_ms < ?3
-           AND (?5 IS NULL OR last_seen_ms<?5 OR (last_seen_ms=?5 AND family_id<?6))
-         ORDER BY last_seen_ms DESC, family_id DESC LIMIT ?4",
-    )?;
+    // Through the `query_families` view Turso reads the whole generation and sorts it on every
+    // page. The rows table, walked through idx_query_families_recent, is read in list order and
+    // seeks to the cursor; it needs the bounded cursor form, with no `?4 IS NULL OR` escape.
+    let after = if cursor.is_some() {
+        "AND r.last_seen_ms<=?4 AND (r.last_seen_ms<?4 OR r.family_id<?5)"
+    } else {
+        ""
+    };
+    let mut statement = connection.prepare(&format!(
+        "SELECT r.family_id, r.anchor_query, r.member_count, r.search_engine, r.first_seen_ms, r.last_seen_ms, r.queries_json
+         FROM query_families_rows r INDEXED BY idx_query_families_recent
+         WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)
+           AND (?1 IS NULL OR r.profile_id = ?1)
+           AND r.last_seen_ms >= ?2
+           AND r.first_seen_ms < ?3
+           {after}
+         ORDER BY r.last_seen_ms DESC, r.family_id DESC LIMIT ?6"
+    ))?;
     let families = statement
         .query_map(
             params![
                 request.profile_id.as_deref(),
                 start_ms,
                 end_ms,
-                (limit + 1) as i64,
                 cursor.as_ref().map(|c| c.0),
-                cursor.as_ref().map(|c| c.1.as_str())
+                cursor.as_ref().map(|c| c.1.as_str()),
+                (limit + 1) as i64
             ],
             |r| Ok((query_family_from_row(r)?, (r.get::<i64>(5)?, r.get::<String>(0)?))),
         )?

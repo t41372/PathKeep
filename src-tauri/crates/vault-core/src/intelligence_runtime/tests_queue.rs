@@ -1185,3 +1185,51 @@ fn next_content_fetch_schedule_eta_reports_soonest_future_then_none() {
         })
         .unwrap();
 }
+
+#[test]
+fn job_history_pages_across_equal_update_times_and_seeks_to_the_cursor() {
+    let vault = crate::Vault::open_temp().unwrap();
+    vault
+        .write(vault_store::Db::Intelligence, vault_store::Priority::Interactive, |connection| {
+            // Job 1 is the newest; jobs 2 to 9 share one update time, so pages split a tie.
+            for (id, updated_at) in
+                std::iter::once((1, "2026-01-02")).chain((2..=9).map(|id| (id, "2026-01-01")))
+            {
+                connection.execute(
+                    "INSERT INTO intelligence_jobs(id,job_type,state,dedupe_key,payload_json,created_at,scheduled_at,updated_at)
+                     VALUES(?1,'content-fetch','succeeded',?2,'{}',?3,?3,?3)",
+                    params![id, format!("job:{id}"), updated_at],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    let mut cursor = None;
+    let mut seen = Vec::new();
+    loop {
+        if cursor.is_some() {
+            vault.store().capture_query_plans(vault_store::Db::Intelligence, true).unwrap();
+        }
+        let page = list_intelligence_jobs(&vault, cursor.clone(), 2).unwrap();
+        vault.store().capture_query_plans(vault_store::Db::Intelligence, false).unwrap();
+        // Later pages seek idx_intelligence_jobs_recent to the cursor instead of walking it
+        // from the newest job, which made paging the whole history quadratic.
+        let plans = vault.store().take_query_plans(vault_store::Db::Intelligence).unwrap();
+        let plans: Vec<_> =
+            plans.into_iter().filter(|plan| plan.sql.contains("FROM intelligence_jobs")).collect();
+        assert_eq!(plans.len(), usize::from(cursor.is_some()));
+        for plan in plans {
+            assert!(
+                plan.steps.iter().any(|step| step.starts_with("SEARCH intelligence_jobs")
+                    && step.contains("idx_intelligence_jobs_recent (updated_at")),
+                "{plan:?}"
+            );
+        }
+        seen.extend(page.items.into_iter().map(|job| job.id));
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(seen, vec![1, 9, 8, 7, 6, 5, 4, 3, 2]);
+}

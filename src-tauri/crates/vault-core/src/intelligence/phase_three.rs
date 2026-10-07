@@ -391,14 +391,22 @@ fn load_observed_interaction_visits(
     after: Option<(i64, i64)>,
     limit: usize,
 ) -> Result<Vec<(ObservedVisit, (i64, i64))>> {
-    Ok(s.query("SELECT v.id,v.source_profile_id,v.source_visit_id,u.url,u.title,COALESCE(p.browser_family,p.browser_kind),v.visit_time_ms
+    // A later page seeks the time index to the cursor, which then replaces the window's end (a
+    // cursor at or past the end excludes nothing). Turso keeps scanning from the window's end when
+    // the cursor is written as `t<? OR (t=? AND id<?)`, or sits behind `?4 IS NULL OR`.
+    let after = after.filter(|(time, _)| *time < end);
+    let upper = if after.is_some() {
+        "v.visit_time_ms<=?4 AND (v.visit_time_ms<?4 OR v.id<?5)"
+    } else {
+        "v.visit_time_ms<?3"
+    };
+    Ok(s.query(&format!("SELECT v.id,v.source_profile_id,v.source_visit_id,u.url,u.title,COALESCE(p.browser_family,p.browser_kind),v.visit_time_ms
         FROM archive.visits v INDEXED BY idx_visits_visible_time_id
         CROSS JOIN archive.urls u ON u.id=v.url_id
         CROSS JOIN archive.source_profiles p ON p.id=v.source_profile_id
         WHERE v.reverted_at IS NULL AND v.source_visit_id IS NOT NULL
-          AND (?1 IS NULL OR p.profile_key=?1) AND v.visit_time_ms>=?2 AND v.visit_time_ms<?3
-          AND (?4 IS NULL OR v.visit_time_ms<?4 OR (v.visit_time_ms=?4 AND v.id<?5))
-        ORDER BY v.visit_time_ms DESC,v.id DESC LIMIT ?6",
+          AND (?1 IS NULL OR p.profile_key=?1) AND v.visit_time_ms>=?2 AND {upper}
+        ORDER BY v.visit_time_ms DESC,v.id DESC LIMIT ?6"),
         params![profile,start,end,after.map(|c|c.0),after.map(|c|c.1),limit as i64],|r| {
             let id=r.get::<i64>(0)?;
             Ok((ObservedVisit {visit_id:id,source_profile_id:r.get(1)?,source_visit_id:r.get(2)?,url:r.get(3)?,title:r.get(4)?,browser_family:r.get(5)?},(r.get::<i64>(6)?,id)))

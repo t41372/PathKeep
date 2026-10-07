@@ -220,11 +220,21 @@ pub(crate) fn get_stable_sources_with_connection(
     let (start, end) = date_range_bounds(&request.date_range)?;
     let limit = request.limit.unwrap_or(10).clamp(1, 1000) as usize;
     let after = super::paging::cursor::<(f64, String, String)>(request.cursor.as_deref())?;
-    let rows=connection.query("SELECT registrable_domain,source_role,trail_count,stable_landing_count,effectiveness_score,profile_id
-        FROM source_effectiveness WHERE (?1 IS NULL OR profile_id=?1) AND last_seen_ms>=?2 AND first_seen_ms<?3
-          AND (?5 IS NULL OR effectiveness_score<?5 OR (effectiveness_score=?5 AND (registrable_domain>?6 OR (registrable_domain=?6 AND profile_id>?7))))
-        ORDER BY effectiveness_score DESC,registrable_domain,profile_id LIMIT ?4",
-        params![request.profile_id,start,end,(limit+1) as i64,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1.as_str()),after.as_ref().map(|v|v.2.as_str())],|r| {
+    // The ranked summary lists read their rows tables through an index in list order: through
+    // the views Turso reads the whole generation and sorts it on every page. The cursor clause
+    // is bounded (`a<=? AND (a<? OR ...)`) and only present after the first page, the only form
+    // Turso seeks on.
+    let after_clause = if after.is_some() {
+        "AND r.effectiveness_score<=?4 AND (r.effectiveness_score<?4 OR (r.registrable_domain>=?5 AND (r.registrable_domain>?5 OR r.profile_id>?6)))"
+    } else {
+        ""
+    };
+    let rows=connection.query(&format!("SELECT r.registrable_domain,r.source_role,r.trail_count,r.stable_landing_count,r.effectiveness_score,r.profile_id
+        FROM source_effectiveness_rows r INDEXED BY idx_source_effectiveness_rank
+        WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)
+          AND (?1 IS NULL OR r.profile_id=?1) AND r.last_seen_ms>=?2 AND r.first_seen_ms<?3 {after_clause}
+        ORDER BY r.effectiveness_score DESC,r.registrable_domain,r.profile_id LIMIT ?7"),
+        params![request.profile_id,start,end,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1.as_str()),after.as_ref().map(|v|v.2.as_str()),(limit+1) as i64],|r| {
             let domain=r.get::<String>(0)?;let score=r.get::<f64>(4)?;
             Ok((StableSource {display_name:display_name_for_domain(&domain),registrable_domain:domain.clone(),source_role:r.get(1)?,trail_count:r.get(2)?,stable_landing_count:r.get(3)?,effectiveness_score:score as f32},(score,domain,r.get::<String>(5)?)))
         })?;
@@ -288,15 +298,46 @@ pub(crate) fn get_search_effectiveness_with_connection(
     )?;
     let limit = request.topics_limit.unwrap_or(5).clamp(1, 1000) as usize;
     let after = super::paging::cursor::<(i64, i64, String)>(request.topics_cursor.as_deref())?;
-    let rows=connection.query("SELECT family_id,anchor_query,member_count,first_seen_ms,last_seen_ms FROM query_families
-        WHERE (?1 IS NULL OR profile_id=?1) AND (?2 IS NULL OR search_engine=?2)
-          AND last_seen_ms>=?3 AND first_seen_ms<?4
-          AND (?6 IS NULL OR member_count<?6 OR (member_count=?6 AND (last_seen_ms<?7 OR (last_seen_ms=?7 AND family_id>?8))))
-        ORDER BY member_count DESC,last_seen_ms DESC,family_id LIMIT ?5",
-        params![request.profile_id,request.engine,start_ms,end_ms,(limit+1) as i64,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str())],|r| {
-            let id=r.get::<String>(0)?;let count=r.get::<i64>(2)?;let first=r.get::<i64>(3)?;let last=r.get::<i64>(4)?;
-            Ok((HardTopic {family_id:id.clone(),query_family:r.get(1)?,reformulation_count:count,re_search_lag_days:((last-first) as f32/86_400_000.0).max(0.0)},(count,last,id)))
-        })?;
+    let after_clause = if after.is_some() {
+        "AND r.member_count<=?5 AND (r.member_count<?5 OR (r.last_seen_ms<=?6 AND (r.last_seen_ms<?6 OR r.family_id>?7)))"
+    } else {
+        ""
+    };
+    let rows = connection.query(
+        &format!(
+            "SELECT r.family_id,r.anchor_query,r.member_count,r.first_seen_ms,r.last_seen_ms
+        FROM query_families_rows r INDEXED BY idx_query_families_members
+        WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)
+          AND (?1 IS NULL OR r.profile_id=?1) AND (?2 IS NULL OR r.search_engine=?2)
+          AND r.last_seen_ms>=?3 AND r.first_seen_ms<?4 {after_clause}
+        ORDER BY r.member_count DESC,r.last_seen_ms DESC,r.family_id LIMIT ?8"
+        ),
+        params![
+            request.profile_id,
+            request.engine,
+            start_ms,
+            end_ms,
+            after.as_ref().map(|v| v.0),
+            after.as_ref().map(|v| v.1),
+            after.as_ref().map(|v| v.2.as_str()),
+            (limit + 1) as i64
+        ],
+        |r| {
+            let id = r.get::<String>(0)?;
+            let count = r.get::<i64>(2)?;
+            let first = r.get::<i64>(3)?;
+            let last = r.get::<i64>(4)?;
+            Ok((
+                HardTopic {
+                    family_id: id.clone(),
+                    query_family: r.get(1)?,
+                    reformulation_count: count,
+                    re_search_lag_days: ((last - first) as f32 / 86_400_000.0).max(0.0),
+                },
+                (count, last, id),
+            ))
+        },
+    )?;
     let hardest_topics = super::paging::finish(rows, limit)?;
     Ok(SearchEffectiveness { engine_stats, top_resolving_sources, hardest_topics })
 }
@@ -320,12 +361,18 @@ pub(crate) fn get_friction_signals_with_connection(
     let (start, end) = date_range_bounds(&request.date_range)?;
     let limit = request.limit.unwrap_or(10).clamp(1, 1000) as usize;
     let after = super::paging::cursor::<(i64, i64, String)>(request.cursor.as_deref())?;
-    let rows=connection.query("SELECT initial_query,landing_domain,reformulation_count,visit_count,trail_id
-        FROM search_trails WHERE (?1 IS NULL OR profile_id=?1) AND last_visit_ms>=?2 AND first_visit_ms<?3
-          AND (reformulation_count>=2 OR (landing_domain IS NULL AND visit_count>=3))
-          AND (?5 IS NULL OR reformulation_count<?5 OR (reformulation_count=?5 AND (visit_count<?6 OR (visit_count=?6 AND trail_id>?7))))
-        ORDER BY reformulation_count DESC,visit_count DESC,trail_id LIMIT ?4",
-        params![request.profile_id,start,end,(limit+1) as i64,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str())],|r| {
+    let after_clause = if after.is_some() {
+        "AND r.reformulation_count<=?4 AND (r.reformulation_count<?4 OR (r.visit_count<=?5 AND (r.visit_count<?5 OR r.trail_id>?6)))"
+    } else {
+        ""
+    };
+    let rows=connection.query(&format!("SELECT r.initial_query,r.landing_domain,r.reformulation_count,r.visit_count,r.trail_id
+        FROM search_trails_rows r INDEXED BY idx_search_trails_friction
+        WHERE r.generation IN (SELECT navigation FROM intelligence_generations)
+          AND (?1 IS NULL OR r.profile_id=?1) AND r.last_visit_ms>=?2 AND r.first_visit_ms<?3
+          AND (r.reformulation_count>=2 OR (r.landing_domain IS NULL AND r.visit_count>=3)) {after_clause}
+        ORDER BY r.reformulation_count DESC,r.visit_count DESC,r.trail_id LIMIT ?7"),
+        params![request.profile_id,start,end,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str()),(limit+1) as i64],|r| {
             let reforms=r.get::<i64>(2)?;let visits=r.get::<i64>(3)?;
             let description=if reforms>=2 {format!("Repeated search reformulation after query '{}'.",r.get::<String>(0)?)} else {"Search trail did not settle on a stable landing page.".to_owned()};
             Ok((FrictionSignal {registrable_domain:r.get(1)?,url:None,evidence_type:"weak".into(),signal_kind:if reforms>=2 {"excessive_reformulation"} else {"bounce_pattern"}.into(),occurrence_count:visits.max(reforms),description},(reforms,visits,r.get::<String>(4)?)))
@@ -352,11 +399,17 @@ pub(crate) fn get_reopened_investigations_with_connection(
     let (start, end) = date_range_bounds(&request.date_range)?;
     let limit = request.limit.unwrap_or(10).clamp(1, 1000) as usize;
     let after = super::paging::cursor::<(i64, i64, String)>(request.cursor.as_deref())?;
-    let rows=connection.query("SELECT investigation_id,anchor_type,anchor_id,anchor_label,occurrence_count,distinct_days,first_seen_ms,last_seen_ms
-        FROM reopened_investigations WHERE (?1 IS NULL OR profile_id=?1) AND last_seen_ms>=?2 AND first_seen_ms<?3
-          AND (?5 IS NULL OR last_seen_ms<?5 OR (last_seen_ms=?5 AND (occurrence_count<?6 OR (occurrence_count=?6 AND investigation_id>?7))))
-        ORDER BY last_seen_ms DESC,occurrence_count DESC,investigation_id LIMIT ?4",
-        params![request.profile_id,start,end,(limit+1) as i64,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str())],|r| {
+    let after_clause = if after.is_some() {
+        "AND r.last_seen_ms<=?4 AND (r.last_seen_ms<?4 OR (r.occurrence_count<=?5 AND (r.occurrence_count<?5 OR r.investigation_id>?6)))"
+    } else {
+        ""
+    };
+    let rows=connection.query(&format!("SELECT r.investigation_id,r.anchor_type,r.anchor_id,r.anchor_label,r.occurrence_count,r.distinct_days,r.first_seen_ms,r.last_seen_ms
+        FROM reopened_investigations_rows r INDEXED BY idx_reopened_investigations_recent
+        WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)
+          AND (?1 IS NULL OR r.profile_id=?1) AND r.last_seen_ms>=?2 AND r.first_seen_ms<?3 {after_clause}
+        ORDER BY r.last_seen_ms DESC,r.occurrence_count DESC,r.investigation_id LIMIT ?7"),
+        params![request.profile_id,start,end,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str()),(limit+1) as i64],|r| {
             let id=r.get::<String>(0)?;let count=r.get::<i64>(4)?;let time=r.get::<i64>(7)?;
             Ok((ReopenedInvestigation {investigation_id:id.clone(),anchor_type:r.get(1)?,anchor_id:r.get(2)?,anchor_label:r.get(3)?,occurrence_count:count,distinct_days:r.get(5)?,first_seen_at:rfc3339_from_millis(r.get(6)?),last_seen_at:rfc3339_from_millis(time)},(time,count,id)))
         })?;

@@ -30,11 +30,27 @@ pub(crate) fn get_path_flows_with_connection(
         <= super::intelligence_overview_snapshot::ALL_TIME_SCOPE_START
         && request.date_range.end >= chrono::Local::now().format("%Y-%m-%d").to_string()
     {
-        let rows=s.query("SELECT flow_pattern,SUM(occurrence_count),MAX(last_seen_ms) FROM path_flows
+        let rows = if let Some(profile) = request.profile_id.as_deref() {
+            // One profile has one row per flow, so its list is the rows table in index order and
+            // later pages seek to the cursor (bounded form, only present after the first page).
+            let after_clause = if after.is_some() {
+                "AND r.occurrence_count<=?3 AND (r.occurrence_count<?3 OR (r.last_seen_ms<=?4 AND (r.last_seen_ms<?4 OR r.flow_pattern>?5)))"
+            } else {
+                ""
+            };
+            s.query(&format!("SELECT r.flow_pattern,r.occurrence_count,r.last_seen_ms FROM path_flows_rows r INDEXED BY idx_path_flows_profile_rank
+                WHERE r.profile_id=?1 AND r.step_count=?2 AND r.generation IN (SELECT aggregates FROM intelligence_generations) {after_clause}
+                ORDER BY r.occurrence_count DESC,r.last_seen_ms DESC,r.flow_pattern LIMIT ?6"),
+                params![profile,steps as i64,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str()),(limit+1) as i64],|r|Ok((r.get::<String>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?)))?
+        } else {
+            // All profiles merge each flow's rows, so every page groups the materialized flows
+            // of the requested length again; see the keyset review in turso-review-ledger.md.
+            s.query("SELECT flow_pattern,SUM(occurrence_count),MAX(last_seen_ms) FROM path_flows
             WHERE (?1 IS NULL OR profile_id=?1) AND step_count=?2 GROUP BY flow_pattern
             HAVING ?4 IS NULL OR SUM(occurrence_count)<?4 OR (SUM(occurrence_count)=?4 AND (MAX(last_seen_ms)<?5 OR (MAX(last_seen_ms)=?5 AND flow_pattern>?6)))
             ORDER BY SUM(occurrence_count) DESC,MAX(last_seen_ms) DESC,flow_pattern LIMIT ?3",
-            params![request.profile_id,steps as i64,(limit+1) as i64,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str())],|r|Ok((r.get::<String>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?)))?;
+            params![request.profile_id,steps as i64,(limit+1) as i64,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str())],|r|Ok((r.get::<String>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?)))?
+        };
         let rows = rows
             .into_iter()
             .map(|(pattern, count, time)| {

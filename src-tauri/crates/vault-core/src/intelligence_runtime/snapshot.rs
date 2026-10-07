@@ -150,14 +150,18 @@ pub(super) fn load_job_page(
     limit: usize,
 ) -> Result<crate::models::IntelligenceJobPage> {
     let limit = limit.clamp(1, 1000);
-    let mut statement = connection.prepare(
+    // Turso seeks idx_intelligence_jobs_recent only on the bounded cursor form, and only when the
+    // statement has no `?1 IS NULL OR` escape, so the first page is a separate statement.
+    let after =
+        if cursor.is_some() { "WHERE updated_at<=?1 AND (updated_at<?1 OR id<?2)" } else { "" };
+    let mut statement = connection.prepare(&format!(
         "SELECT id, job_type, plugin_id, state, attempt, payload_json, artifact_json, created_at,
                 started_at, finished_at, updated_at, heartbeat_at, last_error, stop_requested
          FROM intelligence_jobs
-         WHERE ?1 IS NULL OR updated_at<?1 OR (updated_at=?1 AND id<?2)
+         {after}
          ORDER BY updated_at DESC, id DESC
-         LIMIT ?3",
-    )?;
+         LIMIT ?3"
+    ))?;
     let mut items = statement
         .query_map(
             params![

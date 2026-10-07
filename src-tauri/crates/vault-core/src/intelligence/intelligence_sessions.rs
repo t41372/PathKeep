@@ -57,26 +57,31 @@ let request=&request;
         |row| Ok(row.get(0)?),
     )?;
     let limit=request.page_size.clamp(1,1000) as usize;
-    let cursor=super::paging::cursor::<(i64,String)>(request.cursor.as_deref())?;
-    let mut statement = connection.prepare(
-        "SELECT session_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title
-         FROM sessions
-         WHERE profile_id IN (
+    // A cursor at or past the window's end excludes nothing; any other cursor replaces the end.
+    let cursor=super::paging::cursor::<(i64,String)>(request.cursor.as_deref())?.filter(|c|c.0<end_ms);
+    let upper=if cursor.is_some() {"r.first_visit_ms<=?4 AND (r.first_visit_ms<?4 OR r.session_id<?5)"} else {"r.first_visit_ms<?3"};
+    // Through the `sessions` view Turso reads the whole generation and sorts it on every page.
+    // The rows table, walked through idx_sessions_recent, is read in list order and seeks to the
+    // cursor; it needs the bounded cursor form above, with no `?4 IS NULL OR` escape.
+    let mut statement = connection.prepare(&format!(
+        "SELECT r.session_id, r.first_visit_ms, r.last_visit_ms, r.visit_count, r.search_count, r.domain_count, r.is_deep_dive, r.auto_title
+         FROM sessions_rows r INDEXED BY idx_sessions_recent
+         WHERE r.generation IN (SELECT navigation FROM intelligence_generations)
+           AND r.profile_id IN (
                  SELECT profile_key FROM archive.source_profiles
                  WHERE profile_key IS NOT NULL AND (?1 IS NULL OR profile_key = ?1))
-           AND first_visit_ms < ?3
-           AND last_visit_ms >= ?2
-           AND (?5 IS NULL OR first_visit_ms<?5 OR (first_visit_ms=?5 AND session_id<?6))
-         ORDER BY first_visit_ms DESC, session_id DESC LIMIT ?4",
-    )?;
+           AND r.last_visit_ms >= ?2
+           AND {upper}
+         ORDER BY r.first_visit_ms DESC, r.session_id DESC LIMIT ?6"
+    ))?;
     let sessions = statement
         .query_map(
             params![
                 request.profile_id.as_deref(),
                 start_ms,
                 end_ms,
-                (limit+1) as i64,
-                cursor.as_ref().map(|c|c.0),cursor.as_ref().map(|c|c.1.as_str())
+                cursor.as_ref().map(|c|c.0),cursor.as_ref().map(|c|c.1.as_str()),
+                (limit+1) as i64
             ],
             |row| {
                 Ok(SessionSummary {
@@ -121,18 +126,20 @@ let request=&request;
         |row| Ok(row.get(0)?),
     )?;
     let limit=request.page_size.clamp(1,1000) as usize;
-    let cursor=super::paging::cursor::<(i64,String)>(request.cursor.as_deref())?;
-    let mut statement = connection.prepare(
-        "SELECT trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
-                landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
-         FROM search_trails
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND (?2 IS NULL OR search_engine = ?2)
-           AND last_visit_ms >= ?3
-           AND first_visit_ms < ?4
-           AND (?6 IS NULL OR first_visit_ms<?6 OR (first_visit_ms=?6 AND trail_id<?7))
-         ORDER BY first_visit_ms DESC, trail_id DESC LIMIT ?5",
-    )?;
+    // Same shape as `get_sessions`: the rows table in list order, seeking to the cursor.
+    let cursor=super::paging::cursor::<(i64,String)>(request.cursor.as_deref())?.filter(|c|c.0<end_ms);
+    let upper=if cursor.is_some() {"r.first_visit_ms<=?5 AND (r.first_visit_ms<?5 OR r.trail_id<?6)"} else {"r.first_visit_ms<?4"};
+    let mut statement = connection.prepare(&format!(
+        "SELECT r.trail_id, r.session_id, r.initial_query, r.search_engine, r.reformulation_count, r.visit_count,
+                r.landing_url, r.landing_domain, r.first_visit_ms, r.last_visit_ms, r.max_depth, r.queries_json
+         FROM search_trails_rows r INDEXED BY idx_search_trails_recent
+         WHERE r.generation IN (SELECT navigation FROM intelligence_generations)
+           AND (?1 IS NULL OR r.profile_id = ?1)
+           AND (?2 IS NULL OR r.search_engine = ?2)
+           AND r.last_visit_ms >= ?3
+           AND {upper}
+         ORDER BY r.first_visit_ms DESC, r.trail_id DESC LIMIT ?7"
+    ))?;
     let trails = statement
         .query_map(
             params![
@@ -140,8 +147,8 @@ let request=&request;
                 request.engine.as_deref(),
                 start_ms,
                 end_ms,
-                (limit+1) as i64,
-                cursor.as_ref().map(|c|c.0),cursor.as_ref().map(|c|c.1.as_str())
+                cursor.as_ref().map(|c|c.0),cursor.as_ref().map(|c|c.1.as_str()),
+                (limit+1) as i64
             ],
             trail_summary_from_row,
         )?

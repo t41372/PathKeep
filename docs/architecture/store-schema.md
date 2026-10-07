@@ -394,6 +394,22 @@ Render indexes cover search kind/time and normalized query/time, refind score an
 identity, session overlap/order, trail member order, domain/date rollups and queue traversal.
 Exact physical DDL is `src-tauri/crates/vault-core/src/store_schema/intelligence.rs`.
 
+Paged lists keep one index in exactly their list order, with `generation` last:
+`idx_sessions_recent`, `idx_search_trails_recent`, `idx_search_trails_friction`,
+`idx_query_families_recent`, `idx_query_families_members`, `idx_source_effectiveness_rank`,
+`idx_reopened_investigations_recent`, `idx_refind_pages_score` and, for one profile's all-time
+flows, `idx_path_flows_profile_rank`. These reads use the `_rows` table with `INDEXED BY` and
+check `generation IN (SELECT … FROM intelligence_generations)` per row, because through the
+views Turso 0.8.1 reads the whole generation by primary key and sorts it on every page.
+
+Keyset cursors are written in the bounded form, `a<=?X AND (a<?X OR b<?Y)` (nested for more
+keys, `>=`/`>` for ascending keys), and the cursor clause is only in the statement text after
+the first page. Turso 0.8.1 does not seek on `a<?X OR (a=?X AND b<?Y)`, nor on any cursor clause
+behind `?X IS NULL OR`; both re-walk the index from its first row on every page. Both texts bind
+the same values, so the cursor values come before the `LIMIT` value: Turso rejects a bound
+index above the highest one in the statement, while lower unused indexes are fine. Plan tests in
+`vault-core/tests/intelligence_keyset_plans.rs` read page two of each list and check the plan.
+
 ### Agent — `derived/agent.db`
 
 **`conversations`** — Conversation title, provider, timestamps and message count. Writer: `agent_store`.
