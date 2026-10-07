@@ -145,14 +145,14 @@ pub fn recover(paths: &ProjectPaths) -> Result<bool> {
         Err(error) => return Err(error.into()),
     };
     if serde_json::from_slice::<serde_json::Value>(&bytes)?.get("stage").is_none() {
-        // An import of the old SQLCipher format left this. Once the archive has been
-        // converted it predates the native files; rolling it back would put the old
-        // config.json over them. Keep it aside instead of acting on it.
+        // An import of the old SQLCipher format left this. Before conversion the converter's
+        // launch recovery rolls it back. Once the archive has been converted it predates the
+        // native files; rolling it back would put the old config.json over them, so keep it
+        // aside instead of acting on it.
         if paths.app_root.join("archive/history-vault.db").exists() {
             rename(&paths.app_root.join(JOURNAL), &paths.app_root.join(STALE_LEGACY_JOURNAL))?;
-            return Ok(false);
         }
-        return crate::migration::recover_interrupted_import(paths);
+        return Ok(false);
     }
     let journal: Journal = serde_json::from_slice(&bytes)?;
     if journal.committed {

@@ -40,9 +40,13 @@ pub fn preview_retention(paths: &ProjectPaths, vault: Option<&Vault>) -> Result<
 }
 
 /// Retention shares the producer guard so it cannot remove an active backup's staging.
+///
+/// `keep` is the snapshot that must survive a snapshot prune: the caller's newest openable
+/// one, native or old-format (the worker lists both).
 pub fn prune(
     vault: &Vault,
     request: &RetentionPruneRequest,
+    keep: Option<&std::path::Path>,
     cancel: &CancelToken,
 ) -> Result<RetentionPruneResult> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
@@ -57,14 +61,7 @@ pub fn prune(
     if selected.is_empty() {
         return Ok(RetentionPruneResult::default());
     }
-    let protected = if selected.iter().any(|b| b.id == "snapshots") {
-        crate::list_recovery_snapshots(paths)?
-            .into_iter()
-            .find(|s| s.verified_openable)
-            .map(|s| std::path::PathBuf::from(s.path))
-    } else {
-        None
-    };
+    let protected = keep.filter(|_| selected.iter().any(|b| b.id == "snapshots"));
     cancel.check()?;
     let run = write_runs::start(vault, "retention_prune", "manual", &[])?;
     let result = (|| {
@@ -74,13 +71,11 @@ pub fn prune(
             cancel.check()?;
             let (removed_bytes, removed_files) = match bucket.id.as_str() {
                 "snapshots" => {
-                    let removed = remove_directory_contents_except(
-                        &paths.raw_snapshots_dir,
-                        protected.as_deref(),
-                    )?;
-                    let keep = protected.as_ref().map(|p| p.display().to_string());
+                    let removed =
+                        remove_directory_contents_except(&paths.raw_snapshots_dir, protected)?;
+                    let kept = protected.map(|p| p.display().to_string());
                     vault.store().write(Db::Archive, Priority::Batch, move |s| {
-                        let deleted = match keep {
+                        let deleted = match kept {
                             Some(path) => {
                                 s.execute("DELETE FROM snapshots WHERE file_path<>?1", [path])?
                             }

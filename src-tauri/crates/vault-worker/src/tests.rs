@@ -2922,9 +2922,9 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
     let detail = audit_run_detail(&vault, run_id).expect("load audit detail");
     assert_eq!(detail.run.id, run_id);
 
-    let doctor = doctor_report(&vault, Some("vault-passphrase")).expect("doctor report");
+    let doctor = doctor_report(&vault).expect("doctor report");
     assert!(!doctor.checks.is_empty());
-    let repair = repair_health(&vault, Some("vault-passphrase")).expect("repair health");
+    let repair = repair_health(&vault).expect("repair health");
     assert!(repair.run_id.is_none() || repair.run_id >= Some(run_id));
 
     // OPTIONAL key: probing a provider with NO stored key must RUN the probe, not pre-fail on
@@ -3539,6 +3539,66 @@ fn list_recovery_snapshots_worker_fn_returns_seeded_metadata() {
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
     restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+}
+
+/// The shell asks for the upgrade assessment before anything else, so an archive the old app
+/// left half-way through a restore (its file quarantined, the journal written) has to be
+/// brought back there, not only by initialize.
+fn seed_restore_cut_mid_install(paths: &vault_core::ProjectPaths, keep_snapshot: bool) {
+    let config = initialized_config();
+    legacy_archive(&config, None);
+    let snapshot = paths.raw_snapshots_dir.join("rekey").join("snap.sqlite");
+    fs::create_dir_all(snapshot.parent().unwrap()).unwrap();
+    if keep_snapshot {
+        fs::copy(&paths.archive_database_path, &snapshot).unwrap();
+    }
+    let quarantine = paths.quarantine_dir.join("2026-06-30T00-00-00Z");
+    let journal = serde_json::json!({
+        "version": 1,
+        "timestamp": "2026-06-30T00-00-00Z",
+        "snapshot_ref": snapshot.to_string_lossy(),
+        "restored_mode": "Plaintext",
+        "quarantine_dir": quarantine.to_string_lossy(),
+        "previous_config": fs::read_to_string(&paths.config_path).ok(),
+    });
+    let marker = paths.archive_database_path.parent().unwrap().join(".pk-restore-journal.json");
+    fs::write(marker, serde_json::to_vec(&journal).unwrap()).unwrap();
+    fs::remove_file(&paths.archive_database_path).unwrap();
+}
+
+#[test]
+fn assessing_an_old_archive_first_finishes_a_restore_the_old_app_left_half_done() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path()) };
+    let paths = project_paths().unwrap();
+    seed_restore_cut_mid_install(&paths, true);
+
+    let assessment = assess_archive_upgrade(None).expect("assessment after recovery");
+    assert!(assessment.pending, "the restored old-format archive still needs converting");
+    assert!(paths.archive_database_path.exists(), "the snapshot is back in place");
+    assert!(!paths.archive_database_path.with_file_name(".pk-restore-journal.json").exists());
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
+}
+
+#[test]
+fn assessing_an_old_archive_that_cannot_be_brought_back_asks_for_the_recovery_screen() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path()) };
+    let paths = project_paths().unwrap();
+    seed_restore_cut_mid_install(&paths, false);
+
+    let error = assess_archive_upgrade(None).expect_err("neither snapshot nor original is left");
+    let report = crate::parse_archive_recovery_required(&error.to_string())
+        .expect("the error carries the recovery report");
+    assert!(matches!(report.kind, vault_core::ArchiveRecoveryKind::InterruptedRestoreUnresolved));
+    assert!(!paths.archive_database_path.exists(), "no empty archive was created");
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
 }
 
 #[test]

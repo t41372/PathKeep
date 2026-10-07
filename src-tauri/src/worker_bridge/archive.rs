@@ -378,7 +378,7 @@ pub(crate) fn cancel_export_impl(export_id: &str) -> bool {
 pub(crate) fn doctor_report_impl(
     state: &SessionState,
 ) -> Result<vault_core::HealthReport, CommandError> {
-    worker_result(vault_worker::doctor_report(&state.vault()?, state.get_key()?.as_deref()))
+    worker_result(vault_worker::doctor_report(&state.vault()?))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -386,9 +386,7 @@ pub(crate) fn doctor_report_impl(
 pub(crate) fn repair_health_impl(
     state: &crate::session::SessionState,
 ) -> Result<vault_core::HealthRepairReport, CommandError> {
-    let key = state.get_key()?;
-    let session_database_key = key.as_deref();
-    worker_result(vault_worker::repair_health(&state.vault()?, session_database_key))
+    worker_result(vault_worker::repair_health(&state.vault()?))
 }
 
 /// Continues the run ledger beyond the snapshot's first page.

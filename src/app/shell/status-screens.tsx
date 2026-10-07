@@ -16,6 +16,7 @@ import { subscribeToArchiveUpgradeProgress } from '@/lib/ipc/archive-upgrade-pro
 import { useFormat, useI18n } from '@/lib/i18n'
 import { queryClient, queryKeys } from '@/lib/query'
 import type { AppSnapshot, ArchiveUpgradeProgress } from '@/lib/types'
+import { parseRecoveryReport } from '../recovery-report'
 import { useSession } from '../session'
 
 function Centered({ children }: { children: React.ReactNode }) {
@@ -95,6 +96,12 @@ export function UpgradeScreen() {
         ),
       )
     } catch (upgradeError) {
+      // Something the old app left half-done turned out to be beyond repair:
+      // boot again, which lands on the recovery screen.
+      if (parseRecoveryReport(upgradeError)) {
+        await session.restart()
+        return
+      }
       setError(upgradeError)
     } finally {
       unsubscribe?.()

@@ -21,18 +21,18 @@
 //! 1. A wrong password is accepted: refused for preview and execute, and the
 //!    archive is untouched afterwards (the old password still opens it).
 //! 2. The right password is refused: including passwords with quotes and
-//!    non-ASCII characters, which must reach SQLCipher exactly as onboarding
-//!    stored them.
+//!    non-ASCII characters, which must reach the key derivation exactly as
+//!    onboarding stored them.
 //! 3. The check is bypassed through the dev bridge or an older client that
 //!    sends no `currentKey`: both transports go through the same worker call,
 //!    a missing password is refused, and the session key is never used in its
 //!    place.
 //! 4. A timing leak: no password bytes are ever compared; the only cost is
-//!    SQLCipher's key derivation, which is the same for every candidate.
+//!    the envelope's key derivation, which is the same for every candidate.
 //! 5. The password is logged: `RekeyRequest`'s `Debug` redacts both keys, and
 //!    no refusal message contains the candidate.
-//! 6. An I/O failure (missing file, busy database) is reported as a wrong
-//!    password: only SQLCipher's "not a database" answer counts as wrong.
+//! 6. An I/O failure (missing envelope, unreadable file) is reported as a wrong
+//!    password: only the envelope refusing the password counts as wrong.
 
 use crate::app::RekeyRequest;
 use anyhow::{Context, Result};
@@ -51,8 +51,8 @@ pub const REKEY_CURRENT_PASSWORD_WRONG: &str =
 /// Returns the archive's current key after proving the caller knows it, or
 /// `None` for a plaintext archive (encrypting one needs no password).
 ///
-/// The proof is opening the archive file with the candidate
-/// ([`vault_core::archive_key_opens`]), not a comparison with the session key:
+/// The proof is unwrapping the archive's key envelope with the candidate, not a
+/// comparison with the session key:
 /// - The file is the only authority. The session key can be absent (a caller
 ///   of the dev bridge that never set one), or came from the keychain and was
 ///   never typed by the person at the window; neither says what the file
@@ -74,21 +74,20 @@ pub(crate) fn verified_current_key<'a>(
         .as_deref()
         .filter(|key| !key.is_empty())
         .context(REKEY_CURRENT_PASSWORD_REQUIRED)?;
-    if paths.app_root.join("archive/history-vault.db").exists() {
-        vault_core::Vault::unlock_data_key(paths, candidate)?;
-        return Ok(Some(candidate));
+    match vault_core::Vault::unlock_data_key(paths, candidate) {
+        Ok(_) => Ok(Some(candidate)),
+        Err(error) if error.chain().any(|cause| cause.is::<vault_core::ArchivePasswordWrong>()) => {
+            anyhow::bail!(REKEY_CURRENT_PASSWORD_WRONG)
+        }
+        Err(error) => Err(error),
     }
-    if !vault_core::archive_key_opens(paths, candidate)? {
-        anyhow::bail!(REKEY_CURRENT_PASSWORD_WRONG);
-    }
-    Ok(Some(candidate))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
-    use vault_core::{ensure_archive_initialized, project_paths_with_root};
+    use vault_core::project_paths_with_root;
 
     const PASSWORD: &str = "it's a «secret» 密碼";
 
@@ -100,7 +99,10 @@ mod tests {
             archive_mode: ArchiveMode::Encrypted,
             ..AppConfig::default()
         };
-        ensure_archive_initialized(&paths, &config, Some(PASSWORD)).expect("create archive");
+        let (vault, _) =
+            vault_core::Vault::open_password(paths.clone(), config.clone(), PASSWORD, None)
+                .expect("create archive");
+        vault.close().expect("close archive");
         (dir, paths, config)
     }
 
@@ -145,7 +147,10 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
         let config = AppConfig { initialized: true, ..AppConfig::default() };
-        ensure_archive_initialized(&paths, &config, None).expect("create archive");
+        vault_core::Vault::open(paths.clone(), config.clone(), None)
+            .expect("create archive")
+            .close()
+            .expect("close archive");
         let encrypt = RekeyRequest {
             new_mode: ArchiveMode::Encrypted,
             new_key: Some("new password".to_string()),
@@ -157,7 +162,8 @@ mod tests {
     #[test]
     fn a_missing_archive_is_an_error_not_a_wrong_password() {
         let (_dir, paths, config) = encrypted_archive();
-        std::fs::remove_file(&paths.archive_database_path).expect("remove archive");
+        std::fs::remove_file(paths.app_root.join("archive/keys.envelope"))
+            .expect("remove envelope");
         let error = verified_current_key(&paths, &config, &request(Some(PASSWORD)))
             .expect_err("missing archive");
         assert!(!format!("{error:#}").contains(REKEY_CURRENT_PASSWORD_WRONG));

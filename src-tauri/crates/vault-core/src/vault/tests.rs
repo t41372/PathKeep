@@ -96,7 +96,9 @@ fn database_files_require_their_purpose_specific_keys() {
 }
 
 #[test]
-fn upgrade_password_is_checked_before_creating_any_turso_files() {
+fn a_password_open_beside_an_unconverted_archive_creates_nothing() {
+    // An archive of the old format has to be converted first; a new envelope here would start
+    // an empty native archive next to it.
     let root = tempfile::tempdir().unwrap();
     let paths = crate::project_paths_with_root(root.path());
     crate::config::ensure_paths(&paths).unwrap();
@@ -105,15 +107,17 @@ fn upgrade_password_is_checked_before_creating_any_turso_files() {
         archive_mode: crate::ArchiveMode::Encrypted,
         ..Default::default()
     };
-    drop(crate::archive::open_archive_connection(&paths, &config, Some("right password")).unwrap());
+    std::fs::write(&paths.archive_database_path, [7u8; 4096]).unwrap();
     let before = std::fs::read(&paths.archive_database_path).unwrap();
-    assert!(Vault::open_password(paths.clone(), config.clone(), "wrong password", None).is_err());
+    for password in ["right password", "wrong password"] {
+        let error =
+            Vault::open_password(paths.clone(), config.clone(), password, None).unwrap_err();
+        assert!(error.to_string().starts_with("archive-conversion-required:"), "{error:#}");
+    }
     assert!(!paths.app_root.join("archive/keys.envelope").exists());
+    assert!(!paths.app_root.join("archive/keys.envelope.pending").exists());
     assert!(!paths.app_root.join("archive/history-vault.db").exists());
     assert_eq!(before, std::fs::read(&paths.archive_database_path).unwrap());
-    let (vault, _) = Vault::open_password(paths.clone(), config, "right password", None).unwrap();
-    assert!(paths.app_root.join("archive/keys.envelope").exists());
-    drop(vault);
 }
 
 #[test]

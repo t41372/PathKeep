@@ -25,6 +25,7 @@ import {
 import { appClient } from '@/lib/backend-client/app'
 import { archiveClient } from '@/lib/backend-client/archive'
 import { securityClient } from '@/lib/backend-client/security'
+import { parseRecoveryReport } from './recovery-report'
 import { describeError } from '@/lib/errors'
 import { isLockRequiredError } from '@/lib/ipc/command-error'
 import { useI18n } from '@/lib/i18n'
@@ -69,26 +70,6 @@ interface SessionValue {
 }
 
 const SessionContext = createContext<SessionValue | null>(null)
-
-const RECOVERY_PREFIX = 'archive_recovery_required: '
-
-function parseRecoveryReport(error: unknown): ArchiveRecoveryReport | null {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : ''
-  const at = message.indexOf(RECOVERY_PREFIX)
-  if (at < 0) return null
-  try {
-    return JSON.parse(
-      message.slice(at + RECOVERY_PREFIX.length),
-    ) as ArchiveRecoveryReport
-  } catch {
-    return null
-  }
-}
 
 /** A plaintext archive that is configured but will not open is damaged. */
 function needsLaunchRecovery(snapshot: AppSnapshot) {
@@ -162,9 +143,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // the keychain can help yet: convert it first. Cheap when nothing is due.
       if (!upgradeChecked.current) {
         upgradeChecked.current = true
-        const assessment = await archiveClient
-          .assessArchiveUpgrade()
-          .catch(() => null)
+        // The old app's crash journals are finished first; one it cannot
+        // finish needs the recovery screen.
+        let assessment: ArchiveUpgradeAssessment | null = null
+        try {
+          assessment = await archiveClient.assessArchiveUpgrade()
+        } catch (assessError) {
+          const report = parseRecoveryReport(assessError)
+          if (report) {
+            setRecovery(report)
+            setPhase('recovery')
+            return
+          }
+        }
         if (assessment?.pending) {
           queryClient.setQueryData(
             queryKeys.snapshot,

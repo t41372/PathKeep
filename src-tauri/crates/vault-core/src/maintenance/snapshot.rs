@@ -192,7 +192,7 @@ pub fn recover_native_maintenance(paths: &ProjectPaths) -> Result<bool> {
 }
 
 /// Directory snapshots keep all databases together; discovery stays keyless.
-pub(crate) fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapshot>> {
+pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapshot>> {
     let root = paths.raw_snapshots_dir.join("maintenance");
     if !root.exists() {
         return Ok(Vec::new());

@@ -23,7 +23,6 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{
     collections::{BTreeMap, HashSet},
-    fs,
     path::Path,
     sync::{Mutex, OnceLock},
     time::Duration as StdDuration,
@@ -172,68 +171,6 @@ pub(super) fn require_legacy_password(
 /// Applies the archive cipher key to an already-open SQLite connection.
 pub(crate) fn apply_cipher_key(connection: &Connection, key: &str) -> Result<()> {
     connection.pragma_update(None, "key", key)?;
-    Ok(())
-}
-
-/// Whether `key` decrypts the canonical encrypted archive on disk.
-///
-/// Exists so a caller can prove it knows the archive password before an
-/// operation that would replace or remove it (rekey, decrypt). The file is the
-/// only authority: a key held in memory or in the keychain says nothing about
-/// what the file accepts. Reads one page (the schema) and writes nothing, so it
-/// stays cheap at 14.4M visits; the cost is SQLCipher's fixed key derivation,
-/// which is the same for every candidate and never compares password bytes.
-///
-/// Returns `Ok(false)` only for SQLCipher's "not a database" answer, which is
-/// what a wrong key produces. Any other failure (missing file, busy, I/O) is an
-/// error, so it is never mistaken for a wrong password.
-pub fn archive_key_opens(paths: &ProjectPaths, key: &str) -> Result<bool> {
-    if !paths.archive_database_path.exists() {
-        anyhow::bail!("archive database does not exist");
-    }
-    let connection = Connection::open(&paths.archive_database_path)
-        .with_context(|| format!("opening {}", paths.archive_database_path.display()))?;
-    connection.busy_timeout(StdDuration::from_secs(5))?;
-    apply_cipher_key(&connection, key)?;
-    match connection.query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get::<_, i64>(0))
-    {
-        Ok(_) => Ok(true),
-        Err(rusqlite::Error::SqliteFailure(error, _))
-            if error.code == rusqlite::ErrorCode::NotADatabase =>
-        {
-            Ok(false)
-        }
-        Err(error) => Err(error).context("reading the archive to check its password"),
-    }
-}
-
-/// Exports the current archive database to a portable file path.
-pub(crate) fn export_archive_database(
-    source: &Connection,
-    target_path: &Path,
-    target_key: Option<&str>,
-) -> Result<()> {
-    remove_existing_export_target(target_path)?;
-
-    let target = target_path.display().to_string().replace('\'', "''");
-    let key = target_key.unwrap_or("").replace('\'', "''");
-    source
-        .execute_batch(&format!("ATTACH DATABASE '{target}' AS rekeyed KEY '{key}';"))
-        .context("attaching target database for export")?;
-    let export_result = source
-        .query_row("SELECT sqlcipher_export('rekeyed')", [], |_| Ok(()))
-        .context("exporting encrypted database");
-    let detach_result = source.execute_batch("DETACH DATABASE rekeyed;");
-    export_result?;
-    detach_result.context("detaching exported database")?;
-    Ok(())
-}
-
-fn remove_existing_export_target(target_path: &Path) -> Result<()> {
-    if target_path.exists() {
-        fs::remove_file(target_path)
-            .with_context(|| format!("removing {}", target_path.display()))?;
-    }
     Ok(())
 }
 
@@ -841,17 +778,6 @@ mod tests {
             .optional()
             .expect("index lookup")
             .is_some()
-    }
-
-    #[test]
-    fn export_target_cleanup_removes_existing_files_and_ignores_missing_targets() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let target = dir.path().join("export.sqlite");
-
-        remove_existing_export_target(&target).expect("missing target is fine");
-        fs::write(&target, "old export").expect("write existing target");
-        remove_existing_export_target(&target).expect("remove existing target");
-        assert!(!target.exists());
     }
 
     #[test]

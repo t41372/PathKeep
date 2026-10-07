@@ -66,11 +66,14 @@ pub fn run_snapshot_restore_plan(
     vault_core::run_snapshot_restore(vault, request)
 }
 
-/// Lists the verified full-archive safety snapshots the Phase-D recovery GUI offers for a one-click
-/// restore (a keyless filesystem scan — no archive open, no key, no full-DB walk).
+/// Lists the safety snapshots the recovery screen offers, native and old-format, newest first.
+/// A keyless filesystem scan: no archive open, no key.
 pub fn list_recovery_snapshots() -> Result<Vec<vault_core::RecoverySnapshot>> {
     let paths = vault_core::project_paths()?;
-    vault_core::list_recovery_snapshots(&paths)
+    let mut snapshots = vault_core::maintenance::list_snapshots(&paths)?;
+    snapshots.extend(vault_convert_sqlcipher::list_legacy_snapshots(&paths)?);
+    snapshots.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| b.path.cmp(&a.path)));
+    Ok(snapshots)
 }
 
 /// Runs the one-click full-archive restore (D1): quarantine the broken canonical files, install +
@@ -146,8 +149,12 @@ pub fn run_retention_plan(
     vault: &Vault,
     request: &vault_core::RetentionPruneRequest,
 ) -> Result<vault_core::RetentionPruneResult> {
+    let keep = list_recovery_snapshots()?
+        .into_iter()
+        .find(|snapshot| snapshot.verified_openable)
+        .map(|snapshot| std::path::PathBuf::from(snapshot.path));
     crate::maintenance_jobs::run(&vault.paths().app_root, "pruning", |cancel, _| {
-        vault_core::maintenance::prune(vault, request, &cancel)
+        vault_core::maintenance::prune(vault, request, keep.as_deref(), &cancel)
     })
 }
 
@@ -908,17 +915,15 @@ pub fn restore_import_batch_detail(vault: &Vault, batch_id: i64) -> Result<Impor
 }
 
 /// Runs doctor checks against the current archive.
-pub fn doctor_report(vault: &Vault, key: Option<&str>) -> Result<HealthReport> {
+pub fn doctor_report(vault: &Vault) -> Result<HealthReport> {
     let mut report = doctor(vault)?;
-    if let Some(check) = vault_core::legacy_derived_health(vault, key)? {
-        report.checks.push(check);
-    }
+    report.checks.push(vault_core::derived_health(vault)?);
     Ok(report)
 }
 
-/// Applies the native repair and delegates existing intelligence work to area 4.
-pub fn repair_health(vault: &Vault, key: Option<&str>) -> Result<HealthRepairReport> {
-    repair_health_issues(vault, key)
+/// Repairs archive metadata and clears derived Insights rows that outlived their visits.
+pub fn repair_health(vault: &Vault) -> Result<HealthRepairReport> {
+    repair_health_issues(vault)
 }
 
 fn backup_changed_archive(run: Option<&vault_core::BackupRunOverview>) -> bool {

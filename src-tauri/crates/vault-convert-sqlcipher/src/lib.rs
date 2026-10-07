@@ -4,11 +4,13 @@
 //! premature swap, lost legacy originals, ignored cancel. Tests: conversion.rs.
 mod collisions;
 mod enrichments;
+mod legacy_recovery;
 mod snapshot;
 mod source;
 mod transfer;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+pub use legacy_recovery::{list_legacy_snapshots, recover_on_launch};
 pub use snapshot::restore_snapshot;
 use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
 use vault_core::{

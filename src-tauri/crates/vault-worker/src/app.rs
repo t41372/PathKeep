@@ -379,11 +379,16 @@ pub fn initialize_archive_database(
     snapshot
 }
 
-/// Read-only conversion assessment for the upgrade screen. Counts run on the
-/// worker without creating a native destination or consuming a pending upgrade.
+/// Conversion assessment for the upgrade screen. Counts run on the worker without
+/// creating a native destination or consuming a pending upgrade. An archive in the
+/// old format is first brought to a consistent state (see [`recover_unconverted`]):
+/// this is the first thing the shell asks at launch.
 pub fn assess_archive_upgrade(database_key: Option<&str>) -> Result<ArchiveUpgradeAssessment> {
     let paths = vault_core::project_paths()?;
-    let config = load_config(&paths).unwrap_or_default();
+    let mut config = load_config(&paths).unwrap_or_default();
+    if !is_native(&paths) {
+        recover_unconverted(&paths, &mut config)?;
+    }
     let conversion = vault_convert_sqlcipher::assess(&paths, &config, database_key)?;
     let phases = if conversion.required {
         use vault_core::{ArchiveUpgradePhase as Phase, ArchiveUpgradePhaseAssessment};
@@ -422,6 +427,9 @@ pub fn convert_archive_with_progress(
     mut report: impl FnMut(ArchiveUpgradeProgress),
 ) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
+    let mut config = config.clone();
+    recover_unconverted(&paths, &mut config)?;
+    let config = &config;
     let installed =
         crate::maintenance_jobs::run(&paths.app_root, "converting", |cancel, mut sink| {
             vault_convert_sqlcipher::convert_owned(
@@ -485,12 +493,16 @@ where
         &next_config,
         current_app_lock_biometric_state(),
     )?;
-    match recover_archive_on_launch(&paths, &next_config, database_key)? {
-        LaunchRecovery::Healed { to_mode, .. } => next_config.archive_mode = to_mode,
-        LaunchRecovery::Unrecoverable(report) => {
-            return Err(archive_recovery_required_error(report));
+    if is_native(&paths) {
+        match recover_archive_on_launch(&paths, &next_config)? {
+            LaunchRecovery::Healed { to_mode, .. } => next_config.archive_mode = to_mode,
+            LaunchRecovery::Unrecoverable(report) => {
+                return Err(archive_recovery_required_error(report));
+            }
+            LaunchRecovery::Healthy => {}
         }
-        LaunchRecovery::Healthy => {}
+    } else {
+        recover_unconverted(&paths, &mut next_config)?;
     }
     if next_config.archive_mode == ArchiveMode::Encrypted
         && database_key.is_none()
@@ -533,6 +545,28 @@ where
     let vault = session.background_vault().map_err(anyhow::Error::msg)?;
     report_progress(ArchiveUpgradeProgress::finished());
     app_snapshot_with_vault(Some(&vault), database_key)
+}
+
+/// The native archive exists, or a native install is waiting to be finished.
+fn is_native(paths: &vault_core::ProjectPaths) -> bool {
+    paths.app_root.join("archive/history-vault.db").exists()
+        || vault_core::maintenance::install::pending(paths)
+}
+
+/// Brings an archive of the old format to a consistent state before anything reads it: an
+/// import, password change or restore the old app left half-done is finished or rolled back,
+/// and config follows the file's real at-rest mode, as the old app's launch did. Runs on every
+/// entry that can reach an unconverted archive (assess, convert, initialize), because the shell
+/// asks for the assessment first. An archive it cannot bring back goes to the recovery screen.
+fn recover_unconverted(paths: &vault_core::ProjectPaths, config: &mut AppConfig) -> Result<()> {
+    match vault_convert_sqlcipher::recover_on_launch(paths, config)? {
+        LaunchRecovery::Healed { to_mode, .. } => config.archive_mode = to_mode,
+        LaunchRecovery::Unrecoverable(report) => {
+            return Err(archive_recovery_required_error(report));
+        }
+        LaunchRecovery::Healthy => {}
+    }
+    Ok(())
 }
 
 /// Wraps an unrecoverable launch state in a STRUCTURED, prefix-tagged, JSON-carrying error so

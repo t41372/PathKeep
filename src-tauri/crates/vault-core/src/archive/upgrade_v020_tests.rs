@@ -13,8 +13,7 @@
 //!   v0.3.0 table/index the migrations add is present.
 //! - No config-parse failure: a v0.2.0 `config.json` loads, the removed `remoteBackup`
 //!   field is ignored, and the absent `ogImage` block defaults correctly.
-//! - No launch-recovery misfire: `recover_archive_on_launch` reports `Healthy`, does not
-//!   rewrite `config.json`, and leaves no `.pk-*` recovery journal behind.
+//! - No crash journals left behind.
 //! - The derived planes upgrade cleanly: the search projection reprojects to its current
 //!   schema, the intelligence plane forward-applies past v6 (and re-applying is idempotent —
 //!   the version and ledger row count stay put), and the agent plane migrates to its ceiling.
@@ -31,9 +30,8 @@
 //!   loss-free guarantee is asserted against canonical archive facts.
 
 use crate::archive::{
-    LaunchRecovery, assess_archive_upgrade, check_config_disk_consistency, current_version,
-    ensure_archive_initialized_with_progress, max_schema_version, open_archive_connection,
-    open_legacy_source_evidence_connection, recover_archive_on_launch,
+    assess_archive_upgrade, current_version, ensure_archive_initialized_with_progress,
+    max_schema_version, open_archive_connection, open_legacy_source_evidence_connection,
 };
 use crate::config::{ProjectPaths, ensure_paths, load_config, project_paths_with_root};
 use crate::models::{
@@ -236,12 +234,7 @@ fn upgrade_v020_plaintext_archive_migrates_cleanly() {
     assert_eq!(cfg.selected_profile_ids, vec!["chrome:Default".to_string()]);
     assert!(cfg.og_image.fetch_enabled);
 
-    // 2. Launch recovery is a Healthy no-op: no config rewrite, no recovery journals.
-    let config_before = std::fs::read(&paths.config_path).expect("snapshot config bytes");
-    let recovery = recover_archive_on_launch(&paths, &cfg, None).expect("launch recovery");
-    assert!(matches!(recovery, LaunchRecovery::Healthy));
-    let config_after = std::fs::read(&paths.config_path).expect("re-read config bytes");
-    assert_eq!(config_before, config_after, "healthy launch recovery must not rewrite config.json");
+    // 2. No recovery journals.
     assert_no_crash_markers(&paths);
 
     // 3. Real upgrade open path forward-applies the archive migrations.
@@ -306,9 +299,11 @@ fn upgrade_v020_plaintext_archive_migrates_cleanly() {
 
     // Consolidated Turso intelligence and agent schemas are tested through Vault::open_temp.
 
-    // 8. Phase-E config<->disk consistency invariant holds after upgrade.
-    check_config_disk_consistency(&paths)
-        .expect("Phase-E config<->disk invariant must hold after upgrade");
+    // 8. The file on disk is still plaintext, as the config says.
+    assert_eq!(
+        crate::detect_disk_encryption_mode(&paths.archive_database_path),
+        crate::DiskEncryptionMode::Plaintext
+    );
 
     // 9. The archive mode is unchanged on disk.
     assert_eq!(load_config(&paths).unwrap().archive_mode, ArchiveMode::Plaintext);
@@ -537,7 +532,10 @@ fn upgrade_v020_with_progress_streams_phases_and_migrates_cleanly() {
     drop(conn);
 
     // Phase-E config<->disk consistency still holds after the progress upgrade.
-    check_config_disk_consistency(&paths).expect("Phase-E invariant holds after progress upgrade");
+    assert_eq!(
+        crate::detect_disk_encryption_mode(&paths.archive_database_path),
+        crate::DiskEncryptionMode::Plaintext
+    );
 }
 
 #[test]

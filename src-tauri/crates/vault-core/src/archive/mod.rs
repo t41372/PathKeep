@@ -35,7 +35,7 @@ mod checkpoint_restore;
 mod doctor;
 mod doctor_derived;
 mod doctor_facts;
-pub use doctor_derived::legacy_derived_health;
+pub use doctor_derived::derived_health;
 mod history;
 // Re-export the SSRF guard module so the W-ENRICH-1 enrichment plane can reach
 // `crate::archive::history::net_guard::url_target_is_blocked` through the same chokepoint og:image
@@ -44,14 +44,12 @@ pub(crate) use self::history::net_guard;
 pub(crate) mod ingest;
 mod intelligence_projection;
 mod legacy_status;
-mod maintenance;
 mod read_models;
 pub use legacy_status::{
     ensure_archive_initialized, ensure_archive_initialized_with_progress, legacy_archive_status,
 };
 pub(crate) mod totals;
 pub(crate) use self::read_models::recent_runs_from;
-mod maintenance_runs;
 mod run_support;
 pub(crate) use run_support::write_manifest_artifact;
 mod schema;
@@ -69,22 +67,13 @@ mod wipe;
 mod write_lock;
 
 pub(crate) use self::artifacts::SnapshotArtifact;
-pub use self::at_rest::{
-    ARCHIVE_RECOVERY_REQUIRED_PREFIX, ArchiveRecoveryKind, ArchiveRecoveryReport, LaunchRecovery,
-    ReconcileReport, list_recovery_snapshots, reconcile_archive_encryption,
-    recover_archive_on_launch,
-};
-pub(crate) use self::at_rest::{
-    DiskEncryptionMode, detect_disk_encryption_mode, migrate_source_evidence_for_rekey,
-    remove_stale_sidecars,
-};
-pub(crate) use browser_schema::collect_schema_payload;
-pub(crate) use maintenance_runs::record_snapshot_reference;
-// The config↔disk at-rest invariant checker is a TEST-facing post-condition (threaded into every
-// archive-mutation success/crash test), never a production hot path — so it + its re-export exist
-// only in the measured test build, mirroring `fault_inject`'s `#[cfg(test)]` arming helpers.
 #[cfg(test)]
 pub(crate) use self::at_rest::check_config_disk_consistency;
+pub use self::at_rest::{
+    ARCHIVE_RECOVERY_REQUIRED_PREFIX, ArchiveRecoveryKind, ArchiveRecoveryReport,
+    DiskEncryptionMode, LaunchRecovery, ReconcileReport, detect_disk_encryption_mode,
+    recover_archive_on_launch,
+};
 #[cfg(test)]
 pub(crate) use self::backup::run_backup_profiles;
 pub use self::backup::{run_backup, run_backup_with_control, run_backup_with_progress};
@@ -96,20 +85,17 @@ pub(crate) use self::intelligence_projection::{
     reset_open_intelligence_connection_call_count,
 };
 pub use self::legacy_source_evidence::open_legacy_source_evidence_connection;
-pub(crate) use self::maintenance_runs::{persist_structured_manifest, stats_with_archive_totals};
 use self::read_models::{decode_profile_scope, directory_size, file_size};
-pub(crate) use self::run_support::{ArchiveVisibleTotals, current_timezone_name};
+pub(crate) use self::run_support::current_timezone_name;
 pub(crate) use self::schema::apply_cipher_key;
-pub(crate) use self::schema::export_archive_database;
 pub(crate) use self::schema::open_archive_connection_reporting;
-pub use self::schema::{
-    archive_key_opens, assess_archive_upgrade, create_schema, open_archive_connection,
-};
+pub use self::schema::{assess_archive_upgrade, create_schema, open_archive_connection};
 pub use self::schema::{current_version, max_schema_version, run_migrations};
 pub(crate) use self::search_documents::enrichment_text_for_index;
 pub(crate) use self::source_evidence::{
     SourceBatchInput, SourceEvidencePayload, record_schema_observation, upsert_source_batch,
 };
+pub(crate) use browser_schema::collect_schema_payload;
 
 pub use self::source_stats::load_source_stats;
 pub use self::url_detail::get_url_detail;
@@ -117,25 +103,11 @@ pub use self::wipe::{
     WipeOutsideState, data_wipe_interrupted, finish_interrupted_data_wipe, preview_data_wipe,
     request_running_jobs_stop, wipe_all_data,
 };
-// The cross-process archive write lock (W: serialize every destructive archive op so the
-// out-of-process scheduled backup can never race a GUI rekey/mode-toggle), plus the in-process
-// top-level [`ArchiveOpGate`] that serializes two same-process top-level destructive ops (CRIT-5's
-// same-process trigger, which the reentrant flock cannot exclude). backup/rekey/import/retention-prune/
-// reconcile/snapshot-restore take BOTH at their top-level entry; nested helpers take only the lock.
-pub(crate) use self::write_lock::ArchiveOpGate;
-pub use self::write_lock::ArchiveWriteLock;
-// Phase C crash-recovery twin of the rekey swap+commit + the Phase D full-archive-restore
-// crash-recovery twin, both called by the launch-time at-rest reconcile
-// (`at_rest::recover_archive_on_launch`). NESTED helpers: take ONLY the reentrant
-// `ArchiveWriteLock`, never the top-level `ArchiveOpGate`.
-pub(crate) use self::maintenance::{
-    interrupted_rekey_marker_present, interrupted_restore_marker_present,
-    recover_interrupted_rekey, recover_interrupted_restore,
-};
-// The generalized verified safety-snapshot capture (D3). NESTED helper: takes NO locks (every
-// caller is a top-level op already holding the gate + flock). Re-exported so the at-rest reconcile
-// and the whole-app import can capture a verified backstop before their whole-archive rewrites.
-pub(crate) use self::maintenance::create_verified_safety_snapshot;
+// The cross-process archive write lock and the in-process gate that serializes top-level
+// destructive operations in one process (the flock is reentrant, so it can't). Public so the
+// converter's launch recovery for old archives takes the same pair.
+pub use self::checkpoint_restore::{preview_snapshot_restore, run_snapshot_restore};
+pub use self::write_lock::{ArchiveOpGate, ArchiveWriteLock};
 pub use self::{
     doctor::{doctor, repair_health_issues},
     history::{
@@ -143,10 +115,6 @@ pub use self::{
         BrowseDayTopUrl, ExportCancelled, cancel_export, export_history, export_search_history,
         get_browse_day_insights, get_export_progress, list_history, load_history_favicons,
         og_images, og_images_fetch, record_export_failure, search_history,
-    },
-    maintenance::{
-        preview_retention, preview_snapshot_restore, rekey_archive,
-        run_full_archive_snapshot_restore, run_retention_prune, run_snapshot_restore,
     },
     read_models::{
         RunPage, archive_availability, archive_status, load_audit_run_detail,
@@ -159,10 +127,9 @@ use crate::{
     git_audit,
     models::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
-        BackupReport, BackupRunOverview, DashboardSnapshot, FullArchiveRestoreReport, HealthCheck,
-        HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse, RecoverySnapshot,
-        RetentionBucket, RetentionPreview, RetentionPruneRequest, RetentionPruneResult,
-        SnapshotRestorePreview, SnapshotRestoreRequest, StorageSummary, backup_warning_messages,
+        BackupReport, BackupRunOverview, DashboardSnapshot, HealthCheck, HealthRepairReport,
+        HealthReport, HistoryQuery, HistoryQueryResponse, RetentionBucket, SnapshotRestorePreview,
+        SnapshotRestoreRequest, StorageSummary, backup_warning_messages,
     },
     utils::{
         file_sha256_hex, filesystem_safe_path_segment, identifier_from_filesystem_segment,
@@ -170,13 +137,12 @@ use crate::{
     },
 };
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
-    time::Duration as StdDuration,
 };
 use tempfile::tempdir;
 
@@ -213,35 +179,6 @@ WHERE NOT (runs.id = 0 AND runs.run_type = 'system' AND runs.trigger = 'compat')
 ORDER BY runs.id DESC
 LIMIT 12
 "#;
-
-/// Builds the retention bucket for saved raw checkpoints and safety snapshots.
-///
-/// The preview prefers authoritative ledger counts when the archive is readable
-/// and falls back to a filesystem walk when the archive cannot be opened.
-fn retention_snapshot_bucket(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<RetentionBucket> {
-    let item_count = if config.initialized {
-        match open_archive_connection(paths, config, key) {
-            Ok(connection) => connection
-                .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get::<_, i64>(0))
-                .unwrap_or_default()
-                .max(0) as usize,
-            Err(_) => count_path_entries(&paths.raw_snapshots_dir),
-        }
-    } else {
-        count_path_entries(&paths.raw_snapshots_dir)
-    };
-
-    Ok(RetentionBucket {
-        id: "snapshots".to_string(),
-        bytes: directory_size(&paths.raw_snapshots_dir),
-        item_count,
-        paths: vec![paths.raw_snapshots_dir.display().to_string()],
-    })
-}
 
 /// Builds one retention bucket backed directly by a local directory.
 ///
@@ -318,41 +255,6 @@ fn remove_path(path: &Path) -> Result<(u64, usize)> {
     }
     fs::remove_dir_all(path)?;
     Ok((deleted_bytes, deleted_files))
-}
-
-/// Prunes the snapshot bucket and clears its corresponding ledger rows — while ALWAYS keeping the
-/// last-good verified full-archive safety snapshot (the restore backstop).
-///
-/// This keeps retention prune truthful: once the files are gone, the snapshot table should no
-/// longer advertise restore checkpoints that cannot exist. D3 adds the guard: a one-click restore
-/// (D1) depends on at least one verified snapshot surviving, so retention must never delete the most
-/// recent verified-openable backstop — otherwise a routine prune could strand a user with a broken
-/// archive and no way back. [`list_recovery_snapshots`] is newest-first, so the first
-/// verified-openable entry is the freshest backstop to protect; its ledger row is kept too.
-fn prune_snapshot_bucket(
-    connection: &Connection,
-    paths: &ProjectPaths,
-    inventory: &[RecoverySnapshot],
-) -> Result<(u64, usize)> {
-    // SPEC-ACCEPTED limitation: `verified_openable` is an authoritative keyed check only for a
-    // PLAINTEXT snapshot. For an ENCRYPTED snapshot it is structural-only (size >= 512) because
-    // retention holds no key — the authoritative keyed `quick_check` runs only at restore time (D1).
-    // So a corrupt newest encrypted snapshot could be "protected" here while a genuinely-good older
-    // one is pruned. This is accepted for now (see the remediation-plan backlog note: a keyed verify
-    // or keep-N-newest for encrypted mode is a follow-up).
-    let protected = inventory
-        .iter()
-        .find(|snapshot| snapshot.verified_openable)
-        .map(|snapshot| PathBuf::from(&snapshot.path));
-    let deleted = remove_directory_contents_except(&paths.raw_snapshots_dir, protected.as_deref())?;
-    match &protected {
-        Some(path) => connection.execute(
-            "DELETE FROM snapshots WHERE file_path != ?1",
-            params![path.display().to_string()],
-        )?,
-        None => connection.execute("DELETE FROM snapshots", [])?,
-    };
-    Ok(deleted)
 }
 
 /// Deletes every child under `root` EXCEPT the `keep` file (and the directories on its path), then

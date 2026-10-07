@@ -109,19 +109,17 @@ pub use app_lock::{
 pub use archive::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, ArchiveRecoveryKind, ArchiveRecoveryReport,
     BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
-    BrowseDayTopUrl, ExportCancelled, LaunchRecovery, ReconcileReport, RunPage, WipeOutsideState,
-    archive_availability, archive_key_opens, archive_status, assess_archive_upgrade, cancel_export,
-    data_wipe_interrupted, doctor, ensure_archive_initialized,
-    ensure_archive_initialized_with_progress, export_history, export_search_history,
-    finish_interrupted_data_wipe, get_browse_day_insights, get_export_progress, get_url_detail,
-    legacy_archive_status, legacy_derived_health, list_history, list_recovery_snapshots,
+    BrowseDayTopUrl, DiskEncryptionMode, ExportCancelled, LaunchRecovery, ReconcileReport, RunPage,
+    WipeOutsideState, archive_availability, archive_status, assess_archive_upgrade, cancel_export,
+    data_wipe_interrupted, derived_health, detect_disk_encryption_mode, doctor,
+    ensure_archive_initialized, ensure_archive_initialized_with_progress, export_history,
+    export_search_history, finish_interrupted_data_wipe, get_browse_day_insights,
+    get_export_progress, get_url_detail, legacy_archive_status, list_history,
     load_audit_run_detail, load_dashboard_snapshot, load_history_favicons, load_recent_runs,
     load_source_stats, og_images, og_images_fetch, open_legacy_source_evidence_connection,
-    preview_data_wipe, preview_retention, preview_snapshot_restore, reconcile_archive_encryption,
-    record_export_failure, recover_archive_on_launch, rekey_archive, repair_health_issues,
-    request_running_jobs_stop, run_backup, run_backup_with_progress,
-    run_full_archive_snapshot_restore, run_retention_prune, run_snapshot_restore, search_history,
-    wipe_all_data,
+    preview_data_wipe, preview_snapshot_restore, record_export_failure, recover_archive_on_launch,
+    repair_health_issues, request_running_jobs_stop, run_backup, run_backup_with_progress,
+    run_snapshot_restore, search_history, wipe_all_data,
 };
 pub use browser_access::{
     DISCOVERY_ISSUE_DISCOVERY_ERROR, DISCOVERY_ISSUE_FULL_DISK_ACCESS,
@@ -160,9 +158,8 @@ pub use intelligence_runtime::{
 };
 pub use intelligence_sections::build_core_intelligence_section_meta;
 pub use migration::{
-    ApplyImportOptions, EXPORT_FORMAT_VERSION, ExportManifest, ExportManifestFile, ExportedBundle,
-    ImportExclusionNote, ImportPreview, ImportResult, apply_import, export_app_data,
-    preview_import,
+    ApplyImportOptions, ExportManifest, ExportManifestFile, ExportedBundle, ImportExclusionNote,
+    ImportPreview, ImportResult,
 };
 pub use models::*;
 pub use schedule_attempts::{

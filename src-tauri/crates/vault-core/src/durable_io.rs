@@ -305,7 +305,7 @@ pub(crate) fn fsync_file_durably(path: &Path) -> Result<()> {
 /// RESURRECT the marker and crash-recovery would then roll back an import that
 /// actually committed. Fsyncing the parent makes "the marker is gone" durable, so
 /// recovery is a no-op exactly when the import succeeded.
-pub(crate) fn remove_file_durably(path: &Path) -> Result<()> {
+pub fn remove_file_durably(path: &Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }

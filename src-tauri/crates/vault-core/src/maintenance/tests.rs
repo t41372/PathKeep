@@ -99,6 +99,7 @@ fn mode_switch_round_trips_all_databases_and_cancel_keeps_original() {
         switch_mode(&vault, None, ArchiveMode::Encrypted, Some("new"), Default::default(), |_| {})
             .unwrap();
     assert_search(&encrypted.vault);
+    crate::archive::check_config_disk_consistency(encrypted.vault.paths()).unwrap();
     assert!(encrypted.previous_files.join("snapshot.json").is_file());
     assert!(
         Vault::unlock_data_key(&project_paths_with_root(&encrypted.previous_files), "new").is_ok()
@@ -113,6 +114,7 @@ fn mode_switch_round_trips_all_databases_and_cancel_keeps_original() {
     )
     .unwrap();
     assert_search(&plain.vault);
+    crate::archive::check_config_disk_consistency(plain.vault.paths()).unwrap();
     assert!(plain.previous_files.join("snapshot.json").is_file());
     for db in [Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent] {
         let body = plain
@@ -156,6 +158,7 @@ fn snapshot_restores_evidence_and_agent_alongside_the_archive() {
         .unwrap();
     let restored =
         restore_snapshot(&vault, &path, Some("old password"), Default::default()).unwrap();
+    crate::archive::check_config_disk_consistency(restored.vault.paths()).unwrap();
     assert_eq!(
         restored
             .vault
@@ -220,9 +223,10 @@ fn startup_rolls_back_a_mode_switch_interrupted_after_the_first_install() {
     drop(fault);
     assert!(crashed.is_err());
     assert!(crate::maintenance::install::pending(&paths));
-    crate::recover_archive_on_launch(&paths, &config, None).unwrap();
+    crate::recover_archive_on_launch(&paths, &config).unwrap();
     assert!(!crate::maintenance::install::pending(&paths));
     assert_eq!(std::fs::read(paths.app_root.join("archive/keys.envelope")).unwrap(), original);
+    crate::archive::check_config_disk_consistency(&paths).unwrap();
     let (opened, _) = Vault::open_password(paths, config, "old password", None).unwrap();
     opened.close().unwrap();
 }
@@ -306,9 +310,15 @@ fn retention_keeps_a_native_safety_snapshot_and_updates_its_native_ledger() {
         snapshot(&vault, &path).unwrap();
         record_restore(&vault, &path.display().to_string()).unwrap();
     }
+    let keep = super::list_snapshots(vault.paths())
+        .unwrap()
+        .into_iter()
+        .find(|s| s.verified_openable)
+        .map(|s| std::path::PathBuf::from(s.path));
     let result = prune(
         &vault,
         &crate::RetentionPruneRequest { bucket_ids: vec!["snapshots".into()] },
+        keep.as_deref(),
         &Default::default(),
     )
     .unwrap();

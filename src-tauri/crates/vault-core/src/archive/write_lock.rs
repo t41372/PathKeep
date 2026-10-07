@@ -375,7 +375,7 @@ fn op_gate() -> &'static (Mutex<HashSet<PathBuf>>, Condvar) {
 /// this gate: because the gate is non-reentrant, a nested re-acquire would self-deadlock.
 /// The split is enforced by the public-vs-`_locked` function variants, not a runtime flag.
 #[derive(Debug)]
-pub(crate) struct ArchiveOpGate {
+pub struct ArchiveOpGate {
     /// The sentinel path this guard holds; removed from the held-set on Drop. Read by
     /// [`Drop`] (and `Debug`), so the gate frees exactly its own archive's entry.
     path: PathBuf,
@@ -391,7 +391,7 @@ impl ArchiveOpGate {
     /// parked, so other acquirers and `try_acquire` probes still run, and the waiter wakes
     /// the instant the holder drops — no poll interval, no wasted wakeups. Infallible: it
     /// does no I/O (the path derivation cannot fail), so there is no error arm to surface.
-    pub(crate) fn acquire(paths: &ProjectPaths) -> ArchiveOpGate {
+    pub fn acquire(paths: &ProjectPaths) -> ArchiveOpGate {
         let path = lock_file_path(paths);
         let (mutex, condvar) = op_gate();
         let mut held = mutex.lock().expect("archive op-gate mutex poisoned");

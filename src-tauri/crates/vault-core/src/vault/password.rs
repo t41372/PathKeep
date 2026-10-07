@@ -78,10 +78,12 @@ pub(super) fn open_using(
                     if vault_store::Db::ALL.iter().any(|db| files.get(*db).exists()) {
                         return Err(EnvelopeMissing.into());
                     }
-                    if paths.archive_database_path.exists()
-                        && !crate::archive_key_opens(&paths, password)?
-                    {
-                        return Err(ArchivePasswordWrong.into());
+                    // A new envelope next to an archive of the old format would start an
+                    // empty native archive beside it. That archive has to be converted first.
+                    if paths.archive_database_path.exists() {
+                        anyhow::bail!(
+                            "archive-conversion-required: preview and convert the SQLCipher archive before opening it"
+                        );
                     }
                     let (envelope, key) =
                         Envelope::create(password.as_bytes(), KdfParams::RECOMMENDED)?;

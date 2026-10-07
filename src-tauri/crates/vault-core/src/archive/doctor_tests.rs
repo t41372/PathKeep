@@ -23,7 +23,7 @@ fn healthy_native_files_need_no_repair() {
         ] {
             assert!(report.checks.iter().any(|c| c.code == code && c.ok), "{code}: {report:?}");
         }
-        assert!(repair_health_issues(&vault, None).unwrap().run_id.is_none());
+        assert!(repair_health_issues(&vault).unwrap().run_id.is_none());
     }
 }
 
@@ -48,7 +48,7 @@ fn repairs_counters_missing_documents_and_visibility_provenance_without_unhiding
         for code in ["cached-totals", "search-outbox", "broken-visibility-references"] {
             assert!(before.checks.iter().any(|c| c.code == code && !c.ok), "{code}");
         }
-        let repaired = repair_health_issues(&vault, None).unwrap();
+        let repaired = repair_health_issues(&vault).unwrap();
         assert!(repaired.run_id.is_some());
         assert_eq!(repaired.repaired_visibility_rows, 1);
         assert_eq!(repaired.repaired_total_counters, 8);
@@ -126,11 +126,11 @@ fn missing_import_audits_are_rebuilt_and_write_failures_leave_failed_runs() {
                 std::fs::create_dir_all(&vault.paths().audit_repo_path).unwrap();
                 std::fs::write(vault.paths().audit_repo_path.join("imports"), b"not a directory")
                     .unwrap();
-                assert!(repair_health_issues(&vault, None).is_err());
+                assert!(repair_health_issues(&vault).is_err());
                 let status=vault.store().read(Db::Archive,|s|s.query_one("SELECT status FROM runs WHERE run_type='doctor' ORDER BY id DESC LIMIT 1",(),|r|Ok(r.get::<String>(0)?))).unwrap();
                 assert_eq!(status, "failed");
             } else {
-                let repaired = repair_health_issues(&vault, None).unwrap();
+                let repaired = repair_health_issues(&vault).unwrap();
                 assert_eq!(repaired.repaired_import_audits, 1);
                 assert!(
                     doctor(&vault)
@@ -180,7 +180,7 @@ fn repairs_profile_and_import_counters_even_when_archive_totals_are_correct() {
             for (name,count) in [("visits",3),("urls",2),("sourceProfiles",3)] {s.execute("UPDATE archive_totals SET value=?2 WHERE name=?1",vault_store::params![name,count])?;}
             Ok(())
         }).unwrap();
-        let repaired = repair_health_issues(&vault, None).unwrap();
+        let repaired = repair_health_issues(&vault).unwrap();
         assert_eq!(repaired.repaired_batch_totals, 1);
         let stats = crate::load_source_stats(&vault).unwrap();
         assert_eq!(stats.iter().map(|s| s.visit_count).sum::<i64>(), 3);
@@ -209,7 +209,7 @@ fn audit_repair_retains_optional_git_result_or_its_warning() {
     }).unwrap();
     let mut config = vault.config().clone();
     config.git_enabled = true;
-    let report = repair_health_issues(&vault.with_config(config), None).unwrap();
+    let report = repair_health_issues(&vault.with_config(config)).unwrap();
     assert_eq!(report.repaired_import_audits, 1);
     assert!(
         report
@@ -227,7 +227,7 @@ fn a_native_derived_only_repair_keeps_its_audit_run_and_metadata_totals() {
         s.execute("INSERT INTO ai_embeddings(history_id,profile_id,url,title,domain,visited_at,content_hash,content_bytes,metadata_bytes,provider_id,model,indexed_at) VALUES(999,'profile','https://example.com','Title','example.com','2026-10-05','hash',1,1,'test','test','2026-10-05')",())?;
         s.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at) VALUES('test','test',1,1,1,'2026-10-05')",())?;Ok(())
     }).unwrap();
-    let report = repair_health_issues(&vault, None).unwrap();
+    let report = repair_health_issues(&vault).unwrap();
     assert_eq!(report.cleared_derived_rows, 1);
     let run = report.run_id.expect("derived repairs must retain their audit trace");
     let detail = crate::load_audit_run_detail(&vault, run).unwrap();

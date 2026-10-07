@@ -103,15 +103,12 @@ pub(crate) fn clear_stale_ai_embeddings(vault: &crate::Vault) -> Result<usize> {
 }
 
 /// Checks the owned intelligence database against canonical archive visibility.
-pub fn legacy_derived_health(
-    vault: &crate::Vault,
-    _key: Option<&str>,
-) -> Result<Option<HealthCheck>> {
-    vault.read(vault_store::Db::Intelligence, |s| Ok(Some(check_stale_derived_state(s)?)))
+pub fn derived_health(vault: &crate::Vault) -> Result<HealthCheck> {
+    vault.read(vault_store::Db::Intelligence, check_stale_derived_state)
 }
 
 /// Repairs derived state through the owner; canonical archive facts are never changed.
-pub(crate) fn repair_legacy_derived(vault: &crate::Vault, _key: Option<&str>) -> Result<usize> {
+pub(crate) fn repair_derived(vault: &crate::Vault) -> Result<usize> {
     let stale = vault.read(vault_store::Db::Intelligence, |s| {
         Ok(count_rows_without_visible_visit(s, "search_trail_members", "visit_id")?
             + count_rows_without_visible_visit(s, "visit_derived_facts", "visit_id")?)

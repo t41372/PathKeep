@@ -132,8 +132,8 @@ impl Vault {
         })
     }
 
-    /// Password unlock is the only path that may create an envelope. The legacy
-    /// archive authenticates upgrades before any Turso file is created.
+    /// Password unlock is the only path that may create an envelope. It refuses
+    /// while an archive of the old format waits for conversion.
     pub fn open_password(
         paths: ProjectPaths,
         config: AppConfig,

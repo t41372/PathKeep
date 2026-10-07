@@ -9,8 +9,9 @@ pub use retention::{preview_retention, prune};
 pub mod install;
 pub use audit::{record_mode_change, record_restore};
 mod snapshot;
-pub(crate) use snapshot::list_snapshots;
-pub use snapshot::{recover_native_maintenance, restore_snapshot, restore_snapshot_to, snapshot};
+pub use snapshot::{
+    list_snapshots, recover_native_maintenance, restore_snapshot, restore_snapshot_to, snapshot,
+};
 #[cfg(test)]
 mod install_tests;
 #[cfg(all(test, unix))]
