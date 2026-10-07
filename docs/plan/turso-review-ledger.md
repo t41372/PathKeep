@@ -187,15 +187,20 @@ Unverified until the review pass. Full report: `docs/architecture/research/2026-
   - Old-format fixtures for conversion and recovery tests live in `vault_convert_sqlcipher::test_support` (feature `test-fixtures`), built from the SQL the old releases shipped (001–016). The v0.2.0 upgrade test became a conversion test there.
   - `lmstudio_agent_e2e.rs` had been importing into a Vault it then threw away, so the agent searched an empty archive; it now uses the Vault the tool context reads (still ignored, needs LM Studio).
 - **Fix pass, found while doing this:**
-  - Bundles exported by v0.1–v0.3 (format 1, SQLCipher inside) are refused with "unsupported bundle format 1". Moving to a new computer from an old version then needs the old app. Either convert format-1 bundles on import or say clearly what to do.
+  - Bundles exported by v0.1–v0.3 (format 1, SQLCipher inside) are refused with "unsupported bundle format 1". Moving to a new computer from an old version then needs the old app. Decided by the user on 2026-10-07: convert format-1 bundles on import.
   - `run_full_archive_restore` routes any `snapshot_path` that is a file to the converter's restore. The old flow refused paths outside `raw-snapshots/` (canonicalized). Check native restore too.
   - `ProjectPaths::archive_database_path` / `source_evidence_database_path` mean the old `.sqlite` files, until `Vault::open` rewrites them to the native `.db`. The same field names two files depending on where the paths came from; split into explicit old-format and native fields.
   - [x] Archives from older releases have older schemas (the old app migrated them on open). Checked: an authentic v0.2.0 archive (shipped migrations 001–010) converts without loss (`vault-convert-sqlcipher/tests/old_versions.rs`); the converter copies the columns both sides have. v0.1.0 is not covered yet.
   - Launch recovery for an unconverted archive ran only on the setup path, but the shell asks for the upgrade assessment first and the update screen converts directly. Fixed in this step: assess, convert and initialize all run it first; an archive it can't bring back opens the recovery screen.
-  - An old install that changed its password under the old archive-only rekey can have `source-evidence.sqlite` keyed with the previous password (BACKLOG `WORK-ENCRYPT-KEYDRIFT-A`). The converter opens it with the archive password and fails the whole conversion. Decide: convert without that file's evidence and say so, or ask for the old password.
+  - An old install that changed its password under the old archive-only rekey can have `source-evidence.sqlite` keyed with the previous password (BACKLOG `WORK-ENCRYPT-KEYDRIFT-A`). The converter opens it with the archive password and fails the whole conversion. Decided by the user on 2026-10-07: convert everything else, keep that file untouched, and tell the user which part was not carried over.
   - The old SQLCipher benchmarks (`archive_scale_bench` sections) went with the old format. Doctor and import-batch revert/restore have no native at-scale benchmark yet; the native read, export and Insights ones remain.
   - Flaky: `vault::tests::a_password_open_beside_an_unconverted_archive_creates_nothing` failed once in a full workspace run (its error did not start with `archive-conversion-required`; the message wasn't captured) and passed alone and in the next full vault-core run. Capture the error next time it fails.
   - Flaky: `worker_bridge::recovery_tests::assessment_and_bootstrap_finish_a_published_mode_switch_after_process_exit` failed once in the full desktop suite (the install journal was no longer pending after the child exited at the checkpoint) and passes alone. Likely another test in the same binary resolves the project root from the environment without `lock_env` and recovers this test's root. Find it.
+
+## Found in the review pass
+
+- **The old-archive upgrade has no app-level test** (side agent, 2026-10-07). Only crate tests cover the conversion, and merging found it had been silently dropping all saved page text. Add an E2E that seeds an old-format archive (v0.3 layout, encrypted, with saved page text, stars, notes, chats and Insights), starts the real app, goes through the update screen and checks that the data is there afterwards.
+- `docs/architecture/ai-security-posture.md` still describes the SQLCipher archive and says chats are excluded from the bundle. Rewrite for the native store and the 2026-10-07 bundle decision.
 
 ## Area 5+
 

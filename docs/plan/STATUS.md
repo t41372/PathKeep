@@ -39,6 +39,7 @@
     - 打包時 Recharts 被併成一個名叫 `heatmap` 的 546 kB chunk（Home 和 Insights 共用、lazy load），不算問題。
   - 2026-10-02 試跑時記下、還沒修的：
     - [x] Turso area 3 搜尋後端：`vault-search` 覆蓋所有匹配頁面，按相關度、符合篩選的最新可見訪問、page id 排序；沒有 25,000 頁窗口、由新到舊退路、match-set cache 或準備階段。owner indexer 消化 durable outbox，重建期間保留可用的舊索引，首次建立時每個回應都帶覆蓋狀態。Tauri / worker / dev IPC 提供 session、漸進結果與精確計數、游標及取消。前端 channel 接線由用戶處理。契約：[search.md](../architecture/search.md)；各上限、失效模式與測試移植：[驗收記錄](../architecture/research/2026-10-search-integration-validation.md)。
+    - [x] Turso 遷移區塊 1–6 全部完成（2026-10-07，`feat/turso-storage`）：寫入、讀取、搜尋、Insights / AI / agent、維護與 SQLCipher 轉換、舊格式程式碼收進轉換器。下一步：審查與修復，清單在 [turso-review-ledger.md](turso-review-ledger.md)。
     - Regex、模糊搜尋、AI 候選、code mode、命令面板、MCP 與搜尋匯出不再截斷覆蓋；原有標註 API 上限由 area 1 的完整游標分頁處理。14.4M 訪問 / 2.9M 頁面的加密 owner 路徑量測、cold / warm 定義、RSS、備份競爭和清理證據見 [benchmark](../architecture/research/2026-10-vault-core-search-benchmark.md)。時間軸與其他 read models 屬 area 2，intelligence / AI queue 屬 area 4，maintenance 屬 area 5。
     - ~~Insights「常搜尋」的次數是整個 query family 的歷史總數，不受日期範圍限制~~：已修。新命令 `get_frequent_searches` 只數範圍內的關鍵字搜尋（intelligence migration 9 給 `search_events` 加上訪問時間和索引），14.4M 下 30 天約 10 ms、一年約 145 ms，見 `ipc-performance.md` §8。
     - ~~排程器沒有沙盒~~：已補 `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR`（只在 debug build 生效），dev:demo 與 E2E 都會設。E2E 的 onboarding 仍選 Manual；`schedule.spec`（2026-10-04）在沙盒裡裝自訂間隔、核對檔案、移除。改了 project root 卻沒設沙盒的 debug run 會被排程器拒絕。
