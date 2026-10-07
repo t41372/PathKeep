@@ -82,6 +82,19 @@ export const backupImport = defineMessages({
         'Restore shows the {count} visits this import added in your history again.',
       restoreConfirm: 'Restore import',
       working: 'Working…',
+      importing: 'Importing…',
+      stopped: 'Stopped partway · {imported} added',
+      undoStopped: 'Undo stopped partway. Some of its visits are still shown.',
+      restoreStopped:
+        'Restore stopped partway. Some of its visits are still hidden.',
+      finishUndo: 'Finish undo',
+      finishRestore: 'Finish restore',
+      stoppedNote:
+        'This import stopped before it finished. Importing the same file again adds the rest; visits already added are skipped.',
+      finishUndoNote:
+        'Undo stopped before it finished. Finishing it hides the rest of the visits this import added.',
+      finishRestoreNote:
+        'Restore stopped before it finished. Finishing it shows the rest of the visits this import added again.',
     },
   },
   'zh-CN': {
@@ -159,6 +172,18 @@ export const backupImport = defineMessages({
         '恢复会让这次导入新增的 {count} 条浏览记录重新显示在历史中。',
       restoreConfirm: '恢复导入',
       working: '正在处理…',
+      importing: '正在导入…',
+      stopped: '中途停止 · 已新增 {imported} 条',
+      undoStopped: '撤销中途停止，部分记录仍然显示。',
+      restoreStopped: '恢复中途停止，部分记录仍然隐藏。',
+      finishUndo: '完成撤销',
+      finishRestore: '完成恢复',
+      stoppedNote:
+        '这次导入没有完成就停止了。再次导入同一个文件会补上剩下的记录，已新增的会跳过。',
+      finishUndoNote:
+        '撤销没有完成就停止了。完成后，这次导入新增的其余记录也会隐藏。',
+      finishRestoreNote:
+        '恢复没有完成就停止了。完成后，这次导入新增的其余记录也会重新显示。',
     },
   },
   'zh-TW': {
@@ -236,6 +261,18 @@ export const backupImport = defineMessages({
         '還原會讓這次匯入新增的 {count} 筆瀏覽記錄重新顯示在歷史中。',
       restoreConfirm: '還原匯入',
       working: '正在處理…',
+      importing: '正在匯入…',
+      stopped: '中途停止 · 已新增 {imported} 筆',
+      undoStopped: '復原中途停止，部分記錄仍然顯示。',
+      restoreStopped: '還原中途停止，部分記錄仍然隱藏。',
+      finishUndo: '完成復原',
+      finishRestore: '完成還原',
+      stoppedNote:
+        '這次匯入沒有完成就停止了。再次匯入同一個檔案會補上剩下的記錄，已新增的會略過。',
+      finishUndoNote:
+        '復原沒有完成就停止了。完成後，這次匯入新增的其餘記錄也會隱藏。',
+      finishRestoreNote:
+        '還原沒有完成就停止了。完成後，這次匯入新增的其餘記錄也會重新顯示。',
     },
   },
 })

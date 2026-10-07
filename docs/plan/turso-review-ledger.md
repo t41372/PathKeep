@@ -52,8 +52,9 @@ These are in `brief-area1-fixes3b.txt` (raw reports):
   - it must not look like the full answer. No "no results" without that notice, and counts are marked as partial;
   - the notice goes away once the index catches up.
   - Applies in en / zh-CN / zh-TW. E2E: hold the indexer mid-build and assert the notice and the partial count.
-- Streamed search presentation (provisional results, progress, counts arriving).
-- Run states, partial-import states, revert and restore triggers.
+- [x] Streamed search presentation (provisional results, progress, counts arriving).
+- [x] Run states, partial-import states, revert and restore triggers: interrupted runs say they stopped and that the next backup finishes; imports show importing / stopped partway / undo or restore stopped partway, with "Finish undo" / "Finish restore".
+  - Not covered by E2E: reaching those states needs the app to quit mid-run, and the E2E harness can't restart the app. Rust tests cover the backend side (`process_exit_mid_revert_resumes_without_repeating_committed_pages`, interrupted runs at open). Add an app-restart harness to E2E, then a test that quits during an import and an undo.
 
 ## Area 2 (read paths), Codex's own report
 
@@ -132,8 +133,8 @@ These are in `brief-area1-fixes3b.txt` (raw reports):
 - **Regex speed beyond the literal shortcut (user, 2026-10-06: record, don't do now).** A regex with a literal of 3+ ASCII letters/digits reads only the candidate pages. Anything else (`\d+`, `^https?://`, every Chinese pattern) walks every visit: about 30–40 ms per 512 visits inside the debug E2E app, so minutes at 14.4M. Ideas, not started:
   - Walk URLs instead of visits: a regex only looks at the URL and its title, so match each URL once and count visits (in scope) only for matching URLs. Several times less work for every regex, Chinese included; results would no longer arrive newest first while scanning.
   - Chinese literals could use the index's CJK grams the way ASCII literals use trigrams.
-  - Unexplained: the same 512-visit chunk costs 2–6 ms in a vault-core test (22k visits, encrypted, with or without a concurrent writer) but 30–40 ms inside the E2E app. Find out why before tuning anything else.
-- E2E `history-tools.spec.ts` "a regex Rust cannot run…" passes alone (the fragment-less `tok+io` walk of 22k visits finishes in 1.7 s) but fails in the full suite: under parallel load the walk passes the 15 s wait. Same root cause as the item above.
+  - Unexplained: the same 512-visit chunk costs 2–6 ms in a vault-core test (22k visits, encrypted, with or without a concurrent writer) but 30–40 ms inside the E2E app. Not read queueing: inside the app a chunk waits about 60 µs for a reader, then runs about 30 ms. Something in the app's data or store configuration (page cache size, row shape, three profiles) makes the same query about 7× slower. Find out why before tuning anything else.
+- E2E `history-tools.spec.ts` "a regex Rust cannot run…" passes alone (the fragment-less `tok+io` walk of 22k visits finishes in 1.7 s) but is borderline in the full suite (one worker; failed twice, passed once): the walk's 44 chunks at about 30 ms each plus steps land near the 15 s wait. Same root cause as the item above.
 - E2E `background-work.spec.ts` fails: a full Insights rebuild of the 22k-visit fixture (three profiles, debug build) shows "9,083 of 9,083 · Running" after 60 s. It passed on SQLite (`redesign/v0.4`). Same cause as the rebuild-performance item: Codex's area 4 benchmark derived about 2,000 visits/s in release (3.58M visits in 1,714 s, unfinished).
 - E2E `security.spec.ts` "changing the archive password needs the current one" fails with `storage-migration-incomplete` from `preview_rekey_archive`: rekey is area 5 (Codex, in progress).
 - **Same keyset pattern elsewhere (to check in the fix pass, user asked for all of them):** about 20 cursor predicates use `a<? OR (a=? AND b<?)`: intelligence pages (`intelligence_sessions`, `intelligence_search_queries`, `refind_evidence`, `phase_three` visits, `intelligence_summary`, `intelligence_refind`, `intelligence_domain`, `path_flows`, `intelligence_navigation`, `intelligence_search_metrics`), `stars/list.rs`, `annotations.rs`, `intelligence_runtime/snapshot.rs`. Those over an indexed column need the bounded form and a plan test; those over aggregates (`HAVING COUNT(*)<?`) have no index to seek, so measure what each page computes instead.
