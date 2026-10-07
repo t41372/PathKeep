@@ -89,6 +89,10 @@ pub struct TopSitesRequest {
     pub cursor: Option<String>,
     pub date_range: DateRange,
     pub profile_id: Option<String>,
+    /// Several profiles summed together (one browser can have several); takes
+    /// precedence over `profile_id`. Empty with no `profile_id` means every profile.
+    #[serde(default)]
+    pub profile_ids: Vec<String>,
     pub sort_by: Option<String>,
     pub limit: Option<u32>,
 }

@@ -231,6 +231,7 @@ fn render_reads_use_indexed_archive_and_membership_access() {
         let sites_request = TopSitesRequest {
             date_range: range.clone(),
             profile_id: scope.profile_id.clone(),
+            profile_ids: Vec::new(),
             limit: Some(1),
             ..Default::default()
         };

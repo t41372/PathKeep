@@ -829,12 +829,6 @@ pub struct HistoryQueryResponse {
     /// `None` otherwise.
     #[serde(default)]
     pub total_visits: Option<usize>,
-    /// Retained wire compatibility field; complete native search always returns false.
-    #[serde(default)]
-    pub windowed: bool,
-    /// Retained legacy wire field; progressive native regex reports SearchStep instead.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub regex_scan: Option<RegexScanProgress>,
     pub items: Vec<HistoryEntry>,
     pub page: usize,
     pub page_size: usize,
@@ -848,18 +842,6 @@ fn default_total_exact() -> bool {
     true
 }
 
-/// How far one chunk of a regex search got.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RegexScanProgress {
-    /// The visit time the scan has reached: every visit between the start of the scan (the newest
-    /// visit, or the oldest for `oldest` order) and this time has been checked. `None` before any.
-    pub scanned_to_ms: Option<i64>,
-    /// True once every visit inside the filters has been checked. Until then counts are "so far"
-    /// and a grouped row's `visit_count` covers only the visits found so far.
-    pub complete: bool,
-}
-
 impl Default for HistoryQueryResponse {
     fn default() -> Self {
         Self {
@@ -867,8 +849,6 @@ impl Default for HistoryQueryResponse {
             total: 0,
             total_exact: true,
             total_visits: None,
-            windowed: false,
-            regex_scan: None,
             items: Vec::new(),
             page: 1,
             page_size: 0,
@@ -904,9 +884,6 @@ pub struct ExportResult {
     pub format: ExportFormat,
     pub path: String,
     pub count: usize,
-    /// Retained wire compatibility field; search exports always cover the complete reader.
-    #[serde(default)]
-    pub windowed: bool,
 }
 
 /// Pollable lifecycle of an export; finishing protects the durable publication barrier.

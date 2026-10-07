@@ -125,17 +125,17 @@ export default function SitePage() {
           <QueryBody
             query={site}
             skeleton={<ListSkeleton rows={6} />}
-            isEmpty={(result) => result.data.topPages.length === 0}
+            isEmpty={(result) => result.data.topPages.items.length === 0}
             empty={t('insights.site.empty')}
           >
             {(result) => {
               const max = Math.max(
                 1,
-                ...result.data.topPages.map((page) => page.visitCount),
+                ...result.data.topPages.items.map((page) => page.visitCount),
               )
               return (
                 <ul className="flex flex-col gap-1.5">
-                  {result.data.topPages.map((page) => (
+                  {result.data.topPages.items.map((page) => (
                     <li key={page.url}>
                       <Link
                         to={historyPath({ q: page.title || page.path, domain })}
@@ -175,12 +175,12 @@ export default function SitePage() {
           <QueryBody
             query={site}
             skeleton={<ListSkeleton rows={4} />}
-            isEmpty={(result) => result.data.landingSearches.length === 0}
+            isEmpty={(result) => result.data.landingSearches.items.length === 0}
             empty={t('insights.site.noSearches')}
           >
             {(result) => (
               <ul className="-mx-2 flex flex-col">
-                {result.data.landingSearches.map((search) => (
+                {result.data.landingSearches.items.map((search) => (
                   <li key={search.query}>
                     <Link
                       to={searchPath(search.query, range)}

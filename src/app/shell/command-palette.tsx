@@ -27,6 +27,7 @@ import {
   CommandShortcut,
 } from '@/components/ui/command'
 import { Favicon } from '@/components/app/favicon'
+import { SearchCoverageNotice } from '@/components/app/search-coverage'
 import { explorerClient } from '@/lib/backend-client/explorer'
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
 import { useFormat, useI18n, type MessageKey } from '@/lib/i18n'
@@ -71,15 +72,13 @@ export function CommandPalette({
   const visits = useQuery({
     queryKey: [...queryKeys.archiveData, 'palette', term],
     // One row per page: a page visited ten times should not fill the list.
-    queryFn: async () => {
-      const page = await explorerClient.searchPages({
+    queryFn: () =>
+      explorerClient.searchPages({
         q: term,
         limit: 6,
         sort: 'relevance',
         includeTotal: false,
-      })
-      return page.items
-    },
+      }),
     enabled: open && term.length >= 2,
     staleTime: 30_000,
   })
@@ -175,7 +174,12 @@ export function CommandPalette({
         )}
         {term.length >= 2 && (
           <CommandGroup heading={t('shell.palette.pageResults')}>
-            {(visits.data ?? []).map((visit) => (
+            {/* An index still catching up: these six can't be the whole answer. */}
+            <SearchCoverageNotice
+              status={visits.data?.searchState ?? null}
+              className="px-2 py-1.5"
+            />
+            {(visits.data?.items ?? []).map((visit) => (
               <CommandItem
                 key={visit.id}
                 value={`visit:${visit.id}`}

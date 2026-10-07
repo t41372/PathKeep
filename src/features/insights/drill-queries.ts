@@ -98,7 +98,7 @@ export function useSearch(query: string, range: RangeId) {
     combine: (results) => {
       const seen = new Map<string, TrailSummary>()
       for (const result of results) {
-        for (const trail of result.data?.data.relatedTrails ?? []) {
+        for (const trail of result.data?.data.relatedTrails.items ?? []) {
           seen.set(trail.trailId, trail)
         }
       }

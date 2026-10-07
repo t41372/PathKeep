@@ -94,7 +94,7 @@ export function useFrequentSearches(range: RangeId, limit = 10) {
       const result = await insightsClient.frequentSearches(scope(range), limit)
       return {
         meta: result.meta,
-        data: result.data.map((entry) => ({
+        data: result.data.items.map((entry) => ({
           query: entry.query,
           count: entry.searchCount,
         })),
@@ -124,7 +124,7 @@ export function useThreads(range: RangeId, limit = 6) {
     queryFn: async () => {
       const result = await insightsClient.reopenedInvestigations(scope(range))
       const byAnchor = new Map<string, ReopenedInvestigation>()
-      for (const item of result.data) {
+      for (const item of result.data.items) {
         const anchor = `${item.anchorType}:${item.anchorId}:${item.anchorLabel}`
         const kept = byAnchor.get(anchor)
         if (!kept || item.occurrenceCount > kept.occurrenceCount) {

@@ -125,10 +125,10 @@ re-saves retain conversation and message creation times.
 
 Agent transport additions (camelCase):
 
-| Command | Request | Response |
-| --- | --- | --- |
-| `list_ai_conversations` | `{ request: { limit?: number, cursor?: string } }` | `{ conversations: AgentConversationSummary[], nextCursor: string \| null }` |
-| `list_ai_messages` | `{ request: { conversationId: string, limit?: number, cursor?: number } }` | `{ messages: AgentMessage[], nextCursor: number \| null }` |
+| Command                 | Request                                                                    | Response                                                                    |
+| ----------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `list_ai_conversations` | `{ request: { limit?: number, cursor?: string } }`                         | `{ conversations: AgentConversationSummary[], nextCursor: string \| null }` |
+| `list_ai_messages`      | `{ request: { conversationId: string, limit?: number, cursor?: number } }` | `{ messages: AgentMessage[], nextCursor: number \| null }`                  |
 
 Pass `nextCursor` unchanged to the same command. `load_ai_conversation` continues
 to return the complete transcript; save, rename and delete payloads are unchanged.

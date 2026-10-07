@@ -70,7 +70,6 @@ pub(crate) fn history_for_root(
         has_previous: query.cursor.is_some() || current_page > 1,
         has_next: next_cursor.is_some(),
         next_cursor,
-        ..Default::default()
     })
 }
 

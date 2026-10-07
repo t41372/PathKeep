@@ -10,8 +10,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { SearchCoverageNotice } from '@/components/app/search-coverage'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
+import { SEARCH_CONNECTION_LOST } from '@/lib/ipc/search-stream'
 import { DetailPanel } from './detail-panel'
 import { HistoryToolbar } from './history-toolbar'
 import { openInBrowser } from './open-link'
@@ -233,11 +235,15 @@ export default function HistoryPage() {
         />
       )
     }
-    // An empty regex chunk is not "no results" until the whole archive is
-    // scanned. While chunks are coming it is loading; once stopped, the header
-    // says how far the scan got and offers to keep searching.
-    if (items.length === 0 && list.regex && !list.regex.complete) {
-      return list.regex.running ? <StateMessage loading /> : null
+    if (list.error?.message === SEARCH_CONNECTION_LOST) {
+      return (
+        <StateMessage
+          icon="search"
+          title={t('history.state.searchErrorTitle')}
+          body={t('history.state.searchConnectionLost')}
+          onRetry={list.refetch}
+        />
+      )
     }
     if (list.error) {
       return (
@@ -253,6 +259,18 @@ export default function HistoryPage() {
       )
     }
     if (items.length === 0) {
+      // While the index is catching up, an empty result is not "nothing found".
+      if (searching && list.search && !list.search.coverageComplete) {
+        return (
+          <StateMessage
+            icon="search"
+            title={t('history.state.noResultsPartialTitle')}
+            body={t('history.state.noResultsPartialBody', {
+              query: search.text,
+            })}
+          />
+        )
+      }
       if (searching) {
         return (
           <StateMessage
@@ -343,26 +361,8 @@ export default function HistoryPage() {
           {searching && (
             <div className="flex min-h-[38px] items-center gap-2 px-7 pt-3.5 pb-1.5 text-[13px] text-muted-foreground">
               <p aria-live="polite">
-                <ResultsLine search={search} list={list} items={items} />
+                <ResultsLine search={search} list={list} />
               </p>
-              {!search.regexError && list.regex && !list.regex.complete && (
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-[13px]"
-                  onClick={
-                    list.regex.running
-                      ? list.regex.stop
-                      : list.regex.keepSearching
-                  }
-                >
-                  {t(
-                    list.regex.running
-                      ? 'history.results.stopSearching'
-                      : 'history.results.keepSearching',
-                  )}
-                </Button>
-              )}
             </div>
           )}
           {searching &&
@@ -372,13 +372,9 @@ export default function HistoryPage() {
                 active={search.mode === 'semantic'}
               />
             )}
-          {searching &&
-            !search.regexError &&
-            (list.totals?.windowed || list.windowed) && (
-              <p className="px-7 pb-1.5 text-[13px] text-muted-foreground">
-                {t('history.results.windowed')}
-              </p>
-            )}
+          {searching && !search.regexError && (
+            <SearchCoverageNotice status={list.search} className="px-7 pb-2" />
+          )}
           {showList ? (
             listContent()
           ) : params.view === 'sites' ? (

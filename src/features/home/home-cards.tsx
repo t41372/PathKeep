@@ -317,7 +317,7 @@ export function ThreadsCard() {
   const { t } = useI18n()
   const format = useFormat()
   const threads = useThreads()
-  const items = (threads.data?.data ?? [])
+  const items = (threads.data?.data.items ?? [])
     .slice()
     .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
     .slice(0, 4)

@@ -76,6 +76,8 @@ Already addressed in the redesign import: `includeTotal: false` skips the count 
 
 ### 6. Search over a common word walked every match
 
+> Replaced. Search now runs on the Tantivy index and covers every match, streamed in steps; see `search.md`. This section records why the earlier bound existed.
+
 Search asks `query_history` with `groupByUrl: true`: one row per URL with its visit count (`vault-core/src/archive/history/grouped.rs`). Until this change, ranking, grouping and the exact count all walked the full match set: both FTS tables scored every matching document with `bm25`, every matching `url_id` was aggregated over its visits, and the totals ran it all again. A word in every one of the 3.6M titles ("topic") took 10.5 s for the first page and 26.6 s for the History header's count.
 
 Fix (`vault-core/src/archive/history/grouped/window.rs`): the matching `url_id`s are collected first into `temp.history_ranked_urls`, which the visit list, the page list and the totals then read instead of the search index. Each index is read in `url_id` order and stops after 25,001 URLs that have a visible visit inside the browser, profile, date and URL filters. A word under the cap is ranked whole, exactly as before. Above it, only the 25,000 most recently archived matching URLs (the least recently archived for `oldest` order) are ranked, listed and counted; the response says `windowed: true` with `totalExact: false`, the header shows "25,000+ pages" and one line saying not every match was ranked and that another word narrows it. What is bounded now:
@@ -118,6 +120,8 @@ A plan test (`keyword_pages_read_visits_through_the_url_time_index`) fails if th
 Semantic search already returned one row per page; its header shows pages only.
 
 ### 7. Regex searched only the newest 50,000 visits
+
+> Replaced. Search now runs on the Tantivy index and covers every match, streamed in steps; see `search.md`. This section records why the earlier bound existed.
 
 A regex cannot use an index, so regex search read the newest 50,000 visits inside the filters and matched each URL and title in Rust, and reported counts for that window as if exact. At 14.4M visits that is 0.35% of the archive: a regex for a page last visited a few weeks back silently found nothing.
 

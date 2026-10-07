@@ -46,9 +46,9 @@ enum Command {
     Rebuild(mpsc::SyncSender<Result<()>>, ProgressSink, CancelToken),
     Stop,
     Repair,
-    #[cfg(test)]
+    #[cfg(debug_assertions)]
     Pause(mpsc::SyncSender<()>),
-    #[cfg(test)]
+    #[cfg(debug_assertions)]
     Resume,
 }
 
@@ -103,7 +103,7 @@ impl Indexer {
                 };
                 let mut result =
                     if initial { worker.rebuild(true, &mut |_| {}) } else { worker.cycle() };
-                #[cfg(test)]
+                #[cfg(debug_assertions)]
                 let mut paused = false;
                 loop {
                     if let Err(error) = &result {
@@ -130,18 +130,18 @@ impl Indexer {
                             worker_repair.store(false, std::sync::atomic::Ordering::Release);
                             result
                         }
-                        #[cfg(test)]
+                        #[cfg(debug_assertions)]
                         Some(Command::Pause(reply)) => {
                             paused = true;
                             let _ = reply.send(());
                             Ok(())
                         }
-                        #[cfg(test)]
+                        #[cfg(debug_assertions)]
                         Some(Command::Resume) => {
                             paused = false;
                             Ok(())
                         }
-                        #[cfg(test)]
+                        #[cfg(debug_assertions)]
                         None if paused => continue,
                         Some(Command::Cycle(reply)) => {
                             let result = worker.cycle();
@@ -203,13 +203,37 @@ impl Indexer {
     }
     #[cfg(test)]
     pub(crate) fn pause(&self) -> Pause<'_> {
-        let (tx, rx) = mpsc::sync_channel(1);
-        self.sender.send(Command::Pause(tx)).unwrap();
-        rx.recv().unwrap();
+        self.set_paused_for_tests(true);
         Pause(self)
+    }
+    /// Debug builds only: holds outbox replay so E2E can observe a search whose
+    /// coverage is incomplete (the notice shown while the index catches up).
+    /// Pausing returns once the indexer has stopped between cycles.
+    #[cfg(debug_assertions)]
+    pub fn set_paused_for_tests(&self, paused: bool) {
+        if paused {
+            let (tx, rx) = mpsc::sync_channel(1);
+            if self.sender.send(Command::Pause(tx)).is_ok() {
+                let _ = rx.recv();
+            }
+        } else {
+            let _ = self.sender.send(Command::Resume);
+        }
     }
     pub fn state(&self) -> IndexerState {
         self.state.lock().unwrap().clone()
+    }
+    /// The state measured against the archive's latest search write. The indexer
+    /// learns of writes only when it cycles, so while it is paused or busy its own
+    /// state can read "ready" with changes still waiting; callers deciding whether
+    /// results are complete need this one.
+    pub fn state_against(&self, canonical_seq: u64) -> IndexerState {
+        let mut state = self.state();
+        state.target_seq = state.target_seq.max(canonical_seq);
+        if state.phase == IndexerPhase::Ready && state.applied_seq < canonical_seq {
+            state.phase = IndexerPhase::Updating;
+        }
+        state
     }
     /// Wait for one complete cycle; background work uses the same implementation.
     pub fn cycle(&self) -> Result<()> {

@@ -164,3 +164,41 @@ fn regex_keeps_operator_words_and_slashes_literal_and_requires_its_mode_flag() {
         assert_eq!(ids, expected, "{query} regex={regex}");
     }
 }
+#[test]
+fn reading_only_the_pages_with_the_fragment_counts_what_reading_every_visit_counts() {
+    let archive = archive();
+    // "story" has a literal fragment the index lists pages for; "st.ry" has none, so
+    // it reads every visit. Both match the same rows here.
+    let count = |query: &str| {
+        let step = SearchSession::start(
+            &archive.vault,
+            SearchRequest { query: query.into(), page_size: 2, ..request() },
+        )
+        .unwrap()
+        .finish_page()
+        .unwrap();
+        let times = step.items.iter().map(|h| h.visit.visit_time).collect::<Vec<_>>();
+        (step.count.value, step.visits.value, times)
+    };
+    assert_eq!(count("story"), (3, 7, vec![25500, 7500]));
+    assert_eq!(count("st.ry"), count("story"));
+}
+#[test]
+fn a_title_that_starts_matching_while_the_index_is_behind_is_found() {
+    use vault_store::{Db, Priority};
+    let archive = archive();
+    let _paused = archive.vault.search().pause();
+    archive
+        .vault
+        .store()
+        .write(Db::Archive, Priority::Interactive, |s| {
+            s.execute("UPDATE urls SET title='A STORY after all' WHERE id=7", ())?;
+            let page =
+                s.query_one("SELECT page_id FROM urls WHERE id=7", (), |r| Ok(r.get::<i64>(0)?))?;
+            crate::archive::search_documents::refresh(s, page)
+        })
+        .unwrap();
+    let step = SearchSession::start(&archive.vault, request()).unwrap().finish_page().unwrap();
+    assert_eq!((step.count.value, step.visits.value), (4, 8));
+    assert!(step.items.iter().any(|h| h.visit.url == "https://filler.test/7"));
+}

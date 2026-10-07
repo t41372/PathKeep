@@ -14,6 +14,12 @@ mod session;
 mod tests;
 mod types;
 pub use indexer::{Indexer, IndexerPhase, IndexerState};
+
+/// How far the index is behind the archive right now.
+pub fn indexer_state(vault: &crate::Vault) -> anyhow::Result<IndexerState> {
+    let canonical_seq = vault.store().read(vault_store::Db::Archive, documents::watermark)?;
+    Ok(vault.search().state_against(canonical_seq))
+}
 pub(crate) use session::Scores;
 pub use session::SearchSession;
 pub use types::*;

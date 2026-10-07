@@ -311,24 +311,24 @@ use `Vault`; SQL runs through `Session`. Rebuild writers live in `intelligence/b
 views below select published generations. Their physical names append `_rows`, and their
 primary keys prepend `generation` to the logical key shown here.
 
-| Logical view | Logical key | Meaning |
-| --- | --- | --- |
-| `visit_derived_facts` | `visit_id` | Domain, canonical URL, taxonomy and search classification; session/trail IDs come from `visit_assignments`. |
-| `domain_daily_rollups` | `date_key, profile_id, registrable_domain` | Visit/search/discovery counts and distinct URLs. |
-| `category_daily_rollups` | `date_key, profile_id, domain_category` | Visits and distinct domains. |
-| `engine_daily_rollups` | `date_key, profile_id, search_engine` | Daily searches. |
-| `daily_summary_rollups` | `date_key, profile_id` | Totals, concentration and discovery. |
-| `sessions` | `session_id` | Session span, counts, deep-dive state and title. |
-| `search_trails` | `trail_id` | Search/landing chain, depth, span and queries. |
-| `search_trail_members` | `trail_id, visit_id` | Ordered members and roles. |
-| `search_events` | `visit_id` | Search text, normalized query, kind, trail and visit time. |
-| `search_event_terms` | `visit_id, term` | Keyword concept terms. |
-| `query_families` | `family_id` | Related queries and repetition counts. |
-| `refind_pages` | `profile_id, canonical_url` | Reuse signals, score and bounded persisted evidence sample. Public evidence is paged from facts. |
-| `source_effectiveness` | `profile_id, registrable_domain` | Source role and trail-resolution signals. |
-| `habit_patterns` | `profile_id, registrable_domain` | Cadence and interruption state. |
-| `reopened_investigations` | `investigation_id` | Recurring query/page anchors. Reference evidence resolves through the refind row. |
-| `path_flows` | `profile_id, flow_pattern, step_count` | Repeated all-time navigation windows. |
+| Logical view              | Logical key                                | Meaning                                                                                                     |
+| ------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `visit_derived_facts`     | `visit_id`                                 | Domain, canonical URL, taxonomy and search classification; session/trail IDs come from `visit_assignments`. |
+| `domain_daily_rollups`    | `date_key, profile_id, registrable_domain` | Visit/search/discovery counts and distinct URLs.                                                            |
+| `category_daily_rollups`  | `date_key, profile_id, domain_category`    | Visits and distinct domains.                                                                                |
+| `engine_daily_rollups`    | `date_key, profile_id, search_engine`      | Daily searches.                                                                                             |
+| `daily_summary_rollups`   | `date_key, profile_id`                     | Totals, concentration and discovery.                                                                        |
+| `sessions`                | `session_id`                               | Session span, counts, deep-dive state and title.                                                            |
+| `search_trails`           | `trail_id`                                 | Search/landing chain, depth, span and queries.                                                              |
+| `search_trail_members`    | `trail_id, visit_id`                       | Ordered members and roles.                                                                                  |
+| `search_events`           | `visit_id`                                 | Search text, normalized query, kind, trail and visit time.                                                  |
+| `search_event_terms`      | `visit_id, term`                           | Keyword concept terms.                                                                                      |
+| `query_families`          | `family_id`                                | Related queries and repetition counts.                                                                      |
+| `refind_pages`            | `profile_id, canonical_url`                | Reuse signals, score and bounded persisted evidence sample. Public evidence is paged from facts.            |
+| `source_effectiveness`    | `profile_id, registrable_domain`           | Source role and trail-resolution signals.                                                                   |
+| `habit_patterns`          | `profile_id, registrable_domain`           | Cadence and interruption state.                                                                             |
+| `reopened_investigations` | `investigation_id`                         | Recurring query/page anchors. Reference evidence resolves through the refind row.                           |
+| `path_flows`              | `profile_id, flow_pattern, step_count`     | Repeated all-time navigation windows.                                                                       |
 
 Generation and checkpoint tables:
 
@@ -338,11 +338,11 @@ Generation and checkpoint tables:
   state, cursors, dirty days, stage completion flags and the structural stream checkpoint.
 - `intelligence_counts(generation, profile_id, table_name, value)` provides cached counts.
 - `intelligence_day_counts(generation, profile_id, date_key, domains, categories, engines,
-  summaries)` records committed day totals for idempotent replay.
+summaries)` records committed day totals for idempotent replay.
 - `intelligence_seen_domains(generation, profile_id, domain)` preserves first-domain state.
 - `visit_assignments(generation, visit_id, profile_id, session_id, trail_id, ordinal)` has
   primary key `(generation, visit_id)`. Session reads seek `(generation, session_id, ordinal,
-  visit_id)`; visit/generation and trail indexes support point hydration.
+visit_id)`; visit/generation and trail indexes support point hydration.
 - `session_domains(generation, profile_id, session_id, domain, visit_count)` has primary key
   `(generation, session_id, domain)` and restores open-session counts without visit replay.
 

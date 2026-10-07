@@ -165,3 +165,12 @@ export type TimeRangePreset =
   | 'year'
   | 'all'
   | 'custom'
+
+/**
+ * One page of a list. Pass `nextCursor` back with the same filters to continue;
+ * null means there is nothing more. Lists are never cut at a limit.
+ */
+export interface Page<T> {
+  items: T[]
+  nextCursor: string | null
+}

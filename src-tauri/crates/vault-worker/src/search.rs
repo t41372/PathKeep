@@ -20,6 +20,6 @@ pub fn next_search_page(vault: &Vault, session_id: &str, cursor: String) -> Resu
 pub fn cancel_search(vault: &Vault, session_id: &str) -> Result<()> {
     vault.search_sessions().cancel(session_id)
 }
-pub fn search_indexer_state(vault: &Vault) -> IndexerState {
-    vault.search().state()
+pub fn search_indexer_state(vault: &Vault) -> Result<IndexerState> {
+    vault_core::search::indexer_state(vault)
 }

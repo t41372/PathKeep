@@ -625,6 +625,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         cursor: None,
         date_range: date_range.clone(),
         profile_id: None,
+        profile_ids: Vec::new(),
         sort_by: None,
         limit: Some(10),
     };

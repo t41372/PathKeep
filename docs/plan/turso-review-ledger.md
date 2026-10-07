@@ -105,24 +105,38 @@ These are in `brief-area1-fixes3b.txt` (raw reports):
 - 17 SQLite-engine tests deleted and 23 renamed. Check that the deletions are justified.
 
 ### Area 4 profiling leads (Codex, incomplete benchmark; full text in the raw reports)
+
 - Serial batch writes run PASSIVE and TRUNCATE checkpoints between batches. Check whether vault-store checkpoints more often than its design needs during long rebuilds and backups.
 - Turso encrypts with a software AEGIS implementation even though the CPU has AES hardware. Check which cipher vault-store configures and whether the hardware path is available. This affects every encrypted read and write.
 - The intelligence rebuild benchmark at 14.4M never completed (network loss, then gVisor). Re-run it on vm.
 
 ## Area 6 work list (mine)
-- **Open-file limit:** the app peaked at 156 open files during the full E2E run (Linux; area 4 code not yet included).
-  - A macOS app launched from Finder gets a soft limit of 256.
-  - Raise the soft limit at startup (setrlimit, capped at what the platform allows), so a large archive with many index segments can't run out.
-  - Add a test that fails if one opened Vault uses more than a stated budget.
-- **`search-limits.spec.ts`** still checks the removed 25,000-page window ("N+ pages"). Rewrite it for the streamed search with exact counts.
+
+- [x] **Open-file limit:** the app peaked at 156 open files during the full E2E run; a macOS app launched from Finder gets a soft limit of 256.
+  - Done: the app raises its soft limit to 10,240 (never past the hard limit) before the archive opens (`vault_platform::raise_open_file_limit`).
+  - Measured (`vault-core/tests/open_file_budget.rs`, Linux): one open encrypted archive holds 175 files, flat over 64 rounds of import + index commit + lexical and regex search. About 45 are epoll/eventfd handles of the ~15 connection threads; most of the rest are index segment files, each open once per reader generation (`EncryptedDirectory` keeps a file per handle). Open searches share the published generation; closing them releases it. The test fails if the count grows with imports or searches.
+- [x] **`search-limits.spec.ts`** rewritten for the streamed search with exact counts.
 - **Insights E2E** (5 specs) failed before area 4 landed. Re-run after it.
 
 ## Found on Linux (Modal)
+
 - `takeout::tests::import_takeout_persists_source_evidence_for_all_recognized_payloads` fails on Linux and passes on macOS: `last_source_batch_id` stays NULL for `takeout::browser-history`.
   - Likely root cause: the Takeout import processes recognised files in directory order. That is sorted on APFS and hash order on Linux, and a later file's write resets the browser-history watermark.
   - Fix the ordering dependence: per-file watermarks, or a deterministic order where no file overwrites another's.
 
 ## Found while running E2E for feat/turso-storage (fixed, not deferred)
+
+- Regex search never finished in E2E, for two reasons:
+  - A session restarted on every archive write, so a steady stream of writes (backup, link previews, page text) kept it from finishing. Fixed: sessions no longer restart. Hydration rechecks visibility and, once the archive moved past the session's snapshot, each page's current text, so revoked visits and text never reach a result. Counts stay those of the snapshot; the History screen starts a new search when the archive changes.
+  - Each 512-visit chunk scanned the time index from the newest visit. Turso does not seek on `(t<? OR (t=? AND id<?))`; `EXPLAIN` shows `SCAN visits USING INDEX`. Fixed with `t<=? AND (t<? OR id<?)`, which plans as `SEARCH ... (visit_time_ms<=?)` (22k visits: deep chunk 6.4 ms → 0.12 ms). Plan test in `search/regex.rs`.
+- **Regex speed beyond the literal shortcut (user, 2026-10-06: record, don't do now).** A regex with a literal of 3+ ASCII letters/digits reads only the candidate pages. Anything else (`\d+`, `^https?://`, every Chinese pattern) walks every visit: about 30–40 ms per 512 visits inside the debug E2E app, so minutes at 14.4M. Ideas, not started:
+  - Walk URLs instead of visits: a regex only looks at the URL and its title, so match each URL once and count visits (in scope) only for matching URLs. Several times less work for every regex, Chinese included; results would no longer arrive newest first while scanning.
+  - Chinese literals could use the index's CJK grams the way ASCII literals use trigrams.
+  - Unexplained: the same 512-visit chunk costs 2–6 ms in a vault-core test (22k visits, encrypted, with or without a concurrent writer) but 30–40 ms inside the E2E app. Find out why before tuning anything else.
+- E2E `history-tools.spec.ts` "a regex Rust cannot run…" passes alone (the fragment-less `tok+io` walk of 22k visits finishes in 1.7 s) but fails in the full suite: under parallel load the walk passes the 15 s wait. Same root cause as the item above.
+- E2E `background-work.spec.ts` fails: a full Insights rebuild of the 22k-visit fixture (three profiles, debug build) shows "9,083 of 9,083 · Running" after 60 s. It passed on SQLite (`redesign/v0.4`). Same cause as the rebuild-performance item: Codex's area 4 benchmark derived about 2,000 visits/s in release (3.58M visits in 1,714 s, unfinished).
+- E2E `security.spec.ts` "changing the archive password needs the current one" fails with `storage-migration-incomplete` from `preview_rekey_archive`: rekey is area 5 (Codex, in progress).
+- **Same keyset pattern elsewhere (to check in the fix pass, user asked for all of them):** about 20 cursor predicates use `a<? OR (a=? AND b<?)`: intelligence pages (`intelligence_sessions`, `intelligence_search_queries`, `refind_evidence`, `phase_three` visits, `intelligence_summary`, `intelligence_refind`, `intelligence_domain`, `path_flows`, `intelligence_navigation`, `intelligence_search_metrics`), `stars/list.rs`, `annotations.rs`, `intelligence_runtime/snapshot.rs`. Those over an indexed column need the bounded form and a plan test; those over aggregates (`HAVING COUNT(*)<?`) have no index to seek, so measure what each page computes instead.
 - The first backup never finished. Turso compiled every SQL statement on every call (`Connection::execute` compiles each time), so a 10,000-row source-evidence batch spent minutes in the compiler.
   - Fixed: vault-store keeps up to 256 compiled statements per connection, resets them before reuse and clears them on DDL.
   - Also fixed: Turso's crates are built at `opt-level = 3` in dev builds.

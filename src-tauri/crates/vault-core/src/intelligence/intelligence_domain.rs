@@ -299,6 +299,7 @@ pub(crate) fn get_on_this_day_with_connection(
             &crate::models::TopSitesRequest {
                 date_range: range,
                 profile_id: profile.map(str::to_owned),
+                profile_ids: Vec::new(),
                 sort_by: Some("visit_count".into()),
                 limit: Some(3),
                 cursor: None,

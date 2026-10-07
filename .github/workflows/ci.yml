@@ -56,7 +56,9 @@ jobs:
       - name: Install Playwright browser
         run: bunx playwright install --with-deps chromium
       - name: Check (lint, build, Rust, desktop-bridge E2E)
-        run: bun run check
+        # owner_process starts the real app: it needs a display, and its
+        # single-instance handoff needs a session bus.
+        run: dbus-run-session -- xvfb-run -a bun run check
       - name: Supply-chain audit
         run: bun run check:supply-chain
       - name: Upload E2E artifacts

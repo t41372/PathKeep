@@ -6,8 +6,8 @@
  * previous query's rows on screen, so a page visited twice in the newest
  * hundred visits showed up as two "results" until the search answered.
  *
- * The search request is held at the transport (`page.route` on the dev IPC
- * bridge), so the in-between state lasts as long as the test needs.
+ * The search is held at the transport (`page.route` on the dev IPC bridge's
+ * `start_search`), so the in-between state lasts as long as the test needs.
  */
 import { expect, test } from '@playwright/test'
 
@@ -24,14 +24,9 @@ test('a loading search never shows the timeline as its results', async ({
   const held = new Promise<void>((resolve) => (release = resolve))
   let searched = () => {}
   const searchSent = new Promise<void>((resolve) => (searched = resolve))
-  await page.route('**/commands/query_history', async (route) => {
-    const body = route.request().postDataJSON() as {
-      query?: { groupByUrl?: boolean }
-    }
-    if (body.query?.groupByUrl) {
-      searched()
-      await held
-    }
+  await page.route('**/commands/start_search', async (route) => {
+    searched()
+    await held
     await route.continue()
   })
 

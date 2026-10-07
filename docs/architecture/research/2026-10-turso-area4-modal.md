@@ -10,19 +10,19 @@ remains untracked and is not part of the proposed repository changes.
 
 ## Conflict resolutions
 
-| File | Resolution |
-| --- | --- |
-| `docs/architecture/data-model.md` | Combined native vault-search ownership with native Intelligence/Agent/enrichment storage, encryption and cursor contracts; retained the outstanding maintenance boundary. |
-| `docs/architecture/store-schema.md` | Kept area 3's consolidated Archive v1 and area 4's Intelligence generation views and tables. Every durable database remains v1; no migration steps were added. |
-| `docs/features/intelligence.md` | Kept complete native lexical/semantic coverage and cursor semantics, updated the Intelligence and Agent file paths, and retained area-4 queue/enrichment/output contracts. |
-| `docs/plan/CHANGELOG.md` | Retained both the search entry and the intelligence/queue/enrichment/agent entry. |
-| `vault-core/src/ai.rs` | Kept area 3's search/assistant modules and entry points, with area 4's native ledger, report paging and working-set page type. Removed retired candidate-pool exports. |
-| `vault-core/src/ai/agent_tools.rs` | Kept area 3's complete search and coverage reporting; retained area 4's output fragments, native user-record tools and split test module. Ported area 3's changed/new search tests into that module. |
-| `vault-core/src/ai/tests.rs` | Retained area 3's native search fixture adapters and complete-pool regressions alongside area 4's native indexing/status/working-set suites. Native indexing tests call search directly without the legacy fixture adapter. |
-| `vault-core/src/lib.rs` | Exported the combined supported API, including `WorkingSetPage`, without reintroducing retired recall/pool constants or `prepare_query`. |
-| `vault-core/src/test_support.rs` | Retained native fixture helpers and area 3's search fixtures, sequence checks and handoff assertions. |
-| `vault-core/src/vault.rs` | Combined search index/session/lifetime ownership with AI/intelligence claim recovery and the shared intelligence build mutex. |
-| `vault-worker/src/tests.rs` | Kept native browser import/revert fixtures, native audit reads and explicit search cycles, avoiding a copy of legacy data over native writes. |
+| File                                | Resolution                                                                                                                                                                                                                  |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/architecture/data-model.md`   | Combined native vault-search ownership with native Intelligence/Agent/enrichment storage, encryption and cursor contracts; retained the outstanding maintenance boundary.                                                   |
+| `docs/architecture/store-schema.md` | Kept area 3's consolidated Archive v1 and area 4's Intelligence generation views and tables. Every durable database remains v1; no migration steps were added.                                                              |
+| `docs/features/intelligence.md`     | Kept complete native lexical/semantic coverage and cursor semantics, updated the Intelligence and Agent file paths, and retained area-4 queue/enrichment/output contracts.                                                  |
+| `docs/plan/CHANGELOG.md`            | Retained both the search entry and the intelligence/queue/enrichment/agent entry.                                                                                                                                           |
+| `vault-core/src/ai.rs`              | Kept area 3's search/assistant modules and entry points, with area 4's native ledger, report paging and working-set page type. Removed retired candidate-pool exports.                                                      |
+| `vault-core/src/ai/agent_tools.rs`  | Kept area 3's complete search and coverage reporting; retained area 4's output fragments, native user-record tools and split test module. Ported area 3's changed/new search tests into that module.                        |
+| `vault-core/src/ai/tests.rs`        | Retained area 3's native search fixture adapters and complete-pool regressions alongside area 4's native indexing/status/working-set suites. Native indexing tests call search directly without the legacy fixture adapter. |
+| `vault-core/src/lib.rs`             | Exported the combined supported API, including `WorkingSetPage`, without reintroducing retired recall/pool constants or `prepare_query`.                                                                                    |
+| `vault-core/src/test_support.rs`    | Retained native fixture helpers and area 3's search fixtures, sequence checks and handoff assertions.                                                                                                                       |
+| `vault-core/src/vault.rs`           | Combined search index/session/lifetime ownership with AI/intelligence claim recovery and the shared intelligence build mutex.                                                                                               |
+| `vault-worker/src/tests.rs`         | Kept native browser import/revert fixtures, native audit reads and explicit search cycles, avoiding a copy of legacy data over native writes.                                                                               |
 
 The working-tree conflict markers are removed. Git's index remains unmerged until the user
 stages the resolved files and continues the rebase; no git writes are performed here.
@@ -66,13 +66,13 @@ change, the microVM release build, formatting and clippy passed. The microVM rer
 remaining gates lost its connection before a final result was received. Logs are summarized inside the Sandbox under `/state/checklogs-acceptance`;
 no gate logs are committed or copied into this checkout.
 
-| Gate | Result |
-| --- | --- |
-| `cargo fmt --all --check` | Pass |
-| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Pass |
-| Five-crate `cargo test --no-fail-fast` | Pass: core 1,845 passed / 38 ignored; worker 149 passed; all integration, search, store, owner-IPC and doc-test targets passed |
-| `bun run test:desktop-bridge:rust` | Pass: 25 passed |
-| `cargo build --workspace` | Pass |
+| Gate                                                                   | Result                                                                                                                         |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `cargo fmt --all --check`                                              | Pass                                                                                                                           |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Pass                                                                                                                           |
+| Five-crate `cargo test --no-fail-fast`                                 | Pass: core 1,845 passed / 38 ignored; worker 149 passed; all integration, search, store, owner-IPC and doc-test targets passed |
+| `bun run test:desktop-bridge:rust`                                     | Pass: 25 passed                                                                                                                |
+| `cargo build --workspace`                                              | Pass                                                                                                                           |
 
 The targeted regressions also passed: 12 enrichment storage tests and 41 Takeout tests.
 Existing ignored network and subprocess-only cases retain their ignore annotations. These
@@ -84,14 +84,15 @@ The completed 14.4M-visit / 2.88M-page benchmark is still outstanding. The harne
 generated encrypted archive for the full rebuild, the 10,000-visit increment and cold/warm
 reads, with deletion afterward. Neither attempted run reached all measurements.
 
-| Measurement | Result available |
-| --- | --- |
-| Full rebuild time and peak RSS | Not obtained; gVisor run exited 137 during visit-fact derivation; microVM retry lost its Modal connection during archive generation |
-| Increment after 10,000 visits | Not measured |
-| Overview cold / warm | Not measured |
-| Domain cold / warm | Not measured |
-| Sessions cold / warm | Not measured |
-| Interactive write during rebuild | 1.546 ms in the incomplete gVisor diagnostic run; not a native microVM result |
+| Measurement                      | Result available                                                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Full rebuild time and peak RSS   | Not obtained; gVisor run exited 137 during visit-fact derivation; microVM retry lost its Modal connection during archive generation |
+| Increment after 10,000 visits    | Not measured                                                                                                                        |
+| Overview cold / warm             | Not measured                                                                                                                        |
+| Domain cold / warm               | Not measured                                                                                                                        |
+| Sessions cold / warm             | Not measured                                                                                                                        |
+| Interactive write during rebuild | 1.546 ms in the incomplete gVisor diagnostic run; not a native microVM result                                                       |
+
 The benchmark workload is provisioned with 4 CPUs and 8 GiB, pinned to four CPUs. Rust is
 pinned to 1.96.0, Turso is 0.8.1, and the release build retains debug symbols for profiling.
 The retry used the offload configuration's `runtime = "vm"` microVM: Linux 7.2.9,

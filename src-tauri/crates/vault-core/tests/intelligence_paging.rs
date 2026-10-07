@@ -28,6 +28,7 @@ fn top_sites_page_through_every_domain_in_each_sort_order() {
                             end: "2026-01-01".into(),
                         },
                         profile_id: Some("profile".into()),
+                        profile_ids: Vec::new(),
                         sort_by: Some(sort.into()),
                         limit: Some(7),
                         cursor,
@@ -274,6 +275,7 @@ fn hub_pages_continue_beyond_the_former_ten_page_limit() {
                 &TopSitesRequest {
                     date_range: DateRange { start: "2026-01-01".into(), end: "2026-01-02".into() },
                     profile_id: None,
+                    profile_ids: Vec::new(),
                     sort_by: None,
                     limit: Some(7),
                     cursor,
@@ -762,6 +764,7 @@ fn anniversary_domains_continue_and_deep_sessions_are_counted_once() {
                 &TopSitesRequest {
                     date_range: DateRange { start: date_key.clone(), end: date_key.clone() },
                     profile_id: None,
+                    profile_ids: Vec::new(),
                     sort_by: Some("visit_count".into()),
                     limit: Some(7),
                     cursor,

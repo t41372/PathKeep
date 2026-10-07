@@ -19,6 +19,7 @@ import type {
   FrequentSearch,
   HabitPattern,
   OnThisDayEntry,
+  Page,
   QueryFamilyDetail,
   QueryFamilyResult,
   RefindPage,
@@ -56,6 +57,8 @@ async function section<T>(command: string, args: Record<string, unknown>) {
 interface Scope {
   dateRange: DateRange
   profileId?: string | null
+  /** Several profiles summed together; only the reads that say so accept it. */
+  profileIds?: string[]
 }
 
 export const insightsClient = {
@@ -71,31 +74,37 @@ export const insightsClient = {
     }),
   onThisDay: (profileId?: string | null) =>
     section<OnThisDayEntry[]>('get_on_this_day', { profileId }),
-  topSites: (scope: Scope, limit = 10) =>
-    section<TopSite[]>('get_top_sites', {
-      request: { ...scope, sortBy: 'visits', limit },
+  /** One page of sites; `limit` is the page size. */
+  topSites: (scope: Scope, limit = 10, cursor: string | null = null) =>
+    section<Page<TopSite>>('get_top_sites', {
+      request: { ...scope, sortBy: 'visits', limit, cursor },
     }),
   rhythm: (scope: Scope) =>
     section<RhythmHeatmap>('get_browsing_rhythm', { request: scope }),
-  searchConcepts: (scope: Scope, limit = 12) =>
-    section<SearchConcept[]>('get_top_search_concepts', {
-      request: { ...scope, limit },
+  searchConcepts: (scope: Scope, limit = 12, cursor: string | null = null) =>
+    section<Page<SearchConcept>>('get_top_search_concepts', {
+      request: { ...scope, limit, cursor },
     }),
   /** Most searched queries, counted inside the range and merged across engines. */
-  frequentSearches: (scope: Scope, limit = 10) =>
-    section<FrequentSearch[]>('get_frequent_searches', {
-      request: { ...scope, limit },
+  frequentSearches: (scope: Scope, limit = 10, cursor: string | null = null) =>
+    section<Page<FrequentSearch>>('get_frequent_searches', {
+      request: { ...scope, limit, cursor },
     }),
-  /** Pages are zero-based, like every paged intelligence command. */
-  queryFamilies: (scope: Scope, pageSize = 200) =>
+  queryFamilies: (scope: Scope, pageSize = 200, cursor: string | null = null) =>
     section<QueryFamilyResult>('get_query_families', {
-      request: { ...scope, page: 0, pageSize },
+      request: { ...scope, cursor, pageSize },
     }),
-  refindPages: (scope: Scope, limit = 8) =>
-    section<RefindPage[]>('get_refind_pages', { request: { ...scope, limit } }),
-  reopenedInvestigations: (scope: Scope) =>
-    section<ReopenedInvestigation[]>('get_reopened_investigations', {
-      request: scope,
+  refindPages: (scope: Scope, limit = 8, cursor: string | null = null) =>
+    section<Page<RefindPage>>('get_refind_pages', {
+      request: { ...scope, limit, cursor },
+    }),
+  reopenedInvestigations: (
+    scope: Scope,
+    limit = 20,
+    cursor: string | null = null,
+  ) =>
+    section<Page<ReopenedInvestigation>>('get_reopened_investigations', {
+      request: { ...scope, limit, cursor },
     }),
 
   // Drill-ins. Detail reads are bounded by one entity; see
@@ -105,22 +114,26 @@ export const insightsClient = {
   day: (date: string) =>
     section<DayInsights>('get_day_insights', { request: { date } }),
   /** Browsing sessions that overlap the range, newest first. */
-  sessions: (scope: Scope, pageSize = 50) =>
+  sessions: (scope: Scope, pageSize = 50, cursor: string | null = null) =>
     call<SessionListResult>('get_sessions', {
-      request: { ...scope, page: 0, pageSize },
+      request: { ...scope, cursor, pageSize },
     }),
   sessionDetail: (sessionId: string) =>
     call<SessionDetail>('get_session_detail', { sessionId }),
   /** Searches made in the range, one row per distinct query and engine. */
   searchQueries: (
     scope: Scope,
-    options: { sort?: SearchQuerySort; pageSize?: number } = {},
+    options: {
+      sort?: SearchQuerySort
+      pageSize?: number
+      cursor?: string | null
+    } = {},
   ) =>
     section<SearchQueryListResult>('get_search_queries', {
       request: {
         ...scope,
         sort: options.sort ?? 'newest',
-        page: 0,
+        cursor: options.cursor ?? null,
         pageSize: options.pageSize ?? 50,
       },
     }),

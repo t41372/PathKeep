@@ -22,6 +22,7 @@
  * - Prefer additive, explicit fields over ambiguous catch-all objects so the trust surface stays auditable.
  */
 
+import type { SearchCoverage } from '../backend-client/search'
 import type { ProgressLogEvent } from './import'
 
 /**
@@ -498,16 +499,14 @@ export interface OgImageSettings {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface HistoryQueryResponse {
-  /** Matching rows (pages when grouped); only this page's size when the count was skipped; or, when `windowed`, the matches inside the window (a lower bound). */
+  /** Whether the search index covered the whole archive for this answer; null for the timeline. */
+  searchState?: SearchCoverage | null
+  /** Matching rows (pages when grouped), or only this page's size when the count was skipped. */
   total: number
-  /** False when the query was sent with `includeTotal: false`, or when `windowed`. */
+  /** False when the query was sent with `includeTotal: false`. */
   totalExact: boolean
   /** Grouped queries with a total: matching visits across all pages. */
   totalVisits?: number | null
-  /** The search matched more pages than one search ranks: only the most recently archived matches were ranked, listed and counted. */
-  windowed?: boolean
-  /** Regex searches: how far this chunk of the scan reached. `nextCursor` continues it. */
-  regexScan?: RegexScanProgress | null
   items: HistoryEntry[]
   page: number
   pageSize: number
@@ -515,14 +514,6 @@ export interface HistoryQueryResponse {
   hasPrevious: boolean
   hasNext: boolean
   nextCursor?: string | null
-}
-
-/** How far one chunk of a regex search got. */
-export interface RegexScanProgress {
-  /** Visit time the scan has reached (newest first); null before any visit was checked. */
-  scannedToMs: number | null
-  /** Every visit inside the filters has been checked; counts are final. */
-  complete: boolean
 }
 
 /**
@@ -564,8 +555,6 @@ export interface ExportResult {
   format: ExportFormat
   path: string
   count: number
-  /** The keyword matched more pages than one search ranks; only the window of most recently archived matches was exported. */
-  windowed?: boolean
 }
 
 /**

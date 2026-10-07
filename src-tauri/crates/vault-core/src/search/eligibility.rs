@@ -7,7 +7,7 @@ use super::{SearchHit, SearchRequest};
 use crate::archive::search_query::ParsedHistorySearchQuery;
 use std::collections::HashMap;
 use vault_store::{Db, Result, Session, Store, Value};
-const PAGE_VISITS: &str = "pages p CROSS JOIN urls u ON u.page_id=p.id CROSS JOIN visits v INDEXED BY idx_visits_visible_url_time ON v.url_id=u.id JOIN source_profiles sp ON sp.id=v.source_profile_id";
+pub(super) const PAGE_VISITS: &str = "pages p CROSS JOIN urls u ON u.page_id=p.id CROSS JOIN visits v INDEXED BY idx_visits_visible_url_time ON v.url_id=u.id JOIN source_profiles sp ON sp.id=v.source_profile_id";
 
 #[derive(Clone)]
 pub(super) struct Scope {
@@ -144,6 +144,13 @@ impl Scope {
     }
 }
 
+/// What a session matched against, so hydration can recheck pages written after its snapshot.
+pub(super) struct TextCheck {
+    pub ast: vault_search::Ast,
+    pub fuzzy: Option<(crate::archive::search_lexical::FuzzyQuery, vault_search::Ast)>,
+    pub indexed_seq: u64,
+}
+
 pub(super) struct Membership {
     bits: Vec<u64>,
     checked: Vec<u64>,
@@ -212,10 +219,55 @@ pub(super) fn load(
     })
 }
 
+/// Pages among `ids` whose current text no longer matches. The index snapshot a
+/// session reads can predate a revoke, so its matches are checked against the
+/// canonical documents whenever the archive has moved past that snapshot.
+fn text_mismatches(
+    s: &Session<'_>,
+    ids: &[i64],
+    ast: &vault_search::Ast,
+    fuzzy: Option<&(crate::archive::search_lexical::FuzzyQuery, vault_search::Ast)>,
+) -> Result<Vec<u64>> {
+    let mut valid = std::collections::HashSet::new();
+    s.for_each(
+        &format!(
+            "SELECT {} FROM search_documents d WHERE d.page_id IN ({}) AND d.newest_visit_ms IS NOT NULL",
+            super::documents::COLUMNS,
+            vec!["?"; ids.len()].join(",")
+        ),
+        ids.to_vec(),
+        |row| {
+            let doc = super::documents::document(row)?;
+            let matches = super::query::matches_document(ast, &doc)
+                && fuzzy.is_none_or(|(fuzzy, exact)| {
+                    super::query::matches_document(exact, &doc)
+                        || fuzzy
+                            .score_document(&crate::archive::search_lexical::FuzzyDocument {
+                                normalized_url: &doc.text[vault_search::TextField::NormalizedUrl as usize],
+                                normalized_title: &doc.text
+                                    [vault_search::TextField::NormalizedTitle as usize],
+                                normalized_search_terms: &doc.text
+                                    [vault_search::TextField::NormalizedSearchTerms as usize],
+                                compact_text: &crate::archive::search_lexical::normalized_tokens(
+                                    &doc.compact_text,
+                                ),
+                            })
+                            .is_some()
+                });
+            if matches {
+                valid.insert(doc.page_id);
+            }
+            Ok(())
+        },
+    )?;
+    Ok(ids.iter().map(|id| *id as u64).filter(|id| !valid.contains(id)).collect())
+}
+
 pub(super) fn hydrate(
     s: &Session<'_>,
     scope: &Scope,
     hits: &[vault_search::Hit],
+    text: &TextCheck,
 ) -> Result<Vec<SearchHit>> {
     if hits.is_empty() {
         return Ok(Vec::new());
@@ -272,6 +324,12 @@ pub(super) fn hydrate(
         }
         Ok(())
     })?;
+    if super::documents::watermark(s)? > text.indexed_seq {
+        let ids = hits.iter().map(|h| h.page_id as i64).collect::<Vec<_>>();
+        for id in text_mismatches(s, &ids, &text.ast, text.fuzzy.as_ref())? {
+            rows.remove(&(id as i64));
+        }
+    }
     Ok(hits
         .iter()
         .filter_map(|h| {
@@ -314,28 +372,34 @@ impl Membership {
         let fuzzy = fuzzy.map(|(predicate, exact)| (predicate.clone(), exact.clone()));
         let scope = scope.clone();
         let cancel = cancel.clone();
-        let found=store.read(Db::Archive,move|s| {
-            let mut params=scope.params;
-            let keys=ids.iter().map(|id|{params.push(Value::Integer(*id));format!("?{}",params.len())}).collect::<Vec<_>>().join(",");
-            let sql=format!("SELECT p.id,v.visit_time_ms FROM {PAGE_VISITS} WHERE p.id IN ({keys}) AND {}",scope.sql);
-            let mut pages:HashMap<usize,(u64,i64)>=HashMap::new();
-            s.for_each(&sql,params,|r| {
+        let found = store.read(Db::Archive, move |s| {
+            let mut params = scope.params;
+            let keys = ids
+                .iter()
+                .map(|id| {
+                    params.push(Value::Integer(*id));
+                    format!("?{}", params.len())
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT p.id,v.visit_time_ms FROM {PAGE_VISITS} WHERE p.id IN ({keys}) AND {}",
+                scope.sql
+            );
+            let mut pages: HashMap<usize, (u64, i64)> = HashMap::new();
+            s.for_each(&sql, params, |r| {
                 cancel.check()?;
-                let id=r.get::<i64>(0)? as usize;let time=r.get::<i64>(1)?;
-                let entry=pages.entry(id).or_insert((0,time));entry.0+=1;entry.1=entry.1.max(time);Ok(())
+                let id = r.get::<i64>(0)? as usize;
+                let time = r.get::<i64>(1)?;
+                let entry = pages.entry(id).or_insert((0, time));
+                entry.0 += 1;
+                entry.1 = entry.1.max(time);
+                Ok(())
             })?;
-            if fuzzy.is_some() || super::documents::watermark(s)?>indexed_seq {
-                s.for_each(&format!("SELECT {} FROM search_documents d WHERE d.page_id IN ({}) AND d.newest_visit_ms IS NOT NULL",super::documents::COLUMNS,vec!["?";ids.len()].join(",")),ids,|row|{
-                    let doc=super::documents::document(row)?;
-                    let valid=super::query::matches_document(&ast,&doc) && fuzzy.as_ref().is_none_or(|(fuzzy,exact)|super::query::matches_document(exact,&doc) || fuzzy.score_document(&crate::archive::search_lexical::FuzzyDocument {
-                        normalized_url:&doc.text[vault_search::TextField::NormalizedUrl as usize],
-                        normalized_title:&doc.text[vault_search::TextField::NormalizedTitle as usize],
-                        normalized_search_terms:&doc.text[vault_search::TextField::NormalizedSearchTerms as usize],
-                        compact_text:&crate::archive::search_lexical::normalized_tokens(&doc.compact_text),
-                    }).is_some());
-                    if !valid {pages.remove(&(doc.page_id as usize));}
-                    Ok(())
-                })?;
+            if fuzzy.is_some() || super::documents::watermark(s)? > indexed_seq {
+                for id in text_mismatches(s, &ids, &ast, fuzzy.as_ref())? {
+                    pages.remove(&(id as usize));
+                }
             }
             Ok(pages)
         })?;

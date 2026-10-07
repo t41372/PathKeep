@@ -36,6 +36,7 @@ pub fn get_day_insights(vault: &crate::Vault, request: &DayInsightsRequest) -> R
             cursor: None,
             date_range: date_range.clone(),
             profile_id: request.profile_id.clone(),
+            profile_ids: Vec::new(),
             sort_by: Some("visit_count".to_string()),
             limit: Some(8),
         },

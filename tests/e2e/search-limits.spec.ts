@@ -1,72 +1,51 @@
 /**
- * History search at its limits, made small: the E2E backend runs with a
- * keyword window of 40 URLs (`PATHKEEP_DEBUG_SEARCH_WINDOW` in
- * playwright.config.ts) instead of the release build's 25,000.
+ * History search reaches every match, and says so honestly when it can't yet.
  *
- * Regex requests scan 2,000 visits each (`PATHKEEP_DEBUG_REGEX_CHUNK_ROWS`)
- * instead of 200 ms' worth, so the fixture is scanned in about eleven chunks.
+ * Proves:
+ * - a word on every page lists every page: the exact count equals what the
+ *   fixture holds, page for page and visit for visit;
+ * - a regex finds every visit of a page, the oldest included;
+ * - while the search index is still catching up, results say so: a note
+ *   written while the indexer is held is not found yet, the screen says some
+ *   recent changes aren't searchable yet (never just "nothing found"), and
+ *   once the indexer runs again the page appears without searching again.
  *
- * Proves: a word that matches more URLs than one search ranks shows an "N+"
- * count, never an exact one, with one plain line saying not every match was
- * ranked and that another word narrows it; and a regex finds visits older
- * than its first chunk by continuing the scan, with an exact count only once
- * the whole archive was scanned.
+ * The indexer is held through a debug-build bridge command
+ * (`debug_set_search_indexer_paused`), so no other spec slows down.
  */
 import { expect, test } from '@playwright/test'
-import {
-  archivedProfiles,
-  archivedVisits,
-  fixture,
-  parseCount,
-} from './support/fixture'
+import { archivedVisits, backend } from './support/fixture'
 
-const WINDOW = Number(process.env.PATHKEEP_DEBUG_SEARCH_WINDOW)
-const CHUNK = Number(process.env.PATHKEEP_DEBUG_REGEX_CHUNK_ROWS)
+const count = (n: number) => n.toLocaleString('en-US')
 
-test('a word on more pages than one search ranks says so', async ({ page }) => {
-  // Every URL has "https" in it; each browser profile keeps its own copy.
-  const copies = new Set(
-    archivedProfiles.flatMap((id) =>
-      fixture().visitsByProfile[id].map((visit) => `${id} ${visit.url}`),
-    ),
-  )
-  expect(WINDOW, 'the E2E config sets a small window').toBeGreaterThan(0)
+test('a word on every page lists every page with an exact count', async ({
+  page,
+}) => {
+  const visits = archivedVisits()
   expect(
-    copies.size,
-    'the word must match more than the window',
-  ).toBeGreaterThan(WINDOW)
+    visits.every((visit) => visit.url.startsWith('https://')),
+    'every fixture URL contains the word',
+  ).toBe(true)
+  const pages = new Set(visits.map((visit) => visit.url)).size
 
   await page.goto('/#/history')
   await page.getByRole('searchbox', { name: 'Search history' }).fill('https')
 
-  const header = page.getByText(/^[\d,]+\+ pages · Full text$/)
-  await expect(header).toBeVisible()
-  const shown = parseCount((await header.innerText()).split('+')[0])
-  expect(shown).toBeGreaterThan(0)
-  expect(shown).toBeLessThanOrEqual(WINDOW)
   await expect(
     page.getByText(
-      'Not every match was ranked, only the most recently saved ones. Add a word to narrow the search.',
+      `${count(pages)} pages · ${count(visits.length)} visits · Full text`,
+      { exact: true },
     ),
-  ).toBeVisible()
-  // The count stays a lower bound once the separate count query lands too.
-  await expect(
-    page.getByText(/^[\d,]+ pages? · [\d,]+ visits? · Full text$/),
-  ).toHaveCount(0)
+  ).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText(/^[\d,]+\+ pages/)).toHaveCount(0)
 })
 
-test('a regex keeps scanning until it reaches the oldest visits', async ({
+test('a regex finds every visit of a page, the oldest included', async ({
   page,
 }) => {
   const url = 'https://news.ycombinator.com/item?id=41502281'
-  const newestFirst = archivedVisits().sort((a, b) => b.at - a.at)
-  const firstChunkEnds = newestFirst[CHUNK - 1].at
-  const visits = newestFirst.filter((visit) => visit.url === url)
-  expect(CHUNK, 'the E2E config sets a small chunk').toBeGreaterThan(0)
-  expect(
-    visits.filter((visit) => visit.at < firstChunkEnds).length,
-    'some visits of the page are older than the first chunk',
-  ).toBeGreaterThan(0)
+  const visits = archivedVisits().filter((visit) => visit.url === url)
+  expect(visits.length, 'the page has several visits').toBeGreaterThan(1)
 
   await page.goto('/#/history')
   const search = page.getByRole('searchbox', { name: 'Search history' })
@@ -75,22 +54,69 @@ test('a regex keeps scanning until it reaches the oldest visits', async ({
   await page.getByRole('radio', { name: 'Regex' }).click()
   await search.fill('item\\?id=41502281$')
 
-  // Every visit, the old ones included, and an exact count once the scan
-  // has covered the archive.
   await expect(
-    page.getByText(
-      new RegExp(
-        `^1 page · ${visits.length.toLocaleString('en-US')} visits · Regex$`,
-      ),
-    ),
-  ).toBeVisible()
-  await expect(page.getByText(/so far · searched back to/)).toHaveCount(0)
+    page.getByText(`1 page · ${count(visits.length)} visits · Regex`, {
+      exact: true,
+    }),
+  ).toBeVisible({ timeout: 30_000 })
   const rows = page
     .getByRole('listbox', { name: 'History results' })
     .getByRole('option')
     .filter({ hasText: 'Hacker News · Why I left tokio' })
   await expect(rows).toHaveCount(1)
-  await expect(rows).toContainText(
-    `${visits.length.toLocaleString('en-US')} visits`,
+  await expect(rows).toContainText(`${count(visits.length)} visits`)
+})
+
+test('results and the palette say so while the search index is catching up', async ({
+  page,
+}) => {
+  const word = 'quokkacoverage'
+  const target = archivedVisits().find((visit) =>
+    visit.url.startsWith('https://news.ycombinator.com/'),
   )
+  expect(target, 'a page to write a note on').toBeDefined()
+  const { url, title } = target!
+
+  await backend('debug_set_search_indexer_paused', { paused: true })
+  try {
+    await backend('set_url_notes', { request: { url, notes: word } })
+
+    await page.goto('/#/history')
+    await page.getByRole('searchbox', { name: 'Search history' }).fill(word)
+
+    await expect(
+      page.getByRole('status').filter({
+        hasText:
+          'Some recent changes aren’t searchable yet. They will be in a moment.',
+      }),
+    ).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText('Nothing found yet')).toBeVisible()
+    await expect(page.getByText('Nothing found', { exact: true })).toHaveCount(
+      0,
+    )
+
+    // The command palette's page results say the same.
+    await page.keyboard.press('ControlOrMeta+k')
+    const palette = page.getByRole('dialog')
+    await palette.getByRole('combobox').fill(word)
+    await expect(
+      palette.getByRole('status').filter({
+        hasText: 'Some recent changes aren’t searchable yet.',
+      }),
+    ).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(palette).toHaveCount(0)
+
+    await backend('debug_set_search_indexer_paused', { paused: false })
+    await expect(
+      page
+        .getByRole('listbox', { name: 'History results' })
+        .getByRole('option')
+        .filter({ hasText: title }),
+    ).toHaveCount(1, { timeout: 30_000 })
+    await expect(page.getByRole('status')).toHaveCount(0)
+  } finally {
+    await backend('debug_set_search_indexer_paused', { paused: false })
+    await backend('set_url_notes', { request: { url, notes: '' } })
+  }
 })

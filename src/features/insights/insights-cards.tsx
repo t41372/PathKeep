@@ -172,14 +172,17 @@ export function TopSitesCard({ range }: { range: RangeId }) {
       <QueryBody
         query={sites}
         skeleton={<ListSkeleton rows={6} />}
-        isEmpty={(result) => result.data.length === 0}
+        isEmpty={(result) => result.data.items.length === 0}
         empty={t('insights.topSites.empty')}
       >
         {(result) => {
-          const max = Math.max(1, ...result.data.map((site) => site.visitCount))
+          const max = Math.max(
+            1,
+            ...result.data.items.map((site) => site.visitCount),
+          )
           return (
             <ul className="flex flex-col gap-1.5">
-              {result.data.map((site) => (
+              {result.data.items.map((site) => (
                 <li key={site.registrableDomain}>
                   <Link
                     to={sitePath(site.registrableDomain, range)}
@@ -315,12 +318,12 @@ export function SearchesAndRefindCard({ range }: { range: RangeId }) {
       <QueryBody
         query={refind}
         skeleton={<ListSkeleton rows={3} />}
-        isEmpty={(result) => result.data.length === 0}
+        isEmpty={(result) => result.data.items.length === 0}
         empty={t('insights.refind.empty')}
       >
         {(result) => (
           <ul className="-mx-2 flex flex-col">
-            {result.data.map((page) => (
+            {result.data.items.map((page) => (
               <li key={page.canonicalUrl}>
                 <Link
                   to={pagePath(page.canonicalUrl, range, page.profileId)}

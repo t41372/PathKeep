@@ -745,6 +745,7 @@ impl AgentTool for IntelligenceReportTool {
                     cursor: parsed.cursor.clone(),
                     date_range,
                     profile_id: None,
+                    profile_ids: Vec::new(),
                     sort_by: Some("visit_count".to_string()),
                     limit: parsed.limit.map(|value| value.max(1)).or(Some(20)),
                 };

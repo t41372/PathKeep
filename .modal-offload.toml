@@ -15,7 +15,7 @@ apt = [
   "libssl-dev", "libwebkit2gtk-4.1-dev", "libxdo-dev", "librsvg2-dev",
   "patchelf", "dbus-x11", "gnome-keyring", "systemd", "wget", "xvfb",
   # also needed outside GitHub's runner image
-  "ca-certificates", "git", "unzip", "xz-utils", "protobuf-compiler", "perl",
+  "ca-certificates", "git", "unzip", "xz-utils", "protobuf-compiler", "perl", "lsof",
   # thread dumps of hung tests
   "gdb",
 ]
@@ -42,7 +42,10 @@ timeout_min = 360
 # read-only directory makes a write fail. ubuntu:24.04 ships this user.
 user = "ubuntu"
 # Tool caches live under the saved state, so they survive between runs.
-env = { CARGO_HOME = "/state/home/cargo", RUSTUP_HOME = "/state/home/rustup", BUN_INSTALL_CACHE_DIR = "/state/home/bun-cache", PLAYWRIGHT_BROWSERS_PATH = "/state/home/ms-playwright" }
+# ci.yml runs the checks under dbus-run-session and xvfb-run: owner_process starts the
+# real app, which needs a display, and its single-instance handoff needs a session bus.
+# Setup starts the same two here, so every command has them.
+env = { DISPLAY = ":99", DBUS_SESSION_BUS_ADDRESS = "unix:path=/tmp/offload-dbus", CARGO_HOME = "/state/home/cargo", RUSTUP_HOME = "/state/home/rustup", BUN_INSTALL_CACHE_DIR = "/state/home/bun-cache", PLAYWRIGHT_BROWSERS_PATH = "/state/home/ms-playwright" }
 # The desktop crate's build script needs the worker sidecar in src-tauri/binaries.
-setup = "bun install --frozen-lockfile >/dev/null && bunx playwright install chromium >/dev/null && bun run prepare:worker-sidecar --profile debug"
+setup = "(pgrep -x Xvfb >/dev/null || (setsid Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &)) && (test -S /tmp/offload-dbus || dbus-daemon --session --fork --address=unix:path=/tmp/offload-dbus >/dev/null) && bun install --frozen-lockfile >/dev/null && bunx playwright install chromium >/dev/null && bun run prepare:worker-sidecar --profile debug"
 artifacts = ["artifacts/e2e"]

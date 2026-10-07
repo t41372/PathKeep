@@ -28,5 +28,15 @@ pub(crate) fn cancel_search_impl(
 pub(crate) fn search_indexer_state_impl(
     state: &SessionState,
 ) -> Result<IndexerState, CommandError> {
-    Ok(vault_worker::search_indexer_state(&state.vault()?))
+    worker_result(vault_worker::search_indexer_state(&state.vault()?))
+}
+
+/// Debug builds of the dev bridge only: lets E2E hold the search indexer to show partial coverage.
+#[cfg(all(debug_assertions, feature = "devtools-bridge"))]
+pub(crate) fn debug_set_search_indexer_paused_impl(
+    state: &SessionState,
+    paused: bool,
+) -> Result<(), CommandError> {
+    state.vault()?.search().set_paused_for_tests(paused);
+    Ok(())
 }

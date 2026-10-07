@@ -522,6 +522,7 @@ mod tests {
             cursor: None,
             date_range: date_range.clone(),
             profile_id: None,
+            profile_ids: Vec::new(),
             sort_by: None,
             limit: Some(10),
         };
@@ -856,12 +857,10 @@ mod tests {
         let detail = audit_run_detail_impl(run_id, &session).expect("audit run detail");
         assert_eq!(detail.run.id, run_id);
 
-        for error in [
-            repair_health_impl(&session).unwrap_err(),
-            reconcile_archive_encryption_impl(&session).unwrap_err(),
-        ] {
-            assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
-        }
+        // Doctor repairs the Turso archive; encryption changes wait for the conversion.
+        repair_health_impl(&session).expect("repair health");
+        let error = reconcile_archive_encryption_impl(&session).unwrap_err();
+        assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
 
         // OPTIONAL key: Test-connection against a provider with NO stored key must PROBE it, not
         // pre-fail on PathKeep's own missing-key precondition. This crate links the REAL vault-core,
@@ -1273,7 +1272,11 @@ mod tests {
         let snapshot = app_snapshot_impl(&session).expect("snapshot after unlock");
         assert!(snapshot.archive_status.initialized);
         let dashboard = dashboard_snapshot_impl(&session).expect("dashboard");
-        assert!(dashboard.recent_runs.is_empty(), "unported readers do not see Turso writes");
+        assert_eq!(
+            dashboard.recent_runs.len(),
+            1,
+            "the dashboard reads the backup from the archive"
+        );
         assert_eq!(
             owner
                 .read(vault_store::Db::Archive, |s| s.query_one(

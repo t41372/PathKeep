@@ -15,7 +15,6 @@ cards all expose continuation. Full frontend DTO details are in the
 [area-4 contract report](../architecture/research/2026-10-turso-area4.md); this backend change
 does not update frontend consumers.
 
-
 > **狀態：Accepted (2026-04-15 Core Intelligence reset baseline)**
 > **日期：2026-04-15**
 > **取代：** `deterministic-intelligence.md`（M5 baseline）、`intelligence.md` 中殘留的 deterministic/insights baseline 敘述、Codex 現有 insights 實現

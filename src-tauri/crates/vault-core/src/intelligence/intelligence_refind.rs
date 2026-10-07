@@ -63,23 +63,39 @@ pub(super) fn get_top_sites_with_connection(
         Some("average_daily_visits") => (average, visits),
         _ => (visits, days),
     };
+    let profiles: Vec<&str> = if request.profile_ids.is_empty() {
+        request.profile_id.as_deref().into_iter().collect()
+    } else {
+        request.profile_ids.iter().map(String::as_str).collect()
+    };
+    // Profiles bind after the seven fixed parameters.
+    let profiles_clause = if profiles.is_empty() {
+        "?1 IS NULL".to_owned()
+    } else {
+        let marks: Vec<String> = (0..profiles.len()).map(|i| format!("?{}", i + 8)).collect();
+        format!("(?1 IS NULL AND profile_id IN ({}))", marks.join(","))
+    };
     let sql=format!("SELECT registrable_domain,MIN(domain_category),SUM(visit_count),COUNT(DISTINCT date_key),
          CAST(SUM(visit_count) AS REAL)/COUNT(DISTINCT date_key),SUM(unique_urls),{primary},{secondary}
-         FROM domain_daily_rollups WHERE (?1 IS NULL OR profile_id=?1) AND date_key>=?2 AND date_key<=?3
+         FROM domain_daily_rollups WHERE {profiles_clause} AND date_key>=?2 AND date_key<=?3
          GROUP BY registrable_domain
          HAVING ?5 IS NULL OR {primary}<?5 OR ({primary}=?5 AND ({secondary}<?6 OR ({secondary}=?6 AND registrable_domain>?7)))
          ORDER BY {primary} DESC,{secondary} DESC,registrable_domain ASC LIMIT ?4");
     let rows = connection.query(
         &sql,
-        params![
-            request.profile_id.as_deref(),
-            request.date_range.start,
-            request.date_range.end,
-            (limit + 1) as i64,
-            cursor.as_ref().map(|c| c.0),
-            cursor.as_ref().map(|c| c.1),
-            cursor.as_ref().map(|c| c.2.as_str())
-        ],
+        {
+            let mut values: Vec<vault_store::Value> = vec![
+                vault_store::Value::Null,
+                request.date_range.start.clone().into(),
+                request.date_range.end.clone().into(),
+                ((limit + 1) as i64).into(),
+                cursor.as_ref().map(|c| c.0).into(),
+                cursor.as_ref().map(|c| c.1).into(),
+                cursor.as_ref().map(|c| c.2.clone()).into(),
+            ];
+            values.extend(profiles.iter().map(|id| vault_store::Value::from(id.to_string())));
+            values
+        },
         |r| {
             let domain = r.get::<String>(0)?;
             Ok((

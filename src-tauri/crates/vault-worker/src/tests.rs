@@ -2997,6 +2997,7 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
         cursor: None,
         date_range: date_range.clone(),
         profile_id: None,
+        profile_ids: Vec::new(),
         sort_by: None,
         limit: Some(10),
     };

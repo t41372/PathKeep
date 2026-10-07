@@ -92,14 +92,16 @@ impl SearchSessions {
         let mut bytes = [0u8; 16];
         getrandom::fill(&mut bytes)?;
         let session_id = hex::encode(bytes);
-        let state = indexer.state();
+        let state = indexer
+            .state_against(store.read(vault_store::Db::Archive, super::documents::watermark)?);
         let cancel =
             prepared.as_ref().map(SearchSession::cancel_token).transpose()?.unwrap_or_default();
         let token = cancel.clone();
         let (commands, rx) = mpsc::channel();
+        let started_state = state.clone();
         let thread =
             std::thread::Builder::new().name("search-session".into()).spawn(move || {
-                if !sink(SearchEvent::Indexer(indexer.state())) {
+                if !sink(SearchEvent::Indexer(started_state)) {
                     return;
                 }
                 let result = (|| -> Result<()> {

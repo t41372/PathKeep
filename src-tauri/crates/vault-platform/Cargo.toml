@@ -31,6 +31,8 @@ dbus-secret-service-keyring-store = { version = "0.3.3", features = ["crypto-rus
 # (dbus through the keyring store), so this adds no new crate.
 [target.'cfg(target_os = "linux")'.dependencies]
 dbus = "0.9.11"
+
+[target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
 [dev-dependencies]

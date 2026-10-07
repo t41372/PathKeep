@@ -11,7 +11,11 @@ pub struct Fixture {
 }
 impl Fixture {
     pub fn new() -> Self {
-        let root = tempfile::Builder::new().prefix("pk-owner-").tempdir_in("/private/tmp").unwrap();
+        // A short root keeps the owner's socket path under the Unix limit; macOS's
+        // own temp directory is too deep for it.
+        let base =
+            if cfg!(target_os = "macos") { "/private/tmp".into() } else { std::env::temp_dir() };
+        let root = tempfile::Builder::new().prefix("pk-owner-").tempdir_in(base).unwrap();
         let paths = vault_core::project_paths_with_root(root.path());
         vault_core::config::ensure_paths(&paths).unwrap();
         let mut config = AppConfig {

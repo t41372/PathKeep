@@ -44,47 +44,47 @@ and runtime invalidation revisions prevent an older completion from hiding a new
 
 ## Failure modes
 
-| Owner | Failure modes covered |
-| --- | --- |
-| Store Session/statement helpers | Borrowed values escape their owner; RETURNING is not drained; prepared reads bypass plan capture; Intelligence cannot see committed Archive facts; attached Archive writes escape its writer. |
-| Build state/pipeline/rows | Lost cursors; duplicated replay; partial generation publication; stale source/rule resume; archive writes blocked by a rebuild; first-domain classification changes at a batch boundary. |
-| Daily/navigation/refind stages | Split sessions or trails; duplicated members; inconsistent daily uniqueness/category selection; huge open-session replay; whole-archive refind buffering; stale counts after replay. |
-| Intelligence reads | Full canonical scans; timestamp/score ties lose continuation; a long session is excluded by a lookback; evidence samples hide visits; anniversaries count visits as sessions; cached metadata or end dates drift. |
-| Runtime | Duplicate claims; failed decoding rolls back quarantine; a completion loses a newer trigger; a stale completion overwrites invalidation; reads perform recovery; latest-job caps hide history. |
-| AI queue/indexing/read model | In-flight work is stranded after owner death; completed work repeats; cursor skips unchanged rows; page limits become total limits; metadata totals drift on replacement, rollback or cleanup. |
-| Working set/agent tools | Signal pools drop pages; canonical variants split; oversized reports or notes lose bytes; UTF-8 is split; volatile timers invalidate every continuation. |
-| Enrichment | Legacy candidates miss native pages; parked jobs never return; a page without visits is ignored; cache fan-out misses later variants; a crash refetches already stored content or duplicates publication. |
-| Callers | A request opens another owner, loads the wrong root, loses cursor fields, or uses stale consent/configuration. |
+| Owner                           | Failure modes covered                                                                                                                                                                                             |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Store Session/statement helpers | Borrowed values escape their owner; RETURNING is not drained; prepared reads bypass plan capture; Intelligence cannot see committed Archive facts; attached Archive writes escape its writer.                     |
+| Build state/pipeline/rows       | Lost cursors; duplicated replay; partial generation publication; stale source/rule resume; archive writes blocked by a rebuild; first-domain classification changes at a batch boundary.                          |
+| Daily/navigation/refind stages  | Split sessions or trails; duplicated members; inconsistent daily uniqueness/category selection; huge open-session replay; whole-archive refind buffering; stale counts after replay.                              |
+| Intelligence reads              | Full canonical scans; timestamp/score ties lose continuation; a long session is excluded by a lookback; evidence samples hide visits; anniversaries count visits as sessions; cached metadata or end dates drift. |
+| Runtime                         | Duplicate claims; failed decoding rolls back quarantine; a completion loses a newer trigger; a stale completion overwrites invalidation; reads perform recovery; latest-job caps hide history.                    |
+| AI queue/indexing/read model    | In-flight work is stranded after owner death; completed work repeats; cursor skips unchanged rows; page limits become total limits; metadata totals drift on replacement, rollback or cleanup.                    |
+| Working set/agent tools         | Signal pools drop pages; canonical variants split; oversized reports or notes lose bytes; UTF-8 is split; volatile timers invalidate every continuation.                                                          |
+| Enrichment                      | Legacy candidates miss native pages; parked jobs never return; a page without visits is ignored; cache fan-out misses later variants; a crash refetches already stored content or duplicates publication.         |
+| Callers                         | A request opens another owner, loads the wrong root, loses cursor fields, or uses stale consent/configuration.                                                                                                    |
 
 ## Request and response changes
 
 Wire fields use camelCase; agent-tool arguments retain snake_case. Cursors are opaque and
 are reused with the same filters/sort. A limit is a page or batch size, never total coverage.
 
-| Surface | Contract |
-| --- | --- |
-| Top sites, refind pages, hub pages, frequent searches, top concepts | Requests add `cursor`; responses become `{ items, nextCursor }`. Existing limit fields are page sizes. |
-| Stable sources, friction signals, reopened investigations, observed interactions | `ScopedPageRequest` adds optional `limit` and `cursor` to date/profile scope; result is `{ items, nextCursor }`, including inside worker section/overview envelopes. Sparse observed pages may be empty with a continuation. |
-| Sessions, trails, query families | Offset `page` is replaced by `cursor`; results replace `page` with `nextCursor`, retain totals and `pageSize`, and report the applied size. Sessions use exact interval overlap. |
-| Recent search queries | `page` is replaced by `cursor`; result `{ rows, total, nextCursor, pageSize }`. Every sort has stable continuation; family sorting retains only a page in Rust. |
-| Path flows | Request adds `cursor`; response/overview section becomes `{ items, nextCursor }`. All-time reads use published aggregates; date scopes stream navigation windows. |
-| Domain detail | Request adds `pageSize`, `pagesCursor`, `searchesCursor`; `topPages` and `landingSearches` become pages. `pageCount` and `landingSearchCount` remain exact for the whole scope. |
-| Query-family detail | Adds `cursor`, `pageSize`; `relatedTrails` becomes a page. |
-| Search effectiveness | Request adds `topicsCursor`, `topicsLimit`; `hardestTopics` and `topResolvingSources` become pages. Continue resolving sources through the stable-sources endpoint. |
-| Refind detail | Adds `visitsCursor`, `trailsCursor`, `pageSize`; `relatedTrails` becomes a page; explanation adds `profileId` and `visitIdsNextCursor`. `recentDays` covers every matching day. |
-| Refind explanation | Request adds `profileId`, `cursor`, `pageSize`; visit IDs are a complete cursor traversal, not the saved sample. |
-| Entity explanation | Request adds `cursor`, `pageSize`; response adds `participatingVisitIdsNextCursor`. Session, trail, family, habit, compare and reopened/reference evidence all page completely; factors remain whole-entity values. |
-| Session detail | `{ request: { sessionId, visitsCursor?, trailsCursor?, pageSize? } }`; retains visit/trail arrays and adds `visitsNextCursor`, `trailsNextCursor`. |
-| Trail detail | `{ request: { trailId, cursor?, pageSize? } }`; retains member array and adds `membersNextCursor`. |
-| Anniversary entries | Adds `topDomainsNextCursor`; continue through top-sites with the entry's date and the same profile. |
-| AI/runtime recent jobs | AI/index/runtime status snapshots add `recentJobsNextCursor`. New `list_ai_jobs` and `list_intelligence_jobs` take `{ cursor?, limit? }` and return `{ items, nextCursor }`. AI cursors are integer IDs; intelligence cursors are `{ updatedAt, id }`. Owner IPC/CLI names are `ai-jobs` and `intelligence-jobs`. |
-| Enrichment request/payload | `historyId` and `profileId` are nullable/optional; native canonical page identity is authoritative. |
-| Rebuild and AI indexing | Existing `limit` is a batch size; rebuild progress includes `overview` while preparing cached views. |
-| `intelligence_report` | Row cursor is forwarded; `session_detail` also accepts `trails_cursor` independently of its visit `cursor`. `output_cursor` pages oversized JSON as `{ jsonFragment, reportRevision, nextOutputCursor, totalBytes }`. Changed content returns `restartRequired`. |
-| `list_annotations` | Full notes replace 120-byte previews; `output_cursor` continues oversized text with the same fragment envelope. |
-| Public intelligence snapshot | Adds `topDomainsNextCursor`. |
-| Embed cards | Request adds `cursor`; result becomes `{ items, nextCursor }`. |
-| Widget and local-host cards | Keep their arrays, adding `highlightsNextCursor` and `embedCardsNextCursor` respectively. |
+| Surface                                                                          | Contract                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Top sites, refind pages, hub pages, frequent searches, top concepts              | Requests add `cursor`; responses become `{ items, nextCursor }`. Existing limit fields are page sizes.                                                                                                                                                                                                            |
+| Stable sources, friction signals, reopened investigations, observed interactions | `ScopedPageRequest` adds optional `limit` and `cursor` to date/profile scope; result is `{ items, nextCursor }`, including inside worker section/overview envelopes. Sparse observed pages may be empty with a continuation.                                                                                      |
+| Sessions, trails, query families                                                 | Offset `page` is replaced by `cursor`; results replace `page` with `nextCursor`, retain totals and `pageSize`, and report the applied size. Sessions use exact interval overlap.                                                                                                                                  |
+| Recent search queries                                                            | `page` is replaced by `cursor`; result `{ rows, total, nextCursor, pageSize }`. Every sort has stable continuation; family sorting retains only a page in Rust.                                                                                                                                                   |
+| Path flows                                                                       | Request adds `cursor`; response/overview section becomes `{ items, nextCursor }`. All-time reads use published aggregates; date scopes stream navigation windows.                                                                                                                                                 |
+| Domain detail                                                                    | Request adds `pageSize`, `pagesCursor`, `searchesCursor`; `topPages` and `landingSearches` become pages. `pageCount` and `landingSearchCount` remain exact for the whole scope.                                                                                                                                   |
+| Query-family detail                                                              | Adds `cursor`, `pageSize`; `relatedTrails` becomes a page.                                                                                                                                                                                                                                                        |
+| Search effectiveness                                                             | Request adds `topicsCursor`, `topicsLimit`; `hardestTopics` and `topResolvingSources` become pages. Continue resolving sources through the stable-sources endpoint.                                                                                                                                               |
+| Refind detail                                                                    | Adds `visitsCursor`, `trailsCursor`, `pageSize`; `relatedTrails` becomes a page; explanation adds `profileId` and `visitIdsNextCursor`. `recentDays` covers every matching day.                                                                                                                                   |
+| Refind explanation                                                               | Request adds `profileId`, `cursor`, `pageSize`; visit IDs are a complete cursor traversal, not the saved sample.                                                                                                                                                                                                  |
+| Entity explanation                                                               | Request adds `cursor`, `pageSize`; response adds `participatingVisitIdsNextCursor`. Session, trail, family, habit, compare and reopened/reference evidence all page completely; factors remain whole-entity values.                                                                                               |
+| Session detail                                                                   | `{ request: { sessionId, visitsCursor?, trailsCursor?, pageSize? } }`; retains visit/trail arrays and adds `visitsNextCursor`, `trailsNextCursor`.                                                                                                                                                                |
+| Trail detail                                                                     | `{ request: { trailId, cursor?, pageSize? } }`; retains member array and adds `membersNextCursor`.                                                                                                                                                                                                                |
+| Anniversary entries                                                              | Adds `topDomainsNextCursor`; continue through top-sites with the entry's date and the same profile.                                                                                                                                                                                                               |
+| AI/runtime recent jobs                                                           | AI/index/runtime status snapshots add `recentJobsNextCursor`. New `list_ai_jobs` and `list_intelligence_jobs` take `{ cursor?, limit? }` and return `{ items, nextCursor }`. AI cursors are integer IDs; intelligence cursors are `{ updatedAt, id }`. Owner IPC/CLI names are `ai-jobs` and `intelligence-jobs`. |
+| Enrichment request/payload                                                       | `historyId` and `profileId` are nullable/optional; native canonical page identity is authoritative.                                                                                                                                                                                                               |
+| Rebuild and AI indexing                                                          | Existing `limit` is a batch size; rebuild progress includes `overview` while preparing cached views.                                                                                                                                                                                                              |
+| `intelligence_report`                                                            | Row cursor is forwarded; `session_detail` also accepts `trails_cursor` independently of its visit `cursor`. `output_cursor` pages oversized JSON as `{ jsonFragment, reportRevision, nextOutputCursor, totalBytes }`. Changed content returns `restartRequired`.                                                  |
+| `list_annotations`                                                               | Full notes replace 120-byte previews; `output_cursor` continues oversized text with the same fragment envelope.                                                                                                                                                                                                   |
+| Public intelligence snapshot                                                     | Adds `topDomainsNextCursor`.                                                                                                                                                                                                                                                                                      |
+| Embed cards                                                                      | Request adds `cursor`; result becomes `{ items, nextCursor }`.                                                                                                                                                                                                                                                    |
+| Widget and local-host cards                                                      | Keep their arrays, adding `highlightsNextCursor` and `embedCardsNextCursor` respectively.                                                                                                                                                                                                                         |
 
 Agent conversation/message contracts are retained: conversation recency/ID cursors,
 message sequence cursors, and complete atomic transcript save/load. Full transcript save
@@ -94,25 +94,25 @@ must not be given an incomplete message page.
 
 STATUS names a 13-limit audit without enumerating it. The owned-module scan found:
 
-| Previous limit | Outcome |
-| --- | --- |
-| Agent conversations 200; transcript pages | Existing cursor implementation retained. |
-| Working set 50,000; each signal 12,500 | Removed; canonical-page traversal covers all eligible pages. |
-| Index `limit` and working-set candidate pool | Batch size only; a 50,021-page build in each storage mode completes every vector/map/metadata row. |
-| AI recent jobs and runtime latest 12 | Explicit job-list continuation. |
-| Rebuild newest-visit tail | Batch size only; all captured facts are visited. |
-| Top sites/refind/hubs/stable sources/friction/reopened/path flows | Cursor pages, including score/time ties. |
-| Frequent searches 100; concepts | Page limits with continuation. |
-| Session one-day lookback | Removed; arbitrary-duration overlap is exact. |
-| Session/trail/family/recent-query offsets and unbounded details | List cursors and detail navigation-ordinal pages. |
-| Domain pages 10, landing queries 8 | Independent cursor pages with whole-scope totals. |
-| Query-family/refind related trails 8 | Complete related-trail traversal. |
-| Refind evidence sample 50 | Persisted sample stays bounded; public evidence traverses canonical facts. |
-| Other explanation ID vectors | Session/trail/family/habit/compare/reopened IDs page completely; path-flow explanations seek their latest stored occurrence with a bounded domain window. |
-| Anniversary top domains 3 | Continuation to the complete day/domain list. |
-| Widget highlights 4 / selected embed cards | Selected cards have complete continuation. |
-| Agent intelligence report 8 KB; annotation previews 120 bytes | Complete output fragments and full notes. |
-| Search, regex, hybrid/vector candidate pools and code-mode search | Area 3 owns these. Calls retain its entry point; no search implementation is changed. |
+| Previous limit                                                    | Outcome                                                                                                                                                   |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent conversations 200; transcript pages                         | Existing cursor implementation retained.                                                                                                                  |
+| Working set 50,000; each signal 12,500                            | Removed; canonical-page traversal covers all eligible pages.                                                                                              |
+| Index `limit` and working-set candidate pool                      | Batch size only; a 50,021-page build in each storage mode completes every vector/map/metadata row.                                                        |
+| AI recent jobs and runtime latest 12                              | Explicit job-list continuation.                                                                                                                           |
+| Rebuild newest-visit tail                                         | Batch size only; all captured facts are visited.                                                                                                          |
+| Top sites/refind/hubs/stable sources/friction/reopened/path flows | Cursor pages, including score/time ties.                                                                                                                  |
+| Frequent searches 100; concepts                                   | Page limits with continuation.                                                                                                                            |
+| Session one-day lookback                                          | Removed; arbitrary-duration overlap is exact.                                                                                                             |
+| Session/trail/family/recent-query offsets and unbounded details   | List cursors and detail navigation-ordinal pages.                                                                                                         |
+| Domain pages 10, landing queries 8                                | Independent cursor pages with whole-scope totals.                                                                                                         |
+| Query-family/refind related trails 8                              | Complete related-trail traversal.                                                                                                                         |
+| Refind evidence sample 50                                         | Persisted sample stays bounded; public evidence traverses canonical facts.                                                                                |
+| Other explanation ID vectors                                      | Session/trail/family/habit/compare/reopened IDs page completely; path-flow explanations seek their latest stored occurrence with a bounded domain window. |
+| Anniversary top domains 3                                         | Continuation to the complete day/domain list.                                                                                                             |
+| Widget highlights 4 / selected embed cards                        | Selected cards have complete continuation.                                                                                                                |
+| Agent intelligence report 8 KB; annotation previews 120 bytes     | Complete output fragments and full notes.                                                                                                                 |
+| Search, regex, hybrid/vector candidate pools and code-mode search | Area 3 owns these. Calls retain its entry point; no search implementation is changed.                                                                     |
 
 Curated embed cards choose one representative per category. The selected card list now pages
 with a cursor; widget highlights and local-host bundles expose its continuation. This is a
@@ -120,13 +120,13 @@ curated summary, not an enumeration of every underlying entity.
 
 ## Validation
 
-| Gate | Result |
-| --- | --- |
-| `cargo fmt --all --check` | Pass. |
-| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Pass, including the latest native worker fixtures. |
+| Gate                                                                     | Result                                                                                                                                                                                             |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cargo fmt --all --check`                                                | Pass.                                                                                                                                                                                              |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings`   | Pass, including the latest native worker fixtures.                                                                                                                                                 |
 | `cargo test -p vault-core -p vault-worker -p vault-store --no-fail-fast` | Fail only in core/worker search integrations listed below. Core: 1,817 pass, 1 fail, 36 ignored. Worker: 144 pass, 3 fail. All non-ignored integration, Store and documentation-test targets pass. |
-| `bun run test:desktop-bridge:rust` | Pass: 21 tests. |
-| `cargo build --workspace` | Pass. |
+| `bun run test:desktop-bridge:rust`                                       | Pass: 21 tests.                                                                                                                                                                                    |
+| `cargo build --workspace`                                                | Pass.                                                                                                                                                                                              |
 
 Native acceptance results include:
 
@@ -173,18 +173,18 @@ and one profile. Visits are ten seconds apart, forming one continuous session; t
 has no search URLs/trails. These distribution limits must be considered when interpreting
 rebuild measurements. Cold means a fresh process/Store, not a flushed operating-system cache.
 
-| Measurement | Final guarded attempt |
-| --- | --- |
-| Full rebuild | Incomplete: stopped in refind generation after scanning 5,586,944 refind-input visits. Elapsed at stop: 1,877.458 s. |
-| Observed peak RSS before stop | 158,466,048 bytes (151.125 MiB); not a completed-rebuild peak. |
-| Incremental after 10,000 visits | Not measured: no complete baseline within the data budget. |
-| Overview cold / warm | Not measured: no complete baseline. |
-| Domain cold / warm | Not measured: no complete baseline. |
-| Sessions cold / warm | Not measured: no complete baseline. |
-| Interactive star wait during rebuild | 0.328 ms; committed while fact derivation continued. |
-| Load at rebuild start | 6.58 / 5.99 / 5.58 (`uptime`). |
-| Data at guard | 14,865,960,966 bytes; stopped with 128 MiB reserved headroom below 15 GB. |
-| Cleanup | Entire fixture removed; absence verified. |
+| Measurement                          | Final guarded attempt                                                                                                |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Full rebuild                         | Incomplete: stopped in refind generation after scanning 5,586,944 refind-input visits. Elapsed at stop: 1,877.458 s. |
+| Observed peak RSS before stop        | 158,466,048 bytes (151.125 MiB); not a completed-rebuild peak.                                                       |
+| Incremental after 10,000 visits      | Not measured: no complete baseline within the data budget.                                                           |
+| Overview cold / warm                 | Not measured: no complete baseline.                                                                                  |
+| Domain cold / warm                   | Not measured: no complete baseline.                                                                                  |
+| Sessions cold / warm                 | Not measured: no complete baseline.                                                                                  |
+| Interactive star wait during rebuild | 0.328 ms; committed while fact derivation continued.                                                                 |
+| Load at rebuild start                | 6.58 / 5.99 / 5.58 (`uptime`).                                                                                       |
+| Data at guard                        | 14,865,960,966 bytes; stopped with 128 MiB reserved headroom below 15 GB.                                            |
+| Cleanup                              | Entire fixture removed; absence verified.                                                                            |
 
 Fact derivation completed at 1,345.693 s, daily rollups at 1,491.707 s and session construction
 at 1,662.135 s. The remaining refind/reference materialization did not fit before the guard.
@@ -229,7 +229,6 @@ messages beyond a page, or conversations beyond the old 200-row ceiling.
 Existing Rust tests cover these behaviours. Desktop worker tests cover all five
 CRUD entry points and the existing App Lock boundary. Frontend E2E is outside this
 area; no frontend files or E2E tests are changed.
-
 
 ## Retained agent test inventory
 
@@ -281,7 +280,6 @@ Added acceptance tests, each in plaintext and with a key:
   and replay an already committed tool result without duplication.
 - `journal_crash_child` is an ignored subprocess fixture, invoked by its parent test.
 
-
 ## Remaining-module review
 
 The intelligence read modules compose SQL helpers; rebuild orchestration previously mixed
@@ -323,31 +321,31 @@ published native baseline. The driver itself no longer copies SQLite databases.
 The following names changed with their required behavior; the old cap assertions are
 replaced by complete traversal assertions, not discarded:
 
-| Previous test | Native test |
-| --- | --- |
-| `a_legacy_derived_only_repair_still_has_a_native_audit_run` | `a_native_derived_only_repair_keeps_its_audit_run_and_metadata_totals` |
-| `build_index_honors_limit_at_a_chunk_boundary` | `build_index_uses_limit_as_page_size_and_reaches_every_candidate` |
-| `chrome_now_ms_is_in_chrome_epoch_frame` | `candidate_clock_is_in_unix_epoch_frame` |
-| `daily_rollup_stage_falls_back_when_delta_rows_do_not_match_watermark` | `daily_rollup_resumes_an_interrupted_fact_batch_without_missing_delta_rows` |
-| `enqueue_working_set_skips_extractor_disabled_and_visitless_candidates` | `enqueue_working_set_skips_extractor_disabled_and_unarchived_candidates` |
-| `ensure_ai_schema_adds_tables` | `native_ai_schema_has_empty_metadata_totals` |
-| `ensure_ai_schema_creates_metadata_only_embedding_rows` | `native_ai_schema_keeps_vectors_out_of_metadata_rows` |
-| `intelligence_report_truncates_over_budget_json_on_a_char_boundary` | `intelligence_report_pages_over_budget_json_without_losing_unicode` |
-| `list_annotations_truncates_long_cjk_note_on_a_char_boundary` | `list_annotations_pages_every_byte_of_a_long_cjk_note` |
-| `list_cap_holds_at_two_hundred_even_for_oversized_limits` | `bounded_conversation_pages_keep_every_row_reachable` |
-| `load_visible_visits_hydrates_search_terms_within_the_limit_window` | `source_pages_hydrate_search_terms` |
-| `load_visible_visits_limit_above_row_count_returns_all_rows` | `oversized_source_page_returns_all_rows` |
-| `load_visible_visits_limit_applies_to_unscoped_reads_across_profiles` | `source_pages_cover_every_profile` |
-| `load_visible_visits_limit_keeps_the_newest_tail_in_ascending_order` | `source_page_size_keeps_all_profile_visits_reachable` |
-| `load_visible_visits_limit_zero_keeps_a_single_newest_visit` | `zero_rebuild_page_size_still_covers_all_visits` |
-| `mcp_surface_respects_legacy_visibility_and_locked_app_sessions` | `mcp_surface_respects_native_visibility_and_locked_app_sessions` |
-| `open_agent_connection_bootstraps_database_file` | `vault_open_installs_the_agent_schema` |
-| `per_signal_cap_is_a_strict_fraction_of_max_so_no_signal_dominates` | `every_page_is_reachable_past_both_old_pool_limits` |
-| `scoped_debug_rebuild_uses_legacy_fallback_and_progress_callbacks` | `scoped_rebuild_uses_batches_and_progress_callbacks` |
-| `structural_stage_updates_tail_assignments_incrementally` | `late_visits_rebuild_tail_assignments_without_duplicates` |
-| `structural_stream_keeps_assignments_stable_across_batch_boundaries` | `late_visit_chains_keep_assignments_stable_across_batch_boundaries` |
-| `structural_stream_reclassifies_incremental_search_event_after_landing_domain` | `late_search_events_are_reclassified_after_their_landing_domain` |
-| `truncate_str_on_char_boundary_never_splits_a_multibyte_char` | `output_pages_keep_multibyte_characters_and_reject_partial_character_cursors` |
+| Previous test                                                                  | Native test                                                                   |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `a_legacy_derived_only_repair_still_has_a_native_audit_run`                    | `a_native_derived_only_repair_keeps_its_audit_run_and_metadata_totals`        |
+| `build_index_honors_limit_at_a_chunk_boundary`                                 | `build_index_uses_limit_as_page_size_and_reaches_every_candidate`             |
+| `chrome_now_ms_is_in_chrome_epoch_frame`                                       | `candidate_clock_is_in_unix_epoch_frame`                                      |
+| `daily_rollup_stage_falls_back_when_delta_rows_do_not_match_watermark`         | `daily_rollup_resumes_an_interrupted_fact_batch_without_missing_delta_rows`   |
+| `enqueue_working_set_skips_extractor_disabled_and_visitless_candidates`        | `enqueue_working_set_skips_extractor_disabled_and_unarchived_candidates`      |
+| `ensure_ai_schema_adds_tables`                                                 | `native_ai_schema_has_empty_metadata_totals`                                  |
+| `ensure_ai_schema_creates_metadata_only_embedding_rows`                        | `native_ai_schema_keeps_vectors_out_of_metadata_rows`                         |
+| `intelligence_report_truncates_over_budget_json_on_a_char_boundary`            | `intelligence_report_pages_over_budget_json_without_losing_unicode`           |
+| `list_annotations_truncates_long_cjk_note_on_a_char_boundary`                  | `list_annotations_pages_every_byte_of_a_long_cjk_note`                        |
+| `list_cap_holds_at_two_hundred_even_for_oversized_limits`                      | `bounded_conversation_pages_keep_every_row_reachable`                         |
+| `load_visible_visits_hydrates_search_terms_within_the_limit_window`            | `source_pages_hydrate_search_terms`                                           |
+| `load_visible_visits_limit_above_row_count_returns_all_rows`                   | `oversized_source_page_returns_all_rows`                                      |
+| `load_visible_visits_limit_applies_to_unscoped_reads_across_profiles`          | `source_pages_cover_every_profile`                                            |
+| `load_visible_visits_limit_keeps_the_newest_tail_in_ascending_order`           | `source_page_size_keeps_all_profile_visits_reachable`                         |
+| `load_visible_visits_limit_zero_keeps_a_single_newest_visit`                   | `zero_rebuild_page_size_still_covers_all_visits`                              |
+| `mcp_surface_respects_legacy_visibility_and_locked_app_sessions`               | `mcp_surface_respects_native_visibility_and_locked_app_sessions`              |
+| `open_agent_connection_bootstraps_database_file`                               | `vault_open_installs_the_agent_schema`                                        |
+| `per_signal_cap_is_a_strict_fraction_of_max_so_no_signal_dominates`            | `every_page_is_reachable_past_both_old_pool_limits`                           |
+| `scoped_debug_rebuild_uses_legacy_fallback_and_progress_callbacks`             | `scoped_rebuild_uses_batches_and_progress_callbacks`                          |
+| `structural_stage_updates_tail_assignments_incrementally`                      | `late_visits_rebuild_tail_assignments_without_duplicates`                     |
+| `structural_stream_keeps_assignments_stable_across_batch_boundaries`           | `late_visit_chains_keep_assignments_stable_across_batch_boundaries`           |
+| `structural_stream_reclassifies_incremental_search_event_after_landing_domain` | `late_search_events_are_reclassified_after_their_landing_domain`              |
+| `truncate_str_on_char_boundary_never_splits_a_multibyte_char`                  | `output_pages_keep_multibyte_characters_and_reject_partial_character_cursors` |
 
 Deleted SQLite-engine tests (native schema catalog, transaction and restart tests replace their engine coverage):
 

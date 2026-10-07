@@ -68,6 +68,16 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
     ) {
         return super::search::dispatch(state, command, payload).await;
     }
+    #[cfg(debug_assertions)]
+    if command == "debug_set_search_indexer_paused" {
+        #[derive(serde::Deserialize)]
+        struct Paused {
+            paused: bool,
+        }
+        let Paused { paused } = parse_payload::<Paused>(payload)?;
+        worker_bridge::debug_set_search_indexer_paused_impl(&state.session, paused)?;
+        return Ok(Value::Null);
+    }
     match command {
         "app_build_info" => json_value!(worker_bridge::app_build_info_impl()),
         "app_snapshot" => {

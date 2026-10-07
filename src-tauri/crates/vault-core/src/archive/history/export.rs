@@ -125,7 +125,6 @@ pub(super) fn write_export(
     let target_path = paths.exports_dir.join(file_name);
     let mut count = 0;
     let mut rows_written = 0;
-    let mut windowed = false;
     let result = atomic_durable_write_with(&target_path, |writer| {
         let mut buffer = BufWriter::with_capacity(EXPORT_BUFFER_BYTES, writer);
         let mut counted = CountedWriter { writer: &mut buffer, bytes: 0, checked_at: 0, job };
@@ -153,7 +152,7 @@ pub(super) fn write_export(
                     &mut visit,
                 )?;
             } else {
-                windowed = walk_pages(&mut fetch, request.query, job, &mut visit)?;
+                walk_pages(&mut fetch, request.query, job, &mut visit)?;
             }
             count = export.finish()?;
             Ok(())
@@ -170,7 +169,7 @@ pub(super) fn write_export(
     })
     .with_context(|| format!("writing {}", target_path.display()));
     result?;
-    Ok(ExportResult { format, path: target_path.display().to_string(), count, windowed })
+    Ok(ExportResult { format, path: target_path.display().to_string(), count })
 }
 
 fn check_cancel(job: Option<&Arc<ExportJob>>) -> Result<()> {
@@ -216,7 +215,7 @@ fn walk_history_for_export(
     query: HistoryQuery,
     job: Option<&Arc<ExportJob>>,
     visit: impl FnMut(&HistoryEntry) -> Result<()>,
-) -> Result<bool> {
+) -> Result<()> {
     let (_, upper) = export_bounds(vault)?;
     walk_pages(
         &mut |query| {
@@ -233,21 +232,19 @@ fn walk_pages(
     mut query: HistoryQuery,
     job: Option<&Arc<ExportJob>>,
     mut visit: impl FnMut(&HistoryEntry) -> Result<()>,
-) -> Result<bool> {
+) -> Result<()> {
     query.page = None;
     query.cursor = None;
     query.limit = Some(EXPORT_PAGE_SIZE);
     query.include_total = Some(false);
-    let mut windowed = false;
     loop {
         check_cancel(job)?;
         let page = fetch(query.clone())?;
-        windowed |= page.windowed;
         for item in &page.items {
             check_cancel(job)?;
             visit(item)?;
         }
-        let Some(cursor) = page.next_cursor else { return Ok(windowed) };
+        let Some(cursor) = page.next_cursor else { return Ok(()) };
         query.cursor = Some(cursor);
     }
 }

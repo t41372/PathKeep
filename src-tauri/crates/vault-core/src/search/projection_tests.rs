@@ -182,7 +182,7 @@ fn enrichment_text_for_index_concats_summary_and_key_metadata_only() {
 }
 
 #[test]
-fn a_live_session_rechecks_text_and_exact_counts_after_revoke() {
+fn a_live_session_drops_revoked_text_when_hydrating() {
     let archive = Archive::with_key(Some([105; 32]));
     archive
         .url(1, CHROME, "https://shared.test/page", "privatephrase", &[10])
@@ -203,8 +203,17 @@ fn a_live_session_rechecks_text_and_exact_counts_after_revoke() {
             crate::archive::search_documents::refresh(s, 1)
         })
         .unwrap();
+    // The page keeps a visible visit, but no longer has the revoked text.
     let after = session.finish_page().unwrap();
     assert!(after.items.is_empty());
-    assert_eq!(after.count.value, 0);
-    assert!(after.count.exact);
+    // Counts belong to the session's snapshot; a new search counts the revoke.
+    drop(_paused);
+    let mut fresh = SearchSession::start(
+        &archive.vault,
+        SearchRequest { query: "privatephrase".into(), ..Default::default() },
+    )
+    .unwrap();
+    let fresh = fresh.finish_page().unwrap();
+    assert!(fresh.items.is_empty());
+    assert_eq!((fresh.count.value, fresh.count.exact), (0, true));
 }

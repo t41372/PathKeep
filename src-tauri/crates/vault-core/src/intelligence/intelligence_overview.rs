@@ -111,6 +111,7 @@ fn build_intelligence_primary_overview_with_connection(
         cursor: None,
         date_range: request.date_range.clone(),
         profile_id: request.profile_id.clone(),
+        profile_ids: Vec::new(),
         sort_by: Some("visit_count".to_string()),
         limit: Some(40),
     };

@@ -3,7 +3,8 @@
 //! Not responsible for: transport scheduling, database ownership or index writes.
 //! Failure modes: canonical scans delay every first result; counts block ranking;
 //! provisional cursors escape; backup/revocation moves pages across cursors;
-//! revokes leak during hydration; close retains handles.
+//! revokes leak during hydration; a stream of writes keeps restarting a search;
+//! close retains handles.
 //! Tests: search::tests, ported_grouped, ported_regex, engine canonical contracts.
 use super::{
     Indexer, SearchCount, SearchProgress, SearchRequest, SearchStep,
@@ -36,7 +37,6 @@ pub(super) struct RunningSession {
     count: Option<MatchHandle>,
     collector: RankCollector,
     membership: Membership,
-    canonical_seq: u64,
     rank_done: bool,
     count_done: bool,
     matched_pages: u64,
@@ -155,7 +155,6 @@ impl RunningSession {
             count,
             collector: RankCollector::new(request.page_size + 1, None, order),
             membership,
-            canonical_seq,
             rank_done: false,
             count_done: false,
             matched_pages: 0,
@@ -182,24 +181,12 @@ impl RunningSession {
             bail!("search session is closed or cancelled")
         }
         let store = store.unwrap();
-        let canonical_seq = store.read(Db::Archive, super::documents::watermark)?;
-        if canonical_seq != self.canonical_seq {
-            self.canonical_seq = canonical_seq;
-            if let Some(regex) = &mut self.regex {
-                regex.reset_scan();
-            } else {
-                self.membership = Membership::empty(&store)?;
-                let reader = self.reader.as_ref().context("search closed")?;
-                self.rank = Some(reader.start_matches(true)?);
-                self.count = Some(reader.start_matches(false)?);
-                self.collector = RankCollector::new(self.page_size + 1, self.after, self.order);
-            }
-            self.rank_done = false;
-            self.count_done = false;
-            self.matched_pages = 0;
-            self.matched_visits = 0;
-            self.token = None;
-        }
+        // Writes during the session don't restart it. New visits can't enter: the
+        // scope pins the visit-ID prefix the session started with. Hydration reads
+        // current visibility and rechecks the text of pages written since the
+        // snapshot, so a revoked visit or text never reaches a result.
+        // Restarting on every write instead let a steady stream of them (a backup,
+        // link previews, page-text fetching) keep a search from ever finishing.
 
         if let Some(regex) = &mut self.regex {
             regex.step(&store, &self.cancel, budget, &self.returned)?;
@@ -274,18 +261,20 @@ impl RunningSession {
         let (mut items, canonical_seq) = if let Some(regex) = &self.regex {
             (regex.hydrate(&store)?, store.read(Db::Archive, super::documents::watermark)?)
         } else {
+            let text = eligibility::TextCheck {
+                ast: self.ast.clone(),
+                fuzzy: self.fuzzy.clone().map(|fuzzy| (fuzzy, self.exact_ast.clone())),
+                indexed_seq: self.reader.as_ref().map_or(0, |reader| reader.last_applied_seq()),
+            };
             store.read(Db::Archive, move |s| {
-                Ok((eligibility::hydrate(s, &scope, &hits)?, super::documents::watermark(s)?))
+                Ok((
+                    eligibility::hydrate(s, &scope, &hits, &text)?,
+                    super::documents::watermark(s)?,
+                ))
             })?
         };
-        // A concurrent write invalidates this step's cached membership/count. Hydration
-        // and its watermark share one canonical read; don't publish this mixed step.
-        let changed = canonical_seq != self.canonical_seq;
         items.truncate(self.page_size);
-        if changed {
-            items.clear();
-        }
-        if self.rank_done && !changed {
+        if self.rank_done {
             self.page_ids = items.iter().map(|item| item.page_id as u64).collect();
         }
         if let Some(scores) = &self.scores {
@@ -293,11 +282,8 @@ impl RunningSession {
                 item.reason = Some(scores[&(item.page_id as u64)].1.to_owned());
             }
         }
-        let mut indexer = self.indexer.upgrade().context("search owner closed")?.state();
-        indexer.target_seq = indexer.target_seq.max(canonical_seq);
-        if indexer.phase == super::IndexerPhase::Ready && indexer.applied_seq < canonical_seq {
-            indexer.phase = super::IndexerPhase::Updating;
-        }
+        let indexer =
+            self.indexer.upgrade().context("search owner closed")?.state_against(canonical_seq);
         let snapshot_seq =
             self.reader.as_ref().map_or(canonical_seq, |reader| reader.last_applied_seq());
         let coverage_complete = self.reader.as_ref().is_none_or(|reader| {
@@ -306,12 +292,12 @@ impl RunningSession {
         Ok(SearchStep {
             page: self.page,
             items,
-            provisional: !self.rank_done || changed,
+            provisional: !self.rank_done,
             progress: self.rank_progress.clone(),
-            count: SearchCount { value: self.matched_pages, exact: self.count_done && !changed },
-            visits: SearchCount { value: self.matched_visits, exact: self.count_done && !changed },
+            count: SearchCount { value: self.matched_pages, exact: self.count_done },
+            visits: SearchCount { value: self.matched_visits, exact: self.count_done },
             count_progress: self.count_progress.clone(),
-            cursor: if has_next && self.count_done && !changed { self.token.clone() } else { None },
+            cursor: if has_next && self.count_done { self.token.clone() } else { None },
             indexer,
             snapshot_seq,
             coverage_complete,

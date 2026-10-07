@@ -113,6 +113,11 @@ fn run_app() -> Result<()> {
             vault_core::config::ensure_paths(&paths).map_err(tauri::Error::Anyhow)?;
             install_panic_hook(&paths);
             app.handle().plugin(build_logging_plugin(&paths))?;
+            // Before the archive opens: an app started from Finder may only open 256 files.
+            match vault_platform::raise_open_file_limit() {
+                Ok(limit) => log::info!("open-file limit: {limit}"),
+                Err(error) => log::warn!("could not raise the open-file limit: {error}"),
+            }
             // Before anything reads the config: a wipe the user confirmed but a crash cut short
             // is finished now. A failure is logged, not fatal; onboarding retries it.
             if let Err(error) = vault_worker::finish_interrupted_data_wipe() {
