@@ -132,6 +132,8 @@ pub fn launch_background(root: &Path) -> Result<(), RpcError> {
         "CHB_TEST_KEYRING_DIR",
         "PATHKEEP_PLATFORM_TEST_KEYRING_DIR",
         "PATHKEEP_PLATFORM_TEST_SANDBOX_DIR",
+        // Debug builds only read it: owner tests shorten the background idle exit.
+        "PATHKEEP_DEBUG_IDLE_EXIT_SECS",
     ]
     .into_iter()
     .filter_map(|name| std::env::var_os(name).map(|value| (name.into(), value)));

@@ -255,7 +255,7 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 
 - **Export**：將 archive、source evidence 與 agent 資料庫完整複製，用獨立的匯出密碼加密後打包。每張表的列數與內容摘要須一致；ZIP manifest 記錄每個檔案的 SHA-256 與大小。
 - **Import → Preview → Apply**：先驗證 manifest；Apply 使用 `options.sourceArchiveKey` 提供匯出密碼，在 staging 驗證檔案與資料庫、重建搜尋後才換檔。覆蓋既有 archive 需要 `confirmOverwrite=true`，也可以匯入空白 project root。目的機保留自己的 App Lock 設定與秘密；空白目的機先不啟用 App Lock，避免要求未搬移的來源 passcode。匯入後的 archive 一律加密，匯出密碼就是它在目的機上的 archive 密碼（之後可在 Security 更改或關閉加密）；介面在匯出時就這樣說明，並要求輸入兩次。長時間的匯出、匯入、加密切換與還原在對話框中顯示 `get_maintenance_progress` 的進度與「停止」。
-- Agent 對話、audit、原始來源快照與保留的 sidecars 會搬到目的地；附件與設定同樣用匯出密碼加密，匯入後修正附件路徑，來源 checkpoint 可繼續重播。`derived/`、平台排程、App Lock secret、模型及 `sidecars/intelligence-blobs/` 不進 bundle；目的地的搜尋索引從 archive 重建。
+- Agent 對話、audit、原始來源快照與保留的 sidecars 會搬到目的地；附件與設定同樣用匯出密碼加密，匯入後修正附件路徑，來源 checkpoint 可繼續重播。抓取保存的網頁正文（`sidecars/intelligence-blobs/`）也一起搬：它是用戶資料，網頁再抓一次可能已改變或消失（用戶 2026-10-07：用戶資料一律跟著備份和遷移）。`derived/`、平台排程、App Lock secret 與模型不進 bundle；目的地的搜尋索引從 archive 重建。
 - 匯入透過既有 interruption journal 恢復；原有檔案保留在 `maintenance.bak-*`。可用 `get_maintenance_progress` 取得進度，`cancel_maintenance` 取消尚未發布的操作。
 
 ### 刪除所有資料（Delete all data）
@@ -380,7 +380,7 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 ### M4-A / v1 已落地邊界
 
 - 2026-06-22 content-fetch shipped note：W-ENRICH 已交付 content-fetch（readable text / og:image / site adapters），取代上面 2026-04/05 的「readable-content-refetch deferred、UI 顯示 `Coming in v0.3`」結論。但 egress **hard-default-OFF**（`content_fetch_enabled` 預設關），開啟前沒有任何網路存取。
-- content-fetch 的 contract：只寫入 derived enrichment / insight tables（capped `enrichment_summary` 進 intelligence DB、raw body blob 進 `sidecars/intelligence-blobs/` content-addressed、不進 export），不能修改 canonical `visits` / `downloads` / `search_terms` / `manifests`。
+- content-fetch 的 contract：只寫入 derived enrichment / insight tables（capped `enrichment_summary` 進 intelligence DB、raw body blob 進 `sidecars/intelligence-blobs/` content-addressed，隨搬家檔一起搬），不能修改 canonical `visits` / `downloads` / `search_terms` / `manifests`。
 - manual backup / import 完成後不應同步阻塞等待 enrichment 或 insights rebuild；derived refresh 仍然是 explicit follow-up，由 Insights / Settings 的 rebuild surface 觸發，避免大型真實 profile 把核心 archive run 拖成整段不可操作。
 - content-fetch 的 freshness window（負緩存退避）、client timeout、redirect policy（每 hop SSRF-guarded）、failure taxonomy（PDF / sign-in redirect / rate-limit 等人話邊界）與 site adapters 都已落地；詳見 [og-images.md](og-images.md) 與 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md) §4。
 - Settings 必須提供 plugin version、queue、freshness、derived tables、storage impact、latest growth signal，以及 `rebuild derived state` / `clear derived state` controls。`clear derived state` 只能清除 enrichment / insight tables，不可影響 canonical archive facts 或 rollback ledger。

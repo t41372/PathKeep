@@ -52,13 +52,9 @@ pub(super) fn pack(
                     continue;
                 }
                 let mut directories = Vec::new();
-                let entries = walkdir::WalkDir::new(&source).into_iter().filter_entry(|entry| {
-                    root != "sidecars"
-                        || !super::is_sidecar_enrichment_blob_excluded(
-                            entry.path().strip_prefix(&source).unwrap(),
-                        )
-                });
-                for entry in entries {
+                // Everything under these roots moves, saved page text included: it is
+                // the user's data, and a page fetched again may have changed or gone.
+                for entry in walkdir::WalkDir::new(&source) {
                     cancel.check()?;
                     let entry = entry?;
                     let name = entry

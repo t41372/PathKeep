@@ -34,6 +34,12 @@ mod schedule;
 mod security;
 mod session;
 pub use session::VaultSession;
+
+/// Whether a queue worker (Insights, enrichment, page fetching, AI) is running; a
+/// background launch stays until they finish.
+pub fn background_work_running() -> bool {
+    intelligence::running_background_workers() > 0
+}
 mod stars;
 
 #[cfg(all(test, coverage))]

@@ -2705,3 +2705,7 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - The converter now follows the Insights storage that landed alongside it: fetched page text moves to the per-page table (newest fetch wins) and is checked row by row, search gets each page's best text, embedding hashes and totals match live indexing, and Insights rebuild once after conversion.
   - Copies made by maintenance keep the database's views; without them Insights and Doctor broke after an encryption change, a restore or an import.
   - A fresh install no longer creates old-format files that the next step took for an archive to convert.
+
+- [x] `WORK-TURSO-STORAGE` — A background PathKeep leaves when its work is done; saved page text moves with the archive (2026-10-07).
+  - A scheduled backup, the CLI or MCP start PathKeep hidden in the background. It used to stay until logout. Now, if no window was opened and the menu bar icon is off, it exits two minutes after its last request, queue job or index update; the next client starts it again.
+  - The move-to-another-computer file now carries the saved text of fetched pages too, sealed with the export password. It is the user's data, and a page fetched again may have changed or gone.

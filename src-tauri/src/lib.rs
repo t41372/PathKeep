@@ -24,6 +24,7 @@ mod desktop_integration;
 #[cfg(feature = "devtools-bridge")]
 mod dev_ipc_bridge;
 mod file_manager;
+mod idle_exit;
 #[cfg(not(test))]
 mod owner;
 mod session;
@@ -137,7 +138,9 @@ fn run_app() -> Result<()> {
             // Bind before opening databases. Connected clients wait on the session,
             // so the client's connection deadline never limits a slow first open.
             let startup_windows = if background || launched_at_login {0} else {app.webview_windows().len()};
-            match owner::OwnerService::start(&paths.app_root,owner_lock,owner_session,launches,background,startup_windows) {
+            let activity = std::sync::Arc::new(idle_exit::Activity::default());
+            let idle_session = owner_session.clone();
+            match owner::OwnerService::start(&paths.app_root,owner_lock,owner_session,launches,background,startup_windows,activity.clone()) {
                 Ok(service) => { app.manage(service); }
                 Err(error) => {
                     opening_session.abort_startup(format!("owner-endpoint-unavailable: {error:#}"));
@@ -151,6 +154,10 @@ fn run_app() -> Result<()> {
                 });
             }
             desktop_integration::setup(app.handle(), &config, launched_at_login, background);
+            // Started by a scheduled backup, the CLI or MCP: leave once that work is done.
+            if background {
+                idle_exit::watch(app.handle().clone(), idle_session, activity);
+            }
             #[cfg(feature = "devtools-bridge")]
             let dev_bridge_handle = dev_ipc_bridge::maybe_launch(dev_bridge_state.clone())?;
             #[cfg(feature = "devtools-bridge")]

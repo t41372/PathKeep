@@ -1,6 +1,6 @@
 //! Responsibilities: portable native bundle behavior on real temporary roots.
 //! Not responsible for: SQLCipher's legacy export API or UI confirmation text.
-//! Failure modes: omitted canonical/evidence/agent rows, derived leakage, wrong
+//! Failure modes: omitted canonical/evidence/agent rows or saved page text, derived leakage, wrong
 //! export password, tamper accepted, fresh-root import requires an existing archive.
 use super::*;
 use vault_store::{Db, Priority};
@@ -28,6 +28,11 @@ fn export_then_import_into_an_empty_root_round_trips_native_tables() {
                 })
                 .unwrap();
         }
+        // Saved page text lives beside the databases and can't always be fetched again.
+        let page_text = std::path::Path::new("generic-readable/ab/abcdef.txt");
+        let blob = source.paths().intelligence_blobs_dir.join(page_text);
+        std::fs::create_dir_all(blob.parent().unwrap()).unwrap();
+        std::fs::write(&blob, "saved article body").unwrap();
         let output = tempfile::tempdir().unwrap();
         let bundle = output.path().join("portable.pathkeep");
         let exported =
@@ -63,6 +68,10 @@ fn export_then_import_into_an_empty_root_round_trips_native_tables() {
                 vec![0, 1, 255]
             );
         }
+        assert_eq!(
+            std::fs::read_to_string(paths.intelligence_blobs_dir.join(page_text)).unwrap(),
+            "saved article body"
+        );
         imported.vault.close().unwrap();
         assert!(crate::Vault::unlock_data_key(&paths, "wrong").is_err());
         assert!(crate::Vault::unlock_data_key(&paths, "export password").is_ok());
