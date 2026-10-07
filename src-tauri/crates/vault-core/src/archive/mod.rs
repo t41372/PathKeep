@@ -1,6 +1,9 @@
+//! Failure modes: native entry points bypassed, legacy recovery contracts lost or shared archive state
+//! diverges.
+//!
 //! Canonical archive domain boundary.
 //!
-//! ## Responsibilities
+//! Responsibilities:
 //! - Re-export the archive entrypoints used by `vault-core`, the worker, and
 //!   Tauri commands.
 //! - Keep shared SQL fragments and small cross-module helpers in one stable
@@ -8,7 +11,7 @@
 //! - Preserve the accepted archive contracts around run-ledger truth,
 //!   recoverability, and immutable canonical facts.
 //!
-//! ## Not responsible for
+//! Not responsible for:
 //! - Browser discovery or live-file staging.
 //! - Parser-specific row extraction logic.
 //! - Frontend transport shaping or Tauri command orchestration.
@@ -51,6 +54,7 @@ pub(crate) mod totals;
 pub(crate) use self::read_models::recent_runs_from;
 mod maintenance_runs;
 mod run_support;
+pub(crate) use run_support::write_manifest_artifact;
 mod schema;
 pub(crate) mod search_documents;
 pub(crate) mod write_runs;
@@ -246,7 +250,7 @@ fn retention_snapshot_bucket(
 ///
 /// These buckets are rebuildable local artifacts, so the preview only needs
 /// bytes, item counts, and the filesystem paths that will be pruned.
-fn retention_directory_bucket(id: &str, path: &Path) -> RetentionBucket {
+pub(crate) fn retention_directory_bucket(id: &str, path: &Path) -> RetentionBucket {
     RetentionBucket {
         id: id.to_string(),
         bytes: directory_size(path),
@@ -279,7 +283,7 @@ fn count_path_entries(path: &Path) -> usize {
 ///
 /// The prune flow keeps bucket roots intact so later exports or staging work do
 /// not have to recreate the whole directory layout from scratch.
-fn remove_directory_contents(path: &Path) -> Result<(u64, usize)> {
+pub(crate) fn remove_directory_contents(path: &Path) -> Result<(u64, usize)> {
     if !path.exists() {
         return Ok((0, 0));
     }
@@ -360,7 +364,10 @@ fn prune_snapshot_bucket(
 /// Backs the D3 retention last-good guard: the kept path comes from [`list_recovery_snapshots`],
 /// which builds paths from `read_dir` of the SAME `root`, so an `==` comparison matches the entries
 /// here without canonicalize. `keep == None` reproduces the original delete-everything behaviour.
-fn remove_directory_contents_except(root: &Path, keep: Option<&Path>) -> Result<(u64, usize)> {
+pub(crate) fn remove_directory_contents_except(
+    root: &Path,
+    keep: Option<&Path>,
+) -> Result<(u64, usize)> {
     if !root.exists() {
         return Ok((0, 0));
     }

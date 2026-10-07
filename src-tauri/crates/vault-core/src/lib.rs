@@ -1,3 +1,8 @@
+//! Responsibilities: expose archive rules, native maintenance, conversion projections and shared
+//! models.
+//! Not responsible for: OS keychains, Tauri transport or worker orchestration.
+//! Failure modes: inconsistent entry-point contracts or bypassed verification/recovery.
+//!
 //! Canonical backend domain crate for PathKeep.
 //!
 //! `vault-core` owns the source-of-truth backend rules: archive schema and
@@ -23,6 +28,7 @@ pub mod browser_access;
 mod browser_retention;
 pub mod chrome;
 pub mod config;
+pub mod conversion;
 pub mod diagnostics;
 pub mod durable_io;
 mod enrichment;
@@ -33,6 +39,7 @@ mod intelligence_blobs;
 mod intelligence_catalog;
 pub mod intelligence_runtime;
 mod intelligence_sections;
+pub mod maintenance;
 pub mod migration;
 pub mod models;
 pub(crate) mod pages;

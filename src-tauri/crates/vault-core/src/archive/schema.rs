@@ -1,3 +1,7 @@
+//! Responsibilities: open and migrate legacy SQLCipher archives for conversion and regression fixtures.
+//! Not responsible for: the consolidated Turso schemas in store_schema.
+//! Failure modes: wrong-key opens, partial legacy upgrades or dropped progress events.
+//!
 //! Archive schema bootstrap and migration pipeline.
 //!
 //! This module owns the canonical SQLite schema, migration ledger, and the
@@ -549,6 +553,7 @@ pub fn assess_archive_upgrade(
     let pending = schema_pending || backfill_pending;
 
     Ok(ArchiveUpgradeAssessment {
+        conversion: None,
         pending,
         current_schema_version: current,
         target_schema_version: target,
@@ -579,6 +584,7 @@ pub fn assess_archive_upgrade(
 /// [`assess_archive_upgrade`] (fresh / uninitialized / empty / already-migrated).
 fn not_pending_assessment(current: i64, target: i64) -> ArchiveUpgradeAssessment {
     ArchiveUpgradeAssessment {
+        conversion: None,
         pending: false,
         current_schema_version: current,
         target_schema_version: target,

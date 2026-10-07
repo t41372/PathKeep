@@ -1,4 +1,7 @@
-//! Canonical archive read/write models.
+//! Responsibilities: serialized archive requests, read models and upgrade progress.
+//! Not responsible for: storage, conversion or frontend rendering.
+//! Failure modes: changed command fields, missing progress context or false completion.
+//! Tests: worker and desktop bridge command contracts.
 
 use super::ProgressLogEvent;
 use serde::{Deserialize, Serialize};
@@ -354,6 +357,8 @@ impl BackupProgressEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ArchiveUpgradePhase {
+    StorageConversion,
+    ContentVerification,
     SchemaMigration,
     RegistrableDomainBackfill,
     /// Legacy persisted phase; native search rebuilds report IndexerState instead.
@@ -368,6 +373,8 @@ impl ArchiveUpgradePhase {
     /// stable so a phase never silently loses its label across renames.
     pub fn label_key(self) -> &'static str {
         match self {
+            Self::StorageConversion => "archiveUpgrade.phase.storageConversion",
+            Self::ContentVerification => "archiveUpgrade.phase.contentVerification",
             Self::SchemaMigration => "archiveUpgrade.phase.schemaMigration",
             Self::RegistrableDomainBackfill => "archiveUpgrade.phase.registrableDomainBackfill",
             Self::SearchReprojection => "archiveUpgrade.phase.searchReprojection",
@@ -388,6 +395,10 @@ impl ArchiveUpgradePhase {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveUpgradeProgress {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<String>,
     pub phase: ArchiveUpgradePhase,
     pub phase_label: String,
     pub processed: u64,
@@ -398,13 +409,23 @@ pub struct ArchiveUpgradeProgress {
 impl ArchiveUpgradeProgress {
     /// Builds a phase progress tick with honest processed/total counts.
     pub fn phase(phase: ArchiveUpgradePhase, processed: u64, total: u64) -> Self {
-        Self { phase, phase_label: phase.label_key().to_string(), processed, total, done: false }
+        Self {
+            database: None,
+            table: None,
+            phase,
+            phase_label: phase.label_key().to_string(),
+            processed,
+            total,
+            done: false,
+        }
     }
 
     /// The single terminal event: the upgrade finished and the shell may dismiss
     /// the screen. Counts are `0/0` — finalize is opaque, not a countable unit.
     pub fn finished() -> Self {
         Self {
+            database: None,
+            table: None,
             phase: ArchiveUpgradePhase::Finalizing,
             phase_label: ArchiveUpgradePhase::Finalizing.label_key().to_string(),
             processed: 0,
@@ -443,6 +464,8 @@ pub struct ArchiveUpgradePhaseAssessment {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveUpgradeAssessment {
+    #[serde(default)]
+    pub conversion: Option<crate::conversion::Assessment>,
     pub pending: bool,
     pub current_schema_version: i64,
     pub target_schema_version: i64,

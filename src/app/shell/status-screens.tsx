@@ -11,6 +11,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { archiveClient } from '@/lib/backend-client/archive'
 import { supportClient } from '@/lib/backend-client/support'
 import { describeError } from '@/lib/errors'
+import { commandErrorCode } from '@/lib/ipc/command-error'
 import { subscribeToArchiveUpgradeProgress } from '@/lib/ipc/archive-upgrade-progress'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { queryClient, queryKeys } from '@/lib/query'
@@ -64,12 +65,21 @@ export function BootErrorScreen({ message }: { message: string }) {
   )
 }
 
+/**
+ * Converting an archive still in the old SQLCipher format. It must happen
+ * before the archive can open; the old files are copied, never changed, and
+ * an interrupted run picks up where it stopped.
+ */
 export function UpgradeScreen() {
   const { t } = useI18n()
+  const format = useFormat()
   const session = useSession()
+  const conversion = session.upgrade?.conversion ?? null
+  const needsPassword = conversion?.sourceEncrypted ?? false
+  const [password, setPassword] = useState('')
   const [progress, setProgress] = useState<ArchiveUpgradeProgress | null>(null)
   const [running, setRunning] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
 
   const start = async () => {
     const snapshot = queryClient.getQueryData<AppSnapshot>(queryKeys.snapshot)
@@ -78,9 +88,14 @@ export function UpgradeScreen() {
     setError(null)
     const unsubscribe = await subscribeToArchiveUpgradeProgress(setProgress)
     try {
-      session.enter(await archiveClient.initializeArchive(snapshot.config))
+      session.enter(
+        await archiveClient.initializeArchive(
+          snapshot.config,
+          needsPassword ? password : null,
+        ),
+      )
     } catch (upgradeError) {
-      setError(describeError(upgradeError, 'initialize_archive'))
+      setError(upgradeError)
     } finally {
       unsubscribe?.()
       setRunning(false)
@@ -91,32 +106,83 @@ export function UpgradeScreen() {
     progress && progress.total > 0
       ? (progress.processed / progress.total) * 100
       : null
+  const wrongPassword =
+    error !== null && commandErrorCode(error) === 'archive-password-wrong'
 
   return (
     <Centered>
       <h1 className="text-lg font-semibold">{t('shell.upgrade.title')}</h1>
       <p className="text-sm text-muted-foreground">{t('shell.upgrade.body')}</p>
+      {conversion && (
+        <dl className="grid w-full grid-cols-[1fr_auto] gap-x-4 gap-y-1 rounded-lg bg-muted px-4 py-3 text-left text-[13px]">
+          <dt className="text-muted-foreground">{t('shell.upgrade.size')}</dt>
+          <dd className="tabular">{format.bytes(conversion.sourceBytes)}</dd>
+          <dt className="text-muted-foreground">
+            {t('shell.upgrade.freeSpace')}
+          </dt>
+          <dd className="tabular">
+            {format.bytes(conversion.requiredFreeBytes)}
+          </dd>
+          <dd className="col-span-2 pt-1 text-muted-foreground">
+            {t('shell.upgrade.kept')}
+            {conversion.resumable && ` ${t('shell.upgrade.resumable')}`}
+          </dd>
+        </dl>
+      )}
       {running ? (
         <div className="mt-2 flex w-full flex-col gap-2">
           <Progress value={percent ?? undefined} className="h-1.5" />
           <span className="text-xs text-muted-foreground tabular">
-            {progress?.phaseLabel}{' '}
+            {progress && t(`shell.upgrade.phases.${progress.phase}`)}
+            {progress?.table && ` · ${progress.table}`}
             {progress && progress.total > 0
-              ? t('shell.upgrade.progress', {
-                  done: progress.processed,
-                  total: progress.total,
-                })
+              ? ` · ${t('shell.upgrade.progress', {
+                  done: format.number(progress.processed),
+                  total: format.number(progress.total),
+                })}`
               : ''}
           </span>
         </div>
       ) : (
-        <Button className="mt-2" onClick={() => void start()}>
-          {t('shell.upgrade.start')}
-        </Button>
+        <form
+          className="mt-2 flex w-full flex-col items-stretch gap-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!needsPassword || password) void start()
+          }}
+        >
+          {needsPassword && (
+            <div className="flex flex-col gap-1.5 text-left">
+              <label htmlFor="upgrade-password" className="text-[13px]">
+                {t('shell.upgrade.password')}
+              </label>
+              <Input
+                id="upgrade-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                aria-invalid={wrongPassword}
+                aria-describedby="upgrade-password-hint"
+                onChange={(event) => setPassword(event.target.value)}
+              />
+              <p
+                id="upgrade-password-hint"
+                className="text-xs text-muted-foreground"
+              >
+                {t('shell.upgrade.passwordHint')}
+              </p>
+            </div>
+          )}
+          <Button type="submit" disabled={needsPassword && !password}>
+            {t('shell.upgrade.start')}
+          </Button>
+        </form>
       )}
-      {error && (
+      {error !== null && (
         <p role="alert" className="text-sm text-destructive">
-          {t('shell.upgrade.failed')} {error}
+          {wrongPassword
+            ? t('shell.upgrade.wrongPassword')
+            : `${t('shell.upgrade.failed')} ${describeError(error, 'initialize_archive')}`}
         </p>
       )}
     </Centered>

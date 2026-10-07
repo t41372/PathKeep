@@ -253,17 +253,17 @@ Settings → General 的兩個開關。
 
 PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者要把整個 archive 從一台機器搬到另一台，走 Settings → Storage →「搬到另一台電腦」的 bundle 流程（後端稱 `.pathkeep-bundle`，介面預設檔名是 `pathkeep-<日期>.pathkeep`）：
 
-- **Export**：把當前 project tree（config、archive databases via `sqlcipher_export`、derived projections、audit ledger、raw snapshots、intelligence / semantic sidecars）打包成單一 `.pathkeep-bundle` zip。Manifest 含 `formatVersion`、`appVersion`、`archiveSchemaVersion`、`archiveMode`、每個 file 的 `sha256` / `sizeBytes`，外加獨立 sha256 sidecar 做反竄改。
-- **Import → Preview → Apply** PME：Preview 驗 manifest sha256、refuse newer-than-this-binary 的 archive schema；Apply 需 explicit `confirmOverwrite=true`，extract 到 staging 後 per-file sha256 再驗、把現有 target subtree 移到 `.bak-<timestamp>` sibling、atomic-swap 進去，再對 imported archive 跑 forward schema migrations。
-- **明確排除**（surfaced to UI via `EXPORT_EXCLUSIONS_DOC`）：`vault.hold` / `stronghold-salt.txt`（App Lock secrets 留在來源機）、`logs/`、`diagnostics/`、`schedule/`（platform-specific scheduler artifacts）、`staging/`、`quarantine/`、`exports/`（避免遞迴打包先前 bundle）。
-- 加密 archive 的 bundle 保留來源 key（透過 `sqlcipher_export` 寫進去）。目標機使用者需用同一把 key 解鎖；之後可以走既有的 Settings → Security 重 key 流程改鑰。
+- **Export**：將 archive、source evidence 與 agent 資料庫完整複製，用獨立的匯出密碼加密後打包。每張表的列數與內容摘要須一致；ZIP manifest 記錄每個檔案的 SHA-256 與大小。
+- **Import → Preview → Apply**：先驗證 manifest；Apply 使用 `options.sourceArchiveKey` 提供匯出密碼，在 staging 驗證檔案與資料庫、重建搜尋後才換檔。覆蓋既有 archive 需要 `confirmOverwrite=true`，也可以匯入空白 project root。目的機保留自己的 App Lock 設定與秘密；空白目的機先不啟用 App Lock，避免要求未搬移的來源 passcode。匯入後的 archive 一律加密，匯出密碼就是它在目的機上的 archive 密碼（之後可在 Security 更改或關閉加密）；介面在匯出時就這樣說明，並要求輸入兩次。長時間的匯出、匯入、加密切換與還原在對話框中顯示 `get_maintenance_progress` 的進度與「停止」。
+- Agent 對話、audit、原始來源快照與保留的 sidecars 會搬到目的地；附件與設定同樣用匯出密碼加密，匯入後修正附件路徑，來源 checkpoint 可繼續重播。`derived/`、平台排程、App Lock secret、模型及 `sidecars/intelligence-blobs/` 不進 bundle；目的地的搜尋索引從 archive 重建。
+- 匯入透過既有 interruption journal 恢復；原有檔案保留在 `maintenance.bak-*`。可用 `get_maintenance_progress` 取得進度，`cancel_maintenance` 取消尚未發布的操作。
 
 ### 刪除所有資料（Delete all data）
 
 Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data` 列出每個會刪的路徑與大小、總位元組、archive 可見 visit 數（取最近一次成功 backup 快取的總數，不跑 `COUNT(*)`）、系統 keychain 裡是否存有 archive key，以及是否裝了自動備份（`removesSchedule`，`scheduleItems` 是排程器自己回報的已安裝項目：macOS 的 LaunchAgent plist 路徑、Windows 的 `Task Scheduler:<label>`）；`wipe_all_data` 只接受字面上的 `"DELETE"`，否則拒絕且什麼都不刪，成功時回傳 `WipeReport { scheduleRemoved, scheduleError }`。App Lock 鎖定時兩者都拒絕。
 
 - **會刪**：`archive/` 內所有檔案（archive / source-evidence DB 與 WAL/SHM、import 留下的 `*.bak-*`、rekey/restore/import marker），`derived/`（search、intelligence、AI 向量、agent 對話）、`sidecars/`、`raw-snapshots/`、`staging/`、`quarantine/`、`audit/`、`exports/`、`models/`（下載的 embedding 模型）、`integrations/`、`schedule/`（排程執行的 log 與嘗試紀錄），app root 的 `*.bak-*`、App Lock 狀態與 passcode 檔、Stronghold `vault.hold` 與 salt、`config.json`；keychain 的 archive key 與每個 AI provider API key；**已安裝的自動備份**（用戶 2026-10-02 決定：留著它只會每次執行都失敗在 "archive has not been initialized"）。排程狀態為 installed / mismatch / permission-warning 時才移除；Linux 只有手動設定、舊 label 的安裝（`legacy-install-detected`）走 Backup 的修復，都不碰。
-- **保留**：`logs/`、`diagnostics/`（刪除失敗時唯一的紀錄；不含 visit 資料）、移除排程時排程器自己寫的 `audit/scheduler/remove-<時間>.json`（只記 task 名稱與移除的檔案）、`archive/.pk-archive-write.lock`（跨程序鎖的 inode，刪掉會讓兩個程序各鎖一個檔）。使用者的瀏覽器 profile 永遠不碰：所有目標都是 app root 底下的固定路徑。
+- **保留**：`logs/`、`diagnostics/`（刪除失敗時唯一的紀錄；不含 visit 資料）、移除排程時排程器自己寫的 `audit/scheduler/remove-<時間>.json`（只記 task 名稱與移除的檔案）、`archive/.pk-archive-write.lock` 與 `archive/.pk-owner.lock`（擁有權鎖的 inode，刪掉會讓兩個程序各鎖一個檔）。使用者的瀏覽器 profile 永遠不碰：所有目標都是 app root 底下的固定路徑。
 - **順序**：查排程狀態並產生移除用的 plan（此時 config 還在）→ 取得 in-process gate 與跨程序 write lock → 寫 `.pk-wipe-in-progress.json` marker（含要清的 provider id 與排程 plan）→ 刪 `config.json`（所有背景 worker 迴圈在下一次檢查時停）→ 要求執行中的 AI / intelligence job 停止、取消 chat 與模型下載、等背景 worker 結束（最多 30 秒）→ 刪檔 → 清 keychain → 走排程器既有的 remove 路徑移除自動備份 → 刪 marker。執行後 `app_snapshot` 回報 not initialized，前端導回 onboarding；desktop session key 一併清除。
 - **排程移除失敗**：排在檔案之後，失敗時資料已經刪完。不讓整個刪除失敗：app 仍是 not initialized，marker 照樣刪（留著會讓每次啟動與每次 onboarding 重跑刪除，OS 不讓移除的 task 會永遠擋住設定），`WipeReport.scheduleError` 帶原因；對話框先顯示「資料已刪除，但自動備份沒能移除…設定完成後到「備份」關閉」，按「繼續」才回 onboarding。
 - **中斷**：marker 存在代表刪除未完成。啟動時（Tauri setup）與 `initialize_archive` 開頭會先把它做完（包含 marker 裡記下的排程），onboarding 不可能重新打開半刪的 archive。
@@ -282,15 +282,15 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 
 - 加密方案：
   - 使用隨機數據庫金鑰，由用戶主密碼經 Argon2id 導出的金鑰包裝。
-  - 包裝後的 secret 存入 Stronghold vault（Tauri 提供的加密安全存儲，類似於 macOS Keychain 但跨平台）。
+  - 包裝後的 data key 存在 `archive/keys.envelope`；Stronghold 只負責 App Lock secret。
 - 可選擇把便利解鎖信息存入系統 keyring（macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet）。
 - 若使用者選擇記住 database key，PathKeep 只在啟動後的第一個 unlocked app session 讀取一次 keyring，之後把 active session key 保留在記憶體直到使用者手動鎖定 archive 或結束 app；不得在每次 shell refresh / status hydrate 時反覆重讀 keyring 並造成原生授權提示。
 - 不加密模式也可以使用，但 UI 必須明確標示「數據庫為明文」。
 - Linux 沒有可用 keyring 時：仍允許加密模式，但每次啟動都需要輸入主密碼。不做弱保護 fallback。
 - keyring unavailable、session locked、password-loss 風險與 rekey boundary 不能只留在 Security；Dashboard 與 Settings 也要保留可見 warning 與導向 Security 的修復入口。
 - 提供完整的 rekey 流程：更改密碼、明文→加密、加密→明文。
-- 更改密碼與加密→明文都必須先輸入**目前的密碼**（2026-10-04）：後端用它實際打開 archive 檔案來驗證，錯了就拒絕（preview 與 execute 都檢查），並用驗證過的密碼打開 archive 做 rekey，不使用 session 裡的金鑰。否則任何坐在已解鎖視窗前的人都能把 archive 換成自己的密碼或改成明文。明文→加密沒有目前的密碼，不需要。錯誤碼 `archive-password-required` / `archive-password-wrong`，契約見 `desktop-command-surface.md` §2026-10。
-- rekey execute 必須留下可 review 的 audit summary：至少包含 `rekey` run、safety snapshot path、manifest artifact、以及 Security / Audit 可直接打開的 review surface，而不是只改完 config 就結束。
+- 更改密碼與加密→明文都必須先輸入**目前的密碼**（2026-10-04）：後端用它解開 key envelope 驗證，錯了就拒絕（preview 與 execute 都檢查）。否則任何坐在已解鎖視窗前的人都能把 archive 換成自己的密碼或改成明文。明文→加密沒有目前的密碼，不需要。錯誤碼 `archive-password-required` / `archive-password-wrong`，契約見 `desktop-command-surface.md` §2026-10。
+- 改密碼只原子替換 envelope，資料庫、搜尋檔案與 keychain data key 不變，也不在資料庫新增 run。模式切換完整複製四個資料庫，核對列數與內容摘要並重建搜尋後，以目的模式保存安全快照，才經 journal 換檔並記錄原生 `rekey` run；取消或中斷不會丟失原檔。
 - 即使 archive 目前重新上鎖，Security 仍必須保留最近一次 rekey review 的時間、run id 與 safety snapshot path，避免 recoverability 線索只在 unlocked session 內短暫可見。
 - **密碼遺忘等於數據丟失**：UI 中必須有明確、醒目的警告，要求用戶把密碼妥善保存，並且告知風險。
 

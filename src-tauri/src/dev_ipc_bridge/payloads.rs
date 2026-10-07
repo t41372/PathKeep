@@ -1,12 +1,15 @@
+//! Failure modes: export password omitted, optional source keys lost or camelCase fields decoded
+//! incorrectly.
+//!
 //! JSON payload DTOs accepted by the dev-only IPC bridge.
 //!
-//! ## Responsibilities
+//! Responsibilities:
 //!
 //! - Keep the localhost bridge request envelopes in one small module.
 //! - Preserve the camelCase payload shape consumed by browser automation.
 //! - Translate command-specific JSON bodies into typed worker inputs.
 //!
-//! ## Not responsible for
+//! Not responsible for:
 //!
 //! - Registering command names or choosing which worker function to call.
 //! - Validating domain invariants beyond serde shape decoding.
@@ -337,6 +340,7 @@ pub(super) type BrowseDayInsightsPayload = WrappedRequest<BrowseDayInsightsReque
 #[serde(rename_all = "camelCase")]
 pub(super) struct ExportAppDataPayload {
     pub(super) target_path: String,
+    pub(super) export_password: String,
 }
 
 /// Bridge envelope for preview_app_data_import — carries the bundle path

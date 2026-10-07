@@ -228,6 +228,31 @@ cancellation, too-new schemas and other engine failures. Engine failures retain
 cause. Native decryption errors do not distinguish a wrong key from damaged
 authentication data. No business code should inspect engine error strings.
 
+## Maintenance
+
+`Store::pause()` drains admitted requests and holds admission between producer
+batches. Its guard resumes admission on drop. `checkpoint()` runs TRUNCATE and
+checks the busy result; `snapshot(root)` copies all four durable main files while
+the guard remains held. The caller copies its envelope/config under the same
+guard. `close()` revokes retained handles before a verified file replacement.
+`Store::owner()` retains the existing lock inode across that replacement.
+
+`copy_database` uses a bound, explicitly keyed ATTACH destination, 4,096-row
+transactions, and checkpoints. It preserves rowids and `sqlite_sequence`, then
+compares counts and SHA-256 digests of typed values for every copied table.
+Cancellation is checked between pages and index statements. The destination
+never becomes live in vault-store; file installation belongs to vault-core.
+Foreign keys are suspended only on the exclusively paused copy connection while
+tables are filled in catalog order, then restored. Source/destination digest
+equality verifies the complete relational contents before publication.
+
+Plaintext Vault owners also provide encrypted spill IO so a later encrypted
+ATTACH export cannot write plaintext index-build spills.
+
+`Session::execute_rows` prepares once for a bounded batch and drops the statement
+afterwards. Conversion uses it for rows and page identities; it avoids reparsing
+every row and avoids retaining a cached statement for each distinct SQL string.
+
 ## Diagnostic reads
 
 Within a normal read-pool job, `Session::schema_version()` inspects Store's migration
@@ -249,10 +274,10 @@ The `health` integration test exercises both methods with plaintext and encrypte
 - OS locking, queueing, reply channels and cancellation use only `std`.
 
 Rust 1.96 matches the repository toolchain. The crate-local Clippy configuration
-uses that MSRV; the repository-wide legacy setting is still 1.85. No other
-product crate or frontend file was changed.
+uses that MSRV; the repository-wide legacy setting is still 1.85. Maintenance and conversion share this API with the native archive writers.
 
-Run from `src-tauri`, with locally cached dependencies for an offline run:
+Run from `src-tauri` inside the project's Modal offload Sandbox. Cached
+dependencies also support offline validation:
 
 ```sh
 CARGO_NET_OFFLINE=true cargo fmt --all --check

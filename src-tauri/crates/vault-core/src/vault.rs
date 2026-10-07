@@ -5,7 +5,7 @@
 //! Tests: vault::tests, using real plaintext and encrypted temporary stores.
 
 pub(crate) mod live;
-mod password;
+pub(crate) mod password;
 pub use password::ArchivePasswordWrong;
 #[cfg(test)]
 mod tests;
@@ -16,7 +16,7 @@ use vault_store::{Db, Priority, Result, Store};
 
 // The owner can receive password-unlock and remember-key requests concurrently.
 // Both must observe the same first envelope before either publishes a data key.
-static ENVELOPE_ACCESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static ENVELOPE_ACCESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The application's one storage owner. Share this handle across blocking jobs.
 #[derive(Clone)]
@@ -47,18 +47,50 @@ impl Vault {
 
     /// Use the app's startup reservation for the same root, before IPC accepts requests.
     pub fn open_owned(
-        mut paths: ProjectPaths,
+        paths: ProjectPaths,
         config: AppConfig,
         key: Option<&vault_crypto::DataKey>,
         owner: Option<Arc<vault_store::OwnerLock>>,
     ) -> Result<Self> {
-        let storage = storage_config(&paths, key, owner)?;
+        Self::open_database(paths, config, key, owner, true)
+    }
+
+    /// A staged maintenance copy preserves its run ledger until publication.
+    pub fn open_staged(
+        paths: ProjectPaths,
+        config: AppConfig,
+        key: Option<&vault_crypto::DataKey>,
+    ) -> Result<Self> {
+        Self::open_database(paths, config, key, None, false)
+    }
+
+    fn open_database(
+        mut paths: ProjectPaths,
+        config: AppConfig,
+        key: Option<&vault_crypto::DataKey>,
+        owner: Option<Arc<vault_store::OwnerLock>>,
+        recover: bool,
+    ) -> Result<Self> {
+        let owner = match owner {
+            Some(owner) => owner,
+            None => Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),
+        };
+        let recovered = crate::maintenance::recover_native_maintenance(&paths)
+            .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
+        let config = if recovered {
+            crate::load_config(&paths)
+                .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?
+        } else {
+            config
+        };
+        let storage = storage_config(&paths, key, Some(owner))?;
         paths.archive_database_path = paths.app_root.join("archive/history-vault.db");
         paths.source_evidence_database_path = paths.app_root.join("archive/source-evidence.db");
         paths.intelligence_database_path = paths.derived_dir.join("intelligence.db");
         paths.agent_database_path = paths.derived_dir.join("agent.db");
         let store = Arc::new(Store::open(storage)?);
-        store.write(Db::Archive, Priority::Interactive, |s| {
+        if recover {
+            store.write(Db::Archive, Priority::Interactive, |s| {
             s.execute(
                 "UPDATE runs SET status='interrupted', finished_at=?1
                  WHERE status='running' AND run_type IN ('backup','import','snapshot_restore','rollback','restore')",
@@ -67,13 +99,15 @@ impl Vault {
             s.execute("UPDATE import_batches SET status='interrupted',previous_status='interrupted' WHERE status='running'", ())?;
             Ok(())
         })?;
-        crate::ai_queue::recover_owner_claims(&store)?;
-        crate::intelligence_runtime::recover_owner_claims(&store)?;
+            crate::ai_queue::recover_owner_claims(&store)?;
+            crate::intelligence_runtime::recover_owner_claims(&store)?;
+        }
         let search = Arc::new(
             crate::search::Indexer::open(
                 store.clone(),
                 &paths.derived_dir.join("search-index"),
                 key,
+                !recover,
             )
             .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?,
         );
@@ -252,6 +286,17 @@ fn storage_config(
         .map(|purpose| Some(*data_key.derive(purpose).expose_bytes()));
         storage.io = Some(
             vault_crypto::TempCryptIo::new(data_key)
+                .map_err(|e| vault_store::Error::Operation(Box::new(e)))?,
+        );
+    }
+    if storage.io.is_none() {
+        // A plaintext owner can later ATTACH an encrypted export destination.
+        // Its index-build spills must already pass through encrypted IO.
+        let mut bytes = zeroize::Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut *bytes).map_err(|e| vault_store::Error::Operation(Box::new(e)))?;
+        let ephemeral = vault_crypto::DataKey::from_bytes(bytes);
+        storage.io = Some(
+            vault_crypto::TempCryptIo::new(&ephemeral)
                 .map_err(|e| vault_store::Error::Operation(Box::new(e)))?,
         );
     }

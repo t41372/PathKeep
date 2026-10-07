@@ -234,3 +234,167 @@ pub fn copy_search_metadata(vault: &Vault, paths: &ProjectPaths, config: &AppCon
     }
     vault.search().cycle().unwrap();
 }
+
+/// The SQLite agent plane PathKeep wrote before Turso (`derived/agent.sqlite`,
+/// plaintext): its v1 chat and v2 run-trace schema, verbatim, so conversion tests
+/// read the same tables an existing install has.
+pub fn open_legacy_agent_database(paths: &ProjectPaths) -> Connection {
+    std::fs::create_dir_all(&paths.derived_dir).unwrap();
+    let connection = Connection::open(paths.derived_dir.join("agent.sqlite")).unwrap();
+    connection.pragma_update(None, "foreign_keys", true).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE agent_schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL);
+             CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT NOT NULL, provider_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, message_count INTEGER NOT NULL DEFAULT 0);
+             CREATE INDEX idx_conversations_updated ON conversations(updated_at DESC);
+             CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, seq INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, reasoning TEXT, tool_calls_json TEXT, status TEXT, created_at TEXT NOT NULL);
+             CREATE INDEX idx_messages_conversation_seq ON messages(conversation_id, seq);
+             CREATE TABLE agent_runs (id TEXT PRIMARY KEY, conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE, message_id TEXT, provider_id TEXT, embedding_provider_id TEXT, status TEXT NOT NULL, iterations INTEGER NOT NULL DEFAULT 0, prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+             CREATE INDEX idx_agent_runs_conversation ON agent_runs(conversation_id);
+             CREATE TABLE agent_steps (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE, seq INTEGER NOT NULL, turn INTEGER NOT NULL, kind TEXT NOT NULL, tool_name TEXT, tool_call_id TEXT, payload TEXT NOT NULL, created_at TEXT NOT NULL);
+             CREATE INDEX idx_agent_steps_run_seq ON agent_steps(run_id, seq);
+             CREATE TABLE agent_citations (run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE, history_id INTEGER NOT NULL, canonical_url TEXT NOT NULL, url TEXT NOT NULL, title TEXT, visited_at TEXT, score REAL, PRIMARY KEY(run_id, history_id));
+             INSERT INTO agent_schema_migrations VALUES (1, 'chat-history-baseline', 'fixture', 'saved'), (2, 'agent-run-trace', 'fixture', 'saved');",
+        )
+        .unwrap();
+    connection
+}
+
+/// The SQLite intelligence plane PathKeep wrote before Turso
+/// (`derived/history-intelligence.sqlite`), keyed like the archive when `password`
+/// is set, with the tables conversion reads: the job queue, fetched page content,
+/// refind pages and the AI tables. Their schema is kept here verbatim so these
+/// tests don't depend on the old openers, which are going away.
+pub fn open_legacy_intelligence_database(
+    paths: &ProjectPaths,
+    password: Option<&str>,
+) -> Connection {
+    std::fs::create_dir_all(&paths.derived_dir).unwrap();
+    let connection =
+        Connection::open(paths.derived_dir.join("history-intelligence.sqlite")).unwrap();
+    if let Some(password) = password {
+        connection.pragma_update(None, "key", password).unwrap();
+    }
+    connection.pragma_update(None, "foreign_keys", true).unwrap();
+    connection.execute_batch(LEGACY_INTELLIGENCE_SQL).unwrap();
+    connection.execute_batch(crate::enrichment::VISIT_CONTENT_ENRICHMENTS_SCHEMA_SQL).unwrap();
+    connection
+}
+
+const LEGACY_INTELLIGENCE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS intelligence_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_type TEXT NOT NULL,
+  plugin_id TEXT,
+  run_id INTEGER,
+  state TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 100,
+  attempt INTEGER NOT NULL DEFAULT 0,
+  dedupe_key TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  artifact_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  scheduled_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT,
+  heartbeat_at TEXT,
+  lease_owner TEXT,
+  lease_expires_at TEXT,
+  updated_at TEXT NOT NULL,
+  last_error TEXT,
+  cancellation_reason TEXT,
+  stop_requested INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(dedupe_key)
+);
+CREATE INDEX IF NOT EXISTS idx_intelligence_jobs_state
+  ON intelligence_jobs(job_type, state, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_intelligence_jobs_plugin_state
+  ON intelligence_jobs(plugin_id, state, updated_at DESC);
+CREATE TABLE IF NOT EXISTS intelligence_job_triggers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER NOT NULL REFERENCES intelligence_jobs(id) ON DELETE CASCADE,
+  run_id INTEGER,
+  reason TEXT,
+  requested_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_intelligence_job_triggers_job_id
+  ON intelligence_job_triggers(job_id, requested_at DESC);
+CREATE TABLE IF NOT EXISTS deterministic_module_runtime (
+  module_id TEXT PRIMARY KEY,
+  version TEXT NOT NULL,
+  status TEXT NOT NULL,
+  depends_on_json TEXT NOT NULL,
+  derived_tables_json TEXT NOT NULL,
+  last_run_id INTEGER,
+  last_built_at TEXT,
+  last_invalidated_at TEXT,
+  stale_reason TEXT,
+  stale_reason_code TEXT,
+  notes_json TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS refind_pages (
+  profile_id            TEXT NOT NULL,
+  canonical_url         TEXT NOT NULL,
+  url                   TEXT NOT NULL,
+  title                 TEXT,
+  registrable_domain    TEXT NOT NULL,
+  cross_day_count       INTEGER NOT NULL,
+  trail_count           INTEGER NOT NULL,
+  search_arrival_count  INTEGER NOT NULL,
+  typed_revisit_count   INTEGER NOT NULL,
+  refind_score          REAL NOT NULL,
+  evidence_json         TEXT NOT NULL,
+  first_seen_ms         INTEGER NOT NULL,
+  last_seen_ms          INTEGER NOT NULL,
+  computed_at           TEXT NOT NULL,
+  PRIMARY KEY(profile_id, canonical_url)
+);
+
+    CREATE TABLE IF NOT EXISTS ai_embeddings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      history_id INTEGER NOT NULL,
+      profile_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      title TEXT,
+      domain TEXT NOT NULL,
+      visited_at TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      content_bytes INTEGER NOT NULL,
+      provider_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      indexed_at TEXT NOT NULL,
+      UNIQUE(history_id, provider_id, model, content_hash)
+    );
+    CREATE TABLE IF NOT EXISTS ai_assistant_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id INTEGER,
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      embedding_provider_id TEXT NOT NULL,
+      citations_json TEXT NOT NULL,
+      notes_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS ai_index_ledger (
+      provider_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      sidecar_table TEXT NOT NULL,
+      index_version TEXT NOT NULL,
+      state TEXT NOT NULL,
+      source_watermark INTEGER,
+      last_run_id INTEGER,
+      build_started_at TEXT,
+      build_finished_at TEXT,
+      last_indexed_at TEXT,
+      last_cleared_at TEXT,
+      last_failure_at TEXT,
+      failure_reason TEXT,
+      PRIMARY KEY(provider_id, model)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_provider_model
+      ON ai_embeddings(provider_id, model);
+    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_history_id
+      ON ai_embeddings(history_id);
+"#;

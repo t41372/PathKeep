@@ -4,11 +4,13 @@
 //! - Refuse to change the password of, or decrypt, an encrypted archive unless
 //!   the request carries the archive's current password and that password
 //!   actually decrypts the file on disk.
-//! - Hand the verified password back, so the rekey opens the archive with it
-//!   rather than with whatever key the session happens to hold.
+//! - Hand the verified password back for envelope rewrap or mode conversion.
 //!
-//! Not responsible for: the rekey itself (`vault_core::rekey_archive`), the
+//! Not responsible for: native maintenance (`vault_core::maintenance`), the
 //! App Lock passcode (`vault_core::app_lock`), or the keychain.
+//!
+//! Failure modes: wrong-password mutation, a remembered data key accepted as password
+//! proof, or a different error code preventing the existing retry flow.
 //!
 //! Why this exists: an unlocked window already holds the session key, so
 //! without this check anyone sitting at it could re-encrypt the archive with a
@@ -72,6 +74,10 @@ pub(crate) fn verified_current_key<'a>(
         .as_deref()
         .filter(|key| !key.is_empty())
         .context(REKEY_CURRENT_PASSWORD_REQUIRED)?;
+    if paths.app_root.join("archive/history-vault.db").exists() {
+        vault_core::Vault::unlock_data_key(paths, candidate)?;
+        return Ok(Some(candidate));
+    }
     if !vault_core::archive_key_opens(paths, candidate)? {
         anyhow::bail!(REKEY_CURRENT_PASSWORD_WRONG);
     }

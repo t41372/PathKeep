@@ -63,50 +63,13 @@ export interface ApplyImportOptions {
   /** Must be true when the preview reports `willOverwriteExisting`. */
   confirmOverwrite: boolean
   /**
-   * Required when `preview.manifest.archiveMode === 'encrypted'`. The
-   * value is the archive cipher key that was used on the source
-   * machine. Plaintext bundles ignore this field. Sent as
-   * `sourceArchiveKey` over the wire to match the Rust serde rename.
-   *
-   * Two typed-error responses can come back from the backend when the
-   * bundle is encrypted:
-   *   - prefix `source_archive_key required` → no key supplied; the UI
-   *     should render the source-key prompt.
-   *   - prefix `source_archive_key invalid` → wrong key; the UI should
-   *     keep the prompt and surface the error inline. In both cases
-   *     the live archive on this machine is unchanged.
+   * The password the bundle was exported with. Every bundle is encrypted;
+   * the imported archive keeps this password. A wrong one comes back as
+   * `archive-password-wrong` and leaves this machine's archive unchanged.
+   * Sent as `sourceArchiveKey` to match the Rust serde rename.
    */
   sourceArchiveKey?: string
 }
-
-/**
- * Error-message prefix the backend uses to signal "this bundle is
- * encrypted but no source key was supplied." The frontend matches on
- * this prefix to swap the apply error into a source-key input prompt
- * instead of a generic error banner.
- *
- * Pinned constant rather than free text so a future copy tweak on the
- * Rust side does not silently break the UI detection.
- *
- * Mirrors `IMPORT_SOURCE_KEY_REQUIRED_PREFIX` in
- * `src-tauri/crates/vault-core/src/migration.rs`. Both sides are pinned by a
- * test that spells the literal out (`migration.test.ts` here,
- * `import_source_key_error_prefixes_stay_the_literals_the_shell_pins` there),
- * so a one-sided edit fails a test instead of silently breaking the prompt.
- */
-export const IMPORT_SOURCE_KEY_REQUIRED_PREFIX = 'source_archive_key required'
-
-/**
- * Error-message prefix the backend uses to signal "the supplied source
- * key does not decrypt the imported archive." Distinct from
- * `IMPORT_SOURCE_KEY_REQUIRED_PREFIX` so the UI can swap copy between
- * "please enter" and "wrong key, try again."
- *
- * Mirrors `IMPORT_SOURCE_KEY_INVALID_PREFIX` in
- * `src-tauri/crates/vault-core/src/migration.rs`; see the note on
- * `IMPORT_SOURCE_KEY_REQUIRED_PREFIX` for how the two sides stay locked.
- */
-export const IMPORT_SOURCE_KEY_INVALID_PREFIX = 'source_archive_key invalid'
 
 export interface ImportResult {
   manifest: ExportManifest
@@ -116,8 +79,9 @@ export interface ImportResult {
 }
 
 export const migrationClient = {
-  exportAppData: (targetPath: string) =>
-    call<ExportedBundle>('export_app_data', { targetPath }),
+  /** The bundle is always encrypted with `exportPassword`; on import it becomes the archive's password. */
+  exportAppData: (targetPath: string, exportPassword: string) =>
+    call<ExportedBundle>('export_app_data', { targetPath, exportPassword }),
   previewAppDataImport: (bundlePath: string) =>
     call<ImportPreview>('preview_app_data_import', { bundlePath }),
   applyAppDataImport: (bundlePath: string, options: ApplyImportOptions) =>

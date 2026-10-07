@@ -31,7 +31,8 @@ impl Fixture {
         config.ai.mcp_enabled = true;
         config.ai.skill_enabled = true;
         vault_core::save_config(&paths, &config).unwrap();
-        vault_core::ensure_archive_initialized(&paths, &config, None).unwrap();
+        // A native (Turso) archive; an old-format one would ask for conversion first.
+        vault_core::Vault::open(paths.clone(), config.clone(), None).unwrap().close().unwrap();
         let browser = root.path().join("chrome/Default");
         std::fs::create_dir_all(&browser).unwrap();
         let fixture = browser_history_fixtures::chromium::ChromiumHistoryFixture::new()

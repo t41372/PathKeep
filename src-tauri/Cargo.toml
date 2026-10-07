@@ -23,6 +23,7 @@ path = "src/lib.rs"
 [workspace]
 members = [
   "crates/vault-store",
+  "crates/vault-convert-sqlcipher",
   "crates/vault-owner-ipc",
   "crates/vault-core",
   "crates/vault-crypto",

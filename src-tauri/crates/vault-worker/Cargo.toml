@@ -11,6 +11,7 @@ license.workspace = true
 metal = ["vault-core/metal"]
 
 [dependencies]
+vault-convert-sqlcipher = { path = "../vault-convert-sqlcipher" }
 zeroize = "1"
 vault-crypto = { path = "../vault-crypto" }
 vault-store = { path = "../vault-store" }

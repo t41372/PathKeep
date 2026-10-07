@@ -1,7 +1,8 @@
 //! Responsibilities: test owner dispatch with the real worker and private endpoint.
 //! Not responsible for: Tauri window lifecycle (desktop owner_process tests).
 //! Failure modes: unlisted methods or invalid params execute; MCP bypasses consent;
-//! due-only backup loses ledger semantics; clients read databases themselves.
+//! due-only backup loses ledger semantics; clients read databases themselves;
+//! startup loses the converted archive or an open owner's data key.
 use super::*;
 use crate::tests::{
     PROJECT_ROOT_OVERRIDE_ENV, TEST_KEYRING_OVERRIDE_ENV, initialized_config, lock_env,

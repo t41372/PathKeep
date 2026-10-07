@@ -1,4 +1,9 @@
-//! At-rest encryption reconciliation for the canonical encrypted-tier databases.
+//! Responsibilities: native launch recovery and keyless inventory, plus retained legacy recovery.
+//! Not responsible for: native database copying or password-envelope rewrap.
+//! Failure modes: choosing legacy recovery for a pending native install, stale config modes,
+//! or omitted native safety snapshots. Tests: maintenance and at_rest launch regressions.
+//!
+//! At-rest encryption reconciliation for legacy encrypted-tier databases.
 //!
 //! ## Responsibilities
 //! - Detect when `source-evidence.sqlite`'s on-disk encryption state has drifted
@@ -457,6 +462,7 @@ pub fn list_recovery_snapshots(paths: &ProjectPaths) -> Result<Vec<RecoverySnaps
             });
         }
     }
+    snapshots.extend(crate::maintenance::list_snapshots(paths)?);
     // Newest first (created_at desc), path desc as a stable tiebreak so equal mtimes still order
     // deterministically. `None` mtimes sort last under the descending compare.
     snapshots.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| b.path.cmp(&a.path)));
@@ -595,6 +601,22 @@ pub fn recover_archive_on_launch(
     config: &AppConfig,
     _database_key: Option<&str>,
 ) -> Result<LaunchRecovery> {
+    if paths.app_root.join("archive/history-vault.db").exists()
+        || crate::maintenance::install::pending(paths)
+    {
+        crate::maintenance::recover_native_maintenance(paths)?;
+        let mode = detect_disk_encryption_mode(&paths.app_root.join("archive/history-vault.db"));
+        if let Some(mode) = disk_mode_to_archive_mode(mode) {
+            let mut current = load_config(paths).unwrap_or_else(|_| config.clone());
+            if current.archive_mode != mode {
+                let from_mode = current.archive_mode;
+                current.archive_mode = mode.clone();
+                save_config(paths, &current)?;
+                return Ok(LaunchRecovery::Healed { from_mode, to_mode: mode });
+            }
+        }
+        return Ok(LaunchRecovery::Healthy);
+    }
     // FAST PATH (no lock): a provably-healthy launch must never block, even while an
     // out-of-process scheduled backup holds the cross-process write lock for minutes.
     if launch_is_provably_healthy(paths, config) {

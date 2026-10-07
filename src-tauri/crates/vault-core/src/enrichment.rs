@@ -20,7 +20,7 @@ pub(crate) mod content_fetch;
 pub mod content_fetch_api;
 pub(crate) mod extractors;
 pub(crate) mod rate_limit;
-mod search_text;
+pub(crate) mod search_text;
 
 use crate::{
     config::ProjectPaths,
@@ -280,6 +280,20 @@ fn finish_if_enrichment_cancelled(connection: &Session<'_>, job_id: i64) -> Resu
     Ok(None)
 }
 
+/// The order that picks a page's best enrichment: a successful fetch, then the
+/// most specific source, then the newest. Shared by every reader that needs one.
+pub(crate) const BEST_ENRICHMENT_ORDER: &str =
+    "CASE fetch_status WHEN 'success' THEN 0 WHEN 'empty' THEN 1 ELSE 2 END,
+               CASE content_source
+                 WHEN 'capture' THEN 0
+                 WHEN 'github-repo' THEN 1
+                 WHEN 'generic-readable' THEN 2
+                 WHEN 'readable-content-refetch' THEN 3
+                 WHEN 'title-normalization' THEN 4
+                 ELSE 5
+               END,
+               fetched_at DESC";
+
 pub(crate) fn load_best_enrichment_map_by_history_ids(
     paths: &ProjectPaths,
     connection: &vault_store::Session<'_>,
@@ -300,18 +314,7 @@ pub(crate) fn load_best_enrichment_map_by_history_ids(
              CROSS JOIN archive.pages p ON p.id=u.page_id
              JOIN page_content_enrichments e ON e.canonical_url=p.canonical_url
              WHERE v.id IN ({placeholders})
-             ORDER BY
-               v.id ASC,
-               CASE fetch_status WHEN 'success' THEN 0 WHEN 'empty' THEN 1 ELSE 2 END,
-               CASE content_source
-                 WHEN 'capture' THEN 0
-                 WHEN 'github-repo' THEN 1
-                 WHEN 'generic-readable' THEN 2
-                 WHEN 'readable-content-refetch' THEN 3
-                 WHEN 'title-normalization' THEN 4
-                 ELSE 5
-               END,
-               fetched_at DESC"
+             ORDER BY v.id ASC, {BEST_ENRICHMENT_ORDER}"
         );
         let mut statement = connection.prepare(&sql)?;
         let params = chunk.iter().copied();

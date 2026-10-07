@@ -154,6 +154,22 @@ These are in `brief-area1-fixes3b.txt` (raw reports):
 - Until 2026-10-06 ~13:30 local time, offload Sandboxes ran under gVisor, which makes SQLite system calls several times slower. That covers area 3's Linux test timings and any area 4 or area 5 benchmark run before the switch to `runtime = "vm"`.
 - Re-measure those benchmarks on vm before quoting them, and check each report for which runtime it ran on.
 
+## Area 5 (maintenance and conversion), Codex's own report plus merge notes
+
+Unverified until the review pass. Full report: `docs/architecture/research/2026-10-turso-maintenance.md`.
+
+- **Conversion time:** converting a 14.4M-visit / 2.9M-page SQLCipher archive took 6,612 s before indexing plus 81 s for the index (4 vCPU / 8 GiB, peak RSS 738 MiB). It is a one-time upgrade with progress and resume, but 1.8 hours on the target machine is long; profile where it goes.
+- **Encrypted → plaintext switch:** 603 s at 14.4M, peak RSS 1,049 MiB (over a GiB on an 8 GB target).
+- [x] **Agent chats in the export bundle:** decided by the user on 2026-10-07: chats are no more private than browsing history and must be backed up and moved with it. Export includes `agent.db`, encrypted with the export password; data-model.md updated.
+- **Merge decisions (mine):** the Takeout watermark fix keeps area 5's version (loads the committed watermark), which also covers payloads with evidence but no visits. Claim recovery from area 4 runs only on the owner's recovering open. `Session::execute_rows` now compiles through the statement cache.
+- **Fixed while merging (areas 4 and 5 were built in parallel):**
+  - The converter copied tables by name, so the old `visit_content_enrichments` (fetched page text, per visit) was silently dropped: area 4 replaced it with `page_content_enrichments` (per canonical page). Conversion now maps each old row onto its page (newest fetch per page and source wins), verifies every row was carried, publishes each page's best enrichment (area 4's ranking, now one shared `BEST_ENRICHMENT_ORDER`) into search, recomputes embedding hashes with live indexing's summary rule, recounts `ai_embedding_totals`, and queues one full Insights rebuild (derived tables aren't converted).
+  - Refind pages left the collision merge: they are derived data in area 4.
+  - Maintenance copies (rekey, mode switch, snapshot, bundle) recreated tables and indexes but not views; area 4's intelligence schema has 16 views, so Insights and Doctor broke after any of them. Views are now recreated and covered by the copy test.
+  - A fresh install still ran the old SQLCipher initializer, which created `history-vault.sqlite`; the next step took it for an old archive and converted it (empty) on every first run. The native session open now creates the archive.
+  - Converter tests carry the old agent and intelligence schemas as fixtures instead of borrowing production legacy openers.
+- **Decisions Codex made (check in review):** canonical-key collisions merge by newest timestamped content, deterministic ties, summed counters and unioned sets; every enrichment trigger is remapped; installation journals are recovered before credentials or conversion checks; the indexer can open deferred (no cycle until maintenance finishes); `experimental_encryption(true)` is now always set on Turso connections, also without a key.
+
 ## Area 5+
 
 (appended as blocks finish)

@@ -1,4 +1,7 @@
-//! Tauri commands for canonical archive flows.
+//! Responsibilities: expose archive operations and progress off the UI thread.
+//! Not responsible for: storage, conversion or maintenance policy.
+//! Failure modes: changed payload names, blocked UI thread or lost progress events.
+//! Tests: desktop bridge dispatch and worker contract tests.
 
 #[cfg(not(test))]
 use super::blocking::run_blocking_command;
@@ -37,15 +40,17 @@ pub(crate) async fn initialize_archive(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Cheap first-run upgrade pre-check: reports whether the next archive open will
-/// do minutes of upgrade work, so the shell can decide whether to show the
-/// "Upgrading your archive…" screen. Runs off the UI thread.
+/// Reports source counts, retained files and conversion work off the UI thread.
 pub(crate) async fn assess_archive_upgrade(
     state: State<'_, SessionState>,
+    database_key: Option<String>,
 ) -> Result<vault_core::ArchiveUpgradeAssessment, CommandError> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("assess_archive_upgrade", move || {
-        worker_bridge::assess_archive_upgrade_impl(session_database_key_state.get_key()?.as_deref())
+        worker_bridge::assess_archive_upgrade_impl(
+            &session_database_key_state,
+            database_key.or(session_database_key_state.get_key()?).as_deref(),
+        )
     })
     .await
 }

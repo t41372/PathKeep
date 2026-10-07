@@ -25,8 +25,10 @@ mod current_password;
 mod data_wipe;
 mod intelligence;
 mod job_runtime;
+mod maintenance_jobs;
 mod mcp;
 mod migration;
+pub use maintenance_jobs::{cancel_maintenance, maintenance_progress};
 pub mod owner_requests;
 mod schedule;
 mod security;
@@ -44,9 +46,10 @@ pub use self::{
     annotations::{get_annotation, list_annotations, replace_tags, search_annotations, set_notes},
     app::{
         RekeyRequest, app_snapshot, app_snapshot_with_vault, assess_archive_upgrade,
-        initialize_archive_database, initialize_archive_database_with_progress,
-        parse_archive_recovery_required, reconcile_archive_encryption, rekey_archive_database,
-        save_user_config, save_user_config_with_base, save_user_config_with_vault,
+        convert_archive_with_progress, initialize_archive_database,
+        initialize_archive_database_with_progress, parse_archive_recovery_required,
+        reconcile_archive_encryption, rekey_archive_database, save_user_config,
+        save_user_config_with_base, save_user_config_with_vault,
     },
     archive_flows::{
         audit_run_detail, browse_day_insights, clear_derived_intelligence, clear_og_image_cache,

@@ -3,7 +3,8 @@
 //! Not responsible for: UI commands, IPC framing or App Lock authentication.
 //! Failure modes: raw keys escape to readers, opens race or fail fast, an unchecked
 //! password replaces an envelope, App Lock drops secrets, store I/O holds the mutex,
-//! startup loses a typed password, panic strands waiters, or status reads prompt the keychain.
+//! startup loses a typed password, panic strands waiters, status reads prompt the keychain,
+//! or recovery republishes a closed handle.
 //! Tests: session::tests and owner_requests tests.
 mod open_result;
 use open_result::OpenResult;
@@ -36,6 +37,59 @@ pub struct VaultSession {
     inner: Arc<(Mutex<Session>, Condvar)>,
 }
 impl VaultSession {
+    /// Restore a complete file generation before inspecting mode, credentials or
+    /// legacy-file presence. The reservation remains held through the later open.
+    pub fn recover_pending_archive(&self, paths: &ProjectPaths) -> Result<bool, String> {
+        if !vault_core::maintenance::install::pending(paths) {
+            return Ok(false);
+        }
+        let owner = match self.owner() {
+            Some(owner) => owner,
+            None => Arc::new(
+                vault_store::OwnerLock::acquire(&paths.app_root).map_err(|e| e.to_string())?,
+            ),
+        };
+        let recovered = vault_core::maintenance::install::recover_before_open(paths)
+            .map_err(|e| e.to_string())?;
+        self.reserve_owner(owner);
+        Ok(recovered)
+    }
+
+    /// Share startup ownership with maintenance that can run before archive unlock.
+    pub fn owner(&self) -> Option<Arc<vault_store::OwnerLock>> {
+        self.inner.0.lock().expect("session state").owner.clone()
+    }
+
+    /// Publish a verified maintenance replacement without reopening a second owner.
+    pub fn install_archive(
+        &self,
+        archive: vault_core::maintenance::InstalledArchive,
+        password: Option<String>,
+    ) -> anyhow::Result<()> {
+        let keyring_result = (|| -> anyhow::Result<()> {
+            if archive.vault.config().remember_database_key_in_keyring
+                && let Some(key) = &archive.data_key
+            {
+                crate::security::store_data_key_in_keyring(key)?;
+            } else if vault_platform::keyring_status().stored_secret {
+                crate::security::clear_database_key_from_keyring()?;
+            }
+            Ok(())
+        })();
+        let old = {
+            let mut state = self.inner.0.lock().expect("session state");
+            state.password = password.map(Zeroizing::new);
+            state.data_key = archive.data_key.map(Arc::new);
+            state.vault.replace(archive.vault)
+        };
+        drop(old);
+        keyring_result.map_err(|error|anyhow::anyhow!("archive-installed-keychain-unavailable: the archive was installed, but its remembered key could not be updated: {error}"))
+    }
+
+    /// Rewrap keeps the owner and remembered data key; only typed legacy state changes.
+    pub fn remember_password(&self, password: String) {
+        self.inner.0.lock().expect("session state").password = Some(Zeroizing::new(password));
+    }
     /// Legacy SQLCipher readers require the exact typed password until area 6.
     /// Call from a blocking thread: a read arriving during startup waits for open.
     pub fn get_key(&self) -> Result<Option<String>, String> {
@@ -76,11 +130,13 @@ impl VaultSession {
     }
     fn resolve_background(&self, keychain: bool) -> Result<Vault, String> {
         let paths = vault_core::project_paths().map_err(|e| e.to_string())?;
+        self.recover_pending_archive(&paths)?;
         let config = vault_core::load_config(&paths).map_err(|e| e.to_string())?;
         self.resolve_store(paths, config, keychain)
     }
     pub fn vault(&self) -> Result<Vault, String> {
         let paths = vault_core::project_paths().map_err(|e| e.to_string())?;
+        self.recover_pending_archive(&paths)?;
         let config = vault_core::load_config(&paths).map_err(|e| e.to_string())?;
         vault_core::ensure_app_lock_unlocked(&paths, &config).map_err(|e| e.to_string())?;
         self.load_vault(paths, config)
@@ -101,9 +157,15 @@ impl VaultSession {
             let state = self.inner.0.lock().expect("session state");
             (state.vault.clone(), state.password.clone(), state.data_key.clone())
         };
-        if let Some(vault) = current {
+        if let Some(vault) = current.filter(|v| v.store().is_open()) {
             return Ok(vault.with_config(config));
         }
+        let config = if self.recover_pending_archive(&paths)? {
+            vault_core::load_config(&paths).map_err(|e| e.to_string())?
+        } else {
+            config
+        };
+        require_native_archive(&paths)?;
         if !config.initialized {
             return Err("archive has not been initialized".into());
         }
@@ -195,11 +257,17 @@ impl VaultSession {
         mut key: Option<Arc<DataKey>>,
         remember: bool,
     ) -> Result<Vault, String> {
+        let config = if self.recover_pending_archive(&paths)? {
+            vault_core::load_config(&paths).map_err(|e| e.to_string())?
+        } else {
+            config
+        };
+        require_native_archive(&paths)?;
         let (current, owner) = {
             let state = self.inner.0.lock().expect("session state");
             (state.vault.clone(), state.owner.clone())
         };
-        let vault = if let Some(current) = current {
+        let vault = if let Some(current) = current.filter(|v| v.store().is_open()) {
             if config.archive_mode == ArchiveMode::Encrypted
                 && let Some(password) = &password
             {
@@ -242,8 +310,9 @@ impl VaultSession {
     pub fn unlock_from_keychain(&self) -> Result<(), String> {
         self.open(|| {
             let paths = vault_core::project_paths().map_err(|e| e.to_string())?;
+            self.recover_pending_archive(&paths)?;
             let config = vault_core::load_config(&paths).map_err(|e| e.to_string())?;
-            if let Some(vault) = self.inner.0.lock().expect("session state").vault.clone() {
+            if let Some(vault) = self.current_vault() {
                 return Ok(vault.with_config(config));
             }
             self.open_keychain(paths, config)
@@ -314,6 +383,15 @@ impl VaultSession {
         result
     }
 }
+
+fn require_native_archive(paths: &ProjectPaths) -> Result<(), String> {
+    if paths.app_root.join("archive/history-vault.sqlite").exists()
+        && !paths.app_root.join("archive/history-vault.db").exists()
+    {
+        return Err("archive-conversion-required: preview and convert the SQLCipher archive before opening it".into());
+    }
+    Ok(())
+}
 struct OpeningGuard<'a> {
     session: &'a VaultSession,
     finished: bool,
@@ -358,3 +436,6 @@ pub(crate) fn encode_data_key(key: &DataKey) -> Zeroizing<String> {
 }
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod recovery_tests;

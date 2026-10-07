@@ -2,12 +2,12 @@
 //! Not responsible for: parsing, run completion, manifests or search indexing.
 //! Failure modes: archive-sized maps, cursor/progress ahead of committed rows,
 //! URL cursor skips dependent terms, imports advance live cursors, duplicates widen bounds, missing URL parents, stale documents, cancellation
-//! discards committed batches, interactive jobs wait for the whole import.
-//! An evidence-only payload must not erase the profile's source-batch provenance.
+//! discards committed batches, evidence-only payloads erase committed provenance,
+//! interactive jobs wait for the whole import.
 //! Tests: core_tests, concurrency_tests and dedup_scenarios*.
 
 use super::{
-    parser::{Watermark, save_watermark},
+    parser::{Watermark, load_watermark, save_watermark},
     selection::*,
     writes::*,
 };
@@ -136,10 +136,14 @@ impl<'a> ArchiveChunkConsumer<'a> {
         self.flush()?;
         if self.context.tracks_watermark() {
             let context = self.context.clone();
-            let mut watermark = self.watermark.clone();
-            watermark.url_scan = None;
-            watermark.last_source_batch_id = Some(self.evidence.batch_id());
+            let evidence_batch = self.evidence.batch_id();
             self.vault.write(Db::Archive, Priority::Batch, move |s| {
+                // A companion Takeout payload can contain evidence but no fact
+                // batches. Preserve the committed cursor rather than its empty
+                // parser cursor, and link the evidence that just finished.
+                let mut watermark = load_watermark(s, &context.profile_id)?;
+                watermark.url_scan = None;
+                watermark.last_source_batch_id = Some(evidence_batch);
                 save_watermark(s, &context.profile_id, &watermark)?;
                 Ok(())
             })?;

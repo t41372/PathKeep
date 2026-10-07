@@ -1,6 +1,9 @@
+//! Failure modes: a requested crash point never fires, hooks leak between threads or production work
+//! arms a test fault.
+//!
 //! Named-checkpoint fault-injection seam for crash-window regression tests.
 //!
-//! ## Responsibilities
+//! Responsibilities:
 //! - Give the destructive archive operations (rekey / import / backup) a single,
 //!   named place to ask "should I abort RIGHT HERE?", so a crash-window test can
 //!   simulate the process dying at an EXACT point inside the op. Phase B uses this
@@ -21,10 +24,11 @@
 //!   (coverage/CI) build. It is NOT `cfg`-compiled out, because the quality gate
 //!   forbids stubbing production paths out of coverage (that hides the real failure
 //!   modes). Only the ARMING side — the writers, including the must-fire watch
-//!   registration — is `#[cfg(test)]`, so production can never arm anything and test
+//!   registration — is `#[cfg(test)]`; process-exit integration fixtures require the
+//!   explicit `test-fixtures` feature. Normal production builds cannot arm anything and test
 //!   threads are isolated from each other for free.
 //!
-//! ## Not responsible for
+//! Not responsible for:
 //! - Inserting `checkpoint(...)` calls into the rekey / import / backup paths — that
 //!   wiring is Phase B. This module ships ONLY the seam plus its own tests.
 //! - Cross-thread fault delivery. The registry is THREAD-LOCAL (mirroring
@@ -131,6 +135,12 @@ fn record_hit(name: &str) {
 /// Phase B will sprinkle `checkpoint("...")` calls at the load-bearing seams inside
 /// rekey / import / backup; this module deliberately wires NONE of them yet.
 pub fn checkpoint(name: &str) -> Result<()> {
+    #[cfg(feature = "test-fixtures")]
+    EXIT_CHECKPOINT.with(|armed| {
+        if armed.borrow().as_deref() == Some(name) {
+            std::process::exit(86);
+        }
+    });
     record_hit(name);
     match consult(name) {
         Some(FaultKind::Error) => {
@@ -141,6 +151,18 @@ pub fn checkpoint(name: &str) -> Result<()> {
         }
         None => Ok(()),
     }
+}
+
+#[cfg(feature = "test-fixtures")]
+thread_local! {
+    static EXIT_CHECKPOINT: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Integration-test children exit without destructors at a real durable boundary.
+/// The arming API is absent from normal application builds.
+#[cfg(feature = "test-fixtures")]
+pub fn exit_process_at_next_checkpoint(name: &str) {
+    EXIT_CHECKPOINT.with(|armed| *armed.borrow_mut() = Some(name.into()));
 }
 
 // --- test-only arming API (writers) --------------------------------------------------------------

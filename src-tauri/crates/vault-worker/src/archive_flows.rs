@@ -1,3 +1,9 @@
+//! Responsibilities: orchestrate archive reads, backup, native restore and retention through their
+//! owners.
+//! Not responsible for: database copying, file journals or UI transport.
+//! Failure modes: dropped progress, lost restore reports, scheduled backup blocked by App Lock or
+//! hidden follow-up failures.
+//!
 //! Failure modes for scheduled progress: dropping events or changing the App Lock
 //! exception. Tests: owner_requests, scheduled backup regressions and owner_process.
 //! Archive-facing worker flows.
@@ -73,32 +79,76 @@ pub fn list_recovery_snapshots() -> Result<Vec<vault_core::RecoverySnapshot>> {
 /// The canonical archive may be un-openable (that is the whole point of this recovery), so the
 /// config falls back to default rather than failing the restore on a `load_unlocked_config` error.
 pub fn run_full_archive_restore(
-    session_database_key: Option<&str>,
+    session: &crate::VaultSession,
+    password: Option<&str>,
     request: &vault_core::SnapshotRestoreRequest,
 ) -> Result<vault_core::FullArchiveRestoreReport> {
-    vault_core::require_complete_storage_migration("full archive restore")?;
     let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths).unwrap_or_default();
-    vault_core::run_full_archive_snapshot_restore(&paths, &config, session_database_key, request)
+    if let Ok(config) = vault_core::load_config(&paths) {
+        vault_core::ensure_app_lock_unlocked(&paths, &config)?;
+    }
+    let current = session.current_vault();
+    let source = std::path::Path::new(&request.snapshot_path);
+    let legacy = source.is_file();
+    let installed =
+        crate::maintenance_jobs::run(&paths.app_root, "restoring", |cancel, progress| {
+            if legacy {
+                return vault_convert_sqlcipher::restore_snapshot(
+                    &paths,
+                    current.as_ref(),
+                    session.owner(),
+                    source,
+                    password,
+                    cancel,
+                    progress,
+                );
+            }
+            vault_core::maintenance::restore_snapshot_to(
+                &paths,
+                current.as_ref(),
+                session.owner(),
+                source,
+                password,
+                cancel,
+            )
+        })?;
+    let audit = vault_core::maintenance::record_restore(&installed.vault, &request.snapshot_path);
+    let (run_id, warnings) = match audit {
+        Ok(id) => (Some(id), Vec::new()),
+        Err(error) => (
+            None,
+            vec![format!(
+                "The archive was restored, but its review run could not be saved: {error}"
+            )],
+        ),
+    };
+    let report = vault_core::FullArchiveRestoreReport {
+        run_id,
+        restored_snapshot_path: request.snapshot_path.clone(),
+        restored_mode: installed.vault.config().archive_mode.clone(),
+        quarantine_dir: installed.previous_files.display().to_string(),
+        source_evidence_rebuilt: legacy,
+        warnings,
+    };
+    session.install_archive(installed, password.map(str::to_owned))?;
+    Ok(report)
 }
 
 /// Builds the manual-first retention preview for local rebuildable artifacts.
-pub fn preview_retention_plan(
-    session_database_key: Option<&str>,
-) -> Result<vault_core::RetentionPreview> {
+pub fn preview_retention_plan(vault: Option<&Vault>) -> Result<vault_core::RetentionPreview> {
     let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths).unwrap_or_default();
-    vault_core::preview_retention(&paths, &config, session_database_key)
+    load_unlocked_config(&paths)?;
+    vault_core::maintenance::preview_retention(&paths, vault)
 }
 
-/// Executes the explicit retention prune request.
+/// Prunes artifacts through the same native owner used by backups.
 pub fn run_retention_plan(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     request: &vault_core::RetentionPruneRequest,
 ) -> Result<vault_core::RetentionPruneResult> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::run_retention_prune(&paths, &config, session_database_key, request)
+    crate::maintenance_jobs::run(&vault.paths().app_root, "pruning", |cancel, _| {
+        vault_core::maintenance::prune(vault, request, &cancel)
+    })
 }
 
 /// Runs a backup without exposing per-profile progress.

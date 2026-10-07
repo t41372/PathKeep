@@ -35,7 +35,7 @@ password ──Argon2id──▶ KEK ──AES-256-GCM unwrap──▶ data key 
 - **Sub-keys.** `DataKey::derive(KeyPurpose)` gives each use its own key, so no two uses share
   key material. Labels are `pathkeep/v1/<purpose>`: `archive-database`,
   `source-evidence-database`, `intelligence-database`, `agent-database`, `scratch-database`,
-  `search-index`, `temp-files`. Changing a label makes existing data unreadable; the tests pin
+  `search-index`, `temp-files`, `bundle-artifacts`. Changing a label makes existing data unreadable; the tests pin
   each sub-key to a value computed with Python's `hmac`/`hashlib`.
 - **One key per database.** The migration design (§1, §3) says all databases open with the
   data key itself. This crate gives each database its own derived key instead, so a weakness
@@ -256,6 +256,20 @@ version change, run the default tests and the ignored crash tests:
 cargo test -p vault-crypto
 cargo test --release -p vault-crypto --test search_crash -- --ignored --nocapture
 ```
+
+## Portable bundle artifacts
+
+`write_artifact` / `read_artifact` reuse the authenticated 64 KiB file codec with
+an independent `pathkeep/v1/bundle-artifacts` sub-key and no plaintext read cache.
+`encrypt_artifact` / `decrypt_artifact` provide cancellable buffered copies.
+Config and the streaming provenance TAR use this purpose; neither needs a
+plaintext temporary archive. The relative slash-separated name remains part of
+authentication, and reads authenticate trailing bytes even when a decoder stops
+early. The existing search-index format and keys are unchanged.
+
+The portable tests cover round trips, wrong keys, renamed/truncated ciphertext,
+plaintext leakage and cancellation. The envelope golden vectors include the new
+purpose; the core rewrap crash test kills a child at each atomic-write boundary.
 
 ## Threat model
 

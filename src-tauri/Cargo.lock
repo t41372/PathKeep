@@ -9621,6 +9621,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ba6f5989077681266825251a52748b8c1d8a4ad098cc37e440103d0ea717fc0"
 
 [[package]]
+name = "vault-convert-sqlcipher"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "browser-history-fixtures",
+ "chrono",
+ "libc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "vault-core",
+ "vault-crypto",
+ "vault-store",
+]
+
+[[package]]
 name = "vault-core"
 version = "0.1.0"
 dependencies = [
@@ -9654,6 +9672,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tar",
  "tempfile",
  "thiserror 2.0.18",
  "tokenizers",
@@ -9759,6 +9778,7 @@ dependencies = [
 name = "vault-store"
 version = "0.1.0"
 dependencies = [
+ "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -9780,6 +9800,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "vault-convert-sqlcipher",
  "vault-core",
  "vault-crypto",
  "vault-owner-ipc",

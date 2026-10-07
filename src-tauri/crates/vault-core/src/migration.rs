@@ -1,3 +1,8 @@
+//! Responsibilities: host native format-2 bundles and retain legacy SQLCipher bundle recovery.
+//! Not responsible for: password cryptography, database copy scheduling or session publication.
+//! Failure modes: tampered payloads, missing evidence/agent data or mixed generations after
+//! interruption.
+//!
 //! Whole-app data Export / Import.
 //!
 //! ## Responsibilities
@@ -87,6 +92,12 @@ use std::{
 use tempfile::tempdir;
 use walkdir::WalkDir;
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
+
+pub mod native;
+mod portable_artifacts;
+pub use portable_artifacts::resolve_imported_artifact;
+#[cfg(test)]
+mod native_tests;
 
 /// The version of the export bundle format itself. Bumping this signals an
 /// intentional, breaking change to the manifest schema or to the on-disk
@@ -273,21 +284,9 @@ pub struct ApplyImportOptions {
     /// the function refuses early so a UI bug can't slip past the
     /// PME confirmation.
     pub confirm_overwrite: bool,
-    /// The archive cipher key that was used on the *source* machine.
-    /// Required when the bundle's manifest reports `archive_mode =
-    /// "encrypted"`. Plaintext bundles ignore this field entirely.
-    ///
-    /// The previous implementation re-used the *caller's* session key to
-    /// open the imported archive after the on-disk swap — but for a
-    /// fresh install (key=None) or a target machine whose local archive
-    /// happens to be locked with a different key, that key won't open
-    /// the imported database. `apply_import` then failed AFTER renaming
-    /// the live target to `.bak-*`, leaving the user with the import
-    /// applied on disk but reported as failed. Codex review finding C4.
-    ///
-    /// Surfaced through the Settings → Data migration prompt so the
-    /// user is asked for the source key only when the bundle actually
-    /// needs one.
+    /// Native format-2 bundles use the export password. Legacy format-1 helpers
+    /// use the source SQLCipher password. Kept under the existing serialized name
+    /// so the caller can preview first, then supply the appropriate password.
     pub source_archive_key: Option<String>,
 }
 
@@ -1246,6 +1245,9 @@ fn ensure_recovered_modes_are_consistent(
 /// the gate its caller already holds WOULD self-deadlock — so this nested helper must
 /// never touch it.
 pub(crate) fn recover_interrupted_import(paths: &ProjectPaths) -> Result<bool> {
+    if crate::maintenance::install::pending(paths) {
+        return crate::maintenance::recover_native_maintenance(paths);
+    }
     if !import_journal_path(paths).exists() {
         return Ok(false);
     }
@@ -1424,6 +1426,24 @@ fn add_file_to_zip(
     options: SimpleFileOptions,
     manifest_files: &mut Vec<ExportManifestFile>,
 ) -> Result<()> {
+    add_file_to_zip_cancel(
+        zip,
+        source_path,
+        zip_path,
+        options,
+        manifest_files,
+        &vault_store::CancelToken::new(),
+    )
+}
+
+fn add_file_to_zip_cancel(
+    zip: &mut ZipWriter<File>,
+    source_path: &Path,
+    zip_path: &str,
+    options: SimpleFileOptions,
+    manifest_files: &mut Vec<ExportManifestFile>,
+    cancel: &vault_store::CancelToken,
+) -> Result<()> {
     let normalized = zip_path.replace('\\', "/");
     let source =
         File::open(source_path).with_context(|| format!("reading {}", source_path.display()))?;
@@ -1434,6 +1454,7 @@ fn add_file_to_zip(
 
     zip.start_file(&normalized, options)?;
     loop {
+        cancel.check()?;
         let read = reader
             .read(&mut buffer)
             .with_context(|| format!("reading {}", source_path.display()))?;
@@ -1610,6 +1631,15 @@ fn extract_bundle_into(
     target_dir: &Path,
     manifest: &ExportManifest,
 ) -> Result<()> {
+    extract_bundle_into_cancel(bundle_path, target_dir, manifest, &vault_store::CancelToken::new())
+}
+
+fn extract_bundle_into_cancel(
+    bundle_path: &Path,
+    target_dir: &Path,
+    manifest: &ExportManifest,
+    cancel: &vault_store::CancelToken,
+) -> Result<()> {
     let file = File::open(bundle_path)
         .with_context(|| format!("re-opening bundle {}", bundle_path.display()))?;
     let mut archive = ZipArchive::new(file)?;
@@ -1632,6 +1662,7 @@ fn extract_bundle_into(
         let mut hasher = Sha256::new();
         let mut buffer = [0_u8; ZIP_COPY_BUFFER_BYTES];
         loop {
+            cancel.check()?;
             let read = entry.read(&mut buffer)?;
             if read == 0 {
                 break;

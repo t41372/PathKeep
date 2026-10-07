@@ -76,6 +76,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
+tar = "0.4.45"
 thiserror.workspace = true
 # HF tokenizer for the candle Qwen3 forward pass (W-AI-4b); loads tokenizer.json from disk.
 # We request the pure-Rust `fancy-regex` backend; candle-core still forces `onig` transitively —
@@ -106,6 +107,7 @@ zip.workspace = true
 vault-metal-backend = { version = "0.1.0", path = "../vault-metal-backend", optional = true }
 
 [dev-dependencies]
+vault-crypto = { path = "../vault-crypto", features = ["crash-points"] }
 vault-search = { path = "../vault-search", features = ["crash-points"] }
 browser-history-fixtures = { version = "0.1.0", path = "../browser-history-fixtures" }
 # Already regular deps of the crate; restated here only so the env-gated LM Studio e2e

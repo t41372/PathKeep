@@ -11,7 +11,7 @@
 //! crate does those, and uses [`IndexFileError::find_in`] to recognize an index it must
 //! rebuild.
 //!
-//! How it can fail, and where each case is handled and tested:
+//! Failure modes: coverage and handling below.
 //! - Plaintext on disk: segment files go through `writer.rs`, atomic files are sealed in
 //!   memory before the temporary file is written. `tests/search_index.rs` watches the
 //!   directory during indexing and merging, keeps every file (also those deleted by merges),
@@ -91,13 +91,20 @@ impl EncryptedDirectory {
         data_key: &DataKey,
         cache_bytes: usize,
     ) -> io::Result<EncryptedDirectory> {
+        Self::open_key(root, data_key.derive(KeyPurpose::SearchIndex), cache_bytes)
+    }
+
+    pub(crate) fn open_artifacts(root: &Path, key: &DataKey) -> io::Result<Self> {
+        Self::open_key(root, key.derive(KeyPurpose::BundleArtifacts), 0)
+    }
+
+    fn open_key(root: &Path, key: SubKey, cache_bytes: usize) -> io::Result<Self> {
         if !root.is_dir() {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 format!("{} is not a directory", root.display()),
             ));
         }
-        let key = data_key.derive(KeyPurpose::SearchIndex);
         let key_id = format::key_id(&key);
         Ok(EncryptedDirectory {
             inner: Arc::new(Inner {

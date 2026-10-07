@@ -10,6 +10,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { MaintenanceProgress } from '@/components/app/maintenance-progress'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -96,8 +97,12 @@ function RekeyFlow({
     onSuccess: setPreview,
   })
 
+  const [stopped, setStopped] = useState(false)
   const run = useMutation({
-    mutationFn: () => rekey(mode, secrets, keep),
+    mutationFn: () => {
+      setStopped(false)
+      return rekey(mode, secrets, keep)
+    },
     onSuccess: ({ keychainFailed }) => {
       toast.success(t(`settings.security.rekey.done.${mode}`))
       if (keychainFailed) {
@@ -111,7 +116,7 @@ function RekeyFlow({
   })
 
   const busy = load.isPending || run.isPending
-  const error = load.error ?? run.error
+  const error = load.error ?? (stopped ? null : run.error)
   const wrongCurrent = error !== null && isCurrentPasswordError(error)
 
   return (
@@ -199,13 +204,12 @@ function RekeyFlow({
         {preview && <PreviewSteps mode={mode} preview={preview} />}
 
         {run.isPending && (
-          <div
-            role="status"
-            className="flex items-center gap-2 text-[13px] text-muted-foreground"
-          >
-            <Spinner />
-            {t('settings.security.rekey.running')}
-          </div>
+          <MaintenanceProgress onStop={() => setStopped(true)} />
+        )}
+        {run.error && stopped && (
+          <p role="status" className="text-[13px] text-muted-foreground">
+            {t('maintenance.stopped')}
+          </p>
         )}
 
         {error && (

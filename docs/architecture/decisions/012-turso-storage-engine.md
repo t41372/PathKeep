@@ -128,6 +128,17 @@ PathKeep 自己的五個資料庫（archive、source evidence、search、intelli
 - 執行檔裡會同時有 Turso 和一般的 SQLite（只用來讀瀏覽器）。
 - Turso 的加密、FTS、多行程在 0.8.1 標為 experimental（本設計不用多行程）。按用戶要求不以成熟度做取捨；靠上面的驗收測試和 E2E 守住行為。
 
+## SQLite library note (2026-10-06)
+
+While `vault-convert-sqlcipher` ships, the entire application links rusqlite's
+`bundled-sqlcipher-vendored-openssl` build. Cargo unifies rusqlite features across
+the executable; the browser reader and converter cannot link different bundled
+SQLite implementations. Browser files are opened without a key, using plaintext
+SQLite behavior. The converter is a library in the app, not a separate binary.
+When the converter is removed, the workspace feature returns to `bundled`.
+This supersedes the immediate removal of SQLCipher described in decision 8;
+Turso remains the engine for all new PathKeep databases.
+
 ## 相關
 
 - [research/2026-10-turso-evaluation.md](../research/2026-10-turso-evaluation.md)

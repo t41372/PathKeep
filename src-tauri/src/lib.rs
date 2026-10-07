@@ -211,6 +211,8 @@ fn run_app() -> Result<()> {
             list_stars,
             get_star_counts,
             export_app_data,
+            get_maintenance_progress,
+            cancel_maintenance,
             preview_app_data_import,
             apply_app_data_import,
             load_dashboard_snapshot,

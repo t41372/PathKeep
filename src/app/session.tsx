@@ -158,6 +158,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       queryClient.setQueryData(queryKeys.lockStatus, lockStatus)
       if (lockStatus.locked) return toLocked()
 
+      // An archive still in the old format can't open, so neither unlocking nor
+      // the keychain can help yet: convert it first. Cheap when nothing is due.
+      if (!upgradeChecked.current) {
+        upgradeChecked.current = true
+        const assessment = await archiveClient
+          .assessArchiveUpgrade()
+          .catch(() => null)
+        if (assessment?.pending) {
+          queryClient.setQueryData(
+            queryKeys.snapshot,
+            await appClient.getSnapshot(),
+          )
+          setUpgrade(assessment)
+          setPhase('upgrade')
+          return
+        }
+      }
+
       let snapshot = await appClient.getSnapshot()
 
       if (!triedKeyring.current && canAutoUnlock(snapshot)) {
@@ -189,23 +207,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           if (!report) throw initError
           setRecovery(report)
           setPhase('recovery')
-          return
-        }
-      }
-
-      if (
-        !upgradeChecked.current &&
-        snapshot.config.initialized &&
-        snapshot.archiveStatus.unlocked
-      ) {
-        upgradeChecked.current = true
-        const assessment = await archiveClient
-          .assessArchiveUpgrade()
-          .catch(() => null)
-        if (assessment?.pending) {
-          queryClient.setQueryData(queryKeys.snapshot, snapshot)
-          setUpgrade(assessment)
-          setPhase('upgrade')
           return
         }
       }

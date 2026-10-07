@@ -1,3 +1,8 @@
+//! Responsibilities: map backend failures to stable desktop error codes and recovery hints.
+//! Not responsible for: performing recovery or translating frontend copy.
+//! Failure modes: wrong-password codes changed, digest failures obscured or a published archive
+//! reported as rolled back.
+//!
 //! Structured error envelope for the desktop command surface.
 //!
 //! `docs/architecture/module-boundary-map.md` requires the user-facing error
@@ -143,6 +148,13 @@ fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str
         "archive-open-panicked",
         "invalid-cursor",
         "invalid-page-size",
+        "copy-digest-mismatch",
+        "conversion-digest-mismatch",
+        "snapshot-digest-mismatch",
+        "encryption-mode-change-requires-rekey",
+        "archive-installed-keychain-unavailable",
+        "archive-conversion-required",
+        "export-target-is-managed",
     ] {
         if message.contains(&format!("{code}:")) {
             return (Some(code), None);

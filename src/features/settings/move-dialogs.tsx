@@ -1,13 +1,16 @@
 /**
  * Moving PathKeep to another computer: pack everything into one `.pathkeep`
- * file (`export_app_data`), or open such a file here. Opening one replaces
- * this computer's archive, so it goes check (`preview_app_data_import`) →
+ * file (`export_app_data`), or open such a file here. The file is always
+ * encrypted with a password chosen at export, which becomes the archive's
+ * password on the computer that opens it. Opening one replaces this
+ * computer's archive, so it goes check (`preview_app_data_import`) →
  * confirm → replace (`apply_app_data_import`), then restarts the session.
  */
 import { useMutation } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useSession } from '@/app/session'
+import { MaintenanceProgress } from '@/components/app/maintenance-progress'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -21,11 +24,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import {
-  IMPORT_SOURCE_KEY_INVALID_PREFIX,
   migrationClient,
   type ImportPreview,
 } from '@/lib/backend-client/migration'
 import { describeError } from '@/lib/errors'
+import { commandErrorCode } from '@/lib/ipc/command-error'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import { hasTauriGuestApi } from '@/lib/runtime'
@@ -80,9 +83,17 @@ function ExportForm({ onClose }: { onClose: () => void }) {
   const { t } = useI18n()
   const format = useFormat()
   const [path, setPath] = useDefaultBundlePath()
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const differ = confirm !== '' && confirm !== password
+  const ready = path.trim() !== '' && password !== '' && confirm === password
+  const [stopped, setStopped] = useState(false)
 
   const run = useMutation({
-    mutationFn: () => migrationClient.exportAppData(path.trim()),
+    mutationFn: () => {
+      setStopped(false)
+      return migrationClient.exportAppData(path.trim(), password)
+    },
     onSuccess: (bundle) => {
       toast.success(
         t('settingsStorage.move.exported', {
@@ -110,7 +121,7 @@ function ExportForm({ onClose }: { onClose: () => void }) {
         className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault()
-          if (path.trim() && !run.isPending) run.mutate()
+          if (ready && !run.isPending) run.mutate()
         }}
       >
         <DialogHeader>
@@ -127,28 +138,67 @@ function ExportForm({ onClose }: { onClose: () => void }) {
           onChange={setPath}
           disabled={run.isPending}
         />
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="move-export-password">
+            {t('settingsStorage.move.exportPassword')}
+          </Label>
+          <Input
+            id="move-export-password"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            disabled={run.isPending}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="move-export-password-confirm">
+            {t('settingsStorage.move.exportPasswordConfirm')}
+          </Label>
+          <Input
+            id="move-export-password-confirm"
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            disabled={run.isPending}
+            aria-invalid={differ}
+            aria-describedby="move-export-password-hint"
+            onChange={(event) => setConfirm(event.target.value)}
+          />
+          <p
+            id="move-export-password-hint"
+            className={
+              differ
+                ? 'text-[13px] text-destructive'
+                : 'text-[13px] text-muted-foreground'
+            }
+          >
+            {differ
+              ? t('settingsStorage.move.passwordsDiffer')
+              : t('settingsStorage.move.exportPasswordHint')}
+          </p>
+        </div>
         <p className="text-[13px] text-muted-foreground">
           {t('settingsStorage.move.stays')}
         </p>
         {run.isPending && (
-          <div
-            role="status"
-            className="flex items-center gap-2 text-[13px] text-muted-foreground"
-          >
-            <Spinner />
-            {t('settingsStorage.move.exporting')}
-          </div>
+          <MaintenanceProgress onStop={() => setStopped(true)} />
         )}
-        {run.error && (
-          <p
-            role="alert"
-            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-          >
-            {t('settingsStorage.move.exportFailed', {
-              message: describeError(run.error, 'export_app_data'),
-            })}
-          </p>
-        )}
+        {run.error &&
+          (stopped ? (
+            <p role="status" className="text-[13px] text-muted-foreground">
+              {t('maintenance.stopped')}
+            </p>
+          ) : (
+            <p
+              role="alert"
+              className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+            >
+              {t('settingsStorage.move.exportFailed', {
+                message: describeError(run.error, 'export_app_data'),
+              })}
+            </p>
+          ))}
         <DialogFooter>
           <Button
             type="button"
@@ -158,7 +208,7 @@ function ExportForm({ onClose }: { onClose: () => void }) {
           >
             {t('common.cancel')}
           </Button>
-          <Button type="submit" disabled={!path.trim() || run.isPending}>
+          <Button type="submit" disabled={!ready || run.isPending}>
             {t('settingsStorage.move.export')}
           </Button>
         </DialogFooter>
@@ -179,12 +229,15 @@ function ImportForm({ onClose }: { onClose: () => void }) {
     mutationFn: () => migrationClient.previewAppDataImport(path.trim()),
     onSuccess: setPreview,
   })
+  const [stopped, setStopped] = useState(false)
   const apply = useMutation({
-    mutationFn: () =>
-      migrationClient.applyAppDataImport(path.trim(), {
+    mutationFn: () => {
+      setStopped(false)
+      return migrationClient.applyAppDataImport(path.trim(), {
         confirmOverwrite: true,
         sourceArchiveKey: encrypted ? password : undefined,
-      }),
+      })
+    },
     onSuccess: async () => {
       toast.success(t('settingsStorage.move.imported'))
       onClose()
@@ -194,8 +247,8 @@ function ImportForm({ onClose }: { onClose: () => void }) {
 
   const busy = check.isPending || apply.isPending
   const wrongPassword =
-    apply.error &&
-    describeError(apply.error).includes(IMPORT_SOURCE_KEY_INVALID_PREFIX)
+    apply.error !== null &&
+    commandErrorCode(apply.error) === 'archive-password-wrong'
 
   return (
     <DialogContent className="sm:max-w-md" {...busyProps(apply.isPending)}>
@@ -253,16 +306,15 @@ function ImportForm({ onClose }: { onClose: () => void }) {
         )}
 
         {apply.isPending && (
-          <div
-            role="status"
-            className="flex items-center gap-2 text-[13px] text-muted-foreground"
-          >
-            <Spinner />
-            {t('settingsStorage.move.importing')}
-          </div>
+          <MaintenanceProgress onStop={() => setStopped(true)} />
         )}
 
-        {(check.error ?? apply.error) && (
+        {apply.error && stopped && (
+          <p role="status" className="text-[13px] text-muted-foreground">
+            {t('maintenance.stopped')}
+          </p>
+        )}
+        {(check.error ?? (stopped ? null : apply.error)) && (
           <p
             role="alert"
             className="text-[13px] [overflow-wrap:anywhere] text-destructive"

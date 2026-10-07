@@ -1,3 +1,8 @@
+//! Responsibilities: expose portable migration, progress and cancellation off the UI thread.
+//! Not responsible for: bundle validation or file installation.
+//! Failure modes: missing export password, blocked progress polling or changed command fields.
+//! Tests: desktop bridge migration round trip.
+//!
 //! Tauri commands for whole-app Export / Import.
 //!
 //! Each command runs the actual zip pack / unpack off the UI thread via
@@ -19,15 +24,29 @@ use tauri::State;
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Packs the entire local project into a `.pathkeep-bundle` zip.
+pub(crate) async fn get_maintenance_progress()
+-> Result<Option<vault_core::maintenance::Progress>, CommandError> {
+    run_blocking_command("get_maintenance_progress", worker_bridge::maintenance_progress_impl).await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) async fn cancel_maintenance() -> Result<bool, CommandError> {
+    run_blocking_command("cancel_maintenance", worker_bridge::cancel_maintenance_impl).await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Packs portable archive data into an export-password-encrypted bundle.
 pub(crate) async fn export_app_data(
     state: State<'_, SessionState>,
     target_path: String,
+    export_password: String,
 ) -> Result<vault_core::ExportedBundle, CommandError> {
     let key_state = state.inner().clone();
     let target = PathBuf::from(target_path);
     run_blocking_command("export_app_data", move || {
-        worker_bridge::export_app_data_impl(key_state.get_key()?.as_deref(), target)
+        worker_bridge::export_app_data_impl(&key_state, target, export_password)
     })
     .await
 }
@@ -51,8 +70,7 @@ pub(crate) async fn preview_app_data_import(
 #[tauri::command]
 /// Applies a previously-previewed bundle onto the live project tree.
 /// Surfaces the manifest, applied migration list, and a flag indicating
-/// whether the prior tree was preserved as `*.bak-<timestamp>` sibling
-/// paths next to each restored subtree.
+/// whether the prior generation was preserved under `maintenance.bak-*`.
 pub(crate) async fn apply_app_data_import(
     state: State<'_, SessionState>,
     bundle_path: String,
@@ -61,7 +79,7 @@ pub(crate) async fn apply_app_data_import(
     let key_state = state.inner().clone();
     let bundle = PathBuf::from(bundle_path);
     run_blocking_command("apply_app_data_import", move || {
-        worker_bridge::apply_app_data_import_impl(key_state.get_key()?.as_deref(), bundle, options)
+        worker_bridge::apply_app_data_import_impl(&key_state, bundle, options)
     })
     .await
 }

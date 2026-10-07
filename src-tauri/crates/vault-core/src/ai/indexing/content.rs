@@ -39,7 +39,7 @@ pub(in crate::ai) fn build_embedding_content(
 /// Whitespace-only / empty summaries are treated as absent so they never perturb the hash; the stored
 /// value is already capped + normalized by the extractor (`build_enrichment_summary`), so this is a
 /// thin pass-through that keeps the dedup hash stable across re-reads of the same row.
-pub(in crate::ai) fn enrichment_summary_for(
+pub(crate) fn enrichment_summary_for(
     enrichment: Option<&crate::enrichment::StoredEnrichment>,
 ) -> Option<&str> {
     enrichment

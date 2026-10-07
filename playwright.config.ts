@@ -156,6 +156,9 @@ export default defineConfig({
       ],
       'read',
     ),
-    project('wipe', ['wipe.spec.ts'], 'change'),
+    // Opening the moved file replaces the archive and its password, so it runs
+    // after every test that relies on the archive first-run created.
+    project('move', ['move.spec.ts'], 'change'),
+    project('wipe', ['wipe.spec.ts'], 'move'),
   ],
 })

@@ -2695,3 +2695,13 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - The app raises its open-file limit to 10,240 at startup (an app opened from Finder gets 256). An open archive holds about 175 files, and that number doesn't grow with imports or searches; a test keeps it so.
   - CI and Modal run the checks with a virtual display and a session bus, so the owner-process test (it starts the real app) runs on Linux too.
   - Removed: the 25,000-page search window's leftovers (`windowed`, `regexScan`, the `lexicalWindowed` AI note).
+
+- [x] `WORK-TURSO-STORAGE` — Password changes rewrap the native key envelope. Encryption-mode changes, encrypted portable bundles, safety snapshots, restore, retention and startup recovery use Turso with verified copies and journaled installation. Bundles preserve archive, source evidence, agent conversations and encrypted provenance while rebuilding search at the destination. The resumable SQLCipher converter recomputes current URL, annotation, favorite and enrichment keys, merges canonical enrichment/refind collisions without losing counters, sets or triggers, verifies counts and content digests, rebuilds search, and retains every original SQLCipher file. Startup recovers pending installations before selecting native storage or conversion.
+
+- [x] `WORK-TURSO-STORAGE` — Maintenance screens for the Turso archive, and conversion from the old format (2026-10-07).
+  - Moving to another computer asks for a password for the file, typed twice. The file is always encrypted with it, and on the computer that opens it, it becomes the archive's password. A wrong password is refused in plain words and changes nothing. E2E: `move.spec.ts` exports, tries a wrong password, then imports and checks the archive.
+  - Export, import, encryption changes and restores show what step they are on and how far along, with a Stop button; a stopped operation says nothing was changed.
+  - An archive still in the old SQLCipher format opens on an update screen: its size, the free space it needs, that the old files stay, that an interrupted update continues, and its password when it is encrypted. Steps and progress are named in all three languages.
+  - The converter now follows the Insights storage that landed alongside it: fetched page text moves to the per-page table (newest fetch wins) and is checked row by row, search gets each page's best text, embedding hashes and totals match live indexing, and Insights rebuild once after conversion.
+  - Copies made by maintenance keep the database's views; without them Insights and Doctor broke after an encryption change, a restore or an import.
+  - A fresh install no longer creates old-format files that the next step took for an archive to convert.

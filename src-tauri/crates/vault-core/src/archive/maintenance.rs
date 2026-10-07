@@ -1,4 +1,11 @@
-//! Archive maintenance flows.
+//! Responsibilities: retain SQLCipher recovery and maintenance fixtures.
+//! Not responsible for: native maintenance or browser checkpoint replay.
+//! Failure modes: lost legacy originals, mixed recovery generations, stale sidecars or missing recovery
+//! records.
+//!
+//! Legacy SQLCipher maintenance retained for old recovery records and regression fixtures.
+//! Native maintenance entrypoints live in `crate::maintenance`; browser checkpoint replay
+//! lives in `archive::checkpoint_restore`. New worker commands do not use these rekey helpers.
 //!
 //! This module owns the explicit maintenance operations that are not part of
 //! the ordinary backup ingest path:
@@ -2702,20 +2709,19 @@ mod tests {
     fn quarantine_canonical_archive_aborts_on_a_canonical_rename_failure() {
         // F1: a REAL rename failure on a CANONICAL DB must ABORT the quarantine (and so the restore
         // before install), never silently leaving the broken original to be overwritten.
-        use std::os::unix::fs::PermissionsExt;
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
         ensure_paths(&paths).expect("ensure paths");
         fs::write(&paths.archive_database_path, b"broken-original")
             .expect("write canonical archive");
 
-        // Pre-create the dated quarantine dir read-only, so `create_dir_all` is an idempotent no-op
-        // but the canonical rename INTO it fails with a permission error (a genuine failure, not
-        // "absent").
+        // A nonempty directory at the file destination makes rename fail on
+        // every host, including a root-owned test sandbox.
         let timestamp = "2026-06-30T00-00-00Z";
         let dated = paths.quarantine_dir.join(timestamp);
-        fs::create_dir_all(&dated).expect("dated quarantine dir");
-        fs::set_permissions(&dated, fs::Permissions::from_mode(0o555)).expect("chmod read-only");
+        let conflict = dated.join("history-vault.sqlite");
+        fs::create_dir_all(&conflict).expect("conflicting directory");
+        fs::write(conflict.join("keep"), b"occupied").expect("occupy destination");
 
         let error = quarantine_canonical_archive(&paths, timestamp)
             .expect_err("a real canonical rename failure must abort the quarantine");
@@ -2725,9 +2731,6 @@ mod tests {
         );
         // The broken original is STILL in place (never silently overwritten).
         assert!(paths.archive_database_path.exists(), "the broken original is preserved");
-
-        // Restore perms so the tempdir can be cleaned up.
-        fs::set_permissions(&dated, fs::Permissions::from_mode(0o755)).expect("restore perms");
     }
 
     #[test]

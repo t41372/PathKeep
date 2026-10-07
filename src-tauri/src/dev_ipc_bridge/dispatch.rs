@@ -1,12 +1,15 @@
+//! Failure modes: payload drift, cancelled maintenance reported as successful or progress blocked
+//! behind SQL work.
+//!
 //! Command dispatcher for the dev-only IPC bridge.
 //!
-//! ## Responsibilities
+//! Responsibilities:
 //!
 //! - Map mirrored desktop command strings to their worker bridge adapters.
 //! - Decode command payload DTOs without changing the browser automation JSON shape.
 //! - Keep updater and file-manager calls inside the desktop facade boundary.
 //!
-//! ## Not responsible for
+//! Not responsible for:
 //!
 //! - Starting the localhost HTTP listener or configuring CORS.
 //! - Defining payload DTO field names.
@@ -127,7 +130,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "assess_archive_upgrade" => {
             json_value!(worker_bridge::assess_archive_upgrade_impl(
-                session_key(&state.session)?.as_deref()
+                &state.session,
+                payload
+                    .get("databaseKey")
+                    .and_then(serde_json::Value::as_str)
+                    .or(session_key(&state.session)?.as_deref())
             )?)
         }
         "preview_rekey_archive" => {
@@ -299,11 +306,14 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "get_star_counts" => {
             json_value!(worker_bridge::star_counts_impl(&state.session,)?)
         }
+        "get_maintenance_progress" => json_value!(worker_bridge::maintenance_progress_impl()?),
+        "cancel_maintenance" => json_value!(worker_bridge::cancel_maintenance_impl()?),
         "export_app_data" => {
             let payload = parse_payload::<ExportAppDataPayload>(payload)?;
             json_value!(worker_bridge::export_app_data_impl(
-                session_key(&state.session)?.as_deref(),
+                &state.session,
                 std::path::PathBuf::from(payload.target_path),
+                payload.export_password,
             )?)
         }
         "preview_app_data_import" => {
@@ -315,7 +325,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "apply_app_data_import" => {
             let payload = parse_payload::<ApplyAppDataImportPayload>(payload)?;
             json_value!(worker_bridge::apply_app_data_import_impl(
-                session_key(&state.session)?.as_deref(),
+                &state.session,
                 std::path::PathBuf::from(payload.bundle_path),
                 payload.options,
             )?)

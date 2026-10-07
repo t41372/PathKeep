@@ -54,6 +54,7 @@ pub(super) use self::candidates::{
 };
 #[cfg(test)]
 pub(super) use self::content::build_embedding_content;
+pub(crate) use self::content::enrichment_summary_for;
 #[cfg(test)]
 pub(super) use self::store_rows::{
     chunk_size, cleanup_stale_embeddings, clear_provider_embeddings, upsert_embedding,

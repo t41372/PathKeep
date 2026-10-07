@@ -1,3 +1,8 @@
+//! Responsibilities: adapt native bootstrap, rekey, backup and restore to the desktop session.
+//! Not responsible for: conversion internals, encryption primitives or Tauri event registration.
+//! Failure modes: legacy detection before journal recovery, stale credentials or lost maintenance
+//! progress.
+//!
 //! Worker-bridge helpers for archive, backup, export, and repair flows.
 
 use crate::command_error::CommandError;
@@ -15,26 +20,56 @@ use super::worker_result;
 /// the "Upgrading your archive…" screen; the dev bridge and tests pass a no-op
 /// reporter (they cannot deliver Tauri events), and the upgrade work still runs.
 pub(crate) fn initialize_archive_with_progress_impl(
-    config: AppConfig,
+    mut config: AppConfig,
     database_key: Option<String>,
     state: &SessionState,
-    report_progress: impl FnMut(vault_core::ArchiveUpgradeProgress),
+    mut report_progress: impl FnMut(vault_core::ArchiveUpgradeProgress),
 ) -> Result<vault_core::AppSnapshot, CommandError> {
+    let paths = worker_result(vault_core::project_paths())?;
+    if state.recover_pending_archive(&paths)? {
+        config = worker_result(vault_core::load_config(&paths))?;
+    }
+    if paths.app_root.join("archive/history-vault.db").exists() {
+        let stored = worker_result(vault_core::load_config(&paths))?;
+        if stored.archive_mode != config.archive_mode {
+            return Err(
+                "encryption-mode-change-requires-rekey: use rekey_archive to change encryption"
+                    .to_owned()
+                    .into(),
+            );
+        }
+        update_session_key(state, database_key)?;
+        state.background_vault()?;
+        report_progress(vault_core::ArchiveUpgradeProgress::finished());
+        return super::app_snapshot_impl(state);
+    }
+    if paths.archive_database_path.exists()
+        && !paths.app_root.join("archive/history-vault.db").exists()
+    {
+        return worker_result(vault_worker::convert_archive_with_progress(
+            state,
+            &config,
+            database_key.as_deref(),
+            report_progress,
+        ));
+    }
     worker_result(vault_worker::initialize_archive_database_with_progress(
+        state,
         &config,
         database_key.as_deref(),
-        report_progress,
+        &mut report_progress,
     ))?;
-    update_session_key(state, database_key)?;
-    state.background_vault()?;
     super::app_snapshot_impl(state)
 }
 
 /// Runs the cheap first-run upgrade pre-check the shell calls at bootstrap to
 /// decide whether to show the upgrade screen at all.
 pub(crate) fn assess_archive_upgrade_impl(
+    state: &SessionState,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::ArchiveUpgradeAssessment, CommandError> {
+    let paths = worker_result(vault_core::project_paths())?;
+    state.recover_pending_archive(&paths)?;
     worker_result(vault_worker::assess_archive_upgrade(session_database_key))
 }
 
@@ -48,9 +83,7 @@ pub(crate) fn rekey_archive_impl(
     request: RekeyRequest,
     state: &SessionState,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    let snapshot = worker_result(vault_worker::rekey_archive_database(&request))?;
-    update_session_key(state, request.new_key)?;
-    Ok(snapshot)
+    worker_result(vault_worker::rekey_archive_database(state, &request))
 }
 
 /// Self-heals a drifted encryption-at-rest state (e.g. an encrypted config left
@@ -59,7 +92,7 @@ pub(crate) fn rekey_archive_impl(
 pub(crate) fn reconcile_archive_encryption_impl(
     state: &SessionState,
 ) -> Result<vault_core::ReconcileReport, CommandError> {
-    worker_result(vault_worker::reconcile_archive_encryption(session_key(state)?.as_deref()))
+    worker_result(vault_worker::reconcile_archive_encryption(&state.vault()?))
 }
 
 /// Previews the impact of an archive rekey/mode switch, refusing a wrong
@@ -107,7 +140,7 @@ pub(crate) fn run_full_archive_restore_impl(
     state: &SessionState,
 ) -> Result<vault_core::FullArchiveRestoreReport, CommandError> {
     let effective_key = key.or(session_key(state)?);
-    worker_result(vault_worker::run_full_archive_restore(effective_key.as_deref(), &request))
+    worker_result(vault_worker::run_full_archive_restore(state, effective_key.as_deref(), &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -115,7 +148,7 @@ pub(crate) fn run_full_archive_restore_impl(
 pub(crate) fn preview_retention_prune_impl(
     state: &SessionState,
 ) -> Result<vault_core::RetentionPreview, CommandError> {
-    worker_result(vault_worker::preview_retention_plan(session_key(state)?.as_deref()))
+    worker_result(vault_worker::preview_retention_plan(state.current_vault().as_ref()))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -124,7 +157,7 @@ pub(crate) fn run_retention_prune_impl(
     request: vault_core::RetentionPruneRequest,
     state: &SessionState,
 ) -> Result<vault_core::RetentionPruneResult, CommandError> {
-    worker_result(vault_worker::run_retention_plan(session_key(state)?.as_deref(), &request))
+    worker_result(vault_worker::run_retention_plan(&state.vault()?, &request))
 }
 
 /// Runs a backup immediately and forwards progress to the UI callback.
