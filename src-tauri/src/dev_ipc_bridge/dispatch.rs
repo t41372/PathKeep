@@ -718,6 +718,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<WrappedRequest<SearchQueryListRequest>>(payload)?;
             json_value!(worker_bridge::get_search_queries_impl(payload.request, &state.session)?)
         }
+        "get_search_families" => {
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::SearchFamiliesRequest>>(payload)?;
+            json_value!(worker_bridge::get_search_families_impl(payload.request, &state.session)?)
+        }
         "get_query_families" => {
             let payload = parse_payload::<WrappedRequest<PagedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_query_families_impl(payload.request, &state.session)?)

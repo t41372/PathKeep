@@ -314,6 +314,10 @@ where
     write!(flows, rows, &[], &[], &[], &[], &rows);
     for (table, count) in [
         ("query_families", families.len()),
+        (
+            "query_family_queries",
+            families.iter().map(|family| build_rows::family_query_keys(family).len()).sum(),
+        ),
         ("source_effectiveness", sources.len()),
         ("habit_patterns", habits.len()),
         (

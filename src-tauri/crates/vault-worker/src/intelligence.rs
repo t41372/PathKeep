@@ -48,10 +48,10 @@ use vault_core::{
     QueryFamilyResult, RefindExplanation, RefindPage, RefindPageDetail, RefindPageDetailRequest,
     RefindPagesRequest, ReopenedInvestigation, RhythmHeatmap, ScopedDateRangeRequest,
     SearchConcept, SearchEffectiveness, SearchEffectivenessRequest, SearchEngineRule,
-    SearchEngineRuleInput, SearchQueryListRequest, SearchQueryListResult, SearchTrailQueryRequest,
-    SessionDetail, SessionListResult, StableSource, TopSearchConceptsRequest, TopSite,
-    TopSitesRequest, TrailDetail, TrailListResult, build_core_intelligence_section_meta,
-    intelligence,
+    SearchEngineRuleInput, SearchFamiliesRequest, SearchQueryListRequest, SearchQueryListResult,
+    SearchTrailQueryRequest, SessionDetail, SessionListResult, StableSource,
+    TopSearchConceptsRequest, TopSite, TopSitesRequest, TrailDetail, TrailListResult,
+    build_core_intelligence_section_meta, intelligence,
 };
 
 pub use self::agent_store::{
@@ -80,8 +80,8 @@ pub use self::route_queries::{
     delete_search_engine_rule, explain_entity, explain_refind, get_domain_trend,
     get_frequent_searches, get_hub_pages, get_intelligence_primary_overview, get_navigation_path,
     get_query_families, get_query_family_detail, get_refind_page_detail, get_refind_pages,
-    get_search_engine_ranking, get_search_queries, get_search_trails, get_session_detail,
-    get_sessions, get_top_search_concepts, get_top_sites, get_trail_detail,
+    get_search_engine_ranking, get_search_families, get_search_queries, get_search_trails,
+    get_session_detail, get_sessions, get_top_search_concepts, get_top_sites, get_trail_detail,
     list_search_engine_rules, upsert_search_engine_rule,
 };
 pub(crate) use self::runtime::maybe_spawn_intelligence_queue_drain;

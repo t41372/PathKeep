@@ -90,6 +90,11 @@ export const insightsClient = {
     section<Page<FrequentSearch>>('get_frequent_searches', {
       request: { ...scope, limit, cursor },
     }),
+  /** Every family holding `query`, across all time and browsers. */
+  searchFamilies: (query: string, profileId: string | null = null) =>
+    section<QueryFamilyResult>('get_search_families', {
+      request: { query, profileId },
+    }),
   queryFamilies: (scope: Scope, pageSize = 200, cursor: string | null = null) =>
     section<QueryFamilyResult>('get_query_families', {
       request: { ...scope, cursor, pageSize },

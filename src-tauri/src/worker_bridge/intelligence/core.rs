@@ -140,6 +140,16 @@ pub(crate) fn get_search_queries_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads every query family holding one search, across all time.
+pub(crate) fn get_search_families_impl(
+    request: vault_core::SearchFamiliesRequest,
+    state: &crate::session::SessionState,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyResult>, CommandError>
+{
+    worker_result(vault_worker::get_search_families(&state.vault()?, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Loads query-family summaries with pagination handled by the request object.
 pub(crate) fn get_query_families_impl(
     request: PagedDateRangeRequest,

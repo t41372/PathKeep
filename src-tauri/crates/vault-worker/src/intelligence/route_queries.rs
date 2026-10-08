@@ -159,6 +159,20 @@ pub fn get_search_queries(
     )
 }
 
+/// Every query family holding one search, across all time: the search page's totals.
+pub fn get_search_families(
+    vault: &vault_core::Vault,
+    request: &SearchFamiliesRequest,
+) -> Result<CoreIntelligenceSectionResult<QueryFamilyResult>> {
+    with_core_intelligence_section(
+        vault,
+        "search-activity",
+        CoreIntelligenceSectionWindow::AllTime,
+        |vault| intelligence::get_search_families(vault, request),
+        |data| data.families.is_empty(),
+    )
+}
+
 /// Loads the paginated query-family list used by the search activity surface.
 pub fn get_query_families(
     vault: &vault_core::Vault,

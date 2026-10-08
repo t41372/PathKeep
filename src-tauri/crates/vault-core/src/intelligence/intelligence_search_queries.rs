@@ -29,13 +29,41 @@ use super::intelligence_sessions::trail_summary_from_row;
 use super::{date_range_bounds, normalize_query, rfc3339_from_millis};
 use crate::models::{
     PagedDateRangeRequest, QueryFamily, QueryFamilyDetail, QueryFamilyDetailRequest,
-    QueryFamilyResult,
+    QueryFamilyResult, SearchFamiliesRequest,
 };
 use anyhow::{Context, Result};
 use std::collections::{BTreeSet, HashMap};
 use vault_store::{OptionalRow, Row, Session, params_owned as params};
 
 pub use super::search_queries::get_search_queries;
+
+/// Every family that holds `query` (as its anchor or any wording), across all time and
+/// browsers: the search page's totals and first and last times. Families are kept per
+/// browser profile and engine, so one search can have several; the member table keeps this
+/// an indexed lookup however many families the archive holds.
+pub fn get_search_families(
+    vault: &crate::Vault,
+    request: &SearchFamiliesRequest,
+) -> Result<QueryFamilyResult> {
+    let key = super::build_rows::search_family_key(&request.query);
+    let profile = request.profile_id.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let families = connection
+            .query(
+                "SELECT f.family_id, f.anchor_query, f.member_count, f.search_engine, f.first_seen_ms, f.last_seen_ms, f.queries_json
+                 FROM query_family_queries_rows m INDEXED BY idx_query_family_queries_query
+                 CROSS JOIN query_families_rows f ON f.generation=m.generation AND f.family_id=m.family_id
+                 WHERE m.normalized_query=?1
+                   AND m.generation IN (SELECT aggregates FROM intelligence_generations)
+                   AND (?2 IS NULL OR m.profile_id=?2)
+                 ORDER BY f.last_seen_ms DESC, f.family_id DESC",
+                params![key, profile],
+                query_family_from_row,
+            )?;
+        let total = families.len() as i64;
+        Ok(QueryFamilyResult { page_size: families.len() as u32, families, total, next_cursor: None })
+    })
+}
 
 /// Returns the paged query-family list for the requested profile/date window.
 pub fn get_query_families(

@@ -193,6 +193,21 @@ pub(crate) async fn get_search_queries(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads every query family holding one search, across all time, off the UI thread.
+pub(crate) async fn get_search_families(
+    request: vault_core::SearchFamiliesRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::CoreIntelligenceSectionResult<vault_core::QueryFamilyResult>, CommandError>
+{
+    let session = state.inner().clone();
+    run_blocking_command("get_search_families", move || {
+        worker_bridge::get_search_families_impl(request, &session)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads query-family summaries off the UI thread with pagination handled by the request object.
 pub(crate) async fn get_query_families(
     request: vault_core::PagedDateRangeRequest,

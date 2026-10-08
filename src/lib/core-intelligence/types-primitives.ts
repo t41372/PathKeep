@@ -77,6 +77,10 @@ export type CoreIntelligenceSectionWindow =
       kind: 'calendar-day-history'
       referenceDate: string
     }
+  | {
+      /** Everything the archive holds, whatever range the page shows. */
+      kind: 'all-time'
+    }
 
 /** Shared evidence/freshness metadata emitted alongside one section payload. */
 export interface CoreIntelligenceSectionMeta {

@@ -300,6 +300,7 @@ fn run_app() -> Result<()> {
             get_frequent_searches,
             get_search_queries,
             get_query_families,
+            get_search_families,
             get_query_family_detail,
             get_top_sites,
             get_domain_trend,
