@@ -138,6 +138,10 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_path_flows_profile_rank",
     "idx_domain_daily_first_day",
     "idx_compare_sets_recent",
+    "idx_daily_summary_range",
+    "idx_domain_daily_range",
+    "idx_sessions_range",
+    "idx_refind_pages_range",
 ];
 pub(super) const ROWS: &[Fixture] = &[
     Fixture {
