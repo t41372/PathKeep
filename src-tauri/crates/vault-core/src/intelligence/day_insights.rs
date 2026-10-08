@@ -11,15 +11,14 @@
 
 use crate::models::{
     CategoryFilteredDateRangeRequest, DateRange, DayInsights, DayInsightsDrilldown,
-    DayInsightsHourlyBucket, DayInsightsRequest, PagedDateRangeRequest, RefindPagesRequest,
-    ScopedDateRangeRequest, TopSitesRequest,
+    DayInsightsHourlyBucket, DayInsightsRequest, PagedDateRangeRequest, ScopedDateRangeRequest,
+    TopSitesRequest,
 };
 use anyhow::{Context, Result};
 use chrono::NaiveDate;
 
 use super::{
-    get_activity_mix, get_browsing_rhythm, get_digest_summary, get_query_families,
-    get_refind_pages, get_top_sites,
+    get_activity_mix, get_browsing_rhythm, get_digest_summary, get_query_families, get_top_sites,
 };
 
 /// Loads the exact-day deterministic read model used by `/intelligence/day/:date`.
@@ -42,15 +41,15 @@ pub fn get_day_insights(vault: &crate::Vault, request: &DayInsightsRequest) -> R
         },
     )?;
     let activity_mix = get_activity_mix(vault, &scoped_request)?;
-    let refind_pages = get_refind_pages(
-        vault,
-        &RefindPagesRequest {
-            cursor: None,
-            date_range: date_range.clone(),
-            profile_id: request.profile_id.clone(),
-            limit: Some(5),
-        },
-    )?;
+    let (range, profile) = (date_range.clone(), request.profile_id.clone());
+    let refind_pages = vault.read(vault_store::Db::Intelligence, move |s| {
+        super::intelligence_refind::get_opened_refind_pages_with_connection(
+            s,
+            &range,
+            profile.as_deref(),
+            5,
+        )
+    })?;
     let query_families = get_query_families(
         vault,
         &PagedDateRangeRequest {

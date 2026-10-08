@@ -219,6 +219,9 @@ export const insights = defineMessages({
       shared_other: '{count} sites were visited in more than one browser.',
     },
     day: {
+      reopened: 'Pages you came back to',
+      reopenedHint: 'Opened this day, and on other days too',
+      reopenedEmpty: 'Nothing opened this day was one you keep coming back to.',
       eyebrow: 'Day',
       previous: 'Previous day',
       next: 'Next day',
@@ -529,6 +532,9 @@ export const insights = defineMessages({
       shared_other: '有 {count} 个网站在不止一个浏览器里去过。',
     },
     day: {
+      reopened: '回来再看的页面',
+      reopenedHint: '这天打开过，其他日子也打开过',
+      reopenedEmpty: '这天打开的页面都不是你常回来看的。',
       eyebrow: '某一天',
       previous: '前一天',
       next: '后一天',
@@ -838,6 +844,9 @@ export const insights = defineMessages({
       shared_other: '有 {count} 個網站在不只一個瀏覽器裡去過。',
     },
     day: {
+      reopened: '回來再看的頁面',
+      reopenedHint: '這天打開過，其他日子也打開過',
+      reopenedEmpty: '這天打開的頁面都不是你常回來看的。',
       eyebrow: '某一天',
       previous: '前一天',
       next: '後一天',

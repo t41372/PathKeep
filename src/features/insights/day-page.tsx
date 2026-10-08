@@ -7,7 +7,13 @@
  * `get_sessions` and `get_search_queries` for the exact day, and
  * `get_session_detail` only when a session is opened.
  */
-import { ChevronDown, ChevronLeft, ChevronRight, Search } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Repeat,
+  Search,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { EvilBarChart } from '@/components/evilcharts/charts/recharts-bar-chart'
@@ -29,7 +35,7 @@ import {
   useDaySessions,
   useSessionDetail,
 } from './drill-queries'
-import { historyPath, insightsPath, searchPath } from './links'
+import { historyPath, insightsPath, pagePath, searchPath } from './links'
 import { formatDuration, rowLink, shareBar } from './display'
 import {
   DrillHeader,
@@ -175,9 +181,59 @@ function DayContent({ date }: { date: string }) {
       )}
       <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-4 max-[900px]:grid-cols-1">
         <SessionsCard date={date} />
-        <DaySearchesCard date={date} />
+        <div className="flex min-w-0 flex-col gap-4">
+          <DaySearchesCard date={date} />
+          <DayReopenedCard date={date} />
+        </div>
       </div>
     </>
+  )
+}
+
+/** Pages opened again that day that the user also came back to on other days. */
+function DayReopenedCard({ date }: { date: string }) {
+  const { t } = useI18n()
+  const format = useFormat()
+  const day = useDay(date)
+  return (
+    <SectionCard
+      title={t('insights.day.reopened')}
+      subtitle={t('insights.day.reopenedHint')}
+    >
+      <QueryBody
+        query={day}
+        skeleton={<ListSkeleton rows={3} />}
+        isEmpty={(result) => result.data.refindPages.items.length === 0}
+        empty={t('insights.day.reopenedEmpty')}
+      >
+        {(result) => (
+          <ul className="-mx-2 flex flex-col">
+            {result.data.refindPages.items.slice(0, 5).map((page) => (
+              <li key={`${page.profileId}:${page.canonicalUrl}`}>
+                <Link
+                  to={pagePath(page.canonicalUrl, undefined, page.profileId)}
+                  className={rowLink}
+                >
+                  <Repeat
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <span className="flex-1 truncate">
+                    {page.title || page.url}
+                  </span>
+                  <span className="text-xs text-muted-foreground tabular">
+                    {t('insights.refind.days', {
+                      count: page.crossDayCount,
+                      days: format.number(page.crossDayCount),
+                    })}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </QueryBody>
+    </SectionCard>
   )
 }
 

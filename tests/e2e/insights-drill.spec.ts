@@ -173,6 +173,16 @@ test('a day from the Home heatmap matches the fixture, then opens History', asyn
     ).toHaveCount(1)
   }
 
+  // Pages you came back to: each one was opened that day (the read once took
+  // every re-found page whose first and last visit spanned the day).
+  const titles = new Set(visits.map((visit) => visit.title))
+  const reopened = card(page, 'Pages you came back to').getByRole('listitem')
+  await expect(reopened.first()).toBeVisible({ timeout: JOB_TIMEOUT })
+  for (const row of await reopened.all()) {
+    const title = (await row.innerText()).split('\n')[0].trim()
+    expect(titles.has(title), `${title} was opened on ${day}`).toBe(true)
+  }
+
   // The top site leads to History, filtered to that site on that day.
   await firstSite.getByRole('link').click()
   await expect(page).toHaveURL(

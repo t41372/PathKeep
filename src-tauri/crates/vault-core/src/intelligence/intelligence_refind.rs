@@ -165,6 +165,47 @@ pub(super) fn get_refind_pages_with_connection(
     super::paging::finish(rows, limit)
 }
 
+/// Re-found pages opened in `range` (one day, for the day page), highest score first, one row
+/// per page with its best profile. `get_refind_pages` takes every re-found page whose first and
+/// last visit span the range, opened in it or not; this one starts from the visits in the range.
+pub(super) fn get_opened_refind_pages_with_connection(
+    connection: &Session<'_>,
+    range: &crate::models::DateRange,
+    profile_id: Option<&str>,
+    limit: usize,
+) -> Result<crate::models::IntelligencePage<RefindPage>> {
+    let (start_ms, end_ms) = super::date_range_bounds(range)?;
+    let rows = connection.query(
+        "WITH opened AS (
+           SELECT DISTINCT f.profile_id, f.canonical_url
+           FROM archive.visits v INDEXED BY idx_visits_visible_time_id
+           CROSS JOIN visit_derived_facts_rows f INDEXED BY idx_vdf_visit_generation
+             ON f.visit_id = v.id AND f.generation IN (SELECT facts FROM intelligence_generations)
+           WHERE v.reverted_at IS NULL AND v.visit_time_ms >= ?2 AND v.visit_time_ms < ?3
+             AND (?1 IS NULL OR f.profile_id = ?1)
+         )
+         SELECT p.profile_id,p.canonical_url,p.url,p.title,p.registrable_domain,p.cross_day_count,
+                p.trail_count,p.search_arrival_count,p.typed_revisit_count,p.refind_score,
+                p.first_seen_ms,p.last_seen_ms,1
+         FROM opened o
+         CROSS JOIN refind_pages_rows p INDEXED BY idx_refind_pages_canonical
+           ON p.canonical_url = o.canonical_url AND p.profile_id = o.profile_id
+          AND p.generation IN (SELECT aggregates FROM intelligence_generations)
+         ORDER BY p.refind_score DESC, p.last_seen_ms DESC, p.canonical_url, p.profile_id",
+        params![profile_id, start_ms, end_ms],
+        refind_page_from_row,
+    )?;
+    let mut items: Vec<RefindPage> = Vec::new();
+    for page in rows {
+        match items.iter_mut().find(|kept| kept.canonical_url == page.canonical_url) {
+            Some(kept) => kept.profile_count += 1,
+            None => items.push(page),
+        }
+    }
+    items.truncate(limit);
+    Ok(crate::models::IntelligencePage { items, next_cursor: None })
+}
+
 /// Loads one refind page plus the evidence-derived days and related trails that
 /// justify why the page is considered worth resurfacing.
 pub fn get_refind_page_detail(
