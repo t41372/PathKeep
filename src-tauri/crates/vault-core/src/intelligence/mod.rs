@@ -66,9 +66,9 @@ use self::incremental::{
 use self::intelligence_daily_rollups::load_profile_derived_visit_batch;
 
 use self::intelligence_shared::{
-    build_kpi, new_sites_by_day, classify_search_query_kind, collapse_date_key, count_refind_pages_in_range,
-    date_range_bounds, jaccard, local_date_key, local_datetime_from_millis, previous_date_range,
-    query_token_set, rfc3339_from_millis, tokenize_query_terms,
+    build_kpi, classify_search_query_kind, collapse_date_key, count_refind_pages_in_range,
+    date_range_bounds, jaccard, local_date_key, local_datetime_from_millis, new_sites_by_day,
+    previous_date_range, query_token_set, rfc3339_from_millis, tokenize_query_terms,
 };
 use self::intelligence_visit_records::visit_from_row;
 use self::site_dictionary::{

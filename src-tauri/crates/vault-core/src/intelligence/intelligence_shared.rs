@@ -249,6 +249,28 @@ fn is_cjk_like(ch: char) -> bool {
     )
 }
 
+/// How many sites were new on each day of `range`. A site is new on the first day it appears
+/// in any browser profile, or in `profile_id` when one is given. Each profile's own rollups mark
+/// its first day for a site (`new_domain_visits`), so the whole archive takes the earliest of
+/// those; adding them up instead would count a site once per profile that visited it.
+pub(crate) fn new_sites_by_day(
+    connection: &Session<'_>,
+    range: &DateRange,
+    profile_id: Option<&str>,
+) -> Result<std::collections::BTreeMap<String, i64>> {
+    let rows = connection.query(
+        "SELECT first_day, COUNT(*) FROM (
+           SELECT MIN(date_key) AS first_day FROM domain_daily_rollups
+           WHERE new_domain_visits > 0 AND (?1 IS NULL OR profile_id = ?1)
+           GROUP BY registrable_domain)
+         WHERE first_day >= ?2 AND first_day <= ?3
+         GROUP BY first_day",
+        params![profile_id, range.start.as_str(), range.end.as_str()],
+        |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?)),
+    )?;
+    Ok(rows.into_iter().collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,26 +308,4 @@ mod tests {
         assert!(is_cjk_like('深'));
         assert!(!is_cjk_like('A'));
     }
-}
-
-/// How many sites were new on each day of `range`. A site is new on the first day it appears
-/// in any browser profile, or in `profile_id` when one is given. Each profile's own rollups mark
-/// its first day for a site (`new_domain_visits`), so the whole archive takes the earliest of
-/// those; adding them up instead would count a site once per profile that visited it.
-pub(crate) fn new_sites_by_day(
-    connection: &Session<'_>,
-    range: &DateRange,
-    profile_id: Option<&str>,
-) -> Result<std::collections::BTreeMap<String, i64>> {
-    let rows = connection.query(
-        "SELECT first_day, COUNT(*) FROM (
-           SELECT MIN(date_key) AS first_day FROM domain_daily_rollups
-           WHERE new_domain_visits > 0 AND (?1 IS NULL OR profile_id = ?1)
-           GROUP BY registrable_domain)
-         WHERE first_day >= ?2 AND first_day <= ?3
-         GROUP BY first_day",
-        params![profile_id, range.start.as_str(), range.end.as_str()],
-        |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?)),
-    )?;
-    Ok(rows.into_iter().collect())
 }
