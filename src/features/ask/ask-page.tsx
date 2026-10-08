@@ -1,14 +1,14 @@
 /**
  * Ask: chat with an assistant that searches the local archive.
  *
- * Responsibilities: choosing between the chat and the setup prompt, opening,
- * starting and deleting conversations, and wiring the list, transcript and
- * composer together. Streaming lives in `use-chat.ts`; saved conversations in
+ * Responsibilities: opening, starting and deleting conversations, wiring the
+ * list, transcript and composer together, and the setup prompt when no AI
+ * service is set up (saved conversations stay readable then). Streaming lives in `use-chat.ts`; saved conversations in
  * `conversations.ts`. Not responsible for configuring providers (Settings → AI).
  */
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
@@ -31,12 +31,13 @@ import { useStickToBottom } from './use-stick-to-bottom'
 export default function AskPage() {
   const snapshot = useSnapshot()
   const provider = usableAssistantProvider(snapshot.config.ai)
-  if (!provider) return <AssistantSetup />
+  // Without a service there is no one to ask, but saved conversations are the user's and stay
+  // readable: after an upgrade, or with AI turned off, they are still here.
   return (
     <AskChat
-      providerId={provider.id}
-      label={providerLabel(provider)}
-      remoteName={isLocalProvider(provider) ? null : provider.name}
+      providerId={provider?.id ?? null}
+      label={provider ? providerLabel(provider) : ''}
+      remoteName={provider && !isLocalProvider(provider) ? provider.name : null}
       systemPrompt={snapshot.config.ai.assistantSystemPrompt}
     />
   )
@@ -48,7 +49,8 @@ function AskChat({
   remoteName,
   systemPrompt,
 }: {
-  providerId: string
+  /** `null` when no AI service is set up: conversations can be read, not continued. */
+  providerId: string | null
   label: string
   remoteName: string | null
   systemPrompt: string
@@ -62,7 +64,7 @@ function AskChat({
   const { scrollRef, contentRef, onScroll, pin } = useStickToBottom()
 
   const chat = useChat({
-    providerId,
+    providerId: providerId ?? '',
     systemPrompt,
     titleFor: (id) => conversations.data?.find((item) => item.id === id)?.title,
     onSaved: () =>
@@ -146,7 +148,11 @@ function AskChat({
             {opening ? (
               <OpeningSkeleton label={t('ask.loadingConversation')} />
             ) : chat.turns.length === 0 ? (
-              <StarterEmpty remoteProvider={remoteName} onPick={submit} />
+              providerId ? (
+                <StarterEmpty remoteProvider={remoteName} onPick={submit} />
+              ) : (
+                <AssistantSetup />
+              )
             ) : (
               <div className="mx-auto flex max-w-[760px] flex-col gap-5 px-8 py-7">
                 {chat.turns.map((turn, index) =>
@@ -161,7 +167,11 @@ function AskChat({
                     <AssistantTurn
                       key={turn.id}
                       turn={turn}
-                      canRetry={index === lastIndex && !chat.streaming}
+                      canRetry={
+                        providerId !== null &&
+                        index === lastIndex &&
+                        !chat.streaming
+                      }
                       onRetry={chat.retry}
                     />
                   ),
@@ -170,13 +180,24 @@ function AskChat({
             )}
           </div>
         </div>
-        <Composer
-          streaming={chat.streaming}
-          providerLabel={label}
-          onSend={submit}
-          onStop={chat.stop}
-          focusKey={chat.conversationId}
-        />
+        {providerId ? (
+          <Composer
+            streaming={chat.streaming}
+            providerLabel={label}
+            onSend={submit}
+            onStop={chat.stop}
+            focusKey={chat.conversationId}
+          />
+        ) : (
+          chat.turns.length > 0 && (
+            <p className="border-t px-8 py-4 text-center text-[13px] text-muted-foreground">
+              {t('ask.setup.toContinue')}{' '}
+              <Link to="/settings/ai" className="text-foreground underline">
+                {t('ask.setup.action')}
+              </Link>
+            </p>
+          )
+        )}
       </div>
     </div>
   )

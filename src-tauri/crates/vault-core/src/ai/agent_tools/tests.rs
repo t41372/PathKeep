@@ -504,6 +504,7 @@ fn maps_a_clean_code_outcome_to_a_populated_tool_outcome() {
         source: "return query_history({query:'rust'});".to_string(),
         error: None,
         limits_hit: None,
+        coverage_incomplete: false,
     };
     let tool = code_outcome_to_tool_outcome(outcome).expect("clean outcome maps to Ok");
     assert_eq!(tool.model_text, "{\"count\":1}");

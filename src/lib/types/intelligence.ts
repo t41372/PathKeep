@@ -955,6 +955,7 @@ export type AiAgentNote =
   | { code: 'maxStepsReached' }
   | { code: 'tokenBudgetReached' }
   | { code: 'toolCallingUnavailable' }
+  | { code: 'searchIndexIncomplete' }
 
 /**
  * Envelope emitted on `pathkeep://ai-stream` pairing a chunk with its run id.

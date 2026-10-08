@@ -29,9 +29,9 @@ on. Nothing reaches the network, the GPU, or an external tool until the user exp
 surfaces that touch untrusted input — the **code-mode JS sandbox** (runs LLM-written JS over history) and
 the **outward MCP face** (lets an external tool search history) — are constrained by construction: the
 sandbox has zero ambient authority and a read-only host API; the MCP face is localhost stdio, read-only,
-audited, and the SQLCipher key never crosses to the caller. Derived AI state (vectors, agent run traces,
-chat transcripts) **never lives in the canonical SQLCipher archive** and is excluded from the portable
-export.
+audited, and the archive key never crosses to the caller. Derived AI state (vectors, the Insights read
+model) **never lives in the canonical archive** and is rebuilt rather than exported. Ask chats are user
+data: they are encrypted like the archive and move with it in the export file (decided 2026-10-07).
 
 ---
 
@@ -96,8 +96,8 @@ The read-model state machine in `ai/read_model.rs` surfaces `disabled` first whe
 so the UI tells the honest story rather than implying a capability is live.
 
 Note that chat-history CRUD (`vault-worker/src/intelligence/agent_store.rs`) is gated by the **App Lock**
-boundary (`load_unlocked_config`), NOT by `ai.enabled`: the agent transcript plane is plaintext (no
-SQLCipher key barrier), so every read/list/delete/rename refuses while the session is locked — but a user
+boundary (`load_unlocked_config`), NOT by `ai.enabled`: every read/list/delete/rename refuses while the
+session is locked (the agent database `derived/agent.db` is encrypted with the archive's data key) — but a user
 may still read or delete existing transcripts with AI turned off, as long as they are unlocked (see §3 / §5).
 
 The frontend mirror of these flags is `src/lib/types/intelligence.ts` (`AiSettings` interface). The newer
@@ -190,10 +190,10 @@ config.ai.mcp_enabled` (both default `false`) and additionally bails if the app 
 - **Read-only surface — three tools, no mutation.** `search-history`, `archive-status`, and `usage-guide`.
   There is **no write/mutation tool**. The search limit is clamped to `[1, 50]` in `ai/search.rs`, so no
   external caller can pull an unbounded page.
-- **The SQLCipher key never crosses to the caller.** The worker holds the database key
-  (`read_database_key_from_keyring`, stored in the `BrowserHistoryMcpServer` struct) and uses it only to
-  open a local connection. MCP responses carry query results, status metadata, and the usage-guide JSON —
-  **never the key**.
+- **The archive key never crosses to the caller.** The MCP server (`vault-worker/src/mcp.rs`) is a
+  stdio bridge to the running app's same-user owner endpoint; it opens no database and holds no key. The
+  app that owns the open archive answers each request. MCP responses carry query results, status metadata,
+  and the usage-guide JSON — **never the key**.
 - **Every external query is audited as `mcp_query`.** `record_mcp_query_run` writes a `runs` row with
   `run_type = 'mcp_query'`, `trigger = 'external'`, the profile scope, warnings, and a query summary —
   viewable in the Audit ledger. So the user sees every external touch, not just searches.
@@ -258,33 +258,36 @@ fetch_client_builder`) sets only a single static desktop Chrome UA, `Accept-Lang
 
 ---
 
-## 5. Data sovereignty: derived AI state stays out of canonical, and off the export
+## 5. Data sovereignty: derived AI state stays out of canonical; user data moves with the archive
 
-The canonical archive is `archive/history-vault.sqlite` (SQLCipher) — the single source of truth, holding
-**only** canonical facts. All AI-derived state is rebuildable and lives outside it:
+The canonical archive is `archive/history-vault.db` (Turso, encrypted with the data key in encrypted mode)
+— the single source of truth, holding **only** canonical facts. AI-derived state is rebuildable and lives
+outside it. The export file (`.pathkeep-bundle`, data-model.md "Data migration bundle contract") carries
+the user's data, encrypted with the export password, and leaves out what the other computer rebuilds:
 
-| Plane                         | Location                              | In canonical? | In portable export?  |
-| ----------------------------- | ------------------------------------- | ------------- | -------------------- |
-| f32 vector store              | `derived/vectors/*.pkvec`             | No            | **No** (rebuild)     |
-| visit→content map (W-AI-4c)   | `derived/vectors/*.pkmap`             | No            | **No**               |
-| binary-recall plane (W-AI-5)  | `derived/vectors/*.pkbin`             | No            | **No**               |
-| int8-rescore plane (W-AI-5)   | `derived/vectors/*.pki8`              | No            | **No**               |
-| chat transcripts + run traces | `derived/agent.sqlite`                | No            | **No** (privacy)     |
-| downloaded models             | `models/`                             | No            | **No** (re-download) |
-| AI metadata / read model      | `derived/history-intelligence.sqlite` | No            | Yes (rebuildable)    |
-| canonical facts               | `archive/history-vault.sqlite`        | **Yes**       | Yes                  |
+| Plane                          | Location                       | In canonical? | In the export file?  |
+| ------------------------------ | ------------------------------ | ------------- | -------------------- |
+| f32 vector store               | `derived/vectors/*.pkvec`      | No            | **No** (re-embedded) |
+| visit→content map (W-AI-4c)    | `derived/vectors/*.pkmap`      | No            | **No**               |
+| binary-recall plane (W-AI-5)   | `derived/vectors/*.pkbin`      | No            | **No**               |
+| int8-rescore plane (W-AI-5)    | `derived/vectors/*.pki8`       | No            | **No**               |
+| downloaded models              | `models/`                      | No            | **No** (re-download) |
+| Insights, AI queue, read model | `derived/intelligence.db`      | No            | **No** (rebuilt)     |
+| search index                   | `derived/search-index/`        | No            | **No** (rebuilt)     |
+| Ask chats + run traces         | `derived/agent.db`             | No            | **Yes** (user data)  |
+| saved page text                | `sidecars/intelligence-blobs/` | No            | **Yes** (user data)  |
+| canonical facts                | `archive/history-vault.db`     | **Yes**       | Yes                  |
 
-- **Vectors never live in canonical SQLite.** The hand-rolled `FlatVectorIndex`
+- **Vectors never live in the database.** The hand-rolled `FlatVectorIndex`
   (`ai/vector_index.rs`, planes in `ai/vector_planes.rs`, store in `ai/vector_store.rs`) writes only the
-  `.pkvec/.pkmap/.pkbin/.pki8` sidecar files under `derived/vectors/`. The export bundle excludes the whole
-  plane (`migration.rs::DERIVED_VECTOR_PLANE_EXTENSIONS = ["pkvec","pkmap","pkbin","pki8"]`) — the ~59 GB
-  f32 tail is rebuildable derived state, re-embedded on the target rather than shipped.
-- **Chat transcripts are excluded from the export.** Conversations, messages, and W-AI-7 agent run/step/
-  citation traces persist only in `derived/agent.sqlite` (`agent_store.rs`). The export explicitly excludes
-  it plus its WAL/SHM/journal siblings (`migration.rs::DERIVED_EXPORT_EXCLUDED_BASENAMES = ["agent.sqlite"]`);
-  `EXPORT_EXCLUSIONS_DOC` states "Assistant chat transcripts stay on the source machine." Both exclusions
-  are pinned by `migration.rs` tests (`export_excludes_agent_chat_transcripts_from_the_bundle`,
-  `export_excludes_vector_sidecar_plane_from_the_bundle`).
+  `.pkvec/.pkmap/.pkbin/.pki8` sidecar files under `derived/vectors/`. The export copies only the archive,
+  source-evidence and agent databases plus the audit, raw-snapshot and sidecar folders
+  (`migration/native.rs`), so the ~59 GB f32 tail is re-embedded on the target rather than shipped.
+- **Ask chats move with the archive.** Conversations, messages, and agent run/step/citation traces live
+  in `derived/agent.db` (`agent_store.rs`), encrypted with the data key. Until 2026-10 the export left them
+  on the source machine as more private than browsing history; the user decided they are not, and that
+  chats are backed up and moved like the rest (data-model.md). The bundle round-trip test covers it.
+  Files exported by PathKeep 0.3 have no chats; the import dialog says so.
 - **The GPU tier is an opt-in reproducible-build feature.** Metal is an off-by-default `metal` cargo
   feature (`vault-core/Cargo.toml`); `gpu_enabled` is inert unless the binary was built with it. The
   default/CI build compiles out `Device::new_metal(0)` entirely (`ai/embedding_candle.rs::select_device`,
@@ -303,7 +306,7 @@ The canonical archive is `archive/history-vault.sqlite` (SQLCipher) — the sing
 
 ### Assets
 
-The user's full local browsing history (canonical, in SQLCipher), the App Lock secret material (Stronghold,
+The user's full local browsing history (canonical, in the encrypted Turso archive), the App Lock secret material (Stronghold,
 local-only), and the user's configured provider API keys (in the OS keyring).
 
 ### Assumptions / trust boundaries
@@ -312,11 +315,11 @@ local-only), and the user's configured provider API keys (in the OS keyring).
   the agent's tools are **read-only retrieval** over the user's own archive; the **code-mode sandbox** gives
   the model zero ambient authority (no fs/net/clock/random/env) and a read-only host API with hard limits;
   the context is bounded (recency-pruned, citation-pinned). A steered model cannot read the filesystem,
-  reach the network, exfiltrate the SQLCipher key, or mutate the archive — the worst case is a wrong answer
+  reach the network, exfiltrate the archive key, or mutate the archive — the worst case is a wrong answer
   over the user's own data, which the citation contract surfaces for review.
 - **An external MCP caller is untrusted.** Mitigation: the MCP face is localhost stdio, opt-in +
   default-OFF + unlock-gated, exposes only read-only search/status/guide tools, clamps the result limit to
-  50, keeps the SQLCipher key in the worker, and audits every query as `mcp_query`.
+  50, keeps the archive key in the app that owns the archive, and audits every query as `mcp_query`.
 - **The local network/machine is trusted.** PathKeep is a local-first desktop app; the MCP transport is
   stdio (no socket to attack), and content-fetch only reaches out to public hosts the user opted into,
   SSRF-guarded against internal targets.

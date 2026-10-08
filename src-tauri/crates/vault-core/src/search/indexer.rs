@@ -46,9 +46,9 @@ enum Command {
     Rebuild(mpsc::SyncSender<Result<()>>, ProgressSink, CancelToken),
     Stop,
     Repair,
-    #[cfg(debug_assertions)]
+    #[cfg(any(test, debug_assertions))]
     Pause(mpsc::SyncSender<()>),
-    #[cfg(debug_assertions)]
+    #[cfg(any(test, debug_assertions))]
     Resume,
 }
 
@@ -109,7 +109,7 @@ impl Indexer {
                 } else {
                     worker.cycle()
                 };
-                #[cfg(debug_assertions)]
+                #[cfg(any(test, debug_assertions))]
                 let mut paused = false;
                 loop {
                     if let Err(error) = &result {
@@ -136,18 +136,18 @@ impl Indexer {
                             worker_repair.store(false, std::sync::atomic::Ordering::Release);
                             result
                         }
-                        #[cfg(debug_assertions)]
+                        #[cfg(any(test, debug_assertions))]
                         Some(Command::Pause(reply)) => {
                             paused = true;
                             let _ = reply.send(());
                             Ok(())
                         }
-                        #[cfg(debug_assertions)]
+                        #[cfg(any(test, debug_assertions))]
                         Some(Command::Resume) => {
                             paused = false;
                             Ok(())
                         }
-                        #[cfg(debug_assertions)]
+                        #[cfg(any(test, debug_assertions))]
                         None if paused => continue,
                         None if deferred => continue,
                         Some(Command::Cycle(reply)) => {
@@ -219,7 +219,7 @@ impl Indexer {
     /// Debug builds only: holds outbox replay so E2E can observe a search whose
     /// coverage is incomplete (the notice shown while the index catches up).
     /// Pausing returns once the indexer has stopped between cycles.
-    #[cfg(debug_assertions)]
+    #[cfg(any(test, debug_assertions))]
     pub fn set_paused_for_tests(&self, paused: bool) {
         if paused {
             let (tx, rx) = mpsc::sync_channel(1);

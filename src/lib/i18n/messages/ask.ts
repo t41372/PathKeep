@@ -38,6 +38,7 @@ export const ask = defineMessages({
       optional:
         'PathKeep works fully without it. Search, Insights and backups do not need an assistant.',
       action: 'Set up in Settings → AI',
+      toContinue: 'To ask more, set up an AI service.',
     },
     loadingConversation: 'Opening conversation…',
     loadFailed: 'Could not open this conversation.',
@@ -79,6 +80,8 @@ export const ask = defineMessages({
           'It stopped after reaching the token budget, so the answer may be incomplete.',
         toolCallingUnavailable:
           'This model cannot use search tools, so it answered without looking at your archive.',
+        searchIndexIncomplete:
+          'The search index was still being built, so this answer may miss some pages.',
       },
     },
   },
@@ -116,6 +119,7 @@ export const ask = defineMessages({
       body: '助理会搜索你的存档，并用找到的页面来回答。它需要连接一个 AI 服务。使用本地模型（例如在 Ollama 中运行的模型），所有内容都留在这台电脑上。',
       optional: '没有助理，PathKeep 也完全可用。搜索、洞察和备份都不需要它。',
       action: '前往「设置 → AI」',
+      toContinue: '要继续提问，请先设置一个 AI 服务。',
     },
     loadingConversation: '正在打开对话…',
     loadFailed: '无法打开这段对话。',
@@ -155,6 +159,7 @@ export const ask = defineMessages({
         tokenBudgetReached: '已达到 token 上限而停止，回答可能不完整。',
         toolCallingUnavailable:
           '这个模型无法使用搜索工具，所以它没有查看你的存档就回答了。',
+        searchIndexIncomplete: '搜索索引还在建立中，这个回答可能漏掉一些页面。',
       },
     },
   },
@@ -192,6 +197,7 @@ export const ask = defineMessages({
       body: '助理會搜尋你的存檔，並用找到的頁面來回答。它需要連接一個 AI 服務。使用本機模型（例如在 Ollama 中執行的模型），所有內容都留在這台電腦上。',
       optional: '沒有助理，PathKeep 也完全可用。搜尋、洞察和備份都不需要它。',
       action: '前往「設定 → AI」',
+      toContinue: '要繼續提問，請先設定一個 AI 服務。',
     },
     loadingConversation: '正在開啟對話…',
     loadFailed: '無法開啟這段對話。',
@@ -231,6 +237,7 @@ export const ask = defineMessages({
         tokenBudgetReached: '已達到 token 上限而停止，回答可能不完整。',
         toolCallingUnavailable:
           '這個模型無法使用搜尋工具，所以它沒有查看你的存檔就回答了。',
+        searchIndexIncomplete: '搜尋索引還在建立中，這個回答可能漏掉一些頁面。',
       },
     },
   },

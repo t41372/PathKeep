@@ -1228,6 +1228,9 @@ pub enum AiAgentNote {
     TokenBudgetReached,
     /// The provider cannot do tool calls, so the run answered from seeded evidence directly.
     ToolCallingUnavailable,
+    /// A search the run made covered only part of the archive: the index was still being built
+    /// (after an upgrade or a reset) or hadn't caught up yet, so the answer can miss pages.
+    SearchIndexIncomplete,
 }
 
 /// Tauri event channel that carries [`AiChatStreamEvent`]s to the front end.
