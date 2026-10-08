@@ -49,6 +49,7 @@ const STATEMENTS: &[&str] = &[
   search_count INTEGER NOT NULL,
   new_domain_visits INTEGER NOT NULL,
   unique_urls INTEGER NOT NULL,
+  last_visit_ms INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(generation, date_key, profile_id, registrable_domain)
 )",
     r"CREATE TABLE category_daily_rollups_rows (
@@ -503,7 +504,7 @@ const STATEMENTS: &[&str] = &[
       FROM visit_derived_facts_rows r
       LEFT JOIN visit_assignments a INDEXED BY idx_assignments_visit_generation ON a.visit_id=r.visit_id AND a.generation IN (SELECT navigation FROM intelligence_generations)
       WHERE r.generation IN (SELECT facts FROM intelligence_generations)",
-    "CREATE VIEW domain_daily_rollups AS SELECT r.date_key,r.profile_id,r.registrable_domain,r.domain_category,r.visit_count,r.search_count,r.new_domain_visits,r.unique_urls FROM domain_daily_rollups_rows r
+    "CREATE VIEW domain_daily_rollups AS SELECT r.date_key,r.profile_id,r.registrable_domain,r.domain_category,r.visit_count,r.search_count,r.new_domain_visits,r.unique_urls,r.last_visit_ms FROM domain_daily_rollups_rows r
       WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
     "CREATE VIEW category_daily_rollups AS SELECT r.date_key,r.profile_id,r.domain_category,r.visit_count,r.unique_domains FROM category_daily_rollups_rows r
       WHERE r.generation IN (SELECT daily FROM intelligence_generations)",

@@ -33,16 +33,17 @@ mod tests {
             .expect("seed stale row");
 
         let rollups = DailyRollupBundle {
-            domain_rows: vec![(
-                "2026-04-25".to_string(),
-                "p1".to_string(),
-                "example.com".to_string(),
-                "reference".to_string(),
-                2,
-                1,
-                1,
-                2,
-            )],
+            domain_rows: vec![super::super::DomainDayRow {
+                date_key: "2026-04-25".to_string(),
+                profile_id: "p1".to_string(),
+                registrable_domain: "example.com".to_string(),
+                domain_category: "reference".to_string(),
+                visit_count: 2,
+                search_count: 1,
+                new_domain_visits: 1,
+                unique_urls: 2,
+                last_visit_ms: 0,
+            }],
             category_rows: vec![(
                 "2026-04-25".to_string(),
                 "p1".to_string(),

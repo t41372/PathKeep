@@ -114,8 +114,11 @@ pub(crate) fn get_habit_patterns_with_connection(
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<HabitPattern>> {
     let (_, end_ms) = date_range_bounds(&request.date_range)?;
+    // Each day's last visit comes with the rollup, so finding a site's last visit needs no
+    // look through its visits (a seek per URL of every candidate site, the slowest part of this
+    // read: 1.5 s of the 1.75 s primary overview on a 387k-visit archive).
     let mut statement = connection.prepare(
-        "SELECT registrable_domain, date_key
+        "SELECT registrable_domain, date_key, MAX(last_visit_ms)
          FROM domain_daily_rollups
          WHERE (?1 IS NULL OR profile_id = ?1)
            AND date_key >= ?2
@@ -130,40 +133,30 @@ pub(crate) fn get_habit_patterns_with_connection(
                 request.date_range.start,
                 request.date_range.end
             ],
-            |row| Ok((row.get::<String>(0)?, row.get::<String>(1)?)),
+            |row| Ok((row.get::<String>(0)?, row.get::<String>(1)?, row.get::<i64>(2)?)),
         )?
         .collect::<vault_store::Result<Vec<_>>>()?;
 
     let mut by_domain = HashMap::<String, DomainSeries>::new();
-    for (domain, date_key) in rows {
+    for (domain, date_key, last_visit_ms) in rows {
         let day = NaiveDate::parse_from_str(&date_key, "%Y-%m-%d")?;
-        by_domain.entry(domain).or_default().days.insert(day);
+        let series = by_domain.entry(domain).or_default();
+        series.days.insert(day);
+        series.last_visited_ms = series.last_visited_ms.max(last_visit_ms);
     }
-    // A site must have at least five active days to be a habit; skip the
-    // last-visit lookup for the rest.
+    // A site must have at least five active days to be a habit.
     by_domain.retain(|_, series| series.days.len() >= 5);
-    let mut last_visit = connection.prepare(
-        "SELECT MAX((SELECT visit_time_ms FROM archive.visits INDEXED BY idx_visits_visible_url_time
-            WHERE url_id=urls.id AND reverted_at IS NULL AND visit_time_ms<?2
-            ORDER BY visit_time_ms DESC,id DESC LIMIT 1))
-         FROM archive.pages AS pages INDEXED BY idx_pages_registrable_domain
-         CROSS JOIN archive.urls AS urls ON urls.page_id=pages.id
-         WHERE pages.registrable_domain IS NOT NULL AND pages.registrable_domain=?1
-           AND (?3 IS NULL OR urls.source_profile_id IN (SELECT id FROM archive.source_profiles WHERE profile_key=?3))",
-    )?;
-    for (domain, series) in by_domain.iter_mut() {
-        let last_day_end = series
-            .days
-            .last()
-            .and_then(|day| day.succ_opt())
-            .map(local_midnight_ms)
-            .unwrap_or(end_ms);
-        series.last_visited_ms = last_visit
-            .query_one(
-                params![domain, last_day_end.min(end_ms), request.profile_id.as_deref()],
-                |row| Ok(row.get::<Option<i64>>(0)?),
-            )?
-            .unwrap_or(last_day_end - 1);
+    for series in by_domain.values_mut() {
+        // Rows built before the rollup kept the time: the end of the last active day.
+        if series.last_visited_ms == 0 {
+            let last_day_end = series
+                .days
+                .last()
+                .and_then(|day| day.succ_opt())
+                .map(local_midnight_ms)
+                .unwrap_or(end_ms);
+            series.last_visited_ms = last_day_end.min(end_ms) - 1;
+        }
     }
 
     let mut habits = by_domain
@@ -932,7 +925,7 @@ mod tests {
         archive.execute("INSERT INTO visits(id,url_id,source_profile_id,created_by_run_id,visit_time_ms,visit_time_iso) VALUES(?1,?1,1,0,?2,'')",params![visit_id,time]).unwrap();
         connection.execute("INSERT INTO visit_derived_facts_rows(visit_id,profile_id,registrable_domain,canonical_url,computed_at) VALUES(?1,'chrome:Default',?2,?3,'')",params![visit_id,domain,url]).unwrap();
         connection.execute("INSERT INTO visit_assignments(visit_id,profile_id,session_id) VALUES(?1,'chrome:Default',?2)",params![visit_id,session_id]).unwrap();
-        connection.execute("INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,domain_category,visit_count,search_count,new_domain_visits,unique_urls) VALUES ('chrome:Default',?1,?2,'unknown',1,0,0,1) ON CONFLICT(generation,date_key,profile_id,registrable_domain) DO UPDATE SET visit_count=visit_count+1",params![format!("2026-04-{day:02}"),domain]).unwrap();
+        connection.execute("INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,domain_category,visit_count,search_count,new_domain_visits,unique_urls,last_visit_ms) VALUES ('chrome:Default',?1,?2,'unknown',1,0,0,1,?3) ON CONFLICT(generation,date_key,profile_id,registrable_domain) DO UPDATE SET visit_count=visit_count+1,last_visit_ms=MAX(last_visit_ms,excluded.last_visit_ms)",params![format!("2026-04-{day:02}"),domain,time]).unwrap();
     }
 
     fn seed_interrupted_habits(connection: &TestDatabase) {

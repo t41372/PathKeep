@@ -158,8 +158,8 @@ pub(super) fn persist_daily(
     rollups: &DailyRollupBundle,
 ) -> Result<()> {
     let mut insert_domain_daily_rollups=s.prepare("INSERT OR REPLACE INTO domain_daily_rollups_rows
- (generation,date_key, profile_id, registrable_domain, domain_category, visit_count, search_count, new_domain_visits, unique_urls)
- VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")?;
+ (generation,date_key, profile_id, registrable_domain, domain_category, visit_count, search_count, new_domain_visits, unique_urls, last_visit_ms)
+ VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")?;
     let mut insert_category_daily_rollups = s.prepare(
         "INSERT OR REPLACE INTO category_daily_rollups_rows
  (generation,date_key, profile_id, domain_category, visit_count, unique_domains)
@@ -174,27 +174,18 @@ pub(super) fn persist_daily(
  (generation,date_key, profile_id, total_visits, total_searches, new_domains, unique_domains, hhi_score, discovery_rate)
  VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")?;
 
-    for (
-        date_key,
-        profile_id,
-        registrable_domain,
-        domain_category,
-        visit_count,
-        search_count,
-        new_domain_visits,
-        unique_urls,
-    ) in &rollups.domain_rows
-    {
+    for row in &rollups.domain_rows {
         insert_domain_daily_rollups.execute(params![
             generation,
-            date_key,
-            profile_id,
-            registrable_domain,
-            domain_category,
-            visit_count,
-            search_count,
-            new_domain_visits,
-            unique_urls
+            row.date_key.as_str(),
+            row.profile_id.as_str(),
+            row.registrable_domain.as_str(),
+            row.domain_category.as_str(),
+            row.visit_count,
+            row.search_count,
+            row.new_domain_visits,
+            row.unique_urls,
+            row.last_visit_ms
         ])?;
     }
     for (date_key, profile_id, domain_category, visit_count, unique_domains) in

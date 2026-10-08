@@ -344,9 +344,27 @@ struct HabitPatternRecord {
     is_interrupted: bool,
 }
 
+/// One site's visits on one day, in one browser profile.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct DomainDayRow {
+    date_key: String,
+    profile_id: String,
+    registrable_domain: String,
+    domain_category: String,
+    visit_count: i64,
+    search_count: i64,
+    /// Visits that were the site's first in this profile.
+    new_domain_visits: i64,
+    unique_urls: i64,
+    /// The day's last visit to the site, so habits know when it was last visited without
+    /// looking through the site's visits. Rows saved before it existed read as 0.
+    #[serde(default)]
+    last_visit_ms: i64,
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct DailyRollupBundle {
-    domain_rows: Vec<(String, String, String, String, i64, i64, i64, i64)>,
+    domain_rows: Vec<DomainDayRow>,
     category_rows: Vec<(String, String, String, i64, i64)>,
     engine_rows: Vec<(String, String, String, i64)>,
     summary_rows: Vec<(String, String, i64, i64, i64, i64, f32, f32)>,

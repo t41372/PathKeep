@@ -26,7 +26,7 @@ use super::{DailyRollupBundle, VisitRecord, local_date_key};
 use std::collections::{HashMap, HashSet};
 
 type DailyDomainKey = (String, String, String);
-type DailyDomainValue = (String, i64, i64, i64, HashSet<String>);
+type DailyDomainValue = (String, i64, i64, i64, HashSet<String>, i64);
 type DailyCategoryKey = (String, String, String);
 type DailyCategoryValue = (i64, HashSet<String>);
 type DailyEngineKey = (String, String, String);
@@ -52,7 +52,9 @@ impl DailyRollupAccumulator {
             0,
             0,
             HashSet::new(),
+            0,
         ));
+        domain_entry.5 = domain_entry.5.max(visit.visit_time_ms);
         if visit.domain_category < domain_entry.0 {
             domain_entry.0 = visit.domain_category.clone();
         }
@@ -105,18 +107,18 @@ impl DailyRollupAccumulator {
                             search_count,
                             new_domain_visits,
                             unique_urls,
+                            last_visit_ms,
                         ),
-                    )| {
-                        (
-                            date_key,
-                            profile_id,
-                            registrable_domain,
-                            domain_category,
-                            visit_count,
-                            search_count,
-                            new_domain_visits,
-                            unique_urls.len() as i64,
-                        )
+                    )| super::DomainDayRow {
+                        date_key,
+                        profile_id,
+                        registrable_domain,
+                        domain_category,
+                        visit_count,
+                        search_count,
+                        new_domain_visits,
+                        unique_urls: unique_urls.len() as i64,
+                        last_visit_ms,
                     },
                 )
                 .collect(),
