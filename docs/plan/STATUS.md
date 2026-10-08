@@ -67,6 +67,9 @@
   - 步驟：
     - [x] 1. 1 年崩潰（`2025-W41` 被當日期格式化）：圖表改成要日資料、前端按週分組（`insights/buckets.ts`）；卡片渲染失敗只壞那張卡並寫進 log；`insights.spec` 用切換鈕走過每個範圍（含 site drill-in）。
     - [ ] 2. 量測：14.4M、全部時間，每個 Insights 命令（含 overview 快照冷 / 熱、匯出後）的耗時與 RSS。
+      - 2026-10-08 進度（用戶要關機，中斷）：`vault-worker/tests/archive_scale_bench/turso_intelligence.rs` 加了 `insights-30d` / `insights-1y` / `insights-all`（每個 Insights 讀取命令各兩次）與 `export-between-reads`（讀、整包匯出、再讀，看匯出後變慢與常駐記憶體），`turso_reads.rs` 加了 `current_rss_bytes`。**尚未提交、尚未編譯過**。第一次 Modal 執行還在編 release 時被中止，沒有數字。重跑：`offload run --key insights-bench --cpu 4 --memory-gib 8 --timeout-min 300 -- '<touch 前綴>; cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --release --test archive_scale_bench turso_intelligence::encrypted_intelligence_at_scale -- --ignored --nocapture'`，結果寫進 `ipc-performance.md` 與 ledger，再提交。
+      - 注意：全部時間的 overview 快照由重建後的 `warm_overview_snapshots` 寫入，鍵是開始日 `1900-01-01` 加今天的本地日期；真實資料測試用 `2000-01-01` 與 UTC 日期，所以那些 overview 數字是沒走快照的冷算成本。新版 Insights 頁逐卡讀取，不用 overview。
+      - 真實資料測試的副本仍在 `/Users/tim/LocalData/pathkeep-realdata-test`（APFS clone 與 release build），留到 Insights 修好後在真實資料上驗證，之後刪掉，並刪 Keychain 項目 `com.yi-ting.pathkeep.realdata-test`。用戶的 PathKeep 可以照常打開（測試用副本與它無關）。
     - [ ] 3. 範圍：全部時間（預設）、自訂、設定檔篩選；全部時間的長條按月（跨度超過約 18 個月時），每條的 key 仍是起始日期。
     - [ ] 4. 主畫面補回：Period Summary 的 New Sites / Deep Reads / Refinds；Spotlight；工作日 vs 週末、尖峰時段；Browsing Rhythm 日曆（年分頁、點日展開）；Top sites 完整清單（20、排序、篩選）；Stable Answer Sources；Search Activity（引擎、概念、查詢瀏覽、query families）；Activity Mix；Search Effectiveness；Friction & Dead Ends；Interrupted Habits；Discovery Trend（每週新站率）；Common Paths；Compare Sets；Multi-Browser 的共同網站與類別；Observed Interactions；refind 的因子與 explain。
     - [ ] 5. Drill-in 補回：day（Activity Mix、Query Evolution、Refinds）；site（trails KPI、到達方式、來源 referrers、compare / path 焦點——後端 `DomainDeepDive` 拿掉了 `arrival_breakdown` / `top_referrers`，要補回）；session、trail、query family、compare set、year review 頁。
