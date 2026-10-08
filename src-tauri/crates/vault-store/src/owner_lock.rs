@@ -1,7 +1,7 @@
 //! Responsibilities: hold the OS ownership lock for the complete Store lifetime.
 //! Not responsible for: database locking, IPC or stale lockfile deletion.
-//! Failure modes: a second process opens database files; drop retains ownership.
-//! Tests: ownership subprocess tests.
+//! Failure modes: a second process opens database files; drop retains ownership (also through a
+//! descriptor copy a spawning child holds). Tests: ownership subprocess tests, and below.
 use crate::{Error, Result};
 use std::{
     fs::{File, OpenOptions, TryLockError},
@@ -37,5 +37,30 @@ impl OwnerLock {
         }
     }
 }
-// Closing the file releases the OS lock. Never unlink it: another process may
-// already hold an open descriptor for this inode while waiting to acquire it.
+// Never unlink the file: another process may already hold an open descriptor for this inode
+// while waiting to acquire it.
+impl Drop for OwnerLock {
+    /// Unlocks before the file closes. Closing alone is not enough: the lock belongs to the open
+    /// file, and a child process another thread is spawning holds a copy of every descriptor
+    /// until it starts its program. Until then ownership would outlive this guard, and the next
+    /// acquire (a reopen after a failed open, a wipe or a move) would fail as "owned elsewhere".
+    fn drop(&mut self) {
+        let _ = self._file.unlock();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropping_releases_ownership_while_a_copy_of_the_descriptor_lives() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock = OwnerLock::acquire(dir.path()).unwrap();
+        // What a child spawned by another thread holds until it starts its program.
+        let inherited = lock._file.try_clone().unwrap();
+        drop(lock);
+        OwnerLock::acquire(dir.path()).expect("ownership outlived its guard");
+        drop(inherited);
+    }
+}
