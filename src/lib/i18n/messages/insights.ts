@@ -5,6 +5,7 @@ export const insights = defineMessages({
     title: 'Insights',
     subtitle: 'Computed from your local archive. Nothing leaves this computer.',
     openInHistory: 'Open in History',
+    sections: { time: 'When you browse', searching: 'Searching' },
     patterns: 'Patterns',
     times: '{count}×',
     range: {
@@ -44,6 +45,13 @@ export const insights = defineMessages({
       domains: 'Distinct sites',
       searches: 'Searches',
       activeTime: 'Active time',
+      newSites: 'New sites',
+      newSitesDetail: 'Sites visited for the first time in this range',
+      deepDives: 'Deep dives',
+      deepDivesDetail:
+        'Sessions that followed links four or more pages deep, across five or more sites, including a new one',
+      reopened: 'Pages reopened',
+      reopenedDetail: 'Pages opened again on more than one day',
       vsPrevious: 'Compared with the previous {days} days',
       hours: '{value} h',
       minutes: '{value} min',
@@ -59,8 +67,18 @@ export const insights = defineMessages({
     topSites: {
       title: 'Top sites',
       empty: 'No visits in this range.',
+      orderLabel: 'Order sites by',
+      order: {
+        visits: 'Visits',
+        unique_days: 'Days visited',
+        average_daily_visits: 'Visits per day',
+      },
     },
     rhythm: {
+      weekday: 'Weekdays',
+      weekend: 'Weekends',
+      perDay: '{visits} a day',
+      busiest: 'Busiest hours:',
       title: 'Rhythm',
       subtitle: 'Visits by hour of the day, across the week',
       cell: '{day} {hour}:00 · {visits}',
@@ -69,6 +87,26 @@ export const insights = defineMessages({
     searches: {
       title: 'Frequent searches',
       empty: 'No searches in this range.',
+    },
+    engines: {
+      title: 'Where you search',
+      explain:
+        'Searches on each search engine or site search, in this range. Search engines are recognized by their address.',
+    },
+    words: {
+      title: 'What you search for',
+      subtitle: 'Words that come up most in your searches',
+      explain:
+        'Each word counts once per search it appears in. Single letters, bare numbers and filler words such as "the" are left out. Click a word to find every page it led to in History.',
+    },
+    newSites: {
+      title: 'New sites',
+      series: 'New sites',
+      none: 'No site in this range was new; every one had been visited before.',
+      total_one: '{sites} site visited for the first time',
+      total_other: '{sites} sites visited for the first time',
+      explain:
+        'A site counts on the first day you visited it in any browser, or in the browser profile chosen above.',
     },
     refind: {
       title: 'Pages you keep reopening',
@@ -227,6 +265,7 @@ export const insights = defineMessages({
     title: '洞察',
     subtitle: '全部来自本机存档，不经过网络',
     openInHistory: '在历史中打开',
+    sections: { time: '什么时候浏览', searching: '搜索' },
     patterns: '规律',
     times: '{count} 次',
     range: {
@@ -266,6 +305,12 @@ export const insights = defineMessages({
       domains: '不同网站',
       searches: '搜索次数',
       activeTime: '活跃时间',
+      newSites: '新网站',
+      newSitesDetail: '这段时间第一次去的网站',
+      deepDives: '深入浏览',
+      deepDivesDetail: '一路点下去四层以上、经过五个以上网站且有新网站的浏览',
+      reopened: '重新打开的页面',
+      reopenedDetail: '在不止一天又打开过的页面',
       vsPrevious: '与前 {days} 天相比',
       hours: '{value} 小时',
       minutes: '{value} 分钟',
@@ -281,8 +326,18 @@ export const insights = defineMessages({
     topSites: {
       title: '最常浏览',
       empty: '这段时间没有浏览记录。',
+      orderLabel: '网站排序方式',
+      order: {
+        visits: '浏览次数',
+        unique_days: '去过的天数',
+        average_daily_visits: '每天浏览次数',
+      },
     },
     rhythm: {
+      weekday: '工作日',
+      weekend: '周末',
+      perDay: '每天 {visits} 次',
+      busiest: '最忙的时段：',
       title: '浏览节奏',
       subtitle: '一周内每小时的浏览量',
       cell: '周{day} {hour} 点 · {visits}',
@@ -291,6 +346,26 @@ export const insights = defineMessages({
     searches: {
       title: '常用搜索词',
       empty: '这段时间没有搜索。',
+    },
+    engines: {
+      title: '在哪里搜索',
+      explain:
+        '这段时间在每个搜索引擎或站内搜索里搜索的次数。搜索引擎按网址识别。',
+    },
+    words: {
+      title: '搜索什么',
+      subtitle: '搜索里最常出现的词',
+      explain:
+        '一个词在一次搜索里出现只算一次。单个字母、单独的数字和 "the" 之类的虚词不计。点一个词，在历史里找出它带你去过的所有页面。',
+    },
+    newSites: {
+      title: '新网站',
+      series: '新网站',
+      none: '这段时间没有新网站，去过的网站之前都去过。',
+      total_one: '第一次去的网站 {sites} 个',
+      total_other: '第一次去的网站 {sites} 个',
+      explain:
+        '一个网站算在你第一次在任何浏览器（或上面选的浏览器配置）去它的那一天。',
     },
     refind: {
       title: '反复打开的页面',
@@ -448,6 +523,7 @@ export const insights = defineMessages({
     title: '洞察',
     subtitle: '全部來自本機存檔，不經過網路',
     openInHistory: '在歷史中打開',
+    sections: { time: '什麼時候瀏覽', searching: '搜尋' },
     patterns: '規律',
     times: '{count} 次',
     range: {
@@ -487,6 +563,12 @@ export const insights = defineMessages({
       domains: '不同網站',
       searches: '搜尋次數',
       activeTime: '活躍時間',
+      newSites: '新網站',
+      newSitesDetail: '這段時間第一次去的網站',
+      deepDives: '深入瀏覽',
+      deepDivesDetail: '一路點下去四層以上、經過五個以上網站且有新網站的瀏覽',
+      reopened: '重新打開的頁面',
+      reopenedDetail: '在不止一天又打開過的頁面',
       vsPrevious: '與前 {days} 天相比',
       hours: '{value} 小時',
       minutes: '{value} 分鐘',
@@ -502,8 +584,18 @@ export const insights = defineMessages({
     topSites: {
       title: '最常瀏覽',
       empty: '這段時間沒有瀏覽記錄。',
+      orderLabel: '網站排序方式',
+      order: {
+        visits: '瀏覽次數',
+        unique_days: '去過的天數',
+        average_daily_visits: '每天瀏覽次數',
+      },
     },
     rhythm: {
+      weekday: '平日',
+      weekend: '週末',
+      perDay: '每天 {visits} 次',
+      busiest: '最忙的時段：',
       title: '瀏覽節奏',
       subtitle: '一週內每小時的瀏覽量',
       cell: '週{day} {hour} 點 · {visits}',
@@ -512,6 +604,26 @@ export const insights = defineMessages({
     searches: {
       title: '常用搜尋詞',
       empty: '這段時間沒有搜尋。',
+    },
+    engines: {
+      title: '在哪裡搜尋',
+      explain:
+        '這段時間在每個搜尋引擎或站內搜尋裡搜尋的次數。搜尋引擎按網址辨識。',
+    },
+    words: {
+      title: '搜尋什麼',
+      subtitle: '搜尋裡最常出現的詞',
+      explain:
+        '一個詞在一次搜尋裡出現只算一次。單個字母、單獨的數字和 "the" 之類的虛詞不計。點一個詞，在歷史裡找出它帶你去過的所有頁面。',
+    },
+    newSites: {
+      title: '新網站',
+      series: '新網站',
+      none: '這段時間沒有新網站，去過的網站之前都去過。',
+      total_one: '第一次去的網站 {sites} 個',
+      total_other: '第一次去的網站 {sites} 個',
+      explain:
+        '一個網站算在你第一次在任何瀏覽器（或上面選的瀏覽器設定檔）去它的那一天。',
     },
     refind: {
       title: '反覆打開的頁面',

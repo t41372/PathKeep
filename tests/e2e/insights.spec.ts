@@ -70,6 +70,17 @@ function startOfDayDaysAgo(days: number): Date {
 const dateKey = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
+/**
+ * A visit's site as Insights counts it: the registrable domain. The fixture's
+ * hosts all sit under one-label suffixes except `github.io`, which the public
+ * suffix list makes a suffix of its own.
+ */
+function site(url: string) {
+  const labels = new URL(url).hostname.split('.')
+  const suffix = labels.slice(-2).join('.') === 'github.io' ? 3 : 2
+  return labels.slice(-suffix).join('.')
+}
+
 /** Visits per site, by hand, between two instants. */
 function visitsPerSite(
   visits: FixtureVisit[],
@@ -79,8 +90,7 @@ function visitsPerSite(
   const perSite = new Map<string, number>()
   for (const visit of visits) {
     if (visit.at < since || visit.at >= until || visit.term) continue
-    const host = new URL(visit.url).hostname.replace(/^www\./, '')
-    perSite.set(host, (perSite.get(host) ?? 0) + 1)
+    perSite.set(site(visit.url), (perSite.get(site(visit.url)) ?? 0) + 1)
   }
   return perSite
 }
@@ -195,11 +205,7 @@ test('Insights opens on all time, and every range shows the archive’s numbers'
   await expect(page).toHaveURL(/#\/insights\/site\/.+\?range=d7$/)
   const siteFirstVisit = Math.min(
     ...archivedVisits()
-      .filter(
-        (visit) =>
-          !visit.term &&
-          new URL(visit.url).hostname.replace(/^www\./, '') === topSite,
-      )
+      .filter((visit) => !visit.term && site(visit.url) === topSite)
       .map((visit) => visit.at),
   )
   for (const { label, days } of ranges) {
@@ -263,4 +269,185 @@ test('a custom range and one browser profile count only their visits', async ({
   await expect(
     page.getByRole('combobox', { name: 'Browser profile' }),
   ).toHaveText('Google Chrome · Work')
+})
+
+/** The words Insights counts for a search (see `search_words` in the backend). */
+const fillerWords = new Set(
+  'a an and com edu for from how html http https in is net of on org the to what when where with www'.split(
+    ' ',
+  ),
+)
+function searchWords(term: string) {
+  return new Set(
+    term
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter(
+        (word) =>
+          word &&
+          !fillerWords.has(word) &&
+          word.length > 1 &&
+          !/^\d+$/.test(word),
+      ),
+  )
+}
+
+const batched = [
+  'get_digest_summary',
+  'get_top_sites',
+  'get_refind_pages',
+  'get_search_engine_ranking',
+  'get_top_search_concepts',
+  'get_habit_patterns',
+  'get_reopened_investigations',
+  'get_breadth_index',
+  'get_multi_browser_diff',
+]
+
+test('the cards brought back from 0.3 count what the archive holds, read in two batches', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(240_000)
+  const commands: string[] = []
+  page.on('request', (sent) => {
+    const name = new URL(sent.url()).pathname.match(/^\/commands\/(\w+)$/)?.[1]
+    if (name) commands.push(name)
+  })
+  await page.goto('/#/insights')
+  const searches = archivedVisits().filter((visit) => visit.term)
+
+  // Where you search: every fixture search is on Google.
+  await expect(
+    card(page, 'Where you search').getByRole('listitem').first(),
+  ).toHaveText(
+    new RegExp(`Google\\s*${compact.format(searches.length)} · 100%`),
+    {
+      timeout: 60_000,
+    },
+  )
+
+  // What you search for: the word in the most searches comes first.
+  const perWord = new Map<string, number>()
+  for (const visit of searches)
+    for (const word of searchWords(visit.term!))
+      perWord.set(word, (perWord.get(word) ?? 0) + 1)
+  const topCount = Math.max(...perWord.values())
+  const topWords = [...perWord].filter(([, count]) => count === topCount)
+  const firstWord = (
+    await card(page, 'What you search for')
+      .getByRole('link')
+      .first()
+      .innerText()
+  ).replace(/\s+/g, ' ')
+  await testInfo.attach('top search word', {
+    body: JSON.stringify({ expected: topWords, shown: firstWord }),
+    contentType: 'application/json',
+  })
+  expect(
+    topWords.map(([word]) => `${word} ${compact.format(topCount)}`),
+  ).toContain(firstWord)
+
+  // Opening the page made the two batch reads, not a read per card.
+  await expect(
+    page.getByRole('heading', { name: 'Browsers compared' }),
+  ).toBeVisible()
+  await expect
+    .poll(
+      () =>
+        commands.filter(
+          (name) => name === 'get_intelligence_secondary_overview',
+        ).length,
+    )
+    .toBe(1)
+  await testInfo.attach('commands on opening Insights', {
+    body: JSON.stringify(commands),
+    contentType: 'application/json',
+  })
+  expect(
+    commands.filter((name) => name === 'get_intelligence_primary_overview'),
+  ).toHaveLength(1)
+  expect(commands.filter((name) => batched.includes(name))).toEqual([])
+
+  // All time: every site is new, so there is no "New sites" tile.
+  await expect(page.getByRole('group', { name: 'New sites' })).toHaveCount(0)
+
+  // The archive's first 30 days: the sites first visited in them.
+  const first = new Date(Math.min(...archivedVisits().map((visit) => visit.at)))
+  first.setHours(0, 0, 0, 0)
+  const last = new Date(first)
+  last.setDate(last.getDate() + 29)
+  const until = new Date(last)
+  until.setDate(until.getDate() + 1)
+  const firstSeen = new Map<string, number>()
+  for (const visit of archivedVisits()) {
+    const at = firstSeen.get(site(visit.url))
+    if (at === undefined || visit.at < at)
+      firstSeen.set(site(visit.url), visit.at)
+  }
+  const newInWindow = [...firstSeen.values()].filter(
+    (at) => at >= first.getTime() && at < until.getTime(),
+  ).length
+  await page.goto(
+    `/#/insights?range=custom&start=${dateKey(first)}&end=${dateKey(last)}`,
+  )
+  await expect(page.getByRole('group', { name: 'New sites' })).toContainText(
+    String(newInWindow),
+    { timeout: 60_000 },
+  )
+  await expect(card(page, 'New sites')).toContainText(
+    `${newInWindow} site${newInWindow === 1 ? '' : 's'} visited for the first time`,
+  )
+
+  // Last 30 days, ordered by days visited.
+  await page.goto('/#/insights?range=d30')
+  const since = startOfDayDaysAgo(29)
+  const daysPerSite = new Map<string, Set<string>>()
+  for (const visit of archivedVisits()) {
+    if (visit.at < since.getTime() || visit.term) continue
+    const days = daysPerSite.get(site(visit.url)) ?? new Set<string>()
+    days.add(dateKey(new Date(visit.at)))
+    daysPerSite.set(site(visit.url), days)
+  }
+  const perSiteDays = new Map(
+    [...daysPerSite].map(([host, days]) => [host, days.size]),
+  )
+  await card(page, 'Top sites')
+    .getByRole('combobox', { name: 'Order sites by' })
+    .click()
+  await page.getByRole('option', { name: 'Days visited' }).click()
+  await expectTopSite(page, testInfo, 'by days visited, 30d', perSiteDays)
+
+  // An average weekday against an average weekend day, last 30 days.
+  let weekdays = 0
+  let weekdayVisits = 0
+  for (let offset = 0; offset < 30; offset += 1) {
+    const day = startOfDayDaysAgo(offset).getDay()
+    if (day !== 0 && day !== 6) weekdays += 1
+  }
+  for (const visit of archivedVisits()) {
+    const day = new Date(visit.at).getDay()
+    if (visit.at >= since.getTime() && day !== 0 && day !== 6)
+      weekdayVisits += 1
+  }
+  await expect(card(page, 'Rhythm')).toContainText(
+    `Weekdays${new Intl.NumberFormat('en').format(Math.round(weekdayVisits / weekdays))} a day`,
+    { timeout: 60_000 },
+  )
+  await expectScreenIntact(page)
+
+  // What the page looks like, section by section.
+  for (const heading of [
+    'Insights',
+    'When you browse',
+    'Searching',
+    'Patterns',
+  ]) {
+    await page
+      .getByRole('heading', { name: heading, exact: true })
+      .scrollIntoViewIfNeeded()
+    await testInfo.attach(`screen: ${heading}`, {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    })
+  }
 })

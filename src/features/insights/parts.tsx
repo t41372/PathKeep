@@ -8,7 +8,13 @@
  */
 import type { UseQueryResult } from '@tanstack/react-query'
 import { ArrowLeft, Info } from 'lucide-react'
-import type { ReactNode } from 'react'
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { Link } from 'react-router-dom'
 import { CardError } from '@/components/app/section-card'
 import {
@@ -42,6 +48,48 @@ export function ListSkeleton({
   )
 }
 
+/**
+ * A list that scrolls inside its card instead of making the card taller. A
+ * fade at the bottom says there is more until the end is reached.
+ */
+export function ScrollList({
+  maxHeight,
+  children,
+}: {
+  maxHeight: number
+  children: ReactNode
+}) {
+  const box = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState(false)
+  const measure = useCallback(() => {
+    const element = box.current
+    if (element)
+      setMore(
+        element.scrollTop + element.clientHeight < element.scrollHeight - 1,
+      )
+  }, [])
+  useLayoutEffect(() => measure(), [measure, children])
+  return (
+    <div className="relative">
+      <div
+        ref={box}
+        onScroll={measure}
+        className="overflow-y-auto overscroll-contain"
+        style={{ maxHeight }}
+      >
+        {children}
+      </div>
+      <div
+        aria-hidden
+        className={cn(
+          'pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-card to-transparent transition-opacity duration-200',
+          more ? 'opacity-100' : 'opacity-0',
+        )}
+      />
+    </div>
+  )
+}
+
 export function KpiTile({
   label,
   value,
@@ -50,6 +98,7 @@ export function KpiTile({
   loading,
   updating = false,
   detail,
+  explain,
 }: {
   label: string
   value: ReactNode
@@ -65,6 +114,8 @@ export function KpiTile({
   updating?: boolean
   /** A short line under the value. */
   detail?: ReactNode
+  /** What the number counts, shown on hover; for tiles too narrow for a line. */
+  explain?: string
 }) {
   const { t } = useI18n()
   const format = useFormat()
@@ -74,6 +125,8 @@ export function KpiTile({
       role="group"
       aria-label={label}
       aria-busy={loading || updating}
+      aria-description={explain}
+      title={explain}
       className="flex min-w-0 flex-col gap-1 rounded-xl border bg-card px-4 py-3.5 shadow-card"
     >
       <span className="text-[13px] text-muted-foreground">{label}</span>

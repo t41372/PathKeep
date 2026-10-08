@@ -1,12 +1,26 @@
-/** Data for Insights, one query per card, all keyed by the selected range. */
+/**
+ * Data for Insights, one query per card, keyed by the scope. A card in one of
+ * the two opening batches (`overview.ts`) waits for its batch, which fills its
+ * cache entry; it reads by itself only when the batch left it empty, or after
+ * the scope changes. So the cache holds each section exactly as its read
+ * returns it, and cards shape it with `select`.
+ */
 import { useQuery } from '@tanstack/react-query'
-import { insightsClient, pollWhileStale } from '@/lib/backend-client/insights'
-import type { ReopenedInvestigation } from '@/lib/core-intelligence/types'
+import {
+  insightsClient,
+  pollWhileStale,
+  type Section,
+} from '@/lib/backend-client/insights'
+import type {
+  HabitPattern,
+  ReopenedInvestigation,
+} from '@/lib/core-intelligence/types'
 import { queryKeys } from '@/lib/query'
+import { useBandSettled, type Band } from './bands'
 import { chartDates, rangeBars } from './buckets'
 import { scopeKey, type Scope } from './range'
 
-const key = (scope: Scope, ...parts: unknown[]) => [
+export const insightsKey = (scope: Scope, ...parts: unknown[]) => [
   ...queryKeys.archiveData,
   'insights',
   ...scopeKey(scope),
@@ -20,19 +34,37 @@ export function request(scope: Scope) {
 
 const keepPrevious = <T>(previous: T | undefined) => previous
 
-export function useDigest(scope: Scope) {
+/**
+ * One section read: waits for `band`, keeps the previous scope's result on
+ * screen until the new one arrives, and polls while the section is updating.
+ */
+function useSection<T, R = Section<T>>(
+  scope: Scope,
+  name: string,
+  band: Band | null,
+  read: () => Promise<Section<T>>,
+  select?: (section: Section<T>) => R,
+) {
   return useQuery({
-    queryKey: key(scope, 'digest'),
-    queryFn: () => insightsClient.digest(request(scope)),
+    queryKey: insightsKey(scope, name),
+    queryFn: read,
+    select,
+    enabled: useBandSettled(band),
     placeholderData: keepPrevious,
     refetchInterval: pollWhileStale,
   })
 }
 
+export function useDigest(scope: Scope) {
+  return useSection(scope, 'digest', 'primary', () =>
+    insightsClient.digest(request(scope)),
+  )
+}
+
 /** Pages and searches per day, week or month (see `buckets.ts`). */
 export function useDailyActivity(scope: Scope) {
   return useQuery({
-    queryKey: key(scope, 'daily'),
+    queryKey: insightsKey(scope, 'daily'),
     queryFn: async () => {
       const [trend, mix] = await Promise.all([
         insightsClient.discoveryTrend(request(scope)),
@@ -64,22 +96,25 @@ export function useDailyActivity(scope: Scope) {
   })
 }
 
-export function useTopSites(scope: Scope) {
-  return useQuery({
-    queryKey: key(scope, 'top-sites'),
-    queryFn: () => insightsClient.topSites(request(scope), 6),
-    placeholderData: keepPrevious,
-    refetchInterval: pollWhileStale,
-  })
+export type SiteOrder = 'visits' | 'unique_days' | 'average_daily_visits'
+
+/**
+ * The top 40 sites, by visits (the order the primary batch reads) or by days
+ * visited or visits per day. Cards show as many as fit.
+ */
+export function useTopSites(scope: Scope, order: SiteOrder = 'visits') {
+  return useSection(
+    scope,
+    order === 'visits' ? 'top-sites' : `top-sites-${order}`,
+    order === 'visits' ? 'primary' : null,
+    () => insightsClient.topSites(request(scope), 40, null, order),
+  )
 }
 
 export function useRhythm(scope: Scope) {
-  return useQuery({
-    queryKey: key(scope, 'rhythm'),
-    queryFn: () => insightsClient.rhythm(request(scope)),
-    placeholderData: keepPrevious,
-    refetchInterval: pollWhileStale,
-  })
+  return useSection(scope, 'rhythm', null, () =>
+    insightsClient.rhythm(request(scope)),
+  )
 }
 
 /**
@@ -89,7 +124,7 @@ export function useRhythm(scope: Scope) {
  */
 export function useFrequentSearches(scope: Scope, limit = 10) {
   return useQuery({
-    queryKey: key(scope, 'searches', limit),
+    queryKey: insightsKey(scope, 'searches', limit),
     queryFn: async () => {
       const result = await insightsClient.frequentSearches(
         request(scope),
@@ -109,80 +144,114 @@ export function useFrequentSearches(scope: Scope, limit = 10) {
 }
 
 export function useRefindPages(scope: Scope) {
-  return useQuery({
-    queryKey: key(scope, 'refind'),
-    queryFn: () => insightsClient.refindPages(request(scope), 5),
-    placeholderData: keepPrevious,
-    refetchInterval: pollWhileStale,
-  })
+  return useSection(scope, 'refind', 'primary', () =>
+    insightsClient.refindPages(request(scope), 5),
+  )
 }
 
-/**
- * Pages and searches the user came back to on several days. Rows are per
- * browser profile; keep one per anchor (the one seen most).
- */
+export function useSearchEngines(scope: Scope) {
+  return useSection(scope, 'search-engines', 'primary', () =>
+    insightsClient.searchEngines(request(scope)),
+  )
+}
+
+export function useSearchConcepts(scope: Scope) {
+  return useSection(scope, 'search-concepts', 'primary', () =>
+    insightsClient.searchConcepts(request(scope), 50),
+  )
+}
+
+export function useQueryFamilies(scope: Scope) {
+  return useSection(scope, 'query-families', 'primary', () =>
+    insightsClient.queryFamilies(request(scope), 10),
+  )
+}
+
+/** New sites per day; cards group the days like the activity chart. */
+export function useNewSites(scope: Scope) {
+  return useSection(scope, 'new-sites', 'primary', () =>
+    insightsClient.discoveryTrend(request(scope)),
+  )
+}
+
+/** Pages and searches the user came back to on several days. */
 export function useThreads(scope: Scope, limit = 6) {
-  return useQuery({
-    queryKey: key(scope, 'threads'),
-    queryFn: async () => {
-      const result = await insightsClient.reopenedInvestigations(request(scope))
-      const byAnchor = new Map<string, ReopenedInvestigation>()
-      for (const item of result.data.items) {
-        const anchor = `${item.anchorType}:${item.anchorId}:${item.anchorLabel}`
-        const kept = byAnchor.get(anchor)
-        if (!kept || item.occurrenceCount > kept.occurrenceCount) {
-          byAnchor.set(anchor, item)
-        }
-      }
-      return {
-        meta: result.meta,
-        data: [...byAnchor.values()]
-          .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
-          .slice(0, limit),
-      }
-    },
-    placeholderData: keepPrevious,
-    refetchInterval: pollWhileStale,
-  })
+  return useSection(
+    scope,
+    'threads',
+    'secondary',
+    () => insightsClient.reopenedInvestigations(request(scope), 10),
+    (result) => oneThreadPerAnchor(result, limit),
+  )
+}
+
+/** Rows are per browser profile; keep one per anchor (the one seen most). */
+function oneThreadPerAnchor(
+  result: Section<{ items: ReopenedInvestigation[] }>,
+  limit: number,
+) {
+  const byAnchor = new Map<string, ReopenedInvestigation>()
+  for (const item of result.data.items) {
+    const anchor = `${item.anchorType}:${item.anchorId}:${item.anchorLabel}`
+    const kept = byAnchor.get(anchor)
+    if (!kept || item.occurrenceCount > kept.occurrenceCount) {
+      byAnchor.set(anchor, item)
+    }
+  }
+  return {
+    meta: result.meta,
+    data: [...byAnchor.values()]
+      .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
+      .slice(0, limit),
+  }
 }
 
 export function useBreadth(scope: Scope) {
-  return useQuery({
-    queryKey: key(scope, 'breadth'),
-    queryFn: () => insightsClient.breadth(request(scope)),
-    placeholderData: keepPrevious,
-    refetchInterval: pollWhileStale,
-  })
+  return useSection(scope, 'breadth', 'secondary', () =>
+    insightsClient.breadth(request(scope)),
+  )
 }
 
 /** Sites visited on a regular rhythm; stopped ones first. */
 export function useHabits(scope: Scope, limit = 6) {
-  return useQuery({
-    queryKey: key(scope, 'habits'),
-    queryFn: async () => {
-      const result = await insightsClient.habits(request(scope))
-      return {
-        meta: result.meta,
-        total: result.data.length,
-        data: [...result.data]
-          .sort(
-            (a, b) =>
-              Number(b.isInterrupted) - Number(a.isInterrupted) ||
-              b.visitCount - a.visitCount,
-          )
-          .slice(0, limit),
-      }
-    },
-    placeholderData: keepPrevious,
-    refetchInterval: pollWhileStale,
-  })
+  return useSection(
+    scope,
+    'habits',
+    'primary',
+    () => insightsClient.habits(request(scope)),
+    (result) => stoppedFirst(result, limit),
+  )
+}
+
+function stoppedFirst(result: Section<HabitPattern[]>, limit: number) {
+  return {
+    meta: result.meta,
+    total: result.data.length,
+    data: [...result.data]
+      .sort(
+        (a, b) =>
+          Number(b.isInterrupted) - Number(a.isInterrupted) ||
+          b.visitCount - a.visitCount,
+      )
+      .slice(0, limit),
+  }
+}
+
+export function useInterruptedHabits(scope: Scope) {
+  return useSection(scope, 'interrupted-habits', 'primary', () =>
+    insightsClient.interruptedHabits(scope.profileId),
+  )
+}
+
+/** Three sites in a row, most frequent first (what the secondary batch reads). */
+export function usePaths(scope: Scope) {
+  return useSection(scope, 'paths', 'secondary', () =>
+    insightsClient.paths(request(scope), 3, 15),
+  )
 }
 
 export function useBrowsers(scope: Scope) {
-  return useQuery({
-    queryKey: key(scope, 'browsers'),
-    queryFn: () => insightsClient.browsers(request(scope)),
-    placeholderData: keepPrevious,
-    refetchInterval: pollWhileStale,
-  })
+  return useSection(scope, 'browsers', 'secondary', () =>
+    insightsClient.browsers(request(scope)),
+  )
 }
