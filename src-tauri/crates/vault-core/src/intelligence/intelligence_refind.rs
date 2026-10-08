@@ -25,6 +25,7 @@
 //! - Refind detail only loads trails and days referenced by persisted evidence
 //!   visit ids; it does not rescan all trails for a profile.
 
+use super::site_days::{SiteDay, SiteDayCache, SiteDayScope, SiteDays};
 use super::{date_range_bounds, display_name_for_domain, rfc3339_from_millis};
 use crate::models::{
     ExplainRefindRequest, RefindExplanation, RefindPage, RefindPageDetail, RefindPageDetailRequest,
@@ -39,81 +40,85 @@ pub fn get_top_sites(
     vault: &crate::Vault,
     request: &TopSitesRequest,
 ) -> Result<crate::models::IntelligencePage<TopSite>> {
+    let cache = vault.site_days().clone();
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        get_top_sites_with_connection(connection, request)
+        get_top_sites_with_connection(connection, &cache, &request)
     })
 }
 
-/// Reuses an existing SQLite handle for top-site reads so overview loaders can
-/// compose multiple intelligence widgets without reopening the database.
+/// Ranks the sites of the range's one shared site-day read (`site_days`), so another order or
+/// the next page reads nothing.
 pub(super) fn get_top_sites_with_connection(
     connection: &Session<'_>,
+    cache: &SiteDayCache,
+    request: &TopSitesRequest,
+) -> Result<crate::models::IntelligencePage<TopSite>> {
+    let profiles = if request.profile_ids.is_empty() {
+        request.profile_id.iter().cloned().collect()
+    } else {
+        request.profile_ids.clone()
+    };
+    let days = cache.get(connection, &SiteDayScope::new(&request.date_range, profiles))?;
+    rank_top_sites(&days, request)
+}
+
+/// One page of `request`'s order: visits that were not searches (a search result page is a
+/// search, see Frequent searches), the days they fell on, or visits per such day; ties go to
+/// the other measure, then the site's name.
+pub(super) fn rank_top_sites(
+    days: &SiteDays,
     request: &TopSitesRequest,
 ) -> Result<crate::models::IntelligencePage<TopSite>> {
     let limit = request.limit.unwrap_or(20).clamp(1, 1000) as usize;
     let cursor = super::paging::cursor::<(f64, f64, String)>(request.cursor.as_deref())?;
-    // Search result pages are searches (Frequent searches), not visits to a site.
-    let visits = "SUM(visit_count-search_count)";
-    let days = "COUNT(DISTINCT date_key)";
-    let average = "CAST(SUM(visit_count-search_count) AS REAL)/COUNT(DISTINCT date_key)";
-    let (primary, secondary) = match request.sort_by.as_deref() {
-        Some("unique_days") => (days, average),
-        Some("average_daily_visits") => (average, visits),
-        _ => (visits, days),
+    let key = |site: &SiteDay| {
+        let visits = site.page_visits as f64;
+        let days = site.page_days as f64;
+        let average = visits / days;
+        match request.sort_by.as_deref() {
+            Some("unique_days") => (days, average),
+            Some("average_daily_visits") => (average, visits),
+            _ => (visits, days),
+        }
     };
-    let profiles: Vec<&str> = if request.profile_ids.is_empty() {
-        request.profile_id.as_deref().into_iter().collect()
-    } else {
-        request.profile_ids.iter().map(String::as_str).collect()
-    };
-    // Profiles bind after the seven fixed parameters.
-    let profiles_clause = if profiles.is_empty() {
-        "?1 IS NULL".to_owned()
-    } else {
-        let marks: Vec<String> = (0..profiles.len()).map(|i| format!("?{}", i + 8)).collect();
-        format!("(?1 IS NULL AND profile_id IN ({}))", marks.join(","))
-    };
-    let sql=format!("SELECT registrable_domain,MIN(domain_category),{visits},{days},{average},SUM(unique_urls),{primary},{secondary}
-         FROM domain_daily_rollups_rows INDEXED BY idx_domain_daily_range
-         WHERE date_key>=?2 AND date_key<=?3 AND generation IN (SELECT daily FROM intelligence_generations)
-           AND {profiles_clause} AND visit_count>search_count
-         GROUP BY registrable_domain
-         HAVING ?5 IS NULL OR {primary}<?5 OR ({primary}=?5 AND ({secondary}<?6 OR ({secondary}=?6 AND registrable_domain>?7)))
-         ORDER BY {primary} DESC,{secondary} DESC,registrable_domain ASC LIMIT ?4");
-    let rows = connection.query(
-        &sql,
-        {
-            let mut values: Vec<vault_store::Value> = vec![
-                vault_store::Value::Null,
-                request.date_range.start.clone().into(),
-                request.date_range.end.clone().into(),
-                ((limit + 1) as i64).into(),
-                cursor.as_ref().map(|c| c.0).into(),
-                cursor.as_ref().map(|c| c.1).into(),
-                cursor.as_ref().map(|c| c.2.clone()).into(),
-            ];
-            values.extend(profiles.iter().map(|id| vault_store::Value::from(id.to_string())));
-            values
-        },
-        |r| {
-            let domain = r.get::<String>(0)?;
-            Ok((
+    let mut ranked = days
+        .sites
+        .iter()
+        .filter(|site| site.page_days > 0)
+        .map(|site| (key(site), site))
+        .filter(|((first, second), site)| {
+            cursor.as_ref().is_none_or(|(after_first, after_second, after_site)| {
+                first < after_first
+                    || (first == after_first
+                        && (second < after_second
+                            || (second == after_second && site.domain > *after_site)))
+            })
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|(a, a_site), (b, b_site)| {
+        b.0.total_cmp(&a.0)
+            .then(b.1.total_cmp(&a.1))
+            .then_with(|| a_site.domain.cmp(&b_site.domain))
+    });
+    ranked.truncate(limit + 1);
+    let rows = ranked
+        .into_iter()
+        .map(|((first, second), site)| {
+            (
                 TopSite {
-                    display_name: display_name_for_domain(&domain),
-                    registrable_domain: domain.clone(),
-                    domain_category: r.get(1)?,
-                    visit_count: r.get(2)?,
-                    unique_days: r.get(3)?,
-                    average_daily_visits: r.get::<f64>(4)? as f32,
-                    unique_urls: r.get(5)?,
+                    display_name: display_name_for_domain(&site.domain),
+                    registrable_domain: site.domain.clone(),
+                    domain_category: site.category.clone().unwrap_or_default(),
+                    visit_count: site.page_visits,
+                    unique_days: site.page_days,
+                    average_daily_visits: (site.page_visits as f64 / site.page_days as f64) as f32,
+                    unique_urls: site.page_urls,
                 },
-                (r.get::<f64>(6)?, r.get::<f64>(7)?, domain),
-            ))
-        },
-    )?;
+                (first, second, site.domain.clone()),
+            )
+        })
+        .collect();
     super::paging::finish(rows, limit)
 }
 

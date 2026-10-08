@@ -129,5 +129,12 @@ fn the_slow_range_reads_seek_their_tables() {
             .unwrap();
         });
         assert_no_scans(&captured);
+        // The shared site-day read walks its index in date order; a sort would hold every row.
+        let sorted: Vec<_> = captured
+            .iter()
+            .filter(|plan| plan.sql.contains("idx_domain_daily_range"))
+            .flat_map(|plan| plan.steps.iter().filter(|step| step.contains("TEMP B-TREE")))
+            .collect();
+        assert!(sorted.is_empty(), "site-day rows sorted: {sorted:?}");
     }
 }

@@ -55,6 +55,7 @@ mod phase_three;
 mod refind_evidence;
 mod search_queries;
 mod session_details;
+mod site_days;
 mod site_dictionary;
 
 #[cfg(test)]
@@ -130,6 +131,7 @@ pub use self::phase_three::{
     get_breadth_index, get_habit_patterns, get_interrupted_habits, get_observed_interactions,
     get_path_flows,
 };
+pub(crate) use self::site_days::SiteDayCache;
 
 const SESSION_GAP_MS: i64 = 30 * 60 * 1_000;
 const TRAIL_GAP_MS: i64 = 15 * 60 * 1_000;

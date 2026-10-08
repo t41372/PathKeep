@@ -635,6 +635,12 @@ cursor. A resumed long session reads these counts instead of replaying every ear
 sites of its own, each row starting with the last three sites of the one before. Common paths
 for a date range count the rows of those days, each path in the row of its last site, instead
 of replaying the range's visits.
+The cards that rank or count sites (top sites, explore or focus, habits, browsers compared and
+the KPI row's site count) share one read of a range's `domain_daily_rollups` rows, in date
+order, that keeps running totals per site, not its days (`intelligence::site_days`). Each vault
+keeps the last eight ranges read, each under the content fingerprint the all-time snapshot
+uses, so the second batch, another top-sites order, its next page and History's Sites view read
+nothing new until a build or clear changes the data. A single day is read directly.
 Assignments store their navigation ordinal, which session and trail details use for paging.
 Refind construction streams one canonical page at a time. Its bounded evidence sample is
 storage bookkeeping: public evidence reads page the complete canonical visit set.

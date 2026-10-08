@@ -33,6 +33,7 @@ use super::{
     },
     intelligence_search_queries::get_query_families_with_connection,
     phase_four, phase_three,
+    site_days::SiteDayCache,
 };
 use crate::{
     intelligence_runtime::load_intelligence_runtime_from_connection,
@@ -63,11 +64,13 @@ pub fn get_intelligence_primary_overview(
 ) -> Result<CoreIntelligencePrimaryOverview> {
     let paths = vault.paths().clone();
     let config = vault.config().clone();
+    let cache = vault.site_days().clone();
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
         let paths = &paths;
         let config = &config;
         let request = &request;
+        let cache = &cache;
 
         let runtime = load_intelligence_runtime_from_connection(connection, paths, config)?;
         if is_all_time_range(&request.date_range) {
@@ -77,7 +80,7 @@ pub fn get_intelligence_primary_overview(
             let mut payload: CoreIntelligencePrimaryOverview =
                 resolve_overview_snapshot(connection, OverviewBand::Primary, request, || {
                     build_intelligence_primary_overview_with_connection(
-                        connection, &runtime, request,
+                        connection, cache, &runtime, request,
                     )
                 })?;
             refresh_for_today(connection, &runtime, request, &mut payload)?;
@@ -98,12 +101,13 @@ pub fn get_intelligence_primary_overview(
             }
             return Ok(payload);
         }
-        build_intelligence_primary_overview_with_connection(connection, &runtime, request)
+        build_intelligence_primary_overview_with_connection(connection, cache, &runtime, request)
     })
 }
 
 fn build_intelligence_primary_overview_with_connection(
     connection: &Session<'_>,
+    cache: &SiteDayCache,
     runtime: &IntelligenceRuntimeSnapshot,
     request: &ScopedDateRangeRequest,
 ) -> Result<CoreIntelligencePrimaryOverview> {
@@ -148,7 +152,11 @@ fn build_intelligence_primary_overview_with_connection(
         "digest-summary",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || super::intelligence_summary::get_digest_summary_with_connection(connection, request),
+        || {
+            super::intelligence_summary::get_digest_summary_with_connection(
+                connection, cache, request,
+            )
+        },
         |data| {
             data.total_visits.value == 0
                 && data.total_searches.value == 0
@@ -177,7 +185,7 @@ fn build_intelligence_primary_overview_with_connection(
         "top-sites",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || get_top_sites_with_connection(connection, &top_sites_request),
+        || get_top_sites_with_connection(connection, cache, &top_sites_request),
         |data| data.is_empty(),
     )?;
     timings.push(timing);
@@ -238,7 +246,7 @@ fn build_intelligence_primary_overview_with_connection(
         "habits",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || phase_three::get_habit_patterns_with_connection(connection, request),
+        || phase_three::get_habit_patterns_with_connection(connection, cache, request),
         |data| data.is_empty(),
     )?;
     timings.push(timing);
@@ -288,18 +296,20 @@ pub fn get_intelligence_secondary_overview(
     )?;
     let paths = vault.paths().clone();
     let config = vault.config().clone();
+    let cache = vault.site_days().clone();
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
         let paths = &paths;
         let config = &config;
         let request = &request;
+        let cache = &cache;
 
         let runtime = load_intelligence_runtime_from_connection(connection, paths, config)?;
         if is_all_time_range(&request.date_range) {
             let mut payload: CoreIntelligenceSecondaryOverview =
                 resolve_overview_snapshot(connection, OverviewBand::Secondary, request, || {
                     build_intelligence_secondary_overview_with_connection(
-                        connection, &observed, &runtime, request,
+                        connection, cache, &observed, &runtime, request,
                     )
                 })?;
             // The snapshot outlives the day it was built on; report this request's dates.
@@ -330,13 +340,14 @@ pub fn get_intelligence_secondary_overview(
             return Ok(payload);
         }
         build_intelligence_secondary_overview_with_connection(
-            connection, &observed, &runtime, request,
+            connection, cache, &observed, &runtime, request,
         )
     })
 }
 
 fn build_intelligence_secondary_overview_with_connection(
     connection: &Session<'_>,
+    cache: &SiteDayCache,
     observed: &crate::models::IntelligencePage<crate::models::ObservedInteraction>,
     runtime: &IntelligenceRuntimeSnapshot,
     request: &ScopedDateRangeRequest,
@@ -432,7 +443,7 @@ fn build_intelligence_secondary_overview_with_connection(
         "breadth-index",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || phase_three::get_breadth_index_with_connection(connection, request),
+        || phase_three::get_breadth_index_with_connection(connection, cache, request),
         |_| false,
     )?;
     timings.push(timing);
@@ -461,7 +472,7 @@ fn build_intelligence_secondary_overview_with_connection(
         "multi-browser-diff",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || phase_four::get_multi_browser_diff_with_connection(connection, request),
+        || phase_four::get_multi_browser_diff_with_connection(connection, cache, request),
         |data| data.profiles.is_empty() && data.category_distributions.is_empty(),
     )?;
     timings.push(timing);

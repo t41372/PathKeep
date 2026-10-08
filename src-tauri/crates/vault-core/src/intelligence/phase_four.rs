@@ -8,6 +8,7 @@
 //! - compare sets detected from search trails
 //! - multi-browser/profile behavioral diffs
 
+use super::site_days::{SiteDayCache, SiteDayScope, SiteDays};
 use super::{date_range_bounds, local_date_key};
 use crate::models::{
     BrowserCategoryDistribution, BrowserDiff, BrowserProfileSummary, CategoryMixEntry, CompareSet,
@@ -66,34 +67,35 @@ pub fn get_multi_browser_diff(
     vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<BrowserDiff> {
+    let cache = vault.site_days().clone();
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        get_multi_browser_diff_with_connection(connection, request)
+        get_multi_browser_diff_with_connection(connection, &cache, &request)
     })
 }
 
+/// Every profile's sites in the range, side by side, from the range's shared site-day read for
+/// all profiles (the comparison is between profiles, so a profile filter does not apply).
 pub(crate) fn get_multi_browser_diff_with_connection(
     connection: &Session<'_>,
+    cache: &SiteDayCache,
     request: &ScopedDateRangeRequest,
 ) -> Result<BrowserDiff> {
-    let profiles = load_browser_profile_summaries(connection, request)?;
-    let domain_counts = load_profile_domain_counts(connection, request)?;
+    let days = cache.get(connection, &SiteDayScope::of(&request.date_range, None))?;
+    let profiles = load_browser_profile_summaries(connection, &days)?;
     let category_distributions = load_category_distributions(connection, request)?;
 
     let mut exclusive_domains = Vec::new();
     let mut shared_domains = Vec::new();
-    for (registrable_domain, entries) in domain_counts {
-        if entries.len() == 1 {
-            let (profile_id, visit_count) = &entries[0];
-            exclusive_domains.push(ExclusiveDomainEntry {
-                registrable_domain,
-                profile_id: profile_id.clone(),
+    for site in &days.sites {
+        match site.per_profile.as_slice() {
+            [(profile, visit_count)] => exclusive_domains.push(ExclusiveDomainEntry {
+                registrable_domain: site.domain.clone(),
+                profile_id: days.profiles[*profile].profile_id.clone(),
                 visit_count: *visit_count,
-            });
-        } else if entries.len() > 1 {
-            shared_domains.push(registrable_domain);
+            }),
+            [] => {}
+            _ => shared_domains.push(site.domain.clone()),
         }
     }
 
@@ -374,63 +376,37 @@ fn trail_summary_from_row(row: &vault_store::Row) -> vault_store::Result<TrailSu
     })
 }
 
+/// Each profile with visits in the range, with its name from the archive, by name.
 fn load_browser_profile_summaries(
     connection: &Session<'_>,
-    request: &ScopedDateRangeRequest,
+    days: &SiteDays,
 ) -> Result<Vec<BrowserProfileSummary>> {
-    let mut statement = connection.prepare(
-        "SELECT source_profiles.profile_key,
-                source_profiles.profile_name,
-                COALESCE(source_profiles.browser_family, source_profiles.browser_kind),
-                COALESCE(totals.domains, 0),
-                COALESCE(totals.visits, 0)
-         FROM archive.source_profiles AS source_profiles
-         JOIN (
-           SELECT r.profile_id, COUNT(DISTINCT r.registrable_domain) AS domains,
-                  SUM(r.visit_count) AS visits
-           FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_range
-           WHERE r.date_key >= ?1 AND r.date_key <= ?2 AND r.generation IN (SELECT daily FROM intelligence_generations)
-           GROUP BY r.profile_id
-         ) AS totals ON totals.profile_id = source_profiles.profile_key
-         WHERE totals.visits > 0
-         ORDER BY source_profiles.profile_name ASC, source_profiles.profile_key ASC",
+    let names = connection.query(
+        "SELECT profile_key, profile_name, COALESCE(browser_family, browser_kind)
+         FROM archive.source_profiles",
+        (),
+        |row| Ok((row.get::<String>(0)?, (row.get::<String>(1)?, row.get::<String>(2)?))),
     )?;
-    let profiles = statement
-        .query_map(params![request.date_range.start, request.date_range.end], |row| {
-            Ok(BrowserProfileSummary {
-                profile_id: row.get(0)?,
-                profile_name: row.get(1)?,
-                browser_family: row.get(2)?,
-                domain_count: row.get(3)?,
-                visit_count: row.get(4)?,
+    let names = names.into_iter().collect::<HashMap<_, _>>();
+    let mut profiles = days
+        .profiles
+        .iter()
+        .filter(|profile| profile.visits > 0)
+        .filter_map(|profile| {
+            let (profile_name, browser_family) = names.get(&profile.profile_id)?.clone();
+            Some(BrowserProfileSummary {
+                profile_id: profile.profile_id.clone(),
+                profile_name,
+                browser_family,
+                domain_count: profile.sites,
+                visit_count: profile.visits,
             })
-        })?
-        .collect::<vault_store::Result<Vec<_>>>()?;
+        })
+        .collect::<Vec<_>>();
+    profiles.sort_by(|a, b| {
+        a.profile_name.cmp(&b.profile_name).then_with(|| a.profile_id.cmp(&b.profile_id))
+    });
     Ok(profiles)
-}
-
-fn load_profile_domain_counts(
-    connection: &Session<'_>,
-    request: &ScopedDateRangeRequest,
-) -> Result<HashMap<String, Vec<(String, i64)>>> {
-    let mut statement = connection.prepare(
-        "SELECT r.registrable_domain, r.profile_id, SUM(r.visit_count)
-         FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_range
-         WHERE r.date_key >= ?1 AND r.date_key <= ?2 AND r.generation IN (SELECT daily FROM intelligence_generations)
-         GROUP BY r.registrable_domain, r.profile_id
-         ORDER BY r.registrable_domain ASC, r.profile_id ASC",
-    )?;
-    let rows = statement
-        .query_map(params![request.date_range.start, request.date_range.end], |row| {
-            Ok((row.get::<String>(0)?, row.get::<String>(1)?, row.get::<i64>(2)?))
-        })?
-        .collect::<vault_store::Result<Vec<_>>>()?;
-
-    let mut domains = HashMap::<String, Vec<(String, i64)>>::new();
-    for (registrable_domain, profile_id, visit_count) in rows {
-        domains.entry(registrable_domain).or_default().push((profile_id, visit_count));
-    }
-    Ok(domains)
 }
 
 fn load_category_distributions(
@@ -815,7 +791,11 @@ mod tests {
         let connection = seed_phase_four_connection();
         let diff = {
             connection.read(move |session| {
-                get_multi_browser_diff_with_connection(session, &request(None))
+                get_multi_browser_diff_with_connection(
+                    session,
+                    &super::super::site_days::SiteDayCache::default(),
+                    &request(None),
+                )
             })
         }
         .unwrap();

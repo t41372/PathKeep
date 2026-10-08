@@ -350,8 +350,13 @@ pub(crate) fn get_on_this_day_with_connection(
         let range = crate::models::DateRange { start: date.clone(), end: date.clone() };
         let (start, end) = date_range_bounds(&range)?;
         let deep_dive_sessions=s.query_one("SELECT COUNT(*) FROM intelligence_generations g CROSS JOIN sessions_rows r INDEXED BY idx_sessions_overlap ON r.profile_id=g.profile_id WHERE r.generation=g.navigation AND (?1 IS NULL OR g.profile_id=?1) AND r.is_deep_dive=1 AND r.last_visit_ms>=?2 AND r.first_visit_ms<?3",params![profile,start,end],|r|Ok(r.get::<i64>(0)?))?;
-        let page = super::intelligence_refind::get_top_sites_with_connection(
+        // One day: read it directly rather than through the range cache (`site_days`).
+        let sites = super::site_days::SiteDays::read(
             s,
+            &super::site_days::SiteDayScope::of(&range, profile),
+        )?;
+        let page = super::intelligence_refind::rank_top_sites(
+            &sites,
             &crate::models::TopSitesRequest {
                 date_range: range,
                 profile_id: profile.map(str::to_owned),

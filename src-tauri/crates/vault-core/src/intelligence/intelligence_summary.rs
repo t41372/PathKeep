@@ -23,6 +23,7 @@
 //! - KPI comparisons intentionally aggregate on the database side before doing
 //!   light Rust-side math.
 
+use super::site_days::{SiteDayCache, SiteDayScope};
 use super::{
     build_kpi, collapse_date_key, date_range_bounds, display_name_for_domain,
     display_name_for_search_engine, new_sites_by_day, previous_date_range, rfc3339_from_millis,
@@ -151,16 +152,16 @@ pub fn get_digest_summary(
     vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<DigestSummary> {
+    let cache = vault.site_days().clone();
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        get_digest_summary_with_connection(connection, request)
+        get_digest_summary_with_connection(connection, &cache, &request)
     })
 }
 
 pub(crate) fn get_digest_summary_with_connection(
     connection: &Session<'_>,
+    cache: &SiteDayCache,
     request: &ScopedDateRangeRequest,
 ) -> Result<DigestSummary> {
     let current =
@@ -171,10 +172,13 @@ pub(crate) fn get_digest_summary_with_connection(
         count_deep_dive_sessions(connection, &request.date_range, request.profile_id.as_deref())?;
     let previous_deep =
         count_deep_dive_sessions(connection, &previous_range, request.profile_id.as_deref())?;
+    // The sites of each range come from its shared site-day read (`site_days`), which the cards
+    // ranking sites in the same range read too.
+    let profile = request.profile_id.as_deref();
     let current_domains =
-        count_distinct_domains(connection, &request.date_range, request.profile_id.as_deref())?;
+        cache.get(connection, &SiteDayScope::of(&request.date_range, profile))?.sites.len() as i64;
     let previous_domains =
-        count_distinct_domains(connection, &previous_range, request.profile_id.as_deref())?;
+        cache.get(connection, &SiteDayScope::of(&previous_range, profile))?.sites.len() as i64;
     let current_active =
         estimate_active_time_ms(connection, &request.date_range, request.profile_id.as_deref())?;
     let previous_active =
@@ -517,24 +521,6 @@ fn count_deep_dive_sessions(
         .map_err(Into::into)
 }
 
-fn count_distinct_domains(
-    connection: &Session<'_>,
-    range: &DateRange,
-    profile_id: Option<&str>,
-) -> Result<i64> {
-    connection
-        .query_one(
-            "SELECT COUNT(DISTINCT r.registrable_domain)
-             FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_range
-             WHERE r.date_key >= ?2 AND r.date_key <= ?3
-               AND r.generation IN (SELECT daily FROM intelligence_generations)
-               AND (?1 IS NULL OR r.profile_id = ?1)",
-            params![profile_id, range.start, range.end],
-            |row| Ok(row.get(0)?),
-        )
-        .map_err(Into::into)
-}
-
 /// Longest dwell credited to one visit when estimating active time.
 const ACTIVE_TIME_PER_VISIT_CAP_MS: i64 = 5 * 60_000;
 /// Time credited for the page a session ended on, which has no later visit to measure against.
@@ -631,7 +617,8 @@ mod tests {
         session("idle-tab", start_ms + 300 * minute, 120 * minute, 2);
         session("last-week", previous_start_ms + minute, 4 * minute, 5);
 
-        let digest = get_digest_summary_with_connection(connection, &request).expect("digest");
+        let digest = get_digest_summary_with_connection(connection, &SiteDayCache::default(), &request)
+            .expect("digest");
         assert_eq!(digest.distinct_domains.value, 2);
         assert_eq!(digest.distinct_domains.previous_value, Some(1));
         assert_eq!(digest.active_time_ms.value, (1 + 11 + 10) * minute);
@@ -640,6 +627,7 @@ mod tests {
 
         let scoped = get_digest_summary_with_connection(
             connection,
+            &SiteDayCache::default(),
             &ScopedDateRangeRequest {
                 profile_id: Some("firefox:dev".to_string()),
                 ..request.clone()
