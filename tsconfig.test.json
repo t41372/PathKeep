@@ -31,5 +31,7 @@
     "src/test/**/*.ts",
     "tests/**/*.ts",
     "vitest.config.ts"
-  ]
+  ],
+  // Sources that run in another version's checkout (see their READMEs).
+  "exclude": ["tests/fixtures/**"]
 }

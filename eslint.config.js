@@ -23,6 +23,8 @@ export default defineConfig([
     'test-results',
     'coverage',
     'src-tauri/coverage',
+    // Generators that run in a v0.3.0 checkout, not this tree.
+    'tests/fixtures',
   ]),
   {
     files: ['**/*.{ts,tsx}'],
