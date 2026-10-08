@@ -244,3 +244,9 @@ pub(super) fn peak_rss_bytes() -> Option<u64> {
 pub(super) fn peak_rss_bytes() -> Option<u64> {
     None
 }
+/// Resident memory now, to see what a phase keeps after it ends (Linux only).
+pub(super) fn current_rss_bytes() -> Option<u64> {
+    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+    let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+    Some(pages * 4096)
+}

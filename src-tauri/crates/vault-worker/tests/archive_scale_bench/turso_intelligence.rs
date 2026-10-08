@@ -26,6 +26,14 @@ fn encrypted_intelligence_at_scale() {
                 require_published_baseline(&vault).unwrap();
                 rebuild(&vault, false);
             }
+            operation if operation.starts_with("insights-") => {
+                require_published_baseline(&vault).unwrap();
+                insights(&vault, operation.trim_start_matches("insights-"));
+            }
+            "export-between-reads" => {
+                require_published_baseline(&vault).unwrap();
+                export_between_reads(&vault);
+            }
             operation => {
                 require_published_baseline(&vault).unwrap();
                 read(&vault, "cold", operation);
@@ -33,6 +41,11 @@ fn encrypted_intelligence_at_scale() {
             }
         }
         return;
+    }
+    // Every read the phases make, once on an empty archive, so a request the
+    // command refuses fails now and not after seeding 14.4M visits.
+    for range in ["30d", "1y", "all"] {
+        insights(&Vault::open_temp_with_key(Some([7; 32])).unwrap(), range);
     }
     let root = BenchmarkRoot(
         std::env::var_os("PATHKEEP_INTELLIGENCE_BENCH_ROOT")
@@ -46,7 +59,15 @@ fn encrypted_intelligence_at_scale() {
     vault.close().unwrap();
     drop(vault);
     child(root.path(), "full");
-    for operation in ["overview", "domain", "sessions"] {
+    for operation in [
+        "overview",
+        "domain",
+        "sessions",
+        "insights-30d",
+        "insights-1y",
+        "insights-all",
+        "export-between-reads",
+    ] {
         child(root.path(), operation);
     }
     let vault = super::turso_reads::open(root.path());
@@ -218,6 +239,121 @@ fn read(vault: &Vault, pass: &str, operation: &str) {
         start.elapsed().as_secs_f64() * 1000.0,
         super::turso_reads::peak_rss_bytes()
     );
+}
+/// Every read Insights makes, or made in v0.3.0, for one range, twice each: the first call
+/// in a new process, then again with its caches warm. "all" ends today, as the app's all-time
+/// range does, so the primary and secondary overviews can come from the snapshot the full
+/// rebuild warmed.
+fn insights(vault: &Vault, range: &str) {
+    load();
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let (start, end) = match range {
+        "30d" => ("2025-03-09", "2025-04-07".to_owned()),
+        "1y" => ("2024-04-08", "2025-04-07".to_owned()),
+        "all" => ("1900-01-01", today),
+        _ => unreachable!(),
+    };
+    let request = serde_json::json!({
+        "dateRange": { "start": start, "end": end },
+        "profileId": null,
+        "granularity": "day",
+        "pageSize": 20,
+        "stepCount": 3,
+        "limit": 20,
+        "sortBy": "visits",
+    });
+    macro_rules! time {
+        ($name:literal, $call:path) => {
+            for pass in ["first", "again"] {
+                let request = serde_json::from_value(request.clone()).unwrap();
+                let started = Instant::now();
+                $call(vault, &request).unwrap();
+                println!(
+                    "INTELLIGENCE_BENCH insights range={range} {pass} {} elapsed_ms={:.1} peak_rss_bytes={:?}",
+                    $name,
+                    started.elapsed().as_secs_f64() * 1000.0,
+                    super::turso_reads::peak_rss_bytes()
+                );
+            }
+        };
+    }
+    time!("primary_overview", vault_core::intelligence::get_intelligence_primary_overview);
+    time!("secondary_overview", vault_core::intelligence::get_intelligence_secondary_overview);
+    // Where each overview's time goes, section by section.
+    let scope: ScopedDateRangeRequest = serde_json::from_value(request.clone()).unwrap();
+    let primary =
+        vault_core::intelligence::get_intelligence_primary_overview(vault, &scope).unwrap();
+    let secondary =
+        vault_core::intelligence::get_intelligence_secondary_overview(vault, &scope).unwrap();
+    for timing in primary.timings.iter().chain(&secondary.timings) {
+        println!(
+            "INTELLIGENCE_BENCH insights range={range} section {} elapsed_ms={}",
+            timing.section_id, timing.duration_ms
+        );
+    }
+    time!("digest", vault_core::get_digest_summary);
+    time!("discovery_trend_day", vault_core::get_discovery_trend);
+    time!("activity_mix_trend_day", vault_core::get_activity_mix_trend);
+    time!("top_sites", vault_core::get_top_sites);
+    time!("browsing_rhythm", vault_core::get_browsing_rhythm);
+    time!("frequent_searches", vault_core::get_frequent_searches);
+    time!("refind_pages", vault_core::get_refind_pages);
+    time!("reopened_investigations", vault_core::get_reopened_investigations);
+    time!("breadth_index", vault_core::get_breadth_index);
+    time!("habit_patterns", vault_core::get_habit_patterns);
+    time!("multi_browser_diff", vault_core::get_multi_browser_diff);
+    time!("activity_mix", vault_core::get_activity_mix);
+    time!("stable_sources", vault_core::get_stable_sources);
+    time!("search_engine_ranking", vault_core::get_search_engine_ranking);
+    time!("top_search_concepts", vault_core::get_top_search_concepts);
+    time!("query_families", vault_core::get_query_families);
+    time!("search_effectiveness", vault_core::get_search_effectiveness);
+    time!("friction_signals", vault_core::get_friction_signals);
+    time!("interrupted_habits", vault_core::get_interrupted_habits);
+    time!("path_flows", vault_core::get_path_flows);
+    time!("compare_sets", vault_core::get_compare_sets);
+    time!("observed_interactions", vault_core::get_observed_interactions);
+    time!("search_trails", vault_core::get_search_trails);
+}
+
+/// On a real archive (2026-10-08) the overviews stayed 3-4x slower after an export and the
+/// app kept 3 GB resident. Reads, exports the whole app, reads again.
+fn export_between_reads(vault: &Vault) {
+    let request = ScopedDateRangeRequest {
+        date_range: DateRange { start: "2025-03-09".into(), end: "2025-04-07".into() },
+        profile_id: None,
+    };
+    let overviews = |label: &str| {
+        for pass in ["first", "again"] {
+            let started = Instant::now();
+            vault_core::intelligence::get_intelligence_secondary_overview(vault, &request).unwrap();
+            println!(
+                "INTELLIGENCE_BENCH export-between-reads {label} {pass} secondary_overview elapsed_ms={:.1} rss_bytes={:?}",
+                started.elapsed().as_secs_f64() * 1000.0,
+                super::turso_reads::current_rss_bytes()
+            );
+        }
+    };
+    overviews("before");
+    let target = vault.paths().app_root.parent().unwrap().join("bench-export.pathkeep");
+    let started = Instant::now();
+    vault_core::migration::native::export(
+        vault,
+        &target,
+        "bench export",
+        Default::default(),
+        |_| {},
+    )
+    .unwrap();
+    println!(
+        "INTELLIGENCE_BENCH export-between-reads export elapsed_ms={} bytes={} rss_bytes={:?} peak_rss_bytes={:?}",
+        started.elapsed().as_millis(),
+        std::fs::metadata(&target).unwrap().len(),
+        super::turso_reads::current_rss_bytes(),
+        super::turso_reads::peak_rss_bytes()
+    );
+    std::fs::remove_file(&target).unwrap();
+    overviews("after");
 }
 fn load() {
     let output = std::process::Command::new("uptime").output().unwrap();

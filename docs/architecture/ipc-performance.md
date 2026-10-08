@@ -222,6 +222,43 @@ Release build on Apple Silicon; five alternating revert/restore calls in a warm 
 
 Reproduce with `export CARGO_TARGET_DIR=$PWD/.cargo-target`, then `PATHKEEP_IMPORT_BATCH_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=1000000 PATHKEEP_ARCHIVE_BENCH_DIR=$PWD/.batch-revert-bench cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --test archive_scale_bench --release import_batch_visibility_scale_bench -- --nocapture`. The synthetic archive was created inside the checkout and deleted after both measurements. These numbers do not measure the 14.4M target or encrypted archives.
 
+### 11. Insights read whole generations for every date range
+
+Every range read went through the generation views (`domain_daily_rollups`, `sessions`, `search_trails`, …). Turso plans those as a scan of the view and a search of the rows table on `generation` alone, so a 30-day card read every row the last rebuild wrote. Compare sets were worked out from every trail member in range on every read, habits read every visit, and the rhythm map counted visits by hour.
+
+Fix: range reads query the `_rows` tables `INDEXED BY` an index that starts with the range column (`idx_domain_daily_range`, `idx_daily_summary_range`, `idx_sessions_range`, `idx_refind_pages_range`, `idx_search_trails_landing`, `idx_domain_daily_site`) and check the generation per row. Compare sets are found during the build and stored (`compare_sets_rows`). Habits take a site's last visit from the daily rollups (`last_visit_ms`), and the rhythm map adds up the hour counts each daily summary row now keeps (`hours`). A plan test (`vault-core/tests/intelligence_read_plans.rs`) fails if a range read scans a large table or searches one by generation alone.
+
+`turso_intelligence::encrypted_intelligence_at_scale`, Modal VM (4 vCPU, 8 GiB), release, encrypted, 14.4M visits, one profile, 2026-10-08. Each figure is the second of two calls in the same process; the first was within 15%.
+
+| 14.4M visits                       | 30 days before | 30 days after | 1 year after |
+| ---------------------------------- | -------------- | ------------- | ------------ |
+| primary overview (the first batch) | 581 s          | 3.3 s         | 37.8 s       |
+| secondary overview                 | 350 s          | 4.3 s         | 55.0 s       |
+| `get_digest_summary`               | 122 s          | 0.32 s        | 3.1 s        |
+| `get_top_sites`                    | 55 s           | 1.27 s        | 16.3 s       |
+| `get_browsing_rhythm`              | 31 s           | 0.9 ms        | 1.3 ms       |
+| `get_breadth_index`                | 58 s           | 1.15 s        | 15.1 s       |
+| `get_habit_patterns`               | 119 s          | 1.38 s        | 18.4 s       |
+| `get_multi_browser_diff`           | 147 s          | 2.38 s        | 31.7 s       |
+| `get_path_flows`                   | 71 s           | 0.76 s        | 9.4 s        |
+| `get_compare_sets`                 | 68 s           | 0.5 ms        | 2.6 ms       |
+| `get_observed_interactions`        | 61 ms          | 0.2 ms        | 0.1 ms       |
+| every other card read              | under 19 ms    | under 11 ms   | under 12 ms  |
+
+All time opens from the overview snapshot the rebuild writes: 1.5 s for each batch. A card read the snapshot does not hold is still a full scan: changing the top-sites order or asking for its next page takes 74 s for all time.
+
+Full rebuild, same run: 5,721 s before, 5,955 s after; peak RSS 1.96 → 2.14 GB.
+
+| stage               | before  | after   |                                                                                        |
+| ------------------- | ------- | ------- | -------------------------------------------------------------------------------------- |
+| visit-derived facts | 1,879 s | 1,872 s |                                                                                        |
+| daily rollups       | 241 s   | 1,293 s | the new site and range indexes; the site index is written in site order, not day order |
+| sessions and trails | 376 s   | 402 s   |                                                                                        |
+| aggregates          | 1,259 s | 1,541 s | compare sets are now found here                                                        |
+| overview snapshots  | 1,964 s | 844 s   | the all-time snapshot, built with the faster reads                                     |
+
+The benchmark's data is a worst case for these reads: its visits walk 20,000 sites in turn, 8,640 a day, so nearly every visit starts a new site-day row (about 8,600 a day, 14.4M in all). Real browsing comes back to the same sites, so it has far fewer site-day rows per visit; every read above that grows with the range (top sites, breadth, habits, browsers) reads those rows, and so does the slower daily-rollup stage. Top sites, breadth, habits and browsers also read the same rows once each. Both are open below.
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |
@@ -239,4 +276,5 @@ Generating the 14.4M archive took 208 s for the rows and 47 s to project 3.6M se
 - `load_source_stats` recounts each profile after every backup (294 ms at 14.4M). It is cached until the archive file changes and runs off the UI thread.
 - `keyring_status()` on every `app_snapshot` is unmeasured (see 4).
 - A whole-archive export at 14.4M is a long job (66 minutes measured with a cold cache). Memory stays flat, but Settings shows only a spinner until it finishes: there is no progress or cancel yet. Keeping one archive connection for the whole walk, instead of reopening it per page, is the first thing to try.
+- Insights over long ranges (§11): at 14.4M visits in the benchmark's shape, one year takes 38 s for the first batch and 55 s for the second, and an all-time card read the snapshot does not hold takes over a minute. Top sites, breadth, habits and browsers each read the range's site-day rows separately; one pass could feed all four. Bounded path flows still replay every visit in range.
 - Numbers come from a machine several times faster than the target. The fixes change the shape of the work (one page instead of a sort over every visit, two key derivations instead of five), which holds on slower hardware, but absolute times there will be higher.
