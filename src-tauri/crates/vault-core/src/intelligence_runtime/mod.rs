@@ -455,6 +455,13 @@ pub fn load_intelligence_runtime(vault: &Vault) -> Result<IntelligenceRuntimeSna
     })
 }
 
+/// The module states alone, for the status line of every Insights card; the full
+/// snapshot also counts plugin records and lists recent jobs.
+pub fn load_module_runtime(vault: &Vault) -> Result<Vec<DeterministicModuleRuntimeStatus>> {
+    let config = vault.config().clone();
+    vault.read(Db::Intelligence, move |s| snapshot::load_module_statuses(s, &config))
+}
+
 /// The exclusive owner reclaims unfinished work once at open, preserving completed jobs.
 pub(crate) fn recover_owner_claims(store: &vault_store::Store) -> vault_store::Result<()> {
     store.write(Db::Intelligence,Priority::Interactive,|s| {
