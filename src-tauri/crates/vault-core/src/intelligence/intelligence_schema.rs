@@ -72,6 +72,7 @@ pub fn clear_derived_intelligence_state(vault: &Vault) -> Result<ClearDerivedInt
     for table in [
         "visit_assignments",
         "session_domains",
+        "session_paths",
         "intelligence_seen_domains",
         "intelligence_day_counts",
         "intelligence_counts",

@@ -180,6 +180,7 @@ pub(super) fn collect_old_generations(vault: &Vault, state: &BuildState) -> Resu
             for (name, i) in [
                 ("visit_assignments", 2),
                 ("session_domains", 2),
+                ("session_paths", 2),
                 ("intelligence_seen_domains", 0),
                 ("intelligence_day_counts", 1),
             ] {

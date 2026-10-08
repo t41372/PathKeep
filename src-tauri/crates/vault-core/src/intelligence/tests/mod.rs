@@ -25,6 +25,7 @@ mod new_sites;
 mod rhythm;
 mod schema_overview;
 mod search_families;
+mod session_paths;
 mod stage_rebuild;
 mod structural_incremental;
 mod top_sites_profiles;

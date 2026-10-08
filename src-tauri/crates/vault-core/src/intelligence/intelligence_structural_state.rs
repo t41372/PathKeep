@@ -24,9 +24,68 @@
 
 use super::{
     SessionRecord, StructuralVisitRecord, TrailMemberRecord, TrailRecord, display_name_for_domain,
-    jaccard, normalize_query, query_token_set,
+    jaccard, local_date_key, normalize_query, query_token_set,
 };
 use std::collections::HashMap;
+
+/// The longest common path is four sites, so a segment keeps the three sites before its own.
+const PATH_PREFIX_SITES: usize = 3;
+/// Sites a segment holds of its own before the next one starts: bounds a row, and the work of
+/// re-saving the open segment after every batch, when one session runs for days (a visit every
+/// few minutes never ends a session).
+const PATH_SEGMENT_SITES: usize = 256;
+
+/// One stretch of a session's sites, in order, each with the time of its last visit in that run
+/// of visits. Bounded ranges count common paths from these (`path_flows::get_path_flows`): a path
+/// belongs to the segment holding its last site, so a segment starts with the last
+/// `PATH_PREFIX_SITES` sites of the one before it (`prefix_len` of them), and every path is in
+/// exactly one segment. A segment's own sites all start on one local day (`date_key`), which is
+/// what a date range selects.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub(super) struct PathSegment {
+    pub(super) segment: i64,
+    pub(super) date_key: String,
+    pub(super) prefix_len: usize,
+    pub(super) sites: Vec<(String, i64)>,
+}
+
+impl PathSegment {
+    /// Adds one visit. A visit to the site already last in the path only moves its time; a new
+    /// site on another day than the segment's own, or past the size bound, closes this segment
+    /// and returns it to be saved.
+    pub(super) fn push(&mut self, domain: &str, visit_time_ms: i64) -> Option<PathSegment> {
+        if let Some((last, time)) = self.sites.last_mut()
+            && last == domain
+        {
+            *time = visit_time_ms;
+            return None;
+        }
+        let day = local_date_key(visit_time_ms);
+        let own = self.sites.len() - self.prefix_len;
+        let closed = (own > 0 && (own >= PATH_SEGMENT_SITES || day != self.date_key)).then(|| {
+            let prefix = self.sites[self.sites.len().saturating_sub(PATH_PREFIX_SITES)..].to_vec();
+            std::mem::replace(
+                self,
+                PathSegment {
+                    segment: self.segment + 1,
+                    date_key: day.clone(),
+                    prefix_len: prefix.len(),
+                    sites: prefix,
+                },
+            )
+        });
+        if self.sites.len() == self.prefix_len {
+            self.date_key = day;
+        }
+        self.sites.push((domain.to_owned(), visit_time_ms));
+        closed
+    }
+
+    /// Whether the segment has sites of its own to save.
+    pub(super) fn has_own_sites(&self) -> bool {
+        self.sites.len() > self.prefix_len
+    }
+}
 
 /// Tracks one in-progress browsing session while visits stream through the
 /// deterministic grouping rules.
@@ -38,6 +97,9 @@ pub(super) struct SessionBuildState {
     first_search_query: Option<String>,
     navigation_chain_depth: i64,
     new_domain_count: i64,
+    /// The open path segment; earlier ones are already saved.
+    #[serde(default)]
+    pub(super) path: PathSegment,
 }
 
 impl SessionBuildState {
@@ -60,6 +122,7 @@ impl SessionBuildState {
             first_search_query: None,
             navigation_chain_depth: 0,
             new_domain_count: 0,
+            path: PathSegment::default(),
         }
     }
 

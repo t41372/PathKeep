@@ -126,7 +126,7 @@ export const insights = defineMessages({
       title: 'How you move between sites',
       subtitle: 'Three sites in a row, most often first',
       explain:
-        'Three different sites visited one after another in the same session. Going back to a site you just left (a search engine, say) makes a round trip, which is not counted as a path.',
+        'Three different sites visited one after another in the same session. Going back to a site you just left (a search engine, say) makes a round trip, which is not counted as a path. A path counts on the day you reached its last site, so the first two can be earlier than the range.',
       empty:
         'No three sites came one after another more than once in this range.',
       then: 'then',
@@ -440,7 +440,7 @@ export const insights = defineMessages({
       title: '在网站之间怎么走',
       subtitle: '连着去的三个网站，最常见的在前',
       explain:
-        '同一段浏览里先后去的三个不同网站。回到刚离开的网站（比如搜索引擎）算来回，不算一条路线。',
+        '同一段浏览里先后去的三个不同网站。回到刚离开的网站（比如搜索引擎）算来回，不算一条路线。一条路线算在到达最后一个网站的那天，所以前两个网站可以早于这段时间。',
       empty: '这段时间没有哪三个网站接连出现超过一次。',
       then: '然后',
       times_one: '{times} 次',
@@ -752,7 +752,7 @@ export const insights = defineMessages({
       title: '在網站之間怎麼走',
       subtitle: '連著去的三個網站，最常見的在前',
       explain:
-        '同一段瀏覽裡先後去的三個不同網站。回到剛離開的網站（例如搜尋引擎）算來回，不算一條路線。',
+        '同一段瀏覽裡先後去的三個不同網站。回到剛離開的網站（例如搜尋引擎）算來回，不算一條路線。一條路線算在到達最後一個網站的那天，所以前兩個網站可以早於這段時間。',
       empty: '這段時間沒有哪三個網站接連出現超過一次。',
       then: '然後',
       times_one: '{times} 次',

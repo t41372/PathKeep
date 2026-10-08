@@ -7,12 +7,13 @@
 use vault_core::{DateRange, ScopedDateRangeRequest, Vault};
 use vault_store::{Db, QueryPlan};
 
-/// Derived tables with a row per visit, page, session or site-day, and the generation views
-/// over them: never read whole. (The daily summary and category rollups hold a row per day,
+/// Derived tables with a row per visit, page, session, session-day or site-day, and the
+/// generation views over them: never read whole. (The daily summary and category rollups hold a row per day,
 /// and category, per profile, so reading them whole is cheap.)
 const LARGE: &[&str] = &[
     "sessions_rows",
     "sessions",
+    "session_paths",
     "refind_pages_rows",
     "refind_pages",
     "domain_daily_rollups_rows",

@@ -571,51 +571,75 @@ test('reworded searches are counted, and listed as searches that took several tr
 test('the most frequent path between three sites is counted like the archive', async ({
   page,
 }, testInfo) => {
-  test.setTimeout(180_000)
+  test.setTimeout(240_000)
   // Per browser: sessions break at 30 minutes; a run of one site is one step;
-  // a path is three different sites in a row.
-  const perPath = new Map<string, number>()
-  for (const visits of Object.values(fixture().visitsByProfile)) {
-    if (!archivedVisits().includes(visits[0])) continue
-    let last = -Infinity
-    let steps: string[] = []
-    for (const visit of [...visits].sort((a, b) => a.at - b.at)) {
-      if (visit.at - last > 30 * 60_000) steps = []
-      last = visit.at
-      const here = site(visit.url)
-      if (steps.at(-1) === here) continue
-      steps.push(here)
-      const window = steps.slice(-3)
-      if (window.length === 3 && new Set(window).size === 3) {
-        const path = window.join(' → ')
-        perPath.set(path, (perPath.get(path) ?? 0) + 1)
+  // a path is three different sites in a row. A path belongs to the day its
+  // last site was first visited, so a range counts the paths ending in it,
+  // whenever they began.
+  const countPaths = (from: number) => {
+    const perPath = new Map<string, number>()
+    for (const visits of Object.values(fixture().visitsByProfile)) {
+      if (!archivedVisits().includes(visits[0])) continue
+      let last = -Infinity
+      let steps: string[] = []
+      for (const visit of [...visits].sort((a, b) => a.at - b.at)) {
+        if (visit.at - last > 30 * 60_000) steps = []
+        last = visit.at
+        const here = site(visit.url)
+        if (steps.at(-1) === here) continue
+        steps.push(here)
+        const window = steps.slice(-3)
+        if (
+          visit.at >= from &&
+          window.length === 3 &&
+          new Set(window).size === 3
+        ) {
+          const path = window.join(' → ')
+          perPath.set(path, (perPath.get(path) ?? 0) + 1)
+        }
       }
     }
+    const top = Math.max(...perPath.values())
+    const leaders = [...perPath]
+      .filter(([, count]) => count === top)
+      .map(([path]) => path)
+    return { top, leaders }
   }
-  const top = Math.max(...perPath.values())
-  const leaders = [...perPath].filter(([, count]) => count === top)
-  await testInfo.attach('most frequent paths by hand', {
-    body: JSON.stringify({ top, leaders: leaders.map(([path]) => path) }),
-    contentType: 'application/json',
-  })
+  const now = new Date()
+  // 90 days, today included, from local midnight: what "90 days" asks for.
+  const ninetyDays = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() - 89,
+  ).getTime()
 
-  await page.goto('/#/insights')
-  const first = card(page, 'How you move between sites')
-    .getByRole('listitem')
-    .first()
-  await expect(first).toContainText(
-    `${new Intl.NumberFormat('en').format(top)} times`,
-    {
-      timeout: 60_000,
-    },
-  )
-  const shown = (await first.innerText()).replace(/\s+/g, ' ')
-  expect(
-    leaders.some(([path]) =>
-      path.split(' → ').every((step) => shown.includes(step)),
-    ),
-    `${shown} should be one of ${leaders.map(([path]) => path).join(', ')}`,
-  ).toBe(true)
+  for (const [url, from] of [
+    ['/#/insights', -Infinity],
+    ['/#/insights?range=d90', ninetyDays],
+  ] as const) {
+    const { top, leaders } = countPaths(from)
+    await testInfo.attach(`most frequent paths by hand, ${url}`, {
+      body: JSON.stringify({ top, leaders }),
+      contentType: 'application/json',
+    })
+    // A fresh app, so no row from the range before can pass for this one.
+    await page.goto('about:blank')
+    await page.goto(url)
+    const first = card(page, 'How you move between sites')
+      .getByRole('listitem')
+      .first()
+    await expect(first).toContainText(
+      `${new Intl.NumberFormat('en').format(top)} times`,
+      { timeout: 60_000 },
+    )
+    const shown = (await first.innerText()).replace(/\s+/g, ' ')
+    expect(
+      leaders.some((path) =>
+        path.split(' → ').every((step) => shown.includes(step)),
+      ),
+      `${url}: ${shown} should be one of ${leaders.join(', ')}`,
+    ).toBe(true)
+  }
 })
 
 test('where searches end up is counted like the archive', async ({

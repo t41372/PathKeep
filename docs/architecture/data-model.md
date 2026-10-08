@@ -631,6 +631,10 @@ aggregates. Published old generations are reclaimed in bounded writes.
 
 `session_domains` persists per-session domain counts with navigation assignments and their
 cursor. A resumed long session reads these counts instead of replaying every earlier visit.
+`session_paths` holds each session's sites in visit order, a row per local day and at most 256
+sites of its own, each row starting with the last three sites of the one before. Common paths
+for a date range count the rows of those days, each path in the row of its last site, instead
+of replaying the range's visits.
 Assignments store their navigation ordinal, which session and trail details use for paging.
 Refind construction streams one canonical page at a time. Its bounded evidence sample is
 storage bookkeeping: public evidence reads page the complete canonical visit set.

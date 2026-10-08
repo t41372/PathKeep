@@ -345,6 +345,11 @@ summaries)` records committed day totals for idempotent replay.
 visit_id)`; visit/generation and trail indexes support point hydration.
 - `session_domains(generation, profile_id, session_id, domain, visit_count)` has primary key
   `(generation, session_id, domain)` and restores open-session counts without visit replay.
+- `session_paths(generation, profile_id, session_id, segment, date_key, prefix_len, sites_json)`
+  has primary key `(generation, session_id, segment)`: a session's sites in order with each one's
+  last visit time, cut at local midnight and every 256 sites, each segment starting with the
+  previous segment's last three sites. Bounded common paths read it through
+  `idx_session_paths_range (date_key, generation, profile_id)`.
 
 Full builds retain published rows until replacement stages commit. Append builds extend the
 fact/daily/navigation groups and replace aggregates. Checkpoints and their writes commit in

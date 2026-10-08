@@ -5,6 +5,7 @@ use super::{Fixture, ForeignKey};
 
 pub(super) const TABLES: &[&str] = &[
     "session_domains",
+    "session_paths",
     "__pk_migrations",
     "ai_assistant_runs",
     "ai_embeddings",
@@ -54,6 +55,7 @@ pub(super) const TABLES: &[&str] = &[
 ];
 pub(super) const INDEXES: &[&str] = &[
     "sqlite_autoindex_session_domains_1",
+    "sqlite_autoindex_session_paths_1",
     "idx_search_trail_members_order",
     "idx_search_events_query_time",
     "idx_ai_embeddings_history_id",
@@ -140,6 +142,7 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_refind_pages_range",
     "idx_search_trails_landing",
     "idx_domain_daily_site",
+    "idx_session_paths_range",
 ];
 pub(super) const ROWS: &[Fixture] = &[
     Fixture {
@@ -147,6 +150,12 @@ pub(super) const ROWS: &[Fixture] = &[
         columns: "generation,profile_id,session_id,domain,visit_count",
         values: "1,'sample','sample','sample',1",
         updated: "visit_count=2",
+    },
+    Fixture {
+        table: "session_paths",
+        columns: "generation,profile_id,session_id,segment,date_key,prefix_len,sites_json",
+        values: "1,'sample','sample',0,'2026-01-01',0,'[]'",
+        updated: "prefix_len=1",
     },
     Fixture {
         table: "intelligence_generations",

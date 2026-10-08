@@ -28,7 +28,7 @@
 //! - Range deletes stay scoped to one profile and one dirty window so large
 //!   rebuilds do not rewrite unaffected structural rows.
 
-use super::intelligence_structural_state::{SessionBuildState, TrailBuildState};
+use super::intelligence_structural_state::{PathSegment, SessionBuildState, TrailBuildState};
 use super::{
     StructuralTailStreamReport, StructuralVisitRecord, TrailRecord, classify_search_query_kind,
     normalize_query, search_words,
@@ -47,6 +47,7 @@ pub(super) struct StructuralTailPersist<'tx, 'db> {
     domain_statement: vault_store::Statement<'tx, 'db>,
     domain_updates: std::collections::BTreeMap<(String, String), i64>,
     session_statement: vault_store::Statement<'tx, 'db>,
+    path_statement: vault_store::Statement<'tx, 'db>,
     trail_statement: vault_store::Statement<'tx, 'db>,
     trail_member_statement: vault_store::Statement<'tx, 'db>,
     search_event_statement: vault_store::Statement<'tx, 'db>,
@@ -68,6 +69,9 @@ impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
             )?,
             session_statement: tx.prepare(
                 "INSERT OR REPLACE INTO sessions_rows (generation,session_id, profile_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title, computed_at) VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            )?,
+            path_statement: tx.prepare(
+                "INSERT OR REPLACE INTO session_paths (generation,profile_id,session_id,segment,date_key,prefix_len,sites_json) VALUES (?1,?2,?3,?4,?5,?6,?7)",
             )?,
             trail_statement: tx.prepare(
                 "INSERT OR REPLACE INTO search_trails_rows (generation,trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
@@ -128,6 +132,20 @@ impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
     }
 
     /// Persists one completed session row.
+    /// Saves one path segment; the open one is saved again, in place, as it grows.
+    pub(super) fn persist_path(&mut self, session_id: &str, path: &PathSegment) -> Result<()> {
+        self.path_statement.execute(params![
+            self.generation,
+            self.profile_id,
+            session_id,
+            path.segment,
+            path.date_key,
+            path.prefix_len as i64,
+            serde_json::to_string(&path.sites)?,
+        ])?;
+        Ok(())
+    }
+
     pub(super) fn persist_session(
         &mut self,
         session: &super::SessionRecord,
@@ -278,6 +296,9 @@ impl StructuralTailStreamState {
         let session = self.current_session.as_mut().expect("structural session");
         session.push_visit(&visit);
         let session_id = session.record.session_id.clone();
+        if let Some(closed) = session.path.push(&visit.registrable_domain, visit.visit_time_ms) {
+            persist.persist_path(&session_id, &closed)?;
+        }
         let ordinal = session.record.visit_count - 1;
         let mut trail_id = None::<String>;
 
@@ -389,6 +410,9 @@ impl StructuralTailStreamState {
         persist: &mut StructuralTailPersist<'_, '_>,
     ) -> Result<()> {
         if let Some(session) = self.current_session.take() {
+            if session.path.has_own_sites() {
+                persist.persist_path(&session.record.session_id, &session.path)?;
+            }
             persist.persist_session(&session.finish(), computed_at)?;
             self.report.sessions += 1;
         }

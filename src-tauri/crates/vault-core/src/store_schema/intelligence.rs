@@ -435,6 +435,11 @@ const STATEMENTS: &[&str] = &[
     "CREATE TABLE visit_assignments(generation INTEGER NOT NULL DEFAULT 0,visit_id INTEGER NOT NULL,profile_id TEXT NOT NULL,
         session_id TEXT NOT NULL,trail_id TEXT,ordinal INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(generation,visit_id))",
     "CREATE TABLE session_domains(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,session_id TEXT NOT NULL,domain TEXT NOT NULL,visit_count INTEGER NOT NULL,PRIMARY KEY(generation,session_id,domain))",
+    // Each session's sites in visit order, one row per local day and at most a few hundred sites, so
+    // common paths for a date range read the sessions of those days instead of every visit. A row
+    // starts with the last sites of the one before it (`prefix_len`); see `PathSegment`.
+    "CREATE TABLE session_paths(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,session_id TEXT NOT NULL,segment INTEGER NOT NULL,
+        date_key TEXT NOT NULL,prefix_len INTEGER NOT NULL,sites_json TEXT NOT NULL,PRIMARY KEY(generation,session_id,segment))",
     "CREATE INDEX idx_vdf_visit_generation ON visit_derived_facts_rows(visit_id,generation)",
     "CREATE INDEX idx_assignments_visit_generation ON visit_assignments(visit_id,generation)",
     "CREATE INDEX idx_assignments_generation_session ON visit_assignments(generation,session_id,ordinal,visit_id)",
@@ -493,6 +498,7 @@ const STATEMENTS: &[&str] = &[
     // One site's days (the site page and its trend).
     "CREATE INDEX idx_domain_daily_site ON domain_daily_rollups_rows(registrable_domain,date_key,generation,profile_id)",
     "CREATE INDEX idx_sessions_range ON sessions_rows(first_visit_ms,generation,profile_id)",
+    "CREATE INDEX idx_session_paths_range ON session_paths(date_key,generation,profile_id)",
     "CREATE INDEX idx_refind_pages_range ON refind_pages_rows(last_seen_ms,generation,profile_id,first_seen_ms)",
     "CREATE INDEX idx_search_events_profile_query ON search_events_rows(profile_id,normalized_query, generation)",
 

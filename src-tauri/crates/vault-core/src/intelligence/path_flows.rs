@@ -1,8 +1,10 @@
-//! Responsibilities: page ranked navigation flows and stream date-scoped visit sequences.
-//! Not responsible for: rebuilding persisted flows or source-evidence hydration.
+//! Responsibilities: page ranked navigation flows: all time from the stored flows, a date range
+//! from the sessions' stored path segments.
+//! Not responsible for: rebuilding persisted flows or segments, or source-evidence hydration.
 //! Failure modes: a result cap hides flows, repeated domains inflate windows, a session
-//! boundary joins unrelated paths, or all-time reads replay the entire archive.
-use super::{date_range_bounds, rfc3339_from_millis};
+//! boundary joins unrelated paths, a path crossing two segments counts twice or not at all, or a
+//! read replays visits.
+use super::rfc3339_from_millis;
 use crate::{
     Vault,
     models::{IntelligencePage, PathFlow, PathFlowRequest, PathFlowStep},
@@ -22,7 +24,6 @@ pub(crate) fn get_path_flows_with_connection(
     s: &Session<'_>,
     request: &PathFlowRequest,
 ) -> Result<IntelligencePage<PathFlow>> {
-    let (start, end) = date_range_bounds(&request.date_range)?;
     let steps = request.step_count.clamp(2, 4) as usize;
     let limit = request.limit.unwrap_or(20).clamp(1, 1000) as usize;
     let after = super::paging::cursor::<(i64, i64, String)>(request.cursor.as_deref())?;
@@ -60,43 +61,24 @@ pub(crate) fn get_path_flows_with_connection(
             .collect();
         return super::paging::finish(rows, limit);
     }
+    // The sessions' path segments of the range's days (see `PathSegment`): each path is counted in
+    // the segment holding its last site, the earlier sites come from the segment's prefix.
     let mut statement = s.prepare(
-        // The range's visits by time, each joined by visit id to its facts and session: through
-        // the facts view Turso read every fact of the generation (72 s for 30 days at 14.4M).
-        "SELECT a.session_id,f.registrable_domain,v.visit_time_ms
-        FROM archive.visits v INDEXED BY idx_visits_visible_time_id
-        CROSS JOIN visit_derived_facts_rows f INDEXED BY idx_vdf_visit_generation
-          ON f.visit_id=v.id AND f.generation IN (SELECT facts FROM intelligence_generations)
-        CROSS JOIN visit_assignments a INDEXED BY idx_assignments_visit_generation
-          ON a.visit_id=v.id AND a.generation IN (SELECT navigation FROM intelligence_generations)
-        WHERE v.reverted_at IS NULL AND v.visit_time_ms>=?2 AND v.visit_time_ms<?3
-          AND (?1 IS NULL OR f.profile_id=?1)
-        ORDER BY a.session_id,v.visit_time_ms,v.id",
+        "SELECT p.prefix_len,p.sites_json FROM session_paths p INDEXED BY idx_session_paths_range
+        WHERE p.date_key>=?2 AND p.date_key<=?3
+          AND p.generation IN (SELECT navigation FROM intelligence_generations)
+          AND (?1 IS NULL OR p.profile_id=?1)",
     )?;
-    let rows = statement.query_map(params![request.profile_id, start, end], |r| {
-        Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?))
-    })?;
+    let rows = statement.query_map(
+        params![request.profile_id, request.date_range.start, request.date_range.end],
+        |r| Ok((r.get::<i64>(0)?, r.get::<String>(1)?)),
+    )?;
     let mut flows = HashMap::new();
-    let mut session = String::new();
-    let mut sequence = Vec::new();
     for row in rows {
-        let (next, domain, time) = row?;
-        if session != next {
-            finalize_path_sequence(&sequence, steps, &mut flows);
-            sequence.clear();
-            session = next;
-        }
-        if sequence.last().is_some_and(|(last, _)| last == &domain) {
-            sequence.last_mut().unwrap().1 = time;
-        } else {
-            finalize_path_sequence(&sequence, steps, &mut flows);
-            sequence.push((domain, time));
-            if sequence.len() > steps {
-                sequence.remove(0);
-            }
-        }
+        let (prefix_len, sites) = row?;
+        let sites: Vec<(String, i64)> = serde_json::from_str(&sites)?;
+        count_segment_paths(&sites, prefix_len as usize, steps, &mut flows);
     }
-    finalize_path_sequence(&sequence, steps, &mut flows);
     let mut ranked = flows
         .into_iter()
         .filter_map(|((pattern, _), aggregate)| {
@@ -141,21 +123,25 @@ pub(super) fn is_path(window: &[(String, i64)]) -> bool {
         .all(|(index, (site, _))| window[..index].iter().all(|(earlier, _)| earlier != site))
 }
 
-pub(super) fn finalize_path_sequence(
-    sequence: &[(String, i64)],
+/// Counts the paths of `steps` sites (2 to 4) that end on one of the segment's own sites (those
+/// after `prefix_len`), so a path that crosses into the next segment is counted there, once. A
+/// whole session is a segment with no prefix.
+pub(super) fn count_segment_paths(
+    sites: &[(String, i64)],
+    prefix_len: usize,
     steps: usize,
     flows: &mut HashMap<(String, usize), FlowAggregate>,
 ) {
-    if steps < 2 || sequence.len() < steps {
-        return;
-    }
-    for window in sequence.windows(steps).filter(|window| is_path(window)) {
+    for end in prefix_len.max(steps - 1)..sites.len() {
+        let window = &sites[end + 1 - steps..=end];
+        if !is_path(window) {
+            continue;
+        }
         let pattern =
             window.iter().map(|(domain, _)| domain.as_str()).collect::<Vec<_>>().join(" → ");
-        let time = window.iter().map(|(_, time)| *time).max().unwrap();
         let aggregate = flows.entry((pattern, steps)).or_default();
         aggregate.occurrence_count += 1;
-        aggregate.last_seen_ms = aggregate.last_seen_ms.max(time);
+        aggregate.last_seen_ms = aggregate.last_seen_ms.max(window[steps - 1].1);
     }
 }
 pub(super) fn build_path_flow_steps(pattern: &str) -> Vec<PathFlowStep> {

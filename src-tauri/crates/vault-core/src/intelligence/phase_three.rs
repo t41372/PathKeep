@@ -232,7 +232,7 @@ pub(crate) fn get_interrupted_habits_with_connection(
 pub use super::path_flows::get_path_flows;
 pub(crate) use super::path_flows::get_path_flows_with_connection;
 #[cfg(test)]
-use super::path_flows::{build_path_flow_steps, finalize_path_sequence};
+use super::path_flows::{build_path_flow_steps, count_segment_paths};
 
 pub fn get_observed_interactions(
     vault: &crate::Vault,
@@ -552,6 +552,7 @@ fn load_context_evidence(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::intelligence::intelligence_structural_state::PathSegment;
     use crate::test_support::native::TestDatabase;
     use vault_store::{Db, Priority};
 
@@ -620,24 +621,24 @@ mod tests {
         let at = |site: &str| (site.to_string(), 0);
         let sequence = vec![at("google.com"), at("github.com"), at("google.com"), at("docs.rs")];
         let mut flows = HashMap::new();
-        finalize_path_sequence(&sequence, 3, &mut flows);
+        count_segment_paths(&sequence, 0, 3, &mut flows);
         let patterns: Vec<_> = flows.keys().map(|(pattern, _)| pattern.as_str()).collect();
         assert_eq!(patterns, ["github.com → google.com → docs.rs"]);
         let mut four = HashMap::new();
-        finalize_path_sequence(&sequence, 4, &mut four);
+        count_segment_paths(&sequence, 0, 4, &mut four);
         assert!(four.is_empty());
     }
 
     #[test]
-    fn finalize_path_sequence_counts_windows() {
+    fn a_session_counts_every_window_once() {
         let sequence = vec![
             ("google.com".to_string(), 10),
             ("github.com".to_string(), 20),
             ("sqlite.org".to_string(), 30),
         ];
         let mut flows = HashMap::new();
-        finalize_path_sequence(&sequence, 2, &mut flows);
-        finalize_path_sequence(&sequence, 3, &mut flows);
+        count_segment_paths(&sequence, 0, 2, &mut flows);
+        count_segment_paths(&sequence, 0, 3, &mut flows);
         assert_eq!(flows.len(), 3);
         assert!(flows.contains_key(&("google.com → github.com".to_string(), 2)));
         assert!(flows.contains_key(&("github.com → sqlite.org".to_string(), 2)));
@@ -648,10 +649,6 @@ mod tests {
         assert!(steps[1].registrable_domain.is_none());
         assert!(steps[2].registrable_domain.is_none());
         assert!(steps[3].registrable_domain.is_none());
-
-        let mut one_step_flows = HashMap::new();
-        finalize_path_sequence(&sequence, 1, &mut one_step_flows);
-        assert!(one_step_flows.is_empty());
     }
 
     #[test]
@@ -918,6 +915,51 @@ mod tests {
         }
         insert_visit_fact(connection, visit_id, "docs.example", "session-b", 20);
         insert_visit_fact(connection, visit_id + 1, "daily.example", "session-b", 21);
+        insert_session_paths(connection);
+    }
+
+    /// Each session's path segments, cut the way the structural build cuts them.
+    fn insert_session_paths(connection: &TestDatabase) {
+        let visits = connection
+            .read(|s| {
+                Ok(s.query(
+                    "SELECT a.session_id,f.registrable_domain,v.visit_time_ms
+                     FROM visit_assignments a
+                     JOIN visit_derived_facts_rows f ON f.visit_id=a.visit_id
+                     JOIN archive.visits v ON v.id=a.visit_id
+                     ORDER BY a.session_id,v.visit_time_ms,v.id",
+                    (),
+                    |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?)),
+                )?)
+            })
+            .unwrap();
+        let mut segments = Vec::new();
+        let mut open: Option<(String, PathSegment)> = None;
+        for (session, domain, time) in visits {
+            if open.as_ref().is_none_or(|(current, _)| *current != session) {
+                segments.extend(open.take());
+                open = Some((session.clone(), PathSegment::default()));
+            }
+            let (_, path) = open.as_mut().unwrap();
+            if let Some(closed) = path.push(&domain, time) {
+                segments.push((session, closed));
+            }
+        }
+        segments.extend(open);
+        for (session, path) in segments {
+            connection
+                .execute(
+                    "INSERT INTO session_paths(generation,profile_id,session_id,segment,date_key,prefix_len,sites_json) VALUES(0,'chrome:Default',?1,?2,?3,?4,?5)",
+                    params![
+                        session,
+                        path.segment,
+                        path.date_key.clone(),
+                        path.prefix_len as i64,
+                        serde_json::to_string(&path.sites).unwrap()
+                    ],
+                )
+                .unwrap();
+        }
     }
 
     fn insert_visit_fact(
