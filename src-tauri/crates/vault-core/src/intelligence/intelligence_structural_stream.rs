@@ -31,10 +31,9 @@
 use super::intelligence_structural_state::{SessionBuildState, TrailBuildState};
 use super::{
     StructuralTailStreamReport, StructuralVisitRecord, TrailRecord, classify_search_query_kind,
-    normalize_query, tokenize_query_terms,
+    normalize_query, search_words,
 };
 use anyhow::Result;
-use std::collections::BTreeSet;
 use vault_store::{Session, params_owned as params};
 
 /// Cursor used by streamed structural replay to resume the next ordered visit
@@ -205,9 +204,7 @@ impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
             event.visit_time_ms,
         ])?;
         if event.query_kind.is_keyword() {
-            for term in
-                tokenize_query_terms(&event.normalized_query).into_iter().collect::<BTreeSet<_>>()
-            {
+            for term in search_words(&event.normalized_query) {
                 self.search_term_statement.execute(params![
                     self.generation,
                     event.visit_id,
@@ -235,8 +232,7 @@ impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
         ])?;
         self.search_event_term_delete_statement.execute(params![self.generation, visit_id])?;
         if query_kind.is_keyword() {
-            for term in tokenize_query_terms(normalized_query).into_iter().collect::<BTreeSet<_>>()
-            {
+            for term in search_words(normalized_query) {
                 self.search_term_statement.execute(params![
                     self.generation,
                     visit_id,
@@ -301,10 +297,7 @@ impl StructuralTailStreamState {
                 visit_time_ms: visit.visit_time_ms,
             };
             if event.query_kind.is_keyword() {
-                self.report.term_count += tokenize_query_terms(&event.normalized_query)
-                    .into_iter()
-                    .collect::<BTreeSet<_>>()
-                    .len();
+                self.report.term_count += search_words(&event.normalized_query).len();
             }
             self.report.member_count += 1;
             persist.persist_search_event(&event, computed_at)?;
@@ -356,10 +349,7 @@ impl StructuralTailStreamState {
                     &normalized_query,
                     None,
                 );
-                let terms = tokenize_query_terms(&normalized_query)
-                    .into_iter()
-                    .collect::<BTreeSet<_>>()
-                    .len();
+                let terms = search_words(&normalized_query).len();
                 if initial.is_keyword() && !query_kind.is_keyword() {
                     self.report.term_count -= terms;
                 }
