@@ -58,14 +58,13 @@ pub fn get_domain_deep_dive(
         let profile_id = request.profile_id.as_deref();
 
         let mut trend_statement = connection.prepare(
-            "SELECT date_key, SUM(visit_count), MIN(domain_category)
-         FROM domain_daily_rollups
-         WHERE registrable_domain = ?1
-           AND date_key >= ?2
-           AND date_key <= ?3
-           AND (?4 IS NULL OR profile_id = ?4)
-         GROUP BY date_key
-         ORDER BY date_key ASC",
+            "SELECT r.date_key, SUM(r.visit_count), MIN(r.domain_category)
+         FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_site
+         WHERE r.registrable_domain = ?1 AND r.date_key >= ?2 AND r.date_key <= ?3
+           AND r.generation IN (SELECT daily FROM intelligence_generations)
+           AND (?4 IS NULL OR r.profile_id = ?4)
+         GROUP BY r.date_key
+         ORDER BY r.date_key ASC",
         )?;
         let mut domain_category: Option<String> = None;
         let visit_trend = trend_statement
@@ -117,10 +116,12 @@ pub fn get_domain_deep_dive(
         let searches_after=super::paging::cursor::<(i64,String)>(request.searches_cursor.as_deref())?;
         let mut landing_search_count=0;
         let rows=connection.query("WITH matched AS (
-            SELECT initial_query,COUNT(*) AS landings FROM search_trails
-            WHERE profile_id IN (SELECT profile_key FROM archive.source_profiles WHERE profile_key IS NOT NULL AND (?4 IS NULL OR profile_key=?4))
-              AND first_visit_ms>=?2 AND first_visit_ms<?3 AND landing_domain=?1
-            GROUP BY initial_query
+            SELECT r.initial_query,COUNT(*) AS landings
+            FROM search_trails_rows r INDEXED BY idx_search_trails_landing
+            WHERE r.landing_domain=?1 AND r.first_visit_ms>=?2 AND r.first_visit_ms<?3
+              AND r.generation IN (SELECT navigation FROM intelligence_generations)
+              AND r.profile_id IN (SELECT profile_key FROM archive.source_profiles WHERE profile_key IS NOT NULL AND (?4 IS NULL OR profile_key=?4))
+            GROUP BY r.initial_query
         ), page AS (
             SELECT * FROM matched WHERE ?5 IS NULL OR landings<?5 OR (landings=?5 AND initial_query>?6)
             ORDER BY landings DESC,initial_query LIMIT ?7
@@ -382,13 +383,12 @@ pub fn get_domain_trend(vault: &crate::Vault, request: &DomainTrendRequest) -> R
         let request = &request;
 
         let mut statement = connection.prepare(
-            "SELECT date_key, SUM(visit_count)
-         FROM domain_daily_rollups
-         WHERE registrable_domain = ?1
-           AND date_key >= ?2
-           AND date_key <= ?3
-         GROUP BY date_key
-         ORDER BY date_key ASC",
+            "SELECT r.date_key, SUM(r.visit_count)
+         FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_site
+         WHERE r.registrable_domain = ?1 AND r.date_key >= ?2 AND r.date_key <= ?3
+           AND r.generation IN (SELECT daily FROM intelligence_generations)
+         GROUP BY r.date_key
+         ORDER BY r.date_key ASC",
         )?;
         let points = statement
             .query_map(

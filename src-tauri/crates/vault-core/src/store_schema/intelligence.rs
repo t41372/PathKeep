@@ -476,6 +476,8 @@ const STATEMENTS: &[&str] = &[
     // Ranked lists page through these in list order and seek to their keyset cursor.
     "CREATE INDEX idx_sessions_recent ON sessions_rows(first_visit_ms DESC, session_id DESC, generation)",
     "CREATE INDEX idx_search_trails_recent ON search_trails_rows(first_visit_ms DESC, trail_id DESC, generation)",
+    // Searches that landed on one site, by time (the site page).
+    "CREATE INDEX idx_search_trails_landing ON search_trails_rows(landing_domain, first_visit_ms, generation, profile_id, initial_query)",
     "CREATE INDEX idx_search_trails_friction ON search_trails_rows(reformulation_count DESC, visit_count DESC, trail_id, generation)",
     "CREATE INDEX idx_query_families_recent ON query_families_rows(last_seen_ms DESC, family_id DESC, generation)",
     "CREATE INDEX idx_query_families_members ON query_families_rows(member_count DESC, last_seen_ms DESC, family_id, generation)",
@@ -504,6 +506,8 @@ const STATEMENTS: &[&str] = &[
     // Read through the generation views, these tables were read whole.
     "CREATE INDEX idx_daily_summary_range ON daily_summary_rollups_rows(date_key,generation,profile_id)",
     "CREATE INDEX idx_domain_daily_range ON domain_daily_rollups_rows(date_key,generation,profile_id,registrable_domain)",
+    // One site's days (the site page and its trend).
+    "CREATE INDEX idx_domain_daily_site ON domain_daily_rollups_rows(registrable_domain,date_key,generation,profile_id)",
     "CREATE INDEX idx_sessions_range ON sessions_rows(first_visit_ms,generation,profile_id)",
     "CREATE INDEX idx_refind_pages_range ON refind_pages_rows(last_seen_ms,generation,profile_id,first_seen_ms)",
     "CREATE INDEX idx_search_events_profile_query ON search_events_rows(profile_id,normalized_query, generation)",

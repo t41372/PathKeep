@@ -268,17 +268,17 @@ pub(crate) fn get_search_effectiveness_with_connection(
 ) -> Result<SearchEffectiveness> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let mut statement = connection.prepare(
-        "SELECT search_engine,
-                AVG(reformulation_count),
+        "SELECT r.search_engine,
+                AVG(r.reformulation_count),
                 COUNT(*),
-                AVG(max_depth)
-         FROM search_trails
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND (?2 IS NULL OR search_engine = ?2)
-           AND last_visit_ms >= ?3
-           AND first_visit_ms < ?4
-         GROUP BY search_engine
-         ORDER BY COUNT(*) DESC, search_engine ASC",
+                AVG(r.max_depth)
+         FROM search_trails_rows r INDEXED BY idx_search_trails_recent
+         WHERE r.first_visit_ms >= ?3 AND r.first_visit_ms < ?4
+           AND r.generation IN (SELECT navigation FROM intelligence_generations)
+           AND (?1 IS NULL OR r.profile_id = ?1)
+           AND (?2 IS NULL OR r.search_engine = ?2)
+         GROUP BY r.search_engine
+         ORDER BY COUNT(*) DESC, r.search_engine ASC",
     )?;
     let engine_stats = statement
         .query_map(

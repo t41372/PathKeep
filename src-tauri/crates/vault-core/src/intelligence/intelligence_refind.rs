@@ -77,7 +77,9 @@ pub(super) fn get_top_sites_with_connection(
         format!("(?1 IS NULL AND profile_id IN ({}))", marks.join(","))
     };
     let sql=format!("SELECT registrable_domain,MIN(domain_category),{visits},{days},{average},SUM(unique_urls),{primary},{secondary}
-         FROM domain_daily_rollups WHERE {profiles_clause} AND date_key>=?2 AND date_key<=?3 AND visit_count>search_count
+         FROM domain_daily_rollups_rows INDEXED BY idx_domain_daily_range
+         WHERE date_key>=?2 AND date_key<=?3 AND generation IN (SELECT daily FROM intelligence_generations)
+           AND {profiles_clause} AND visit_count>search_count
          GROUP BY registrable_domain
          HAVING ?5 IS NULL OR {primary}<?5 OR ({primary}=?5 AND ({secondary}<?6 OR ({secondary}=?6 AND registrable_domain>?7)))
          ORDER BY {primary} DESC,{secondary} DESC,registrable_domain ASC LIMIT ?4");

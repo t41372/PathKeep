@@ -8,7 +8,8 @@ use vault_core::{DateRange, ScopedDateRangeRequest, Vault};
 use vault_store::{Db, QueryPlan};
 
 /// Derived tables with a row per visit, page, session or site-day, and the generation views
-/// over them: never read whole.
+/// over them: never read whole. (The daily summary and category rollups hold a row per day,
+/// and category, per profile, so reading them whole is cheap.)
 const LARGE: &[&str] = &[
     "sessions_rows",
     "sessions",
@@ -16,13 +17,15 @@ const LARGE: &[&str] = &[
     "refind_pages",
     "domain_daily_rollups_rows",
     "domain_daily_rollups",
-    "daily_summary_rollups_rows",
-    "daily_summary_rollups",
     "search_trails_rows",
     "search_trails",
     "visit_derived_facts_rows",
     "visit_derived_facts",
 ];
+
+/// Rollups with a row per day (and category or engine) per profile: cheap to read whole.
+const PER_DAY: &[&str] =
+    &["daily_summary_rollups_rows", "category_daily_rollups_rows", "engine_daily_rollups_rows"];
 
 /// Partial indexes over a large table that hold few rows, read whole on purpose.
 const SMALL_INDEXES: &[&str] = &[
@@ -49,7 +52,9 @@ fn assert_no_scans(plans: &[QueryPlan]) {
                     let scanned = step.starts_with("SCAN ")
                         && LARGE.iter().any(|table| step.split_whitespace().nth(1) == Some(table))
                         && !SMALL_INDEXES.iter().any(|index| step.contains(index));
-                    scanned || step.ends_with("(generation=?)")
+                    let whole_generation = step.ends_with("(generation=?)")
+                        && !PER_DAY.iter().any(|table| step.contains(table));
+                    scanned || whole_generation
                 })
                 .map(move |step| format!("{step}\n    in {}", plan.sql))
         })
@@ -69,6 +74,59 @@ fn the_kpi_row_seeks_its_tables_for_every_profile_and_one() {
             vault_core::get_digest_summary(&vault, &request).unwrap();
         });
         assert!(!captured.is_empty());
+        assert_no_scans(&captured);
+    }
+}
+
+/// The other range reads that took a minute or more for 30 days at 14.4M visits: top sites,
+/// explore or focus, habits, browsers compared, common paths, and one site's page.
+#[test]
+fn the_slow_range_reads_seek_their_tables() {
+    let vault = Vault::open_temp().unwrap();
+    for profile in [None, Some("profile")] {
+        let range = DateRange { start: "2026-01-01".into(), end: "2026-01-30".into() };
+        let scope = ScopedDateRangeRequest {
+            date_range: range.clone(),
+            profile_id: profile.map(Into::into),
+        };
+        let captured = plans(&vault, || {
+            vault_core::get_top_sites(
+                &vault,
+                &vault_core::TopSitesRequest {
+                    date_range: range.clone(),
+                    profile_id: profile.map(Into::into),
+                    limit: Some(40),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            vault_core::get_breadth_index(&vault, &scope).unwrap();
+            vault_core::get_habit_patterns(&vault, &scope).unwrap();
+            vault_core::get_multi_browser_diff(&vault, &scope).unwrap();
+            vault_core::get_path_flows(
+                &vault,
+                &vault_core::PathFlowRequest {
+                    date_range: range.clone(),
+                    profile_id: profile.map(Into::into),
+                    step_count: 3,
+                    limit: Some(15),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            vault_core::get_domain_deep_dive(
+                &vault,
+                &vault_core::DomainDeepDiveRequest {
+                    date_range: range.clone(),
+                    profile_id: profile.map(Into::into),
+                    registrable_domain: "example.com".into(),
+                    pages_cursor: None,
+                    searches_cursor: None,
+                    page_size: None,
+                },
+            )
+            .unwrap();
+        });
         assert_no_scans(&captured);
     }
 }

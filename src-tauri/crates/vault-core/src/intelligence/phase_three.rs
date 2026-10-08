@@ -41,13 +41,13 @@ pub(crate) fn get_breadth_index_with_connection(
     request: &ScopedDateRangeRequest,
 ) -> Result<BreadthIndex> {
     let mut statement = connection.prepare(
-        "SELECT registrable_domain, SUM(visit_count) AS total_visits
-         FROM domain_daily_rollups
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND date_key >= ?2
-           AND date_key <= ?3
-         GROUP BY registrable_domain
-         ORDER BY total_visits DESC, registrable_domain ASC",
+        "SELECT r.registrable_domain, SUM(r.visit_count) AS total_visits
+         FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_range
+         WHERE r.date_key >= ?2 AND r.date_key <= ?3
+           AND r.generation IN (SELECT daily FROM intelligence_generations)
+           AND (?1 IS NULL OR r.profile_id = ?1)
+         GROUP BY r.registrable_domain
+         ORDER BY total_visits DESC, r.registrable_domain ASC",
     )?;
     let rows = statement
         .query_map(
@@ -118,13 +118,13 @@ pub(crate) fn get_habit_patterns_with_connection(
     // look through its visits (a seek per URL of every candidate site, the slowest part of this
     // read: 1.5 s of the 1.75 s primary overview on a 387k-visit archive).
     let mut statement = connection.prepare(
-        "SELECT registrable_domain, date_key, MAX(last_visit_ms)
-         FROM domain_daily_rollups
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND date_key >= ?2
-           AND date_key <= ?3
-           AND visit_count > 0
-         GROUP BY registrable_domain, date_key",
+        "SELECT r.registrable_domain, r.date_key, MAX(r.last_visit_ms)
+         FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_range
+         WHERE r.date_key >= ?2 AND r.date_key <= ?3
+           AND r.generation IN (SELECT daily FROM intelligence_generations)
+           AND (?1 IS NULL OR r.profile_id = ?1)
+           AND r.visit_count > 0
+         GROUP BY r.registrable_domain, r.date_key",
     )?;
     let rows = statement
         .query_map(

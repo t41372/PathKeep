@@ -61,12 +61,17 @@ pub(crate) fn get_path_flows_with_connection(
         return super::paging::finish(rows, limit);
     }
     let mut statement = s.prepare(
-        "SELECT f.session_id,f.registrable_domain,v.visit_time_ms
+        // The range's visits by time, each joined by visit id to its facts and session: through
+        // the facts view Turso read every fact of the generation (72 s for 30 days at 14.4M).
+        "SELECT a.session_id,f.registrable_domain,v.visit_time_ms
         FROM archive.visits v INDEXED BY idx_visits_visible_time_id
-        CROSS JOIN visit_derived_facts f ON f.visit_id=v.id
+        CROSS JOIN visit_derived_facts_rows f INDEXED BY idx_vdf_visit_generation
+          ON f.visit_id=v.id AND f.generation IN (SELECT facts FROM intelligence_generations)
+        CROSS JOIN visit_assignments a INDEXED BY idx_assignments_visit_generation
+          ON a.visit_id=v.id AND a.generation IN (SELECT navigation FROM intelligence_generations)
         WHERE v.reverted_at IS NULL AND v.visit_time_ms>=?2 AND v.visit_time_ms<?3
-          AND f.session_id IS NOT NULL AND (?1 IS NULL OR f.profile_id=?1)
-        ORDER BY f.session_id,v.visit_time_ms,v.id",
+          AND (?1 IS NULL OR f.profile_id=?1)
+        ORDER BY a.session_id,v.visit_time_ms,v.id",
     )?;
     let rows = statement.query_map(params![request.profile_id, start, end], |r| {
         Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?))

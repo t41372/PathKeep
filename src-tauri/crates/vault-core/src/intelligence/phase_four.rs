@@ -382,15 +382,17 @@ fn load_browser_profile_summaries(
         "SELECT source_profiles.profile_key,
                 source_profiles.profile_name,
                 COALESCE(source_profiles.browser_family, source_profiles.browser_kind),
-                COUNT(DISTINCT domain_daily_rollups.registrable_domain),
-                COALESCE(SUM(domain_daily_rollups.visit_count), 0)
+                COALESCE(totals.domains, 0),
+                COALESCE(totals.visits, 0)
          FROM archive.source_profiles AS source_profiles
-         LEFT JOIN domain_daily_rollups
-           ON domain_daily_rollups.profile_id = source_profiles.profile_key
-          AND domain_daily_rollups.date_key >= ?1
-          AND domain_daily_rollups.date_key <= ?2
-         GROUP BY source_profiles.profile_key, source_profiles.profile_name, source_profiles.browser_family, source_profiles.browser_kind
-         HAVING COALESCE(SUM(domain_daily_rollups.visit_count), 0) > 0
+         JOIN (
+           SELECT r.profile_id, COUNT(DISTINCT r.registrable_domain) AS domains,
+                  SUM(r.visit_count) AS visits
+           FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_range
+           WHERE r.date_key >= ?1 AND r.date_key <= ?2 AND r.generation IN (SELECT daily FROM intelligence_generations)
+           GROUP BY r.profile_id
+         ) AS totals ON totals.profile_id = source_profiles.profile_key
+         WHERE totals.visits > 0
          ORDER BY source_profiles.profile_name ASC, source_profiles.profile_key ASC",
     )?;
     let profiles = statement
@@ -412,12 +414,11 @@ fn load_profile_domain_counts(
     request: &ScopedDateRangeRequest,
 ) -> Result<HashMap<String, Vec<(String, i64)>>> {
     let mut statement = connection.prepare(
-        "SELECT registrable_domain, profile_id, SUM(visit_count)
-         FROM domain_daily_rollups
-         WHERE date_key >= ?1
-           AND date_key <= ?2
-         GROUP BY registrable_domain, profile_id
-         ORDER BY registrable_domain ASC, profile_id ASC",
+        "SELECT r.registrable_domain, r.profile_id, SUM(r.visit_count)
+         FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_range
+         WHERE r.date_key >= ?1 AND r.date_key <= ?2 AND r.generation IN (SELECT daily FROM intelligence_generations)
+         GROUP BY r.registrable_domain, r.profile_id
+         ORDER BY r.registrable_domain ASC, r.profile_id ASC",
     )?;
     let rows = statement
         .query_map(params![request.date_range.start, request.date_range.end], |row| {
