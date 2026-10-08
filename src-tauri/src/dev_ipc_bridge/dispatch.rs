@@ -477,14 +477,14 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<AiProviderSecretPayload>(payload)?;
             json_value!(worker_bridge::store_ai_provider_api_key_impl(
                 payload.input,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "clear_ai_provider_api_key" => {
             let payload = parse_payload::<ProviderIdPayload>(payload)?;
             json_value!(worker_bridge::clear_ai_provider_api_key_impl(
                 payload.provider_id,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "test_ai_provider_connection" => {

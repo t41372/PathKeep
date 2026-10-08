@@ -46,17 +46,25 @@ pub(crate) fn list_ai_messages_impl(
 /// Stores one AI provider API key and returns the refreshed app snapshot.
 pub(crate) fn store_ai_provider_api_key_impl(
     input: AiProviderSecretInput,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    worker_result(vault_worker::store_ai_provider_api_key(&input, session_database_key))
+    worker_result(vault_worker::store_ai_provider_api_key(
+        &input,
+        state.current_vault().as_ref(),
+        state.get_key()?.as_deref(),
+    ))
 }
 
 /// Clears one AI provider API key and returns the refreshed app snapshot.
 pub(crate) fn clear_ai_provider_api_key_impl(
     provider_id: String,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    worker_result(vault_worker::clear_ai_provider_api_key(&provider_id, session_database_key))
+    worker_result(vault_worker::clear_ai_provider_api_key(
+        &provider_id,
+        state.current_vault().as_ref(),
+        state.get_key()?.as_deref(),
+    ))
 }
 
 #[cfg_attr(test, allow(dead_code))]
