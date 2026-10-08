@@ -11,6 +11,7 @@ pub(super) const TABLES: &[&str] = &[
     "ai_index_ledger",
     "ai_jobs",
     "category_daily_rollups_rows",
+    "compare_sets_rows",
     "core_intelligence_stage_checkpoints",
     "daily_summary_rollups_rows",
     "deterministic_module_runtime",
@@ -84,6 +85,7 @@ pub(super) const INDEXES: &[&str] = &[
     "sqlite_autoindex_ai_embeddings_1",
     "sqlite_autoindex_ai_index_ledger_1",
     "sqlite_autoindex_category_daily_rollups_rows_1",
+    "sqlite_autoindex_compare_sets_rows_1",
     "sqlite_autoindex_core_intelligence_stage_checkpoints_1",
     "sqlite_autoindex_daily_summary_rollups_rows_1",
     "sqlite_autoindex_deterministic_module_runtime_1",
@@ -135,6 +137,7 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_reopened_investigations_recent",
     "idx_path_flows_profile_rank",
     "idx_domain_daily_first_day",
+    "idx_compare_sets_recent",
 ];
 pub(super) const ROWS: &[Fixture] = &[
     Fixture {
@@ -288,6 +291,12 @@ pub(super) const ROWS: &[Fixture] = &[
         updated: "occurrence_count = 2",
     },
     Fixture {
+        table: "compare_sets_rows",
+        columns: "generation, compare_set_id, profile_id, trail_id, search_query, page_category, first_visit_ms, last_visit_ms, pages_json, computed_at",
+        values: "1, 'sample', 'sample', 'sample', 'sample', 'sample', 1, 1, 'sample', 'sample'",
+        updated: "search_query = 'changed'",
+    },
+    Fixture {
         table: "page_content_enrichments",
         columns: "id, canonical_url, content_source, fetch_status, fetched_at, final_url, language, readable_title, readable_text_blob_path, readable_text_bytes, text_hash, snippet_json, extraction_json, pipeline_version, extractor_version, enrichment_summary, refetch_after, http_status",
         values: "1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 1, 'sample', 'sample', 'sample', 'sample', 1, 'sample', 'sample', 1",
@@ -381,4 +390,5 @@ pub(super) const VIEWS: &[&str] = &[
     "habit_patterns",
     "reopened_investigations",
     "path_flows",
+    "compare_sets",
 ];
