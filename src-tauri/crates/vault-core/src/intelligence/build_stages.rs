@@ -263,6 +263,7 @@ where
     super::build_refind::rebuild(vault, state, limit, progress)?;
     let mut accumulator =
         super::intelligence_structural_aggregates::StructuralAggregateAccumulator::default();
+    let mut compare = super::compare_sets::CompareSetAccumulator::default();
     let mut cursor = None;
     let mut processed = 0;
     loop {
@@ -272,7 +273,9 @@ where
         }
         for visit in &batch {
             accumulator.add_summary_visit(visit);
+            compare.add(visit);
         }
+        compare.resolve(vault, state.navigation_generation)?;
         let last = batch.last().unwrap();
         cursor = Some(VisibleVisitBatchCursor {
             visit_time_ms: last.visit_time_ms,
@@ -282,6 +285,15 @@ where
         progress(build_state::progress(state, "refind-pages", processed, state.processed))?;
     }
     let (_, flows, habits) = accumulator.finish();
+    let compare_sets = compare.finish(vault, state.navigation_generation)?;
+    for chunk in compare_sets.chunks(512) {
+        let rows = chunk.to_vec();
+        let generation = state.aggregate_generation;
+        let at = state.computed_at.clone();
+        vault.write(Db::Intelligence, Priority::Batch, move |s| {
+            super::compare_sets::persist(s, generation, &rows, &at)
+        })?;
+    }
     let families = load_families(vault, state, progress)?;
     let sources = load_sources(vault, state)?;
     let reopened =
@@ -327,6 +339,7 @@ where
             state.counts.get("reopened_investigations").copied().unwrap_or(0) + reopened.len(),
         ),
         ("path_flows", flows.len()),
+        ("compare_sets", compare_sets.len()),
     ] {
         state.counts.insert(table.into(), count);
     }

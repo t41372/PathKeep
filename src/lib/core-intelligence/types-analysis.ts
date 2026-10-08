@@ -243,6 +243,8 @@ export interface CompareSet {
   searchQuery: string
   pageCategory: string
   pages: CompareSetPage[]
+  /** The last time one of the pages was opened in this search. */
+  lastVisitedAt: string
 }
 
 export interface CompareSetPage {

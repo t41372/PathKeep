@@ -321,17 +321,17 @@ pub fn get_observed_interactions(
     )
 }
 
-/// Loads the section-wrapped compare-set list.
+/// Loads one page of compare sets, newest first, with its freshness metadata.
 pub fn get_compare_sets(
     vault: &vault_core::Vault,
-    request: &ScopedDateRangeRequest,
-) -> Result<CoreIntelligenceSectionResult<Vec<CompareSet>>> {
+    request: &vault_core::ScopedPageRequest,
+) -> Result<CoreIntelligenceSectionResult<vault_core::IntelligencePage<CompareSet>>> {
     with_core_intelligence_section(
         vault,
         "compare-sets",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         |vault| intelligence::get_compare_sets(vault, request),
-        |data| data.is_empty(),
+        |data| data.items.is_empty(),
     )
 }
 

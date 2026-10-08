@@ -221,7 +221,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
     CoreIntelligenceSectionDescriptor {
         id: "compare-sets",
         module_ids: &["search-trails"],
-        source_tables: &["search_trails", "search_events"],
+        source_tables: &["compare_sets"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
         notes: &[],

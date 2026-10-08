@@ -18,37 +18,6 @@ use anyhow::{Context, Result};
 use std::collections::{BTreeSet, HashMap};
 use vault_store::{OptionalRow, Session, params_owned as params};
 
-pub fn get_compare_sets(
-    vault: &crate::Vault,
-    request: &ScopedDateRangeRequest,
-) -> Result<Vec<CompareSet>> {
-    let request = request.clone();
-    vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        get_compare_sets_with_connection(connection, request)
-    })
-}
-
-pub(crate) fn get_compare_sets_with_connection(
-    connection: &Session<'_>,
-    request: &ScopedDateRangeRequest,
-) -> Result<Vec<CompareSet>> {
-    let rows = load_compare_trail_members(connection, request, None)?;
-
-    let mut members_by_trail = HashMap::<String, Vec<CompareTrailMember>>::new();
-    for member in rows {
-        members_by_trail.entry(member.trail_id.clone()).or_default().push(member);
-    }
-
-    let mut compare_sets = Vec::new();
-    for trail_members in members_by_trail.into_values() {
-        compare_sets.extend(build_compare_sets_for_trail(&trail_members));
-    }
-    compare_sets.sort_by(|left, right| left.compare_set_id.cmp(&right.compare_set_id));
-    Ok(compare_sets)
-}
-
 pub fn get_compare_set_detail(
     vault: &crate::Vault,
     request: &CompareSetDetailRequest,
@@ -141,16 +110,16 @@ pub(crate) fn get_multi_browser_diff_with_connection(
 }
 
 #[derive(Debug, Clone)]
-struct CompareTrailMember {
-    trail_id: String,
-    initial_query: String,
-    landing_url: Option<String>,
-    canonical_url: String,
-    url: String,
-    title: Option<String>,
-    registrable_domain: String,
-    page_category: String,
-    visit_time_ms: i64,
+pub(super) struct CompareTrailMember {
+    pub trail_id: String,
+    pub initial_query: String,
+    pub landing_url: Option<String>,
+    pub canonical_url: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub registrable_domain: String,
+    pub page_category: String,
+    pub visit_time_ms: i64,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -163,7 +132,9 @@ struct ComparePageAggregate {
     is_landing: bool,
 }
 
-fn build_compare_sets_for_trail(trail_members: &[CompareTrailMember]) -> Vec<CompareSet> {
+pub(super) fn build_compare_sets_for_trail(
+    trail_members: &[CompareTrailMember],
+) -> Vec<CompareSet> {
     let mut by_category = HashMap::<String, Vec<&CompareTrailMember>>::new();
     for member in trail_members {
         if !is_compare_candidate_category(&member.page_category) {
@@ -235,11 +206,13 @@ fn build_compare_sets_for_trail(trail_members: &[CompareTrailMember]) -> Vec<Com
                 .then_with(|| left.url.cmp(&right.url))
         });
 
+        let last_visit_ms = members.iter().map(|member| member.visit_time_ms).max().unwrap_or(0);
         compare_sets.push(CompareSet {
             compare_set_id: format!("compare:{trail_id}:{page_category}"),
             trail_id,
             search_query: members[0].initial_query.clone(),
             page_category,
+            last_visited_at: super::rfc3339_from_millis(last_visit_ms),
             pages: pages
                 .into_iter()
                 .map(|page| CompareSetPage {
@@ -257,7 +230,7 @@ fn build_compare_sets_for_trail(trail_members: &[CompareTrailMember]) -> Vec<Com
     compare_sets
 }
 
-fn is_compare_candidate_category(page_category: &str) -> bool {
+pub(super) fn is_compare_candidate_category(page_category: &str) -> bool {
     matches!(
         page_category,
         "article_page"
@@ -535,9 +508,8 @@ fn load_profile_totals(
 mod tests {
     use super::{
         CompareTrailMember, build_compare_sets_for_trail, get_compare_set_detail,
-        get_compare_set_detail_with_connection, get_compare_sets_with_connection,
-        get_multi_browser_diff_with_connection, load_session_summary, load_trail_summary,
-        parse_compare_set_id, path_prefix,
+        get_compare_set_detail_with_connection, get_multi_browser_diff_with_connection,
+        load_session_summary, load_trail_summary, parse_compare_set_id, path_prefix,
     };
     use crate::models::{CompareSetDetailRequest, DateRange, ScopedDateRangeRequest};
     use crate::test_support::native::TestDatabase;
@@ -780,32 +752,8 @@ mod tests {
     }
 
     #[test]
-    fn compare_set_read_models_return_detail_and_parse_errors() {
+    fn compare_set_detail_reads_its_trail_and_parses_errors() {
         let connection = seed_phase_four_connection();
-        let sets = {
-            connection
-                .read(move |session| get_compare_sets_with_connection(session, &request(None)))
-        }
-        .unwrap();
-        assert_eq!(sets.len(), 1);
-        assert_eq!(sets[0].compare_set_id, "compare:trail-1:docs_page");
-        assert_eq!(sets[0].pages.len(), 2);
-        assert!(sets[0].pages.iter().any(|page| page.is_landing));
-
-        let scoped_sets = {
-            connection.read(move |session| {
-                get_compare_sets_with_connection(session, &request(Some("profile-a")))
-            })
-        }
-        .unwrap();
-        assert_eq!(scoped_sets.len(), 1);
-        let empty_sets = {
-            connection.read(move |session| {
-                get_compare_sets_with_connection(session, &request(Some("profile-b")))
-            })
-        }
-        .unwrap();
-        assert!(empty_sets.is_empty());
         let direct_detail = {
             connection.read(move |session| {
                 get_compare_set_detail_with_connection(

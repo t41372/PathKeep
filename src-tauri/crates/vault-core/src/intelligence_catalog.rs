@@ -198,6 +198,7 @@ define_builtin_module!(
         "search_events",
         "search_event_terms",
         "query_families",
+        "compare_sets",
     ],
     &[RebuildMode::StructuralRebuild, RebuildMode::FullRebuild],
     &["search_trail", "query_family", "compare_set"]

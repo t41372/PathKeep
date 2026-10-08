@@ -287,6 +287,8 @@ pub struct CompareSet {
     pub search_query: String,
     pub page_category: String,
     pub pages: Vec<CompareSetPage>,
+    /// The last time one of the pages was opened in this search.
+    pub last_visited_at: String,
 }
 
 /// Compare set detail with its owning trail and optional session context.

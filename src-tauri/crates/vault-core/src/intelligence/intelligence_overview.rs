@@ -448,8 +448,13 @@ fn build_intelligence_secondary_overview_with_connection(
         "compare-sets",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || phase_four::get_compare_sets_with_connection(connection, request),
-        |data| data.is_empty(),
+        || {
+            super::compare_sets::get_compare_sets_with_connection(
+                connection,
+                &crate::models::ScopedPageRequest::from(request),
+            )
+        },
+        |data| data.items.is_empty(),
     )?;
     timings.push(timing);
     let (multi_browser_diff, timing) = build_overview_timed_section_result(

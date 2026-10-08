@@ -15,6 +15,7 @@ mod build_refind;
 mod build_rows;
 mod build_stages;
 mod build_state;
+mod compare_sets;
 mod day_insights;
 mod host_artifacts;
 mod incremental;
@@ -82,6 +83,7 @@ use crate::{
     models::{CoreIntelligenceStageTimings, DerivedRuntimeNote},
 };
 
+pub use self::compare_sets::get_compare_sets;
 pub use self::day_insights::get_day_insights;
 pub use self::host_artifacts::{build_intelligence_local_host, preview_intelligence_local_host};
 pub use self::intelligence_domain::{
@@ -123,7 +125,7 @@ pub use self::intelligence_summary::{
     get_activity_mix, get_activity_mix_trend, get_digest_summary, get_friction_signals,
     get_reopened_investigations, get_search_effectiveness, get_stable_sources,
 };
-pub use self::phase_four::{get_compare_set_detail, get_compare_sets, get_multi_browser_diff};
+pub use self::phase_four::{get_compare_set_detail, get_multi_browser_diff};
 pub use self::phase_three::{
     get_breadth_index, get_habit_patterns, get_interrupted_habits, get_observed_interactions,
     get_path_flows,

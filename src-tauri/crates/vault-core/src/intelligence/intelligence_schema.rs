@@ -141,6 +141,7 @@ fn count_derived_intelligence_state(
                 "habit_patterns",
                 "reopened_investigations",
                 "path_flows",
+                "compare_sets",
             ],
         )?,
         cleared_runtime_rows,

@@ -82,7 +82,7 @@ pub struct CoreIntelligenceSecondaryOverview {
     pub discovery_trend_week: CoreIntelligenceSectionResult<DiscoveryTrend>,
     pub breadth_index: CoreIntelligenceSectionResult<BreadthIndex>,
     pub path_flows: CoreIntelligenceSectionResult<crate::models::IntelligencePage<PathFlow>>,
-    pub compare_sets: CoreIntelligenceSectionResult<Vec<CompareSet>>,
+    pub compare_sets: CoreIntelligenceSectionResult<crate::models::IntelligencePage<CompareSet>>,
     pub multi_browser_diff: CoreIntelligenceSectionResult<BrowserDiff>,
     pub observed_interactions:
         CoreIntelligenceSectionResult<crate::models::IntelligencePage<ObservedInteraction>>,

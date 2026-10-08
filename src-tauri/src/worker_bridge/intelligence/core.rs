@@ -414,9 +414,12 @@ pub(crate) fn get_observed_interactions_impl(
 #[cfg_attr(test, allow(dead_code))]
 /// Loads compare-set summaries for route promotion and overview cards.
 pub(crate) fn get_compare_sets_impl(
-    request: ScopedDateRangeRequest,
+    request: vault_core::ScopedPageRequest,
     state: &crate::session::SessionState,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::CompareSet>>, CommandError> {
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<vault_core::IntelligencePage<vault_core::CompareSet>>,
+    CommandError,
+> {
     worker_result(vault_worker::get_compare_sets(&state.vault()?, &request))
 }
 

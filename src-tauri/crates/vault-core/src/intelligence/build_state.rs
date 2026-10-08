@@ -27,6 +27,7 @@ pub(super) const TABLES: &[(&str, &str)] = &[
     ("habit_patterns", "aggregates"),
     ("reopened_investigations", "aggregates"),
     ("path_flows", "aggregates"),
+    ("compare_sets", "aggregates"),
 ];
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

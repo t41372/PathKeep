@@ -230,6 +230,19 @@ const STATEMENTS: &[&str] = &[
   last_seen_ms INTEGER NOT NULL,
   PRIMARY KEY(generation, profile_id, flow_pattern, step_count)
 )",
+    r"CREATE TABLE compare_sets_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  compare_set_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  trail_id TEXT NOT NULL,
+  search_query TEXT NOT NULL,
+  page_category TEXT NOT NULL,
+  first_visit_ms INTEGER NOT NULL,
+  last_visit_ms INTEGER NOT NULL,
+  pages_json TEXT NOT NULL,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY(generation, compare_set_id)
+)",
     r"CREATE TABLE page_content_enrichments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   canonical_url TEXT NOT NULL,
@@ -467,6 +480,8 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_source_effectiveness_rank ON source_effectiveness_rows(effectiveness_score DESC, registrable_domain, profile_id, generation)",
     "CREATE INDEX idx_reopened_investigations_recent ON reopened_investigations_rows(last_seen_ms DESC, occurrence_count DESC, investigation_id, generation)",
     "CREATE INDEX idx_path_flows_profile_rank ON path_flows_rows(profile_id, step_count, occurrence_count DESC, last_seen_ms DESC, flow_pattern, generation)",
+    // Compare sets newest first, for every profile or one (`compare_sets::get_compare_sets`).
+    "CREATE INDEX idx_compare_sets_recent ON compare_sets_rows(last_visit_ms DESC, compare_set_id DESC, generation, profile_id, first_visit_ms)",
     "CREATE INDEX idx_page_content_enrichments_canonical ON page_content_enrichments(canonical_url)",
     "CREATE INDEX idx_page_content_enrichments_status ON page_content_enrichments(fetch_status, fetched_at)",
     "CREATE INDEX idx_site_dictionary_overrides_target ON site_dictionary_overrides(target_kind, target_value)",
@@ -519,6 +534,8 @@ const STATEMENTS: &[&str] = &[
     "CREATE VIEW reopened_investigations AS SELECT r.investigation_id,r.profile_id,r.anchor_type,r.anchor_id,r.anchor_label,r.occurrence_count,r.distinct_days,r.first_seen_ms,r.last_seen_ms,CASE WHEN r.anchor_type='reference_page' THEN
         (SELECT p.evidence_json FROM refind_pages_rows p WHERE p.generation=r.generation AND p.profile_id=r.profile_id AND p.canonical_url=r.anchor_id LIMIT 1 OFFSET 0)
         ELSE r.evidence_json END AS evidence_json,r.computed_at FROM reopened_investigations_rows r
+      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
+    "CREATE VIEW compare_sets AS SELECT r.compare_set_id,r.profile_id,r.trail_id,r.search_query,r.page_category,r.first_visit_ms,r.last_visit_ms,r.pages_json,r.computed_at FROM compare_sets_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW path_flows AS SELECT r.profile_id,r.flow_pattern,r.step_count,r.occurrence_count,r.last_seen_ms FROM path_flows_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",

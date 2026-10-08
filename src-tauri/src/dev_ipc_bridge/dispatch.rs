@@ -898,7 +898,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "get_compare_sets" => {
-            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
+            let payload = parse_payload::<WrappedRequest<vault_core::ScopedPageRequest>>(payload)?;
             json_value!(worker_bridge::get_compare_sets_impl(payload.request, &state.session)?)
         }
         "get_compare_set_detail" => {
