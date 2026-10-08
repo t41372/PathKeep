@@ -171,8 +171,8 @@ pub(super) fn persist_daily(
  VALUES (?1,?2, ?3, ?4, ?5)",
     )?;
     let mut insert_daily_summary_rollups=s.prepare("INSERT OR REPLACE INTO daily_summary_rollups_rows
- (generation,date_key, profile_id, total_visits, total_searches, new_domains, unique_domains, hhi_score, discovery_rate)
- VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")?;
+ (generation,date_key, profile_id, total_visits, total_searches, new_domains, unique_domains, hhi_score, discovery_rate, hours)
+ VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")?;
 
     for row in &rollups.domain_rows {
         insert_domain_daily_rollups.execute(params![
@@ -209,27 +209,19 @@ pub(super) fn persist_daily(
             search_count
         ])?;
     }
-    for (
-        date_key,
-        profile_id,
-        total_visits,
-        total_searches,
-        new_domains,
-        unique_domains,
-        hhi_score,
-        discovery_rate,
-    ) in &rollups.summary_rows
-    {
+    for row in &rollups.summary_rows {
+        let hours = row.hours.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
         insert_daily_summary_rollups.execute(params![
             generation,
-            date_key,
-            profile_id,
-            total_visits,
-            total_searches,
-            new_domains,
-            unique_domains,
-            hhi_score,
-            discovery_rate
+            row.date_key.as_str(),
+            row.profile_id.as_str(),
+            row.total_visits,
+            row.total_searches,
+            row.new_domains,
+            row.unique_domains,
+            row.hhi_score,
+            row.discovery_rate,
+            hours
         ])?;
     }
 

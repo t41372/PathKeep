@@ -79,6 +79,7 @@ const STATEMENTS: &[&str] = &[
   unique_domains INTEGER NOT NULL,
   hhi_score REAL,
   discovery_rate REAL,
+  hours TEXT NOT NULL DEFAULT '',
   PRIMARY KEY(generation, date_key, profile_id)
 )",
     r"CREATE TABLE sessions_rows (
@@ -510,7 +511,7 @@ const STATEMENTS: &[&str] = &[
       WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
     "CREATE VIEW engine_daily_rollups AS SELECT r.date_key,r.profile_id,r.search_engine,r.search_count FROM engine_daily_rollups_rows r
       WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
-    "CREATE VIEW daily_summary_rollups AS SELECT r.date_key,r.profile_id,r.total_visits,r.total_searches,r.new_domains,r.unique_domains,r.hhi_score,r.discovery_rate FROM daily_summary_rollups_rows r
+    "CREATE VIEW daily_summary_rollups AS SELECT r.date_key,r.profile_id,r.total_visits,r.total_searches,r.new_domains,r.unique_domains,r.hhi_score,r.discovery_rate,r.hours FROM daily_summary_rollups_rows r
       WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
     "CREATE VIEW sessions AS SELECT r.session_id,r.profile_id,r.first_visit_ms,r.last_visit_ms,r.visit_count,r.search_count,r.domain_count,r.is_deep_dive,r.auto_title,r.computed_at FROM sessions_rows r
       WHERE r.generation IN (SELECT navigation FROM intelligence_generations)",

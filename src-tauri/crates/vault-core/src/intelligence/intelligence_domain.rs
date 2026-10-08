@@ -158,37 +158,89 @@ pub fn get_browsing_rhythm(
 ) -> Result<RhythmHeatmap> {
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-        let mut statement = connection.prepare(
-            "SELECT visits.visit_time_ms
-         FROM visit_derived_facts
-         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
-         WHERE (?1 IS NULL OR visit_derived_facts.profile_id = ?1)
-           AND (?2 IS NULL OR visit_derived_facts.domain_category = ?2)
-           AND visits.visit_time_ms >= ?3
-           AND visits.visit_time_ms < ?4",
-        )?;
-        let mut buckets = HashMap::<(i64, i64), i64>::new();
-        let rows = statement.query_map(
-            params![request.profile_id.as_deref(), request.category.as_deref(), start_ms, end_ms],
-            |row| Ok(row.get::<i64>(0)?),
-        )?;
-        for row in rows {
-            let visit_time_ms = row?;
-            let local = local_datetime_from_millis(visit_time_ms);
-            let dow = local.weekday().num_days_from_sunday() as i64;
-            let hour = local.hour() as i64;
-            *buckets.entry((dow, hour)).or_default() += 1;
+        if request.category.is_none()
+            && let Some(heatmap) = rhythm_from_daily_hours(connection, &request)?
+        {
+            return Ok(heatmap);
         }
-        let max_count = buckets.values().copied().max().unwrap_or_default();
-        let cells = buckets
-            .into_iter()
-            .map(|((dow, hour), visit_count)| RhythmHeatmapCell { dow, hour, visit_count })
-            .collect::<Vec<_>>();
-        Ok(RhythmHeatmap { cells, max_count })
+        rhythm_from_visits(connection, &request)
     })
+}
+
+/// The rhythm from each day's hour counts in the daily summary rollup: a row per day and
+/// profile, where the scan below reads every visit in the range (half a second for all time
+/// on a 387k-visit archive, every row of 14.4M). `None` when a day in the range was built
+/// before the rollup kept hours.
+fn rhythm_from_daily_hours(
+    connection: &Session<'_>,
+    request: &CategoryFilteredDateRangeRequest,
+) -> Result<Option<RhythmHeatmap>> {
+    let rows = connection.query(
+        "SELECT date_key, hours FROM daily_summary_rollups
+         WHERE (?1 IS NULL OR profile_id = ?1) AND date_key >= ?2 AND date_key <= ?3",
+        params![
+            request.profile_id.as_deref(),
+            request.date_range.start.as_str(),
+            request.date_range.end.as_str()
+        ],
+        |row| Ok((row.get::<String>(0)?, row.get::<String>(1)?)),
+    )?;
+    let mut buckets = HashMap::<(i64, i64), i64>::new();
+    for (date_key, hours) in rows {
+        if hours.is_empty() {
+            return Ok(None);
+        }
+        let dow = chrono::NaiveDate::parse_from_str(&date_key, "%Y-%m-%d")?
+            .weekday()
+            .num_days_from_sunday() as i64;
+        for (hour, count) in hours.split(',').enumerate() {
+            let count = count.parse::<i64>()?;
+            if count > 0 {
+                *buckets.entry((dow, hour as i64)).or_default() += count;
+            }
+        }
+    }
+    Ok(Some(rhythm_heatmap(buckets)))
+}
+
+/// The rhythm counted visit by visit: for a category filter, which the daily rollup does not
+/// split by, and for days built before it kept hours.
+pub(super) fn rhythm_from_visits(
+    connection: &Session<'_>,
+    request: &CategoryFilteredDateRangeRequest,
+) -> Result<RhythmHeatmap> {
+    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let mut statement = connection.prepare(
+        "SELECT visits.visit_time_ms
+     FROM visit_derived_facts
+     JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
+     WHERE (?1 IS NULL OR visit_derived_facts.profile_id = ?1)
+       AND (?2 IS NULL OR visit_derived_facts.domain_category = ?2)
+       AND visits.visit_time_ms >= ?3
+       AND visits.visit_time_ms < ?4",
+    )?;
+    let mut buckets = HashMap::<(i64, i64), i64>::new();
+    let rows = statement.query_map(
+        params![request.profile_id.as_deref(), request.category.as_deref(), start_ms, end_ms],
+        |row| Ok(row.get::<i64>(0)?),
+    )?;
+    for row in rows {
+        let visit_time_ms = row?;
+        let local = local_datetime_from_millis(visit_time_ms);
+        let dow = local.weekday().num_days_from_sunday() as i64;
+        let hour = local.hour() as i64;
+        *buckets.entry((dow, hour)).or_default() += 1;
+    }
+    Ok(rhythm_heatmap(buckets))
+}
+
+fn rhythm_heatmap(buckets: HashMap<(i64, i64), i64>) -> RhythmHeatmap {
+    let max_count = buckets.values().copied().max().unwrap_or_default();
+    let cells = buckets
+        .into_iter()
+        .map(|((dow, hour), visit_count)| RhythmHeatmapCell { dow, hour, visit_count })
+        .collect::<Vec<_>>();
+    RhythmHeatmap { cells, max_count }
 }
 
 /// Returns new-domain discovery over time with day/week/month collapsing done

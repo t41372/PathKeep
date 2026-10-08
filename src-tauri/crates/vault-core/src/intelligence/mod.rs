@@ -362,12 +362,29 @@ struct DomainDayRow {
     last_visit_ms: i64,
 }
 
+/// One day's visits in one browser profile.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct DaySummaryRow {
+    date_key: String,
+    profile_id: String,
+    total_visits: i64,
+    total_searches: i64,
+    new_domains: i64,
+    unique_domains: i64,
+    hhi_score: f32,
+    discovery_rate: f32,
+    /// Visits in each local hour of the day, 0 to 23, for the rhythm map; empty on rows saved
+    /// before it existed.
+    #[serde(default)]
+    hours: Vec<i64>,
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct DailyRollupBundle {
     domain_rows: Vec<DomainDayRow>,
     category_rows: Vec<(String, String, String, i64, i64)>,
     engine_rows: Vec<(String, String, String, i64)>,
-    summary_rows: Vec<(String, String, i64, i64, i64, i64, f32, f32)>,
+    summary_rows: Vec<DaySummaryRow>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]

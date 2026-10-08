@@ -57,7 +57,17 @@ mod tests {
                 "google".to_string(),
                 1,
             )],
-            summary_rows: vec![("2026-04-25".to_string(), "p1".to_string(), 2, 1, 1, 1, 0.5, 0.5)],
+            summary_rows: vec![super::super::DaySummaryRow {
+                date_key: "2026-04-25".to_string(),
+                profile_id: "p1".to_string(),
+                total_visits: 2,
+                total_searches: 1,
+                new_domains: 1,
+                unique_domains: 1,
+                hhi_score: 0.5,
+                discovery_rate: 0.5,
+                hours: Vec::new(),
+            }],
         };
         let visits = vec![VisitRecord {
             visit_id: 1,
