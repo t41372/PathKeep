@@ -195,7 +195,7 @@ async fn run_case(
     drain(&conn, "PRAGMA temp_store=FILE").await;
     let scratch_key = data_key.derive(KeyPurpose::ScratchDatabase).to_hex();
     let scratch_uri = format!(
-        "file:{}?cipher=aegis256&hexkey={}",
+        "file:{}?cipher=aes256gcm&hexkey={}",
         db_dir.join("scratch.db").display(),
         *scratch_key
     );
@@ -278,7 +278,7 @@ async fn open(
         .experimental_encryption(true)
         .experimental_attach(true)
         .with_encryption(turso::EncryptionOpts {
-            cipher: "aegis256".into(),
+            cipher: "aes256gcm".into(),
             hexkey: data_key.derive(KeyPurpose::ArchiveDatabase).to_hex().to_string(),
         });
     if let Some(io) = io {

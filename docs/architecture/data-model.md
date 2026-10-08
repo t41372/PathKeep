@@ -432,6 +432,36 @@ writer results.
 - `sidecars/intelligence-blobs/`
   - W-ENRICH content-fetch 抓回的 readable body / caption blob（content-addressed）；可重抓、可能大，**排除出 export bundle**（已投影的 bounded enrichment text 隨 archive 的 `search_documents` 搬移，目的地重建索引後仍能離線搜尋；intelligence DB 本身不進 native bundle）
 
+### Page encryption
+
+Every encrypted Turso database (archive, source evidence, Insights, agent, scratch) encrypts
+each page with **AES-256-GCM** under a key derived from the data key; Turso writes a fresh
+random nonce and the tag into each page.
+
+Decided 2026-10-07, replacing AEGIS-256. Turso's SDK enables its `pure-rust-crypto` feature,
+and with it AEGIS uses hardware AES only when the binary is compiled for it (`target_feature =
+"aes"`). That holds on Apple Silicon. On x86_64 every page went through bitsliced software AES:
+74% of the busy samples in the 14.4M Insights rebuild profile
+(`research/2026-10-turso-area4-vm-benchmark.md`). Compiling for AES-NI would make the app
+crash on CPUs without it. AES-256-GCM (RustCrypto) checks for AES-NI and carry-less multiply
+at run time, on every CPU. Measured with `vault-store/tests/benchmark.rs`
+(`encrypted_page_throughput`, Modal VM, x86_64, release):
+
+| Cipher                       | 4,000 commits of 100 rows | 40 commits of 10,000 rows | Cold scan of 800k rows |
+| ---------------------------- | ------------------------: | ------------------------: | ---------------------: |
+| AEGIS-256, software AES      |                    7.30 s |                    1.23 s |                 0.53 s |
+| AEGIS-256, built with AES-NI |                    6.25 s |                    0.79 s |                 0.12 s |
+| AES-256-GCM, run-time detect |                    6.15 s |                    0.80 s |                 0.15 s |
+
+Random 96-bit nonces put a limit on how many pages one key may encrypt: about 2³² keeps
+the chance of a repeated nonce below 2⁻³². A full Insights rebuild at 14.4M visits writes on
+the order of 10⁷ pages, so the limit is hundreds of full rebuilds under one data key. Changing
+the archive password re-wraps the key without changing it. If that limit ever matters, the
+remedy is to rotate the data key (a full copy, as an encryption mode switch does), not to
+change the cipher.
+
+The encrypted search index uses AES-256-GCM as well (`vault-crypto`).
+
 ### Retained SQLCipher files
 
 SQLCipher inputs retained by conversion keep their original password and at-rest
