@@ -3,46 +3,49 @@
  * the routes in `src/app/router.tsx`, the History URL contract and these
  * links cannot drift apart.
  */
-import { rangeDates, type RangeId } from './range'
+import { scopeParams, type Scope } from './range'
 
-function withRange(path: string, range?: RangeId, extra?: URLSearchParams) {
-  const params = new URLSearchParams(extra)
-  if (range) params.set('range', range)
+/** A path that keeps the scope the user was looking at. */
+function withScope(path: string, scope?: Scope, extra?: URLSearchParams) {
+  const params = scope
+    ? scopeParams(scope, new URLSearchParams(extra))
+    : new URLSearchParams(extra)
   const query = params.toString()
   return query ? `${path}?${query}` : path
 }
 
-export const insightsPath = (range?: RangeId) => withRange('/insights', range)
+export const insightsPath = (scope?: Scope) => withScope('/insights', scope)
 
 /** A local calendar day, `YYYY-MM-DD`. */
 export const dayPath = (date: string) => `/insights/day/${date}`
 
-export const sitePath = (domain: string, range?: RangeId) =>
-  withRange(`/insights/site/${encodeURIComponent(domain)}`, range)
+export const sitePath = (domain: string, scope?: Scope) =>
+  withScope(`/insights/site/${encodeURIComponent(domain)}`, scope)
 
 /** A search, by the text the user typed. */
-export const searchPath = (query: string, range?: RangeId) =>
-  withRange(`/insights/search/${encodeURIComponent(query)}`, range)
+export const searchPath = (query: string, scope?: Scope) =>
+  withScope(`/insights/search/${encodeURIComponent(query)}`, scope)
 
 /**
  * A page the user keeps reopening, by canonical URL. Re-find scores are per
- * browser profile; `profile` picks the row the link came from.
+ * browser profile; `scores` picks the profile of the row the link came from.
  */
 export const pagePath = (
   canonicalUrl: string,
-  range?: RangeId,
-  profile?: string | null,
+  scope?: Scope,
+  scores?: string | null,
 ) =>
-  withRange(
+  withScope(
     `/insights/page/${encodeURIComponent(canonicalUrl)}`,
-    range,
-    profile ? new URLSearchParams({ profile }) : undefined,
+    scope,
+    scores ? new URLSearchParams({ scores }) : undefined,
   )
 
-/** History's date filter for a range: `start..end`. */
-export function historyDateParam(range: RangeId) {
-  const { start, end } = rangeDates(range)
-  return `${start}..${end}`
+/** History's date filter for a scope: `start..end`, none for all time. */
+export function historyDateParam(scope: Scope) {
+  return scope.range === 'all'
+    ? undefined
+    : `${scope.dates.start}..${scope.dates.end}`
 }
 
 /** A History URL with the given filters (see the History URL contract). */

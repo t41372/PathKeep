@@ -14,6 +14,7 @@ import { BrowserIcon } from '@/lib/browser-icons'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { dayPath, pagePath, searchPath } from '@/features/insights/links'
+import { presetScope } from '@/features/insights/range'
 import { dailySeries, useBrowserSummaries } from './home-data'
 import {
   useOnThisDay,
@@ -356,8 +357,8 @@ export function ThreadsCard() {
               <Link
                 to={
                   thread.anchorType === 'query_family'
-                    ? searchPath(thread.anchorLabel, 'd90')
-                    : pagePath(thread.anchorId, 'd90')
+                    ? searchPath(thread.anchorLabel, presetScope('d90'))
+                    : pagePath(thread.anchorId, presetScope('d90'))
                 }
                 className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted"
               >

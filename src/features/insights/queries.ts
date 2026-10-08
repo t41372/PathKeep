@@ -1,47 +1,42 @@
 /** Data for Insights, one query per card, all keyed by the selected range. */
 import { useQuery } from '@tanstack/react-query'
-import {
-  insightsClient,
-  lastDays,
-  pollWhileStale,
-} from '@/lib/backend-client/insights'
+import { insightsClient, pollWhileStale } from '@/lib/backend-client/insights'
 import type { ReopenedInvestigation } from '@/lib/core-intelligence/types'
 import { queryKeys } from '@/lib/query'
-import { rangeBars } from './buckets'
-import { rangeDays, type RangeId } from './range'
+import { chartDates, rangeBars } from './buckets'
+import { scopeKey, type Scope } from './range'
 
-export { rangeDays, type RangeId }
-
-const key = (range: RangeId, ...parts: unknown[]) => [
+const key = (scope: Scope, ...parts: unknown[]) => [
   ...queryKeys.archiveData,
   'insights',
-  range,
+  ...scopeKey(scope),
   ...parts,
 ]
 
-function scope(range: RangeId) {
-  return { dateRange: lastDays(rangeDays[range]) }
+/** The request fields every range read takes. */
+export function request(scope: Scope) {
+  return { dateRange: scope.dates, profileId: scope.profileId }
 }
 
 const keepPrevious = <T>(previous: T | undefined) => previous
 
-export function useDigest(range: RangeId) {
+export function useDigest(scope: Scope) {
   return useQuery({
-    queryKey: key(range, 'digest'),
-    queryFn: () => insightsClient.digest(scope(range)),
+    queryKey: key(scope, 'digest'),
+    queryFn: () => insightsClient.digest(request(scope)),
     placeholderData: keepPrevious,
     refetchInterval: pollWhileStale,
   })
 }
 
-/** Pages and searches per day (per week for the one-year range). */
-export function useDailyActivity(range: RangeId) {
+/** Pages and searches per day, week or month (see `buckets.ts`). */
+export function useDailyActivity(scope: Scope) {
   return useQuery({
-    queryKey: key(range, 'daily'),
+    queryKey: key(scope, 'daily'),
     queryFn: async () => {
       const [trend, mix] = await Promise.all([
-        insightsClient.discoveryTrend(scope(range)),
-        insightsClient.activityMixTrend(scope(range)),
+        insightsClient.discoveryTrend(request(scope)),
+        insightsClient.activityMixTrend(request(scope)),
       ])
       const byDay = new Map(
         trend.data.points.map((point) => [
@@ -58,7 +53,10 @@ export function useDailyActivity(range: RangeId) {
       }
       return {
         meta: trend.meta,
-        points: rangeBars(range, byDay, { pages: 0, searches: 0 }),
+        ...rangeBars(chartDates(scope, byDay.keys()), byDay, {
+          pages: 0,
+          searches: 0,
+        }),
       }
     },
     placeholderData: keepPrevious,
@@ -66,19 +64,19 @@ export function useDailyActivity(range: RangeId) {
   })
 }
 
-export function useTopSites(range: RangeId) {
+export function useTopSites(scope: Scope) {
   return useQuery({
-    queryKey: key(range, 'top-sites'),
-    queryFn: () => insightsClient.topSites(scope(range), 6),
+    queryKey: key(scope, 'top-sites'),
+    queryFn: () => insightsClient.topSites(request(scope), 6),
     placeholderData: keepPrevious,
     refetchInterval: pollWhileStale,
   })
 }
 
-export function useRhythm(range: RangeId) {
+export function useRhythm(scope: Scope) {
   return useQuery({
-    queryKey: key(range, 'rhythm'),
-    queryFn: () => insightsClient.rhythm(scope(range)),
+    queryKey: key(scope, 'rhythm'),
+    queryFn: () => insightsClient.rhythm(request(scope)),
     placeholderData: keepPrevious,
     refetchInterval: pollWhileStale,
   })
@@ -89,11 +87,14 @@ export function useRhythm(range: RangeId) {
  * The counts cover the selected range only, so they never exceed the
  * "Searches" figure above them.
  */
-export function useFrequentSearches(range: RangeId, limit = 10) {
+export function useFrequentSearches(scope: Scope, limit = 10) {
   return useQuery({
-    queryKey: key(range, 'searches', limit),
+    queryKey: key(scope, 'searches', limit),
     queryFn: async () => {
-      const result = await insightsClient.frequentSearches(scope(range), limit)
+      const result = await insightsClient.frequentSearches(
+        request(scope),
+        limit,
+      )
       return {
         meta: result.meta,
         data: result.data.items.map((entry) => ({
@@ -107,10 +108,10 @@ export function useFrequentSearches(range: RangeId, limit = 10) {
   })
 }
 
-export function useRefindPages(range: RangeId) {
+export function useRefindPages(scope: Scope) {
   return useQuery({
-    queryKey: key(range, 'refind'),
-    queryFn: () => insightsClient.refindPages(scope(range), 5),
+    queryKey: key(scope, 'refind'),
+    queryFn: () => insightsClient.refindPages(request(scope), 5),
     placeholderData: keepPrevious,
     refetchInterval: pollWhileStale,
   })
@@ -120,11 +121,11 @@ export function useRefindPages(range: RangeId) {
  * Pages and searches the user came back to on several days. Rows are per
  * browser profile; keep one per anchor (the one seen most).
  */
-export function useThreads(range: RangeId, limit = 6) {
+export function useThreads(scope: Scope, limit = 6) {
   return useQuery({
-    queryKey: key(range, 'threads'),
+    queryKey: key(scope, 'threads'),
     queryFn: async () => {
-      const result = await insightsClient.reopenedInvestigations(scope(range))
+      const result = await insightsClient.reopenedInvestigations(request(scope))
       const byAnchor = new Map<string, ReopenedInvestigation>()
       for (const item of result.data.items) {
         const anchor = `${item.anchorType}:${item.anchorId}:${item.anchorLabel}`
@@ -145,21 +146,21 @@ export function useThreads(range: RangeId, limit = 6) {
   })
 }
 
-export function useBreadth(range: RangeId) {
+export function useBreadth(scope: Scope) {
   return useQuery({
-    queryKey: key(range, 'breadth'),
-    queryFn: () => insightsClient.breadth(scope(range)),
+    queryKey: key(scope, 'breadth'),
+    queryFn: () => insightsClient.breadth(request(scope)),
     placeholderData: keepPrevious,
     refetchInterval: pollWhileStale,
   })
 }
 
 /** Sites visited on a regular rhythm; stopped ones first. */
-export function useHabits(range: RangeId, limit = 6) {
+export function useHabits(scope: Scope, limit = 6) {
   return useQuery({
-    queryKey: key(range, 'habits'),
+    queryKey: key(scope, 'habits'),
     queryFn: async () => {
-      const result = await insightsClient.habits(scope(range))
+      const result = await insightsClient.habits(request(scope))
       return {
         meta: result.meta,
         total: result.data.length,
@@ -177,10 +178,10 @@ export function useHabits(range: RangeId, limit = 6) {
   })
 }
 
-export function useBrowsers(range: RangeId) {
+export function useBrowsers(scope: Scope) {
   return useQuery({
-    queryKey: key(range, 'browsers'),
-    queryFn: () => insightsClient.browsers(scope(range)),
+    queryKey: key(scope, 'browsers'),
+    queryFn: () => insightsClient.browsers(request(scope)),
     placeholderData: keepPrevious,
     refetchInterval: pollWhileStale,
   })

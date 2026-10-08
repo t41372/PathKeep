@@ -25,13 +25,13 @@ import {
   useDigest,
   useHabits,
   useThreads,
-  type RangeId,
 } from './queries'
+import type { Scope } from './range'
 
-export function ThreadsCard({ range }: { range: RangeId }) {
+export function ThreadsCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
-  const threads = useThreads(range)
+  const threads = useThreads(scope)
   return (
     <SectionCard
       title={t('insights.threads.title')}
@@ -59,8 +59,8 @@ export function ThreadsCard({ range }: { range: RangeId }) {
                   <Link
                     to={
                       isSearch
-                        ? searchPath(thread.anchorLabel, range)
-                        : pagePath(thread.anchorId, range)
+                        ? searchPath(thread.anchorLabel, scope)
+                        : pagePath(thread.anchorId, scope)
                     }
                     className={cn(rowLink, 'items-start py-2')}
                   >
@@ -106,11 +106,11 @@ function breadthWord(score: number) {
   return 'focused' as const
 }
 
-export function BreadthCard({ range }: { range: RangeId }) {
+export function BreadthCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
-  const breadth = useBreadth(range)
-  const digest = useDigest(range)
+  const breadth = useBreadth(scope)
+  const digest = useDigest(scope)
   const newSites = digest.data?.data.newDomains.value
 
   return (
@@ -189,10 +189,10 @@ function habitRhythm(habit: HabitPattern, t: ReturnType<typeof useI18n>['t']) {
   }
 }
 
-export function HabitsCard({ range }: { range: RangeId }) {
+export function HabitsCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
-  const habits = useHabits(range)
+  const habits = useHabits(scope)
   return (
     <SectionCard
       title={t('insights.habits.title')}
@@ -215,7 +215,7 @@ export function HabitsCard({ range }: { range: RangeId }) {
             {result.data.map((habit) => (
               <li key={habit.registrableDomain}>
                 <Link
-                  to={sitePath(habit.registrableDomain, range)}
+                  to={sitePath(habit.registrableDomain, scope)}
                   className={cn(rowLink, 'py-2')}
                 >
                   <Favicon domain={habit.registrableDomain} />
@@ -252,10 +252,10 @@ export function HabitsCard({ range }: { range: RangeId }) {
   )
 }
 
-export function BrowsersCard({ range }: { range: RangeId }) {
+export function BrowsersCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
-  const browsers = useBrowsers(range)
+  const browsers = useBrowsers(scope)
   const sources = useSourceStats()
   const names = new Map(
     (sources.data ?? []).map((source) => [
@@ -322,7 +322,7 @@ export function BrowsersCard({ range }: { range: RangeId }) {
                             <span key={entry.registrableDomain}>
                               {index > 0 && ', '}
                               <Link
-                                to={sitePath(entry.registrableDomain, range)}
+                                to={sitePath(entry.registrableDomain, scope)}
                                 className="text-foreground hover:underline"
                               >
                                 {entry.registrableDomain}

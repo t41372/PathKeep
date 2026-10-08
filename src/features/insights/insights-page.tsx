@@ -18,42 +18,42 @@ import {
   HabitsCard,
   ThreadsCard,
 } from './pattern-cards'
-import { RangeToggle } from './parts'
-import { useRange } from './range'
+import { useScope } from './range'
+import { ScopeControls } from './scope-controls'
 
 const row =
   'grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-4 max-[900px]:grid-cols-1'
 
 export default function InsightsPage() {
   const { t } = useI18n()
-  const [range, setRange] = useRange()
+  const [scope] = useScope()
 
   return (
     <PageScroll wide>
       <PageHeader
         title={t('insights.title')}
         subtitle={t('insights.subtitle')}
-        actions={<RangeToggle value={range} onChange={setRange} />}
+        actions={<ScopeControls />}
       />
-      <KpiRow range={range} />
+      <KpiRow scope={scope} />
       <div className={row}>
-        <DailyActivityCard range={range} />
-        <TopSitesCard range={range} />
+        <DailyActivityCard scope={scope} />
+        <TopSitesCard scope={scope} />
       </div>
       <div className={row}>
-        <RhythmCard range={range} />
-        <SearchesAndRefindCard range={range} />
+        <RhythmCard scope={scope} />
+        <SearchesAndRefindCard scope={scope} />
       </div>
       <h2 className="mt-3 text-[15px] font-semibold">
         {t('insights.patterns')}
       </h2>
       <div className={row}>
-        <ThreadsCard range={range} />
-        <BreadthCard range={range} />
+        <ThreadsCard scope={scope} />
+        <BreadthCard scope={scope} />
       </div>
       <div className={row}>
-        <HabitsCard range={range} />
-        <BrowsersCard range={range} />
+        <HabitsCard scope={scope} />
+        <BrowsersCard scope={scope} />
       </div>
     </PageScroll>
   )

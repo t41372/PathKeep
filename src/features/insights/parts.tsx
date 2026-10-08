@@ -17,7 +17,6 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Spinner } from '@/components/ui/spinner'
 import type { Section } from '@/lib/backend-client/insights'
 import { cn } from '@/lib/cn'
@@ -26,9 +25,6 @@ import type {
   KpiMetric,
 } from '@/lib/core-intelligence/types'
 import { useFormat, useI18n } from '@/lib/i18n'
-import { isRangeId, rangeDays, type RangeId } from './range'
-
-const ranges = Object.keys(rangeDays) as RangeId[]
 
 export function ListSkeleton({
   rows,
@@ -284,34 +280,5 @@ export function DrillHeader({
         )}
       </div>
     </header>
-  )
-}
-
-export function RangeToggle({
-  value,
-  onChange,
-}: {
-  value: RangeId
-  onChange: (range: RangeId) => void
-}) {
-  const { t } = useI18n()
-  return (
-    <ToggleGroup
-      type="single"
-      value={value}
-      aria-label={t('insights.range.label')}
-      onValueChange={(next) => isRangeId(next) && onChange(next)}
-      className="rounded-[9px] bg-muted p-[3px]"
-    >
-      {ranges.map((id) => (
-        <ToggleGroupItem
-          key={id}
-          value={id}
-          className="h-[30px] rounded-[7px] px-3 text-[13px] data-[state=on]:bg-card data-[state=on]:shadow-card"
-        >
-          {t(`insights.range.${id}`)}
-        </ToggleGroupItem>
-      ))}
-    </ToggleGroup>
   )
 }

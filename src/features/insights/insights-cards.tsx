@@ -15,27 +15,29 @@ import { CardError, SectionCard } from '@/components/app/section-card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { isStale } from '@/lib/backend-client/insights'
 import { useFormat, useI18n } from '@/lib/i18n'
-import { barLength } from './buckets'
+import { barLabel } from './buckets'
 import { dayPath, pagePath, searchPath, sitePath } from './links'
 import { formatDuration, rowLink, shareBar } from './display'
 import { KpiTile, ListSkeleton, QueryBody, SectionStatus } from './parts'
 import {
-  rangeDays,
   useDailyActivity,
   useDigest,
   useFrequentSearches,
   useRefindPages,
   useRhythm,
   useTopSites,
-  type RangeId,
 } from './queries'
+import { scopeDays, type Scope } from './range'
 
-export function KpiRow({ range }: { range: RangeId }) {
+export function KpiRow({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
-  const digest = useDigest(range)
+  const digest = useDigest(scope)
   const data = digest.data?.data
-  const hint = t('insights.kpi.vsPrevious', { days: rangeDays[range] })
+  // All time has no previous period to compare with.
+  const days = scopeDays(scope)
+  const hint = days ? t('insights.kpi.vsPrevious', { days }) : undefined
+  const compared = <T,>(metric: T) => (days ? metric : undefined)
   const loading = data === undefined && !digest.isError
   const updating = isStale(digest.data)
 
@@ -50,7 +52,7 @@ export function KpiRow({ range }: { range: RangeId }) {
     <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
       <KpiTile
         label={t('insights.kpi.visits')}
-        metric={data?.totalVisits}
+        metric={compared(data?.totalVisits)}
         value={format.compact(data?.totalVisits.value ?? 0)}
         hint={hint}
         loading={loading}
@@ -58,7 +60,7 @@ export function KpiRow({ range }: { range: RangeId }) {
       />
       <KpiTile
         label={t('insights.kpi.domains')}
-        metric={data?.distinctDomains}
+        metric={compared(data?.distinctDomains)}
         value={format.number(data?.distinctDomains?.value ?? 0)}
         hint={hint}
         loading={loading}
@@ -66,7 +68,7 @@ export function KpiRow({ range }: { range: RangeId }) {
       />
       <KpiTile
         label={t('insights.kpi.searches')}
-        metric={data?.totalSearches}
+        metric={compared(data?.totalSearches)}
         value={format.compact(data?.totalSearches.value ?? 0)}
         hint={hint}
         loading={loading}
@@ -74,7 +76,7 @@ export function KpiRow({ range }: { range: RangeId }) {
       />
       <KpiTile
         label={t('insights.kpi.activeTime')}
-        metric={data?.activeTimeMs}
+        metric={compared(data?.activeTimeMs)}
         value={formatDuration(data?.activeTimeMs?.value ?? 0, t, format)}
         hint={hint}
         loading={loading}
@@ -84,12 +86,12 @@ export function KpiRow({ range }: { range: RangeId }) {
   )
 }
 
-export function DailyActivityCard({ range }: { range: RangeId }) {
+export function DailyActivityCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
   const navigate = useNavigate()
-  const daily = useDailyActivity(range)
-  const weekly = barLength(range) === 'week'
+  const daily = useDailyActivity(scope)
+  const length = daily.data?.length ?? 'day'
   const config = useMemo(
     () => ({
       pages: {
@@ -103,9 +105,9 @@ export function DailyActivityCard({ range }: { range: RangeId }) {
     }),
     [t],
   )
-  const points = daily.data?.points ?? []
+  const points = daily.data?.bars ?? []
   const openDay = (state: MouseHandlerDataParam) => {
-    if (!weekly && typeof state.activeLabel === 'string') {
+    if (length === 'day' && typeof state.activeLabel === 'string') {
       void navigate(dayPath(state.activeLabel))
     }
   }
@@ -113,7 +115,13 @@ export function DailyActivityCard({ range }: { range: RangeId }) {
   return (
     <SectionCard
       title={t('insights.daily.title')}
-      subtitle={weekly ? undefined : t('insights.daily.hint')}
+      subtitle={t(
+        {
+          day: 'insights.daily.hint',
+          week: 'insights.daily.perWeek',
+          month: 'insights.daily.perMonth',
+        }[length] as 'insights.daily.hint',
+      )}
       action={
         <span className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
@@ -142,7 +150,7 @@ export function DailyActivityCard({ range }: { range: RangeId }) {
             barGap={2}
             chartProps={{
               onClick: openDay,
-              style: weekly ? undefined : { cursor: 'pointer' },
+              style: length === 'day' ? { cursor: 'pointer' } : undefined,
             }}
           >
             <EvilBarChart.Grid vertical={false} strokeDasharray="3 4" />
@@ -151,9 +159,7 @@ export function DailyActivityCard({ range }: { range: RangeId }) {
               tickLine={false}
               axisLine={false}
               minTickGap={32}
-              tickFormatter={(value: string) =>
-                format.monthDay(`${value}T00:00:00`)
-              }
+              tickFormatter={(value: string) => barLabel(format, length, value)}
               className="font-mono"
             />
             <EvilBarChart.Tooltip />
@@ -166,10 +172,10 @@ export function DailyActivityCard({ range }: { range: RangeId }) {
   )
 }
 
-export function TopSitesCard({ range }: { range: RangeId }) {
+export function TopSitesCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
-  const sites = useTopSites(range)
+  const sites = useTopSites(scope)
 
   return (
     <SectionCard
@@ -192,7 +198,7 @@ export function TopSitesCard({ range }: { range: RangeId }) {
               {result.data.items.map((site) => (
                 <li key={site.registrableDomain}>
                   <Link
-                    to={sitePath(site.registrableDomain, range)}
+                    to={sitePath(site.registrableDomain, scope)}
                     className="relative flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] hover:no-underline"
                   >
                     <span
@@ -221,9 +227,9 @@ export function TopSitesCard({ range }: { range: RangeId }) {
   )
 }
 
-export function RhythmCard({ range }: { range: RangeId }) {
+export function RhythmCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const rhythm = useRhythm(range)
+  const rhythm = useRhythm(scope)
   const weekdayList = t('insights.rhythm.weekdays')
   const weekdays = useMemo(() => weekdayList.split(','), [weekdayList])
 
@@ -281,11 +287,11 @@ export function RhythmCard({ range }: { range: RangeId }) {
   )
 }
 
-export function SearchesAndRefindCard({ range }: { range: RangeId }) {
+export function SearchesAndRefindCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
-  const searches = useFrequentSearches(range)
-  const refind = useRefindPages(range)
+  const searches = useFrequentSearches(scope)
+  const refind = useRefindPages(scope)
 
   return (
     <SectionCard
@@ -303,7 +309,7 @@ export function SearchesAndRefindCard({ range }: { range: RangeId }) {
             {result.data.map((concept) => (
               <Link
                 key={concept.query}
-                to={searchPath(concept.query, range)}
+                to={searchPath(concept.query, scope)}
                 className="flex h-7 items-center gap-1.5 rounded-full border bg-card px-3 text-[13px] transition-colors hover:bg-muted hover:no-underline"
               >
                 {concept.query}
@@ -333,7 +339,7 @@ export function SearchesAndRefindCard({ range }: { range: RangeId }) {
             {result.data.items.map((page) => (
               <li key={page.canonicalUrl}>
                 <Link
-                  to={pagePath(page.canonicalUrl, range, page.profileId)}
+                  to={pagePath(page.canonicalUrl, scope, page.profileId)}
                   className={rowLink}
                 >
                   <Repeat
