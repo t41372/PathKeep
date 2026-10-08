@@ -27,7 +27,10 @@ import { archiveClient } from '@/lib/backend-client/archive'
 import { securityClient } from '@/lib/backend-client/security'
 import { parseRecoveryReport } from './recovery-report'
 import { describeError } from '@/lib/errors'
-import { isLockRequiredError } from '@/lib/ipc/command-error'
+import {
+  isArchiveClosedError,
+  isLockRequiredError,
+} from '@/lib/ipc/command-error'
 import { useI18n } from '@/lib/i18n'
 import { queryClient, queryKeys } from '@/lib/query'
 import type {
@@ -213,6 +216,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  // A read refused because the archive closed under this window goes back
+  // through the gates above (keychain, then password or passcode) instead of
+  // leaving every screen empty. Mutations report their own errors.
+  const regating = useRef(false)
+  useEffect(() => {
+    if (phase !== 'ready') return
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== 'updated' || event.action.type !== 'error') return
+      if (regating.current || !isArchiveClosedError(event.action.error)) return
+      regating.current = true
+      triedKeyring.current = false
+      queryClient.clear()
+      setPhase('booting')
+      void refresh().finally(() => {
+        regating.current = false
+      })
+    })
+  }, [phase, refresh])
 
   const lock = useCallback(async () => {
     const status = await appClient.lockAppSession('manual')

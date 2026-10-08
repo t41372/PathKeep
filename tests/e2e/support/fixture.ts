@@ -75,10 +75,47 @@ export async function backend<T>(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
   })
-  const body = (await response.json()) as T & { message?: string }
-  if (!response.ok)
-    throw new Error(`${command}: ${body.message ?? response.status}`)
+  const body = (await response.json()) as T & {
+    message?: string
+    code?: string
+  }
+  // The typed code goes in front, as `code: message` like the backend writes it,
+  // so a test can assert either one.
+  if (!response.ok) {
+    const reason = body.message ?? String(response.status)
+    const coded =
+      body.code && !reason.startsWith(`${body.code}:`)
+        ? `${body.code}: ${reason}`
+        : reason
+    throw new Error(`${command}: ${coded}`)
+  }
   return body
+}
+
+/**
+ * The archive's visit total once the backend session has the archive open.
+ * After the session key is cleared, the window unlocks the archive again from
+ * the keychain when it loads; until then the backend refuses. Polls, and on a
+ * timeout reports the last refusal.
+ */
+export async function openArchiveVisitTotal(): Promise<number> {
+  let total = 0
+  await expect
+    .poll(
+      async () => {
+        try {
+          total = (
+            await backend<{ totalVisits: number }>('load_dashboard_snapshot')
+          ).totalVisits
+          return 'open'
+        } catch (error) {
+          return String(error)
+        }
+      },
+      { timeout: 30_000 },
+    )
+    .toBe('open')
+  return total
 }
 
 /**
