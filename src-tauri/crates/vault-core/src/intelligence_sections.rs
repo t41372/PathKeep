@@ -8,7 +8,8 @@
 use crate::{
     intelligence_runtime::load_module_runtime,
     models::{
-        CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow, DeterministicModuleRuntimeStatus,
+        CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow,
+        DeterministicModuleRuntimeStatus,
     },
     utils::now_rfc3339,
 };
@@ -410,8 +411,8 @@ pub fn build_core_intelligence_section_meta(
     window: CoreIntelligenceSectionWindow,
     is_empty: bool,
 ) -> Result<CoreIntelligenceSectionMeta> {
-    let needs_modules = section_descriptor(section_id)
-        .is_some_and(|descriptor| !descriptor.module_ids.is_empty());
+    let needs_modules =
+        section_descriptor(section_id).is_some_and(|descriptor| !descriptor.module_ids.is_empty());
     let modules = if needs_modules { load_module_runtime(vault)? } else { Vec::new() };
     build_core_intelligence_section_meta_with_modules(section_id, window, is_empty, &modules)
 }

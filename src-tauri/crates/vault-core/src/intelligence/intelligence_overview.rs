@@ -527,8 +527,8 @@ fn refresh_for_today(
     payload.on_this_day.data = on_this_day;
     for habit in &mut payload.habit_patterns.data {
         if let Ok(last) = chrono::DateTime::parse_from_rfc3339(&habit.last_visited_at) {
-            let days_since = (today.timestamp_millis() - last.timestamp_millis()).max(0) as f32
-                / 86_400_000.0;
+            let days_since =
+                (today.timestamp_millis() - last.timestamp_millis()).max(0) as f32 / 86_400_000.0;
             habit.is_interrupted = days_since > habit.mean_interval_days * 2.0;
         }
     }
