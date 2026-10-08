@@ -2000,6 +2000,10 @@ pub const DERIVED_STALE_MISSING_BUILD_TIMESTAMP: &str = "missing-build-timestamp
 /// mutated archive facts, so the code travels with the runtime row.
 pub const DERIVED_STALE_ARCHIVE_DATA_CHANGED: &str = "archive-data-changed";
 
+/// Stale-reason code for "no build has finished yet and one is queued or running". Read-derived:
+/// a build publishes each browser profile as it finishes it, so until then the numbers are partial.
+pub const DERIVED_STALE_FIRST_BUILD_RUNNING: &str = "first-build-running";
+
 /// Stale-reason code for "archive visibility or rollback state changed".
 ///
 /// Persisted by the doctor repair path after it clears derived tables.

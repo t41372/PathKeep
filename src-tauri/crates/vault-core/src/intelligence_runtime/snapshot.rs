@@ -287,15 +287,39 @@ pub(super) fn load_module_statuses(
         stored_map.insert(row.0.clone(), row);
     }
 
+    // A build publishes each browser profile as it finishes it, so until the first build of an
+    // archive completes, what Insights shows covers only some profiles.
+    let building = connection.query_one(
+        "SELECT EXISTS(SELECT 1 FROM intelligence_jobs
+         WHERE job_type IN (?1,?2,?3,?4) AND state IN ('queued','running'))",
+        [
+            VISIT_DERIVE_JOB_TYPE,
+            DAILY_ROLLUP_JOB_TYPE,
+            STRUCTURAL_REBUILD_JOB_TYPE,
+            FULL_REBUILD_JOB_TYPE,
+        ],
+        |row| Ok(row.get::<i64>(0)? != 0),
+    )?;
     let mut statuses = Vec::with_capacity(built_in_deterministic_modules().len());
     for module in built_in_deterministic_modules() {
         let enabled = deterministic_module_enabled(config, module.id);
         let Some(stored_row) = stored_map.remove(module.id) else {
+            let first_build = enabled && building;
             statuses.push(DeterministicModuleRuntimeStatus {
                 module_id: module.id.to_string(),
                 enabled,
                 version: module.version.to_string(),
-                status: if enabled { "idle".to_string() } else { "disabled".to_string() },
+                status: if first_build {
+                    "stale".to_string()
+                } else if enabled {
+                    "idle".to_string()
+                } else {
+                    "disabled".to_string()
+                },
+                stale_reason: first_build
+                    .then(|| "The first Insights build is still running.".to_string()),
+                stale_reason_code: first_build
+                    .then(|| crate::models::DERIVED_STALE_FIRST_BUILD_RUNNING.to_string()),
                 depends_on: module.depends_on.iter().map(|value| (*value).to_string()).collect(),
                 derived_tables: module
                     .derived_tables

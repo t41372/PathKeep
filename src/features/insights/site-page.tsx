@@ -35,7 +35,7 @@ import {
   RangeToggle,
 } from './parts'
 import { rangeDates, rangeDays, useRange, type RangeId } from './range'
-import { localDateKey } from '@/lib/backend-client/insights'
+import { localDateKey, isStale } from '@/lib/backend-client/insights'
 
 /** Every day of the range, zero where the site was not visited. */
 function fillDays(points: DomainTrendPoint[], range: RangeId) {
@@ -74,6 +74,7 @@ export default function SitePage() {
   const site = useSite(domain, range)
   const data = site.data?.data
   const loading = data === undefined && !site.isError
+  const updating = isStale(site.data)
 
   return (
     <PageScroll wide>
@@ -100,23 +101,27 @@ export default function SitePage() {
           label={t('insights.kpi.visits')}
           value={format.number(data?.totalVisits ?? 0)}
           loading={loading}
+          updating={updating}
         />
         <KpiTile
           label={t('insights.site.activeDays')}
           value={format.number(data?.activeDays ?? 0)}
           detail={t('insights.site.ofDays', { days: rangeDays[range] })}
           loading={loading}
+          updating={updating}
         />
         <KpiTile
           label={t('insights.site.pages')}
           value={format.number(data?.pageCount ?? 0)}
           loading={loading}
+          updating={updating}
         />
         <KpiTile
           label={t('insights.site.landings')}
           value={format.number(data?.landingSearchCount ?? 0)}
           detail={t('insights.site.landingsHint')}
           loading={loading}
+          updating={updating}
         />
       </div>
       <SiteTrendCard domain={domain} range={range} />

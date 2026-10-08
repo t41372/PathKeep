@@ -13,6 +13,7 @@ import { heatLevel } from '@/components/app/heat-level'
 import { Heatmap, type HeatCell } from '@/components/app/heatmap'
 import { CardError, SectionCard } from '@/components/app/section-card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { isStale } from '@/lib/backend-client/insights'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { dayPath, pagePath, searchPath, sitePath } from './links'
 import { formatDuration, rowLink, shareBar } from './display'
@@ -35,6 +36,7 @@ export function KpiRow({ range }: { range: RangeId }) {
   const data = digest.data?.data
   const hint = t('insights.kpi.vsPrevious', { days: rangeDays[range] })
   const loading = data === undefined && !digest.isError
+  const updating = isStale(digest.data)
 
   if (digest.isError && data === undefined) {
     return (
@@ -51,6 +53,7 @@ export function KpiRow({ range }: { range: RangeId }) {
         value={format.compact(data?.totalVisits.value ?? 0)}
         hint={hint}
         loading={loading}
+        updating={updating}
       />
       <KpiTile
         label={t('insights.kpi.domains')}
@@ -58,6 +61,7 @@ export function KpiRow({ range }: { range: RangeId }) {
         value={format.number(data?.distinctDomains?.value ?? 0)}
         hint={hint}
         loading={loading}
+        updating={updating}
       />
       <KpiTile
         label={t('insights.kpi.searches')}
@@ -65,6 +69,7 @@ export function KpiRow({ range }: { range: RangeId }) {
         value={format.compact(data?.totalSearches.value ?? 0)}
         hint={hint}
         loading={loading}
+        updating={updating}
       />
       <KpiTile
         label={t('insights.kpi.activeTime')}
@@ -72,6 +77,7 @@ export function KpiRow({ range }: { range: RangeId }) {
         value={formatDuration(data?.activeTimeMs?.value ?? 0, t, format)}
         hint={hint}
         loading={loading}
+        updating={updating}
       />
     </div>
   )

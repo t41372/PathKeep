@@ -43,6 +43,7 @@ const staleCodes = [
   'missing-build-timestamp',
   'archive-data-changed',
   'visibility-or-rollback-changed',
+  'first-build-running',
 ] as const
 const pluginIds = ['title-normalization', 'readable-content-refetch'] as const
 

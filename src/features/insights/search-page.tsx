@@ -24,7 +24,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import { localDateKey } from '@/lib/backend-client/insights'
+import { localDateKey, isStale } from '@/lib/backend-client/insights'
 import { cn } from '@/lib/cn'
 import type { TrailSummary } from '@/lib/core-intelligence/types'
 import { useFormat, useI18n } from '@/lib/i18n'
@@ -68,6 +68,7 @@ export default function SearchPage() {
   const search = useSearch(query, range)
   const { families, matches } = search
   const loading = families.data === undefined && !families.isError
+  const updating = isStale(families.data)
 
   const total = matches.reduce((sum, family) => sum + family.memberCount, 0)
   const first = matches.map((family) => family.firstSeenAt).sort()[0]
@@ -124,16 +125,19 @@ export default function SearchPage() {
               value={format.number(total)}
               detail={t('insights.search.allTime')}
               loading={loading}
+              updating={updating}
             />
             <KpiTile
               label={t('insights.search.first')}
               value={first ? format.date(first) : '—'}
               loading={loading}
+              updating={updating}
             />
             <KpiTile
               label={t('insights.search.last')}
               value={last ? format.relative(last) : '—'}
               loading={loading}
+              updating={updating}
             />
             <KpiTile
               label={t('insights.search.engines')}
@@ -145,6 +149,7 @@ export default function SearchPage() {
                 </span>
               }
               loading={loading}
+              updating={updating}
             />
           </div>
           <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-4 max-[900px]:grid-cols-1">
