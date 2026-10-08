@@ -53,10 +53,18 @@ is keyed, and each key can be recomputed on its own:
   family it matches. Continuing from the stored families with only the new searches gives the
   same families a full replay gives. Reopened investigations follow from the changed families.
 
-The rows change in place, in the current aggregate generation, one batch of keys per write.
-That is what an append already does to facts, daily rollups and sessions: a reader during the
-build sees some keys updated and others not yet. A full rebuild (late visits, a changed rule,
-the Settings button) still builds a new generation from scratch, exactly as now.
+How the new rows become visible matters. Today a reader sees either the complete old
+aggregates or the complete new ones, because a build writes a new generation and switches to it
+once. Writing touched keys one batch at a time would lose that: during an update some cards
+would show new numbers and others old ones. So B computes the new rows for every touched key
+first, reading only, and then writes them all, and removes the rows of keys that no longer
+qualify, in one transaction. A reader sees all of the old aggregates or all of the new ones, as
+now. (Facts, daily rollups and sessions are already extended in place batch by batch during an
+append; that does not change.)
+
+An append whose touched keys are too many for one transaction (a large import) builds a new
+generation from scratch instead, exactly as every append does now. So does a full rebuild (late
+visits, a changed rule, the Settings button).
 
 Cost grows with the visits appended and the history of the pages, sites and trails they touch,
 not with the archive. Memory holds the touched keys only.
