@@ -2,6 +2,7 @@
 //! Not responsible for: app lifecycle, UI, encryption primitives or AI algorithms.
 //! Failure modes: preview omits committed WAL bytes, duplicate resumed rows, stored derived keys,
 //! premature swap, lost legacy originals, ignored cancel. Tests: conversion.rs.
+pub mod bundle;
 mod collisions;
 mod enrichments;
 mod legacy_recovery;
@@ -21,7 +22,7 @@ use vault_core::{
 };
 use vault_store::{CancelToken, OwnerLock};
 
-pub use vault_core::conversion::{Assessment, TableCount};
+pub use vault_core::conversion::{Assessment, LockedFile, TableCount};
 
 /// Read-only assessment never opens or initializes a destination Store.
 pub fn assess(
@@ -39,6 +40,7 @@ pub fn assess(
     let countable = required && (password.is_some() || !source_encrypted);
     let mut bytes = 0;
     let mut retained = Vec::new();
+    let mut locked = Vec::new();
     for (db, path) in source::files(paths) {
         if !path.is_file() {
             continue;
@@ -55,7 +57,10 @@ pub fn assess(
         if !countable {
             continue;
         }
-        let conn = source::open(&path, password)?;
+        let Some(conn) = source::open_unless_locked(db, &path, password)? else {
+            locked.push(LockedFile { database: format!("{db:?}"), path });
+            continue;
+        };
         for table in source::tables(&conn)? {
             tables.push(TableCount {
                 database: format!("{db:?}"),
@@ -76,6 +81,7 @@ pub fn assess(
             .map(|p| paths.app_root.join(p))
             .collect(),
         files_retained: retained,
+        files_locked: locked,
         tables,
         resumable: stage_root(paths).exists(),
     })
@@ -156,11 +162,15 @@ pub fn convert_owned(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => State::default(),
         Err(error) => return Err(error.into()),
     };
+    let mut left_behind = Vec::new();
     for (db, path) in source::files(paths) {
         if !path.is_file() {
             continue;
         }
-        let source = source::open(&path, password)?;
+        let Some(source) = source::open_unless_locked(db, &path, password)? else {
+            left_behind.push(db);
+            continue;
+        };
         let target_tables = vault.store().read(db, |s| {
             s.query("SELECT name FROM sqlite_schema WHERE type='table'", (), |r| {
                 Ok(r.get::<String>(0)?)
@@ -249,6 +259,14 @@ pub fn convert_owned(
                 total,
             });
         }
+    }
+    if left_behind.contains(&vault_store::Db::SourceEvidence) {
+        // The watermarks name the newest evidence batch of each profile; those batches
+        // stayed in the file that wasn't carried over.
+        vault.store().write(vault_store::Db::Archive, vault_store::Priority::Batch, |s| {
+            s.execute("UPDATE profile_watermarks SET last_source_batch_id=NULL", ())?;
+            Ok(())
+        })?;
     }
     while let Some(last) =
         vault_core::conversion::project_pages(&vault, state.projected, source::PAGE)?

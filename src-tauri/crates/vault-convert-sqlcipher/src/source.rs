@@ -51,6 +51,23 @@ pub(crate) fn open(path: &Path, password: Option<&str>) -> Result<Connection> {
     Ok(db)
 }
 
+/// Opens an old file, or returns `None` when the password opens the archive but not this
+/// file (see [`vault_core::conversion::Assessment::files_locked`]). The archive itself is
+/// opened first, so a wrong password fails there and never reaches this case.
+pub(crate) fn open_unless_locked(
+    db: Db,
+    path: &Path,
+    password: Option<&str>,
+) -> Result<Option<Connection>> {
+    match open(path, password) {
+        Ok(conn) => Ok(Some(conn)),
+        Err(error) if db != Db::Archive && error.is::<vault_core::ArchivePasswordWrong>() => {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 pub(crate) fn encrypted(path: &Path) -> Result<bool> {
     let mut header = [0; 16];
     fs::File::open(path)?.read_exact(&mut header)?;

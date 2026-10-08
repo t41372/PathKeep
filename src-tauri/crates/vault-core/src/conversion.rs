@@ -113,8 +113,20 @@ pub struct Assessment {
     pub required_free_bytes: u64,
     pub files_touched: Vec<PathBuf>,
     pub files_retained: Vec<PathBuf>,
+    /// Old files the given password doesn't open although it opens the archive. An install
+    /// that changed its password in v0.1–v0.3 can have these: the old app re-encrypted only
+    /// the archive. Conversion leaves them where they are and doesn't carry them over, so
+    /// the upgrade screen asks before it starts. Empty until a password is given.
+    pub files_locked: Vec<LockedFile>,
     pub tables: Vec<TableCount>,
     pub resumable: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LockedFile {
+    /// `SourceEvidence`, `Intelligence` or `Agent`.
+    pub database: String,
+    pub path: PathBuf,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

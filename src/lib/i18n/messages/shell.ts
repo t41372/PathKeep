@@ -92,6 +92,19 @@ export const shell = defineMessages({
       passwordHint: 'The password you use to open PathKeep.',
       wrongPassword: 'That password doesn’t open this archive.',
       start: 'Update archive',
+      checking: 'Checking the archive…',
+      locked: {
+        title: 'Some files use an earlier password',
+        body: 'Your password opens the archive, but not the files below. They were encrypted with a password you used before; versions before 0.4 changed the password of the archive only. The update can go ahead without them.',
+        files: {
+          SourceEvidence: 'Raw browser records kept with each backup',
+          Intelligence: 'Insights, saved page text and AI indexes',
+          Agent: 'Ask chats',
+        },
+        kept: 'These files stay where they are and are not changed. The new archive starts without what they hold.',
+        back: 'Back',
+        continue: 'Update without them',
+      },
       progress: '{done} of {total}',
       failed: 'The update did not finish. Your archive was not changed.',
       phases: {
@@ -212,6 +225,19 @@ export const shell = defineMessages({
       passwordHint: '就是你打开 PathKeep 时用的密码。',
       wrongPassword: '这个密码打不开这个存档。',
       start: '更新存档',
+      checking: '正在检查存档…',
+      locked: {
+        title: '有些文件用的是以前的密码',
+        body: '你的密码能打开存档，但打不开下面这些文件。它们是用你以前用过的密码加密的：0.4 之前的版本改密码时只改了存档本身。更新可以不带上它们继续。',
+        files: {
+          SourceEvidence: '每次备份时保留的浏览器原始记录',
+          Intelligence: '洞察、保存的网页正文和 AI 索引',
+          Agent: '助理对话',
+        },
+        kept: '这些文件会原样留在原处，不会被改动。新存档里不会有它们的内容。',
+        back: '返回',
+        continue: '不带上它们，继续更新',
+      },
       progress: '{done} / {total}',
       failed: '更新没有完成，存档没有被改动。',
       phases: {
@@ -331,6 +357,19 @@ export const shell = defineMessages({
       passwordHint: '就是你開啟 PathKeep 時用的密碼。',
       wrongPassword: '這組密碼打不開這個存檔。',
       start: '更新存檔',
+      checking: '正在檢查存檔…',
+      locked: {
+        title: '有些檔案用的是以前的密碼',
+        body: '你的密碼能開啟存檔，但打不開下面這些檔案。它們是用你以前用過的密碼加密的：0.4 之前的版本改密碼時只改了存檔本身。更新可以不帶上它們繼續。',
+        files: {
+          SourceEvidence: '每次備份時保留的瀏覽器原始記錄',
+          Intelligence: '洞察、儲存的網頁內文和 AI 索引',
+          Agent: '助理對話',
+        },
+        kept: '這些檔案會原樣留在原處，不會被改動。新存檔裡不會有它們的內容。',
+        back: '返回',
+        continue: '不帶上它們，繼續更新',
+      },
       progress: '{done} / {total}',
       failed: '更新沒有完成，存檔沒有被改動。',
       phases: {

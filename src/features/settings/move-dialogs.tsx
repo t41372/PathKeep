@@ -296,8 +296,21 @@ function ImportForm({ onClose }: { onClose: () => void }) {
               value={password}
               disabled={apply.isPending}
               aria-invalid={Boolean(wrongPassword)}
+              aria-describedby={
+                preview.manifest.formatVersion === 1
+                  ? 'move-import-password-hint'
+                  : undefined
+              }
               onChange={(event) => setPassword(event.target.value)}
             />
+            {preview.manifest.formatVersion === 1 && (
+              <p
+                id="move-import-password-hint"
+                className="text-xs text-muted-foreground"
+              >
+                {t('settingsStorage.move.oldPasswordHint')}
+              </p>
+            )}
           </div>
         )}
 
@@ -407,6 +420,11 @@ function BundleSummary({ preview }: { preview: ImportPreview }) {
       {!preview.schemaUpToDate && (
         <p className="text-muted-foreground">
           {t('settingsStorage.move.summary.upgrade')}
+        </p>
+      )}
+      {manifest.formatVersion === 1 && (
+        <p className="text-muted-foreground">
+          {t('settingsStorage.move.summary.noChats')}
         </p>
       )}
     </div>

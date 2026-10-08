@@ -203,7 +203,7 @@ fn add_file_to_zip_cancel(
 ///
 /// Returns the normalized `PathBuf` so the caller doesn't accidentally
 /// re-parse the raw string later.
-fn validate_bundle_relative_path(raw: &str) -> Result<PathBuf> {
+pub fn validate_bundle_relative_path(raw: &str) -> Result<PathBuf> {
     if raw.is_empty() {
         anyhow::bail!("bundle entry has an empty path");
     }
@@ -251,7 +251,8 @@ fn validate_bundle_relative_path(raw: &str) -> Result<PathBuf> {
     Ok(out)
 }
 
-fn read_and_validate_manifest(bundle_path: &Path) -> Result<ExportManifest> {
+/// Also reads the bundles v0.3 wrote (format 1), which the converter imports.
+pub fn read_and_validate_manifest(bundle_path: &Path) -> Result<ExportManifest> {
     let file = File::open(bundle_path)
         .with_context(|| format!("opening bundle {}", bundle_path.display()))?;
     let mut archive = ZipArchive::new(file)
@@ -282,7 +283,8 @@ fn read_zip_entry_bytes(archive: &mut ZipArchive<File>, entry_name: &str) -> Res
     Ok(bytes)
 }
 
-fn extract_bundle_into_cancel(
+/// Writes every manifest entry under `target_dir` at its bundle path, checking each hash.
+pub fn extract_bundle_into_cancel(
     bundle_path: &Path,
     target_dir: &Path,
     manifest: &ExportManifest,

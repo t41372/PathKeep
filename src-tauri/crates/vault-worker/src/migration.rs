@@ -1,7 +1,8 @@
 //! Responsibilities: run native portable-bundle operations through the owning Vault.
 //! Not responsible for: ZIP verification, cryptography or desktop session publication.
-//! Failure modes: export requires a legacy password, fresh-root import refuses,
-//! source/agent data omitted, wrong bundle key reaches live files. Tests below.
+//! Failure modes: export requires a legacy password, fresh-root import refuses, a file v0.3
+//! exported reaches the native importer, source/agent data omitted, wrong bundle key reaches
+//! live files. Tests below.
 use anyhow::Result;
 use std::path::PathBuf;
 use vault_core::{
@@ -19,7 +20,16 @@ pub fn export_app_data(
     })
 }
 
+/// Files v0.3 exported (format 1) hold the old databases; the converter imports those.
+fn made_by_v0_3(bundle: &std::path::Path) -> Result<bool> {
+    Ok(vault_core::migration::read_and_validate_manifest(bundle)?.format_version
+        == vault_convert_sqlcipher::bundle::FORMAT)
+}
+
 pub fn preview_import(paths: &ProjectPaths, bundle: PathBuf) -> Result<ImportPreview> {
+    if made_by_v0_3(&bundle)? {
+        return vault_convert_sqlcipher::bundle::preview(paths, &bundle);
+    }
     vault_core::migration::native::preview(paths, &bundle)
 }
 
@@ -31,8 +41,15 @@ pub fn apply_import(
     options: ApplyImportOptions,
 ) -> Result<(ImportResult, InstalledArchive)> {
     crate::context::load_unlocked_config(paths)?;
-    crate::maintenance_jobs::run(&paths.app_root, "importing", |cancel, _| {
-        vault_core::migration::native::import(paths, current, owner, &bundle, &options, cancel)
+    let v0_3 = made_by_v0_3(&bundle)?;
+    crate::maintenance_jobs::run(&paths.app_root, "importing", |cancel, progress| {
+        if v0_3 {
+            vault_convert_sqlcipher::bundle::import(
+                paths, current, owner, &bundle, &options, cancel, progress,
+            )
+        } else {
+            vault_core::migration::native::import(paths, current, owner, &bundle, &options, cancel)
+        }
     })
 }
 

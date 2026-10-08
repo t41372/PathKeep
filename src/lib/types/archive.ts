@@ -686,6 +686,15 @@ export interface ArchiveConversionAssessment {
   filesTouched: string[]
   /** The old files; conversion never deletes them. */
   filesRetained: string[]
+  /**
+   * Old files the password doesn't open although it opens the archive (an install
+   * that changed its password before v0.4). Conversion leaves them in place and
+   * doesn't carry them over. Empty until a password is given.
+   */
+  filesLocked: {
+    database: 'SourceEvidence' | 'Intelligence' | 'Agent'
+    path: string
+  }[]
   tables: { database: string; table: string; rows: number }[]
   /** An interrupted conversion continues where it stopped. */
   resumable: boolean

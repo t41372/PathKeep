@@ -15,7 +15,11 @@ import { commandErrorCode } from '@/lib/ipc/command-error'
 import { subscribeToArchiveUpgradeProgress } from '@/lib/ipc/archive-upgrade-progress'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { queryClient, queryKeys } from '@/lib/query'
-import type { AppSnapshot, ArchiveUpgradeProgress } from '@/lib/types'
+import type {
+  AppSnapshot,
+  ArchiveConversionAssessment,
+  ArchiveUpgradeProgress,
+} from '@/lib/types'
 import { parseRecoveryReport } from '../recovery-report'
 import { useSession } from '../session'
 
@@ -81,6 +85,26 @@ export function UpgradeScreen() {
   const [progress, setProgress] = useState<ArchiveUpgradeProgress | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const [checking, setChecking] = useState(false)
+  // Files the password doesn't open, shown for a decision before anything starts.
+  const [locked, setLocked] = useState<
+    ArchiveConversionAssessment['filesLocked'] | null
+  >(null)
+
+  const check = async () => {
+    setChecking(true)
+    setError(null)
+    try {
+      const assessment = await archiveClient.assessArchiveUpgrade(password)
+      const filesLocked = assessment.conversion?.filesLocked ?? []
+      if (filesLocked.length > 0) setLocked(filesLocked)
+      else await start()
+    } catch (checkError) {
+      setError(checkError)
+    } finally {
+      setChecking(false)
+    }
+  }
 
   const start = async () => {
     const snapshot = queryClient.getQueryData<AppSnapshot>(queryKeys.snapshot)
@@ -136,7 +160,41 @@ export function UpgradeScreen() {
           </dd>
         </dl>
       )}
-      {running ? (
+      {locked && !running ? (
+        <div
+          role="alertdialog"
+          aria-labelledby="upgrade-locked-title"
+          className="mt-2 flex w-full flex-col gap-3 rounded-lg border border-border px-4 py-3 text-left"
+        >
+          <h2 id="upgrade-locked-title" className="text-sm font-semibold">
+            {t('shell.upgrade.locked.title')}
+          </h2>
+          <p className="text-[13px] text-muted-foreground">
+            {t('shell.upgrade.locked.body')}
+          </p>
+          <ul className="flex flex-col gap-1 text-[13px]">
+            {locked.map((file) => (
+              <li key={file.path}>
+                {t(`shell.upgrade.locked.files.${file.database}`)}
+                <span className="block font-mono text-xs break-all text-muted-foreground">
+                  {file.path}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[13px] text-muted-foreground">
+            {t('shell.upgrade.locked.kept')}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setLocked(null)}>
+              {t('shell.upgrade.locked.back')}
+            </Button>
+            <Button onClick={() => void start()}>
+              {t('shell.upgrade.locked.continue')}
+            </Button>
+          </div>
+        </div>
+      ) : running ? (
         <div className="mt-2 flex w-full flex-col gap-2">
           <Progress value={percent ?? undefined} className="h-1.5" />
           <span className="text-xs text-muted-foreground tabular">
@@ -155,7 +213,8 @@ export function UpgradeScreen() {
           className="mt-2 flex w-full flex-col items-stretch gap-3"
           onSubmit={(event) => {
             event.preventDefault()
-            if (!needsPassword || password) void start()
+            if (!needsPassword) void start()
+            else if (password) void check()
           }}
         >
           {needsPassword && (
@@ -180,8 +239,12 @@ export function UpgradeScreen() {
               </p>
             </div>
           )}
-          <Button type="submit" disabled={needsPassword && !password}>
-            {t('shell.upgrade.start')}
+          <Button
+            type="submit"
+            disabled={checking || (needsPassword && !password)}
+          >
+            {checking && <Spinner />}
+            {checking ? t('shell.upgrade.checking') : t('shell.upgrade.start')}
           </Button>
         </form>
       )}

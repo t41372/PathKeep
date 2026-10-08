@@ -254,7 +254,7 @@ Settings → General 的兩個開關。
 PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者要把整個 archive 從一台機器搬到另一台，走 Settings → Storage →「搬到另一台電腦」的 bundle 流程（後端稱 `.pathkeep-bundle`，介面預設檔名是 `pathkeep-<日期>.pathkeep`）：
 
 - **Export**：將 archive、source evidence 與 agent 資料庫完整複製，用獨立的匯出密碼加密後打包。每張表的列數與內容摘要須一致；ZIP manifest 記錄每個檔案的 SHA-256 與大小。
-- **Import → Preview → Apply**：先驗證 manifest；Apply 使用 `options.sourceArchiveKey` 提供匯出密碼，在 staging 驗證檔案與資料庫、重建搜尋後才換檔。覆蓋既有 archive 需要 `confirmOverwrite=true`，也可以匯入空白 project root。目的機保留自己的 App Lock 設定與秘密；空白目的機先不啟用 App Lock，避免要求未搬移的來源 passcode。匯入後的 archive 一律加密，匯出密碼就是它在目的機上的 archive 密碼（之後可在 Security 更改或關閉加密）；介面在匯出時就這樣說明，並要求輸入兩次。長時間的匯出、匯入、加密切換與還原在對話框中顯示 `get_maintenance_progress` 的進度與「停止」。
+- **Import → Preview → Apply**：先驗證 manifest；Apply 使用 `options.sourceArchiveKey` 提供匯出密碼，在 staging 驗證檔案與資料庫、重建搜尋後才換檔。覆蓋既有 archive 需要 `confirmOverwrite=true`，也可以匯入空白 project root。目的機保留自己的 App Lock 設定與秘密；空白目的機先不啟用 App Lock，避免要求未搬移的來源 passcode。「在鑰匙圈記住密碼」也是目的機自己的選擇（2026-10-07）：開著的話，匯入後鑰匙圈換成搬來的 archive 的金鑰；關著或空白目的機就不存。v0.3 的 bundle 匯入照同一條規則。匯入後的 archive 一律加密，匯出密碼就是它在目的機上的 archive 密碼（之後可在 Security 更改或關閉加密）；介面在匯出時就這樣說明，並要求輸入兩次。長時間的匯出、匯入、加密切換與還原在對話框中顯示 `get_maintenance_progress` 的進度與「停止」。
 - Agent 對話、audit、原始來源快照與保留的 sidecars 會搬到目的地；附件與設定同樣用匯出密碼加密，匯入後修正附件路徑，來源 checkpoint 可繼續重播。抓取保存的網頁正文（`sidecars/intelligence-blobs/`）也一起搬：它是用戶資料，網頁再抓一次可能已改變或消失（用戶 2026-10-07：用戶資料一律跟著備份和遷移）。`derived/`、平台排程、App Lock secret 與模型不進 bundle；目的地的搜尋索引從 archive 重建。
 - 匯入透過既有 interruption journal 恢復；原有檔案保留在 `maintenance.bak-*`。可用 `get_maintenance_progress` 取得進度，`cancel_maintenance` 取消尚未發布的操作。
 

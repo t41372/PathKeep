@@ -164,7 +164,8 @@ pub fn switch_mode(
     Ok(InstalledArchive { vault: opened, data_key: key, previous_files: previous })
 }
 
-pub(crate) fn staging_root(paths: &ProjectPaths) -> Result<tempfile::TempDir> {
+/// A private folder for one operation on the archive's file system, removed when dropped.
+pub fn staging_root(paths: &ProjectPaths) -> Result<tempfile::TempDir> {
     fs::create_dir_all(&paths.staging_dir)?;
     Ok(tempfile::Builder::new().prefix("maintenance-").tempdir_in(&paths.staging_dir)?)
 }

@@ -118,6 +118,8 @@ export const settingsStorage = defineMessages({
       check: 'Check file',
       checkFailed: 'This file can’t be used. {message}',
       sourcePassword: 'Password of this file',
+      oldPasswordHint:
+        'This file was made by PathKeep 0.3: its password is the archive password you used on that computer.',
       wrongPassword: 'That password doesn’t open this file.',
       replaces:
         'This replaces the archive on this computer. The current one is kept next to it as a backup folder.',
@@ -134,6 +136,8 @@ export const settingsStorage = defineMessages({
         size: 'Size',
         upgrade:
           'It was made by an older PathKeep and will be updated as it opens.',
+        noChats:
+          'Files from PathKeep 0.3 don’t include Ask chats; they stay on the other computer.',
       },
     },
     restore: {
@@ -291,6 +295,8 @@ export const settingsStorage = defineMessages({
       check: '检查文件',
       checkFailed: '这个文件无法使用。{message}',
       sourcePassword: '文件密码',
+      oldPasswordHint:
+        '这个文件由 PathKeep 0.3 导出：它的密码就是你在那台电脑上用的存档密码。',
       wrongPassword: '这个密码打不开这个文件。',
       replaces:
         '这会替换这台电脑上的存档。当前的存档会作为备份文件夹保留在旁边。',
@@ -306,6 +312,8 @@ export const settingsStorage = defineMessages({
         no: '否',
         size: '大小',
         upgrade: '它由较旧版本的 PathKeep 制作，打开时会自动更新。',
+        noChats:
+          'PathKeep 0.3 导出的文件不含助理对话；它们仍留在原来的电脑上。',
       },
     },
     restore: {
@@ -459,6 +467,8 @@ export const settingsStorage = defineMessages({
       check: '檢查檔案',
       checkFailed: '這個檔案無法使用。{message}',
       sourcePassword: '檔案密碼',
+      oldPasswordHint:
+        '這個檔案由 PathKeep 0.3 匯出：它的密碼就是你在那台電腦上用的存檔密碼。',
       wrongPassword: '這組密碼打不開這個檔案。',
       replaces:
         '這會取代這台電腦上的存檔。目前的存檔會以備份資料夾的形式保留在旁邊。',
@@ -474,6 +484,8 @@ export const settingsStorage = defineMessages({
         no: '否',
         size: '大小',
         upgrade: '它由較舊版本的 PathKeep 製作，開啟時會自動更新。',
+        noChats:
+          'PathKeep 0.3 匯出的檔案不含助理對話；它們仍留在原來的電腦上。',
       },
     },
     restore: {

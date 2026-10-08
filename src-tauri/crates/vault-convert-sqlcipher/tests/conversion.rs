@@ -1,7 +1,9 @@
 //! Responsibilities: convert generated SQLCipher facts into the native archive contract.
 //! Not responsible for: UI upgrade presentation or SQLite engine behavior.
 //! Failure modes: old percent-escape keys detach favorites/notes; resume duplicates
-//! rows; digest mismatch is published; old files are removed; search omits converted pages.
+//! rows; digest mismatch is published; old files are removed; search omits converted pages;
+//! a file still keyed with an earlier password fails the whole conversion, or is skipped
+//! without the assessment saying so.
 use vault_convert_sqlcipher::{assess, convert};
 use vault_core::{AppConfig, ArchiveMode, project_paths_with_root};
 use vault_store::{CancelToken, Db};
@@ -307,4 +309,70 @@ fn assessment_includes_committed_legacy_wal_bytes_and_retained_sidecars() {
     assert!(preview.files_retained.contains(&wal));
     assert!(preview.source_bytes >= minimum);
     assert!(preview.required_free_bytes >= minimum * 3);
+}
+
+/// v0.1–v0.3 changed the password of the archive only, so an install that changed it can
+/// carry a source-evidence file keyed with the password before. That file can't be read;
+/// everything else converts, and the file stays as it was.
+#[test]
+fn a_file_keyed_with_an_earlier_password_is_named_left_in_place_and_skipped() {
+    let (_root, paths, config) = fixture();
+    let evidence = &paths.source_evidence_database_path;
+    std::fs::remove_file(evidence).unwrap();
+    let earlier = vault_convert_sqlcipher::test_support::open_source_evidence(
+        &paths,
+        &config,
+        Some("earlier password"),
+    );
+    earlier.execute("INSERT INTO source_batches(id,source_profile_id,source_kind,schema_fingerprint,parser_version,capability_snapshot_json,coverage_stats_json,created_at) VALUES(9,1,'fixture','hash','v1','{}','{}','saved')",[]).unwrap();
+    drop(earlier);
+    let archive =
+        vault_convert_sqlcipher::test_support::open_archive(&paths, &config, Some("old password"));
+    archive.execute("INSERT INTO profile_watermarks(profile_id,updated_at,last_source_batch_id) VALUES('chrome:Default','saved',9)",[]).unwrap();
+    drop(archive);
+    let untouched = std::fs::read(evidence).unwrap();
+
+    let wrong = assess(&paths, &config, Some("earlier password")).unwrap_err();
+    assert!(wrong.is::<vault_core::ArchivePasswordWrong>(), "{wrong:#}");
+    let preview = assess(&paths, &config, Some("old password")).unwrap();
+    assert_eq!(
+        preview.files_locked,
+        vec![vault_convert_sqlcipher::LockedFile {
+            database: "SourceEvidence".into(),
+            path: evidence.clone(),
+        }]
+    );
+    assert!(preview.tables.iter().any(|t| t.table == "visits" && t.rows == 2));
+    assert!(preview.tables.iter().all(|t| t.database != "SourceEvidence"));
+
+    let result =
+        convert(&paths, &config, Some("old password"), CancelToken::new(), |_| {}).unwrap();
+    assert_eq!(std::fs::read(evidence).unwrap(), untouched);
+    let vault = &result.vault;
+    let (visits, watermark) = vault
+        .store()
+        .read(Db::Archive, |s| {
+            Ok((
+                s.query_one("SELECT count(*) FROM visits", (), |r| Ok(r.get::<i64>(0)?))?,
+                s.query_one("SELECT last_source_batch_id FROM profile_watermarks", (), |r| {
+                    Ok(r.get::<Option<i64>>(0)?)
+                })?,
+            ))
+        })
+        .unwrap();
+    assert_eq!((visits, watermark), (2, None));
+    let batches = vault
+        .store()
+        .read(Db::SourceEvidence, |s| {
+            s.query_one("SELECT count(*) FROM source_batches", (), |r| Ok(r.get::<i64>(0)?))
+        })
+        .unwrap();
+    assert_eq!(batches, 0);
+    let chats = vault
+        .store()
+        .read(Db::Agent, |s| {
+            s.query_one("SELECT count(*) FROM messages", (), |r| Ok(r.get::<i64>(0)?))
+        })
+        .unwrap();
+    assert_eq!(chats, 1);
 }

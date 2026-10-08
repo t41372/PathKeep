@@ -9,7 +9,7 @@ use super::{
     ImportPreview, ImportResult,
 };
 use crate::{
-    ArchiveMode, ProjectPaths, Vault,
+    AppConfig, ArchiveMode, ProjectPaths, Vault,
     maintenance::{self, InstalledArchive, Progress},
 };
 use anyhow::{Context, Result};
@@ -30,6 +30,15 @@ const FILES: [(&str, &str); 5] = [
     ("archive/keys.envelope", "archive/keys.envelope"),
     ("config.json", "config/config.json"),
 ];
+
+/// Settings that belong to this computer, not to the archive, so a moved archive takes them from
+/// the computer it lands on: App Lock (its secret never leaves the source machine; a fresh
+/// machine starts without one) and whether the password is remembered in this keychain (export
+/// always writes it off, which would otherwise clear the keychain on every move).
+pub fn keep_machine_settings(config: &mut AppConfig, here: &AppConfig) {
+    config.app_lock = here.app_lock.clone();
+    config.remember_database_key_in_keyring = here.remember_database_key_in_keyring;
+}
 
 /// Export always uses a fresh data key wrapped with the export password.
 pub fn export(
@@ -178,6 +187,25 @@ pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
     for file in &manifest.files {
         super::validate_bundle_relative_path(&file.path)?;
     }
+    Ok(ImportPreview {
+        schema_up_to_date: true,
+        migrations_to_apply: Vec::new(),
+        bytes_to_extract: manifest.files.iter().map(|f| f.size_bytes).sum(),
+        will_overwrite_existing: will_overwrite(paths),
+        manifest,
+        exclusion_notes: exclusion_notes(paths),
+    })
+}
+
+/// Whether installing a bundle replaces an archive (native or still in the old format).
+pub fn will_overwrite(paths: &ProjectPaths) -> bool {
+    paths.app_root.join("archive/history-vault.db").exists()
+        || paths.app_root.join("archive/history-vault.sqlite").exists()
+        || maintenance::install::pending(paths)
+}
+
+/// What a bundle doesn't bring, in the language of this machine.
+pub fn exclusion_notes(paths: &ProjectPaths) -> Vec<ImportExclusionNote> {
     let copy = match crate::load_config(paths).unwrap_or_default().preferred_language {
         crate::LanguagePreference::ZhCn => [
             "搜索索引和智能分析数据将在此设备上重建。",
@@ -195,20 +223,11 @@ pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
             "Install the automatic backup schedule again on this machine.",
         ],
     };
-    Ok(ImportPreview {
-        schema_up_to_date: true,
-        migrations_to_apply: Vec::new(),
-        bytes_to_extract: manifest.files.iter().map(|f| f.size_bytes).sum(),
-        will_overwrite_existing: paths.app_root.join("archive/history-vault.db").exists()
-            || paths.app_root.join("archive/history-vault.sqlite").exists()
-            || maintenance::install::pending(paths),
-        manifest,
-        exclusion_notes: ["derived/", "vault.hold", "schedule/"]
-            .into_iter()
-            .zip(copy)
-            .map(|(path, reason)| ImportExclusionNote { path: path.into(), reason: reason.into() })
-            .collect(),
-    })
+    ["derived/", "vault.hold", "schedule/"]
+        .into_iter()
+        .zip(copy)
+        .map(|(path, reason)| ImportExclusionNote { path: path.into(), reason: reason.into() })
+        .collect()
 }
 
 /// Verify an isolated copy, build search, then install under the owner's journal.
@@ -256,9 +275,7 @@ pub fn import(
     fs::rename(stage.path().join("archive/agent.db"), stage.path().join("derived/agent.db"))?;
     let mut config = crate::load_config(&staged_paths)?;
     config.archive_mode = ArchiveMode::Encrypted;
-    // The destination keeps its own App Lock secret and policy. A fresh machine
-    // starts without App Lock rather than requiring an excluded source secret.
-    config.app_lock = crate::load_config(paths)?.app_lock;
+    keep_machine_settings(&mut config, &crate::load_config(paths)?);
     crate::save_config(&staged_paths, &config)?;
     let staged = Vault::open_staged(staged_paths, config.clone(), Some(&key))?;
     for db in [Db::Archive, Db::SourceEvidence, Db::Agent] {
@@ -271,6 +288,28 @@ pub fn import(
     portable_artifacts::relocate(&staged, &origin.source_root, &paths.app_root, &cancel)?;
     staged.search().rebuild_with_control(cancel.clone(), |_| {})?;
     staged.close()?;
+    let installed =
+        install_staged(paths, current, owner, stage.path(), config, Some(key), &cancel)?;
+    let report = ImportResult {
+        manifest: preview.manifest,
+        migrations_applied: Vec::new(),
+        final_schema_version: 1,
+        preserved_previous_as_bak: preview.will_overwrite_existing,
+    };
+    Ok((report, installed))
+}
+
+/// Puts a verified, closed staging root in place of this machine's archive and opens it.
+/// Shared with the converter's import of v0.3 bundles; the caller holds the operation gate.
+pub fn install_staged(
+    paths: &ProjectPaths,
+    current: Option<&Vault>,
+    owner: Arc<vault_store::OwnerLock>,
+    stage: &Path,
+    config: crate::AppConfig,
+    key: Option<vault_crypto::DataKey>,
+    cancel: &CancelToken,
+) -> Result<InstalledArchive> {
     cancel.check()?;
     if let Some(vault) = current {
         vault.store().pause()?.close()?;
@@ -282,15 +321,23 @@ pub fn import(
         .collect::<Vec<_>>();
     files.push("derived".into());
     files.extend(portable_artifacts::roots());
-    let previous = maintenance::install::install(paths, stage.path(), files, true)?;
-    let vault = Vault::open_owned(paths.clone(), config, Some(&key), Some(owner))?;
-    let report = ImportResult {
-        manifest: preview.manifest,
-        migrations_applied: Vec::new(),
-        final_schema_version: 1,
-        preserved_previous_as_bak: preview.will_overwrite_existing,
-    };
-    Ok((report, InstalledArchive { vault, data_key: Some(key), previous_files: previous }))
+    let previous = maintenance::install::install(paths, stage, files, true)?;
+    let vault = Vault::open_owned(paths.clone(), config, key.as_ref(), Some(owner))?;
+    Ok(InstalledArchive { vault, data_key: key, previous_files: previous })
+}
+
+/// Paths the exporting machine stored (snapshots, audit files, provenance) point into its
+/// own data folder; rewrite them to this one and remember the old root for audit records,
+/// which keep their original text.
+pub fn adopt_moved_paths(
+    staged: &Vault,
+    stage: &Path,
+    source_root: &str,
+    to: &Path,
+    cancel: &CancelToken,
+) -> Result<()> {
+    portable_artifacts::remember_origin(stage, source_root)?;
+    portable_artifacts::relocate(staged, source_root, to, cancel)
 }
 
 fn bundle_key(bundle: &Path, password: &str) -> Result<vault_crypto::DataKey> {
