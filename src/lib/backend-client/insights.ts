@@ -10,6 +10,7 @@ import type {
   ActivityMixTrend,
   BreadthIndex,
   BrowserDiff,
+  CompareSet,
   CoreIntelligenceSectionMeta,
   DateRange,
   DayInsights,
@@ -18,6 +19,7 @@ import type {
   DomainDeepDive,
   EngineRanking,
   FrequentSearch,
+  FrictionSignal,
   HabitPattern,
   InterruptedHabit,
   ObservedInteraction,
@@ -31,6 +33,7 @@ import type {
   ReopenedInvestigation,
   RhythmHeatmap,
   SearchConcept,
+  SearchEffectiveness,
   SearchQueryListResult,
   SearchQuerySort,
   SessionDetail,
@@ -188,6 +191,26 @@ export const insightsClient = {
   paths: (scope: Scope, steps = 3, limit = 15, cursor: string | null = null) =>
     section<Page<PathFlow>>('get_path_flows', {
       request: { ...scope, stepCount: steps, limit, cursor },
+    }),
+  /** Per engine: searches, rewordings and pages opened; and the searches come back to most. */
+  searchEffectiveness: (scope: Scope) =>
+    section<SearchEffectiveness>('get_search_effectiveness', {
+      request: {
+        ...scope,
+        engine: null,
+        topicsLimit: null,
+        topicsCursor: null,
+      },
+    }),
+  /** Searches reworded twice or more, or that never settled on a page. */
+  friction: (scope: Scope, limit = 10, cursor: string | null = null) =>
+    section<Page<FrictionSignal>>('get_friction_signals', {
+      request: { ...scope, limit, cursor },
+    }),
+  /** Pages of one kind gone back and forth between within one search, newest first. */
+  compareSets: (scope: Scope, limit = 6, cursor: string | null = null) =>
+    section<Page<CompareSet>>('get_compare_sets', {
+      request: { ...scope, limit, cursor },
     }),
   /** What Chromium recorded about time on a page, newest first. */
   observedInteractions: (

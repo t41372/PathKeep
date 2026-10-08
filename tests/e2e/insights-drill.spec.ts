@@ -260,8 +260,22 @@ test('a search from Frequent searches shows how often and when', async ({
   const query = decodeURIComponent(
     new URL(page.url()).hash.match(/search\/([^?]+)/)?.[1] ?? '',
   )
+  // The page counts the search's family: every wording sharing at least half
+  // its words (the fixture rewords some searches as "… v2", "… v2 eg").
+  const words = (text: string) =>
+    new Set(
+      text
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter(Boolean),
+    )
+  const sameFamily = (term: string) => {
+    const [a, b] = [words(term), words(query)]
+    const shared = [...a].filter((word) => b.has(word)).length
+    return shared / new Set([...a, ...b]).size >= 0.5
+  }
   const searches = archivedVisits().filter(
-    (visit: FixtureVisit) => visit.term?.toLowerCase() === query.toLowerCase(),
+    (visit: FixtureVisit) => visit.term !== undefined && sameFamily(visit.term),
   )
   expect(searches.length, `the fixture searched "${query}"`).toBeGreaterThan(0)
 
@@ -294,8 +308,11 @@ test('a search from Frequent searches shows how often and when', async ({
       day: 'numeric',
     }),
   )
+  // One row per wording; this one's row by its exact text.
   await expect(
-    card(page, 'Searches').getByRole('listitem').filter({ hasText: query }),
+    card(page, 'Searches')
+      .getByRole('listitem')
+      .filter({ has: page.getByText(query, { exact: true }) }),
   ).toHaveCount(1, { timeout: JOB_TIMEOUT })
 })
 

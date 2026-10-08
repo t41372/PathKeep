@@ -19,6 +19,7 @@ import {
   SearchesAndRefindCard,
   TopSitesCard,
 } from './insights-cards'
+import { ComparedPagesCard } from './compare-card'
 import { NewSitesCard } from './new-sites-card'
 import { useOverviewBands } from './overview'
 import {
@@ -29,7 +30,12 @@ import {
 } from './pattern-cards'
 import { useScope } from './range'
 import { ScopeControls } from './scope-controls'
-import { SearchEnginesCard, SearchWordsCard } from './search-cards'
+import {
+  SearchEnginesCard,
+  SearchOutcomesCard,
+  SearchTriesCard,
+  SearchWordsCard,
+} from './search-cards'
 
 function Row({ children }: { children: ReactNode }) {
   return (
@@ -74,13 +80,20 @@ export default function InsightsPage() {
             <SearchWordsCard scope={scope} />
           </div>
         </Row>
+        <Row>
+          <SearchOutcomesCard scope={scope} />
+          <SearchTriesCard scope={scope} />
+        </Row>
         <Heading>{t('insights.patterns')}</Heading>
         <Row>
           <ThreadsCard scope={scope} />
           <HabitsCard scope={scope} />
         </Row>
         <Row>
+          <ComparedPagesCard scope={scope} />
           <BreadthCard scope={scope} />
+        </Row>
+        <Row>
           <BrowsersCard scope={scope} />
         </Row>
       </PageScroll>

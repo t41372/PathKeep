@@ -119,6 +119,12 @@ pub struct FrictionSignal {
     pub signal_kind: String,
     pub occurrence_count: i64,
     pub description: String,
+    /// The search as first typed.
+    pub search_query: String,
+    /// How many times it was reworded.
+    pub reformulation_count: i64,
+    /// Pages opened from it, the searches included.
+    pub visit_count: i64,
 }
 
 /// Reopened investigation aggregate row.

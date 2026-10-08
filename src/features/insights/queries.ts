@@ -250,6 +250,27 @@ export function usePaths(scope: Scope) {
   )
 }
 
+/** Searches per engine, how often reworded, and the searches come back to most. */
+export function useSearchEffectiveness(scope: Scope) {
+  return useSection(scope, 'effectiveness', 'secondary', () =>
+    insightsClient.searchEffectiveness(request(scope)),
+  )
+}
+
+/** Searches that took several tries (what the secondary batch reads: 10). */
+export function useFriction(scope: Scope) {
+  return useSection(scope, 'friction', 'secondary', () =>
+    insightsClient.friction(request(scope), 10),
+  )
+}
+
+/** The six newest sets of pages compared within one search. */
+export function useCompareSets(scope: Scope) {
+  return useSection(scope, 'compare-sets', 'secondary', () =>
+    insightsClient.compareSets(request(scope), 6),
+  )
+}
+
 export function useBrowsers(scope: Scope) {
   return useSection(scope, 'browsers', 'secondary', () =>
     insightsClient.browsers(request(scope)),

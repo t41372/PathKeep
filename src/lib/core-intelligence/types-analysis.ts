@@ -114,6 +114,12 @@ export interface FrictionSignal {
   signalKind: string
   occurrenceCount: number
   description: string
+  /** The search as first typed. */
+  searchQuery: string
+  /** How many times it was reworded. */
+  reformulationCount: number
+  /** Pages opened from it, the searches included. */
+  visitCount: number
 }
 
 // ---------------------------------------------------------------------------

@@ -99,6 +99,40 @@ export const insights = defineMessages({
       explain:
         'Each word counts once per search it appears in. Single letters, bare numbers and filler words such as "the" are left out. Click a word to find every page it led to in History.',
     },
+    outcomes: {
+      title: 'How your searches go',
+      explain:
+        'For each search engine: searches in this range, how many times a search was reworded on average before you moved on, and how many pages it opened. Below, the searches you came back to most, and over how many days.',
+      searches_one: '{searches} search',
+      searches_other: '{searches} searches',
+      engine:
+        'Reworded {rewordings}× on average · {pages} pages opened per search',
+      mostReturned: 'Searches you came back to most',
+      topic_one: '{searches} search over {days} days',
+      topic_other: '{searches} searches over {days} days',
+    },
+    tries: {
+      title: 'Searches that took several tries',
+      subtitle: 'Reworded twice or more, or no result opened',
+      explain:
+        'A search is reworded when you search again on the same engine soon after, with the same words plus or minus some. Click one to see each time you searched it and where it led.',
+      empty: 'Every search in this range found something within a try or two.',
+      reworded_one: 'Reworded once',
+      reworded_other: 'Reworded {times} times',
+      endedOn: 'ended on {site}',
+      noResult: 'no result opened',
+    },
+    compared: {
+      title: 'Pages you compared',
+      subtitle: 'Pages you went back and forth between in one search',
+      explain:
+        'Pages of the same kind (products, docs, articles, videos…) on two or more sites, or several pages of one site, that you switched between at least twice during one search.',
+      empty: 'No search in this range had you comparing pages.',
+      pages_one: '{pages} page',
+      pages_other: '{pages} pages',
+      sites_one: 'on {sites} site',
+      sites_other: 'on {sites} sites',
+    },
     newSites: {
       title: 'New sites',
       series: 'New sites',
@@ -358,6 +392,39 @@ export const insights = defineMessages({
       explain:
         '一个词在一次搜索里出现只算一次。单个字母、单独的数字和 "the" 之类的虚词不计。点一个词，在历史里找出它带你去过的所有页面。',
     },
+    outcomes: {
+      title: '搜索得怎么样',
+      explain:
+        '每个搜索引擎：这段时间的搜索次数，一次搜索平均改写几次才往下走，以及打开了几个页面。下方是你最常回来再搜的搜索，以及跨了多少天。',
+      searches_one: '搜索 {searches} 次',
+      searches_other: '搜索 {searches} 次',
+      engine: '平均改写 {rewordings} 次 · 每次搜索打开 {pages} 个页面',
+      mostReturned: '最常回来再搜的',
+      topic_one: '{days} 天里搜索 {searches} 次',
+      topic_other: '{days} 天里搜索 {searches} 次',
+    },
+    tries: {
+      title: '试了好几次的搜索',
+      subtitle: '改写两次以上，或没有打开任何结果',
+      explain:
+        '在同一个搜索引擎上，紧接着用差不多的词（多几个或少几个）再搜一次，就算改写。点一个搜索，看每一次搜索和它带你去了哪里。',
+      empty: '这段时间的搜索都在一两次内找到了东西。',
+      reworded_one: '改写 1 次',
+      reworded_other: '改写 {times} 次',
+      endedOn: '最后到了 {site}',
+      noResult: '没有打开任何结果',
+    },
+    compared: {
+      title: '比较过的页面',
+      subtitle: '一次搜索里来回看的页面',
+      explain:
+        '同一类页面（商品、文档、文章、视频……）分布在两个以上的网站，或同一网站的几个页面，在一次搜索里来回切换至少两次。',
+      empty: '这段时间的搜索里没有来回比较页面。',
+      pages_one: '{pages} 个页面',
+      pages_other: '{pages} 个页面',
+      sites_one: '在 {sites} 个网站',
+      sites_other: '在 {sites} 个网站',
+    },
     newSites: {
       title: '新网站',
       series: '新网站',
@@ -615,6 +682,39 @@ export const insights = defineMessages({
       subtitle: '搜尋裡最常出現的詞',
       explain:
         '一個詞在一次搜尋裡出現只算一次。單個字母、單獨的數字和 "the" 之類的虛詞不計。點一個詞，在歷史裡找出它帶你去過的所有頁面。',
+    },
+    outcomes: {
+      title: '搜尋得怎麼樣',
+      explain:
+        '每個搜尋引擎：這段時間的搜尋次數，一次搜尋平均改寫幾次才往下走，以及打開了幾個頁面。下方是你最常回來再搜的搜尋，以及跨了多少天。',
+      searches_one: '搜尋 {searches} 次',
+      searches_other: '搜尋 {searches} 次',
+      engine: '平均改寫 {rewordings} 次 · 每次搜尋打開 {pages} 個頁面',
+      mostReturned: '最常回來再搜的',
+      topic_one: '{days} 天裡搜尋 {searches} 次',
+      topic_other: '{days} 天裡搜尋 {searches} 次',
+    },
+    tries: {
+      title: '試了好幾次的搜尋',
+      subtitle: '改寫兩次以上，或沒有打開任何結果',
+      explain:
+        '在同一個搜尋引擎上，緊接著用差不多的詞（多幾個或少幾個）再搜一次，就算改寫。點一個搜尋，看每一次搜尋和它帶你去了哪裡。',
+      empty: '這段時間的搜尋都在一兩次內找到了東西。',
+      reworded_one: '改寫 1 次',
+      reworded_other: '改寫 {times} 次',
+      endedOn: '最後到了 {site}',
+      noResult: '沒有打開任何結果',
+    },
+    compared: {
+      title: '比較過的頁面',
+      subtitle: '一次搜尋裡來回看的頁面',
+      explain:
+        '同一類頁面（商品、文件、文章、影片……）分布在兩個以上的網站，或同一網站的幾個頁面，在一次搜尋裡來回切換至少兩次。',
+      empty: '這段時間的搜尋裡沒有來回比較頁面。',
+      pages_one: '{pages} 個頁面',
+      pages_other: '{pages} 個頁面',
+      sites_one: '在 {sites} 個網站',
+      sites_other: '在 {sites} 個網站',
     },
     newSites: {
       title: '新網站',

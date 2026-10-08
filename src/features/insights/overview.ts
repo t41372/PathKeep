@@ -60,6 +60,9 @@ function fillSecondary(
   put('breadth', overview.breadthIndex)
   put('paths', overview.pathFlows)
   put('browsers', overview.multiBrowserDiff)
+  put('effectiveness', overview.searchEffectiveness)
+  put('friction', overview.frictionSignals)
+  put('compare-sets', overview.compareSets)
 }
 
 /** Reads both batches for `scope` and reports which have settled. */

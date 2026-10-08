@@ -380,9 +380,9 @@ pub(crate) fn get_friction_signals_with_connection(
           AND (r.reformulation_count>=2 OR (r.landing_domain IS NULL AND r.visit_count>=3)) {after_clause}
         ORDER BY r.reformulation_count DESC,r.visit_count DESC,r.trail_id LIMIT ?7"),
         params![request.profile_id,start,end,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str()),(limit+1) as i64],|r| {
-            let reforms=r.get::<i64>(2)?;let visits=r.get::<i64>(3)?;
-            let description=if reforms>=2 {format!("Repeated search reformulation after query '{}'.",r.get::<String>(0)?)} else {"Search trail did not settle on a stable landing page.".to_owned()};
-            Ok((FrictionSignal {registrable_domain:r.get(1)?,url:None,evidence_type:"weak".into(),signal_kind:if reforms>=2 {"excessive_reformulation"} else {"bounce_pattern"}.into(),occurrence_count:visits.max(reforms),description},(reforms,visits,r.get::<String>(4)?)))
+            let reforms=r.get::<i64>(2)?;let visits=r.get::<i64>(3)?;let query=r.get::<String>(0)?;
+            let description=if reforms>=2 {format!("Repeated search reformulation after query '{query}'.")} else {"Search trail did not settle on a stable landing page.".to_owned()};
+            Ok((FrictionSignal {registrable_domain:r.get(1)?,url:None,evidence_type:"weak".into(),signal_kind:if reforms>=2 {"excessive_reformulation"} else {"bounce_pattern"}.into(),occurrence_count:visits.max(reforms),description,search_query:query,reformulation_count:reforms,visit_count:visits},(reforms,visits,r.get::<String>(4)?)))
         })?;
     super::paging::finish(rows, limit)
 }

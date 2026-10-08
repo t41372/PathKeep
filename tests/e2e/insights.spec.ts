@@ -451,3 +451,102 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
     })
   }
 })
+
+/**
+ * Search trails by hand, by the documented rule: a search continues the
+ * current trail when it is in the same browser and session (30 minutes), the
+ * trail's last visit is under 15 minutes old, and the two searches share at
+ * least half their words or one's words are all in the other.
+ */
+function searchTrails() {
+  const SESSION_GAP = 30 * 60_000
+  const TRAIL_GAP = 15 * 60_000
+  const trails: { rewordings: number; latest: Set<string> }[] = []
+  for (const visits of Object.values(fixture().visitsByProfile)) {
+    if (!archivedVisits().includes(visits[0])) continue
+    let lastVisit = -Infinity
+    let trail: {
+      rewordings: number
+      latest: Set<string>
+      lastAt: number
+    } | null = null
+    for (const visit of [...visits].sort((a, b) => a.at - b.at)) {
+      const sameSession = visit.at - lastVisit <= SESSION_GAP
+      lastVisit = visit.at
+      const open = trail && sameSession && visit.at - trail.lastAt <= TRAIL_GAP
+      if (visit.term) {
+        // The search's words as the backend compares them: filler words out.
+        const words = new Set(
+          visit.term
+            .toLowerCase()
+            .split(/[^\p{L}\p{N}]+/u)
+            .filter((word) => word && !fillerWords.has(word)),
+        )
+        const shared = trail
+          ? [...words].filter((word) => trail!.latest.has(word)).length
+          : 0
+        const union = trail ? new Set([...words, ...trail.latest]).size : 0
+        const rewords =
+          open &&
+          (shared === words.size ||
+            shared === trail!.latest.size ||
+            shared / union >= 0.5)
+        if (rewords) {
+          if ([...words].join(' ') !== [...trail!.latest].join(' '))
+            trail!.rewordings += 1
+          trail!.latest = words
+          trail!.lastAt = visit.at
+        } else {
+          trail = { rewordings: 0, latest: words, lastAt: visit.at }
+          trails.push(trail)
+        }
+      } else if (open) {
+        trail!.lastAt = visit.at
+      } else {
+        trail = null
+      }
+    }
+  }
+  return trails
+}
+
+test('reworded searches are counted, and listed as searches that took several tries', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000)
+  const trails = searchTrails()
+  const reworded = trails.filter((trail) => trail.rewordings >= 2)
+  const average =
+    trails.reduce((sum, trail) => sum + trail.rewordings, 0) / trails.length
+  await testInfo.attach('search trails by hand', {
+    body: JSON.stringify({
+      trails: trails.length,
+      rewordedTwiceOrMore: reworded.length,
+      average,
+    }),
+    contentType: 'application/json',
+  })
+  expect(reworded.length).toBeGreaterThan(10)
+
+  await page.goto('/#/insights')
+  const outcomes = card(page, 'How your searches go')
+  await expect(outcomes).toContainText(
+    `${new Intl.NumberFormat('en').format(trails.length)} searches`,
+    { timeout: 60_000 },
+  )
+  await expect(outcomes).toContainText(
+    `Reworded ${Math.round(average * 10) / 10}× on average`,
+  )
+  // The card lists the ten reworded most, most first.
+  const expected = reworded
+    .map((trail) => trail.rewordings)
+    .sort((a, b) => b - a)
+    .slice(0, 10)
+  const tries = card(page, 'Searches that took several tries').getByRole(
+    'listitem',
+  )
+  await expect(tries).toHaveCount(expected.length)
+  for (const [index, row] of (await tries.all()).entries())
+    await expect(row).toContainText(`Reworded ${expected[index]} times`)
+  await expectScreenIntact(page)
+})

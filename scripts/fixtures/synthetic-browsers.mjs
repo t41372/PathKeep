@@ -161,6 +161,7 @@ export function generateVisits({
   const visits = []
   const today = new Date(now)
   today.setHours(0, 0, 0, 0)
+  let searchSessions = 0
   const schedule = []
   for (let day = 0; day < days; day += 1) schedule.push([day, 1])
   for (let day = days; day < days + olderDays; day += 9) {
@@ -195,6 +196,28 @@ export function generateVisits({
           duration: 20_000,
         })
         produced += 1
+        // Every seventh search is reworded twice, a minute apart, as people
+        // do when a search doesn't find it. The suffixes lengthen the address
+        // by 5 and 10 characters and the three share a day, so the visits stay
+        // in the same browser (see the split below) and the rewordings in the
+        // same search trail.
+        searchSessions += 1
+        const sameDay =
+          Math.floor((at + 60_000) / DAY_MS) === Math.floor(at / DAY_MS)
+        if (searchSessions % 7 === 0 && sameDay) {
+          for (const reworded of [`${term} v2`, `${term} v2 eg`]) {
+            at += 30_000
+            visits.push({
+              url: `https://www.google.com/search?q=${encodeURIComponent(reworded)}`,
+              title: `${reworded} - Google Search`,
+              at,
+              typed: true,
+              term: reworded,
+              duration: 20_000,
+            })
+            produced += 1
+          }
+        }
       }
       for (let index = 0; index < size && produced < volume; index += 1) {
         at += 40_000 + Math.floor(random() * 240_000)
