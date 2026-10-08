@@ -57,6 +57,22 @@
   - 匯出歷史在 14.4M 要約 66 分鐘（每秒約 3,600 筆），Settings 沒有進度也不能取消。決定（2026-10-04）release 前要修：後端單一連線 + keyset 分頁、目標幾分鐘內；加 `exportId`、`get_export_progress`（輪詢，dev bridge 也能用）、`cancel_export`；前端顯示進度與取消，附 E2E。**已做（2026-10-04）**：Codex 改後端（`55d22c0a`），明文 14.4M JSON Lines 51.5 分鐘 → 40 秒；Settings → Storage 有進度、剩餘時間、停止，`export.spec` 覆蓋。加密 14.4M 也量了：113.8 秒（同 14.4M 筆、4,744 MiB；量時 load average 19，所以偏慢），見 `ipc-performance.md` §9。目標機 4 核預計幾分鐘，有進度和停止。
   - 試跑：`bun run dev:demo`（真後端 + 合成 Chrome×2 / Firefox archive），瀏覽器開 http://127.0.0.1:1420。
 
+- [ ] **WORK-INSIGHTS-RESTORE-2026-10** — Insights 回到 v0.3.0 的內容量，預設「全部時間」（用戶 2026-10-08）
+  - 起因：用戶在自己的資料上把 Insights 切到 1 年，整個畫面崩潰；並指出舊版 Insights 顯示的資料多得多，而且一打開就是全部時間（有意的設計），新版既不預設全部時間，連選項都沒了。v0.3.0 確實預設 `all`（`src/pages/intelligence/route-state.ts:47`）。redesign 把範圍改成 7d / 30d / 90d / 1y、預設 30 天，並拿掉大半張卡，寫進了 `screens-and-nav.md`，但沒有 trade-off 文檔也沒經用戶同意，違反 AGENTS.md 原則 7。
+  - 讀先：`docs/features/intelligence.md`、`docs/features/intelligence-current-state.md`、`docs/design/screens-and-nav.md`（§Insights）、`docs/plan/intelligence-all-time-cache-invalidation.md`、`docs/design/ux-principles.md`、`design-tokens.md`、`ui-review-guardrails.md`、`docs/architecture/ipc-performance.md`。v0.3.0 的畫面用 `git show v0.3.0:src/pages/intelligence/…` 讀；盤點結果見下。
+  - 決定：
+    - 範圍：全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天，加自訂起訖與瀏覽器設定檔篩選（v0.3 都有）。`?range=all` 深連結。
+    - 內容：v0.3.0 主畫面與 drill-in 的每一項資料都回來，用新設計語言重畫，不照搬舊版面。保留 v0.4 新增的（活躍時間、常搜尋按範圍統計、Browsers compared、page drill-in 的「為什麼」等）。
+    - 全部時間要在 1440 萬條時開得快：後端仍有 v0.3 的 fingerprint 快照（`intelligence_overview_snapshot.rs`，primary / secondary overview 遇到全部時間就讀快照），先在 Modal 上量 14.4M 時每張卡的命令在全部時間下的耗時，再決定全部時間走 overview 快照灌各卡的快取（v0.3 的做法）還是逐卡讀。
+  - 步驟：
+    - [x] 1. 1 年崩潰（`2025-W41` 被當日期格式化）：圖表改成要日資料、前端按週分組（`insights/buckets.ts`）；卡片渲染失敗只壞那張卡並寫進 log；`insights.spec` 用切換鈕走過每個範圍（含 site drill-in）。
+    - [ ] 2. 量測：14.4M、全部時間，每個 Insights 命令（含 overview 快照冷 / 熱、匯出後）的耗時與 RSS。
+    - [ ] 3. 範圍：全部時間（預設）、自訂、設定檔篩選；全部時間的長條按月（跨度超過約 18 個月時），每條的 key 仍是起始日期。
+    - [ ] 4. 主畫面補回：Period Summary 的 New Sites / Deep Reads / Refinds；Spotlight；工作日 vs 週末、尖峰時段；Browsing Rhythm 日曆（年分頁、點日展開）；Top sites 完整清單（20、排序、篩選）；Stable Answer Sources；Search Activity（引擎、概念、查詢瀏覽、query families）；Activity Mix；Search Effectiveness；Friction & Dead Ends；Interrupted Habits；Discovery Trend（每週新站率）；Common Paths；Compare Sets；Multi-Browser 的共同網站與類別；Observed Interactions；refind 的因子與 explain。
+    - [ ] 5. Drill-in 補回：day（Activity Mix、Query Evolution、Refinds）；site（trails KPI、到達方式、來源 referrers、compare / path 焦點——後端 `DomainDeepDive` 拿掉了 `arrival_breakdown` / `top_referrers`，要補回）；session、trail、query family、compare set、year review 頁。
+    - [ ] 6. E2E：每張卡的數字對照 fixture 手算（中等以上難度場景），每個範圍、每個 drill-in 都走過。
+    - [ ] 7. 文檔：`screens-and-nav.md` §Insights、`intelligence.md`（舊「首次進入預設 Month」的說法本來就與 v0.3.0 不符，一併改正）、CHANGELOG。
+
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 
 > `WORK-V03-PAPER-REDESIGN-A`（Paper 風格前端重建）被本次 redesign 取代，不再繼續。

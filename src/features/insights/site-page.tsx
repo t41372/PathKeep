@@ -15,7 +15,6 @@ import { EvilBarChart } from '@/components/evilcharts/charts/recharts-bar-chart'
 import { Favicon } from '@/components/app/favicon'
 import { PageScroll, SectionCard } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
-import type { DomainTrendPoint } from '@/lib/core-intelligence/types'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSite } from './drill-queries'
 import {
@@ -34,37 +33,9 @@ import {
   SectionStatus,
   RangeToggle,
 } from './parts'
-import { rangeDates, rangeDays, useRange, type RangeId } from './range'
-import { localDateKey, isStale } from '@/lib/backend-client/insights'
-
-/** Every day of the range, zero where the site was not visited. */
-function fillDays(points: DomainTrendPoint[], range: RangeId) {
-  const counts = new Map(
-    points.map((point) => [point.dateKey, point.visitCount]),
-  )
-  const { start } = rangeDates(range)
-  const [year, month, day] = start.split('-').map(Number)
-  const cursor = new Date(year, month - 1, day)
-  return Array.from({ length: rangeDays[range] }, () => {
-    const key = localDateKey(cursor)
-    cursor.setDate(cursor.getDate() + 1)
-    return { dateKey: key, visits: counts.get(key) ?? 0 }
-  })
-}
-
-/** Monday-start weeks, for the one-year range. */
-function toWeeks(days: { dateKey: string; visits: number }[]) {
-  const weeks: { dateKey: string; visits: number }[] = []
-  for (const day of days) {
-    const [year, month, date] = day.dateKey.split('-').map(Number)
-    const weekday = (new Date(year, month - 1, date).getDay() + 6) % 7
-    if (weekday === 0 || weeks.length === 0) {
-      weeks.push({ dateKey: day.dateKey, visits: 0 })
-    }
-    weeks[weeks.length - 1].visits += day.visits
-  }
-  return weeks
-}
+import { barLength, rangeBars } from './buckets'
+import { rangeDays, useRange, type RangeId } from './range'
+import { isStale } from '@/lib/backend-client/insights'
 
 export default function SitePage() {
   const { t } = useI18n()
@@ -218,11 +189,21 @@ function SiteTrendCard({ domain, range }: { domain: string; range: RangeId }) {
   const format = useFormat()
   const navigate = useNavigate()
   const site = useSite(domain, range)
-  const weekly = range === 'y1'
-  const points = useMemo(() => {
-    const days = fillDays(site.data?.data.visitTrend ?? [], range)
-    return weekly ? toWeeks(days) : days
-  }, [site.data, range, weekly])
+  const weekly = barLength(range) === 'week'
+  const points = useMemo(
+    () =>
+      rangeBars(
+        range,
+        new Map(
+          (site.data?.data.visitTrend ?? []).map((point) => [
+            point.dateKey,
+            { visits: point.visitCount },
+          ]),
+        ),
+        { visits: 0 },
+      ),
+    [site.data, range],
+  )
   const config = useMemo(
     () => ({
       visits: {

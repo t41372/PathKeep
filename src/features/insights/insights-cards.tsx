@@ -15,6 +15,7 @@ import { CardError, SectionCard } from '@/components/app/section-card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { isStale } from '@/lib/backend-client/insights'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { barLength } from './buckets'
 import { dayPath, pagePath, searchPath, sitePath } from './links'
 import { formatDuration, rowLink, shareBar } from './display'
 import { KpiTile, ListSkeleton, QueryBody, SectionStatus } from './parts'
@@ -88,7 +89,7 @@ export function DailyActivityCard({ range }: { range: RangeId }) {
   const format = useFormat()
   const navigate = useNavigate()
   const daily = useDailyActivity(range)
-  const weekly = range === 'y1'
+  const weekly = barLength(range) === 'week'
   const config = useMemo(
     () => ({
       pages: {

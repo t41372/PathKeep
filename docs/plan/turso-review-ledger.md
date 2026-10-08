@@ -221,6 +221,21 @@ Unverified until the review pass. Full report: `docs/architecture/research/2026-
 - **Top sites counted search result pages as site visits** (E2E `insights-drill` day test, date-dependent). Both Top sites (Insights and the day view) now count them as searches only; the change is in features/intelligence.md.
 - Search at 14.4M (Modal VM, 4 vCPU / 8 GiB, release, AES-GCM), warm: rare word 2 ms, medium word 0.3 s, date filter 0.6 s, profile filter first results 20 ms but final count 8.3 s (also cold). The profile-filtered count is the area 3 item above, still open; the common-word case needs a rerun (its log lines were cut).
 
+## Found on the user's own data (2026-10-08)
+
+A release build of `redesign/v0.4` ran on an APFS clone of the user's v0.3 data folder on their Mac (386,891 visits, 212,023 addresses, 10 profiles, April 2025 to October 2026; folder 16 GB, of which Insights 9.9 GB). Separate Keychain item, dev bridge on; the real folder and app were not touched. Nothing left the machine.
+
+- Update from v0.3: about 4 min (envelope 20:19:49, index committed 20:23:41, installed 20:23:44), peak RSS 1.9 GB, archive 3.45 GiB. The search index was built inside it in about 10 s. Insights full rebuild afterwards: 2 min 37 s.
+- Dashboard 24 ms, top sites (30 days) 76 ms. Search, first rows 10–23 ms; exact counts: "rust" 40 ms, "google" 0.37 s, "com" (209k visits) 0.63 s, CJK 49 ms, `site:github.com` 0.36 s, regex with a literal 0.2 s, regex without one 1.2 s.
+- Export ("move to another computer"): 111 s, 5.6 GB, `unzip -t` clean. The installed v0.3 had failed on the same data with the ZIP64 error ("Large file option has not been set"); this build writes ZIP64.
+- [x] **Switching Insights to 1y crashed the whole screen** ("date value is not finite in DateTimeFormat format()"), reported by the user on this data, but any data did it: the E2E fixture has 420 days. The one-year chart asked the backend for weekly buckets, whose keys are ISO weeks (`2025-W41`), and formatted them as dates. Fixed: charts ask for days and group them into Monday-start weeks themselves (`insights/buckets.ts`, shared with the site screen), so every bar key is a date. A card that throws while rendering now shows its error and a retry instead of taking the screen down, and the error is recorded in the log. `insights.spec` now clicks every range on Insights and on a site screen; before, every Insights test used 30 days only.
+- [ ] **Insights overviews got 3–4× slower after the export and stayed slow**: primary all-time 0.87 s → 3.5 s, secondary 4.6 s → 15.8 s (even 30 days 12 s), repeatable. A stack sample during the slow read showed `pwrite` and `fsync` from a read-only request. Reproduce on the synthetic data on Modal: read, export, read again.
+- [ ] **Two Insights jobs stayed queued forever** after the rebuild (`queued 2, running 0` for over an hour, last activity when the rebuild finished). Find what they are and why the worker never picks them up.
+- [ ] **Memory stayed at 3 GB after the export** (2.6 GB peak during it, 0.55 GB before). Too much for the 8 GB target; find what the export keeps.
+- [ ] **A profile filter with no search words**: first rows 66 ms, exact count 3.3 s for one profile's 84k visits. Same family as the 8.3 s profile-filter count at 14.4M above.
+- [ ] tantivy's INFO lines (segment flushes, merges, deletes) fill `rust.log`; cap that crate at WARN like the engine.
+- The dashboard counts 10 profiles while the profile list has 24 entries (14 Atlas logins with no visits). Check whether empty profiles should be listed.
+
 ## Area 5+
 
 (appended as blocks finish)
