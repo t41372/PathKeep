@@ -209,8 +209,13 @@ pub(crate) fn get_discovery_trend_with_connection(
     connection: &Session<'_>,
     request: &crate::models::GranularityDateRangeRequest,
 ) -> Result<DiscoveryTrend> {
+    let new_sites = super::intelligence_shared::new_sites_by_day(
+        connection,
+        &request.date_range,
+        request.profile_id.as_deref(),
+    )?;
     let mut statement = connection.prepare(
-        "SELECT date_key, SUM(new_domains), SUM(total_visits)
+        "SELECT date_key, SUM(total_visits)
          FROM daily_summary_rollups
          WHERE (?1 IS NULL OR profile_id = ?1)
            AND date_key >= ?2
@@ -226,11 +231,9 @@ pub(crate) fn get_discovery_trend_with_connection(
                 request.date_range.end
             ],
             |row| {
-                Ok((
-                    collapse_date_key(&row.get::<String>(0)?, &request.granularity),
-                    row.get::<i64>(1)?,
-                    row.get::<i64>(2)?,
-                ))
+                let day = row.get::<String>(0)?;
+                let new = new_sites.get(&day).copied().unwrap_or(0);
+                Ok((collapse_date_key(&day, &request.granularity), new, row.get::<i64>(1)?))
             },
         )?
         .collect::<vault_store::Result<Vec<_>>>()?;

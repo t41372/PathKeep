@@ -480,6 +480,8 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_search_events_profile_kind ON search_events_rows(profile_id,query_kind, generation)",
     "CREATE INDEX idx_search_events_query_time ON search_events_rows(query_kind,normalized_query,visit_time_ms DESC,visit_id DESC,generation)",
     "CREATE INDEX idx_search_events_kind_time ON search_events_rows(query_kind,visit_time_ms, generation)",
+    // Each site's first day in each profile, for "new sites" (`new_sites_by_day`).
+    "CREATE INDEX idx_domain_daily_first_day ON domain_daily_rollups_rows(generation,registrable_domain,profile_id,date_key) WHERE new_domain_visits > 0",
     "CREATE INDEX idx_search_events_profile_query ON search_events_rows(profile_id,normalized_query, generation)",
 
     "CREATE VIEW visit_derived_facts AS SELECT r.visit_id,r.profile_id,a.session_id,a.trail_id,r.registrable_domain,r.canonical_url,r.domain_category,r.page_category,r.search_engine,r.search_query,r.is_new_domain,r.is_search_event,r.evidence_tier,r.taxonomy_source,r.taxonomy_pack,r.taxonomy_version,r.computed_at

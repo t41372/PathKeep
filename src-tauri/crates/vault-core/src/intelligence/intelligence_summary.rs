@@ -25,7 +25,7 @@
 
 use super::{
     build_kpi, collapse_date_key, date_range_bounds, display_name_for_domain,
-    display_name_for_search_engine, previous_date_range, rfc3339_from_millis,
+    display_name_for_search_engine, new_sites_by_day, previous_date_range, rfc3339_from_millis,
 };
 use crate::models::{
     ActivityMix, ActivityMixTrend, ActivityMixTrendPoint, CategoryChangeEntry, CategoryMixEntry,
@@ -193,7 +193,14 @@ pub(crate) fn get_digest_summary_with_connection(
         date_range: request.date_range.clone(),
         total_visits: build_kpi(current.total_visits, previous.total_visits),
         total_searches: build_kpi(current.total_searches, previous.total_searches),
-        new_domains: build_kpi(current.new_domains, previous.new_domains),
+        new_domains: build_kpi(
+            new_sites_by_day(connection, &request.date_range, request.profile_id.as_deref())?
+                .values()
+                .sum(),
+            new_sites_by_day(connection, &previous_range, request.profile_id.as_deref())?
+                .values()
+                .sum(),
+        ),
         deep_read_pages: build_kpi(current_deep, previous_deep),
         refind_pages: build_kpi(current_refind, previous_refind),
         distinct_domains: build_kpi(current_domains, previous_domains),
@@ -450,7 +457,6 @@ fn load_category_shares(
 struct SummaryTotals {
     total_visits: i64,
     total_searches: i64,
-    new_domains: i64,
 }
 
 fn load_summary_totals(
@@ -460,7 +466,7 @@ fn load_summary_totals(
 ) -> Result<SummaryTotals> {
     connection
         .query_one(
-            "SELECT SUM(total_visits), SUM(total_searches), SUM(new_domains)
+            "SELECT SUM(total_visits), SUM(total_searches)
              FROM daily_summary_rollups
              WHERE (?1 IS NULL OR profile_id = ?1)
                AND date_key >= ?2
@@ -470,7 +476,6 @@ fn load_summary_totals(
                 Ok(SummaryTotals {
                     total_visits: row.get::<Option<i64>>(0)?.unwrap_or_default(),
                     total_searches: row.get::<Option<i64>>(1)?.unwrap_or_default(),
-                    new_domains: row.get::<Option<i64>>(2)?.unwrap_or_default(),
                 })
             },
         )
