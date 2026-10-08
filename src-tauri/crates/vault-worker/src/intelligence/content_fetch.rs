@@ -19,9 +19,8 @@
 
 use crate::context::load_unlocked_config;
 #[cfg(not(coverage))]
-use crate::job_runtime::maybe_spawn_worker_pool;
+use crate::job_runtime::{WorkerPool, maybe_spawn_worker_pool};
 use anyhow::Result;
-use std::sync::atomic::AtomicUsize;
 use vault_core::{
     AppConfig, AppSnapshot, ContentFetchNowRequest, ContentFetchNowResult, ContentFetchSettings,
     VisitEnrichmentRecord, content_fetch_schedule_eta_secs as core_content_fetch_schedule_eta_secs,
@@ -34,7 +33,7 @@ use vault_core::{
 /// Single-worker content-fetch lane counter (LOW concurrency, 06 §5).
 ///
 /// Coverage drives the lane inline; the shared shutdown counter remains zero there.
-pub(super) static CONTENT_FETCH_WORKERS: AtomicUsize = AtomicUsize::new(0);
+pub(super) static CONTENT_FETCH_WORKERS: WorkerPool = WorkerPool::new();
 
 /// Default bulk-enqueue cap for the working-set-prioritized content fetch (bounded, 06 §5).
 const DEFAULT_WORKING_SET_PAGE_SIZE: usize = 2_000;
