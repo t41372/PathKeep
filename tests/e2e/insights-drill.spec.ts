@@ -166,8 +166,11 @@ test('a day from the Home heatmap matches the fixture, then opens History', asyn
   // One row per distinct search that day, each the query as typed.
   const searchRows = card(page, 'Searches').getByRole('listitem')
   await expect(searchRows).toHaveCount(terms.size)
+  // By exact text: a reworded search ("… v2") contains the one before it.
   for (const term of terms) {
-    await expect(searchRows.filter({ hasText: term })).toHaveCount(1)
+    await expect(
+      searchRows.filter({ has: page.getByText(term, { exact: true }) }),
+    ).toHaveCount(1)
   }
 
   // The top site leads to History, filtered to that site on that day.

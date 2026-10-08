@@ -34,6 +34,7 @@ import type {
   RhythmHeatmap,
   SearchConcept,
   SearchEffectiveness,
+  StableSource,
   SearchQueryListResult,
   SearchQuerySort,
   SessionDetail,
@@ -201,6 +202,11 @@ export const insightsClient = {
         topicsLimit: null,
         topicsCursor: null,
       },
+    }),
+  /** The sites searches ended on, most first. */
+  searchLandings: (scope: Scope, limit = 10, cursor: string | null = null) =>
+    section<Page<StableSource>>('get_stable_sources', {
+      request: { ...scope, limit, cursor },
     }),
   /** Searches reworded twice or more, or that never settled on a page. */
   friction: (scope: Scope, limit = 10, cursor: string | null = null) =>

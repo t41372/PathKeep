@@ -33,6 +33,7 @@ import { useScope } from './range'
 import { ScopeControls } from './scope-controls'
 import {
   SearchEnginesCard,
+  SearchLandingsCard,
   SearchOutcomesCard,
   SearchTriesCard,
   SearchWordsCard,
@@ -85,18 +86,21 @@ export default function InsightsPage() {
           <SearchOutcomesCard scope={scope} />
           <SearchTriesCard scope={scope} />
         </Row>
+        <Row>
+          <SearchLandingsCard scope={scope} />
+          <ComparedPagesCard scope={scope} />
+        </Row>
         <Heading>{t('insights.patterns')}</Heading>
         <Row>
           <ThreadsCard scope={scope} />
           <HabitsCard scope={scope} />
         </Row>
         <Row>
-          <ComparedPagesCard scope={scope} />
-          <BreadthCard scope={scope} />
-        </Row>
-        <Row>
           <PathsCard scope={scope} />
-          <BrowsersCard scope={scope} />
+          <div className="flex min-w-0 flex-col gap-4">
+            <BreadthCard scope={scope} />
+            <BrowsersCard scope={scope} />
+          </div>
         </Row>
       </PageScroll>
     </BandsProvider>

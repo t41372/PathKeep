@@ -461,7 +461,11 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
 function searchTrails() {
   const SESSION_GAP = 30 * 60_000
   const TRAIL_GAP = 15 * 60_000
-  const trails: { rewordings: number; latest: Set<string> }[] = []
+  const trails: {
+    rewordings: number
+    latest: Set<string>
+    landing?: string
+  }[] = []
   for (const visits of Object.values(fixture().visitsByProfile)) {
     if (!archivedVisits().includes(visits[0])) continue
     let lastVisit = -Infinity
@@ -469,6 +473,8 @@ function searchTrails() {
       rewordings: number
       latest: Set<string>
       lastAt: number
+      landing?: string
+      landsNext: boolean
     } | null = null
     for (const visit of [...visits].sort((a, b) => a.at - b.at)) {
       const sameSession = visit.at - lastVisit <= SESSION_GAP
@@ -496,12 +502,23 @@ function searchTrails() {
             trail!.rewordings += 1
           trail!.latest = words
           trail!.lastAt = visit.at
+          // The page opened after the last wording becomes the landing.
+          trail!.landsNext = true
         } else {
-          trail = { rewordings: 0, latest: words, lastAt: visit.at }
+          trail = {
+            rewordings: 0,
+            latest: words,
+            lastAt: visit.at,
+            landsNext: false,
+          }
           trails.push(trail)
         }
       } else if (open) {
         trail!.lastAt = visit.at
+        if (trail!.landing === undefined || trail!.landsNext) {
+          trail!.landing = site(visit.url)
+          trail!.landsNext = false
+        }
       } else {
         trail = null
       }
@@ -598,5 +615,35 @@ test('the most frequent path between three sites is counted like the archive', a
       path.split(' → ').every((step) => shown.includes(step)),
     ),
     `${shown} should be one of ${leaders.map(([path]) => path).join(', ')}`,
+  ).toBe(true)
+})
+
+test('where searches end up is counted like the archive', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000)
+  const perSite = new Map<string, number>()
+  for (const trail of searchTrails())
+    if (trail.landing)
+      perSite.set(trail.landing, (perSite.get(trail.landing) ?? 0) + 1)
+  const top = Math.max(...perSite.values())
+  const leaders = [...perSite].filter(([, count]) => count === top)
+  await testInfo.attach('search landings by hand', {
+    body: JSON.stringify({ top, leaders: leaders.map(([host]) => host) }),
+    contentType: 'application/json',
+  })
+
+  await page.goto('/#/insights')
+  const first = card(page, 'Where your searches end up')
+    .getByRole('listitem')
+    .first()
+  await expect(first).toContainText(
+    `${compact.format(top)} search${top === 1 ? '' : 'es'}`,
+    { timeout: 60_000 },
+  )
+  const shown = (await first.innerText()).replace(/\s+/g, ' ')
+  expect(
+    leaders.some(([host]) => shown.includes(host)),
+    `${shown} should name one of ${leaders.map(([host]) => host).join(', ')}`,
   ).toBe(true)
 })

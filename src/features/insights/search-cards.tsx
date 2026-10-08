@@ -7,10 +7,11 @@
  */
 import { RotateCcw, Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { Favicon } from '@/components/app/favicon'
 import { SectionCard } from '@/components/app/section-card'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { shareBar } from './display'
-import { historyPath, searchPath } from './links'
+import { historyPath, searchPath, sitePath } from './links'
 import { ListSkeleton, QueryBody, ScrollList, SectionStatus } from './parts'
 import { rowLink } from './display'
 import {
@@ -18,6 +19,7 @@ import {
   useSearchConcepts,
   useSearchEffectiveness,
   useSearchEngines,
+  useSearchLandings,
 } from './queries'
 import type { Scope } from './range'
 
@@ -278,6 +280,73 @@ export function SearchTriesCard({ scope }: { scope: Scope }) {
             </ul>
           </ScrollList>
         )}
+      </QueryBody>
+    </SectionCard>
+  )
+}
+
+/** The sites searches ended on: where the user's answers come from. */
+export function SearchLandingsCard({ scope }: { scope: Scope }) {
+  const { t } = useI18n()
+  const format = useFormat()
+  const landings = useSearchLandings(scope)
+  return (
+    <SectionCard
+      title={t('insights.landings.title')}
+      subtitle={t('insights.landings.subtitle')}
+      action={
+        <SectionStatus
+          meta={landings.data?.meta}
+          explain={t('insights.landings.explain')}
+        />
+      }
+    >
+      <QueryBody
+        query={landings}
+        skeleton={<ListSkeleton rows={6} />}
+        isEmpty={(result) => result.data.items.length === 0}
+        empty={t('insights.searches.empty')}
+      >
+        {(result) => {
+          const max = Math.max(
+            1,
+            ...result.data.items.map((s) => s.searchCount),
+          )
+          return (
+            <ScrollList maxHeight={6 * 38}>
+              <ul className="flex flex-col gap-1.5">
+                {result.data.items.map((landing) => (
+                  <li key={landing.registrableDomain}>
+                    <Link
+                      to={sitePath(landing.registrableDomain, scope)}
+                      className="relative flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] hover:no-underline"
+                    >
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0 left-0 rounded-md bg-green/15 transition-[width] duration-500"
+                        style={shareBar(landing.searchCount, max)}
+                      />
+                      <Favicon
+                        domain={landing.registrableDomain}
+                        className="relative"
+                      />
+                      <span className="relative flex-1 truncate font-medium">
+                        {landing.registrableDomain}
+                      </span>
+                      <span className="relative text-xs text-muted-foreground tabular">
+                        {t('insights.landings.counts', {
+                          count: landing.searchCount,
+                          searches: format.compact(landing.searchCount),
+                          queries: format.number(landing.queryCount),
+                        })}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </ScrollList>
+          )
+        }}
       </QueryBody>
     </SectionCard>
   )

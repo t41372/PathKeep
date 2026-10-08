@@ -133,6 +133,14 @@ export const insights = defineMessages({
       times_one: '{times} time',
       times_other: '{times} times',
     },
+    landings: {
+      title: 'Where your searches end up',
+      subtitle: 'Sites your searches led to, most first',
+      explain:
+        'Each search counts for the site of the first page you opened after it (after its last wording, if you reworded it). Fewer different searches than searches means you kept coming back for the same things.',
+      counts_one: '{searches} search · {queries} different',
+      counts_other: '{searches} searches · {queries} different',
+    },
     compared: {
       title: 'Pages you compared',
       subtitle: 'Pages you went back and forth between in one search',
@@ -435,6 +443,14 @@ export const insights = defineMessages({
       times_one: '{times} 次',
       times_other: '{times} 次',
     },
+    landings: {
+      title: '搜索最后到了哪里',
+      subtitle: '搜索带你去的网站，最多的在前',
+      explain:
+        '每次搜索算在它之后（改写过的话，最后一次改写之后）打开的第一个页面所在的网站。不同的搜索比搜索次数少，表示你常为同样的事回来。',
+      counts_one: '搜索 {searches} 次 · {queries} 种',
+      counts_other: '搜索 {searches} 次 · {queries} 种',
+    },
     compared: {
       title: '比较过的页面',
       subtitle: '一次搜索里来回看的页面',
@@ -735,6 +751,14 @@ export const insights = defineMessages({
       then: '然後',
       times_one: '{times} 次',
       times_other: '{times} 次',
+    },
+    landings: {
+      title: '搜尋最後到了哪裡',
+      subtitle: '搜尋帶你去的網站，最多的在前',
+      explain:
+        '每次搜尋算在它之後（改寫過的話，最後一次改寫之後）打開的第一個頁面所在的網站。不同的搜尋比搜尋次數少，表示你常為同樣的事回來。',
+      counts_one: '搜尋 {searches} 次 · {queries} 種',
+      counts_other: '搜尋 {searches} 次 · {queries} 種',
     },
     compared: {
       title: '比較過的頁面',

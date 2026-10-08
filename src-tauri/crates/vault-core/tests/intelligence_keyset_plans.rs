@@ -147,13 +147,6 @@ fn ranked_summary_pages_seek_to_their_cursor() {
             cursor,
         };
 
-        let cursor = vault_core::get_stable_sources(&vault, &request(None)).unwrap().next_cursor;
-        assert!(cursor.is_some());
-        let plans = plans_of(&vault, Db::Intelligence, "idx_source_effectiveness_rank", || {
-            vault_core::get_stable_sources(&vault, &request(cursor)).unwrap()
-        });
-        assert_seeks(&plans, "r", "idx_source_effectiveness_rank", 1);
-
         let cursor = vault_core::get_friction_signals(&vault, &request(None)).unwrap().next_cursor;
         assert!(cursor.is_some());
         let plans = plans_of(&vault, Db::Intelligence, "idx_search_trails_friction", || {

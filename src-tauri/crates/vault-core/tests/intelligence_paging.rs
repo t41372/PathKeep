@@ -301,8 +301,12 @@ fn summary_lists_keep_every_source_friction_signal_and_reopened_investigation() 
         vault.store().write(Db::Intelligence,Priority::Batch,|s| {
             s.execute("INSERT INTO intelligence_generations(profile_id) VALUES('profile')",())?;
             for id in 1..=113_i64 {
-                s.execute("INSERT INTO source_effectiveness_rows(profile_id,registrable_domain,source_role,trail_count,stable_landing_count,effectiveness_score,evidence_json,first_seen_ms,last_seen_ms,computed_at) VALUES('profile',?1,'reference',3,2,?2,'{}',1767268800000,1767268800000,'')",params![format!("site{id}.test"),(id%3) as f64])?;
-                s.execute("INSERT INTO search_trails_rows(trail_id,profile_id,initial_query,search_engine,reformulation_count,visit_count,first_visit_ms,last_visit_ms,queries_json,computed_at) VALUES(?1,'profile',?2,'google',2,3,1767268800000,1767268800000,'[]','')",params![format!("trail:{id}"),format!("query{id}")])?;
+                // One search landing on each site (reworded twice, so also a friction signal),
+                // and a plain second one on every third site: sites tie in two groups.
+                s.execute("INSERT INTO search_trails_rows(trail_id,profile_id,initial_query,search_engine,reformulation_count,visit_count,landing_domain,first_visit_ms,last_visit_ms,queries_json,computed_at) VALUES(?1,'profile',?2,'google',2,3,?3,1767268800000,1767268800000,'[]','')",params![format!("trail:{id}"),format!("query{id}"),format!("site{id}.test")])?;
+                if id % 3 == 0 {
+                    s.execute("INSERT INTO search_trails_rows(trail_id,profile_id,initial_query,search_engine,reformulation_count,visit_count,landing_domain,first_visit_ms,last_visit_ms,queries_json,computed_at) VALUES(?1,'profile',?2,'google',0,1,?3,1767268800000,1767268800000,'[]','')",params![format!("trail:{id}:again"),format!("query{id}"),format!("site{id}.test")])?;
+                }
                 s.execute("INSERT INTO reopened_investigations_rows(investigation_id,profile_id,anchor_type,anchor_id,anchor_label,occurrence_count,distinct_days,first_seen_ms,last_seen_ms,evidence_json,computed_at) VALUES(?1,'profile','query_family',?1,?1,3,2,1767268800000,1767268800000,'{}','')",[format!("investigation:{id}")])?;
             }Ok(())
         }).unwrap();

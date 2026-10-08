@@ -208,8 +208,9 @@ pub(crate) fn get_digest_summary_with_connection(
     })
 }
 
-/// Returns the domains that most consistently resolved search trails in the
-/// requested window.
+/// The sites searches ended on in the range, most first, across browsers or in one: where the
+/// user's answers come from. Counted from the search trails, so a range counts only its own
+/// searches (the stored per-profile source rows covered all of history).
 pub fn get_stable_sources(
     vault: &crate::Vault,
     request: &ScopedPageRequest,
@@ -226,25 +227,39 @@ pub(crate) fn get_stable_sources_with_connection(
 ) -> Result<IntelligencePage<StableSource>> {
     let (start, end) = date_range_bounds(&request.date_range)?;
     let limit = request.limit.unwrap_or(10).clamp(1, 1000) as usize;
-    let after = super::paging::cursor::<(f64, String, String)>(request.cursor.as_deref())?;
-    // The ranked summary lists read their rows tables through an index in list order: through
-    // the views Turso reads the whole generation and sorts it on every page. The cursor clause
-    // is bounded (`a<=? AND (a<? OR ...)`) and only present after the first page, the only form
-    // Turso seeks on.
-    let after_clause = if after.is_some() {
-        "AND r.effectiveness_score<=?4 AND (r.effectiveness_score<?4 OR (r.registrable_domain>=?5 AND (r.registrable_domain>?5 OR r.profile_id>?6)))"
-    } else {
-        ""
-    };
-    let rows=connection.query(&format!("SELECT r.registrable_domain,r.source_role,r.trail_count,r.stable_landing_count,r.effectiveness_score,r.profile_id
-        FROM source_effectiveness_rows r INDEXED BY idx_source_effectiveness_rank
-        WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)
-          AND (?1 IS NULL OR r.profile_id=?1) AND r.last_seen_ms>=?2 AND r.first_seen_ms<?3 {after_clause}
-        ORDER BY r.effectiveness_score DESC,r.registrable_domain,r.profile_id LIMIT ?7"),
-        params![request.profile_id,start,end,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1.as_str()),after.as_ref().map(|v|v.2.as_str()),(limit+1) as i64],|r| {
-            let domain=r.get::<String>(0)?;let score=r.get::<f64>(4)?;
-            Ok((StableSource {display_name:display_name_for_domain(&domain),registrable_domain:domain.clone(),source_role:r.get(1)?,trail_count:r.get(2)?,stable_landing_count:r.get(3)?,effectiveness_score:score as f32},(score,domain,r.get::<String>(5)?)))
-        })?;
+    let after = super::paging::cursor::<(i64, String)>(request.cursor.as_deref())?;
+    let rows = connection.query(
+        "SELECT r.landing_domain, COUNT(*), COUNT(DISTINCT r.initial_query)
+         FROM search_trails_rows r INDEXED BY idx_search_trails_recent
+         WHERE r.first_visit_ms >= ?2 AND r.first_visit_ms < ?3
+           AND r.generation IN (SELECT navigation FROM intelligence_generations)
+           AND (?1 IS NULL OR r.profile_id = ?1)
+           AND r.landing_domain IS NOT NULL
+         GROUP BY r.landing_domain
+         HAVING ?4 IS NULL OR COUNT(*) < ?4 OR (COUNT(*) = ?4 AND r.landing_domain > ?5)
+         ORDER BY COUNT(*) DESC, r.landing_domain LIMIT ?6",
+        params![
+            request.profile_id.as_deref(),
+            start,
+            end,
+            after.as_ref().map(|value| value.0),
+            after.as_ref().map(|value| value.1.as_str()),
+            (limit + 1) as i64
+        ],
+        |r| {
+            let domain = r.get::<String>(0)?;
+            let searches = r.get::<i64>(1)?;
+            Ok((
+                StableSource {
+                    display_name: display_name_for_domain(&domain),
+                    registrable_domain: domain.clone(),
+                    search_count: searches,
+                    query_count: r.get(2)?,
+                },
+                (searches, domain),
+            ))
+        },
+    )?;
     super::paging::finish(rows, limit)
 }
 

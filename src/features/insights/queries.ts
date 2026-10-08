@@ -257,6 +257,13 @@ export function useSearchEffectiveness(scope: Scope) {
   )
 }
 
+/** The ten sites searches ended on most (what the secondary batch reads). */
+export function useSearchLandings(scope: Scope) {
+  return useSection(scope, 'search-landings', 'secondary', () =>
+    insightsClient.searchLandings(request(scope), 10),
+  )
+}
+
 /** Searches that took several tries (what the secondary batch reads: 10). */
 export function useFriction(scope: Scope) {
   return useSection(scope, 'friction', 'secondary', () =>

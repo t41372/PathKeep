@@ -63,6 +63,7 @@ function fillSecondary(
   put('effectiveness', overview.searchEffectiveness)
   put('friction', overview.frictionSignals)
   put('compare-sets', overview.compareSets)
+  put('search-landings', overview.stableSources)
 }
 
 /** Reads both batches for `scope` and reports which have settled. */

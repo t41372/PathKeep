@@ -144,13 +144,13 @@ pub fn get_intelligence_embed_cards(
             card_id: format!("stable-source:{}", source.registrable_domain),
             card_type: "stable_source".to_string(),
             title: source.display_name.clone().unwrap_or_else(|| source.registrable_domain.clone()),
-            eyebrow: Some("Stable source".to_string()),
+            eyebrow: Some("Where searches end up".to_string()),
             body: format!(
-                "{} often resolves trails as a {} source.",
-                source.registrable_domain, source.source_role
+                "{} searches ended on {}.",
+                source.search_count, source.registrable_domain
             ),
-            metric_label: Some("effectiveness_score".to_string()),
-            metric_value: Some(format!("{:.2}", source.effectiveness_score)),
+            metric_label: Some("search_count".to_string()),
+            metric_value: Some(source.search_count.to_string()),
             href: None,
             primary_target: Some(InsightEntityReference::Domain {
                 domain: source.registrable_domain.clone(),

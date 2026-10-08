@@ -66,13 +66,14 @@ export interface DomainSearchStat {
 // 4.2 Stable Answer Sources (穩定答案來源)
 // ---------------------------------------------------------------------------
 
+/** A site searches ended on: where the user's answers come from. */
 export interface StableSource {
   registrableDomain: string
   displayName?: string | null
-  sourceRole: 'entry' | 'landing' | 'reference'
-  trailCount: number
-  stableLandingCount: number
-  effectivenessScore: number
+  /** Searches in the range whose landing page was on this site. */
+  searchCount: number
+  /** How many different searches those were. */
+  queryCount: number
 }
 
 // ---------------------------------------------------------------------------

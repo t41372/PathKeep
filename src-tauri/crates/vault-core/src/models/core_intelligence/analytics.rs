@@ -67,16 +67,16 @@ pub struct DomainDeepDive {
     pub visit_trend: Vec<DomainTrendPoint>,
 }
 
-/// Stable source row used by source-effectiveness and secondary overview reads.
+/// A site searches ended on: where the user's answers come from.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct StableSource {
     pub registrable_domain: String,
     pub display_name: Option<String>,
-    pub source_role: String,
-    pub trail_count: i64,
-    pub stable_landing_count: i64,
-    pub effectiveness_score: f32,
+    /// Searches in the range whose landing page was on this site.
+    pub search_count: i64,
+    /// How many different searches those were.
+    pub query_count: i64,
 }
 
 /// Per-engine search effectiveness aggregate.
