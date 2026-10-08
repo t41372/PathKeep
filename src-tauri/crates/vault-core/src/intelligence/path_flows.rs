@@ -131,6 +131,16 @@ pub(super) struct FlowAggregate {
     occurrence_count: i64,
     last_seen_ms: i64,
 }
+/// Whether a window of consecutive sites is a path: every site in it is a different one. A
+/// window that comes back to a site already in it ("search engine → site → search engine") is
+/// a round trip, which said nothing and filled the list on a real archive.
+pub(super) fn is_path(window: &[(String, i64)]) -> bool {
+    window
+        .iter()
+        .enumerate()
+        .all(|(index, (site, _))| window[..index].iter().all(|(earlier, _)| earlier != site))
+}
+
 pub(super) fn finalize_path_sequence(
     sequence: &[(String, i64)],
     steps: usize,
@@ -139,7 +149,7 @@ pub(super) fn finalize_path_sequence(
     if steps < 2 || sequence.len() < steps {
         return;
     }
-    for window in sequence.windows(steps) {
+    for window in sequence.windows(steps).filter(|window| is_path(window)) {
         let pattern =
             window.iter().map(|(domain, _)| domain.as_str()).collect::<Vec<_>>().join(" → ");
         let time = window.iter().map(|(_, time)| *time).max().unwrap();

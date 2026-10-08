@@ -699,6 +699,9 @@ fn flush_path_flow_tail(
             continue;
         }
         let window = &sequence[sequence.len() - size..];
+        if !super::path_flows::is_path(window) {
+            continue;
+        }
         let pattern =
             window.iter().map(|(domain, _)| domain.as_str()).collect::<Vec<_>>().join(" → ");
         let end = window.last().unwrap().1;
@@ -719,7 +722,9 @@ fn flush_path_flow_sequence(
         if sequence.len() < step_count {
             continue;
         }
-        for window in sequence.windows(step_count) {
+        for window in
+            sequence.windows(step_count).filter(|window| super::path_flows::is_path(window))
+        {
             let flow_pattern =
                 window.iter().map(|(domain, _)| domain.as_str()).collect::<Vec<_>>().join(" → ");
             let last_seen_ms =

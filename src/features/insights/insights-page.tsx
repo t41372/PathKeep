@@ -22,6 +22,7 @@ import {
 import { ComparedPagesCard } from './compare-card'
 import { NewSitesCard } from './new-sites-card'
 import { useOverviewBands } from './overview'
+import { PathsCard } from './paths-card'
 import {
   BreadthCard,
   BrowsersCard,
@@ -94,6 +95,7 @@ export default function InsightsPage() {
           <BreadthCard scope={scope} />
         </Row>
         <Row>
+          <PathsCard scope={scope} />
           <BrowsersCard scope={scope} />
         </Row>
       </PageScroll>

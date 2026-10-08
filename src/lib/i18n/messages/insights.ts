@@ -122,6 +122,17 @@ export const insights = defineMessages({
       endedOn: 'ended on {site}',
       noResult: 'no result opened',
     },
+    paths: {
+      title: 'How you move between sites',
+      subtitle: 'Three sites in a row, most often first',
+      explain:
+        'Three different sites visited one after another in the same session. Going back to a site you just left (a search engine, say) makes a round trip, which is not counted as a path.',
+      empty:
+        'No three sites came one after another more than once in this range.',
+      then: 'then',
+      times_one: '{times} time',
+      times_other: '{times} times',
+    },
     compared: {
       title: 'Pages you compared',
       subtitle: 'Pages you went back and forth between in one search',
@@ -414,6 +425,16 @@ export const insights = defineMessages({
       endedOn: '最后到了 {site}',
       noResult: '没有打开任何结果',
     },
+    paths: {
+      title: '在网站之间怎么走',
+      subtitle: '连着去的三个网站，最常见的在前',
+      explain:
+        '同一段浏览里先后去的三个不同网站。回到刚离开的网站（比如搜索引擎）算来回，不算一条路线。',
+      empty: '这段时间没有哪三个网站接连出现超过一次。',
+      then: '然后',
+      times_one: '{times} 次',
+      times_other: '{times} 次',
+    },
     compared: {
       title: '比较过的页面',
       subtitle: '一次搜索里来回看的页面',
@@ -704,6 +725,16 @@ export const insights = defineMessages({
       reworded_other: '改寫 {times} 次',
       endedOn: '最後到了 {site}',
       noResult: '沒有打開任何結果',
+    },
+    paths: {
+      title: '在網站之間怎麼走',
+      subtitle: '連著去的三個網站，最常見的在前',
+      explain:
+        '同一段瀏覽裡先後去的三個不同網站。回到剛離開的網站（例如搜尋引擎）算來回，不算一條路線。',
+      empty: '這段時間沒有哪三個網站接連出現超過一次。',
+      then: '然後',
+      times_one: '{times} 次',
+      times_other: '{times} 次',
     },
     compared: {
       title: '比較過的頁面',

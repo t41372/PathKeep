@@ -613,6 +613,21 @@ mod tests {
         assert_eq!(periodic.habit_type, "periodic_reference");
     }
 
+    /// Coming back to a site makes a round trip, not a path: "google → github → google" is
+    /// left out, and so is any longer window that revisits a site.
+    #[test]
+    fn round_trips_are_not_paths() {
+        let at = |site: &str| (site.to_string(), 0);
+        let sequence = vec![at("google.com"), at("github.com"), at("google.com"), at("docs.rs")];
+        let mut flows = HashMap::new();
+        finalize_path_sequence(&sequence, 3, &mut flows);
+        let patterns: Vec<_> = flows.keys().map(|(pattern, _)| pattern.as_str()).collect();
+        assert_eq!(patterns, ["github.com → google.com → docs.rs"]);
+        let mut four = HashMap::new();
+        finalize_path_sequence(&sequence, 4, &mut four);
+        assert!(four.is_empty());
+    }
+
     #[test]
     fn finalize_path_sequence_counts_windows() {
         let sequence = vec![
