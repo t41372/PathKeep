@@ -1,12 +1,15 @@
 /** Per-screen error fallback, so one broken screen never takes down the app. */
+import { useEffect } from 'react'
 import { useRouteError } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
+import { recordRenderError } from '@/lib/runtime-diagnostics'
 
 export function RouteError() {
   const { t } = useI18n()
   const error = useRouteError()
+  useEffect(() => recordRenderError('route-render', error), [error])
   return (
     <div className="flex flex-1 items-center justify-center p-10">
       <div className="flex max-w-md flex-col items-center gap-3 text-center">

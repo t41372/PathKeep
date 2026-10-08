@@ -477,14 +477,14 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<AiProviderSecretPayload>(payload)?;
             json_value!(worker_bridge::store_ai_provider_api_key_impl(
                 payload.input,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "clear_ai_provider_api_key" => {
             let payload = parse_payload::<ProviderIdPayload>(payload)?;
             json_value!(worker_bridge::clear_ai_provider_api_key_impl(
                 payload.provider_id,
-                session_key(&state.session)?.as_deref()
+                &state.session
             )?)
         }
         "test_ai_provider_connection" => {
@@ -717,6 +717,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "get_search_queries" => {
             let payload = parse_payload::<WrappedRequest<SearchQueryListRequest>>(payload)?;
             json_value!(worker_bridge::get_search_queries_impl(payload.request, &state.session)?)
+        }
+        "get_search_families" => {
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::SearchFamiliesRequest>>(payload)?;
+            json_value!(worker_bridge::get_search_families_impl(payload.request, &state.session)?)
         }
         "get_query_families" => {
             let payload = parse_payload::<WrappedRequest<PagedDateRangeRequest>>(payload)?;

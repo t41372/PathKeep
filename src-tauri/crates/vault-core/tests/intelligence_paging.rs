@@ -362,29 +362,41 @@ fn materialized_all_time_flows_page_past_twenty_results() {
                 s.execute("INSERT INTO path_flows_rows(profile_id,flow_pattern,step_count,occurrence_count,last_seen_ms) VALUES('profile',?1,2,?2,1767268800000)",params![format!("site{id}.test → example.com"),id%3+1])?;
             }Ok(())
         }).unwrap();
-        let mut cursor = None;
-        let mut seen = std::collections::BTreeSet::new();
-        loop {
-            let page = vault_core::get_path_flows(
-                &vault,
-                &vault_core::PathFlowRequest {
-                    date_range: DateRange { start: "1900-01-01".into(), end: "2100-01-01".into() },
-                    profile_id: None,
-                    step_count: 2,
-                    limit: Some(7),
-                    cursor,
-                },
-            )
-            .unwrap();
-            for item in page.items {
-                assert!(seen.insert(item.flow_id));
+        // All profiles merge flows; one profile pages its rows directly. Both tie on counts.
+        for profile in [None, Some("profile".to_owned())] {
+            let mut cursor = None;
+            let mut seen = std::collections::BTreeSet::new();
+            let mut previous = None;
+            loop {
+                let page = vault_core::get_path_flows(
+                    &vault,
+                    &vault_core::PathFlowRequest {
+                        date_range: DateRange {
+                            start: "1900-01-01".into(),
+                            end: "2100-01-01".into(),
+                        },
+                        profile_id: profile.clone(),
+                        step_count: 2,
+                        limit: Some(7),
+                        cursor,
+                    },
+                )
+                .unwrap();
+                for item in page.items {
+                    let key = (-item.occurrence_count, item.flow_id.clone());
+                    if let Some(old) = previous.as_ref() {
+                        assert!(old < &key, "{profile:?}");
+                    }
+                    previous = Some(key);
+                    assert!(seen.insert(item.flow_id));
+                }
+                cursor = page.next_cursor;
+                if cursor.is_none() {
+                    break;
+                }
             }
-            cursor = page.next_cursor;
-            if cursor.is_none() {
-                break;
-            }
+            assert_eq!(seen.len(), 113, "{profile:?}");
         }
-        assert_eq!(seen.len(), 113);
     }
 }
 

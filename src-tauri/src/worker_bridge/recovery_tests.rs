@@ -5,15 +5,32 @@
 use super::*;
 use crate::test_support::{PROJECT_ROOT_OVERRIDE_ENV, TEST_KEYRING_OVERRIDE_ENV, lock_env};
 
+/// The scenario resolves its data folder from process-wide environment variables while it
+/// waits on a child process. Once, in a full run of this binary, its journal was recovered
+/// by something else before the check (the culprit wasn't found), so the scenario runs alone
+/// in its own process.
 #[test]
 fn assessment_and_bootstrap_finish_a_published_mode_switch_after_process_exit() {
     let _guard = lock_env();
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "worker_bridge::recovery_tests::published_mode_scenario",
+            "--ignored",
+            "--nocapture",
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success(), "{status}");
+}
+
+#[test]
+#[ignore = "runs alone in a child process; see the test above"]
+fn published_mode_scenario() {
     let root = tempfile::tempdir().unwrap();
-    let names = [PROJECT_ROOT_OVERRIDE_ENV, TEST_KEYRING_OVERRIDE_ENV];
-    let old = names.map(std::env::var_os);
     unsafe {
-        std::env::set_var(names[0], root.path());
-        std::env::set_var(names[1], root.path().join("keyring"));
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
     }
     let paths = vault_core::project_paths().unwrap();
     let config = AppConfig {
@@ -68,14 +85,6 @@ fn assessment_and_bootstrap_finish_a_published_mode_switch_after_process_exit() 
         1
     );
     restarted.close_vault().unwrap();
-    for (name, value) in names.into_iter().zip(old) {
-        unsafe {
-            match value {
-                Some(v) => std::env::set_var(name, v),
-                None => std::env::remove_var(name),
-            }
-        }
-    }
 }
 
 #[test]

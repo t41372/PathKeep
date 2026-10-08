@@ -174,6 +174,8 @@ export const settingsBackground = defineMessages({
         'archive-data-changed': 'New history arrived since this was built.',
         'visibility-or-rollback-changed':
           'Visits were hidden or brought back since this was built.',
+        'first-build-running':
+          'The first build hasn’t finished; the numbers so far cover only the browsers done.',
       },
       plugins: {
         title: 'Extra page details',
@@ -376,6 +378,8 @@ export const settingsBackground = defineMessages({
         'missing-build-timestamp': '上次建立没有顺利完成。',
         'archive-data-changed': '建立之后有新的历史记录。',
         'visibility-or-rollback-changed': '建立之后有访问记录被隐藏或恢复。',
+        'first-build-running':
+          '第一次计算还没完成，现在的数字只涵盖已算好的浏览器。',
       },
       plugins: {
         title: '额外的网页信息',
@@ -577,6 +581,8 @@ export const settingsBackground = defineMessages({
         'missing-build-timestamp': '上次建立沒有順利完成。',
         'archive-data-changed': '建立之後有新的歷史紀錄。',
         'visibility-or-rollback-changed': '建立之後有造訪紀錄被隱藏或恢復。',
+        'first-build-running':
+          '第一次計算還沒完成，現在的數字只涵蓋已算好的瀏覽器。',
       },
       plugins: {
         title: '額外的網頁資訊',

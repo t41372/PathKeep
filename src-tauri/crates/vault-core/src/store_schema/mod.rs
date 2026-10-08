@@ -5,6 +5,10 @@
 //! Tests: catalog_and_crud, reopen_preserves_data, newer_versions_are_refused.
 //! Drops: legacy migration ledgers are replaced by vault-store's __pk_migrations;
 //! their checksums, timestamps and backup paths describe the old SQLite steps.
+//!
+//! Until a release has written these databases, every schema change edits version 1 in
+//! place; no install holds an earlier version to migrate from. The first change after
+//! that release adds version 2.
 
 mod agent;
 mod archive;

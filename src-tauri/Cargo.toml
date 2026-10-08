@@ -185,6 +185,14 @@ opt-level = 3
 [profile.dev.package.turso]
 opt-level = 3
 
+# Code mode compiles its JavaScript engine (a wasm module) with Cranelift on every run; a debug
+# build would otherwise run that compiler unoptimised in every code-mode test and run_code call.
+[profile.dev.package.cranelift-codegen]
+opt-level = 3
+
+[profile.dev.package.regalloc2]
+opt-level = 3
+
 [profile.release]
 codegen-units = 1
 lto = "thin"

@@ -1228,6 +1228,9 @@ pub enum AiAgentNote {
     TokenBudgetReached,
     /// The provider cannot do tool calls, so the run answered from seeded evidence directly.
     ToolCallingUnavailable,
+    /// A search the run made covered only part of the archive: the index was still being built
+    /// (after an upgrade or a reset) or hadn't caught up yet, so the answer can miss pages.
+    SearchIndexIncomplete,
 }
 
 /// Tauri event channel that carries [`AiChatStreamEvent`]s to the front end.
@@ -1996,6 +1999,10 @@ pub const DERIVED_STALE_MISSING_BUILD_TIMESTAMP: &str = "missing-build-timestamp
 /// Persisted (not read-derived): only the backup/import writer knows a run
 /// mutated archive facts, so the code travels with the runtime row.
 pub const DERIVED_STALE_ARCHIVE_DATA_CHANGED: &str = "archive-data-changed";
+
+/// Stale-reason code for "no build has finished yet and one is queued or running". Read-derived:
+/// a build publishes each browser profile as it finishes it, so until then the numbers are partial.
+pub const DERIVED_STALE_FIRST_BUILD_RUNNING: &str = "first-build-running";
 
 /// Stale-reason code for "archive visibility or rollback state changed".
 ///

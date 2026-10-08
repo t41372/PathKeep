@@ -36,6 +36,7 @@ where
     }
     let mut current_date = None::<String>;
     let mut accumulator = DailyRollupAccumulator::default();
+    let mut pending = PendingDays::default();
     let mut day_end = cursor;
     let mut processed = 0;
     loop {
@@ -46,15 +47,11 @@ where
         for visit in &batch {
             let date = local_date_key(visit.visit_time_ms);
             if current_date.as_deref().is_some_and(|old| old != date) {
-                let bundle = std::mem::take(&mut accumulator).finish();
-                persist_day(
-                    vault,
-                    state,
-                    current_date.as_ref().unwrap(),
-                    day_end,
-                    &bundle,
-                    progress,
-                )?;
+                let day = current_date.take().unwrap();
+                pending.add(day, std::mem::take(&mut accumulator).finish(), day_end);
+                if pending.rows >= DAYS_PER_COMMIT_ROWS {
+                    pending.flush(vault, state)?;
+                }
             }
             current_date = Some(date);
             accumulator.add_visit(visit);
@@ -73,8 +70,9 @@ where
         ))?;
     }
     if let Some(date) = current_date {
-        persist_day(vault, state, &date, day_end, &accumulator.finish(), progress)?;
+        pending.add(date, accumulator.finish(), day_end);
     }
+    pending.flush(vault, state)?;
     let generation = state.daily_generation;
     let profile = state.profile_id.clone();
     let counts=vault.read(Db::Intelligence,move |s|Ok(s.query_one("SELECT COALESCE(SUM(domains),0),COALESCE(SUM(categories),0),COALESCE(SUM(engines),0),COALESCE(SUM(summaries),0) FROM intelligence_day_counts WHERE generation=?1 AND profile_id=?2",params![generation,profile],|r|Ok([r.get::<i64>(0)?,r.get(1)?,r.get(2)?,r.get(3)?]))?))?;
@@ -94,51 +92,55 @@ where
     Ok(processed)
 }
 
-fn persist_day<F>(
-    vault: &Vault,
-    state: &mut BuildState,
-    date: &str,
+/// Rollup rows a commit carries before it is written. Each commit costs a WAL sync and a
+/// checkpoint, so committing every day separately made the daily stage most of a rebuild
+/// (about 10,000 commits for 22k visits); whole days still go in together, with the cursor.
+const DAYS_PER_COMMIT_ROWS: usize = 4_096;
+
+/// Finished days waiting for one commit, with the cursor just after the last of them.
+#[derive(Default)]
+struct PendingDays {
+    bundle: DailyRollupBundle,
+    days: Vec<(String, [usize; 4])>,
     cursor: Option<VisibleVisitBatchCursor>,
-    bundle: &DailyRollupBundle,
-    progress: &mut F,
-) -> Result<()>
-where
-    F: FnMut(CoreIntelligenceProgress) -> Result<()>,
-{
-    macro_rules! part {
-        ($field:ident) => {
-            for chunk in bundle.$field.chunks(512) {
-                let piece = DailyRollupBundle { $field: chunk.to_vec(), ..Default::default() };
-                let generation = state.daily_generation;
-                vault.write(Db::Intelligence, Priority::Batch, move |s| {
-                    build_rows::persist_daily(s, generation, &piece)
-                })?;
-                progress(build_state::progress(
-                    state,
-                    "daily-rollups",
-                    state.processed,
-                    state.source.visible_visit_count as usize,
-                ))?;
-            }
-        };
+    rows: usize,
+}
+
+impl PendingDays {
+    fn add(&mut self, date: String, day: DailyRollupBundle, end: Option<VisibleVisitBatchCursor>) {
+        let sizes = [
+            day.domain_rows.len(),
+            day.category_rows.len(),
+            day.engine_rows.len(),
+            day.summary_rows.len(),
+        ];
+        self.rows += sizes.iter().sum::<usize>();
+        self.bundle.domain_rows.extend(day.domain_rows);
+        self.bundle.category_rows.extend(day.category_rows);
+        self.bundle.engine_rows.extend(day.engine_rows);
+        self.bundle.summary_rows.extend(day.summary_rows);
+        self.days.push((date, sizes));
+        self.cursor = end;
     }
-    part!(domain_rows);
-    part!(category_rows);
-    part!(engine_rows);
-    part!(summary_rows);
-    state.daily_cursor = cursor;
-    let saved = state.clone();
-    let date = date.to_owned();
-    let sizes = [
-        bundle.domain_rows.len(),
-        bundle.category_rows.len(),
-        bundle.engine_rows.len(),
-        bundle.summary_rows.len(),
-    ];
-    vault.write(Db::Intelligence,Priority::Batch,move |s| {
-        s.execute("INSERT INTO intelligence_day_counts VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(generation,profile_id,date_key) DO UPDATE SET domains=excluded.domains,categories=excluded.categories,engines=excluded.engines,summaries=excluded.summaries",params![saved.daily_generation,saved.profile_id,date,sizes[0] as i64,sizes[1] as i64,sizes[2] as i64,sizes[3] as i64])?;
-        build_state::save(s,&saved)
-    })
+
+    /// Writes the rows, each day's counts and the advanced cursor in one transaction, so a
+    /// resumed build starts after the last day it fully wrote.
+    fn flush(&mut self, vault: &Vault, state: &mut BuildState) -> Result<()> {
+        if self.days.is_empty() {
+            return Ok(());
+        }
+        let PendingDays { bundle, days, cursor, .. } = std::mem::take(self);
+        state.daily_cursor = cursor;
+        let saved = state.clone();
+        vault.write(Db::Intelligence, Priority::Batch, move |s| {
+            build_rows::persist_daily(s, saved.daily_generation, &bundle)?;
+            let mut count = s.prepare("INSERT INTO intelligence_day_counts VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(generation,profile_id,date_key) DO UPDATE SET domains=excluded.domains,categories=excluded.categories,engines=excluded.engines,summaries=excluded.summaries")?;
+            for (date, sizes) in &days {
+                count.execute(params![saved.daily_generation,saved.profile_id.clone(),date.clone(),sizes[0] as i64,sizes[1] as i64,sizes[2] as i64,sizes[3] as i64])?;
+            }
+            build_state::save(s, &saved)
+        })
+    }
 }
 
 pub(super) fn navigation<F>(
@@ -314,6 +316,10 @@ where
     write!(flows, rows, &[], &[], &[], &[], &rows);
     for (table, count) in [
         ("query_families", families.len()),
+        (
+            "query_family_queries",
+            families.iter().map(|family| build_rows::family_query_keys(family).len()).sum(),
+        ),
         ("source_effectiveness", sources.len()),
         ("habit_patterns", habits.len()),
         (

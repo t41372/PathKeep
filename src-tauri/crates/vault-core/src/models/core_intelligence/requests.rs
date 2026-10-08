@@ -232,6 +232,15 @@ pub struct DomainDeepDiveRequest {
     pub profile_id: Option<String>,
 }
 
+/// Every query family that holds one search, across all time.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFamiliesRequest {
+    /// The search as typed; matched ignoring case and surrounding spaces.
+    pub query: String,
+    pub profile_id: Option<String>,
+}
+
 /// Request shape for one query-family detail read.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

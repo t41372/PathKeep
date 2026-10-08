@@ -21,6 +21,7 @@ pub(super) const TABLES: &[(&str, &str)] = &[
     ("search_events", "navigation"),
     ("search_event_terms", "navigation"),
     ("query_families", "aggregates"),
+    ("query_family_queries", "aggregates"),
     ("refind_pages", "aggregates"),
     ("source_effectiveness", "aggregates"),
     ("habit_patterns", "aggregates"),

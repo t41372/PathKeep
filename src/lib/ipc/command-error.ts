@@ -18,6 +18,9 @@
 /** Backend classification: the operation needs an unlock first. */
 export const ERROR_CODE_LOCK_REQUIRED = 'lock-required'
 
+/** Backend classification: the archive is not open in this session. */
+export const ERROR_CODE_ARCHIVE_PASSWORD_REQUIRED = 'archive-password-required'
+
 /** Backend classification: macOS Full Disk Access (TCC) is missing. */
 export const ERROR_CODE_FULL_DISK_ACCESS = 'full-disk-access'
 
@@ -123,5 +126,18 @@ export function isLockRequiredError(error: unknown): boolean {
   return (
     error.message.includes('database key is required') ||
     error.message.includes('PathKeep is currently locked')
+  )
+}
+
+/**
+ * Returns `true` when a read failed because the archive is closed: the app is
+ * locked, or the archive is not open in this session (a fresh session, or
+ * maintenance that closed it). The shell's gates are the remedy: unlock from
+ * the keychain, or ask for the password or passcode.
+ */
+export function isArchiveClosedError(error: unknown): boolean {
+  return (
+    isLockRequiredError(error) ||
+    commandErrorCode(error) === ERROR_CODE_ARCHIVE_PASSWORD_REQUIRED
   )
 }

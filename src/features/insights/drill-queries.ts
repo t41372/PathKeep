@@ -64,31 +64,22 @@ export function useSite(domain: string, range: RangeId) {
   })
 }
 
-function sameQuery(a: string, b: string) {
-  return a.trim().toLowerCase() === b.trim().toLowerCase()
-}
-
 /**
  * Families are kept per browser profile and search engine, so one search
- * typed in two browsers is two families. Find every family for the text
- * among the range's families (the same list the "Frequent searches" card
- * comes from), then load each one's detail.
+ * typed in two browsers is two families. The backend finds every family
+ * holding the text, across all time (the totals say "in total"); each one's
+ * detail is then read for the chosen range.
  */
 export function useSearch(query: string, range: RangeId) {
   const scope = { dateRange: rangeDates(range) }
   const families = useQuery({
-    queryKey: key(range, 'families'),
-    queryFn: () => insightsClient.queryFamilies(scope),
+    queryKey: key('search-families', query),
+    queryFn: () => insightsClient.searchFamilies(query),
     refetchInterval: pollWhileStale,
   })
   const matches = useMemo(
-    () =>
-      (families.data?.data.families ?? []).filter(
-        (family) =>
-          sameQuery(family.anchorQuery, query) ||
-          family.queries.some((member) => sameQuery(member, query)),
-      ),
-    [families.data, query],
+    () => families.data?.data.families ?? [],
+    [families.data],
   )
   const details = useQueries({
     queries: matches.map((family) => ({

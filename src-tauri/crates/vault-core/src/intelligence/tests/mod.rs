@@ -22,6 +22,7 @@ mod batch_equivalence;
 mod fixtures;
 mod frequent_searches;
 mod schema_overview;
+mod search_families;
 mod stage_rebuild;
 mod structural_incremental;
 mod top_sites_profiles;

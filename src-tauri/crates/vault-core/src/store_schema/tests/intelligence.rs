@@ -22,6 +22,7 @@ pub(super) const TABLES: &[&str] = &[
     "intelligence_overview_snapshots",
     "path_flows_rows",
     "query_families_rows",
+    "query_family_queries_rows",
     "refind_pages_rows",
     "reopened_investigations_rows",
     "search_engine_rules",
@@ -93,6 +94,7 @@ pub(super) const INDEXES: &[&str] = &[
     "sqlite_autoindex_intelligence_overview_snapshots_1",
     "sqlite_autoindex_path_flows_rows_1",
     "sqlite_autoindex_query_families_rows_1",
+    "sqlite_autoindex_query_family_queries_rows_1",
     "sqlite_autoindex_refind_pages_rows_1",
     "sqlite_autoindex_reopened_investigations_rows_1",
     "sqlite_autoindex_search_engine_rules_1",
@@ -123,6 +125,15 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_vdf_generation_canonical_visit",
     "idx_refind_pages_score",
     "idx_refind_pages_canonical",
+    "idx_sessions_recent",
+    "idx_search_trails_recent",
+    "idx_search_trails_friction",
+    "idx_query_families_recent",
+    "idx_query_families_members",
+    "idx_query_family_queries_query",
+    "idx_source_effectiveness_rank",
+    "idx_reopened_investigations_recent",
+    "idx_path_flows_profile_rank",
 ];
 pub(super) const ROWS: &[Fixture] = &[
     Fixture {
@@ -231,6 +242,12 @@ pub(super) const ROWS: &[Fixture] = &[
         table: "search_event_terms_rows",
         columns: "generation, visit_id, profile_id, term",
         values: "1, 1, 'sample', 'sample'",
+        updated: "profile_id = 'changed'",
+    },
+    Fixture {
+        table: "query_family_queries_rows",
+        columns: "generation, family_id, profile_id, normalized_query",
+        values: "1, 'sample', 'sample', 'sample'",
         updated: "profile_id = 'changed'",
     },
     Fixture {
@@ -357,6 +374,7 @@ pub(super) const VIEWS: &[&str] = &[
     "search_events",
     "search_event_terms",
     "query_families",
+    "query_family_queries",
     "refind_pages",
     "source_effectiveness",
     "habit_patterns",

@@ -1150,11 +1150,13 @@ fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
             api_key: "secret-1".to_string(),
         },
         None,
+        None,
     )
     .expect("store llm key");
     assert!(stored_snapshot.config.ai.llm_providers[0].api_key_saved);
 
-    let cleared_snapshot = clear_ai_provider_api_key("llm-primary", None).expect("clear llm key");
+    let cleared_snapshot =
+        clear_ai_provider_api_key("llm-primary", None, None).expect("clear llm key");
     assert!(!cleared_snapshot.config.ai.llm_providers[0].api_key_saved);
 
     let search = search_ai_history(
@@ -1740,6 +1742,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
             api_key: "embed-secret".to_string(),
         },
         None,
+        None,
     )
     .expect("store embed key");
     store_ai_provider_api_key(
@@ -1747,6 +1750,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
             provider_id: "llm-primary".to_string(),
             api_key: "llm-secret".to_string(),
         },
+        None,
         None,
     )
     .expect("store llm key");
@@ -2135,6 +2139,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
             api_key: "embed-secret".to_string(),
         },
         None,
+        None,
     )
     .expect("store embed key");
     store_ai_provider_api_key(
@@ -2142,6 +2147,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
             provider_id: "llm-primary".to_string(),
             api_key: "llm-secret".to_string(),
         },
+        None,
         None,
     )
     .expect("store llm key");
@@ -2151,6 +2157,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
             api_key: "llm-error-secret".to_string(),
         },
         None,
+        None,
     )
     .expect("store llm error key");
     store_ai_provider_api_key(
@@ -2158,6 +2165,7 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
             provider_id: "embed-batch-error-single-error".to_string(),
             api_key: "embed-batch-error-single-error-secret".to_string(),
         },
+        None,
         None,
     )
     .expect("store batch error key");
@@ -2453,6 +2461,7 @@ fn coverage_queue_spawn_and_foreground_drains_cover_worker_loops() {
             api_key: "embed-secret".to_string(),
         },
         None,
+        None,
     )
     .expect("store embed key");
     store_ai_provider_api_key(
@@ -2460,6 +2469,7 @@ fn coverage_queue_spawn_and_foreground_drains_cover_worker_loops() {
             provider_id: "llm-primary".to_string(),
             api_key: "llm-secret".to_string(),
         },
+        None,
         None,
     )
     .expect("store llm key");
@@ -2809,6 +2819,7 @@ fn coverage_run_backup_now_surfaces_remote_and_index_failures_as_warnings() {
             api_key: "embed-secret".to_string(),
         },
         None,
+        None,
     )
     .expect("store embed key");
 
@@ -2856,6 +2867,7 @@ fn coverage_browser_import_and_paused_auto_index_cover_archive_followups() {
             provider_id: "embed-primary".to_string(),
             api_key: "embed-secret".to_string(),
         },
+        None,
         None,
     )
     .expect("store embed key");
@@ -3672,6 +3684,39 @@ fn parse_archive_recovery_required_round_trips_the_startup_report() {
     restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
 }
 
+/// Saving an AI key returns the snapshot the shell then shows. An archive unlocked without a
+/// password kept in the session (from the keychain, say) must still come back unlocked, so the
+/// snapshot is read through the session's open archive.
+#[test]
+fn saving_an_ai_key_returns_the_unlocked_snapshot_of_the_open_archive() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let old = [PROJECT_ROOT_OVERRIDE_ENV, TEST_KEYRING_OVERRIDE_ENV].map(std::env::var_os);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path().join("app"));
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
+    }
+    let paths = project_paths().unwrap();
+    let config = AppConfig { archive_mode: ArchiveMode::Encrypted, ..initialized_config() };
+    vault_core::save_config(&paths, &config).unwrap();
+    let session = crate::VaultSession::default();
+    session.open_password(paths, config, "archive password".into()).unwrap();
+    let vault = session.vault().unwrap();
+    let input = AiProviderSecretInput {
+        provider_id: "llm-primary".to_string(),
+        api_key: "secret".to_string(),
+    };
+    let saved = store_ai_provider_api_key(&input, Some(&vault), None).unwrap();
+    assert!(saved.archive_status.unlocked);
+    let cleared = clear_ai_provider_api_key("llm-primary", Some(&vault), None).unwrap();
+    assert!(cleared.archive_status.unlocked);
+    // What the shell received before: no archive and no password, so a locked snapshot.
+    assert!(!store_ai_provider_api_key(&input, None, None).unwrap().archive_status.unlocked);
+    session.close_vault().unwrap();
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old[0].as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, old[1].as_deref());
+}
+
 #[test]
 fn full_restore_and_reconciliation_use_the_native_owner() {
     let _guard = lock_env();
@@ -3695,6 +3740,36 @@ fn full_restore_and_reconciliation_use_the_native_owner() {
     )
     .unwrap();
     assert!(!report.source_evidence_rebuilt);
+    assert!(session.vault().unwrap().store().is_open());
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old_env.as_deref());
+}
+
+/// A restore replaces the archive with the file it is given; a copy of a real snapshot in
+/// another folder, or a path that walks out of the snapshot folder, must not be accepted.
+#[test]
+fn full_restore_takes_only_a_snapshot_pathkeep_listed() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let old_env = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path().join("app"));
+    }
+    let paths = project_paths().unwrap();
+    vault_core::save_config(&paths, &initialized_config()).unwrap();
+    let session = crate::VaultSession::default();
+    let vault = session.vault().unwrap();
+    let elsewhere = root.path().join("elsewhere/snapshot");
+    vault_core::maintenance::snapshot(&vault, &elsewhere).unwrap();
+    let escaping = paths.raw_snapshots_dir.join("maintenance/../../../elsewhere/snapshot");
+    for path in [elsewhere, escaping] {
+        let error = crate::run_full_archive_restore(
+            &session,
+            None,
+            &vault_core::SnapshotRestoreRequest { snapshot_path: path.display().to_string() },
+        )
+        .unwrap_err();
+        assert!(error.to_string().starts_with("snapshot-not-listed:"), "{error:#}");
+    }
     assert!(session.vault().unwrap().store().is_open());
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old_env.as_deref());
 }

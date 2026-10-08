@@ -14,6 +14,14 @@ use std::{
 };
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 
+/// The page cipher of every encrypted database. Turso's AEGIS build (`pure-rust-crypto`,
+/// which its SDK enables) picks hardware AES only when the binary is compiled for it, so
+/// x86_64 builds ran software AES; compiling for it would crash on CPUs without AES-NI.
+/// AES-256-GCM detects AES-NI and carry-less multiply at run time and, measured on Modal
+/// (x86_64, release), matched hardware AEGIS and read 3.5 times faster than software AEGIS
+/// (docs/architecture/data-model.md, "Page encryption").
+const CIPHER: &str = "aes256gcm";
+
 #[derive(Clone)]
 pub(crate) struct Settings {
     pub path: PathBuf,
@@ -50,7 +58,7 @@ impl Settings {
             .experimental_multiprocess_wal(false);
         if let Some(key) = &self.key {
             b = b.with_encryption(turso::EncryptionOpts {
-                cipher: "aegis256".into(),
+                cipher: CIPHER.into(),
                 // Turso owns this required SDK copy; our temporary is wiped on drop.
                 hexkey: hex_key(key).to_string(),
             });
@@ -241,7 +249,7 @@ pub(crate) fn scratch_uri(path: &Path, key: Option<&[u8; 32]>) -> zeroize::Zeroi
     }
     if let Some(key) = key {
         let hex = hex_key(key);
-        write!(uri, "?cipher=aegis256&hexkey={}", hex.as_str()).unwrap();
+        write!(uri, "?cipher={CIPHER}&hexkey={}", hex.as_str()).unwrap();
     }
     uri
 }

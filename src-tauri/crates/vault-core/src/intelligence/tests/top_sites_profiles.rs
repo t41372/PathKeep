@@ -18,19 +18,22 @@ fn seed(vault: &crate::Vault) {
                     [profile],
                 )?;
             }
-            for (profile, domain, visits) in [
-                ("a", "x.com", 5),
-                ("a", "y.com", 3),
-                ("b", "x.com", 2),
-                ("b", "z.com", 7),
-                ("c", "y.com", 100),
+            // Search result pages are searches, not site visits: google.com has only those,
+            // and two of x.com's visits in b were searches on it.
+            for (profile, domain, visits, searches) in [
+                ("a", "x.com", 5, 0),
+                ("a", "y.com", 3, 0),
+                ("a", "google.com", 50, 50),
+                ("b", "x.com", 4, 2),
+                ("b", "z.com", 7, 0),
+                ("c", "y.com", 100, 0),
             ] {
                 s.execute(
                     "INSERT INTO domain_daily_rollups_rows(generation, date_key, profile_id,
                        registrable_domain, domain_category, visit_count, search_count,
                        new_domain_visits, unique_urls)
-                     VALUES (1, '2026-04-02', ?1, ?2, 'other', ?3, 0, 0, 1)",
-                    vault_store::params![profile, domain, visits],
+                     VALUES (1, '2026-04-02', ?1, ?2, 'other', ?3, ?4, 0, 1)",
+                    vault_store::params![profile, domain, visits, searches],
                 )?;
             }
             Ok(())
@@ -64,7 +67,7 @@ fn request(profile_ids: &[&str]) -> TopSitesRequest {
 }
 
 #[test]
-fn several_profiles_are_summed_and_paged_through_every_site_once() {
+fn several_profiles_are_summed_and_paged_through_every_site_once_without_searches() {
     let vault = crate::Vault::open_temp().unwrap();
     seed(&vault);
     assert_eq!(

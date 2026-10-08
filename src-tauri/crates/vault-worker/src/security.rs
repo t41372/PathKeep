@@ -18,7 +18,7 @@
 //! stories separately instead of blending them into one “locked” concept.
 
 use crate::{
-    app::{RekeyRequest, app_snapshot},
+    app::RekeyRequest,
     context::{
         current_app_lock_biometric_state, load_hydrated_config, load_unlocked_config,
         resolved_app_lock_status,
@@ -443,22 +443,27 @@ pub fn keyring_report() -> KeyringStatusReport {
     keyring_status()
 }
 
-/// Stores an AI provider secret and returns a refreshed app snapshot.
+/// Stores an AI provider secret and returns a refreshed app snapshot. The snapshot is read
+/// through the session's open archive: without it an archive unlocked from the keychain
+/// would come back as locked and replace the shell's snapshot.
 pub fn store_ai_provider_api_key(
     input: &AiProviderSecretInput,
+    vault: Option<&vault_core::Vault>,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AppSnapshot> {
     keyring_set_provider_api_key(&input.provider_id, &input.api_key)?;
-    app_snapshot(session_database_key)
+    crate::app_snapshot_with_vault(vault, session_database_key)
 }
 
-/// Clears an AI provider secret and returns a refreshed app snapshot.
+/// Clears an AI provider secret and returns a refreshed app snapshot, read like
+/// [`store_ai_provider_api_key`]'s.
 pub fn clear_ai_provider_api_key(
     provider_id: &str,
+    vault: Option<&vault_core::Vault>,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AppSnapshot> {
     keyring_clear_provider_api_key(provider_id)?;
-    app_snapshot(session_database_key)
+    crate::app_snapshot_with_vault(vault, session_database_key)
 }
 
 #[cfg(test)]

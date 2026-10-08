@@ -1,9 +1,10 @@
 /** The prototype's card: title, optional subtitle and action, then content. */
-import type { ReactNode } from 'react'
+import { Component, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
+import { recordRenderError } from '@/lib/runtime-diagnostics'
 
 /**
  * What a card shows when its query failed. Without it a failed card looks
@@ -29,6 +30,35 @@ export function CardError({
       </Button>
     </div>
   )
+}
+
+/**
+ * Keeps a card that throws while rendering inside its own frame: the card
+ * shows the load error with a retry, and the rest of the screen stays up.
+ */
+class CardBoundary extends Component<
+  { children: ReactNode },
+  { error: unknown }
+> {
+  state = { error: null as unknown }
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error }
+  }
+
+  componentDidCatch(error: unknown) {
+    recordRenderError('card-render', error)
+  }
+
+  render() {
+    if (this.state.error === null) return this.props.children
+    return (
+      <CardError
+        error={this.state.error}
+        onRetry={() => this.setState({ error: null })}
+      />
+    )
+  }
 }
 
 export function SectionCard({
@@ -62,7 +92,7 @@ export function SectionCard({
           {action}
         </header>
       )}
-      {children}
+      <CardBoundary>{children}</CardBoundary>
     </section>
   )
 }

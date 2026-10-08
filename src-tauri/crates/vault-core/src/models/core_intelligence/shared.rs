@@ -109,6 +109,8 @@ pub enum CoreIntelligenceSectionWindow {
         #[serde(rename = "referenceDate")]
         reference_date: String,
     },
+    /// Everything the archive holds, whatever range the page shows.
+    AllTime,
 }
 
 /// Shared metadata emitted alongside one `/intelligence` section payload.

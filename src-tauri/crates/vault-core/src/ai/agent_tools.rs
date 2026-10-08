@@ -86,6 +86,9 @@ pub struct ToolOutcome {
     pub host_calls: Vec<HostCallRecord>,
     /// Which hard sandbox limit (if any) bounded a `run_code` script (`None` for the search tools).
     pub limits_hit: Option<LimitsHit>,
+    /// A search behind this result ran against an index that didn't cover the whole archive, so
+    /// the harness tells the user the answer can miss pages.
+    pub coverage_incomplete: bool,
 }
 
 /// Read-only execution context shared by every retrieval tool.
@@ -300,8 +303,10 @@ impl AgentTool for HistorySearchTool {
             })
             .collect::<Vec<_>>();
         let model_text = summarize_search_for_model(self.name, &response, context.tz_offset);
+        let coverage_incomplete =
+            response.search_state.as_ref().is_some_and(|state| !state.coverage_complete);
         // The search tools carry no code-mode fields (those default); only `run_code` populates them.
-        Ok(ToolOutcome { model_text, citations, ..ToolOutcome::default() })
+        Ok(ToolOutcome { model_text, citations, coverage_incomplete, ..ToolOutcome::default() })
     }
 }
 
@@ -515,6 +520,7 @@ fn code_outcome_to_tool_outcome(outcome: super::code_mode::CodeOutcome) -> Resul
         source,
         error,
         limits_hit,
+        coverage_incomplete,
     } = outcome;
 
     if let Some(message) = &error {
@@ -536,7 +542,14 @@ fn code_outcome_to_tool_outcome(outcome: super::code_mode::CodeOutcome) -> Resul
         model_text.push_str(&format!("\n\n[note: the script was bounded by a hard limit ({}); the result above may be partial]", limits_hit_label(limit)));
     }
 
-    Ok(ToolOutcome { model_text, citations, code_source: Some(source), host_calls, limits_hit })
+    Ok(ToolOutcome {
+        model_text,
+        citations,
+        code_source: Some(source),
+        host_calls,
+        limits_hit,
+        coverage_incomplete,
+    })
 }
 
 /// A short, human-readable label for a hard sandbox limit (for the model-facing bounded-run note).

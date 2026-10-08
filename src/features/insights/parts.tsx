@@ -52,6 +52,7 @@ export function KpiTile({
   metric,
   hint,
   loading,
+  updating = false,
   detail,
 }: {
   label: string
@@ -61,16 +62,22 @@ export function KpiTile({
   /** What the change is compared against, shown on hover. */
   hint?: string
   loading: boolean
+  /**
+   * The background build hasn't finished, so the value may still change (after
+   * an upgrade the first build can take a while). It stays on screen, marked.
+   */
+  updating?: boolean
   /** A short line under the value. */
   detail?: ReactNode
 }) {
+  const { t } = useI18n()
   const format = useFormat()
   const change = metric?.changePercent
   return (
     <div
       role="group"
       aria-label={label}
-      aria-busy={loading}
+      aria-busy={loading || updating}
       className="flex min-w-0 flex-col gap-1 rounded-xl border bg-card px-4 py-3.5 shadow-card"
     >
       <span className="text-[13px] text-muted-foreground">{label}</span>
@@ -81,6 +88,12 @@ export function KpiTile({
           <span className="truncate text-[22px] font-semibold tabular">
             {value}
           </span>
+          {updating && (
+            <Spinner
+              className="size-3 shrink-0 self-center text-muted-foreground"
+              aria-label={t('insights.status.updating')}
+            />
+          )}
           {change != null && Number.isFinite(change) && (
             <span
               title={hint}

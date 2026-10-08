@@ -64,13 +64,15 @@ interface Scope {
 export const insightsClient = {
   digest: (scope: Scope) =>
     section<DigestSummary>('get_digest_summary', { request: scope }),
-  discoveryTrend: (scope: Scope, granularity: 'day' | 'week' = 'day') =>
+  /** Per day; charts group days into weeks themselves (see insights/buckets). */
+  discoveryTrend: (scope: Scope) =>
     section<DiscoveryTrend>('get_discovery_trend', {
-      request: { ...scope, granularity },
+      request: { ...scope, granularity: 'day' },
     }),
-  activityMixTrend: (scope: Scope, granularity: 'day' | 'week' = 'day') =>
+  /** Per day; charts group days into weeks themselves (see insights/buckets). */
+  activityMixTrend: (scope: Scope) =>
     call<ActivityMixTrend>('get_activity_mix_trend', {
-      request: { ...scope, granularity },
+      request: { ...scope, granularity: 'day' },
     }),
   onThisDay: (profileId?: string | null) =>
     section<OnThisDayEntry[]>('get_on_this_day', { profileId }),
@@ -89,6 +91,11 @@ export const insightsClient = {
   frequentSearches: (scope: Scope, limit = 10, cursor: string | null = null) =>
     section<Page<FrequentSearch>>('get_frequent_searches', {
       request: { ...scope, limit, cursor },
+    }),
+  /** Every family holding `query`, across all time and browsers. */
+  searchFamilies: (query: string, profileId: string | null = null) =>
+    section<QueryFamilyResult>('get_search_families', {
+      request: { query, profileId },
     }),
   queryFamilies: (scope: Scope, pageSize = 200, cursor: string | null = null) =>
     section<QueryFamilyResult>('get_query_families', {

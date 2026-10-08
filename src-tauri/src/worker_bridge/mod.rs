@@ -393,15 +393,13 @@ mod tests {
                 provider_id: "llm-primary".to_string(),
                 api_key: "secret".to_string(),
             },
-            session_key(&session).unwrap().as_deref(),
+            &session,
         )
         .expect("store provider key");
         assert!(provider_snapshot.config.ai.llm_providers[0].api_key_saved);
-        let cleared_provider_snapshot = clear_ai_provider_api_key_impl(
-            "llm-primary".to_string(),
-            session_key(&session).unwrap().as_deref(),
-        )
-        .expect("clear provider key");
+        let cleared_provider_snapshot =
+            clear_ai_provider_api_key_impl("llm-primary".to_string(), &session)
+                .expect("clear provider key");
         assert!(!cleared_provider_snapshot.config.ai.llm_providers[0].api_key_saved);
         let ai_index_report = build_ai_index_impl(
             AiIndexRequest { limit: Some(5), ..AiIndexRequest::default() },

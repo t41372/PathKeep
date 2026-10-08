@@ -47,7 +47,7 @@ pub(crate) async fn store_ai_provider_api_key(
 ) -> Result<vault_core::AppSnapshot, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("store_ai_provider_api_key", move || {
-        worker_bridge::store_ai_provider_api_key_impl(input, key_state.get_key()?.as_deref())
+        worker_bridge::store_ai_provider_api_key_impl(input, &key_state)
     })
     .await
 }
@@ -61,7 +61,7 @@ pub(crate) async fn clear_ai_provider_api_key(
 ) -> Result<vault_core::AppSnapshot, CommandError> {
     let key_state = state.inner().clone();
     run_blocking_command("clear_ai_provider_api_key", move || {
-        worker_bridge::clear_ai_provider_api_key_impl(provider_id, key_state.get_key()?.as_deref())
+        worker_bridge::clear_ai_provider_api_key_impl(provider_id, &key_state)
     })
     .await
 }

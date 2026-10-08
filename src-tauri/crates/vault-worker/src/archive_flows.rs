@@ -90,8 +90,17 @@ pub fn run_full_archive_restore(
     if let Ok(config) = vault_core::load_config(&paths) {
         vault_core::ensure_app_lock_unlocked(&paths, &config)?;
     }
-    let current = session.current_vault();
     let source = std::path::Path::new(&request.snapshot_path);
+    // A restore replaces the archive with whatever it is given, so it takes only a snapshot
+    // PathKeep made and listed; any other file is refused before anything changes.
+    let listed = list_recovery_snapshots()?.into_iter().any(|snapshot| {
+        std::fs::canonicalize(&snapshot.path).ok() == std::fs::canonicalize(source).ok()
+    });
+    anyhow::ensure!(
+        listed && source.exists(),
+        "snapshot-not-listed: restore only from a safety snapshot PathKeep lists"
+    );
+    let current = session.current_vault();
     let legacy = source.is_file();
     let installed =
         crate::maintenance_jobs::run(&paths.app_root, "restoring", |cancel, progress| {

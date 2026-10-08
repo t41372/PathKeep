@@ -154,6 +154,13 @@ const STATEMENTS: &[&str] = &[
   computed_at TEXT NOT NULL,
   PRIMARY KEY(generation, family_id)
 )",
+    r"CREATE TABLE query_family_queries_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  family_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  normalized_query TEXT NOT NULL,
+  PRIMARY KEY(generation, family_id, normalized_query)
+)",
     r"CREATE TABLE refind_pages_rows (
   generation INTEGER NOT NULL DEFAULT 0,
   profile_id TEXT NOT NULL,
@@ -445,11 +452,21 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_search_events_profile_visit ON search_events_rows(profile_id, visit_id, generation)",
     "CREATE INDEX idx_search_event_terms_profile_term ON search_event_terms_rows(profile_id, term, generation)",
     "CREATE INDEX idx_query_families_profile_time ON query_families_rows(profile_id, last_seen_ms DESC, generation)",
+    "CREATE INDEX idx_query_family_queries_query ON query_family_queries_rows(normalized_query, generation)",
     "CREATE INDEX idx_refind_pages_score ON refind_pages_rows(refind_score DESC,last_seen_ms DESC,canonical_url,profile_id,generation)",
     "CREATE INDEX idx_refind_pages_canonical ON refind_pages_rows(canonical_url,generation,refind_score DESC,last_seen_ms DESC,profile_id)",
     "CREATE INDEX idx_refind_pages_profile_score ON refind_pages_rows(profile_id, refind_score DESC, last_seen_ms DESC, generation)",
     "CREATE INDEX idx_source_effectiveness_profile_score ON source_effectiveness_rows(profile_id, effectiveness_score DESC, generation)",
     "CREATE INDEX idx_reopened_investigations_profile_time ON reopened_investigations_rows(profile_id, last_seen_ms DESC, generation)",
+    // Ranked lists page through these in list order and seek to their keyset cursor.
+    "CREATE INDEX idx_sessions_recent ON sessions_rows(first_visit_ms DESC, session_id DESC, generation)",
+    "CREATE INDEX idx_search_trails_recent ON search_trails_rows(first_visit_ms DESC, trail_id DESC, generation)",
+    "CREATE INDEX idx_search_trails_friction ON search_trails_rows(reformulation_count DESC, visit_count DESC, trail_id, generation)",
+    "CREATE INDEX idx_query_families_recent ON query_families_rows(last_seen_ms DESC, family_id DESC, generation)",
+    "CREATE INDEX idx_query_families_members ON query_families_rows(member_count DESC, last_seen_ms DESC, family_id, generation)",
+    "CREATE INDEX idx_source_effectiveness_rank ON source_effectiveness_rows(effectiveness_score DESC, registrable_domain, profile_id, generation)",
+    "CREATE INDEX idx_reopened_investigations_recent ON reopened_investigations_rows(last_seen_ms DESC, occurrence_count DESC, investigation_id, generation)",
+    "CREATE INDEX idx_path_flows_profile_rank ON path_flows_rows(profile_id, step_count, occurrence_count DESC, last_seen_ms DESC, flow_pattern, generation)",
     "CREATE INDEX idx_page_content_enrichments_canonical ON page_content_enrichments(canonical_url)",
     "CREATE INDEX idx_page_content_enrichments_status ON page_content_enrichments(fetch_status, fetched_at)",
     "CREATE INDEX idx_site_dictionary_overrides_target ON site_dictionary_overrides(target_kind, target_value)",
@@ -488,6 +505,8 @@ const STATEMENTS: &[&str] = &[
     "CREATE VIEW search_event_terms AS SELECT r.visit_id,r.profile_id,r.term FROM search_event_terms_rows r
       WHERE r.generation IN (SELECT navigation FROM intelligence_generations)",
     "CREATE VIEW query_families AS SELECT r.family_id,r.profile_id,r.anchor_query,r.member_count,r.search_engine,r.first_seen_ms,r.last_seen_ms,r.queries_json,r.computed_at FROM query_families_rows r
+      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
+    "CREATE VIEW query_family_queries AS SELECT r.family_id,r.profile_id,r.normalized_query FROM query_family_queries_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW refind_pages AS SELECT r.profile_id,r.canonical_url,r.url,r.title,r.registrable_domain,r.cross_day_count,r.trail_count,r.search_arrival_count,r.typed_revisit_count,r.refind_score,r.evidence_json,r.first_seen_ms,r.last_seen_ms,r.computed_at FROM refind_pages_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",

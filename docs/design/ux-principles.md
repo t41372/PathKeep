@@ -85,10 +85,10 @@ PathKeep 看起來是一個安靜的 macOS 原生工具：半透明的視窗浮�
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Loading** | 見 §4。                                                                                                                                                                                                                                                                   |
 | **Empty**   | shadcn `Empty`（History 的 `state-message.tsx`）或卡片內一句話。每個空狀態說下一步：History 無資料 →「前往 Backup」；篩選後無結果 →「清除篩選」；搜尋無結果 → 建議少打幾個字或換搜尋方式；Ask 未設定 → 連到 Settings → AI。                                               |
-| **Error**   | 整個 app 起不來：`BootErrorScreen`（錯誤全文、重試、顯示 log）。單一畫面崩潰：路由的 `RouteError`（錯誤內容、重新載入），其他畫面不受影響。列表載入失敗：`StateMessage` 帶錯誤與重試。操作失敗：sonner toast，標題說哪件事失敗，description 放 `describeError()` 的內容。 |
+| **Error**   | 整個 app 起不來：`BootErrorScreen`（錯誤全文、重試、顯示 log）。單一畫面崩潰：路由的 `RouteError`（錯誤內容、重新載入），其他畫面不受影響。單一卡片繪製時出錯（`SectionCard` 內的 error boundary）：只有那張卡顯示「載入失敗」與重試，畫面其餘部分照常；兩者都把錯誤寫進 log（`recordRenderError`）。列表載入失敗：`StateMessage` 帶錯誤與重試。操作失敗：sonner toast，標題說哪件事失敗，description 放 `describeError()` 的內容。 |
 | **Stale**   | Insights 與 Home 的統計來自背景重算。區段回傳 `meta.state === 'stale'` 時查詢每 5 秒重新拉（`pollWhileStale`），空的卡片顯示「備份後更新中…」而不是「這段時間沒有資料」；改日期範圍時保留上一份結果（`placeholderData`），不閃回 skeleton。                               |
 
-已知缺口：Home 與 Insights 的卡片查詢失敗時沒有獨立的錯誤畫面，會顯示成空狀態（只有 Home 的來源卡會說「統計暫時拿不到」）。
+Insights 的卡片查詢失敗時顯示 `CardError`（「載入失敗」與重試）。已知缺口：Home 部分卡片查詢失敗時仍會顯示成空狀態（來源卡會說「統計暫時拿不到」，統計卡顯示「—」）。
 
 ### 國際化是 UX 契約
 

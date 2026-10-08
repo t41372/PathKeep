@@ -12,6 +12,9 @@ tokio = { workspace = true, features = ["rt", "time"] }
 thiserror.workspace = true
 zeroize = "1"
 sha2.workspace = true
+# Turso reports through `tracing`; engine_log.rs routes its warnings into the app's `log` sink.
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+log = "0.4.28"
 
 [dev-dependencies]
 tempfile.workspace = true

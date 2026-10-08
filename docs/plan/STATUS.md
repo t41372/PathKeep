@@ -39,7 +39,7 @@
     - 打包時 Recharts 被併成一個名叫 `heatmap` 的 546 kB chunk（Home 和 Insights 共用、lazy load），不算問題。
   - 2026-10-02 試跑時記下、還沒修的：
     - [x] Turso area 3 搜尋後端：`vault-search` 覆蓋所有匹配頁面，按相關度、符合篩選的最新可見訪問、page id 排序；沒有 25,000 頁窗口、由新到舊退路、match-set cache 或準備階段。owner indexer 消化 durable outbox，重建期間保留可用的舊索引，首次建立時每個回應都帶覆蓋狀態。Tauri / worker / dev IPC 提供 session、漸進結果與精確計數、游標及取消。前端 channel 接線由用戶處理。契約：[search.md](../architecture/search.md)；各上限、失效模式與測試移植：[驗收記錄](../architecture/research/2026-10-search-integration-validation.md)。
-    - [x] Turso 遷移區塊 1–6 全部完成（2026-10-07，`feat/turso-storage`）：寫入、讀取、搜尋、Insights / AI / agent、維護與 SQLCipher 轉換、舊格式程式碼收進轉換器。下一步：審查與修復，清單在 [turso-review-ledger.md](turso-review-ledger.md)。
+    - [x] Turso 遷移區塊 1–6 全部完成（2026-10-07，`feat/turso-storage`）：寫入、讀取、搜尋、Insights / AI / agent、維護與 SQLCipher 轉換、舊格式程式碼收進轉換器。審查與修復進行中，清單在 [turso-review-ledger.md](turso-review-ledger.md)；第一批已提交（2026-10-07，`check:base` 與完整 E2E 全綠），未完成項目見清單。
     - Regex、模糊搜尋、AI 候選、code mode、命令面板、MCP 與搜尋匯出不再截斷覆蓋；原有標註 API 上限由 area 1 的完整游標分頁處理。14.4M 訪問 / 2.9M 頁面的加密 owner 路徑量測、cold / warm 定義、RSS、備份競爭和清理證據見 [benchmark](../architecture/research/2026-10-vault-core-search-benchmark.md)。時間軸與其他 read models 屬 area 2，intelligence / AI queue 屬 area 4，maintenance 屬 area 5。
     - ~~Insights「常搜尋」的次數是整個 query family 的歷史總數，不受日期範圍限制~~：已修。新命令 `get_frequent_searches` 只數範圍內的關鍵字搜尋（intelligence migration 9 給 `search_events` 加上訪問時間和索引），14.4M 下 30 天約 10 ms、一年約 145 ms，見 `ipc-performance.md` §8。
     - ~~排程器沒有沙盒~~：已補 `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR`（只在 debug build 生效），dev:demo 與 E2E 都會設。E2E 的 onboarding 仍選 Manual；`schedule.spec`（2026-10-04）在沙盒裡裝自訂間隔、核對檔案、移除。改了 project root 卻沒設沙盒的 debug run 會被排程器拒絕。
@@ -56,6 +56,25 @@
     - 自訂排程間隔上限 30 天是新加的限制（archive.md §2 原文只寫最短 1 分鐘）。
   - 匯出歷史在 14.4M 要約 66 分鐘（每秒約 3,600 筆），Settings 沒有進度也不能取消。決定（2026-10-04）release 前要修：後端單一連線 + keyset 分頁、目標幾分鐘內；加 `exportId`、`get_export_progress`（輪詢，dev bridge 也能用）、`cancel_export`；前端顯示進度與取消，附 E2E。**已做（2026-10-04）**：Codex 改後端（`55d22c0a`），明文 14.4M JSON Lines 51.5 分鐘 → 40 秒；Settings → Storage 有進度、剩餘時間、停止，`export.spec` 覆蓋。加密 14.4M 也量了：113.8 秒（同 14.4M 筆、4,744 MiB；量時 load average 19，所以偏慢），見 `ipc-performance.md` §9。目標機 4 核預計幾分鐘，有進度和停止。
   - 試跑：`bun run dev:demo`（真後端 + 合成 Chrome×2 / Firefox archive），瀏覽器開 http://127.0.0.1:1420。
+
+- [ ] **WORK-INSIGHTS-RESTORE-2026-10** — Insights 回到 v0.3.0 的內容量，預設「全部時間」（用戶 2026-10-08）
+  - 起因：用戶在自己的資料上把 Insights 切到 1 年，整個畫面崩潰；並指出舊版 Insights 顯示的資料多得多，而且一打開就是全部時間（有意的設計），新版既不預設全部時間，連選項都沒了。v0.3.0 確實預設 `all`（`src/pages/intelligence/route-state.ts:47`）。redesign 把範圍改成 7d / 30d / 90d / 1y、預設 30 天，並拿掉大半張卡，寫進了 `screens-and-nav.md`，但沒有 trade-off 文檔也沒經用戶同意，違反 AGENTS.md 原則 7。
+  - 讀先：`docs/features/intelligence.md`、`docs/features/intelligence-current-state.md`、`docs/design/screens-and-nav.md`（§Insights）、`docs/plan/intelligence-all-time-cache-invalidation.md`、`docs/design/ux-principles.md`、`design-tokens.md`、`ui-review-guardrails.md`、`docs/architecture/ipc-performance.md`。v0.3.0 的畫面用 `git show v0.3.0:src/pages/intelligence/…` 讀；盤點結果見下。
+  - 決定：
+    - 範圍：全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天，加自訂起訖與瀏覽器設定檔篩選（v0.3 都有）。`?range=all` 深連結。
+    - 內容：v0.3.0 主畫面與 drill-in 的每一項資料都回來，用新設計語言重畫，不照搬舊版面。保留 v0.4 新增的（活躍時間、常搜尋按範圍統計、Browsers compared、page drill-in 的「為什麼」等）。
+    - 全部時間要在 1440 萬條時開得快：後端仍有 v0.3 的 fingerprint 快照（`intelligence_overview_snapshot.rs`，primary / secondary overview 遇到全部時間就讀快照），先在 Modal 上量 14.4M 時每張卡的命令在全部時間下的耗時，再決定全部時間走 overview 快照灌各卡的快取（v0.3 的做法）還是逐卡讀。
+  - 步驟：
+    - [x] 1. 1 年崩潰（`2025-W41` 被當日期格式化）：圖表改成要日資料、前端按週分組（`insights/buckets.ts`）；卡片渲染失敗只壞那張卡並寫進 log；`insights.spec` 用切換鈕走過每個範圍（含 site drill-in）。
+    - [ ] 2. 量測：14.4M、全部時間，每個 Insights 命令（含 overview 快照冷 / 熱、匯出後）的耗時與 RSS。
+      - 2026-10-08 進度（用戶要關機，中斷）：`vault-worker/tests/archive_scale_bench/turso_intelligence.rs` 加了 `insights-30d` / `insights-1y` / `insights-all`（每個 Insights 讀取命令各兩次）與 `export-between-reads`（讀、整包匯出、再讀，看匯出後變慢與常駐記憶體），`turso_reads.rs` 加了 `current_rss_bytes`。**尚未提交、尚未編譯過**。第一次 Modal 執行還在編 release 時被中止，沒有數字。重跑：`offload run --key insights-bench --cpu 4 --memory-gib 8 --timeout-min 300 -- '<touch 前綴>; cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker --release --test archive_scale_bench turso_intelligence::encrypted_intelligence_at_scale -- --ignored --nocapture'`，結果寫進 `ipc-performance.md` 與 ledger，再提交。
+      - 注意：全部時間的 overview 快照由重建後的 `warm_overview_snapshots` 寫入，鍵是開始日 `1900-01-01` 加今天的本地日期；真實資料測試用 `2000-01-01` 與 UTC 日期，所以那些 overview 數字是沒走快照的冷算成本。新版 Insights 頁逐卡讀取，不用 overview。
+      - 真實資料測試的副本仍在 `/Users/tim/LocalData/pathkeep-realdata-test`（APFS clone 與 release build），留到 Insights 修好後在真實資料上驗證，之後刪掉，並刪 Keychain 項目 `com.yi-ting.pathkeep.realdata-test`。用戶的 PathKeep 可以照常打開（測試用副本與它無關）。
+    - [ ] 3. 範圍：全部時間（預設）、自訂、設定檔篩選；全部時間的長條按月（跨度超過約 18 個月時），每條的 key 仍是起始日期。
+    - [ ] 4. 主畫面補回：Period Summary 的 New Sites / Deep Reads / Refinds；Spotlight；工作日 vs 週末、尖峰時段；Browsing Rhythm 日曆（年分頁、點日展開）；Top sites 完整清單（20、排序、篩選）；Stable Answer Sources；Search Activity（引擎、概念、查詢瀏覽、query families）；Activity Mix；Search Effectiveness；Friction & Dead Ends；Interrupted Habits；Discovery Trend（每週新站率）；Common Paths；Compare Sets；Multi-Browser 的共同網站與類別；Observed Interactions；refind 的因子與 explain。
+    - [ ] 5. Drill-in 補回：day（Activity Mix、Query Evolution、Refinds）；site（trails KPI、到達方式、來源 referrers、compare / path 焦點——後端 `DomainDeepDive` 拿掉了 `arrival_breakdown` / `top_referrers`，要補回）；session、trail、query family、compare set、year review 頁。
+    - [ ] 6. E2E：每張卡的數字對照 fixture 手算（中等以上難度場景），每個範圍、每個 drill-in 都走過。
+    - [ ] 7. 文檔：`screens-and-nav.md` §Insights、`intelligence.md`（舊「首次進入預設 Month」的說法本來就與 v0.3.0 不符，一併改正）、CHANGELOG。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 

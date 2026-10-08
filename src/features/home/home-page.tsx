@@ -104,7 +104,7 @@ function StatCards() {
         (sum, value) => sum + value,
         0,
       )
-    : 0
+    : null
   const active = browsers.list.filter((item) => item.selected).length
   const paused = browsers.list.length - active
 
@@ -113,7 +113,8 @@ function StatCards() {
       <StatCard
         to="/history"
         label={t('home.stats.saved')}
-        value={format.number(data?.totalVisits ?? 0)}
+        // A failed read is unknown, not an empty archive.
+        value={data ? format.number(data.totalVisits) : '—'}
         sub={t('home.stats.savedSub', { count: thisWeek })}
         // "N new this week" comes from the trend; wait for both.
         loading={dashboard.isPending || trend.isPending}
@@ -137,7 +138,7 @@ function StatCards() {
       <StatCard
         to="/settings/storage"
         label={t('home.stats.size')}
-        value={format.bytes(archiveBytes)}
+        value={archiveBytes === null ? '—' : format.bytes(archiveBytes)}
         sub={t(
           snapshot.archiveStatus.encrypted
             ? 'home.stats.encrypted'

@@ -29,9 +29,6 @@ libc.workspace = true
 vault-core = { path = "../vault-core", features = ["test-fixtures"] }
 zip.workspace = true
 
-[[example]]
-name = "v0-3-archive"
-required-features = ["test-fixtures"]
 
 [[test]]
 name = "benchmark"

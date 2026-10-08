@@ -88,6 +88,25 @@ export async function installRuntimeDiagnostics() {
 }
 
 /**
+ * Records an error a React error boundary caught. Those never reach the
+ * window `error` event, so without this a card or screen that fell over
+ * leaves no trace in the log.
+ */
+export function recordRenderError(source: string, error: unknown) {
+  if (!diagnosticsInstalled) return
+  const reason = describeUnhandledReason(error)
+  void persistFrontendError({
+    source,
+    message: reason.message,
+    stack: reason.stack,
+    url: window.location.href,
+    line: null,
+    column: null,
+    fatal: false,
+  })
+}
+
+/**
  * Explains how persist frontend error works.
  *
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.

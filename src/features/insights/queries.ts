@@ -7,6 +7,7 @@ import {
 } from '@/lib/backend-client/insights'
 import type { ReopenedInvestigation } from '@/lib/core-intelligence/types'
 import { queryKeys } from '@/lib/query'
+import { rangeBars } from './buckets'
 import { rangeDays, type RangeId } from './range'
 
 export { rangeDays, type RangeId }
@@ -35,28 +36,29 @@ export function useDigest(range: RangeId) {
 
 /** Pages and searches per day (per week for the one-year range). */
 export function useDailyActivity(range: RangeId) {
-  const granularity = range === 'y1' ? 'week' : 'day'
   return useQuery({
     queryKey: key(range, 'daily'),
     queryFn: async () => {
       const [trend, mix] = await Promise.all([
-        insightsClient.discoveryTrend(scope(range), granularity),
-        insightsClient.activityMixTrend(scope(range), granularity),
+        insightsClient.discoveryTrend(scope(range)),
+        insightsClient.activityMixTrend(scope(range)),
       ])
-      const searches = new Map(
-        mix.points.map((point) => [
+      const byDay = new Map(
+        trend.data.points.map((point) => [
           point.dateKey,
-          point.categories.find((entry) => entry.domainCategory === 'search')
-            ?.visitCount ?? 0,
+          { pages: point.totalVisits, searches: 0 },
         ]),
       )
+      for (const point of mix.points) {
+        const day = byDay.get(point.dateKey)
+        if (day)
+          day.searches =
+            point.categories.find((entry) => entry.domainCategory === 'search')
+              ?.visitCount ?? 0
+      }
       return {
         meta: trend.meta,
-        points: trend.data.points.map((point) => ({
-          dateKey: point.dateKey,
-          pages: point.totalVisits,
-          searches: searches.get(point.dateKey) ?? 0,
-        })),
+        points: rangeBars(range, byDay, { pages: 0, searches: 0 }),
       }
     },
     placeholderData: keepPrevious,

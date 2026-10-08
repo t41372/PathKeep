@@ -10,6 +10,17 @@ fn render_reads_use_indexed_archive_and_membership_access() {
     for key in [None, Some([76; 32])] {
         let vault = Vault::open_temp_with_key(key).unwrap();
         seed(&vault, 1, 1313);
+        // A second site besides example.com, so Top sites has a next page: the fixture's
+        // google.com visits are all searches, which Top sites leaves out.
+        vault.store().write(Db::Archive, Priority::Batch, |s| {
+            s.execute("INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(102,'https://notes.example.org/a','https://notes.example.org/a','example.org')", ())?;
+            s.execute("INSERT INTO urls(id,page_id,url,title,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id,source_url_id) VALUES(102,102,'https://notes.example.org/a','Notes',0,'',0,'',1,0,102)", ())?;
+            for id in 1314..=1316_i64 {
+                s.execute("INSERT INTO visits(id,url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id,transition_type) VALUES(?1,102,?2,?3,'',1,0,0)", vault_store::params![id, id.to_string(), 1_700_000_000_000_i64 + id * 60_000])?;
+            }
+            s.execute("UPDATE archive_totals SET value=(SELECT COUNT(*) FROM visits) WHERE name IN ('visits','sourceVisits:1')", ())?;
+            Ok(())
+        }).unwrap();
         run_core_intelligence(&vault, &Default::default()).unwrap();
         let range = DateRange { start: "2023-11-14".into(), end: "2023-11-20".into() };
         let scope = ScopedDateRangeRequest {

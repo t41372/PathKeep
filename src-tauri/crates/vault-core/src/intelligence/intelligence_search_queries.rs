@@ -29,13 +29,41 @@ use super::intelligence_sessions::trail_summary_from_row;
 use super::{date_range_bounds, normalize_query, rfc3339_from_millis};
 use crate::models::{
     PagedDateRangeRequest, QueryFamily, QueryFamilyDetail, QueryFamilyDetailRequest,
-    QueryFamilyResult,
+    QueryFamilyResult, SearchFamiliesRequest,
 };
 use anyhow::{Context, Result};
 use std::collections::{BTreeSet, HashMap};
 use vault_store::{OptionalRow, Row, Session, params_owned as params};
 
 pub use super::search_queries::get_search_queries;
+
+/// Every family that holds `query` (as its anchor or any wording), across all time and
+/// browsers: the search page's totals and first and last times. Families are kept per
+/// browser profile and engine, so one search can have several; the member table keeps this
+/// an indexed lookup however many families the archive holds.
+pub fn get_search_families(
+    vault: &crate::Vault,
+    request: &SearchFamiliesRequest,
+) -> Result<QueryFamilyResult> {
+    let key = super::build_rows::search_family_key(&request.query);
+    let profile = request.profile_id.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let families = connection
+            .query(
+                "SELECT f.family_id, f.anchor_query, f.member_count, f.search_engine, f.first_seen_ms, f.last_seen_ms, f.queries_json
+                 FROM query_family_queries_rows m INDEXED BY idx_query_family_queries_query
+                 CROSS JOIN query_families_rows f ON f.generation=m.generation AND f.family_id=m.family_id
+                 WHERE m.normalized_query=?1
+                   AND m.generation IN (SELECT aggregates FROM intelligence_generations)
+                   AND (?2 IS NULL OR m.profile_id=?2)
+                 ORDER BY f.last_seen_ms DESC, f.family_id DESC",
+                params![key, profile],
+                query_family_from_row,
+            )?;
+        let total = families.len() as i64;
+        Ok(QueryFamilyResult { page_size: families.len() as u32, families, total, next_cursor: None })
+    })
+}
 
 /// Returns the paged query-family list for the requested profile/date window.
 pub fn get_query_families(
@@ -68,24 +96,33 @@ pub(super) fn get_query_families_with_connection(
     )?;
     let limit = request.page_size.clamp(1, 1000) as usize;
     let cursor = super::paging::cursor::<(i64, String)>(request.cursor.as_deref())?;
-    let mut statement = connection.prepare(
-        "SELECT family_id, anchor_query, member_count, search_engine, first_seen_ms, last_seen_ms, queries_json
-         FROM query_families
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND last_seen_ms >= ?2
-           AND first_seen_ms < ?3
-           AND (?5 IS NULL OR last_seen_ms<?5 OR (last_seen_ms=?5 AND family_id<?6))
-         ORDER BY last_seen_ms DESC, family_id DESC LIMIT ?4",
-    )?;
+    // Through the `query_families` view Turso reads the whole generation and sorts it on every
+    // page. The rows table, walked through idx_query_families_recent, is read in list order and
+    // seeks to the cursor; it needs the bounded cursor form, with no `?4 IS NULL OR` escape.
+    let after = if cursor.is_some() {
+        "AND r.last_seen_ms<=?4 AND (r.last_seen_ms<?4 OR r.family_id<?5)"
+    } else {
+        ""
+    };
+    let mut statement = connection.prepare(&format!(
+        "SELECT r.family_id, r.anchor_query, r.member_count, r.search_engine, r.first_seen_ms, r.last_seen_ms, r.queries_json
+         FROM query_families_rows r INDEXED BY idx_query_families_recent
+         WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)
+           AND (?1 IS NULL OR r.profile_id = ?1)
+           AND r.last_seen_ms >= ?2
+           AND r.first_seen_ms < ?3
+           {after}
+         ORDER BY r.last_seen_ms DESC, r.family_id DESC LIMIT ?6"
+    ))?;
     let families = statement
         .query_map(
             params![
                 request.profile_id.as_deref(),
                 start_ms,
                 end_ms,
-                (limit + 1) as i64,
                 cursor.as_ref().map(|c| c.0),
-                cursor.as_ref().map(|c| c.1.as_str())
+                cursor.as_ref().map(|c| c.1.as_str()),
+                (limit + 1) as i64
             ],
             |r| Ok((query_family_from_row(r)?, (r.get::<i64>(5)?, r.get::<String>(0)?))),
         )?

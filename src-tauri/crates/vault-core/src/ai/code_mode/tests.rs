@@ -786,6 +786,34 @@ fn infinite_loop_in_real_js_traps_on_the_wall_time_deadline() {
     assert!(outcome.error.is_none());
 }
 
+/// The wall-time budget bounds the script, not the app answering it: three queries that each take
+/// longer than half the budget (a large or busy archive) still finish, while a script spinning on
+/// its own still traps.
+#[test]
+fn time_spent_answering_queries_does_not_count_against_the_script() {
+    let _budget = WallTimeBudgetGuard::set(Duration::from_millis(1_000));
+    TEST_HOST_CALL_DELAY.with(|delay| delay.set(Duration::from_millis(600)));
+    let context = seeded_context();
+    let rt = runtime();
+    let source = r#"
+        let rows = 0;
+        for (let i = 0; i < 3; i++) rows += query_history({ query: "rust", plane: "bm25" }).rows.length;
+        return { rows };
+    "#;
+    let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
+    TEST_HOST_CALL_DELAY.with(|delay| delay.set(Duration::ZERO));
+    assert_eq!(outcome.limits_hit, None, "{outcome:?}");
+    assert!(outcome.error.is_none(), "{outcome:?}");
+    assert_eq!(outcome.host_calls.len(), 3);
+    let spinning = run_code_in_sandbox(
+        "query_history({ query: \"rust\" }); while (true) {} return 1;",
+        &context,
+        rt.handle().clone(),
+        None,
+    );
+    assert_eq!(spinning.limits_hit, Some(LimitsHit::Time));
+}
+
 #[test]
 fn unbounded_allocation_in_real_js_is_bounded_not_a_host_panic_or_hang() {
     // B-1: the production-guest counterpart to the WAT `memory.grow` test below. Drives the REAL
@@ -1264,6 +1292,8 @@ fn an_oversized_request_frame_poisons_the_channel() {
         citations: Vec::new(),
         limits_hit: None,
         guest_error: None,
+        coverage_incomplete: false,
+        in_host_call: Default::default(),
     };
     let mut channel = RpcChannel {
         host,
@@ -1303,6 +1333,8 @@ fn an_oversized_raw_write_poisons_the_channel_via_the_buffer_cap() {
         citations: Vec::new(),
         limits_hit: None,
         guest_error: None,
+        coverage_incomplete: false,
+        in_host_call: Default::default(),
     };
     let mut channel = RpcChannel {
         host,
@@ -1345,6 +1377,8 @@ fn service_request_refuses_an_unknown_op_and_malformed_json() {
         citations: Vec::new(),
         limits_hit: None,
         guest_error: None,
+        coverage_incomplete: false,
+        in_host_call: Default::default(),
     };
     // Unknown op → refused.
     assert!(host.service_request(br#"{"op":"delete_everything"}"#).is_none());
@@ -1371,6 +1405,8 @@ fn bare_host(rt: &tokio::runtime::Runtime) -> HostState {
         citations: Vec::new(),
         limits_hit: None,
         guest_error: None,
+        coverage_incomplete: false,
+        in_host_call: Default::default(),
     }
 }
 

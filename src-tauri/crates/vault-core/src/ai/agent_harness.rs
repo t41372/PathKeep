@@ -367,6 +367,8 @@ where
     let mut prompt_tokens = 0u64;
     let mut completion_tokens = 0u64;
     let mut citations: Vec<AiCitation> = Vec::new();
+    // Said once per run: some search behind this answer saw only part of the archive.
+    let mut told_incomplete_index = false;
 
     // Pre-cancel: mirror drive_chat_stream — emit Done, not Error.
     if control.is_some_and(|control| control.cancelled()) {
@@ -539,7 +541,12 @@ where
                 code_source,
                 host_calls,
                 limits_hit,
+                coverage_incomplete,
             } = execute_tool(registry, tool_context, call).await;
+            if coverage_incomplete && !told_incomplete_index {
+                told_incomplete_index = true;
+                sink(AiChatStreamChunk::Note { code: AiAgentNote::SearchIndexIncomplete });
+            }
 
             // JOURNAL the tool result BEFORE emitting it (idempotency key = run_id + call_id, the
             // store dedups). The result payload is the model-facing text (bounded); the code-mode
@@ -898,6 +905,8 @@ struct ToolExecution {
     host_calls: Vec<HostCallRecord>,
     /// Which hard sandbox limit bounded a `run_code` script, if any.
     limits_hit: Option<LimitsHit>,
+    /// A search behind the result covered only part of the archive.
+    coverage_incomplete: bool,
 }
 
 /// Executes one tool call into a [`ToolExecution`].
@@ -925,20 +934,27 @@ async fn execute_tool(
                 code_source: None,
                 host_calls: Vec::new(),
                 limits_hit: None,
+                coverage_incomplete: false,
             };
         }
     };
     match registry.dispatch(&call.name, args, context).await {
-        Ok(ToolOutcome { model_text, citations, code_source, host_calls, limits_hit }) => {
-            ToolExecution {
-                result_text: model_text,
-                is_error: false,
-                citations,
-                code_source,
-                host_calls,
-                limits_hit,
-            }
-        }
+        Ok(ToolOutcome {
+            model_text,
+            citations,
+            code_source,
+            host_calls,
+            limits_hit,
+            coverage_incomplete,
+        }) => ToolExecution {
+            result_text: model_text,
+            is_error: false,
+            citations,
+            code_source,
+            host_calls,
+            limits_hit,
+            coverage_incomplete,
+        },
         Err(error) => ToolExecution {
             result_text: format!(
                 "Tool `{}` failed: {error}. Try a different query or tool.",
@@ -949,6 +965,7 @@ async fn execute_tool(
             code_source: None,
             host_calls: Vec::new(),
             limits_hit: None,
+            coverage_incomplete: false,
         },
     }
 }
@@ -1248,6 +1265,59 @@ mod tests {
         );
     }
 
+    /// The user sees, once per answer, that a search behind it covered only part of the archive;
+    /// an answer from a complete index carries no such note.
+    #[tokio::test]
+    async fn a_search_on_a_partial_index_adds_one_note_to_the_answer() {
+        for (pause_index, expected) in [(true, 1), (false, 0)] {
+            let (_dir, mut context) = tool_context();
+            let vault = crate::Vault::open_temp().unwrap();
+            crate::test_support::search::seed_pages(&vault, 1);
+            let paused = pause_index.then(|| vault.search().pause());
+            crate::set_notes(
+                &vault,
+                crate::SetNotesRequest {
+                    url: "https://transport.test/page/1".into(),
+                    notes: "not indexed yet".into(),
+                    source_profile: None,
+                },
+            )
+            .unwrap();
+            if !pause_index {
+                vault.search().cycle().unwrap();
+            }
+            context.vault = vault.clone();
+            let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+            let sink_events = emitted.clone();
+            drive_agent_run(
+                &AlwaysToolProvider,
+                &ToolRegistry::with_default_search_tools(),
+                &context,
+                true,
+                user_request(),
+                None,
+                3, // three searches before the forced answer
+                0,
+                &RecordingJournal::default(),
+                move |chunk| sink_events.lock().unwrap().push(chunk),
+            )
+            .await;
+            drop(paused);
+            let notes = emitted
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|chunk| {
+                    matches!(
+                        chunk,
+                        AiChatStreamChunk::Note { code: AiAgentNote::SearchIndexIncomplete }
+                    )
+                })
+                .count();
+            assert_eq!(notes, expected, "index paused: {pause_index}");
+        }
+    }
+
     #[tokio::test]
     async fn the_token_budget_gates_on_live_context_not_the_cumulative_sum() {
         // Each turn reports a SMALL prompt (100) so the live-context gate (last turn's prompt) never
@@ -1530,6 +1600,8 @@ mod tests {
 
     fn tool_context() -> (tempfile::TempDir, AgentToolContext) {
         let vault = crate::Vault::open_temp().unwrap();
+        // An archive whose index has caught up, so runs carry no partial-index note.
+        vault.search().cycle().unwrap();
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
         let mut config = AppConfig::default();

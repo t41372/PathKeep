@@ -121,19 +121,22 @@ fn load_profile_trail_batch(
     after: Option<&TrailBatchCursor>,
     limit: usize,
 ) -> Result<Vec<TrailRecord>> {
-    let mut statement = connection.prepare(
+    // Bounded keyset form, present only after the first batch: Turso does not seek on
+    // `t>? OR (t=? AND id>?)` or behind `?2 IS NULL OR`.
+    let after_clause = if after.is_some() {
+        "AND first_visit_ms >= ?2 AND (first_visit_ms > ?2 OR trail_id > ?3)"
+    } else {
+        ""
+    };
+    let mut statement = connection.prepare(&format!(
         "SELECT trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count,
                 visit_count, landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
          FROM search_trails
          WHERE profile_id = ?1
-           AND (
-             ?2 IS NULL
-             OR first_visit_ms > ?2
-             OR (first_visit_ms = ?2 AND trail_id > ?3)
-           )
+           {after_clause}
          ORDER BY first_visit_ms ASC, trail_id ASC
-         LIMIT ?4",
-    )?;
+         LIMIT ?4"
+    ))?;
     statement
         .query_map(
             params![

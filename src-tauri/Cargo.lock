@@ -9781,10 +9781,12 @@ dependencies = [
 name = "vault-store"
 version = "0.1.0"
 dependencies = [
+ "log",
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
  "turso",
  "zeroize",
 ]

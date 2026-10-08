@@ -92,7 +92,14 @@ pub(super) fn load_profile_derived_visit_batch(
     after: Option<DerivedVisitBatchCursor>,
     limit: usize,
 ) -> Result<Vec<VisitRecord>> {
-    let mut statement = connection.prepare(
+    // Bounded keyset form, present only after the first batch: Turso does not seek on
+    // `t>? OR (t=? AND id>?)` or behind `?2 IS NULL OR`.
+    let after_clause = if after.is_some() {
+        "AND visits.visit_time_ms >= ?2 AND (visits.visit_time_ms > ?2 OR visit_derived_facts.visit_id > ?3)"
+    } else {
+        ""
+    };
+    let mut statement = connection.prepare(&format!(
         "SELECT visits.id,
                 visit_derived_facts.profile_id,
                 visits.source_profile_id,
@@ -123,14 +130,10 @@ pub(super) fn load_profile_derived_visit_batch(
          JOIN archive.urls AS urls ON urls.id = visits.url_id
          WHERE visit_derived_facts.profile_id = ?1
            AND visits.reverted_at IS NULL
-           AND (
-             ?2 IS NULL
-             OR visits.visit_time_ms > ?2
-             OR (visits.visit_time_ms = ?2 AND visit_derived_facts.visit_id > ?3)
-           )
+           {after_clause}
          ORDER BY visits.visit_time_ms ASC, visits.id ASC
-         LIMIT ?4",
-    )?;
+         LIMIT ?4"
+    ))?;
     statement
         .query_map(
             params![

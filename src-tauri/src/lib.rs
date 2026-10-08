@@ -114,6 +114,8 @@ fn run_app() -> Result<()> {
             vault_core::config::ensure_paths(&paths).map_err(tauri::Error::Anyhow)?;
             install_panic_hook(&paths);
             app.handle().plugin(build_logging_plugin(&paths))?;
+            // With the logger at Debug, Turso's per-page spans would otherwise each ask it.
+            vault_store::route_engine_diagnostics_to_log();
             // Before the archive opens: an app started from Finder may only open 256 files.
             match vault_platform::raise_open_file_limit() {
                 Ok(limit) => log::info!("open-file limit: {limit}"),
@@ -298,6 +300,7 @@ fn run_app() -> Result<()> {
             get_frequent_searches,
             get_search_queries,
             get_query_families,
+            get_search_families,
             get_query_family_detail,
             get_top_sites,
             get_domain_trend,

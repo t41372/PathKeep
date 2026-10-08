@@ -114,7 +114,7 @@ pub use self::intelligence_search_metrics::{
     upsert_search_engine_rule_for_settings,
 };
 pub use self::intelligence_search_queries::{
-    get_query_families, get_query_family_detail, get_search_queries,
+    get_query_families, get_query_family_detail, get_search_families, get_search_queries,
 };
 pub use self::intelligence_sessions::{
     get_search_trails, get_session_detail, get_sessions, get_trail_detail,

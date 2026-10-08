@@ -130,9 +130,13 @@ const ALLOWED_WASI_FNS: [&str; 9] = [
     "proc_exit",
 ];
 
-/// Per-script wall-time budget. The epoch ticker bumps the engine epoch every [`EPOCH_TICK`]; the
-/// store's deadline is `WALL_TIME_BUDGET / EPOCH_TICK` ticks, so the guest traps within one tick of
-/// the budget. Bounds CPU on the 4-core target without precise instruction counting.
+/// Per-script wall-time budget for the script's own running time. The epoch ticker bumps the engine
+/// epoch every [`EPOCH_TICK`]; the store's deadline is `WALL_TIME_BUDGET / EPOCH_TICK` ticks, so the
+/// guest traps within one tick of the budget. Bounds CPU on the 4-core target without precise
+/// instruction counting. The clock stops while the host answers a `query_history` / `fetch_visits`
+/// call: retrieval on a large archive, or a busy store, takes as long as it takes, and is bounded by
+/// [`MAX_HOST_CALLS`] and cancellation instead. Counting it made a sound script time out whenever the
+/// app was busy.
 pub const WALL_TIME_BUDGET: Duration = Duration::from_secs(5);
 
 /// Epoch ticker period (see [`WALL_TIME_BUDGET`]). Coarse enough to cost ~nothing, fine enough that
@@ -247,6 +251,9 @@ pub struct CodeOutcome {
     pub error: Option<String>,
     /// Which hard limit stopped the run, if any.
     pub limits_hit: Option<LimitsHit>,
+    /// A query the script made ran against an index that didn't cover the whole archive yet.
+    #[serde(default)]
+    pub coverage_incomplete: bool,
 }
 
 /// Arguments for a `query_history` host call (a JSON subset of [`AiSearchRequest`] + the plane).
@@ -403,6 +410,10 @@ struct HostState {
     limits_hit: Option<LimitsHit>,
     /// An honest error the guest reported via the `error` op (a JS syntax/runtime error).
     guest_error: Option<String>,
+    /// Some query ran against an index that didn't cover the whole archive yet.
+    coverage_incomplete: bool,
+    /// Set while the host answers a call; the epoch ticker doesn't advance the deadline meanwhile.
+    in_host_call: Arc<AtomicBool>,
 }
 
 impl HostState {
@@ -477,8 +488,12 @@ impl HostState {
 
         // A retrieval / validation error is reported as a refused call (the script can wind down);
         // the host never propagates a retrieval failure into a host trap.
-        let reply = self.run_host_request(request).ok()?;
-        Some(reply)
+        self.in_host_call.store(true, Ordering::Relaxed);
+        #[cfg(test)]
+        std::thread::sleep(TEST_HOST_CALL_DELAY.with(std::cell::Cell::get));
+        let reply = self.run_host_request(request);
+        self.in_host_call.store(false, Ordering::Relaxed);
+        reply.ok()
     }
 
     /// Runs one parsed host request against the existing retrieval, returning the JSON reply bytes.
@@ -492,6 +507,9 @@ impl HostState {
             HostRequest::FetchVisits(args) => self.run_fetch_visits(args)?,
         };
         let row_count = response.items.len() as u32;
+        if response.search_state.as_ref().is_some_and(|state| !state.coverage_complete) {
+            self.coverage_incomplete = true;
+        }
         // Resolve canonical_url for every row (the W-STAR key) and accrue citations.
         let mut rows = Vec::with_capacity(response.items.len());
         for item in &response.items {
@@ -1070,6 +1088,8 @@ thread_local! {
     /// Test-only override of the wall-time budget (so a budget/host-call test that must complete many
     /// real retrievals is not racing the production 5s clock under the instrumented parallel sweep).
     static TEST_WALL_TIME_BUDGET: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
+    /// Test-only extra time each host call takes, standing in for retrieval on a large or busy archive.
+    pub(crate) static TEST_HOST_CALL_DELAY: std::cell::Cell<Duration> = const { std::cell::Cell::new(Duration::ZERO) };
 }
 
 /// Test-only PROCESS-GLOBAL wall-time-budget override in milliseconds (0 = unset), for the rare test
@@ -1121,6 +1141,7 @@ fn execute_guest(
     let module = Module::new(&engine, guest_wasm)?;
     assert_no_dangerous_authority(&module)?;
 
+    let in_host_call = Arc::new(AtomicBool::new(false));
     let host = HostState {
         context: context.clone(),
         runtime,
@@ -1132,6 +1153,8 @@ fn execute_guest(
         citations: Vec::new(),
         limits_hit: None,
         guest_error: None,
+        coverage_incomplete: false,
+        in_host_call: in_host_call.clone(),
     };
     let channel = Arc::new(std::sync::Mutex::new(RpcChannel {
         host,
@@ -1167,7 +1190,7 @@ fn execute_guest(
 
     // Start the epoch ticker + cancel watcher; both bump the engine epoch. The ticker advances the
     // deadline; a cancel jumps the epoch past the deadline so the guest traps promptly.
-    let ticker = EpochTicker::start(engine.clone(), control);
+    let ticker = EpochTicker::start(engine.clone(), control, in_host_call);
 
     let instance = linker.instantiate(&mut store, &module)?;
     let run = instance.get_typed_func::<(), ()>(&mut store, entry)?;
@@ -1204,7 +1227,9 @@ fn assemble_outcome(
     cancelled: bool,
     memory_refused: bool,
 ) -> CodeOutcome {
-    let HostState { output, records, citations, limits_hit, guest_error, .. } = state;
+    let HostState {
+        output, records, citations, limits_hit, guest_error, coverage_incomplete, ..
+    } = state;
     let model_text = String::from_utf8_lossy(&output).into_owned();
 
     let (limits_hit, error) = match call_result {
@@ -1239,6 +1264,7 @@ fn assemble_outcome(
         source: source.to_string(),
         error,
         limits_hit,
+        coverage_incomplete,
     }
 }
 
@@ -1272,7 +1298,11 @@ struct EpochTicker {
 
 impl EpochTicker {
     /// Starts the ticker thread bumping `engine`'s epoch until [`stop`](Self::stop) is called.
-    fn start(engine: Engine, control: Option<Arc<dyn AiRunControl>>) -> Self {
+    fn start(
+        engine: Engine,
+        control: Option<Arc<dyn AiRunControl>>,
+        in_host_call: Arc<AtomicBool>,
+    ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let cancelled = Arc::new(AtomicBool::new(false));
         let stop_thread = stop.clone();
@@ -1291,7 +1321,10 @@ impl EpochTicker {
                     }
                     break;
                 }
-                engine.increment_epoch();
+                // Host retrieval time doesn't count against the script's budget.
+                if !in_host_call.load(Ordering::Relaxed) {
+                    engine.increment_epoch();
+                }
             }
         });
         Self { stop, cancelled, handle: Some(handle) }

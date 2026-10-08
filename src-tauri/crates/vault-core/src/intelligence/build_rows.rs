@@ -245,6 +245,19 @@ pub(super) fn persist_daily(
     Ok(())
 }
 
+/// How a search is matched to the families that hold it: case and surrounding spaces ignored.
+pub(crate) fn search_family_key(query: &str) -> String {
+    query.trim().to_lowercase()
+}
+
+/// The keys a family is found under: its anchor and every wording, each once.
+pub(super) fn family_query_keys(family: &QueryFamilyRecord) -> std::collections::BTreeSet<String> {
+    std::iter::once(&family.anchor_query)
+        .chain(&family.queries)
+        .map(|query| search_family_key(query))
+        .collect()
+}
+
 pub(super) fn persist_families(
     s: &Session<'_>,
     generation: i64,
@@ -255,7 +268,14 @@ pub(super) fn persist_families(
  (generation,family_id, profile_id, anchor_query, member_count, search_engine, first_seen_ms, last_seen_ms, queries_json, computed_at)
  VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")?;
 
+    let mut insert_query = s.prepare(
+        "INSERT OR IGNORE INTO query_family_queries_rows
+ (generation,family_id,profile_id,normalized_query) VALUES (?1,?2,?3,?4)",
+    )?;
     for family in query_families {
+        for key in family_query_keys(family) {
+            insert_query.execute(params![generation, family.family_id, family.profile_id, key])?;
+        }
         insert_query_families.execute(params![
             generation,
             family.family_id,

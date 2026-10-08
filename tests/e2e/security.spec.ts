@@ -4,8 +4,9 @@
  * Proves: a wrong current password is refused in plain words and changes
  * nothing (the old password still opens the archive and is still the one in
  * the keychain); the right one rewrites the archive so that only the new
- * password opens it, the keychain follows, and a fresh session unlocks with
- * it. Also that the check lives in the backend: the same request sent
+ * password opens it, and the keychain follows: when the archive closes under
+ * the open window, the window unlocks it again from the keychain and shows
+ * the archive, not an empty one. Also that the check lives in the backend: the same request sent
  * straight to the dev bridge, which holds an unlocked session, is refused.
  *
  * "Opens the archive" is asked of the backend with a read-only rekey preview,
@@ -15,7 +16,7 @@
  * the archive with OLD and saved it in the keychain.
  */
 import { expect, test, type Page } from '@playwright/test'
-import { backend } from './support/fixture'
+import { backend, openArchiveVisitTotal } from './support/fixture'
 
 const OLD = 'correct horse battery'
 const NEW = 'a longer passphrase, 2026'
@@ -96,12 +97,17 @@ test('changing the archive password needs the current one', async ({
   expect(await opensArchive(OLD)).toBe(false)
   expect(await backend<boolean>('keyring_get_database_key')).toBe(true)
 
-  // A fresh session: no key in memory, so PathKeep has to unlock the
-  // archive with what the keychain holds now.
+  // The archive closes under the open window (no key in memory): Home's first
+  // read is refused, and the window has to unlock the archive again with what
+  // the keychain holds now, not show an empty archive.
   await backend('clear_session_database_key')
   await page.goto('/#/')
   await unlockAppIfLocked(page)
-  await expect(page.getByRole('link', { name: /Saved visits/ })).toBeVisible()
+  const total = await openArchiveVisitTotal()
+  expect(total).toBeGreaterThan(0)
+  await expect(page.getByRole('link', { name: /Saved visits/ })).toContainText(
+    total.toLocaleString('en-US'),
+  )
   await expect(
     page.getByRole('heading', { name: 'Your archive is encrypted' }),
   ).toBeHidden()

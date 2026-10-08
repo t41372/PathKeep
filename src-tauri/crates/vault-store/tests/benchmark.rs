@@ -173,17 +173,13 @@ fn encrypted_page_throughput() {
     };
     let small = Instant::now();
     for commit in 0_i64..4_000 {
-        store
-            .write(Db::Archive, Priority::Batch, move |tx| Ok(insert(tx, commit * 100, 100)?))
-            .unwrap();
+        store.write(Db::Archive, Priority::Batch, move |tx| insert(tx, commit * 100, 100)).unwrap();
     }
     let small = small.elapsed();
     let large = Instant::now();
     for commit in 0_i64..40 {
         let first = 400_000 + commit * 10_000;
-        store
-            .write(Db::Archive, Priority::Batch, move |tx| Ok(insert(tx, first, 10_000)?))
-            .unwrap();
+        store.write(Db::Archive, Priority::Batch, move |tx| insert(tx, first, 10_000)).unwrap();
     }
     let large = large.elapsed();
     let root = dir.path().to_owned();

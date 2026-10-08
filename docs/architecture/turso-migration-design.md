@@ -87,6 +87,8 @@
 - 每個資料庫一份有版本號的 migration 清單，每一步在一個交易裡跑。
 - 只在擁有者啟動時跑一次，不在讀取路徑上跑。
 
+**引擎日誌：** Turso 在 B-tree 和 VDBE 的每一步都開 `tracing` span。行程裡沒有 `tracing` dispatcher 時，`tracing` 會把每個 span 轉給 `log`，app 的 logger 開在 Debug，於是每一步都要問一次 logger 的逐模組過濾。2026-10-07 量到，同一份兩萬多筆訪問的資料，Insights 重建在測試裡 7 秒，在 app 裡超過一分鐘。所以 app 啟動時用 `vault_store::route_engine_diagnostics_to_log()` 設一個只要 warning 和 error 的 dispatcher：span 在呼叫點就被關掉，引擎的警告照樣進 app 的日誌。
+
 **錯誤：** 引擎的錯誤轉成 PathKeep 的分類：鎖定中、忙碌、損毀、金鑰錯誤、取消。前端遇到忙碌會自己恢復。
 
 ## 5. 寫入模型
