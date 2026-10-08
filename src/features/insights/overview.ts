@@ -1,18 +1,13 @@
 /**
  * Opening Insights reads batches, not one request per card (the accepted
- * contract in docs/features/intelligence.md): the primary overview, then, for
- * all time, the secondary. Each batch's sections go into the query cache
- * under the keys the cards read, so a card whose section came in a batch
- * shows it without a request of its own. A card waits for its batch before
- * reading by itself, which it then does only when its section was missing or
- * failed. For all time the backend answers both from the snapshot it keeps
- * after each Insights build.
- *
- * For any other range the secondary batch is computed live and spends most of
- * its time on sections the page does not show (compare sets, paths): 3.6 s for
- * 30 days on a 387k-visit archive, where its three cards read in under 0.1 s
- * each. So there those cards read by themselves. The batch can serve every
- * range once its sections are cheap to compute.
+ * contract in docs/features/intelligence.md): the primary overview, then the
+ * secondary. Each batch's sections go into the query cache under the keys the
+ * cards read, so a card whose section came in a batch shows it without a
+ * request of its own. A card waits for its batch before reading by itself,
+ * which it then does only when its section was missing or failed. For all
+ * time the backend answers both from the snapshot it keeps after each Insights
+ * build; for other ranges it computes them (one year on a 387k-visit archive:
+ * about 0.3 s each, once common paths read stored session paths).
  *
  * Responsible for: the two batch reads, filling the cache, telling cards when
  * their batch has settled. Not responsible for: what a card shows.
@@ -89,10 +84,7 @@ export function useOverviewBands(scope: Scope): Record<Band, boolean> {
       fillSecondary(client, scope, overview)
       return overview.totalDurationMs
     },
-    enabled: primarySettled && scope.range === 'all',
+    enabled: primarySettled,
   })
-  return {
-    primary: primarySettled,
-    secondary: scope.range !== 'all' || !secondary.isPending,
-  }
+  return { primary: primarySettled, secondary: !secondary.isPending }
 }

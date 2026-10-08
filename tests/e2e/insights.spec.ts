@@ -302,6 +302,11 @@ const batched = [
   'get_reopened_investigations',
   'get_breadth_index',
   'get_multi_browser_diff',
+  'get_path_flows',
+  'get_compare_sets',
+  'get_search_effectiveness',
+  'get_friction_signals',
+  'get_stable_sources',
 ]
 
 test('the cards brought back from 0.3 count what the archive holds, read in two batches', async ({
@@ -367,6 +372,29 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
     commands.filter((name) => name === 'get_intelligence_primary_overview'),
   ).toHaveLength(1)
   expect(commands.filter((name) => batched.includes(name))).toEqual([])
+
+  // Any other range reads the same two batches, computed for it.
+  await page.goto('about:blank')
+  commands.length = 0
+  await page.goto('/#/insights?range=d30')
+  await expect
+    .poll(
+      () =>
+        commands.filter(
+          (name) => name === 'get_intelligence_secondary_overview',
+        ).length,
+      { timeout: 60_000 },
+    )
+    .toBe(1)
+  await testInfo.attach('commands on opening 30 days', {
+    body: JSON.stringify(commands),
+    contentType: 'application/json',
+  })
+  expect(
+    commands.filter((name) => name === 'get_intelligence_primary_overview'),
+  ).toHaveLength(1)
+  expect(commands.filter((name) => batched.includes(name))).toEqual([])
+  await page.goto('/#/insights')
 
   // All time: every site is new, so there is no "New sites" tile.
   await expect(page.getByRole('group', { name: 'New sites' })).toHaveCount(0)
