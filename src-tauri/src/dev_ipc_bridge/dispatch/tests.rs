@@ -1,11 +1,14 @@
+//! Failure modes: startup waiting bypassed, password/keychain behavior changed or mirrored payloads
+//! diverge.
+//!
 //! Regression coverage for the dev IPC command dispatcher.
 //!
-//! ## Responsibilities
+//! Responsibilities:
 //!
 //! - Prove session-only commands still work without a live Tauri app handle.
 //! - Preserve the unknown-command error contract used by browser automation.
 //!
-//! ## Not responsible for
+//! Not responsible for:
 //!
 //! - Testing every mirrored desktop command implementation.
 //! - Starting the HTTP router or binding a localhost port.
@@ -290,7 +293,7 @@ async fn blocking_join_failures_report_the_command_without_a_remediation_code() 
 }
 
 #[test]
-fn dispatch_rekey_refuses_the_mixed_storage_build_even_with_a_valid_password() {
+fn dispatch_rekey_requires_the_current_password_and_keeps_keychain_unlock() {
     // The dev bridge is the path an automation (or anyone with the localhost port) uses.
     // Holding an unlocked session must not be enough to change or remove the encryption:
     // a wrong or missing `currentKey` is refused even though the session holds the right
@@ -327,10 +330,14 @@ fn dispatch_rekey_refuses_the_mixed_storage_build_even_with_a_valid_password() {
         ),
     ];
     for (command, request) in refusals {
+        let expected = if request.get("currentKey").is_some() {
+            "archive-password-wrong"
+        } else {
+            "archive-password-required"
+        };
         let error =
             ready_block_on(dispatch_command(&state, command, json!({ "request": request })))
                 .expect_err("refused without the current password");
-        let expected = "storage-migration-incomplete";
         assert_eq!(error.code.as_deref(), Some(expected), "{command}: {}", error.message);
         assert!(!error.message.contains("intruder password") && !error.message.contains("guess"));
     }
@@ -338,14 +345,18 @@ fn dispatch_rekey_refuses_the_mixed_storage_build_even_with_a_valid_password() {
 
     ready_block_on(dispatch_command(&state, "clear_session_database_key", json!({})))
         .expect("clear session key");
-    let error = ready_block_on(dispatch_command(
+    ready_block_on(dispatch_command(
         &state,
         "rekey_archive",
-        json!({ "request": { "newMode": "Encrypted", "newKey": "next password", "currentKey": password } }),
+        json!({"request":{"newMode":"Encrypted","newKey":"next password","currentKey":password}}),
     ))
-    .expect_err("rekey is unavailable even with a valid current password");
-    assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
-    assert!(session_key(&state.session).unwrap().is_none());
+    .expect("the verified current password permits rewrap without a pre-existing session");
+    assert!(
+        vault_core::Vault::unlock_data_key(&vault_core::project_paths().unwrap(), password)
+            .is_err()
+    );
+    let password = "next password";
+    ready_block_on(dispatch_command(&state, "clear_session_database_key", json!({}))).unwrap();
     ready_block_on(dispatch_command(
         &state,
         "keyring_store_database_key",
@@ -1513,7 +1524,15 @@ fn ui_snapshot_waits_for_startup_open() {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
     }
-    vault_worker::initialize_archive_database(&test_config(), None).unwrap();
+    let initialized = SessionState::default();
+    crate::worker_bridge::initialize_archive_with_progress_impl(
+        test_config(),
+        None,
+        &initialized,
+        |_| {},
+    )
+    .unwrap();
+    initialized.close_vault().unwrap();
     let session = SessionState::default();
     session.begin_startup();
     let opening = session.clone();

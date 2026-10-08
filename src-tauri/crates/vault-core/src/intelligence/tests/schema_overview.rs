@@ -39,10 +39,6 @@ use super::fixtures::{
 };
 use crate::test_support::native::TestDatabase;
 use crate::{
-    archive::{
-        open_intelligence_connection_call_count, open_intelligence_connection_call_sites,
-        reset_open_intelligence_connection_call_count,
-    },
     config::project_paths_with_root,
     models::{
         AppConfig, ArchiveMode, CategoryFilteredDateRangeRequest, CoreIntelligenceRebuildRequest,
@@ -171,7 +167,6 @@ fn primary_overview_reuses_single_connection_and_runtime_snapshot() {
     )
     .expect("full rebuild");
 
-    reset_open_intelligence_connection_call_count();
     vault.store().capture_query_plans(vault_store::Db::Intelligence, true).unwrap();
 
     let overview = get_intelligence_primary_overview(
@@ -186,12 +181,6 @@ fn primary_overview_reuses_single_connection_and_runtime_snapshot() {
     )
     .expect("primary overview");
 
-    assert_eq!(
-        open_intelligence_connection_call_count(),
-        0,
-        "{:?}",
-        open_intelligence_connection_call_sites()
-    );
     let plans = vault.store().take_query_plans(vault_store::Db::Intelligence).unwrap();
     assert_eq!(
         plans.iter().filter(|p| p.sql.contains("FROM deterministic_module_runtime")).count(),
@@ -427,7 +416,6 @@ fn secondary_overview_reuses_single_connection_and_runtime_snapshot() {
     )
     .expect("full rebuild");
 
-    reset_open_intelligence_connection_call_count();
     vault.store().capture_query_plans(vault_store::Db::Intelligence, true).unwrap();
 
     let overview = get_intelligence_secondary_overview(
@@ -442,12 +430,6 @@ fn secondary_overview_reuses_single_connection_and_runtime_snapshot() {
     )
     .expect("secondary overview");
 
-    assert_eq!(
-        open_intelligence_connection_call_count(),
-        0,
-        "{:?}",
-        open_intelligence_connection_call_sites()
-    );
     let plans = vault.store().take_query_plans(vault_store::Db::Intelligence).unwrap();
     assert_eq!(
         plans.iter().filter(|p| p.sql.contains("FROM deterministic_module_runtime")).count(),

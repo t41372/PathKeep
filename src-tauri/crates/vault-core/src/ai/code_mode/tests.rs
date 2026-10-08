@@ -8,14 +8,8 @@
 
 use super::*;
 use crate::ai::AiRunCancelled;
-use crate::archive::{
-    create_schema, ensure_archive_initialized, open_archive_connection,
-    open_intelligence_connection,
-};
-use crate::config::project_paths_with_root;
+use crate::ai::tests::native::fixtures::{SeedVisit, seed_visits};
 use crate::models::{AppConfig, ArchiveMode};
-use crate::utils::now_rfc3339;
-use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::AtomicBool;
 
@@ -32,29 +26,6 @@ fn runtime() -> tokio::runtime::Runtime {
         .expect("multi-thread runtime")
 }
 
-/// Builds a context over an INITIALIZED but EMPTY archive (no seeded rows): each query_history is
-/// a real but fast empty search — used by the budget test so 64 calls finish well inside the
-/// wall-time budget even under the full parallel sweep.
-fn empty_archive_context() -> (crate::config::ProjectPaths, AgentToolContext) {
-    let (paths, context) = empty_context();
-    ensure_archive_initialized(&paths, &context.config, None).expect("init archive");
-    let archive = open_archive_connection(&paths, &context.config, None).expect("open archive");
-    create_schema(&archive).expect("create schema");
-    (paths, context)
-}
-
-/// A fresh, uniquely-rooted project path so parallel tests never share an archive.
-fn test_paths() -> crate::config::ProjectPaths {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system time")
-        .as_nanos();
-    let root =
-        std::env::temp_dir().join(format!("pathkeep-codemode-{}-{}", std::process::id(), unique));
-    std::fs::create_dir_all(&root).expect("create temp root");
-    project_paths_with_root(&root)
-}
-
 fn base_config() -> AppConfig {
     let mut config = AppConfig {
         initialized: true,
@@ -67,14 +38,13 @@ fn base_config() -> AppConfig {
     config
 }
 
-/// Builds an empty (no archive) context — enough for the security/limit tests, which never need
-/// real rows (an empty archive returns zero rows honestly, never an error).
-fn empty_context() -> (crate::config::ProjectPaths, AgentToolContext) {
+/// A context over a fresh temp Vault whose archive is empty. Each query_history is a real but
+/// fast search that returns zero rows honestly, which the security and limit tests rely on.
+fn empty_context() -> AgentToolContext {
     let vault = crate::Vault::open_temp().unwrap();
-    let paths = test_paths();
-    let context = AgentToolContext {
-        vault: vault.clone(),
-        paths: paths.clone(),
+    AgentToolContext {
+        paths: vault.paths().clone(),
+        vault,
         config: base_config(),
         database_key: None,
         embedding_provider: None,
@@ -86,225 +56,73 @@ fn empty_context() -> (crate::config::ProjectPaths, AgentToolContext) {
         run_control: None,
         // Tests pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
         tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
-    };
-    (paths, context)
+    }
 }
 
-/// Inserts one canonical visit so `search_history_internal` (lexical plane) returns a real row.
-fn seed_visit(connection: &Connection, history_id: i64, url: &str, title: &str) {
-    let profile_id = "chrome:Default";
-    let profile_row_id = 1_i64;
-    let visit_ms = 13_300_000_000_000_i64; // a fixed chrome-epoch-ish ms value
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-             VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
-            [now_rfc3339()],
-        )
-        .expect("seed run");
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
-             VALUES (?1, 'chrome', 'test', ?2, ?3, ?4, 1, ?2, ?4)",
-            params![profile_row_id, profile_id, "/tmp/p", now_rfc3339()],
-        )
-        .expect("seed profile");
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.urls
-             (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
-             VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, ?6, 1, ?1, 0, ?7, ?5)",
-            params![
-                history_id,
-                url,
-                title,
-                visit_ms,
-                now_rfc3339(),
-                profile_row_id,
-                format!("payload-{history_id}"),
-            ],
-        )
-        .expect("seed url");
-    connection
-        .execute(
-            "INSERT INTO archive.visits
-             (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
-             VALUES (?1, ?1, ?2, ?3, ?4, 805306368, 0, ?5, 1, NULL, 1, 0, NULL, NULL, ?6, ?7, ?4)",
-            params![
-                history_id,
-                history_id.to_string(),
-                visit_ms,
-                now_rfc3339(),
-                profile_row_id,
-                format!("fp-{history_id}"),
-                format!("payload-{history_id}"),
-            ],
-        )
-        .expect("seed visit");
+/// One `chrome:Default` visit at an explicit Unix-ms time, with `history_id` as its visit id.
+fn visit_at(history_id: i64, url: &str, title: &str, visit_ms: i64) -> SeedVisit {
+    SeedVisit::unix_ms(history_id, "chrome:Default", url, Some(title), visit_ms)
 }
 
-/// Builds a context over a seeded archive with two real visits (for host-API correctness).
-///
-/// The canonical schema is created on the archive DB, then visits are seeded through the
-/// INTELLIGENCE connection (which ATTACHes the archive as `archive`), exactly as the existing AI
-/// tests do — this is the connection shape `search_history_internal` reads through.
-fn seeded_context() -> (crate::config::ProjectPaths, AgentToolContext) {
-    let (paths, context) = empty_context();
-    ensure_archive_initialized(&paths, &context.config, None).expect("init archive");
-    let archive = open_archive_connection(&paths, &context.config, None).expect("open archive");
-    create_schema(&archive).expect("create schema");
-    let intelligence =
-        open_intelligence_connection(&paths, &context.config, None).expect("open intelligence");
-    seed_visit(&intelligence, 101, "https://www.rust-lang.org/learn", "Learn Rust");
-    seed_visit(&intelligence, 102, "https://tauri.app/start", "Tauri Start");
-    (paths, context)
-}
-
-/// Inserts one visit DATED on a real `"YYYY-MM-DD"` day (midday UTC), so a date filter can exclude it.
-///
-/// The default `seed_visit` uses a single fixed timestamp, so it cannot exercise date ranges. This sets
-/// `visits.visit_time_ms` to the day's Unix-ms (midday), which is exactly what the date filter compares.
-fn seed_visit_on_date(
-    connection: &Connection,
-    history_id: i64,
-    url: &str,
-    title: &str,
-    date: &str,
-) {
+/// One visit at midday UTC on a `"YYYY-MM-DD"` day, inside the inclusive day range, so a date
+/// filter can include or exclude it.
+fn visit_on_date(history_id: i64, url: &str, title: &str, date: &str) -> SeedVisit {
     let (start_ms, _end_ms) =
         crate::utils::date_str_to_unix_ms_range(date).expect("valid YYYY-MM-DD date");
-    let visit_ms = start_ms + 12 * 60 * 60 * 1000; // midday, inside the inclusive day range.
-    let profile_id = "chrome:Default";
-    let profile_row_id = 1_i64;
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-             VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
-            [now_rfc3339()],
-        )
-        .expect("seed run");
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
-             VALUES (?1, 'chrome', 'test', ?2, ?3, ?4, 1, ?2, ?4)",
-            params![profile_row_id, profile_id, "/tmp/p", now_rfc3339()],
-        )
-        .expect("seed profile");
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.urls
-             (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
-             VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, ?6, 1, ?1, 0, ?7, ?5)",
-            params![history_id, url, title, visit_ms, now_rfc3339(), profile_row_id, format!("payload-{history_id}")],
-        )
-        .expect("seed url");
-    connection
-        .execute(
-            "INSERT INTO archive.visits
-             (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
-             VALUES (?1, ?1, ?2, ?3, ?4, 805306368, 0, ?5, 1, NULL, 1, 0, NULL, NULL, ?6, ?7, ?4)",
-            params![history_id, history_id.to_string(), visit_ms, now_rfc3339(), profile_row_id, format!("fp-{history_id}"), format!("payload-{history_id}")],
-        )
-        .expect("seed visit");
+    visit_at(history_id, url, title, start_ms + 12 * 60 * 60 * 1000)
 }
 
-/// Builds a context over an archive with two DATED visits (one per day) for the date-filter test.
-fn dated_context() -> (crate::config::ProjectPaths, AgentToolContext) {
-    let (paths, context) = empty_context();
-    ensure_archive_initialized(&paths, &context.config, None).expect("init archive");
-    let archive = open_archive_connection(&paths, &context.config, None).expect("open archive");
-    create_schema(&archive).expect("create schema");
-    let intelligence =
-        open_intelligence_connection(&paths, &context.config, None).expect("open intelligence");
-    seed_visit_on_date(&intelligence, 201, "https://in.example/page", "In range", "2026-06-19");
-    seed_visit_on_date(
-        &intelligence,
-        202,
-        "https://out.example/page",
-        "Out of range",
-        "2026-06-25",
+/// A context with two real visits, for host-API correctness.
+fn seeded_context() -> AgentToolContext {
+    let context = empty_context();
+    let visit_ms = 13_300_000_000_000_i64;
+    seed_visits(
+        &context.vault,
+        vec![
+            visit_at(101, "https://www.rust-lang.org/learn", "Learn Rust", visit_ms),
+            visit_at(102, "https://tauri.app/start", "Tauri Start", visit_ms),
+        ],
     );
-    (paths, context)
+    context
 }
 
-/// Inserts one visit at an EXPLICIT `visit_time_ms`, with a shared keyword token in the title/url so
-/// a lexical `query_history({ query: token })` matches it. Distinct timestamps make a date-ordered
-/// (`sort:"oldest"`) enumeration deterministic across the seeded set.
-fn seed_visit_at_ms(
-    connection: &Connection,
-    history_id: i64,
-    url: &str,
-    title: &str,
-    visit_ms: i64,
-) {
-    let profile_id = "chrome:Default";
-    let profile_row_id = 1_i64;
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-             VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
-            [now_rfc3339()],
-        )
-        .expect("seed run");
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
-             VALUES (?1, 'chrome', 'test', ?2, ?3, ?4, 1, ?2, ?4)",
-            params![profile_row_id, profile_id, "/tmp/p", now_rfc3339()],
-        )
-        .expect("seed profile");
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.urls
-             (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
-             VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, ?6, 1, ?1, 0, ?7, ?5)",
-            params![history_id, url, title, visit_ms, now_rfc3339(), profile_row_id, format!("payload-{history_id}")],
-        )
-        .expect("seed url");
-    connection
-        .execute(
-            "INSERT INTO archive.visits
-             (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
-             VALUES (?1, ?1, ?2, ?3, ?4, 805306368, 0, ?5, 1, NULL, 1, 0, NULL, NULL, ?6, ?7, ?4)",
-            params![history_id, history_id.to_string(), visit_ms, now_rfc3339(), profile_row_id, format!("fp-{history_id}"), format!("payload-{history_id}")],
-        )
-        .expect("seed visit");
+/// A context with two visits on different days, for the date-filter tests.
+fn dated_context() -> AgentToolContext {
+    let context = empty_context();
+    seed_visits(
+        &context.vault,
+        vec![
+            visit_on_date(201, "https://in.example/page", "In range", "2026-06-19"),
+            visit_on_date(202, "https://out.example/page", "Out of range", "2026-06-25"),
+        ],
+    );
+    context
 }
 
-/// Seeds `count` visits that all match a shared lexical `token`, each on a UNIQUE day across a known
-/// set of domains, and returns the context. Used to prove the sandbox can fetch + aggregate a set
-/// LARGER than the model-facing 50-row cap (the whole point of Option A). Distinct timestamps make a
-/// `sort:"oldest"` enumeration deterministic; the domains let a JS aggregate be checked exactly.
-fn many_matching_visits_context(
-    token: &str,
-    count: i64,
-) -> (crate::config::ProjectPaths, AgentToolContext) {
-    let (paths, context) = empty_context();
-    ensure_archive_initialized(&paths, &context.config, None).expect("init archive");
-    let archive = open_archive_connection(&paths, &context.config, None).expect("open archive");
-    create_schema(&archive).expect("create schema");
-    let intelligence =
-        open_intelligence_connection(&paths, &context.config, None).expect("open intelligence");
-    // A fixed chrome-epoch-ish base; each visit is one minute apart so they share NO timestamp (so the
-    // date-ordered walk is a total order) and stay far from any date-filter edges.
+/// Seeds `count` visits that all match a shared lexical `token`, one minute apart across three
+/// rotating domains. Used to prove the sandbox can fetch and aggregate a set larger than the
+/// model-facing 50-row cap. Distinct timestamps make a `sort:"oldest"` walk a total order, and
+/// the known domain split lets a JS aggregate be checked exactly.
+fn many_matching_visits_context(token: &str, count: i64) -> AgentToolContext {
+    let context = empty_context();
     let base_ms = 13_300_000_000_000_i64;
-    for index in 0..count {
-        let history_id = 10_000 + index;
-        // Three rotating domains so a `byDomain` aggregate has a known, checkable distribution.
-        let domain = match index % 3 {
-            0 => "alpha.example",
-            1 => "beta.example",
-            _ => "gamma.example",
-        };
-        seed_visit_at_ms(
-            &intelligence,
-            history_id,
-            &format!("https://{domain}/{token}/page-{index}"),
-            &format!("{token} entry {index}"),
-            base_ms + index * 60_000,
-        );
-    }
-    (paths, context)
+    let visits = (0..count)
+        .map(|index| {
+            let domain = match index % 3 {
+                0 => "alpha.example",
+                1 => "beta.example",
+                _ => "gamma.example",
+            };
+            visit_at(
+                10_000 + index,
+                &format!("https://{domain}/{token}/page-{index}"),
+                &format!("{token} entry {index}"),
+                base_ms + index * 60_000,
+            )
+        })
+        .collect();
+    seed_visits(&context.vault, visits);
+    context
 }
 
 /// Cancel control whose `cancelled()` is driven by an `AtomicBool` the test flips.
@@ -462,7 +280,7 @@ fn real_js_calls_query_history_and_returns_distilled_json_with_citations() {
     // THE must-have: real LLM-style JS calls query_history(bm25), aggregates the rows in JS (loop +
     // object), and returns a distilled value — over a seeded fixture archive. The distilled JSON is
     // correct and the canonical_url citations are preserved (the W-STAR contract).
-    let (_paths, context) = seeded_context();
+    let context = seeded_context();
     let source = r#"
         const a = query_history({ query: "rust", plane: "bm25", limit: 10 });
         const byDomain = {};
@@ -504,7 +322,7 @@ fn query_history_rows_carry_local_time_fields() {
     // `localDate` (LOCAL YYYY-MM-DD) so a script grouping by day never does epoch/timezone math against
     // the sandbox's 0 clock. The test context pins UTC, and `seed_visit_on_date` puts the visit at
     // MIDDAY on 2026-06-19, so the local date is that day and the local time is 12:00.
-    let (_paths, context) = dated_context();
+    let context = dated_context();
     let source = r#"
         const r = query_history({ query: "", startDate: "2026-06-19", endDate: "2026-06-19" });
         const row = r.rows[0];
@@ -525,7 +343,7 @@ fn query_history_in_the_sandbox_honors_the_date_range() {
     // in-range visit. Both visits exist; only the 2026-06-19 one falls inside the range. The sandbox
     // threads startDate/endDate into the SAME `search_history_internal` the search tools use, so H1's
     // SQL date predicate applies here too. A regression reintroducing the leak returns BOTH ids.
-    let (_paths, context) = dated_context();
+    let context = dated_context();
     let source = r#"
         const r = query_history({ query: "", startDate: "2026-06-19", endDate: "2026-06-19" });
         return { ids: r.rows.map(x => x.id).sort((a, b) => a - b) };
@@ -549,22 +367,16 @@ fn query_history_in_the_sandbox_finds_the_first_occurrence_and_exposes_next_curs
     // `query_history({ query, sort:"oldest", limit:1 })` returns the EARLIEST match (2024) across
     // years, NOT the most-recent month, AND surfaces `nextCursor`/`hasMore` so a script can page the
     // rest. Reverting the sort threading returns the recent month here and fails the id assertion.
-    let (paths, context) = empty_context();
-    ensure_archive_initialized(&paths, &context.config, None).expect("init archive");
-    let archive = open_archive_connection(&paths, &context.config, None).expect("open archive");
-    create_schema(&archive).expect("create schema");
-    let intelligence =
-        open_intelligence_connection(&paths, &context.config, None).expect("open intelligence");
-    // Insert out of date order; chronological is 2024-02 < 2025-07 < 2026-06.
-    seed_visit_on_date(
-        &intelligence,
-        301,
-        "https://recent.example/mlx",
-        "mlx recent",
-        "2026-06-18",
+    let context = empty_context();
+    // Inserted out of date order; chronological is 2024-02 < 2025-07 < 2026-06.
+    seed_visits(
+        &context.vault,
+        vec![
+            visit_on_date(301, "https://recent.example/mlx", "mlx recent", "2026-06-18"),
+            visit_on_date(302, "https://first.example/mlx", "mlx first", "2024-02-03"),
+            visit_on_date(303, "https://mid.example/mlx", "mlx mid", "2025-07-09"),
+        ],
     );
-    seed_visit_on_date(&intelligence, 302, "https://first.example/mlx", "mlx first", "2024-02-03");
-    seed_visit_on_date(&intelligence, 303, "https://mid.example/mlx", "mlx mid", "2025-07-09");
 
     let source = r#"
         const r = query_history({ query: "mlx", sort: "oldest", limit: 1 });
@@ -590,7 +402,7 @@ fn query_history_in_the_sandbox_finds_the_first_occurrence_and_exposes_next_curs
 fn real_js_multi_query_fan_out_with_join_and_dedup() {
     // A multi-query fan-out: the JS issues two query_history calls and does a JS join/dedup, then
     // returns the distilled set. Proves the synchronous host-call channel works across many calls.
-    let (_paths, context) = seeded_context();
+    let context = seeded_context();
     let source = r#"
         const q1 = query_history({ query: "rust", plane: "bm25" });
         const q2 = query_history({ query: "tauri", plane: "bm25" });
@@ -624,7 +436,7 @@ fn sandbox_query_history_fetches_more_than_fifty_rows_in_one_call() {
     // re-clamping `search_history_internal` to 50) caps this at 50 and FAILS the assertion below.
     let token = "needle";
     let seeded = 120_i64;
-    let (_paths, context) = many_matching_visits_context(token, seeded);
+    let context = many_matching_visits_context(token, seeded);
     // `plane: "bm25"` keeps this pure-lexical (no embedding provider configured), so the assertion is
     // about the row ceiling alone, not semantic recall. The whole result is COUNTED in JS (the rows
     // stay in the sandbox); only the count is returned.
@@ -668,7 +480,7 @@ fn sandbox_paginates_and_aggregates_the_full_set() {
     let _budget = WallTimeBudgetGuard::set(Duration::from_secs(120));
     let token = "compass";
     let seeded = 130_i64; // > 2 small pages and > the 50-row sample, to force real pagination
-    let (_paths, context) = many_matching_visits_context(token, seeded);
+    let context = many_matching_visits_context(token, seeded);
     // Small 40-row pages force the cursor loop to iterate (130 rows → 4 pages), exercising the
     // hasMore/nextCursor walk the worked example teaches. `sort:"oldest"` gives a stable total order.
     let source = r#"
@@ -725,7 +537,7 @@ fn sandbox_large_page_stays_under_output_and_frame_limits() {
     // returned summary is tiny, so none of the hard caps fire. This proves the 1000-row ceiling does
     // not break the frame-size / output-cap limits.
     let token = "ledger";
-    let (_paths, context) = many_matching_visits_context(token, 120);
+    let context = many_matching_visits_context(token, 120);
     let source = r#"
         const r = query_history({ query: "ledger", plane: "bm25", limit: 1000 });
         // Aggregate the whole page but return only a tiny summary (the rows stay in the sandbox).
@@ -752,7 +564,7 @@ fn sandbox_large_page_stays_under_output_and_frame_limits() {
 fn real_js_uses_normal_language_features_without_any_host_call() {
     // The source can use ordinary JS — loops, objects, JSON, Math — and return a value with no host
     // call at all (code-mode is a general distillation surface, not only a query relay).
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let source = r#"
         const squares = [1, 2, 3, 4].map(x => x * x);
         const sum = squares.reduce((a, b) => a + b, 0);
@@ -774,7 +586,7 @@ fn real_js_uses_normal_language_features_without_any_host_call() {
 fn fetch_visits_resolves_requested_ids_only() {
     // fetch_visits over a seeded archive returns the requested visible visit ids and drops unknown
     // ones (honest, bounded, read model only) — driven by real JS calling the fetch_visits global.
-    let (_paths, context) = seeded_context();
+    let context = seeded_context();
     let source = r#"
         const r = fetch_visits([101, 999999]);
         return { rowIds: r.rows.map(x => x.id) };
@@ -878,7 +690,7 @@ fn js_using_fs_or_net_globals_fails_safely() {
     // Real JS in the REAL guest that reaches for fs/net globals finds them undefined (QuickJS has no
     // such globals and the guest has no host bridge for them) → an honest CodeOutcome.error, never a
     // host escape or panic. This proves the engine itself exposes no ambient fs/net to user JS.
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let rt = runtime();
     for snippet in [
         "return require('fs').readFileSync('/etc/passwd');",
@@ -898,7 +710,7 @@ fn date_now_is_a_fixed_zero_clock_and_math_random_is_deterministic() {
     // The clock/random posture: with the scoped WASI fixed-zero clock, Date.now() reads 0 (no
     // real-time leak), and Math.random() is the QuickJS deterministic PRNG (same value every run, no
     // WASI randomness import). Two runs return identical values — reproducible + minimal authority.
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let source = "return { now: Date.now(), rand: Math.random() };";
     let rt = runtime();
     let first = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
@@ -921,7 +733,7 @@ fn infinite_loop_traps_on_the_wall_time_deadline() {
           (func (export "_start") (loop $l (br $l))))
     "#;
     let rt = runtime();
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let outcome = execute_guest(
         spin_guest.as_bytes(),
         "_start",
@@ -946,7 +758,7 @@ fn fuel_exhaustion_traps_deterministically() {
           (func (export "_start") (loop $l (br $l))))
     "#;
     let rt = runtime();
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let outcome = execute_guest(
         spin_guest.as_bytes(),
         "_start",
@@ -966,7 +778,7 @@ fn infinite_loop_in_real_js_traps_on_the_wall_time_deadline() {
     // and yields a clean Time outcome (the epoch ticker traps QuickJS mid-eval). A short test budget
     // keeps it fast.
     let _budget = WallTimeBudgetGuard::set(Duration::from_millis(300));
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let source = "while (true) {} return 1;";
     let rt = runtime();
     let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
@@ -991,7 +803,7 @@ fn unbounded_allocation_in_real_js_is_bounded_not_a_host_panic_or_hang() {
     // no output) rather than forcing a Memory limit the production guest does not actually hit. We
     // outrun the wall clock (30s budget) so the OOM, not the deadline, is what stops the storm.
     let _budget = WallTimeBudgetGuard::set(Duration::from_secs(30));
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let source = "let a = []; for (;;) { a.push(new Uint8Array(1<<20)); } return a.length;";
     let rt = runtime();
     let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
@@ -1022,7 +834,7 @@ fn unbounded_allocation_traps_on_the_memory_limiter() {
               (br $l))))
     "#;
     let rt = runtime();
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let outcome = execute_guest(
         grow_guest.as_bytes(),
         "_start",
@@ -1042,7 +854,7 @@ fn host_call_budget_trips_after_the_cap_in_real_js() {
     // the overflow call (closes the channel → the global throws) and records HostCalls. Exactly
     // MAX_HOST_CALLS retrievals were serviced. An empty archive keeps each call fast + deterministic.
     let _budget = WallTimeBudgetGuard::set(Duration::from_secs(120));
-    let (_paths, context) = empty_archive_context();
+    let context = empty_context();
     let source = r#"
         let i = 0;
         try {
@@ -1062,7 +874,7 @@ fn host_call_budget_trips_after_the_cap_in_real_js() {
 fn a_huge_output_is_capped_with_a_limit_marker() {
     // Real JS returning more than MAX_OUTPUT_BYTES has its output truncated host-side and the Output
     // limit recorded — the model never receives an unbounded blob.
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     // A string longer than the cap once JSON-encoded.
     let source = "return 'A'.repeat(300000);";
     let rt = runtime();
@@ -1077,7 +889,7 @@ fn a_multibyte_output_is_truncated_on_a_char_boundary() {
     // UTF-8 char boundary, never mid-codepoint. A raw byte cut would split a 3-byte CJK / 4-byte emoji
     // glyph and leave `model_text` ragged (lossy decode → U+FFFD). The output is capped (Output limit)
     // AND valid UTF-8 ending on a boundary, so it stays `≤` the cap but `>` cap-minus-one-codepoint.
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     // Mix a 3-byte CJK char and a 4-byte emoji so the cut point can fall inside either width; the
     // leading ASCII `x` shifts alignment so MAX_OUTPUT_BYTES lands STRICTLY INSIDE a multibyte glyph
     // (a raw cut here would split it) — this drives the boundary walk-back, not just the equal case.
@@ -1126,7 +938,7 @@ fn cancel_mid_script_traps_and_yields_a_clean_outcome() {
         flag_for_thread.store(true, Ordering::Relaxed);
     });
     let rt = runtime();
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let outcome = execute_guest(
         spin_guest.as_bytes(),
         "_start",
@@ -1149,7 +961,7 @@ fn pre_cancelled_host_call_is_refused_in_real_js() {
     let flag = Arc::new(AtomicBool::new(true)); // already cancelled
     let control: Arc<dyn AiRunControl> = Arc::new(FlagControl(flag));
     let rt = runtime();
-    let (_paths, context) = seeded_context();
+    let context = seeded_context();
     let source = "return query_history({ query: 'x' });";
     let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), Some(control));
     assert_eq!(outcome.limits_hit, Some(LimitsHit::Cancelled));
@@ -1162,7 +974,7 @@ fn pre_cancelled_host_call_is_refused_in_real_js() {
 fn query_history_matches_a_direct_search_over_the_same_plane() {
     // The rows the real guest surfaces (via the host API) match what a direct search_history_internal
     // returns over the same plane (no provider = bm25/lexical) — code-mode reuses the SAME retrieval.
-    let (_paths, context) = seeded_context();
+    let context = seeded_context();
     let source = r#"
         const a = query_history({ query: "rust", plane: "bm25" });
         return a.rows.map(r => r.id);
@@ -1210,7 +1022,7 @@ fn the_async_bridge_is_safe_from_inside_a_runtime_worker() {
     // hand the sandbox call to a blocking thread via `spawn_blocking` — that closure runs on a genuine
     // runtime worker, exactly where `block_in_place` is valid. We assert it completes without
     // deadlock/panic and returns the right rows (the seeded `rust` page is queried + cited).
-    let (_paths, context) = seeded_context();
+    let context = seeded_context();
     let rt = runtime();
     let handle = rt.handle().clone();
     let source = r#"
@@ -1245,7 +1057,7 @@ fn the_async_bridge_is_safe_from_inside_a_runtime_worker() {
 fn a_thrown_js_error_is_an_honest_outcome_not_a_panic() {
     // A runtime error in the guest JS (referencing an undefined variable) surfaces as an honest
     // CodeOutcome.error with NO limit — never a host panic.
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let rt = runtime();
     let outcome =
         run_code_in_sandbox("return notDefinedAnywhere.boom;", &context, rt.handle().clone(), None);
@@ -1257,7 +1069,7 @@ fn a_thrown_js_error_is_an_honest_outcome_not_a_panic() {
 #[test]
 fn a_syntax_error_is_an_honest_outcome_not_a_panic() {
     // A JS syntax error is caught by the harness and reported via the error op → honest outcome.
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let rt = runtime();
     let outcome =
         run_code_in_sandbox("this is ( not valid javascript", &context, rt.handle().clone(), None);
@@ -1270,7 +1082,7 @@ fn an_empty_query_returns_the_most_recent_visits() {
     // A query_history with an empty query is NOT refused — it returns the most recent visits
     // (browse-by-recency), the agent's entry point for enumerating history / finding the date range.
     // The seeded archive has two visits, so both surface and the call records a host call cleanly.
-    let (_paths, context) = seeded_context();
+    let context = seeded_context();
     let source = "return query_history({ query: '  ' }).rows.length;";
     let rt = runtime();
     let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
@@ -1282,7 +1094,7 @@ fn an_empty_query_returns_the_most_recent_visits() {
 #[test]
 fn an_oversized_fetch_ids_list_is_refused() {
     // A fetch_visits over the id cap is refused at the host (the bail branch → channel closes).
-    let (_paths, context) = seeded_context();
+    let context = seeded_context();
     let source = format!(
         "return fetch_visits([{}]);",
         (0..(MAX_FETCH_IDS as i64 + 5)).map(|n| n.to_string()).collect::<Vec<_>>().join(",")
@@ -1296,7 +1108,7 @@ fn an_oversized_fetch_ids_list_is_refused() {
 #[test]
 fn an_empty_fetch_ids_list_is_refused() {
     // An empty `ids` array is refused (the host never runs a retrieval for an empty lookup).
-    let (_paths, context) = seeded_context();
+    let context = seeded_context();
     let source = "return fetch_visits([]);";
     let rt = runtime();
     let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
@@ -1308,7 +1120,7 @@ fn an_empty_fetch_ids_list_is_refused() {
 fn the_public_entry_runs_the_committed_guest_cleanly() {
     // The committed guest passes its integrity pin and a trivial program runs to a clean output.
     let rt = runtime();
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let outcome = run_code_in_sandbox("return 'ok';", &context, rt.handle().clone(), None);
     assert!(outcome.error.is_none(), "got error: {:?}", outcome.error);
     assert!(outcome.host_calls.is_empty());
@@ -1321,7 +1133,7 @@ fn a_void_program_yields_an_empty_output() {
     // A program that returns nothing (undefined) yields a `null` JSON output (the harness maps
     // undefined → null), never an error.
     let rt = runtime();
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let outcome = run_code_in_sandbox("const x = 1;", &context, rt.handle().clone(), None);
     assert!(outcome.error.is_none());
     assert_eq!(outcome.model_text, "null");
@@ -1334,7 +1146,7 @@ fn a_compile_error_becomes_an_honest_outcome_not_a_panic() {
     // execute_guest never panics on a guest that fails to compile (invalid WAT/wasm) — it returns
     // Err, which the public entry maps to an honest outcome (see outcome_from_setup_error below).
     let rt = runtime();
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let result = execute_guest(
         b"(module (this is not wat))",
         "_start",
@@ -1373,7 +1185,7 @@ fn a_failed_integrity_pin_yields_an_honest_outcome_via_the_public_mapping() {
     // Drives the integrity-failure path (a wrong pin) through the SAME error→outcome mapping the
     // public entry uses: fail closed, honest error, no panic.
     let rt = runtime();
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let outcome =
         run_guest_or_outcome("src", &context, rt.handle().clone(), None, GUEST_WASM, "wrong-pin");
     assert!(outcome.error.as_deref().is_some_and(|e| e.contains("integrity pin")));
@@ -1391,7 +1203,7 @@ fn a_genuine_guest_fault_is_an_honest_error_not_a_limit() {
           (func (export "_start") (unreachable)))
     "#;
     let rt = runtime();
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let outcome = execute_guest(
         fault_guest.as_bytes(),
         "_start",
@@ -1439,7 +1251,7 @@ fn an_oversized_request_frame_poisons_the_channel() {
     // Direct unit test of the host-side framing defense: a frame claiming a length past
     // MAX_REQUEST_FRAME_BYTES poisons the channel (no unbounded buffering), and further writes are
     // ignored. This guards the host even from a hostile guest that bypasses harness.js.
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let rt = runtime();
     let host = HostState {
         context,
@@ -1478,7 +1290,7 @@ fn an_oversized_raw_write_poisons_the_channel_via_the_buffer_cap() {
     // declared-length check (an_oversized_request_frame_poisons_the_channel) does not: the leading
     // length bytes here decode to a SMALL frame (the body just never arrives), so only the host's own
     // buffer bound stops the host from buffering up to the guest's whole linear memory.
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let rt = runtime();
     let host = HostState {
         context,
@@ -1520,7 +1332,7 @@ fn an_oversized_raw_write_poisons_the_channel_via_the_buffer_cap() {
 fn service_request_refuses_an_unknown_op_and_malformed_json() {
     // The RPC service refuses an unknown op and malformed JSON (returns None → channel closes), never
     // a panic. Exercised directly so the refusal contract is pinned without a bespoke guest.
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     let rt = runtime();
     let mut host = HostState {
         context,
@@ -1547,7 +1359,7 @@ fn service_request_refuses_an_unknown_op_and_malformed_json() {
 
 /// A bare [`HostState`] over an empty context for direct unit tests of the pure host logic.
 fn bare_host(rt: &tokio::runtime::Runtime) -> HostState {
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     HostState {
         context,
         runtime: rt.handle().clone(),
@@ -1657,31 +1469,10 @@ fn the_scoped_wasi_stream_glue_is_inert_where_the_sync_path_skips_it() {
     });
 }
 
-fn run_code_in_sandbox(
-    source: &str,
-    context: &AgentToolContext,
-    runtime: tokio::runtime::Handle,
-    control: Option<Arc<dyn AiRunControl>>,
-) -> CodeOutcome {
-    if context.paths.archive_database_path.exists() {
-        crate::test_support::legacy_fixtures::copy_to_vault(
-            &context.vault,
-            &context.paths,
-            &context.config,
-        );
-        crate::test_support::legacy_fixtures::copy_search_metadata(
-            &context.vault,
-            &context.paths,
-            &context.config,
-        );
-    }
-    super::run_code_in_sandbox(source, context, runtime, control)
-}
-
 #[test]
 fn code_mode_pages_and_id_lookups_reach_beyond_the_old_newest_window() {
     let _budget = WallTimeBudgetGuard::set(Duration::from_secs(120));
-    let (_paths, context) = empty_context();
+    let context = empty_context();
     crate::test_support::search::seed_pages(&context.vault, 1107);
     let rt = runtime();
     let source = r#"

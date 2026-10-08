@@ -1,3 +1,7 @@
+//! Responsibilities: prove envelope authentication, purpose-key separation and stable derivation.
+//! Not responsible for: database copying or OS keychain integration.
+//! Failure modes: wrong passwords accepted, purpose keys reused or format/key vectors changed.
+//!
 //! The password envelope and the sub-key hierarchy, against the failure modes listed in
 //! `src/envelope.rs` and `src/keys.rs`.
 
@@ -194,6 +198,10 @@ fn sub_keys_match_independently_computed_values() {
             "45142f53507f0cd6d8742e4004949fe8bf08ccb89eb7f6334a2945d5e88298db",
         ),
         (KeyPurpose::TempFiles, "c2b8791ab7213233fe1a1b7d14deeffb50df4be999f91d5f90b5558bba4a2d67"),
+        (
+            KeyPurpose::BundleArtifacts,
+            "6723c9e136480680202b7c00c6844160cf6cd362e73f40c63bb6c987ed130d7a",
+        ),
     ];
     assert_eq!(expected.len(), KeyPurpose::ALL.len());
     for (purpose, hex_key) in expected {

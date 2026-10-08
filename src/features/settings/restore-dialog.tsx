@@ -7,6 +7,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useSession } from '@/app/session'
+import { MaintenanceProgress } from '@/components/app/maintenance-progress'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -20,7 +21,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Spinner } from '@/components/ui/spinner'
 import { archiveClient } from '@/lib/backend-client/archive'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
@@ -64,12 +64,15 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
   const snapshots = (list.data ?? []).filter((item) => item.verifiedOpenable)
   const chosen = snapshots.find((item) => item.id === chosenId) ?? null
 
+  const [stopped, setStopped] = useState(false)
   const restore = useMutation({
-    mutationFn: (snapshot: RecoverySnapshot) =>
-      archiveClient.runFullArchiveRestore(
+    mutationFn: (snapshot: RecoverySnapshot) => {
+      setStopped(false)
+      return archiveClient.runFullArchiveRestore(
         { snapshotPath: snapshot.path },
         snapshot.encrypted ? password : null,
-      ),
+      )
+    },
     onSuccess: async () => {
       toast.success(t('settingsStorage.restore.done'))
       onClose()
@@ -167,16 +170,15 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
       )}
 
       {restore.isPending && (
-        <div
-          role="status"
-          className="flex items-center gap-2 text-[13px] text-muted-foreground"
-        >
-          <Spinner />
-          {t('settingsStorage.restore.running')}
-        </div>
+        <MaintenanceProgress onStop={() => setStopped(true)} />
       )}
 
-      {restore.error && (
+      {restore.error && stopped && (
+        <p role="status" className="text-[13px] text-muted-foreground">
+          {t('maintenance.stopped')}
+        </p>
+      )}
+      {restore.error && !stopped && (
         <p
           role="alert"
           className="text-[13px] [overflow-wrap:anywhere] text-destructive"

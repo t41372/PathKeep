@@ -13,7 +13,7 @@ mod scratch;
 mod source_evidence;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use vault_store::{Db, Migration, MigrationRegistry};
 

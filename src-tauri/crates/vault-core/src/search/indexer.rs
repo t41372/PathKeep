@@ -68,6 +68,7 @@ impl Indexer {
         store: Arc<Store>,
         path: &Path,
         key: Option<&vault_crypto::DataKey>,
+        deferred: bool,
     ) -> Result<Self> {
         let (generations, index, initial) = Generations::open(path, key)?;
         let applied_seq = index.last_applied_seq()?;
@@ -101,8 +102,13 @@ impl Indexer {
                     generations,
                     published: worker_index.clone(),
                 };
-                let mut result =
-                    if initial { worker.rebuild(true, &mut |_| {}) } else { worker.cycle() };
+                let mut result = if deferred {
+                    Ok(())
+                } else if initial {
+                    worker.rebuild(true, &mut |_| {})
+                } else {
+                    worker.cycle()
+                };
                 #[cfg(debug_assertions)]
                 let mut paused = false;
                 loop {
@@ -143,6 +149,7 @@ impl Indexer {
                         }
                         #[cfg(debug_assertions)]
                         None if paused => continue,
+                        None if deferred => continue,
                         Some(Command::Cycle(reply)) => {
                             let result = worker.cycle();
                             if let Err(error) = &result {
@@ -154,6 +161,9 @@ impl Indexer {
                         Some(Command::Rebuild(reply, mut progress, cancel)) => {
                             *worker.cancel.lock().unwrap() = cancel;
                             let result = worker.rebuild(false, &mut progress);
+                            // The caller may share this token with its later swap.
+                            // Shutdown cancels only active index work, not a completed operation.
+                            *worker.cancel.lock().unwrap() = CancelToken::new();
                             if let Err(error) = &result {
                                 worker.fail(error);
                             }
@@ -252,7 +262,14 @@ impl Indexer {
         &self,
         progress: impl FnMut(vault_search::RebuildProgress) + Send + 'static,
     ) -> Result<()> {
-        let cancel = CancelToken::new();
+        self.rebuild_with_control(CancelToken::new(), progress)
+    }
+    /// Maintenance shares its cancellation token with copying and index construction.
+    pub fn rebuild_with_control(
+        &self,
+        cancel: CancelToken,
+        progress: impl FnMut(vault_search::RebuildProgress) + Send + 'static,
+    ) -> Result<()> {
         *self.rebuild_cancel.lock().unwrap() = cancel.clone();
         let (tx, rx) = mpsc::sync_channel(1);
         self.sender

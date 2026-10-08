@@ -4,16 +4,9 @@ What each command costs at archive sizes that matter, what was slow, what change
 
 ## How the numbers were taken
 
-`src-tauri/crates/vault-worker/tests/archive_scale_bench.rs` builds a synthetic archive through the real schema (3 profiles, one URL per four visits, 20,000 domains, five years of visits), lets the real open path project it into the search database, then times each call. It is skipped unless asked for:
+> These findings were measured on the SQLCipher archive, before the move to Turso. The SQLCipher benchmark (`archive_scale_bench`'s `PATHKEEP_ARCHIVE_BENCH` sections) was removed with the old format in October 2026. Native measurements: `turso_reads::encrypted_archive_reads_at_scale` (timeline, day insights, URL detail, overview, source stats, full export) and `turso_intelligence::encrypted_intelligence_at_scale` in the same test binary, both `#[ignore]`d, encrypted, 14.4M visits, and removing their data afterwards. Doctor and import-batch revert/restore have no native at-scale benchmark yet.
 
-```sh
-PATHKEEP_ARCHIVE_BENCH=1 PATHKEEP_ARCHIVE_BENCH_VISITS=14400000 \
-  PATHKEEP_ARCHIVE_BENCH_DIR=/tmp/pathkeep-bench \
-  cargo test --manifest-path src-tauri/Cargo.toml -p vault-worker \
-  --test archive_scale_bench --release -- --nocapture
-```
-
-`PATHKEEP_ARCHIVE_BENCH_SECTIONS=reads,doctor,searches,export,encrypted` runs only the named sections (`PATHKEEP_ARCHIVE_BENCH_EXPORT_FORMATS` picks export formats; each file is deleted after it is measured). The doctor and searches sections first fill the intelligence tables with synthetic rows (the archive has none of its own): one derived row per visit for the doctor, and a search event for every eighth visit (1.8M at 14.4M, 5,000 distinct queries, skewed so a few are common) for searches. Calls that matter for memory also print the peak Rust heap (a counting allocator in the benchmark binary) and SQLite's own peak (`sqlite3_memory_highwater`), each measured from the start of the call.
+The SQLCipher benchmark built a synthetic archive through the real schema (3 profiles, one URL per four visits, 20,000 domains, five years of visits), let the real open path project it into the search database, then timed each call. Calls that mattered for memory also printed the peak Rust heap and SQLite's own peak (`sqlite3_memory_highwater`).
 
 Machine: Apple Silicon, 18 cores, 64 GB, SSD, release build. That is far faster than the target, so read the before/after ratios, not the absolute times. Each figure is the median of 5 to 20 calls in a warm process (the archive was already opened once).
 

@@ -42,8 +42,9 @@ export const archiveClient = {
       config,
       databaseKey,
     }),
-  assessArchiveUpgrade: () =>
-    call<ArchiveUpgradeAssessment>('assess_archive_upgrade'),
+  /** With the old archive's password, the conversion's table counts too. */
+  assessArchiveUpgrade: (databaseKey?: string | null) =>
+    call<ArchiveUpgradeAssessment>('assess_archive_upgrade', { databaseKey }),
   runBackupNow: (dueOnly = false) =>
     call<BackupReport>('run_backup_now', { dueOnly }),
   previewSnapshotRestore: (request: SnapshotRestoreRequest) =>

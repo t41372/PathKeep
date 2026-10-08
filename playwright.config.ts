@@ -12,7 +12,7 @@
  * Projects run in order, because they share one backend and one archive:
  * first-run (onboarding) → read (history, insights; nothing changes) →
  * change (background work, new visits, schedule, imports, lock, archive
- * password) → wipe (delete everything).
+ * password) → wipe (delete everything) → upgrade (an archive left by 0.3).
  */
 import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -156,6 +156,11 @@ export default defineConfig({
       ],
       'read',
     ),
-    project('wipe', ['wipe.spec.ts'], 'change'),
+    // Opening the moved file replaces the archive and its password, so it runs
+    // after every test that relies on the archive first-run created.
+    project('move', ['move.spec.ts'], 'change'),
+    project('wipe', ['wipe.spec.ts'], 'move'),
+    // Needs the empty data folder wipe leaves behind.
+    project('upgrade', ['upgrade.spec.ts'], 'wipe'),
   ],
 })

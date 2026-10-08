@@ -19,7 +19,8 @@ impl std::fmt::Display for ArchivePasswordWrong {
     }
 }
 impl std::error::Error for ArchivePasswordWrong {}
-fn unwrap(bytes: &[u8], password: &str) -> anyhow::Result<DataKey> {
+/// Unwraps an envelope; a wrong password is the typed `ArchivePasswordWrong`.
+pub(crate) fn unwrap(bytes: &[u8], password: &str) -> anyhow::Result<DataKey> {
     Envelope::parse(bytes)?.unwrap(password.as_bytes()).map_err(|error| match error {
         EnvelopeError::WrongPassword => ArchivePasswordWrong.into(),
         other => other.into(),
@@ -42,7 +43,13 @@ pub(super) fn open(
     password: &str,
     owner: Option<Arc<vault_store::OwnerLock>>,
 ) -> anyhow::Result<(Vault, DataKey)> {
-    open_using(paths, config, password, owner, |paths, config, key, owner| {
+    let owner = match owner {
+        Some(owner) => owner,
+        None => Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),
+    };
+    let recovered = crate::maintenance::recover_native_maintenance(&paths)?;
+    let config = if recovered { crate::load_config(&paths)? } else { config };
+    open_using(paths, config, password, Some(owner), |paths, config, key, owner| {
         Ok(Vault::open_owned(paths, config, Some(key), owner)?)
     })
 }
@@ -71,10 +78,12 @@ pub(super) fn open_using(
                     if vault_store::Db::ALL.iter().any(|db| files.get(*db).exists()) {
                         return Err(EnvelopeMissing.into());
                     }
-                    if paths.archive_database_path.exists()
-                        && !crate::archive_key_opens(&paths, password)?
-                    {
-                        return Err(ArchivePasswordWrong.into());
+                    // A new envelope next to an archive of the old format would start an
+                    // empty native archive beside it. That archive has to be converted first.
+                    if paths.archive_database_path.exists() {
+                        anyhow::bail!(
+                            "archive-conversion-required: preview and convert the SQLCipher archive before opening it"
+                        );
                     }
                     let (envelope, key) =
                         Envelope::create(password.as_bytes(), KdfParams::RECOMMENDED)?;

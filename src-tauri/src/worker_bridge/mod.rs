@@ -1,3 +1,7 @@
+//! Responsibilities: adapt worker operations to desktop sessions and serialized command results.
+//! Not responsible for: domain rules, storage engines or frontend rendering.
+//! Failure modes: session ownership lost, typed errors flattened or imported archives left unpublished.
+//!
 //! Bridge from the Tauri command facade into `vault-worker`.
 //!
 //! The command modules are intentionally transport-shaped, while
@@ -136,17 +140,6 @@ mod tests {
         config
     }
 
-    fn seed_unported_readers(session: &SessionState, pages: &[(&str, &str)]) {
-        let paths = vault_core::project_paths().unwrap();
-        let config = vault_core::load_config(&paths).unwrap();
-        vault_core::test_support::legacy_fixtures::seed_reader_pages(
-            &paths,
-            &config,
-            session_key(session).unwrap().as_deref(),
-            pages,
-        );
-    }
-
     fn chrome_user_data_fixture(root: &Path) -> PathBuf {
         let chrome_root = root.join("chrome-user-data");
         let profile_dir = chrome_root.join("Default");
@@ -280,8 +273,9 @@ mod tests {
         assert!(snapshot.archive_status.initialized);
         // The cheap upgrade pre-check runs off this bridge too: a freshly
         // initialized (at-head, data-empty) archive reports no pending upgrade.
-        let upgrade = assess_archive_upgrade_impl(session_key(&session).unwrap().as_deref())
-            .expect("assess archive upgrade");
+        let upgrade =
+            assess_archive_upgrade_impl(&session, session_key(&session).unwrap().as_deref())
+                .expect("assess archive upgrade");
         assert!(!upgrade.pending, "a freshly initialized archive has no pending upgrade");
         assert_eq!(
             save_config_with_base_impl(config.clone(), None, &session)
@@ -318,8 +312,6 @@ mod tests {
                 )
             })
             .unwrap();
-        // SQLite read-model fixtures are independent of the Turso backup results.
-        seed_unported_readers(&session, &[("https://example.com", "Example")]);
         let restore_preview = preview_snapshot_restore_impl(
             vault_core::SnapshotRestoreRequest { snapshot_path: snapshot_path.clone() },
             &session,
@@ -411,13 +403,6 @@ mod tests {
         )
         .expect("clear provider key");
         assert!(!cleared_provider_snapshot.config.ai.llm_providers[0].api_key_saved);
-        seed_unported_readers(
-            &session,
-            &[
-                ("https://example.com", "Example"),
-                ("https://example.com/imported", "Imported example"),
-            ],
-        );
         let ai_index_report = build_ai_index_impl(
             AiIndexRequest { limit: Some(5), ..AiIndexRequest::default() },
             &session,
@@ -775,12 +760,18 @@ mod tests {
             new_key: Some("vault-passphrase".into()),
             current_key: None,
         };
-        for error in [
-            preview_rekey_archive_impl(request.clone()).unwrap_err(),
-            rekey_archive_impl(request, &session).unwrap_err(),
-        ] {
-            assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
-        }
+        let plan = preview_rekey_archive_impl(request.clone()).unwrap();
+        assert!(!plan.steps.is_empty());
+        rekey_archive_impl(request, &session).unwrap();
+        rekey_archive_impl(
+            RekeyRequest {
+                new_mode: ArchiveMode::Plaintext,
+                new_key: None,
+                current_key: Some("vault-passphrase".into()),
+            },
+            &session,
+        )
+        .unwrap();
         let cleared_derived =
             clear_derived_intelligence_impl(&session).expect("clear derived intelligence");
         assert!(!cleared_derived.notes.is_empty());
@@ -846,7 +837,6 @@ mod tests {
         )
         .expect("initialize archive");
         save_config_with_base_impl(config, None, &session).expect("save config");
-        seed_unported_readers(&session, &[("https://example.com", "Example")]);
         let report = run_backup_now_impl(false, &session, |_| {}).expect("run backup");
         let run_id = report.run.expect("backup run").id;
 
@@ -857,10 +847,8 @@ mod tests {
         let detail = audit_run_detail_impl(run_id, &session).expect("audit run detail");
         assert_eq!(detail.run.id, run_id);
 
-        // Doctor repairs the Turso archive; encryption changes wait for the conversion.
-        repair_health_impl(&session).expect("repair health");
-        let error = reconcile_archive_encryption_impl(&session).unwrap_err();
-        assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
+        repair_health_impl(&session).expect("native repair");
+        assert!(!reconcile_archive_encryption_impl(&session).unwrap().repaired);
 
         // OPTIONAL key: Test-connection against a provider with NO stored key must PROBE it, not
         // pre-fail on PathKeep's own missing-key precondition. This crate links the REAL vault-core,
@@ -1348,25 +1336,24 @@ mod tests {
             super::prefetch_og_images_impl(0, &session).expect("prefetch og images wrapper");
         assert_eq!(prefetch, (0, 0));
 
-        // Whole-archive bundle operations must remain unavailable until area 6.
         let bundle_target = dir.path().join("bundle.pathkeep");
-        for error in [
-            super::export_app_data_impl(
-                session_key(&session).unwrap().as_deref(),
-                bundle_target.clone(),
-            )
-            .unwrap_err(),
-            super::preview_app_data_import_impl(bundle_target.clone()).unwrap_err(),
-            super::apply_app_data_import_impl(
-                session_key(&session).unwrap().as_deref(),
-                bundle_target.clone(),
-                vault_core::ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
-            )
-            .unwrap_err(),
-        ] {
-            assert_eq!(error.code.as_deref(), Some("storage-migration-incomplete"));
-        }
-        assert!(!bundle_target.exists());
+        let exported =
+            super::export_app_data_impl(&session, bundle_target.clone(), "export password".into())
+                .unwrap();
+        assert!(exported.bytes_written > 0);
+        let preview = super::preview_app_data_import_impl(bundle_target.clone()).unwrap();
+        assert!(preview.will_overwrite_existing);
+        let imported = super::apply_app_data_import_impl(
+            &session,
+            bundle_target,
+            vault_core::ApplyImportOptions {
+                confirm_overwrite: true,
+                source_archive_key: Some("export password".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(imported.final_schema_version, 1);
+        assert!(session.vault().unwrap().store().is_open());
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
@@ -1385,3 +1372,6 @@ mod tests {
         assert_eq!(String::from_utf8(output).expect("utf8"), "worker-payload\n");
     }
 }
+
+#[cfg(test)]
+mod recovery_tests;

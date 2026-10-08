@@ -31,10 +31,8 @@ pub(crate) fn app_snapshot_impl(
 
 #[cfg_attr(test, allow(dead_code))]
 /// Lists what "Delete all data" would remove.
-pub(crate) fn preview_wipe_all_data_impl(
-    session_database_key: Option<&str>,
-) -> Result<vault_core::WipePreview, CommandError> {
-    worker_result(vault_worker::preview_data_wipe(session_database_key))
+pub(crate) fn preview_wipe_all_data_impl() -> Result<vault_core::WipePreview, CommandError> {
+    worker_result(vault_worker::preview_data_wipe())
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -43,8 +41,7 @@ pub(crate) fn wipe_all_data_impl(
     confirmation: &str,
     state: &SessionState,
 ) -> Result<vault_core::WipeReport, CommandError> {
-    let key = state.get_key()?;
-    let report = worker_result(vault_worker::wipe_all_data(confirmation, key.as_deref(), || {
+    let report = worker_result(vault_worker::wipe_all_data(confirmation, || {
         state.close_vault().map_err(anyhow::Error::msg)
     }))?;
     update_session_key(state, None)?;

@@ -5,11 +5,12 @@ use super::*;
 #[test]
 fn history_search_terms_fragments_regex_and_paging_use_native_facts() {
     let vault = crate::Vault::open_temp().unwrap();
-    let dir = tempdir().unwrap();
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    legacy_queries::seed_reader_archive(&paths, &config);
-    crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
+    crate::test_support::history::History::chrome(&vault)
+        .url(1, "https://example.com/archive", Some("Archive docs"))
+        .visit(1, 1, 1_775_383_200_000)
+        .visit(2, 1, 1_775_386_800_000)
+        .search_term(1, "deep recall token")
+        .commit();
     vault.store().write(vault_store::Db::Archive, vault_store::Priority::Interactive, |s| {
         s.execute("INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(2,'https://example.com/archive-two','https://example.com/archive-two','example.com')", ())?;
         s.execute("INSERT INTO urls(id,url,title,source_profile_id,page_id,source_url_id,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,created_by_run_id) VALUES(2,'https://example.com/archive-two','Archive docs',1,2,2,1775387000000,'then',1775387000000,'then',1)", ())?;

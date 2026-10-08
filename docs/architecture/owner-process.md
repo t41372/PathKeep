@@ -26,6 +26,12 @@ tray preference is off. Opening PathKeep from the tray or a foreground launch
 creates the window. This launch override does not change the saved preference.
 The dev-only desktop bridge starts after ownership and session initialization.
 
+A `--background` launch that never opens a window leaves on its own: once no owner
+request is in flight, no queue worker (Insights, enrichment, page fetching, AI) is
+running and the search index isn't catching up, it waits two idle minutes, closes
+the archive and exits. Turning the menu bar icon on keeps it, and opening a window
+makes it an ordinary launch that stays until quit. The next client starts it again.
+
 When connecting reports a missing/refused endpoint, a client starts the app once
 and waits up to 30 seconds for the endpoint. Other errors, including permissions,
 fail immediately. Once a request is submitted it is never automatically replayed:

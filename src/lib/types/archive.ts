@@ -628,6 +628,8 @@ export interface ArchiveRecoveryReport {
  * so it is surfaced as an informational line rather than a streamed bar.
  */
 export type ArchiveUpgradePhase =
+  | 'storageConversion'
+  | 'contentVerification'
   | 'schemaMigration'
   | 'registrableDomainBackfill'
   | 'searchReprojection'
@@ -644,6 +646,9 @@ export type ArchiveUpgradePhase =
  * shell can transition without inferring completion from the counters.
  */
 export interface ArchiveUpgradeProgress {
+  /** During conversion: the database and table being copied or checked. */
+  database?: string
+  table?: string
   phase: ArchiveUpgradePhase
   phaseLabel: string
   processed: number
@@ -668,14 +673,40 @@ export interface ArchiveUpgradePhaseAssessment {
 }
 
 /**
- * Result of the cheap first-run upgrade pre-check (`assess_archive_upgrade`).
- *
- * The shell reads `pending` at bootstrap to decide whether to show the upgrade
- * screen at all: a fresh install or already-migrated archive reports
- * `pending === false` (no screen), while a genuine version-behind archive
- * reports `pending === true` plus the per-phase breakdown seeding the UI.
+ * What converting an archive from the old SQLCipher files to Turso involves.
+ * Table counts are empty for an encrypted archive until its password is given.
+ */
+export interface ArchiveConversionAssessment {
+  required: boolean
+  sourceEncrypted: boolean
+  sourceFormat: string
+  targetFormat: string
+  sourceBytes: number
+  requiredFreeBytes: number
+  filesTouched: string[]
+  /** The old files; conversion never deletes them. */
+  filesRetained: string[]
+  /**
+   * Old files the password doesn't open although it opens the archive (an install
+   * that changed its password before v0.4). Conversion leaves them in place and
+   * doesn't carry them over. Empty until a password is given.
+   */
+  filesLocked: {
+    database: 'SourceEvidence' | 'Intelligence' | 'Agent'
+    path: string
+  }[]
+  tables: { database: string; table: string; rows: number }[]
+  /** An interrupted conversion continues where it stopped. */
+  resumable: boolean
+}
+
+/**
+ * Result of the cheap startup pre-check (`assess_archive_upgrade`). `pending`
+ * means the archive is still in the old format and must be converted before
+ * it can open; `conversion` says what that involves.
  */
 export interface ArchiveUpgradeAssessment {
+  conversion?: ArchiveConversionAssessment | null
   pending: boolean
   currentSchemaVersion: number
   targetSchemaVersion: number

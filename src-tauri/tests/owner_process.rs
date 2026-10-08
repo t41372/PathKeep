@@ -85,6 +85,37 @@ fn cold_client_backup_single_instance_handoff_and_mcp_use_only_owner() {
 }
 
 #[test]
+fn a_background_owner_exits_once_its_work_is_done_and_it_has_been_idle() {
+    let fixture = support::Fixture::new();
+    let command = || {
+        let mut command = fixture.command();
+        command.env("PATHKEEP_DEBUG_IDLE_EXIT_SECS", "3");
+        command
+    };
+    // A cold client starts the owner in the background; a backup keeps it busy.
+    let output = command().args(["--worker", "ping"]).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let ping: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let pid = ping["pid"].as_u64().unwrap() as u32;
+    let backup = command().args(["--worker", "backup"]).output().unwrap();
+    assert!(backup.status.success(), "{}", String::from_utf8_lossy(&backup.stderr));
+    let finished = Instant::now();
+
+    // With no window and the menu bar icon off, it leaves after the idle period.
+    let deadline = finished + Duration::from_secs(60);
+    while vault_store::OwnerLock::acquire(fixture.root.path()).is_err() {
+        assert!(Instant::now() < deadline, "the background owner (pid {pid}) never exited");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(finished.elapsed() >= Duration::from_secs(3), "it left before the idle period");
+    fixture.artifact(json!({"phase":"idle-exit","pid":pid,"exitedAfterMs":finished.elapsed().as_millis() as u64}));
+
+    // The next client simply starts it again.
+    let again = command().args(["--worker", "ping"]).output().unwrap();
+    assert!(again.status.success(), "{}", String::from_utf8_lossy(&again.stderr));
+}
+
+#[test]
 fn failed_ping_still_cleans_up_the_started_owner() {
     let fixture = support::Fixture::new();
     let mut child = fixture.command().arg("--background").spawn().unwrap();

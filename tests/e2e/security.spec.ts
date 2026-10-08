@@ -28,9 +28,8 @@ async function opensArchive(password: string) {
     })
     return true
   } catch (error) {
-    expect(String(error)).toContain(
-      'The current archive password did not open the archive.',
-    )
+    // The backend's typed code; the dialog shows its own words for it.
+    expect(String(error)).toContain('archive-password-wrong')
     return false
   }
 }

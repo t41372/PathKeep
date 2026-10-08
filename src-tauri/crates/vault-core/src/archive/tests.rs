@@ -2,53 +2,16 @@
 use super::*;
 use crate::{
     config::{ProjectPaths, project_paths_with_root},
-    models::{
-        ArchiveMode, BrowserProfile, RetentionPruneRequest, SnapshotRestoreRequest, TakeoutRequest,
-    },
+    models::{BrowserProfile, SnapshotRestoreRequest, TakeoutRequest},
     utils::{restore_test_env_var, test_env_lock},
 };
 use browser_history_parser::{ContextEvidence, NativeEntity, TypedEvidenceBatch};
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use std::collections::BTreeMap;
 use tempfile::tempdir;
 
 fn sample_paths(root: &Path) -> ProjectPaths {
     project_paths_with_root(root)
-}
-
-/// Inserts a uniquely-tagged run row so a rekey test can prove the canonical
-/// rows survived (the export copies it forward, so it is present in BOTH the
-/// original and the rekeyed file). `runs` is a root table, so this needs no FK
-/// scaffolding.
-fn seed_rekey_marker(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) {
-    let connection =
-        open_archive_connection(paths, config, key).expect("open archive to seed rekey marker");
-    connection
-        .execute(
-            "INSERT INTO runs (run_type, trigger, started_at, status)
-             VALUES ('backup', 'rekey-marker', '2026-06-30T00:00:00Z', 'success')",
-            [],
-        )
-        .expect("seed rekey marker run");
-}
-
-/// Counts the seeded marker rows, opening the archive in the given mode/key.
-fn rekey_marker_count(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> i64 {
-    let connection =
-        open_archive_connection(paths, config, key).expect("open archive to count rekey marker");
-    connection
-        .query_row("SELECT COUNT(*) FROM runs WHERE trigger = 'rekey-marker'", [], |row| row.get(0))
-        .expect("count rekey marker rows")
-}
-
-/// Counts the verified before-rekey safety snapshots on disk.
-fn rekey_snapshot_count(paths: &ProjectPaths) -> usize {
-    let rekey_dir = paths.raw_snapshots_dir.join("rekey");
-    fs::read_dir(&rekey_dir)
-        .map(|entries| {
-            entries.filter_map(|entry| entry.ok()).filter(|entry| entry.path().is_file()).count()
-        })
-        .unwrap_or(0)
 }
 
 pub(super) fn seed_chrome_fixture(root: &Path) -> PathBuf {
@@ -204,28 +167,7 @@ fn seed_missing_chrome_history_fixture(root: &Path) -> PathBuf {
     chrome_root
 }
 
-fn seed_lexical_archive(paths: &ProjectPaths, config: &AppConfig) {
-    let connection = open_archive_connection(paths, config, None).expect("open archive");
-    connection
-        .execute(
-            "INSERT INTO source_profiles (
-               id,
-               browser_kind,
-               browser_version,
-               profile_name,
-               profile_path,
-               discovered_at,
-               enabled,
-               profile_key,
-               user_name,
-               updated_at,
-               browser_product
-             )
-             VALUES (1, 'chrome', '146.0.0.0', 'Default', '/tmp/profile', '2026-05-01T00:00:00+00:00', 1, 'chrome:Default', NULL, '2026-05-01T00:00:00+00:00', 'Google Chrome')",
-            [],
-        )
-        .expect("insert source profile");
-
+fn seed_lexical_archive(vault: &crate::Vault) {
     let rows = [
         (
             1,
@@ -272,99 +214,41 @@ fn seed_lexical_archive(paths: &ProjectPaths, config: &AppConfig) {
         ),
     ];
 
-    for (id, url, title, visit_time, iso) in rows {
-        connection
-            .execute(
-                "INSERT INTO urls (
-                   id,
-                   url,
-                   title,
-                   visit_count,
-                   typed_count,
-                   first_visit_ms,
-                   first_visit_iso,
-                   last_visit_ms,
-                   last_visit_iso,
-                   source_profile_id,
-                   created_by_run_id,
-                   source_url_id,
-                   hidden,
-                   recorded_at
-                 )
-                 VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 0, ?1, 0, ?5)",
-                params![id, url, title, visit_time, iso],
-            )
-            .expect("insert url");
-        connection
-            .execute(
-                "INSERT INTO visits (
-                   id,
-                   url_id,
-                   source_visit_id,
-                   visit_time_ms,
-                   visit_time_iso,
-                   transition_type,
-                   visit_duration_ms,
-                   source_profile_id,
-                   created_by_run_id,
-                   app_id,
-                   from_visit,
-                   is_known_to_sync,
-                   recorded_at
-                 )
-                 VALUES (?1, ?1, ?1, ?2, ?3, 805306368, 1000, 1, 0, NULL, NULL, 1, ?3)",
-                params![id, visit_time, iso],
-            )
-            .expect("insert visit");
+    let mut history = crate::test_support::history::History::chrome(vault);
+    for (id, url, title, visit_time, _iso) in rows {
+        history = history.page(id, url, Some(title), visit_time);
     }
+    history.commit();
 }
 
-/// Stores one successful GitHub-repo enrichment for `history_id` (intelligence plane) and re-mirrors
-/// it into the search projection so a subsequent `list_history` lexical search can surface the excerpt.
-///
-/// `summary` doubles as the GitHub `description` (the indexer de-dupes the two) and `topics` carries an
-/// extra searchable keyword, mirroring how `enrichment_text_for_index` builds the projected text.
-fn store_lexical_enrichment(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    history_id: i64,
-    summary: &str,
-) {
-    let intelligence =
-        open_intelligence_connection(paths, config, None).expect("open intelligence");
-    crate::enrichment::ensure_visit_content_enrichment_schema(&intelligence)
-        .expect("enrichment schema");
-    intelligence
-        .execute(
-            "INSERT OR REPLACE INTO visit_content_enrichments
-             (history_id, content_source, fetch_status, fetched_at, snippet_json, extraction_json,
-              pipeline_version, extractor_version, enrichment_summary)
-             VALUES (?1, 'github-repo', 'success', '2026-06-21T00:00:00Z', '[]', ?2, 'v1', 1, ?3)",
-            params![
-                history_id,
-                format!(
-                    r#"{{"fullName":"o/r","description":"{summary}","topics":["enrichkw"],"language":"Rust"}}"#
-                ),
-                summary,
-            ],
-        )
-        .expect("insert enrichment");
-    drop(intelligence);
+/// Publishes one GitHub-repo enrichment's search text for the page of visit `history_id`, the way
+/// enrichment does, so a lexical search can surface the excerpt. `summary` doubles as the GitHub
+/// `description` and `topics` carries an extra searchable keyword.
+fn store_lexical_enrichment(vault: &crate::Vault, history_id: i64, summary: &str) {
+    let extraction = format!(
+        r#"{{"fullName":"o/r","description":"{summary}","topics":["enrichkw"],"language":"Rust"}}"#
+    );
+    let text = crate::archive::enrichment_text_for_index(Some(summary), Some(&extraction));
+    let page = vault
+        .read(vault_store::Db::Archive, move |s| {
+            Ok(s.query_one(
+                "SELECT u.page_id FROM visits v JOIN urls u ON u.id=v.url_id WHERE v.id=?1",
+                [history_id],
+                |r| Ok(r.get::<i64>(0)?),
+            )?)
+        })
+        .expect("seeded page");
+    crate::archive::set_enrichment_text(vault, page, &text).expect("enrichment text");
+    vault.search().cycle().expect("index");
 }
 
 #[test]
 fn plain_browse_history_query_leaves_enrichment_excerpt_none() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    seed_lexical_archive(&paths, &config);
+    let vault = crate::Vault::open_temp().unwrap();
+    seed_lexical_archive(&vault);
     // Enrichment exists for a row, but a non-search browse query must NOT attach any excerpt: the
     // excerpt is a lexical-search-only affordance, so browse rows stay None regardless.
-    store_lexical_enrichment(&paths, &config, 3, "Reusable workflow runner for CI pipelines");
-
-    let vault = crate::Vault::open(paths.clone(), config.clone(), None).unwrap();
-    crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
-    crate::test_support::legacy_fixtures::copy_search_metadata(&vault, &paths, &config);
+    store_lexical_enrichment(&vault, 3, "Reusable workflow runner for CI pipelines");
     let browse = list_history(&vault, HistoryQuery { limit: Some(50), ..HistoryQuery::default() })
         .expect("plain browse query");
     assert!(browse.total >= 7, "the browse path returns the full seeded set");
@@ -378,13 +262,8 @@ fn plain_browse_history_query_leaves_enrichment_excerpt_none() {
 fn uncounted_history_pages_walk_the_same_rows_as_counted_pages() {
     // History's infinite list sends `includeTotal: false` so a page never pays an archive-wide
     // COUNT. Walking with the cursor must still reach every row exactly once and stop cleanly.
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig::default();
-    seed_lexical_archive(&paths, &config);
-
-    let vault = crate::Vault::open(paths.clone(), config.clone(), None).unwrap();
-    crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
+    let vault = crate::Vault::open_temp().unwrap();
+    seed_lexical_archive(&vault);
 
     let walk = |q: Option<&str>| {
         let mut seen = Vec::new();
@@ -489,9 +368,6 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
 }
 
-#[path = "tests/legacy_queries.rs"]
-pub(super) mod legacy_queries;
-
 #[test]
 fn backup_guards_initialization_selection_and_due_skip_before_profile_work() {
     let vault = crate::Vault::open_temp().unwrap();
@@ -503,7 +379,7 @@ fn backup_guards_initialization_selection_and_due_skip_before_profile_work() {
     assert!(uninitialized.to_string().contains("archive has not been initialized"));
 
     let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let no_selection = run_backup(&vault.with_config(config.clone()), false)
         .expect_err("empty selected profiles should fail");
     assert!(
@@ -534,54 +410,6 @@ fn backup_guards_initialization_selection_and_due_skip_before_profile_work() {
 }
 
 #[test]
-fn retention_helpers_fall_back_to_filesystem_counts_when_archive_is_unreadable() {
-    let root = tempdir().expect("tempdir");
-    let paths = sample_paths(root.path());
-    let nested = paths.raw_snapshots_dir.join("nested");
-    fs::create_dir_all(&nested).expect("snapshot nested dir");
-    fs::write(nested.join("snapshot.sqlite"), b"snapshot").expect("snapshot file");
-    fs::write(paths.raw_snapshots_dir.join("root.sqlite"), b"snapshot").expect("root snapshot");
-
-    let missing = root.path().join("missing-retention-root");
-    assert_eq!(count_path_entries(&missing), 0);
-    assert_eq!(remove_directory_contents(&missing).expect("missing directory"), (0, 0));
-    assert_eq!(remove_path(&missing).expect("missing path"), (0, 0));
-
-    let file_instead_of_dir = root.path().join("not-a-directory");
-    fs::write(&file_instead_of_dir, b"file").expect("file path");
-    assert_eq!(count_path_entries(&file_instead_of_dir), 0);
-
-    let mut unreadable_paths = paths.clone();
-    unreadable_paths.archive_database_path = root.path().join("archive-directory");
-    fs::create_dir_all(&unreadable_paths.archive_database_path).expect("archive dir");
-    let bucket = retention_snapshot_bucket(
-        &unreadable_paths,
-        &AppConfig {
-            initialized: true,
-            archive_mode: ArchiveMode::Plaintext,
-            ..AppConfig::default()
-        },
-        None,
-    )
-    .expect("retention bucket");
-
-    assert_eq!(bucket.id, "snapshots");
-    assert_eq!(bucket.item_count, 3);
-
-    let uninitialized_bucket = retention_snapshot_bucket(
-        &paths,
-        &AppConfig {
-            initialized: false,
-            archive_mode: ArchiveMode::Plaintext,
-            ..AppConfig::default()
-        },
-        None,
-    )
-    .expect("uninitialized retention bucket");
-    assert_eq!(uninitialized_bucket.item_count, 3);
-}
-
-#[test]
 fn remove_path_except_skips_a_nonexistent_path() {
     // The `!path.exists()` defensive arm of the D3 last-good-keep recursion: a path that does not
     // exist removes nothing and counts nothing.
@@ -602,20 +430,6 @@ fn remove_directory_contents_except_skips_a_missing_root() {
 }
 
 #[test]
-fn stats_with_archive_totals_replaces_non_object_inputs_with_totals() {
-    let connection = Connection::open_in_memory().expect("sqlite");
-    create_schema(&connection).expect("schema");
-
-    let stats =
-        stats_with_archive_totals(&connection, serde_json::json!("not-an-object")).expect("stats");
-
-    assert_eq!(stats["totalProfiles"], 0);
-    assert_eq!(stats["totalUrls"], 0);
-    assert_eq!(stats["totalVisits"], 0);
-    assert_eq!(stats["totalDownloads"], 0);
-}
-
-#[test]
 fn backup_rejects_selected_profiles_that_are_not_readable() {
     let vault = crate::Vault::open_temp().unwrap();
     let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -633,7 +447,7 @@ fn backup_rejects_selected_profiles_that_are_not_readable() {
         selected_profile_ids: vec!["chrome:Missing".to_string()],
         ..AppConfig::default()
     };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
 
     let error = run_backup(&vault.with_config(config.clone()), false)
         .expect_err("unreadable selected profile should fail");
@@ -780,7 +594,7 @@ fn backup_surfaces_a_degraded_staging_fallback_as_a_run_warning() {
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
 
     let report = run_backup(&vault.with_config(config.clone()), false);
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
@@ -820,7 +634,7 @@ fn backup_marks_run_failed_when_readable_profile_cannot_be_staged() {
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
 
     let error =
         run_backup(&vault.with_config(config.clone()), false).expect_err("staging should fail");
@@ -860,7 +674,7 @@ fn backup_skips_unreadable_selected_profile_when_another_profile_is_readable() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let report = run_backup(&vault.with_config(config.clone()), false)
         .expect("run backup with skipped profile");
 
@@ -906,7 +720,7 @@ fn multi_browser_backup_ingests_firefox_and_safari_history() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let report =
         run_backup(&vault.with_config(config.clone()), false).expect("run multi-browser backup");
     assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
@@ -952,7 +766,7 @@ fn safari_backup_baseline_ingests_history_without_firefox_or_chrome_dependency()
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let report = run_backup(&vault.with_config(config.clone()), false).expect("run safari backup");
     assert_eq!(report.run.as_ref().expect("run").new_visits, 1);
     assert_eq!(report.run.as_ref().expect("run").new_urls, 1);
@@ -990,7 +804,7 @@ fn backup_keeps_chrome_successful_when_selected_safari_is_unreadable() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let report = run_backup(&vault.with_config(config.clone()), false).expect("run backup");
     assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
     assert_eq!(report.profiles.len(), 1);
@@ -1033,7 +847,7 @@ fn backup_keeps_readable_profiles_when_safari_staging_loses_access() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let report = run_backup(&vault.with_config(config.clone()), false).expect("run backup");
     assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
     assert_eq!(report.profiles.len(), 1);
@@ -1100,7 +914,7 @@ fn snapshot_restore_preview_and_run_record_the_saved_checkpoint() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     let backup = run_backup(&vault.with_config(config.clone()), false).expect("run backup");
     let snapshot_path: String = crate::test_support::store::Probe::new(&vault)
         .query_row(
@@ -1179,7 +993,7 @@ fn snapshot_restore_records_failed_run_when_replay_cannot_persist() {
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     run_backup(&vault.with_config(config.clone()), false).expect("run backup");
     let connection = crate::test_support::store::Probe::new(&vault);
     let snapshot_path: String = connection
@@ -1326,7 +1140,7 @@ fn snapshot_restore_preview_sizes_firefox_and_safari_checkpoints() {
         ..AppConfig::default()
     };
 
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    crate::config::ensure_paths(&paths).expect("paths");
     run_backup(&vault.with_config(config.clone()), false).expect("run multi-browser backup");
 
     let snapshot_paths = vault
@@ -1366,499 +1180,6 @@ fn snapshot_restore_preview_sizes_firefox_and_safari_checkpoints() {
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
     restore_test_env_var("CHB_FIREFOX_PROFILES_DIR", original_firefox.as_deref());
     restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
-}
-
-#[test]
-fn retention_preview_and_prune_clear_local_artifacts_and_record_a_run() {
-    let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempdir().expect("tempdir");
-    let chrome_root = seed_chrome_fixture(dir.path());
-    let original_override = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
-    unsafe {
-        std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
-    }
-
-    let paths = sample_paths(dir.path());
-    let config = AppConfig {
-        initialized: true,
-        git_enabled: true,
-        selected_profile_ids: vec!["chrome:Default".to_string()],
-        ..AppConfig::default()
-    };
-
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    let checkpoint = paths.raw_snapshots_dir.join("retention-fixture");
-    fs::create_dir_all(&checkpoint).unwrap();
-    fs::write(checkpoint.join("History"), b"fixture").unwrap();
-    let db = open_archive_connection(&paths, &config, None).unwrap();
-    db.execute("INSERT INTO snapshots(run_id,file_path,file_size,created_at,reason) VALUES(0,?1,7,'2026-04-05','fixture')",[checkpoint.display().to_string()]).unwrap();
-    fs::create_dir_all(&paths.exports_dir).expect("create exports dir");
-    fs::write(paths.exports_dir.join("export.jsonl"), "[]").expect("write export fixture");
-
-    let preview = preview_retention(&paths, &config, None).expect("preview retention");
-    assert!(preview.buckets.iter().any(|bucket| bucket.id == "snapshots" && bucket.bytes > 0));
-    assert!(preview.buckets.iter().any(|bucket| bucket.id == "exports" && bucket.bytes > 0));
-    // The code channel is what Settings localizes against, so it must stay
-    // index-aligned with the diagnostic prose.
-    assert_eq!(preview.warnings.len(), preview.warning_codes.len());
-    assert_eq!(
-        preview.warning_codes,
-        vec![
-            crate::models::RETENTION_WARNING_SNAPSHOT_PRUNE_REMOVES_CHECKPOINTS.to_string(),
-            crate::models::RETENTION_WARNING_EXPORT_PRUNE_LOCAL_ONLY.to_string(),
-        ]
-    );
-
-    let result = run_retention_prune(
-        &paths,
-        &config,
-        None,
-        &RetentionPruneRequest { bucket_ids: vec!["snapshots".to_string(), "exports".to_string()] },
-    )
-    .expect("run retention prune");
-    assert!(result.run_id.is_some());
-    assert!(result.deleted_bytes > 0);
-    assert_eq!(directory_size(&paths.raw_snapshots_dir), 0);
-    assert_eq!(directory_size(&paths.exports_dir), 0);
-
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    let snapshot_count: i64 = connection
-        .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get(0))
-        .expect("snapshot count");
-    assert_eq!(snapshot_count, 0);
-    let recent_runs = legacy_recent_runs(&paths, &config, None);
-    assert!(recent_runs.iter().any(|run| run.run_type == "retention_prune"));
-
-    restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
-}
-
-#[test]
-fn maintenance_guards_manual_snapshots_and_retention_edge_cases() {
-    let vault = crate::Vault::open_temp().unwrap();
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-
-    let safety_snapshot = paths.raw_snapshots_dir.join("manual-safety.sqlite");
-    fs::create_dir_all(&paths.raw_snapshots_dir).expect("create snapshot dir");
-    fs::write(&safety_snapshot, "manual safety copy").expect("write safety snapshot");
-    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    connection
-        .execute(
-            "INSERT INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-             VALUES (90, 'backup', 'manual', ?1, 'UTC', 'success', '[\"profile-a\"]', '[]', '{}', 0)",
-            params![now_rfc3339()],
-        )
-        .expect("insert run");
-    connection
-        .execute(
-            "INSERT INTO snapshots (run_id, file_path, file_size, checksum, reason, created_at)
-             VALUES (90, ?1, 18, 'manual', 'safety-copy', ?2)",
-            params![safety_snapshot.display().to_string(), now_rfc3339()],
-        )
-        .expect("insert safety snapshot");
-
-    let stored_path = safety_snapshot.display().to_string();
-    vault.store().write(vault_store::Db::Archive,vault_store::Priority::Interactive,move |s| {
-        s.execute("INSERT INTO runs(id,run_type,trigger,started_at,status,profile_scope_json) VALUES(90,'backup','manual','2026-04-05','success','[\"profile-a\"]')",())?;
-        s.execute("INSERT INTO snapshots(run_id,file_path,file_size,checksum,reason,created_at) VALUES(90,?1,18,'manual','safety-copy','2026-04-05')",[stored_path])?;Ok(())
-    }).unwrap();
-    let preview = preview_snapshot_restore(
-        &vault,
-        &SnapshotRestoreRequest { snapshot_path: safety_snapshot.display().to_string() },
-    )
-    .expect("manual safety snapshot preview");
-    assert_eq!(preview.snapshot_kind, "archive-safety-snapshot");
-    // D1: the full-archive safety snapshot is now one-click restorable (quarantine + install +
-    // reconcile), so the preview advertises execute support and describes the restore.
-    assert!(preview.execute_supported);
-    assert_eq!(preview.source_profile_id.as_deref(), Some("profile-a"));
-    assert!(preview.warnings[0].contains("One-click restore"));
-    let run_error = run_snapshot_restore(
-        &vault,
-        &SnapshotRestoreRequest { snapshot_path: safety_snapshot.display().to_string() },
-    )
-    .expect_err("manual safety copies are not automatically restored");
-    assert!(run_error.to_string().contains("automatic restore"));
-
-    let uninitialized = AppConfig { initialized: false, ..AppConfig::default() };
-    let restore_uninitialized = run_snapshot_restore(
-        &vault.with_config(uninitialized.clone()),
-        &SnapshotRestoreRequest { snapshot_path: safety_snapshot.display().to_string() },
-    )
-    .expect_err("uninitialized archive cannot restore snapshots");
-    assert!(restore_uninitialized.to_string().contains("archive has not been initialized"));
-
-    let prune_error = run_retention_prune(
-        &paths,
-        &uninitialized,
-        None,
-        &RetentionPruneRequest { bucket_ids: vec!["exports".to_string()] },
-    )
-    .expect_err("uninitialized archive cannot prune");
-    assert!(prune_error.to_string().contains("initialize the archive"));
-
-    let empty = run_retention_prune(
-        &paths,
-        &config,
-        None,
-        &RetentionPruneRequest { bucket_ids: Vec::new() },
-    )
-    .expect("empty prune request");
-    assert!(empty.run_id.is_none());
-    assert!(empty.warnings[0].contains("Choose at least one"));
-
-    let unknown = run_retention_prune(
-        &paths,
-        &config,
-        None,
-        &RetentionPruneRequest { bucket_ids: vec!["not-a-bucket".to_string()] },
-    )
-    .expect("unknown bucket prune request");
-    assert!(unknown.run_id.is_none());
-    assert!(unknown.warnings[0].contains("No matching"));
-
-    fs::create_dir_all(&paths.exports_dir).expect("exports dir");
-    fs::create_dir_all(&paths.staging_dir).expect("staging dir");
-    fs::create_dir_all(&paths.quarantine_dir).expect("quarantine dir");
-    fs::write(paths.exports_dir.join("export.json"), "{}").expect("export file");
-    fs::write(paths.staging_dir.join("stage.tmp"), "stage").expect("staging file");
-    fs::write(paths.quarantine_dir.join("bad.txt"), "bad").expect("quarantine file");
-    let all = run_retention_prune(
-        &paths,
-        &config,
-        None,
-        &RetentionPruneRequest {
-            bucket_ids: vec![
-                "snapshots".to_string(),
-                "exports".to_string(),
-                "staging".to_string(),
-                "quarantine".to_string(),
-            ],
-        },
-    )
-    .expect("all retention buckets");
-    assert!(all.run_id.is_some());
-    assert!(all.deleted_files >= 4);
-    assert_eq!(directory_size(&paths.exports_dir), 0);
-    assert_eq!(directory_size(&paths.staging_dir), 0);
-    assert_eq!(directory_size(&paths.quarantine_dir), 0);
-}
-
-#[test]
-fn rekey_archive_keeps_a_safety_snapshot() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    fs::write(paths.archive_database_path.with_extension("rekey.sqlite"), "stale rekey temp")
-        .expect("write stale rekey temp");
-    fs::write(paths.archive_database_path.with_extension("backup.sqlite"), "stale rekey backup")
-        .expect("write stale rekey backup");
-
-    let status =
-        rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("vault-passphrase"))
-            .expect("rekey archive");
-
-    let rekey_dir = paths.raw_snapshots_dir.join("rekey");
-    let snapshots = fs::read_dir(&rekey_dir)
-        .expect("read rekey snapshot dir")
-        .filter_map(|entry| entry.ok())
-        .collect::<Vec<_>>();
-
-    assert!(status.encrypted);
-    assert_eq!(snapshots.len(), 1);
-    assert!(snapshots[0].path().is_file());
-    assert!(!paths.archive_database_path.with_extension("rekey.sqlite").exists());
-    assert!(!paths.archive_database_path.with_extension("backup.sqlite").exists());
-
-    let encrypted_config = AppConfig { archive_mode: ArchiveMode::Encrypted, ..config.clone() };
-    let recent_runs = legacy_recent_runs(&paths, &encrypted_config, Some("vault-passphrase"));
-    let rekey_run =
-        recent_runs.iter().find(|run| run.run_type == "rekey").expect("rekey run in ledger");
-    let connection =
-        open_archive_connection(&paths, &encrypted_config, Some("vault-passphrase")).unwrap();
-    let manifest: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM manifests WHERE run_id=?1 AND file_path IS NOT NULL)",
-            [rekey_run.id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    let snapshot: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM snapshots WHERE run_id=?1 AND reason='before-rekey')",
-            [rekey_run.id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert!(manifest && snapshot);
-    drop(connection);
-
-    let plaintext_status = rekey_archive(
-        &paths,
-        &encrypted_config,
-        Some("vault-passphrase"),
-        ArchiveMode::Plaintext,
-        None,
-    )
-    .expect("rekey back to plaintext");
-    assert!(!plaintext_status.encrypted);
-}
-
-#[test]
-fn rekey_archive_reports_missing_database_and_missing_new_key() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-
-    let missing_database = rekey_archive(&paths, &config, None, ArchiveMode::Plaintext, None)
-        .expect_err("missing archive database");
-    assert!(missing_database.to_string().contains("archive database does not exist"));
-
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    let missing_key = rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, None)
-        .expect_err("missing new encryption key");
-    assert!(missing_key.to_string().contains("new encryption key is required"));
-}
-
-#[test]
-fn rekey_archive_records_failed_run_when_config_save_fails_after_swap() {
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    fs::remove_file(&paths.config_path).expect("remove config file");
-    fs::create_dir(&paths.config_path).expect("replace config path with directory");
-
-    let error = rekey_archive(&paths, &config, None, ArchiveMode::Plaintext, None)
-        .expect_err("config save failure should abort rekey closeout");
-    assert!(error.to_string().contains("writing"));
-
-    let connection =
-        Connection::open(&paths.archive_database_path).expect("open archive after swap");
-    let (status, error_message): (String, Option<String>) = connection
-        .query_row(
-            "SELECT status, error_message
-             FROM runs
-             WHERE run_type = 'rekey'
-             ORDER BY id DESC
-             LIMIT 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .expect("failed rekey run");
-    assert_eq!(status, "failed");
-    assert!(error_message.as_deref().is_some_and(|message| message.contains("writing")));
-}
-
-// --- Crash-window regression suite (Phase B/E) ---------------------------------------------------
-//
-// The named, legible home for the archive-mutation crash-window tests: each destructive op (rekey,
-// backup; import lives in `migration::fault_tests`, restore + launch recovery in `maintenance`) has a
-// kill-at-EXACT-checkpoint regression that (a) FAILS on the un-hardened code (no crash seam, config
-// written before the swap) and (b) asserts the INJECTED fault propagated via `format!("{err:#}")`,
-// never a bare `is_err()`. Phase E adds the config<->disk invariant post-condition (see
-// `config_disk_invariant_holds_after_a_successful_backup` here, plus the enumerated torture + the
-// `check_config_disk_consistency` checker in `archive::at_rest`) so a crash can never ship a config
-// that lags the installed files.
-
-#[test]
-fn rekey_crash_after_export_before_swap_leaves_the_original_archive_recoverable() {
-    // Window (4): a crash AFTER the new-keyed export but BEFORE the swap must be a
-    // full no-op — the ORIGINAL canonical archive + config are untouched and the
-    // verified backstop already exists. This would FAIL on the old flow, which had
-    // no crash seam at all and swapped before writing config.
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    seed_rekey_marker(&paths, &config, None);
-
-    let _guard =
-        crate::fault_inject::FaultGuard::error_at_must_fire("rekey.after_export_before_swap");
-    let error = rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("new-pass"))
-        .expect_err("a crash before the swap must abort the rekey");
-
-    let rendered = format!("{error:#}");
-    assert!(
-        rendered.contains("simulated error at checkpoint")
-            && rendered.contains("rekey.after_export_before_swap"),
-        "the INJECTED fault must propagate, got: {rendered}"
-    );
-
-    // Config never changed and the ORIGINAL archive still opens with the ORIGINAL key
-    // and holds the seeded rows.
-    assert!(matches!(
-        crate::config::load_config(&paths).expect("load config").archive_mode,
-        ArchiveMode::Plaintext
-    ));
-    assert_eq!(rekey_marker_count(&paths, &config, None), 1, "the original rows must survive");
-    assert_eq!(rekey_snapshot_count(&paths), 1, "the verified backstop must exist");
-}
-
-#[test]
-fn rekey_crash_after_swap_before_config_keeps_backstop_and_new_file_openable() {
-    // Window (6) — THE incident window: a crash AFTER the durable swap but BEFORE
-    // config is written. Config still reads the OLD mode (it is written LAST, so this
-    // is the self-healable lag, not a brick), the on-disk file is the converted one
-    // and opens with the NEW key, and the backstop snapshot is still present. The old
-    // flow deleted its rollback copy before config and had no durability barrier here.
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    seed_rekey_marker(&paths, &config, None);
-
-    let _guard =
-        crate::fault_inject::FaultGuard::error_at_must_fire("rekey.after_swap_before_config");
-    let error = rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("new-pass"))
-        .expect_err("a crash in the incident window must abort the rekey");
-
-    let rendered = format!("{error:#}");
-    assert!(
-        rendered.contains("simulated error at checkpoint")
-            && rendered.contains("rekey.after_swap_before_config"),
-        "the INJECTED fault must propagate, got: {rendered}"
-    );
-
-    // Config still reflects the OLD mode (config is written LAST).
-    assert!(matches!(
-        crate::config::load_config(&paths).expect("load config").archive_mode,
-        ArchiveMode::Plaintext
-    ));
-
-    // The on-disk archive was durably converted and opens with the NEW key, rows
-    // intact (forward-recoverable once config heals), and the backstop remains.
-    let encrypted = AppConfig { archive_mode: ArchiveMode::Encrypted, ..config.clone() };
-    assert_eq!(
-        rekey_marker_count(&paths, &encrypted, Some("new-pass")),
-        1,
-        "the rekeyed file must open with the new key and preserve rows"
-    );
-    assert_eq!(rekey_snapshot_count(&paths), 1, "the backstop snapshot must remain after the swap");
-}
-
-#[test]
-fn rekey_crash_after_config_has_consistent_new_mode_and_openable_archive() {
-    // Window (9): a crash AFTER config is durably written (before the closeout)
-    // leaves config AND the on-disk file both at the NEW mode — a consistent,
-    // openable state.
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    seed_rekey_marker(&paths, &config, None);
-
-    let _guard = crate::fault_inject::FaultGuard::error_at_must_fire("rekey.after_config");
-    let error = rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("new-pass"))
-        .expect_err("a crash after the config write must abort closeout");
-
-    let rendered = format!("{error:#}");
-    assert!(
-        rendered.contains("simulated error at checkpoint")
-            && rendered.contains("rekey.after_config"),
-        "the INJECTED fault must propagate, got: {rendered}"
-    );
-
-    // Config matches the NEW mode and the archive opens with the new key.
-    assert!(matches!(
-        crate::config::load_config(&paths).expect("load config").archive_mode,
-        ArchiveMode::Encrypted
-    ));
-    let encrypted = AppConfig { archive_mode: ArchiveMode::Encrypted, ..config.clone() };
-    assert_eq!(rekey_marker_count(&paths, &encrypted, Some("new-pass")), 1);
-    assert_eq!(rekey_snapshot_count(&paths), 1);
-}
-
-#[cfg(unix)]
-#[test]
-fn run_retention_prune_blocks_on_a_foreign_write_lock() {
-    // Lock-completion block: retention-prune is a destructive op that MUST hold the
-    // cross-process write lock for its duration. While another OS process holds it, the
-    // prune cannot proceed. We simulate the foreign holder with a raw second `flock`, run
-    // the prune on a worker, prove it is BLOCKED (it cannot finish), then release the lock
-    // and prove it completes. FAILS on pre-change code, which took no lock here and so ran
-    // to completion despite the foreign holder.
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-
-    let foreign = super::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
-
-    let worker_paths = paths.clone();
-    let worker_config = config.clone();
-    let (done_tx, done_rx) = mpsc::channel();
-    let worker = std::thread::spawn(move || {
-        let result = run_retention_prune(
-            &worker_paths,
-            &worker_config,
-            None,
-            &RetentionPruneRequest { bucket_ids: vec!["exports".to_string()] },
-        );
-        done_tx.send(result.is_ok()).ok();
-    });
-
-    assert!(
-        done_rx.recv_timeout(Duration::from_millis(500)).is_err(),
-        "retention prune ran without holding the cross-process write lock",
-    );
-
-    drop(foreign);
-    assert!(
-        done_rx
-            .recv_timeout(Duration::from_secs(10))
-            .expect("retention prune must finish once the foreign lock is released"),
-        "retention prune must succeed after the lock frees",
-    );
-    worker.join().expect("worker thread");
-}
-
-#[cfg(unix)]
-#[test]
-fn reconcile_archive_encryption_blocks_on_a_foreign_write_lock() {
-    // Lock-completion block: the unlock-path at-rest reconcile is a destructive rewrite
-    // that MUST hold the cross-process write lock so a scheduled backup can never race it
-    // on source-evidence. We prove it is BLOCKED behind a foreign holder, then completes
-    // once the lock frees. FAILS on pre-change code, which opened + reconciled without the
-    // lock and so finished despite the foreign holder (with no interrupted-import marker
-    // present, pre-change recovery was a lock-free no-op too).
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-
-    let foreign = super::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
-
-    let worker_paths = paths.clone();
-    let worker_config = config.clone();
-    let (done_tx, done_rx) = mpsc::channel();
-    let worker = std::thread::spawn(move || {
-        let result = reconcile_archive_encryption(&worker_paths, &worker_config, None);
-        done_tx.send(result.is_ok()).ok();
-    });
-
-    assert!(
-        done_rx.recv_timeout(Duration::from_millis(500)).is_err(),
-        "at-rest reconcile ran without holding the cross-process write lock",
-    );
-
-    drop(foreign);
-    assert!(
-        done_rx
-            .recv_timeout(Duration::from_secs(10))
-            .expect("at-rest reconcile must finish once the foreign lock is released"),
-        "at-rest reconcile must succeed after the lock frees",
-    );
-    worker.join().expect("worker thread");
 }
 
 #[test]
@@ -1973,29 +1294,6 @@ fn visit_event_fingerprint_is_stable() {
         None,
     );
     assert_eq!(fingerprint, "da53df0772e36b09afd187a0454da559fe451c828a40353f4e5c7514d17ecc59");
-}
-
-/// These assertions belong to the unported maintenance scenarios, not native read models.
-fn legacy_recent_runs(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Vec<crate::BackupRunOverview> {
-    let connection = open_archive_connection(paths, config, key).unwrap();
-    connection
-        .prepare("SELECT id,run_type,status FROM runs WHERE id>0 ORDER BY id DESC")
-        .unwrap()
-        .query_map([], |r| {
-            Ok(crate::BackupRunOverview {
-                id: r.get(0)?,
-                run_type: r.get(1)?,
-                status: r.get(2)?,
-                ..Default::default()
-            })
-        })
-        .unwrap()
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .unwrap()
 }
 
 fn seed_firefox_fixture(root: &Path) -> PathBuf {

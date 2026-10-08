@@ -10,6 +10,9 @@
 //! keychain, or deciding when the vault locks. `vault-store` and the search crate build on
 //! this one.
 //!
+//! Failure modes: plaintext spills or temporary artifacts, cross-purpose key reuse,
+//! unauthenticated truncation, unbounded decrypted caches or non-atomic envelope replacement.
+//!
 //! The README next to this crate describes the formats, the key hierarchy and the threat
 //! model.
 
@@ -17,6 +20,8 @@ mod atomic_file;
 mod crash_point;
 mod envelope;
 mod keys;
+mod portable;
+pub use portable::{decrypt_artifact, encrypt_artifact, read_artifact, write_artifact};
 mod search_dir;
 mod temp_io;
 

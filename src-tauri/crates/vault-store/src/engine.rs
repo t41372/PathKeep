@@ -46,7 +46,7 @@ impl Settings {
         let mut b = turso::Builder::new_local(self.path.to_str().unwrap())
             .read_only(read_only)
             .experimental_attach(true)
-            .experimental_encryption(self.key.is_some())
+            .experimental_encryption(true)
             .experimental_multiprocess_wal(false);
         if let Some(key) = &self.key {
             b = b.with_encryption(turso::EncryptionOpts {
@@ -229,7 +229,7 @@ fn hex_key(key: &[u8; 32]) -> zeroize::Zeroizing<String> {
     }
     s
 }
-fn scratch_uri(path: &Path, key: Option<&[u8; 32]>) -> zeroize::Zeroizing<String> {
+pub(crate) fn scratch_uri(path: &Path, key: Option<&[u8; 32]>) -> zeroize::Zeroizing<String> {
     use std::fmt::Write;
     let mut uri = zeroize::Zeroizing::new(String::from("file:"));
     for byte in path.to_str().unwrap().as_bytes() {

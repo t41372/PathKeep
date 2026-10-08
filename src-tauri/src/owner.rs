@@ -39,10 +39,12 @@ impl OwnerService {
         launches: LaunchState,
         background: bool,
         startup_windows: usize,
+        activity: std::sync::Arc<crate::idle_exit::Activity>,
     ) -> anyhow::Result<Self> {
         let operation_lock = lock.clone();
         let server = vault_owner_ipc::Server::start(root, move |request, progress| {
             let _ownership = &operation_lock;
+            let _request = activity.begin();
             let ping = request.method == "ping";
             let mut result = vault_worker::owner_requests::dispatch(
                 request,

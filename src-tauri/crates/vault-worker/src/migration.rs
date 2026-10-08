@@ -1,85 +1,99 @@
-//! Worker-layer wrappers for whole-app Export / Import.
-//!
-//! These functions hydrate the unlocked config + canonical project paths
-//! from the desktop session and delegate the actual zip pack / unpack to
-//! `vault-core::migration`. The session key flow matches every other
-//! archive surface so encrypted archives can be exported without leaking
-//! plaintext through a temporary on-disk path that lives outside the
-//! project staging dir.
-
-use crate::context::load_unlocked_config;
+//! Responsibilities: run native portable-bundle operations through the owning Vault.
+//! Not responsible for: ZIP verification, cryptography or desktop session publication.
+//! Failure modes: export requires a legacy password, fresh-root import refuses, a file v0.3
+//! exported reaches the native importer, source/agent data omitted, wrong bundle key reaches
+//! live files. Tests below.
 use anyhow::Result;
 use std::path::PathBuf;
-use vault_core::{ApplyImportOptions, ExportedBundle, ImportPreview, ImportResult};
+use vault_core::{
+    ApplyImportOptions, ExportedBundle, ImportPreview, ImportResult, ProjectPaths, Vault,
+    maintenance::InstalledArchive,
+};
 
-/// Packs the entire local project into a `.pathkeep-bundle` zip at
-/// `target_path`. The caller (Settings → Data Migration) supplies the
-/// path; this layer only enforces that the active session knows the
-/// archive unlock key when the archive is encrypted.
 pub fn export_app_data(
-    session_database_key: Option<&str>,
-    target_path: PathBuf,
+    vault: &Vault,
+    target: PathBuf,
+    export_password: &str,
 ) -> Result<ExportedBundle> {
-    vault_core::require_complete_storage_migration("full-archive export")?;
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::export_app_data(&paths, &config, session_database_key, &target_path)
+    crate::maintenance_jobs::run(&vault.paths().app_root, "exporting", |cancel, progress| {
+        vault_core::migration::native::export(vault, &target, export_password, cancel, progress)
+    })
 }
 
-/// Validates a bundle's manifest + sha256 anti-tamper sidecar and returns
-/// the preview the Settings UI shows before the user confirms the
-/// destructive overwrite. Read-only.
-pub fn preview_import(bundle_path: PathBuf) -> Result<ImportPreview> {
-    vault_core::require_complete_storage_migration("full-archive import")?;
-    let paths = vault_core::project_paths()?;
-    vault_core::preview_import(&paths, &bundle_path)
+/// Files v0.3 exported (format 1) hold the old databases; the converter imports those.
+fn made_by_v0_3(bundle: &std::path::Path) -> Result<bool> {
+    Ok(vault_core::migration::read_and_validate_manifest(bundle)?.format_version
+        == vault_convert_sqlcipher::bundle::FORMAT)
 }
 
-/// Applies a previously-previewed bundle onto the live project tree.
-/// `options.confirm_overwrite` must be set when the target already has
-/// an initialized archive.
+pub fn preview_import(paths: &ProjectPaths, bundle: PathBuf) -> Result<ImportPreview> {
+    if made_by_v0_3(&bundle)? {
+        return vault_convert_sqlcipher::bundle::preview(paths, &bundle);
+    }
+    vault_core::migration::native::preview(paths, &bundle)
+}
+
 pub fn apply_import(
-    session_database_key: Option<&str>,
-    bundle_path: PathBuf,
+    paths: &ProjectPaths,
+    current: Option<&Vault>,
+    owner: Option<std::sync::Arc<vault_store::OwnerLock>>,
+    bundle: PathBuf,
     options: ApplyImportOptions,
-) -> Result<ImportResult> {
-    vault_core::require_complete_storage_migration("full-archive import")?;
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::apply_import(&paths, &config, session_database_key, &bundle_path, &options)
+) -> Result<(ImportResult, InstalledArchive)> {
+    crate::context::load_unlocked_config(paths)?;
+    let v0_3 = made_by_v0_3(&bundle)?;
+    crate::maintenance_jobs::run(&paths.app_root, "importing", |cancel, progress| {
+        if v0_3 {
+            vault_convert_sqlcipher::bundle::import(
+                paths, current, owner, &bundle, &options, cancel, progress,
+            )
+        } else {
+            vault_core::migration::native::import(paths, current, owner, &bundle, &options, cancel)
+        }
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    //! Responsibilities: verify mixed-storage refusals before filesystem mutation.
-    //! Not responsible for: the legacy bundle format, covered by vault-core migration tests.
-    //! Failure modes: export creates a misleading bundle; import overwrites one store only.
     use super::*;
-    #[test]
-    fn export_is_unavailable_until_storage_migration_completes() {
+    fn exported() -> (Vault, tempfile::TempDir, PathBuf) {
+        let vault = Vault::open_temp().unwrap();
         let root = tempfile::tempdir().unwrap();
         let target = root.path().join("archive.pathkeep-bundle");
-        let error = export_app_data(None, target.clone()).unwrap_err();
-        assert!(error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some());
-        assert!(!target.exists());
+        export_app_data(&vault, target.clone(), "export password").unwrap();
+        (vault, root, target)
     }
     #[test]
-    fn preview_import_reports_the_typed_migration_refusal() {
-        let error = preview_import(PathBuf::from("absent.pathkeep-bundle")).unwrap_err();
-        assert!(error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some());
+    fn export_app_data_writes_a_bundle_at_the_requested_target() {
+        let (_vault, _root, target) = exported();
+        assert!(target.is_file());
     }
     #[test]
-    fn import_cannot_replace_archive_files_during_migration() {
-        let root = tempfile::tempdir().unwrap();
-        let bundle = root.path().join("archive.pathkeep-bundle");
-        std::fs::write(&bundle, "preserve these bytes").unwrap();
-        let error = apply_import(
+    fn preview_import_reads_a_bundle_written_by_export_app_data() {
+        let (_vault, root, target) = exported();
+        let preview =
+            preview_import(&vault_core::project_paths_with_root(root.path()), target).unwrap();
+        assert_eq!(preview.manifest.archive_mode, "encrypted");
+        assert!(preview.manifest.files.iter().any(|f| f.path == "archive/agent.db"));
+    }
+    #[test]
+    fn apply_import_restores_an_exported_bundle_onto_a_fresh_project_root() {
+        let (_vault, _root, target) = exported();
+        let destination = tempfile::tempdir().unwrap();
+        let paths = vault_core::project_paths_with_root(destination.path());
+        let (report, archive) = apply_import(
+            &paths,
             None,
-            bundle.clone(),
-            ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
+            None,
+            target,
+            ApplyImportOptions {
+                confirm_overwrite: true,
+                source_archive_key: Some("export password".into()),
+            },
         )
-        .unwrap_err();
-        assert!(error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some());
-        assert_eq!(std::fs::read_to_string(bundle).unwrap(), "preserve these bytes");
+        .unwrap();
+        assert_eq!(report.final_schema_version, 1);
+        assert!(archive.vault.paths().archive_database_path.is_file());
+        assert!(Vault::unlock_data_key(&paths, "export password").is_ok());
     }
 }

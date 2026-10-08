@@ -3,6 +3,10 @@
  * Both go through a preview dialog (`preview_import_batch`): what the import
  * added, from where, how many visits are shown now, and the audit record;
  * then the action. Undo hides the visits; restore shows them again.
+ *
+ * An import, undo or restore the app was closed in the middle of stays in
+ * the list first (the backend lists unfinished ones first) and says so; an
+ * unfinished undo or restore is finished by running it again.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -39,10 +43,50 @@ function useKindLabel() {
       : t('backup.import.batches.browserFile')
 }
 
+type BatchAction = 'revert' | 'restore'
+
+/** What a batch in each backend state offers: its action, and whether that finishes an earlier one. */
+function batchAction(
+  status: string,
+): { action: BatchAction; finishing: boolean } | null {
+  switch (status) {
+    case 'running':
+      return null
+    case 'reverted':
+      return { action: 'restore', finishing: false }
+    case 'reverting':
+      return { action: 'revert', finishing: true }
+    case 'restoring':
+      return { action: 'restore', finishing: true }
+    default:
+      // imported, interrupted, failed: undo hides whatever it added.
+      return { action: 'revert', finishing: false }
+  }
+}
+
+function useActionLabel() {
+  const { t } = useI18n()
+  return ({
+    action,
+    finishing,
+  }: {
+    action: BatchAction
+    finishing: boolean
+  }) =>
+    finishing
+      ? action === 'revert'
+        ? t('backupImport.batches.finishUndo')
+        : t('backupImport.batches.finishRestore')
+      : action === 'revert'
+        ? t('backup.import.batches.undo')
+        : t('backup.import.batches.restore')
+}
+
 export function ImportsCard() {
   const { t } = useI18n()
   const format = useFormat()
   const kind = useKindLabel()
+  const actionLabel = useActionLabel()
   const batches = useSnapshot().recentImportBatches
   const [open, setOpen] = useState<ImportBatchOverview | null>(null)
 
@@ -58,7 +102,7 @@ export function ImportsCard() {
       ) : (
         <ul className="-my-1.5 flex flex-col">
           {batches.map((batch) => {
-            const undone = batch.status === 'reverted'
+            const offer = batchAction(batch.status)
             return (
               <li
                 key={batch.id}
@@ -75,23 +119,35 @@ export function ImportsCard() {
                   <span className="text-xs text-muted-foreground tabular">
                     {format.dayAndTime(batch.importedAt ?? batch.createdAt)}
                     {' · '}
-                    {undone
-                      ? t('backup.import.batches.undone')
-                      : t('backup.import.batches.summary', {
-                          imported: format.number(batch.importedItems),
-                          duplicates: format.number(batch.duplicateItems),
-                        })}
+                    {batch.status === 'running'
+                      ? t('backupImport.batches.importing')
+                      : batch.status === 'reverted'
+                        ? t('backup.import.batches.undone')
+                        : batch.status === 'reverting'
+                          ? t('backupImport.batches.undoStopped')
+                          : batch.status === 'restoring'
+                            ? t('backupImport.batches.restoreStopped')
+                            : batch.status === 'interrupted'
+                              ? t('backupImport.batches.stopped', {
+                                  imported: format.number(batch.importedItems),
+                                })
+                              : t('backup.import.batches.summary', {
+                                  imported: format.number(batch.importedItems),
+                                  duplicates: format.number(
+                                    batch.duplicateItems,
+                                  ),
+                                })}
                   </span>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setOpen(batch)}
-                >
-                  {undone
-                    ? t('backup.import.batches.restore')
-                    : t('backup.import.batches.undo')}
-                </Button>
+                {offer && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setOpen(batch)}
+                  >
+                    {actionLabel(offer)}
+                  </Button>
+                )}
               </li>
             )
           })}
@@ -111,7 +167,9 @@ function BatchDialog({
 }) {
   return (
     <Dialog open={batch !== null} onOpenChange={(next) => !next && onClose()}>
-      {batch && <BatchReview batch={batch} onClose={onClose} />}
+      {batch && batchAction(batch.status) && (
+        <BatchReview batch={batch} onClose={onClose} />
+      )}
     </Dialog>
   )
 }
@@ -135,7 +193,12 @@ function BatchReview({
   const { t } = useI18n()
   const format = useFormat()
   const kind = useKindLabel()
-  const undone = batch.status === 'reverted'
+  const actionLabel = useActionLabel()
+  const offer = batchAction(batch.status) ?? {
+    action: 'revert' as const,
+    finishing: false,
+  }
+  const undone = offer.action === 'restore'
   const detail = useQuery({
     queryKey: [...queryKeys.archiveData, 'import-batch', batch.id],
     queryFn: () => importClient.previewBatch(batch.id),
@@ -172,13 +235,19 @@ function BatchReview({
           })}
         </DialogTitle>
         <DialogDescription>
-          {undone
-            ? t('backupImport.batches.restoreNote', {
-                count: current.importedItems,
-              })
-            : t('backupImport.batches.undoNote', {
-                count: current.visibleItems,
-              })}
+          {offer.finishing
+            ? undone
+              ? t('backupImport.batches.finishRestoreNote')
+              : t('backupImport.batches.finishUndoNote')
+            : undone
+              ? t('backupImport.batches.restoreNote', {
+                  count: current.importedItems,
+                })
+              : t('backupImport.batches.undoNote', {
+                  count: current.visibleItems,
+                })}
+          {current.status === 'interrupted' &&
+            ` ${t('backupImport.batches.stoppedNote')}`}
         </DialogDescription>
       </DialogHeader>
 
@@ -234,9 +303,11 @@ function BatchReview({
           {action.isPending && <Spinner />}
           {action.isPending
             ? t('backupImport.batches.working')
-            : undone
-              ? t('backupImport.batches.restoreConfirm')
-              : t('backup.import.batches.undoConfirm')}
+            : offer.finishing
+              ? actionLabel(offer)
+              : undone
+                ? t('backupImport.batches.restoreConfirm')
+                : t('backup.import.batches.undoConfirm')}
         </Button>
       </DialogFooter>
     </DialogContent>

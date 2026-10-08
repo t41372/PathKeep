@@ -1,7 +1,7 @@
 //! Responsibilities: keep statements/cursors on one thread and scope each transaction.
 //! Not responsible for: scheduling, application SQL or accumulating large result sets.
 //! Failure modes: reads write; errors/panics leak transactions; cursor escape shares
-//! ownership; failed rollback is hidden; doctor cannot inspect encrypted files or metadata. Tests: concurrency, api compile-fail docs.
+//! ownership; failed rollback is hidden; prepared batches retain old bindings; doctor cannot inspect encrypted files or metadata. Tests: concurrency, api compile-fail docs.
 use crate::{Error, Result};
 use std::{
     cell::{Cell, RefCell},
@@ -83,6 +83,17 @@ impl<'a> Session<'a> {
         crate::migration::version(self)
     }
 
+    /// Conversion needs named columns without exposing arbitrary PRAGMA execution.
+    pub fn table_columns(&self, table: &str) -> Result<Vec<String>> {
+        self.runtime.block_on(async {
+            let rows = self
+                .conn
+                .query(format!("SELECT * FROM \"{}\" LIMIT 0", table.replace('"', "\"\"")), ())
+                .await?;
+            Ok(rows.column_names())
+        })
+    }
+
     /// Runs Turso's structural and row/index consistency checks on this snapshot.
     /// This fixed read-only pragma does not expose arbitrary connection settings.
     pub fn integrity_check(&self) -> Result<Vec<String>> {
@@ -132,6 +143,21 @@ impl<'a> Session<'a> {
         self.with_statement(sql, |statement| {
             Ok(self.runtime.block_on(statement.execute(params))?)
         })
+    }
+
+    /// Applies one statement to each row of a caller-bounded page. The statement is
+    /// compiled once, through this connection's cache, and counts once per row.
+    pub fn execute_rows(&self, sql: &str, rows: Vec<Vec<turso::Value>>) -> Result<u64> {
+        let extra = rows.len().saturating_sub(1);
+        let changed = self.with_statement(sql, |statement| {
+            let mut changed = 0;
+            for values in rows {
+                changed += self.runtime.block_on(statement.execute(values))?;
+            }
+            Ok(changed)
+        })?;
+        self.statements.set(self.statements.get() + extra);
+        Ok(changed)
     }
     /// Collect a bounded application page. For unbounded queries use `for_each`.
     pub fn query<T>(

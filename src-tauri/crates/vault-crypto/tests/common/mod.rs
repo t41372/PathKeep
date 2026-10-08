@@ -1,3 +1,8 @@
+//! Responsibilities: support real process-kill tests, byte scanning and memory observations.
+//! Not responsible for: production cryptography or deciding whether an operation may publish.
+//! Failure modes: missing atomically replaced plaintext files, ignored child failures or unbounded
+//! scanner buffers.
+//!
 //! Shared test helpers: child processes that can be SIGKILLed, a reproducible random source,
 //! a raw-byte scanner for plaintext, and load averages for timing records.
 //!
@@ -322,17 +327,22 @@ impl Watcher {
         Watcher { stop, handle: Some(handle), quarantine }
     }
 
-    /// Stops watching and returns every file seen, with the needles found in its final bytes.
+    /// Scans retained links and current paths: atomic replacement can leave the
+    /// original hard link pointing at different bytes from the final live file.
     pub fn finish(mut self, needles: &[&[u8]]) -> Vec<(WatchedFile, Vec<String>)> {
         self.stop.store(true, Ordering::Release);
         let files = self.handle.take().unwrap().join().unwrap();
         files
             .into_iter()
             .map(|file| {
-                let source = file.copy.clone().unwrap_or_else(|| file.path.clone());
-                let hits = scan_file(&source, needles)
+                let hits = file
+                    .copy
                     .iter()
+                    .chain(std::iter::once(&file.path))
+                    .flat_map(|source| scan_file(source, needles))
                     .map(|n| String::from_utf8_lossy(n).into_owned())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
                     .collect();
                 (file, hits)
             })

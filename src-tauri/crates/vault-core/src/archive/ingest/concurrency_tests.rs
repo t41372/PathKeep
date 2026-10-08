@@ -68,6 +68,68 @@ fn snapshot(rows: i64) -> ProfileSnapshot {
     }
 }
 
+/// Safety copies must capture a committed backup prefix, including its evidence
+/// and cursor, while allowing the remaining batches to continue afterwards.
+#[test]
+fn safety_snapshot_during_backup_restores_a_consistent_committed_prefix() {
+    for encrypted in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let paths = crate::project_paths_with_root(root.path());
+        crate::config::ensure_paths(&paths).unwrap();
+        let config = crate::AppConfig {
+            initialized: true,
+            git_enabled: false,
+            archive_mode: if encrypted {
+                crate::ArchiveMode::Encrypted
+            } else {
+                crate::ArchiveMode::Plaintext
+            },
+            ..Default::default()
+        };
+        crate::save_config(&paths, &config).unwrap();
+        let vault = if encrypted {
+            Vault::open_password(paths, config, "snapshot password", None).unwrap().0
+        } else {
+            Vault::open(paths, config, None).unwrap()
+        };
+        let source = snapshot(20_003);
+        let (sent, ready) = std::sync::mpsc::channel();
+        let (resume, wait) = std::sync::mpsc::channel();
+        let writer = vault.clone();
+        let backup = std::thread::spawn(move || {
+            let mut paused = false;
+            super::super::backup::run_backup_profiles(
+                &writer,
+                false,
+                &CancelToken::new(),
+                vec![source.profile],
+                |p| {
+                    if !paused && p.imported_records == Some(10_000) {
+                        paused = true;
+                        sent.send(()).unwrap();
+                        wait.recv().unwrap();
+                    }
+                },
+            )
+            .unwrap();
+        });
+        ready.recv().unwrap();
+        let saved = vault.paths().raw_snapshots_dir.join("maintenance/backup-prefix");
+        crate::maintenance::snapshot(&vault, &saved).unwrap();
+        resume.send(()).unwrap();
+        backup.join().unwrap();
+        let restored = crate::maintenance::restore_snapshot(
+            &vault,
+            &saved,
+            encrypted.then_some("snapshot password"),
+            Default::default(),
+        )
+        .unwrap();
+        let counts=restored.vault.store().read(Db::Archive,|s|s.query_one("SELECT (SELECT count(*) FROM visits),(SELECT value FROM archive_totals WHERE name='visits'),(SELECT last_visit_id FROM profile_watermarks LIMIT 1)",(),|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?)))).unwrap();
+        assert_eq!(counts, (10_000, 10_000, 10_000));
+    }
+}
+
 fn varied_snapshot(rows: i64) -> ProfileSnapshot {
     varied_snapshot_with_urls(rows, rows.min(503))
 }

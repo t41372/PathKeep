@@ -1,7 +1,7 @@
 //! Regression tests for optional AI and semantic retrieval helpers.
 use super::indexing::{
     IndexedVisit, chunk_size, clear_provider_embeddings, collect_stale_history_ids,
-    collect_visit_chunk, select_embed_targets, upsert_embedding, validate_embedding_batch_for_keys,
+    collect_visit_chunk, select_embed_targets, validate_embedding_batch_for_keys,
 };
 use super::provider::{
     embedding_descriptor_for, l2_normalize, normalize_local_base_url, resolve_embed_request_dim,
@@ -14,15 +14,18 @@ use super::search::{
     MATCH_REASON_LEXICAL, MATCH_REASON_LEXICAL_SEMANTIC, MATCH_REASON_RECENT_VISIT,
     MATCH_REASON_SEMANTIC, MATCH_REASON_STARRED_SUFFIX,
 };
+use super::search::{search_history_internal, semantic_matches};
 use crate::utils::sha256_hex;
 use crate::{
     ai_sidecar::SidecarEmbeddingRow,
-    archive::ensure_archive_initialized,
     config::project_paths_with_root,
     models::{AiSettings, ArchiveMode},
 };
-use browser_history_parser::chromium::chrome_time_to_unix_ms;
-use rusqlite::{Connection, params};
+use native::fixtures::{
+    SeedVisit, prepared_archive, prepared_archive_with_key, seed_embedding, seed_enrichment_text,
+    seed_extra_visit, seed_keyword_visits_bulk, seed_successful_index_ledger, seed_visit,
+    seed_visit_on_date, seed_visits,
+};
 use std::{
     fs,
     sync::atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -214,136 +217,6 @@ fn expected_stub_embedding(
     vector
 }
 
-fn seed_visit(
-    connection: &Connection,
-    history_id: i64,
-    profile_id: &str,
-    url: &str,
-    title: Option<&str>,
-    visit_time: i64,
-) {
-    let browser_kind = profile_id.split(':').next().unwrap_or("legacy");
-    let profile_row_id = profile_id.bytes().fold(0_i64, |acc, value| acc + value as i64).max(1);
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-             VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
-            [now_rfc3339()],
-        )
-        .expect("insert canonical run");
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
-             VALUES (?1, ?2, 'test', ?3, ?4, ?5, 1, ?6, ?5)",
-            params![
-                profile_row_id,
-                browser_kind,
-                profile_id,
-                format!("/tmp/{profile_id}"),
-                now_rfc3339(),
-                profile_id,
-            ],
-        )
-        .expect("insert canonical profile");
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.urls
-             (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
-             VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, ?6, 1, ?1, 0, ?7, ?8)",
-            params![
-                history_id,
-                url,
-                title,
-                chrome_time_to_unix_ms(visit_time),
-                crate::utils::chrome_time_to_rfc3339(visit_time),
-                profile_row_id,
-                format!("payload-{history_id}"),
-                now_rfc3339()
-            ],
-        )
-        .expect("insert canonical url");
-    connection
-        .execute(
-            "INSERT INTO archive.visits
-             (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 805306368, 0, ?6, 1, NULL, 1, 0, NULL, NULL, ?7, ?8, ?9)",
-            params![
-                history_id,
-                history_id,
-                history_id.to_string(),
-                chrome_time_to_unix_ms(visit_time),
-                crate::utils::chrome_time_to_rfc3339(visit_time),
-                profile_row_id,
-                format!("fp-{history_id}"),
-                format!("payload-{history_id}"),
-                now_rfc3339(),
-            ],
-        )
-        .expect("insert visit");
-}
-
-/// Adds a SECOND visit row on an EXISTING `urls` row (`url_id`), so one page can have multiple visits
-/// with distinct visit ids — the multi-visit-page shape M-12's page-stable fusion must collapse. The
-/// new visit id is `visit_id`; `visit_time` controls recency (higher = more recent → the representative).
-fn seed_extra_visit(connection: &Connection, visit_id: i64, url_id: i64, visit_time: i64) {
-    let profile_row_id =
-        "chrome:Default".bytes().fold(0_i64, |acc, value| acc + value as i64).max(1);
-    connection
-        .execute(
-            "INSERT INTO archive.visits
-             (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 805306368, 0, ?6, 1, NULL, 1, 0, NULL, NULL, ?7, ?8, ?9)",
-            params![
-                visit_id,
-                url_id,
-                visit_id.to_string(),
-                chrome_time_to_unix_ms(visit_time),
-                crate::utils::chrome_time_to_rfc3339(visit_time),
-                profile_row_id,
-                format!("fp-{visit_id}"),
-                format!("payload-{visit_id}"),
-                now_rfc3339(),
-            ],
-        )
-        .expect("insert extra visit");
-    // Keep the url's last_visit bookkeeping consistent with the newer visit so the hydration picks the
-    // most-recent visible visit as the representative.
-    connection
-        .execute(
-            "UPDATE archive.urls SET visit_count = visit_count + 1,
-               last_visit_ms = MAX(last_visit_ms, ?2), last_visit_iso = ?3
-             WHERE id = ?1",
-            params![
-                url_id,
-                chrome_time_to_unix_ms(visit_time),
-                crate::utils::chrome_time_to_rfc3339(visit_time)
-            ],
-        )
-        .expect("bump url last_visit");
-}
-
-fn seed_embedding(
-    connection: &Connection,
-    history_id: i64,
-    provider: &AiProviderRuntime,
-    content_hash: &str,
-) {
-    connection
-        .execute(
-            "INSERT INTO ai_embeddings
-             (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at)
-             VALUES (?1, 'chrome:Default', 'https://example.com', 'Example', 'example.com', '2026-04-04T00:00:00Z', ?2, 7, ?3, ?4, ?5)",
-            params![
-                history_id,
-                content_hash,
-                provider.config.id,
-                provider.config.default_model,
-                now_rfc3339()
-            ],
-        )
-        .expect("insert embedding");
-}
-
 /// Seeds the derived vector planes (W-AI-5) for a provider from `(history_id, content_key, vector)`.
 ///
 /// Writes a fingerprint-stamped `.pkvec` store (one vector per content_key, last-writer-wins), a
@@ -418,63 +291,6 @@ fn seed_vector_planes_without_reverse_sidecars(
     )
     .delete()
     .expect("drop reverse sidecars");
-}
-
-fn prepared_archive() -> (ProjectPaths, AppConfig, Connection) {
-    let paths = test_paths();
-    let config = base_config();
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
-    create_schema(&archive).expect("create schema");
-    let connection =
-        open_intelligence_connection(&paths, &config, None).expect("open intelligence");
-    crate::enrichment::ensure_visit_content_enrichment_schema(&connection)
-        .expect("legacy search fixture enrichment schema");
-    (paths, config, connection)
-}
-
-/// Seeds one `search.search_documents` row carrying `enrichment_text` for a URL (REACH-C3 tests).
-///
-/// `seed_visit` sets `urls.id == history_id`, and `search_documents` is keyed on that same `url_id`, so
-/// `url_id == history_id` here. Writes directly to the derived SEARCH plane (the same DB the lexical
-/// path projects into), so the semantic hydration JOIN finds an excerpt to cap. The other lexical
-/// columns are stubbed `''` because this path only reads `enrichment_text`.
-fn seed_enrichment_text(paths: &ProjectPaths, history_id: i64, _url: &str, text: &str) {
-    let source = open_intelligence_connection(paths, &base_config(), None).unwrap();
-    source.execute("INSERT OR REPLACE INTO visit_content_enrichments(history_id,content_source,fetch_status,fetched_at,snippet_json,extraction_json,pipeline_version,extractor_version,enrichment_summary) VALUES(?1,'github-repo','success','2026-01-01','[]','{}','v1',1,?2)",params![history_id,text]).unwrap();
-}
-
-fn seed_successful_index_ledger(
-    connection: &Connection,
-    provider: &AiProviderRuntime,
-    source_watermark: i64,
-) {
-    connection
-        .execute(
-            "INSERT OR REPLACE INTO ai_index_ledger (
-               provider_id,
-               model,
-               sidecar_table,
-               index_version,
-               state,
-               source_watermark,
-               last_run_id,
-               build_started_at,
-               build_finished_at,
-               last_indexed_at,
-               last_cleared_at,
-               last_failure_at,
-               failure_reason
-             )
-             VALUES (?1, ?2, 'ai_embeddings', 'test-v1', 'succeeded', ?3, 1, ?4, ?4, ?4, NULL, NULL, NULL)",
-            params![
-                provider.config.id,
-                provider.config.default_model,
-                source_watermark,
-                now_rfc3339(),
-            ],
-        )
-        .expect("insert successful ledger");
 }
 
 #[test]
@@ -909,11 +725,11 @@ fn build_assistant_preamble_covers_empty_and_seeded_context() {
 
 #[test]
 fn search_history_internal_empty_query_returns_recent_visits() {
-    let vault = crate::Vault::open_temp().unwrap();
     // BROWSE-BY-RECENCY: a blank query is no longer an error — it returns the most recent visits
     // (newest first), the entry point the agent needs to enumerate history / find the date range.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/old", Some("Old"), 1);
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/new", Some("New"), 99);
 
@@ -954,9 +770,9 @@ fn search_history_internal_empty_query_returns_recent_visits() {
 
 #[test]
 fn search_history_internal_supports_lexical_fallback() {
-    let vault = crate::Vault::open_temp().unwrap();
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
 
     let response = runtime
@@ -989,43 +805,34 @@ fn search_history_internal_supports_lexical_fallback() {
 
 #[test]
 fn search_history_internal_empty_query_honors_starred_facet() {
-    let vault = crate::Vault::open_temp().unwrap();
     // The starred facet still applies on the recency path: with `starred_only`, only starred pages
     // surface, and the starred boost tags them — keeping behavior consistent with the keyword path.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/plain", Some("Plain"), 1);
     seed_visit(&connection, 2, "chrome:Default", "https://starred.com/page", Some("Star"), 2);
-    connection
-        .execute(
-            "INSERT INTO archive.star (entity_kind, entity_key, starred_at) VALUES ('url', 'https://starred.com/page', '2026-01-01')",
-            [],
-        )
-        .expect("star a page");
+    star_url(&vault, "https://starred.com/page");
 
     let response = runtime
-        .block_on(async {
-            crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
-            search_history_internal(
-                &vault,
-                &paths,
-                &config,
-                None,
-                None,
-                &AiSearchRequest {
-                    query: String::new(),
-                    profile_id: None,
-                    domain: None,
-                    limit: Some(5),
-                    cursor: None,
-                    sort: None,
-                    starred_only: Some(true),
-                    start_date: None,
-                    end_date: None,
-                },
-            )
-            .await
-        })
+        .block_on(search_history_internal(
+            &vault,
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: String::new(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                sort: None,
+                starred_only: Some(true),
+                start_date: None,
+                end_date: None,
+            },
+        ))
         .expect("starred-only recency");
     assert_eq!(response.total, 1, "only the starred page survives the facet");
     assert_eq!(response.items[0].url, "https://starred.com/page");
@@ -1039,9 +846,9 @@ fn search_history_internal_empty_query_honors_starred_facet() {
 
 #[test]
 fn semantic_search_history_uses_public_wrapper_for_search_results() {
-    let vault = crate::Vault::open_temp().unwrap();
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
 
     let response = runtime
@@ -1071,13 +878,13 @@ fn semantic_search_history_uses_public_wrapper_for_search_results() {
 
 #[test]
 fn semantic_search_history_caps_the_fe_wrapper_at_the_model_facing_row_cap() {
-    let vault = crate::Vault::open_temp().unwrap();
     // The shared internal ceiling was raised to MAX_SEARCH_ROWS (1000) so the run_code SANDBOX can
     // fetch large pages, but the FE/worker `semantic_search_history` wrapper must stay capped at 50
     // (its pre-change behavior) — a UI/model-facing page never needs 1000 rows. Lethal: reverting the
     // wrapper cap lets the raised ceiling through and returns up to 120 here.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_keyword_visits_bulk(&connection, "mlx", 1, 120);
 
     let response = runtime
@@ -1115,9 +922,9 @@ fn assert_unique(ids: &[i64]) {
 
 #[test]
 fn answer_history_question_checks_feature_gates_before_network() {
-    let vault = crate::Vault::open_temp().unwrap();
     let runtime = Runtime::new().expect("runtime");
     let (paths, mut config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     config.ai.assistant_enabled = false;
     let error = runtime
@@ -1140,9 +947,9 @@ fn answer_history_question_checks_feature_gates_before_network() {
 
 #[test]
 fn answer_history_question_with_control_can_cancel_before_model_response() {
-    let vault = crate::Vault::open_temp().unwrap();
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     let control: Arc<dyn AiRunControl> = Arc::new(CountdownControl::new(1));
 
@@ -1167,9 +974,9 @@ fn answer_history_question_with_control_can_cancel_before_model_response() {
 
 #[test]
 fn answer_history_question_completes_with_lexical_citations_when_evidence_exists() {
-    let vault = crate::Vault::open_temp().unwrap();
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
 
     let response = runtime
@@ -1192,11 +999,10 @@ fn answer_history_question_completes_with_lexical_citations_when_evidence_exists
 
 #[test]
 fn search_history_tool_definition_and_call_collect_citations() {
-    let vault = crate::Vault::open_temp().unwrap();
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/history", Some("History"), 1);
-    crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
     let citations = Arc::new(Mutex::new(Vec::new()));
     let tool = SearchHistoryTool {
         context: SearchContext {
@@ -1270,16 +1076,15 @@ fn search_history_tool_definition_and_call_collect_citations() {
 
 #[test]
 fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
-    let vault = crate::Vault::open_temp().unwrap();
     let runtime = Runtime::new().expect("runtime");
-    let mut disabled = base_config();
+    let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
+    let mut disabled = config.clone();
     disabled.ai.enabled = false;
-    let _missing_paths = test_paths();
     let disabled_status =
         ai_index_status(&vault.with_config(disabled.clone())).expect("disabled status");
     assert!(disabled_status.warning.is_none());
 
-    let (paths, config, connection) = prepared_archive();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
 
     let mut no_provider = config.clone();
@@ -1289,19 +1094,10 @@ fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
     assert_eq!(no_provider_status.indexed_items, 0);
     assert!(no_provider_status.warning.is_some());
 
-    let (_native_paths, _native_config, native_db) = native::fixtures::prepared_archive();
-    native::fixtures::seed_visit(
-        &native_db,
-        1,
-        "chrome:Default",
-        "https://example.com/docs",
-        Some("Docs"),
-        1,
-    );
-    let collected = collect_visits_to_index(&native_db.vault, &embedding_provider(), None)
-        .expect("collect all");
+    let collected =
+        collect_visits_to_index(&vault, &embedding_provider(), None).expect("collect all");
     assert_eq!(collected.len(), 1);
-    seed_embedding(&connection, 1, &embedding_provider(), "sqlite-only-hash");
+    seed_embedding(&connection, 1, &embedding_provider(), "metadata-only-hash");
 
     // No vector planes were ever built, so the flat index loads empty and search degrades to lexical
     // with an honest "no vectors yet" note (W-AI-5 replaced the old "tracked for v0.3.0" placeholder).
@@ -1449,13 +1245,15 @@ fn semantic_matches_returns_no_hits_with_honest_note_when_index_is_empty() {
     // write path is STILL deferred, which we assert too.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
-    // A SQLite compatibility row exists (the staleness reasons gate on it) but NO planes were built.
-    seed_embedding(&connection, 1, &embedding, "sqlite-only-hash");
+    // An embedding metadata row exists (the staleness reasons gate on it) but NO planes were built.
+    seed_embedding(&connection, 1, &embedding, "metadata-only-hash");
 
     let report = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -1514,6 +1312,7 @@ fn semantic_matches_returns_real_hits_and_surfaces_stale_ledger_note() {
     // embedding; a stale ledger watermark still surfaces its rebuild note alongside the hits.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
@@ -1529,13 +1328,14 @@ fn semantic_matches_returns_real_hits_and_surfaces_stale_ledger_note() {
         &embedding,
         &[(1, 0x1111, docs_vector.clone()), (2, 0x2222, other_vector)],
     );
-    // SQLite compatibility rows (the staleness reason gates on them) + a stale ledger watermark so the
+    // Embedding metadata rows (the staleness reason gates on them) + a stale ledger watermark so the
     // staleness note is exercised alongside real hits.
     seed_embedding(&connection, 1, &embedding, "hash-1");
     seed_successful_index_ledger(&connection, &embedding, 1);
 
     let report = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -1576,6 +1376,7 @@ fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
     // This exercises the `reverse_sidecars_usable == false` branch + `VisitContentMap` scan path.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
@@ -1594,6 +1395,7 @@ fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
 
     let report = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -1625,6 +1427,7 @@ fn semantic_matches_rejects_a_dim_mismatch_with_an_honest_note() {
     // (vector dimension changed)" note, BEFORE any meaningless score can reach the merge.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider(); // dimensions: Some(3) → query embeds at dim 3
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     // Build the planes at dim 4 (a 4-component stored vector) — a different dim than the live query.
@@ -1632,6 +1435,7 @@ fn semantic_matches_rejects_a_dim_mismatch_with_an_honest_note() {
 
     let report = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -1666,6 +1470,7 @@ fn semantic_matches_rejects_same_dim_fingerprint_drift_with_an_honest_note() {
     // and the guard must degrade to lexical-only with a rebuild note.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
 
@@ -1701,6 +1506,7 @@ fn semantic_matches_rejects_same_dim_fingerprint_drift_with_an_honest_note() {
 
     let report = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -1733,6 +1539,7 @@ fn semantic_matches_filters_by_profile_and_domain_facets() {
     // matching profile's visit, and a domain facet only the matching domain.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Work", "https://example.com/docs", Some("Docs"), 5);
     seed_visit(&connection, 2, "chrome:Home", "https://example.com/docs", Some("Docs"), 1);
@@ -1756,6 +1563,7 @@ fn semantic_matches_filters_by_profile_and_domain_facets() {
     // Profile facet: only chrome:Work's visit of the shared page survives.
     let by_profile = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -1781,6 +1589,7 @@ fn semantic_matches_filters_by_profile_and_domain_facets() {
     // Domain facet: only other.com survives.
     let by_domain = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -1809,6 +1618,7 @@ fn semantic_matches_picks_most_recent_visit_among_a_pages_visits() {
     // most-recent visit (the dedup fan-out), exercising the keep-newer / replace-older arms.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     // Distinct VALID Chrome microsecond timestamps (above the epoch offset) so the two visits resolve
     // to distinct unix-ms (tiny values clamp to the same floor and would not be orderable).
@@ -1829,6 +1639,7 @@ fn semantic_matches_picks_most_recent_visit_among_a_pages_visits() {
 
     let report = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -1859,11 +1670,12 @@ fn semantic_matches_attaches_capped_enrichment_excerpt_for_an_enriched_hit() {
     // raw summary), so the search payload stays bounded at the 14.4M tail.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     // Enrichment text well over the 180-char budget → must come back capped + ellipsised.
     let long_summary = "Reusable workflow runner. ".repeat(20);
-    seed_enrichment_text(&paths, 1, "https://example.com/docs", &long_summary);
+    seed_enrichment_text(&connection, 1, &long_summary);
 
     let docs_vector = runtime
         .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
@@ -1872,6 +1684,7 @@ fn semantic_matches_attaches_capped_enrichment_excerpt_for_an_enriched_hit() {
 
     let report = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -1912,10 +1725,11 @@ fn semantic_matches_leaves_excerpt_none_for_a_non_enriched_hit() {
     // carry the "why"). The LEFT JOIN still returns the row — it is not dropped for lacking an excerpt.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
-    // No `seed_enrichment_text` → there is no `search_documents` row for this URL at all, so the LEFT
-    // JOIN yields a NULL `enrichment_text`. The row must still come back, just without an excerpt.
+    // No `seed_enrichment_text`, so the page's search document carries no enrichment text. The row
+    // must still come back, just without an excerpt.
 
     let docs_vector = runtime
         .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
@@ -1924,6 +1738,7 @@ fn semantic_matches_leaves_excerpt_none_for_a_non_enriched_hit() {
 
     let report = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -1956,16 +1771,15 @@ fn semantic_matches_enrichment_join_keeps_one_hit_for_a_multi_visit_enriched_pag
     // fan a result out per visit, and the dedup keeps the most-recent visit.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     let earlier = 13_300_000_000_000_000_i64;
     let later = 13_400_000_000_000_000_i64;
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), earlier);
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/docs", Some("Docs"), later);
-    // `seed_visit` keys `urls.id` off `history_id`, so the two visits are url_ids 1 and 2; both share
-    // ONE content_key (one page) for the dedup. Seed the excerpt on both url_ids so whichever visit wins
-    // the dedup carries it (the surviving visit's url_id drives the JOIN).
-    seed_enrichment_text(&paths, 1, "https://example.com/docs", "Shared page summary");
-    seed_enrichment_text(&paths, 2, "https://example.com/docs", "Shared page summary");
+    // The two visits are url_ids 1 and 2 on one page, and enrichment belongs to the page. Seeding it
+    // through the older visit proves the surviving newer visit still carries the page's excerpt.
+    seed_enrichment_text(&connection, 1, "Shared page summary");
 
     let docs_vector = runtime
         .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
@@ -1979,6 +1793,7 @@ fn semantic_matches_enrichment_join_keeps_one_hit_for_a_multi_visit_enriched_pag
 
     let report = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -2013,6 +1828,7 @@ fn semantic_matches_reports_no_visible_hits_when_all_are_facet_filtered_out() {
     // the active filters" note and no hits.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Work", "https://example.com/docs", Some("Docs"), 1);
 
@@ -2023,6 +1839,7 @@ fn semantic_matches_reports_no_visible_hits_when_all_are_facet_filtered_out() {
 
     let report = runtime
         .block_on(semantic_matches(
+            &vault,
             &paths,
             &config,
             None,
@@ -2052,14 +1869,14 @@ fn semantic_matches_reports_no_visible_hits_when_all_are_facet_filtered_out() {
 
 #[test]
 fn search_history_internal_uses_lexical_results_when_index_is_empty() {
-    let vault = crate::Vault::open_temp().unwrap();
     // An embedding provider is selected but no vector planes were built → the index loads empty, so
     // the merged result is lexical-only with an honest "no vectors yet" note (W-AI-5).
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
-    seed_embedding(&connection, 1, &embedding, "sqlite-only-hash");
+    seed_embedding(&connection, 1, &embedding, "metadata-only-hash");
 
     let search = runtime
         .block_on(search_history_internal(
@@ -2090,11 +1907,11 @@ fn search_history_internal_uses_lexical_results_when_index_is_empty() {
 
 #[test]
 fn search_history_internal_merges_real_semantic_hits_with_lexical() {
-    let vault = crate::Vault::open_temp().unwrap();
     // With built planes, a page found by BOTH lexical and semantic recall reconciles on its visit
     // and is stamped the combined `lexical+semantic` code; a semantic-only page joins as a fresh hit.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     // Page 1 is found lexically (title/url match "docs") AND semantically (vector match).
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
@@ -2158,12 +1975,12 @@ fn star_url(vault: &crate::Vault, url: &str) {
 
 #[test]
 fn rrf_ranks_a_dual_list_page_above_a_single_list_page() {
-    let vault = crate::Vault::open_temp().unwrap();
     // RRF core property (W-AI-6): a page ranked high in BOTH the lexical and semantic lists must beat a
     // page ranked high in only one list, because its score sums both lists' contributions. Page 1 is the
     // top lexical hit AND the top semantic hit; page 2 is only a semantic hit. Page 1 must rank first.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     // Page 1: lexical match for "docs" AND the exact semantic vector → in both lists at rank 0.
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
@@ -2218,7 +2035,6 @@ fn rrf_ranks_a_dual_list_page_above_a_single_list_page() {
 
 #[test]
 fn rrf_fuses_a_multi_visit_page_into_one_dual_list_row() {
-    let vault = crate::Vault::open_temp().unwrap();
     // M-12 regression: a frequently-visited page whose TWO newest matching visits BOTH land in the lexical
     // window must fuse into ONE row with the dual-list boost — not duplicate into a fused row PLUS a
     // separate lexical-only row, with only the newest visit earning the RRF dual-list credit. Page A has
@@ -2228,6 +2044,7 @@ fn rrf_fuses_a_multi_visit_page_into_one_dual_list_row() {
     // hit, so page A is ONE `lexical+semantic` row that out-ranks a single-list page.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
 
     // Page A: one url (url_id 1), TWO visits — visit 1 (older) + visit 2 (newer). Both match the lexical
@@ -2328,12 +2145,12 @@ fn rrf_fuses_a_multi_visit_page_into_one_dual_list_row() {
 
 #[test]
 fn rrf_semantic_weight_zero_degrades_to_lexical_order() {
-    let vault = crate::Vault::open_temp().unwrap();
     // Tunable weights (W-AI-6): zeroing the semantic weight drops its RRF contribution, so ranking
     // collapses to the lexical order even though semantic recall still ran. Page 2 (semantic-only)
     // contributes nothing and falls to the bottom; page 1 (lexical) ranks first.
     let runtime = Runtime::new().expect("runtime");
     let (paths, mut config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     config.ai.semantic_weight = 0.0; // normalize_search_knobs leaves 0.0 valid (disable, not invert).
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
@@ -2375,7 +2192,6 @@ fn rrf_semantic_weight_zero_degrades_to_lexical_order() {
 
 #[test]
 fn rrf_pagination_cursor_walks_the_fused_pool() {
-    let vault = crate::Vault::open_temp().unwrap();
     // RRF must not break pagination (W-AI-6): with a limit-1 page over a fused pool of TWO distinct
     // pages (one lexical-only, one semantic-only), page 1 returns a next_cursor and following it returns
     // the second result without overlap. (The lexical fetch + the per-page semantic hit are each bounded
@@ -2385,6 +2201,7 @@ fn rrf_pagination_cursor_walks_the_fused_pool() {
     // stable under parallel runs.
     let runtime = Runtime::new().expect("runtime");
     let (paths, mut config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     config.ai.lexical_weight = 2.0; // lexical page (2/60) outranks the semantic page (1/60) without a tie.
     let embedding = embedding_provider();
     // Page 1: lexical match for "docs", no seeded vector → lexical-only.
@@ -2450,11 +2267,11 @@ fn rrf_pagination_cursor_walks_the_fused_pool() {
 
 #[test]
 fn ai_off_search_is_lexical_only() {
-    let vault = crate::Vault::open_temp().unwrap();
     // Honest degradation (W-AI-6): no embedding provider → lexical-only, RRF degrades to the lexical
     // list, and the honest "lexical retrieval only" note is present.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     let response = runtime
         .block_on(search_history_internal(
@@ -2483,7 +2300,6 @@ fn ai_off_search_is_lexical_only() {
 
 #[test]
 fn starred_boost_promotes_a_relevant_favorite_without_dominating() {
-    let vault = crate::Vault::open_temp().unwrap();
     // THE bounded-boost property (W-AI-6, 05 §10): the starred boost must promote a *relevant* starred
     // page but must NOT let an *irrelevant* starred page leapfrog a strongly-relevant unstarred page —
     // otherwise semantic search degenerates into a bookmark list.
@@ -2497,6 +2313,7 @@ fn starred_boost_promotes_a_relevant_favorite_without_dominating() {
     //    BELOW the relevant unstarred page 1.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/rust-guide", Some("Rust"), 4);
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/star-mid", Some("Mid"), 3);
@@ -2539,28 +2356,24 @@ fn starred_boost_promotes_a_relevant_favorite_without_dominating() {
     star_url(&vault, "https://example.com/star-off");
 
     let search = runtime
-        .block_on(async {
-            crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
-            search_history_internal(
-                &vault,
-                &paths,
-                &config,
-                None,
-                Some(&embedding),
-                &AiSearchRequest {
-                    query: "rust".to_string(),
-                    profile_id: None,
-                    domain: None,
-                    limit: Some(10),
-                    cursor: None,
-                    sort: None,
-                    starred_only: None,
-                    start_date: None,
-                    end_date: None,
-                },
-            )
-            .await
-        })
+        .block_on(search_history_internal(
+            &vault,
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "rust".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                sort: None,
+                starred_only: None,
+                start_date: None,
+                end_date: None,
+            },
+        ))
         .expect("boosted hybrid search");
 
     let rank_of = |id: i64| search.items.iter().position(|item| item.history_id == id).unwrap();
@@ -2588,11 +2401,11 @@ fn starred_boost_promotes_a_relevant_favorite_without_dominating() {
 
 #[test]
 fn starred_boost_off_leaves_favorites_unpromoted() {
-    let vault = crate::Vault::open_temp().unwrap();
     // With the boost set to 0 the starred status is inert: the identical pages 2 (starred) and 3
     // (unstarred) tie on fusion and neither carries the `+starred` code suffix.
     let runtime = Runtime::new().expect("runtime");
     let (paths, mut config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     config.ai.starred_boost = 0.0;
     let embedding = embedding_provider();
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/star-mid", Some("Mid"), 2);
@@ -2608,28 +2421,24 @@ fn starred_boost_off_leaves_favorites_unpromoted() {
     star_url(&vault, "https://example.com/star-mid");
 
     let search = runtime
-        .block_on(async {
-            crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
-            search_history_internal(
-                &vault,
-                &paths,
-                &config,
-                None,
-                Some(&embedding),
-                &AiSearchRequest {
-                    query: "rust".to_string(),
-                    profile_id: None,
-                    domain: None,
-                    limit: Some(10),
-                    cursor: None,
-                    sort: None,
-                    starred_only: None,
-                    start_date: None,
-                    end_date: None,
-                },
-            )
-            .await
-        })
+        .block_on(search_history_internal(
+            &vault,
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "rust".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                sort: None,
+                starred_only: None,
+                start_date: None,
+                end_date: None,
+            },
+        ))
         .expect("boost-off search");
     assert!(
         search.items.iter().all(|item| !item.match_reason.contains(MATCH_REASON_STARRED_SUFFIX)),
@@ -2639,12 +2448,12 @@ fn starred_boost_off_leaves_favorites_unpromoted() {
 
 #[test]
 fn is_starred_facet_restricts_semantic_recall_to_starred_pages() {
-    let vault = crate::Vault::open_temp().unwrap();
     // The `is:starred` facet (W-AI-6) pushes the starred allowlist into the SEMANTIC plane: only starred
     // pages may be returned, even though both pages match the query vector equally. Page 1 is starred,
     // page 2 is not; with the facet on, only page 1 survives semantic recall.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     // Both pages share the EXACT query vector; only the star distinguishes them. Neither title/url
     // matches the query text, so this isolates the SEMANTIC allowlist (no lexical contribution).
@@ -2661,28 +2470,24 @@ fn is_starred_facet_restricts_semantic_recall_to_starred_pages() {
     star_url(&vault, "https://example.com/alpha");
 
     let search = runtime
-        .block_on(async {
-            crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
-            search_history_internal(
-                &vault,
-                &paths,
-                &config,
-                None,
-                Some(&embedding),
-                &AiSearchRequest {
-                    query: "needle".to_string(),
-                    profile_id: None,
-                    domain: None,
-                    limit: Some(10),
-                    cursor: None,
-                    sort: None,
-                    starred_only: Some(true),
-                    start_date: None,
-                    end_date: None,
-                },
-            )
-            .await
-        })
+        .block_on(search_history_internal(
+            &vault,
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "needle".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                sort: None,
+                starred_only: Some(true),
+                start_date: None,
+                end_date: None,
+            },
+        ))
         .expect("starred-facet search");
     assert_eq!(search.items.len(), 1, "only the starred page survives the facet");
     assert_eq!(search.items[0].history_id, 1);
@@ -2694,12 +2499,12 @@ fn is_starred_facet_restricts_semantic_recall_to_starred_pages() {
 
 #[test]
 fn is_starred_facet_resolves_via_pkmap_scan_when_reverse_sidecars_absent() {
-    let vault = crate::Vault::open_temp().unwrap();
     // M-11 read-path guard (forward / `is:starred` direction): an older index (no `.pkrev`/`.pkfwd`)
     // must still resolve the starred content_key allowlist via the authoritative `.pkmap` scan fallback
     // — same outcome as the keyed path. Exercises `resolve_content_keys_for_history_ids`'s fallback.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/alpha", Some("Alpha"), 2);
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/beta", Some("Beta"), 1);
@@ -2715,28 +2520,24 @@ fn is_starred_facet_resolves_via_pkmap_scan_when_reverse_sidecars_absent() {
     star_url(&vault, "https://example.com/alpha");
 
     let search = runtime
-        .block_on(async {
-            crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
-            search_history_internal(
-                &vault,
-                &paths,
-                &config,
-                None,
-                Some(&embedding),
-                &AiSearchRequest {
-                    query: "needle".to_string(),
-                    profile_id: None,
-                    domain: None,
-                    limit: Some(10),
-                    cursor: None,
-                    sort: None,
-                    starred_only: Some(true),
-                    start_date: None,
-                    end_date: None,
-                },
-            )
-            .await
-        })
+        .block_on(search_history_internal(
+            &vault,
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "needle".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                sort: None,
+                starred_only: Some(true),
+                start_date: None,
+                end_date: None,
+            },
+        ))
         .expect("starred-facet search via fallback");
     assert_eq!(search.items.len(), 1, "the fallback resolves the same starred allowlist");
     assert_eq!(search.items[0].history_id, 1);
@@ -2745,53 +2546,49 @@ fn is_starred_facet_resolves_via_pkmap_scan_when_reverse_sidecars_absent() {
 
 #[test]
 fn is_starred_facet_before_any_index_build_resolves_empty_without_a_store() {
-    let vault = crate::Vault::open_temp().unwrap();
     // M-11 guard, no-`.pkvec` branch: an `is:starred` query with a provider configured but NOTHING ever
     // embedded (no `.pkvec` store) must not error — `reverse_sidecars_usable` returns false (no store to
     // key off), the `.pkmap` fallback is empty, the allowlist is empty, and semantic recall honestly
     // yields no hits. Exercises the `store.read_header()? is None` branch of `reverse_sidecars_usable`.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/alpha", Some("Alpha"), 1);
     star_url(&vault, "https://example.com/alpha");
     // No `seed_vector_planes` → no `.pkvec`/`.pkmap`/sidecars at all.
 
     let search = runtime
-        .block_on(async {
-            crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
-            search_history_internal(
-                &vault,
-                &paths,
-                &config,
-                None,
-                Some(&embedding),
-                &AiSearchRequest {
-                    query: "needle".to_string(),
-                    profile_id: None,
-                    domain: None,
-                    limit: Some(10),
-                    cursor: None,
-                    sort: None,
-                    starred_only: Some(true),
-                    start_date: None,
-                    end_date: None,
-                },
-            )
-            .await
-        })
+        .block_on(search_history_internal(
+            &vault,
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "needle".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                sort: None,
+                starred_only: Some(true),
+                start_date: None,
+                end_date: None,
+            },
+        ))
         .expect("starred-facet search with no store");
     assert!(search.items.is_empty(), "no store ⇒ empty allowlist ⇒ no semantic hits (no error)");
 }
 
 #[test]
 fn is_starred_facet_with_nothing_starred_returns_no_semantic_hits() {
-    let vault = crate::Vault::open_temp().unwrap();
     // The facet is honest: when nothing starred is indexed the allowlist is EMPTY, so semantic recall
     // returns nothing rather than silently ignoring the facet. With no lexical match either, the result
     // set is empty.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/alpha", Some("Alpha"), 1);
     let needle = runtime
@@ -2825,39 +2622,35 @@ fn is_starred_facet_with_nothing_starred_returns_no_semantic_hits() {
 
 #[test]
 fn is_starred_facet_constrains_the_lexical_plane_too() {
-    let vault = crate::Vault::open_temp().unwrap();
     // The facet must also constrain the LEXICAL plane (today the browse facet is FE-only). Both pages
     // are lexical matches for "rust"; with the facet on, only the starred one survives — even with no
     // embedding provider (pure lexical path).
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/rust-a", Some("Rust A"), 2);
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/rust-b", Some("Rust B"), 1);
     star_url(&vault, "https://example.com/rust-a");
 
     let search = runtime
-        .block_on(async {
-            crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
-            search_history_internal(
-                &vault,
-                &paths,
-                &config,
-                None,
-                None, // lexical-only path
-                &AiSearchRequest {
-                    query: "rust".to_string(),
-                    profile_id: None,
-                    domain: None,
-                    limit: Some(10),
-                    cursor: None,
-                    sort: None,
-                    starred_only: Some(true),
-                    start_date: None,
-                    end_date: None,
-                },
-            )
-            .await
-        })
+        .block_on(search_history_internal(
+            &vault,
+            &paths,
+            &config,
+            None,
+            None, // lexical-only path
+            &AiSearchRequest {
+                query: "rust".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                sort: None,
+                starred_only: Some(true),
+                start_date: None,
+                end_date: None,
+            },
+        ))
         .expect("lexical starred-facet search");
     assert_eq!(search.items.len(), 1, "only the starred lexical row survives the facet");
     assert_eq!(search.items[0].history_id, 1);
@@ -2865,7 +2658,6 @@ fn is_starred_facet_constrains_the_lexical_plane_too() {
 
 #[test]
 fn is_starred_facet_recalls_an_older_starred_match_on_the_lexical_plane() {
-    let vault = crate::Vault::open_temp().unwrap();
     // MEDIUM regression (Bug 2): the `is:starred` lexical plane must EXPAND recall so a starred page
     // that matches the query text but was visited OLDER than the newest `limit` text matches is still
     // returned. The old code fetched only `limit` of the NEWEST matches then post-filtered to starred,
@@ -2875,6 +2667,7 @@ fn is_starred_facet_recalls_an_older_starred_match_on_the_lexical_plane() {
     // IS returned.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
 
     // The starred page is the OLDEST "rust" match (visit_time 1). Then 20 newer non-starred "rust"
     // matches (visit_time 2..=21) so a limit of 5 would, under the old code, fetch only the newest 5
@@ -2900,28 +2693,24 @@ fn is_starred_facet_recalls_an_older_starred_match_on_the_lexical_plane() {
     star_url(&vault, "https://example.com/rust-old");
 
     let search = runtime
-        .block_on(async {
-            crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
-            search_history_internal(
-                &vault,
-                &paths,
-                &config,
-                None,
-                None, // lexical-only path (AI-off / no provider)
-                &AiSearchRequest {
-                    query: "rust".to_string(),
-                    profile_id: None,
-                    domain: None,
-                    limit: Some(5),
-                    cursor: None,
-                    sort: None,
-                    starred_only: Some(true),
-                    start_date: None,
-                    end_date: None,
-                },
-            )
-            .await
-        })
+        .block_on(search_history_internal(
+            &vault,
+            &paths,
+            &config,
+            None,
+            None, // lexical-only path (AI-off / no provider)
+            &AiSearchRequest {
+                query: "rust".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                sort: None,
+                starred_only: Some(true),
+                start_date: None,
+                end_date: None,
+            },
+        ))
         .expect("lexical starred-facet search with an older starred match");
     // Only the starred page survives the facet, AND it is found despite being older than the newest 5.
     assert_eq!(
@@ -3379,11 +3168,11 @@ fn ai_index_warning_text_covers_every_warning_code() {
 
 #[test]
 fn search_response_carries_a_note_code_per_english_note_for_lexical_fallback() {
-    let vault = crate::Vault::open_temp().unwrap();
     // No embedding provider → the lexical-fallback degradation must surface BOTH the stable CODE
     // (for FE localization) and the English note (model-facing), in lockstep and same order.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     let response = runtime
         .block_on(search_history_internal(
@@ -3410,34 +3199,14 @@ fn search_response_carries_a_note_code_per_english_note_for_lexical_fallback() {
     assert_eq!(response.notes, vec![AiSearchNote::LexicalFallbackNoProvider.model_facing_text()]);
 }
 
-/// Seeds one visit DATED on a real `"YYYY-MM-DD"` day (at 12:00:00 UTC of that day).
-///
-/// The existing `seed_visit` timestamps (1 / 2 / 99) all collapse to ~1601 (the Chrome epoch), so they
-/// cannot exercise a date filter. This converts the date's midday Unix-ms to a Chrome timestamp (the
-/// format `seed_visit` expects) so `visits.visit_time_ms` lands on that real day. Midday avoids any
-/// boundary ambiguity with the inclusive [00:00, 23:59.999] day range.
-fn seed_visit_on_date(
-    connection: &Connection,
-    history_id: i64,
-    url: &str,
-    title: Option<&str>,
-    date: &str,
-) {
-    let (start_ms, _end_ms) =
-        crate::utils::date_str_to_unix_ms_range(date).expect("valid YYYY-MM-DD date");
-    let midday_unix_ms = start_ms + 12 * 60 * 60 * 1000; // +12h, comfortably inside the day.
-    let chrome_time = crate::utils::unix_micros_to_chrome_time(midday_unix_ms * 1000);
-    seed_visit(connection, history_id, "chrome:Default", url, title, chrome_time);
-}
-
 #[test]
 fn search_history_internal_recency_path_excludes_out_of_range_visits() {
-    let vault = crate::Vault::open_temp().unwrap();
     // Test 1 (recency path) — an empty query + start_date == end_date returns ONLY the in-range visit;
     // the out-of-range visit (a different day) is excluded by the date filter threaded into the lexical
     // recency reader. A regression dropping the date predicate would return BOTH.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit_on_date(&connection, 1, "https://in.example/page", Some("In"), "2026-06-19");
     seed_visit_on_date(&connection, 2, "https://out.example/page", Some("Out"), "2026-06-20");
 
@@ -3467,11 +3236,11 @@ fn search_history_internal_recency_path_excludes_out_of_range_visits() {
 
 #[test]
 fn search_history_internal_lexical_path_excludes_out_of_range_visits() {
-    let vault = crate::Vault::open_temp().unwrap();
     // Test 1 (lexical path) — a keyword query + a date range returns ONLY the in-range matching visit.
     // Both pages match the keyword "docs"; only the in-range one is within [2026-06-19, 2026-06-19].
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit_on_date(&connection, 1, "https://in.example/docs", Some("Docs in"), "2026-06-19");
     seed_visit_on_date(&connection, 2, "https://out.example/docs", Some("Docs out"), "2026-06-25");
 
@@ -3501,7 +3270,6 @@ fn search_history_internal_lexical_path_excludes_out_of_range_visits() {
 
 #[test]
 fn search_history_internal_semantic_path_excludes_out_of_range_visits() {
-    let vault = crate::Vault::open_temp().unwrap();
     // Test 1 (semantic/hybrid path, H1) — WITH an embedding provider, an out-of-range page that the
     // VECTOR index would otherwise surface must be excluded by the date filter. Both pages carry the
     // SAME query vector (both are strong semantic hits), but only page 1 is inside the date range. Before
@@ -3510,6 +3278,7 @@ fn search_history_internal_semantic_path_excludes_out_of_range_visits() {
     // reappears.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     // Page 1 is in-range; page 2 is out-of-range. Neither matches the keyword (titles/urls differ) so
     // ONLY the semantic plane can surface them — isolating the semantic date filter.
@@ -3553,12 +3322,12 @@ fn search_history_internal_semantic_path_excludes_out_of_range_visits() {
 
 #[test]
 fn search_history_internal_recency_has_more_and_applied_limit() {
-    let vault = crate::Vault::open_temp().unwrap();
     // Test 2 (recency path) — seed 3 visits; `limit: 2` → exactly 2 items, has_more == true,
     // applied_limit == Some(2). `limit: 5` → has_more == false. Before H3 the recency probe was a no-op
     // so has_more was ALWAYS false; this fails if H3 is reverted.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit_on_date(&connection, 1, "https://a.example/1", Some("One"), "2026-06-17");
     seed_visit_on_date(&connection, 2, "https://a.example/2", Some("Two"), "2026-06-18");
     seed_visit_on_date(&connection, 3, "https://a.example/3", Some("Three"), "2026-06-19");
@@ -3592,12 +3361,12 @@ fn search_history_internal_recency_has_more_and_applied_limit() {
 
 #[test]
 fn search_history_internal_lexical_has_more_and_applied_limit() {
-    let vault = crate::Vault::open_temp().unwrap();
     // Test 2 (keyword path) — seed 3 keyword-matching visits; `limit: 2` → 2 items, has_more == true.
     // Before M1 the lexical pool was hard-capped at `limit`, so the fused `total` could never exceed
     // `limit` and has_more was always false. This fails if M1 is reverted.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit_on_date(&connection, 1, "https://a.example/docs1", Some("Docs One"), "2026-06-17");
     seed_visit_on_date(&connection, 2, "https://a.example/docs2", Some("Docs Two"), "2026-06-18");
     seed_visit_on_date(&connection, 3, "https://a.example/docs3", Some("Docs Three"), "2026-06-19");
@@ -3659,13 +3428,13 @@ fn ai_search_note_and_warning_codes_serialize_camelcase_for_the_fe() {
 
 #[test]
 fn sort_oldest_returns_the_first_occurrence_across_years_not_the_recent_month() {
-    let vault = crate::Vault::open_temp().unwrap();
     // THE regression-proving test. The user has "mlx" visits spanning years; `sort:"oldest", limit:1`
     // must return the EARLIEST (2025-03), never the most-recent (2026-06). Reverting the hardcoded
     // `"newest"` in `lexical_history_results` (or re-sorting the date path by score) returns June and
     // fails this — exactly the false "first record is June 18" the agent produced.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     // Seed across years; insert OUT of date order so a stable result cannot come from insertion order.
     seed_visit_on_date(
         &connection,
@@ -3711,10 +3480,10 @@ fn sort_oldest_returns_the_first_occurrence_across_years_not_the_recent_month() 
 
 #[test]
 fn sort_newest_returns_the_latest_occurrence_across_years() {
-    let vault = crate::Vault::open_temp().unwrap();
     // The mirror of the oldest test: `sort:"newest", limit:1` returns the LATEST (2026-06) match.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit_on_date(
         &connection,
         1,
@@ -3757,12 +3526,12 @@ fn sort_newest_returns_the_latest_occurrence_across_years() {
 
 #[test]
 fn sort_oldest_pagination_covers_every_match_in_date_order_without_overlap() {
-    let vault = crate::Vault::open_temp().unwrap();
     // Pagination over the date-ordered list: with >limit matches, walking the cursor returns each page
     // in oldest-first order with NO overlap and FULL coverage. Five matches, page size 2 → pages of
     // [oldest..], [..], [last]; the concatenation is the matches sorted ascending by visit date.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     // Insert deliberately scrambled; the chronological order is 2024-01 < 2024-06 < 2025-01 < 2025-09 < 2026-03.
     seed_visit_on_date(&connection, 10, "https://e.example/mlx", Some("mlx e"), "2026-03-02");
     seed_visit_on_date(&connection, 11, "https://a.example/mlx", Some("mlx a"), "2024-01-05");
@@ -3814,7 +3583,6 @@ fn sort_oldest_pagination_covers_every_match_in_date_order_without_overlap() {
 
 #[test]
 fn sort_oldest_preserves_date_order_even_when_score_order_differs() {
-    let vault = crate::Vault::open_temp().unwrap();
     // The date-ordered path must NOT be re-sorted by score (unlike the relevance path). We seed rows
     // whose RELEVANCE order is the OPPOSITE of their DATE order: the newer page is the stronger lexical
     // match (its title repeats the term), the older page is a weaker match. With `sort:"oldest"` the
@@ -3822,6 +3590,7 @@ fn sort_oldest_preserves_date_order_even_when_score_order_differs() {
     // re-applied the score sort would put the newer, higher-scoring page first and fail here.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     // Older page: a single "mlx" mention (weaker lexical score).
     seed_visit_on_date(&connection, 1, "https://old.example/page", Some("mlx"), "2025-02-01");
     // Newer page: "mlx" repeated in url + title (stronger lexical score under the relevance path).
@@ -3858,13 +3627,13 @@ fn sort_oldest_preserves_date_order_even_when_score_order_differs() {
 
 #[test]
 fn sort_oldest_bypasses_the_semantic_rerank() {
-    let vault = crate::Vault::open_temp().unwrap();
     // With an embedding provider configured AND vectors seeded so the semantic plane would, on the
     // relevance path, re-rank the NEWER page to the top, `sort:"oldest"` must STILL return the older
     // page first — proving the date path skips the semantic plane entirely (a meaning re-rank would
     // scramble the chronological order the caller asked for).
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     let embedding = embedding_provider();
     seed_visit_on_date(&connection, 1, "https://old.example/mlx", Some("mlx old"), "2025-02-01");
     seed_visit_on_date(&connection, 2, "https://new.example/mlx", Some("mlx new"), "2026-05-01");
@@ -3905,11 +3674,11 @@ fn sort_oldest_bypasses_the_semantic_rerank() {
 
 #[test]
 fn sort_relevance_and_none_keep_the_hybrid_path() {
-    let vault = crate::Vault::open_temp().unwrap();
     // `sort:"relevance"` and an absent sort BOTH route to the hybrid pipeline (unchanged behavior):
     // the provider id is the lexical-fallback hybrid id, NOT "date-ordered".
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/mlx", Some("mlx"), 1);
     for sort in [None, Some("relevance".to_string()), Some("garbage".to_string())] {
         let response = runtime
@@ -3934,111 +3703,11 @@ fn sort_relevance_and_none_keep_the_hybrid_path() {
     }
 }
 
-/// Bulk-inserts `count` keyword-matching visits on DISTINCT, strictly-ascending timestamps in ONE
-/// transaction, mirroring `seed_visit`'s exact `runs`/`source_profiles`/`urls`/`visits` writes.
-///
-/// Takes the `prepared_archive` connection (the intelligence connection with the archive ATTACHed as
-/// `archive`, exactly the connection `seed_visit` writes through), so the `archive.` prefixes resolve.
-///
-/// Why a bespoke bulk insert: test #1 needs 1001 matchable rows to exceed the date-ordered window cap,
-/// and 1001 individual `seed_visit_on_date` calls (each its own auto-committed statement) is too slow.
-/// A single transaction with prepared statements keeps it well under a second while producing the EXACT
-/// same on-disk shape `seed_visit` does — so `open_archive_connection`'s `seed_search_projection_with_progress`
-/// rebuilds the FTS projection from these `urls` on the first `list_history` read and the keyword matches.
-/// `history_id` is the visit id AND the url id (as `seed_visit` does), and `visit_time` increases with
-/// `history_id` so the EARLIEST-dated visit is `first_id` and the latest is `first_id + count - 1`.
-fn seed_keyword_visits_bulk(connection: &Connection, keyword: &str, first_id: i64, count: i64) {
-    let profile_id = "chrome:Default";
-    let browser_kind = "chrome";
-    let profile_row_id = profile_id.bytes().fold(0_i64, |acc, value| acc + value as i64).max(1);
-    // Base timestamp far enough in the past that +count seconds stays comfortably valid; the unit is
-    // Unix microseconds fed to `unix_micros_to_chrome_time`, matching `seed_visit`'s expected format.
-    let base_unix_ms: i64 = 1_700_000_000_000; // 2023-11-14, well-formed and distinct per row.
-
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-             VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
-            [now_rfc3339()],
-        )
-        .expect("insert canonical run");
-    connection
-        .execute(
-            "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
-             VALUES (?1, ?2, 'test', ?3, ?4, ?5, 1, ?6, ?5)",
-            params![
-                profile_row_id,
-                browser_kind,
-                profile_id,
-                format!("/tmp/{profile_id}"),
-                now_rfc3339(),
-                profile_id,
-            ],
-        )
-        .expect("insert canonical profile");
-
-    connection.execute_batch("BEGIN").expect("begin bulk seed");
-    {
-        let mut url_stmt = connection
-            .prepare(
-                "INSERT OR IGNORE INTO archive.urls
-                 (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
-                 VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, ?6, 1, ?1, 0, ?7, ?8)",
-            )
-            .expect("prepare url insert");
-        let mut visit_stmt = connection
-            .prepare(
-                "INSERT INTO archive.visits
-                 (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 805306368, 0, ?6, 1, NULL, 1, 0, NULL, NULL, ?7, ?8, ?9)",
-            )
-            .expect("prepare visit insert");
-        let now = now_rfc3339();
-        for offset in 0..count {
-            let history_id = first_id + offset;
-            // Strictly ascending so the EARLIEST-dated row is `first_id` (1 second apart per row).
-            let visit_unix_ms = base_unix_ms + offset * 1000;
-            let chrome_time = crate::utils::unix_micros_to_chrome_time(visit_unix_ms * 1000);
-            let visit_time_ms = chrome_time_to_unix_ms(chrome_time);
-            let visit_time_iso = crate::utils::chrome_time_to_rfc3339(chrome_time);
-            // Put the keyword in BOTH url path and title so the FTS projection matches it.
-            let url = format!("https://bulk.example/{keyword}/{history_id}");
-            let title = format!("{keyword} entry {history_id}");
-            url_stmt
-                .execute(params![
-                    history_id,
-                    url,
-                    title,
-                    visit_time_ms,
-                    visit_time_iso,
-                    profile_row_id,
-                    format!("payload-{history_id}"),
-                    now,
-                ])
-                .expect("bulk insert url");
-            visit_stmt
-                .execute(params![
-                    history_id,
-                    history_id,
-                    history_id.to_string(),
-                    visit_time_ms,
-                    visit_time_iso,
-                    profile_row_id,
-                    format!("fp-{history_id}"),
-                    format!("payload-{history_id}"),
-                    now,
-                ])
-                .expect("bulk insert visit");
-        }
-    }
-    connection.execute_batch("COMMIT").expect("commit bulk seed");
-}
-
 #[test]
 fn date_ordered_pagination_reaches_every_match_without_overlap() {
-    let vault = crate::Vault::open_temp().unwrap();
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_keyword_visits_bulk(&connection, "mlx", 1, 1001);
     let mut cursor = None;
     let mut ids = Vec::new();
@@ -4074,13 +3743,13 @@ fn date_ordered_pagination_reaches_every_match_without_overlap() {
 
 #[test]
 fn sort_oldest_with_date_range_returns_first_in_that_range() {
-    let vault = crate::Vault::open_temp().unwrap();
     // The date sort composes with the date filter: with the keyword present in 2024, 2025, and 2026 and
     // a [2025-01-01, 2025-12-31] range, `sort:"oldest"` returns the 2025 row first — the 2024 match is
     // excluded below the range and the 2026 match is excluded above it. Without the date predicate the
     // 2024 row would lead; without the oldest sort the order would not be chronological.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     seed_visit_on_date(&connection, 1, "https://a.example/mlx", Some("mlx 2024"), "2024-05-10");
     seed_visit_on_date(&connection, 2, "https://b.example/mlx", Some("mlx 2025"), "2025-07-15");
     seed_visit_on_date(&connection, 3, "https://c.example/mlx", Some("mlx 2026"), "2026-02-20");
@@ -4113,12 +3782,12 @@ fn sort_oldest_with_date_range_returns_first_in_that_range() {
 
 #[test]
 fn sort_oldest_with_starred_only_returns_oldest_starred_match() {
-    let vault = crate::Vault::open_temp().unwrap();
     // The `is:starred` facet composes with the date sort: with several keyword matches across dates and
     // only a SUBSET starred, `sort:"oldest"` + `starred_only` returns ONLY the starred matches, oldest
     // first, and `total` reflects the IN-POOL starred count (not the pre-filter count of all matches).
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
     // Five matches; star pages 2 and 4 (so the starred set, oldest-first, is [2024-06 → id2, 2025-09 → id4]).
     seed_visit_on_date(&connection, 1, "https://one.example/mlx", Some("mlx one"), "2024-01-05");
     seed_visit_on_date(&connection, 2, "https://two.example/mlx", Some("mlx two"), "2024-06-15");
@@ -4135,24 +3804,20 @@ fn sort_oldest_with_starred_only_returns_oldest_starred_match() {
     star_url(&vault, "https://four.example/mlx");
 
     let response = runtime
-        .block_on(async {
-            crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
-            search_history_internal(
-                &vault,
-                &paths,
-                &config,
-                None,
-                None,
-                &AiSearchRequest {
-                    query: "mlx".to_string(),
-                    limit: Some(10),
-                    sort: Some("oldest".to_string()),
-                    starred_only: Some(true),
-                    ..AiSearchRequest::default()
-                },
-            )
-            .await
-        })
+        .block_on(search_history_internal(
+            &vault,
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: "mlx".to_string(),
+                limit: Some(10),
+                sort: Some("oldest".to_string()),
+                starred_only: Some(true),
+                ..AiSearchRequest::default()
+            },
+        ))
         .expect("oldest + starred-only search");
     let ids: Vec<i64> = response.items.iter().map(|item| item.history_id).collect();
     assert_eq!(
@@ -4170,19 +3835,22 @@ fn sort_oldest_with_starred_only_returns_oldest_starred_match() {
 
 #[test]
 fn lexical_ai_cursors_reach_beyond_every_former_pool_and_date_window() {
-    let vault = crate::Vault::open_temp_with_key(Some([94; 32])).unwrap();
-    let (paths, config, connection) = prepared_archive();
-    for id in 1..=1107 {
-        seed_visit(
-            &connection,
-            id,
-            "chrome:Default",
-            &format!("https://all.test/{id}"),
-            Some("completepool"),
-            13_300_000_000_000_000 + id * 1000,
-        );
-    }
-    crate::test_support::legacy_fixtures::copy_to_vault(&vault, &paths, &config);
+    let (paths, config, connection) = prepared_archive_with_key(Some([94; 32]));
+    let vault = connection.vault.clone();
+    seed_visits(
+        &vault,
+        (1..=1107)
+            .map(|id| {
+                SeedVisit::chrome(
+                    id,
+                    "chrome:Default",
+                    &format!("https://all.test/{id}"),
+                    Some("completepool"),
+                    13_300_000_000_000_000 + id * 1000,
+                )
+            })
+            .collect(),
+    );
     let runtime = Runtime::new().unwrap();
     for sort in [None, Some("oldest".to_owned()), Some("newest".to_owned())] {
         let mut request = AiSearchRequest {
@@ -4194,9 +3862,7 @@ fn lexical_ai_cursors_reach_beyond_every_former_pool_and_date_window() {
         let mut ids = Vec::new();
         loop {
             let response = runtime
-                .block_on(super::search::search_history_internal(
-                    &vault, &paths, &config, None, None, &request,
-                ))
+                .block_on(search_history_internal(&vault, &paths, &config, None, None, &request))
                 .unwrap();
             assert_eq!(response.total, 1107);
             ids.extend(response.items.iter().map(|item| item.history_id));
@@ -4210,60 +3876,31 @@ fn lexical_ai_cursors_reach_beyond_every_former_pool_and_date_window() {
     }
 }
 
-// These suites keep their original generated SQL fixture inputs while exercising the
-// real native owner on every search. No query result or engine behavior is mocked.
-async fn search_history_internal(
-    vault: &crate::Vault,
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    provider: Option<&AiProviderRuntime>,
-    request: &AiSearchRequest,
-) -> Result<AiSearchResponse> {
-    if request.cursor.is_none() {
-        crate::test_support::legacy_fixtures::copy_to_vault(vault, paths, config);
-        crate::test_support::legacy_fixtures::copy_search_metadata(vault, paths, config);
-    }
-    super::search::search_history_internal(vault, paths, config, key, provider, request).await
-}
-async fn semantic_matches(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    provider: &AiProviderRuntime,
-    request: &AiSearchRequest,
-    starred: Option<&[u64]>,
-) -> Result<super::search::SemanticMatchReport> {
-    let vault = crate::Vault::open_temp().unwrap();
-    crate::test_support::legacy_fixtures::copy_to_vault(&vault, paths, config);
-    crate::test_support::legacy_fixtures::copy_search_metadata(&vault, paths, config);
-    super::search::semantic_matches(&vault, paths, config, key, provider, request, starred).await
-}
-
 #[test]
 fn semantic_facets_find_eligible_pages_beyond_every_former_recall_pool() {
-    let vault = crate::Vault::open_temp_with_key(Some([108; 32])).unwrap();
-    let (paths, config, connection) = prepared_archive();
+    let (paths, config, connection) = prepared_archive_with_key(Some([108; 32]));
+    let vault = connection.vault.clone();
     let provider = embedding_provider();
     let runtime = Runtime::new().unwrap();
     let vector =
         runtime.block_on(embed_query(&provider, "candidatephrase", EmbeddingRole::Query)).unwrap();
+    let mut visits = Vec::new();
     let mut vectors = Vec::new();
     for id in 1..=1207 {
-        seed_visit(
-            &connection,
+        visits.push(SeedVisit::chrome(
             id,
             if id == 1207 { "firefox:target" } else { "chrome:Default" },
             &format!("https://scope.test/page/{id}"),
             Some("Unrelated"),
             13_300_000_000_000_000 + id * 1000,
-        );
+        ));
         vectors.push((
             id,
             id as u64,
             if id == 1207 { vector.iter().map(|value| -value).collect() } else { vector.clone() },
         ));
     }
+    seed_visits(&vault, visits);
     seed_vector_planes(&paths, &provider, &vectors);
     let response = runtime
         .block_on(search_history_internal(
@@ -4284,35 +3921,5 @@ fn semantic_facets_find_eligible_pages_beyond_every_former_recall_pool() {
     assert_eq!(response.items[0].history_id, 1207);
 }
 
-async fn semantic_search_history(
-    vault: &crate::Vault,
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    provider: Option<&AiProviderRuntime>,
-    request: &AiSearchRequest,
-) -> Result<AiSearchResponse> {
-    if request.cursor.is_none() && paths.archive_database_path.exists() {
-        crate::test_support::legacy_fixtures::copy_to_vault(vault, paths, config);
-        crate::test_support::legacy_fixtures::copy_search_metadata(vault, paths, config);
-    }
-    super::search::semantic_search_history(vault, paths, config, key, provider, request).await
-}
-async fn answer_history_question(
-    vault: &crate::Vault,
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    llm: &AiProviderRuntime,
-    embedding: Option<&AiProviderRuntime>,
-    request: &AiAssistantRequest,
-) -> Result<AiAssistantResponse> {
-    if paths.archive_database_path.exists() {
-        crate::test_support::legacy_fixtures::copy_to_vault(vault, paths, config);
-        crate::test_support::legacy_fixtures::copy_search_metadata(vault, paths, config);
-    }
-    super::assistant::answer_history_question(vault, paths, config, key, llm, embedding, request)
-        .await
-}
 #[path = "tests_native/mod.rs"]
-mod native;
+pub(in crate::ai) mod native;

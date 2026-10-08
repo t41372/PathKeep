@@ -121,9 +121,8 @@ pub fn doctor(vault: &Vault) -> Result<HealthReport> {
 }
 
 /// Rebuilds metadata from canonical facts; never unhides or deletes visits.
-pub fn repair_health_issues(vault: &Vault, legacy_key: Option<&str>) -> Result<HealthRepairReport> {
-    let derived_damage = super::doctor_derived::legacy_derived_health(vault, legacy_key)?
-        .is_some_and(|check| !check.ok);
+pub fn repair_health_issues(vault: &Vault) -> Result<HealthRepairReport> {
+    let derived_damage = !super::doctor_derived::derived_health(vault)?.ok;
     let (missing, needs_repair) = vault.read(Db::Archive, |s| {
         let missing = missing_import_audits(s)?;
         let hidden = s.query_one(
@@ -152,8 +151,7 @@ pub fn repair_health_issues(vault: &Vault, legacy_key: Option<&str>) -> Result<H
             HealthRepairReport { run_id: Some(run), ..Default::default() }
         };
         if derived_damage {
-            report.cleared_derived_rows =
-                super::doctor_derived::repair_legacy_derived(vault, legacy_key)?;
+            report.cleared_derived_rows = super::doctor_derived::repair_derived(vault)?;
         }
         append_repair_notes(&mut report);
         Ok(report)

@@ -11,7 +11,7 @@
 //! - Deciding when keys go away. The app drops them, and closes everything opened with them,
 //!   when the vault locks.
 //!
-//! How it can fail:
+//! Failure modes:
 //! - Two uses end up with the same key, so a leak or a cipher weakness in one (say, the
 //!   search index's AES-GCM) reaches another (a Turso database). Each purpose has its own
 //!   HKDF info label; a test derives all of them and checks they differ.
@@ -51,11 +51,13 @@ pub enum KeyPurpose {
     SearchIndex,
     /// Turso's sort and hash spill files, through [`crate::TempCryptIo`].
     TempFiles,
+    /// Immutable audit and source-checkpoint files inside a portable bundle.
+    BundleArtifacts,
 }
 
 impl KeyPurpose {
     /// Every purpose, for tests and for code that has to open all databases.
-    pub const ALL: [KeyPurpose; 7] = [
+    pub const ALL: [KeyPurpose; 8] = [
         KeyPurpose::ArchiveDatabase,
         KeyPurpose::SourceEvidenceDatabase,
         KeyPurpose::IntelligenceDatabase,
@@ -63,6 +65,7 @@ impl KeyPurpose {
         KeyPurpose::ScratchDatabase,
         KeyPurpose::SearchIndex,
         KeyPurpose::TempFiles,
+        KeyPurpose::BundleArtifacts,
     ];
 
     /// The HKDF info label. Changing one makes existing data unreadable.
@@ -75,6 +78,7 @@ impl KeyPurpose {
             KeyPurpose::ScratchDatabase => b"pathkeep/v1/scratch-database",
             KeyPurpose::SearchIndex => b"pathkeep/v1/search-index",
             KeyPurpose::TempFiles => b"pathkeep/v1/temp-files",
+            KeyPurpose::BundleArtifacts => b"pathkeep/v1/bundle-artifacts",
         }
     }
 }

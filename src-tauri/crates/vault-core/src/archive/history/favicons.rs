@@ -31,7 +31,7 @@
 //!   per-row write cost is acceptable; revisiting their removal would
 //!   require a schema migration.
 
-use super::super::schema::favicon_url_metadata;
+use super::super::favicon_metadata::favicon_url_metadata;
 use crate::{
     Vault,
     models::{HistoryFavicon, HistoryFaviconLookupEntry, HistoryFaviconLookupResult},

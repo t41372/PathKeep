@@ -24,13 +24,17 @@ function summary(run: BackupRunOverview, t: Translator) {
   const type = runTypes.includes(run.runType as RunType)
     ? (run.runType as RunType)
     : 'backup'
+  // The app stopped mid-run; what it committed stays, and a backup resumes.
+  const stopped = run.status === 'interrupted'
   if (type === 'backup') {
-    return t('backup.runs.summary', {
+    const summary = t('backup.runs.summary', {
       sources: t('backup.runs.sources', { count: run.profilesProcessed }),
       visits: t('backup.runs.newVisits', { count: run.newVisits }),
     })
+    return stopped ? t('backup.runs.stoppedBackup', { summary }) : summary
   }
   const label = t(`backup.runs.types.${type}`)
+  if (stopped) return t('backup.runs.stopped', { label })
   return run.newVisits > 0
     ? t('backup.runs.summary', {
         sources: label,

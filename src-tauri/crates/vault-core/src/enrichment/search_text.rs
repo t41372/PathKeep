@@ -8,7 +8,7 @@ pub(super) fn pages(vault: &Vault, url: &str) -> anyhow::Result<Vec<i64>> {
     let key = crate::pages::canonical_key(url);
     Ok(vault.store().read(Db::Archive, move |s| crate::pages::ids_for_key(s, &key))?)
 }
-pub(super) fn publish(vault: &Vault, ids: Vec<i64>, text: String) -> anyhow::Result<()> {
+pub(crate) fn publish(vault: &Vault, ids: Vec<i64>, text: String) -> anyhow::Result<()> {
     for chunk in ids.chunks(512) {
         let ids = chunk.to_vec();
         let text = text.clone();

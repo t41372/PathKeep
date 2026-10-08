@@ -1,7 +1,9 @@
 //! Responsibilities: verify worker requests against their real storage and service boundaries.
-//! Not responsible for: frontend rendering or provider network integration.
+//! Not responsible for: frontend rendering, desktop window lifecycle or provider network integration.
 //! Failure modes: incorrect owner routing, lost progress or audit records, leaked locked
-//! sessions, a search assertion races index publication, or reverted facts remain visible.
+//! sessions, a search assertion races index publication, reverted facts remain visible,
+//! startup skips required conversion, App Lock blocks scheduled backups, or
+//! password/keychain changes lose access.
 use super::*;
 #[cfg(coverage)]
 use crate::intelligence::{
@@ -268,6 +270,13 @@ pub(crate) fn initialized_config() -> AppConfig {
     }
 }
 
+/// An archive still in the old SQLCipher format, as an install from before
+/// Turso has it; launch recovery and conversion start from this.
+fn legacy_archive(config: &AppConfig, key: Option<&str>) {
+    let paths = project_paths().unwrap();
+    drop(vault_convert_sqlcipher::test_support::open_archive(&paths, config, key));
+}
+
 pub(crate) fn configured_ai_config() -> AppConfig {
     let mut config = initialized_config();
     config.ai.enabled = true;
@@ -485,7 +494,8 @@ fn app_snapshot_and_worker_cli_cover_main_local_flows() {
     assert!(!doctor.checks.is_empty());
 
     let paths = project_paths().expect("project paths");
-    assert!(paths.archive_database_path.exists());
+    assert!(paths.app_root.join("archive/history-vault.db").exists());
+    assert!(!paths.archive_database_path.exists(), "no old-format file on a new archive");
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
     restore_env_var(CHROME_USER_DATA_OVERRIDE_ENV, original_chrome_root.as_deref());
@@ -1489,10 +1499,13 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
     assert!(security.initialized);
 
     for new_mode in [ArchiveMode::Encrypted, ArchiveMode::Plaintext] {
-        let error =
-            preview_rekey_archive(&RekeyRequest { new_mode, new_key: None, current_key: None })
-                .unwrap_err();
-        assert!(error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some());
+        let preview = preview_rekey_archive(&RekeyRequest {
+            new_mode: new_mode.clone(),
+            new_key: None,
+            current_key: None,
+        })
+        .unwrap();
+        assert_eq!(preview.requires_new_key, new_mode == ArchiveMode::Encrypted);
     }
 
     let paths = project_paths().expect("project paths");
@@ -1525,7 +1538,7 @@ fn security_status_reports_uninitialized_archive_mode() {
         current_key: None,
     })
     .expect_err("uninitialized archive cannot preview rekey");
-    assert!(preview_error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some());
+    assert!(preview_error.to_string().contains("initialize the archive"));
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
     restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring_root.as_deref());
@@ -2909,9 +2922,9 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
     let detail = audit_run_detail(&vault, run_id).expect("load audit detail");
     assert_eq!(detail.run.id, run_id);
 
-    let doctor = doctor_report(&vault, Some("vault-passphrase")).expect("doctor report");
+    let doctor = doctor_report(&vault).expect("doctor report");
     assert!(!doctor.checks.is_empty());
-    let repair = repair_health(&vault, Some("vault-passphrase")).expect("repair health");
+    let repair = repair_health(&vault).expect("repair health");
     assert!(repair.run_id.is_none() || repair.run_id >= Some(run_id));
 
     // OPTIONAL key: probing a provider with NO stored key must RUN the probe, not pre-fail on
@@ -3265,26 +3278,29 @@ fn security_status_keeps_last_rekey_review_visible_when_archive_is_locked() {
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save config");
 
-    // This unported read-model test uses a native SQLCipher rekey fixture.
-    // The application rekey entrypoint is refused in the mixed-storage build.
-    vault_core::rekey_archive(
-        &project_paths().unwrap(),
-        &config,
-        None,
-        ArchiveMode::Encrypted,
-        Some("vault-passphrase"),
+    let session = crate::VaultSession::default();
+    session.background_vault().expect("open the plaintext archive");
+    crate::rekey_archive_database(
+        &session,
+        &RekeyRequest {
+            new_mode: ArchiveMode::Encrypted,
+            new_key: Some("vault-passphrase".into()),
+            current_key: None,
+        },
     )
-    .unwrap();
+    .expect("encrypt the archive");
+    session.close_vault().unwrap();
 
     let security = security_status(None, None).expect("security status while locked");
     assert_eq!(security.mode, "locked");
     assert!(security.last_rekey_run_id.is_some());
     assert!(security.last_rekey_at.is_some());
+    // The snapshot taken before the rekey is recorded and still on disk.
     assert!(
         security
             .last_rekey_snapshot_path
             .as_deref()
-            .is_some_and(|path| path.contains("archive-before-rekey"))
+            .is_some_and(|path| std::path::Path::new(path).exists())
     );
 
     unsafe {
@@ -3297,55 +3313,41 @@ fn security_status_keeps_last_rekey_review_visible_when_archive_is_locked() {
 /// transports call: a wrong or missing current password changes nothing, and
 /// the right one rekeys so that only the new password opens the archive.
 #[test]
-fn rekey_refuses_mixed_storage_without_changing_existing_archive() {
+fn rekey_requires_the_current_password_and_rewraps_the_native_envelope() {
     let _guard = lock_env();
-    let dir = tempdir().expect("tempdir");
-    let chrome_root = chrome_user_data_fixture(dir.path());
+    let root = tempdir().unwrap();
+    let old_env = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
     unsafe {
-        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
-        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
     }
-    let old = "correct horse battery";
-    let new = "staple's «new» 密碼";
-    let config = AppConfig { archive_mode: ArchiveMode::Encrypted, ..initialized_config() };
-    initialize_archive_database(&config, Some(old)).expect("initialize encrypted archive");
-    let paths = project_paths().expect("project paths");
-    let archive_bytes = || fs::read(&paths.archive_database_path).expect("read archive");
-    let before = archive_bytes();
-
-    let change = |current: Option<&str>| RekeyRequest {
+    let paths = project_paths().unwrap();
+    let config = AppConfig {
+        archive_mode: ArchiveMode::Encrypted,
+        remember_database_key_in_keyring: false,
+        ..initialized_config()
+    };
+    vault_core::save_config(&paths, &config).unwrap();
+    let session = crate::VaultSession::default();
+    session.open_password(paths.clone(), config, "old password".into()).unwrap();
+    for current in [None, Some("wrong password")] {
+        let request = RekeyRequest {
+            new_mode: ArchiveMode::Encrypted,
+            new_key: Some("new password".into()),
+            current_key: current.map(str::to_owned),
+        };
+        assert!(preview_rekey_archive(&request).is_err());
+        assert!(rekey_archive_database(&session, &request).is_err());
+    }
+    let request = RekeyRequest {
         new_mode: ArchiveMode::Encrypted,
-        new_key: Some(new.to_string()),
-        current_key: current.map(str::to_string),
+        new_key: Some("new password".into()),
+        current_key: Some("old password".into()),
     };
-    let decrypt = |current: Option<&str>| RekeyRequest {
-        new_mode: ArchiveMode::Plaintext,
-        new_key: None,
-        current_key: current.map(str::to_string),
-    };
-    for request in [
-        change(None),
-        decrypt(None),
-        change(Some("wrong password")),
-        decrypt(Some("wrong password")),
-        change(Some(old)),
-        decrypt(Some(old)),
-    ] {
-        for error in [
-            preview_rekey_archive(&request).unwrap_err(),
-            rekey_archive_database(&request).unwrap_err(),
-        ] {
-            assert!(error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some());
-        }
-    }
-    assert_eq!(archive_bytes(), before);
-    assert!(vault_core::archive_key_opens(&paths, old).unwrap());
-    assert!(!vault_core::archive_key_opens(&paths, new).unwrap());
-
-    unsafe {
-        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
-        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
-    }
+    assert!(preview_rekey_archive(&request).unwrap().snapshot_path.is_empty());
+    rekey_archive_database(&session, &request).unwrap();
+    assert!(vault_core::Vault::unlock_data_key(&paths, "old password").is_err());
+    assert!(vault_core::Vault::unlock_data_key(&paths, "new password").is_ok());
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old_env.as_deref());
 }
 
 #[test]
@@ -3368,13 +3370,13 @@ fn launch_recovery_heals_a_stale_plaintext_config_so_the_archive_is_not_bricked(
     // Materialise an encrypted archive on disk.
     let mut encrypted = initialized_config();
     encrypted.archive_mode = ArchiveMode::Encrypted;
-    let init = initialize_archive_database(&encrypted, Some("000000")).expect("init encrypted");
-    assert!(init.archive_status.initialized);
-    assert!(
-        vault_core::legacy_archive_status(&project_paths().unwrap(), &encrypted, Some("000000"))
-            .unwrap()
-            .unlocked
-    );
+    legacy_archive(&encrypted, Some("000000"));
+    // The password opens it.
+    drop(vault_convert_sqlcipher::test_support::open_archive(
+        &project_paths().unwrap(),
+        &encrypted,
+        Some("000000"),
+    ));
 
     // Overwrite config.json back to Plaintext while the file on disk stays encrypted (no journal):
     // the interrupted-rekey end state that bricked the open.
@@ -3415,7 +3417,7 @@ fn launch_recovery_surfaces_an_unrecoverable_interrupted_rekey_to_the_worker() {
     }
 
     let config = initialized_config();
-    initialize_archive_database(&config, None).expect("init plaintext archive");
+    legacy_archive(&config, None);
     let paths = project_paths().expect("project paths");
 
     let archive_dir = paths.archive_database_path.parent().expect("archive parent");
@@ -3468,13 +3470,13 @@ fn launch_recovery_heals_then_opens_the_archive_when_the_key_is_in_hand() {
     // Materialise an encrypted archive on disk.
     let mut encrypted = initialized_config();
     encrypted.archive_mode = ArchiveMode::Encrypted;
-    let init = initialize_archive_database(&encrypted, Some("000000")).expect("init encrypted");
-    assert!(init.archive_status.initialized);
-    assert!(
-        vault_core::legacy_archive_status(&project_paths().unwrap(), &encrypted, Some("000000"))
-            .unwrap()
-            .unlocked
-    );
+    legacy_archive(&encrypted, Some("000000"));
+    // The password opens it.
+    drop(vault_convert_sqlcipher::test_support::open_archive(
+        &project_paths().unwrap(),
+        &encrypted,
+        Some("000000"),
+    ));
 
     // Overwrite config.json back to Plaintext (the stale-config incident shape) while the file on
     // disk stays encrypted.
@@ -3541,6 +3543,66 @@ fn list_recovery_snapshots_worker_fn_returns_seeded_metadata() {
     restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
 }
 
+/// The shell asks for the upgrade assessment before anything else, so an archive the old app
+/// left half-way through a restore (its file quarantined, the journal written) has to be
+/// brought back there, not only by initialize.
+fn seed_restore_cut_mid_install(paths: &vault_core::ProjectPaths, keep_snapshot: bool) {
+    let config = initialized_config();
+    legacy_archive(&config, None);
+    let snapshot = paths.raw_snapshots_dir.join("rekey").join("snap.sqlite");
+    fs::create_dir_all(snapshot.parent().unwrap()).unwrap();
+    if keep_snapshot {
+        fs::copy(&paths.archive_database_path, &snapshot).unwrap();
+    }
+    let quarantine = paths.quarantine_dir.join("2026-06-30T00-00-00Z");
+    let journal = serde_json::json!({
+        "version": 1,
+        "timestamp": "2026-06-30T00-00-00Z",
+        "snapshot_ref": snapshot.to_string_lossy(),
+        "restored_mode": "Plaintext",
+        "quarantine_dir": quarantine.to_string_lossy(),
+        "previous_config": fs::read_to_string(&paths.config_path).ok(),
+    });
+    let marker = paths.archive_database_path.parent().unwrap().join(".pk-restore-journal.json");
+    fs::write(marker, serde_json::to_vec(&journal).unwrap()).unwrap();
+    fs::remove_file(&paths.archive_database_path).unwrap();
+}
+
+#[test]
+fn assessing_an_old_archive_first_finishes_a_restore_the_old_app_left_half_done() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path()) };
+    let paths = project_paths().unwrap();
+    seed_restore_cut_mid_install(&paths, true);
+
+    let assessment = assess_archive_upgrade(None).expect("assessment after recovery");
+    assert!(assessment.pending, "the restored old-format archive still needs converting");
+    assert!(paths.archive_database_path.exists(), "the snapshot is back in place");
+    assert!(!paths.archive_database_path.with_file_name(".pk-restore-journal.json").exists());
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
+}
+
+#[test]
+fn assessing_an_old_archive_that_cannot_be_brought_back_asks_for_the_recovery_screen() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path()) };
+    let paths = project_paths().unwrap();
+    seed_restore_cut_mid_install(&paths, false);
+
+    let error = assess_archive_upgrade(None).expect_err("neither snapshot nor original is left");
+    let report = crate::parse_archive_recovery_required(&error.to_string())
+        .expect("the error carries the recovery report");
+    assert!(matches!(report.kind, vault_core::ArchiveRecoveryKind::InterruptedRestoreUnresolved));
+    assert!(!paths.archive_database_path.exists(), "no empty archive was created");
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
+}
+
 #[test]
 fn parse_archive_recovery_required_round_trips_the_startup_report() {
     // The fail-closed launch surfaces the recovery-required prefix; the FE-facing parser must turn
@@ -3556,7 +3618,7 @@ fn parse_archive_recovery_required_round_trips_the_startup_report() {
     }
 
     let config = initialized_config();
-    initialize_archive_database(&config, None).expect("init plaintext archive");
+    legacy_archive(&config, None);
     let paths = project_paths().expect("project paths");
 
     // A verified rekey snapshot + an interrupted-rekey marker whose history-vault is gone -> the
@@ -3611,19 +3673,34 @@ fn parse_archive_recovery_required_round_trips_the_startup_report() {
 }
 
 #[test]
-fn full_restore_and_reconciliation_refuse_mixed_storage() {
-    let request = vault_core::SnapshotRestoreRequest { snapshot_path: "unused".into() };
-    for error in [
-        crate::run_full_archive_restore(None, &request).unwrap_err(),
-        crate::reconcile_archive_encryption(None).unwrap_err(),
-    ] {
-        assert!(error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some());
+fn full_restore_and_reconciliation_use_the_native_owner() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let old_env = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
     }
+    let paths = project_paths().unwrap();
+    let config = initialized_config();
+    vault_core::save_config(&paths, &config).unwrap();
+    let session = crate::VaultSession::default();
+    let vault = session.vault().unwrap();
+    assert!(!crate::reconcile_archive_encryption(&vault).unwrap().repaired);
+    let snapshot = paths.raw_snapshots_dir.join("maintenance/test");
+    vault_core::maintenance::snapshot(&vault, &snapshot).unwrap();
+    let report = crate::run_full_archive_restore(
+        &session,
+        None,
+        &vault_core::SnapshotRestoreRequest { snapshot_path: snapshot.display().to_string() },
+    )
+    .unwrap();
+    assert!(!report.source_evidence_rebuilt);
+    assert!(session.vault().unwrap().store().is_open());
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old_env.as_deref());
 }
 
 #[test]
 fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
-    let vault = vault_core::Vault::open_temp().unwrap();
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let chrome_root = chrome_user_data_fixture(dir.path());
@@ -3647,23 +3724,26 @@ fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
     keyring_set_provider_api_key("llm-primary", "sk-test").expect("store provider key");
     // A manual backup starts the intelligence queue workers in the background; the wipe has to
     // stop them before it deletes the databases they write.
+    let session = crate::VaultSession::default();
+    let vault = session.background_vault().expect("open the archive");
     let backup = run_backup_now(&vault, None, false).expect("backup");
-    seed_legacy_reader_fixture(None);
     assert_eq!(backup.run.expect("run").new_visits, 1);
 
-    let preview = preview_data_wipe(None).expect("preview");
+    let preview = preview_data_wipe().expect("preview");
     assert_eq!(preview.visit_count, 1);
     assert!(preview.clears_keychain);
-    assert!(preview.items.iter().any(|item| item.path.ends_with("history-vault.sqlite")));
+    assert!(preview.items.iter().any(|item| item.path.ends_with("history-vault.db")));
 
     for wrong in ["", "delete", "DELETE ", "Delete"] {
-        let error =
-            wipe_all_data(wrong, None, || Ok(())).expect_err("only the exact word is accepted");
+        let error = wipe_all_data(wrong, || Ok(())).expect_err("only the exact word is accepted");
         assert!(error.to_string().contains("DELETE"), "{error:#}");
     }
     assert!(app_snapshot(None).expect("snapshot").archive_status.initialized, "nothing deleted");
 
-    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, None, || Ok(())).expect("wipe");
+    drop(vault);
+    let report =
+        wipe_all_data(WIPE_CONFIRMATION_WORD, || session.close_vault().map_err(anyhow::Error::msg))
+            .expect("wipe");
     assert_eq!(report, vault_core::WipeReport::default(), "no automatic backup was installed");
     assert_eq!(crate::intelligence::running_background_workers(), 0);
     let snapshot = app_snapshot(None).expect("snapshot after wipe");
@@ -3677,16 +3757,17 @@ fn delete_all_data_needs_the_word_then_returns_the_app_to_onboarding() {
         "the browser's own history must be untouched"
     );
 
-    wipe_all_data(WIPE_CONFIRMATION_WORD, None, || Ok(())).expect("a second wipe is a no-op");
+    wipe_all_data(WIPE_CONFIRMATION_WORD, || Ok(())).expect("a second wipe is a no-op");
     assert!(!finish_interrupted_data_wipe().expect("nothing interrupted"));
 
     // Onboarding again works in the same process.
     initialize_archive_database(&initialized_config(), None).expect("initialize again");
-    vault.store().close().unwrap();
-    let vault = vault_core::Vault::open_temp().unwrap();
+    let session = crate::VaultSession::default();
+    let vault = session.background_vault().expect("open the new archive");
     let again = run_backup_now(&vault, None, false).expect("backup again");
-    seed_legacy_reader_fixture(None);
     assert_eq!(again.run.expect("run").new_visits, 1);
+    drop(vault);
+    session.close_vault().unwrap();
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
     restore_env_var(CHROME_USER_DATA_OVERRIDE_ENV, original_chrome.as_deref());
@@ -3737,7 +3818,7 @@ fn delete_all_data_removes_the_installed_automatic_backup() {
     let installed = files_under(&sandbox);
     assert!(!installed.is_empty(), "the sandbox holds the installed task");
 
-    let preview = preview_data_wipe(None).expect("preview");
+    let preview = preview_data_wipe().expect("preview");
     assert!(preview.removes_schedule);
     assert!(!preview.schedule_items.is_empty());
     for item in &preview.schedule_items {
@@ -3747,7 +3828,7 @@ fn delete_all_data_removes_the_installed_automatic_backup() {
         );
     }
 
-    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, None, || Ok(())).expect("wipe");
+    let report = wipe_all_data(WIPE_CONFIRMATION_WORD, || Ok(())).expect("wipe");
     assert_eq!(report, vault_core::WipeReport { schedule_removed: true, schedule_error: None });
     assert_eq!(files_under(&sandbox), Vec::<PathBuf>::new(), "no task is left in the OS");
     assert_eq!(
@@ -3776,54 +3857,77 @@ fn delete_all_data_removes_the_installed_automatic_backup() {
 fn seed_legacy_reader_fixture(key: Option<&str>) {
     let paths = vault_core::project_paths().unwrap();
     let config = vault_core::load_config(&paths).unwrap();
-    vault_core::test_support::legacy_fixtures::seed_reader_archive(
+    vault_convert_sqlcipher::test_support::seed_reader_pages(
         &paths,
         &config,
         key,
-        "https://example.com",
-        "Example",
+        &[("https://example.com", "Example")],
     );
 }
 
 #[test]
-fn mixed_storage_refuses_unsafe_operations_before_touching_archive_files() {
+fn mode_changes_require_the_rekey_command_instead_of_a_config_edit() {
     let _guard = lock_env();
     let root = tempdir().unwrap();
     let old = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
     unsafe {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
     }
-    let vault = vault_core::Vault::open_temp().unwrap();
-    let request = crate::RekeyRequest {
-        new_mode: ArchiveMode::Encrypted,
-        new_key: Some("new password".into()),
-        current_key: None,
-    };
-    assert!(crate::repair_health(&vault, None).unwrap().run_id.is_none());
-    let mut errors = vec![
-        crate::rekey_archive_database(&request).unwrap_err(),
-        crate::preview_rekey_archive(&request).unwrap_err(),
-        crate::export_app_data(None, root.path().join("export.pathkeep-bundle")).unwrap_err(),
-        crate::preview_import(root.path().join("absent.pathkeep-bundle")).unwrap_err(),
-        crate::apply_import(None, root.path().join("absent.pathkeep-bundle"), Default::default())
-            .unwrap_err(),
-    ];
     let paths = project_paths().unwrap();
-    let config = AppConfig { initialized: true, ..Default::default() };
+    let config = initialized_config();
     vault_core::save_config(&paths, &config).unwrap();
     let mut changed = config.clone();
     changed.archive_mode = ArchiveMode::Encrypted;
-    errors.push(crate::save_user_config(&changed, None).unwrap_err());
-    for error in errors {
-        assert!(
-            error.downcast_ref::<vault_core::StorageMigrationIncomplete>().is_some(),
-            "{error:#}"
-        );
-    }
-    assert!(!paths.archive_database_path.exists());
+    let error = crate::save_user_config(&changed, None).unwrap_err();
+    assert!(error.to_string().contains("encryption-mode-change-requires-rekey"));
     assert_eq!(vault_core::load_config(&paths).unwrap().archive_mode, config.archive_mode);
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old.as_deref());
 }
 
 #[path = "mcp_search_tests.rs"]
 mod search_contract;
+
+#[test]
+fn remembered_data_key_auto_unlocks_after_password_rewrap() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let old_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let old_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("test-keyring"));
+    }
+    let paths = project_paths().unwrap();
+    let config = AppConfig {
+        archive_mode: ArchiveMode::Encrypted,
+        remember_database_key_in_keyring: true,
+        ..initialized_config()
+    };
+    vault_core::save_config(&paths, &config).unwrap();
+    let session = crate::VaultSession::default();
+    session.open_password(paths.clone(), config, "old password".into()).unwrap();
+    let remembered = read_database_key_from_keyring().unwrap().unwrap();
+    rekey_archive_database(
+        &session,
+        &RekeyRequest {
+            new_mode: ArchiveMode::Encrypted,
+            new_key: Some("new password".into()),
+            current_key: Some("old password".into()),
+        },
+    )
+    .unwrap();
+    assert_eq!(*read_database_key_from_keyring().unwrap().unwrap(), *remembered);
+    session.close_vault().unwrap();
+    session.unlock_from_keychain().unwrap();
+    assert!(session.vault().unwrap().store().is_open());
+    assert!(vault_core::Vault::unlock_data_key(&paths, "old password").is_err());
+    assert!(vault_core::Vault::unlock_data_key(&paths, "new password").is_ok());
+    // Failed installation can close the old handle before rolling its files back.
+    // Auto-unlock must reopen that generation rather than publish the closed handle.
+    session.current_vault().unwrap().close().unwrap();
+    session.unlock_from_keychain().unwrap();
+    assert!(session.current_vault().unwrap().store().is_open());
+    session.close_vault().unwrap();
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, old_keyring.as_deref());
+}

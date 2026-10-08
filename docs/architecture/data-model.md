@@ -103,7 +103,7 @@ Turso 的新庫 schema 見 [store-schema.md](store-schema.md)：四個 durable `
 每頁搜尋文件與 transactional outbox，全文索引由 Tantivy 持有。各表用途、keys、
 索引、writer 與刪除清單以該文檔為準。archive 寫入、備份、Takeout / Browser Direct
 匯入、批次撤銷與恢復、筆記、標籤、星號和預覽圖已經透過 `Vault` 寫入 Turso。
-History 時間軸、日期統計、archive read models、來源統計、URL 詳情、圖片讀取、Doctor 與一般歷史匯出使用同一個 `Vault`。搜尋使用 owner 的 vault-search 索引與 Turso；intelligence、AI queue/indexing、enrichment 與 Agent 對話/journal 也使用原生 Store。尚未移植的整庫維護仍使用下列 `.sqlite` 路徑；它們不是
+History 時間軸、日期統計、archive read models、來源統計、URL 詳情、圖片讀取、Doctor 與一般歷史匯出使用同一個 `Vault`。搜尋使用 owner 的 vault-search 索引與 Turso；intelligence、AI queue/indexing、enrichment、Agent 對話/journal 與整庫維護（快照、匯出包、改密碼、加密切換、還原）也使用原生 Store。下列 `.sqlite` 路徑只在轉換舊 archive 時讀取；它們不是
 [ADR-012](decisions/012-turso-storage-engine.md) 的目標設計。
 
 ### Migration in progress
@@ -148,26 +148,35 @@ do not need that password. Only attempts to open a
 SQLCipher connection return `storage-migration-incomplete` until the user supplies the
 archive password. A locked encrypted archive returns a successful snapshot with
 `encrypted: true, unlocked: false`; status reads never retrieve a keychain secret.
-Keyword、regex、grouped、AI 與 export search 透過 owner 的搜尋引擎讀取原生 archive。Insights、AI queue/indexing、enrichment 與 Agent 也使用原生 Store。部分維護讀取仍使用舊 SQLite 檔，不能讀取新的 Turso 寫入；兩者之間沒有自動資料橋接。
-The owner IPC prevents another process from opening databases;
-it does not make the remaining maintenance readers current.
+Keyword, regex, grouped, AI and export search read the native archive through the owner search engine. Insights, AI queues and indexing, enrichment, Agent and maintenance use the native Store as well. The old SQLite files are read only by the converter (`vault-convert-sqlcipher`); nothing reads them as a live archive.
+The owner IPC prevents another process from opening databases.
 
-This build refuses archive rekey (including its preview), encryption-mode changes on
-an initialized archive, full-archive migration export/import (including
-import preview), full-archive snapshot restore, archive encryption reconciliation. They return the typed
-`StorageMigrationIncomplete` error, exposed to desktop commands as
-`storage-migration-incomplete`: the operation is unavailable until the storage migration
-completes. Search and its starred filter use the native owner across all entrypoints.
-The internal legacy read algorithms still have their own SQLite tests.
+Maintenance commands now use the native Vault: password rewrap, encryption-mode
+switching, portable export/import, full safety-snapshot restore and encryption
+reconciliation no longer return `storage-migration-incomplete`. Rewrap changes only
+`archive/keys.envelope`; remembered data keys remain valid. Mode changes copy all
+four databases through encrypted ATTACH, compare table counts and typed content
+digests, rebuild search under the destination mode, save a verified safety snapshot
+in that same mode, then install the verified set. Retention uses the native snapshot
+ledger and preserves the last openable safety snapshot.
 
-Restore in area 6: the worker bundle tests
-`export_app_data_writes_a_bundle_at_the_requested_target`,
+The worker bundle tests `export_app_data_writes_a_bundle_at_the_requested_target`,
 `preview_import_reads_a_bundle_written_by_export_app_data`, and
-`apply_import_restores_an_exported_bundle_onto_a_fresh_project_root`. They were replaced
-by refusal tests while mixed-store operations are unavailable. The full-archive worker
-restore success test is likewise replaced by a typed refusal; its legacy core tests remain.
-The desktop `migration_and_browse_insights_impls_cover_local_desktop_flows` bundle round-trip
-assertions also need restoring in area 6. Native archive readers, search and intelligence tests use real Store files in plaintext and with a key. The bridge regression imports tied visits, reopens from the keychain without a password, follows history and review cursors, and exports all rows. Maintenance tests retain independent legacy fixtures where their port is still pending.
+`apply_import_restores_an_exported_bundle_onto_a_fresh_project_root` exercise native
+bundles again. The desktop migration round-trip assertions are restored. Native
+maintenance tests cover both modes, committed backup prefixes, password/keychain
+continuity, interruption recovery and wipe. Legacy SQLCipher fixtures remain for the converter's tests and until
+area 6 removes the old openers.
+
+`vault-convert-sqlcipher` reads retained `.sqlite` files and writes staged native
+files through Vault. It recomputes URL, favorite, annotation and enrichment keys,
+uses the normal document/outbox writer, and rebuilds search. A durable page cursor
+supports retry after cancellation or process exit. Counts and logical content are
+verified before installation. The old SQLCipher files are never removed by conversion.
+Canonical collisions in enrichment jobs and refind merge deterministically: newest
+timestamp content, summed counters, unioned sets and remapped job triggers. Scratch follows the target encryption mode and holds the expected aggregates; a restarted attempt cannot add counters twice.
+Startup/session and desktop assessment recover installation journals before deciding
+whether retained SQLCipher files still require conversion.
 
 ### Turso archive read contract
 
@@ -359,8 +368,7 @@ in the backend. Only startup and explicit keychain unlock read this secret. Data
 and caller-owned key buffers are zeroized; no data key is returned
 to the WebView or over owner IPC. Each database uses its `KeyPurpose` HKDF sub-key,
 including scratch; `TempCryptIo` protects spill files. Plaintext supplies no Store keys
-and retains the compatibility password state expected by unported callers. Area 5
-password changes must rewrap the envelope without rewriting databases.
+and retains the compatibility password state expected by unported callers. Password changes rewrap the envelope without rewriting databases.
 
 Desktop command contracts (camelCase payloads):
 
@@ -395,8 +403,7 @@ older or multi-profile snapshots), preserves the original snapshot creation time
 source hashes and manifest provenance. A directory supplied without a ledger entry is
 not a valid restore source.
 
-The old `ArchiveOpGate` / `ArchiveWriteLock` remain only for unported SQLCipher
-rekey/recovery, full-archive restore, retention, whole-application migration and wipe.
+The old `ArchiveOpGate` / `ArchiveWriteLock` remain for legacy fixture helpers, retention and wipe. Native whole-file maintenance uses Store admission and the owner lock.
 Their native SQLite tests use independent fixtures, never translated copies of Turso
 writer results.
 
@@ -416,25 +423,39 @@ writer results.
   - Turso 儲存 queue、canonical enrichment metadata、deterministic read model、runtime state 與 compact semantic metadata / rebuild accounting；加密模式使用此 DB 專屬的 Vault sub-key。
 - `derived/agent.db`
   - assistant chat 持久化面（W-AI-3/7）：`conversations`、`messages`，以及 `agent_runs`、`agent_steps`、`agent_citations` 的 run/step/citation trace
-  - 隱私敏感衍生面，**排除出 portable export**（chat transcript 留在來源機）；可刪可重開新對話，不屬 canonical fact
+  - 舊檔保留供轉換；原生 agent 資料庫包含在加密 portable export 中
 - `derived/vectors/`
   - 自製 `FlatVectorIndex` 的 on-disk plane：`.pkvec`（raw f32 source）、`.pkmap`（visit→content_key dedup map，W-AI-4c）、`.pkbin`（binary-recall plane）、`.pki8`（int8-rescore plane）
   - 全屬可重建衍生狀態（14.4M 尾端的 f32 約 59 GB），**排除出 export bundle**，在 target 重嵌而非搬運
 - `models/`
   - in-app candle embedding 下載的模型權重（SHA-256 pin）；可重新下載，**排除出 export bundle**
 - `sidecars/intelligence-blobs/`
-  - W-ENRICH content-fetch 抓回的 readable body / caption blob（content-addressed）；可重抓、可能大，**排除出 export bundle**（capped `enrichment_summary` 改由 intelligence DB 攜帶，讓 target 仍能離線搜尋）
+  - W-ENRICH content-fetch 抓回的 readable body / caption blob（content-addressed）；可重抓、可能大，**排除出 export bundle**（已投影的 bounded enrichment text 隨 archive 的 `search_documents` 搬移，目的地重建索引後仍能離線搜尋；intelligence DB 本身不進 native bundle）
 
-### Legacy SQLite encryption at rest（未移植區域）
+### Retained SQLCipher files
 
-當 `AppConfig.archive_mode == Encrypted` 時，**只有 canonical encrypted-tier 的兩個 DB 加密**（SQLCipher，`rusqlite` bundled-sqlcipher，每連線 `PRAGMA key`）：
+SQLCipher inputs retained by conversion keep their original password and at-rest
+mode. A later native password change rewraps the native envelope only; it does not
+modify those retained originals. Their deletion is a separate user decision.
+While the converter ships, rusqlite uses `bundled-sqlcipher-vendored-openssl` across
+the whole executable; browser SQLite files are read without a key. See ADR-012.
 
-- **加密**：`archive/history-vault.sqlite` 與 `archive/source-evidence.sqlite`。兩者都是 archive contract、必須一起打包，因此必須一起以相同金鑰加密。
+Native snapshots pause admission between committed batches, TRUNCATE every WAL,
+then copy the four main files and envelope/config together. Their checksummed
+`snapshot.json` identifies the directory as one restore unit. Browser source
+checkpoint replay continues to use area 1's recorded-checkpoint path. Old archive-only
+SQLCipher safety snapshots are converted before native restoration; they cannot
+recover source evidence or agent data that the old snapshot never contained.
+
 - **Legacy artifacts / separate sidecars**：殘留的 `history-search.sqlite`、`history-intelligence.sqlite`、`agent.sqlite` 可能仍含明文；原生搜尋不開啟舊 FTS 檔。原生 `intelligence.db`、`agent.db` 與 search-index generations 隨 Vault 加密；`derived/vectors/` 的 flat planes 仍是獨立 sidecars。舊檔與 sidecar 的整體 at-rest 處理屬後續維護範圍，見 [[WORK-ENCRYPT-AT-REST-ALL backlog]]。
 
-**Rekey 必須 lockstep 遷移兩個 encrypted-tier DB。** `archive::maintenance::rekey_archive` 透過 `archive::at_rest::migrate_source_evidence_for_rekey` 在切換模式/輪換金鑰時同時重寫 `source-evidence.sqlite`（偵測檔案實際 on-disk 模式以選開啟金鑰，再以新模式/金鑰 export+atomic swap）。歷史 bug：舊 rekey 只重寫 archive，留下明文 `source-evidence`，而 `open_source_evidence_connection` 在 Encrypted 模式對它套 `PRAGMA key` → SQLCipher 把明文檔頭當密文 → page size 亂掉 → 每次備份 `SQLITE_NOMEM`。
-
-**Auto-repair（self-heal drift）。** `archive::at_rest::reconcile_source_evidence_with_archive` 用 16-byte 檔頭（`SQLite format 3\0` = 明文，無需金鑰）偵測 `source-evidence` 的 at-rest 模式是否與 config 漂移，漂移就原地重新加密/解密（`sqlcipher_export`→atomic swap，`recover_interrupted_rewrite` 保證崩潰可復原且不留明文 backstop），並記一筆 `run_type='rekey'` / `trigger='repair'` run（PME 透明）。它留在尚未移植的 `reconcile_archive_encryption` 維護命令；Turso 備份不再呼叫這條 SQLCipher rewrite 路徑。**範圍限制**：只處理 MODE drift（明文↔加密），不處理 KEY drift（用舊密碼加密的檔，檔頭與正確金鑰檔無從區分）→ [[WORK-ENCRYPT-KEYDRIFT-A backlog]]。
+Native mode changes, bundle imports and snapshot restores share the existing
+`archive/.pk-import-journal.json` location. The extended journal records each
+relative destination, whether an original existed, staging/backstop roots and the
+publication decision. Startup rolls back an uncommitted generation or finishes
+cleanup after publication. The owner-lock inode is never replaced. Abandoned
+`staging/maintenance-*` copies are removed on startup; the separately named
+SQLCipher conversion staging tree remains available to resume.
 
 ### Run ledger 與 rollback visibility
 
@@ -478,7 +499,7 @@ recovery, cancellation and exact command/channel shapes.
 - AI queue、assistant trace、semantic metadata、deterministic runtime state 都不再由 canonical archive bootstrap 建表；它們透過 `derived/intelligence.db` 持久化。
 - `ai_index_ledger` 以 `(provider_id, model)` 為 key，記錄 `sidecar_table`、`index_version`、`state`、`source_watermark`、`last_run_id`、build started / finished、clear time 與 failure reason。
 - semantic metadata、AI queue 與 deterministic read model 落在 `derived/intelligence.db`。Turso 僅保留 compact metadata / runtime accounting；**向量 payload 不進 SQLite**，而是寫到 `derived/vectors/` 的 `.pkvec/.pkmap/.pkbin/.pki8` sidecar plane（W-AI-4/5）。
-- assistant chat / agent run trace 落在獨立的 `derived/agent.db`（W-AI-3/7）：`conversations` / `messages` 加上 `agent_runs` / `agent_steps`（append-only journal，支援崩潰續跑）/ `agent_citations`（釘住 evidence 的 `history_id` / `canonical_url`）。它是隱私敏感面，**排除出 portable export**。
+- assistant chat / agent run trace 落在獨立的 `derived/agent.db`（W-AI-3/7）：`conversations` / `messages` 加上 `agent_runs` / `agent_steps`（append-only journal，支援崩潰續跑）/ `agent_citations`（釘住 evidence 的 `history_id` / `canonical_url`）。它和瀏覽歷史一樣是用戶資料、無法重建，所以會隨安全快照備份，也會以匯出密碼加密後放進 portable bundle 搬到新電腦（用戶 2026-10-07 決定：聊天記錄不比瀏覽記錄更私密，要一起備份和遷移；推翻先前「排除出 portable export」的設計）。
 - vector sidecar 與 agent.db 都可以整個刪除後再依 `ai_index_ledger` / canonical archive facts 重建（agent chat 刪除即重開新對話）；刪這些衍生面不應修改任何 canonical facts。
 - 2026-06 AI redesign closeout：上面 2026-04/05 寫下的「optional AI / vector / MCP 全部 disabled、移到 v0.3」結論已被 AI redesign 2026 program（W-AI-1..9）取代並落地——streaming chat、in-app + external embedding、`FlatVectorIndex` 語義/混合檢索、agent harness、code-mode、MCP 對外面都已交付且 reachable。整個 AI 面 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag），boundary 與 threat model 見 [ai-security-posture.md](ai-security-posture.md)。
 
@@ -520,11 +541,30 @@ recovery, cancellation and exact command/channel shapes.
 
 ### Data migration bundle contract (`.pathkeep-bundle`)
 
-- 整機 Export / Import 的 artifact 是 `.pathkeep-bundle` zip，由 `vault-core::migration` 寫入 / 讀回。zip 至少包含 `pathkeep-export-manifest.json`、`pathkeep-export-manifest.sha256` sidecar、`config/config.json`、`archive/history-vault.sqlite`（透過 `sqlcipher_export` 保留來源加密 key）以及 `archive/source-evidence.sqlite`；如果本機有 `derived/`、`audit/`、`raw-snapshots/`、`sidecars/` 子樹，也一併打包（含 `derived/history-intelligence.sqlite` 等 rebuildable projection，bundle 帶上以加速目標機 first-paint）。
-- 明確排除（`EXPORT_EXCLUSIONS_DOC`，透傳到 UI 讓使用者匯入前看到什麼不會跟過來）：`vault.hold` / `stronghold-salt.txt`（App Lock secrets 留在來源機）、`logs/`、`diagnostics/`、`schedule/`（platform-specific scheduler artifacts）、`staging/`、`quarantine/`、`exports/`（避免遞迴打包）、`models/`（下載的 embedding/reranker 模型可在目標機重新下載）、`derived/agent.sqlite`（assistant chat transcript 留在來源機）、`derived/vectors/`（raw f32 向量盤約 59 GB，rebuildable，目標機重嵌）、`sidecars/intelligence-blobs/`（content-fetch 抓回的 raw body blob 可重抓，capped `enrichment_summary` 改由 intelligence DB 攜帶）。
-- `pathkeep-export-manifest.json` 是 import 的 restore contract：記錄 `formatVersion`、`appVersion`、`archiveSchemaVersion`、`archiveMode`、`exportedAt`、`exporterHostname`，以及每個 entry 的 `path` / `sha256` / `sizeBytes`。獨立的 `pathkeep-export-manifest.sha256` sidecar 提供 manifest 反竄改 hash。
-- Apply 路徑：先 re-validate manifest sha256；對每個 entry extract 到 staging 並重算 sha256；確認 `archiveSchemaVersion ≤ max_schema_version()`（refuse 來自更新 PathKeep 版本的 bundle）；rename 既有 target subtree 為 `*.bak-<timestamp>` sibling 保留；atomic-move staged 進 live tree；對 imported archive 跑 forward schema migrations。
-- 這條 contract 取代了 2026-05-25 移除的 S3-based remote backup bundle（`pathkeep.remote-backup.v1`）。PathKeep 不再做 cloud upload；跨機器搬遷只走使用者主動發起、寫到使用者選的本地 `.pathkeep` 檔的 Export / Import bundle。
+Native bundles use format 2. Every export has a fresh random data key wrapped by
+an explicit export password. The ZIP contains `archive/history-vault.db`,
+`archive/source-evidence.db`, `archive/agent.db`, `archive/keys.envelope`,
+`config/config.json`, `archive/portable-artifacts.pkf`, the manifest and its
+SHA-256 sidecar. The config and streaming TAR of audit, raw snapshots and retained
+sidecars use the authenticated bundle-artifacts codec; the six-entry inventory
+stays bounded as the provenance history grows. Source-machine artifact paths in
+database rows are relocated after verification; immutable audit JSON keeps its
+original hash and resolves through imported root aliases. Agent conversations
+are included. The `derived/` tree is excluded; search is rebuilt on import and
+intelligence remains rebuildable. This replaces the old SQLCipher bundle layout.
+
+Export copies and verifies database rows before writing the ZIP, and atomically
+publishes the completed bundle at the requested path. Import validates manifest
+and entry digests in staging, authenticates the export password, checks database
+integrity, builds search, then closes the old owner and performs the journaled
+installation. Existing native files are retained in `maintenance.bak-*`. Import
+works with an empty project root and requires `confirmOverwrite` when replacing
+an existing native archive. App Lock policy stays with the destination's local
+secret; an empty destination starts without App Lock rather than asking for an
+excluded source-machine passcode.
+
+The command contracts and en/zh-CN/zh-TW phase labels are in
+[the maintenance contract](research/2026-10-turso-maintenance.md).
 
 ---
 

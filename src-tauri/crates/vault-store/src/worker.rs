@@ -211,6 +211,26 @@ impl Workers {
         m.statements_compiled = self.compiled.load(Ordering::Relaxed);
         m
     }
+
+    // Only a Store maintenance guard can admit these non-transaction jobs. All
+    // normal readers and writers have drained before its exclusive guard exists.
+    pub(crate) fn maintenance<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&Engine) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        check_caller()?;
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.writer.push(
+            Priority::Batch,
+            Box::new(move |engine, _, _| {
+                let result = crate::session::catch_job(|| work(engine));
+                Box::new(move || {
+                    let _ = tx.send(result);
+                })
+            }),
+        )?;
+        rx.recv().map_err(|_| Error::Closed)?
+    }
 }
 impl Drop for Workers {
     fn drop(&mut self) {

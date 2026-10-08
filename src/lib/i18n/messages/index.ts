@@ -14,6 +14,7 @@ import { historyPage } from './history-page'
 import { historySearch } from './history-search'
 import { home } from './home'
 import { insights } from './insights'
+import { maintenance } from './maintenance'
 import { onboarding } from './onboarding'
 import { settings } from './settings'
 import { settingsAbout } from './settings-about'
@@ -41,6 +42,7 @@ const namespaces = {
   settingsStorage,
   settingsAbout,
   onboarding,
+  maintenance,
 }
 
 type Namespaces = typeof namespaces

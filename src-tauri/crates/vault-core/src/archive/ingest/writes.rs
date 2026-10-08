@@ -4,7 +4,7 @@
 //! observations, unpublished page anchors, ignored visits widening bounds, lost nullable fields or duplicate
 //! favicon bytes. Tests: dedup_scenarios* and writes_tests in both key modes.
 
-use crate::archive::schema::favicon_url_metadata;
+use crate::archive::favicon_metadata::favicon_url_metadata;
 use crate::archive::visit_event_fingerprint;
 use crate::utils::{now_rfc3339, sha256_hex, unix_micros_to_chrome_time};
 use crate::visit_taxonomy::registrable_domain_for_url;
@@ -24,7 +24,7 @@ pub(super) struct UrlVisitBounds {
 }
 
 /// Upserts the stable source-profile identity row and returns its canonical id.
-pub(super) fn upsert_source_profile(
+pub(crate) fn upsert_source_profile(
     archive: &Session<'_>,
     profile: &crate::models::BrowserProfile,
 ) -> Result<i64> {

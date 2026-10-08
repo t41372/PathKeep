@@ -7,11 +7,11 @@ v1 and migration record commit in one transaction. No SQLite migration replay, t
 functions or WITHOUT ROWID tables are used. Intelligence has sixteen generation views.
 
 This is the schema contract for the Turso port in [ADR-012](decisions/012-turso-storage-engine.md)
-and [the migration design](turso-migration-design.md). Archive mutation writers and readers use
-Vault and real Store transactions. Search uses the native archive and the owner's vault-search
-index. Intelligence, AI queues/indexing, enrichment and agent storage use the native files.
-Whole-file maintenance retains legacy openers until its separate port. The desktop session
-owns the shared Vault for ported commands.
+and [the migration design](turso-migration-design.md). Archive writers and readers use Vault
+and real Store transactions. Search uses the native archive and the owner's vault-search
+index. Intelligence, AI queues/indexing, enrichment, agent storage and whole-file maintenance
+(snapshots, bundles, rekey, mode switch, restore) use the native files; SQLCipher is read
+only by the converter. The desktop session owns the shared Vault for ported commands.
 
 The baseline is the final effect of archive SQL migrations 001–016 and runtime
 DDL in archive schema/search/source evidence, intelligence schema and its runtime
@@ -22,7 +22,7 @@ definitions; they do not include or execute those legacy migration files.
 
 | Database        | File                         | Version | Application tables |
 | --------------- | ---------------------------- | ------- | ------------------ |
-| Archive         | `archive/history-vault.db`   | 3       | 22                 |
+| Archive         | `archive/history-vault.db`   | 1       | 22                 |
 | Source evidence | `archive/source-evidence.db` | 1       | 7                  |
 | Intelligence    | `derived/intelligence.db`    | 1       | 36                 |
 | Agent           | `derived/agent.db`           | 1       | 5                  |

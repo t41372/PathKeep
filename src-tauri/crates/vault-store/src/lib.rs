@@ -5,8 +5,10 @@
 mod cancel;
 mod checkpoint;
 mod config;
+mod copy;
 mod engine;
 mod error;
+mod maintenance;
 mod migration;
 mod owner_lock;
 mod query_plans;
@@ -21,7 +23,9 @@ mod worker;
 pub use cancel::CancelToken;
 pub use checkpoint::Metrics;
 pub use config::{Config, Db, IoLayer, Paths};
+pub use copy::{CopyPhase, CopyProgress, TableDigest};
 pub use error::{Error, Result};
+pub use maintenance::Maintenance;
 pub use migration::{Migration, MigrationRegistry};
 pub use owner_lock::OwnerLock;
 pub use queue::Priority;
@@ -39,8 +43,13 @@ pub struct Store {
     workers: RwLock<Vec<(Db, worker::Workers)>>,
     ownership: Mutex<Option<Arc<owner_lock::OwnerLock>>>,
     closed: AtomicBool,
+    paths: Paths,
 }
 impl Store {
+    /// Keep the ownership inode reserved across a verified maintenance replacement.
+    pub fn owner(&self) -> Result<Arc<OwnerLock>> {
+        self.ownership.lock().unwrap().clone().ok_or(Error::Closed)
+    }
     /// Reports availability without waiting on a database connection.
     pub fn is_open(&self) -> bool {
         !self.closed.load(std::sync::atomic::Ordering::Acquire)
@@ -67,6 +76,7 @@ impl Store {
             workers: RwLock::new(Vec::new()),
             ownership: Mutex::new(Some(lock)),
             closed: AtomicBool::new(false),
+            paths: config.paths.clone(),
         };
         // Keep scratch's database handle alive before any connection attaches it.
         for db in [Db::Scratch, Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent] {

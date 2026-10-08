@@ -97,6 +97,41 @@ fn seed(tx: &Session<'_>, rows: &[Fixture]) -> vault_store::Result<()> {
     }
     Ok(())
 }
+
+/// Reuse independent full-column fixtures when proving maintenance preserves tables.
+pub(crate) fn seed_maintenance(vault: &crate::Vault) {
+    for catalog in CATALOGS {
+        if catalog.db == Db::Scratch {
+            continue;
+        }
+        vault.store().write(catalog.db, Priority::Batch, move |s| seed(s, catalog.rows)).unwrap();
+    }
+}
+
+pub(crate) fn maintenance_rows(
+    vault: &crate::Vault,
+    databases: &[Db],
+) -> Vec<(String, Vec<Vec<vault_store::Value>>)> {
+    let mut result = Vec::new();
+    for catalog in CATALOGS.iter().filter(|c| databases.contains(&c.db)) {
+        for fixture in catalog.rows {
+            if fixture.table == "search_outbox" {
+                continue;
+            }
+            let sql = format!("SELECT {} FROM {} ORDER BY rowid", fixture.columns, fixture.table);
+            let rows = vault
+                .store()
+                .read(catalog.db, move |s| {
+                    s.query(&sql, (), |r| {
+                        (0..r.column_count()).map(|i| r.get_value(i).map_err(Into::into)).collect()
+                    })
+                })
+                .unwrap();
+            result.push((format!("{:?}.{}", catalog.db, fixture.table), rows));
+        }
+    }
+    result
+}
 fn number(store: &Store, db: Db, sql: &'static str) -> i64 {
     store.read(db, move |tx| tx.query_one(sql, (), |r| Ok(r.get(0)?))).unwrap()
 }

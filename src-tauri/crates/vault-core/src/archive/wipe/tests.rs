@@ -4,10 +4,7 @@
 
 use super::*;
 use crate::{
-    archive::{
-        ensure_archive_initialized, legacy_archive_status, search_history,
-        tests::seed_chrome_fixture,
-    },
+    archive::{run_backup, search_history, tests::seed_chrome_fixture},
     config::{load_config, project_paths_with_root, save_config},
     models::HistoryQuery,
     utils::{restore_test_env_var, test_env_lock},
@@ -22,6 +19,11 @@ use tempfile::TempDir;
 
 const CHROME_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
 
+/// The archive database a wipe must remove.
+fn archive_file(paths: &ProjectPaths) -> PathBuf {
+    paths.app_root.join("archive/history-vault.db")
+}
+
 /// A temp app root holding a backed-up archive, plus the fixture browser profile it came from.
 struct Fixture {
     _guard: MutexGuard<'static, ()>,
@@ -31,6 +33,8 @@ struct Fixture {
     config: AppConfig,
     chrome_root: PathBuf,
     outside_dir: PathBuf,
+    /// What the backup saved, which the preview must count.
+    visits: i64,
 }
 
 impl Drop for Fixture {
@@ -61,9 +65,10 @@ fn backed_up_archive() -> Fixture {
         .llm_providers
         .push(crate::models::AiProviderConfig { id: "llm-1".to_string(), ..Default::default() });
     save_config(&paths, &config).expect("save config");
-    ensure_archive_initialized(&paths, &config, None).expect("init archive");
-    super::super::tests::legacy_queries::seed_reader_archive(&paths, &config);
-    drop(super::super::open_legacy_source_evidence_connection(&paths, &config, None).unwrap());
+    let vault = crate::Vault::open(paths.clone(), config.clone(), None).expect("open archive");
+    let visits = run_backup(&vault, false).expect("backup").run.expect("run").new_visits as i64;
+    assert!(visits > 0);
+    vault.close().expect("close archive");
 
     // Things a real install accumulates beside the archive.
     let write = |path: PathBuf, bytes: &[u8]| {
@@ -91,6 +96,7 @@ fn backed_up_archive() -> Fixture {
         config,
         chrome_root,
         outside_dir,
+        visits,
     }
 }
 
@@ -141,9 +147,12 @@ fn installed_plan() -> SchedulePlan {
 fn preview_lists_only_paths_inside_the_app_root_and_counts_visits() {
     let fixture = backed_up_archive();
     let paths = &fixture.paths;
-    let preview = preview_data_wipe(paths, &fixture.config, None).expect("preview");
+    // The count comes from the open archive, as in the app.
+    let vault = crate::Vault::open(paths.clone(), fixture.config.clone(), None).unwrap();
+    let preview = preview_data_wipe(paths).expect("preview");
+    vault.close().unwrap();
 
-    assert_eq!(preview.visit_count, 2);
+    assert_eq!(preview.visit_count, fixture.visits);
     assert!(!preview.clears_keychain, "the keychain is the caller's to report");
     assert!(!preview.removes_schedule, "the scheduler is the caller's to report");
     assert_eq!(preview.total_bytes, preview.items.iter().map(|item| item.bytes).sum::<u64>());
@@ -155,9 +164,10 @@ fn preview_lists_only_paths_inside_the_app_root_and_counts_visits() {
             item.path
         );
     }
+    let source_evidence = paths.app_root.join("archive/source-evidence.db");
     for expected in [
-        &paths.archive_database_path,
-        &paths.source_evidence_database_path,
+        &archive_file(paths),
+        &source_evidence,
         &paths.derived_dir,
         &paths.raw_snapshots_dir,
         &paths.audit_repo_path,
@@ -186,7 +196,7 @@ fn wipe_removes_everything_listed_and_nothing_else() {
     let fixture = backed_up_archive();
     let paths = &fixture.paths;
     let browser_before = file_contents_under(&fixture.chrome_root);
-    let preview = preview_data_wipe(paths, &fixture.config, None).expect("preview");
+    let preview = preview_data_wipe(paths).expect("preview");
     let secrets = WipeOutsideState::from_config(&fixture.config, None);
     let quiesced = Cell::new(false);
     let cleared = Mutex::new(None);
@@ -198,13 +208,13 @@ fn wipe_removes_everything_listed_and_nothing_else() {
             // Workers stop on a missing config, so it must be gone before they are waited on,
             // and the archive must still be there for them to finish against.
             assert!(!paths.config_path.exists());
-            assert!(paths.archive_database_path.exists());
+            assert!(archive_file(paths).exists());
             assert!(data_wipe_interrupted(paths), "the marker is written before deleting");
             quiesced.set(true);
             Ok(())
         },
         |secrets| {
-            assert!(!paths.archive_database_path.exists(), "secrets go after the files");
+            assert!(!archive_file(paths).exists(), "secrets go after the files");
             *cleared.lock().expect("cleared") = Some(secrets.provider_ids.clone());
             Ok(())
         },
@@ -229,7 +239,7 @@ fn wipe_removes_everything_listed_and_nothing_else() {
 
     let config = load_config(paths).expect("config after wipe");
     assert!(!config.initialized);
-    assert!(!legacy_archive_status(paths, &config, None).expect("status").initialized);
+    assert!(!paths.app_root.join("archive/history-vault.db").exists());
 }
 
 #[test]
@@ -242,7 +252,7 @@ fn a_second_wipe_succeeds_and_removes_nothing_new() {
 
     wipe_all_data(paths, &secrets, no_quiesce, no_secrets, no_schedule).expect("second wipe");
     assert_eq!(file_contents_under(&paths.app_root), left_after_first);
-    let preview = preview_data_wipe(paths, &AppConfig::default(), None).expect("empty preview");
+    let preview = preview_data_wipe(paths).expect("empty preview");
     assert_eq!(preview.visit_count, 0);
     assert!(preview.items.is_empty(), "left: {:?}", preview.items);
 }
@@ -260,7 +270,7 @@ fn an_interrupted_wipe_finishes_with_the_saved_provider_list() {
             .expect_err("the cut wipe reports failure");
     assert!(error.to_string().contains("power cut"));
     assert!(data_wipe_interrupted(paths));
-    assert!(paths.archive_database_path.exists());
+    assert!(archive_file(paths).exists());
     assert!(!paths.config_path.exists(), "the app now reads as not initialized");
 
     let cleared = Mutex::new(None);
@@ -285,7 +295,7 @@ fn an_interrupted_wipe_finishes_with_the_saved_provider_list() {
         Some(installed_plan().label),
         "the task planned before the crash is the one removed"
     );
-    assert!(!paths.archive_database_path.exists());
+    assert!(!archive_file(paths).exists());
     assert!(!data_wipe_interrupted(paths));
     assert!(
         finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule)
@@ -306,7 +316,7 @@ fn a_failed_keychain_step_keeps_the_marker_for_a_retry() {
         no_schedule,
     )
     .expect_err("keychain failure surfaces");
-    assert!(!paths.archive_database_path.exists(), "files go before secrets");
+    assert!(!archive_file(paths).exists(), "files go before secrets");
     assert!(data_wipe_interrupted(paths));
     assert!(
         finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule)
@@ -331,7 +341,7 @@ fn the_automatic_backup_is_removed_last() {
         },
         |plan| {
             assert_eq!(plan.label, installed_plan().label);
-            assert!(!paths.archive_database_path.exists(), "the task goes after the files");
+            assert!(!archive_file(paths).exists(), "the task goes after the files");
             assert!(secrets_cleared.get(), "and after the keychain");
             assert!(data_wipe_interrupted(paths), "a crash now still removes it at next launch");
             Ok(())
@@ -360,7 +370,7 @@ fn a_task_that_cannot_be_removed_is_reported_and_the_wipe_still_finishes() {
         report.schedule_error.as_deref().is_some_and(|error| error.contains("not permitted")),
         "{report:?}"
     );
-    assert!(!paths.archive_database_path.exists());
+    assert!(!archive_file(paths).exists());
     assert!(!load_config(paths).expect("config").initialized, "the app is not initialized");
     // No marker: rerunning the wipe at every launch would block onboarding on the same error.
     assert!(!data_wipe_interrupted(paths));
@@ -374,10 +384,9 @@ fn a_new_archive_in_the_same_process_bootstraps_and_searches_after_a_wipe() {
         .expect("wipe");
 
     save_config(paths, &fixture.config).expect("config again");
-    ensure_archive_initialized(paths, &fixture.config, None).expect("init again");
-    super::super::tests::legacy_queries::seed_reader_archive(paths, &fixture.config);
     let vault = crate::Vault::open(paths.clone(), fixture.config.clone(), None).unwrap();
-    crate::test_support::legacy_fixtures::copy_to_vault(&vault, paths, &fixture.config);
+    run_backup(&vault, false).expect("backup into the new archive");
+    vault.search().cycle().unwrap();
     let found = search_history(
         paths,
         &fixture.config,
@@ -402,10 +411,10 @@ fn the_wipe_waits_for_a_process_holding_the_archive_write_lock() {
         }
     });
     std::thread::sleep(std::time::Duration::from_millis(300));
-    assert!(paths.archive_database_path.exists(), "the wipe must not run under another writer");
+    assert!(archive_file(&paths).exists(), "the wipe must not run under another writer");
     assert!(paths.config_path.exists());
 
     drop(foreign);
     wipe.join().expect("wipe thread").expect("wipe after the lock frees");
-    assert!(!paths.archive_database_path.exists());
+    assert!(!archive_file(&paths).exists());
 }

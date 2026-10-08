@@ -139,7 +139,7 @@ pub fn dispatch(
             let key = resolve_key(session_key)?;
             match request.method.as_str() {
                 "doctor" => encode(
-                    archive_flows::doctor_report(&vault().map_err(failed)?, key.as_deref())
+                    archive_flows::doctor_report(&vault().map_err(failed)?)
                         .map_err(failed)?,
                 ),
                 "ai-index" => encode(

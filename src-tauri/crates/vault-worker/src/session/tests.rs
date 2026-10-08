@@ -166,7 +166,10 @@ fn legacy_keychain_password_is_unwrapped_and_replaced_in_the_backend() {
             archive_mode: ArchiveMode::Encrypted,
             ..Default::default()
         };
-        crate::initialize_archive_database(&config, Some(password)).unwrap();
+        vault_core::save_config(&paths, &config).unwrap();
+        let (native, _) =
+            Vault::open_password(paths.clone(), config.clone(), password, None).unwrap();
+        native.close().unwrap();
         vault_platform::keyring_set_database_key(password).unwrap();
         let state = VaultSession::default();
         if password.len() == 64 {
@@ -193,6 +196,19 @@ fn legacy_keychain_password_is_unwrapped_and_replaced_in_the_backend() {
     for (name, value) in names.into_iter().zip(old) {
         crate::tests::restore_env_var(name, value.as_deref());
     }
+}
+
+#[test]
+fn legacy_storage_waits_for_explicit_conversion_before_session_open() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = vault_core::project_paths_with_root(root.path());
+    let config =
+        AppConfig { initialized: true, archive_mode: ArchiveMode::Plaintext, ..Default::default() };
+    drop(vault_convert_sqlcipher::test_support::open_archive(&paths, &config, None));
+    let state = VaultSession::default();
+    let error = state.open_store(paths.clone(), config, None, None).unwrap_err();
+    assert!(error.starts_with("archive-conversion-required:"));
+    assert!(!paths.app_root.join("archive/history-vault.db").exists());
 }
 
 #[test]

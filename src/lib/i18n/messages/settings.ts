@@ -124,8 +124,6 @@ export const settings = defineMessages({
           change: 'Change password',
           decrypt: 'Turn off encryption',
         },
-        running:
-          'Rewriting the archive. A large archive takes a few minutes; keep PathKeep open.',
         done: {
           encrypt: 'The archive is encrypted.',
           change: 'Password changed.',
@@ -298,7 +296,6 @@ export const settings = defineMessages({
           change: '更改密码',
           decrypt: '关闭加密',
         },
-        running: '正在重写存档。存档较大时需要几分钟，请保持 PathKeep 打开。',
         done: {
           encrypt: '存档已加密。',
           change: '密码已更改。',
@@ -470,7 +467,6 @@ export const settings = defineMessages({
           change: '更改密碼',
           decrypt: '關閉加密',
         },
-        running: '正在重寫存檔。存檔較大時需要幾分鐘，請保持 PathKeep 開啟。',
         done: {
           encrypt: '存檔已加密。',
           change: '密碼已更改。',

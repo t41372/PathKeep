@@ -1,3 +1,8 @@
+//! Responsibilities: coordinate App Lock, native rekey previews and stored data-key access.
+//! Not responsible for: envelope cryptography or database/file installation.
+//! Failure modes: wrong current password accepted, stale keychain data or App Lock conflated with
+//! archive encryption.
+//!
 //! Security, App Lock, and keyring worker flows.
 //!
 //! This module owns the session-boundary and native-secret parts of the worker
@@ -20,13 +25,14 @@ use crate::{
     },
 };
 use anyhow::{Context, Result};
+#[cfg(test)]
 use rusqlite::OptionalExtension;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 use vault_core::{
-    AiProviderSecretInput, AppLockStatus, ArchiveMode, KeyringStatusReport, archive,
+    AiProviderSecretInput, AppLockStatus, ArchiveMode, KeyringStatusReport,
     clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
     unlock_app_session_with_biometric,
 };
@@ -64,15 +70,10 @@ pub fn security_status(
         "locked"
     };
 
-    let (last_rekey_at, last_rekey_run_id, last_rekey_snapshot_path) = if archive.initialized
-        && archive.unlocked
-        && (config.archive_mode == ArchiveMode::Plaintext || session_database_key.is_some())
-    {
-        let connection = archive::open_archive_connection(&paths, &config, session_database_key)?;
-        archive::create_schema(&connection)?;
-        latest_rekey_review_from_archive(&connection)?
-            .or_else(|| latest_rekey_review_from_manifests(&paths).ok().flatten())
-            .unwrap_or((None, None, None))
+    let (last_rekey_at, last_rekey_run_id, last_rekey_snapshot_path) = if let Some(vault) = vault {
+        vault.store().read(vault_store::Db::Archive,|s|{
+            Ok(s.query("SELECT finished_at,id,(SELECT file_path FROM snapshots WHERE run_id=runs.id AND reason='before-rekey' ORDER BY id DESC LIMIT 1) FROM runs WHERE run_type='rekey' ORDER BY id DESC LIMIT 1",(),|r|Ok((r.get::<Option<String>>(0)?,Some(r.get::<i64>(1)?),r.get::<Option<String>>(2)?)))?.into_iter().next())
+        })?.or_else(||latest_rekey_review_from_manifests(&paths).ok().flatten()).unwrap_or((None,None,None))
     } else {
         latest_rekey_review_from_manifests(&paths)?.unwrap_or((None, None, None))
     };
@@ -141,6 +142,8 @@ fn security_status_warnings(
 }
 
 /// Reads the most recent rekey review directly from the archive when available.
+#[cfg(test)]
+#[allow(dead_code)]
 fn latest_rekey_review_from_archive(
     connection: &rusqlite::Connection,
 ) -> Result<Option<RekeyReviewSummary>> {
@@ -209,7 +212,7 @@ fn latest_rekey_review_from_manifests(
         let snapshot_path = payload
             .get("snapshotPath")
             .and_then(serde_json::Value::as_str)
-            .map(ToString::to_string);
+            .map(|path| vault_core::migration::resolve_imported_artifact(paths, path));
 
         let replace = latest.as_ref().is_none_or(|(current_created_at, current_run_id, _)| {
             created_at > *current_created_at
@@ -332,56 +335,68 @@ fn biometric_authentication_error(message: String) -> anyhow::Error {
 /// [`crate::current_password`]), so a wrong one is refused on the first step
 /// instead of after the user has read the plan.
 pub fn preview_rekey_archive(request: &RekeyRequest) -> Result<vault_core::RekeyPreview> {
-    vault_core::require_complete_storage_migration("archive rekey")?;
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    if !config.initialized || !paths.archive_database_path.exists() {
-        anyhow::bail!("initialize the archive before previewing a rekey operation");
-    }
+    anyhow::ensure!(
+        config.initialized && paths.app_root.join("archive/history-vault.db").exists(),
+        "initialize the archive before previewing a rekey operation"
+    );
     crate::current_password::verified_current_key(&paths, &config, request)?;
-
-    // Warnings and codes stay index-aligned (the `SecurityStatus::warning_codes`
-    // template): the shell localizes off the stable code and only falls back to
-    // the English prose for codes it does not ship copy for.
-    let mut warnings = Vec::new();
-    let mut warning_codes = Vec::new();
-    if matches!(request.new_mode, ArchiveMode::Encrypted) && request.new_key.is_none() {
-        warnings.push(
-            "Encrypted rekey requires a new database key before execute can run.".to_string(),
-        );
-        warning_codes.push(vault_core::REKEY_WARNING_NEW_KEY_REQUIRED.to_string());
-    }
-    if config.archive_mode == request.new_mode {
-        warnings.push(
-            "The archive will still be rewritten because the target mode matches the current mode, which makes this a key rotation or validation pass rather than a mode switch.".to_string(),
-        );
-        warning_codes.push(vault_core::REKEY_WARNING_SAME_MODE_REWRITE.to_string());
-    }
-
-    let snapshot_path =
-        paths.raw_snapshots_dir.join("rekey").join("archive-before-rekey-<timestamp>.sqlite");
-    let temp_path = paths.archive_database_path.with_extension("rekey.sqlite");
-
-    Ok(vault_core::RekeyPreview {
+    let rewrap = config.archive_mode == request.new_mode;
+    let copy = rekey_copy(&config.preferred_language);
+    let mut preview = vault_core::RekeyPreview {
         current_mode: config.archive_mode,
         next_mode: request.new_mode.clone(),
-        requires_new_key: matches!(request.new_mode, ArchiveMode::Encrypted),
-        snapshot_path: snapshot_path.display().to_string(),
-        temp_database_path: temp_path.display().to_string(),
-        steps: vec![
-            format!(
-                "Create a safety snapshot of the current archive at {}.",
-                snapshot_path.display()
-            ),
-            format!(
-                "Export the archive into a temporary database at {} using the requested target mode.",
-                temp_path.display()
-            ),
-            "Swap the rewritten database into place only after the export succeeds, and keep the safety snapshot for manual recovery.".to_string(),
+        requires_new_key: request.new_mode == ArchiveMode::Encrypted,
+        snapshot_path: if rewrap {
+            String::new()
+        } else {
+            paths.raw_snapshots_dir.join("maintenance/rekey-<id>").display().to_string()
+        },
+        temp_database_path: if rewrap {
+            String::new()
+        } else {
+            paths.staging_dir.join("maintenance-<id>").display().to_string()
+        },
+        steps: if rewrap {
+            vec![copy[0].into()]
+        } else {
+            copy[1..4].iter().map(|text| (*text).into()).collect()
+        },
+        ..Default::default()
+    };
+    if preview.requires_new_key && request.new_key.is_none() {
+        preview.warnings.push(copy[4].into());
+        preview.warning_codes.push(vault_core::REKEY_WARNING_NEW_KEY_REQUIRED.into());
+    }
+    Ok(preview)
+}
+
+// The frontend owns phase labels; preview sentences also work without a translated client.
+fn rekey_copy(language: &vault_core::LanguagePreference) -> [&'static str; 5] {
+    match language {
+        vault_core::LanguagePreference::ZhCn => [
+            "用新密码重新包装密钥信封。数据库文件和钥匙串中的数据密钥保持不变。",
+            "将每个数据库复制为所选加密模式。",
+            "核对每张表的行数和内容摘要，再以新模式重建搜索索引。",
+            "以新模式保存已验证的安全快照，再通过可恢复的流程替换文件。",
+            "执行前请输入新的存档密码。",
         ],
-        warnings,
-        warning_codes,
-    })
+        vault_core::LanguagePreference::ZhTw => [
+            "用新密碼重新包裝金鑰信封。資料庫檔案和鑰匙圈中的資料金鑰保持不變。",
+            "將每個資料庫複製為所選加密模式。",
+            "核對每張表的列數和內容摘要，再以新模式重建搜尋索引。",
+            "以新模式保存已驗證的安全快照，再透過可恢復的流程替換檔案。",
+            "執行前請輸入新的封存密碼。",
+        ],
+        _ => [
+            "Rewrap the key envelope with the new password. Database files and the remembered data key stay unchanged.",
+            "Copy every database into the selected encryption mode.",
+            "Verify every table's row count and content digest, then rebuild search in the new mode.",
+            "Save a verified safety snapshot in the new mode, then install the files with interruption recovery.",
+            "Enter the new archive password before executing.",
+        ],
+    }
 }
 
 /// Reads the stored archive key from the native keyring, if present.
