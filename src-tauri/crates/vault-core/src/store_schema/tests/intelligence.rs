@@ -134,6 +134,7 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_source_effectiveness_rank",
     "idx_reopened_investigations_recent",
     "idx_path_flows_profile_rank",
+    "idx_domain_daily_first_day",
 ];
 pub(super) const ROWS: &[Fixture] = &[
     Fixture {
