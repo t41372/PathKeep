@@ -339,7 +339,10 @@ impl HistoryBatchConsumer for TakeoutPreviewCollector {
 /// Enumerates all file candidates contained in a Takeout directory or zip source.
 pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
     if source.is_dir() {
+        // Name order, not the file system's: APFS lists sorted and ext4 in hash order, and
+        // an import must do the same thing on every computer.
         return Ok(WalkDir::new(source)
+            .sort_by_file_name()
             .into_iter()
             .filter_map(Result::ok)
             .filter(|entry| entry.file_type().is_file())

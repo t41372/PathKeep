@@ -138,10 +138,9 @@ pub fn dispatch(
             let _: Empty = params(request.params)?;
             let key = resolve_key(session_key)?;
             match request.method.as_str() {
-                "doctor" => encode(
-                    archive_flows::doctor_report(&vault().map_err(failed)?)
-                        .map_err(failed)?,
-                ),
+                "doctor" => {
+                    encode(archive_flows::doctor_report(&vault().map_err(failed)?).map_err(failed)?)
+                }
                 "ai-index" => encode(
                     intelligence::build_ai_index_now(
                         &vault().map_err(failed)?,
