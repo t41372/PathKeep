@@ -640,10 +640,11 @@ Refind construction streams one canonical page at a time. Its bounded evidence s
 storage bookkeeping: public evidence reads page the complete canonical visit set.
 
 Overview snapshots are warmed after publication, outside the render path, with cancellation
-checkpoints between bands. Their fingerprint includes the requested end date, archive and
-stage watermarks, classification recipe and local date/timezone. A changed fingerprint
-prevents publishing an obsolete cache. Reads refresh runtime metadata and observed evidence.
-The `overview` progress phase reports preparation of these views.
+checkpoints between bands. Their fingerprint includes the archive and stage watermarks,
+classification recipe and UTC offset, not the date: all time always ends today, and the parts
+that depend on today (on this day, habits, the range) are recomputed when a snapshot is served.
+A changed fingerprint prevents publishing an obsolete cache. Reads refresh runtime metadata and
+observed evidence. The `overview` progress phase reports preparation of these views.
 
 Queue claims capture their trigger watermark. Requests arriving during a running claim
 remain queued after its completion. Module invalidations have a monotonic revision, so
