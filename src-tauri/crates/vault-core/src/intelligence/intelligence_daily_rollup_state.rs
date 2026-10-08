@@ -22,7 +22,7 @@
 //! - The accumulator only stores one row per `(date, profile, key)` bucket and
 //!   never touches SQLite.
 
-use super::{DailyRollupBundle, VisitRecord, local_date_key, local_datetime_from_millis};
+use super::{DailyRollupBundle, VisitRecord, local_datetime_from_millis};
 use chrono::Timelike;
 use std::collections::{HashMap, HashSet};
 
@@ -45,7 +45,9 @@ pub(super) struct DailyRollupAccumulator {
 
 impl DailyRollupAccumulator {
     pub(super) fn add_visit(&mut self, visit: &VisitRecord) {
-        let date_key = local_date_key(visit.visit_time_ms);
+        // One local-time conversion per visit gives both the day and the hour.
+        let local = local_datetime_from_millis(visit.visit_time_ms);
+        let date_key = local.format("%Y-%m-%d").to_string();
         let domain_key =
             (date_key.clone(), visit.profile_id.clone(), visit.registrable_domain.clone());
         let domain_entry = self.domains.entry(domain_key).or_insert((
@@ -88,7 +90,7 @@ impl DailyRollupAccumulator {
             [0; 24],
         ));
         summary_entry.0 += 1;
-        summary_entry.5[local_datetime_from_millis(visit.visit_time_ms).hour() as usize] += 1;
+        summary_entry.5[local.hour() as usize] += 1;
         summary_entry.1 += i64::from(visit.is_search_event);
         if visit.is_new_domain {
             summary_entry.2.insert(visit.registrable_domain.clone());
