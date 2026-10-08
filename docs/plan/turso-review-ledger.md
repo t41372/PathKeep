@@ -234,7 +234,7 @@ A release build of `redesign/v0.4` ran on an APFS clone of the user's v0.3 data 
 - [ ] **Two Insights jobs stayed queued forever** after the rebuild (`queued 2, running 0` for over an hour, last activity when the rebuild finished). Find what they are and why the worker never picks them up.
 - [ ] **Memory stayed at 3 GB after the export** (2.6 GB peak during it, 0.55 GB before). Too much for the 8 GB target; find what the export keeps. Reproduced at 14.4M on the benchmark: resident 0.12 GB before the export, 1.09 GB peak during it, 0.99 GB after it and after the next reads.
 - [ ] **A profile filter with no search words**: first rows 66 ms, exact count 3.3 s for one profile's 84k visits. Same family as the 8.3 s profile-filter count at 14.4M above.
-- [ ] tantivy's INFO lines (segment flushes, merges, deletes) fill `rust.log`; cap that crate at WARN like the engine.
+- [x] (Fixed 2026-10-08: the app logger takes tantivy at WARN. On the real-data copy one rotated 40 KB `rust.log` was 342 tantivy lines out of 342, another 170 of 391.) tantivy's INFO lines (segment flushes, merges, deletes) fill `rust.log`; cap that crate at WARN like the engine.
 - The dashboard counts 10 profiles while the profile list has 24 entries (14 Atlas logins with no visits). Check whether empty profiles should be listed.
 
 ## Area 5+
