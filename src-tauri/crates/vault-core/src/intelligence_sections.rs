@@ -104,8 +104,8 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
     },
     CoreIntelligenceSectionDescriptor {
         id: "stable-sources",
-        module_ids: &["refind-pages"],
-        source_tables: &["source_effectiveness"],
+        module_ids: &["search-trails"],
+        source_tables: &["search_trails"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
         notes: &[],
@@ -116,8 +116,8 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         module_ids: &["search-trails", "refind-pages", "search-effectiveness"],
         source_tables: &[
             "search_events",
+            "search_trails",
             "query_families",
-            "source_effectiveness",
             "reopened_investigations",
         ],
         includes_enrichment: false,

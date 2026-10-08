@@ -68,7 +68,6 @@ pub struct CoreIntelligenceRebuildReport {
     pub search_trails: usize,
     pub query_families: usize,
     pub refind_pages: usize,
-    pub source_effectiveness: usize,
     pub reopened_investigations: usize,
     pub execution_mode: Option<String>,
     pub affected_profiles: Option<Vec<String>>,

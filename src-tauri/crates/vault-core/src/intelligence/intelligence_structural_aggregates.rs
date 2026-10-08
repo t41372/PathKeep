@@ -31,8 +31,6 @@
 #[cfg(test)]
 use super::DerivedVisitBatchCursor;
 #[cfg(test)]
-use super::SourceEffectivenessRecord;
-#[cfg(test)]
 use super::load_profile_derived_visit_batch;
 use super::{
     HabitPatternRecord, PathFlowRecord, QueryFamilyRecord, RefindPageRecord,
@@ -231,82 +229,6 @@ pub(super) fn build_refind_pages(visits: &[VisitRecord]) -> Vec<RefindPageRecord
                     .max()
                     .unwrap_or(first.visit_time_ms),
             })
-        })
-        .collect()
-}
-
-/// Builds source-effectiveness rows directly from in-memory trails and refind
-/// pages during legacy scoped rebuilds.
-#[cfg(test)]
-pub(super) fn build_source_effectiveness(
-    trails: &[super::TrailRecord],
-    refind_pages: &[RefindPageRecord],
-) -> Vec<SourceEffectivenessRecord> {
-    let mut landing_counts = HashMap::<String, i64>::new();
-    let mut trail_counts = HashMap::<String, HashSet<String>>::new();
-    let mut first_seen = HashMap::<String, i64>::new();
-    let mut last_seen = HashMap::<String, i64>::new();
-    let profile_id = trails
-        .first()
-        .map(|trail| trail.profile_id.clone())
-        .or_else(|| refind_pages.first().map(|page| page.profile_id.clone()))
-        .unwrap_or_default();
-
-    for trail in trails {
-        if let Some(domain) = &trail.landing_domain {
-            *landing_counts.entry(domain.clone()).or_default() += 1;
-            trail_counts.entry(domain.clone()).or_default().insert(trail.trail_id.clone());
-            first_seen
-                .entry(domain.clone())
-                .and_modify(|value| *value = (*value).min(trail.first_visit_ms))
-                .or_insert(trail.first_visit_ms);
-            last_seen
-                .entry(domain.clone())
-                .and_modify(|value| *value = (*value).max(trail.last_visit_ms))
-                .or_insert(trail.last_visit_ms);
-        }
-    }
-
-    let reference_counts =
-        refind_pages.iter().fold(HashMap::<String, i64>::new(), |mut acc, page| {
-            *acc.entry(page.registrable_domain.clone()).or_default() += 1;
-            acc
-        });
-    let domains =
-        landing_counts.keys().chain(reference_counts.keys()).cloned().collect::<BTreeSet<_>>();
-
-    domains
-        .into_iter()
-        .map(|domain| {
-            let stable_landing_count = *landing_counts.get(&domain).unwrap_or(&0);
-            let reference_count = *reference_counts.get(&domain).unwrap_or(&0);
-            let trail_count =
-                trail_counts.get(&domain).map(|value| value.len()).unwrap_or(0) as i64;
-            let source_role = if reference_count >= stable_landing_count && reference_count > 0 {
-                "reference"
-            } else {
-                "landing"
-            };
-            let effectiveness_score = (stable_landing_count as f32 * 2.0)
-                + (reference_count as f32 * 1.5)
-                + (trail_count as f32 * 0.5);
-            let evidence_json = json!({
-                "stableLandingCount": stable_landing_count,
-                "referenceCount": reference_count,
-                "trailCount": trail_count
-            })
-            .to_string();
-            SourceEffectivenessRecord {
-                profile_id: profile_id.clone(),
-                registrable_domain: domain.clone(),
-                source_role: source_role.to_string(),
-                trail_count,
-                stable_landing_count,
-                effectiveness_score,
-                evidence_json,
-                first_seen_ms: *first_seen.get(&domain).unwrap_or(&0),
-                last_seen_ms: *last_seen.get(&domain).unwrap_or(&0),
-            }
         })
         .collect()
 }

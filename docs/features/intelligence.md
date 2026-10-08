@@ -167,7 +167,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
   相鄰訪問 → burst → query group → cross-burst / cross-day thread merge → 偵測 reopen
 
 層 3：Topic 聚類和時間序列
-  deterministic topic / reference-page / source-effectiveness signals →
+  deterministic topic / refind-page / 搜尋落地網站 signals →
   optional embeddings 只作 additive coverage，而不是 baseline truth
 
 層 4：LLM 增強
@@ -281,14 +281,14 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 - built-in enrichment runtime 目前仍是 first-party only：Maintenance / Jobs / Intelligence 可以 review 內建 runtime state，retry / cancel 的 canonical runtime queue surface 是 Jobs；third-party plugin execution 仍 deferred，直到獨立 sandbox / permission ADR 存在。
 - queue / runtime contract 以 durable lease + heartbeat + cooperative stop 為準：claim 必須 compare-and-set，running cancel 只會設 stop request，worker 需在 phase / chunk 邊界自行結束並留下 cancelled trace；terminal success 不得覆蓋已 cancel / failed 的 job。
 - derived intelligence refresh 在 backup / import 成功後必須自動排入 runtime job 並留下可 review 的 queue / recent-job trace；Insights / Settings 仍保留手動 rebuild 作為 override，但不能再把最新 derived state 完全變成使用者自己記得去按的 follow-up。
-- 2026-04-15 之後，deterministic/Core Intelligence 的主路徑改為直接讀 `sessions`、`search_trails`、`query_families`、rollups、`refind_pages`、`source_effectiveness`、`reopened_investigations` 等 persisted entities / rollups，而不是再靠 `load_insights()` 這種整包 snapshot-first read model。若 repo 內仍保留舊 snapshot payload fallback，只能視為 legacy inert path，不再是 accepted shipping contract。
+- 2026-04-15 之後，deterministic/Core Intelligence 的主路徑改為直接讀 `sessions`、`search_trails`、`query_families`、rollups、`refind_pages`、`compare_sets`、`reopened_investigations` 等 persisted entities / rollups，而不是再靠 `load_insights()` 這種整包 snapshot-first read model。若 repo 內仍保留舊 snapshot payload fallback，只能視為 legacy inert path，不再是 accepted shipping contract。
 - Insights 頁自己的頂部 runtime surface 只能是 digest，而不是第二個 Jobs。它應該先顯示 analysis snapshot，再把 runtime queue 收斂成一個小型摘要與 `Open Jobs` 入口，避免整頁一打開就被 runtime / retry / cancel chrome 吞掉主洞察內容。
 - Insights 的內容分組必須符合 `spotlight -> research signals -> evidence / health`：最先看到的是 highlights / summary / top sites / browsing rhythm，接著才是 query groups、topic timeline、query evolution，最後才是 reference pages、source effectiveness、storage analytics 與 deterministic module health。`On This Day` 留在 Dashboard，不再佔據 `/intelligence` 的 spotlight 區。
 - clear derived state 必須回傳按 stage 分組的清除數量報告：至少涵蓋 `visit-derived-facts` rows、daily rollup rows、structural rows、runtime rows；只有在該維護路徑真的清 enrichment 時才額外回 enrichment rows。報告也必須明講 canonical archive、manifests、rollback state 完全未被動到。
 - full rebuild 不得先把 live derived snapshot 清空再等待後續重算完成；scope 內的 derived rows、snapshot payload 與 deterministic module runtime 狀態更新必須以同一個 archive transaction 原子替換，避免只清掉一半或留下不一致的 stale trace。這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
 - queue / progress persistence 也屬 recoverability contract：如果使用者突然關閉 app、程序崩潰或主機斷電，重新開啟後 Jobs 頁必須能誠實呈現上次停在哪個 job、是否已被 recover/requeue，以及最後一次 heartbeat / progress update；不可把 interrupted long-running work 假裝成從未發生。
 - Top sites（Insights 與單日視圖）不計搜尋結果頁：在搜尋引擎上的搜尋算「搜尋」，列在 Searches / Frequent searches，不算對該網站的造訪；單日視圖的 Distinct sites 同理。網站詳情頁（某一網站 30 天造訪）仍計入該網站的所有造訪。2026-10-07 起這樣算，讓兩處 Top sites 的數字一致，也合乎 E2E 規格。
-- source-effectiveness / reference-page 類 surface 的 domain key 必須跟 canonical visit evidence 使用同一套 registrable-domain normalization；不能因為 `docs.example.com` / `www.example.com` 分裂而把同一來源錯拆成多個 source role。
+- 搜尋落地網站（stable sources）/ refind 類 surface 的 domain key 必須跟 canonical visit evidence 使用同一套 registrable-domain normalization；不能因為 `docs.example.com` / `www.example.com` 分裂而把同一來源錯拆成多個 source role。
 - Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
 - Dashboard 的 `Browsing Rhythm` preview 固定以 calendar year 呈現，若 archive 內橫跨多個年份可切換年份；年份來源來自 `getDiscoveryTrend(..., 'day')` 的 `availableYears`，而不是把 hourly detail API 誤當成年視圖的 source of truth。year pager 必須遵守時間直覺：左箭頭看更早的年份、右箭頭看較新的年份；若選中的年份只覆蓋部分日期，卡片還要直接顯示該年份內實際有資料的起訖範圍。
 - `Browsing Rhythm` 初次進頁時只顯示日曆熱力圖 shell；不得在 first paint 自動抓同日 digest / top sites / hourly detail。點日格後的 primary workflow 現在是進 `/intelligence/day/:date`；若 overview 保留任何 inline preview，也只能是 secondary information。

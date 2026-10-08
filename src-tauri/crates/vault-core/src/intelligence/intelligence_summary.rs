@@ -14,8 +14,8 @@
 //!
 //! ## Dependencies
 //! - Parent-module date helpers and search-engine naming helpers.
-//! - `source_effectiveness`, `daily_summary_rollups`, `query_families`, and
-//!   `search_trails` tables in the intelligence plane.
+//! - `daily_summary_rollups`, `query_families`, and `search_trails` tables in
+//!   the intelligence plane.
 //!
 //! ## Performance notes
 //! - All `*_with_connection` helpers reuse an existing SQLite handle so staged

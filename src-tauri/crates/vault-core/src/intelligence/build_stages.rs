@@ -10,7 +10,6 @@ use super::intelligence_structural_stream::{StructuralTailPersist, StructuralTai
 use super::*;
 use crate::Vault;
 use anyhow::Result;
-use std::collections::BTreeMap;
 use vault_store::{Db, Priority, params_owned as params};
 
 pub(super) fn daily<F>(
@@ -295,7 +294,6 @@ where
         })?;
     }
     let families = load_families(vault, state, progress)?;
-    let sources = load_sources(vault, state)?;
     let reopened =
         super::intelligence_structural_aggregates::build_reopened_investigations(&families, &[]);
     for chunk in families.chunks(512) {
@@ -308,31 +306,29 @@ where
         progress(build_state::progress(state, "search-trails", processed, state.processed))?;
     }
     macro_rules! write {
-        ($rows:ident,$batch:ident,$pages:expr,$sources:expr,$habits:expr,$reopened:expr,$flows:expr) => {
+        ($rows:ident,$batch:ident,$pages:expr,$habits:expr,$reopened:expr,$flows:expr) => {
             for chunk in $rows.chunks(512) {
                 let $batch = chunk.to_vec();
                 let generation = state.aggregate_generation;
                 let at = state.computed_at.clone();
                 vault.write(Db::Intelligence, Priority::Batch, move |s| {
                     build_rows::persist_aggregates(
-                        s, generation, $pages, $sources, $habits, $reopened, $flows, &at,
+                        s, generation, $pages, $habits, $reopened, $flows, &at,
                     )
                 })?;
                 progress(build_state::progress(state, "refind-pages", processed, state.processed))?;
             }
         };
     }
-    write!(sources, rows, &[], &rows, &[], &[], &[]);
-    write!(habits, rows, &[], &[], &rows, &[], &[]);
-    write!(reopened, rows, &[], &[], &[], &rows, &[]);
-    write!(flows, rows, &[], &[], &[], &[], &rows);
+    write!(habits, rows, &[], &rows, &[], &[]);
+    write!(reopened, rows, &[], &[], &rows, &[]);
+    write!(flows, rows, &[], &[], &[], &rows);
     for (table, count) in [
         ("query_families", families.len()),
         (
             "query_family_queries",
             families.iter().map(|family| build_rows::family_query_keys(family).len()).sum(),
         ),
-        ("source_effectiveness", sources.len()),
         ("habit_patterns", habits.len()),
         (
             "reopened_investigations",
@@ -376,48 +372,4 @@ where
         ))?;
     }
     Ok(accumulator.finish())
-}
-
-fn load_sources(vault: &Vault, state: &BuildState) -> Result<Vec<SourceEffectivenessRecord>> {
-    let mut counts = BTreeMap::<String, (i64, i64, i64, i64)>::new();
-    let mut after = String::new();
-    loop {
-        let generation = state.navigation_generation;
-        let profile = state.profile_id.clone();
-        let cursor = after.clone();
-        let rows=vault.read(Db::Intelligence,move |s|Ok(s.query("SELECT trail_id,landing_domain,first_visit_ms,last_visit_ms FROM search_trails_rows WHERE generation=?1 AND profile_id=?2 AND trail_id>?3 ORDER BY trail_id LIMIT 4096",params![generation,profile,cursor],|r|Ok((r.get::<String>(0)?,r.get::<Option<String>>(1)?,r.get::<i64>(2)?,r.get::<i64>(3)?)))?))?;
-        if rows.is_empty() {
-            break;
-        }
-        after = rows.last().unwrap().0.clone();
-        for (_, domain, first, last) in rows {
-            if let Some(domain) = domain {
-                let e = counts.entry(domain).or_insert((0, 0, first, last));
-                e.0 += 1;
-                e.2 = e.2.min(first);
-                e.3 = e.3.max(last);
-            }
-        }
-    }
-    let mut after = String::new();
-    loop {
-        let generation = state.aggregate_generation;
-        let profile = state.profile_id.clone();
-        let cursor = after.clone();
-        let rows=vault.read(Db::Intelligence,move |s|Ok(s.query("SELECT canonical_url,registrable_domain,first_seen_ms,last_seen_ms FROM refind_pages_rows WHERE generation=?1 AND profile_id=?2 AND canonical_url>?3 ORDER BY canonical_url LIMIT 1024",params![generation,profile,cursor],|r|Ok((r.get::<String>(0)?,r.get::<String>(1)?,r.get::<i64>(2)?,r.get::<i64>(3)?)))?))?;
-        if rows.is_empty() {
-            break;
-        }
-        after = rows.last().unwrap().0.clone();
-        for (_, domain, first, last) in rows {
-            let e = counts.entry(domain).or_insert((0, 0, first, last));
-            e.1 += 1;
-            e.2 = e.2.min(first);
-            e.3 = e.3.max(last);
-        }
-    }
-    Ok(counts.into_iter().map(|(domain,(landings,references,first,last))|SourceEffectivenessRecord {
-        profile_id:state.profile_id.clone(),registrable_domain:domain,source_role:if references>=landings && references>0 {"reference"} else {"landing"}.into(),
-        trail_count:landings,stable_landing_count:landings,effectiveness_score:landings as f32*2.5+references as f32*1.5,
-        evidence_json:serde_json::json!({"stableLandingCount":landings,"referenceCount":references,"trailCount":landings}).to_string(),first_seen_ms:first,last_seen_ms:last}).collect())
 }

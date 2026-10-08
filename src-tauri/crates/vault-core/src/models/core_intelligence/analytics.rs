@@ -1,7 +1,7 @@
 //! Core Intelligence analytics and explainability DTOs.
 //!
 //! ## Responsibilities
-//! - Define activity, discovery, domain, source-effectiveness, path-flow,
+//! - Define activity, discovery, domain, stable-source, path-flow,
 //!   compare-set, browser-diff, and explanation payloads.
 //! - Keep advanced read surfaces separate from basic session/query/read rows.
 //! - Preserve transport shape for Phase 3/4 Core Intelligence commands.

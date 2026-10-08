@@ -9,7 +9,7 @@
 //!
 //! ## Not responsible for
 //! - Persisting structural rows into SQLite.
-//! - Running refind, habit, or source-effectiveness aggregate logic.
+//! - Running refind or habit aggregate logic.
 //! - Choosing fallback versus incremental rebuild paths.
 //!
 //! ## Dependencies

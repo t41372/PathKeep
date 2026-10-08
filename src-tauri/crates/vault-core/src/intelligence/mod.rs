@@ -297,19 +297,6 @@ struct RefindPageRecord {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct SourceEffectivenessRecord {
-    profile_id: String,
-    registrable_domain: String,
-    source_role: String,
-    trail_count: i64,
-    stable_landing_count: i64,
-    effectiveness_score: f32,
-    evidence_json: String,
-    first_seen_ms: i64,
-    last_seen_ms: i64,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct ReopenedInvestigationRecord {
     investigation_id: String,
     profile_id: String,
@@ -395,7 +382,6 @@ struct StageRunResult {
     search_trails: usize,
     query_families: usize,
     refind_pages: usize,
-    source_effectiveness: usize,
     reopened_investigations: usize,
     execution_mode: Option<String>,
     affected_profiles: Vec<String>,
@@ -433,13 +419,6 @@ struct DerivedVisitBatchCursor {
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 struct SearchEventBatchCursor {
     visit_id: i64,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct TrailBatchCursor {
-    first_visit_ms: i64,
-    trail_id: String,
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]

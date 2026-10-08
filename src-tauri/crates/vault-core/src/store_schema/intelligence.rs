@@ -181,20 +181,6 @@ const STATEMENTS: &[&str] = &[
   computed_at TEXT NOT NULL,
   PRIMARY KEY(generation, profile_id, canonical_url)
 )",
-    r"CREATE TABLE source_effectiveness_rows (
-  generation INTEGER NOT NULL DEFAULT 0,
-  profile_id TEXT NOT NULL,
-  registrable_domain TEXT NOT NULL,
-  source_role TEXT NOT NULL,
-  trail_count INTEGER NOT NULL,
-  stable_landing_count INTEGER NOT NULL,
-  effectiveness_score REAL NOT NULL,
-  evidence_json TEXT NOT NULL,
-  first_seen_ms INTEGER NOT NULL,
-  last_seen_ms INTEGER NOT NULL,
-  computed_at TEXT NOT NULL,
-  PRIMARY KEY(generation, profile_id, registrable_domain)
-)",
     r"CREATE TABLE habit_patterns_rows (
   generation INTEGER NOT NULL DEFAULT 0,
   profile_id TEXT NOT NULL,
@@ -471,7 +457,6 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_refind_pages_score ON refind_pages_rows(refind_score DESC,last_seen_ms DESC,canonical_url,profile_id,generation)",
     "CREATE INDEX idx_refind_pages_canonical ON refind_pages_rows(canonical_url,generation,refind_score DESC,last_seen_ms DESC,profile_id)",
     "CREATE INDEX idx_refind_pages_profile_score ON refind_pages_rows(profile_id, refind_score DESC, last_seen_ms DESC, generation)",
-    "CREATE INDEX idx_source_effectiveness_profile_score ON source_effectiveness_rows(profile_id, effectiveness_score DESC, generation)",
     "CREATE INDEX idx_reopened_investigations_profile_time ON reopened_investigations_rows(profile_id, last_seen_ms DESC, generation)",
     // Ranked lists page through these in list order and seek to their keyset cursor.
     "CREATE INDEX idx_sessions_recent ON sessions_rows(first_visit_ms DESC, session_id DESC, generation)",
@@ -481,7 +466,6 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_search_trails_friction ON search_trails_rows(reformulation_count DESC, visit_count DESC, trail_id, generation)",
     "CREATE INDEX idx_query_families_recent ON query_families_rows(last_seen_ms DESC, family_id DESC, generation)",
     "CREATE INDEX idx_query_families_members ON query_families_rows(member_count DESC, last_seen_ms DESC, family_id, generation)",
-    "CREATE INDEX idx_source_effectiveness_rank ON source_effectiveness_rows(effectiveness_score DESC, registrable_domain, profile_id, generation)",
     "CREATE INDEX idx_reopened_investigations_recent ON reopened_investigations_rows(last_seen_ms DESC, occurrence_count DESC, investigation_id, generation)",
     "CREATE INDEX idx_path_flows_profile_rank ON path_flows_rows(profile_id, step_count, occurrence_count DESC, last_seen_ms DESC, flow_pattern, generation)",
     // Compare sets newest first, for every profile or one (`compare_sets::get_compare_sets`).
@@ -539,8 +523,6 @@ const STATEMENTS: &[&str] = &[
     "CREATE VIEW query_family_queries AS SELECT r.family_id,r.profile_id,r.normalized_query FROM query_family_queries_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW refind_pages AS SELECT r.profile_id,r.canonical_url,r.url,r.title,r.registrable_domain,r.cross_day_count,r.trail_count,r.search_arrival_count,r.typed_revisit_count,r.refind_score,r.evidence_json,r.first_seen_ms,r.last_seen_ms,r.computed_at FROM refind_pages_rows r
-      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
-    "CREATE VIEW source_effectiveness AS SELECT r.profile_id,r.registrable_domain,r.source_role,r.trail_count,r.stable_landing_count,r.effectiveness_score,r.evidence_json,r.first_seen_ms,r.last_seen_ms,r.computed_at FROM source_effectiveness_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW habit_patterns AS SELECT r.profile_id,r.registrable_domain,r.habit_type,r.mean_interval_days,r.cv,r.visit_count,r.last_visited_ms,r.is_interrupted,r.computed_at FROM habit_patterns_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",

@@ -12,7 +12,7 @@
 //! ## Not responsible for
 //! - Running structural rebuild stages or deciding when fallbacks are needed.
 //! - Persisting rows into SQLite.
-//! - Building refind, habit, or source-effectiveness aggregates.
+//! - Building refind or habit aggregates.
 //!
 //! ## Dependencies
 //! - Parent-module structural record types and domain-display helpers.

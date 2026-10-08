@@ -97,7 +97,7 @@ does not update frontend consumers.
 - `insight_query_groups` → 重新設計為 `search_trails`
 - `insight_threads` → 重新設計為 `reopened_investigations`
 - `insight_reference_pages` → 重新設計為 `refind_pages`
-- `insight_source_effectiveness` → 保留但精簡
+- `insight_source_effectiveness` → 2026-10 移除；穩定答案來源改為按範圍直接從 `search_trails` 的落地網站計算（§4.2）
 - `insight_cards` / `insight_snapshot_payloads` → 重新設計 rollup 策略
 
 ---
@@ -686,11 +686,11 @@ SELECT * FROM path ORDER BY depth DESC;
 
 #### 4.2 穩定答案來源 (Stable Answer Sources)
 
-| 項目       | 內容                                                                                                                     |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **為什麼** | 看哪些站對你真正有用。不是「最常訪問」，而是「哪裡成為旅程終點」                                                         |
-| **怎麼算** | Trail outcome 分析：某 domain 出現在 trail 後半段的頻率、出現後 reformulation 是否下降、是否被跨天 reopen 後再次成為落點 |
-| **展示**   | 兩個排行榜：「常作為入口的來源」「常作為最終落點的來源」                                                                 |
+| 項目       | 內容                                                                                                                                           |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **為什麼** | 看哪些站對你真正有用。不是「最常訪問」，而是「哪裡成為旅程終點」                                                                               |
+| **怎麼算** | 2026-10 起：範圍內每條 search trail 的落地網站（最後一次搜尋後打開的第一頁）各算一次，跨設定檔合併，按落地的搜尋數排序，附不同查詢數；不另存表 |
+| **展示**   | 一個排行榜：「搜尋最後落在哪些網站」。原本的入口 / 落點兩種 role 拿掉：舊實作從不產生入口，落點才是使用者想知道的                              |
 
 ---
 
@@ -1102,15 +1102,7 @@ CREATE TABLE refind_pages (
   computed_at        TEXT NOT NULL
 );
 
-CREATE TABLE source_effectiveness (
-  registrable_domain TEXT PRIMARY KEY,
-  source_role        TEXT NOT NULL,          -- 'entry' / 'landing' / 'reference'
-  trail_count        INTEGER NOT NULL,
-  stable_landing_count INTEGER NOT NULL,
-  effectiveness_score REAL NOT NULL,
-  evidence_json      TEXT NOT NULL,
-  computed_at        TEXT NOT NULL
-);
+-- source_effectiveness：2026-10 移除，穩定答案來源直接從 search_trails 計算（§4.2）。
 
 CREATE TABLE habit_patterns (
   registrable_domain TEXT PRIMARY KEY,

@@ -211,7 +211,7 @@ define_builtin_module!(
     REFIND_PAGES_MODULE_ID,
     REFIND_PAGES_MODULE_VERSION,
     &[VISIT_DERIVED_FACTS_MODULE_ID, SEARCH_TRAILS_MODULE_ID],
-    &["refind_pages", "source_effectiveness"],
+    &["refind_pages"],
     &[RebuildMode::StructuralRebuild, RebuildMode::FullRebuild],
     &["refind_page"]
 );

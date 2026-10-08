@@ -149,7 +149,7 @@ pub(super) fn derived_page(
 
 use super::{
     DailyRollupBundle, HabitPatternRecord, PathFlowRecord, QueryFamilyRecord, RefindPageRecord,
-    ReopenedInvestigationRecord, SourceEffectivenessRecord,
+    ReopenedInvestigationRecord,
 };
 
 pub(super) fn persist_daily(
@@ -276,12 +276,10 @@ pub(super) fn persist_families(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn persist_aggregates(
     s: &Session<'_>,
     generation: i64,
     refind_pages: &[RefindPageRecord],
-    source_effectiveness: &[SourceEffectivenessRecord],
     habits: &[HabitPatternRecord],
     reopened: &[ReopenedInvestigationRecord],
     path_flows: &[PathFlowRecord],
@@ -291,10 +289,6 @@ pub(super) fn persist_aggregates(
  (generation,profile_id, canonical_url, url, title, registrable_domain, cross_day_count, trail_count, search_arrival_count,
               typed_revisit_count, refind_score, evidence_json, first_seen_ms, last_seen_ms, computed_at)
  VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)")?;
-    let mut insert_source_effectiveness=s.prepare("INSERT OR REPLACE INTO source_effectiveness_rows
- (generation,profile_id, registrable_domain, source_role, trail_count, stable_landing_count, effectiveness_score,
-              evidence_json, first_seen_ms, last_seen_ms, computed_at)
- VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)")?;
     let mut insert_habit_patterns=s.prepare("INSERT OR REPLACE INTO habit_patterns_rows
  (generation,profile_id, registrable_domain, habit_type, mean_interval_days, cv, visit_count, last_visited_ms, is_interrupted, computed_at)
  VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")?;
@@ -326,21 +320,6 @@ pub(super) fn persist_aggregates(
             evidence,
             page.first_seen_ms,
             page.last_seen_ms,
-            computed_at,
-        ])?;
-    }
-    for source in source_effectiveness {
-        insert_source_effectiveness.execute(params![
-            generation,
-            source.profile_id,
-            source.registrable_domain,
-            source.source_role,
-            source.trail_count,
-            source.stable_landing_count,
-            source.effectiveness_score,
-            source.evidence_json,
-            source.first_seen_ms,
-            source.last_seen_ms,
             computed_at,
         ])?;
     }

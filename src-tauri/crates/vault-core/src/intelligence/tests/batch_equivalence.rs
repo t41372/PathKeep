@@ -4,8 +4,8 @@
 //! - Compare batched builders against their in-memory reference builders.
 //! - Verify fallback-full rebuilds match clean full rebuilds across batch
 //!   boundaries.
-//! - Keep query-family, structural aggregate, and source-effectiveness behavior
-//!   stable while the implementation stays streaming-friendly.
+//! - Keep query-family and structural aggregate behavior stable while the
+//!   implementation stays streaming-friendly.
 //!
 //! ## Not responsible for
 //! - Route-facing overview or explanation DTO coverage.
@@ -23,21 +23,20 @@ use super::fixtures::sync_archive_totals;
 use crate::test_support::native::TestDatabase;
 
 use super::super::{
-    DAILY_ROLLUP_FALLBACK_BATCH_SIZE, QueryFamilyRecord, RefindPageRecord, TrailRecord,
+    DAILY_ROLLUP_FALLBACK_BATCH_SIZE, QueryFamilyRecord, RefindPageRecord,
     VISIT_DERIVE_FALLBACK_BATCH_SIZE, VisitRecord,
     intelligence_daily_rollups::load_profile_derived_visits,
     intelligence_rebuild::{run_core_intelligence, run_core_intelligence_job_type_with_progress},
     intelligence_structural_aggregates::{
         build_habit_patterns, build_path_flows, build_refind_pages, build_reopened_investigations,
-        build_source_effectiveness, build_structural_profile_aggregates_from_batches,
+        build_structural_profile_aggregates_from_batches,
     },
     intelligence_structural_build::{
         build_query_families, build_query_families_from_batches, load_profile_search_events,
     },
     intelligence_structural_stage::{
-        build_source_effectiveness_from_database, expand_structural_rebuild_start,
-        load_profile_dirty_date_keys, load_profile_first_visible_visit_ms, load_profile_trails,
-        load_structural_delta_summary,
+        expand_structural_rebuild_start, load_profile_dirty_date_keys,
+        load_profile_first_visible_visit_ms, load_structural_delta_summary,
     },
     site_dictionary::normalize_query,
 };
@@ -314,188 +313,9 @@ fn batched_structural_aggregates_match_in_memory_builders() {
     assert_eq!(batched_habits, in_memory_habits);
 }
 
-/// Regression coverage for batched source effectiveness matches in memory builder.
+/// Direct aggregate-builder coverage for reopened anchors, session flushes, and habit classes.
 #[test]
-fn batched_source_effectiveness_matches_in_memory_builder() {
-    let root = tempfile::tempdir().expect("tempdir");
-    let _paths = project_paths_with_root(root.path());
-    let config = AppConfig {
-        initialized: true,
-        archive_mode: ArchiveMode::Plaintext,
-        ..AppConfig::default()
-    };
-    let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
-    let _paths = vault.paths().clone();
-    let archive = TestDatabase::new(&vault, vault_store::Db::Archive);
-    archive
-        .write(move |s| {
-            seed_core_intelligence_fixture(s);
-            Ok(())
-        })
-        .unwrap();
-    archive
-        .write(move |s| {
-            append_fixture_visit(
-                s,
-                4,
-                "https://docs.example.com/sqlite/wal-checkpoint",
-                "SQLite WAL Checkpoint",
-                1712102400000,
-                None,
-                None,
-            );
-            Ok(())
-        })
-        .unwrap();
-    archive
-        .write(move |s| {
-            append_fixture_visit(
-                s,
-                5,
-                "https://alpha-docs.dev/guide",
-                "Guide",
-                1712145600000,
-                None,
-                None,
-            );
-            Ok(())
-        })
-        .unwrap();
-    archive
-        .write(move |s| {
-            append_fixture_visit(
-                s,
-                6,
-                "https://beta-community.dev/thread",
-                "Thread",
-                1712145660000,
-                Some(5),
-                None,
-            );
-            Ok(())
-        })
-        .unwrap();
-    sync_archive_totals(&archive);
-    drop(archive);
-
-    run_core_intelligence(
-        &vault.with_config(config.clone()),
-        &CoreIntelligenceRebuildRequest::default(),
-    )
-    .expect("full rebuild");
-
-    let intelligence = TestDatabase::new(&vault, vault_store::Db::Intelligence);
-    let trails =
-        intelligence.read(move |s| load_profile_trails(s, "chrome:Default")).expect("trails");
-    let (refind_pages, _, _) = intelligence
-        .read(move |s| build_structural_profile_aggregates_from_batches(s, "chrome:Default"))
-        .expect("aggregates");
-    let mut in_memory = build_source_effectiveness(&trails, &refind_pages)
-        .into_iter()
-        .map(|record| {
-            (
-                record.registrable_domain,
-                record.source_role,
-                record.trail_count,
-                record.stable_landing_count,
-                record.effectiveness_score,
-                record.first_seen_ms,
-                record.last_seen_ms,
-            )
-        })
-        .collect::<Vec<_>>();
-    let mut batched = intelligence
-        .read(move |s| build_source_effectiveness_from_database(s, "chrome:Default", &refind_pages))
-        .expect("batched source effectiveness")
-        .into_iter()
-        .map(|record| {
-            (
-                record.registrable_domain,
-                record.source_role,
-                record.trail_count,
-                record.stable_landing_count,
-                record.effectiveness_score,
-                record.first_seen_ms,
-                record.last_seen_ms,
-            )
-        })
-        .collect::<Vec<_>>();
-    in_memory.sort_by(|left, right| {
-        left.0
-            .cmp(&right.0)
-            .then_with(|| left.1.cmp(&right.1))
-            .then_with(|| left.2.cmp(&right.2))
-            .then_with(|| left.3.cmp(&right.3))
-            .then_with(|| left.4.total_cmp(&right.4))
-            .then_with(|| left.5.cmp(&right.5))
-            .then_with(|| left.6.cmp(&right.6))
-    });
-    batched.sort_by(|left, right| {
-        left.0
-            .cmp(&right.0)
-            .then_with(|| left.1.cmp(&right.1))
-            .then_with(|| left.2.cmp(&right.2))
-            .then_with(|| left.3.cmp(&right.3))
-            .then_with(|| left.4.total_cmp(&right.4))
-            .then_with(|| left.5.cmp(&right.5))
-            .then_with(|| left.6.cmp(&right.6))
-    });
-    assert_eq!(batched, in_memory);
-}
-
-/// Direct aggregate-builder coverage for role selection, session flushes, and habit classes.
-#[test]
-fn structural_aggregate_builders_cover_roles_flows_reopened_and_habits() {
-    let trails = vec![
-        TrailRecord {
-            trail_id: "trail-landing-1".to_string(),
-            profile_id: "chrome:Default".to_string(),
-            session_id: "session-a".to_string(),
-            initial_query: "landing docs".to_string(),
-            search_engine: "Google".to_string(),
-            reformulation_count: 0,
-            visit_count: 3,
-            landing_url: Some("https://landing.example/guide".to_string()),
-            landing_domain: Some("landing.example".to_string()),
-            first_visit_ms: 1711929600000,
-            last_visit_ms: 1711929660000,
-            max_depth: 2,
-            queries: vec!["landing docs".to_string()],
-            members: Vec::new(),
-        },
-        TrailRecord {
-            trail_id: "trail-landing-2".to_string(),
-            profile_id: "chrome:Default".to_string(),
-            session_id: "session-b".to_string(),
-            initial_query: "landing reference".to_string(),
-            search_engine: "Google".to_string(),
-            reformulation_count: 1,
-            visit_count: 2,
-            landing_url: Some("https://landing.example/reference".to_string()),
-            landing_domain: Some("landing.example".to_string()),
-            first_visit_ms: 1712016000000,
-            last_visit_ms: 1712016060000,
-            max_depth: 1,
-            queries: vec!["landing reference".to_string()],
-            members: Vec::new(),
-        },
-        TrailRecord {
-            trail_id: "trail-reference".to_string(),
-            profile_id: "chrome:Default".to_string(),
-            session_id: "session-c".to_string(),
-            initial_query: "reference docs".to_string(),
-            search_engine: "Google".to_string(),
-            reformulation_count: 0,
-            visit_count: 1,
-            landing_url: Some("https://reference.example/page".to_string()),
-            landing_domain: Some("reference.example".to_string()),
-            first_visit_ms: 1712102400000,
-            last_visit_ms: 1712102460000,
-            max_depth: 1,
-            queries: vec!["reference docs".to_string()],
-            members: Vec::new(),
-        },
-    ];
+fn structural_aggregate_builders_cover_flows_reopened_and_habits() {
     let refind_pages = vec![
         RefindPageRecord {
             profile_id: "chrome:Default".to_string(),
@@ -528,13 +348,6 @@ fn structural_aggregate_builders_cover_roles_flows_reopened_and_habits() {
             last_seen_ms: 1711929600000,
         },
     ];
-
-    let source_roles = build_source_effectiveness(&trails, &refind_pages)
-        .into_iter()
-        .map(|record| (record.registrable_domain, record.source_role))
-        .collect::<std::collections::HashMap<_, _>>();
-    assert_eq!(source_roles.get("landing.example").map(String::as_str), Some("landing"));
-    assert_eq!(source_roles.get("reference.example").map(String::as_str), Some("reference"));
 
     let investigations = build_reopened_investigations(
         &[QueryFamilyRecord {
