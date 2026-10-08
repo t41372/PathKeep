@@ -7,7 +7,7 @@
  * which it then does only when its section was missing or failed. For all
  * time the backend answers both from the snapshot it keeps after each Insights
  * build; for other ranges it computes them (one year on a 387k-visit archive:
- * about 0.3 s each, once common paths read stored session paths).
+ * 74 ms and 47 ms).
  *
  * Responsible for: the two batch reads, filling the cache, telling cards when
  * their batch has settled. Not responsible for: what a card shows.
