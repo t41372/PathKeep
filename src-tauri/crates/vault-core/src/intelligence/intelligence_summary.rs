@@ -466,11 +466,11 @@ fn load_summary_totals(
 ) -> Result<SummaryTotals> {
     connection
         .query_one(
-            "SELECT SUM(total_visits), SUM(total_searches)
-             FROM daily_summary_rollups
-             WHERE (?1 IS NULL OR profile_id = ?1)
-               AND date_key >= ?2
-               AND date_key <= ?3",
+            "SELECT SUM(r.total_visits), SUM(r.total_searches)
+             FROM daily_summary_rollups_rows r INDEXED BY idx_daily_summary_range
+             WHERE r.date_key >= ?2 AND r.date_key <= ?3
+               AND r.generation IN (SELECT daily FROM intelligence_generations)
+               AND (?1 IS NULL OR r.profile_id = ?1)",
             params![profile_id, range.start, range.end],
             |row| {
                 Ok(SummaryTotals {
@@ -491,11 +491,11 @@ fn count_deep_dive_sessions(
     connection
         .query_one(
             "SELECT COUNT(*)
-             FROM sessions
-             WHERE (?1 IS NULL OR profile_id = ?1)
-               AND is_deep_dive = 1
-               AND first_visit_ms >= ?2
-               AND first_visit_ms < ?3",
+             FROM sessions_rows r INDEXED BY idx_sessions_range
+             WHERE r.first_visit_ms >= ?2 AND r.first_visit_ms < ?3
+               AND r.generation IN (SELECT navigation FROM intelligence_generations)
+               AND (?1 IS NULL OR r.profile_id = ?1)
+               AND r.is_deep_dive = 1",
             params![profile_id, start_ms, end_ms],
             |row| Ok(row.get(0)?),
         )
@@ -509,11 +509,11 @@ fn count_distinct_domains(
 ) -> Result<i64> {
     connection
         .query_one(
-            "SELECT COUNT(DISTINCT registrable_domain)
-             FROM domain_daily_rollups
-             WHERE (?1 IS NULL OR profile_id = ?1)
-               AND date_key >= ?2
-               AND date_key <= ?3",
+            "SELECT COUNT(DISTINCT r.registrable_domain)
+             FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_range
+             WHERE r.date_key >= ?2 AND r.date_key <= ?3
+               AND r.generation IN (SELECT daily FROM intelligence_generations)
+               AND (?1 IS NULL OR r.profile_id = ?1)",
             params![profile_id, range.start, range.end],
             |row| Ok(row.get(0)?),
         )
@@ -539,11 +539,11 @@ fn estimate_active_time_ms(
     let (start_ms, end_ms) = date_range_bounds(range)?;
     connection
         .query_one(
-            "SELECT COALESCE(SUM(MIN(last_visit_ms - first_visit_ms + ?4, visit_count * ?5)), 0)
-             FROM sessions
-             WHERE (?1 IS NULL OR profile_id = ?1)
-               AND first_visit_ms >= ?2
-               AND first_visit_ms < ?3",
+            "SELECT COALESCE(SUM(MIN(r.last_visit_ms - r.first_visit_ms + ?4, r.visit_count * ?5)), 0)
+             FROM sessions_rows r INDEXED BY idx_sessions_range
+             WHERE r.first_visit_ms >= ?2 AND r.first_visit_ms < ?3
+               AND r.generation IN (SELECT navigation FROM intelligence_generations)
+               AND (?1 IS NULL OR r.profile_id = ?1)",
             params![
                 profile_id,
                 start_ms,

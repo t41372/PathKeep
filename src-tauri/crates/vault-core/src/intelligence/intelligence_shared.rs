@@ -165,10 +165,11 @@ pub(super) fn count_refind_pages_in_range(
     connection
         .query_one(
             "SELECT COUNT(*)
-             FROM refind_pages
-             WHERE (?1 IS NULL OR profile_id = ?1)
-               AND last_seen_ms >= ?2
-               AND first_seen_ms < ?3",
+             FROM refind_pages_rows r INDEXED BY idx_refind_pages_range
+             WHERE r.last_seen_ms >= ?2
+               AND r.generation IN (SELECT aggregates FROM intelligence_generations)
+               AND (?1 IS NULL OR r.profile_id = ?1)
+               AND r.first_seen_ms < ?3",
             params![profile_id, start_ms, end_ms],
             |row| Ok(row.get(0)?),
         )
@@ -273,9 +274,12 @@ pub(crate) fn new_sites_by_day(
 ) -> Result<std::collections::BTreeMap<String, i64>> {
     let rows = connection.query(
         "SELECT first_day, COUNT(*) FROM (
-           SELECT MIN(date_key) AS first_day FROM domain_daily_rollups
-           WHERE new_domain_visits > 0 AND (?1 IS NULL OR profile_id = ?1)
-           GROUP BY registrable_domain)
+           SELECT MIN(r.date_key) AS first_day
+           FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_first_day
+           WHERE r.new_domain_visits > 0
+             AND r.generation IN (SELECT daily FROM intelligence_generations)
+             AND (?1 IS NULL OR r.profile_id = ?1)
+           GROUP BY r.registrable_domain)
          WHERE first_day >= ?2 AND first_day <= ?3
          GROUP BY first_day",
         params![profile_id, range.start.as_str(), range.end.as_str()],
