@@ -259,6 +259,19 @@ Full rebuild, same run: 5,721 s before, 5,955 s after; peak RSS 1.96 → 2.14 GB
 
 The benchmark's data is a worst case for these reads: its visits walk 20,000 sites in turn, 8,640 a day, so nearly every visit starts a new site-day row (about 8,600 a day, 14.4M in all). Real browsing comes back to the same sites, so it has far fewer site-day rows per visit; every read above that grows with the range (top sites, breadth, habits, browsers) reads those rows, and so does the slower daily-rollup stage. Top sites, breadth, habits and browsers also read the same rows once each. Both are open below.
 
+**After the follow-ups (2026-10-08):** common paths for a range read stored session paths, both batches are read for every range, the cards that rank or count sites share one read of a range's site-day rows, and the archive change probe behind the all-time snapshot no longer reads every visit. On the real-data copy (386,891 visits, 24 profiles, release build on Apple Silicon), second call:
+
+| real data                             | before         | after      |
+| ------------------------------------- | -------------- | ---------- |
+| full Insights rebuild                 | 145 s          | 40 s       |
+| all time, first / second batch        | 287 / 317 ms   | 4 / 3 ms   |
+| one year, first / second batch        | 348 ms / 2.0 s | 67 / 43 ms |
+| one year, common paths                | 1.45 s         | 22 ms      |
+| top sites, any order or page          | 28–61 ms       | 1 ms       |
+| all time, common paths (all profiles) | 918 ms         | 151 ms     |
+
+Every other card read is under 50 ms. The real data has about 19 visits per site-day row (19,457 rows for 371,347 visits that were not searches); the benchmark has one.
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |
