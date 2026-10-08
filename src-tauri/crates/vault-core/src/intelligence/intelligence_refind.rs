@@ -55,9 +55,10 @@ pub(super) fn get_top_sites_with_connection(
 ) -> Result<crate::models::IntelligencePage<TopSite>> {
     let limit = request.limit.unwrap_or(20).clamp(1, 1000) as usize;
     let cursor = super::paging::cursor::<(f64, f64, String)>(request.cursor.as_deref())?;
-    let visits = "SUM(visit_count)";
+    // Search result pages are searches (Frequent searches), not visits to a site.
+    let visits = "SUM(visit_count-search_count)";
     let days = "COUNT(DISTINCT date_key)";
-    let average = "CAST(SUM(visit_count) AS REAL)/COUNT(DISTINCT date_key)";
+    let average = "CAST(SUM(visit_count-search_count) AS REAL)/COUNT(DISTINCT date_key)";
     let (primary, secondary) = match request.sort_by.as_deref() {
         Some("unique_days") => (days, average),
         Some("average_daily_visits") => (average, visits),
@@ -75,9 +76,8 @@ pub(super) fn get_top_sites_with_connection(
         let marks: Vec<String> = (0..profiles.len()).map(|i| format!("?{}", i + 8)).collect();
         format!("(?1 IS NULL AND profile_id IN ({}))", marks.join(","))
     };
-    let sql=format!("SELECT registrable_domain,MIN(domain_category),SUM(visit_count),COUNT(DISTINCT date_key),
-         CAST(SUM(visit_count) AS REAL)/COUNT(DISTINCT date_key),SUM(unique_urls),{primary},{secondary}
-         FROM domain_daily_rollups WHERE {profiles_clause} AND date_key>=?2 AND date_key<=?3
+    let sql=format!("SELECT registrable_domain,MIN(domain_category),{visits},{days},{average},SUM(unique_urls),{primary},{secondary}
+         FROM domain_daily_rollups WHERE {profiles_clause} AND date_key>=?2 AND date_key<=?3 AND visit_count>search_count
          GROUP BY registrable_domain
          HAVING ?5 IS NULL OR {primary}<?5 OR ({primary}=?5 AND ({secondary}<?6 OR ({secondary}=?6 AND registrable_domain>?7)))
          ORDER BY {primary} DESC,{secondary} DESC,registrable_domain ASC LIMIT ?4");

@@ -282,17 +282,18 @@ impl DayTotals {
             self.result.hour_buckets[hour as usize] += 1;
         }
         let domain = url_domain(&visit.url);
-        if !domain.is_empty() {
-            *self.domains.entry(domain.clone()).or_default() += 1;
-        }
         let transition = visit.transition_type.map(|t| t & 0xff).unwrap_or(-1);
         self.result.typed_count += i64::from(transition == TRANSITION_TYPED);
         self.result.link_count += i64::from(transition == TRANSITION_LINK);
-        self.result.search_count += i64::from(
-            transition == TRANSITION_GENERATED
-                || transition == TRANSITION_KEYWORD_GENERATED
-                || is_known_search_engine_host(&domain),
-        );
+        let search = transition == TRANSITION_GENERATED
+            || transition == TRANSITION_KEYWORD_GENERATED
+            || is_known_search_engine_host(&domain);
+        self.result.search_count += i64::from(search);
+        // A search result page is a search, not a visit to a site: it counts under Searches
+        // only, as on Insights' Top sites.
+        if !domain.is_empty() && !search {
+            *self.domains.entry(domain.clone()).or_default() += 1;
+        }
         let entry = self.urls.entry(visit.url.clone()).or_insert_with(|| BrowseDayTopUrl {
             url: visit.url.clone(),
             title: visit.title.clone(),

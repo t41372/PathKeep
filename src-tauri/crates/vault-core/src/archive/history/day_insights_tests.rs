@@ -145,7 +145,9 @@ fn aggregates_transitions_domains_urls_and_search_queries() {
         assert_eq!(insights.typed_count, 1);
         assert_eq!(insights.link_count, 3);
         assert_eq!(insights.search_count, 1);
-        assert_eq!(insights.distinct_domains, 3);
+        // The search result page is a search, not a site visit.
+        assert_eq!(insights.distinct_domains, 2);
+        assert!(insights.top_domains.iter().all(|top| top.domain != "google.com"));
 
         // The most-visited URL is /a with 2 visits, then /b, /search, /foo.
         assert_eq!(insights.top_urls[0].url, "https://news.example.com/a");
