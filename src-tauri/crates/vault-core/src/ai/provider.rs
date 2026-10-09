@@ -656,24 +656,28 @@ pub(super) async fn embed_text_batch(
 pub(super) async fn embed_query(
     provider: &AiProviderRuntime,
     query: &str,
-    _role: EmbeddingRole,
+    role: EmbeddingRole,
 ) -> Result<Vec<f32>> {
     let requested_dim = resolve_embed_request_dim(provider)?;
-    // OPTIONAL key (see `AiProviderRuntime::api_key_for_transport`): forward a present, non-blank
-    // secret as the token; an absent key sends an empty one. rig 0.34's openai/gemini clients still
-    // emit an auth header (upstream limitation, see `llm.rs` module note), but a keyless local model
-    // ignores it. The DOMINANT embedding flow — the index backfill — runs through the reqwest
-    // `ExternalEmbeddingProvider`, which genuinely omits the header when keyless. We keep rig here
-    // (rather than rerouting) so an OpenAI provider WITHOUT an explicit base URL still resolves to
-    // rig's hosted default instead of erroring on the external adapter's required base URL.
-    let api_key = provider.api_key_for_transport().unwrap_or_default();
     match provider.config.request_format {
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            let mut builder = openai::Client::builder().api_key(api_key);
-            if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(normalize_local_base_url(base_url));
+            // A configured endpoint (a local server, a proxy) goes through the adapter the index
+            // backfill uses, which sends no auth header when there is no key: a keyless local
+            // server must not get an empty `Bearer` (intelligence.md). Only OpenAI's own hosted
+            // service, which always needs a key, goes through rig.
+            if provider.config.base_url.is_some() {
+                let embedder =
+                    super::embedding_external::ExternalEmbeddingProvider::new(provider.clone())?;
+                return embedder
+                    .embed(&[query.to_string()], role)
+                    .await?
+                    .pop()
+                    .context("the embedding provider returned no vector");
             }
-            let client = builder.build()?;
+            let api_key = provider
+                .api_key_for_transport()
+                .context("OpenAI's embedding service needs an API key")?;
+            let client = openai::Client::builder().api_key(api_key).build()?;
             let embedding = match requested_dim {
                 Some(ndims) => {
                     client
@@ -691,6 +695,9 @@ pub(super) async fn embed_query(
             Ok(finalize_embedding_vector(embedding.vec))
         }
         AiRequestFormat::Google => {
+            let api_key = provider
+                .api_key_for_transport()
+                .context("Gemini's embedding API needs an API key")?;
             let mut builder = gemini::Client::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(normalize_local_base_url(base_url));
