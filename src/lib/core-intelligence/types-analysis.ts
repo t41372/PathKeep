@@ -66,13 +66,14 @@ export interface DomainSearchStat {
 // 4.2 Stable Answer Sources (穩定答案來源)
 // ---------------------------------------------------------------------------
 
+/** A site searches ended on: where the user's answers come from. */
 export interface StableSource {
   registrableDomain: string
   displayName?: string | null
-  sourceRole: 'entry' | 'landing' | 'reference'
-  trailCount: number
-  stableLandingCount: number
-  effectivenessScore: number
+  /** Searches in the range whose landing page was on this site. */
+  searchCount: number
+  /** How many different searches those were. */
+  queryCount: number
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +115,12 @@ export interface FrictionSignal {
   signalKind: string
   occurrenceCount: number
   description: string
+  /** The search as first typed. */
+  searchQuery: string
+  /** How many times it was reworded. */
+  reformulationCount: number
+  /** Pages opened from it, the searches included. */
+  visitCount: number
 }
 
 // ---------------------------------------------------------------------------
@@ -243,6 +250,8 @@ export interface CompareSet {
   searchQuery: string
   pageCategory: string
   pages: CompareSetPage[]
+  /** The last time one of the pages was opened in this search. */
+  lastVisitedAt: string
 }
 
 export interface CompareSetPage {

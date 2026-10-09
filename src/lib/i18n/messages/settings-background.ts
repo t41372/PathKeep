@@ -194,7 +194,7 @@ export const settingsBackground = defineMessages({
       clearBusy: 'Wait for the running rebuild to finish first.',
       clearTitle: 'Clear Insights data?',
       clearBody:
-        'PathKeep deletes the data it worked out for Insights. Insights stay empty until you rebuild them.',
+        'PathKeep deletes the data it worked out for Insights. Insights stay empty until they are built again, when you rebuild them or the next time PathKeep opens.',
       clearCounting: 'Counting what will be removed…',
       clearCountFailed: 'Could not count what will be removed. {message}',
       clearWill: 'Removes:',
@@ -212,7 +212,8 @@ export const settingsBackground = defineMessages({
       clearKeeps:
         'Kept: your history, stars, notes, the search index, page summaries and link previews.',
       clearConfirm: 'Clear',
-      cleared: 'Insights data cleared. Insights are empty until rebuilt.',
+      cleared:
+        'Insights data cleared. Insights are empty until they are built again.',
       rebuildNow: 'Rebuild now',
       clearFailed: 'Could not clear Insights data',
     },
@@ -397,7 +398,7 @@ export const settingsBackground = defineMessages({
       clearBusy: '请先等正在运行的重建完成。',
       clearTitle: '清除洞察数据？',
       clearBody:
-        'PathKeep 会删除为洞察计算出来的数据。在你重建之前，洞察会是空的。',
+        'PathKeep 会删除为洞察计算出来的数据。在重新建立之前（你点“重建”，或下次打开 PathKeep 时），洞察会是空的。',
       clearCounting: '正在统计将删除的内容…',
       clearCountFailed: '无法统计将删除的内容。{message}',
       clearWill: '将删除：',
@@ -415,7 +416,7 @@ export const settingsBackground = defineMessages({
       clearKeeps:
         '会保留：你的历史记录、加星、笔记、搜索索引、网页摘要和链接预览。',
       clearConfirm: '清除',
-      cleared: '洞察数据已清除。重建之前洞察会是空的。',
+      cleared: '洞察数据已清除。重新建立之前洞察会是空的。',
       rebuildNow: '立即重建',
       clearFailed: '无法清除洞察数据',
     },
@@ -600,7 +601,7 @@ export const settingsBackground = defineMessages({
       clearBusy: '請先等正在執行的重建完成。',
       clearTitle: '清除洞察資料？',
       clearBody:
-        'PathKeep 會刪除為洞察計算出來的資料。在你重建之前，洞察會是空的。',
+        'PathKeep 會刪除為洞察計算出來的資料。在重新建立之前（你按「重建」，或下次打開 PathKeep 時），洞察會是空的。',
       clearCounting: '正在統計將刪除的內容…',
       clearCountFailed: '無法統計將刪除的內容。{message}',
       clearWill: '將刪除：',
@@ -618,7 +619,7 @@ export const settingsBackground = defineMessages({
       clearKeeps:
         '會保留：你的歷史紀錄、加星、筆記、搜尋索引、網頁摘要和連結預覽。',
       clearConfirm: '清除',
-      cleared: '洞察資料已清除。重建之前洞察會是空的。',
+      cleared: '洞察資料已清除。重新建立之前洞察會是空的。',
       rebuildNow: '立即重建',
       clearFailed: '無法清除洞察資料',
     },

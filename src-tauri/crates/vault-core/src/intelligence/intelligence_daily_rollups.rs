@@ -179,12 +179,10 @@ pub(super) fn load_profile_derived_visit_batch(
 
 /// Guards the unique `(date_key, profile_id, domain)` invariant before the
 /// caller replaces daily rollup rows.
-pub(super) fn ensure_unique_domain_rollup_rows(
-    domain_rows: &[(String, String, String, String, i64, i64, i64, i64)],
-) -> Result<()> {
+pub(super) fn ensure_unique_domain_rollup_rows(domain_rows: &[super::DomainDayRow]) -> Result<()> {
     let mut seen = HashSet::<(String, String, String)>::new();
-    for (date_key, profile_id, registrable_domain, _, _, _, _, _) in domain_rows {
-        let key = (date_key.clone(), profile_id.clone(), registrable_domain.clone());
+    for row in domain_rows {
+        let key = (row.date_key.clone(), row.profile_id.clone(), row.registrable_domain.clone());
         if !seen.insert(key.clone()) {
             anyhow::bail!(
                 "duplicate domain daily rollup row prepared for {} / {} / {}",
@@ -258,28 +256,16 @@ mod tests {
 
     #[test]
     fn duplicate_rows_and_empty_dirty_dates_are_guarded() {
-        let duplicate_rows = vec![
-            (
-                "2026-04-25".to_string(),
-                "chrome:Default".to_string(),
-                "example.com".to_string(),
-                "docs".to_string(),
-                1,
-                0,
-                1,
-                1,
-            ),
-            (
-                "2026-04-25".to_string(),
-                "chrome:Default".to_string(),
-                "example.com".to_string(),
-                "docs".to_string(),
-                2,
-                0,
-                0,
-                2,
-            ),
-        ];
+        let row = |visits: i64| super::super::DomainDayRow {
+            date_key: "2026-04-25".to_string(),
+            profile_id: "chrome:Default".to_string(),
+            registrable_domain: "example.com".to_string(),
+            domain_category: "docs".to_string(),
+            visit_count: visits,
+            unique_urls: visits,
+            ..Default::default()
+        };
+        let duplicate_rows = vec![row(1), row(2)];
         let duplicate_error =
             ensure_unique_domain_rollup_rows(&duplicate_rows).expect_err("duplicate row");
         assert!(duplicate_error.to_string().contains("duplicate domain daily rollup row"));

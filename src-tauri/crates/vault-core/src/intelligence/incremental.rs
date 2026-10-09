@@ -244,27 +244,30 @@ pub(super) fn load_checkpoint_source_watermark(
     Ok(watermark)
 }
 
-/// Summarizes raw-archive mutations with O(1) probes so the fingerprint changes
-/// the moment a backup ingests rows or a repair reverts them — even before the
-/// derived rebuild that would move the checkpoint ledger has run.
+/// Summarizes raw-archive mutations with constant-time probes so the fingerprint changes the
+/// moment a backup ingests rows or a repair reverts them, even before the derived rebuild that
+/// would move the checkpoint ledger has run.
 ///
-/// `MAX(visits.id)` (integer primary key) jumps on any newly ingested visit.
-/// The `runs` ledger gains exactly one row per backup, ingest, and revert
-/// (reverts also stamp `reverted_by_run_id`), so its count and max id catch
-/// reverts of existing visits that leave `MAX(visits.id)` unchanged. Both reads
-/// are constant-time, replacing the previous per-open full scan of the visible
-/// visit index plus ~N random probes into `urls`.
+/// `sqlite_sequence` holds the last id given to a visit and to a run (both tables are
+/// AUTOINCREMENT): the first jumps on any ingested visit, the second on every backup, ingest and
+/// revert. `archive_totals` has the visible visit count, written in the same transaction as each
+/// of those, which moves when a revert or restore leaves both ids alone. `MAX(id)` and
+/// `COUNT(*)` would read every row in Turso, which has no shortcut for them: for visits, the
+/// whole archive on every all-time open and every Insights card read.
 pub(super) fn load_archive_delta_signature(connection: &Session<'_>) -> Result<String> {
-    let max_visit_id: i64 =
-        connection.query_one("SELECT COALESCE(MAX(id), 0) FROM archive.visits", (), |row| {
-            Ok(row.get(0)?)
-        })?;
-    let (run_count, max_run_id): (i64, i64) = connection.query_one(
-        "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM archive.runs",
+    let (last_visit_id, last_run_id): (i64, i64) = connection.query_one(
+        "SELECT COALESCE(MAX(CASE WHEN name='visits' THEN seq END), 0),
+                COALESCE(MAX(CASE WHEN name='runs' THEN seq END), 0)
+         FROM archive.sqlite_sequence",
         (),
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    Ok(format!("arch:{max_visit_id}:{run_count}:{max_run_id}"))
+    let visible: i64 = connection.query_one(
+        "SELECT COALESCE((SELECT value FROM archive.archive_totals WHERE name='visits'), 0)",
+        (),
+        |row| Ok(row.get(0)?),
+    )?;
+    Ok(format!("arch:{last_visit_id}:{last_run_id}:{visible}"))
 }
 
 pub(super) fn watermark_regressed(

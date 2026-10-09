@@ -41,9 +41,9 @@ import {
   ListSkeleton,
   QueryBody,
   SectionStatus,
-  RangeToggle,
 } from './parts'
-import { useRange } from './range'
+import { useScope } from './range'
+import { ScopeControls } from './scope-controls'
 
 const factorKeys: Record<string, 'days' | 'trails' | 'searches' | 'direct'> = {
   cross_day_count: 'days',
@@ -57,9 +57,10 @@ export default function PagePage() {
   const format = useFormat()
   const { url: canonicalUrl = '' } = useParams()
   const [params] = useSearchParams()
-  const profileId = params.get('profile')
-  const [range, setRange] = useRange()
-  const refind = useRefindPage(canonicalUrl, range, profileId)
+  // Whose re-find score to show: the row the link came from (`scores`).
+  const profileId = params.get('scores')
+  const [scope] = useScope()
+  const refind = useRefindPage(canonicalUrl, scope, profileId)
   const page = refind.data?.data.page
   const pageUrl = page?.url ?? canonicalUrl
   const detail = useUrlDetail(pageUrl)
@@ -69,7 +70,7 @@ export default function PagePage() {
   return (
     <PageScroll wide>
       <DrillHeader
-        back={insightsPath(range)}
+        back={insightsPath(scope)}
         eyebrow={t('insights.page.eyebrow')}
         title={title}
         subtitle={<span className="font-mono">{pageUrl}</span>}
@@ -81,7 +82,7 @@ export default function PagePage() {
         }
         actions={
           <>
-            <RangeToggle value={range} onChange={setRange} />
+            <ScopeControls />
             <Button
               variant="outline"
               size="sm"
@@ -164,7 +165,7 @@ export default function PagePage() {
                     .sort((a, b) => b[1].last - a[1].last)
                     .map(([query, { count, last }]) => (
                       <li key={query}>
-                        <Link to={searchPath(query, range)} className={rowLink}>
+                        <Link to={searchPath(query, scope)} className={rowLink}>
                           <Search
                             className="size-3.5 shrink-0 text-muted-foreground"
                             aria-hidden
@@ -188,7 +189,7 @@ export default function PagePage() {
           action={
             page && (
               <Link
-                to={sitePath(page.registrableDomain, range)}
+                to={sitePath(page.registrableDomain, scope)}
                 className="text-[13px] text-muted-foreground hover:text-foreground"
               >
                 {page.registrableDomain} →
@@ -286,8 +287,8 @@ function WhyCard({
 }) {
   const { t } = useI18n()
   const format = useFormat()
-  const [range] = useRange()
-  const refind = useRefindPage(canonicalUrl, range, profileId)
+  const [scope] = useScope()
+  const refind = useRefindPage(canonicalUrl, scope, profileId)
   const sources = useSourceStats()
   const page = refind.data?.data.page
   const profile = sources.data?.find(

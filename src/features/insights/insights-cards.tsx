@@ -4,7 +4,7 @@
  * query; each links into a drill-in.
  */
 import { Repeat } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { MouseHandlerDataParam } from 'recharts'
 import { EvilBarChart } from '@/components/evilcharts/charts/recharts-bar-chart'
@@ -12,30 +12,48 @@ import { Favicon } from '@/components/app/favicon'
 import { heatLevel } from '@/components/app/heat-level'
 import { Heatmap, type HeatCell } from '@/components/app/heatmap'
 import { CardError, SectionCard } from '@/components/app/section-card'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { TopSite } from '@/lib/core-intelligence/types'
 import { isStale } from '@/lib/backend-client/insights'
 import { useFormat, useI18n } from '@/lib/i18n'
-import { barLength } from './buckets'
+import { barLabel } from './buckets'
+import { RhythmSummary } from './rhythm-summary'
 import { dayPath, pagePath, searchPath, sitePath } from './links'
 import { formatDuration, rowLink, shareBar } from './display'
-import { KpiTile, ListSkeleton, QueryBody, SectionStatus } from './parts'
 import {
-  rangeDays,
+  KpiTile,
+  ListSkeleton,
+  QueryBody,
+  ScrollList,
+  SectionStatus,
+} from './parts'
+import {
   useDailyActivity,
   useDigest,
   useFrequentSearches,
   useRefindPages,
   useRhythm,
   useTopSites,
-  type RangeId,
+  type SiteOrder,
 } from './queries'
+import { scopeDays, type Scope } from './range'
 
-export function KpiRow({ range }: { range: RangeId }) {
+export function KpiRow({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
-  const digest = useDigest(range)
+  const digest = useDigest(scope)
   const data = digest.data?.data
-  const hint = t('insights.kpi.vsPrevious', { days: rangeDays[range] })
+  // All time has no previous period to compare with.
+  const days = scopeDays(scope)
+  const hint = days ? t('insights.kpi.vsPrevious', { days }) : undefined
+  const compared = <T,>(metric: T) => (days ? metric : undefined)
   const loading = data === undefined && !digest.isError
   const updating = isStale(digest.data)
 
@@ -47,10 +65,10 @@ export function KpiRow({ range }: { range: RangeId }) {
     )
   }
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(128px,1fr))] gap-3">
       <KpiTile
         label={t('insights.kpi.visits')}
-        metric={data?.totalVisits}
+        metric={compared(data?.totalVisits)}
         value={format.compact(data?.totalVisits.value ?? 0)}
         hint={hint}
         loading={loading}
@@ -58,7 +76,7 @@ export function KpiRow({ range }: { range: RangeId }) {
       />
       <KpiTile
         label={t('insights.kpi.domains')}
-        metric={data?.distinctDomains}
+        metric={compared(data?.distinctDomains)}
         value={format.number(data?.distinctDomains?.value ?? 0)}
         hint={hint}
         loading={loading}
@@ -66,7 +84,7 @@ export function KpiRow({ range }: { range: RangeId }) {
       />
       <KpiTile
         label={t('insights.kpi.searches')}
-        metric={data?.totalSearches}
+        metric={compared(data?.totalSearches)}
         value={format.compact(data?.totalSearches.value ?? 0)}
         hint={hint}
         loading={loading}
@@ -74,8 +92,38 @@ export function KpiRow({ range }: { range: RangeId }) {
       />
       <KpiTile
         label={t('insights.kpi.activeTime')}
-        metric={data?.activeTimeMs}
+        metric={compared(data?.activeTimeMs)}
         value={formatDuration(data?.activeTimeMs?.value ?? 0, t, format)}
+        hint={hint}
+        loading={loading}
+        updating={updating}
+      />
+      {/* Over all time every site is new; the tile would repeat the one above. */}
+      {days !== null && (
+        <KpiTile
+          label={t('insights.kpi.newSites')}
+          metric={compared(data?.newDomains)}
+          value={format.number(data?.newDomains.value ?? 0)}
+          explain={t('insights.kpi.newSitesDetail')}
+          hint={hint}
+          loading={loading}
+          updating={updating}
+        />
+      )}
+      <KpiTile
+        label={t('insights.kpi.deepDives')}
+        metric={compared(data?.deepReadPages)}
+        value={format.number(data?.deepReadPages.value ?? 0)}
+        explain={t('insights.kpi.deepDivesDetail')}
+        hint={hint}
+        loading={loading}
+        updating={updating}
+      />
+      <KpiTile
+        label={t('insights.kpi.reopened')}
+        metric={compared(data?.refindPages)}
+        value={format.number(data?.refindPages.value ?? 0)}
+        explain={t('insights.kpi.reopenedDetail')}
         hint={hint}
         loading={loading}
         updating={updating}
@@ -84,12 +132,12 @@ export function KpiRow({ range }: { range: RangeId }) {
   )
 }
 
-export function DailyActivityCard({ range }: { range: RangeId }) {
+export function DailyActivityCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
   const navigate = useNavigate()
-  const daily = useDailyActivity(range)
-  const weekly = barLength(range) === 'week'
+  const daily = useDailyActivity(scope)
+  const length = daily.data?.length ?? 'day'
   const config = useMemo(
     () => ({
       pages: {
@@ -103,9 +151,9 @@ export function DailyActivityCard({ range }: { range: RangeId }) {
     }),
     [t],
   )
-  const points = daily.data?.points ?? []
+  const points = daily.data?.bars ?? []
   const openDay = (state: MouseHandlerDataParam) => {
-    if (!weekly && typeof state.activeLabel === 'string') {
+    if (length === 'day' && typeof state.activeLabel === 'string') {
       void navigate(dayPath(state.activeLabel))
     }
   }
@@ -113,7 +161,13 @@ export function DailyActivityCard({ range }: { range: RangeId }) {
   return (
     <SectionCard
       title={t('insights.daily.title')}
-      subtitle={weekly ? undefined : t('insights.daily.hint')}
+      subtitle={t(
+        {
+          day: 'insights.daily.hint',
+          week: 'insights.daily.perWeek',
+          month: 'insights.daily.perMonth',
+        }[length] as 'insights.daily.hint',
+      )}
       action={
         <span className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
@@ -142,7 +196,7 @@ export function DailyActivityCard({ range }: { range: RangeId }) {
             barGap={2}
             chartProps={{
               onClick: openDay,
-              style: weekly ? undefined : { cursor: 'pointer' },
+              style: length === 'day' ? { cursor: 'pointer' } : undefined,
             }}
           >
             <EvilBarChart.Grid vertical={false} strokeDasharray="3 4" />
@@ -151,9 +205,7 @@ export function DailyActivityCard({ range }: { range: RangeId }) {
               tickLine={false}
               axisLine={false}
               minTickGap={32}
-              tickFormatter={(value: string) =>
-                format.monthDay(`${value}T00:00:00`)
-              }
+              tickFormatter={(value: string) => barLabel(format, length, value)}
               className="font-mono"
             />
             <EvilBarChart.Tooltip />
@@ -166,15 +218,51 @@ export function DailyActivityCard({ range }: { range: RangeId }) {
   )
 }
 
-export function TopSitesCard({ range }: { range: RangeId }) {
+/** How a site's place in Top sites is decided, and the number shown for it. */
+const siteOrders = {
+  visits: (site: TopSite) => site.visitCount,
+  unique_days: (site: TopSite) => site.uniqueDays,
+  average_daily_visits: (site: TopSite) => site.averageDailyVisits,
+} satisfies Record<SiteOrder, (site: TopSite) => number>
+
+export function TopSitesCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
-  const sites = useTopSites(range)
+  const [order, setOrder] = useState<SiteOrder>('visits')
+  const sites = useTopSites(scope, order)
+  const measure = siteOrders[order]
+  const shown = (site: TopSite) =>
+    order === 'average_daily_visits'
+      ? format.number(Math.round(measure(site) * 10) / 10)
+      : format.compact(measure(site))
 
   return (
     <SectionCard
       title={t('insights.topSites.title')}
-      action={<SectionStatus meta={sites.data?.meta} />}
+      action={
+        <span className="flex items-center gap-1.5">
+          <Select
+            value={order}
+            onValueChange={(next) => setOrder(next as SiteOrder)}
+          >
+            <SelectTrigger
+              size="sm"
+              aria-label={t('insights.topSites.orderLabel')}
+              className="h-7 gap-1 border-none bg-transparent px-2 text-xs text-muted-foreground shadow-none"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {(Object.keys(siteOrders) as SiteOrder[]).map((id) => (
+                <SelectItem key={id} value={id}>
+                  {t(`insights.topSites.order.${id}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <SectionStatus meta={sites.data?.meta} />
+        </span>
+      }
     >
       <QueryBody
         query={sites}
@@ -183,37 +271,38 @@ export function TopSitesCard({ range }: { range: RangeId }) {
         empty={t('insights.topSites.empty')}
       >
         {(result) => {
-          const max = Math.max(
-            1,
-            ...result.data.items.map((site) => site.visitCount),
-          )
+          const max = Math.max(1, ...result.data.items.map(measure))
           return (
-            <ul className="flex flex-col gap-1.5">
-              {result.data.items.map((site) => (
-                <li key={site.registrableDomain}>
-                  <Link
-                    to={sitePath(site.registrableDomain, range)}
-                    className="relative flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] hover:no-underline"
-                  >
-                    <span
-                      aria-hidden
-                      className="absolute inset-y-0 left-0 rounded-md bg-brand-soft transition-[width] duration-500"
-                      style={shareBar(site.visitCount, max)}
-                    />
-                    <Favicon
-                      domain={site.registrableDomain}
-                      className="relative"
-                    />
-                    <span className="relative flex-1 truncate font-medium">
-                      {site.registrableDomain}
-                    </span>
-                    <span className="relative font-mono text-xs text-muted-foreground">
-                      {format.compact(site.visitCount)}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            // Six rows show, as tall as the chart beside it; the rest of the 40
+            // scroll, and the fade says so.
+            <ScrollList maxHeight={6 * 38}>
+              <ul className="flex flex-col gap-1.5">
+                {result.data.items.map((site) => (
+                  <li key={site.registrableDomain}>
+                    <Link
+                      to={sitePath(site.registrableDomain, scope)}
+                      className="relative flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] hover:no-underline"
+                    >
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0 left-0 rounded-md bg-brand-soft transition-[width] duration-500"
+                        style={shareBar(measure(site), max)}
+                      />
+                      <Favicon
+                        domain={site.registrableDomain}
+                        className="relative"
+                      />
+                      <span className="relative flex-1 truncate font-medium">
+                        {site.registrableDomain}
+                      </span>
+                      <span className="relative font-mono text-xs text-muted-foreground">
+                        {shown(site)}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </ScrollList>
           )
         }}
       </QueryBody>
@@ -221,9 +310,9 @@ export function TopSitesCard({ range }: { range: RangeId }) {
   )
 }
 
-export function RhythmCard({ range }: { range: RangeId }) {
+export function RhythmCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const rhythm = useRhythm(range)
+  const rhythm = useRhythm(scope)
   const weekdayList = t('insights.rhythm.weekdays')
   const weekdays = useMemo(() => weekdayList.split(','), [weekdayList])
 
@@ -262,30 +351,33 @@ export function RhythmCard({ range }: { range: RangeId }) {
       ) : rhythm.data === undefined ? (
         <Skeleton className="h-[150px]" />
       ) : (
-        <div className="overflow-x-auto">
-          <Heatmap
-            columns={columns}
-            label={t('insights.rhythm.subtitle')}
-            cellSize={16}
-            gap={3}
-            rowLabels={weekdays}
-            columnLabels={Array.from({ length: 24 }, (_, hour) =>
-              hour % 6 === 0 || hour === 23
-                ? String(hour).padStart(2, '0')
-                : null,
-            )}
-          />
-        </div>
+        <>
+          <div className="overflow-x-auto">
+            <Heatmap
+              columns={columns}
+              label={t('insights.rhythm.subtitle')}
+              cellSize={16}
+              gap={3}
+              rowLabels={weekdays}
+              columnLabels={Array.from({ length: 24 }, (_, hour) =>
+                hour % 6 === 0 || hour === 23
+                  ? String(hour).padStart(2, '0')
+                  : null,
+              )}
+            />
+          </div>
+          <RhythmSummary scope={scope} rhythm={rhythm.data.data} />
+        </>
       )}
     </SectionCard>
   )
 }
 
-export function SearchesAndRefindCard({ range }: { range: RangeId }) {
+export function SearchesAndRefindCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
-  const searches = useFrequentSearches(range)
-  const refind = useRefindPages(range)
+  const searches = useFrequentSearches(scope)
+  const refind = useRefindPages(scope)
 
   return (
     <SectionCard
@@ -303,7 +395,7 @@ export function SearchesAndRefindCard({ range }: { range: RangeId }) {
             {result.data.map((concept) => (
               <Link
                 key={concept.query}
-                to={searchPath(concept.query, range)}
+                to={searchPath(concept.query, scope)}
                 className="flex h-7 items-center gap-1.5 rounded-full border bg-card px-3 text-[13px] transition-colors hover:bg-muted hover:no-underline"
               >
                 {concept.query}
@@ -333,7 +425,7 @@ export function SearchesAndRefindCard({ range }: { range: RangeId }) {
             {result.data.items.map((page) => (
               <li key={page.canonicalUrl}>
                 <Link
-                  to={pagePath(page.canonicalUrl, range, page.profileId)}
+                  to={pagePath(page.canonicalUrl, scope, page.profileId)}
                   className={rowLink}
                 >
                   <Repeat

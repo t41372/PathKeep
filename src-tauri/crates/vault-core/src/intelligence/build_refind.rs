@@ -126,7 +126,6 @@ fn persist(
             saved.aggregate_generation,
             &rows,
             &[],
-            &[],
             &reopened,
             &[],
             &saved.computed_at,

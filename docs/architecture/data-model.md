@@ -554,7 +554,7 @@ recovery, cancellation and exact command/channel shapes.
 - enrichment queue contract 掛在 `derived/intelligence.db` 的 `intelligence_jobs`，並以 `job_type = 'enrichment-plugin'`、`plugin_id`、`run_id`、payload / artifact trace、`lease_owner`、`lease_expires_at`、`heartbeat_at`、`stop_requested` 區分；額外 trigger 關聯則落在 `intelligence_job_triggers`。這是 derived-state runtime policy，不是 canonical ingest schema 的一部分。
 - built-in enrichment runtime 目前是 first-party only；Settings / Insights 可以 review、retry、cancel 內建 job，但 third-party plugin execution 仍保持 deferred，不進 shipping runtime。
 - `page_content_enrichments` 保存在 `derived/intelligence.db`，以 `(canonical_url, content_source)` 共用 readable-text evidence；它服務 optional AI / assistant / enrichment flows，不是 legacy insights snapshot。
-- 2026-04-15 hard reset 後，deterministic/Core Intelligence 的可重建 derived tables 改為：`visit_derived_facts`、`domain_daily_rollups`、`category_daily_rollups`、`engine_daily_rollups`、`daily_summary_rollups`、`sessions`、`search_trails`、`search_trail_members`、`search_events`、`search_event_terms`、`query_families`、`refind_pages`、`source_effectiveness`、`habit_patterns`、`reopened_investigations`、`path_flows`。`clear_derived_intelligence_state` 只會清掉這些 Core Intelligence rows 與對應 runtime trace，不會動 canonical archive facts；回報欄位也必須按 stage 分組為 `clearedVisitDerivedFactRows`、`clearedDailyRollupRows`、`clearedStructuralRows`、`clearedRuntimeRows`，只有真的清 enrichment 時才額外回 `clearedEnrichmentRows`。
+- 2026-04-15 hard reset 後，deterministic/Core Intelligence 的可重建 derived tables 改為：`visit_derived_facts`、`domain_daily_rollups`、`category_daily_rollups`、`engine_daily_rollups`、`daily_summary_rollups`、`sessions`、`search_trails`、`search_trail_members`、`search_events`、`search_event_terms`、`query_families`、`refind_pages`、`habit_patterns`、`reopened_investigations`、`path_flows`、`compare_sets`（2026-10-08 起在 aggregate 建置時算好，不再每次讀取現算）。`clear_derived_intelligence_state` 只會清掉這些 Core Intelligence rows 與對應 runtime trace，不會動 canonical archive facts；回報欄位也必須按 stage 分組為 `clearedVisitDerivedFactRows`、`clearedDailyRollupRows`、`clearedStructuralRows`、`clearedRuntimeRows`，只有真的清 enrichment 時才額外回 `clearedEnrichmentRows`。
 - `visit_derived_facts` 是新的 visit-level explanation state，持久化 `session_id`、`trail_id`、`registrable_domain`、`canonical_url`、`domain_category`、`page_category`、`search_engine`、`search_query`、`is_new_domain`、`is_search_event`、`evidence_tier`、`taxonomy_source`、`taxonomy_pack`、`taxonomy_version`。這些都屬 derived explanation state，而不是 canonical archive fact。
 - desktop / worker app snapshot 的 canonical runtime readiness 欄位現在是 `intelligenceStatus`，對應型別是 `IntelligenceStatus`；repo 已不再保留 `insightStatus` / `InsightStatus` alias，新 surface 必須直接使用 canonical naming。
 - Core Intelligence read path 不再依賴 `insight_snapshot_payloads` 這種整包 JSON snapshot。前台應以實體 / rollup query（sessions、trails、rollups、refind、domain deep dive、digest）為主路徑；若保留舊 snapshot payload，只能視為 legacy inert data，不再是 accepted contract。
@@ -631,15 +631,26 @@ aggregates. Published old generations are reclaimed in bounded writes.
 
 `session_domains` persists per-session domain counts with navigation assignments and their
 cursor. A resumed long session reads these counts instead of replaying every earlier visit.
+`session_paths` holds each session's sites in visit order, a row per local day and at most 256
+sites of its own, each row starting with the last three sites of the one before. Common paths
+for a date range count the rows of those days, each path in the row of its last site, instead
+of replaying the range's visits.
+The cards that rank or count sites (top sites, explore or focus, habits, browsers compared and
+the KPI row's site count) share one read of a range's `domain_daily_rollups` rows, in date
+order, that keeps running totals per site, not its days (`intelligence::site_days`). Each vault
+keeps the last eight ranges read, each under the content fingerprint the all-time snapshot
+uses, so the second batch, another top-sites order, its next page and History's Sites view read
+nothing new until a build or clear changes the data. A single day is read directly.
 Assignments store their navigation ordinal, which session and trail details use for paging.
 Refind construction streams one canonical page at a time. Its bounded evidence sample is
 storage bookkeeping: public evidence reads page the complete canonical visit set.
 
 Overview snapshots are warmed after publication, outside the render path, with cancellation
-checkpoints between bands. Their fingerprint includes the requested end date, archive and
-stage watermarks, classification recipe and local date/timezone. A changed fingerprint
-prevents publishing an obsolete cache. Reads refresh runtime metadata and observed evidence.
-The `overview` progress phase reports preparation of these views.
+checkpoints between bands. Their fingerprint includes the archive and stage watermarks,
+classification recipe and UTC offset, not the date: all time always ends today, and the parts
+that depend on today (on this day, habits, the range) are recomputed when a snapshot is served.
+A changed fingerprint prevents publishing an obsolete cache. Reads refresh runtime metadata and
+observed evidence. The `overview` progress phase reports preparation of these views.
 
 Queue claims capture their trigger watermark. Requests arriving during a running claim
 remain queued after its completion. Module invalidations have a monotonic revision, so

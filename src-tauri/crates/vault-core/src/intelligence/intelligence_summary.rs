@@ -14,8 +14,8 @@
 //!
 //! ## Dependencies
 //! - Parent-module date helpers and search-engine naming helpers.
-//! - `source_effectiveness`, `daily_summary_rollups`, `query_families`, and
-//!   `search_trails` tables in the intelligence plane.
+//! - `daily_summary_rollups`, `query_families`, and `search_trails` tables in
+//!   the intelligence plane.
 //!
 //! ## Performance notes
 //! - All `*_with_connection` helpers reuse an existing SQLite handle so staged
@@ -23,9 +23,10 @@
 //! - KPI comparisons intentionally aggregate on the database side before doing
 //!   light Rust-side math.
 
+use super::site_days::{SiteDayCache, SiteDayScope};
 use super::{
     build_kpi, collapse_date_key, date_range_bounds, display_name_for_domain,
-    display_name_for_search_engine, previous_date_range, rfc3339_from_millis,
+    display_name_for_search_engine, new_sites_by_day, previous_date_range, rfc3339_from_millis,
 };
 use crate::models::{
     ActivityMix, ActivityMixTrend, ActivityMixTrendPoint, CategoryChangeEntry, CategoryMixEntry,
@@ -151,16 +152,16 @@ pub fn get_digest_summary(
     vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<DigestSummary> {
+    let cache = vault.site_days().clone();
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        get_digest_summary_with_connection(connection, request)
+        get_digest_summary_with_connection(connection, &cache, &request)
     })
 }
 
 pub(crate) fn get_digest_summary_with_connection(
     connection: &Session<'_>,
+    cache: &SiteDayCache,
     request: &ScopedDateRangeRequest,
 ) -> Result<DigestSummary> {
     let current =
@@ -171,10 +172,13 @@ pub(crate) fn get_digest_summary_with_connection(
         count_deep_dive_sessions(connection, &request.date_range, request.profile_id.as_deref())?;
     let previous_deep =
         count_deep_dive_sessions(connection, &previous_range, request.profile_id.as_deref())?;
+    // The sites of each range come from its shared site-day read (`site_days`), which the cards
+    // ranking sites in the same range read too.
+    let profile = request.profile_id.as_deref();
     let current_domains =
-        count_distinct_domains(connection, &request.date_range, request.profile_id.as_deref())?;
+        cache.get(connection, &SiteDayScope::of(&request.date_range, profile))?.sites.len() as i64;
     let previous_domains =
-        count_distinct_domains(connection, &previous_range, request.profile_id.as_deref())?;
+        cache.get(connection, &SiteDayScope::of(&previous_range, profile))?.sites.len() as i64;
     let current_active =
         estimate_active_time_ms(connection, &request.date_range, request.profile_id.as_deref())?;
     let previous_active =
@@ -193,7 +197,14 @@ pub(crate) fn get_digest_summary_with_connection(
         date_range: request.date_range.clone(),
         total_visits: build_kpi(current.total_visits, previous.total_visits),
         total_searches: build_kpi(current.total_searches, previous.total_searches),
-        new_domains: build_kpi(current.new_domains, previous.new_domains),
+        new_domains: build_kpi(
+            new_sites_by_day(connection, &request.date_range, request.profile_id.as_deref())?
+                .values()
+                .sum(),
+            new_sites_by_day(connection, &previous_range, request.profile_id.as_deref())?
+                .values()
+                .sum(),
+        ),
         deep_read_pages: build_kpi(current_deep, previous_deep),
         refind_pages: build_kpi(current_refind, previous_refind),
         distinct_domains: build_kpi(current_domains, previous_domains),
@@ -201,8 +212,9 @@ pub(crate) fn get_digest_summary_with_connection(
     })
 }
 
-/// Returns the domains that most consistently resolved search trails in the
-/// requested window.
+/// The sites searches ended on in the range, most first, across browsers or in one: where the
+/// user's answers come from. Counted from the search trails, so a range counts only its own
+/// searches (the stored per-profile source rows covered all of history).
 pub fn get_stable_sources(
     vault: &crate::Vault,
     request: &ScopedPageRequest,
@@ -219,25 +231,39 @@ pub(crate) fn get_stable_sources_with_connection(
 ) -> Result<IntelligencePage<StableSource>> {
     let (start, end) = date_range_bounds(&request.date_range)?;
     let limit = request.limit.unwrap_or(10).clamp(1, 1000) as usize;
-    let after = super::paging::cursor::<(f64, String, String)>(request.cursor.as_deref())?;
-    // The ranked summary lists read their rows tables through an index in list order: through
-    // the views Turso reads the whole generation and sorts it on every page. The cursor clause
-    // is bounded (`a<=? AND (a<? OR ...)`) and only present after the first page, the only form
-    // Turso seeks on.
-    let after_clause = if after.is_some() {
-        "AND r.effectiveness_score<=?4 AND (r.effectiveness_score<?4 OR (r.registrable_domain>=?5 AND (r.registrable_domain>?5 OR r.profile_id>?6)))"
-    } else {
-        ""
-    };
-    let rows=connection.query(&format!("SELECT r.registrable_domain,r.source_role,r.trail_count,r.stable_landing_count,r.effectiveness_score,r.profile_id
-        FROM source_effectiveness_rows r INDEXED BY idx_source_effectiveness_rank
-        WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)
-          AND (?1 IS NULL OR r.profile_id=?1) AND r.last_seen_ms>=?2 AND r.first_seen_ms<?3 {after_clause}
-        ORDER BY r.effectiveness_score DESC,r.registrable_domain,r.profile_id LIMIT ?7"),
-        params![request.profile_id,start,end,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1.as_str()),after.as_ref().map(|v|v.2.as_str()),(limit+1) as i64],|r| {
-            let domain=r.get::<String>(0)?;let score=r.get::<f64>(4)?;
-            Ok((StableSource {display_name:display_name_for_domain(&domain),registrable_domain:domain.clone(),source_role:r.get(1)?,trail_count:r.get(2)?,stable_landing_count:r.get(3)?,effectiveness_score:score as f32},(score,domain,r.get::<String>(5)?)))
-        })?;
+    let after = super::paging::cursor::<(i64, String)>(request.cursor.as_deref())?;
+    let rows = connection.query(
+        "SELECT r.landing_domain, COUNT(*), COUNT(DISTINCT r.initial_query)
+         FROM search_trails_rows r INDEXED BY idx_search_trails_recent
+         WHERE r.first_visit_ms >= ?2 AND r.first_visit_ms < ?3
+           AND r.generation IN (SELECT navigation FROM intelligence_generations)
+           AND (?1 IS NULL OR r.profile_id = ?1)
+           AND r.landing_domain IS NOT NULL
+         GROUP BY r.landing_domain
+         HAVING ?4 IS NULL OR COUNT(*) < ?4 OR (COUNT(*) = ?4 AND r.landing_domain > ?5)
+         ORDER BY COUNT(*) DESC, r.landing_domain LIMIT ?6",
+        params![
+            request.profile_id.as_deref(),
+            start,
+            end,
+            after.as_ref().map(|value| value.0),
+            after.as_ref().map(|value| value.1.as_str()),
+            (limit + 1) as i64
+        ],
+        |r| {
+            let domain = r.get::<String>(0)?;
+            let searches = r.get::<i64>(1)?;
+            Ok((
+                StableSource {
+                    display_name: display_name_for_domain(&domain),
+                    registrable_domain: domain.clone(),
+                    search_count: searches,
+                    query_count: r.get(2)?,
+                },
+                (searches, domain),
+            ))
+        },
+    )?;
     super::paging::finish(rows, limit)
 }
 
@@ -261,17 +287,17 @@ pub(crate) fn get_search_effectiveness_with_connection(
 ) -> Result<SearchEffectiveness> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let mut statement = connection.prepare(
-        "SELECT search_engine,
-                AVG(reformulation_count),
+        "SELECT r.search_engine,
+                AVG(r.reformulation_count),
                 COUNT(*),
-                AVG(max_depth)
-         FROM search_trails
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND (?2 IS NULL OR search_engine = ?2)
-           AND last_visit_ms >= ?3
-           AND first_visit_ms < ?4
-         GROUP BY search_engine
-         ORDER BY COUNT(*) DESC, search_engine ASC",
+                AVG(r.max_depth)
+         FROM search_trails_rows r INDEXED BY idx_search_trails_recent
+         WHERE r.first_visit_ms >= ?3 AND r.first_visit_ms < ?4
+           AND r.generation IN (SELECT navigation FROM intelligence_generations)
+           AND (?1 IS NULL OR r.profile_id = ?1)
+           AND (?2 IS NULL OR r.search_engine = ?2)
+         GROUP BY r.search_engine
+         ORDER BY COUNT(*) DESC, r.search_engine ASC",
     )?;
     let engine_stats = statement
         .query_map(
@@ -373,9 +399,9 @@ pub(crate) fn get_friction_signals_with_connection(
           AND (r.reformulation_count>=2 OR (r.landing_domain IS NULL AND r.visit_count>=3)) {after_clause}
         ORDER BY r.reformulation_count DESC,r.visit_count DESC,r.trail_id LIMIT ?7"),
         params![request.profile_id,start,end,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str()),(limit+1) as i64],|r| {
-            let reforms=r.get::<i64>(2)?;let visits=r.get::<i64>(3)?;
-            let description=if reforms>=2 {format!("Repeated search reformulation after query '{}'.",r.get::<String>(0)?)} else {"Search trail did not settle on a stable landing page.".to_owned()};
-            Ok((FrictionSignal {registrable_domain:r.get(1)?,url:None,evidence_type:"weak".into(),signal_kind:if reforms>=2 {"excessive_reformulation"} else {"bounce_pattern"}.into(),occurrence_count:visits.max(reforms),description},(reforms,visits,r.get::<String>(4)?)))
+            let reforms=r.get::<i64>(2)?;let visits=r.get::<i64>(3)?;let query=r.get::<String>(0)?;
+            let description=if reforms>=2 {format!("Repeated search reformulation after query '{query}'.")} else {"Search trail did not settle on a stable landing page.".to_owned()};
+            Ok((FrictionSignal {registrable_domain:r.get(1)?,url:None,evidence_type:"weak".into(),signal_kind:if reforms>=2 {"excessive_reformulation"} else {"bounce_pattern"}.into(),occurrence_count:visits.max(reforms),description,search_query:query,reformulation_count:reforms,visit_count:visits},(reforms,visits,r.get::<String>(4)?)))
         })?;
     super::paging::finish(rows, limit)
 }
@@ -450,7 +476,6 @@ fn load_category_shares(
 struct SummaryTotals {
     total_visits: i64,
     total_searches: i64,
-    new_domains: i64,
 }
 
 fn load_summary_totals(
@@ -460,17 +485,16 @@ fn load_summary_totals(
 ) -> Result<SummaryTotals> {
     connection
         .query_one(
-            "SELECT SUM(total_visits), SUM(total_searches), SUM(new_domains)
-             FROM daily_summary_rollups
-             WHERE (?1 IS NULL OR profile_id = ?1)
-               AND date_key >= ?2
-               AND date_key <= ?3",
+            "SELECT SUM(r.total_visits), SUM(r.total_searches)
+             FROM daily_summary_rollups_rows r INDEXED BY idx_daily_summary_range
+             WHERE r.date_key >= ?2 AND r.date_key <= ?3
+               AND r.generation IN (SELECT daily FROM intelligence_generations)
+               AND (?1 IS NULL OR r.profile_id = ?1)",
             params![profile_id, range.start, range.end],
             |row| {
                 Ok(SummaryTotals {
                     total_visits: row.get::<Option<i64>>(0)?.unwrap_or_default(),
                     total_searches: row.get::<Option<i64>>(1)?.unwrap_or_default(),
-                    new_domains: row.get::<Option<i64>>(2)?.unwrap_or_default(),
                 })
             },
         )
@@ -486,30 +510,12 @@ fn count_deep_dive_sessions(
     connection
         .query_one(
             "SELECT COUNT(*)
-             FROM sessions
-             WHERE (?1 IS NULL OR profile_id = ?1)
-               AND is_deep_dive = 1
-               AND first_visit_ms >= ?2
-               AND first_visit_ms < ?3",
+             FROM sessions_rows r INDEXED BY idx_sessions_range
+             WHERE r.first_visit_ms >= ?2 AND r.first_visit_ms < ?3
+               AND r.generation IN (SELECT navigation FROM intelligence_generations)
+               AND (?1 IS NULL OR r.profile_id = ?1)
+               AND r.is_deep_dive = 1",
             params![profile_id, start_ms, end_ms],
-            |row| Ok(row.get(0)?),
-        )
-        .map_err(Into::into)
-}
-
-fn count_distinct_domains(
-    connection: &Session<'_>,
-    range: &DateRange,
-    profile_id: Option<&str>,
-) -> Result<i64> {
-    connection
-        .query_one(
-            "SELECT COUNT(DISTINCT registrable_domain)
-             FROM domain_daily_rollups
-             WHERE (?1 IS NULL OR profile_id = ?1)
-               AND date_key >= ?2
-               AND date_key <= ?3",
-            params![profile_id, range.start, range.end],
             |row| Ok(row.get(0)?),
         )
         .map_err(Into::into)
@@ -534,11 +540,11 @@ fn estimate_active_time_ms(
     let (start_ms, end_ms) = date_range_bounds(range)?;
     connection
         .query_one(
-            "SELECT COALESCE(SUM(MIN(last_visit_ms - first_visit_ms + ?4, visit_count * ?5)), 0)
-             FROM sessions
-             WHERE (?1 IS NULL OR profile_id = ?1)
-               AND first_visit_ms >= ?2
-               AND first_visit_ms < ?3",
+            "SELECT COALESCE(SUM(MIN(r.last_visit_ms - r.first_visit_ms + ?4, r.visit_count * ?5)), 0)
+             FROM sessions_rows r INDEXED BY idx_sessions_range
+             WHERE r.first_visit_ms >= ?2 AND r.first_visit_ms < ?3
+               AND r.generation IN (SELECT navigation FROM intelligence_generations)
+               AND (?1 IS NULL OR r.profile_id = ?1)",
             params![
                 profile_id,
                 start_ms,
@@ -611,7 +617,8 @@ mod tests {
         session("idle-tab", start_ms + 300 * minute, 120 * minute, 2);
         session("last-week", previous_start_ms + minute, 4 * minute, 5);
 
-        let digest = get_digest_summary_with_connection(connection, &request).expect("digest");
+        let digest = get_digest_summary_with_connection(connection, &SiteDayCache::default(), &request)
+            .expect("digest");
         assert_eq!(digest.distinct_domains.value, 2);
         assert_eq!(digest.distinct_domains.previous_value, Some(1));
         assert_eq!(digest.active_time_ms.value, (1 + 11 + 10) * minute);
@@ -620,6 +627,7 @@ mod tests {
 
         let scoped = get_digest_summary_with_connection(
             connection,
+            &SiteDayCache::default(),
             &ScopedDateRangeRequest {
                 profile_id: Some("firefox:dev".to_string()),
                 ..request.clone()

@@ -8,7 +8,8 @@ import { useMemo } from 'react'
 import { insightsClient, pollWhileStale } from '@/lib/backend-client/insights'
 import type { TrailSummary } from '@/lib/core-intelligence/types'
 import { queryKeys } from '@/lib/query'
-import { rangeDates, type RangeId } from './range'
+import { request } from './queries'
+import { scopeKey, type Scope } from './range'
 
 const key = (...parts: unknown[]) => [
   ...queryKeys.archiveData,
@@ -54,11 +55,10 @@ export function useDaySearches(date: string, enabled = true) {
   })
 }
 
-export function useSite(domain: string, range: RangeId) {
+export function useSite(domain: string, scope: Scope) {
   return useQuery({
-    queryKey: key('site', domain, range),
-    queryFn: () =>
-      insightsClient.site(domain, { dateRange: rangeDates(range) }),
+    queryKey: key('site', domain, ...scopeKey(scope)),
+    queryFn: () => insightsClient.site(domain, request(scope)),
     placeholderData: keepPrevious,
     refetchInterval: pollWhileStale,
   })
@@ -70,11 +70,10 @@ export function useSite(domain: string, range: RangeId) {
  * holding the text, across all time (the totals say "in total"); each one's
  * detail is then read for the chosen range.
  */
-export function useSearch(query: string, range: RangeId) {
-  const scope = { dateRange: rangeDates(range) }
+export function useSearch(query: string, scope: Scope) {
   const families = useQuery({
-    queryKey: key('search-families', query),
-    queryFn: () => insightsClient.searchFamilies(query),
+    queryKey: key('search-families', query, scope.profileId),
+    queryFn: () => insightsClient.searchFamilies(query, scope.profileId),
     refetchInterval: pollWhileStale,
   })
   const matches = useMemo(
@@ -83,8 +82,9 @@ export function useSearch(query: string, range: RangeId) {
   )
   const details = useQueries({
     queries: matches.map((family) => ({
-      queryKey: key('family', family.familyId, range),
-      queryFn: () => insightsClient.queryFamilyDetail(family.familyId, scope),
+      queryKey: key('family', family.familyId, ...scopeKey(scope)),
+      queryFn: () =>
+        insightsClient.queryFamilyDetail(family.familyId, request(scope)),
     })),
     combine: (results) => {
       const seen = new Map<string, TrailSummary>()
@@ -114,16 +114,27 @@ export function useTrailDetail(trailId: string, enabled: boolean) {
   })
 }
 
+/**
+ * Re-find scores are per browser profile: `scores` picks whose, falling back
+ * to the profile the screen is filtered to.
+ */
 export function useRefindPage(
   canonicalUrl: string,
-  range: RangeId,
-  profileId: string | null,
+  scope: Scope,
+  scores: string | null,
 ) {
+  const profileId = scores ?? scope.profileId
   return useQuery({
-    queryKey: key('page', canonicalUrl, range, profileId),
+    queryKey: key(
+      'page',
+      canonicalUrl,
+      scope.dates.start,
+      scope.dates.end,
+      profileId,
+    ),
     queryFn: () =>
       insightsClient.refindPageDetail(canonicalUrl, {
-        dateRange: rangeDates(range),
+        dateRange: scope.dates,
         profileId,
       }),
     placeholderData: keepPrevious,

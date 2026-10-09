@@ -28,13 +28,12 @@
 //! - Range deletes stay scoped to one profile and one dirty window so large
 //!   rebuilds do not rewrite unaffected structural rows.
 
-use super::intelligence_structural_state::{SessionBuildState, TrailBuildState};
+use super::intelligence_structural_state::{PathSegment, SessionBuildState, TrailBuildState};
 use super::{
     StructuralTailStreamReport, StructuralVisitRecord, TrailRecord, classify_search_query_kind,
-    normalize_query, tokenize_query_terms,
+    normalize_query, search_words,
 };
 use anyhow::Result;
-use std::collections::BTreeSet;
 use vault_store::{Session, params_owned as params};
 
 /// Cursor used by streamed structural replay to resume the next ordered visit
@@ -48,6 +47,7 @@ pub(super) struct StructuralTailPersist<'tx, 'db> {
     domain_statement: vault_store::Statement<'tx, 'db>,
     domain_updates: std::collections::BTreeMap<(String, String), i64>,
     session_statement: vault_store::Statement<'tx, 'db>,
+    path_statement: vault_store::Statement<'tx, 'db>,
     trail_statement: vault_store::Statement<'tx, 'db>,
     trail_member_statement: vault_store::Statement<'tx, 'db>,
     search_event_statement: vault_store::Statement<'tx, 'db>,
@@ -69,6 +69,9 @@ impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
             )?,
             session_statement: tx.prepare(
                 "INSERT OR REPLACE INTO sessions_rows (generation,session_id, profile_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title, computed_at) VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            )?,
+            path_statement: tx.prepare(
+                "INSERT OR REPLACE INTO session_paths (generation,profile_id,session_id,segment,date_key,prefix_len,sites_json) VALUES (?1,?2,?3,?4,?5,?6,?7)",
             )?,
             trail_statement: tx.prepare(
                 "INSERT OR REPLACE INTO search_trails_rows (generation,trail_id, profile_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
@@ -129,6 +132,20 @@ impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
     }
 
     /// Persists one completed session row.
+    /// Saves one path segment; the open one is saved again, in place, as it grows.
+    pub(super) fn persist_path(&mut self, session_id: &str, path: &PathSegment) -> Result<()> {
+        self.path_statement.execute(params![
+            self.generation,
+            self.profile_id,
+            session_id,
+            path.segment,
+            path.date_key,
+            path.prefix_len as i64,
+            serde_json::to_string(&path.sites)?,
+        ])?;
+        Ok(())
+    }
+
     pub(super) fn persist_session(
         &mut self,
         session: &super::SessionRecord,
@@ -205,9 +222,7 @@ impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
             event.visit_time_ms,
         ])?;
         if event.query_kind.is_keyword() {
-            for term in
-                tokenize_query_terms(&event.normalized_query).into_iter().collect::<BTreeSet<_>>()
-            {
+            for term in search_words(&event.normalized_query) {
                 self.search_term_statement.execute(params![
                     self.generation,
                     event.visit_id,
@@ -235,8 +250,7 @@ impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
         ])?;
         self.search_event_term_delete_statement.execute(params![self.generation, visit_id])?;
         if query_kind.is_keyword() {
-            for term in tokenize_query_terms(normalized_query).into_iter().collect::<BTreeSet<_>>()
-            {
+            for term in search_words(normalized_query) {
                 self.search_term_statement.execute(params![
                     self.generation,
                     visit_id,
@@ -282,12 +296,28 @@ impl StructuralTailStreamState {
         let session = self.current_session.as_mut().expect("structural session");
         session.push_visit(&visit);
         let session_id = session.record.session_id.clone();
+        if let Some(closed) = session.path.push(&visit.registrable_domain, visit.visit_time_ms) {
+            persist.persist_path(&session_id, &closed)?;
+        }
         let ordinal = session.record.visit_count - 1;
         let mut trail_id = None::<String>;
 
         if visit.is_search_event {
-            self.finish_trail(computed_at, persist)?;
-            let trail = TrailBuildState::new(&visit, &session_id);
+            let rewords = self.current_trail.as_ref().is_some_and(|trail| {
+                trail.record.session_id == session_id
+                    && visit.visit_time_ms - trail.record.last_visit_ms <= super::TRAIL_GAP_MS
+                    && trail.is_rewording(&visit)
+            });
+            if !rewords {
+                self.finish_trail(computed_at, persist)?;
+                self.current_trail = Some(TrailBuildState::new(&visit, &session_id));
+            }
+            let trail = self.current_trail.as_mut().expect("search trail");
+            let member = if rewords {
+                trail.append_rewording(&visit)
+            } else {
+                trail.search_event_member(visit.visit_id)
+            };
             let raw_query = visit.search_query.clone().unwrap_or_default();
             let normalized_query = normalize_query(&raw_query);
             let event = super::SearchEventRecord {
@@ -301,16 +331,13 @@ impl StructuralTailStreamState {
                 visit_time_ms: visit.visit_time_ms,
             };
             if event.query_kind.is_keyword() {
-                self.report.term_count += tokenize_query_terms(&event.normalized_query)
-                    .into_iter()
-                    .collect::<BTreeSet<_>>()
-                    .len();
+                self.report.term_count += search_words(&event.normalized_query).len();
             }
             self.report.member_count += 1;
             persist.persist_search_event(&event, computed_at)?;
-            persist.persist_trail_member(&trail.search_event_member(visit.visit_id))?;
+            persist.persist_trail_member(&member)?;
             trail_id = Some(trail.record.trail_id.clone());
-            self.current_trail = Some(trail);
+            trail.record.members.truncate(1);
         } else if let Some(trail) = self.current_trail.as_mut() {
             if trail.record.session_id != session_id
                 || visit.visit_time_ms - trail.record.last_visit_ms > super::TRAIL_GAP_MS
@@ -356,10 +383,7 @@ impl StructuralTailStreamState {
                     &normalized_query,
                     None,
                 );
-                let terms = tokenize_query_terms(&normalized_query)
-                    .into_iter()
-                    .collect::<BTreeSet<_>>()
-                    .len();
+                let terms = search_words(&normalized_query).len();
                 if initial.is_keyword() && !query_kind.is_keyword() {
                     self.report.term_count -= terms;
                 }
@@ -386,6 +410,9 @@ impl StructuralTailStreamState {
         persist: &mut StructuralTailPersist<'_, '_>,
     ) -> Result<()> {
         if let Some(session) = self.current_session.take() {
+            if session.path.has_own_sites() {
+                persist.persist_path(&session.record.session_id, &session.path)?;
+            }
             persist.persist_session(&session.finish(), computed_at)?;
             self.report.sessions += 1;
         }
@@ -552,6 +579,81 @@ mod tests {
         assert_eq!(state.report.sessions, 2);
         Ok(())
         }).unwrap();
+    }
+
+    /// Searching again for the same thing in more or other words continues the search: one trail
+    /// that counts the rewording and ends where the last wording led. Repeating the search is not
+    /// a rewording; an unrelated search starts its own trail. Before this, every search started a
+    /// trail, so no trail ever counted a rewording.
+    #[test]
+    fn a_reworded_search_continues_its_trail_and_lands_where_the_last_wording_led() {
+        let vault = crate::Vault::open_temp().unwrap();
+        vault
+            .write(vault_store::Db::Intelligence, vault_store::Priority::Batch, |connection| {
+                connection.execute("INSERT INTO intelligence_generations(profile_id,facts,daily,navigation,aggregates) VALUES('chrome:Default',1,1,1,1)",())?;
+                let mut persist = StructuralTailPersist::new(connection, 1, "chrome:Default")?;
+                let mut state = StructuralTailStreamState::default();
+                let search = |id: i64, query: &str| StructuralVisitRecord {
+                    search_query: Some(query.to_string()),
+                    ..structural_visit(id, id * 60_000, "https://www.google.com/search", "google.com", true)
+                };
+                let click = |id: i64, domain: &str| {
+                    structural_visit(id, id * 60_000, &format!("https://{domain}/page"), domain, false)
+                };
+                for visit in [
+                    search(1, "tokio select"),
+                    click(2, "docs.rs"),
+                    search(3, "tokio select macro"),
+                    click(4, "tokio.rs"),
+                    search(5, "Tokio  select macro"),
+                    search(6, "weather tokyo"),
+                    click(7, "weather.example"),
+                ] {
+                    state.process_visit(visit, "2026-10-08T00:00:00Z", &mut persist)?;
+                }
+                state.finish("2026-10-08T00:00:00Z", &mut persist)?;
+                drop(persist);
+
+                let trails = connection.query(
+                    "SELECT trail_id, reformulation_count, queries_json, landing_domain FROM search_trails ORDER BY trail_id",
+                    (),
+                    |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?, row.get::<String>(2)?, row.get::<Option<String>>(3)?)),
+                )?;
+                assert_eq!(
+                    trails,
+                    vec![
+                        (
+                            "trail:chrome:Default:1".to_string(),
+                            1,
+                            r#"["tokio select","tokio select macro"]"#.to_string(),
+                            Some("tokio.rs".to_string()),
+                        ),
+                        (
+                            "trail:chrome:Default:6".to_string(),
+                            0,
+                            r#"["weather tokyo"]"#.to_string(),
+                            Some("weather.example".to_string()),
+                        ),
+                    ]
+                );
+                let events = connection.query(
+                    "SELECT visit_id, trail_id FROM search_events ORDER BY visit_id",
+                    (),
+                    |row| Ok((row.get::<i64>(0)?, row.get::<String>(1)?)),
+                )?;
+                let first = "trail:chrome:Default:1".to_string();
+                assert_eq!(
+                    events,
+                    vec![
+                        (1, first.clone()),
+                        (3, first.clone()),
+                        (5, first),
+                        (6, "trail:chrome:Default:6".to_string()),
+                    ]
+                );
+                Ok(())
+            })
+            .unwrap();
     }
 
     fn structural_visit(

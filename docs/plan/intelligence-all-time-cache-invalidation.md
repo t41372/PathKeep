@@ -4,6 +4,8 @@
 > Date: 2026-04-28  
 > Scope: `/intelligence` overview time scopes, staged loading, cache freshness, and large-range performance.
 
+> **2026-10-08 — the snapshot outlives the day.** The fingerprint no longer holds today's date, and an all-time request's end date is left out of its key (all time always ends today). With the date in it, the first open of every day recomputed all of history and nothing saved the result until the next rebuild: 2.5 s + 5.3 s for the two overviews on a 387k-visit archive. What depends on today is redone when a snapshot is served (`intelligence_overview::refresh_for_today`): On this day, whether each habit is interrupted by now, the interrupted-habits list, and each section's reported dates. The UTC offset stays in the fingerprint, since it decides a visit's local day. The 2026-10 redesign had removed the all-time preset and the preload; both return under `WORK-INSIGHTS-RESTORE-2026-10`.
+>
 > **2026-06-20 implementation note — all-time default + persistent snapshot.**
 > The deeper follow-up's first slice has shipped:
 >

@@ -383,6 +383,9 @@ fn build_logging_plugin<R: tauri::Runtime>(
         .level_for("pathkeep_desktop", tauri_plugin_log::log::LevelFilter::Debug)
         .level_for("vault_core", tauri_plugin_log::log::LevelFilter::Debug)
         .level_for("vault_worker", tauri_plugin_log::log::LevelFilter::Debug)
+        // Every segment flush, merge and file delete is an INFO line: a search index build
+        // filled rust.log with them and pushed the app's own lines out of the rotation.
+        .level_for("tantivy", tauri_plugin_log::log::LevelFilter::Warn)
         .rotation_strategy(RotationStrategy::KeepSome(5))
         .timezone_strategy(TimezoneStrategy::UseLocal)
         .target(

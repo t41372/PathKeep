@@ -43,9 +43,9 @@ import {
   ListSkeleton,
   QueryBody,
   SectionStatus,
-  RangeToggle,
 } from './parts'
-import { useRange, type RangeId } from './range'
+import { useScope, type Scope } from './range'
+import { ScopeControls } from './scope-controls'
 
 /** Engine ids are lowercase (`google`); show them as names. */
 function engineName(id: string) {
@@ -64,8 +64,8 @@ export default function SearchPage() {
   const { t } = useI18n()
   const format = useFormat()
   const { query = '' } = useParams()
-  const [range, setRange] = useRange()
-  const search = useSearch(query, range)
+  const [scope] = useScope()
+  const search = useSearch(query, scope)
   const { families, matches } = search
   const loading = families.data === undefined && !families.isError
   const updating = isStale(families.data)
@@ -90,12 +90,12 @@ export default function SearchPage() {
   return (
     <PageScroll wide>
       <DrillHeader
-        back={insightsPath(range)}
+        back={insightsPath(scope)}
         eyebrow={t('insights.search.eyebrow')}
         title={`“${query}”`}
         actions={
           <>
-            <RangeToggle value={range} onChange={setRange} />
+            <ScopeControls />
             <Button variant="outline" size="sm" asChild>
               <Link to={historyPath({ q: query })}>
                 {t('insights.search.inHistory')}
@@ -178,7 +178,7 @@ export default function SearchPage() {
               <LandingsCard
                 trails={search.trails}
                 loading={loading || search.pending}
-                range={range}
+                scope={scope}
               />
               <SectionCard title={t('insights.search.wordings')}>
                 {loading ? (
@@ -192,7 +192,7 @@ export default function SearchPage() {
                     {wordings.map((wording) => (
                       <Link
                         key={wording}
-                        to={searchPath(wording, range)}
+                        to={searchPath(wording, scope)}
                         className="flex h-7 items-center rounded-full border bg-card px-3 text-[13px] transition-colors hover:bg-muted hover:no-underline"
                       >
                         {wording}
@@ -213,11 +213,11 @@ export default function SearchPage() {
 function LandingsCard({
   trails,
   loading,
-  range,
+  scope,
 }: {
   trails: TrailSummary[]
   loading: boolean
-  range: RangeId
+  scope: Scope
 }) {
   const { t } = useI18n()
   const counts = new Map<string, number>()
@@ -242,7 +242,7 @@ function LandingsCard({
         <ul className="-mx-2 flex flex-col">
           {sites.map(([site, count]) => (
             <li key={site}>
-              <Link to={sitePath(site, range)} className={rowLink}>
+              <Link to={sitePath(site, scope)} className={rowLink}>
                 <Favicon domain={site} />
                 <span className="flex-1 truncate font-medium">{site}</span>
                 <span className="font-mono text-xs text-muted-foreground">

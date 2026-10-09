@@ -115,7 +115,6 @@ where
             search_trails: count("search_trails"),
             query_families: count("query_families"),
             refind_pages: count("refind_pages"),
-            source_effectiveness: count("source_effectiveness"),
             reopened_investigations: count("reopened_investigations"),
             execution_mode: Some(
                 if !had_work || state.source.visible_visit_count == 0 {
@@ -226,7 +225,6 @@ where
         search_trails: aggregate.search_trails,
         query_families: aggregate.query_families,
         refind_pages: aggregate.refind_pages,
-        source_effectiveness: aggregate.source_effectiveness,
         reopened_investigations: aggregate.reopened_investigations,
         execution_mode: aggregate.execution_mode,
         affected_profiles: Some(aggregate.affected_profiles),
@@ -272,7 +270,6 @@ pub(super) fn merge_stage_run_result(
     aggregate.search_trails += next.search_trails;
     aggregate.query_families += next.query_families;
     aggregate.refind_pages += next.refind_pages;
-    aggregate.source_effectiveness += next.source_effectiveness;
     aggregate.reopened_investigations += next.reopened_investigations;
     if matches!(job_kind, RebuildMode::VisitDerive | RebuildMode::FullRebuild) {
         aggregate.processed_visits += next.processed_visits;

@@ -15,6 +15,7 @@ mod build_refind;
 mod build_rows;
 mod build_stages;
 mod build_state;
+mod compare_sets;
 mod day_insights;
 mod host_artifacts;
 mod incremental;
@@ -54,6 +55,7 @@ mod phase_three;
 mod refind_evidence;
 mod search_queries;
 mod session_details;
+mod site_days;
 mod site_dictionary;
 
 #[cfg(test)]
@@ -67,8 +69,8 @@ use self::intelligence_daily_rollups::load_profile_derived_visit_batch;
 
 use self::intelligence_shared::{
     build_kpi, classify_search_query_kind, collapse_date_key, count_refind_pages_in_range,
-    date_range_bounds, jaccard, local_date_key, local_datetime_from_millis, previous_date_range,
-    query_token_set, rfc3339_from_millis, tokenize_query_terms,
+    date_range_bounds, jaccard, local_date_key, local_datetime_from_millis, new_sites_by_day,
+    previous_date_range, query_token_set, rfc3339_from_millis, search_words,
 };
 use self::intelligence_visit_records::visit_from_row;
 use self::site_dictionary::{
@@ -82,6 +84,8 @@ use crate::{
     models::{CoreIntelligenceStageTimings, DerivedRuntimeNote},
 };
 
+pub(crate) use self::build_pipeline::built_with_other_rules;
+pub use self::compare_sets::get_compare_sets;
 pub use self::day_insights::get_day_insights;
 pub use self::host_artifacts::{build_intelligence_local_host, preview_intelligence_local_host};
 pub use self::intelligence_domain::{
@@ -123,11 +127,12 @@ pub use self::intelligence_summary::{
     get_activity_mix, get_activity_mix_trend, get_digest_summary, get_friction_signals,
     get_reopened_investigations, get_search_effectiveness, get_stable_sources,
 };
-pub use self::phase_four::{get_compare_set_detail, get_compare_sets, get_multi_browser_diff};
+pub use self::phase_four::{get_compare_set_detail, get_multi_browser_diff};
 pub use self::phase_three::{
     get_breadth_index, get_habit_patterns, get_interrupted_habits, get_observed_interactions,
     get_path_flows,
 };
+pub(crate) use self::site_days::SiteDayCache;
 
 const SESSION_GAP_MS: i64 = 30 * 60 * 1_000;
 const TRAIL_GAP_MS: i64 = 15 * 60 * 1_000;
@@ -295,19 +300,6 @@ struct RefindPageRecord {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct SourceEffectivenessRecord {
-    profile_id: String,
-    registrable_domain: String,
-    source_role: String,
-    trail_count: i64,
-    stable_landing_count: i64,
-    effectiveness_score: f32,
-    evidence_json: String,
-    first_seen_ms: i64,
-    last_seen_ms: i64,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct ReopenedInvestigationRecord {
     investigation_id: String,
     profile_id: String,
@@ -342,12 +334,47 @@ struct HabitPatternRecord {
     is_interrupted: bool,
 }
 
+/// One site's visits on one day, in one browser profile.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct DomainDayRow {
+    date_key: String,
+    profile_id: String,
+    registrable_domain: String,
+    domain_category: String,
+    visit_count: i64,
+    search_count: i64,
+    /// Visits that were the site's first in this profile.
+    new_domain_visits: i64,
+    unique_urls: i64,
+    /// The day's last visit to the site, so habits know when it was last visited without
+    /// looking through the site's visits. Rows saved before it existed read as 0.
+    #[serde(default)]
+    last_visit_ms: i64,
+}
+
+/// One day's visits in one browser profile.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct DaySummaryRow {
+    date_key: String,
+    profile_id: String,
+    total_visits: i64,
+    total_searches: i64,
+    new_domains: i64,
+    unique_domains: i64,
+    hhi_score: f32,
+    discovery_rate: f32,
+    /// Visits in each local hour of the day, 0 to 23, for the rhythm map; empty on rows saved
+    /// before it existed.
+    #[serde(default)]
+    hours: Vec<i64>,
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct DailyRollupBundle {
-    domain_rows: Vec<(String, String, String, String, i64, i64, i64, i64)>,
+    domain_rows: Vec<DomainDayRow>,
     category_rows: Vec<(String, String, String, i64, i64)>,
     engine_rows: Vec<(String, String, String, i64)>,
-    summary_rows: Vec<(String, String, i64, i64, i64, i64, f32, f32)>,
+    summary_rows: Vec<DaySummaryRow>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -358,7 +385,6 @@ struct StageRunResult {
     search_trails: usize,
     query_families: usize,
     refind_pages: usize,
-    source_effectiveness: usize,
     reopened_investigations: usize,
     execution_mode: Option<String>,
     affected_profiles: Vec<String>,
@@ -396,13 +422,6 @@ struct DerivedVisitBatchCursor {
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 struct SearchEventBatchCursor {
     visit_id: i64,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct TrailBatchCursor {
-    first_visit_ms: i64,
-    trail_id: String,
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]

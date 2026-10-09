@@ -198,6 +198,7 @@ define_builtin_module!(
         "search_events",
         "search_event_terms",
         "query_families",
+        "compare_sets",
     ],
     &[RebuildMode::StructuralRebuild, RebuildMode::FullRebuild],
     &["search_trail", "query_family", "compare_set"]
@@ -210,7 +211,7 @@ define_builtin_module!(
     REFIND_PAGES_MODULE_ID,
     REFIND_PAGES_MODULE_VERSION,
     &[VISIT_DERIVED_FACTS_MODULE_ID, SEARCH_TRAILS_MODULE_ID],
-    &["refind_pages", "source_effectiveness"],
+    &["refind_pages"],
     &[RebuildMode::StructuralRebuild, RebuildMode::FullRebuild],
     &["refind_page"]
 );

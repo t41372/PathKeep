@@ -30,6 +30,7 @@ pub struct Vault {
     config: AppConfig,
     backup: Arc<std::sync::Mutex<()>>,
     intelligence: Arc<std::sync::Mutex<()>>,
+    site_days: Arc<crate::intelligence::SiteDayCache>,
     // Must outlive Store's threads and files.
     _temporary_root: Option<Arc<tempfile::TempDir>>,
 }
@@ -128,6 +129,7 @@ impl Vault {
             config,
             backup: Arc::default(),
             intelligence: Arc::default(),
+            site_days: Arc::default(),
             _temporary_root: None,
         })
     }
@@ -153,6 +155,11 @@ impl Vault {
 
     pub(crate) fn begin_backup(&self) -> anyhow::Result<std::sync::MutexGuard<'_, ()>> {
         self.backup.try_lock().map_err(|_| BackupAlreadyRunning.into())
+    }
+
+    /// Site-day reads shared by the Insights cards, kept per vault (`intelligence::site_days`).
+    pub(crate) fn site_days(&self) -> &Arc<crate::intelligence::SiteDayCache> {
+        &self.site_days
     }
 
     pub(crate) fn intelligence_build(&self) -> std::sync::MutexGuard<'_, ()> {

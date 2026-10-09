@@ -49,6 +49,7 @@ const STATEMENTS: &[&str] = &[
   search_count INTEGER NOT NULL,
   new_domain_visits INTEGER NOT NULL,
   unique_urls INTEGER NOT NULL,
+  last_visit_ms INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(generation, date_key, profile_id, registrable_domain)
 )",
     r"CREATE TABLE category_daily_rollups_rows (
@@ -78,6 +79,7 @@ const STATEMENTS: &[&str] = &[
   unique_domains INTEGER NOT NULL,
   hhi_score REAL,
   discovery_rate REAL,
+  hours TEXT NOT NULL DEFAULT '',
   PRIMARY KEY(generation, date_key, profile_id)
 )",
     r"CREATE TABLE sessions_rows (
@@ -179,20 +181,6 @@ const STATEMENTS: &[&str] = &[
   computed_at TEXT NOT NULL,
   PRIMARY KEY(generation, profile_id, canonical_url)
 )",
-    r"CREATE TABLE source_effectiveness_rows (
-  generation INTEGER NOT NULL DEFAULT 0,
-  profile_id TEXT NOT NULL,
-  registrable_domain TEXT NOT NULL,
-  source_role TEXT NOT NULL,
-  trail_count INTEGER NOT NULL,
-  stable_landing_count INTEGER NOT NULL,
-  effectiveness_score REAL NOT NULL,
-  evidence_json TEXT NOT NULL,
-  first_seen_ms INTEGER NOT NULL,
-  last_seen_ms INTEGER NOT NULL,
-  computed_at TEXT NOT NULL,
-  PRIMARY KEY(generation, profile_id, registrable_domain)
-)",
     r"CREATE TABLE habit_patterns_rows (
   generation INTEGER NOT NULL DEFAULT 0,
   profile_id TEXT NOT NULL,
@@ -229,6 +217,19 @@ const STATEMENTS: &[&str] = &[
   occurrence_count INTEGER NOT NULL,
   last_seen_ms INTEGER NOT NULL,
   PRIMARY KEY(generation, profile_id, flow_pattern, step_count)
+)",
+    r"CREATE TABLE compare_sets_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  compare_set_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  trail_id TEXT NOT NULL,
+  search_query TEXT NOT NULL,
+  page_category TEXT NOT NULL,
+  first_visit_ms INTEGER NOT NULL,
+  last_visit_ms INTEGER NOT NULL,
+  pages_json TEXT NOT NULL,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY(generation, compare_set_id)
 )",
     r"CREATE TABLE page_content_enrichments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -434,6 +435,11 @@ const STATEMENTS: &[&str] = &[
     "CREATE TABLE visit_assignments(generation INTEGER NOT NULL DEFAULT 0,visit_id INTEGER NOT NULL,profile_id TEXT NOT NULL,
         session_id TEXT NOT NULL,trail_id TEXT,ordinal INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(generation,visit_id))",
     "CREATE TABLE session_domains(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,session_id TEXT NOT NULL,domain TEXT NOT NULL,visit_count INTEGER NOT NULL,PRIMARY KEY(generation,session_id,domain))",
+    // Each session's sites in visit order, one row per local day and at most a few hundred sites, so
+    // common paths for a date range read the sessions of those days instead of every visit. A row
+    // starts with the last sites of the one before it (`prefix_len`); see `PathSegment`.
+    "CREATE TABLE session_paths(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,session_id TEXT NOT NULL,segment INTEGER NOT NULL,
+        date_key TEXT NOT NULL,prefix_len INTEGER NOT NULL,sites_json TEXT NOT NULL,PRIMARY KEY(generation,session_id,segment))",
     "CREATE INDEX idx_vdf_visit_generation ON visit_derived_facts_rows(visit_id,generation)",
     "CREATE INDEX idx_assignments_visit_generation ON visit_assignments(visit_id,generation)",
     "CREATE INDEX idx_assignments_generation_session ON visit_assignments(generation,session_id,ordinal,visit_id)",
@@ -456,17 +462,19 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_refind_pages_score ON refind_pages_rows(refind_score DESC,last_seen_ms DESC,canonical_url,profile_id,generation)",
     "CREATE INDEX idx_refind_pages_canonical ON refind_pages_rows(canonical_url,generation,refind_score DESC,last_seen_ms DESC,profile_id)",
     "CREATE INDEX idx_refind_pages_profile_score ON refind_pages_rows(profile_id, refind_score DESC, last_seen_ms DESC, generation)",
-    "CREATE INDEX idx_source_effectiveness_profile_score ON source_effectiveness_rows(profile_id, effectiveness_score DESC, generation)",
     "CREATE INDEX idx_reopened_investigations_profile_time ON reopened_investigations_rows(profile_id, last_seen_ms DESC, generation)",
     // Ranked lists page through these in list order and seek to their keyset cursor.
     "CREATE INDEX idx_sessions_recent ON sessions_rows(first_visit_ms DESC, session_id DESC, generation)",
     "CREATE INDEX idx_search_trails_recent ON search_trails_rows(first_visit_ms DESC, trail_id DESC, generation)",
+    // Searches that landed on one site, by time (the site page).
+    "CREATE INDEX idx_search_trails_landing ON search_trails_rows(landing_domain, first_visit_ms, generation, profile_id, initial_query)",
     "CREATE INDEX idx_search_trails_friction ON search_trails_rows(reformulation_count DESC, visit_count DESC, trail_id, generation)",
     "CREATE INDEX idx_query_families_recent ON query_families_rows(last_seen_ms DESC, family_id DESC, generation)",
     "CREATE INDEX idx_query_families_members ON query_families_rows(member_count DESC, last_seen_ms DESC, family_id, generation)",
-    "CREATE INDEX idx_source_effectiveness_rank ON source_effectiveness_rows(effectiveness_score DESC, registrable_domain, profile_id, generation)",
     "CREATE INDEX idx_reopened_investigations_recent ON reopened_investigations_rows(last_seen_ms DESC, occurrence_count DESC, investigation_id, generation)",
     "CREATE INDEX idx_path_flows_profile_rank ON path_flows_rows(profile_id, step_count, occurrence_count DESC, last_seen_ms DESC, flow_pattern, generation)",
+    // Compare sets newest first, for every profile or one (`compare_sets::get_compare_sets`).
+    "CREATE INDEX idx_compare_sets_recent ON compare_sets_rows(last_visit_ms DESC, compare_set_id DESC, generation, profile_id, first_visit_ms)",
     "CREATE INDEX idx_page_content_enrichments_canonical ON page_content_enrichments(canonical_url)",
     "CREATE INDEX idx_page_content_enrichments_status ON page_content_enrichments(fetch_status, fetched_at)",
     "CREATE INDEX idx_site_dictionary_overrides_target ON site_dictionary_overrides(target_kind, target_value)",
@@ -480,19 +488,31 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_search_events_profile_kind ON search_events_rows(profile_id,query_kind, generation)",
     "CREATE INDEX idx_search_events_query_time ON search_events_rows(query_kind,normalized_query,visit_time_ms DESC,visit_id DESC,generation)",
     "CREATE INDEX idx_search_events_kind_time ON search_events_rows(query_kind,visit_time_ms, generation)",
+    // Each site's first day in each profile, for "new sites" (`new_sites_by_day`).
+    "CREATE INDEX idx_domain_daily_first_day ON domain_daily_rollups_rows(registrable_domain,generation,profile_id,date_key) WHERE new_domain_visits > 0",
+    // Range reads of the rollups, sessions and re-found pages (the KPI row and others). The range
+    // column leads so Turso seeks the range; generation and profile are filters on the same index.
+    // Read through the generation views, these tables were read whole.
+    "CREATE INDEX idx_daily_summary_range ON daily_summary_rollups_rows(date_key,generation,profile_id)",
+    "CREATE INDEX idx_domain_daily_range ON domain_daily_rollups_rows(date_key,generation,profile_id,registrable_domain)",
+    // One site's days (the site page and its trend).
+    "CREATE INDEX idx_domain_daily_site ON domain_daily_rollups_rows(registrable_domain,date_key,generation,profile_id)",
+    "CREATE INDEX idx_sessions_range ON sessions_rows(first_visit_ms,generation,profile_id)",
+    "CREATE INDEX idx_session_paths_range ON session_paths(date_key,generation,profile_id)",
+    "CREATE INDEX idx_refind_pages_range ON refind_pages_rows(last_seen_ms,generation,profile_id,first_seen_ms)",
     "CREATE INDEX idx_search_events_profile_query ON search_events_rows(profile_id,normalized_query, generation)",
 
     "CREATE VIEW visit_derived_facts AS SELECT r.visit_id,r.profile_id,a.session_id,a.trail_id,r.registrable_domain,r.canonical_url,r.domain_category,r.page_category,r.search_engine,r.search_query,r.is_new_domain,r.is_search_event,r.evidence_tier,r.taxonomy_source,r.taxonomy_pack,r.taxonomy_version,r.computed_at
       FROM visit_derived_facts_rows r
       LEFT JOIN visit_assignments a INDEXED BY idx_assignments_visit_generation ON a.visit_id=r.visit_id AND a.generation IN (SELECT navigation FROM intelligence_generations)
       WHERE r.generation IN (SELECT facts FROM intelligence_generations)",
-    "CREATE VIEW domain_daily_rollups AS SELECT r.date_key,r.profile_id,r.registrable_domain,r.domain_category,r.visit_count,r.search_count,r.new_domain_visits,r.unique_urls FROM domain_daily_rollups_rows r
+    "CREATE VIEW domain_daily_rollups AS SELECT r.date_key,r.profile_id,r.registrable_domain,r.domain_category,r.visit_count,r.search_count,r.new_domain_visits,r.unique_urls,r.last_visit_ms FROM domain_daily_rollups_rows r
       WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
     "CREATE VIEW category_daily_rollups AS SELECT r.date_key,r.profile_id,r.domain_category,r.visit_count,r.unique_domains FROM category_daily_rollups_rows r
       WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
     "CREATE VIEW engine_daily_rollups AS SELECT r.date_key,r.profile_id,r.search_engine,r.search_count FROM engine_daily_rollups_rows r
       WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
-    "CREATE VIEW daily_summary_rollups AS SELECT r.date_key,r.profile_id,r.total_visits,r.total_searches,r.new_domains,r.unique_domains,r.hhi_score,r.discovery_rate FROM daily_summary_rollups_rows r
+    "CREATE VIEW daily_summary_rollups AS SELECT r.date_key,r.profile_id,r.total_visits,r.total_searches,r.new_domains,r.unique_domains,r.hhi_score,r.discovery_rate,r.hours FROM daily_summary_rollups_rows r
       WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
     "CREATE VIEW sessions AS SELECT r.session_id,r.profile_id,r.first_visit_ms,r.last_visit_ms,r.visit_count,r.search_count,r.domain_count,r.is_deep_dive,r.auto_title,r.computed_at FROM sessions_rows r
       WHERE r.generation IN (SELECT navigation FROM intelligence_generations)",
@@ -510,13 +530,13 @@ const STATEMENTS: &[&str] = &[
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW refind_pages AS SELECT r.profile_id,r.canonical_url,r.url,r.title,r.registrable_domain,r.cross_day_count,r.trail_count,r.search_arrival_count,r.typed_revisit_count,r.refind_score,r.evidence_json,r.first_seen_ms,r.last_seen_ms,r.computed_at FROM refind_pages_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
-    "CREATE VIEW source_effectiveness AS SELECT r.profile_id,r.registrable_domain,r.source_role,r.trail_count,r.stable_landing_count,r.effectiveness_score,r.evidence_json,r.first_seen_ms,r.last_seen_ms,r.computed_at FROM source_effectiveness_rows r
-      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW habit_patterns AS SELECT r.profile_id,r.registrable_domain,r.habit_type,r.mean_interval_days,r.cv,r.visit_count,r.last_visited_ms,r.is_interrupted,r.computed_at FROM habit_patterns_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW reopened_investigations AS SELECT r.investigation_id,r.profile_id,r.anchor_type,r.anchor_id,r.anchor_label,r.occurrence_count,r.distinct_days,r.first_seen_ms,r.last_seen_ms,CASE WHEN r.anchor_type='reference_page' THEN
         (SELECT p.evidence_json FROM refind_pages_rows p WHERE p.generation=r.generation AND p.profile_id=r.profile_id AND p.canonical_url=r.anchor_id LIMIT 1 OFFSET 0)
         ELSE r.evidence_json END AS evidence_json,r.computed_at FROM reopened_investigations_rows r
+      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
+    "CREATE VIEW compare_sets AS SELECT r.compare_set_id,r.profile_id,r.trail_id,r.search_query,r.page_category,r.first_visit_ms,r.last_visit_ms,r.pages_json,r.computed_at FROM compare_sets_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW path_flows AS SELECT r.profile_id,r.flow_pattern,r.step_count,r.occurrence_count,r.last_seen_ms FROM path_flows_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",

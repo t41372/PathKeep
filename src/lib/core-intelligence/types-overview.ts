@@ -87,7 +87,7 @@ export interface CoreIntelligenceSecondaryOverview {
   discoveryTrendWeek: CoreIntelligenceSectionResult<DiscoveryTrend>
   breadthIndex: CoreIntelligenceSectionResult<BreadthIndex>
   pathFlows: CoreIntelligenceSectionResult<Page<PathFlow>>
-  compareSets: CoreIntelligenceSectionResult<CompareSet[]>
+  compareSets: CoreIntelligenceSectionResult<Page<CompareSet>>
   multiBrowserDiff: CoreIntelligenceSectionResult<BrowserDiff>
   observedInteractions: CoreIntelligenceSectionResult<Page<ObservedInteraction>>
   timings: CoreIntelligenceSectionTiming[]

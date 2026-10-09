@@ -58,14 +58,13 @@ pub fn get_domain_deep_dive(
         let profile_id = request.profile_id.as_deref();
 
         let mut trend_statement = connection.prepare(
-            "SELECT date_key, SUM(visit_count), MIN(domain_category)
-         FROM domain_daily_rollups
-         WHERE registrable_domain = ?1
-           AND date_key >= ?2
-           AND date_key <= ?3
-           AND (?4 IS NULL OR profile_id = ?4)
-         GROUP BY date_key
-         ORDER BY date_key ASC",
+            "SELECT r.date_key, SUM(r.visit_count), MIN(r.domain_category)
+         FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_site
+         WHERE r.registrable_domain = ?1 AND r.date_key >= ?2 AND r.date_key <= ?3
+           AND r.generation IN (SELECT daily FROM intelligence_generations)
+           AND (?4 IS NULL OR r.profile_id = ?4)
+         GROUP BY r.date_key
+         ORDER BY r.date_key ASC",
         )?;
         let mut domain_category: Option<String> = None;
         let visit_trend = trend_statement
@@ -117,10 +116,12 @@ pub fn get_domain_deep_dive(
         let searches_after=super::paging::cursor::<(i64,String)>(request.searches_cursor.as_deref())?;
         let mut landing_search_count=0;
         let rows=connection.query("WITH matched AS (
-            SELECT initial_query,COUNT(*) AS landings FROM search_trails
-            WHERE profile_id IN (SELECT profile_key FROM archive.source_profiles WHERE profile_key IS NOT NULL AND (?4 IS NULL OR profile_key=?4))
-              AND first_visit_ms>=?2 AND first_visit_ms<?3 AND landing_domain=?1
-            GROUP BY initial_query
+            SELECT r.initial_query,COUNT(*) AS landings
+            FROM search_trails_rows r INDEXED BY idx_search_trails_landing
+            WHERE r.landing_domain=?1 AND r.first_visit_ms>=?2 AND r.first_visit_ms<?3
+              AND r.generation IN (SELECT navigation FROM intelligence_generations)
+              AND r.profile_id IN (SELECT profile_key FROM archive.source_profiles WHERE profile_key IS NOT NULL AND (?4 IS NULL OR profile_key=?4))
+            GROUP BY r.initial_query
         ), page AS (
             SELECT * FROM matched WHERE ?5 IS NULL OR landings<?5 OR (landings=?5 AND initial_query>?6)
             ORDER BY landings DESC,initial_query LIMIT ?7
@@ -158,37 +159,89 @@ pub fn get_browsing_rhythm(
 ) -> Result<RhythmHeatmap> {
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-        let mut statement = connection.prepare(
-            "SELECT visits.visit_time_ms
-         FROM visit_derived_facts
-         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
-         WHERE (?1 IS NULL OR visit_derived_facts.profile_id = ?1)
-           AND (?2 IS NULL OR visit_derived_facts.domain_category = ?2)
-           AND visits.visit_time_ms >= ?3
-           AND visits.visit_time_ms < ?4",
-        )?;
-        let mut buckets = HashMap::<(i64, i64), i64>::new();
-        let rows = statement.query_map(
-            params![request.profile_id.as_deref(), request.category.as_deref(), start_ms, end_ms],
-            |row| Ok(row.get::<i64>(0)?),
-        )?;
-        for row in rows {
-            let visit_time_ms = row?;
-            let local = local_datetime_from_millis(visit_time_ms);
-            let dow = local.weekday().num_days_from_sunday() as i64;
-            let hour = local.hour() as i64;
-            *buckets.entry((dow, hour)).or_default() += 1;
+        if request.category.is_none()
+            && let Some(heatmap) = rhythm_from_daily_hours(connection, &request)?
+        {
+            return Ok(heatmap);
         }
-        let max_count = buckets.values().copied().max().unwrap_or_default();
-        let cells = buckets
-            .into_iter()
-            .map(|((dow, hour), visit_count)| RhythmHeatmapCell { dow, hour, visit_count })
-            .collect::<Vec<_>>();
-        Ok(RhythmHeatmap { cells, max_count })
+        rhythm_from_visits(connection, &request)
     })
+}
+
+/// The rhythm from each day's hour counts in the daily summary rollup: a row per day and
+/// profile, where the scan below reads every visit in the range (half a second for all time
+/// on a 387k-visit archive, every row of 14.4M). `None` when a day in the range was built
+/// before the rollup kept hours.
+fn rhythm_from_daily_hours(
+    connection: &Session<'_>,
+    request: &CategoryFilteredDateRangeRequest,
+) -> Result<Option<RhythmHeatmap>> {
+    let rows = connection.query(
+        "SELECT date_key, hours FROM daily_summary_rollups
+         WHERE (?1 IS NULL OR profile_id = ?1) AND date_key >= ?2 AND date_key <= ?3",
+        params![
+            request.profile_id.as_deref(),
+            request.date_range.start.as_str(),
+            request.date_range.end.as_str()
+        ],
+        |row| Ok((row.get::<String>(0)?, row.get::<String>(1)?)),
+    )?;
+    let mut buckets = HashMap::<(i64, i64), i64>::new();
+    for (date_key, hours) in rows {
+        if hours.is_empty() {
+            return Ok(None);
+        }
+        let dow = chrono::NaiveDate::parse_from_str(&date_key, "%Y-%m-%d")?
+            .weekday()
+            .num_days_from_sunday() as i64;
+        for (hour, count) in hours.split(',').enumerate() {
+            let count = count.parse::<i64>()?;
+            if count > 0 {
+                *buckets.entry((dow, hour as i64)).or_default() += count;
+            }
+        }
+    }
+    Ok(Some(rhythm_heatmap(buckets)))
+}
+
+/// The rhythm counted visit by visit: for a category filter, which the daily rollup does not
+/// split by, and for days built before it kept hours.
+pub(super) fn rhythm_from_visits(
+    connection: &Session<'_>,
+    request: &CategoryFilteredDateRangeRequest,
+) -> Result<RhythmHeatmap> {
+    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let mut statement = connection.prepare(
+        "SELECT visits.visit_time_ms
+     FROM visit_derived_facts
+     JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
+     WHERE (?1 IS NULL OR visit_derived_facts.profile_id = ?1)
+       AND (?2 IS NULL OR visit_derived_facts.domain_category = ?2)
+       AND visits.visit_time_ms >= ?3
+       AND visits.visit_time_ms < ?4",
+    )?;
+    let mut buckets = HashMap::<(i64, i64), i64>::new();
+    let rows = statement.query_map(
+        params![request.profile_id.as_deref(), request.category.as_deref(), start_ms, end_ms],
+        |row| Ok(row.get::<i64>(0)?),
+    )?;
+    for row in rows {
+        let visit_time_ms = row?;
+        let local = local_datetime_from_millis(visit_time_ms);
+        let dow = local.weekday().num_days_from_sunday() as i64;
+        let hour = local.hour() as i64;
+        *buckets.entry((dow, hour)).or_default() += 1;
+    }
+    Ok(rhythm_heatmap(buckets))
+}
+
+fn rhythm_heatmap(buckets: HashMap<(i64, i64), i64>) -> RhythmHeatmap {
+    let max_count = buckets.values().copied().max().unwrap_or_default();
+    let cells = buckets
+        .into_iter()
+        .map(|((dow, hour), visit_count)| RhythmHeatmapCell { dow, hour, visit_count })
+        .collect::<Vec<_>>();
+    RhythmHeatmap { cells, max_count }
 }
 
 /// Returns new-domain discovery over time with day/week/month collapsing done
@@ -209,8 +262,13 @@ pub(crate) fn get_discovery_trend_with_connection(
     connection: &Session<'_>,
     request: &crate::models::GranularityDateRangeRequest,
 ) -> Result<DiscoveryTrend> {
+    let new_sites = super::intelligence_shared::new_sites_by_day(
+        connection,
+        &request.date_range,
+        request.profile_id.as_deref(),
+    )?;
     let mut statement = connection.prepare(
-        "SELECT date_key, SUM(new_domains), SUM(total_visits)
+        "SELECT date_key, SUM(total_visits)
          FROM daily_summary_rollups
          WHERE (?1 IS NULL OR profile_id = ?1)
            AND date_key >= ?2
@@ -226,11 +284,9 @@ pub(crate) fn get_discovery_trend_with_connection(
                 request.date_range.end
             ],
             |row| {
-                Ok((
-                    collapse_date_key(&row.get::<String>(0)?, &request.granularity),
-                    row.get::<i64>(1)?,
-                    row.get::<i64>(2)?,
-                ))
+                let day = row.get::<String>(0)?;
+                let new = new_sites.get(&day).copied().unwrap_or(0);
+                Ok((collapse_date_key(&day, &request.granularity), new, row.get::<i64>(1)?))
             },
         )?
         .collect::<vault_store::Result<Vec<_>>>()?;
@@ -294,8 +350,13 @@ pub(crate) fn get_on_this_day_with_connection(
         let range = crate::models::DateRange { start: date.clone(), end: date.clone() };
         let (start, end) = date_range_bounds(&range)?;
         let deep_dive_sessions=s.query_one("SELECT COUNT(*) FROM intelligence_generations g CROSS JOIN sessions_rows r INDEXED BY idx_sessions_overlap ON r.profile_id=g.profile_id WHERE r.generation=g.navigation AND (?1 IS NULL OR g.profile_id=?1) AND r.is_deep_dive=1 AND r.last_visit_ms>=?2 AND r.first_visit_ms<?3",params![profile,start,end],|r|Ok(r.get::<i64>(0)?))?;
-        let page = super::intelligence_refind::get_top_sites_with_connection(
+        // One day: read it directly rather than through the range cache (`site_days`).
+        let sites = super::site_days::SiteDays::read(
             s,
+            &super::site_days::SiteDayScope::of(&range, profile),
+        )?;
+        let page = super::intelligence_refind::rank_top_sites(
+            &sites,
             &crate::models::TopSitesRequest {
                 date_range: range,
                 profile_id: profile.map(str::to_owned),
@@ -327,13 +388,12 @@ pub fn get_domain_trend(vault: &crate::Vault, request: &DomainTrendRequest) -> R
         let request = &request;
 
         let mut statement = connection.prepare(
-            "SELECT date_key, SUM(visit_count)
-         FROM domain_daily_rollups
-         WHERE registrable_domain = ?1
-           AND date_key >= ?2
-           AND date_key <= ?3
-         GROUP BY date_key
-         ORDER BY date_key ASC",
+            "SELECT r.date_key, SUM(r.visit_count)
+         FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_site
+         WHERE r.registrable_domain = ?1 AND r.date_key >= ?2 AND r.date_key <= ?3
+           AND r.generation IN (SELECT daily FROM intelligence_generations)
+         GROUP BY r.date_key
+         ORDER BY r.date_key ASC",
         )?;
         let points = statement
             .query_map(

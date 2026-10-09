@@ -30,9 +30,9 @@ mod route_queries;
 mod runtime;
 mod section_queries;
 
+use crate::job_runtime::WorkerPool;
 use anyhow::Result;
 use chrono::Local;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use vault_core::{
     ActivityMix, ActivityMixTrend, BreadthIndex, BrowserDiff, CategoryFilteredDateRangeRequest,
     CompareSet, CompareSetDetail, CompareSetDetailRequest, CoreIntelligencePrimaryOverview,
@@ -84,7 +84,6 @@ pub use self::route_queries::{
     get_session_detail, get_sessions, get_top_search_concepts, get_top_sites, get_trail_detail,
     list_search_engine_rules, upsert_search_engine_rule,
 };
-pub(crate) use self::runtime::maybe_spawn_intelligence_queue_drain;
 pub use self::runtime::{
     cancel_intelligence_job_now, load_intelligence_runtime_snapshot,
     queue_core_intelligence_rebuild, retry_intelligence_job_now, run_core_intelligence_now,
@@ -94,6 +93,7 @@ pub(crate) use self::runtime::{
     drain_one_enrichment_intelligence_job, drain_one_priority_intelligence_job,
     execute_core_intelligence_job,
 };
+pub(crate) use self::runtime::{maybe_spawn_intelligence_queue_drain, resume_insights};
 pub use self::section_queries::{
     build_intelligence_local_host, get_activity_mix, get_activity_mix_trend, get_breadth_index,
     get_browsing_rhythm, get_compare_set_detail, get_compare_sets, get_day_insights,
@@ -105,9 +105,9 @@ pub use self::section_queries::{
     preview_intelligence_local_host,
 };
 
-static AI_QUEUE_ACTIVE_WORKERS: AtomicUsize = AtomicUsize::new(0);
-static INTELLIGENCE_PRIORITY_WORKERS: AtomicUsize = AtomicUsize::new(0);
-static INTELLIGENCE_ENRICHMENT_WORKERS: AtomicUsize = AtomicUsize::new(0);
+static AI_QUEUE_ACTIVE_WORKERS: WorkerPool = WorkerPool::new();
+static INTELLIGENCE_PRIORITY_WORKERS: WorkerPool = WorkerPool::new();
+static INTELLIGENCE_ENRICHMENT_WORKERS: WorkerPool = WorkerPool::new();
 
 /// Queue workers running in this process: AI queue, both intelligence lanes and content fetch.
 /// "Delete all data" waits for this to reach zero before removing the databases they write.
@@ -119,7 +119,7 @@ pub(crate) fn running_background_workers() -> usize {
         &content_fetch::CONTENT_FETCH_WORKERS,
     ]
     .iter()
-    .map(|workers| workers.load(Ordering::Acquire))
+    .map(|workers| workers.active())
     .sum()
 }
 

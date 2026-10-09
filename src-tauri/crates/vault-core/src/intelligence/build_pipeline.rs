@@ -8,7 +8,7 @@ use super::*;
 use crate::Vault;
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use vault_store::{Db, OptionalRow, Priority, params_owned as params};
+use vault_store::{Db, OptionalRow, Priority, Session, params_owned as params};
 
 #[derive(Clone)]
 pub(super) struct Source {
@@ -36,19 +36,36 @@ pub(super) fn sources(vault: &Vault, profile: Option<&str>) -> Result<Vec<Source
     })
 }
 
+/// The rules a build classifies and groups visits by. A profile last built with others is built
+/// again from scratch.
+fn rule_version(s: &Session<'_>) -> Result<String> {
+    Ok(format!(
+        "{}|{}|{}",
+        stage_version(s, RebuildMode::VisitDerive)?,
+        stage_version(s, RebuildMode::DailyRollup)?,
+        stage_version(s, RebuildMode::StructuralRebuild)?
+    ))
+}
+
+/// Whether the Insights of some profile were last built with rules other than this version's (a
+/// new site list, a changed matcher): they show the old labels until the next build.
+pub(crate) fn built_with_other_rules(s: &Session<'_>) -> Result<bool> {
+    let current = rule_version(s)?;
+    let profiles = s.query("SELECT profile_id FROM intelligence_generations", params![], |r| {
+        Ok(r.get::<String>(0)?)
+    })?;
+    for profile in profiles {
+        if build_state::load(s, &profile)?.is_some_and(|state| state.rule_version != current) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Result<BuildState> {
     let profile = source.profile_id.clone();
-    let (previous, rule_version) = vault.read(Db::Intelligence, move |s| {
-        Ok((
-            build_state::load(s, &profile)?,
-            format!(
-                "{}|{}|{}",
-                stage_version(s, RebuildMode::VisitDerive)?,
-                stage_version(s, RebuildMode::DailyRollup)?,
-                stage_version(s, RebuildMode::StructuralRebuild)?
-            ),
-        ))
-    })?;
+    let (previous, rule_version) = vault
+        .read(Db::Intelligence, move |s| Ok((build_state::load(s, &profile)?, rule_version(s)?)))?;
     let pending = previous.as_ref().is_some_and(|old| {
         !(old.facts_done && old.daily_done && old.navigation_done && old.aggregates_done)
     });

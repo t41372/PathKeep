@@ -742,7 +742,7 @@ mod tests {
         );
         let _ =
             get_observed_interactions_impl(vault_core::ScopedPageRequest::from(&scoped), &session);
-        let _ = get_compare_sets_impl(scoped.clone(), &session);
+        let _ = get_compare_sets_impl(vault_core::ScopedPageRequest::from(&scoped), &session);
         let _ = get_compare_set_detail_impl(
             CompareSetDetailRequest {
                 compare_set_id: "missing-compare-set".to_string(),

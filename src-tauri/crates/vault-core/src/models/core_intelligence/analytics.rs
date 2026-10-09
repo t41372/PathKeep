@@ -1,7 +1,7 @@
 //! Core Intelligence analytics and explainability DTOs.
 //!
 //! ## Responsibilities
-//! - Define activity, discovery, domain, source-effectiveness, path-flow,
+//! - Define activity, discovery, domain, stable-source, path-flow,
 //!   compare-set, browser-diff, and explanation payloads.
 //! - Keep advanced read surfaces separate from basic session/query/read rows.
 //! - Preserve transport shape for Phase 3/4 Core Intelligence commands.
@@ -67,16 +67,16 @@ pub struct DomainDeepDive {
     pub visit_trend: Vec<DomainTrendPoint>,
 }
 
-/// Stable source row used by source-effectiveness and secondary overview reads.
+/// A site searches ended on: where the user's answers come from.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct StableSource {
     pub registrable_domain: String,
     pub display_name: Option<String>,
-    pub source_role: String,
-    pub trail_count: i64,
-    pub stable_landing_count: i64,
-    pub effectiveness_score: f32,
+    /// Searches in the range whose landing page was on this site.
+    pub search_count: i64,
+    /// How many different searches those were.
+    pub query_count: i64,
 }
 
 /// Per-engine search effectiveness aggregate.
@@ -119,6 +119,12 @@ pub struct FrictionSignal {
     pub signal_kind: String,
     pub occurrence_count: i64,
     pub description: String,
+    /// The search as first typed.
+    pub search_query: String,
+    /// How many times it was reworded.
+    pub reformulation_count: i64,
+    /// Pages opened from it, the searches included.
+    pub visit_count: i64,
 }
 
 /// Reopened investigation aggregate row.
@@ -287,6 +293,8 @@ pub struct CompareSet {
     pub search_query: String,
     pub page_category: String,
     pub pages: Vec<CompareSetPage>,
+    /// The last time one of the pages was opened in this search.
+    pub last_visited_at: String,
 }
 
 /// Compare set detail with its owning trail and optional session context.

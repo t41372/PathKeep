@@ -72,6 +72,32 @@ pub(super) fn open(root: &Path) -> Vault {
     )
     .unwrap()
 }
+/// The page visit `id` opens, as SQL over `id`. Visits are 10 s apart, 8,640 a day, and page `p`
+/// belongs to site `p % 20000`. `PATHKEEP_BENCH_SHAPE` picks how a day's visits spread over sites:
+///
+/// - `cycle` (the default): visits walk the pages, and so the sites, in turn, so each of a day's
+///   visits is to a different site: 8,640 site-day rows a day, the worst case for range reads.
+/// - `habits`: closer to real browsing, where a site gets about 19 visits on a day it is visited
+///   (the real data in `ipc-performance.md` §11). Half of a day's visits go to 50 sites visited
+///   every day, the other half to 400 sites that change from day to day: about 450 site-day rows
+///   a day.
+///
+/// A data root keeps the shape it was seeded with; seed another shape into another root.
+pub(super) fn visit_page() -> String {
+    match std::env::var("PATHKEEP_BENCH_SHAPE").as_deref() {
+        Err(_) | Ok("cycle") => "(id-1)%2880000+1".to_owned(),
+        Ok("habits") => {
+            let slot = "(id%8640)";
+            let site = format!(
+                "(CASE WHEN {slot}%2=0 THEN ({slot}/2)%50 ELSE 50+((id/8640)*400+({slot}/2)%400)%19950 END)"
+            );
+            // One of the site's 143 pages, so its days have several pages each.
+            format!("(CASE WHEN {site}=0 THEN 20000 ELSE {site} END)+20000*(({slot}/7)%143)")
+        }
+        Ok(other) => panic!("unknown PATHKEEP_BENCH_SHAPE {other}: cycle or habits"),
+    }
+}
+
 pub(super) fn seed(vault: &Vault) {
     vault.store().write(Db::Archive,Priority::Batch,|s| {
         s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,discovered_at,profile_key) VALUES(1,'chrome','Default','/bench','','chrome:Default') ON CONFLICT(id) DO NOTHING",())?;
@@ -106,7 +132,7 @@ pub(super) fn seed(vault: &Vault) {
     for first in (first_visit..=VISITS).step_by(STEP as usize) {
         let end = (first + STEP - 1).min(VISITS);
         vault.store().write(Db::Archive,Priority::Batch,move |s| {
-            s.execute("WITH RECURSIVE ids(id) AS(VALUES(?1) UNION ALL SELECT id+1 FROM ids WHERE id<?2) INSERT INTO visits(id,url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT id,CASE WHEN id%144=0 THEN 1 ELSE (id-1)%2880000+1 END,CAST(id AS TEXT),?3+id*10000,'2023-01-01T00:00:00Z',1,0 FROM ids",params![first,end,START])?;
+            s.execute(&format!("WITH RECURSIVE ids(id) AS(VALUES(?1) UNION ALL SELECT id+1 FROM ids WHERE id<?2) INSERT INTO visits(id,url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT id,CASE WHEN id%144=0 THEN 1 ELSE {} END,CAST(id AS TEXT),?3+id*10000,'2023-01-01T00:00:00Z',1,0 FROM ids",visit_page()),params![first,end,START])?;
             Ok(())
         }).unwrap();
         if first % 1_000_000 == 1 {
@@ -243,4 +269,10 @@ pub(super) fn peak_rss_bytes() -> Option<u64> {
 #[cfg(not(unix))]
 pub(super) fn peak_rss_bytes() -> Option<u64> {
     None
+}
+/// Resident memory now, to see what a phase keeps after it ends (Linux only).
+pub(super) fn current_rss_bytes() -> Option<u64> {
+    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+    let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+    Some(pages * 4096)
 }

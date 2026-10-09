@@ -26,13 +26,20 @@ export interface SyntheticBrowsers {
 export function generateVisits(options?: {
   now?: number
   days?: number
+  olderDays?: number
   perDay?: number
   seed?: number
 }): SyntheticVisit[]
 
 export function writeSyntheticBrowsers(
   root: string,
-  options?: { now?: number; days?: number; perDay?: number; seed?: number },
+  options?: {
+    now?: number
+    days?: number
+    olderDays?: number
+    perDay?: number
+    seed?: number
+  },
 ): SyntheticBrowsers
 
 export function appendChromeVisits(file: string, visits: SyntheticVisit[]): void

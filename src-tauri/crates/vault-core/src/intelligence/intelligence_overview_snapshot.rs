@@ -109,16 +109,15 @@ where
     Ok(payload)
 }
 
-/// Keeps distinct end dates from sharing an all-time materialization.
+/// The fingerprint an all-time request is served under. All time always ends
+/// today, so its end date only says which day it was asked and is left out; the
+/// sections that depend on today are recomputed when a snapshot is served
+/// (`intelligence_overview::refresh_for_today`).
 pub(super) fn request_fingerprint(
     connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
 ) -> Result<String> {
-    Ok(format!(
-        "{}|end={}",
-        compute_overview_fingerprint(connection, request.profile_id.as_deref())?,
-        request.date_range.end
-    ))
+    compute_overview_fingerprint(connection, request.profile_id.as_deref())
 }
 
 /// Computes the content fingerprint for one all-time scope. The snapshot is
@@ -126,15 +125,13 @@ pub(super) fn request_fingerprint(
 /// can change an aggregate: the archive watermark (raw visits / search terms),
 /// the taxonomy / site-dictionary / search-engine-rule versions, the rebuild
 /// checkpoint ledger (which moves on every derived rebuild or clear), an O(1)
-/// archive-delta probe (ingest/reverts not yet rebuilt), and the current local
-/// date.
+/// archive-delta probe (ingest/reverts not yet rebuilt), and the UTC offset,
+/// since a visit's local day depends on it.
 ///
-/// The local-date dimension exists because the all-time primary overview bakes
-/// in an "On this day" section computed against `Local::now()`; without it a
-/// snapshot built yesterday would keep serving yesterday's anniversaries (and a
-/// stale `reference_date`) after midnight for any user who has not ingested new
-/// data since. Folding the date in forces at least one recompute per local day.
-/// The UTC offset is included so a timezone change also invalidates.
+/// Today's date is deliberately not in it. It used to be, for "On this day";
+/// then the first open of every day recomputed all of history (seconds at
+/// 387k visits, far more at 14.4M), and nothing saved the result until the next
+/// rebuild. The parts that depend on today are recomputed when served instead.
 pub(super) fn compute_overview_fingerprint(
     connection: &Session<'_>,
     profile_id: Option<&str>,
@@ -153,9 +150,8 @@ pub(super) fn compute_overview_fingerprint(
     let checkpoint_signature = load_checkpoint_signature(connection, profile_id)?;
     let site_dictionary_signature = load_site_dictionary_signature(connection)?;
     let search_rule_signature = load_search_rule_signature(connection)?;
-    let now = Local::now();
     Ok(format!(
-        "v2|profiles={}|visits={}|maxVisit={}|maxUrlMs={}|terms={}|tax={}|{}|{}|{}|{}|day={}{}",
+        "v3|profiles={}|visits={}|maxVisit={}|maxUrlMs={}|terms={}|tax={}|{}|{}|{}|{}|tz={}",
         profiles.len(),
         aggregate.visible_visit_count,
         aggregate.max_visit_id,
@@ -166,8 +162,7 @@ pub(super) fn compute_overview_fingerprint(
         search_rule_signature,
         checkpoint_signature,
         archive_delta_signature,
-        now.format("%Y-%m-%d"),
-        now.offset(),
+        Local::now().offset(),
     ))
 }
 
@@ -646,17 +641,22 @@ mod tests {
         );
     }
 
-    /// The fingerprint must carry the current local date so the date-relative
-    /// "On this day" section forces at least one recompute per local day; a
-    /// mutant that drops the date dimension fails this.
+    /// A snapshot outlives the day it was built on: the fingerprint leaves the
+    /// date out (the parts that depend on today are recomputed when served), and
+    /// two all-time requests asked on different days share it.
     #[test]
-    fn fingerprint_embeds_current_local_date() {
+    fn fingerprint_outlives_the_day_but_not_the_timezone() {
         let connection = open_fingerprint_connection();
         let fingerprint = fingerprint(&connection, None).expect("fingerprint");
-        let today = Local::now().format("day=%Y-%m-%d").to_string();
-        assert!(
-            fingerprint.contains(&today),
-            "fingerprint must embed today's local date ({today}) but was {fingerprint}"
-        );
+        assert!(!fingerprint.contains("day="), "{fingerprint} must not hold today's date");
+        assert!(fingerprint.ends_with(&format!("tz={}", Local::now().offset())), "{fingerprint}");
+        let asked_on = |end: &str| {
+            let request = ScopedDateRangeRequest {
+                date_range: DateRange { start: ALL_TIME_SCOPE_START.into(), end: end.into() },
+                profile_id: None,
+            };
+            connection.read(move |s| request_fingerprint(s, &request)).expect("fingerprint")
+        };
+        assert_eq!(asked_on("2026-10-07"), asked_on("2026-10-08"));
     }
 }

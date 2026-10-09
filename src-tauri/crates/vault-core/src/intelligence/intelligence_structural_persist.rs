@@ -29,7 +29,6 @@ mod tests {
                     connection,
                     1,
                     &[],
-                    &[],
                     &habits,
                     &[],
                     &[],

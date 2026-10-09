@@ -19,7 +19,12 @@ import {
   TrendCard,
   YearCard,
 } from './home-cards'
-import { dailySeries, useBrowserSummaries } from './home-data'
+import {
+  dailySeries,
+  noVisits,
+  stillBuilding,
+  useBrowserSummaries,
+} from './home-data'
 import { useThirtyDayTrend } from './queries'
 
 function greeting(t: Translator, hour = new Date().getHours()) {
@@ -116,8 +121,12 @@ function StatCards() {
         // A failed read is unknown, not an empty archive.
         value={data ? format.number(data.totalVisits) : '—'}
         sub={t('home.stats.savedSub', { count: thisWeek })}
-        // "N new this week" comes from the trend; wait for both.
-        loading={dashboard.isPending || trend.isPending}
+        // "N new this week" comes from the trend; wait for both, and for its first build.
+        loading={
+          dashboard.isPending ||
+          trend.isPending ||
+          stillBuilding(trend.data, noVisits)
+        }
       />
       <StatCard
         to="/insights"

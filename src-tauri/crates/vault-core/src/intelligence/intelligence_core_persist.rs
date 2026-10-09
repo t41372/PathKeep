@@ -33,16 +33,17 @@ mod tests {
             .expect("seed stale row");
 
         let rollups = DailyRollupBundle {
-            domain_rows: vec![(
-                "2026-04-25".to_string(),
-                "p1".to_string(),
-                "example.com".to_string(),
-                "reference".to_string(),
-                2,
-                1,
-                1,
-                2,
-            )],
+            domain_rows: vec![super::super::DomainDayRow {
+                date_key: "2026-04-25".to_string(),
+                profile_id: "p1".to_string(),
+                registrable_domain: "example.com".to_string(),
+                domain_category: "reference".to_string(),
+                visit_count: 2,
+                search_count: 1,
+                new_domain_visits: 1,
+                unique_urls: 2,
+                last_visit_ms: 0,
+            }],
             category_rows: vec![(
                 "2026-04-25".to_string(),
                 "p1".to_string(),
@@ -56,7 +57,17 @@ mod tests {
                 "google".to_string(),
                 1,
             )],
-            summary_rows: vec![("2026-04-25".to_string(), "p1".to_string(), 2, 1, 1, 1, 0.5, 0.5)],
+            summary_rows: vec![super::super::DaySummaryRow {
+                date_key: "2026-04-25".to_string(),
+                profile_id: "p1".to_string(),
+                total_visits: 2,
+                total_searches: 1,
+                new_domains: 1,
+                unique_domains: 1,
+                hhi_score: 0.5,
+                discovery_rate: 0.5,
+                hours: Vec::new(),
+            }],
         };
         let visits = vec![VisitRecord {
             visit_id: 1,
@@ -166,17 +177,6 @@ mod tests {
             first_seen_ms: 1,
             last_seen_ms: 2,
         }];
-        let source_effectiveness = vec![SourceEffectivenessRecord {
-            profile_id: "p1".to_string(),
-            registrable_domain: "example.com".to_string(),
-            source_role: "landing".to_string(),
-            trail_count: 1,
-            stable_landing_count: 1,
-            effectiveness_score: 0.8,
-            evidence_json: "[1]".to_string(),
-            first_seen_ms: 1,
-            last_seen_ms: 2,
-        }];
         let habits = vec![HabitPatternRecord {
             profile_id: "p1".to_string(),
             registrable_domain: "example.com".to_string(),
@@ -218,7 +218,7 @@ mod tests {
         for event in &search_events {persist.persist_search_event(event,at)?;}
         drop(persist);
         build_rows::persist_families(connection,2,&query_families,at)?;
-        build_rows::persist_aggregates(connection,2,&refind_pages,&source_effectiveness,&habits,&reopened,&path_flows,at)?;
+        build_rows::persist_aggregates(connection,2,&refind_pages,&habits,&reopened,&path_flows,at)?;
         assert_eq!(connection.query_one("SELECT visit_id FROM visit_derived_facts",(),|r|Ok(r.get::<i64>(0)?))?,99);
         connection.execute("UPDATE intelligence_generations SET facts=2,daily=2,navigation=2,aggregates=2 WHERE profile_id='p1'",())?;
 
@@ -234,7 +234,6 @@ mod tests {
         assert_eq!(count_rows(connection, "search_event_terms"), 2);
         assert_eq!(count_rows(connection, "query_families"), 1);
         assert_eq!(count_rows(connection, "refind_pages"), 1);
-        assert_eq!(count_rows(connection, "source_effectiveness"), 1);
         assert_eq!(count_rows(connection, "habit_patterns"), 1);
         assert_eq!(count_rows(connection, "reopened_investigations"), 1);
         assert_eq!(count_rows(connection, "path_flows"), 1);

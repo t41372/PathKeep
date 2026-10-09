@@ -119,7 +119,6 @@ fn clear_derived_intelligence_state_reports_canonical_group_counts() {
                     "search_event_terms",
                     "query_families",
                     "refind_pages",
-                    "source_effectiveness",
                     "habit_patterns",
                     "reopened_investigations",
                     "path_flows",
@@ -429,18 +428,6 @@ fn explain_entity_and_provider_snapshots_build_from_core_intelligence_tables() {
             )
             .expect("compare set trail member");
     }
-    intelligence
-        .execute(
-            "INSERT OR REPLACE INTO source_effectiveness_rows (
-                generation,profile_id, registrable_domain, source_role, trail_count, stable_landing_count,
-                effectiveness_score, evidence_json, first_seen_ms, last_seen_ms, computed_at
-             ) VALUES (
-                (SELECT aggregates FROM intelligence_generations WHERE profile_id='chrome:Default'),'chrome:Default', 'docs.rust-lang.org', 'landing', 4, 3, 0.875, '[]',
-                1711929600000, 1712016000000, '2026-04-14T00:00:00Z'
-             )",
-            (),
-        )
-        .expect("stable source row");
     let today = chrono::Local::now();
     let anniversary = chrono::Local
         .with_ymd_and_hms(today.year() - 1, today.month(), today.day(), 12, 0, 0)

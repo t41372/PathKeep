@@ -1,16 +1,15 @@
-//! Failure modes: batch boundaries split sessions, trails or equivalent query families.
-//! Session, trail, and query-family builders for structural Core Intelligence.
+//! Failure modes: batch boundaries split equivalent query families.
+//! Query-family builders for structural Core Intelligence. Sessions and search trails are
+//! built while visits stream (`intelligence_structural_stream`).
 //!
 //! ## Responsibilities
-//! - Build deterministic sessions and search trails from normalized visit
-//!   records.
 //! - Group keyword search events into query families for both in-memory and
 //!   batched rebuild paths.
 //! - Keep the query-family similarity heuristic out of stage orchestration.
 //!
 //! ## Not responsible for
 //! - Persisting structural rows into SQLite.
-//! - Running refind, habit, or source-effectiveness aggregate logic.
+//! - Running refind or habit aggregate logic.
 //! - Choosing fallback versus incremental rebuild paths.
 //!
 //! ## Dependencies
@@ -27,10 +26,7 @@
 use super::SearchEventBatchCursor;
 use super::{QueryFamilyRecord, SearchEventRecord, query_token_set};
 #[cfg(test)]
-use super::{
-    SearchQueryKind, TrailMemberRecord, TrailRecord, VisitRecord, classify_search_query_kind,
-    normalize_query,
-};
+use super::{SearchQueryKind, normalize_query};
 #[cfg(test)]
 use anyhow::Result;
 #[cfg(test)]
@@ -44,134 +40,6 @@ pub(super) struct QueryFamilyAccumulator {
     by_token: std::collections::HashMap<(String, String, String), Vec<usize>>,
     tokens: Vec<std::collections::HashSet<String>>,
     queries: Vec<std::collections::HashSet<String>>,
-}
-
-/// Builds deterministic search trails and search-event rows from visits that
-/// have already been normalized and session-grouped.
-#[cfg(test)]
-pub(super) fn build_search_trails(
-    visits: &mut [VisitRecord],
-) -> (Vec<SearchEventRecord>, Vec<TrailRecord>) {
-    let mut search_events = Vec::new();
-    let mut trails = Vec::new();
-    let mut current: Option<TrailRecord> = None;
-
-    for visit in visits.iter_mut() {
-        let visit_query = visit.search_query.clone();
-        if visit.is_search_event {
-            search_events.push(SearchEventRecord {
-                visit_id: visit.visit_id,
-                profile_id: visit.profile_id.clone(),
-                search_engine: visit.search_engine.clone().unwrap_or_else(|| "unknown".to_string()),
-                raw_query: visit_query.clone().unwrap_or_default(),
-                normalized_query: visit_query.as_deref().map(normalize_query).unwrap_or_default(),
-                query_kind: SearchQueryKind::Keyword,
-                trail_id: None,
-                visit_time_ms: visit.visit_time_ms,
-            });
-            if let Some(trail) = current.take() {
-                trails.push(trail);
-            }
-            let query = visit_query.unwrap_or_else(|| "search".to_string());
-            let trail_id = format!("trail:{}:{}", visit.profile_id, visit.visit_id);
-            visit.trail_id = Some(trail_id.clone());
-            if let Some(last) = search_events.last_mut() {
-                last.trail_id = Some(trail_id.clone());
-            }
-            current = Some(TrailRecord {
-                trail_id: trail_id.clone(),
-                profile_id: visit.profile_id.clone(),
-                session_id: visit.session_id.clone().unwrap_or_default(),
-                initial_query: query.clone(),
-                search_engine: visit.search_engine.clone().unwrap_or_else(|| "unknown".to_string()),
-                reformulation_count: 0,
-                visit_count: 1,
-                landing_url: None,
-                landing_domain: None,
-                first_visit_ms: visit.visit_time_ms,
-                last_visit_ms: visit.visit_time_ms,
-                max_depth: 0,
-                queries: vec![query],
-                members: vec![TrailMemberRecord {
-                    trail_id,
-                    profile_id: visit.profile_id.clone(),
-                    visit_id: visit.visit_id,
-                    ordinal: 0,
-                    role: "search_event".to_string(),
-                }],
-            });
-            continue;
-        }
-
-        let Some(trail) = current.as_mut() else {
-            continue;
-        };
-        if trail.session_id != visit.session_id.clone().unwrap_or_default()
-            || visit.visit_time_ms - trail.last_visit_ms > super::TRAIL_GAP_MS
-        {
-            let finished = current.take().expect("trail");
-            trails.push(finished);
-            continue;
-        }
-
-        let depth = trail.members.len() as i64;
-        let role = if trail.landing_url.is_none() { "landing" } else { "click" };
-        trail.visit_count += 1;
-        trail.last_visit_ms = visit.visit_time_ms;
-        trail.max_depth = trail.max_depth.max(depth);
-        trail.landing_url.get_or_insert_with(|| visit.url.clone());
-        trail.landing_domain.get_or_insert_with(|| visit.registrable_domain.clone());
-        trail.members.push(TrailMemberRecord {
-            trail_id: trail.trail_id.clone(),
-            profile_id: trail.profile_id.clone(),
-            visit_id: visit.visit_id,
-            ordinal: depth,
-            role: role.to_string(),
-        });
-        visit.trail_id = Some(trail.trail_id.clone());
-    }
-    if let Some(trail) = current.take() {
-        trails.push(trail);
-    }
-
-    let landing_domains = trails
-        .iter()
-        .map(|trail| (trail.trail_id.clone(), trail.landing_domain.clone()))
-        .collect::<std::collections::HashMap<_, _>>();
-    for event in &mut search_events {
-        event.query_kind = classify_search_query_kind(
-            &event.raw_query,
-            &event.normalized_query,
-            event
-                .trail_id
-                .as_ref()
-                .and_then(|trail_id| landing_domains.get(trail_id))
-                .and_then(|domain| domain.as_deref()),
-        );
-    }
-
-    let mut trail_events = std::collections::HashMap::<String, Vec<String>>::new();
-    for event in &search_events {
-        if let Some(trail_id) = &event.trail_id {
-            trail_events.entry(trail_id.clone()).or_default().push(event.raw_query.clone());
-        }
-    }
-    for trail in &mut trails {
-        let queries = trail_events.get(&trail.trail_id).cloned().unwrap_or_default();
-        let deduped = queries.into_iter().fold(Vec::<String>::new(), |mut acc, query| {
-            if acc.last().is_none_or(|last| normalize_query(last) != normalize_query(&query)) {
-                acc.push(query);
-            }
-            acc
-        });
-        if let Some(first) = deduped.first() {
-            trail.initial_query = first.clone();
-            trail.queries = deduped.clone();
-            trail.reformulation_count = deduped.len().saturating_sub(1) as i64;
-        }
-    }
-
-    (search_events, trails)
 }
 
 /// Groups keyword search events into deterministic families using the accepted
@@ -399,37 +267,6 @@ impl QueryFamilyAccumulator {
 mod tests {
     use super::*;
 
-    fn visit(visit_id: i64, is_search_event: bool, session_id: Option<&str>) -> VisitRecord {
-        VisitRecord {
-            visit_id,
-            profile_id: "chrome:Default".to_string(),
-            source_profile_id: 1,
-            source_visit_id: visit_id,
-            source_url_id: visit_id,
-            url: format!("https://example.com/{visit_id}"),
-            title: Some(format!("Visit {visit_id}")),
-            visit_time_ms: 1_762_000_000_000 + visit_id,
-            from_visit: None,
-            transition_type: None,
-            external_referrer_url: None,
-            canonical_url: format!("https://example.com/{visit_id}"),
-            registrable_domain: "example.com".to_string(),
-            domain_category: "docs".to_string(),
-            page_category: "article-page".to_string(),
-            search_engine: is_search_event.then(|| "google".to_string()),
-            search_query: is_search_event.then(|| "rust coverage".to_string()),
-            is_new_domain: visit_id == 1,
-            is_search_event,
-            evidence_tier: "tier-a".to_string(),
-            taxonomy_source: "test".to_string(),
-            taxonomy_pack: None,
-            taxonomy_version: None,
-            display_name: Some("Example".to_string()),
-            session_id: session_id.map(str::to_string),
-            trail_id: None,
-        }
-    }
-
     fn search_event(
         visit_id: i64,
         profile_id: &str,
@@ -447,25 +284,6 @@ mod tests {
             trail_id: None,
             visit_time_ms: 1_762_000_000_000 + visit_id,
         }
-    }
-
-    #[test]
-    fn search_trail_builder_ignores_pre_search_visits_and_flushes_final_trail() {
-        let mut visits = vec![
-            visit(1, false, Some("session:1")),
-            visit(2, true, Some("session:1")),
-            visit(3, false, Some("session:1")),
-            visit(4, true, Some("session:1")),
-        ];
-
-        let (events, trails) = build_search_trails(&mut visits);
-
-        assert!(visits[0].trail_id.is_none());
-        assert_eq!(events.len(), 2);
-        assert_eq!(trails.len(), 2);
-        assert_eq!(trails[0].members.len(), 2);
-        assert_eq!(visits[2].trail_id, Some(trails[0].trail_id.clone()));
-        assert_eq!(visits[3].trail_id, Some(trails[1].trail_id.clone()));
     }
 
     #[test]

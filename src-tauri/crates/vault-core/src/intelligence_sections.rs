@@ -6,9 +6,10 @@
 //! degraded-state rules so the frontend does not need to guess.
 
 use crate::{
-    intelligence_runtime::load_intelligence_runtime,
+    intelligence_runtime::load_module_runtime,
     models::{
-        CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow, IntelligenceRuntimeSnapshot,
+        CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow,
+        DeterministicModuleRuntimeStatus,
     },
     utils::now_rfc3339,
 };
@@ -17,7 +18,6 @@ use anyhow::Result;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SectionDataKind {
     PersistedDerived,
-    DirectRead,
     CapabilityGated,
 }
 
@@ -44,10 +44,11 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
     },
     CoreIntelligenceSectionDescriptor {
         id: "on-this-day",
-        module_ids: &[],
-        source_tables: &["archive.visits", "archive.urls", "archive.source_profiles"],
+        // Read from the daily rollups, so it is not there until the first build is done.
+        module_ids: &["daily-rollups"],
+        source_tables: &["daily_summary_rollups"],
         includes_enrichment: false,
-        data_kind: SectionDataKind::DirectRead,
+        data_kind: SectionDataKind::PersistedDerived,
         notes: &["Only prior years for the current local calendar day are considered."],
         empty_degraded_reason: None,
     },
@@ -103,8 +104,8 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
     },
     CoreIntelligenceSectionDescriptor {
         id: "stable-sources",
-        module_ids: &["refind-pages"],
-        source_tables: &["source_effectiveness"],
+        module_ids: &["search-trails"],
+        source_tables: &["search_trails"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
         notes: &[],
@@ -115,8 +116,8 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         module_ids: &["search-trails", "refind-pages", "search-effectiveness"],
         source_tables: &[
             "search_events",
+            "search_trails",
             "query_families",
-            "source_effectiveness",
             "reopened_investigations",
         ],
         includes_enrichment: false,
@@ -220,7 +221,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
     CoreIntelligenceSectionDescriptor {
         id: "compare-sets",
         module_ids: &["search-trails"],
-        source_tables: &["search_trails", "search_events"],
+        source_tables: &["compare_sets"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
         notes: &[],
@@ -301,15 +302,13 @@ fn dedupe_notes(
 
 fn build_module_backed_meta(
     descriptor: &CoreIntelligenceSectionDescriptor,
-    runtime: &crate::models::IntelligenceRuntimeSnapshot,
+    modules: &[DeterministicModuleRuntimeStatus],
     window: CoreIntelligenceSectionWindow,
 ) -> CoreIntelligenceSectionMeta {
     let relevant = descriptor
         .module_ids
         .iter()
-        .filter_map(|module_id| {
-            runtime.modules.iter().find(|module| module.module_id == *module_id)
-        })
+        .filter_map(|module_id| modules.iter().find(|module| module.module_id == *module_id))
         .collect::<Vec<_>>();
     let generated_at =
         relevant.iter().filter_map(|module| module.last_built_at.as_ref()).min().cloned();
@@ -384,58 +383,53 @@ fn build_direct_meta(
     }
 }
 
-/// Builds one section metadata payload using a caller-provided runtime
-/// snapshot instead of reloading runtime state for every module-backed section.
-pub fn build_core_intelligence_section_meta_with_runtime(
+/// Builds one section metadata payload from module states the caller already
+/// holds, so an overview that builds many sections reads them once.
+pub fn build_core_intelligence_section_meta_with_modules(
     section_id: &str,
     window: CoreIntelligenceSectionWindow,
     is_empty: bool,
-    runtime: &IntelligenceRuntimeSnapshot,
+    modules: &[DeterministicModuleRuntimeStatus],
 ) -> Result<CoreIntelligenceSectionMeta> {
     let descriptor = section_descriptor(section_id)
         .ok_or_else(|| anyhow::anyhow!("unknown Core Intelligence section '{section_id}'"))?;
     Ok(if descriptor.module_ids.is_empty() {
         build_direct_meta(descriptor, window, is_empty)
     } else {
-        build_module_backed_meta(descriptor, runtime, window)
+        build_module_backed_meta(descriptor, modules, window)
     })
 }
 
 /// Builds one `/intelligence` section metadata payload from the section
-/// registry plus the latest runtime snapshot.
+/// registry plus the module states. Every card read pays for this, so it reads
+/// only the module states, and only for sections that depend on modules: the
+/// full runtime snapshot (queue, plugin record counts, recent jobs) cost about
+/// 70 ms per card on a 387k-visit archive.
 pub fn build_core_intelligence_section_meta(
     vault: &crate::Vault,
     section_id: &str,
     window: CoreIntelligenceSectionWindow,
     is_empty: bool,
 ) -> Result<CoreIntelligenceSectionMeta> {
-    let runtime = load_intelligence_runtime(vault)?;
-    build_core_intelligence_section_meta_with_runtime(section_id, window, is_empty, &runtime)
+    let needs_modules =
+        section_descriptor(section_id).is_some_and(|descriptor| !descriptor.module_ids.is_empty());
+    let modules = if needs_modules { load_module_runtime(vault)? } else { Vec::new() };
+    build_core_intelligence_section_meta_with_modules(section_id, window, is_empty, &modules)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         CoreIntelligenceSectionDescriptor, CoreIntelligenceSectionWindow,
-        build_core_intelligence_section_meta_with_runtime, build_direct_meta,
+        build_core_intelligence_section_meta_with_modules, build_direct_meta,
         build_module_backed_meta, section_descriptor,
     };
-    use crate::models::{
-        DateRange, DeterministicModuleRuntimeStatus, IntelligenceQueueStatus,
-        IntelligenceRuntimeSnapshot,
-    };
+    use crate::models::{DateRange, DeterministicModuleRuntimeStatus};
 
     fn runtime_with_modules(
         modules: Vec<DeterministicModuleRuntimeStatus>,
-    ) -> IntelligenceRuntimeSnapshot {
-        IntelligenceRuntimeSnapshot {
-            recent_jobs_next_cursor: None,
-            queue: IntelligenceQueueStatus::default(),
-            plugins: Vec::new(),
-            modules,
-            recent_jobs: Vec::new(),
-            notes: Vec::new(),
-        }
+    ) -> Vec<DeterministicModuleRuntimeStatus> {
+        modules
     }
 
     fn persisted_descriptor(id: &str) -> &'static CoreIntelligenceSectionDescriptor {
@@ -579,7 +573,7 @@ mod tests {
             },
         ]);
 
-        let meta = build_core_intelligence_section_meta_with_runtime(
+        let meta = build_core_intelligence_section_meta_with_modules(
             "search-activity",
             sample_window(),
             false,

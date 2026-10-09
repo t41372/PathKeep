@@ -311,24 +311,24 @@ use `Vault`; SQL runs through `Session`. Rebuild writers live in `intelligence/b
 views below select published generations. Their physical names append `_rows`, and their
 primary keys prepend `generation` to the logical key shown here.
 
-| Logical view              | Logical key                                | Meaning                                                                                                     |
-| ------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| `visit_derived_facts`     | `visit_id`                                 | Domain, canonical URL, taxonomy and search classification; session/trail IDs come from `visit_assignments`. |
-| `domain_daily_rollups`    | `date_key, profile_id, registrable_domain` | Visit/search/discovery counts and distinct URLs.                                                            |
-| `category_daily_rollups`  | `date_key, profile_id, domain_category`    | Visits and distinct domains.                                                                                |
-| `engine_daily_rollups`    | `date_key, profile_id, search_engine`      | Daily searches.                                                                                             |
-| `daily_summary_rollups`   | `date_key, profile_id`                     | Totals, concentration and discovery.                                                                        |
-| `sessions`                | `session_id`                               | Session span, counts, deep-dive state and title.                                                            |
-| `search_trails`           | `trail_id`                                 | Search/landing chain, depth, span and queries.                                                              |
-| `search_trail_members`    | `trail_id, visit_id`                       | Ordered members and roles.                                                                                  |
-| `search_events`           | `visit_id`                                 | Search text, normalized query, kind, trail and visit time.                                                  |
-| `search_event_terms`      | `visit_id, term`                           | Keyword concept terms.                                                                                      |
-| `query_families`          | `family_id`                                | Related queries and repetition counts.                                                                      |
-| `refind_pages`            | `profile_id, canonical_url`                | Reuse signals, score and bounded persisted evidence sample. Public evidence is paged from facts.            |
-| `source_effectiveness`    | `profile_id, registrable_domain`           | Source role and trail-resolution signals.                                                                   |
-| `habit_patterns`          | `profile_id, registrable_domain`           | Cadence and interruption state.                                                                             |
-| `reopened_investigations` | `investigation_id`                         | Recurring query/page anchors. Reference evidence resolves through the refind row.                           |
-| `path_flows`              | `profile_id, flow_pattern, step_count`     | Repeated all-time navigation windows.                                                                       |
+| Logical view              | Logical key                                | Meaning                                                                                                                                           |
+| ------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `visit_derived_facts`     | `visit_id`                                 | Domain, canonical URL, taxonomy and search classification; session/trail IDs come from `visit_assignments`.                                       |
+| `domain_daily_rollups`    | `date_key, profile_id, registrable_domain` | Visit/search/discovery counts and distinct URLs.                                                                                                  |
+| `category_daily_rollups`  | `date_key, profile_id, domain_category`    | Visits and distinct domains.                                                                                                                      |
+| `engine_daily_rollups`    | `date_key, profile_id, search_engine`      | Daily searches.                                                                                                                                   |
+| `daily_summary_rollups`   | `date_key, profile_id`                     | Totals, concentration and discovery.                                                                                                              |
+| `sessions`                | `session_id`                               | Session span, counts, deep-dive state and title.                                                                                                  |
+| `search_trails`           | `trail_id`                                 | Search/landing chain, depth, span and queries.                                                                                                    |
+| `search_trail_members`    | `trail_id, visit_id`                       | Ordered members and roles.                                                                                                                        |
+| `search_events`           | `visit_id`                                 | Search text, normalized query, kind, trail and visit time.                                                                                        |
+| `search_event_terms`      | `visit_id, term`                           | Keyword concept terms.                                                                                                                            |
+| `query_families`          | `family_id`                                | Related queries and repetition counts.                                                                                                            |
+| `refind_pages`            | `profile_id, canonical_url`                | Reuse signals, score and bounded persisted evidence sample. Public evidence is paged from facts.                                                  |
+| `habit_patterns`          | `profile_id, registrable_domain`           | Cadence and interruption state.                                                                                                                   |
+| `reopened_investigations` | `investigation_id`                         | Recurring query/page anchors. Reference evidence resolves through the refind row.                                                                 |
+| `path_flows`              | `profile_id, flow_pattern, step_count`     | Repeated all-time navigation windows.                                                                                                             |
+| `compare_sets`            | `compare_set_id`                           | Pages of one kind compared within a search trail, found while the aggregate build streams visits; read newest first by `idx_compare_sets_recent`. |
 
 Generation and checkpoint tables:
 
@@ -345,6 +345,11 @@ summaries)` records committed day totals for idempotent replay.
 visit_id)`; visit/generation and trail indexes support point hydration.
 - `session_domains(generation, profile_id, session_id, domain, visit_count)` has primary key
   `(generation, session_id, domain)` and restores open-session counts without visit replay.
+- `session_paths(generation, profile_id, session_id, segment, date_key, prefix_len, sites_json)`
+  has primary key `(generation, session_id, segment)`: a session's sites in order with each one's
+  last visit time, cut at local midnight and every 256 sites, each segment starting with the
+  previous segment's last three sites. Bounded common paths read it through
+  `idx_session_paths_range (date_key, generation, profile_id)`.
 
 Full builds retain published rows until replacement stages commit. Append builds extend the
 fact/daily/navigation groups and replace aggregates. Checkpoints and their writes commit in
@@ -396,7 +401,7 @@ Exact physical DDL is `src-tauri/crates/vault-core/src/store_schema/intelligence
 
 Paged lists keep one index in exactly their list order, with `generation` last:
 `idx_sessions_recent`, `idx_search_trails_recent`, `idx_search_trails_friction`,
-`idx_query_families_recent`, `idx_query_families_members`, `idx_source_effectiveness_rank`,
+`idx_query_families_recent`, `idx_query_families_members`,
 `idx_reopened_investigations_recent`, `idx_refind_pages_score` and, for one profile's all-time
 flows, `idx_path_flows_profile_rank`. These reads use the `_rows` table with `INDEXED BY` and
 check `generation IN (SELECT … FROM intelligence_generations)` per row, because through the

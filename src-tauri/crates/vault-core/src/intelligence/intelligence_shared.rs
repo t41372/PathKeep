@@ -85,6 +85,19 @@ pub(super) fn tokenize_query_terms(query: &str) -> Vec<String> {
         .collect()
 }
 
+/// The words a keyword search is counted under in "Search concepts": its query terms without
+/// single Latin letters or digits and bare numbers (the "s" of "asu's", the "3" of "python 3"),
+/// which say nothing on their own. Han, kana and Hangul words count at any length.
+pub(super) fn search_words(query: &str) -> std::collections::BTreeSet<String> {
+    tokenize_query_terms(query)
+        .into_iter()
+        .filter(|term| {
+            term.chars().any(is_cjk_like)
+                || (term.chars().count() > 1 && !term.chars().all(|ch| ch.is_ascii_digit()))
+        })
+        .collect()
+}
+
 /// Builds the set-based representation used by query-family similarity and
 /// related search-surface dedup heuristics.
 pub(super) fn query_token_set(query: &str) -> HashSet<String> {
@@ -152,10 +165,11 @@ pub(super) fn count_refind_pages_in_range(
     connection
         .query_one(
             "SELECT COUNT(*)
-             FROM refind_pages
-             WHERE (?1 IS NULL OR profile_id = ?1)
-               AND last_seen_ms >= ?2
-               AND first_seen_ms < ?3",
+             FROM refind_pages_rows r INDEXED BY idx_refind_pages_range
+             WHERE r.last_seen_ms >= ?2
+               AND r.generation IN (SELECT aggregates FROM intelligence_generations)
+               AND (?1 IS NULL OR r.profile_id = ?1)
+               AND r.first_seen_ms < ?3",
             params![profile_id, start_ms, end_ms],
             |row| Ok(row.get(0)?),
         )
@@ -249,6 +263,31 @@ fn is_cjk_like(ch: char) -> bool {
     )
 }
 
+/// How many sites were new on each day of `range`. A site is new on the first day it appears
+/// in any browser profile, or in `profile_id` when one is given. Each profile's own rollups mark
+/// its first day for a site (`new_domain_visits`), so the whole archive takes the earliest of
+/// those; adding them up instead would count a site once per profile that visited it.
+pub(crate) fn new_sites_by_day(
+    connection: &Session<'_>,
+    range: &DateRange,
+    profile_id: Option<&str>,
+) -> Result<std::collections::BTreeMap<String, i64>> {
+    let rows = connection.query(
+        "SELECT first_day, COUNT(*) FROM (
+           SELECT MIN(r.date_key) AS first_day
+           FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_first_day
+           WHERE r.new_domain_visits > 0
+             AND r.generation IN (SELECT daily FROM intelligence_generations)
+             AND (?1 IS NULL OR r.profile_id = ?1)
+           GROUP BY r.registrable_domain)
+         WHERE first_day >= ?2 AND first_day <= ?3
+         GROUP BY first_day",
+        params![profile_id, range.start.as_str(), range.end.as_str()],
+        |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?)),
+    )?;
+    Ok(rows.into_iter().collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,6 +305,14 @@ mod tests {
         let error =
             local_datetime_from_result(LocalResult::None, date).expect_err("missing local result");
         assert!(error.to_string().contains("could not resolve local midnight"));
+    }
+
+    /// Search concepts showed "s" and "3" among a real archive's top words.
+    #[test]
+    fn search_words_leave_out_lone_letters_and_bare_numbers() {
+        let words: Vec<String> =
+            search_words("asu's python 3.12 東京 a pro open 2026 x86").into_iter().collect();
+        assert_eq!(words, ["asu", "open", "pro", "python", "x86", "東京"]);
     }
 
     #[test]

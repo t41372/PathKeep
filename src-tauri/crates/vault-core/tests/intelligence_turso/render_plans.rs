@@ -290,8 +290,11 @@ fn render_reads_use_indexed_archive_and_membership_access() {
                 }
             )
         );
-        let compare = check!("compare sets", get_compare_sets(&vault, &scope));
-        if let Some(item) = compare.first() {
+        let compare = check!(
+            "compare sets",
+            get_compare_sets(&vault, &vault_core::ScopedPageRequest::from(&scope))
+        );
+        if let Some(item) = compare.items.first() {
             check!(
                 "compare detail",
                 get_compare_set_detail(

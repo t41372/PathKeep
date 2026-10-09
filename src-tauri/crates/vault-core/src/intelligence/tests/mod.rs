@@ -19,10 +19,15 @@
 //! checks rather than by allocating huge in-memory test datasets.
 
 mod batch_equivalence;
+mod build_needed;
 mod fixtures;
 mod frequent_searches;
+mod new_sites;
+mod rhythm;
 mod schema_overview;
 mod search_families;
+mod session_paths;
+mod site_days;
 mod stage_rebuild;
 mod structural_incremental;
 mod top_sites_profiles;

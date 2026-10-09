@@ -597,9 +597,12 @@ pub(crate) async fn get_observed_interactions(
 #[tauri::command]
 /// Loads compare-set summaries for route promotion and overview cards off the UI thread.
 pub(crate) async fn get_compare_sets(
-    request: vault_core::ScopedDateRangeRequest,
+    request: vault_core::ScopedPageRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::CoreIntelligenceSectionResult<Vec<vault_core::CompareSet>>, CommandError> {
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<vault_core::IntelligencePage<vault_core::CompareSet>>,
+    CommandError,
+> {
     let session_database_key_state = state.inner().clone();
     run_blocking_command("get_compare_sets", move || {
         worker_bridge::get_compare_sets_impl(request, &session_database_key_state)

@@ -8,6 +8,7 @@
 //! - compare sets detected from search trails
 //! - multi-browser/profile behavioral diffs
 
+use super::site_days::{SiteDayCache, SiteDayScope, SiteDays};
 use super::{date_range_bounds, local_date_key};
 use crate::models::{
     BrowserCategoryDistribution, BrowserDiff, BrowserProfileSummary, CategoryMixEntry, CompareSet,
@@ -17,37 +18,6 @@ use crate::models::{
 use anyhow::{Context, Result};
 use std::collections::{BTreeSet, HashMap};
 use vault_store::{OptionalRow, Session, params_owned as params};
-
-pub fn get_compare_sets(
-    vault: &crate::Vault,
-    request: &ScopedDateRangeRequest,
-) -> Result<Vec<CompareSet>> {
-    let request = request.clone();
-    vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        get_compare_sets_with_connection(connection, request)
-    })
-}
-
-pub(crate) fn get_compare_sets_with_connection(
-    connection: &Session<'_>,
-    request: &ScopedDateRangeRequest,
-) -> Result<Vec<CompareSet>> {
-    let rows = load_compare_trail_members(connection, request, None)?;
-
-    let mut members_by_trail = HashMap::<String, Vec<CompareTrailMember>>::new();
-    for member in rows {
-        members_by_trail.entry(member.trail_id.clone()).or_default().push(member);
-    }
-
-    let mut compare_sets = Vec::new();
-    for trail_members in members_by_trail.into_values() {
-        compare_sets.extend(build_compare_sets_for_trail(&trail_members));
-    }
-    compare_sets.sort_by(|left, right| left.compare_set_id.cmp(&right.compare_set_id));
-    Ok(compare_sets)
-}
 
 pub fn get_compare_set_detail(
     vault: &crate::Vault,
@@ -97,34 +67,35 @@ pub fn get_multi_browser_diff(
     vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<BrowserDiff> {
+    let cache = vault.site_days().clone();
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        get_multi_browser_diff_with_connection(connection, request)
+        get_multi_browser_diff_with_connection(connection, &cache, &request)
     })
 }
 
+/// Every profile's sites in the range, side by side, from the range's shared site-day read for
+/// all profiles (the comparison is between profiles, so a profile filter does not apply).
 pub(crate) fn get_multi_browser_diff_with_connection(
     connection: &Session<'_>,
+    cache: &SiteDayCache,
     request: &ScopedDateRangeRequest,
 ) -> Result<BrowserDiff> {
-    let profiles = load_browser_profile_summaries(connection, request)?;
-    let domain_counts = load_profile_domain_counts(connection, request)?;
+    let days = cache.get(connection, &SiteDayScope::of(&request.date_range, None))?;
+    let profiles = load_browser_profile_summaries(connection, &days)?;
     let category_distributions = load_category_distributions(connection, request)?;
 
     let mut exclusive_domains = Vec::new();
     let mut shared_domains = Vec::new();
-    for (registrable_domain, entries) in domain_counts {
-        if entries.len() == 1 {
-            let (profile_id, visit_count) = &entries[0];
-            exclusive_domains.push(ExclusiveDomainEntry {
-                registrable_domain,
-                profile_id: profile_id.clone(),
+    for site in &days.sites {
+        match site.per_profile.as_slice() {
+            [(profile, visit_count)] => exclusive_domains.push(ExclusiveDomainEntry {
+                registrable_domain: site.domain.clone(),
+                profile_id: days.profiles[*profile].profile_id.clone(),
                 visit_count: *visit_count,
-            });
-        } else if entries.len() > 1 {
-            shared_domains.push(registrable_domain);
+            }),
+            [] => {}
+            _ => shared_domains.push(site.domain.clone()),
         }
     }
 
@@ -141,16 +112,16 @@ pub(crate) fn get_multi_browser_diff_with_connection(
 }
 
 #[derive(Debug, Clone)]
-struct CompareTrailMember {
-    trail_id: String,
-    initial_query: String,
-    landing_url: Option<String>,
-    canonical_url: String,
-    url: String,
-    title: Option<String>,
-    registrable_domain: String,
-    page_category: String,
-    visit_time_ms: i64,
+pub(super) struct CompareTrailMember {
+    pub trail_id: String,
+    pub initial_query: String,
+    pub landing_url: Option<String>,
+    pub canonical_url: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub registrable_domain: String,
+    pub page_category: String,
+    pub visit_time_ms: i64,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -163,7 +134,9 @@ struct ComparePageAggregate {
     is_landing: bool,
 }
 
-fn build_compare_sets_for_trail(trail_members: &[CompareTrailMember]) -> Vec<CompareSet> {
+pub(super) fn build_compare_sets_for_trail(
+    trail_members: &[CompareTrailMember],
+) -> Vec<CompareSet> {
     let mut by_category = HashMap::<String, Vec<&CompareTrailMember>>::new();
     for member in trail_members {
         if !is_compare_candidate_category(&member.page_category) {
@@ -235,11 +208,13 @@ fn build_compare_sets_for_trail(trail_members: &[CompareTrailMember]) -> Vec<Com
                 .then_with(|| left.url.cmp(&right.url))
         });
 
+        let last_visit_ms = members.iter().map(|member| member.visit_time_ms).max().unwrap_or(0);
         compare_sets.push(CompareSet {
             compare_set_id: format!("compare:{trail_id}:{page_category}"),
             trail_id,
             search_query: members[0].initial_query.clone(),
             page_category,
+            last_visited_at: super::rfc3339_from_millis(last_visit_ms),
             pages: pages
                 .into_iter()
                 .map(|page| CompareSetPage {
@@ -257,7 +232,7 @@ fn build_compare_sets_for_trail(trail_members: &[CompareTrailMember]) -> Vec<Com
     compare_sets
 }
 
-fn is_compare_candidate_category(page_category: &str) -> bool {
+pub(super) fn is_compare_candidate_category(page_category: &str) -> bool {
     matches!(
         page_category,
         "article_page"
@@ -401,62 +376,37 @@ fn trail_summary_from_row(row: &vault_store::Row) -> vault_store::Result<TrailSu
     })
 }
 
+/// Each profile with visits in the range, with its name from the archive, by name.
 fn load_browser_profile_summaries(
     connection: &Session<'_>,
-    request: &ScopedDateRangeRequest,
+    days: &SiteDays,
 ) -> Result<Vec<BrowserProfileSummary>> {
-    let mut statement = connection.prepare(
-        "SELECT source_profiles.profile_key,
-                source_profiles.profile_name,
-                COALESCE(source_profiles.browser_family, source_profiles.browser_kind),
-                COUNT(DISTINCT domain_daily_rollups.registrable_domain),
-                COALESCE(SUM(domain_daily_rollups.visit_count), 0)
-         FROM archive.source_profiles AS source_profiles
-         LEFT JOIN domain_daily_rollups
-           ON domain_daily_rollups.profile_id = source_profiles.profile_key
-          AND domain_daily_rollups.date_key >= ?1
-          AND domain_daily_rollups.date_key <= ?2
-         GROUP BY source_profiles.profile_key, source_profiles.profile_name, source_profiles.browser_family, source_profiles.browser_kind
-         HAVING COALESCE(SUM(domain_daily_rollups.visit_count), 0) > 0
-         ORDER BY source_profiles.profile_name ASC, source_profiles.profile_key ASC",
+    let names = connection.query(
+        "SELECT profile_key, profile_name, COALESCE(browser_family, browser_kind)
+         FROM archive.source_profiles",
+        (),
+        |row| Ok((row.get::<String>(0)?, (row.get::<String>(1)?, row.get::<String>(2)?))),
     )?;
-    let profiles = statement
-        .query_map(params![request.date_range.start, request.date_range.end], |row| {
-            Ok(BrowserProfileSummary {
-                profile_id: row.get(0)?,
-                profile_name: row.get(1)?,
-                browser_family: row.get(2)?,
-                domain_count: row.get(3)?,
-                visit_count: row.get(4)?,
+    let names = names.into_iter().collect::<HashMap<_, _>>();
+    let mut profiles = days
+        .profiles
+        .iter()
+        .filter(|profile| profile.visits > 0)
+        .filter_map(|profile| {
+            let (profile_name, browser_family) = names.get(&profile.profile_id)?.clone();
+            Some(BrowserProfileSummary {
+                profile_id: profile.profile_id.clone(),
+                profile_name,
+                browser_family,
+                domain_count: profile.sites,
+                visit_count: profile.visits,
             })
-        })?
-        .collect::<vault_store::Result<Vec<_>>>()?;
+        })
+        .collect::<Vec<_>>();
+    profiles.sort_by(|a, b| {
+        a.profile_name.cmp(&b.profile_name).then_with(|| a.profile_id.cmp(&b.profile_id))
+    });
     Ok(profiles)
-}
-
-fn load_profile_domain_counts(
-    connection: &Session<'_>,
-    request: &ScopedDateRangeRequest,
-) -> Result<HashMap<String, Vec<(String, i64)>>> {
-    let mut statement = connection.prepare(
-        "SELECT registrable_domain, profile_id, SUM(visit_count)
-         FROM domain_daily_rollups
-         WHERE date_key >= ?1
-           AND date_key <= ?2
-         GROUP BY registrable_domain, profile_id
-         ORDER BY registrable_domain ASC, profile_id ASC",
-    )?;
-    let rows = statement
-        .query_map(params![request.date_range.start, request.date_range.end], |row| {
-            Ok((row.get::<String>(0)?, row.get::<String>(1)?, row.get::<i64>(2)?))
-        })?
-        .collect::<vault_store::Result<Vec<_>>>()?;
-
-    let mut domains = HashMap::<String, Vec<(String, i64)>>::new();
-    for (registrable_domain, profile_id, visit_count) in rows {
-        domains.entry(registrable_domain).or_default().push((profile_id, visit_count));
-    }
-    Ok(domains)
 }
 
 fn load_category_distributions(
@@ -535,9 +485,8 @@ fn load_profile_totals(
 mod tests {
     use super::{
         CompareTrailMember, build_compare_sets_for_trail, get_compare_set_detail,
-        get_compare_set_detail_with_connection, get_compare_sets_with_connection,
-        get_multi_browser_diff_with_connection, load_session_summary, load_trail_summary,
-        parse_compare_set_id, path_prefix,
+        get_compare_set_detail_with_connection, get_multi_browser_diff_with_connection,
+        load_session_summary, load_trail_summary, parse_compare_set_id, path_prefix,
     };
     use crate::models::{CompareSetDetailRequest, DateRange, ScopedDateRangeRequest};
     use crate::test_support::native::TestDatabase;
@@ -780,32 +729,8 @@ mod tests {
     }
 
     #[test]
-    fn compare_set_read_models_return_detail_and_parse_errors() {
+    fn compare_set_detail_reads_its_trail_and_parses_errors() {
         let connection = seed_phase_four_connection();
-        let sets = {
-            connection
-                .read(move |session| get_compare_sets_with_connection(session, &request(None)))
-        }
-        .unwrap();
-        assert_eq!(sets.len(), 1);
-        assert_eq!(sets[0].compare_set_id, "compare:trail-1:docs_page");
-        assert_eq!(sets[0].pages.len(), 2);
-        assert!(sets[0].pages.iter().any(|page| page.is_landing));
-
-        let scoped_sets = {
-            connection.read(move |session| {
-                get_compare_sets_with_connection(session, &request(Some("profile-a")))
-            })
-        }
-        .unwrap();
-        assert_eq!(scoped_sets.len(), 1);
-        let empty_sets = {
-            connection.read(move |session| {
-                get_compare_sets_with_connection(session, &request(Some("profile-b")))
-            })
-        }
-        .unwrap();
-        assert!(empty_sets.is_empty());
         let direct_detail = {
             connection.read(move |session| {
                 get_compare_set_detail_with_connection(
@@ -866,7 +791,11 @@ mod tests {
         let connection = seed_phase_four_connection();
         let diff = {
             connection.read(move |session| {
-                get_multi_browser_diff_with_connection(session, &request(None))
+                get_multi_browser_diff_with_connection(
+                    session,
+                    &super::super::site_days::SiteDayCache::default(),
+                    &request(None),
+                )
             })
         }
         .unwrap();

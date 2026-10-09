@@ -304,6 +304,10 @@ impl VaultSession {
             state.data_key = key;
         }
         state.vault = Some(vault.clone());
+        drop(state);
+        if let Err(error) = crate::intelligence::resume_insights(&vault) {
+            eprintln!("PathKeep could not resume Insights work: {error:#}");
+        }
         Ok(vault)
     }
     /// Auto-unlock never returns key material, even to the desktop facade.

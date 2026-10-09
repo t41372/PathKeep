@@ -31,18 +31,19 @@ import {
   ListSkeleton,
   QueryBody,
   SectionStatus,
-  RangeToggle,
 } from './parts'
-import { barLength, rangeBars } from './buckets'
-import { rangeDays, useRange, type RangeId } from './range'
+import { barLabel, chartDates, rangeBars } from './buckets'
+import { scopeDays, useScope, type Scope } from './range'
+import { ScopeControls } from './scope-controls'
 import { isStale } from '@/lib/backend-client/insights'
 
 export default function SitePage() {
   const { t } = useI18n()
   const format = useFormat()
   const { domain = '' } = useParams()
-  const [range, setRange] = useRange()
-  const site = useSite(domain, range)
+  const [scope] = useScope()
+  const days = scopeDays(scope)
+  const site = useSite(domain, scope)
   const data = site.data?.data
   const loading = data === undefined && !site.isError
   const updating = isStale(site.data)
@@ -50,7 +51,7 @@ export default function SitePage() {
   return (
     <PageScroll wide>
       <DrillHeader
-        back={insightsPath(range)}
+        back={insightsPath(scope)}
         eyebrow={t('insights.site.eyebrow')}
         title={domain}
         icon={
@@ -58,9 +59,9 @@ export default function SitePage() {
         }
         actions={
           <>
-            <RangeToggle value={range} onChange={setRange} />
+            <ScopeControls />
             <Button variant="outline" size="sm" asChild>
-              <Link to={historyPath({ domain, date: historyDateParam(range) })}>
+              <Link to={historyPath({ domain, date: historyDateParam(scope) })}>
                 {t('insights.openInHistory')}
               </Link>
             </Button>
@@ -77,7 +78,9 @@ export default function SitePage() {
         <KpiTile
           label={t('insights.site.activeDays')}
           value={format.number(data?.activeDays ?? 0)}
-          detail={t('insights.site.ofDays', { days: rangeDays[range] })}
+          detail={
+            days === null ? undefined : t('insights.site.ofDays', { days })
+          }
           loading={loading}
           updating={updating}
         />
@@ -95,7 +98,7 @@ export default function SitePage() {
           updating={updating}
         />
       </div>
-      <SiteTrendCard domain={domain} range={range} />
+      <SiteTrendCard domain={domain} scope={scope} />
       <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-4 max-[900px]:grid-cols-1">
         <SectionCard title={t('insights.site.topPages')}>
           <QueryBody
@@ -159,7 +162,7 @@ export default function SitePage() {
                 {result.data.landingSearches.items.map((search) => (
                   <li key={search.query}>
                     <Link
-                      to={searchPath(search.query, range)}
+                      to={searchPath(search.query, scope)}
                       className={rowLink}
                     >
                       <Search
@@ -184,26 +187,20 @@ export default function SitePage() {
   )
 }
 
-function SiteTrendCard({ domain, range }: { domain: string; range: RangeId }) {
+function SiteTrendCard({ domain, scope }: { domain: string; scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
   const navigate = useNavigate()
-  const site = useSite(domain, range)
-  const weekly = barLength(range) === 'week'
-  const points = useMemo(
-    () =>
-      rangeBars(
-        range,
-        new Map(
-          (site.data?.data.visitTrend ?? []).map((point) => [
-            point.dateKey,
-            { visits: point.visitCount },
-          ]),
-        ),
-        { visits: 0 },
-      ),
-    [site.data, range],
-  )
+  const site = useSite(domain, scope)
+  const { length, bars: points } = useMemo(() => {
+    const byDay = new Map(
+      (site.data?.data.visitTrend ?? []).map((point) => [
+        point.dateKey,
+        { visits: point.visitCount },
+      ]),
+    )
+    return rangeBars(chartDates(scope, byDay.keys()), byDay, { visits: 0 })
+  }, [site.data, scope])
   const config = useMemo(
     () => ({
       visits: {
@@ -214,15 +211,21 @@ function SiteTrendCard({ domain, range }: { domain: string; range: RangeId }) {
     [t],
   )
   const openDay = (state: MouseHandlerDataParam) => {
-    if (!weekly && typeof state.activeLabel === 'string') {
+    if (length === 'day' && typeof state.activeLabel === 'string') {
       void navigate(dayPath(state.activeLabel))
     }
   }
 
   return (
     <SectionCard
-      title={t(weekly ? 'insights.site.trendWeekly' : 'insights.site.trend')}
-      subtitle={weekly ? undefined : t('insights.site.trendHint')}
+      title={t(
+        {
+          day: 'insights.site.trend',
+          week: 'insights.site.trendWeekly',
+          month: 'insights.site.trendMonthly',
+        }[length] as 'insights.site.trend',
+      )}
+      subtitle={length === 'day' ? t('insights.site.trendHint') : undefined}
       action={<SectionStatus meta={site.data?.meta} />}
     >
       <div className="h-[200px]">
@@ -245,7 +248,7 @@ function SiteTrendCard({ domain, range }: { domain: string; range: RangeId }) {
             barRadius={3}
             chartProps={{
               onClick: openDay,
-              style: weekly ? undefined : { cursor: 'pointer' },
+              style: length === 'day' ? { cursor: 'pointer' } : undefined,
             }}
           >
             <EvilBarChart.Grid vertical={false} strokeDasharray="3 4" />
@@ -254,9 +257,7 @@ function SiteTrendCard({ domain, range }: { domain: string; range: RangeId }) {
               tickLine={false}
               axisLine={false}
               minTickGap={32}
-              tickFormatter={(value: string) =>
-                format.monthDay(`${value}T00:00:00`)
-              }
+              tickFormatter={(value: string) => barLabel(format, length, value)}
               className="font-mono"
             />
             <EvilBarChart.Tooltip />

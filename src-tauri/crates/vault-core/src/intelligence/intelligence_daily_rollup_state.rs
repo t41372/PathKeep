@@ -22,16 +22,18 @@
 //! - The accumulator only stores one row per `(date, profile, key)` bucket and
 //!   never touches SQLite.
 
-use super::{DailyRollupBundle, VisitRecord, local_date_key};
+use super::{DailyRollupBundle, VisitRecord, local_datetime_from_millis};
+use chrono::Timelike;
 use std::collections::{HashMap, HashSet};
 
 type DailyDomainKey = (String, String, String);
-type DailyDomainValue = (String, i64, i64, i64, HashSet<String>);
+type DailyDomainValue = (String, i64, i64, i64, HashSet<String>, i64);
 type DailyCategoryKey = (String, String, String);
 type DailyCategoryValue = (i64, HashSet<String>);
 type DailyEngineKey = (String, String, String);
 type DailySummaryKey = (String, String);
-type DailySummaryValue = (i64, i64, HashSet<String>, HashSet<String>, HashMap<String, i64>);
+type DailySummaryValue =
+    (i64, i64, HashSet<String>, HashSet<String>, HashMap<String, i64>, [i64; 24]);
 
 #[derive(Debug, Default)]
 pub(super) struct DailyRollupAccumulator {
@@ -43,7 +45,9 @@ pub(super) struct DailyRollupAccumulator {
 
 impl DailyRollupAccumulator {
     pub(super) fn add_visit(&mut self, visit: &VisitRecord) {
-        let date_key = local_date_key(visit.visit_time_ms);
+        // One local-time conversion per visit gives both the day and the hour.
+        let local = local_datetime_from_millis(visit.visit_time_ms);
+        let date_key = local.format("%Y-%m-%d").to_string();
         let domain_key =
             (date_key.clone(), visit.profile_id.clone(), visit.registrable_domain.clone());
         let domain_entry = self.domains.entry(domain_key).or_insert((
@@ -52,7 +56,9 @@ impl DailyRollupAccumulator {
             0,
             0,
             HashSet::new(),
+            0,
         ));
+        domain_entry.5 = domain_entry.5.max(visit.visit_time_ms);
         if visit.domain_category < domain_entry.0 {
             domain_entry.0 = visit.domain_category.clone();
         }
@@ -81,8 +87,10 @@ impl DailyRollupAccumulator {
             HashSet::new(),
             HashSet::new(),
             HashMap::new(),
+            [0; 24],
         ));
         summary_entry.0 += 1;
+        summary_entry.5[local.hour() as usize] += 1;
         summary_entry.1 += i64::from(visit.is_search_event);
         if visit.is_new_domain {
             summary_entry.2.insert(visit.registrable_domain.clone());
@@ -105,18 +113,18 @@ impl DailyRollupAccumulator {
                             search_count,
                             new_domain_visits,
                             unique_urls,
+                            last_visit_ms,
                         ),
-                    )| {
-                        (
-                            date_key,
-                            profile_id,
-                            registrable_domain,
-                            domain_category,
-                            visit_count,
-                            search_count,
-                            new_domain_visits,
-                            unique_urls.len() as i64,
-                        )
+                    )| super::DomainDayRow {
+                        date_key,
+                        profile_id,
+                        registrable_domain,
+                        domain_category,
+                        visit_count,
+                        search_count,
+                        new_domain_visits,
+                        unique_urls: unique_urls.len() as i64,
+                        last_visit_ms,
                     },
                 )
                 .collect(),
@@ -146,7 +154,14 @@ impl DailyRollupAccumulator {
                 .map(
                     |(
                         (date_key, profile_id),
-                        (total_visits, total_searches, new_domains, unique_domains, domain_counts),
+                        (
+                            total_visits,
+                            total_searches,
+                            new_domains,
+                            unique_domains,
+                            domain_counts,
+                            hours,
+                        ),
                     )| {
                         let hhi = domain_counts
                             .values()
@@ -156,16 +171,17 @@ impl DailyRollupAccumulator {
                             })
                             .sum::<f32>();
                         let discovery_rate = new_domains.len() as f32 / total_visits as f32;
-                        (
+                        super::DaySummaryRow {
                             date_key,
                             profile_id,
                             total_visits,
                             total_searches,
-                            new_domains.len() as i64,
-                            unique_domains.len() as i64,
-                            hhi,
+                            new_domains: new_domains.len() as i64,
+                            unique_domains: unique_domains.len() as i64,
+                            hhi_score: hhi,
                             discovery_rate,
-                        )
+                            hours: hours.to_vec(),
+                        }
                     },
                 )
                 .collect(),

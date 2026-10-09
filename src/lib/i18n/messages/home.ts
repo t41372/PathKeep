@@ -27,6 +27,10 @@ export const home = defineMessages({
       sourcesPaused_other: '{count} paused',
       sourcesAllOn: 'All backing up',
     },
+    building: {
+      first: 'Working out your Insights for the first time…',
+      update: 'Updating your Insights…',
+    },
     trend: {
       title: 'Last 30 days',
       subtitle: 'Visits per day, all browsers',
@@ -91,6 +95,10 @@ export const home = defineMessages({
       sourcesPaused_other: '{count} 个已暂停',
       sourcesAllOn: '全部在备份',
     },
+    building: {
+      first: '正在第一次整理你的洞察…',
+      update: '正在更新你的洞察…',
+    },
     trend: {
       title: '近 30 天浏览',
       subtitle: '每日浏览次数，所有浏览器',
@@ -153,6 +161,10 @@ export const home = defineMessages({
       sourcesPaused_one: '{count} 個已暫停',
       sourcesPaused_other: '{count} 個已暫停',
       sourcesAllOn: '全部在備份',
+    },
+    building: {
+      first: '正在第一次整理你的洞察…',
+      update: '正在更新你的洞察…',
     },
     trend: {
       title: '近 30 天瀏覽',

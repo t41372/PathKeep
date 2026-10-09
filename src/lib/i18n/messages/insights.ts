@@ -5,14 +5,25 @@ export const insights = defineMessages({
     title: 'Insights',
     subtitle: 'Computed from your local archive. Nothing leaves this computer.',
     openInHistory: 'Open in History',
+    sections: { time: 'When you browse', searching: 'Searching' },
     patterns: 'Patterns',
     times: '{count}×',
     range: {
       label: 'Time range',
+      all: 'All time',
       d7: '7d',
       d30: '30d',
       d90: '90d',
       y1: '1y',
+      custom: 'Custom',
+      customLabel: 'Custom range: {range}',
+      pick: 'Pick the first and last day',
+      apply: 'Show these days',
+      cancel: 'Cancel',
+    },
+    profile: {
+      label: 'Browser profile',
+      all: 'All browsers',
     },
     status: {
       updating: 'Updating',
@@ -24,7 +35,7 @@ export const insights = defineMessages({
       state: 'Status',
       states: {
         ready: 'Up to date',
-        stale: 'Updating after the last backup',
+        stale: 'Updating',
         degraded: 'Partly available',
         disabled: 'Turned off',
       },
@@ -34,21 +45,40 @@ export const insights = defineMessages({
       domains: 'Distinct sites',
       searches: 'Searches',
       activeTime: 'Active time',
+      newSites: 'New sites',
+      newSitesDetail: 'Sites visited for the first time in this range',
+      deepDives: 'Deep dives',
+      deepDivesDetail:
+        'Sessions that followed links four or more pages deep, across five or more sites, including a new one',
+      reopened: 'Pages reopened',
+      reopenedDetail: 'Pages opened again on more than one day',
       vsPrevious: 'Compared with the previous {days} days',
       hours: '{value} h',
       minutes: '{value} min',
     },
     daily: {
-      title: 'Daily activity',
-      hint: 'Click a day to see it in detail',
+      title: 'Browsing over time',
+      hint: 'Per day. Click a day to see it in detail.',
+      perWeek: 'Per week, starting Monday.',
+      perMonth: 'Per month.',
       pages: 'Pages',
       searches: 'Searches',
     },
     topSites: {
       title: 'Top sites',
       empty: 'No visits in this range.',
+      orderLabel: 'Order sites by',
+      order: {
+        visits: 'Visits',
+        unique_days: 'Days visited',
+        average_daily_visits: 'Visits per day',
+      },
     },
     rhythm: {
+      weekday: 'Weekdays',
+      weekend: 'Weekends',
+      perDay: '{visits} a day',
+      busiest: 'Busiest hours:',
       title: 'Rhythm',
       subtitle: 'Visits by hour of the day, across the week',
       cell: '{day} {hour}:00 · {visits}',
@@ -57,6 +87,79 @@ export const insights = defineMessages({
     searches: {
       title: 'Frequent searches',
       empty: 'No searches in this range.',
+    },
+    engines: {
+      title: 'Where you search',
+      explain:
+        'Searches on each search engine or site search, in this range. Search engines are recognized by their address.',
+    },
+    words: {
+      title: 'What you search for',
+      subtitle: 'Words that come up most in your searches',
+      explain:
+        'Each word counts once per search it appears in. Single letters, bare numbers and filler words such as "the" are left out. Click a word to find every page it led to in History.',
+    },
+    outcomes: {
+      title: 'How your searches go',
+      explain:
+        'For each search engine: searches in this range, how many times a search was reworded on average before you moved on, and how many pages it opened. Below, the searches you came back to most, and over how many days.',
+      searches_one: '{searches} search',
+      searches_other: '{searches} searches',
+      engine:
+        'Reworded {rewordings}× on average · {pages} pages opened per search',
+      mostReturned: 'Searches you came back to most',
+      topic_one: '{searches} search over {days} days',
+      topic_other: '{searches} searches over {days} days',
+    },
+    tries: {
+      title: 'Searches that took several tries',
+      subtitle: 'Reworded twice or more, or no result opened',
+      explain:
+        'A search is reworded when you search again on the same engine soon after, with the same words plus or minus some. Click one to see each time you searched it and where it led.',
+      empty: 'Every search in this range found something within a try or two.',
+      reworded_one: 'Reworded once',
+      reworded_other: 'Reworded {times} times',
+      endedOn: 'ended on {site}',
+      noResult: 'no result opened',
+    },
+    paths: {
+      title: 'How you move between sites',
+      subtitle: 'Three sites in a row, most often first',
+      explain:
+        'Three different sites visited one after another in the same session. Going back to a site you just left (a search engine, say) makes a round trip, which is not counted as a path. A path counts on the day you reached its last site, so the first two can be earlier than the range.',
+      empty:
+        'No three sites came one after another more than once in this range.',
+      then: 'then',
+      times_one: '{times} time',
+      times_other: '{times} times',
+    },
+    landings: {
+      title: 'Where your searches end up',
+      subtitle: 'Sites your searches led to, most first',
+      explain:
+        'Each search counts for the site of the first page you opened after it (after its last wording, if you reworded it). Fewer different searches than searches means you kept coming back for the same things.',
+      counts_one: '{searches} search · {queries} different',
+      counts_other: '{searches} searches · {queries} different',
+    },
+    compared: {
+      title: 'Pages you compared',
+      subtitle: 'Pages you went back and forth between in one search',
+      explain:
+        'Pages of the same kind (products, docs, articles, videos…) on two or more sites, or several pages of one site, that you switched between at least twice during one search.',
+      empty: 'No search in this range had you comparing pages.',
+      pages_one: '{pages} page',
+      pages_other: '{pages} pages',
+      sites_one: 'on {sites} site',
+      sites_other: 'on {sites} sites',
+    },
+    newSites: {
+      title: 'New sites',
+      series: 'New sites',
+      none: 'No site in this range was new; every one had been visited before.',
+      total_one: '{sites} site visited for the first time',
+      total_other: '{sites} sites visited for the first time',
+      explain:
+        'A site counts on the first day you visited it in any browser, or in the browser profile chosen above.',
     },
     refind: {
       title: 'Pages you keep reopening',
@@ -116,6 +219,9 @@ export const insights = defineMessages({
       shared_other: '{count} sites were visited in more than one browser.',
     },
     day: {
+      reopened: 'Pages you came back to',
+      reopenedHint: 'Opened this day, and on other days too',
+      reopenedEmpty: 'Nothing opened this day was one you keep coming back to.',
       eyebrow: 'Day',
       previous: 'Previous day',
       next: 'Next day',
@@ -151,6 +257,7 @@ export const insights = defineMessages({
       noSearches: 'No searches led here in this range.',
       trend: 'Visits per day',
       trendWeekly: 'Visits per week',
+      trendMonthly: 'Visits per month',
       trendHint: 'Click a day to see it in detail',
     },
     search: {
@@ -208,20 +315,31 @@ export const insights = defineMessages({
       recentDays: 'Recent days you opened it',
       noDays: 'No recent days to show.',
     },
-    stale: 'Updating after the last backup…',
+    stale: 'Updating your Insights…',
   },
   'zh-CN': {
     title: '洞察',
     subtitle: '全部来自本机存档，不经过网络',
     openInHistory: '在历史中打开',
+    sections: { time: '什么时候浏览', searching: '搜索' },
     patterns: '规律',
     times: '{count} 次',
     range: {
       label: '时间范围',
+      all: '全部时间',
       d7: '7 天',
       d30: '30 天',
       d90: '90 天',
       y1: '1 年',
+      custom: '自定义',
+      customLabel: '自定义范围：{range}',
+      pick: '选择第一天和最后一天',
+      apply: '查看这几天',
+      cancel: '取消',
+    },
+    profile: {
+      label: '浏览器配置',
+      all: '所有浏览器',
     },
     status: {
       updating: '更新中',
@@ -233,7 +351,7 @@ export const insights = defineMessages({
       state: '状态',
       states: {
         ready: '已是最新',
-        stale: '正在根据上次备份更新',
+        stale: '正在更新',
         degraded: '部分可用',
         disabled: '已关闭',
       },
@@ -243,21 +361,39 @@ export const insights = defineMessages({
       domains: '不同网站',
       searches: '搜索次数',
       activeTime: '活跃时间',
+      newSites: '新网站',
+      newSitesDetail: '这段时间第一次去的网站',
+      deepDives: '深入浏览',
+      deepDivesDetail: '一路点下去四层以上、经过五个以上网站且有新网站的浏览',
+      reopened: '重新打开的页面',
+      reopenedDetail: '在不止一天又打开过的页面',
       vsPrevious: '与前 {days} 天相比',
       hours: '{value} 小时',
       minutes: '{value} 分钟',
     },
     daily: {
-      title: '每日活动',
-      hint: '点某一天查看详情',
+      title: '浏览走势',
+      hint: '每天一条。点某一天查看详情。',
+      perWeek: '每周一条，从周一算起。',
+      perMonth: '每月一条。',
       pages: '页面',
       searches: '搜索',
     },
     topSites: {
       title: '最常浏览',
       empty: '这段时间没有浏览记录。',
+      orderLabel: '网站排序方式',
+      order: {
+        visits: '浏览次数',
+        unique_days: '去过的天数',
+        average_daily_visits: '每天浏览次数',
+      },
     },
     rhythm: {
+      weekday: '工作日',
+      weekend: '周末',
+      perDay: '每天 {visits} 次',
+      busiest: '最忙的时段：',
       title: '浏览节奏',
       subtitle: '一周内每小时的浏览量',
       cell: '周{day} {hour} 点 · {visits}',
@@ -266,6 +402,77 @@ export const insights = defineMessages({
     searches: {
       title: '常用搜索词',
       empty: '这段时间没有搜索。',
+    },
+    engines: {
+      title: '在哪里搜索',
+      explain:
+        '这段时间在每个搜索引擎或站内搜索里搜索的次数。搜索引擎按网址识别。',
+    },
+    words: {
+      title: '搜索什么',
+      subtitle: '搜索里最常出现的词',
+      explain:
+        '一个词在一次搜索里出现只算一次。单个字母、单独的数字和 "the" 之类的虚词不计。点一个词，在历史里找出它带你去过的所有页面。',
+    },
+    outcomes: {
+      title: '搜索得怎么样',
+      explain:
+        '每个搜索引擎：这段时间的搜索次数，一次搜索平均改写几次才往下走，以及打开了几个页面。下方是你最常回来再搜的搜索，以及跨了多少天。',
+      searches_one: '搜索 {searches} 次',
+      searches_other: '搜索 {searches} 次',
+      engine: '平均改写 {rewordings} 次 · 每次搜索打开 {pages} 个页面',
+      mostReturned: '最常回来再搜的',
+      topic_one: '{days} 天里搜索 {searches} 次',
+      topic_other: '{days} 天里搜索 {searches} 次',
+    },
+    tries: {
+      title: '试了好几次的搜索',
+      subtitle: '改写两次以上，或没有打开任何结果',
+      explain:
+        '在同一个搜索引擎上，紧接着用差不多的词（多几个或少几个）再搜一次，就算改写。点一个搜索，看每一次搜索和它带你去了哪里。',
+      empty: '这段时间的搜索都在一两次内找到了东西。',
+      reworded_one: '改写 1 次',
+      reworded_other: '改写 {times} 次',
+      endedOn: '最后到了 {site}',
+      noResult: '没有打开任何结果',
+    },
+    paths: {
+      title: '在网站之间怎么走',
+      subtitle: '连着去的三个网站，最常见的在前',
+      explain:
+        '同一段浏览里先后去的三个不同网站。回到刚离开的网站（比如搜索引擎）算来回，不算一条路线。一条路线算在到达最后一个网站的那天，所以前两个网站可以早于这段时间。',
+      empty: '这段时间没有哪三个网站接连出现超过一次。',
+      then: '然后',
+      times_one: '{times} 次',
+      times_other: '{times} 次',
+    },
+    landings: {
+      title: '搜索最后到了哪里',
+      subtitle: '搜索带你去的网站，最多的在前',
+      explain:
+        '每次搜索算在它之后（改写过的话，最后一次改写之后）打开的第一个页面所在的网站。不同的搜索比搜索次数少，表示你常为同样的事回来。',
+      counts_one: '搜索 {searches} 次 · {queries} 种',
+      counts_other: '搜索 {searches} 次 · {queries} 种',
+    },
+    compared: {
+      title: '比较过的页面',
+      subtitle: '一次搜索里来回看的页面',
+      explain:
+        '同一类页面（商品、文档、文章、视频……）分布在两个以上的网站，或同一网站的几个页面，在一次搜索里来回切换至少两次。',
+      empty: '这段时间的搜索里没有来回比较页面。',
+      pages_one: '{pages} 个页面',
+      pages_other: '{pages} 个页面',
+      sites_one: '在 {sites} 个网站',
+      sites_other: '在 {sites} 个网站',
+    },
+    newSites: {
+      title: '新网站',
+      series: '新网站',
+      none: '这段时间没有新网站，去过的网站之前都去过。',
+      total_one: '第一次去的网站 {sites} 个',
+      total_other: '第一次去的网站 {sites} 个',
+      explain:
+        '一个网站算在你第一次在任何浏览器（或上面选的浏览器配置）去它的那一天。',
     },
     refind: {
       title: '反复打开的页面',
@@ -325,6 +532,9 @@ export const insights = defineMessages({
       shared_other: '有 {count} 个网站在不止一个浏览器里去过。',
     },
     day: {
+      reopened: '回来再看的页面',
+      reopenedHint: '这天打开过，其他日子也打开过',
+      reopenedEmpty: '这天打开的页面都不是你常回来看的。',
       eyebrow: '某一天',
       previous: '前一天',
       next: '后一天',
@@ -360,6 +570,7 @@ export const insights = defineMessages({
       noSearches: '这段时间没有从搜索来到这里。',
       trend: '每日浏览',
       trendWeekly: '每周浏览',
+      trendMonthly: '每月浏览',
       trendHint: '点某一天查看详情',
     },
     search: {
@@ -416,20 +627,31 @@ export const insights = defineMessages({
       recentDays: '最近打开的日子',
       noDays: '没有可显示的日子。',
     },
-    stale: '正在根据上次备份更新…',
+    stale: '正在更新你的洞察…',
   },
   'zh-TW': {
     title: '洞察',
     subtitle: '全部來自本機存檔，不經過網路',
     openInHistory: '在歷史中打開',
+    sections: { time: '什麼時候瀏覽', searching: '搜尋' },
     patterns: '規律',
     times: '{count} 次',
     range: {
       label: '時間範圍',
+      all: '全部時間',
       d7: '7 天',
       d30: '30 天',
       d90: '90 天',
       y1: '1 年',
+      custom: '自訂',
+      customLabel: '自訂範圍：{range}',
+      pick: '選擇第一天和最後一天',
+      apply: '查看這幾天',
+      cancel: '取消',
+    },
+    profile: {
+      label: '瀏覽器設定檔',
+      all: '所有瀏覽器',
     },
     status: {
       updating: '更新中',
@@ -441,7 +663,7 @@ export const insights = defineMessages({
       state: '狀態',
       states: {
         ready: '已是最新',
-        stale: '正在根據上次備份更新',
+        stale: '正在更新',
         degraded: '部分可用',
         disabled: '已關閉',
       },
@@ -451,21 +673,39 @@ export const insights = defineMessages({
       domains: '不同網站',
       searches: '搜尋次數',
       activeTime: '活躍時間',
+      newSites: '新網站',
+      newSitesDetail: '這段時間第一次去的網站',
+      deepDives: '深入瀏覽',
+      deepDivesDetail: '一路點下去四層以上、經過五個以上網站且有新網站的瀏覽',
+      reopened: '重新打開的頁面',
+      reopenedDetail: '在不止一天又打開過的頁面',
       vsPrevious: '與前 {days} 天相比',
       hours: '{value} 小時',
       minutes: '{value} 分鐘',
     },
     daily: {
-      title: '每日活動',
-      hint: '點某一天查看詳情',
+      title: '瀏覽走勢',
+      hint: '每天一條。點某一天查看詳情。',
+      perWeek: '每週一條，從週一算起。',
+      perMonth: '每月一條。',
       pages: '頁面',
       searches: '搜尋',
     },
     topSites: {
       title: '最常瀏覽',
       empty: '這段時間沒有瀏覽記錄。',
+      orderLabel: '網站排序方式',
+      order: {
+        visits: '瀏覽次數',
+        unique_days: '去過的天數',
+        average_daily_visits: '每天瀏覽次數',
+      },
     },
     rhythm: {
+      weekday: '平日',
+      weekend: '週末',
+      perDay: '每天 {visits} 次',
+      busiest: '最忙的時段：',
       title: '瀏覽節奏',
       subtitle: '一週內每小時的瀏覽量',
       cell: '週{day} {hour} 點 · {visits}',
@@ -474,6 +714,77 @@ export const insights = defineMessages({
     searches: {
       title: '常用搜尋詞',
       empty: '這段時間沒有搜尋。',
+    },
+    engines: {
+      title: '在哪裡搜尋',
+      explain:
+        '這段時間在每個搜尋引擎或站內搜尋裡搜尋的次數。搜尋引擎按網址辨識。',
+    },
+    words: {
+      title: '搜尋什麼',
+      subtitle: '搜尋裡最常出現的詞',
+      explain:
+        '一個詞在一次搜尋裡出現只算一次。單個字母、單獨的數字和 "the" 之類的虛詞不計。點一個詞，在歷史裡找出它帶你去過的所有頁面。',
+    },
+    outcomes: {
+      title: '搜尋得怎麼樣',
+      explain:
+        '每個搜尋引擎：這段時間的搜尋次數，一次搜尋平均改寫幾次才往下走，以及打開了幾個頁面。下方是你最常回來再搜的搜尋，以及跨了多少天。',
+      searches_one: '搜尋 {searches} 次',
+      searches_other: '搜尋 {searches} 次',
+      engine: '平均改寫 {rewordings} 次 · 每次搜尋打開 {pages} 個頁面',
+      mostReturned: '最常回來再搜的',
+      topic_one: '{days} 天裡搜尋 {searches} 次',
+      topic_other: '{days} 天裡搜尋 {searches} 次',
+    },
+    tries: {
+      title: '試了好幾次的搜尋',
+      subtitle: '改寫兩次以上，或沒有打開任何結果',
+      explain:
+        '在同一個搜尋引擎上，緊接著用差不多的詞（多幾個或少幾個）再搜一次，就算改寫。點一個搜尋，看每一次搜尋和它帶你去了哪裡。',
+      empty: '這段時間的搜尋都在一兩次內找到了東西。',
+      reworded_one: '改寫 1 次',
+      reworded_other: '改寫 {times} 次',
+      endedOn: '最後到了 {site}',
+      noResult: '沒有打開任何結果',
+    },
+    paths: {
+      title: '在網站之間怎麼走',
+      subtitle: '連著去的三個網站，最常見的在前',
+      explain:
+        '同一段瀏覽裡先後去的三個不同網站。回到剛離開的網站（例如搜尋引擎）算來回，不算一條路線。一條路線算在到達最後一個網站的那天，所以前兩個網站可以早於這段時間。',
+      empty: '這段時間沒有哪三個網站接連出現超過一次。',
+      then: '然後',
+      times_one: '{times} 次',
+      times_other: '{times} 次',
+    },
+    landings: {
+      title: '搜尋最後到了哪裡',
+      subtitle: '搜尋帶你去的網站，最多的在前',
+      explain:
+        '每次搜尋算在它之後（改寫過的話，最後一次改寫之後）打開的第一個頁面所在的網站。不同的搜尋比搜尋次數少，表示你常為同樣的事回來。',
+      counts_one: '搜尋 {searches} 次 · {queries} 種',
+      counts_other: '搜尋 {searches} 次 · {queries} 種',
+    },
+    compared: {
+      title: '比較過的頁面',
+      subtitle: '一次搜尋裡來回看的頁面',
+      explain:
+        '同一類頁面（商品、文件、文章、影片……）分布在兩個以上的網站，或同一網站的幾個頁面，在一次搜尋裡來回切換至少兩次。',
+      empty: '這段時間的搜尋裡沒有來回比較頁面。',
+      pages_one: '{pages} 個頁面',
+      pages_other: '{pages} 個頁面',
+      sites_one: '在 {sites} 個網站',
+      sites_other: '在 {sites} 個網站',
+    },
+    newSites: {
+      title: '新網站',
+      series: '新網站',
+      none: '這段時間沒有新網站，去過的網站之前都去過。',
+      total_one: '第一次去的網站 {sites} 個',
+      total_other: '第一次去的網站 {sites} 個',
+      explain:
+        '一個網站算在你第一次在任何瀏覽器（或上面選的瀏覽器設定檔）去它的那一天。',
     },
     refind: {
       title: '反覆打開的頁面',
@@ -533,6 +844,9 @@ export const insights = defineMessages({
       shared_other: '有 {count} 個網站在不只一個瀏覽器裡去過。',
     },
     day: {
+      reopened: '回來再看的頁面',
+      reopenedHint: '這天打開過，其他日子也打開過',
+      reopenedEmpty: '這天打開的頁面都不是你常回來看的。',
       eyebrow: '某一天',
       previous: '前一天',
       next: '後一天',
@@ -568,6 +882,7 @@ export const insights = defineMessages({
       noSearches: '這段時間沒有從搜尋來到這裡。',
       trend: '每日瀏覽',
       trendWeekly: '每週瀏覽',
+      trendMonthly: '每月瀏覽',
       trendHint: '點某一天查看詳情',
     },
     search: {
@@ -624,6 +939,6 @@ export const insights = defineMessages({
       recentDays: '最近打開的日子',
       noDays: '沒有可顯示的日子。',
     },
-    stale: '正在根據上次備份更新…',
+    stale: '正在更新你的洞察…',
   },
 })

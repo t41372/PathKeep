@@ -10,16 +10,22 @@ import type {
   ActivityMixTrend,
   BreadthIndex,
   BrowserDiff,
+  CompareSet,
   CoreIntelligenceSectionMeta,
   DateRange,
   DayInsights,
   DigestSummary,
   DiscoveryTrend,
   DomainDeepDive,
+  EngineRanking,
   FrequentSearch,
+  FrictionSignal,
   HabitPattern,
+  InterruptedHabit,
+  ObservedInteraction,
   OnThisDayEntry,
   Page,
+  PathFlow,
   QueryFamilyDetail,
   QueryFamilyResult,
   RefindPage,
@@ -27,6 +33,8 @@ import type {
   ReopenedInvestigation,
   RhythmHeatmap,
   SearchConcept,
+  SearchEffectiveness,
+  StableSource,
   SearchQueryListResult,
   SearchQuerySort,
   SessionDetail,
@@ -77,9 +85,14 @@ export const insightsClient = {
   onThisDay: (profileId?: string | null) =>
     section<OnThisDayEntry[]>('get_on_this_day', { profileId }),
   /** One page of sites; `limit` is the page size. */
-  topSites: (scope: Scope, limit = 10, cursor: string | null = null) =>
+  topSites: (
+    scope: Scope,
+    limit = 10,
+    cursor: string | null = null,
+    sortBy: 'visits' | 'unique_days' | 'average_daily_visits' = 'visits',
+  ) =>
     section<Page<TopSite>>('get_top_sites', {
-      request: { ...scope, sortBy: 'visits', limit, cursor },
+      request: { ...scope, sortBy, limit, cursor },
     }),
   rhythm: (scope: Scope) =>
     section<RhythmHeatmap>('get_browsing_rhythm', { request: scope }),
@@ -168,6 +181,52 @@ export const insightsClient = {
   /** Per browser profile; ignores `profileId`. */
   browsers: (scope: Scope) =>
     section<BrowserDiff>('get_multi_browser_diff', { request: scope }),
+  /** Habits whose usual gap has passed twice over, as of the last Insights build. */
+  interruptedHabits: (profileId: string | null = null) =>
+    section<InterruptedHabit[]>('get_interrupted_habits', {
+      request: { profileId },
+    }),
+  searchEngines: (scope: Scope) =>
+    section<EngineRanking[]>('get_search_engine_ranking', { request: scope }),
+  /** Sequences of sites visited one after another, most frequent first. */
+  paths: (scope: Scope, steps = 3, limit = 15, cursor: string | null = null) =>
+    section<Page<PathFlow>>('get_path_flows', {
+      request: { ...scope, stepCount: steps, limit, cursor },
+    }),
+  /** Per engine: searches, rewordings and pages opened; and the searches come back to most. */
+  searchEffectiveness: (scope: Scope) =>
+    section<SearchEffectiveness>('get_search_effectiveness', {
+      request: {
+        ...scope,
+        engine: null,
+        topicsLimit: null,
+        topicsCursor: null,
+      },
+    }),
+  /** The sites searches ended on, most first. */
+  searchLandings: (scope: Scope, limit = 10, cursor: string | null = null) =>
+    section<Page<StableSource>>('get_stable_sources', {
+      request: { ...scope, limit, cursor },
+    }),
+  /** Searches reworded twice or more, or that never settled on a page. */
+  friction: (scope: Scope, limit = 10, cursor: string | null = null) =>
+    section<Page<FrictionSignal>>('get_friction_signals', {
+      request: { ...scope, limit, cursor },
+    }),
+  /** Pages of one kind gone back and forth between within one search, newest first. */
+  compareSets: (scope: Scope, limit = 6, cursor: string | null = null) =>
+    section<Page<CompareSet>>('get_compare_sets', {
+      request: { ...scope, limit, cursor },
+    }),
+  /** What Chromium recorded about time on a page, newest first. */
+  observedInteractions: (
+    scope: Scope,
+    limit = 10,
+    cursor: string | null = null,
+  ) =>
+    section<Page<ObservedInteraction>>('get_observed_interactions', {
+      request: { ...scope, limit, cursor },
+    }),
 }
 
 /** True while the background job that refreshes this section is running. */

@@ -12,7 +12,7 @@
 //! ## Not responsible for
 //! - Running structural rebuild stages or deciding when fallbacks are needed.
 //! - Persisting rows into SQLite.
-//! - Building refind, habit, or source-effectiveness aggregates.
+//! - Building refind or habit aggregates.
 //!
 //! ## Dependencies
 //! - Parent-module structural record types and domain-display helpers.
@@ -24,8 +24,68 @@
 
 use super::{
     SessionRecord, StructuralVisitRecord, TrailMemberRecord, TrailRecord, display_name_for_domain,
+    jaccard, local_date_key, normalize_query, query_token_set,
 };
 use std::collections::HashMap;
+
+/// The longest common path is four sites, so a segment keeps the three sites before its own.
+const PATH_PREFIX_SITES: usize = 3;
+/// Sites a segment holds of its own before the next one starts: bounds a row, and the work of
+/// re-saving the open segment after every batch, when one session runs for days (a visit every
+/// few minutes never ends a session).
+const PATH_SEGMENT_SITES: usize = 256;
+
+/// One stretch of a session's sites, in order, each with the time of its last visit in that run
+/// of visits. Bounded ranges count common paths from these (`path_flows::get_path_flows`): a path
+/// belongs to the segment holding its last site, so a segment starts with the last
+/// `PATH_PREFIX_SITES` sites of the one before it (`prefix_len` of them), and every path is in
+/// exactly one segment. A segment's own sites all start on one local day (`date_key`), which is
+/// what a date range selects.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub(super) struct PathSegment {
+    pub(super) segment: i64,
+    pub(super) date_key: String,
+    pub(super) prefix_len: usize,
+    pub(super) sites: Vec<(String, i64)>,
+}
+
+impl PathSegment {
+    /// Adds one visit. A visit to the site already last in the path only moves its time; a new
+    /// site on another day than the segment's own, or past the size bound, closes this segment
+    /// and returns it to be saved.
+    pub(super) fn push(&mut self, domain: &str, visit_time_ms: i64) -> Option<PathSegment> {
+        if let Some((last, time)) = self.sites.last_mut()
+            && last == domain
+        {
+            *time = visit_time_ms;
+            return None;
+        }
+        let day = local_date_key(visit_time_ms);
+        let own = self.sites.len() - self.prefix_len;
+        let closed = (own > 0 && (own >= PATH_SEGMENT_SITES || day != self.date_key)).then(|| {
+            let prefix = self.sites[self.sites.len().saturating_sub(PATH_PREFIX_SITES)..].to_vec();
+            std::mem::replace(
+                self,
+                PathSegment {
+                    segment: self.segment + 1,
+                    date_key: day.clone(),
+                    prefix_len: prefix.len(),
+                    sites: prefix,
+                },
+            )
+        });
+        if self.sites.len() == self.prefix_len {
+            self.date_key = day;
+        }
+        self.sites.push((domain.to_owned(), visit_time_ms));
+        closed
+    }
+
+    /// Whether the segment has sites of its own to save.
+    pub(super) fn has_own_sites(&self) -> bool {
+        self.sites.len() > self.prefix_len
+    }
+}
 
 /// Tracks one in-progress browsing session while visits stream through the
 /// deterministic grouping rules.
@@ -37,6 +97,9 @@ pub(super) struct SessionBuildState {
     first_search_query: Option<String>,
     navigation_chain_depth: i64,
     new_domain_count: i64,
+    /// The open path segment; earlier ones are already saved.
+    #[serde(default)]
+    pub(super) path: PathSegment,
 }
 
 impl SessionBuildState {
@@ -59,6 +122,7 @@ impl SessionBuildState {
             first_search_query: None,
             navigation_chain_depth: 0,
             new_domain_count: 0,
+            path: PathSegment::default(),
         }
     }
 
@@ -98,6 +162,10 @@ impl SessionBuildState {
 pub(super) struct TrailBuildState {
     pub(super) record: TrailRecord,
     next_ordinal: i64,
+    /// A rewording was just added, so the next page opened is the new landing. Saved with the
+    /// rest of the state between rebuild batches; states saved before it existed read as false.
+    #[serde(default)]
+    lands_next: bool,
 }
 
 impl TrailBuildState {
@@ -131,6 +199,7 @@ impl TrailBuildState {
                 members: vec![search_event_member],
             },
             next_ordinal: 1,
+            lands_next: false,
         }
     }
 
@@ -156,12 +225,16 @@ impl TrailBuildState {
     pub(super) fn append_visit(&mut self, visit: &StructuralVisitRecord) -> TrailMemberRecord {
         let ordinal = self.next_ordinal;
         self.next_ordinal += 1;
-        let role = if self.record.landing_url.is_none() { "landing" } else { "click" };
+        let lands = self.record.landing_url.is_none() || self.lands_next;
+        let role = if lands { "landing" } else { "click" };
         self.record.visit_count += 1;
         self.record.last_visit_ms = visit.visit_time_ms;
         self.record.max_depth = self.record.max_depth.max(ordinal);
-        self.record.landing_url.get_or_insert_with(|| visit.url.clone());
-        self.record.landing_domain.get_or_insert_with(|| visit.registrable_domain.clone());
+        if lands {
+            self.record.landing_url = Some(visit.url.clone());
+            self.record.landing_domain = Some(visit.registrable_domain.clone());
+            self.lands_next = false;
+        }
         let member = TrailMemberRecord {
             trail_id: self.record.trail_id.clone(),
             profile_id: self.record.profile_id.clone(),
@@ -171,6 +244,52 @@ impl TrailBuildState {
         };
         self.record.members.push(member.clone());
         member
+    }
+
+    /// Whether `search` rewords this trail's latest query, on the same engine: the two share at
+    /// least half their words, as a query family requires ("nikon z f review", "nikon z f vs
+    /// z6iii"), or one's words are all in the other ("tokio select", "tokio select macro").
+    /// Repeating the query counts too, as the same search. Session and time gap are the caller's
+    /// to check.
+    pub(super) fn is_rewording(&self, search: &StructuralVisitRecord) -> bool {
+        if search.search_engine.as_deref().unwrap_or("unknown") != self.record.search_engine {
+            return false;
+        }
+        let latest = query_token_set(self.record.queries.last().map_or("", String::as_str));
+        let next = query_token_set(search.search_query.as_deref().unwrap_or_default());
+        !latest.is_empty()
+            && !next.is_empty()
+            && (latest.is_subset(&next)
+                || next.is_subset(&latest)
+                || jaccard(&latest, &next) >= 0.5)
+    }
+
+    /// Adds a search that rewords this trail (see `is_rewording`). A new wording counts as a
+    /// reformulation. The next page opened becomes the trail's landing, so the trail ends where
+    /// the last search led; if none is opened it keeps the landing it had.
+    pub(super) fn append_rewording(&mut self, search: &StructuralVisitRecord) -> TrailMemberRecord {
+        let ordinal = self.next_ordinal;
+        self.next_ordinal += 1;
+        let query = search.search_query.clone().unwrap_or_else(|| "search".to_string());
+        if self
+            .record
+            .queries
+            .last()
+            .is_none_or(|last| normalize_query(last) != normalize_query(&query))
+        {
+            self.record.queries.push(query);
+            self.record.reformulation_count += 1;
+        }
+        self.record.visit_count += 1;
+        self.record.last_visit_ms = search.visit_time_ms;
+        self.lands_next = true;
+        TrailMemberRecord {
+            trail_id: self.record.trail_id.clone(),
+            profile_id: self.record.profile_id.clone(),
+            visit_id: search.visit_id,
+            ordinal,
+            role: "search_event".to_string(),
+        }
     }
 
     /// Finalizes the trail once the session-local search journey ends.

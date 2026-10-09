@@ -5,12 +5,14 @@ use super::{Fixture, ForeignKey};
 
 pub(super) const TABLES: &[&str] = &[
     "session_domains",
+    "session_paths",
     "__pk_migrations",
     "ai_assistant_runs",
     "ai_embeddings",
     "ai_index_ledger",
     "ai_jobs",
     "category_daily_rollups_rows",
+    "compare_sets_rows",
     "core_intelligence_stage_checkpoints",
     "daily_summary_rollups_rows",
     "deterministic_module_runtime",
@@ -32,7 +34,6 @@ pub(super) const TABLES: &[&str] = &[
     "search_trails_rows",
     "sessions_rows",
     "site_dictionary_overrides",
-    "source_effectiveness_rows",
     "sqlite_sequence",
     "page_content_enrichments",
     "visit_derived_facts_rows",
@@ -54,6 +55,7 @@ pub(super) const TABLES: &[&str] = &[
 ];
 pub(super) const INDEXES: &[&str] = &[
     "sqlite_autoindex_session_domains_1",
+    "sqlite_autoindex_session_paths_1",
     "idx_search_trail_members_order",
     "idx_search_events_query_time",
     "idx_ai_embeddings_history_id",
@@ -77,13 +79,13 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_search_trails_profile_time_trail",
     "idx_sessions_profile_time",
     "idx_site_dictionary_overrides_target",
-    "idx_source_effectiveness_profile_score",
     "idx_vdf_profile_domain",
     "idx_page_content_enrichments_canonical",
     "idx_page_content_enrichments_status",
     "sqlite_autoindex_ai_embeddings_1",
     "sqlite_autoindex_ai_index_ledger_1",
     "sqlite_autoindex_category_daily_rollups_rows_1",
+    "sqlite_autoindex_compare_sets_rows_1",
     "sqlite_autoindex_core_intelligence_stage_checkpoints_1",
     "sqlite_autoindex_daily_summary_rollups_rows_1",
     "sqlite_autoindex_deterministic_module_runtime_1",
@@ -103,7 +105,6 @@ pub(super) const INDEXES: &[&str] = &[
     "sqlite_autoindex_search_trails_rows_1",
     "sqlite_autoindex_sessions_rows_1",
     "sqlite_autoindex_site_dictionary_overrides_1",
-    "sqlite_autoindex_source_effectiveness_rows_1",
     "sqlite_autoindex_page_content_enrichments_1",
     "sqlite_autoindex_visit_derived_facts_rows_1",
     "sqlite_autoindex_search_events_rows_1",
@@ -131,9 +132,17 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_query_families_recent",
     "idx_query_families_members",
     "idx_query_family_queries_query",
-    "idx_source_effectiveness_rank",
     "idx_reopened_investigations_recent",
     "idx_path_flows_profile_rank",
+    "idx_domain_daily_first_day",
+    "idx_compare_sets_recent",
+    "idx_daily_summary_range",
+    "idx_domain_daily_range",
+    "idx_sessions_range",
+    "idx_refind_pages_range",
+    "idx_search_trails_landing",
+    "idx_domain_daily_site",
+    "idx_session_paths_range",
 ];
 pub(super) const ROWS: &[Fixture] = &[
     Fixture {
@@ -141,6 +150,12 @@ pub(super) const ROWS: &[Fixture] = &[
         columns: "generation,profile_id,session_id,domain,visit_count",
         values: "1,'sample','sample','sample',1",
         updated: "visit_count=2",
+    },
+    Fixture {
+        table: "session_paths",
+        columns: "generation,profile_id,session_id,segment,date_key,prefix_len,sites_json",
+        values: "1,'sample','sample',0,'2026-01-01',0,'[]'",
+        updated: "prefix_len=1",
     },
     Fixture {
         table: "intelligence_generations",
@@ -263,12 +278,6 @@ pub(super) const ROWS: &[Fixture] = &[
         updated: "url = 'changed'",
     },
     Fixture {
-        table: "source_effectiveness_rows",
-        columns: "generation, profile_id, registrable_domain, source_role, trail_count, stable_landing_count, effectiveness_score, evidence_json, first_seen_ms, last_seen_ms, computed_at",
-        values: "1, 'sample', 'sample', 'sample', 1, 1, 1.5, 'sample', 1, 1, 'sample'",
-        updated: "source_role = 'changed'",
-    },
-    Fixture {
         table: "habit_patterns_rows",
         columns: "generation, profile_id, registrable_domain, habit_type, mean_interval_days, cv, visit_count, last_visited_ms, is_interrupted, computed_at",
         values: "1, 'sample', 'sample', 'sample', 1.5, 1.5, 1, 1, 1, 'sample'",
@@ -285,6 +294,12 @@ pub(super) const ROWS: &[Fixture] = &[
         columns: "generation, profile_id, flow_pattern, step_count, occurrence_count, last_seen_ms",
         values: "1, 'sample', 'sample', 1, 1, 1",
         updated: "occurrence_count = 2",
+    },
+    Fixture {
+        table: "compare_sets_rows",
+        columns: "generation, compare_set_id, profile_id, trail_id, search_query, page_category, first_visit_ms, last_visit_ms, pages_json, computed_at",
+        values: "1, 'sample', 'sample', 'sample', 'sample', 'sample', 1, 1, 'sample', 'sample'",
+        updated: "search_query = 'changed'",
     },
     Fixture {
         table: "page_content_enrichments",
@@ -376,8 +391,8 @@ pub(super) const VIEWS: &[&str] = &[
     "query_families",
     "query_family_queries",
     "refind_pages",
-    "source_effectiveness",
     "habit_patterns",
     "reopened_investigations",
     "path_flows",
+    "compare_sets",
 ];

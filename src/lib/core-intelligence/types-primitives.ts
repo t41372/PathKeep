@@ -53,7 +53,6 @@ export interface CoreIntelligenceRebuildReport {
   searchTrails: number
   queryFamilies: number
   refindPages: number
-  sourceEffectiveness: number
   reopenedInvestigations: number
   stageTimingsMs?: CoreIntelligenceStageTimings | null
   notes: string[]

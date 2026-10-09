@@ -166,8 +166,21 @@ test('a day from the Home heatmap matches the fixture, then opens History', asyn
   // One row per distinct search that day, each the query as typed.
   const searchRows = card(page, 'Searches').getByRole('listitem')
   await expect(searchRows).toHaveCount(terms.size)
+  // By exact text: a reworded search ("… v2") contains the one before it.
   for (const term of terms) {
-    await expect(searchRows.filter({ hasText: term })).toHaveCount(1)
+    await expect(
+      searchRows.filter({ has: page.getByText(term, { exact: true }) }),
+    ).toHaveCount(1)
+  }
+
+  // Pages you came back to: each one was opened that day (the read once took
+  // every re-found page whose first and last visit spanned the day).
+  const titles = new Set(visits.map((visit) => visit.title))
+  const reopened = card(page, 'Pages you came back to').getByRole('listitem')
+  await expect(reopened.first()).toBeVisible({ timeout: JOB_TIMEOUT })
+  for (const row of await reopened.all()) {
+    const title = (await row.innerText()).split('\n')[0].trim()
+    expect(titles.has(title), `${title} was opened on ${day}`).toBe(true)
   }
 
   // The top site leads to History, filtered to that site on that day.
@@ -260,8 +273,22 @@ test('a search from Frequent searches shows how often and when', async ({
   const query = decodeURIComponent(
     new URL(page.url()).hash.match(/search\/([^?]+)/)?.[1] ?? '',
   )
+  // The page counts the search's family: every wording sharing at least half
+  // its words (the fixture rewords some searches as "… v2", "… v2 eg").
+  const words = (text: string) =>
+    new Set(
+      text
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter(Boolean),
+    )
+  const sameFamily = (term: string) => {
+    const [a, b] = [words(term), words(query)]
+    const shared = [...a].filter((word) => b.has(word)).length
+    return shared / new Set([...a, ...b]).size >= 0.5
+  }
   const searches = archivedVisits().filter(
-    (visit: FixtureVisit) => visit.term?.toLowerCase() === query.toLowerCase(),
+    (visit: FixtureVisit) => visit.term !== undefined && sameFamily(visit.term),
   )
   expect(searches.length, `the fixture searched "${query}"`).toBeGreaterThan(0)
 
@@ -294,8 +321,11 @@ test('a search from Frequent searches shows how often and when', async ({
       day: 'numeric',
     }),
   )
+  // One row per wording; this one's row by its exact text.
   await expect(
-    card(page, 'Searches').getByRole('listitem').filter({ hasText: query }),
+    card(page, 'Searches')
+      .getByRole('listitem')
+      .filter({ has: page.getByText(query, { exact: true }) }),
   ).toHaveCount(1, { timeout: JOB_TIMEOUT })
 })
 

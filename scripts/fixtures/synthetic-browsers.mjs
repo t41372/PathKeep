@@ -142,13 +142,18 @@ function prng(seed) {
 }
 
 /**
- * Generates visits newest-day-first for `days` days ending at `now`.
- * Each day has a few sessions; each session dwells on one topic, starts
- * with a search now and then, and revisits pages so re-find stats exist.
+ * Generates visits newest-day-first for `days` days ending at `now`, then a
+ * short session about every nine days for `olderDays` more, the way an old
+ * browser profile thins out. Each day has a few sessions; each session dwells
+ * on one topic, starts with a search now and then, and revisits pages so
+ * re-find stats exist. The older stretch is generated last, so it leaves the
+ * recent days the same whatever its length; it makes the archive span enough
+ * years for all-time charts to group by month.
  */
 export function generateVisits({
   now = Date.now(),
   days = 420,
+  olderDays = 730,
   perDay = 60,
   seed = 7,
 } = {}) {
@@ -156,11 +161,17 @@ export function generateVisits({
   const visits = []
   const today = new Date(now)
   today.setHours(0, 0, 0, 0)
-  for (let day = 0; day < days; day += 1) {
+  let searchSessions = 0
+  const schedule = []
+  for (let day = 0; day < days; day += 1) schedule.push([day, 1])
+  for (let day = days; day < days + olderDays; day += 9) {
+    schedule.push([day, 0.15])
+  }
+  for (const [day, share] of schedule) {
     const dayStart = today.getTime() - day * DAY_MS
     const weekend = [0, 6].includes(new Date(dayStart).getDay())
     const volume = Math.round(
-      perDay * (weekend ? 0.55 : 1) * (0.6 + random() * 0.8),
+      perDay * share * (weekend ? 0.55 : 1) * (0.6 + random() * 0.8),
     )
     const sessions = 2 + Math.floor(random() * 4)
     let produced = 0
@@ -185,6 +196,28 @@ export function generateVisits({
           duration: 20_000,
         })
         produced += 1
+        // Every seventh search is reworded twice, a minute apart, as people
+        // do when a search doesn't find it. The suffixes lengthen the address
+        // by 5 and 10 characters and the three share a day, so the visits stay
+        // in the same browser (see the split below) and the rewordings in the
+        // same search trail.
+        searchSessions += 1
+        const sameDay =
+          Math.floor((at + 60_000) / DAY_MS) === Math.floor(at / DAY_MS)
+        if (searchSessions % 7 === 0 && sameDay) {
+          for (const reworded of [`${term} v2`, `${term} v2 eg`]) {
+            at += 30_000
+            visits.push({
+              url: `https://www.google.com/search?q=${encodeURIComponent(reworded)}`,
+              title: `${reworded} - Google Search`,
+              at,
+              typed: true,
+              term: reworded,
+              duration: 20_000,
+            })
+            produced += 1
+          }
+        }
       }
       for (let index = 0; index < size && produced < volume; index += 1) {
         at += 40_000 + Math.floor(random() * 240_000)
@@ -357,7 +390,7 @@ function insertFirefoxVisits(db, visits) {
  */
 export function writeSyntheticBrowsers(
   root,
-  { now = Date.now(), days = 420, perDay = 60, seed = 7 } = {},
+  { now = Date.now(), days = 420, olderDays = 730, perDay = 60, seed = 7 } = {},
 ) {
   const chromeRoot = path.join(root, 'chrome-user-data')
   const firefoxRoot = path.join(root, 'firefox', 'Profiles')
@@ -382,7 +415,7 @@ export function writeSyntheticBrowsers(
     '[Profile0]\nName=default-release\nIsRelative=1\nPath=Profiles/k3x9.default-release\nDefault=1\n',
   )
 
-  const all = generateVisits({ now, days, perDay, seed })
+  const all = generateVisits({ now, days, olderDays, perDay, seed })
   // Split by topic-ish hash so each browser has a recognisable mix.
   const personal = []
   const work = []

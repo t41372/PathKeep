@@ -11,6 +11,7 @@
 //! - common path flows
 //! - browser-reported interaction metrics
 
+use super::site_days::{SiteDayCache, SiteDayScope, VisitDays};
 use super::{date_range_bounds, rfc3339_from_millis};
 use crate::{
     intelligence::site_dictionary::display_name_for_domain,
@@ -21,44 +22,31 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::{Local, NaiveDate};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use vault_store::{Session, Value as SqlValue, params_from_iter, params_owned as params};
 
 pub fn get_breadth_index(
     vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<BreadthIndex> {
+    let cache = vault.site_days().clone();
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        get_breadth_index_with_connection(connection, request)
+        get_breadth_index_with_connection(connection, &cache, &request)
     })
 }
 
+/// How spread out the range's visits are over sites, from the range's shared site-day read.
 pub(crate) fn get_breadth_index_with_connection(
     connection: &Session<'_>,
+    cache: &SiteDayCache,
     request: &ScopedDateRangeRequest,
 ) -> Result<BreadthIndex> {
-    let mut statement = connection.prepare(
-        "SELECT registrable_domain, SUM(visit_count) AS total_visits
-         FROM domain_daily_rollups
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND date_key >= ?2
-           AND date_key <= ?3
-         GROUP BY registrable_domain
-         ORDER BY total_visits DESC, registrable_domain ASC",
-    )?;
-    let rows = statement
-        .query_map(
-            params![
-                request.profile_id.as_deref(),
-                request.date_range.start,
-                request.date_range.end,
-            ],
-            |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?)),
-        )?
-        .collect::<vault_store::Result<Vec<_>>>()?;
+    let days = cache
+        .get(connection, &SiteDayScope::of(&request.date_range, request.profile_id.as_deref()))?;
+    let mut rows =
+        days.sites.iter().map(|site| (site.domain.as_str(), site.visits)).collect::<Vec<_>>();
+    rows.sort_by(|(a_site, a), (b_site, b)| b.cmp(a).then_with(|| a_site.cmp(b_site)));
 
     let total_visits = rows.iter().map(|(_, visits)| *visits).sum::<i64>();
     if total_visits <= 0 {
@@ -95,83 +83,44 @@ pub fn get_habit_patterns(
     vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<HabitPattern>> {
+    let cache = vault.site_days().clone();
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        get_habit_patterns_with_connection(connection, request)
+        get_habit_patterns_with_connection(connection, &cache, &request)
     })
 }
 
-/// Habits only need the local days each site was visited on, which is what
-/// `domain_daily_rollups` stores, so this never reads visit rows: a one-year
-/// window is one row per site per active day. The exact time of the last
-/// visit is looked up only for sites with enough active days: their URLs
-/// through `idx_urls_registrable_domain`, then each URL's newest visit before
-/// the end of the last active day through `idx_visits_visible_url_time`.
+/// Habits only need the local days each site was visited on and its last visit, which the
+/// range's shared site-day read keeps per site as running totals (`site_days::VisitDays`), so
+/// this reads no visits and holds no list of days.
 pub(crate) fn get_habit_patterns_with_connection(
     connection: &Session<'_>,
+    cache: &SiteDayCache,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<HabitPattern>> {
     let (_, end_ms) = date_range_bounds(&request.date_range)?;
-    let mut statement = connection.prepare(
-        "SELECT registrable_domain, date_key
-         FROM domain_daily_rollups
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND date_key >= ?2
-           AND date_key <= ?3
-           AND visit_count > 0
-         GROUP BY registrable_domain, date_key",
-    )?;
-    let rows = statement
-        .query_map(
-            params![
-                request.profile_id.as_deref(),
-                request.date_range.start,
-                request.date_range.end
-            ],
-            |row| Ok((row.get::<String>(0)?, row.get::<String>(1)?)),
-        )?
-        .collect::<vault_store::Result<Vec<_>>>()?;
-
-    let mut by_domain = HashMap::<String, DomainSeries>::new();
-    for (domain, date_key) in rows {
-        let day = NaiveDate::parse_from_str(&date_key, "%Y-%m-%d")?;
-        by_domain.entry(domain).or_default().days.insert(day);
-    }
-    // A site must have at least five active days to be a habit; skip the
-    // last-visit lookup for the rest.
-    by_domain.retain(|_, series| series.days.len() >= 5);
-    let mut last_visit = connection.prepare(
-        "SELECT MAX((SELECT visit_time_ms FROM archive.visits INDEXED BY idx_visits_visible_url_time
-            WHERE url_id=urls.id AND reverted_at IS NULL AND visit_time_ms<?2
-            ORDER BY visit_time_ms DESC,id DESC LIMIT 1))
-         FROM archive.pages AS pages INDEXED BY idx_pages_registrable_domain
-         CROSS JOIN archive.urls AS urls ON urls.page_id=pages.id
-         WHERE pages.registrable_domain IS NOT NULL AND pages.registrable_domain=?1
-           AND (?3 IS NULL OR urls.source_profile_id IN (SELECT id FROM archive.source_profiles WHERE profile_key=?3))",
-    )?;
-    for (domain, series) in by_domain.iter_mut() {
-        let last_day_end = series
-            .days
-            .last()
-            .and_then(|day| day.succ_opt())
-            .map(local_midnight_ms)
-            .unwrap_or(end_ms);
-        series.last_visited_ms = last_visit
-            .query_one(
-                params![domain, last_day_end.min(end_ms), request.profile_id.as_deref()],
-                |row| Ok(row.get::<Option<i64>>(0)?),
-            )?
-            .unwrap_or(last_day_end - 1);
-    }
-
-    let mut habits = by_domain
-        .into_iter()
-        .filter_map(|(domain, series)| {
-            classify_habit_pattern(&domain, &series).map(|pattern| {
-                (pattern.last_visited_at.clone(), pattern.registrable_domain.clone(), pattern)
-            })
+    let days = cache
+        .get(connection, &SiteDayScope::of(&request.date_range, request.profile_id.as_deref()))?;
+    let mut habits = days
+        .sites
+        .iter()
+        .filter_map(|site| {
+            // Rows built before the rollup kept the time: the end of the last active day.
+            let last_visited_ms = if site.last_visit_ms == 0 {
+                let last_day_end = site
+                    .days
+                    .last_date()
+                    .and_then(|day| day.succ_opt())
+                    .map(local_midnight_ms)
+                    .unwrap_or(end_ms);
+                last_day_end.min(end_ms) - 1
+            } else {
+                site.last_visit_ms
+            };
+            classify_habit_pattern(&site.domain, &site.days, last_visited_ms)
+        })
+        .map(|pattern| {
+            (pattern.last_visited_at.clone(), pattern.registrable_domain.clone(), pattern)
         })
         .collect::<Vec<_>>();
 
@@ -239,7 +188,7 @@ pub(crate) fn get_interrupted_habits_with_connection(
 pub use super::path_flows::get_path_flows;
 pub(crate) use super::path_flows::get_path_flows_with_connection;
 #[cfg(test)]
-use super::path_flows::{build_path_flow_steps, finalize_path_sequence};
+use super::path_flows::{build_path_flow_steps, count_segment_paths};
 
 pub fn get_observed_interactions(
     vault: &crate::Vault,
@@ -299,12 +248,6 @@ fn observed_interactions_from_visits(
         .collect()
 }
 
-#[derive(Debug, Default)]
-struct DomainSeries {
-    days: BTreeSet<NaiveDate>,
-    last_visited_ms: i64,
-}
-
 #[derive(Debug, Clone)]
 struct ObservedVisit {
     visit_id: i64,
@@ -338,25 +281,19 @@ impl ObservedEvidence {
     }
 }
 
-fn classify_habit_pattern(domain: &str, series: &DomainSeries) -> Option<HabitPattern> {
-    if series.days.len() < 5 {
+/// A site is a habit when it was visited on at least five days over at least two weeks, at
+/// steady gaps: about daily, about weekly, or every so often.
+fn classify_habit_pattern(
+    domain: &str,
+    days: &VisitDays,
+    last_visited_ms: i64,
+) -> Option<HabitPattern> {
+    if days.count < 5 || days.last - days.first < 14 {
         return None;
     }
-    let first_day = *series.days.first()?;
-    let last_day = *series.days.last()?;
-    if (last_day - first_day).num_days() < 14 {
-        return None;
-    }
-    let ordered_days = series.days.iter().copied().collect::<Vec<_>>();
-    let intervals = ordered_days
-        .windows(2)
-        .map(|window| (window[1] - window[0]).num_days() as f32)
-        .collect::<Vec<_>>();
-
-    let mean_interval_days = intervals.iter().sum::<f32>() / intervals.len() as f32;
-    let variance = intervals.iter().map(|value| (*value - mean_interval_days).powi(2)).sum::<f32>()
-        / intervals.len() as f32;
-    let cv = if mean_interval_days == 0.0 { 0.0 } else { variance.sqrt() / mean_interval_days };
+    let (mean, variance) = days.gaps()?;
+    let mean_interval_days = mean as f32;
+    let cv = if mean == 0.0 { 0.0 } else { (variance.sqrt() / mean) as f32 };
     let habit_type = if mean_interval_days < 2.0 && cv < 0.5 {
         Some("daily_habit")
     } else if (5.0..=10.0).contains(&mean_interval_days) && cv < 0.6 {
@@ -368,8 +305,7 @@ fn classify_habit_pattern(domain: &str, series: &DomainSeries) -> Option<HabitPa
     }?;
 
     let days_since_last_visit =
-        ((Local::now().timestamp_millis() - series.last_visited_ms).max(0) as f32 / 86_400_000.0)
-            .max(0.0);
+        ((Local::now().timestamp_millis() - last_visited_ms).max(0) as f32 / 86_400_000.0).max(0.0);
 
     Some(HabitPattern {
         registrable_domain: domain.to_string(),
@@ -377,8 +313,8 @@ fn classify_habit_pattern(domain: &str, series: &DomainSeries) -> Option<HabitPa
         habit_type: habit_type.to_string(),
         mean_interval_days,
         cv,
-        visit_count: series.days.len() as i64,
-        last_visited_at: rfc3339_from_millis(series.last_visited_ms),
+        visit_count: days.count,
+        last_visited_at: rfc3339_from_millis(last_visited_ms),
         is_interrupted: days_since_last_visit > mean_interval_days * 2.0,
     })
 }
@@ -559,77 +495,98 @@ fn load_context_evidence(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::intelligence::intelligence_structural_state::PathSegment;
     use crate::test_support::native::TestDatabase;
     use vault_store::{Db, Priority};
 
     use crate::models::{DateRange, PathFlowRequest, ProfileScopedRequest, ScopedDateRangeRequest};
     use chrono::NaiveDate;
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::HashMap;
 
     use vault_store::params_owned as params;
 
+    fn visit_days(days: impl IntoIterator<Item = NaiveDate>) -> VisitDays {
+        let mut visited = VisitDays::default();
+        for day in days {
+            visited.add(chrono::Datelike::num_days_from_ce(&day));
+        }
+        visited
+    }
+
+    fn april(day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 4, day).expect("date")
+    }
+
     #[test]
     fn classify_habit_pattern_requires_five_visits_and_two_weeks() {
-        let mut days = BTreeSet::new();
-        for day in [1, 3, 5, 7, 9] {
-            days.insert(chrono::NaiveDate::from_ymd_opt(2026, 4, day).expect("date"));
-        }
-        let series = DomainSeries { days, last_visited_ms: 0 };
-        assert!(classify_habit_pattern("example.com", &series).is_none());
+        let days = visit_days([1, 3, 5, 7, 9].map(april));
+        assert!(classify_habit_pattern("example.com", &days, 0).is_none());
     }
 
     #[test]
     fn classify_habit_pattern_detects_weekly_habit() {
-        let mut days = BTreeSet::new();
-        for day in [1, 8, 15, 22, 29] {
-            days.insert(chrono::NaiveDate::from_ymd_opt(2026, 4, day).expect("date"));
-        }
-        let series =
-            DomainSeries { days, last_visited_ms: chrono::Local::now().timestamp_millis() };
-        let habit = classify_habit_pattern("example.com", &series).expect("habit");
+        let now = chrono::Local::now().timestamp_millis();
+        let weekly = visit_days([1, 8, 15, 22, 29].map(april));
+        let habit = classify_habit_pattern("example.com", &weekly, now).expect("habit");
         assert_eq!(habit.habit_type, "weekly_habit");
         assert!(!habit.is_interrupted);
 
-        let mut daily_days = BTreeSet::new();
-        for day in 1..=15 {
-            daily_days.insert(chrono::NaiveDate::from_ymd_opt(2026, 4, day).expect("date"));
-        }
-        let daily = classify_habit_pattern(
-            "daily.example",
-            &DomainSeries {
-                days: daily_days,
-                last_visited_ms: chrono::Local::now().timestamp_millis(),
-            },
-        )
-        .expect("daily habit");
+        let daily = classify_habit_pattern("daily.example", &visit_days((1..=15).map(april)), now)
+            .expect("daily habit");
         assert_eq!(daily.habit_type, "daily_habit");
 
-        let mut periodic_days = BTreeSet::new();
-        let first_periodic_day = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).expect("date");
-        for offset in [0, 15, 30, 45, 60] {
-            periodic_days.insert(first_periodic_day + chrono::Duration::days(offset));
-        }
-        let periodic = classify_habit_pattern(
-            "periodic.example",
-            &DomainSeries {
-                days: periodic_days,
-                last_visited_ms: chrono::Local::now().timestamp_millis(),
-            },
-        )
-        .expect("periodic habit");
+        let first = NaiveDate::from_ymd_opt(2026, 1, 1).expect("date");
+        let periodic =
+            visit_days([0, 15, 30, 45, 60].map(|days| first + chrono::Duration::days(days)));
+        let periodic =
+            classify_habit_pattern("periodic.example", &periodic, now).expect("periodic habit");
         assert_eq!(periodic.habit_type, "periodic_reference");
     }
 
+    /// Running totals give the gaps' mean and spread the list of days gives, a day added twice
+    /// (two browsers on the same day) counts once, and no rounding makes the spread negative.
     #[test]
-    fn finalize_path_sequence_counts_windows() {
+    fn visit_days_match_the_days_they_stand_for() {
+        let days = [1, 2, 2, 5, 6, 13, 27, 28].map(april);
+        let visited = visit_days(days);
+        let mut distinct = days.to_vec();
+        distinct.dedup();
+        let gaps = distinct.windows(2).map(|w| (w[1] - w[0]).num_days() as f64).collect::<Vec<_>>();
+        let mean = gaps.iter().sum::<f64>() / gaps.len() as f64;
+        let variance = gaps.iter().map(|gap| (gap - mean).powi(2)).sum::<f64>() / gaps.len() as f64;
+        assert_eq!(visited.count, 7);
+        let (running_mean, running_variance) = visited.gaps().unwrap();
+        assert!((running_mean - mean).abs() < 1e-9);
+        assert!((running_variance - variance).abs() < 1e-9);
+        let steady = visit_days([1, 8, 15, 22, 29].map(april));
+        assert_eq!(steady.gaps(), Some((7.0, 0.0)));
+    }
+
+    /// Coming back to a site makes a round trip, not a path: "google → github → google" is
+    /// left out, and so is any longer window that revisits a site.
+    #[test]
+    fn round_trips_are_not_paths() {
+        let at = |site: &str| (site.to_string(), 0);
+        let sequence = vec![at("google.com"), at("github.com"), at("google.com"), at("docs.rs")];
+        let mut flows = HashMap::new();
+        count_segment_paths(&sequence, 0, 3, &mut flows);
+        let patterns: Vec<_> = flows.keys().map(|(pattern, _)| pattern.as_str()).collect();
+        assert_eq!(patterns, ["github.com → google.com → docs.rs"]);
+        let mut four = HashMap::new();
+        count_segment_paths(&sequence, 0, 4, &mut four);
+        assert!(four.is_empty());
+    }
+
+    #[test]
+    fn a_session_counts_every_window_once() {
         let sequence = vec![
             ("google.com".to_string(), 10),
             ("github.com".to_string(), 20),
             ("sqlite.org".to_string(), 30),
         ];
         let mut flows = HashMap::new();
-        finalize_path_sequence(&sequence, 2, &mut flows);
-        finalize_path_sequence(&sequence, 3, &mut flows);
+        count_segment_paths(&sequence, 0, 2, &mut flows);
+        count_segment_paths(&sequence, 0, 3, &mut flows);
         assert_eq!(flows.len(), 3);
         assert!(flows.contains_key(&("google.com → github.com".to_string(), 2)));
         assert!(flows.contains_key(&("github.com → sqlite.org".to_string(), 2)));
@@ -640,10 +597,6 @@ mod tests {
         assert!(steps[1].registrable_domain.is_none());
         assert!(steps[2].registrable_domain.is_none());
         assert!(steps[3].registrable_domain.is_none());
-
-        let mut one_step_flows = HashMap::new();
-        finalize_path_sequence(&sequence, 1, &mut one_step_flows);
-        assert!(one_step_flows.is_empty());
     }
 
     #[test]
@@ -656,7 +609,9 @@ mod tests {
         let scoped = ScopedDateRangeRequest { date_range: april_range(), profile_id: None };
         let breadth = {
             let scoped = scoped.clone();
-            connection.read(move |session| get_breadth_index_with_connection(session, &scoped))
+            connection.read(move |session| {
+                get_breadth_index_with_connection(session, &SiteDayCache::default(), &scoped)
+            })
         }
         .expect("breadth index");
         assert!(breadth.hhi > 0.0);
@@ -666,6 +621,7 @@ mod tests {
             connection.read(move |session| {
                 get_breadth_index_with_connection(
                     session,
+                    &SiteDayCache::default(),
                     &ScopedDateRangeRequest {
                         date_range: DateRange {
                             start: "2026-05-01".to_string(),
@@ -681,7 +637,9 @@ mod tests {
 
         let habits = {
             let scoped = scoped.clone();
-            connection.read(move |session| get_habit_patterns_with_connection(session, &scoped))
+            connection.read(move |session| {
+                get_habit_patterns_with_connection(session, &SiteDayCache::default(), &scoped)
+            })
         }
         .expect("habits");
         let weekly = habits
@@ -910,6 +868,51 @@ mod tests {
         }
         insert_visit_fact(connection, visit_id, "docs.example", "session-b", 20);
         insert_visit_fact(connection, visit_id + 1, "daily.example", "session-b", 21);
+        insert_session_paths(connection);
+    }
+
+    /// Each session's path segments, cut the way the structural build cuts them.
+    fn insert_session_paths(connection: &TestDatabase) {
+        let visits = connection
+            .read(|s| {
+                Ok(s.query(
+                    "SELECT a.session_id,f.registrable_domain,v.visit_time_ms
+                     FROM visit_assignments a
+                     JOIN visit_derived_facts_rows f ON f.visit_id=a.visit_id
+                     JOIN archive.visits v ON v.id=a.visit_id
+                     ORDER BY a.session_id,v.visit_time_ms,v.id",
+                    (),
+                    |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?)),
+                )?)
+            })
+            .unwrap();
+        let mut segments = Vec::new();
+        let mut open: Option<(String, PathSegment)> = None;
+        for (session, domain, time) in visits {
+            if open.as_ref().is_none_or(|(current, _)| *current != session) {
+                segments.extend(open.take());
+                open = Some((session.clone(), PathSegment::default()));
+            }
+            let (_, path) = open.as_mut().unwrap();
+            if let Some(closed) = path.push(&domain, time) {
+                segments.push((session, closed));
+            }
+        }
+        segments.extend(open);
+        for (session, path) in segments {
+            connection
+                .execute(
+                    "INSERT INTO session_paths(generation,profile_id,session_id,segment,date_key,prefix_len,sites_json) VALUES(0,'chrome:Default',?1,?2,?3,?4,?5)",
+                    params![
+                        session,
+                        path.segment,
+                        path.date_key.clone(),
+                        path.prefix_len as i64,
+                        serde_json::to_string(&path.sites).unwrap()
+                    ],
+                )
+                .unwrap();
+        }
     }
 
     fn insert_visit_fact(
@@ -932,7 +935,7 @@ mod tests {
         archive.execute("INSERT INTO visits(id,url_id,source_profile_id,created_by_run_id,visit_time_ms,visit_time_iso) VALUES(?1,?1,1,0,?2,'')",params![visit_id,time]).unwrap();
         connection.execute("INSERT INTO visit_derived_facts_rows(visit_id,profile_id,registrable_domain,canonical_url,computed_at) VALUES(?1,'chrome:Default',?2,?3,'')",params![visit_id,domain,url]).unwrap();
         connection.execute("INSERT INTO visit_assignments(visit_id,profile_id,session_id) VALUES(?1,'chrome:Default',?2)",params![visit_id,session_id]).unwrap();
-        connection.execute("INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,domain_category,visit_count,search_count,new_domain_visits,unique_urls) VALUES ('chrome:Default',?1,?2,'unknown',1,0,0,1) ON CONFLICT(generation,date_key,profile_id,registrable_domain) DO UPDATE SET visit_count=visit_count+1",params![format!("2026-04-{day:02}"),domain]).unwrap();
+        connection.execute("INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,domain_category,visit_count,search_count,new_domain_visits,unique_urls,last_visit_ms) VALUES ('chrome:Default',?1,?2,'unknown',1,0,0,1,?3) ON CONFLICT(generation,date_key,profile_id,registrable_domain) DO UPDATE SET visit_count=visit_count+1,last_visit_ms=MAX(last_visit_ms,excluded.last_visit_ms)",params![format!("2026-04-{day:02}"),domain,time]).unwrap();
     }
 
     fn seed_interrupted_habits(connection: &TestDatabase) {

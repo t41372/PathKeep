@@ -1,6 +1,10 @@
 /** Derived data shared by Home's cards. */
 import { useMemo } from 'react'
-import { localDateKey } from '@/lib/backend-client/insights'
+import {
+  isStale,
+  localDateKey,
+  type Section,
+} from '@/lib/backend-client/insights'
 import type { DiscoveryTrendPoint } from '@/lib/core-intelligence/types'
 import { useSnapshot } from '@/lib/queries/app'
 import { useSourceStats } from './queries'
@@ -56,4 +60,20 @@ export function useBrowserSummaries() {
     )
     return { list, loading: stats.isPending, failed: stats.isError }
   }, [snapshot, stats.data, stats.isPending, stats.isError])
+}
+
+/** A day-by-day trend with no visit on any day: while its section is stale, not built yet. */
+export function noVisits(trend: { points: { totalVisits: number }[] }) {
+  return trend.points.every((point) => point.totalVisits === 0)
+}
+
+/**
+ * Whether `result` is still being built: its section is stale and holds nothing by the card's
+ * own measure (see `building.tsx`).
+ */
+export function stillBuilding<T>(
+  result: Section<T> | undefined,
+  empty: (data: T) => boolean,
+) {
+  return result !== undefined && isStale(result) && empty(result.data)
 }
