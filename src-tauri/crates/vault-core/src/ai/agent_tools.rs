@@ -273,6 +273,7 @@ impl AgentTool for HistorySearchTool {
             starred_only: parsed.starred_only,
             start_date: parsed.start_date,
             end_date: parsed.end_date,
+            browser_kind: None,
         };
         let provider = self.plane.provider_for(context);
         let response = search_history_internal(

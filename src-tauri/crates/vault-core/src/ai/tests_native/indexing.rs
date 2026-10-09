@@ -541,6 +541,7 @@ fn static_tier_index_writes_real_vectors_and_semantic_search_finds_the_seeded_pa
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("semantic search");

@@ -433,6 +433,7 @@ mod tests {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             &session,
         )

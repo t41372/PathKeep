@@ -1474,17 +1474,18 @@ pub struct AiSearchRequest {
     pub starred_only: Option<bool>,
     /// Optional inclusive start date filter in `"YYYY-MM-DD"` format (W-PKG-A).
     ///
-    /// When set, only visits on or after the START of this day (UTC midnight) are returned. Converted
-    /// to Unix milliseconds internally and threaded into `list_history`'s `start_time_ms` filter.
-    /// Additive with `#[serde(default)]` so older payloads without the field still deserialize.
+    /// When set, only visits on or after the start of this local day are returned. Converted to
+    /// Unix milliseconds and applied to every visit before ranking, like the other filters.
     #[serde(default)]
     pub start_date: Option<String>,
-    /// Optional inclusive end date filter in `"YYYY-MM-DD"` format (W-PKG-A).
-    ///
-    /// When set, only visits on or before the END of this day (23:59:59.999 UTC) are returned.
-    /// Converted to Unix milliseconds internally and threaded into `list_history`'s `end_time_ms`.
+    /// Optional inclusive end date filter in `"YYYY-MM-DD"` format (W-PKG-A): visits up to the end
+    /// of this local day.
     #[serde(default)]
     pub end_date: Option<String>,
+    /// Optional browser filter (`chrome`, `firefox`, …), covering all of that browser's profiles.
+    /// History's browser filter is per browser, not per profile, so it cannot use `profile_id`.
+    #[serde(default)]
+    pub browser_kind: Option<String>,
 }
 
 impl Default for AiSearchRequest {
@@ -1500,6 +1501,7 @@ impl Default for AiSearchRequest {
             starred_only: None,
             start_date: None,
             end_date: None,
+            browser_kind: None,
         }
     }
 }

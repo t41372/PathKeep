@@ -160,12 +160,17 @@ export function useVisitList(
 
   const smart = useInfiniteQuery({
     enabled: enabled && semantic,
-    queryKey: key('semantic', search.text, filters.domain),
+    queryKey: key('semantic', search.text, filters),
     initialPageParam: null as string | null,
+    // Filters apply to every visit before ranking, so pages and the count are the filtered ones.
     queryFn: ({ pageParam }) =>
       intelligenceClient.searchHistory({
         query: search.text,
         domain: filters.domain,
+        browserKind: filters.browserKind,
+        startDate:
+          startTimeMs === null ? null : localDateKey(new Date(startTimeMs)),
+        endDate: endTimeMs === null ? null : localDateKey(new Date(endTimeMs)),
         limit: SEMANTIC_PAGE_SIZE,
         cursor: pageParam,
       }),
@@ -185,7 +190,6 @@ export function useVisitList(
         timeline.data?.pages.flatMap((page) => page.items.map(fromEntry)) ?? []
       )
     }
-    // The AI search cannot filter by date or browser, so narrow its results here.
     return (smart.data?.pages ?? [])
       .flatMap((page) => page.items)
       .map<VisitItem>((item) => ({
@@ -197,23 +201,7 @@ export function useVisitList(
         visitTime: Date.parse(item.visitedAt),
         score: item.score,
       }))
-      .filter(
-        (item) =>
-          (startTimeMs === null || item.visitTime >= startTimeMs) &&
-          (endTimeMs === null || item.visitTime <= endTimeMs) &&
-          (browserKind === null ||
-            browserKindOf(item.profileId) === browserKind),
-      )
-  }, [
-    streamed,
-    shown,
-    semantic,
-    smart.data,
-    timeline.data,
-    startTimeMs,
-    endTimeMs,
-    browserKind,
-  ])
+  }, [streamed, shown, semantic, smart.data, timeline.data])
 
   if (streamed) {
     const current = stream.current
@@ -241,12 +229,10 @@ export function useVisitList(
 
   const active = semantic ? smart : timeline
   const first = smart.data?.pages[0]
-  // The AI search cannot filter by date or browser itself; a count would describe other rows.
-  const clientFiltered = startTimeMs !== null || browserKind !== null
   return {
     items,
     search:
-      semantic && first && !clientFiltered
+      semantic && first
         ? {
             pages: { value: first.total, exact: true },
             visits: null,
