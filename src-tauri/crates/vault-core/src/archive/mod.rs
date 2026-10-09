@@ -81,7 +81,7 @@ pub(crate) use self::source_evidence::{
 pub(crate) use browser_schema::collect_schema_payload;
 
 pub use self::source_stats::load_source_stats;
-pub use self::url_detail::get_url_detail;
+pub use self::url_detail::{get_url_detail, is_visited_url};
 pub use self::wipe::{
     WipeOutsideState, data_wipe_interrupted, finish_interrupted_data_wipe, preview_data_wipe,
     request_running_jobs_stop, wipe_all_data,

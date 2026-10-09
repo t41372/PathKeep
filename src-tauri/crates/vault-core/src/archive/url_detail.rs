@@ -27,6 +27,27 @@ use vault_store::{Db, Session, params};
 const WEEKS: i64 = 12;
 
 /// Loads the detail panel data for `url` from the canonical archive.
+/// Whether the user's history holds a visit to `url`, as recorded or as its page's canonical URL,
+/// that they have not removed. Opening a `file://` URL can launch an application, so PathKeep
+/// opens one only when it is a page the user visited, never because a link said so.
+pub fn is_visited_url(vault: &Vault, url: &str) -> Result<bool> {
+    let url = url.trim().to_owned();
+    vault.read(Db::Archive, move |s| {
+        let visible = "EXISTS(SELECT 1 FROM visits INDEXED BY idx_visits_visible_url_time WHERE url_id=urls.id AND reverted_at IS NULL)";
+        let recorded = s.query_one(
+            &format!("SELECT EXISTS(SELECT 1 FROM urls INDEXED BY idx_urls_url WHERE urls.url=?1 AND {visible})"),
+            params![url.as_str()],
+            |r| Ok(r.get::<i64>(0)? != 0),
+        )?;
+        Ok(recorded
+            || s.query_one(
+                &format!("SELECT EXISTS(SELECT 1 FROM pages INDEXED BY idx_pages_canonical_url CROSS JOIN urls INDEXED BY idx_urls_page_id ON urls.page_id=pages.id WHERE pages.canonical_url=?1 AND {visible})"),
+                params![url.as_str()],
+                |r| Ok(r.get::<i64>(0)? != 0),
+            )?)
+    })
+}
+
 pub fn get_url_detail(vault: &Vault, url: &str) -> Result<UrlDetail> {
     let url = url.to_owned();
     vault.read(Db::Archive, move |s| url_detail_for_session(s, &url, Local::now().date_naive()))

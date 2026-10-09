@@ -24,6 +24,8 @@ export const supportClient = {
   openPathInFileManager: (path: string) =>
     call<string>('open_path_in_file_manager', { path }),
   openExternalUrl: (url: string) => call<string>('open_external_url', { url }),
+  /** A page from the archive; a file:// URL opens only if the user visited it. */
+  openVisitedPage: (url: string) => call<string>('open_visited_page', { url }),
   /**
    * Writes a UTF-8 text document to a user-chosen path and resolves with the number of bytes
    * written. Used by the AI assistant's "Export conversation" affordance after the native save

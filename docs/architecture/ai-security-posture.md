@@ -317,6 +317,12 @@ local-only), and the user's configured provider API keys (in the OS keyring).
   the context is bounded (recency-pruned, citation-pinned). A steered model cannot read the filesystem,
   reach the network, exfiltrate the archive key, or mutate the archive — the worst case is a wrong answer
   over the user's own data, which the citation contract surfaces for review.
+- **A link in an answer is untrusted too.** The model writes Markdown, and a `file://` link can name an
+  application that the OS launcher would run. Answer links go through `open_visited_page`, the same
+  opener as History: http(s) opens in the browser, a `file://` URL only when the archive holds a visit
+  to exactly it (`vault_core::is_visited_url`), anything else is refused. `open_external_url` (update
+  pages, the Full Disk Access pane) accepts no `file://` at all. Until 2026-10-08 answer links went
+  straight to `open_external_url`, which accepted any `file://` URL (found by the unit test audit).
 - **An external MCP caller is untrusted.** Mitigation: the MCP face is localhost stdio, opt-in +
   default-OFF + unlock-gated, exposes only read-only search/status/guide tools, clamps the result limit to
   50, keeps the archive key in the app that owns the archive, and audits every query as `mcp_query`.

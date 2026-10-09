@@ -16,7 +16,7 @@ import { useI18n } from '@/lib/i18n'
 import { SEARCH_CONNECTION_LOST } from '@/lib/ipc/search-stream'
 import { DetailPanel } from './detail-panel'
 import { HistoryToolbar } from './history-toolbar'
-import { openInBrowser } from './open-link'
+import { useOpenPage } from './open-link'
 import {
   dayRange,
   parseDateFilter,
@@ -168,9 +168,10 @@ export default function HistoryPage() {
   )
   const stars = useStars(starUrls)
 
+  const openPage = useOpenPage()
   const open = useCallback(
-    (url: string) => void openInBrowser(url, t('history.detail.openFailed')),
-    [t],
+    (url: string) => void openPage(url, t('history.detail.openFailed')),
+    [openPage, t],
   )
   const ids = useMemo(() => items.map((item) => item.id), [items])
   useListKeys({

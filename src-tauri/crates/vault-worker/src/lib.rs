@@ -62,7 +62,7 @@ pub use self::{
         dashboard_snapshot, doctor_report, effective_og_image_fetch_mode, export_query,
         import_browser_history_source, import_browser_history_source_with_progress,
         import_takeout_source, import_takeout_source_with_progress, inspect_browser_history_source,
-        inspect_takeout_source, list_recovery_snapshots, load_history_favicons,
+        inspect_takeout_source, is_visited_url, list_recovery_snapshots, load_history_favicons,
         load_history_og_images, mark_og_images_shown, og_image_coverage_stats,
         og_image_storage_stats, prefetch_og_images_on_demand, preview_clear_derived_intelligence,
         preview_import_batch_detail, preview_retention_plan, preview_snapshot_restore_plan,

@@ -778,6 +778,11 @@ pub fn source_stats(vault: &Vault) -> Result<Vec<vault_core::SourceStats>> {
     vault_core::load_source_stats(vault)
 }
 
+/// Whether the user visited `url`; the launcher opens a `file://` URL only if they did.
+pub fn is_visited_url(vault: &Vault, url: &str) -> Result<bool> {
+    vault_core::is_visited_url(vault, url)
+}
+
 /// Loads the History detail panel data for one exact URL.
 pub fn url_detail(vault: &Vault, url: &str) -> Result<vault_core::UrlDetail> {
     vault_core::get_url_detail(vault, url)

@@ -20,7 +20,7 @@ import { DetailStats } from './detail-stats'
 import type { DetailTarget, VisitItem } from './history-types'
 import { AnnotationSection } from './annotation-section'
 import { LinkPreview } from './link-preview'
-import { openInBrowser } from './open-link'
+import { useOpenPage } from './open-link'
 import { SiteIcon } from './site-icon'
 
 interface Props {
@@ -76,6 +76,7 @@ export function DetailPanel({
   onFilterTag,
 }: Props) {
   const { t } = useI18n()
+  const openPage = useOpenPage()
   const format = useFormat()
 
   const copy = async () => {
@@ -120,7 +121,7 @@ export function DetailPanel({
         <Button
           className="h-[34px] flex-1"
           onClick={() =>
-            void openInBrowser(target.url, t('history.detail.openFailed'))
+            void openPage(target.url, t('history.detail.openFailed'))
           }
         >
           <ExternalLink />
