@@ -590,9 +590,10 @@ pub(crate) fn replay_ai_job(
 /// Clears every non-terminal semantic-index job, returning how many were cleared (the reset path).
 ///
 /// Recovery primitive for a WEDGED index build (F2): it moves ALL `index-build` / `index-clear` jobs
-/// that are still queued / running / stale / paused / failed into a TERMINAL `cancelled` state,
-/// dropping any lease and requesting cooperative stop, so a fresh build can be enqueued cleanly
-/// without colliding with a stuck job. Terminal states (`succeeded`, `cancelled`) are left untouched.
+/// that are still queued / running / stale / paused into a TERMINAL `cancelled` state, dropping any
+/// lease and requesting cooperative stop, so a fresh build can be enqueued cleanly without colliding
+/// with a stuck job. Terminal states (`succeeded`, `failed`, `cancelled`) are left untouched: a failed
+/// build stays failed, with the error the user saw.
 /// A running job is asked to stop via `stop_requested = 1` AND flipped to `cancelled` here: the reset
 /// is an explicit user action to abandon the current build, and the next `claim_next_ai_job` for that
 /// row would no longer match (it is no longer `running`). Returns the number of rows cleared so the
@@ -609,7 +610,7 @@ pub(crate) fn clear_index_jobs(connection: &Session<'_>) -> Result<usize> {
              lease_expires_at = NULL,
              stop_requested = 1
          WHERE job_type IN ('index-build', 'index-clear')
-           AND state IN ('queued', 'running', 'stale', 'paused', 'failed')",
+           AND state IN ('queued', 'running', 'stale', 'paused')",
         params![now],
     )? as usize)
 }

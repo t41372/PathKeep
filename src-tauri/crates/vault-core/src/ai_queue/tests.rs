@@ -765,8 +765,15 @@ fn clear_index_jobs_cancels_every_nonterminal_index_job_and_leaves_others() {
     )
     .expect("enqueue assistant");
 
+    // A build that failed earlier keeps its failure: the user saw it and it says what went wrong.
+    let failed_build =
+        enqueue_index_job(&vault, &AiIndexRequest::default(), false).expect("enqueue failed build");
+    execute(&vault, "UPDATE ai_jobs SET state = 'failed' WHERE id = ?1", params![failed_build.id])
+        .expect("mark failed");
+
     let cleared = clear_index_jobs(&vault).expect("clear");
     assert_eq!(cleared, 2, "both the queued and running index jobs were cleared");
+    assert_eq!(load_ai_job(&vault, failed_build.id).expect("failed").state, "failed");
     assert_eq!(load_ai_job(&vault, queued_build.id).expect("queued").state, "cancelled");
     assert_eq!(load_ai_job(&vault, running_build.id).expect("running").state, "cancelled");
     // The assistant job is untouched (still queued and claimable).
