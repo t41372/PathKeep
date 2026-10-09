@@ -34,6 +34,7 @@ use super::load_profile_derived_visit_batch;
 use super::{
     QueryFamilyRecord, RefindPageRecord, ReopenedInvestigationRecord, VisitRecord, local_date_key,
 };
+use crate::visit_taxonomy::Opener;
 #[cfg(test)]
 use anyhow::Result;
 use serde_json::json;
@@ -262,7 +263,9 @@ pub(super) fn build_refind_pages(visits: &[VisitRecord]) -> Vec<RefindPageRecord
                 members.iter().filter(|visit| visit.trail_id.is_some()).count() as i64;
             let typed_revisit_count = members
                 .iter()
-                .filter(|visit| visit.from_visit.is_none() && !visit.is_search_event)
+                .filter(|visit| {
+                    Opener::of(visit.from_visit) == Opener::Nothing && !visit.is_search_event
+                })
                 .count() as i64;
             let cross_day_count = distinct_days.len() as i64;
             let trail_count = trail_ids.len() as i64;
@@ -429,7 +432,7 @@ impl StructuralAggregateAccumulator {
             entry.trail_ids.insert(trail_id.clone());
             entry.search_arrival_count += 1;
         }
-        if visit.from_visit.is_none() {
+        if Opener::of(visit.from_visit) == Opener::Nothing {
             entry.typed_revisit_count += 1;
         }
         entry.first_seen_ms = entry.first_seen_ms.min(visit.visit_time_ms);

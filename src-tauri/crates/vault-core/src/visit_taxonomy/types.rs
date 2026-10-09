@@ -44,6 +44,29 @@ pub struct NormalizedVisitUrl {
 }
 
 /// Strength of local evidence supporting a derived interpretation.
+/// Which page opened a visit, from the browser's `from_visit`. Chromium and Firefox write 0 when
+/// nothing did (an address typed, a bookmark, a new tab, another app); Safari and Google Takeout
+/// record nothing at all, so their visits say neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Opener {
+    /// The browser does not record what opened a page.
+    Unrecorded,
+    /// Nothing did.
+    Nothing,
+    /// The browser's own id of the visit that did (`source_visit_id`).
+    Visit(i64),
+}
+
+impl Opener {
+    pub(crate) fn of(from_visit: Option<i64>) -> Self {
+        match from_visit {
+            None => Self::Unrecorded,
+            Some(id) if id <= 0 => Self::Nothing,
+            Some(id) => Self::Visit(id),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EvidenceTier {
     TierA,

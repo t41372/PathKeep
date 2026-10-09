@@ -26,7 +26,7 @@ use super::{
     rules::{ExactDomainRule, HostPathRule, RULE_PACKS, TaxonomyRule, TaxonomyRulePack},
     text::{normalize_whitespace, tokenize_text},
     types::{
-        EvidenceTier, NormalizedVisitUrl, TAXONOMY_VERSION, TaxonomyClassification,
+        EvidenceTier, NormalizedVisitUrl, Opener, TAXONOMY_VERSION, TaxonomyClassification,
         TaxonomyDecisionSource, TaxonomyOverride, TaxonomyOverrideTarget, VisitAnalysisInput,
         VisitEvidenceAssessment, VisitTaxonomyAnalysis,
     },
@@ -77,7 +77,7 @@ fn assess_visit_evidence(
     if normalized_url.is_some_and(|value| value.is_search_results && value.search_query.is_some()) {
         tier_a_reasons.push("search-result-url".to_string());
     }
-    if external_referrer_url.is_some() || from_visit.is_some() {
+    if external_referrer_url.is_some() || matches!(Opener::of(from_visit), Opener::Visit(_)) {
         tier_a_reasons.push("navigation-anchor".to_string());
     }
     if !tier_a_reasons.is_empty() {

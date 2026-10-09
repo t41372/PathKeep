@@ -91,7 +91,8 @@ pub(super) fn visits() -> Vec<Visit> {
                 url,
                 title,
                 at: base + step as i64 * 4 * 60_000,
-                from: if search.is_some() { None } else { previous },
+                // A search typed into the browser: nothing opened it.
+                from: if search.is_some() { Some(0) } else { previous },
                 search,
             });
             previous = Some(id);

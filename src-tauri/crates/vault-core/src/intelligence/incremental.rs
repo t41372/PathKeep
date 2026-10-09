@@ -51,8 +51,10 @@ pub(super) fn stage_name(stage: RebuildMode) -> &'static str {
 pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Result<String> {
     match stage {
         // v3: categories left out; they have their own version (`category_version`).
+        // v4: a `from_visit` of 0 (Chromium's and Firefox's "nothing opened it") is no navigation
+        // evidence.
         RebuildMode::VisitDerive => Ok(format!(
-            "visit-derived-facts-v3:{}:{}:{}",
+            "visit-derived-facts-v4:{}:{}:{}",
             url_rules_version(),
             override_digest(connection, "search", "search_engine", "search_engine IS NOT NULL")?,
             super::intelligence_overview_snapshot::load_search_rule_signature(connection)?
@@ -61,7 +63,8 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
         // v3: Threads count the days a search came back on; compare sets need sibling pages.
         // v4: a full English stop-word list for rewordings, families and search words.
         // v5: a trail takes only the pages related to its search and ends after three that are not.
-        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v5".to_string()),
+        // v6: a `from_visit` of 0 is a typed revisit, not a link (`Opener`).
+        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v6".to_string()),
         RebuildMode::FullRebuild => Ok("full-rebuild-v2".to_string()),
     }
 }
@@ -355,12 +358,12 @@ mod tests {
                     assert!(
                         stage_version(connection, RebuildMode::VisitDerive)
                             .expect("visit version")
-                            .starts_with("visit-derived-facts-v3:")
+                            .starts_with("visit-derived-facts-v4:")
                     );
                     assert_eq!(
                         stage_version(connection, RebuildMode::StructuralRebuild)
                             .expect("structural version"),
-                        "structural-rebuild-v5"
+                        "structural-rebuild-v6"
                     );
                     assert_eq!(
                         stage_version(connection, RebuildMode::FullRebuild).expect("full version"),

@@ -28,6 +28,7 @@
 
 use super::{VisitRecord, date_range_bounds, visit_from_row};
 use crate::models::{HubPage, NavigationPath, NavigationPathStep, TopSitesRequest};
+use crate::visit_taxonomy::Opener;
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use vault_store::{OptionalRow, Session, params_owned as params};
@@ -49,7 +50,7 @@ pub fn get_navigation_path(vault: &crate::Vault, visit_id: i64) -> Result<Naviga
         });
         let mut depth = 1_i64;
         let mut seen = HashSet::<i64>::from([current.visit_id]);
-        while let Some(parent_source_visit_id) = current.from_visit {
+        while let Opener::Visit(parent_source_visit_id) = Opener::of(current.from_visit) {
             let Some(parent) = load_navigation_visit_by_source(
                 connection,
                 source_profile_id,

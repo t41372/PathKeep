@@ -19,9 +19,12 @@
  * every read waits for real numbers instead of reading a "computing" state.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { openedFrom } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import {
+  archivedProfiles,
   archivedVisits,
   expectCount,
+  fixture,
   parseCount,
   type FixtureVisit,
 } from './support/fixture'
@@ -361,7 +364,32 @@ test('a page you keep reopening shows its visits across browsers', async ({
     visits.length,
   )
   await expect(page.getByText('Why it is listed')).toBeVisible()
-  await expect(
-    card(page, 'Why it is listed').getByText(/Opened on \d+ different days/),
-  ).toBeVisible({ timeout: JOB_TIMEOUT })
+  const why = card(page, 'Why it is listed')
+  await expect(why.getByText(/Opened on \d+ different days/)).toBeVisible({
+    timeout: JOB_TIMEOUT,
+  })
+  // Opened directly (typed, a bookmark: nothing opened it), in the profile
+  // the score is counted in. Chrome and Firefox record "nothing" as 0.
+  const scores = decodeURIComponent(
+    new URL(page.url()).hash.match(/scores=([^&]+)/)?.[1] ?? '',
+  ) as (typeof archivedProfiles)[number]
+  const inProfile = fixture().visitsByProfile[scores]
+  expect(inProfile, `${scores} is an archived profile`).toBeTruthy()
+  const from = openedFrom(inProfile)
+  const direct = inProfile.filter(
+    (visit, index) =>
+      visit.url.replace(/\/$/, '') === canonical.replace(/\/$/, '') &&
+      from[index] < 0 &&
+      !visit.term,
+  ).length
+  if (direct > 0) {
+    const factor = why.getByText(/Opened directly \d+ times?/)
+    await expect(factor).toBeVisible()
+    await expectCount(
+      testInfo,
+      `${canonical} opened directly in ${scores}`,
+      parseCount((await factor.innerText()).match(/(\d[\d,]*)/)?.[1] ?? ''),
+      direct,
+    )
+  }
 })

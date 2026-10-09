@@ -26,6 +26,7 @@ use super::{
     SessionRecord, StructuralVisitRecord, TrailMemberRecord, TrailRecord, display_name_for_domain,
     jaccard, local_date_key, normalize_query, query_token_set,
 };
+use crate::visit_taxonomy::Opener;
 use std::collections::{HashMap, HashSet};
 
 /// Unrelated visits in a row that end a search trail (`deterministic-intelligence.md` §5.4).
@@ -139,7 +140,8 @@ impl SessionBuildState {
         if self.first_search_query.is_none() {
             self.first_search_query = visit.search_query.clone();
         }
-        self.navigation_chain_depth += i64::from(visit.from_visit.is_some());
+        self.navigation_chain_depth +=
+            i64::from(matches!(Opener::of(visit.from_visit), Opener::Visit(_)));
         self.new_domain_count += i64::from(visit.is_new_domain);
     }
 

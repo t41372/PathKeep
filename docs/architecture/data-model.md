@@ -637,6 +637,15 @@ cursor. A resumed long session reads these counts instead of replaying every ear
 sites of its own, each row starting with the last three sites of the one before. Common paths
 for a date range count the rows of those days, each path in the row of its last site, instead
 of replaying the range's visits.
+
+`visits.from_visit` keeps what the browser wrote, and its three states mean different things
+(`visit_taxonomy::Opener`): Chromium and Firefox write `0` when nothing opened the page (an
+address typed, a bookmark, a new tab, another app) and the browser's own id of the opener
+otherwise; Safari and Google Takeout record nothing (`NULL`), so their visits say neither.
+Typed revisits, navigation evidence, the session's link-chain depth and site arrivals all read
+it this way; until 2026-10-09 they took any value, `0` included, for an opener, so Chromium's
+and Firefox's typed visits never counted as typed and every one of their visits counted as a
+link step.
 The cards that rank or count sites (top sites, explore or focus, habits, browsers compared and
 the KPI row's site count) share one read of a range's `domain_daily_rollups` rows, in date
 order, that keeps running totals per site, not its days (`intelligence::site_days`). Each vault

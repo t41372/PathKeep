@@ -140,7 +140,7 @@ fn explain_session(
              FROM visit_derived_facts
              JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
              WHERE visit_derived_facts.session_id = ?1
-               AND visits.from_visit IS NOT NULL",
+               AND visits.from_visit > 0",
             [session_id],
             |row| Ok(row.get::<i64>(0)?),
         )

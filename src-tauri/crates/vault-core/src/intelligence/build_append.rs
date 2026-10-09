@@ -30,6 +30,7 @@ use super::{
     parse_search_query_kind,
 };
 use crate::Vault;
+use crate::visit_taxonomy::Opener;
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -225,7 +226,7 @@ where
                     r.get::<String>(0)?,
                     // (time, id), as `RefindAddition::visits` holds them.
                     (r.get::<i64>(2)?, r.get::<i64>(1)?),
-                    r.get::<Option<i64>>(3)?.is_none(),
+                    Opener::of(r.get::<Option<i64>>(3)?) == Opener::Nothing,
                     r.get::<Option<String>>(4)?,
                 ))
             },
