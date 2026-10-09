@@ -18,7 +18,6 @@ use anyhow::Result;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SectionDataKind {
     PersistedDerived,
-    DirectRead,
     CapabilityGated,
 }
 
@@ -45,10 +44,11 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
     },
     CoreIntelligenceSectionDescriptor {
         id: "on-this-day",
-        module_ids: &[],
-        source_tables: &["archive.visits", "archive.urls", "archive.source_profiles"],
+        // Read from the daily rollups, so it is not there until the first build is done.
+        module_ids: &["daily-rollups"],
+        source_tables: &["daily_summary_rollups"],
         includes_enrichment: false,
-        data_kind: SectionDataKind::DirectRead,
+        data_kind: SectionDataKind::PersistedDerived,
         notes: &["Only prior years for the current local calendar day are considered."],
         empty_degraded_reason: None,
     },

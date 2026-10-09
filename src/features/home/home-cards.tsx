@@ -15,7 +15,13 @@ import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { dayPath, pagePath, searchPath } from '@/features/insights/links'
 import { presetScope } from '@/features/insights/range'
-import { dailySeries, useBrowserSummaries } from './home-data'
+import { BuildingNote } from './building'
+import {
+  dailySeries,
+  noVisits,
+  stillBuilding,
+  useBrowserSummaries,
+} from './home-data'
 import {
   useOnThisDay,
   useThirtyDayDigest,
@@ -36,6 +42,7 @@ export function TrendCard() {
   const format = useFormat()
   const trend = useThirtyDayTrend()
   const digest = useThirtyDayDigest()
+  const building = stillBuilding(trend.data, noVisits)
   const series = useMemo(
     () => dailySeries(trend.data?.data.points ?? [], 30),
     [trend.data],
@@ -71,7 +78,7 @@ export function TrendCard() {
             data={series}
             config={config}
             xDataKey="dateKey"
-            isLoading={trend.isPending}
+            isLoading={trend.isPending || building}
             className="h-full aspect-auto"
             curveType="monotone"
           >
@@ -107,6 +114,7 @@ export function TrendCard() {
           </EvilAreaChart>
         )}
       </div>
+      {building && <BuildingNote result={trend.data} />}
     </SectionCard>
   )
 }
@@ -115,6 +123,9 @@ export function OnThisDayCard() {
   const { t } = useI18n()
   const format = useFormat()
   const onThisDay = useOnThisDay()
+  const building = stillBuilding(onThisDay.data, (days) =>
+    days.every((day) => day.totalVisits === 0),
+  )
   const entries = (onThisDay.data?.data ?? [])
     .filter((entry) => entry.totalVisits > 0)
     .slice(0, 4)
@@ -131,11 +142,12 @@ export function OnThisDayCard() {
           error={onThisDay.error}
           onRetry={() => void onThisDay.refetch()}
         />
-      ) : onThisDay.isPending ? (
+      ) : onThisDay.isPending || building ? (
         <div className="flex flex-col gap-3">
           {[0, 1, 2].map((index) => (
             <Skeleton key={index} className="h-10" />
           ))}
+          {building && <BuildingNote result={onThisDay.data} />}
         </div>
       ) : entries.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -214,6 +226,7 @@ export function YearCard() {
   const currentYear = new Date().getFullYear()
   const [year, setYear] = useState(currentYear)
   const trend = useYearTrend(year)
+  const building = stillBuilding(trend.data, noVisits)
   const years = trend.data?.data.availableYears ?? [currentYear]
   const earliest = Math.min(currentYear, ...years)
 
@@ -282,7 +295,7 @@ export function YearCard() {
       >
         {trend.isError ? (
           <CardError error={trend.error} onRetry={() => void trend.refetch()} />
-        ) : trend.isPending ? (
+        ) : trend.isPending || building ? (
           <Skeleton className="h-[110px] w-full" />
         ) : (
           <Heatmap
@@ -293,7 +306,9 @@ export function YearCard() {
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        {trend.isPending ? (
+        {building ? (
+          <BuildingNote result={trend.data} />
+        ) : trend.isPending ? (
           <Skeleton className="h-3.5 w-48" />
         ) : (
           <span className="tabular">
@@ -318,6 +333,10 @@ export function ThreadsCard() {
   const { t } = useI18n()
   const format = useFormat()
   const threads = useThreads()
+  const building = stillBuilding(
+    threads.data,
+    (page) => page.items.length === 0,
+  )
   const items = (threads.data?.data.items ?? [])
     .slice()
     .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
@@ -340,11 +359,12 @@ export function ThreadsCard() {
           error={threads.error}
           onRetry={() => void threads.refetch()}
         />
-      ) : threads.isPending ? (
+      ) : threads.isPending || building ? (
         <div className="flex flex-col gap-3">
           {[0, 1, 2, 3].map((index) => (
             <Skeleton key={index} className="h-9" />
           ))}
+          {building && <BuildingNote result={threads.data} />}
         </div>
       ) : items.length === 0 ? (
         <p className="text-sm text-muted-foreground">

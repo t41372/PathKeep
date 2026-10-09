@@ -45,6 +45,7 @@ export function useOnThisDay() {
   return useQuery({
     queryKey: key('on-this-day'),
     queryFn: () => insightsClient.onThisDay(),
+    refetchInterval: pollWhileStale,
   })
 }
 
