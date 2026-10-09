@@ -375,6 +375,7 @@ pub struct BrowserCategoryDistribution {
 pub struct BrowserDiff {
     pub profiles: Vec<BrowserProfileSummary>,
     pub exclusive_domains: Vec<ExclusiveDomainEntry>,
+    /// Sites more than one profile visited in the range, most visits (all profiles) first.
     pub shared_domains: Vec<String>,
     pub category_distributions: Vec<BrowserCategoryDistribution>,
 }

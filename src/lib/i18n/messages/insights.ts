@@ -199,6 +199,7 @@ export const insights = defineMessages({
       none: 'No site in this range was new; every one had been visited before.',
       total_one: '{sites} site visited for the first time',
       total_other: '{sites} sites visited for the first time',
+      share: '{share} of the sites you visited',
       explain:
         'A site counts on the first day you visited it in any browser, or in the browser profile chosen above.',
     },
@@ -253,11 +254,14 @@ export const insights = defineMessages({
     browsers: {
       title: 'Browsers compared',
       explain:
-        'Visits and sites per browser profile in this range. A site is listed under one browser when only that browser visited it.',
+        'Visits and sites per browser profile in this range, and the kinds of sites each mostly visits (unclassified sites left out). A site is listed under one browser when only that browser visited it; the sites more than one visited are counted below, the most visited named.',
       single: 'Only one browser has visits in this range.',
       only: 'Only here:',
       shared_one: '{count} site was visited in more than one browser.',
       shared_other: '{count} sites were visited in more than one browser.',
+      sharedTop: 'Most visited of them:',
+      kinds: 'Mostly {kinds}',
+      kindsJoin: ', ',
     },
     day: {
       reopened: 'Pages you came back to',
@@ -576,6 +580,7 @@ export const insights = defineMessages({
       none: '这段时间没有新网站，去过的网站之前都去过。',
       total_one: '第一次去的网站 {sites} 个',
       total_other: '第一次去的网站 {sites} 个',
+      share: '占去过的网站的 {share}',
       explain:
         '一个网站算在你第一次在任何浏览器（或上面选的浏览器配置）去它的那一天。',
     },
@@ -630,11 +635,14 @@ export const insights = defineMessages({
     browsers: {
       title: '各浏览器对比',
       explain:
-        '这段时间每个浏览器配置的浏览量和网站数。只有一个浏览器去过的网站会列在它下面。',
+        '这段时间每个浏览器配置的浏览量和网站数，以及它主要去哪类网站（不算未分类的）。只有一个浏览器去过的网站会列在它下面；不止一个浏览器去过的网站在最下面计数，并写出最常去的几个。',
       single: '这段时间只有一个浏览器有浏览记录。',
       only: '只在这里：',
       shared_one: '有 {count} 个网站在不止一个浏览器里去过。',
       shared_other: '有 {count} 个网站在不止一个浏览器里去过。',
+      sharedTop: '其中最常去的：',
+      kinds: '主要是 {kinds}',
+      kindsJoin: '、',
     },
     day: {
       reopened: '回来再看的页面',
@@ -951,6 +959,7 @@ export const insights = defineMessages({
       none: '這段時間沒有新網站，去過的網站之前都去過。',
       total_one: '第一次去的網站 {sites} 個',
       total_other: '第一次去的網站 {sites} 個',
+      share: '占去過的網站的 {share}',
       explain:
         '一個網站算在你第一次在任何瀏覽器（或上面選的瀏覽器設定檔）去它的那一天。',
     },
@@ -1005,11 +1014,14 @@ export const insights = defineMessages({
     browsers: {
       title: '各瀏覽器比較',
       explain:
-        '這段時間每個瀏覽器設定檔的瀏覽量和網站數。只有一個瀏覽器去過的網站會列在它下面。',
+        '這段時間每個瀏覽器設定檔的瀏覽量和網站數，以及它主要去哪類網站（不算未分類的）。只有一個瀏覽器去過的網站會列在它下面；不只一個瀏覽器去過的網站在最下面計數，並寫出最常去的幾個。',
       single: '這段時間只有一個瀏覽器有瀏覽記錄。',
       only: '只在這裡：',
       shared_one: '有 {count} 個網站在不只一個瀏覽器裡去過。',
       shared_other: '有 {count} 個網站在不只一個瀏覽器裡去過。',
+      sharedTop: '其中最常去的：',
+      kinds: '主要是 {kinds}',
+      kindsJoin: '、',
     },
     day: {
       reopened: '回來再看的頁面',

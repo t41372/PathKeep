@@ -308,6 +308,7 @@ export interface CompareSetDetail {
 export interface BrowserDiff {
   profiles: BrowserProfileSummary[]
   exclusiveDomains: ExclusiveDomainEntry[]
+  /** Sites more than one profile visited, most visits (all profiles) first. */
   sharedDomains: string[]
   categoryDistributions: BrowserCategoryDistribution[]
 }

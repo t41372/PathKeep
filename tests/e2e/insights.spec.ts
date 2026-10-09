@@ -30,7 +30,12 @@ import {
   FIXTURE_PAGE_ICONS,
   openedFrom,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
-import { archivedVisits, fixture, type FixtureVisit } from './support/fixture'
+import {
+  archivedProfiles,
+  archivedVisits,
+  fixture,
+  type FixtureVisit,
+} from './support/fixture'
 
 const compact = new Intl.NumberFormat('en', {
   notation: 'compact',
@@ -451,6 +456,19 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
   await expect(card(page, 'New sites')).toContainText(
     `${newInWindow} site${newInWindow === 1 ? '' : 's'} visited for the first time`,
   )
+  // And what share of the range's sites they were, against the tile above.
+  const distinctTile = page.getByRole('group', { name: 'Distinct sites' })
+  await expect(distinctTile).toHaveAttribute('aria-busy', 'false')
+  // The tile's second line is its number (see insights-drill.spec's `kpi`).
+  const distinct = Number(
+    ((await distinctTile.innerText()).split('\n')[1] ?? '')
+      .trim()
+      .replace(/,/g, ''),
+  )
+  expect(distinct, 'the range has sites').toBeGreaterThan(0)
+  await expect(card(page, 'New sites')).toContainText(
+    `${new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 1 }).format(Math.min(1, newInWindow / distinct))} of the sites you visited`,
+  )
 
   // Last 30 days, ordered by days visited.
   await page.goto('/#/insights?range=d30')
@@ -776,6 +794,60 @@ function kindOf(visit: FixtureVisit) {
   }
   return url.pathname.startsWith('/docs') ? 'Documentation' : 'Not classified'
 }
+
+test('browsers compared name the sites they share and what each mostly visits', async ({
+  page,
+}) => {
+  const percent = new Intl.NumberFormat('en', {
+    style: 'percent',
+    maximumFractionDigits: 1,
+  })
+  // Each browser profile's two biggest kinds of sites, unclassified left out;
+  // a tie at the cut leaves the second open.
+  const kindLines = archivedProfiles.map((profile) => {
+    const visits = fixture().visitsByProfile[profile]
+    const perKind = new Map<string, number>()
+    for (const visit of visits)
+      perKind.set(kindOf(visit), (perKind.get(kindOf(visit)) ?? 0) + 1)
+    const ranked = [...perKind]
+      .filter(([kind]) => kind !== 'Not classified')
+      .sort((a, b) => b[1] - a[1])
+    const part = ([kind, count]: [string, number]) =>
+      `${kind} ${percent.format(count / visits.length)}`
+    return ranked.length > 2 && ranked[1][1] === ranked[2][1]
+      ? `Mostly ${part(ranked[0])}, `
+      : `Mostly ${ranked.slice(0, 2).map(part).join(', ')}`
+  })
+  // Sites more than one profile visited, most visits in all of them first.
+  // Unlike Top sites, the card counts every visit, a search's included.
+  const perProfile = archivedProfiles.map((profile) => {
+    const perSite = new Map<string, number>()
+    for (const visit of fixture().visitsByProfile[profile])
+      perSite.set(site(visit.url), (perSite.get(site(visit.url)) ?? 0) + 1)
+    return perSite
+  })
+  const shared = [...new Set(perProfile.flatMap((sites) => [...sites.keys()]))]
+    .filter((key) => perProfile.filter((sites) => sites.has(key)).length > 1)
+    .map((key) => ({
+      key,
+      visits: perProfile.reduce((sum, sites) => sum + (sites.get(key) ?? 0), 0),
+    }))
+    // Ties by name in byte order, as the backend sorts them.
+    .sort((a, b) => b.visits - a.visits || (a.key < b.key ? -1 : 1))
+
+  await page.goto('/#/insights')
+  const browsers = card(page, 'Browsers compared')
+  for (const line of kindLines)
+    await expect(browsers.getByText(line).first()).toBeVisible({
+      timeout: 60_000,
+    })
+  await expect(browsers).toContainText(
+    `${shared.length} sites were visited in more than one browser. Most visited of them: ${shared
+      .slice(0, 3)
+      .map((entry) => entry.key)
+      .join(', ')}`,
+  )
+})
 
 test('kinds of sites count every visit by the kind of site it went to', async ({
   page,

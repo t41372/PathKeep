@@ -19,6 +19,7 @@ import type { HabitPattern } from '@/lib/core-intelligence/types'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { profileLabel } from '@/lib/profile-label'
 import { pagePath, searchPath, sitePath } from './links'
+import { category, UNCLASSIFIED } from './categories'
 import { rowLink } from './display'
 import { ListSkeleton, QueryBody, SectionStatus } from './parts'
 import {
@@ -281,7 +282,12 @@ export function BrowsersCard({ scope }: { scope: Scope }) {
         empty={t('insights.browsers.single')}
       >
         {(result) => {
-          const { profiles, sharedDomains, exclusiveDomains } = result.data
+          const {
+            profiles,
+            sharedDomains,
+            exclusiveDomains,
+            categoryDistributions,
+          } = result.data
           const total = profiles.reduce(
             (sum, profile) => sum + profile.visitCount,
             0,
@@ -298,6 +304,15 @@ export function BrowsersCard({ scope }: { scope: Scope }) {
                     .filter((entry) => entry.profileId === profile.profileId)
                     .sort((a, b) => b.visitCount - a.visitCount)
                     .slice(0, 3)
+                  // Its two biggest kinds of sites, not counting unclassified ones.
+                  const kinds = (
+                    categoryDistributions.find(
+                      (entry) => entry.profileId === profile.profileId,
+                    )?.categories ?? []
+                  )
+                    .filter((entry) => entry.domainCategory !== UNCLASSIFIED)
+                    .sort((a, b) => b.visitCount - a.visitCount)
+                    .slice(0, 2)
                   return (
                     <li key={profile.profileId} className="flex flex-col gap-1">
                       <span className="flex items-baseline justify-between gap-2 text-[13px]">
@@ -328,6 +343,18 @@ export function BrowsersCard({ scope }: { scope: Scope }) {
                           }}
                         />
                       </span>
+                      {kinds.length > 0 && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {t('insights.browsers.kinds', {
+                            kinds: kinds
+                              .map(
+                                (entry) =>
+                                  `${t(`insights.mix.categories.${category(entry.domainCategory)}`)} ${format.percent(entry.share)}`,
+                              )
+                              .join(t('insights.browsers.kindsJoin')),
+                          })}
+                        </span>
+                      )}
                       {only.length > 0 && (
                         <span className="truncate text-xs text-muted-foreground">
                           {t('insights.browsers.only')}{' '}
@@ -353,6 +380,23 @@ export function BrowsersCard({ scope }: { scope: Scope }) {
                   count: sharedDomains.length,
                   sites: format.number(sharedDomains.length),
                 })}
+                {sharedDomains.length > 0 && (
+                  <>
+                    {' '}
+                    {t('insights.browsers.sharedTop')}{' '}
+                    {sharedDomains.slice(0, 3).map((domain, index) => (
+                      <span key={domain}>
+                        {index > 0 && t('insights.browsers.kindsJoin')}
+                        <Link
+                          to={sitePath(domain, scope)}
+                          className="text-foreground hover:underline"
+                        >
+                          {domain}
+                        </Link>
+                      </span>
+                    ))}
+                  </>
+                )}
               </p>
             </div>
           )
