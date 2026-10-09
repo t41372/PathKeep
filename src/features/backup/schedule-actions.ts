@@ -7,10 +7,12 @@
  * `schedule-dialog.tsx`).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useI18n, type Translator } from '@/lib/i18n'
 import { scheduleClient } from '@/lib/backend-client/schedule'
 import { queryKeys } from '@/lib/query'
 import { useSaveConfig } from '@/lib/queries/app'
 import type { ApplyResult, SchedulePlan } from '@/lib/types'
+import { scheduleCopy } from './schedule-copy'
 
 /** The presets on the card. Onboarding uses the same four. */
 export type Frequency = 'hourly' | 'sixHours' | 'daily' | 'off'
@@ -30,15 +32,23 @@ export function frequencyForHours(
   return (match?.[0] as Exclude<Frequency, 'off'> | undefined) ?? null
 }
 
-function assertApplied(result: ApplyResult) {
-  if (!result.applied) throw new Error(result.message)
+/**
+ * The scheduler's message as the user reads it: a copy key (Windows refusing
+ * the task) in their language, anything else as the backend wrote it.
+ */
+function failure(t: Translator, result: ApplyResult) {
+  return new Error(scheduleCopy(t, result.message) ?? result.message)
+}
+
+function assertApplied(t: Translator, result: ApplyResult) {
+  if (!result.applied) throw failure(t, result)
   return result
 }
 
 /** Removal counts as done unless a step failed: "nothing was installed" is fine. */
-function assertNoFailedStep(result: ApplyResult) {
+function assertNoFailedStep(t: Translator, result: ApplyResult) {
   if (result.stepResults?.some((step) => step.status === 'error'))
-    throw new Error(result.message)
+    throw failure(t, result)
   return result
 }
 
@@ -70,6 +80,7 @@ export function useCurrentSchedulePlan(enabled: boolean) {
  * PathKeep cannot install (Linux), only the interval is saved.
  */
 export function useApplySchedule() {
+  const { t } = useI18n()
   const save = useSaveConfig()
   const client = useQueryClient()
   return useMutation({
@@ -82,7 +93,7 @@ export function useApplySchedule() {
     }) => {
       await save.mutateAsync((config) => ({ ...config, dueAfterHours: hours }))
       if (plan.applySupported)
-        assertApplied(await scheduleClient.applyInstall(plan))
+        assertApplied(t, await scheduleClient.applyInstall(plan))
     },
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.schedule }),
   })
@@ -90,20 +101,22 @@ export function useApplySchedule() {
 
 /** Removes the installed job. The saved interval stays for next time. */
 export function useRemoveSchedule() {
+  const { t } = useI18n()
   const client = useQueryClient()
   return useMutation({
     mutationFn: async (plan: SchedulePlan) =>
-      assertNoFailedStep(await scheduleClient.removeInstall(plan)),
+      assertNoFailedStep(t, await scheduleClient.removeInstall(plan)),
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.schedule }),
   })
 }
 
 /** Removes jobs left by earlier versions (macOS only; the backend checks). */
 export function useRepairLegacySchedule() {
+  const { t } = useI18n()
   const client = useQueryClient()
   return useMutation({
     mutationFn: async (plan: SchedulePlan) =>
-      assertApplied(await scheduleClient.repairInstall(plan)),
+      assertApplied(t, await scheduleClient.repairInstall(plan)),
     onSettled: () => client.invalidateQueries({ queryKey: queryKeys.schedule }),
   })
 }
