@@ -71,11 +71,17 @@ export function compareTokens(text: string) {
   return set
 }
 
-/** Whether a search joins a family started by `anchor`, as the backend decides it. */
-function joins(search: Set<string>, anchor: Set<string>) {
-  const shared = [...search].filter((token) => anchor.has(token)).length
-  const union = new Set([...search, ...anchor]).size
-  return shared * 2 >= union || shared === search.size || shared === anchor.size
+/**
+ * How much a search is like one wording of a family: the share of their
+ * tokens they have in common, or `null` when that is under half and neither
+ * holds the other (`deterministic-intelligence.md` §5.5).
+ */
+function likeness(search: Set<string>, wording: Set<string>) {
+  const shared = [...search].filter((token) => wording.has(token)).length
+  const union = new Set([...search, ...wording]).size
+  const like =
+    shared * 2 >= union || shared === search.size || shared === wording.size
+  return like ? shared / union : null
 }
 
 export interface SearchFamily {
@@ -92,33 +98,46 @@ export interface SearchFamily {
 }
 
 /**
- * One profile's query families, in the order the backend makes them: each
- * search, in time order, joins the first family sharing a token with it whose
- * first search it shares at least half its tokens with (or holds, or is held
- * by); otherwise it starts one. (Every fixture search is on Google.)
+ * One profile's query families by the documented rule: each search, in time
+ * order, joins the family that already holds its wording, else the family
+ * with the wording most like it (the earliest made on a tie); otherwise it
+ * starts one. (Every fixture search is on Google.) The specs count with this;
+ * `home.spec` checks separately that the families come out as the fixture
+ * means them, whatever the rule.
  */
 export function searchFamilies(visits: FixtureVisit[]) {
-  const families: (SearchFamily & { tokens: Set<string> })[] = []
+  const families: (SearchFamily & { wordings: Set<string>[] })[] = []
   for (const visit of [...visits].sort((a, b) => a.at - b.at)) {
     if (!visit.term) continue
     const search = compareTokens(visit.term)
     if (search.size === 0) continue
     const day = new Date(visit.at)
     const key = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`
-    const family = families.find(
-      (candidate) =>
-        [...search].some((token) => candidate.tokens.has(token)) &&
-        joins(search, candidate.tokens),
+    let family = families.find((candidate) =>
+      candidate.queries.has(visit.term!.toLowerCase()),
     )
+    if (!family) {
+      let best = -1
+      for (const candidate of families)
+        for (const wording of candidate.wordings) {
+          const score = likeness(search, wording)
+          if (score !== null && score > best) {
+            best = score
+            family = candidate
+          }
+        }
+    }
     if (family) {
       family.members += 1
+      if (!family.queries.has(visit.term.toLowerCase()))
+        family.wordings.push(search)
       family.queries.add(visit.term.toLowerCase())
       family.days.add(key)
       family.latest = Math.max(family.latest, visit.at)
     } else {
       families.push({
         anchor: visit.term,
-        tokens: search,
+        wordings: [search],
         queries: new Set([visit.term.toLowerCase()]),
         members: 1,
         days: new Set([key]),

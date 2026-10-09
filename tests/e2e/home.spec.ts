@@ -94,3 +94,39 @@ test('searches come back on several days, counted in days', async ({
     ).toContain(days)
   }
 })
+
+test('a search, its rewordings and another wording of it are one family', async () => {
+  // What the fixture means, whatever the grouping rule: each search and its
+  // "v2" rewordings are one thing, and so are 台北天氣 and 台北天氣預報 with
+  // theirs; a rule that splits them shows the same search twice on Home.
+  const familyOf = async (query: string, profileId: string) => {
+    const { data } = await backend<{
+      data: { families: { familyId: string }[] }
+    }>('get_search_families', { request: { query, profileId } })
+    return data.families.map((family) => family.familyId)
+  }
+  for (const profile of archivedProfiles) {
+    const terms = new Set(
+      fixture()
+        .visitsByProfile[profile].filter((visit) => visit.term)
+        .map((visit) => visit.term!),
+    )
+    const groups = new Map<string, string[]>()
+    for (const term of terms) {
+      const topic = term
+        .replace(/ v2( eg)?$/, '')
+        .replace(/^台北天氣預報$/, '台北天氣')
+      groups.set(topic, [...(groups.get(topic) ?? []), term])
+    }
+    for (const [topic, wordings] of groups) {
+      if (wordings.length < 2) continue
+      const families = new Set<string>()
+      for (const wording of wordings)
+        for (const id of await familyOf(wording, profile)) families.add(id)
+      expect(
+        families.size,
+        `${topic} (${profile}): ${wordings.join(' / ')}`,
+      ).toBe(1)
+    }
+  }
+})

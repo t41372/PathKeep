@@ -67,7 +67,8 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
         // onward sites (`site_flows`).
         // v7: a trail's `max_depth` counts the pages it opened, not its rewordings.
         // v8: Chinese and Japanese searches split into words, with their function words left out.
-        // v9: `site_flows` counts the visits whose browser does not record openers.
+        // v9: `site_flows` counts the visits whose browser does not record openers; a query family
+        // takes a search like any of its wordings, not only its first.
         RebuildMode::StructuralRebuild => Ok("structural-rebuild-v9".to_string()),
         RebuildMode::FullRebuild => Ok("full-rebuild-v2".to_string()),
     }

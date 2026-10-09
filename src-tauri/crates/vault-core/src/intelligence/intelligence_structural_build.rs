@@ -39,10 +39,24 @@ use vault_store::{Session, params_owned as params};
 #[derive(Debug, Default)]
 pub(super) struct QueryFamilyAccumulator {
     families: Vec<QueryFamilyRecord>,
-    by_token: std::collections::HashMap<(String, String, String), Vec<usize>>,
-    tokens: Vec<std::collections::HashSet<String>>,
+    /// `(profile, engine, token)` → the `(family, wording)` pairs whose wording has the token.
+    by_token: std::collections::HashMap<(String, String, String), Vec<(usize, usize)>>,
+    /// Each family's wordings, as the tokens they are compared by.
+    wordings: Vec<Vec<std::collections::HashSet<String>>>,
+    /// `(profile, engine, normalized query)` → the family that holds that wording, so the same
+    /// search always lands in the same family.
+    by_query: std::collections::HashMap<(String, String, String), usize>,
     queries: Vec<std::collections::HashSet<String>>,
     days: Vec<std::collections::HashSet<String>>,
+}
+
+/// Whether a search may join a family through one of its wordings: they share at least half
+/// their tokens between them, or one holds the other (`deterministic-intelligence.md` §5.5).
+fn similar(
+    search: &std::collections::HashSet<String>,
+    wording: &std::collections::HashSet<String>,
+) -> bool {
+    super::jaccard(search, wording) >= 0.5 || search.is_subset(wording) || wording.is_subset(search)
 }
 
 /// Groups keyword search events into deterministic families using the accepted
@@ -56,31 +70,44 @@ pub(super) fn build_query_families(events: &[SearchEventRecord]) -> Vec<QueryFam
         if tokens.is_empty() {
             continue;
         }
-        let mut matched = None;
-        for (index, family) in families.iter_mut().enumerate() {
-            if family.profile_id != event.profile_id || family.search_engine != event.search_engine
-            {
-                continue;
-            }
-            let family_tokens = query_token_set(&normalize_query(&family.anchor_query));
-            if super::jaccard(&tokens, &family_tokens) >= 0.5
-                || tokens.is_subset(&family_tokens)
-                || family_tokens.is_subset(&tokens)
-            {
-                family.member_count += 1;
-                family.last_seen_ms = family.last_seen_ms.max(event.visit_time_ms);
-                if !family
+        // The family that already holds this wording; else the one with the wording most like
+        // it, the earliest made on a tie.
+        let mut matched = families.iter().position(|family| {
+            family.profile_id == event.profile_id
+                && family.search_engine == event.search_engine
+                && family
                     .queries
                     .iter()
                     .any(|query| normalize_query(query) == event.normalized_query)
+        });
+        if matched.is_none() {
+            let mut best = None::<(f32, usize)>;
+            for (index, family) in families.iter().enumerate() {
+                if family.profile_id != event.profile_id
+                    || family.search_engine != event.search_engine
                 {
-                    family.queries.push(event.raw_query.clone());
+                    continue;
                 }
-                if days[index].insert(super::local_date_key(event.visit_time_ms)) {
-                    family.active_days += 1;
+                for query in &family.queries {
+                    let wording = query_token_set(&normalize_query(query));
+                    let score = super::jaccard(&tokens, &wording);
+                    if similar(&tokens, &wording) && best.is_none_or(|(top, _)| score > top) {
+                        best = Some((score, index));
+                    }
                 }
-                matched = Some(index);
-                break;
+            }
+            matched = best.map(|(_, index)| index);
+        }
+        if let Some(index) = matched {
+            let family = &mut families[index];
+            family.member_count += 1;
+            family.last_seen_ms = family.last_seen_ms.max(event.visit_time_ms);
+            if !family.queries.iter().any(|query| normalize_query(query) == event.normalized_query)
+            {
+                family.queries.push(event.raw_query.clone());
+            }
+            if days[index].insert(super::local_date_key(event.visit_time_ms)) {
+                family.active_days += 1;
             }
         }
         if matched.is_none() {
@@ -222,15 +249,18 @@ impl QueryFamilyAccumulator {
         let mut accumulator = Self::default();
         for family in families {
             let index = accumulator.families.len();
-            let tokens = query_token_set(&normalize_query(&family.anchor_query));
-            for token in &tokens {
-                accumulator
-                    .by_token
-                    .entry((family.profile_id.clone(), family.search_engine.clone(), token.clone()))
-                    .or_default()
-                    .push(index);
+            accumulator.wordings.push(Vec::new());
+            for query in &family.queries {
+                let query = normalize_query(query);
+                let tokens = query_token_set(&query);
+                accumulator.add_wording(
+                    index,
+                    &family.profile_id,
+                    &family.search_engine,
+                    &query,
+                    tokens,
+                );
             }
-            accumulator.tokens.push(tokens);
             accumulator
                 .queries
                 .push(family.queries.iter().map(|query| normalize_query(query)).collect());
@@ -254,6 +284,18 @@ impl QueryFamilyAccumulator {
         if tokens.is_empty() {
             return;
         }
+        // The family that already holds this wording; else the one with the wording most like
+        // it (the most tokens shared for those they have), the earliest made on a tie. The first
+        // family with any like wording is not enough: a rewording shares the words its search
+        // added with other searches reworded the same way.
+        let held = self
+            .by_query
+            .get(&(
+                event.profile_id.clone(),
+                event.search_engine.clone(),
+                event.normalized_query.clone(),
+            ))
+            .copied();
         let candidates = tokens
             .iter()
             .flat_map(|token| {
@@ -264,32 +306,40 @@ impl QueryFamilyAccumulator {
                     .copied()
             })
             .collect::<std::collections::BTreeSet<_>>();
-        for index in candidates {
-            let family_tokens = &self.tokens[index];
-            if super::jaccard(&tokens, family_tokens) >= 0.5
-                || tokens.is_subset(family_tokens)
-                || family_tokens.is_subset(&tokens)
-            {
-                let family = &mut self.families[index];
-                family.member_count += 1;
-                family.last_seen_ms = family.last_seen_ms.max(event.visit_time_ms);
-                if self.queries[index].insert(event.normalized_query.clone()) {
-                    family.queries.push(event.raw_query.clone());
+        let joined = held.or_else(|| {
+            let mut best = None::<(f32, usize)>;
+            for (family, wording) in candidates {
+                let wording = &self.wordings[family][wording];
+                let score = super::jaccard(&tokens, wording);
+                if similar(&tokens, wording) && best.is_none_or(|(top, _)| score > top) {
+                    best = Some((score, family));
                 }
-                if self.days[index].insert(local_date_key(event.visit_time_ms)) {
-                    family.active_days += 1;
-                }
-                return;
             }
+            best.map(|(_, family)| family)
+        });
+        if let Some(index) = joined {
+            let family = &mut self.families[index];
+            family.member_count += 1;
+            family.last_seen_ms = family.last_seen_ms.max(event.visit_time_ms);
+            if self.days[index].insert(local_date_key(event.visit_time_ms)) {
+                family.active_days += 1;
+            }
+            if self.queries[index].insert(event.normalized_query.clone()) {
+                family.queries.push(event.raw_query.clone());
+                let (profile, engine) = (family.profile_id.clone(), family.search_engine.clone());
+                self.add_wording(index, &profile, &engine, &event.normalized_query, tokens);
+            }
+            return;
         }
         let index = self.families.len();
-        for token in &tokens {
-            self.by_token
-                .entry((event.profile_id.clone(), event.search_engine.clone(), token.clone()))
-                .or_default()
-                .push(index);
-        }
-        self.tokens.push(tokens);
+        self.wordings.push(Vec::new());
+        self.add_wording(
+            index,
+            &event.profile_id,
+            &event.search_engine,
+            &event.normalized_query,
+            tokens,
+        );
         self.queries.push(std::collections::HashSet::from([event.normalized_query.clone()]));
         self.days.push(std::collections::HashSet::from([local_date_key(event.visit_time_ms)]));
         self.families.push(QueryFamilyRecord {
@@ -303,6 +353,27 @@ impl QueryFamilyAccumulator {
             queries: vec![event.raw_query.clone()],
             active_days: 1,
         });
+    }
+
+    /// Indexes one more wording of `family` by its text and tokens, so later searches can find
+    /// it.
+    fn add_wording(
+        &mut self,
+        family: usize,
+        profile: &str,
+        engine: &str,
+        query: &str,
+        tokens: std::collections::HashSet<String>,
+    ) {
+        self.by_query.insert((profile.to_owned(), engine.to_owned(), query.to_owned()), family);
+        let wording = self.wordings[family].len();
+        for token in &tokens {
+            self.by_token
+                .entry((profile.to_owned(), engine.to_owned(), token.clone()))
+                .or_default()
+                .push((family, wording));
+        }
+        self.wordings[family].push(tokens);
     }
 
     /// Finishes the batched family build with stable ordering preserved from the
@@ -351,6 +422,54 @@ mod tests {
         accumulator.add_event(&events[0]);
         assert!(accumulator.finish().is_empty());
     }
+    /// A family is compared by every wording in it, not only its first. Compared by its first
+    /// alone, a family begun by 台北天氣預報 did not take 台北天氣 v2 eg, so the same search
+    /// showed as two things the user came back to. And a search goes to the family it is most
+    /// like, not the first one it is like enough.
+    #[test]
+    fn a_family_takes_any_wording_like_one_of_its_own() {
+        let queries = [
+            "台北天氣預報",
+            "台北天氣",
+            "台北天氣 v2 eg",
+            "sqlite wal checkpoint not working",
+            "sqlite wal",
+            "sqlite wal too large",
+            "tokio vs smol",
+            "a7c ii autofocus",
+            "a7c ii autofocus v2 eg",
+            "fujifilm x-t5 vs a7c ii",
+            "fujifilm x-t5 vs a7c ii v2 eg",
+        ];
+        let events = queries
+            .iter()
+            .enumerate()
+            .map(|(index, query)| {
+                search_event(index as i64 + 1, "chrome:Default", "google", query, query)
+            })
+            .collect::<Vec<_>>();
+        let mut stream = QueryFamilyAccumulator::default();
+        for event in &events {
+            stream.add_event(event);
+        }
+        let anchors = |families: Vec<QueryFamilyRecord>| {
+            families
+                .into_iter()
+                .map(|family| (family.anchor_query, family.member_count))
+                .collect::<Vec<_>>()
+        };
+        let expected = vec![
+            ("台北天氣預報".to_string(), 3),
+            ("sqlite wal checkpoint not working".to_string(), 3),
+            ("tokio vs smol".to_string(), 1),
+            // Its rewording shares a7c, ii, v2 and eg with the other's (half), but more with it.
+            ("a7c ii autofocus".to_string(), 2),
+            ("fujifilm x-t5 vs a7c ii".to_string(), 2),
+        ];
+        assert_eq!(anchors(stream.finish()), expected);
+        assert_eq!(anchors(build_query_families(&events)), expected, "the reference builder");
+    }
+
     #[test]
     fn indexed_family_candidates_preserve_the_reference_first_match() {
         let events = (0..1003)
