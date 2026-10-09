@@ -75,7 +75,7 @@ where
         }
         for visit in &rows {
             if current.as_deref().is_some_and(|key| key != visit.canonical_url) {
-                batch.extend(std::mem::take(&mut accumulator).finish().0);
+                batch.extend(std::mem::take(&mut accumulator).finish());
                 completed_key = current.take();
                 first = None;
                 completed_groups += 1;
@@ -98,7 +98,7 @@ where
         progress(build_state::progress(state, "refind-pages", scanned, state.processed))?;
     }
     if current.is_some() {
-        batch.extend(accumulator.finish().0);
+        batch.extend(accumulator.finish());
         completed_key = current;
     }
     persist(vault, state, &mut batch, completed_key)?;
@@ -125,7 +125,6 @@ fn persist(
             s,
             saved.aggregate_generation,
             &rows,
-            &[],
             &reopened,
             &[],
             &saved.computed_at,

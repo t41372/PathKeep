@@ -20,7 +20,10 @@ fn entity_evidence_pages_preserve_every_visit_and_whole_entity_factors() {
             s.execute("INSERT INTO sessions_rows(session_id,profile_id,first_visit_ms,last_visit_ms,visit_count,search_count,domain_count,computed_at) VALUES('session','profile',1,113,113,113,1,'')",())?;
             s.execute("INSERT INTO search_trails_rows(trail_id,profile_id,session_id,initial_query,search_engine,visit_count,first_visit_ms,last_visit_ms,queries_json,computed_at) VALUES('trail','profile','session','query','google',113,1,113,'[]','')",())?;
             s.execute("INSERT INTO query_families_rows(family_id,profile_id,anchor_query,member_count,search_engine,first_seen_ms,last_seen_ms,queries_json,computed_at) VALUES('family','profile','query',113,'google',1,113,'[\"query\"]','')",())?;
-            s.execute("INSERT INTO habit_patterns_rows(profile_id,registrable_domain,habit_type,mean_interval_days,cv,visit_count,last_visited_ms,is_interrupted,computed_at) VALUES('profile','example.com','weekly',7,0.1,113,113,0,'')",())?;
+            // A weekly habit: a habit is worked out from its site's daily rollups.
+            for day in ["2020-01-01","2020-01-08","2020-01-15","2020-01-22","2020-01-29"] {
+                s.execute("INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,domain_category,visit_count,search_count,new_domain_visits,unique_urls,last_visit_ms) VALUES('profile',?1,'example.com','unknown',1,0,0,1,0)",[day])?;
+            }
             s.execute("INSERT INTO reopened_investigations_rows(investigation_id,profile_id,anchor_type,anchor_id,anchor_label,occurrence_count,distinct_days,first_seen_ms,last_seen_ms,evidence_json,computed_at) VALUES('reopened','profile','query_family','family','query',113,113,1,113,'{}','')",())?;
             for id in 1..=113_i64 {
                 s.execute("INSERT INTO visit_derived_facts_rows(visit_id,profile_id,canonical_url,registrable_domain,page_category,computed_at) VALUES(?1,'profile',?2,'example.com','article','')",params![id,format!("https://example.com/{}",id%3)])?;

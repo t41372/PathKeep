@@ -16,7 +16,6 @@
 //!
 //! ## Dependencies
 //! - Shared session/trail build state in `intelligence_structural_state`.
-//! - Dirty-range cleanup helpers in `intelligence_structural_persist`.
 //! - Parent-module structural record types, search-query helpers, and SQLite
 //!   row loaders.
 //! - `archive.visits`, `search_events`, `search_trails`, and related structural

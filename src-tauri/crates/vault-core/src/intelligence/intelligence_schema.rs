@@ -150,7 +150,6 @@ fn count_derived_intelligence_state(
                 "search_event_terms",
                 "query_families",
                 "refind_pages",
-                "habit_patterns",
                 "reopened_investigations",
                 "path_flows",
                 "compare_sets",

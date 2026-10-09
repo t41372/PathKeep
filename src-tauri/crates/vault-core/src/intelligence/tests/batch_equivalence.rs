@@ -24,11 +24,11 @@ use crate::test_support::native::TestDatabase;
 
 use super::super::{
     DAILY_ROLLUP_FALLBACK_BATCH_SIZE, QueryFamilyRecord, RefindPageRecord,
-    VISIT_DERIVE_FALLBACK_BATCH_SIZE, VisitRecord,
+    VISIT_DERIVE_FALLBACK_BATCH_SIZE,
     intelligence_daily_rollups::load_profile_derived_visits,
     intelligence_rebuild::{run_core_intelligence, run_core_intelligence_job_type_with_progress},
     intelligence_structural_aggregates::{
-        build_habit_patterns, build_path_flows, build_refind_pages, build_reopened_investigations,
+        build_refind_pages, build_reopened_investigations,
         build_structural_profile_aggregates_from_batches,
     },
     intelligence_structural_build::{
@@ -48,40 +48,6 @@ use crate::{
     config::project_paths_with_root,
     models::{AppConfig, ArchiveMode, CoreIntelligenceRebuildRequest},
 };
-
-const DAY_MS: i64 = 86_400_000;
-
-fn aggregate_visit(visit_id: i64, domain: &str, day: i64, session_id: Option<&str>) -> VisitRecord {
-    let visit_time_ms = 1711929600000 + (day * DAY_MS) + visit_id;
-    VisitRecord {
-        visit_id,
-        profile_id: "chrome:Default".to_string(),
-        source_profile_id: 1,
-        source_visit_id: visit_id,
-        source_url_id: visit_id + 10_000,
-        url: format!("https://{domain}/page-{visit_id}"),
-        title: Some(format!("{domain} page {visit_id}")),
-        visit_time_ms,
-        from_visit: Some(visit_id - 1),
-        transition_type: Some(1),
-        external_referrer_url: None,
-        canonical_url: format!("https://{domain}/page-{visit_id}"),
-        registrable_domain: domain.to_string(),
-        domain_category: "reference".to_string(),
-        page_category: "article".to_string(),
-        search_engine: None,
-        search_query: None,
-        is_new_domain: false,
-        is_search_event: false,
-        evidence_tier: "deterministic".to_string(),
-        taxonomy_source: "rules".to_string(),
-        taxonomy_pack: None,
-        taxonomy_version: None,
-        display_name: Some(domain.to_string()),
-        session_id: session_id.map(str::to_string),
-        trail_id: None,
-    }
-}
 
 /// Regression coverage for batched query family builder matches in memory builder.
 #[test]
@@ -266,29 +232,13 @@ fn batched_structural_aggregates_match_in_memory_builders() {
         .into_iter()
         .map(|page| (page.canonical_url, page.refind_score, page.cross_day_count))
         .collect::<Vec<_>>();
-    let mut in_memory_flows = build_path_flows(&visits)
-        .into_iter()
-        .map(|flow| (flow.flow_pattern, flow.step_count, flow.occurrence_count))
-        .collect::<Vec<_>>();
-    let mut in_memory_habits = build_habit_patterns(&visits)
-        .into_iter()
-        .map(|habit| (habit.registrable_domain, habit.habit_type, habit.visit_count))
-        .collect::<Vec<_>>();
 
-    let (batched_refind, batched_flows, batched_habits) = intelligence
+    let batched_refind = intelligence
         .read(move |s| build_structural_profile_aggregates_from_batches(s, "chrome:Default"))
         .expect("batched aggregates");
     let mut batched_refind = batched_refind
         .into_iter()
         .map(|page| (page.canonical_url, page.refind_score, page.cross_day_count))
-        .collect::<Vec<_>>();
-    let mut batched_flows = batched_flows
-        .into_iter()
-        .map(|flow| (flow.flow_pattern, flow.step_count, flow.occurrence_count))
-        .collect::<Vec<_>>();
-    let mut batched_habits = batched_habits
-        .into_iter()
-        .map(|habit| (habit.registrable_domain, habit.habit_type, habit.visit_count))
         .collect::<Vec<_>>();
 
     in_memory_refind.sort_by(|left, right| {
@@ -297,25 +247,19 @@ fn batched_structural_aggregates_match_in_memory_builders() {
             .then_with(|| left.1.total_cmp(&right.1))
             .then_with(|| left.2.cmp(&right.2))
     });
-    in_memory_flows.sort();
-    in_memory_habits.sort();
     batched_refind.sort_by(|left, right| {
         left.0
             .cmp(&right.0)
             .then_with(|| left.1.total_cmp(&right.1))
             .then_with(|| left.2.cmp(&right.2))
     });
-    batched_flows.sort();
-    batched_habits.sort();
 
     assert_eq!(batched_refind, in_memory_refind);
-    assert_eq!(batched_flows, in_memory_flows);
-    assert_eq!(batched_habits, in_memory_habits);
 }
 
-/// Direct aggregate-builder coverage for reopened anchors, session flushes, and habit classes.
+/// Direct aggregate-builder coverage for reopened anchors.
 #[test]
-fn structural_aggregate_builders_cover_flows_reopened_and_habits() {
+fn structural_aggregate_builders_cover_reopened_investigations() {
     let refind_pages = vec![
         RefindPageRecord {
             profile_id: "chrome:Default".to_string(),
@@ -367,69 +311,6 @@ fn structural_aggregate_builders_cover_flows_reopened_and_habits() {
     assert!(investigations.iter().any(|item| {
         item.anchor_type == "reference_page" && item.anchor_label == "Reference Page"
     }));
-
-    let mut flow_visits = vec![
-        aggregate_visit(1, "alpha.example", 0, Some("session-flow")),
-        aggregate_visit(2, "alpha.example", 0, Some("session-flow")),
-        aggregate_visit(3, "beta.example", 0, Some("session-flow")),
-        aggregate_visit(4, "gamma.example", 0, Some("session-flow")),
-        aggregate_visit(5, "delta.example", 0, Some("session-flow")),
-        aggregate_visit(6, "omega.example", 1, Some("session-next")),
-        aggregate_visit(7, "sigma.example", 1, Some("session-next")),
-    ];
-    let flow_patterns = build_path_flows(&flow_visits)
-        .into_iter()
-        .map(|flow| (flow.flow_pattern, flow.step_count, flow.occurrence_count))
-        .collect::<Vec<_>>();
-    assert!(flow_patterns.iter().any(|(pattern, steps, _)| {
-        pattern.contains("alpha.example")
-            && pattern.contains("delta.example")
-            && !pattern.contains("omega.example")
-            && *steps == 4
-    }));
-    assert!(flow_patterns.iter().any(|(pattern, steps, _)| {
-        pattern.contains("omega.example") && pattern.contains("sigma.example") && *steps == 2
-    }));
-
-    for day in 0..15 {
-        flow_visits.push(aggregate_visit(100 + day, "daily.example", day, Some("daily")));
-    }
-    for (index, day) in [0, 7, 14, 21, 28].into_iter().enumerate() {
-        flow_visits.push(aggregate_visit(
-            200 + index as i64,
-            "weekly.example",
-            day,
-            Some("weekly"),
-        ));
-    }
-    for (index, day) in [0, 14, 28, 42, 56].into_iter().enumerate() {
-        flow_visits.push(aggregate_visit(
-            300 + index as i64,
-            "periodic.example",
-            day,
-            Some("periodic"),
-        ));
-    }
-    for (index, day) in [0, 1, 20, 21, 50].into_iter().enumerate() {
-        flow_visits.push(aggregate_visit(400 + index as i64, "noisy.example", day, Some("noisy")));
-    }
-    let habits = build_habit_patterns(&flow_visits)
-        .into_iter()
-        .map(|habit| (habit.registrable_domain, (habit.habit_type, habit.visit_count)))
-        .collect::<std::collections::HashMap<_, _>>();
-    assert_eq!(
-        habits.get("daily.example").map(|(habit, count)| (habit.as_str(), *count)),
-        Some(("daily_habit", 15))
-    );
-    assert_eq!(
-        habits.get("weekly.example").map(|(habit, count)| (habit.as_str(), *count)),
-        Some(("weekly_habit", 5))
-    );
-    assert_eq!(
-        habits.get("periodic.example").map(|(habit, count)| (habit.as_str(), *count)),
-        Some(("periodic_reference", 5))
-    );
-    assert!(!habits.contains_key("noisy.example"));
 }
 
 /// Regression coverage for structural stage helper boundaries.

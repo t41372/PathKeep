@@ -56,7 +56,6 @@ fn derived_state(vault: &Vault) -> Vec<Vec<Vec<String>>> {
             ("search_event_terms","visit_id,profile_id,term"),
             ("query_families","family_id,profile_id,anchor_query,member_count,search_engine,first_seen_ms,last_seen_ms,queries_json"),
             ("refind_pages","profile_id,canonical_url,url,title,registrable_domain,cross_day_count,trail_count,search_arrival_count,typed_revisit_count,refind_score,evidence_json,first_seen_ms,last_seen_ms"),
-            ("habit_patterns","profile_id,registrable_domain,habit_type,mean_interval_days,cv,visit_count,last_visited_ms,is_interrupted"),
             ("reopened_investigations","investigation_id,profile_id,anchor_type,anchor_id,anchor_label,occurrence_count,distinct_days,first_seen_ms,last_seen_ms,evidence_json"),
             ("path_flows","profile_id,flow_pattern,step_count,occurrence_count,last_seen_ms"),
         ] {

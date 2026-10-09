@@ -325,9 +325,8 @@ primary keys prepend `generation` to the logical key shown here.
 | `search_event_terms`      | `visit_id, term`                           | Keyword concept terms.                                                                                                                            |
 | `query_families`          | `family_id`                                | Related queries and repetition counts.                                                                                                            |
 | `refind_pages`            | `profile_id, canonical_url`                | Reuse signals, score and bounded persisted evidence sample. Public evidence is paged from facts.                                                  |
-| `habit_patterns`          | `profile_id, registrable_domain`           | Cadence and interruption state.                                                                                                                   |
 | `reopened_investigations` | `investigation_id`                         | Recurring query/page anchors. Reference evidence resolves through the refind row.                                                                 |
-| `path_flows`              | `profile_id, flow_pattern, step_count`     | Repeated all-time navigation windows.                                                                                                             |
+| `path_flows`              | `profile_id, flow_pattern, step_count`     | Repeated all-time navigation windows, counted from `session_paths` the way a date range counts them.                                              |
 | `compare_sets`            | `compare_set_id`                           | Pages of one kind compared within a search trail, found while the aggregate build streams visits; read newest first by `idx_compare_sets_recent`. |
 
 Generation and checkpoint tables:

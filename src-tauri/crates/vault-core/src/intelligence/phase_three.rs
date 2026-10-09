@@ -16,12 +16,12 @@ use super::{date_range_bounds, rfc3339_from_millis};
 use crate::{
     intelligence::site_dictionary::display_name_for_domain,
     models::{
-        BreadthIndex, HabitPattern, InterruptedHabit, ObservedInteraction, ProfileScopedRequest,
-        ScopedDateRangeRequest,
+        BreadthIndex, DateRange, HabitPattern, InterruptedHabit, ObservedInteraction,
+        ProfileScopedRequest, ScopedDateRangeRequest,
     },
 };
 use anyhow::Result;
-use chrono::{Local, NaiveDate};
+use chrono::{Datelike, Local, NaiveDate};
 use std::collections::HashMap;
 use vault_store::{Session, Value as SqlValue, params_from_iter, params_owned as params};
 
@@ -139,6 +139,38 @@ pub(crate) fn get_habit_patterns_with_connection(
     Ok(habits.into_iter().map(|(_, _, pattern)| pattern).collect())
 }
 
+/// One site's habit in one profile over all time, from its site-day rollups: what the habit
+/// explanation describes.
+pub(super) fn site_habit(
+    connection: &Session<'_>,
+    profile: &str,
+    domain: &str,
+) -> Result<Option<HabitPattern>> {
+    let rows = connection.query(
+        "SELECT r.date_key,r.last_visit_ms FROM domain_daily_rollups_rows r
+           INDEXED BY idx_domain_daily_site
+         WHERE r.registrable_domain=?1 AND r.profile_id=?2
+           AND r.generation IN (SELECT daily FROM intelligence_generations)
+         ORDER BY r.date_key",
+        params![domain, profile],
+        |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?)),
+    )?;
+    let mut days = VisitDays::default();
+    let mut last_visited_ms = 0;
+    for (date_key, last_visit_ms) in rows {
+        days.add(NaiveDate::parse_from_str(&date_key, "%Y-%m-%d")?.num_days_from_ce());
+        last_visited_ms = last_visited_ms.max(last_visit_ms);
+    }
+    if last_visited_ms == 0 {
+        // Rows built before the rollup kept the time: the end of the last active day.
+        last_visited_ms = days
+            .last_date()
+            .and_then(|day| day.succ_opt())
+            .map_or(0, |next| local_midnight_ms(next) - 1);
+    }
+    Ok(classify_habit_pattern(domain, &days, last_visited_ms))
+}
+
 /// Local midnight at the start of `day`, in Unix milliseconds.
 fn local_midnight_ms(day: NaiveDate) -> i64 {
     day.and_hms_opt(0, 0, 0)
@@ -151,49 +183,46 @@ pub fn get_interrupted_habits(
     vault: &crate::Vault,
     request: &ProfileScopedRequest,
 ) -> Result<Vec<InterruptedHabit>> {
+    let cache = vault.site_days().clone();
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence, move |connection| {
-        let request = &request;
-
-        get_interrupted_habits_with_connection(connection, request)
+        get_interrupted_habits_with_connection(connection, &cache, &request)
     })
 }
 
+/// The habits of all time that went quiet. Worked out when read, like the habits themselves,
+/// because a habit stops while no backup runs.
 pub(crate) fn get_interrupted_habits_with_connection(
     connection: &Session<'_>,
+    cache: &SiteDayCache,
     request: &ProfileScopedRequest,
 ) -> Result<Vec<InterruptedHabit>> {
-    let mut statement = connection.prepare(
-        "SELECT registrable_domain, habit_type, mean_interval_days, cv, visit_count, last_visited_ms
-         FROM habit_patterns
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND is_interrupted = 1
-         ORDER BY last_visited_ms DESC, registrable_domain ASC",
-    )?;
-    let now_ms = Local::now().timestamp_millis();
-    let habits = statement
-        .query_map([request.profile_id.as_deref()], |row| {
-            let last_visited_ms = row.get::<i64>(5)?;
-            let days_since_last_visit =
-                ((now_ms - last_visited_ms).max(0) as f32 / 86_400_000.0).floor() as i64;
-            let mean_interval_days = row.get::<f64>(2)? as f32;
-            Ok(InterruptedHabit {
-                habit: HabitPattern {
-                    registrable_domain: row.get(0)?,
-                    display_name: display_name_for_domain(&row.get::<String>(0)?),
-                    habit_type: row.get(1)?,
-                    mean_interval_days,
-                    cv: row.get::<f64>(3)? as f32,
-                    visit_count: row.get(4)?,
-                    last_visited_at: rfc3339_from_millis(last_visited_ms),
-                    is_interrupted: true,
-                },
-                days_since_last_visit,
-                interruption_threshold_days: mean_interval_days * 2.0,
+    let all_time = ScopedDateRangeRequest {
+        date_range: DateRange {
+            start: super::intelligence_overview_snapshot::ALL_TIME_SCOPE_START.to_owned(),
+            end: Local::now().format("%Y-%m-%d").to_string(),
+        },
+        profile_id: request.profile_id.clone(),
+    };
+    let habits = get_habit_patterns_with_connection(connection, cache, &all_time)?;
+    Ok(interrupted_among(&habits, Local::now().timestamp_millis()))
+}
+
+/// The habits among `habits` that went quiet by `now_ms`: no visit for twice their usual gap.
+pub(crate) fn interrupted_among(habits: &[HabitPattern], now_ms: i64) -> Vec<InterruptedHabit> {
+    habits
+        .iter()
+        .filter_map(|habit| {
+            let last = chrono::DateTime::parse_from_rfc3339(&habit.last_visited_at).ok()?;
+            let days_since = (now_ms - last.timestamp_millis()).max(0) as f32 / 86_400_000.0;
+            let threshold = habit.mean_interval_days * 2.0;
+            (days_since > threshold).then(|| InterruptedHabit {
+                habit: HabitPattern { is_interrupted: true, ..habit.clone() },
+                days_since_last_visit: days_since.floor() as i64,
+                interruption_threshold_days: threshold,
             })
-        })?
-        .collect::<vault_store::Result<Vec<_>>>()?;
-    Ok(habits)
+        })
+        .collect()
 }
 
 pub use super::path_flows::get_path_flows;
@@ -662,17 +691,27 @@ mod tests {
         assert_eq!(weekly.last_visited_at, rfc3339_from_millis(day_ms(29)));
         assert!(!habits.iter().any(|habit| habit.registrable_domain == "docs.example"));
 
-        let interrupted = {
-            connection.read(move |session| {
-                get_interrupted_habits_with_connection(
-                    session,
-                    &ProfileScopedRequest { profile_id: Some("chrome:Default".to_string()) },
-                )
-            })
-        }
-        .expect("interrupted habits");
-        assert_eq!(interrupted.len(), 1);
-        assert!(interrupted[0].days_since_last_visit >= 0);
+        // Both weekly habits stopped in April 2026, long before today; one is Safari's.
+        let interrupted = |profile: Option<&str>| {
+            let request = ProfileScopedRequest { profile_id: profile.map(str::to_owned) };
+            connection
+                .read(move |session| {
+                    get_interrupted_habits_with_connection(
+                        session,
+                        &SiteDayCache::default(),
+                        &request,
+                    )
+                })
+                .expect("interrupted habits")
+        };
+        let chrome = interrupted(Some("chrome:Default"));
+        assert_eq!(
+            chrome.iter().map(|item| item.habit.registrable_domain.as_str()).collect::<Vec<_>>(),
+            ["weekly.example"]
+        );
+        assert!(chrome[0].days_since_last_visit > 14);
+        assert_eq!(chrome[0].interruption_threshold_days, 14.0);
+        assert_eq!(interrupted(None).len(), 2);
 
         let flows = {
             connection.read(move |session| {
@@ -949,18 +988,15 @@ mod tests {
         connection.execute("INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,domain_category,visit_count,search_count,new_domain_visits,unique_urls,last_visit_ms) VALUES ('chrome:Default',?1,?2,'unknown',1,0,0,1,?3) ON CONFLICT(generation,date_key,profile_id,registrable_domain) DO UPDATE SET visit_count=visit_count+1,last_visit_ms=MAX(last_visit_ms,excluded.last_visit_ms)",params![format!("2026-04-{day:02}"),domain,time]).unwrap();
     }
 
+    /// A weekly habit in Safari, so a profile's interrupted habits leave it out.
     fn seed_interrupted_habits(connection: &TestDatabase) {
-        connection
-            .execute(
-                "INSERT INTO habit_patterns_rows(profile_id,registrable_domain,habit_type,mean_interval_days,cv,visit_count,last_visited_ms,is_interrupted,computed_at) VALUES ('chrome:Default','weekly.example','weekly_habit',7.0,0.1,5,?1,1,'')",
-                params![day_ms(1)],
-            )
-            .expect("interrupted habit");
-        connection
-            .execute(
-                "INSERT INTO habit_patterns_rows(profile_id,registrable_domain,habit_type,mean_interval_days,cv,visit_count,last_visited_ms,is_interrupted,computed_at) VALUES ('safari:Default','other.example','weekly_habit',7.0,0.1,5,?1,1,'')",
-                params![day_ms(1)],
-            )
-            .expect("scoped out habit");
+        for day in [1, 8, 15, 22, 29] {
+            connection
+                .execute(
+                    "INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,domain_category,visit_count,search_count,new_domain_visits,unique_urls,last_visit_ms) VALUES ('safari:Default',?1,'other.example','unknown',1,0,0,1,?2)",
+                    params![format!("2026-04-{day:02}"), day_ms(day)],
+                )
+                .expect("safari habit");
+        }
     }
 }

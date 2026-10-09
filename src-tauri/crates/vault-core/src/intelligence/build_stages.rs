@@ -260,8 +260,6 @@ where
         return Ok(());
     }
     super::build_refind::rebuild(vault, state, limit, progress)?;
-    let mut accumulator =
-        super::intelligence_structural_aggregates::StructuralAggregateAccumulator::default();
     let mut compare = super::compare_sets::CompareSetAccumulator::default();
     let mut cursor = None;
     let mut processed = 0;
@@ -271,7 +269,6 @@ where
             break;
         }
         for visit in &batch {
-            accumulator.add_summary_visit(visit);
             compare.add(visit);
         }
         compare.resolve(vault, state.navigation_generation)?;
@@ -283,7 +280,8 @@ where
         processed += batch.len();
         progress(build_state::progress(state, "refind-pages", processed, state.processed))?;
     }
-    let (_, flows, habits) = accumulator.finish();
+    let flows =
+        super::path_flows::profile_flows(vault, state.navigation_generation, &state.profile_id)?;
     let compare_sets = compare.finish(vault, state.navigation_generation)?;
     for chunk in compare_sets.chunks(512) {
         let rows = chunk.to_vec();
@@ -306,30 +304,26 @@ where
         progress(build_state::progress(state, "search-trails", processed, state.processed))?;
     }
     macro_rules! write {
-        ($rows:ident,$batch:ident,$pages:expr,$habits:expr,$reopened:expr,$flows:expr) => {
+        ($rows:ident,$batch:ident,$pages:expr,$reopened:expr,$flows:expr) => {
             for chunk in $rows.chunks(512) {
                 let $batch = chunk.to_vec();
                 let generation = state.aggregate_generation;
                 let at = state.computed_at.clone();
                 vault.write(Db::Intelligence, Priority::Batch, move |s| {
-                    build_rows::persist_aggregates(
-                        s, generation, $pages, $habits, $reopened, $flows, &at,
-                    )
+                    build_rows::persist_aggregates(s, generation, $pages, $reopened, $flows, &at)
                 })?;
                 progress(build_state::progress(state, "refind-pages", processed, state.processed))?;
             }
         };
     }
-    write!(habits, rows, &[], &rows, &[], &[]);
-    write!(reopened, rows, &[], &[], &rows, &[]);
-    write!(flows, rows, &[], &[], &[], &rows);
+    write!(reopened, rows, &[], &rows, &[]);
+    write!(flows, rows, &[], &[], &rows);
     for (table, count) in [
         ("query_families", families.len()),
         (
             "query_family_queries",
             families.iter().map(|family| build_rows::family_query_keys(family).len()).sum(),
         ),
-        ("habit_patterns", habits.len()),
         (
             "reopened_investigations",
             state.counts.get("reopened_investigations").copied().unwrap_or(0) + reopened.len(),

@@ -1,10 +1,11 @@
 //! Responsibilities: page ranked navigation flows: all time from the stored flows, a date range
-//! from the sessions' stored path segments.
-//! Not responsible for: rebuilding persisted flows or segments, or source-evidence hydration.
+//! from the sessions' stored path segments; count a profile's flows from those segments for the
+//! build that stores them.
+//! Not responsible for: building the segments, or source-evidence hydration.
 //! Failure modes: a result cap hides flows, repeated domains inflate windows, a session
 //! boundary joins unrelated paths, a path crossing two segments counts twice or not at all, or a
 //! read replays visits.
-use super::rfc3339_from_millis;
+use super::{PathFlowRecord, rfc3339_from_millis};
 use crate::{
     Vault,
     models::{IntelligencePage, PathFlow, PathFlowRequest, PathFlowStep},
@@ -98,6 +99,70 @@ pub(crate) fn get_path_flows_with_connection(
     ranked.truncate(limit + 1);
     super::paging::finish(ranked, limit)
 }
+/// Every path of a profile, counted from its sessions' path segments the way a date range counts
+/// them: the all-time list a build stores. Pages through the segments in key order.
+pub(super) fn profile_flows(
+    vault: &Vault,
+    generation: i64,
+    profile: &str,
+) -> Result<Vec<PathFlowRecord>> {
+    const COLUMNS: &str = "SELECT session_id,segment,prefix_len,sites_json FROM session_paths
+        WHERE generation=?1 AND profile_id=?2";
+    let mut flows = HashMap::new();
+    let mut after = None::<(String, i64)>;
+    loop {
+        let profile_id = profile.to_owned();
+        let key = after.clone();
+        let rows = vault.read(Db::Intelligence, move |s| {
+            let map = |r: &vault_store::Row| -> vault_store::Result<(String, i64, i64, String)> {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            };
+            let mut rows = Vec::new();
+            if let Some((session, segment)) = &key {
+                rows = s.query(
+                    &format!(
+                        "{COLUMNS} AND session_id=?3 AND segment>?4 ORDER BY segment LIMIT 4096"
+                    ),
+                    params![generation, profile_id.as_str(), session.as_str(), *segment],
+                    map,
+                )?;
+            }
+            if rows.len() < 4096 {
+                let more = s.query(
+                    &format!("{COLUMNS} AND session_id>?3 ORDER BY session_id,segment LIMIT ?4"),
+                    params![
+                        generation,
+                        profile_id.as_str(),
+                        key.as_ref().map_or("", |(session, _)| session.as_str()),
+                        (4096 - rows.len()) as i64
+                    ],
+                    map,
+                )?;
+                rows.extend(more);
+            }
+            Ok(rows)
+        })?;
+        let Some((session, segment, ..)) = rows.last() else { break };
+        after = Some((session.clone(), *segment));
+        for (_, _, prefix_len, sites) in rows {
+            let sites: Vec<(String, i64)> = serde_json::from_str(&sites)?;
+            for steps in 2..=4 {
+                count_segment_paths(&sites, prefix_len as usize, steps, &mut flows);
+            }
+        }
+    }
+    Ok(flows
+        .into_iter()
+        .map(|((flow_pattern, steps), aggregate)| PathFlowRecord {
+            profile_id: profile.to_owned(),
+            flow_pattern,
+            step_count: steps as i64,
+            occurrence_count: aggregate.occurrence_count,
+            last_seen_ms: aggregate.last_seen_ms,
+        })
+        .collect())
+}
+
 fn flow(profile: Option<&str>, steps: usize, pattern: String, count: i64, time: i64) -> PathFlow {
     PathFlow {
         flow_id: format!("flow:{}:{steps}:{pattern}", profile.unwrap_or("all-profiles")),

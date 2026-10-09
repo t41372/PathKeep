@@ -41,7 +41,6 @@ mod intelligence_shared;
 mod intelligence_structural_aggregates;
 mod intelligence_structural_build;
 #[cfg(test)]
-mod intelligence_structural_persist;
 #[cfg(test)]
 mod intelligence_structural_stage;
 mod intelligence_structural_state;
@@ -323,18 +322,6 @@ struct PathFlowRecord {
     step_count: i64,
     occurrence_count: i64,
     last_seen_ms: i64,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct HabitPatternRecord {
-    profile_id: String,
-    registrable_domain: String,
-    habit_type: String,
-    mean_interval_days: f32,
-    cv: f32,
-    visit_count: i64,
-    last_visited_ms: i64,
-    is_interrupted: bool,
 }
 
 /// One site's visits on one day, in one browser profile.

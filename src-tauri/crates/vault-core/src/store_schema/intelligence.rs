@@ -181,19 +181,6 @@ const STATEMENTS: &[&str] = &[
   computed_at TEXT NOT NULL,
   PRIMARY KEY(generation, profile_id, canonical_url)
 )",
-    r"CREATE TABLE habit_patterns_rows (
-  generation INTEGER NOT NULL DEFAULT 0,
-  profile_id TEXT NOT NULL,
-  registrable_domain TEXT NOT NULL,
-  habit_type TEXT NOT NULL,
-  mean_interval_days REAL NOT NULL,
-  cv REAL NOT NULL,
-  visit_count INTEGER NOT NULL,
-  last_visited_ms INTEGER NOT NULL,
-  is_interrupted INTEGER NOT NULL DEFAULT 0,
-  computed_at TEXT NOT NULL,
-  PRIMARY KEY(generation, profile_id, registrable_domain)
-)",
     r"CREATE TABLE reopened_investigations_rows (
   generation INTEGER NOT NULL DEFAULT 0,
   investigation_id TEXT NOT NULL,
@@ -529,8 +516,6 @@ const STATEMENTS: &[&str] = &[
     "CREATE VIEW query_family_queries AS SELECT r.family_id,r.profile_id,r.normalized_query FROM query_family_queries_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW refind_pages AS SELECT r.profile_id,r.canonical_url,r.url,r.title,r.registrable_domain,r.cross_day_count,r.trail_count,r.search_arrival_count,r.typed_revisit_count,r.refind_score,r.evidence_json,r.first_seen_ms,r.last_seen_ms,r.computed_at FROM refind_pages_rows r
-      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
-    "CREATE VIEW habit_patterns AS SELECT r.profile_id,r.registrable_domain,r.habit_type,r.mean_interval_days,r.cv,r.visit_count,r.last_visited_ms,r.is_interrupted,r.computed_at FROM habit_patterns_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW reopened_investigations AS SELECT r.investigation_id,r.profile_id,r.anchor_type,r.anchor_id,r.anchor_label,r.occurrence_count,r.distinct_days,r.first_seen_ms,r.last_seen_ms,CASE WHEN r.anchor_type='reference_page' THEN
         (SELECT p.evidence_json FROM refind_pages_rows p WHERE p.generation=r.generation AND p.profile_id=r.profile_id AND p.canonical_url=r.anchor_id LIMIT 1 OFFSET 0)

@@ -23,7 +23,6 @@ pub(super) const TABLES: &[(&str, &str)] = &[
     ("query_families", "aggregates"),
     ("query_family_queries", "aggregates"),
     ("refind_pages", "aggregates"),
-    ("habit_patterns", "aggregates"),
     ("reopened_investigations", "aggregates"),
     ("path_flows", "aggregates"),
     ("compare_sets", "aggregates"),
