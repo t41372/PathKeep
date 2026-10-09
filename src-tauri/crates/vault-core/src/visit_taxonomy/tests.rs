@@ -18,11 +18,13 @@
 //! - Tests use single-visit fixtures and do not allocate large archive-shaped
 //!   datasets.
 
+use super::types::TAXONOMY_VERSION;
+use super::url::host_and_parents;
 use super::*;
 
 #[test]
 fn taxonomy_serialized_identifiers_cover_every_public_variant() {
-    assert_eq!(taxonomy_version(), "m5-taxonomy-v1");
+    assert!(taxonomy_version().starts_with("m5-taxonomy-v2|"));
     assert_eq!(EvidenceTier::TierA.as_str(), "tier-a");
     assert_eq!(EvidenceTier::TierB.as_str(), "tier-b");
     assert_eq!(EvidenceTier::TierC.as_str(), "tier-c");
@@ -308,7 +310,9 @@ fn taxonomy_lexicon_and_unknown_fallback_are_honest() {
         },
         &[],
     );
-    assert_eq!(docs.taxonomy.domain_category, DomainCategory::Docs);
+    // The title makes it a docs page; it says nothing about what the site is.
+    assert_eq!(docs.taxonomy.page_category, PageCategory::DocsPage);
+    assert_eq!(docs.taxonomy.domain_category, DomainCategory::Unknown);
     assert_eq!(docs.taxonomy.source, TaxonomyDecisionSource::LexiconRule);
 
     let unknown = analyze_visit(
@@ -351,4 +355,156 @@ fn user_override_beats_pack_rules() {
     assert_eq!(analysis.taxonomy.source, TaxonomyDecisionSource::UserOverride);
     assert_eq!(analysis.taxonomy.domain_category, DomainCategory::Work);
     assert_eq!(analysis.taxonomy.page_category, PageCategory::Dashboard);
+}
+
+// The built-in site rules. The ways they go wrong, each checked below:
+// - a host with a rule of its own is classified by its parent's (Google Docs counted as search);
+// - matching climbs past the registrable domain, so a rule could cover a whole public suffix;
+// - a parent matches without a label boundary (`notgoogle.com` taken for Google);
+// - a rule can never fire: an exact rule for a site, or a parent of it, whose pages path rules
+//   tell apart (exact rules are tried first);
+// - a domain is listed twice, so which category wins depends on the order of the lists;
+// - a listed domain no visit can produce (uppercase, `www.`, a scheme or path, a public suffix);
+// - a site that path rules tell apart has pages no rule matches, so most of its visits are unknown;
+// - the rules change but the version a build records does not, so archives keep the old labels;
+// - a word in one page's title labels the whole site ("tokio vs smol" on a blog made it shopping).
+
+fn classify(url: &str) -> TaxonomyClassification {
+    analyze_visit(
+        VisitAnalysisInput {
+            url,
+            title: None,
+            query: None,
+            has_canonical_search_term: false,
+            external_referrer_url: None,
+            from_visit: None,
+        },
+        &[],
+    )
+    .taxonomy
+}
+
+#[test]
+fn a_host_with_its_own_rule_beats_its_parent() {
+    assert_eq!(
+        classify("https://docs.google.com/document/d/x/edit").domain_category,
+        DomainCategory::Work
+    );
+    assert_eq!(classify("https://mail.google.com/mail/u/0/").domain_category, DomainCategory::Work);
+    assert_eq!(classify("https://gemini.google.com/app").domain_category, DomainCategory::Ai);
+    let search = classify("https://www.google.com/search?q=sqlite");
+    assert_eq!(search.domain_category, DomainCategory::Search);
+    assert_eq!(search.page_category, PageCategory::SearchResults);
+    // A host without a rule of its own takes its parent's.
+    assert_eq!(
+        classify("https://en.wikipedia.org/wiki/Search_engine").domain_category,
+        DomainCategory::Education
+    );
+    assert_eq!(classify("https://notgoogle.com/").domain_category, DomainCategory::Unknown);
+}
+
+#[test]
+fn host_walk_stops_at_the_registrable_domain() {
+    let walk = |host, registrable| host_and_parents(host, registrable).collect::<Vec<_>>();
+    assert_eq!(
+        walk("a.b.example.co.uk", "example.co.uk"),
+        ["a.b.example.co.uk", "b.example.co.uk", "example.co.uk"]
+    );
+    assert_eq!(walk("example.com", "example.com"), ["example.com"]);
+    assert_eq!(walk("localhost", "localhost"), ["localhost"]);
+    // A registrable domain the host is not under: only the host itself.
+    assert_eq!(walk("a.example.com", "other.com"), ["a.example.com"]);
+    assert_eq!(walk("a.example.com", ""), ["a.example.com"]);
+}
+
+#[test]
+fn every_site_rule_can_fire_and_is_listed_once() {
+    let mut seen = std::collections::HashMap::new();
+    for pack in super::rules::RULE_PACKS {
+        for rule in pack.exact_domains {
+            let domain = rule.domain;
+            assert_eq!(domain, domain.trim().to_ascii_lowercase(), "{domain} is not normalized");
+            assert!(
+                !domain.starts_with("www.") && !domain.contains("://") && !domain.contains('/'),
+                "{domain} is not a host"
+            );
+            let registrable = registrable_domain_for_host(domain);
+            assert!(
+                domain == registrable || domain.ends_with(&format!(".{registrable}")),
+                "{domain} is above its registrable domain {registrable}"
+            );
+            // A single-label host (`localhost`) has no parents; it matches only itself.
+            if domain.contains('.') {
+                let probe = format!("probe.{domain}");
+                assert!(
+                    host_and_parents(&probe, &registrable_domain_for_host(&probe))
+                        .any(|h| h == domain),
+                    "a host under {domain} never reaches its rule"
+                );
+            }
+            if let Some(other) = seen.insert(domain, pack.id) {
+                panic!("{domain} is listed in both {other} and {}", pack.id);
+            }
+        }
+    }
+    for pack in super::rules::RULE_PACKS {
+        for rule in pack.host_path_rules {
+            for host in rule.host_suffixes {
+                for exact in host_and_parents(host, &registrable_domain_for_host(host)) {
+                    assert!(
+                        !seen.contains_key(exact),
+                        "the exact rule for {exact} hides the path rule {} for {host}",
+                        rule.rule.id
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn sites_told_apart_by_path_still_have_a_category_on_every_page() {
+    let issue = classify("https://github.com/example/repo/issues/42");
+    assert_eq!(issue.page_category, PageCategory::Issue);
+    let notifications = classify("https://github.com/notifications");
+    assert_eq!(notifications.domain_category, DomainCategory::Developer);
+    assert_eq!(notifications.page_category, PageCategory::Unknown);
+    assert_eq!(classify("https://github.com/").domain_category, DomainCategory::Developer);
+
+    assert_eq!(
+        classify("https://www.youtube.com/watch?v=abc").page_category,
+        PageCategory::VideoPage
+    );
+    let home = classify("https://www.youtube.com/");
+    assert_eq!(home.domain_category, DomainCategory::Video);
+    assert_eq!(home.page_category, PageCategory::Unknown);
+
+    assert_eq!(classify("https://www.amazon.com/").domain_category, DomainCategory::Shopping);
+    assert_eq!(classify("https://www.reddit.com/").domain_category, DomainCategory::Community);
+    assert_eq!(classify("https://www.nytimes.com/").domain_category, DomainCategory::News);
+}
+
+#[test]
+fn taxonomy_version_names_every_pack() {
+    let version = taxonomy_version();
+    assert!(version.starts_with(TAXONOMY_VERSION), "{version}");
+    for pack in super::rules::RULE_PACKS {
+        assert!(version.contains(&format!("{}:{}", pack.id, pack.version)), "{version}");
+    }
+}
+
+#[test]
+fn a_page_title_does_not_label_the_site() {
+    let post = analyze_visit(
+        VisitAnalysisInput {
+            url: "https://without.boats/blog/async-runtimes/",
+            title: Some("tokio vs smol: choosing an async runtime"),
+            query: None,
+            has_canonical_search_term: false,
+            external_referrer_url: None,
+            from_visit: None,
+        },
+        &[],
+    );
+    assert_eq!(post.taxonomy.domain_category, DomainCategory::Unknown);
 }

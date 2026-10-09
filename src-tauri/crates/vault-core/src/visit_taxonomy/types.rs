@@ -17,12 +17,9 @@
 //! - These are compact value types; large-archive memory behavior is governed
 //!   by the caller's batching strategy, not by this type module.
 
-pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v1";
-
-/// Returns the current visit-taxonomy baseline version.
-pub(crate) const fn taxonomy_version() -> &'static str {
-    TAXONOMY_VERSION
-}
+/// The matcher's version. v2: a host is matched before its parents (`mail.google.com` before
+/// `google.com`). What builds record is `taxonomy_version()`, which adds every pack's version.
+pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v2";
 
 /// URL normalized for rule-based visit taxonomy and matching.
 #[derive(Debug, Clone, PartialEq, Eq)]

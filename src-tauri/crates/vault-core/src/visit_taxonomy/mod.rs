@@ -22,6 +22,7 @@
 
 mod classification;
 mod rules;
+mod sites;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -40,4 +41,4 @@ pub use self::url::{
     registrable_domain_for_url,
 };
 
-pub(crate) use self::types::taxonomy_version;
+pub(crate) use self::rules::taxonomy_version;

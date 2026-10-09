@@ -117,6 +117,24 @@ pub fn registrable_domain_for_host(host: &str) -> String {
     }
 }
 
+/// The host, then each parent of it down to the registrable domain: `mail.google.com`, then
+/// `google.com`. Never further, so no rule can cover a public suffix such as `co.uk`. A host that
+/// is not under `registrable_domain` yields only itself.
+pub(super) fn host_and_parents<'a>(
+    host: &'a str,
+    registrable_domain: &'a str,
+) -> impl Iterator<Item = &'a str> {
+    let under = !registrable_domain.is_empty()
+        && (host == registrable_domain
+            || host.strip_suffix(registrable_domain).is_some_and(|rest| rest.ends_with('.')));
+    std::iter::successors(Some(host), move |current| {
+        if !under || *current == registrable_domain {
+            return None;
+        }
+        current.split_once('.').map(|(_, parent)| parent)
+    })
+}
+
 /// Matches either an exact host or a subdomain of the provided suffix.
 pub(super) fn host_matches_suffix(host: &str, suffix: &str) -> bool {
     host == suffix || host.ends_with(&format!(".{suffix}"))

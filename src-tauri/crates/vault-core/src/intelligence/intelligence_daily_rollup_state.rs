@@ -1,4 +1,5 @@
-//! Failure modes: split-day uniqueness, first-domain counts or category ties change totals.
+//! Failure modes: split-day uniqueness, first-domain counts, or a site's category for the day
+//! following one visit instead of most of them.
 //! Daily-rollup accumulation helpers.
 //!
 //! ## Responsibilities
@@ -27,7 +28,8 @@ use chrono::Timelike;
 use std::collections::{HashMap, HashSet};
 
 type DailyDomainKey = (String, String, String);
-type DailyDomainValue = (String, i64, i64, i64, HashSet<String>, i64);
+/// The visits per category, then visits, searches, first visits, pages and the last visit time.
+type DailyDomainValue = (Vec<(String, i64)>, i64, i64, i64, HashSet<String>, i64);
 type DailyCategoryKey = (String, String, String);
 type DailyCategoryValue = (i64, HashSet<String>);
 type DailyEngineKey = (String, String, String);
@@ -50,17 +52,12 @@ impl DailyRollupAccumulator {
         let date_key = local.format("%Y-%m-%d").to_string();
         let domain_key =
             (date_key.clone(), visit.profile_id.clone(), visit.registrable_domain.clone());
-        let domain_entry = self.domains.entry(domain_key).or_insert((
-            visit.domain_category.clone(),
-            0,
-            0,
-            0,
-            HashSet::new(),
-            0,
-        ));
+        let domain_entry =
+            self.domains.entry(domain_key).or_insert((Vec::new(), 0, 0, 0, HashSet::new(), 0));
         domain_entry.5 = domain_entry.5.max(visit.visit_time_ms);
-        if visit.domain_category < domain_entry.0 {
-            domain_entry.0 = visit.domain_category.clone();
+        match domain_entry.0.iter_mut().find(|(category, _)| *category == visit.domain_category) {
+            Some((_, count)) => *count += 1,
+            None => domain_entry.0.push((visit.domain_category.clone(), 1)),
         }
         domain_entry.1 += 1;
         domain_entry.2 += i64::from(visit.is_search_event);
@@ -108,7 +105,7 @@ impl DailyRollupAccumulator {
                     |(
                         (date_key, profile_id, registrable_domain),
                         (
-                            domain_category,
+                            categories,
                             visit_count,
                             search_count,
                             new_domain_visits,
@@ -119,7 +116,7 @@ impl DailyRollupAccumulator {
                         date_key,
                         profile_id,
                         registrable_domain,
-                        domain_category,
+                        domain_category: site_category(categories),
                         visit_count,
                         search_count,
                         new_domain_visits,
@@ -186,5 +183,86 @@ impl DailyRollupAccumulator {
                 )
                 .collect(),
         }
+    }
+}
+
+/// A site's category for the day: the one most of its visits had (the site is a search engine
+/// even on a day one of its pages counted as docs). A tie goes to a known category over `unknown`,
+/// then to the first by name, so every rebuild picks the same one.
+fn site_category(counts: Vec<(String, i64)>) -> String {
+    counts
+        .into_iter()
+        .max_by(|(a, a_visits), (b, b_visits)| {
+            a_visits
+                .cmp(b_visits)
+                .then_with(|| (a != "unknown").cmp(&(b != "unknown")))
+                .then_with(|| b.cmp(a))
+        })
+        .map(|(category, _)| category)
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A site's category for a day goes wrong when one visit's category outweighs the rest (the
+    // smallest name used to win, so one docs page made a day of searching "docs"), when unknown
+    // wins a tie against a known category, or when a tie is broken differently on each rebuild.
+
+    fn visit(visit_id: i64, category: &str) -> VisitRecord {
+        VisitRecord {
+            visit_id,
+            profile_id: "chrome:Default".into(),
+            source_profile_id: 1,
+            source_visit_id: visit_id,
+            source_url_id: visit_id,
+            url: format!("https://google.com/{visit_id}"),
+            title: None,
+            visit_time_ms: 1_711_929_600_000 + visit_id,
+            from_visit: None,
+            transition_type: None,
+            external_referrer_url: None,
+            canonical_url: format!("https://google.com/{visit_id}"),
+            registrable_domain: "google.com".into(),
+            domain_category: category.into(),
+            page_category: "unknown".into(),
+            search_engine: None,
+            search_query: None,
+            is_new_domain: false,
+            is_search_event: false,
+            evidence_tier: "tier-c".into(),
+            taxonomy_source: "rules".into(),
+            taxonomy_pack: None,
+            taxonomy_version: None,
+            display_name: None,
+            session_id: None,
+            trail_id: None,
+        }
+    }
+
+    fn category_of(categories: &[&str]) -> String {
+        let mut day = DailyRollupAccumulator::default();
+        for (id, category) in categories.iter().enumerate() {
+            day.add_visit(&visit(id as i64, category));
+        }
+        let rows = day.finish().domain_rows;
+        assert_eq!(rows.len(), 1);
+        rows[0].domain_category.clone()
+    }
+
+    #[test]
+    fn a_site_takes_the_category_most_of_its_visits_had() {
+        assert_eq!(category_of(&["search", "docs", "search"]), "search");
+        assert_eq!(category_of(&["work", "work", "ai"]), "work");
+    }
+
+    #[test]
+    fn ties_go_to_a_known_category_then_the_first_by_name() {
+        assert_eq!(category_of(&["unknown", "work"]), "work");
+        assert_eq!(category_of(&["work", "unknown"]), "work");
+        assert_eq!(category_of(&["work", "search"]), "search");
+        assert_eq!(category_of(&["search", "work"]), "search");
+        assert_eq!(category_of(&["unknown"]), "unknown");
     }
 }
