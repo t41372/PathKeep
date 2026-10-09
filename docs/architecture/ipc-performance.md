@@ -272,6 +272,19 @@ The benchmark's data is a worst case for these reads: its visits walk 20,000 sit
 
 Every other card read is under 50 ms. The real data has about 19 visits per site-day row (19,457 rows for 371,347 visits that were not searches); the benchmark has one.
 
+The same follow-ups on the 14.4M benchmark (same VM; its one-site-day-per-visit shape is the worst case for the shared read):
+
+| 14.4M visits, after the follow-ups                   | first call   | again         |
+| ---------------------------------------------------- | ------------ | ------------- |
+| all time, first batch                                | 0.11 s       | 0.11 s        |
+| one year, first batch                                | 39.1 s       | 1.6 s         |
+| one year, second batch                               | 1.4 s        | 0.9 s         |
+| one year, common paths                               | 0.84 s       | 0.82 s        |
+| 30 days, first / second batch                        | 3.3 / 0.19 s | 0.41 / 0.14 s |
+| all time, KPI row read on its own (not the snapshot) | 90 s         | 0.95 s        |
+
+Full rebuild 5,795 s (was 5,955): sessions and trails 476 s (was 402, the path segments), aggregates 1,592 s, the overview snapshot warm 207 s (was 844). The first one-year batch is still the cost of one walk over the year's site-day rows, now done once and kept: 3.15M rows on the benchmark, each brought into Rust, which costs more per row than the SQL groupings it replaced. On the real data the same batch takes 74 ms. Not measured in this run: the export and the append, the client lost the sandbox when the machine slept.
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |
