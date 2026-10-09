@@ -17,20 +17,22 @@
 //! - Static rule packs from `rules`.
 //!
 //! ## Performance notes
-//! - Classification is per visit and bounded by the static rule-pack size.
+//! - Exact rules are a hash lookup per host label; host/path and lexicon rules are scanned and
+//!   must stay a short list.
 //! - No archive-wide state is retained; callers can safely run this inside
 //!   streamed rebuild batches.
 
 use super::{
-    rules::{HostPathRule, RULE_PACKS, TaxonomyRule, TaxonomyRulePack},
+    rules::{ExactDomainRule, HostPathRule, RULE_PACKS, TaxonomyRule, TaxonomyRulePack},
     text::{normalize_whitespace, tokenize_text},
     types::{
         EvidenceTier, NormalizedVisitUrl, TAXONOMY_VERSION, TaxonomyClassification,
         TaxonomyDecisionSource, TaxonomyOverride, TaxonomyOverrideTarget, VisitAnalysisInput,
         VisitEvidenceAssessment, VisitTaxonomyAnalysis,
     },
-    url::{host_matches_suffix, normalize_visit_url},
+    url::{host_and_parents, host_matches_suffix, normalize_visit_url},
 };
+use std::{collections::HashMap, sync::LazyLock};
 
 /// Produces local evidence and taxonomy analysis for one visit.
 pub fn analyze_visit(
@@ -102,7 +104,19 @@ fn assess_visit_evidence(
     }
 }
 
-/// Applies override, exact-domain, host/path, and lexicon rules in priority order.
+/// Every pack's exact rules by domain, so a visit costs a few lookups (its host and each parent)
+/// however long the site lists grow.
+static EXACT_RULES: LazyLock<
+    HashMap<&'static str, (&'static TaxonomyRulePack, &'static ExactDomainRule)>,
+> = LazyLock::new(|| {
+    RULE_PACKS
+        .iter()
+        .flat_map(|pack| pack.exact_domains.iter().map(move |rule| (rule.domain, (pack, rule))))
+        .collect()
+});
+
+/// Applies override, exact-domain, host/path, and lexicon rules in priority order. An exact rule
+/// matches the visit's host or the nearest parent of it that has one.
 fn classify_visit_taxonomy(
     normalized_url: Option<&NormalizedVisitUrl>,
     raw_url: &str,
@@ -126,18 +140,17 @@ fn classify_visit_taxonomy(
     )
     .to_lowercase();
 
-    for pack in RULE_PACKS {
-        for rule in pack.exact_domains {
-            if fallback_domain == rule.domain {
-                return classification_from_rule(
-                    pack,
-                    rule.rule,
-                    TaxonomyDecisionSource::ExactDomainRule,
-                    0.95,
-                    vec![format!("exact-domain={}", rule.domain)],
-                );
-            }
-        }
+    if let Some((pack, rule)) = normalized_url.and_then(|url| {
+        host_and_parents(&url.host, &url.registrable_domain)
+            .find_map(|host| EXACT_RULES.get(host).copied())
+    }) {
+        return classification_from_rule(
+            pack,
+            rule.rule,
+            TaxonomyDecisionSource::ExactDomainRule,
+            0.95,
+            vec![format!("exact-domain={}", rule.domain)],
+        );
     }
 
     if let Some(normalized_url) = normalized_url {

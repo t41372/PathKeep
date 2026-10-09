@@ -7,6 +7,7 @@
  * callers can show the old numbers and poll until they settle.
  */
 import type {
+  ActivityMix,
   ActivityMixTrend,
   BreadthIndex,
   BrowserDiff,
@@ -77,6 +78,9 @@ export const insightsClient = {
     section<DiscoveryTrend>('get_discovery_trend', {
       request: { ...scope, granularity: 'day' },
     }),
+  /** Each category's share of the scope's visits, and its change from the period before. */
+  activityMix: (scope: Scope) =>
+    section<ActivityMix>('get_activity_mix', { request: scope }),
   /** Per day; charts group days into weeks themselves (see insights/buckets). */
   activityMixTrend: (scope: Scope) =>
     call<ActivityMixTrend>('get_activity_mix_trend', {

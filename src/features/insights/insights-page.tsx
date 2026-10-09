@@ -20,6 +20,7 @@ import {
   TopSitesCard,
 } from './insights-cards'
 import { ComparedPagesCard } from './compare-card'
+import { ActivityMixCard } from './mix-card'
 import { NewSitesCard } from './new-sites-card'
 import { useOverviewBands } from './overview'
 import { PathsCard } from './paths-card'
@@ -66,7 +67,10 @@ export default function InsightsPage() {
         />
         <KpiRow scope={scope} />
         <Row>
-          <DailyActivityCard scope={scope} />
+          <div className="flex min-w-0 flex-col gap-4">
+            <DailyActivityCard scope={scope} />
+            <ActivityMixCard scope={scope} />
+          </div>
           <TopSitesCard scope={scope} />
         </Row>
         <Heading>{t('insights.sections.time')}</Heading>

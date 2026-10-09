@@ -1,0 +1,36 @@
+//! Search engines, everywhere. See the parent module for what a site list holds.
+
+use super::super::rules::{ExactDomainRule, search_engine};
+
+pub(in crate::visit_taxonomy) const GLOBAL_CORE: &[ExactDomainRule] = &[
+    search_engine("baidu.com"),
+    search_engine("bing.com"),
+    search_engine("duckduckgo.com"),
+    search_engine("ecosia.org"),
+    search_engine("google.com"),
+    search_engine("google.ca"),
+    search_engine("google.co.in"),
+    search_engine("google.co.jp"),
+    search_engine("google.co.kr"),
+    search_engine("google.co.uk"),
+    search_engine("google.com.au"),
+    search_engine("google.com.hk"),
+    search_engine("google.com.sg"),
+    search_engine("google.com.tw"),
+    search_engine("google.de"),
+    search_engine("google.es"),
+    search_engine("google.fr"),
+    search_engine("google.it"),
+    search_engine("google.nl"),
+    search_engine("google.ru"),
+    search_engine("kagi.com"),
+    search_engine("qwant.com"),
+    search_engine("search.brave.com"),
+    search_engine("so.com"),
+    search_engine("sogou.com"),
+    search_engine("startpage.com"),
+    search_engine("yahoo.com"),
+    search_engine("yandex.com"),
+    search_engine("yandex.ru"),
+    search_engine("ya.ru"),
+];
