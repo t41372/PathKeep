@@ -18,8 +18,9 @@
 //!   by the caller's batching strategy, not by this type module.
 
 /// The matcher's version. v2: a host is matched before its parents (`mail.google.com` before
-/// `google.com`). What builds record is `taxonomy_version()`, which adds every pack's version.
-pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v2";
+/// `google.com`). v3: a Latin lexicon word matches whole words only ("api" not in "rapid").
+/// What builds record is `taxonomy_version()`, which adds every pack's version.
+pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v3";
 
 /// URL normalized for rule-based visit taxonomy and matching.
 #[derive(Debug, Clone, PartialEq, Eq)]
