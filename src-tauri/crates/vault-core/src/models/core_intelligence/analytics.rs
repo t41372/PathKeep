@@ -54,6 +54,9 @@ pub struct SiteArrivals {
     pub search: i64,
     /// Opened from a link on another site, or on a page PathKeep did not see.
     pub link: i64,
+    /// Visits to the site from browsers that do not record what opened a page (Safari, Google
+    /// Takeout): how they began is not known, so they count toward none of the above.
+    pub unrecorded: i64,
 }
 
 /// Another site, and how many visits went between it and the deep dive's site in the window.

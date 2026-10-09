@@ -352,8 +352,9 @@ visit_id)`; visit/generation and trail indexes support point hydration.
 - `site_flows_rows(generation, profile_id, date_key, registrable_domain, kind, other,
 visit_count)` has primary key `(generation, date_key, profile_id, registrable_domain, kind,
 other)`: per local day, how a site's visits began (`direct`, `search` or `link`, with the
-  opener's site in `other`, empty when PathKeep did not see it) and the sites its links opened
-  (`onward`). The session walk counts it, finding each visit's opener among the last 512 visits
+  opener's site in `other`, empty when PathKeep did not see it), the sites its links opened
+  (`onward`), and the visits whose browser does not record openers (`unrecorded`, Safari and
+  Takeout). The session walk counts it, finding each visit's opener among the last 512 visits
   it walked (kept with the walk's state, so an append continues it), and adds the counts with
   the domain counts. The site page reads it through `idx_site_flows_site (registrable_domain,
 date_key, generation, profile_id)`.

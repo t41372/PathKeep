@@ -266,6 +266,10 @@ fn site_flows(
                 arrivals.direct += visit_count;
                 continue;
             }
+            "unrecorded" => {
+                arrivals.unrecorded += visit_count;
+                continue;
+            }
             "search" => {
                 arrivals.search += visit_count;
                 &mut search_sites

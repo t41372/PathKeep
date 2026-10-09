@@ -429,7 +429,8 @@ const STATEMENTS: &[&str] = &[
         date_key TEXT NOT NULL,prefix_len INTEGER NOT NULL,sites_json TEXT NOT NULL,PRIMARY KEY(generation,session_id,segment))",
     // How each site's visits began and where its links led, per local day: `kind` is `direct`
     // (no opener), `search` or `link` (the opener's site in `other`, empty when PathKeep did not
-    // see the opener) for arrivals, `onward` for visits to `other` opened from the site.
+    // see the opener) for arrivals, `onward` for visits to `other` opened from the site, and
+    // `unrecorded` for visits whose browser does not record openers.
     "CREATE TABLE site_flows_rows(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,date_key TEXT NOT NULL,
         registrable_domain TEXT NOT NULL,kind TEXT NOT NULL,other TEXT NOT NULL,visit_count INTEGER NOT NULL,
         PRIMARY KEY(generation,date_key,profile_id,registrable_domain,kind,other))",

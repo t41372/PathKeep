@@ -72,6 +72,11 @@ export interface SiteArrivals {
   search: number
   /** Opened from a link on another site, or on a page PathKeep did not see. */
   link: number
+  /**
+   * Visits from browsers that do not record what opened a page (Safari,
+   * Google Takeout): how they began is not known.
+   */
+  unrecorded: number
 }
 
 /** Another site, and how many visits went between it and the site. */

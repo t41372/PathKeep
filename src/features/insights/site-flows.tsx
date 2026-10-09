@@ -11,7 +11,7 @@ import { Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
-import type { SiteFlowStat } from '@/lib/core-intelligence/types'
+import type { SiteArrivals, SiteFlowStat } from '@/lib/core-intelligence/types'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSite } from './drill-queries'
@@ -51,14 +51,16 @@ export function ArrivalsCard({
       <QueryBody
         query={site}
         skeleton={<ListSkeleton rows={4} />}
-        isEmpty={({ data: { arrivals } }) =>
-          arrivals.direct + arrivals.search + arrivals.link === 0
+        isEmpty={({ data: { arrivals } }) => recorded(arrivals) === 0}
+        // Safari and Takeout record no openers: that is not knowing, not none.
+        empty={
+          site.data?.data.arrivals.unrecorded
+            ? t('insights.site.arrivalsUnrecorded')
+            : t('insights.site.noArrivals')
         }
-        empty={t('insights.site.noArrivals')}
       >
         {({ data }) => {
-          const total =
-            data.arrivals.direct + data.arrivals.search + data.arrivals.link
+          const total = recorded(data.arrivals)
           return (
             <div className="flex flex-col gap-4">
               <div
@@ -105,6 +107,7 @@ export function ArrivalsCard({
                 sites={data.searchSites}
                 scope={scope}
               />
+              <UnrecordedNote count={data.arrivals.unrecorded} />
             </div>
           )
         }}
@@ -137,9 +140,20 @@ export function OnwardCard({
         query={site}
         skeleton={<ListSkeleton rows={4} />}
         isEmpty={(result) => result.data.onward.length === 0}
-        empty={t('insights.site.noOnward')}
+        empty={
+          site.data &&
+          recorded(site.data.data.arrivals) === 0 &&
+          site.data.data.arrivals.unrecorded
+            ? t('insights.site.onwardUnrecorded')
+            : t('insights.site.noOnward')
+        }
       >
-        {(result) => <SiteList sites={result.data.onward} scope={scope} />}
+        {(result) => (
+          <div className="flex flex-col gap-4">
+            <SiteList sites={result.data.onward} scope={scope} />
+            <UnrecordedNote count={result.data.arrivals.unrecorded} />
+          </div>
+        )}
       </QueryBody>
     </SectionCard>
   )
@@ -184,6 +198,22 @@ export function SiteSearchesCard({
         ))}
       </ul>
     </SectionCard>
+  )
+}
+
+/** The visits whose browser recorded what opened them and that came from elsewhere. */
+function recorded(arrivals: SiteArrivals) {
+  return arrivals.direct + arrivals.search + arrivals.link
+}
+
+/** How many visits the counts above leave out because their browser keeps no opener. */
+function UnrecordedNote({ count }: { count: number }) {
+  const { t } = useI18n()
+  if (count === 0) return null
+  return (
+    <p className="text-xs text-muted-foreground">
+      {t('insights.site.unrecordedNote', { count })}
+    </p>
   )
 }
 

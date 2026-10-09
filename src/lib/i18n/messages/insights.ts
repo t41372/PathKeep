@@ -304,6 +304,14 @@ export const insights = defineMessages({
       fromSearch: 'From a search',
       fromLink: 'From a link',
       noArrivals: 'No visit came here from somewhere else in this range.',
+      arrivalsUnrecorded:
+        "Your visits here came from a browser that doesn't record which page opened a page (Safari, or history imported from Google Takeout), so PathKeep can't tell how you got here.",
+      onwardUnrecorded:
+        "Your visits here came from a browser that doesn't record which page opened a page (Safari, or history imported from Google Takeout), so PathKeep can't tell where you went next.",
+      unrecordedNote_one:
+        "{count} visit here isn't counted: its browser doesn't record which page opened a page (Safari, or history imported from Google Takeout).",
+      unrecordedNote_other:
+        "{count} visits here aren't counted: their browser doesn't record which page opened a page (Safari, or history imported from Google Takeout).",
       referrers: 'Links from',
       searchSites: 'Searches on',
       onward: 'Where you went next',
@@ -684,6 +692,14 @@ export const insights = defineMessages({
       fromSearch: '从搜索来',
       fromLink: '从链接来',
       noArrivals: '这段时间没有从别处来到这里的浏览。',
+      arrivalsUnrecorded:
+        '这里的浏览来自不记录“从哪一页打开”的浏览器（Safari，或从 Google Takeout 导入的记录），所以 PathKeep 无法知道你是怎么来的。',
+      onwardUnrecorded:
+        '这里的浏览来自不记录“从哪一页打开”的浏览器（Safari，或从 Google Takeout 导入的记录），所以 PathKeep 无法知道你接着去了哪里。',
+      unrecordedNote_one:
+        '有 {count} 次浏览没算进来：它的浏览器不记录是从哪一页打开的（Safari，或从 Google Takeout 导入的记录）。',
+      unrecordedNote_other:
+        '有 {count} 次浏览没算进来：它们的浏览器不记录是从哪一页打开的（Safari，或从 Google Takeout 导入的记录）。',
       referrers: '链接来自',
       searchSites: '在这些地方搜索',
       onward: '接着去了哪里',
@@ -1063,6 +1079,14 @@ export const insights = defineMessages({
       fromSearch: '從搜尋來',
       fromLink: '從連結來',
       noArrivals: '這段時間沒有從別處來到這裡的瀏覽。',
+      arrivalsUnrecorded:
+        '這裡的瀏覽來自不記錄「從哪一頁打開」的瀏覽器（Safari，或從 Google Takeout 匯入的紀錄），所以 PathKeep 無法知道你是怎麼來的。',
+      onwardUnrecorded:
+        '這裡的瀏覽來自不記錄「從哪一頁打開」的瀏覽器（Safari，或從 Google Takeout 匯入的紀錄），所以 PathKeep 無法知道你接著去了哪裡。',
+      unrecordedNote_one:
+        '有 {count} 次瀏覽沒算進來：它的瀏覽器不記錄是從哪一頁打開的（Safari，或從 Google Takeout 匯入的紀錄）。',
+      unrecordedNote_other:
+        '有 {count} 次瀏覽沒算進來：它們的瀏覽器不記錄是從哪一頁打開的（Safari，或從 Google Takeout 匯入的紀錄）。',
       referrers: '連結來自',
       searchSites: '在這些地方搜尋',
       onward: '接著去了哪裡',

@@ -6,7 +6,9 @@
  * Chrome history payload stay out even when they look like history (My
  * Activity's Chrome entries, JSON Lines), the card says what My Activity is
  * and how to export the right thing, and importing the same folder again
- * adds nothing.
+ * adds nothing. Takeout records no page's opener, so its site's Insights page
+ * says it cannot tell how the visits began rather than that none came from
+ * elsewhere.
  *
  * The folder is written for this test (see `support/takeout-file.ts`); none
  * of its pages are in the archive before the import.
@@ -77,6 +79,14 @@ test('a Takeout folder imports its Chrome history and nothing else, once', async
     timeout: 60_000,
   })
   await expectSearchHits(page, { pages: takeoutPageCount(), visits })
+
+  // Only Takeout visited the folder's site, and Takeout keeps no opener.
+  await page.goto('/#/insights/site/takeout.example')
+  await expect(
+    page.getByText(
+      "Your visits here came from a browser that doesn't record which page opened a page (Safari, or history imported from Google Takeout), so PathKeep can't tell how you got here.",
+    ),
+  ).toBeVisible({ timeout: 60_000 })
 
   // The same folder again: every visit is already there.
   await inspect(page, folder)

@@ -2,7 +2,8 @@
 //! built at once and with an append that continues the session.
 //!
 //! Ways it can go wrong, each covered: moving between pages of one site counts as arriving; a
-//! visit from a browser that does not record openers (no `from_visit` at all) counts as typed;
+//! visit from a browser that does not record openers (no `from_visit` at all) counts as typed,
+//! or is dropped so the site seems to have had no visit from elsewhere;
 //! a search's results are not told apart from a link; an opener PathKeep never saw is dropped
 //! or put on some site; the site a link led to is not counted as the opener's onward site; an
 //! append in place counts the open session's earlier visits again, or loses the openers they
@@ -60,6 +61,8 @@ fn by_hand() -> Vec<String> {
         // The seed: its search's result on GitHub; its other visits' browser does not say.
         row(seeded, "github.com", "search", "google.com"),
         row(seeded, "google.com", "onward", "github.com"),
+        row(1_711_929_600_000, "google.com", "unrecorded", ""),
+        row(1_712_016_000_000, "github.com", "unrecorded", ""),
         // 101: a search typed into the browser.
         row(day, "google.com", "direct", ""),
         // 102: opened from its results, so Google's onward site too; 103 stays on docs.rs.
@@ -73,6 +76,7 @@ fn by_hand() -> Vec<String> {
         // 106: opened from a page PathKeep never saw.
         row(day, "example.com", "link", ""),
         // 107 stays on github.com; 108's browser does not say what opened it.
+        row(START_MS + 8 * 60_000, "docs.rs", "unrecorded", ""),
     ];
     rows.sort();
     rows

@@ -407,8 +407,9 @@ impl StructuralTailStreamState {
 
     /// How the visit began, by its opener: nothing (typed, a bookmark), a search's results, a
     /// link on another site, or a page PathKeep did not see; the opener's site gains an onward
-    /// site. Moving between pages of one site counts for neither, and a visit whose browser does
-    /// not record openers is left out.
+    /// site. Moving between pages of one site counts for neither. A visit whose browser does not
+    /// record openers (Safari, Takeout) counts as unrecorded, so the site page can say it does
+    /// not know rather than that nothing came.
     fn count_flows(
         &mut self,
         visit: &StructuralVisitRecord,
@@ -418,7 +419,7 @@ impl StructuralTailStreamState {
         if !site.is_empty() {
             let day = local_date_key(visit.visit_time_ms);
             match Opener::of(visit.from_visit) {
-                Opener::Unrecorded => {}
+                Opener::Unrecorded => persist.count_flow(&day, site, "unrecorded", ""),
                 Opener::Nothing => persist.count_flow(&day, site, "direct", ""),
                 Opener::Visit(id) => match self.openers.get(id) {
                     Some((opener, _)) if opener == site => {}
