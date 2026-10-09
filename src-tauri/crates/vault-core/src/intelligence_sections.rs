@@ -8,7 +8,7 @@
 use crate::{
     intelligence_runtime::load_module_runtime,
     models::{
-        CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow,
+        CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow, DERIVED_NOTE_MODULE_DISABLED,
         DeterministicModuleRuntimeStatus,
     },
     utils::now_rfc3339,
@@ -315,7 +315,13 @@ fn build_module_backed_meta(
 
     let mut state = "ready".to_string();
     let mut state_reason = None::<String>;
+    let mut state_reason_code = None::<String>;
     for module in &relevant {
+        // The code of the same reason: the stale reason's, else the first coded note's.
+        let code = module
+            .stale_reason_code
+            .clone()
+            .or_else(|| module.note_details.first().map(|note| note.code.clone()));
         let (candidate_state, candidate_reason) = match module.status.as_str() {
             "disabled" => (
                 "disabled",
@@ -335,6 +341,11 @@ fn build_module_backed_meta(
         };
         if state_priority(candidate_state) > state_priority(&state) {
             state = candidate_state.to_string();
+            state_reason_code = match candidate_state {
+                "ready" => None,
+                "disabled" => code.or_else(|| Some(DERIVED_NOTE_MODULE_DISABLED.to_string())),
+                _ => code,
+            };
             state_reason = candidate_reason;
         }
     }
@@ -354,6 +365,7 @@ fn build_module_backed_meta(
         includes_enrichment: descriptor.includes_enrichment,
         state,
         state_reason,
+        state_reason_code,
         notes,
     }
 }
@@ -379,6 +391,7 @@ fn build_direct_meta(
         includes_enrichment: descriptor.includes_enrichment,
         state: if state_reason.is_some() { "degraded".to_string() } else { "ready".to_string() },
         state_reason,
+        state_reason_code: None,
         notes,
     }
 }
@@ -503,6 +516,10 @@ mod tests {
             module_id: "domain-deep-dive".to_string(),
             status: "idle".to_string(),
             notes: vec!["No successful deterministic rebuild has been recorded yet.".to_string()],
+            note_details: vec![crate::models::DerivedRuntimeNote::new(
+                crate::models::DERIVED_NOTE_MODULE_NEVER_BUILT,
+                "No successful deterministic rebuild has been recorded yet.",
+            )],
             ..DeterministicModuleRuntimeStatus::default()
         }]);
 
@@ -510,10 +527,8 @@ mod tests {
             build_module_backed_meta(persisted_descriptor("path-flows"), &runtime, sample_window());
 
         assert_eq!(meta.state, "degraded");
-        assert_eq!(
-            meta.state_reason.as_deref(),
-            Some("No successful deterministic rebuild has been recorded yet.")
-        );
+        // The screen shows the code's sentence in the user's language, never the English reason.
+        assert_eq!(meta.state_reason_code.as_deref(), Some("module-never-built"));
         assert!(meta.generated_at.is_none());
     }
 

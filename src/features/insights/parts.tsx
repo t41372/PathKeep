@@ -163,6 +163,20 @@ export function KpiTile({
   )
 }
 
+const REASONS = [
+  'module-never-built',
+  'module-no-successful-rebuild',
+  'module-disabled',
+  'module-rebuild-required',
+  'module-version-mismatch',
+  'module-version-changed',
+] as const
+
+/** The reason's sentence; a code this version has none for reads as a general one, not English. */
+function reasonKey(code?: string | null) {
+  return REASONS.find((known) => known === code) ?? 'unknown'
+}
+
 /**
  * Freshness and evidence for one section, for the card's header. Shows a
  * spinner while the background job after a backup is still refreshing it,
@@ -235,8 +249,10 @@ export function SectionStatus({
               <dd>{t(`insights.status.states.${meta.state}`)}</dd>
             </dl>
           )}
-          {limited && meta?.stateReason && (
-            <p className="text-xs text-muted-foreground">{meta.stateReason}</p>
+          {limited && (meta?.stateReasonCode || meta?.stateReason) && (
+            <p className="text-xs text-muted-foreground">
+              {t(`insights.status.reasons.${reasonKey(meta.stateReasonCode)}`)}
+            </p>
           )}
         </PopoverContent>
       </Popover>

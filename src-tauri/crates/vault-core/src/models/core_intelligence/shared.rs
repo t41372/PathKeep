@@ -123,7 +123,12 @@ pub struct CoreIntelligenceSectionMeta {
     pub source_tables: Vec<String>,
     pub includes_enrichment: bool,
     pub state: String,
+    /// Why the section is not ready, in English, for logs and diagnostics.
     pub state_reason: Option<String>,
+    /// The same reason as a stable code (`module-never-built`, `module-disabled`, ...) the
+    /// interface turns into a sentence in the user's language; None when the reason has no code.
+    #[serde(default)]
+    pub state_reason_code: Option<String>,
     pub notes: Vec<String>,
 }
 
