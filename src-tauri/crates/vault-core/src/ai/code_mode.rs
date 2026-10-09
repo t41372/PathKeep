@@ -454,9 +454,12 @@ impl HostState {
     /// largest char boundary ≤ [`MAX_OUTPUT_BYTES`] (never mid-codepoint) — a raw byte cut would split
     /// a multibyte CJK/emoji glyph and leave `model_text` ragged (the lossy decode would emit U+FFFD).
     fn capture_result(&mut self, value: Option<&Value>) {
+        // The guest sends `null` for a script that returned nothing (it cannot send `undefined`).
+        // Empty output is what lets run_code tell the model plainly that no value came back;
+        // a script that returns `null` itself gets the same answer, which is just as true.
         let bytes = match value {
+            Some(Value::Null) | None => Vec::new(),
             Some(value) => serde_json::to_vec(value).unwrap_or_default(),
-            None => Vec::new(),
         };
         if bytes.len() > MAX_OUTPUT_BYTES {
             self.output = bytes[..char_boundary_floor(&bytes, MAX_OUTPUT_BYTES)].to_vec();

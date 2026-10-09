@@ -1159,13 +1159,13 @@ fn the_public_entry_runs_the_committed_guest_cleanly() {
 
 #[test]
 fn a_void_program_yields_an_empty_output() {
-    // A program that returns nothing (undefined) yields a `null` JSON output (the harness maps
-    // undefined → null), never an error.
+    // A program that returns nothing yields empty output, never an error, so run_code's
+    // "returned no value" sentinel reaches the model instead of a bare `null`.
     let rt = runtime();
     let context = empty_context();
     let outcome = run_code_in_sandbox("const x = 1;", &context, rt.handle().clone(), None);
     assert!(outcome.error.is_none());
-    assert_eq!(outcome.model_text, "null");
+    assert_eq!(outcome.model_text, "");
 }
 
 // ---- Compile / integrity / setup failures (pure-ish, real runtime where it matters) ----------
