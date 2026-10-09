@@ -569,6 +569,8 @@ mod tests {
 
     #[test]
     fn preview_schedule_uses_current_platform_when_unspecified() {
+        // Reads the scheduler test environment, which other tests set and restore under this lock.
+        let _guard = env_lock().lock().expect("env lock");
         let dir = tempdir().expect("tempdir");
         let paths = sample_paths(dir.path());
         let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
@@ -1324,6 +1326,8 @@ mod tests {
 
     #[test]
     fn macos_remove_schedule_rejects_missing_generated_files() {
+        // Reads the scheduler test environment, which other tests set and restore under this lock.
+        let _guard = env_lock().lock().expect("env lock");
         let dir = tempdir().expect("tempdir");
         let result = remove_schedule(
             &SchedulePlan {
