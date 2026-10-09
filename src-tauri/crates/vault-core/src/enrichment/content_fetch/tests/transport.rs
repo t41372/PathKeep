@@ -4,7 +4,6 @@
 use super::*;
 
 #[test]
-#[ignore = "requires a network socket; kept offline by the area-4 task"]
 fn shared_fetcher_returns_html_body_for_a_readable_article() {
     let mut server = mockito::Server::new();
     let _mock = server
@@ -25,7 +24,6 @@ fn shared_fetcher_returns_html_body_for_a_readable_article() {
 }
 
 #[test]
-#[ignore = "requires a network socket; kept offline by the area-4 task"]
 fn shared_fetcher_reports_rate_limited_on_429() {
     let mut server = mockito::Server::new();
     let _mock = server.mock("GET", "/r").with_status(429).create();
@@ -34,7 +32,6 @@ fn shared_fetcher_reports_rate_limited_on_429() {
 }
 
 #[test]
-#[ignore = "requires a network socket; kept offline by the area-4 task"]
 fn shared_fetcher_reports_unsupported_content_for_non_html() {
     let mut server = mockito::Server::new();
     let _mock = server
@@ -50,7 +47,6 @@ fn shared_fetcher_reports_unsupported_content_for_non_html() {
 }
 
 #[test]
-#[ignore = "requires a network socket; kept offline by the area-4 task"]
 fn shared_fetcher_reports_fetch_error_on_4xx_5xx() {
     let mut server = mockito::Server::new();
     let _not_found = server.mock("GET", "/missing").with_status(404).create();
@@ -61,7 +57,6 @@ fn shared_fetcher_reports_fetch_error_on_4xx_5xx() {
 }
 
 #[test]
-#[ignore = "requires a network socket; kept offline by the area-4 task"]
 fn shared_fetcher_reports_decode_error_when_html_body_exceeds_cap() {
     let mut server = mockito::Server::new();
     let huge = vec![b'a'; MAX_HTML_BODY_BYTES + 4096];
@@ -76,7 +71,6 @@ fn shared_fetcher_reports_decode_error_when_html_body_exceeds_cap() {
 }
 
 #[test]
-#[ignore = "requires a network socket; kept offline by the area-4 task"]
 fn shared_fetcher_returns_github_repo_json() {
     let mut server = mockito::Server::new();
     let _mock = server
@@ -95,7 +89,6 @@ fn shared_fetcher_returns_github_repo_json() {
 }
 
 #[test]
-#[ignore = "requires a network socket; kept offline by the area-4 task"]
 fn shared_fetcher_treats_github_403_as_rate_limited() {
     let mut server = mockito::Server::new();
     let _mock = server.mock("GET", "/repos/o/r").with_status(403).create();
@@ -104,7 +97,6 @@ fn shared_fetcher_treats_github_403_as_rate_limited() {
 }
 
 #[test]
-#[ignore = "requires a network socket; kept offline by the area-4 task"]
 fn shared_fetcher_caps_json_body() {
     let mut server = mockito::Server::new();
     let huge = vec![b'{'; 4096];
@@ -119,7 +111,6 @@ fn shared_fetcher_caps_json_body() {
 }
 
 #[test]
-#[ignore = "requires a network socket; kept offline by the area-4 task"]
 fn shared_fetcher_follows_a_redirect_chain_to_the_final_html() {
     let mut server = mockito::Server::new();
     let _redirect =
@@ -141,7 +132,7 @@ fn shared_fetcher_follows_a_redirect_chain_to_the_final_html() {
 }
 
 #[test]
-#[ignore = "requires a network socket; kept offline by the area-4 task"]
+#[ignore = "resolves an .invalid host through real DNS"]
 fn shared_fetcher_reports_fetch_error_on_unreachable_host() {
     // An unresolvable host fails at connect → honest fetch-error, never a fake success.
     let outcome = shared_fetcher().fetch_html("https://content-fetch-test.invalid./x");
@@ -151,7 +142,6 @@ fn shared_fetcher_reports_fetch_error_on_unreachable_host() {
 }
 
 #[test]
-#[ignore = "requires a network socket; offline read_capped tests cover the byte limit"]
 fn read_capped_drains_under_cap_and_rejects_over_cap() {
     // Exercise the body-cap helper directly through mockito so both arms are covered.
     let mut server = mockito::Server::new();
@@ -166,7 +156,6 @@ fn read_capped_drains_under_cap_and_rejects_over_cap() {
 }
 
 #[test]
-#[ignore = "requires a network socket; kept offline by the area-4 task"]
 fn shared_fetcher_reports_fetch_error_on_json_5xx() {
     // Covers the SharedClientFetcher JSON non-success (non-403/429) branch.
     let mut server = mockito::Server::new();
@@ -175,4 +164,24 @@ fn shared_fetcher_reports_fetch_error_on_json_5xx() {
     assert!(
         matches!(outcome, FetchOutcome::Failed { status, http_status: Some(500), .. } if status == "fetch-error")
     );
+}
+
+#[test]
+fn the_production_fetcher_does_not_follow_a_redirect_to_a_private_address() {
+    // The real hop check: the mock server is on loopback, so its redirect points at a private
+    // address, and the page behind it must never be requested.
+    let mut server = mockito::Server::new();
+    let _start =
+        server.mock("GET", "/start").with_status(302).with_header("location", "/internal").create();
+    let internal = server
+        .mock("GET", "/internal")
+        .with_status(200)
+        .with_header("content-type", "text/html")
+        .with_body("<html><body>internal</body></html>")
+        .expect(0)
+        .create();
+    let outcome =
+        SharedClientFetcher::new().expect("fetcher").fetch_html(&format!("{}/start", server.url()));
+    assert!(!matches!(outcome, FetchOutcome::Body { .. }), "{outcome:?}");
+    internal.assert();
 }

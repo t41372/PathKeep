@@ -46,6 +46,20 @@ pub(crate) async fn open_external_url(url: String) -> Result<String, CommandErro
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Opens a page from the user's history (a `file://` one only if it was visited), off the UI thread.
+pub(crate) async fn open_visited_page(
+    url: String,
+    state: tauri::State<'_, crate::session::SessionState>,
+) -> Result<String, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("open_visited_page", move || {
+        file_manager::open_visited_page_impl(url, &session)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Reveals the local log directory in the native file manager, off the UI thread.
 ///
 /// The detailed reason for any failure (e.g. a backup that could not read a browser profile) is

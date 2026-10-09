@@ -950,6 +950,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<UrlPayload>(payload)?;
             json_value!(file_manager::open_external_url_impl(payload.url)?)
         }
+        "open_visited_page" => {
+            let payload = parse_payload::<UrlPayload>(payload)?;
+            json_value!(file_manager::open_visited_page_impl(payload.url, &state.session)?)
+        }
         "reveal_logs" => {
             json_value!(file_manager::reveal_logs_impl()?)
         }

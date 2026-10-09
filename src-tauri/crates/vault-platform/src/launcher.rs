@@ -2,9 +2,10 @@
 //!
 //! These helpers validate user-provided paths/URLs before handing them to the
 //! OS shell. The goal is modest but important: PathKeep should only ask the
-//! platform to open real local folders, trusted `file://` URLs, HTTP(S) URLs,
-//! or one fixed macOS settings pane and should fail with a straightforward
-//! message otherwise.
+//! platform to open real local folders, HTTP(S) URLs, one fixed macOS settings
+//! pane, or a `file://` URL the caller has checked is a page the user visited,
+//! and should fail with a straightforward message otherwise. Opening a
+//! `file://` URL can launch an application, so it never accepts one on its own.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,9 +21,21 @@ pub fn open_path_in_file_manager(path: String) -> Result<String, String> {
     Ok(target.display().to_string())
 }
 
-/// Opens an HTTP(S), trusted file URL, or approved settings URL in the host launcher.
+/// Opens an HTTP(S) URL, or the approved settings URL, in the host launcher.
 pub fn open_external_url(url: String) -> Result<String, String> {
     let target = resolve_external_url_target(&url)?;
+    let (program, arguments) = external_url_command(&target);
+    spawn_external_url_command(program, arguments, &target)?;
+    Ok(target)
+}
+
+/// Opens a `file://` URL. Only for one the caller found in the user's own history: anything else
+/// (a link a model wrote, a page's content) could name an application and run it.
+pub fn open_visited_file_url(url: String) -> Result<String, String> {
+    let target = url.trim().to_string();
+    if !target.to_ascii_lowercase().starts_with("file://") {
+        return Err(format!("Not a file:// URL: {target}"));
+    }
     let (program, arguments) = external_url_command(&target);
     spawn_external_url_command(program, arguments, &target)?;
     Ok(target)
@@ -69,11 +82,10 @@ pub fn resolve_external_url_target(url: &str) -> Result<String, String> {
     let lower = trimmed.to_ascii_lowercase();
     if !(lower.starts_with("https://")
         || lower.starts_with("http://")
-        || lower.starts_with("file://")
         || is_allowed_macos_settings_url(trimmed))
     {
         return Err(
-            "Only file://, http://, https://, and the macOS Full Disk Access settings URL can be opened."
+            "Only http://, https://, and the macOS Full Disk Access settings URL can be opened."
                 .to_string(),
         );
     }
@@ -217,10 +229,10 @@ mod tests {
 
     #[test]
     fn resolve_external_url_target_accepts_trusted_launcher_urls() {
-        assert_eq!(
-            resolve_external_url_target("file:///tmp/pathkeep/index.html").expect("file target"),
-            "file:///tmp/pathkeep/index.html"
-        );
+        // A file:// URL can name an application; only visited ones open, through
+        // open_visited_file_url after the caller has looked them up.
+        resolve_external_url_target("file:///Applications/Calculator.app")
+            .expect_err("reject file urls");
         assert_eq!(
             resolve_external_url_target("https://example.com").expect("https target"),
             "https://example.com"

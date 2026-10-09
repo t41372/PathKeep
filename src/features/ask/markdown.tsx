@@ -4,11 +4,14 @@
  * Streamdown's own utility classes are not part of our Tailwind scan, so the
  * typography is set here. Links open in the system browser and code has no
  * highlighter (no extra dependency for something a history answer rarely has).
+ * A link the model wrote opens like a page from History: a local file only if
+ * the user visited it.
  */
 import { memo, type ComponentProps } from 'react'
 import { Streamdown, type Components } from 'streamdown'
-import { supportClient } from '@/lib/backend-client/support'
+import { useOpenPage } from '@/features/history/open-link'
 import { cn } from '@/lib/cn'
+import { useI18n } from '@/lib/i18n'
 
 const prose = cn(
   'text-[15px] leading-[1.65] break-words',
@@ -28,13 +31,14 @@ const prose = cn(
 )
 
 function ExternalLink({ href, children }: ComponentProps<'a'>) {
+  const { t } = useI18n()
+  const openPage = useOpenPage()
   return (
     <a
       href={href}
       onClick={(event) => {
         event.preventDefault()
-        if (href)
-          void supportClient.openExternalUrl(href).catch(() => undefined)
+        if (href) void openPage(href, t('common.linkFailed'))
       }}
     >
       {children}

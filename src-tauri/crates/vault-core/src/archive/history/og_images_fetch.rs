@@ -135,27 +135,21 @@ fn fetch_client_builder() -> reqwest::blocking::ClientBuilder {
 
 /// Builds the reqwest client used by the fetch pipeline. Exposed so the
 /// orchestrator can share one client across many fetches (connection
-/// pool reuse, single timeout policy).
+/// pool reuse, single timeout policy). Every redirect hop is checked like
+/// the first URL (`net_guard::url_target_is_blocked`): a public page that
+/// redirects to a private address must not make PathKeep fetch it.
 pub fn build_fetch_client() -> Result<Client> {
-    fetch_client_builder()
-        // www → apex, /article → /article/slug, http → https, share→canonical
-        // — typical news/social posts go through 3–5 hops. The old
-        // `limited(1)` budget made us miss the og:image on every single
-        // redirecting host. 8 is the same budget Chrome uses for org
-        // redirects on the same hostname.
-        .redirect(reqwest::redirect::Policy::limited(REDIRECT_HOP_BUDGET))
-        .build()
-        .map_err(Into::into)
+    build_guarded_fetch_client(super::net_guard::url_target_is_blocked)
 }
 
-/// Builds a fetch client that re-applies an SSRF guard on EVERY redirect hop (W-ENRICH-1 SEC-3).
+/// Builds a fetch client that applies `hop_is_blocked` to every redirect hop before following it,
+/// so a public page that redirects to `169.254.169.254` or loopback stops there: reqwest returns the
+/// redirect itself instead of fetching the private host. www → apex, http → https and share links
+/// to canonical pages take 3–5 hops, so the budget is 8, as Chrome's.
 ///
-/// Same privacy posture + timeouts as [`build_fetch_client`] (via [`fetch_client_builder`]), but the
-/// redirect policy is a CUSTOM one: each hop is validated by `hop_is_blocked` BEFORE it is followed, so
-/// a public page that 30x-redirects to `169.254.169.254` / loopback is STOPPED mid-chain (the og:image
-/// client's `Policy::limited` follows redirects with reqwest's own resolver and no per-hop check). The
-/// hop budget is preserved. The content-fetch runner passes the real `url_target_is_blocked` in
-/// production; the og:image client is deliberately untouched.
+/// Production passes `net_guard::url_target_is_blocked` (both fetchers do). A test whose mock server
+/// listens on loopback passes its own check, which is the one seam: the check itself is not compiled
+/// differently in tests.
 pub fn build_guarded_fetch_client(hop_is_blocked: fn(&str) -> bool) -> Result<Client> {
     fetch_client_builder()
         .redirect(reqwest::redirect::Policy::custom(move |attempt| {
@@ -668,6 +662,13 @@ fn read_response_body(response: Response, cap_bytes: usize) -> Result<Vec<u8>, B
     read_capped_bytes(response, cap_bytes)
 }
 
+/// The response body, read a chunk at a time and given up as soon as it passes `cap_bytes`, so a
+/// hostile endpoint cannot make PathKeep hold more than the cap. `None` when it does, or on a read
+/// error.
+pub(super) fn read_capped_response(response: Response, cap_bytes: usize) -> Option<Vec<u8>> {
+    read_capped_bytes(response, cap_bytes).ok()
+}
+
 /// Read-cap helper extracted so unit tests can drive both fall-throughs
 /// (Io error mid-stream + TooLarge) without standing up a partial-body
 /// mockito server. The production fetch path calls this exclusively via
@@ -916,7 +917,6 @@ mod tests {
         assert!(outcome.source_og_url.is_none());
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn og_image_host_guard_blocks_private_image_target() {
         // SSRF: the page is reachable, but its scraped og:image points at a
@@ -1038,7 +1038,6 @@ mod tests {
         assert!(default_refetch_after_for_status("").is_none());
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_ok_with_bytes_when_page_and_image_resolve() {
         let mut page = mockito::Server::new();
@@ -1073,7 +1072,6 @@ mod tests {
         assert!(insert.source_og_url.is_some());
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_missing_when_page_has_no_og_image() {
         let mut page = mockito::Server::new();
@@ -1090,7 +1088,6 @@ mod tests {
         assert!(outcome.image_bytes.is_none());
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_http_error_on_404_page() {
         let mut page = mockito::Server::new();
@@ -1102,7 +1099,6 @@ mod tests {
         assert_eq!(outcome.http_status, Some(404));
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_parse_error_on_non_html_content_type() {
         let mut page = mockito::Server::new();
@@ -1118,7 +1114,6 @@ mod tests {
         assert_eq!(outcome.fetch_status(), fetch_status::PARSE_ERROR);
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_rejects_unsupported_image_mime() {
         let mut page = mockito::Server::new();
@@ -1143,7 +1138,6 @@ mod tests {
         assert_eq!(outcome.fetch_status(), fetch_status::UNSUPPORTED_MIME);
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_http_error_when_image_body_stream_aborts_mid_chunk() {
         // The Err(BodyReadError::Io) arm of the image-body match is only
@@ -1199,7 +1193,6 @@ mod tests {
         assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_rejects_oversize_image_via_content_length_header() {
         let mut page = mockito::Server::new();
@@ -1231,7 +1224,6 @@ mod tests {
     // production helper that bypasses the https-only guard) so they can
     // run against mockito's http:// mock servers without standing up TLS.
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_parse_error_when_html_body_exceeds_cap() {
         let mut page = mockito::Server::new();
@@ -1267,7 +1259,6 @@ mod tests {
         );
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_http_error_when_og_image_url_is_unreachable() {
         let mut page = mockito::Server::new();
@@ -1296,7 +1287,6 @@ mod tests {
         assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_returns_http_error_when_image_endpoint_returns_404() {
         let mut page = mockito::Server::new();
@@ -1325,7 +1315,6 @@ mod tests {
         assert!(!is_host_blocked(&blocked, ""));
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn fetch_recovers_from_non_utf8_html_via_lossy_decode() {
         // Walk the utf8 fallback arm on line 198: when the page returns
@@ -1459,7 +1448,6 @@ mod tests {
         assert!(og.contains("i.ytimg.com"), "synth should produce ytimg URL, got {og}");
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn bilibili_api_path_enters_finish_image_fetch_via_mockito() {
         let mut api = mockito::Server::new();
@@ -1520,7 +1508,23 @@ mod tests {
         false
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
+    #[test]
+    fn the_og_image_client_does_not_follow_a_redirect_to_a_private_address() {
+        // The client every og:image fetch uses, with the real hop check: the mock server is on
+        // loopback, so its redirect points at a private address that must never be requested.
+        let mut server = mockito::Server::new();
+        let _start = server
+            .mock("GET", "/page")
+            .with_status(302)
+            .with_header("location", "/internal")
+            .create();
+        let internal = server.mock("GET", "/internal").with_status(200).expect(0).create();
+        let client = build_fetch_client().expect("client");
+        let response = client.get(format!("{}/page", server.url())).send().expect("response");
+        assert_eq!(response.status().as_u16(), 302);
+        internal.assert();
+    }
+
     #[test]
     fn guarded_client_stops_at_a_blocked_redirect_hop() {
         // SEC-3 line coverage: a redirect to a guard-blocked URL is STOPPED — reqwest returns the 3xx
@@ -1546,7 +1550,6 @@ mod tests {
         internal.assert(); // the blocked host was never fetched
     }
 
-    #[ignore = "requires a network socket; run explicitly with network authorization"]
     #[test]
     fn guarded_client_errors_after_too_many_redirects() {
         // SEC-3 line coverage: exceeding the hop budget makes the redirect policy error out.

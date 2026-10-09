@@ -21,7 +21,7 @@ import {
 } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { openInBrowser } from '@/features/history/open-link'
+import { useOpenPage } from '@/features/history/open-link'
 import { useUrlDetail } from '@/features/history/queries'
 import { useSourceStats } from '@/features/home/queries'
 import type { RefindScoreFactor } from '@/lib/core-intelligence/types'
@@ -54,6 +54,7 @@ const factorKeys: Record<string, 'days' | 'trails' | 'searches' | 'direct'> = {
 
 export default function PagePage() {
   const { t } = useI18n()
+  const openPage = useOpenPage()
   const format = useFormat()
   const { url: canonicalUrl = '' } = useParams()
   const [params] = useSearchParams()
@@ -87,7 +88,7 @@ export default function PagePage() {
               variant="outline"
               size="sm"
               onClick={() =>
-                void openInBrowser(pageUrl, t('insights.page.openFailed'))
+                void openPage(pageUrl, t('insights.page.openFailed'))
               }
             >
               <ExternalLink />

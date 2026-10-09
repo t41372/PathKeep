@@ -156,6 +156,7 @@ fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str
         "archive-conversion-required",
         "export-target-is-managed",
         "snapshot-not-listed",
+        "not-in-history",
     ] {
         if message.contains(&format!("{code}:")) {
             return (Some(code), None);
