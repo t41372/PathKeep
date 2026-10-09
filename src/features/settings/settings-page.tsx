@@ -15,6 +15,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
+import { dragRegion } from '@/components/app/drag-region'
+import { TitleBarStrip } from '@/components/app/title-bar'
 import { useSession } from '@/app/session'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
@@ -54,6 +56,7 @@ export default function SettingsPage() {
   return (
     <div className="flex min-w-0 flex-1">
       <nav
+        {...dragRegion()}
         aria-label={t('settings.nav.label')}
         className="flex w-[220px] shrink-0 flex-col gap-0.5 border-r px-3.5 py-7"
       >
@@ -85,6 +88,7 @@ export default function SettingsPage() {
         )}
       </nav>
       <div className="min-w-0 flex-1 overflow-y-auto">
+        <TitleBarStrip />
         <div
           key={current}
           className="flex max-w-[680px] animate-rise flex-col px-10 pt-8 pb-12"

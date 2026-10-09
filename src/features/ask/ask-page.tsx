@@ -10,6 +10,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
+import { TitleBarStrip } from '@/components/app/title-bar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { useI18n } from '@/lib/i18n'
@@ -144,6 +145,7 @@ function AskChat({
           onScroll={onScroll}
           className="flex-1 overflow-y-auto"
         >
+          <TitleBarStrip />
           <div ref={contentRef}>
             {opening ? (
               <OpeningSkeleton label={t('ask.loadingConversation')} />

@@ -27,7 +27,7 @@ SessionGate（src/app/index.tsx）
 
 ## 導航
 
-- **左側導航列**（76 px，`src/app/shell/nav-rail.tsx`）：Home、History、Insights、Ask、Backup 五個主畫面（圖示加文字，當前項目是白色卡片底）；下方依序是 ⌘K、鎖定（⌘L）、語言（A / EN / 简 / 繁）、深淺色切換、Settings。macOS overlay titlebar 下，導航列頂端 46 px 是可拖動區；其他平台顯示品牌標誌。
+- **左側導航列**（76 px，`src/app/shell/nav-rail.tsx`）：Home、History、Insights、Ask、Backup 五個主畫面（圖示加文字，當前項目是白色卡片底）；下方依序是 ⌘K、鎖定（⌘L）、語言（A / EN / 简 / 繁）、深淺色切換、Settings。macOS overlay titlebar 下，導航列頂端 46 px 是可拖動區；其他平台顯示品牌標誌。視窗在 macOS 上沒有自己的標題列，所以像一般視窗一樣從頂部拖動靠 app 自己標的區域（`drag-region.ts`、`title-bar.tsx`）：每個會捲動的畫面頂端 28 px（內容在下面捲過）、頁首與工具列（History 的搜尋列、Settings 與 Ask 的側欄）的空白處、主面板外圍的邊、鎖定與啟動畫面的背景；按鈕、輸入框、連結照常可點，卡片內文字照常可選。
 - 語言從導航列或 Settings 改，兩者都寫進 config（`useChooseLanguage`），重啟後保留，排程與選單列圖示也用它。
 - 沒有 topbar、沒有麵包屑、沒有上一頁 / 下一頁按鈕、沒有通知中心、沒有共享 profile scope。
 - 全域快捷鍵（`app-frame.tsx`）：⌘K / Ctrl+K 開關命令面板；⌘L / Ctrl+L 鎖定。沒設 passcode 時鎖定不會發生，改為提示「先設定 passcode」並打開 Settings → Security。

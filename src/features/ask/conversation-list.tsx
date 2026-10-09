@@ -18,6 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { dragRegion } from '@/components/app/drag-region'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -89,6 +90,7 @@ export function ConversationList({
 
   return (
     <aside
+      {...dragRegion()}
       aria-label={t('ask.list.label')}
       className="flex w-[240px] shrink-0 flex-col gap-1.5 overflow-y-auto border-r p-3.5"
     >
