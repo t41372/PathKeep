@@ -86,24 +86,15 @@ fn write_import_journal(paths: &ProjectPaths, journal: &ImportJournal) -> Result
         .context("writing the interrupted-import journal")
 }
 
-/// Reads the interrupted-import marker. `Ok(None)` when it is absent OR unparseable.
-///
-/// A corrupt marker we cannot act on is best-effort removed and treated as absent:
-/// the on-disk archive is left exactly as it is (we have no instructions to roll
-/// anything back), so a damaged marker can never block opens forever.
+/// Reads the interrupted-import marker. `Ok(None)` when it is absent OR unparseable; the caller
+/// decides what an unparseable one means ([`super::drop_unreadable_marker`]).
 fn read_import_journal(paths: &ProjectPaths) -> Result<Option<ImportJournal>> {
     let path = import_journal_path(paths);
     if !path.exists() {
         return Ok(None);
     }
     let bytes = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-    match serde_json::from_slice::<ImportJournal>(&bytes) {
-        Ok(journal) => Ok(Some(journal)),
-        Err(_) => {
-            let _ = remove_file_durably(&path);
-            Ok(None)
-        }
-    }
+    Ok(serde_json::from_slice::<ImportJournal>(&bytes).ok())
 }
 
 /// Removes `path` whether it is a file or a directory; a no-op when absent. Shared by
@@ -292,6 +283,8 @@ pub(super) fn recover_interrupted_import(paths: &ProjectPaths) -> Result<bool> {
     let _write_lock = ArchiveWriteLock::acquire(paths)
         .context("acquiring the archive write lock for interrupted-import recovery")?;
     let Some(journal) = read_import_journal(paths)? else {
+        // Present (checked above) but unreadable.
+        super::drop_unreadable_marker(paths, &import_journal_path(paths))?;
         return Ok(false);
     };
     rollback_import(paths, &journal)?;
@@ -339,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn recover_interrupted_import_removes_a_corrupt_marker() {
+    fn a_corrupt_import_marker_goes_only_when_the_archive_is_consistent() {
         let (_dir, paths) = fresh_paths();
         ensure_archive_dir(&paths);
         fs::write(import_journal_path(&paths), b"not valid json at all")
@@ -353,6 +346,13 @@ mod tests {
             !import_journal_path(&paths).exists(),
             "the unactionable corrupt marker must be removed"
         );
+
+        // A cut commit that left the two files in different modes: a mixed archive.
+        super::super::fixtures::encrypted_header(&paths.archive_database_path);
+        super::super::fixtures::plaintext_header(&paths.source_evidence_database_path);
+        fs::write(import_journal_path(&paths), b"not valid json at all").expect("seed marker");
+        assert!(recover_interrupted_import(&paths).is_err(), "a mixed archive fails closed");
+        assert!(import_journal_path(&paths).exists(), "the marker stays to keep the state flagged");
     }
 
     #[test]
