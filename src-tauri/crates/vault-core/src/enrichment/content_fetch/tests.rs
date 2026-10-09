@@ -77,8 +77,12 @@ fn body(bytes: &[u8], content_type: &str) -> FetchOutcome {
 
 // ── SharedClientFetcher real-socket acceptance (mockito, mirrors og:image) ───────────────────
 
+/// The production fetcher, except that redirect hops may go to the loopback mock server; the real
+/// hop check is tested by `the_production_fetcher_does_not_follow_a_redirect_to_a_private_address`.
 fn shared_fetcher() -> SharedClientFetcher {
-    SharedClientFetcher::new().expect("shared client")
+    SharedClientFetcher {
+        client: crate::og_images_fetch::build_guarded_fetch_client(|_| false).expect("client"),
+    }
 }
 
 #[test]

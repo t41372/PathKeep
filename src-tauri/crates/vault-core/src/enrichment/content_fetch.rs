@@ -65,26 +65,6 @@ use anyhow::Result;
 use serde_json::json;
 use vault_store::{Db, Priority, Session, params_owned as params};
 
-/// Per-redirect-hop SSRF guard: true when the redirected URL targets a non-public address (SEC-3).
-///
-/// In production this is the REAL [`url_target_is_blocked`], so a public page that 30x-redirects to
-/// `169.254.169.254` / loopback is stopped MID-CHAIN (the shared `reqwest` redirect policy resolves +
-/// follows with no per-hop check otherwise). Under `cfg(any(test, coverage))` it is allow-all: the
-/// mockito acceptance tests serve from `127.0.0.1` (which the real guard rejects), so a real per-hop
-/// guard would break every redirect-chain fixture. This is the same socket-exclusion idiom the runner
-/// uses for the production-only entry — the guard's CLASSIFICATION logic is covered by `net_guard`'s
-/// own tests; here we only need the wiring to compile + the chain to follow under test.
-#[cfg(not(any(test, coverage)))]
-fn redirect_hop_is_blocked(url: &str) -> bool {
-    url_target_is_blocked(url)
-}
-
-/// Test/coverage allow-all per-hop guard (see [`redirect_hop_is_blocked`] for why).
-#[cfg(any(test, coverage))]
-fn redirect_hop_is_blocked(_url: &str) -> bool {
-    false
-}
-
 /// Hard cap on the HTML body the runner will read (matches og:image: 1 MiB, 06 §2b).
 ///
 /// The redirect-hop budget (8) lives in `build_fetch_client`; the runner does not re-configure it.
@@ -679,11 +659,9 @@ pub(crate) struct SharedClientFetcher {
 
 impl SharedClientFetcher {
     pub(crate) fn new() -> Result<Self> {
-        // SEC-3: the guarded client re-applies the SSRF guard on every redirect hop, so a public page
-        // that 30x-redirects to a private host is stopped mid-chain. The og:image client is untouched.
-        Ok(Self {
-            client: crate::og_images_fetch::build_guarded_fetch_client(redirect_hop_is_blocked)?,
-        })
+        // The shared client checks every redirect hop like the first URL, so a public page that
+        // redirects to a private host is stopped there (SEC-3).
+        Ok(Self { client: crate::og_images_fetch::build_fetch_client()? })
     }
 }
 
