@@ -104,13 +104,102 @@ fn refind_evidence_json(
     typed_revisit_count: i64,
     sample: &RecentVisitSample,
 ) -> String {
+    evidence_with_visits(
+        cross_day_count,
+        trail_count,
+        search_arrival_count,
+        typed_revisit_count,
+        &sample.visit_ids(),
+        sample.total,
+    )
+}
+
+fn evidence_with_visits(
+    cross_day_count: i64,
+    trail_count: i64,
+    search_arrival_count: i64,
+    typed_revisit_count: i64,
+    visit_ids: &[i64],
+    total: i64,
+) -> String {
     let factors=refind_signals(cross_day_count,trail_count,search_arrival_count,typed_revisit_count).into_iter().map(|(signal,raw,weight)|json!({"signal":signal,"rawValue":raw,"weight":weight,"contribution":raw as f32*weight})).collect::<Vec<_>>();
     json!({
         "factors": factors,
-        "visitIds": sample.visit_ids(),
-        "totalVisitCount": sample.total
+        "visitIds": visit_ids,
+        "totalVisitCount": total
     })
     .to_string()
+}
+
+fn refind_score(days: i64, trails: i64, searches: i64, typed: i64) -> f32 {
+    (days as f32 * 2.0) + (trails as f32 * 1.5) + searches as f32 + (typed as f32 * 1.2)
+}
+
+/// What a page's new visits add to its stored refind row after an append, where every new visit
+/// is later than every stored one.
+#[derive(Debug, Default)]
+pub(super) struct RefindAddition {
+    /// The local days of the new visits.
+    pub days: std::collections::BTreeSet<String>,
+    /// Trails among the new visits that none of the page's earlier visits was in.
+    pub new_trails: i64,
+    pub search_arrivals: i64,
+    pub typed_revisits: i64,
+    /// `(visit_time_ms, visit_id)` of each new visit.
+    pub visits: Vec<(i64, i64)>,
+}
+
+/// A stored refind row with an append's new visits added: what building the row from all the
+/// page's visits gives (`append_aggregates.rs` checks that). A new day counts unless it is the
+/// row's last day, since no stored visit is later; the new visits are the newest, so they lead the
+/// visit sample. `stored_visit_ids` and `stored_total` are the row's evidence sample and count.
+pub(super) fn add_to_refind_page(
+    stored: RefindPageRecord,
+    stored_visit_ids: &[i64],
+    stored_total: i64,
+    mut addition: RefindAddition,
+) -> RefindPageRecord {
+    let last_day = local_date_key(stored.last_seen_ms);
+    let cross_day_count = stored.cross_day_count
+        + addition.days.iter().filter(|day| **day != last_day).count() as i64;
+    let trail_count = stored.trail_count + addition.new_trails;
+    let search_arrival_count = stored.search_arrival_count + addition.search_arrivals;
+    let typed_revisit_count = stored.typed_revisit_count + addition.typed_revisits;
+    addition.visits.sort_unstable_by(|a, b| b.cmp(a));
+    let last_seen_ms = addition
+        .visits
+        .first()
+        .map_or(stored.last_seen_ms, |(time, _)| (*time).max(stored.last_seen_ms));
+    let visit_ids = addition
+        .visits
+        .iter()
+        .map(|(_, id)| *id)
+        .chain(stored_visit_ids.iter().copied())
+        .take(REFIND_EVIDENCE_VISIT_SAMPLE)
+        .collect::<Vec<_>>();
+    let total = stored_total + addition.visits.len() as i64;
+    RefindPageRecord {
+        refind_score: refind_score(
+            cross_day_count,
+            trail_count,
+            search_arrival_count,
+            typed_revisit_count,
+        ),
+        evidence_json: evidence_with_visits(
+            cross_day_count,
+            trail_count,
+            search_arrival_count,
+            typed_revisit_count,
+            &visit_ids,
+            total,
+        ),
+        cross_day_count,
+        trail_count,
+        search_arrival_count,
+        typed_revisit_count,
+        last_seen_ms,
+        ..stored
+    }
 }
 
 /// The scoring vocabulary is shared by rebuilds and explanations.
@@ -358,10 +447,12 @@ fn finish_refind_pages(
         .filter_map(|entry| {
             let cross_day_count = entry.distinct_days.len() as i64;
             let trail_count = entry.trail_ids.len() as i64;
-            let score = (cross_day_count as f32 * 2.0)
-                + (trail_count as f32 * 1.5)
-                + entry.search_arrival_count as f32
-                + (entry.typed_revisit_count as f32 * 1.2);
+            let score = refind_score(
+                cross_day_count,
+                trail_count,
+                entry.search_arrival_count,
+                entry.typed_revisit_count,
+            );
             if cross_day_count < 2 && trail_count < 2 && entry.typed_revisit_count < 2 {
                 return None;
             }

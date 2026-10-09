@@ -285,6 +285,19 @@ The same follow-ups on the 14.4M benchmark (same VM; its one-site-day-per-visit 
 
 Full rebuild 5,795 s (was 5,955): sessions and trails 476 s (was 402, the path segments), aggregates 1,592 s, the overview snapshot warm 207 s (was 844). The first one-year batch is still the cost of one walk over the year's site-day rows, now done once and kept: 3.15M rows on the benchmark, each brought into Rust, which costs more per row than the SQL groupings it replaced. On the real data the same batch takes 74 ms. Not measured in this run: the export and the append, the client lost the sandbox when the machine slept.
 
+**An append updated in place (2026-10-09, ④):** the benchmark in its realistic shape (`PATHKEEP_BENCH_SHAPE=habits`), same VM, appending 10,000 visits after a full build:
+
+| stage                          | time  |                                                                             |
+| ------------------------------ | ----- | --------------------------------------------------------------------------- |
+| facts, rollups, sessions       | 7 s   |                                                                             |
+| refind pages                   | 270 s | 5,378 pages, each read again from all its visits; the most visited dominate |
+| compare sets                   | 6 s   | the trails walked from the one left open                                    |
+| paths, families, the one write | < 1 s |                                                                             |
+| all-time snapshot warm         | 85 s  | the whole all-time overview again                                           |
+| **total**                      | 376 s | was 13.7 min (aggregates rebuilt from every visit)                          |
+
+The full build in the same run took 2,385 s; the process peaked at 474 MB in both. Next: merge a page's new visits into its stored refind row instead of reading its history again, and warm the snapshot from what changed.
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |

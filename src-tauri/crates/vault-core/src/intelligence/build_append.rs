@@ -19,7 +19,9 @@
 
 use super::build_state::{self, BuildState};
 use super::compare_sets::{self, CompareSetAccumulator, CompareSetRecord};
-use super::intelligence_structural_aggregates::build_reopened_investigations;
+use super::intelligence_structural_aggregates::{
+    RefindAddition, add_to_refind_page, build_reopened_investigations,
+};
 use super::intelligence_structural_build::QueryFamilyAccumulator;
 use super::intelligence_structural_stream::StructuralTailStreamState;
 use super::{
@@ -133,10 +135,12 @@ where
         };
         paths = gains;
         (trails, compare_sets) = compare_sets_again(vault, state, base, limit, progress)?;
+        progress(build_state::progress(state, "search-trails", 0, 1))?;
         let Some(changed) = family_changes(vault, state, base, progress)? else {
             return start_over(vault, state, limit, progress);
         };
         (families, gone_families) = changed;
+        progress(build_state::progress(state, "search-trails", 1, 1))?;
     }
     // Trails whose pages moved to other categories, unless the append's walk saw them already.
     if let Some(reclassified) = reclassified {
@@ -192,7 +196,9 @@ fn is_keyword(s: &Session<'_>, generation: i64, visit_id: i64) -> Result<bool> {
     Ok(kind.is_some_and(|kind| parse_search_query_kind(&kind).is_keyword()))
 }
 
-/// Each page a new visit opened, with its row built again from all its visits.
+/// Each page a new visit opened, with its row now: the stored row with the new visits added
+/// (`add_to_refind_page`), or, for a page that had no row (it did not qualify before), the row
+/// built from all its visits.
 fn page_rows<F>(
     vault: &Vault,
     state: &BuildState,
@@ -203,26 +209,132 @@ fn page_rows<F>(
 where
     F: FnMut(CoreIntelligenceProgress) -> Result<()>,
 {
-    let (generation, profile, after) =
-        (state.facts_generation, state.profile_id.clone(), base.after_visit_id);
-    let urls = vault.read(Db::Intelligence, move |s| {
+    let (facts, navigation) = (state.facts_generation, state.navigation_generation);
+    let (profile, after) = (state.profile_id.clone(), base.after_visit_id);
+    let new_visits = vault.read(Db::Intelligence, move |s| {
         Ok(s.query(
-            "SELECT DISTINCT canonical_url FROM visit_derived_facts_rows
-             WHERE generation=?1 AND visit_id>?2 AND profile_id=?3 AND is_search_event=0",
-            params![generation, after, profile],
-            |r| Ok(r.get::<String>(0)?),
+            "SELECT f.canonical_url,f.visit_id,v.visit_time_ms,v.from_visit,a.trail_id
+             FROM visit_derived_facts_rows f
+             CROSS JOIN archive.visits v ON v.id=f.visit_id
+             LEFT JOIN visit_assignments a INDEXED BY idx_assignments_visit_generation
+               ON a.visit_id=f.visit_id AND a.generation=?4
+             WHERE f.generation=?1 AND f.visit_id>?2 AND f.profile_id=?3 AND f.is_search_event=0",
+            params![facts, after, profile, navigation],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    // (time, id), as `RefindAddition::visits` holds them.
+                    (r.get::<i64>(2)?, r.get::<i64>(1)?),
+                    r.get::<Option<i64>>(3)?.is_none(),
+                    r.get::<Option<String>>(4)?,
+                ))
+            },
         )?)
     })?;
-    let total = urls.len();
+    let mut by_page = std::collections::BTreeMap::<String, Vec<_>>::new();
+    for (url, visit, typed, trail) in new_visits {
+        by_page.entry(url).or_default().push((visit, typed, trail));
+    }
+    let total = by_page.len();
     let mut pages = Vec::with_capacity(total);
-    for (index, url) in urls.into_iter().enumerate() {
-        let row = super::build_refind::page_record(vault, state, &url, limit)?;
-        pages.push((url, row));
-        if index % 256 == 255 {
-            progress(build_state::progress(state, "refind-pages", index + 1, total))?;
+    let mut done = 0;
+    let mut by_page = by_page.into_iter().peekable();
+    while by_page.peek().is_some() {
+        let chunk = by_page.by_ref().take(256).collect::<Vec<_>>();
+        done += chunk.len();
+        let (generation, profile) = (state.aggregate_generation, state.profile_id.clone());
+        let merged = vault.read(Db::Intelligence, move |s| {
+            let mut merged = Vec::with_capacity(chunk.len());
+            for (url, visits) in chunk {
+                let Some((stored, ids, count)) = stored_refind_row(s, generation, &profile, &url)?
+                else {
+                    merged.push((url, None));
+                    continue;
+                };
+                let mut addition = RefindAddition::default();
+                let mut trails = BTreeSet::new();
+                for ((time, id), typed, trail) in visits {
+                    addition.days.insert(local_date_key(time));
+                    addition.visits.push((time, id));
+                    addition.typed_revisits += i64::from(typed);
+                    if let Some(trail) = trail {
+                        addition.search_arrivals += 1;
+                        trails.insert(trail);
+                    }
+                }
+                for trail in trails {
+                    let seen = s
+                        .query_one(
+                            "SELECT 1 FROM visit_assignments a
+                               INDEXED BY idx_assignments_generation_trail
+                             CROSS JOIN visit_derived_facts_rows f
+                               ON f.generation=?3 AND f.visit_id=a.visit_id
+                             WHERE a.generation=?1 AND a.trail_id IS NOT NULL AND a.trail_id=?2
+                               AND a.visit_id<=?4 AND f.canonical_url=?5 LIMIT 1",
+                            params![navigation, trail.as_str(), facts, after, url.as_str()],
+                            |r| Ok(r.get::<i64>(0)?),
+                        )
+                        .optional()?
+                        .is_some();
+                    addition.new_trails += i64::from(!seen);
+                }
+                merged.push((url, Some(add_to_refind_page(stored, &ids, count, addition))));
+            }
+            Ok(merged)
+        })?;
+        for (url, row) in merged {
+            // A page without a row is read in full; it did not qualify, so it has few visits.
+            let row = match row {
+                Some(row) => Some(row),
+                None => super::build_refind::page_record(vault, state, &url, limit)?,
+            };
+            pages.push((url, row));
         }
+        progress(build_state::progress(state, "refind-pages", done, total))?;
     }
     Ok(pages)
+}
+
+/// A page's stored refind row, with its evidence sample of visit ids and its visit count.
+fn stored_refind_row(
+    s: &Session<'_>,
+    generation: i64,
+    profile: &str,
+    url: &str,
+) -> Result<Option<(RefindPageRecord, Vec<i64>, i64)>> {
+    let row = s
+        .query_one(
+            "SELECT url,title,registrable_domain,cross_day_count,trail_count,search_arrival_count,
+                    typed_revisit_count,refind_score,evidence_json,first_seen_ms,last_seen_ms
+             FROM refind_pages_rows WHERE generation=?1 AND profile_id=?2 AND canonical_url=?3",
+            params![generation, profile, url],
+            |r| {
+                Ok(RefindPageRecord {
+                    profile_id: profile.to_owned(),
+                    canonical_url: url.to_owned(),
+                    url: r.get(0)?,
+                    title: r.get(1)?,
+                    registrable_domain: r.get(2)?,
+                    cross_day_count: r.get(3)?,
+                    trail_count: r.get(4)?,
+                    search_arrival_count: r.get(5)?,
+                    typed_revisit_count: r.get(6)?,
+                    refind_score: r.get::<f64>(7)? as f32,
+                    evidence_json: r.get(8)?,
+                    first_seen_ms: r.get(9)?,
+                    last_seen_ms: r.get(10)?,
+                })
+            },
+        )
+        .optional()?;
+    let Some(row) = row else { return Ok(None) };
+    let evidence: serde_json::Value = serde_json::from_str(&row.evidence_json)?;
+    let ids = evidence["visitIds"]
+        .as_array()
+        .map(|ids| ids.iter().filter_map(serde_json::Value::as_i64).collect())
+        .unwrap_or_default();
+    let count = evidence["totalVisitCount"].as_i64().unwrap_or_default();
+    Ok(Some((row, ids, count)))
 }
 
 /// What each flow gains: the paths of the days the append wrote, after it, less those of the
