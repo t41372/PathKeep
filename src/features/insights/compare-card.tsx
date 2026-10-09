@@ -1,19 +1,29 @@
 /**
  * Pages the user went back and forth between within one search: product
  * pages on two shops, two libraries' docs, the same release on two sites.
- * Newest first, six at most; each search links to its drill-in, each page to
- * its own.
+ * Newest first; each search links to its drill-in, its date to the day, each
+ * page to its own. Every page of the set is shown, the one first opened from
+ * the search marked, with how often it was opened when more than once.
  */
 import { Link } from 'react-router-dom'
 import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
 import { useFormat, useI18n } from '@/lib/i18n'
-import { pagePath, searchPath } from './links'
+import { localDateKey } from '@/lib/backend-client/insights'
+import { cn } from '@/lib/cn'
+import { dayPath, pagePath, searchPath } from './links'
 import { ListSkeleton, QueryBody, ScrollList, SectionStatus } from './parts'
 import { useCompareSets } from './queries'
 import type { Scope } from './range'
 
-export function ComparedPagesCard({ scope }: { scope: Scope }) {
+export function ComparedPagesCard({
+  scope,
+  empty,
+}: {
+  scope: Scope
+  /** What to say when no search in the scope had compared pages. */
+  empty?: string
+}) {
   const { t } = useI18n()
   const format = useFormat()
   const sets = useCompareSets(scope)
@@ -32,7 +42,7 @@ export function ComparedPagesCard({ scope }: { scope: Scope }) {
         query={sets}
         skeleton={<ListSkeleton rows={3} height={64} />}
         isEmpty={(result) => result.data.items.length === 0}
-        empty={t('insights.compared.empty')}
+        empty={empty ?? t('insights.compared.empty')}
       >
         {(result) => (
           <ScrollList maxHeight={3 * 92}>
@@ -50,21 +60,43 @@ export function ComparedPagesCard({ scope }: { scope: Scope }) {
                       >
                         {set.searchQuery}
                       </Link>
-                      <span className="shrink-0 text-xs text-muted-foreground">
+                      <Link
+                        to={dayPath(localDateKey(new Date(set.lastVisitedAt)))}
+                        title={t('insights.compared.openDay')}
+                        className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+                      >
                         {format.relative(set.lastVisitedAt)}
-                      </span>
+                      </Link>
                     </span>
                     <span className="flex flex-wrap gap-1.5">
-                      {set.pages.slice(0, 3).map((page) => (
+                      {set.pages.map((page) => (
                         <Link
                           key={page.canonicalUrl}
                           to={pagePath(page.canonicalUrl, scope)}
-                          className="flex h-7 max-w-[220px] items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs transition-colors hover:bg-muted hover:no-underline"
+                          title={
+                            page.isLanding
+                              ? t('insights.compared.landing')
+                              : undefined
+                          }
+                          className={cn(
+                            'flex h-7 max-w-[220px] items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs transition-colors hover:bg-muted hover:no-underline',
+                            page.isLanding && 'border-brand/50',
+                          )}
                         >
                           <SiteIcon domain={page.registrableDomain} />
                           <span className="truncate">
                             {page.title || page.registrableDomain}
                           </span>
+                          {page.visitCount > 1 && (
+                            <span className="font-mono text-[11px] text-muted-foreground">
+                              {t('insights.times', { count: page.visitCount })}
+                            </span>
+                          )}
+                          {page.isLanding && (
+                            <span className="sr-only">
+                              {t('insights.compared.landing')}
+                            </span>
+                          )}
                         </Link>
                       ))}
                     </span>

@@ -293,6 +293,8 @@ function TrailRow({ trail }: { trail: TrailSummary }) {
                       engine: engineName(trail.searchEngine),
                     })
                   : engineName(trail.searchEngine)}
+                {trail.reformulationCount > 0 &&
+                  ` · ${t('insights.search.reworded', { count: trail.reformulationCount })}`}
               </span>
             </span>
             <ChevronDown

@@ -25,6 +25,7 @@ import {
   searchPath,
 } from './links'
 import { rowLink } from './display'
+import { category, UNCLASSIFIED } from './categories'
 import { ShareBar } from './share-bar'
 import {
   DrillHeader,
@@ -55,6 +56,11 @@ export default function SitePage() {
         back={insightsPath(scope)}
         eyebrow={t('insights.site.eyebrow')}
         title={domain}
+        subtitle={
+          data && data.domainCategory !== UNCLASSIFIED
+            ? t(`insights.mix.categories.${category(data.domainCategory)}`)
+            : undefined
+        }
         icon={
           <SiteIcon domain={domain} className="size-10 rounded-xl text-base" />
         }

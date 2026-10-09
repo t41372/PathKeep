@@ -113,7 +113,10 @@ test('a day from the Home heatmap matches the fixture, then opens History', asyn
   // A day before the fixture began has nothing, and says so.
   await page.goto('/#/insights/day/2020-01-15')
   await drillIn(page, 'Wednesday, January 15')
-  await expect(page.getByText('No visits on this day.')).toBeVisible({
+  // Each card that lists the day's visits says so; Top sites stands for them.
+  await expect(
+    card(page, 'Top sites').getByText('No visits on this day.'),
+  ).toBeVisible({
     timeout: JOB_TIMEOUT,
   })
   await expectCount(
