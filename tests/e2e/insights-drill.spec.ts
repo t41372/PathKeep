@@ -481,9 +481,9 @@ test('a page you keep reopening shows its visits across browsers', async ({
   })
   // Opened directly (typed, a bookmark: nothing opened it), in the profile
   // the score is counted in. Chrome and Firefox record "nothing" as 0.
-  const scores = decodeURIComponent(
-    new URL(page.url()).hash.match(/scores=([^&]+)/)?.[1] ?? '',
-  ) as (typeof archivedProfiles)[number]
+  const scores = (new URLSearchParams(
+    new URL(page.url()).hash.split('?')[1] ?? '',
+  ).get('scores') ?? '') as (typeof archivedProfiles)[number]
   const inProfile = fixture().visitsByProfile[scores]
   expect(inProfile, `${scores} is an archived profile`).toBeTruthy()
   const from = openedFrom(inProfile)
