@@ -65,6 +65,7 @@ const STATEMENTS: &[&str] = &[
   title TEXT,
   visited_at TEXT,
   score REAL,
+  profile_id TEXT,
   PRIMARY KEY(run_id, history_id)
 )",
     "CREATE INDEX idx_conversations_updated ON conversations(updated_at DESC, id DESC)",

@@ -1283,12 +1283,10 @@ pub enum ModelDownloadProgressEvent {
 /// Mirrors the front-end `AiChatCitation` shape so a reopened conversation renders the SAME
 /// starrable evidence rows the live turn streamed. The fields come from the durable `agent_citations`
 /// journal (keyed by the run that answered this message), so the evidence — and its W-STAR star key —
-/// survives a reopen exactly as it survived a crash. `profile_id` is not journaled with a citation
-/// (the star key is the canonical url, not the profile), so it is empty on the reconstructed row;
-/// every consumer (the evidence panel) keys off `canonical_url` / `url`, never `profile_id`.
+/// survives a reopen exactly as it survived a crash, with the same profile the live turn showed.
 pub struct AgentCitation {
     pub history_id: i64,
-    /// Empty on a reconstructed citation: the agent_citations journal does not retain the profile.
+    /// Empty only on rows converted from an archive that predates keeping it.
     #[serde(default)]
     pub profile_id: String,
     pub url: String,
