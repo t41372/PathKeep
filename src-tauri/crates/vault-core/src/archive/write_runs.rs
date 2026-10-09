@@ -9,6 +9,32 @@ use anyhow::Result;
 use serde_json::{Value, json};
 use vault_store::{Db, Priority, Session, params};
 
+/// Adds warnings to a finished run's record. The follow-ups after a backup (refreshing Insights,
+/// link previews, the semantic index) run once the run is written, and what they warn about
+/// belongs to that run: without this it reached neither the run's Warnings nor any screen.
+pub fn append_run_warnings(
+    vault: &Vault,
+    run_id: i64,
+    warnings: &[crate::models::BackupWarning],
+) -> Result<()> {
+    let added = warnings.iter().map(serde_json::to_value).collect::<Result<Vec<_>, _>>()?;
+    vault.write(Db::Archive, Priority::Interactive, move |s| {
+        let stored = s.query_one("SELECT warnings_json FROM runs WHERE id=?1", [run_id], |r| {
+            Ok(r.get::<Option<String>>(0)?)
+        })?;
+        let mut entries = stored
+            .as_deref()
+            .and_then(|text| serde_json::from_str::<Vec<Value>>(text).ok())
+            .unwrap_or_default();
+        entries.extend(added);
+        s.execute(
+            "UPDATE runs SET warnings_json=?2 WHERE id=?1",
+            params![run_id, Value::Array(entries).to_string()],
+        )?;
+        Ok(())
+    })
+}
+
 pub(crate) fn start(vault: &Vault, kind: &str, trigger: &str, profiles: &[String]) -> Result<i64> {
     let (kind, trigger, profiles) = (kind.to_owned(), trigger.to_owned(), profiles.to_vec());
     vault.write(Db::Archive, Priority::Batch, move |s| start_in(s, &kind, &trigger, &profiles))

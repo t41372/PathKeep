@@ -256,7 +256,6 @@ fn inspect_browser_history_previews_safari_database() {
     assert_eq!(inspection.recognized_files[0].kind, "safari-history-db");
     assert_eq!(inspection.recognized_files[0].records, 2);
     assert!(inspection.preview_range_start.is_some());
-    assert!(inspection.notes.iter().any(|note| note.contains("Safari baseline ingest")));
 }
 
 #[test]
@@ -406,12 +405,6 @@ fn import_browser_history_accepts_firefox_places_database_and_review_contract() 
     assert_eq!(first.recognized_files[0].path, source.display().to_string());
     assert_eq!(first.recognized_files[0].kind, "firefox-places-db");
     assert_eq!(first.recognized_files[0].reason_code.as_deref(), Some("firefox-history-sqlite"));
-    assert!(
-        first
-            .notes
-            .iter()
-            .any(|note| note.contains("Firefox baseline ingest captures visits and URLs"))
-    );
 
     let archive = Probe::new(&vault);
     let (profile_family, profile_product): (String, String) = archive

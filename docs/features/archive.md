@@ -316,6 +316,8 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 - 主 archive、raw 快照、cache 和 staging 不進 git。
 - Audit run detail 應直接暴露 manifest / artifact 路徑，並提供 open / copy path 動作，避免使用者自行猜測資料夾位置。
 - Audit run detail 可以用 `Summary / Artifacts / Warnings` 分頁降低資訊牆密度，但 open / copy path 動作與 warning honesty 不能被藏起來或延後載入。
+- Run 記錄的每一條 warning 都帶 code，run sheet 依 code 用使用者的語言寫成一句話（`src/features/backup/run-entries.ts`）：略過或失敗的進「警告」分頁，分頁上的數字就是清單長度；順利完成的附帶工作（搜尋詞、連結預覽、等背景工作恢復的索引）是 note，放在摘要下方，不算警告。有修法的附上動作（Safari 的完整磁碟取用權限、AI 設定、背景工作）。錯誤鏈這類證據保留原文顯示在句子下方；不認得的 code 與 code 化之前的舊記錄，顯示翻譯過的引言加原文，不會被丟掉。
+- Backup 結束後的附帶工作（Insights 更新、語意搜尋索引、連結預覽、內容抓取）產生的 warning 也寫回同一筆 run（`append_run_warnings`），不能只出現在當次回傳的 report 裡。
 - Doctor / 健康檢查命令：驗證四個 Turso 檔的完整性與 schema 版本、重新驗證 manifest 內容 hash，並把 outbox、快取統計與 canonical facts 比對。缺少引擎 `foreign_key_check` 時以明確關聯查詢檢查；不得把未檢查的項目宣稱為健康。
 - Audit runs 以 ID 游標續讀；最近 12 筆是第一頁，不是完整歷史的上限。
 - 原生 repair 可重建搜尋頁面摘要 / outbox 通知、快取總數和 import 可見筆數；不刪除或恢復可見 visits。回應須分別列出實際變更的數量。

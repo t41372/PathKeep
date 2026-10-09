@@ -50,6 +50,7 @@ mod run_support;
 pub(crate) use run_support::write_manifest_artifact;
 pub(crate) mod search_documents;
 pub(crate) mod write_runs;
+pub use self::write_runs::append_run_warnings;
 pub use search_documents::set_enrichment_text;
 pub(crate) mod search_lexical;
 mod search_opencc;

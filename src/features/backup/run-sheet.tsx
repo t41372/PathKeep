@@ -1,8 +1,9 @@
 /**
  * Side sheet with one run's audit detail (`load_audit_run_detail`) in three
- * tabs: Summary (times, counts, error, and a rekey's safety copy), Files
- * (manifest and kept copies, each with copy / show in folder) and Warnings.
- * The warnings tab carries its count so nothing is hidden behind it.
+ * tabs: Summary (times, counts, error, a rekey's safety copy, and notes on
+ * side work), Files (manifest and kept copies, each with copy / show in
+ * folder) and Warnings. The warnings tab carries its count so nothing is
+ * hidden behind it.
  */
 import { useQuery } from '@tanstack/react-query'
 import { ShieldCheck } from 'lucide-react'
@@ -22,8 +23,10 @@ import { messages, useFormat, useI18n } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
 import type { AuditArtifact, AuditRunDetail } from '@/lib/types'
 import { PathLine } from './path-actions'
+import { useRunEntries, type RunEntry } from './run-entries'
 import { RunIcon } from './run-icon'
 import { runDuration } from './run-duration'
+import { NoteList, WarningList } from './run-warnings'
 
 const knownReasons = messages.en.backupRuns.reasons
 type Reason = keyof typeof knownReasons
@@ -51,12 +54,6 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function warningLines(detail: AuditRunDetail) {
-  const lines =
-    detail.warningDetails?.map((warning) => warning.message) ?? detail.warnings
-  return lines.length > 0 ? lines : detail.warnings
-}
-
 function ArtifactBlock({ artifact }: { artifact: AuditArtifact }) {
   const { t } = useI18n()
   const format = useFormat()
@@ -79,7 +76,13 @@ function ArtifactBlock({ artifact }: { artifact: AuditArtifact }) {
   )
 }
 
-function Summary({ detail }: { detail: AuditRunDetail }) {
+function Summary({
+  detail,
+  notes,
+}: {
+  detail: AuditRunDetail
+  notes: RunEntry[]
+}) {
   const { t } = useI18n()
   const format = useFormat()
   const { run } = detail
@@ -152,6 +155,7 @@ function Summary({ detail }: { detail: AuditRunDetail }) {
           <PathLine path={detail.manifestPath} />
         </section>
       )}
+      <NoteList entries={notes} />
     </div>
   )
 }
@@ -188,29 +192,9 @@ function Files({ detail }: { detail: AuditRunDetail }) {
   )
 }
 
-function Warnings({ lines }: { lines: string[] }) {
-  const { t } = useI18n()
-  return lines.length === 0 ? (
-    <p className="text-[13px] text-muted-foreground">
-      {t('backup.runs.detail.noWarnings')}
-    </p>
-  ) : (
-    <ul className="flex flex-col gap-1.5 text-[13px]">
-      {lines.map((line, index) => (
-        <li
-          key={`${index}-${line}`}
-          className="rounded-lg bg-muted px-3 py-2 break-words"
-        >
-          {line}
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 function Detail({ detail }: { detail: AuditRunDetail }) {
   const { t } = useI18n()
-  const warnings = warningLines(detail)
+  const { warnings, notes } = useRunEntries(detail)
   return (
     <Tabs defaultValue="summary" className="gap-4 px-4 pb-6">
       <TabsList className="w-full">
@@ -223,13 +207,13 @@ function Detail({ detail }: { detail: AuditRunDetail }) {
         </TabsTrigger>
       </TabsList>
       <TabsContent value="summary">
-        <Summary detail={detail} />
+        <Summary detail={detail} notes={notes} />
       </TabsContent>
       <TabsContent value="files">
         <Files detail={detail} />
       </TabsContent>
       <TabsContent value="warnings">
-        <Warnings lines={warnings} />
+        <WarningList entries={warnings} />
       </TabsContent>
     </Tabs>
   )

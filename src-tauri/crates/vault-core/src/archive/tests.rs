@@ -728,8 +728,6 @@ fn multi_browser_backup_ingests_firefox_and_safari_history() {
     assert_eq!(report.profiles.len(), 2);
     assert!(report.profiles.iter().any(|profile| profile.profile_id.starts_with("firefox:")));
     assert!(report.profiles.iter().any(|profile| profile.profile_id.starts_with("safari:")));
-    assert!(report.warnings.iter().any(|warning| warning.contains("Firefox baseline ingest")));
-    assert!(report.warnings.iter().any(|warning| warning.contains("Safari baseline ingest")));
 
     let history = vault.store().read(vault_store::Db::Archive,|s| s.query("SELECT p.profile_key FROM visits v JOIN source_profiles p ON p.id=v.source_profile_id",(),|r|Ok(r.get::<String>(0)?))).unwrap();
     assert_eq!(history.len(), 2);
@@ -772,7 +770,6 @@ fn safari_backup_baseline_ingests_history_without_firefox_or_chrome_dependency()
     assert_eq!(report.run.as_ref().expect("run").new_urls, 1);
     assert_eq!(report.profiles.len(), 1);
     assert_eq!(report.profiles[0].profile_id, "safari:default");
-    assert!(report.warnings.iter().any(|warning| warning.contains("Safari baseline ingest")));
 
     let history = vault.store().read(vault_store::Db::Archive,|s| s.query("SELECT p.profile_key FROM visits v JOIN source_profiles p ON p.id=v.source_profile_id",(),|r|Ok(r.get::<String>(0)?))).unwrap();
     assert_eq!(history.len(), 1);

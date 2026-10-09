@@ -3,7 +3,7 @@
  * and PathKeep starts over at onboarding.
  *
  * Proves: the preview's visit count is the archive's real size (the first
- * backup, the nine added in backup.spec and the browser file imported in
+ * backup, the ten added in backup.spec and the browser file imported in
  * browser-import.spec), an installed automatic backup
  * is named in the preview and removed with the data, the archive and the
  * stored key are gone afterwards, and the browsers' own history files are
@@ -60,7 +60,7 @@ test('delete all data previews, deletes, and returns to onboarding', async ({
   page,
 }, testInfo) => {
   const before = browserFileHashes()
-  const expectedVisits = archivedVisits().length + 9 + browserFileVisitCount()
+  const expectedVisits = archivedVisits().length + 10 + browserFileVisitCount()
 
   if (schedulerSupported) {
     await page.goto('/#/backup')

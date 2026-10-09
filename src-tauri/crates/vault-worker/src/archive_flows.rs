@@ -229,6 +229,8 @@ where
         run_backup_with_progress(&vault.with_config(config.clone()), due_only, |event| {
             report_progress(event);
         })?;
+    // The run record holds the warnings up to here; what the follow-ups add is saved at the end.
+    let recorded = report.warning_details.len();
     if !report.due_skipped
         && config.ai.enabled
         && config.ai.semantic_index_enabled
@@ -325,6 +327,13 @@ where
             &mut report,
             try_prefetch_new_visit_og_images(vault, prefetch_budget),
         );
+    }
+    if let Some(run) = report.run.as_ref()
+        && report.warning_details.len() > recorded
+        && let Err(error) =
+            vault_core::append_run_warnings(vault, run.id, &report.warning_details[recorded..])
+    {
+        eprintln!("PathKeep could not save the backup's follow-up warnings: {error:#}");
     }
     Ok(report)
 }

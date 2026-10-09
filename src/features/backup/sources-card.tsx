@@ -14,7 +14,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useSourceStats } from '@/features/home/queries'
 import { appClient } from '@/lib/backend-client/app'
-import { supportClient } from '@/lib/backend-client/support'
 import type { SourceStats } from '@/lib/backend-client/sources'
 import { BrowserIcon } from '@/lib/browser-icons'
 import { cn } from '@/lib/cn'
@@ -23,11 +22,11 @@ import { useFormat, useI18n } from '@/lib/i18n'
 import {
   browserDiscoveryState,
   hasBrowserProfileAccessIssue,
-  macosFullDiskAccessSettingsUrl,
 } from '@/lib/platform-guidance'
 import { queryKeys } from '@/lib/query'
 import { useSaveConfig, useSnapshot } from '@/lib/queries/app'
 import type { BrowserProfile } from '@/lib/types'
+import { openFullDiskAccess } from './full-disk-access'
 
 type SourceStatus = 'ok' | 'needsPermission' | 'paused' | 'notFound'
 
@@ -65,16 +64,6 @@ function useRescan() {
         description: describeError(error, 'app_snapshot'),
       }),
   })
-}
-
-function openFullDiskAccess(failed: string) {
-  return supportClient
-    .openExternalUrl(macosFullDiskAccessSettingsUrl)
-    .catch((error) => {
-      toast.error(failed, {
-        description: describeError(error, 'open_external_url'),
-      })
-    })
 }
 
 function SourceRow({
