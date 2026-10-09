@@ -8,9 +8,10 @@
  * and creates nothing; with the right one every kind of data arrives with the
  * numbers v0.3.0 reported: every visit and browser profile, both spellings of
  * one address with their own visit counts, a page with a Chinese address, the
- * hand-imported batch, the page and domain stars, the note and tags, the saved
- * page text (its fetch record unchanged, its text in the file the record
- * points to), the chat.
+ * hand-imported batch, visit durations in milliseconds (v0.3.0 kept Chrome's
+ * microseconds), the page and domain stars, the note and tags, the saved page
+ * text (its fetch record unchanged, its text in the file the record points
+ * to), the chat.
  * The old files are left exactly as they were.
  *
  * For the v0.3.0 file: the preview says it was made by an older PathKeep and
@@ -80,7 +81,12 @@ async function unlockAppIfLocked(page: Page) {
 }
 
 interface HistoryPage {
-  items: { id: number; url: string; title?: string | null }[]
+  items: {
+    id: number
+    url: string
+    title?: string | null
+    durationMs?: number | null
+  }[]
 }
 
 test('a data folder made by PathKeep 0.3.0 is updated with all its data', async ({
@@ -169,6 +175,16 @@ test('a data folder made by PathKeep 0.3.0 is updated with all its data', async 
   expect(
     readFileSync(path.join(root(), expected.savedPageText.blob), 'utf8'),
   ).toMatch(new RegExp(`^${expected.savedPageText.textStartsWith}`))
+
+  // v0.3.0 kept Chrome's visit durations in microseconds; each of these visits
+  // lasted 20 seconds, and the update stores that in milliseconds.
+  const latest = await backend<HistoryPage>('query_history', {
+    query: { limit: 200 },
+  })
+  expect(latest.items).toHaveLength(200)
+  expect(new Set(latest.items.map((item) => item.durationMs))).toEqual(
+    new Set([20_000]),
+  )
 
   // Tags and the hand-imported batch.
   const tagged = expected.annotations.find((note) => note.tags.length)!

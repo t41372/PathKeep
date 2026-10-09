@@ -112,11 +112,11 @@ fn e11_chromium_dangling_from_visit_is_preserved_verbatim() {
 }
 
 #[test]
-fn e12_chromium_visit_duration_value_is_preserved_verbatim() {
+fn e12_chromium_visit_duration_is_stored_in_milliseconds() {
     for key in [None, Some([83; 32])] {
         let env = ScenarioEnv::new(key);
         let visit_ms = 1_777_680_000_000_i64;
-        let duration_value = 6_543_210_i64;
+        let duration_micros = 6_543_210_i64;
         let fixture = ChromiumHistoryFixture::new()
             .add_url(ChromiumUrlRow {
                 id: 1,
@@ -128,7 +128,7 @@ fn e12_chromium_visit_duration_value_is_preserved_verbatim() {
                 hidden: false,
             })
             .add_visit(ChromiumVisitRow {
-                visit_duration_micros: Some(duration_value),
+                visit_duration_micros: Some(duration_micros),
                 ..chromium_visit_row(12, 1, visit_ms)
             });
 
@@ -149,7 +149,7 @@ fn e12_chromium_visit_duration_value_is_preserved_verbatim() {
                 |row| Ok(row.get(0)?),
             )
             .expect("query visit duration");
-        assert_eq!(stored_duration, Some(duration_value));
+        assert_eq!(stored_duration, Some(6_543), "Chrome's microseconds land as milliseconds");
     }
 }
 

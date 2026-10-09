@@ -1,7 +1,8 @@
 /**
  * Export: a whole-history export shows how far it has got, survives leaving
  * Settings, can be stopped without leaving a file behind, and when allowed to
- * finish writes exactly the archived visits.
+ * finish writes exactly the archived visits, with each visit's duration in
+ * milliseconds.
  *
  * The E2E backend sleeps briefly per exported row (PATHKEEP_TEST_EXPORT_ROW_DELAY_US,
  * debug builds only); without it the fixture exports before the first poll.
@@ -9,7 +10,12 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { archivedVisits, expectCount, fixture } from './support/fixture'
+import {
+  archivedProfiles,
+  archivedVisits,
+  expectCount,
+  fixture,
+} from './support/fixture'
 
 const exportsDir = () => path.join(fixture().dirs.projectRoot, 'exports')
 
@@ -85,7 +91,15 @@ test('an export can be followed, left, stopped, and finished', async ({
   const rows = readFileSync(path.join(exportsDir(), files[0]), 'utf8')
     .split('\n')
     .filter(Boolean)
-    .map((line) => JSON.parse(line) as { url: string; visitTime: number })
+    .map(
+      (line) =>
+        JSON.parse(line) as {
+          url: string
+          visitTime: number
+          profileId: string
+          durationMs?: number | null
+        },
+    )
   const key = (url: string, at: number) => `${at} ${url}`
   const written = rows.map((row) => key(row.url, row.visitTime)).sort()
   const expected = visits.map((visit) => key(visit.url, visit.at)).sort()
@@ -93,4 +107,19 @@ test('an export can be followed, left, stopped, and finished', async ({
   expect(written, 'the export holds exactly the archived visits').toEqual(
     expected,
   )
+
+  // Chrome records how long a visit lasted, in microseconds; the export says
+  // milliseconds, as its name does. Firefox's history file has no duration.
+  const durations = new Map(
+    archivedProfiles.flatMap((profile) =>
+      fixture().visitsByProfile[profile].map((visit) => [
+        `${profile} ${key(visit.url, visit.at)}`,
+        profile.startsWith('chrome:') ? visit.duration : null,
+      ]),
+    ),
+  )
+  for (const row of rows)
+    expect(row.durationMs ?? null, `${row.profileId} ${row.url}`).toBe(
+      durations.get(`${row.profileId} ${key(row.url, row.visitTime)}`),
+    )
 })
