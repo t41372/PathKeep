@@ -30,6 +30,7 @@ mod schema_overview;
 mod search_families;
 mod session_paths;
 mod site_days;
+mod site_flows;
 mod stage_rebuild;
 mod structural_incremental;
 mod top_sites_profiles;

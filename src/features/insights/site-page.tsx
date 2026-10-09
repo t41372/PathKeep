@@ -1,6 +1,7 @@
 /**
  * One site over the selected range: visits, the days it was visited, its
- * most visited pages and the searches that ended on it. Reached from Top
+ * most visited pages, the searches that ended on it, how its visits from
+ * elsewhere began and where its links led. Reached from Top
  * sites, Habits and the search drill-in; links onward to the day drill-in
  * and History.
  *
@@ -27,6 +28,7 @@ import {
 import { rowLink } from './display'
 import { category, UNCLASSIFIED } from './categories'
 import { ShareBar } from './share-bar'
+import { ArrivalsCard, OnwardCard } from './site-flows'
 import {
   DrillHeader,
   KpiTile,
@@ -185,6 +187,10 @@ export default function SitePage() {
             )}
           </QueryBody>
         </SectionCard>
+      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 max-[900px]:grid-cols-1">
+        <ArrivalsCard domain={domain} scope={scope} />
+        <OnwardCard domain={domain} scope={scope} />
       </div>
     </PageScroll>
   )

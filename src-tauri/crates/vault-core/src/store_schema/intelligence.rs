@@ -427,6 +427,12 @@ const STATEMENTS: &[&str] = &[
     // starts with the last sites of the one before it (`prefix_len`); see `PathSegment`.
     "CREATE TABLE session_paths(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,session_id TEXT NOT NULL,segment INTEGER NOT NULL,
         date_key TEXT NOT NULL,prefix_len INTEGER NOT NULL,sites_json TEXT NOT NULL,PRIMARY KEY(generation,session_id,segment))",
+    // How each site's visits began and where its links led, per local day: `kind` is `direct`
+    // (no opener), `search` or `link` (the opener's site in `other`, empty when PathKeep did not
+    // see the opener) for arrivals, `onward` for visits to `other` opened from the site.
+    "CREATE TABLE site_flows_rows(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,date_key TEXT NOT NULL,
+        registrable_domain TEXT NOT NULL,kind TEXT NOT NULL,other TEXT NOT NULL,visit_count INTEGER NOT NULL,
+        PRIMARY KEY(generation,date_key,profile_id,registrable_domain,kind,other))",
     "CREATE INDEX idx_vdf_visit_generation ON visit_derived_facts_rows(visit_id,generation)",
     "CREATE INDEX idx_assignments_visit_generation ON visit_assignments(visit_id,generation)",
     "CREATE INDEX idx_assignments_generation_session ON visit_assignments(generation,session_id,ordinal,visit_id)",
@@ -486,6 +492,8 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_domain_daily_site ON domain_daily_rollups_rows(registrable_domain,date_key,generation,profile_id)",
     "CREATE INDEX idx_sessions_range ON sessions_rows(first_visit_ms,generation,profile_id)",
     "CREATE INDEX idx_session_paths_range ON session_paths(date_key,generation,profile_id)",
+    // One site's days (the site page's arrivals and onward sites).
+    "CREATE INDEX idx_site_flows_site ON site_flows_rows(registrable_domain,date_key,generation,profile_id)",
     "CREATE INDEX idx_refind_pages_range ON refind_pages_rows(last_seen_ms,generation,profile_id,first_seen_ms)",
     "CREATE INDEX idx_search_events_profile_query ON search_events_rows(profile_id,normalized_query, generation)",
 

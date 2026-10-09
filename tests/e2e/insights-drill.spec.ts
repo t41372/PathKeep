@@ -14,6 +14,9 @@
  *   day view.
  * - A "Pages you keep reopening" row opens the page view, whose visit total
  *   across browsers equals the fixture's.
+ * - A site's view says how its visits from elsewhere began (typed, from a
+ *   search, from a link), which sites linked to it and which it led on to,
+ *   as the fixture's browsers recorded each page's opener.
  *
  * Insights are computed by a background job after the first backup, so
  * every read waits for real numbers instead of reading a "computing" state.
@@ -264,6 +267,114 @@ test('a site from Top sites shows its 30-day visits', async ({
     ),
     pages.top,
   )
+})
+
+/**
+ * How each site's visits began, counted by hand as the fixture's browsers
+ * record openers (`openedFrom`): a page that was not typed or searched was
+ * opened from the visit before it. A visit counts when its opener was not on
+ * the same site: none means typed, a search's results a search, any other
+ * page a link, and that page's site gains an onward site.
+ */
+function siteFlows() {
+  type Flows = {
+    direct: number
+    search: number
+    link: number
+    referrers: Map<string, number>
+    onward: Map<string, number>
+  }
+  const flows = new Map<string, Flows>()
+  const of = (site: string) => {
+    let entry = flows.get(site)
+    if (!entry) {
+      entry = {
+        direct: 0,
+        search: 0,
+        link: 0,
+        referrers: new Map(),
+        onward: new Map(),
+      }
+      flows.set(site, entry)
+    }
+    return entry
+  }
+  const bump = (counts: Map<string, number>, key: string) =>
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  for (const profile of archivedProfiles) {
+    const visits = fixture().visitsByProfile[profile]
+    const from = openedFrom(visits)
+    for (const [index, visit] of visits.entries()) {
+      const site = siteOf(visit.url)
+      const opener = from[index] >= 0 ? visits[from[index]] : null
+      if (!opener) {
+        of(site).direct += 1
+        continue
+      }
+      const openerSite = siteOf(opener.url)
+      if (openerSite === site) continue
+      if (opener.term) of(site).search += 1
+      else {
+        of(site).link += 1
+        bump(of(site).referrers, openerSite)
+      }
+      bump(of(openerSite).onward, site)
+    }
+  }
+  return flows
+}
+
+test('a site says how its visits began and where its links led', async ({
+  page,
+}, testInfo) => {
+  const flows = siteFlows()
+  // The site with the most visits from elsewhere among those reached all three ways.
+  const [site, expected] = [...flows]
+    .filter(([, f]) => f.direct > 0 && f.search > 0 && f.link > 0)
+    .sort(
+      ([, a], [, b]) =>
+        b.direct + b.search + b.link - (a.direct + a.search + a.link),
+    )[0]
+  await page.goto(`/#/insights/site/${site}`)
+  await drillIn(page, site)
+
+  const arrivals = card(page, 'How you got here')
+  for (const [label, count] of [
+    ['Typed or bookmarked', expected.direct],
+    ['From a search', expected.search],
+    ['From a link', expected.link],
+  ] as const) {
+    const row = arrivals.getByRole('listitem').filter({ hasText: label })
+    await expect(row).toBeVisible({ timeout: JOB_TIMEOUT })
+    const text = (await row.innerText()).replace(/\s+/g, ' ')
+    await expectCount(
+      testInfo,
+      `${site}: ${label.toLowerCase()}, all time`,
+      parseCount(text.match(new RegExp(`${label} (\\d[\\d,]*)`))?.[1] ?? ''),
+      count,
+    )
+  }
+  // The site that linked here most, and the one this site led to most.
+  for (const [title, counts] of [
+    ['How you got here', expected.referrers],
+    ['Where you went next', expected.onward],
+  ] as const) {
+    const top = leaders(counts)
+    const first = card(page, title).getByRole('link').first()
+    await expect(first).toBeVisible({ timeout: JOB_TIMEOUT })
+    const text = (await first.innerText()).replace(/\s+/g, ' ').trim()
+    expect(
+      // A row may start with the site's letter badge.
+      top.keys.some((key) => text.includes(key)),
+      `${title}: ${text} should be one of ${top.keys.join(', ')}`,
+    ).toBe(true)
+    await expectCount(
+      testInfo,
+      `${site}: ${title.toLowerCase()}, the first site`,
+      parseCount(text.match(/(\d[\d,]*)$/)?.[1] ?? ''),
+      top.top,
+    )
+  }
 })
 
 test('a search from Frequent searches shows how often and when', async ({

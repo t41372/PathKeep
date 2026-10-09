@@ -43,6 +43,27 @@ pub struct DomainSearchStat {
     pub count: i64,
 }
 
+/// How the visits to a site in the window began: each visit whose opener (the page the browser
+/// says opened it) was not on the site.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteArrivals {
+    /// No opener: typed, a bookmark, a new tab or another app.
+    pub direct: i64,
+    /// Opened from a search's results.
+    pub search: i64,
+    /// Opened from a link on another site, or on a page PathKeep did not see.
+    pub link: i64,
+}
+
+/// Another site, and how many visits went between it and the deep dive's site in the window.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteFlowStat {
+    pub registrable_domain: String,
+    pub visit_count: i64,
+}
+
 /// Full read model for one registrable-domain deep dive.
 ///
 /// Totals, active days and the trend come from `domain_daily_rollups`, the
@@ -65,6 +86,13 @@ pub struct DomainDeepDive {
     pub landing_searches: crate::models::IntelligencePage<DomainSearchStat>,
     /// Visits per local day; days without visits are left out.
     pub visit_trend: Vec<DomainTrendPoint>,
+    pub arrivals: SiteArrivals,
+    /// Sites whose links opened this one, most visits first.
+    pub referrers: Vec<SiteFlowStat>,
+    /// Search engines whose results opened it, by the engine's site.
+    pub search_sites: Vec<SiteFlowStat>,
+    /// Sites opened from links on this one.
+    pub onward: Vec<SiteFlowStat>,
 }
 
 /// A site searches ended on: where the user's answers come from.

@@ -24,8 +24,10 @@
 //!   come from `domain_daily_rollups`; top pages seek the site's URLs through
 //!   `idx_urls_registrable_domain` and count each URL's visits in the window
 //!   through `idx_visits_visible_url_time`; landing searches read
-//!   `search_trails` through its profile-and-time index. The cost grows with
-//!   the site's own URLs and visits in the window, not with the archive.
+//!   `search_trails` through its profile-and-time index; arrivals and onward
+//!   sites sum the site's `site_flows` rows for the window's days. The cost
+//!   grows with the site's own URLs and visits in the window, not with the
+//!   archive.
 //! - Discovery trend collapses dates after SQL aggregation so the Rust side
 //!   never materializes visit-level rows for charting.
 
@@ -35,7 +37,8 @@ use super::{
 use crate::models::{
     CategoryFilteredDateRangeRequest, DiscoveryTrend, DiscoveryTrendPoint, DomainDeepDive,
     DomainDeepDiveRequest, DomainPageStat, DomainSearchStat, DomainTrend, DomainTrendPoint,
-    DomainTrendRequest, OnThisDayEntry, RhythmHeatmap, RhythmHeatmapCell,
+    DomainTrendRequest, OnThisDayEntry, RhythmHeatmap, RhythmHeatmapCell, SiteArrivals,
+    SiteFlowStat,
 };
 use anyhow::Result;
 use chrono::{Datelike, Local, Timelike};
@@ -135,6 +138,8 @@ pub fn get_domain_deep_dive(
                 };Ok(item)
             })?;
         let landing_searches=super::paging::finish(rows.into_iter().flatten().collect(),limit)?;
+        let (arrivals, referrers, search_sites, onward) =
+            site_flows(connection, domain, &request.date_range, profile_id)?;
 
         Ok(DomainDeepDive {
             registrable_domain: domain.to_string(),
@@ -147,8 +152,68 @@ pub fn get_domain_deep_dive(
             top_pages,
             landing_searches,
             visit_trend,
+            arrivals,
+            referrers,
+            search_sites,
+            onward,
         })
     })
+}
+
+/// Other sites shown on the site page per list.
+const SITE_FLOWS_SHOWN: usize = 8;
+
+/// The site's arrivals in the window and, most visits first, the sites whose links opened it,
+/// the search engines' sites whose results did, and the sites its links opened.
+fn site_flows(
+    connection: &Session<'_>,
+    domain: &str,
+    range: &crate::models::DateRange,
+    profile_id: Option<&str>,
+) -> Result<(SiteArrivals, Vec<SiteFlowStat>, Vec<SiteFlowStat>, Vec<SiteFlowStat>)> {
+    let rows = connection.query(
+        "SELECT r.kind,r.other,SUM(r.visit_count)
+         FROM site_flows_rows r INDEXED BY idx_site_flows_site
+         WHERE r.registrable_domain=?1 AND r.date_key>=?2 AND r.date_key<=?3
+           AND r.generation IN (SELECT navigation FROM intelligence_generations)
+           AND (?4 IS NULL OR r.profile_id=?4)
+         GROUP BY r.kind,r.other",
+        params![domain, range.start.as_str(), range.end.as_str(), profile_id],
+        |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?)),
+    )?;
+    let mut arrivals = SiteArrivals::default();
+    let (mut referrers, mut search_sites, mut onward) = (Vec::new(), Vec::new(), Vec::new());
+    for (kind, other, visit_count) in rows {
+        let list = match kind.as_str() {
+            "direct" => {
+                arrivals.direct += visit_count;
+                continue;
+            }
+            "search" => {
+                arrivals.search += visit_count;
+                &mut search_sites
+            }
+            "link" => {
+                arrivals.link += visit_count;
+                &mut referrers
+            }
+            "onward" => &mut onward,
+            _ => continue,
+        };
+        // An opener PathKeep did not see counts toward the arrivals but names no site.
+        if !other.is_empty() {
+            list.push(SiteFlowStat { registrable_domain: other, visit_count });
+        }
+    }
+    for list in [&mut referrers, &mut search_sites, &mut onward] {
+        list.sort_by(|a, b| {
+            b.visit_count
+                .cmp(&a.visit_count)
+                .then_with(|| a.registrable_domain.cmp(&b.registrable_domain))
+        });
+        list.truncate(SITE_FLOWS_SHOWN);
+    }
+    Ok((arrivals, referrers, search_sites, onward))
 }
 
 /// Buckets visits into a day-of-week by hour heatmap without materializing

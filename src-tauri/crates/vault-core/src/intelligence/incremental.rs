@@ -63,7 +63,8 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
         // v3: Threads count the days a search came back on; compare sets need sibling pages.
         // v4: a full English stop-word list for rewordings, families and search words.
         // v5: a trail takes only the pages related to its search and ends after three that are not.
-        // v6: a `from_visit` of 0 is a typed revisit, not a link (`Opener`).
+        // v6: a `from_visit` of 0 is a typed revisit, not a link (`Opener`); sites' arrivals and
+        // onward sites (`site_flows`).
         RebuildMode::StructuralRebuild => Ok("structural-rebuild-v6".to_string()),
         RebuildMode::FullRebuild => Ok("full-rebuild-v2".to_string()),
     }

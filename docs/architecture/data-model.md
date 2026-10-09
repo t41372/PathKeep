@@ -637,6 +637,9 @@ cursor. A resumed long session reads these counts instead of replaying every ear
 sites of its own, each row starting with the last three sites of the one before. Common paths
 for a date range count the rows of those days, each path in the row of its last site, instead
 of replaying the range's visits.
+`site_flows` holds, per site and local day, how its visits began and the sites its links
+opened, so the site page sums a range's days instead of reading the site's visits and their
+neighbours.
 
 `visits.from_visit` keeps what the browser wrote, and its three states mean different things
 (`visit_taxonomy::Opener`): Chromium and Firefox write `0` when nothing opened the page (an

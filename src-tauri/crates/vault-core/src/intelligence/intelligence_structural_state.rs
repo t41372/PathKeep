@@ -27,7 +27,38 @@ use super::{
     jaccard, local_date_key, normalize_query, query_token_set,
 };
 use crate::visit_taxonomy::Opener;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+
+/// The latest visits whose opener the walk can tell. Openers are nearly always a visit or a few
+/// before; the window keeps the walk's state small when one session runs for days, and an opener
+/// older than it counts as one PathKeep did not see.
+const OPENER_WINDOW: usize = 512;
+
+/// The walk's latest visits by the browser's id (what `from_visit` names): each one's site and
+/// whether it was a search. Kept across sessions, since a tab left open is still clicked later.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub(super) struct OpenerWindow {
+    order: VecDeque<i64>,
+    visits: HashMap<i64, (String, bool)>,
+}
+
+impl OpenerWindow {
+    /// The site of the visit the browser calls `id`, and whether it was a search.
+    pub(super) fn get(&self, id: i64) -> Option<&(String, bool)> {
+        self.visits.get(&id)
+    }
+
+    pub(super) fn push(&mut self, id: i64, site: &str, is_search: bool) {
+        if self.visits.insert(id, (site.to_owned(), is_search)).is_none() {
+            self.order.push_back(id);
+        }
+        if self.order.len() > OPENER_WINDOW
+            && let Some(oldest) = self.order.pop_front()
+        {
+            self.visits.remove(&oldest);
+        }
+    }
+}
 
 /// Unrelated visits in a row that end a search trail (`deterministic-intelligence.md` §5.4).
 const UNRELATED_VISITS_ENDING_A_TRAIL: u32 = 3;

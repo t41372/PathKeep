@@ -215,7 +215,7 @@ where
                     &mut persist,
                 )?;
             }
-            persist.flush_domain_counts()?;
+            persist.flush_counts()?;
             drop(persist);
             saved.stream_json = Some(serde_json::to_string(&stream)?);
             build_state::save(s, &saved)?;
