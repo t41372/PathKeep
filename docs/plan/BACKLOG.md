@@ -50,6 +50,11 @@
   - 目標：site 頁可改網站分類（寫 override、只重新分類受影響的造訪）；「哪類網站」卡的「未分類」列連到最常去的未分類網站。改分類要很快反映在 Insights。
   - E2E：改一個未分類 fixture 網站的分類，重建後卡上該類的占比照手算增加。
 
+- [ ] **WORK-SITE-IDENTITY-PSL** — 一個「網站」要不要照公共後綴清單的私有段切（2026-10-09 寫 E2E 時發現）
+  - 讀先：`vault-core/src/visit_taxonomy/url.rs`（`registrable_domain_for_host`）、`docs/architecture/data-model.md`（pages / facts 的 `registrable_domain`）、`deterministic-intelligence.md` §5.2（網站規則按 registrable domain 比對）。
+  - 現況：整個 app 用公共後綴清單的 ICANN 段（`publicsuffix::IcannList`），所以 `rust-lang.github.io`、某人的 `xxx.github.io` 都算 `github.io` 一個網站；`*.blogspot.com`、`*.vercel.app`、`*.netlify.app`、`*.pages.dev`、`*.appspot.com` 也一樣。瀏覽器自己（site isolation、cookie）用的是含私有段的完整清單，那樣每個 GitHub Pages 站各算一個。沒有文檔記載為什麼選 ICANN 段。
+  - 影響：Top sites、網站頁、習慣、新網站、路線、各瀏覽器對比、搜尋落點都按這個分；改了要重算 archive 的 `pages.registrable_domain`、facts 與所有 rollup（Turso 格式未發佈，v0.3 轉換時就用新值），網站規則裡按 registrable domain 寫的條目要檢查，History 的網站篩選、favicon 的同網站判斷要一起看。
+  - 要做：先寫 trade-off（兩種切法各自在真實資料上會怎麼分組、哪些網站規則受影響），交用戶決定。
 - [ ] **WORK-RUN-LIFECYCLE-GUARDS** — P1 follow-up from 2026-07-23 silent-failure audit
   - 讀先：`docs/architecture/decisions/003-run-model.md`；`docs/plan/program/quality-matrix.md`；`archive/maintenance.rs` retention/snapshot restore；Takeout / Browser Direct import run creation/finalization；Audit read models。
   - 目標：建立 reusable run-attempt finalizer/guard，讓 canonical run row 一旦建立，任何 transaction 前置、commit 後 follow-up、manifest/stats/batch finalization 錯誤都留下 terminal、帶原始錯誤與 partial-commit phase 的結果，不再永久 `running`。
