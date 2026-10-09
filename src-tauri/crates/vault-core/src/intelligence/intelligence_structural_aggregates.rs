@@ -35,7 +35,6 @@ use super::load_profile_derived_visit_batch;
 use super::{
     HabitPatternRecord, PathFlowRecord, QueryFamilyRecord, RefindPageRecord,
     ReopenedInvestigationRecord, VisitRecord, local_date_key, local_datetime_from_millis,
-    normalize_query,
 };
 #[cfg(test)]
 use anyhow::Result;
@@ -233,17 +232,17 @@ pub(super) fn build_refind_pages(visits: &[VisitRecord]) -> Vec<RefindPageRecord
         .collect()
 }
 
-/// Builds reopened-investigation rows from query families and refind pages.
+/// Builds reopened-investigation rows from query families and refind pages: a search the user came
+/// back to on another day, or a page they reopened on another day (§4.5 of the Insights design).
 pub(super) fn build_reopened_investigations(
     query_families: &[QueryFamilyRecord],
     refind_pages: &[RefindPageRecord],
 ) -> Vec<ReopenedInvestigationRecord> {
     let mut records = Vec::new();
     for family in query_families {
-        let distinct_days =
-            family.queries.iter().map(|query| normalize_query(query)).collect::<HashSet<_>>().len()
-                as i64;
-        if distinct_days > 1 || family.member_count > 1 {
+        // Days, not wordings: the count used to be how many ways the search was phrased.
+        let distinct_days = family.active_days;
+        if distinct_days > 1 {
             records.push(ReopenedInvestigationRecord {
                 investigation_id: format!("reopened:{}:{}", family.profile_id, family.family_id),
                 profile_id: family.profile_id.clone(),

@@ -359,6 +359,7 @@ fn structural_aggregate_builders_cover_flows_reopened_and_habits() {
             first_seen_ms: 1711929600000,
             last_seen_ms: 1712016000000,
             queries: vec!["rust coverage".to_string(), "rust coverage tips".to_string()],
+            active_days: 2,
         }],
         &refind_pages,
     );

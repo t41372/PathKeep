@@ -142,6 +142,7 @@ export default defineConfig({
         'search-loading.spec.ts',
         'search-limits.spec.ts',
         'links.spec.ts',
+        'home.spec.ts',
       ],
       'first-run',
     ),

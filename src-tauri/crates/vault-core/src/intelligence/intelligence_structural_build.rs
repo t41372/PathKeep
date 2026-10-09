@@ -40,6 +40,7 @@ pub(super) struct QueryFamilyAccumulator {
     by_token: std::collections::HashMap<(String, String, String), Vec<usize>>,
     tokens: Vec<std::collections::HashSet<String>>,
     queries: Vec<std::collections::HashSet<String>>,
+    days: Vec<std::collections::HashSet<String>>,
 }
 
 /// Groups keyword search events into deterministic families using the accepted
@@ -47,6 +48,7 @@ pub(super) struct QueryFamilyAccumulator {
 #[cfg(test)]
 pub(super) fn build_query_families(events: &[SearchEventRecord]) -> Vec<QueryFamilyRecord> {
     let mut families: Vec<QueryFamilyRecord> = Vec::new();
+    let mut days: Vec<std::collections::HashSet<String>> = Vec::new();
     for event in events.iter().filter(|event| event.query_kind.is_keyword()) {
         let tokens = query_token_set(&event.normalized_query);
         if tokens.is_empty() {
@@ -72,11 +74,17 @@ pub(super) fn build_query_families(events: &[SearchEventRecord]) -> Vec<QueryFam
                 {
                     family.queries.push(event.raw_query.clone());
                 }
+                if days[index].insert(super::local_date_key(event.visit_time_ms)) {
+                    family.active_days += 1;
+                }
                 matched = Some(index);
                 break;
             }
         }
         if matched.is_none() {
+            days.push(std::collections::HashSet::from([super::local_date_key(
+                event.visit_time_ms,
+            )]));
             families.push(QueryFamilyRecord {
                 family_id: format!("family:{}:{:04}", event.profile_id, families.len() + 1),
                 profile_id: event.profile_id.clone(),
@@ -86,6 +94,7 @@ pub(super) fn build_query_families(events: &[SearchEventRecord]) -> Vec<QueryFam
                 first_seen_ms: event.visit_time_ms,
                 last_seen_ms: event.visit_time_ms,
                 queries: vec![event.raw_query.clone()],
+                active_days: 1,
             });
         }
     }
@@ -232,6 +241,9 @@ impl QueryFamilyAccumulator {
                 if self.queries[index].insert(event.normalized_query.clone()) {
                     family.queries.push(event.raw_query.clone());
                 }
+                if self.days[index].insert(super::local_date_key(event.visit_time_ms)) {
+                    family.active_days += 1;
+                }
                 return;
             }
         }
@@ -244,6 +256,8 @@ impl QueryFamilyAccumulator {
         }
         self.tokens.push(tokens);
         self.queries.push(std::collections::HashSet::from([event.normalized_query.clone()]));
+        self.days
+            .push(std::collections::HashSet::from([super::local_date_key(event.visit_time_ms)]));
         self.families.push(QueryFamilyRecord {
             family_id: format!("family:{}:{:04}", event.profile_id, self.families.len() + 1),
             profile_id: event.profile_id.clone(),
@@ -253,6 +267,7 @@ impl QueryFamilyAccumulator {
             first_seen_ms: event.visit_time_ms,
             last_seen_ms: event.visit_time_ms,
             queries: vec![event.raw_query.clone()],
+            active_days: 1,
         });
     }
 

@@ -161,6 +161,7 @@ mod tests {
             first_seen_ms: 1,
             last_seen_ms: 2,
             queries: vec!["pathkeep".to_string(), "pathkeep coverage".to_string()],
+            active_days: 2,
         }];
         let refind_pages = vec![RefindPageRecord {
             profile_id: "p1".to_string(),
