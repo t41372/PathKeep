@@ -307,7 +307,8 @@ fn stored_refind_row(
         .query_one(
             "SELECT url,title,registrable_domain,cross_day_count,trail_count,search_arrival_count,
                     typed_revisit_count,refind_score,evidence_json,first_seen_ms,last_seen_ms
-             FROM refind_pages_rows WHERE generation=?1 AND profile_id=?2 AND canonical_url=?3",
+             FROM refind_pages_rows INDEXED BY idx_refind_pages_canonical
+             WHERE canonical_url=?3 AND generation=?1 AND profile_id=?2",
             params![generation, profile, url],
             |r| {
                 Ok(RefindPageRecord {

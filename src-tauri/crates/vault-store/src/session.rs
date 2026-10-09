@@ -140,7 +140,9 @@ impl<'a> Session<'a> {
 
     /// Apply one statement within the transaction already owned by the facade.
     pub fn execute(&self, sql: &str, params: impl turso::IntoParams) -> Result<u64> {
+        let params = params.into_params()?;
         self.with_statement(sql, |statement| {
+            self.record_plan(sql, &params)?;
             Ok(self.runtime.block_on(statement.execute(params))?)
         })
     }

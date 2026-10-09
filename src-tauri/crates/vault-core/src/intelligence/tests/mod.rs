@@ -19,6 +19,7 @@
 //! checks rather than by allocating huge in-memory test datasets.
 
 mod append_aggregates;
+mod append_plans;
 mod batch_equivalence;
 mod build_needed;
 mod fixtures;

@@ -83,7 +83,7 @@ impl CompareSetAccumulator {
         let known = vault.read(Db::Intelligence, move |s| {
             let mut known = HashMap::new();
             for chunk in ids.chunks(400) {
-                let slots = (3..chunk.len() + 3).map(|i| format!("?{i}")).collect::<Vec<_>>();
+                let slots = (3..chunk.len() + 3).map(|i| format!("(?{i})")).collect::<Vec<_>>();
                 let mut values = vec![
                     vault_store::Value::Integer(generation),
                     vault_store::Value::Text(profile.clone()),
@@ -91,8 +91,13 @@ impl CompareSetAccumulator {
                 values.extend(chunk.iter().cloned().map(vault_store::Value::Text));
                 s.for_each(
                     &format!(
-                        "SELECT trail_id,initial_query,landing_url FROM search_trails_rows
-                         WHERE generation=?1 AND profile_id=?2 AND trail_id IN ({})",
+                        // Joined to the ids, so each one seeks the key; `trail_id IN (...)`
+                        // was planned as a read of the whole generation.
+                        "WITH requested(trail_id) AS (VALUES {})
+                         SELECT t.trail_id,t.initial_query,t.landing_url FROM requested
+                         CROSS JOIN search_trails_rows t
+                           ON t.generation=?1 AND t.trail_id=requested.trail_id
+                         WHERE t.profile_id=?2",
                         slots.join(",")
                     ),
                     values,
