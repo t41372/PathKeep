@@ -7,6 +7,9 @@
 //! - Keep the token-bucket MATH pure + unit-tested ([`TokenBucket`]), and the process-global
 //!   host→bucket registry ([`acquire_host_token`]) a thin lock around it.
 //!
+//! - Hold a host entirely when it answers HTTP 429, for as long as it asked ([`hold_host`]), so no
+//!   queued fetch for that host retries before then.
+//!
 //! ## Not responsible for
 //! - Fetching (the runner does), the SSRF guard, or the negative-cache cadence (that is the per-row
 //!   `refetch_after`). This is purely the "may I make ANOTHER request to this host right now" gate.
@@ -23,7 +26,13 @@
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// How long a host is left alone after a 429 that does not say for how long.
+pub(crate) const DEFAULT_HOST_HOLD: Duration = Duration::from_secs(60 * 60);
+/// Bounds on the wait a host asks for, so a bad header neither hammers it nor parks it for weeks.
+const MIN_HOST_HOLD: Duration = Duration::from_secs(60);
+const MAX_HOST_HOLD: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// A per-host request budget: a refill rate (tokens/sec) and a burst capacity (max tokens).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -76,12 +85,23 @@ pub(crate) struct TokenBucket {
     budget: HostBudget,
     tokens: f64,
     last_refill: Instant,
+    /// The host asked for no requests before this (HTTP 429).
+    held_until: Option<Instant>,
 }
 
 impl TokenBucket {
     /// Creates a full bucket (starts at capacity so the first burst is allowed immediately).
     pub(crate) fn new(budget: HostBudget, now: Instant) -> Self {
-        Self { budget, tokens: budget.capacity, last_refill: now }
+        Self { budget, tokens: budget.capacity, last_refill: now, held_until: None }
+    }
+
+    /// Refuses every request until `until`; a later hold extends an earlier one.
+    fn hold(&mut self, until: Instant) {
+        self.held_until = Some(self.held_until.map_or(until, |held| held.max(until)));
+    }
+
+    fn held_for(&self, now: Instant) -> Option<Duration> {
+        self.held_until.filter(|until| now < *until).map(|until| until - now)
     }
 
     /// Refills the bucket for the elapsed time since the last refill, clamped to capacity.
@@ -100,6 +120,9 @@ impl TokenBucket {
     /// The bucket starts full, so the first `capacity` calls in a burst succeed, after which calls
     /// succeed at the refill rate — exactly the 60/hr long-run cap with a small burst (06 §2b).
     pub(crate) fn try_take(&mut self, now: Instant) -> bool {
+        if self.held_for(now).is_some() {
+            return false;
+        }
         self.refill(now);
         if self.tokens >= 1.0 {
             self.tokens -= 1.0;
@@ -116,6 +139,9 @@ impl TokenBucket {
     /// before a token is actually available (which would burn another empty drain). At GitHub's 60/hr
     /// refill this is ≈ 60s when the bucket is empty.
     pub(crate) fn next_token_eta_secs(&mut self, now: Instant) -> u64 {
+        if let Some(held) = self.held_for(now) {
+            return held.as_secs_f64().ceil() as u64;
+        }
         self.refill(now);
         if self.tokens >= 1.0 {
             return 0;
@@ -172,6 +198,22 @@ pub(crate) fn next_token_eta_secs(host: &str) -> u64 {
     let mut buckets = registry.lock().expect("host rate-limit registry lock");
     let bucket = buckets.entry(host_key).or_insert_with(|| TokenBucket::new(budget, now));
     bucket.next_token_eta_secs(now)
+}
+
+/// Sends no request to `host` for `wait` (clamped to a minute .. a day): it answered HTTP 429.
+/// Every queued fetch for the host waits, not only the one that was refused, and the deferred job
+/// reads its new time from [`next_token_eta_secs`].
+pub(crate) fn hold_host(host: &str, wait: Duration) {
+    let host_key = host.trim().to_ascii_lowercase();
+    if host_key.is_empty() {
+        return;
+    }
+    let budget = budget_for_host(&host_key);
+    let now = Instant::now();
+    let registry = HOST_BUCKETS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut buckets = registry.lock().expect("host rate-limit registry lock");
+    let bucket = buckets.entry(host_key).or_insert_with(|| TokenBucket::new(budget, now));
+    bucket.hold(now + wait.clamp(MIN_HOST_HOLD, MAX_HOST_HOLD));
 }
 
 /// Resets a host's bucket to FULL (test-only), isolating rate-limit assertions from cross-test state.

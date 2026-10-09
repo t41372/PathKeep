@@ -29,7 +29,7 @@
 //! the coverage gate flagging the (deliberately uncovered) production socket call.
 
 use super::extractors::{ApiRequest, ExtractContext, ExtractKind, Extractor, resolve_extractor};
-use super::rate_limit::{acquire_host_token, next_token_eta_secs};
+use super::rate_limit::{DEFAULT_HOST_HOLD, acquire_host_token, hold_host, next_token_eta_secs};
 use super::{
     EnrichmentResult, default_enrichment_refetch_after_for_status, store_enrichment_with_cache,
 };
@@ -657,6 +657,27 @@ pub(crate) struct SharedClientFetcher {
     client: crate::og_images_fetch::FetchClient,
 }
 
+/// How long a 429 asks the client to wait: `Retry-After` in seconds or as a date, else GitHub's
+/// quota reset time, else [`DEFAULT_HOST_HOLD`].
+fn host_requested_wait(headers: &reqwest::header::HeaderMap) -> std::time::Duration {
+    let header =
+        |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).map(str::trim);
+    let now = chrono::Utc::now();
+    let until = |at: chrono::DateTime<chrono::Utc>| (at - now).to_std().unwrap_or_default();
+    if let Some(value) = header("retry-after") {
+        if let Ok(seconds) = value.parse::<u64>() {
+            return std::time::Duration::from_secs(seconds);
+        }
+        if let Ok(at) = chrono::DateTime::parse_from_rfc2822(value) {
+            return until(at.with_timezone(&chrono::Utc));
+        }
+    }
+    header("x-ratelimit-reset")
+        .and_then(|value| value.parse::<i64>().ok())
+        .and_then(|reset| chrono::DateTime::from_timestamp(reset, 0))
+        .map_or(DEFAULT_HOST_HOLD, until)
+}
+
 impl SharedClientFetcher {
     pub(crate) fn new() -> Result<Self> {
         // The shared client checks every redirect hop like the first URL, so a public page that
@@ -688,6 +709,7 @@ impl Fetcher for SharedClientFetcher {
         };
         let http_status = i64::from(response.status().as_u16());
         if response.status().as_u16() == 429 {
+            hold_host(&url_domain(url), host_requested_wait(response.headers()));
             return FetchOutcome::Failed {
                 status: "rate-limited".to_string(),
                 http_status: Some(http_status),
@@ -748,8 +770,14 @@ impl Fetcher for SharedClientFetcher {
             }
         };
         let http_status = i64::from(response.status().as_u16());
-        if response.status().as_u16() == 429 || response.status().as_u16() == 403 {
-            // GitHub signals an exhausted unauthenticated quota with 403 (rate-limit) or 429.
+        // GitHub signals an exhausted quota with 429, or with 403 plus an empty remaining count
+        // (primary limit) or a Retry-After (secondary limit); any other 403 is a plain refusal.
+        let headers = response.headers();
+        let quota_403 = response.status().as_u16() == 403
+            && (headers.get("x-ratelimit-remaining").is_some_and(|value| value == "0")
+                || headers.contains_key("retry-after"));
+        if response.status().as_u16() == 429 || quota_403 {
+            hold_host(&url_domain(url), host_requested_wait(headers));
             return FetchOutcome::Failed {
                 status: "rate-limited".to_string(),
                 http_status: Some(http_status),
