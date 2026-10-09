@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "PathKeep",
@@ -19,7 +20,7 @@
         "minHeight": 760,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "backgroundColor": "#E9EEF6",
+        "transparent": true,
         "visible": false
       }
     ],

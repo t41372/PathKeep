@@ -250,6 +250,11 @@
     font-size: 14px;
     font-synthesis: none;
   }
+  /* Glass: the system blurs the desktop behind the window, so the app paints
+     no wallpaper of its own and its translucent layers sit on the real one. */
+  html[data-window-material='glass'] body {
+    background: transparent;
+  }
   .tabular {
     font-variant-numeric: tabular-nums;
   }

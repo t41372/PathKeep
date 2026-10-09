@@ -30,6 +30,13 @@ export const settings = defineMessages({
         title: 'Appearance',
         description: 'Light, dark or match system',
       },
+      material: {
+        title: 'Window',
+        description:
+          'Solid, or the system’s translucent glass that lets the desktop show through, blurred',
+        solid: 'Solid',
+        glass: 'Glass',
+      },
       desktop: {
         title: 'Open at login and menu bar icon',
         trayTitle: 'Open at login and tray icon',
@@ -210,6 +217,12 @@ export const settings = defineMessages({
         title: '外观',
         description: '浅色、深色或跟随系统',
       },
+      material: {
+        title: '窗口',
+        description: '不透明，或用系统的毛玻璃，透出模糊的桌面',
+        solid: '不透明',
+        glass: '毛玻璃',
+      },
       desktop: {
         title: '登录时启动和菜单栏图标',
         trayTitle: '登录时启动和托盘图标',
@@ -379,6 +392,12 @@ export const settings = defineMessages({
       appearance: {
         title: '外觀',
         description: '淺色、深色或跟隨系統',
+      },
+      material: {
+        title: '視窗',
+        description: '不透明，或用系統的毛玻璃，透出模糊的桌面',
+        solid: '不透明',
+        glass: '毛玻璃',
       },
       desktop: {
         title: '登入時啟動和選單列圖示',

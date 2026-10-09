@@ -10,6 +10,11 @@ import {
 import { languageNames, supportedLanguages, useI18n } from '@/lib/i18n'
 import { useChooseLanguage } from '@/lib/queries/language'
 import { useTheme, type ThemePreference } from '@/lib/theme'
+import {
+  useWindowMaterial,
+  windowMaterialAvailable,
+  type WindowMaterial,
+} from '@/lib/window-material'
 import type { LanguagePreference } from '@/lib/types'
 import { DesktopRows } from './desktop-rows'
 import { OnlineRows } from './online-rows'
@@ -21,6 +26,7 @@ export function GeneralSection() {
     <SettingsSection title={t('settings.nav.general')}>
       <LanguageRow />
       <AppearanceRow />
+      {windowMaterialAvailable() && <WindowMaterialRow />}
       <DesktopRows />
       <SettingsGroup
         title={t('settings.general.online.title')}
@@ -53,6 +59,29 @@ function LanguageRow() {
               label: languageNames[lang],
             })),
           ]}
+        />
+      }
+    />
+  )
+}
+
+function WindowMaterialRow() {
+  const { t } = useI18n()
+  const [material, setMaterial] = useWindowMaterial()
+  return (
+    <SettingRow
+      title={t('settings.general.material.title')}
+      description={t('settings.general.material.description')}
+      htmlFor="settings-window-material"
+      control={
+        <RowSelect
+          id="settings-window-material"
+          value={material}
+          onChange={(value) => setMaterial(value as WindowMaterial)}
+          options={(['solid', 'glass'] as const).map((value) => ({
+            value,
+            label: t(`settings.general.material.${value}`),
+          }))}
         />
       }
     />
