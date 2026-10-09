@@ -25,6 +25,7 @@ import {
   type Page,
   type TestInfo,
 } from '@playwright/test'
+import { FIXTURE_FAVICON_HOSTS } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import { archivedVisits, fixture, type FixtureVisit } from './support/fixture'
 
 const compact = new Intl.NumberFormat('en', {
@@ -771,14 +772,19 @@ test('a site shows the icon its browser stored, and its letter when there is non
   await page.goto('/#/insights')
   const rows = card(page, 'Top sites').getByRole('listitem')
   await expect(rows.first()).toBeVisible({ timeout: 60_000 })
-  // The fixture's Chrome stored icons for github.com, www.youtube.com and
-  // docs.rs; a site's icon is its own host's, else www.'s.
-  for (const site of ['github.com', 'youtube.com', 'docs.rs']) {
+  // The fixture's Chrome stored a different icon for github.com,
+  // www.youtube.com and docs.rs; a site's icon is its own host's, else www.'s,
+  // and never another site's.
+  for (const [site, host] of [
+    ['github.com', 'github.com'],
+    ['youtube.com', 'www.youtube.com'],
+    ['docs.rs', 'docs.rs'],
+  ] as const) {
     const icon = rows.filter({ hasText: site }).locator('img')
-    await expect(icon, site).toHaveCount(1)
-    await expect
-      .poll(() => icon.evaluate((img: HTMLImageElement) => img.naturalWidth))
-      .toBe(16)
+    await expect(icon, site).toHaveAttribute(
+      'src',
+      `data:image/png;base64,${FIXTURE_FAVICON_HOSTS[host]}`,
+    )
   }
   const strava = rows.filter({ hasText: 'strava.com' })
   await expect(strava).toHaveCount(1)
