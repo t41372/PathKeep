@@ -565,10 +565,10 @@ function TrailNote({ trail }: { trail: TrailSummary | undefined }) {
   const { t } = useI18n()
   if (!trail) return null
   const parts = []
-  if (trail.visitCount > 1) {
+  if (trail.maxDepth > 0) {
     parts.push(
       t('insights.day.trailAfter', {
-        pages: t('common.pages', { count: trail.visitCount - 1 }),
+        pages: t('common.pages', { count: trail.maxDepth }),
       }),
     )
   }

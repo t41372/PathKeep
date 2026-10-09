@@ -285,10 +285,10 @@ function TrailRow({ trail }: { trail: TrailSummary }) {
                   : t('insights.search.noLanding')}
               </span>
               <span className="text-xs text-muted-foreground">
-                {trail.visitCount > 1
+                {trail.maxDepth > 0
                   ? t('insights.search.trailMeta', {
                       pages: t('common.pages', {
-                        count: trail.visitCount - 1,
+                        count: trail.maxDepth,
                       }),
                       engine: engineName(trail.searchEngine),
                     })

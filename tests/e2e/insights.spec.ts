@@ -85,14 +85,13 @@ const dateKey = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
 /**
- * A visit's site as Insights counts it: the registrable domain. The fixture's
- * hosts all sit under one-label suffixes except `github.io`, which the public
- * suffix list makes a suffix of its own.
+ * A visit's site as Insights counts it: the registrable domain under the
+ * public suffix list's ICANN section (`visit_taxonomy::registrable_domain_for_host`),
+ * so every `*.github.io` page is on github.io. The fixture's hosts all sit
+ * under one-label suffixes.
  */
 function site(url: string) {
-  const labels = new URL(url).hostname.split('.')
-  const suffix = labels.slice(-2).join('.') === 'github.io' ? 3 : 2
-  return labels.slice(-suffix).join('.')
+  return new URL(url).hostname.split('.').slice(-2).join('.')
 }
 
 /** Visits per site, by hand, between two instants. */
@@ -538,7 +537,11 @@ function searchTrails() {
   const SESSION_GAP = 30 * 60_000
   const TRAIL_GAP = 15 * 60_000
   const trails: {
+    /** The search as first typed (`initial_query`). */
+    query: string
     rewordings: number
+    /** Pages it opened, its rewordings not counted (`max_depth`). */
+    pages: number
     latest: Set<string>
     landing?: string
   }[] = []
@@ -546,7 +549,9 @@ function searchTrails() {
     if (!archivedVisits().includes(visits[0])) continue
     let lastVisit = -Infinity
     let trail: {
+      query: string
       rewordings: number
+      pages: number
       latest: Set<string>
       words: Set<string>
       members: Set<number>
@@ -585,7 +590,9 @@ function searchTrails() {
           trail!.landsNext = true
         } else {
           trail = {
+            query: visit.term,
             rewordings: 0,
+            pages: 0,
             latest: words,
             words: new Set(words),
             members: new Set([index]),
@@ -602,6 +609,7 @@ function searchTrails() {
           trail!.sites.has(site(visit.url)) ||
           [...textWords(visit.title)].some((word) => trail!.words.has(word))
         if (relates) {
+          trail!.pages += 1
           trail!.members.add(index)
           trail!.sites.add(site(visit.url))
           trail!.unrelated = 0
@@ -847,6 +855,69 @@ test('browsers compared name the sites they share and what each mostly visits', 
       .map((entry) => entry.key)
       .join(', ')}`,
   )
+})
+
+test('how searches go averages rewordings and pages per search engine', async ({
+  page,
+}) => {
+  // All time; every fixture search is on Google.
+  const trails = searchTrails()
+  const average = (value: (trail: (typeof trails)[number]) => number) =>
+    new Intl.NumberFormat('en').format(
+      Math.round(
+        (trails.reduce((sum, trail) => sum + value(trail), 0) / trails.length) *
+          10,
+      ) / 10,
+    )
+  await page.goto('/#/insights')
+  const google = card(page, 'How your searches go')
+    .getByRole('listitem')
+    .filter({ hasText: 'Google' })
+    .first()
+  await expect(google).toContainText(
+    `${new Intl.NumberFormat('en').format(trails.length)} searches`,
+    { timeout: 60_000 },
+  )
+  await expect(google).toContainText(
+    `Reworded ${average((trail) => trail.rewordings)}× on average · ${average((trail) => trail.pages)} pages opened per search`,
+  )
+})
+
+test('where searches end up counts each search on the site it led to', async ({
+  page,
+}, testInfo) => {
+  // All time: each trail counts for its landing site, with how many
+  // different searches (as first typed) led there.
+  const perSite = new Map<string, { searches: number; queries: Set<string> }>()
+  for (const trail of searchTrails()) {
+    if (!trail.landing) continue
+    const entry = perSite.get(trail.landing) ?? {
+      searches: 0,
+      queries: new Set<string>(),
+    }
+    entry.searches += 1
+    entry.queries.add(trail.query)
+    perSite.set(trail.landing, entry)
+  }
+  const expected = [...perSite]
+    .sort(([a, x], [b, y]) => y.searches - x.searches || (a < b ? -1 : 1))
+    .slice(0, 3)
+    .map(
+      ([host, entry]) =>
+        `${host} ${entry.searches} search${entry.searches === 1 ? '' : 'es'} · ${entry.queries.size} different`,
+    )
+  await page.goto('/#/insights')
+  const rows = card(page, 'Where your searches end up').getByRole('listitem')
+  await expect(rows.first()).toBeVisible({ timeout: 60_000 })
+  const shown = (await rows.allInnerTexts())
+    .slice(0, 3)
+    .map((text) => text.replace(/\s+/g, ' ').trim())
+  await testInfo.attach('landings, all time', {
+    body: JSON.stringify({ expected, shown }, null, 2),
+    contentType: 'application/json',
+  })
+  // A row may start with the site's letter badge.
+  expect(shown.map((text) => text.replace(/^\S\s/, ''))).toEqual(expected)
 })
 
 test('kinds of sites count every visit by the kind of site it went to', async ({

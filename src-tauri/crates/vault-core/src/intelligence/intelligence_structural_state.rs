@@ -305,7 +305,8 @@ impl TrailBuildState {
         let role = if lands { "landing" } else { "click" };
         self.record.visit_count += 1;
         self.record.last_visit_ms = visit.visit_time_ms;
-        self.record.max_depth = self.record.max_depth.max(ordinal);
+        // Its depth: the pages the search opened, not the searches that reworded it.
+        self.record.max_depth += 1;
         if lands {
             self.record.landing_url = Some(visit.url.clone());
             self.record.landing_domain = Some(visit.registrable_domain.clone());

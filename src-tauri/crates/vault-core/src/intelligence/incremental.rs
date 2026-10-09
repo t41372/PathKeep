@@ -65,7 +65,8 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
         // v5: a trail takes only the pages related to its search and ends after three that are not.
         // v6: a `from_visit` of 0 is a typed revisit, not a link (`Opener`); sites' arrivals and
         // onward sites (`site_flows`).
-        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v6".to_string()),
+        // v7: a trail's `max_depth` counts the pages it opened, not its rewordings.
+        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v7".to_string()),
         RebuildMode::FullRebuild => Ok("full-rebuild-v2".to_string()),
     }
 }
@@ -364,7 +365,7 @@ mod tests {
                     assert_eq!(
                         stage_version(connection, RebuildMode::StructuralRebuild)
                             .expect("structural version"),
-                        "structural-rebuild-v6"
+                        "structural-rebuild-v7"
                     );
                     assert_eq!(
                         stage_version(connection, RebuildMode::FullRebuild).expect("full version"),

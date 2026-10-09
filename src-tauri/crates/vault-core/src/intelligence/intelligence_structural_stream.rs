@@ -687,10 +687,11 @@ mod tests {
                 drop(persist);
 
                 let trails = connection.query(
-                    "SELECT trail_id, reformulation_count, queries_json, landing_domain FROM search_trails ORDER BY trail_id",
+                    "SELECT trail_id, reformulation_count, queries_json, landing_domain, visit_count, max_depth FROM search_trails ORDER BY trail_id",
                     (),
-                    |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?, row.get::<String>(2)?, row.get::<Option<String>>(3)?)),
+                    |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?, row.get::<String>(2)?, row.get::<Option<String>>(3)?, row.get::<i64>(4)?, row.get::<i64>(5)?)),
                 )?;
+                // Visits count the three searches; the depth counts the two pages they opened.
                 assert_eq!(
                     trails,
                     vec![
@@ -699,12 +700,16 @@ mod tests {
                             1,
                             r#"["tokio select","tokio select macro"]"#.to_string(),
                             Some("tokio.rs".to_string()),
+                            5,
+                            2,
                         ),
                         (
                             "trail:chrome:Default:6".to_string(),
                             0,
                             r#"["weather tokyo"]"#.to_string(),
                             Some("weather.example".to_string()),
+                            2,
+                            1,
                         ),
                     ]
                 );

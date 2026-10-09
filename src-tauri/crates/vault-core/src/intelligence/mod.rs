@@ -244,6 +244,8 @@ struct TrailRecord {
     landing_domain: Option<String>,
     first_visit_ms: i64,
     last_visit_ms: i64,
+    /// The pages the search opened: its landing and the pages after it, not its rewordings
+    /// (`visit_count` counts those too).
     max_depth: i64,
     queries: Vec<String>,
     members: Vec<TrailMemberRecord>,
