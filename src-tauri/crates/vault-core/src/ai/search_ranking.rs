@@ -34,6 +34,7 @@ pub(super) fn query(request: &AiSearchRequest) -> SearchRequest {
         sort: request.sort.clone(),
         page_size: request.limit.unwrap_or(8).max(1) as usize,
         profile_id: request.profile_id.clone(),
+        browser_kind: request.browser_kind.clone(),
         domain: request.domain.clone(),
         start_time_ms,
         end_time_ms,

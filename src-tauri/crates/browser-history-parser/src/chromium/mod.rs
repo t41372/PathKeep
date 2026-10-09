@@ -705,7 +705,8 @@ fn parsed_visit_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedVisit> {
         visit_time_iso: chrome_time_to_iso(visit_time),
         from_visit: row.get(5)?,
         transition: row.get(6)?,
-        visit_duration_ms: row.get(7)?,
+        // Chromium records `visit_duration` in microseconds; the archive keeps milliseconds.
+        visit_duration_ms: row.get::<_, Option<i64>>(7)?.map(|micros| micros.div_euclid(1_000)),
         is_known_to_sync: row.get::<_, Option<i64>>(8)?.unwrap_or_default() != 0,
         visited_link_id: row.get(9)?,
         external_referrer_url: row.get(10)?,

@@ -16,6 +16,8 @@ import {
 import { toast } from 'sonner'
 import { appClient } from '@/lib/backend-client/app'
 import { archiveClient } from '@/lib/backend-client/archive'
+import { countRunWarnings } from '@/features/backup/run-codes'
+import { openRun } from '@/features/backup/run-link'
 import { describeError } from '@/lib/errors'
 import { isFullDiskAccessError } from '@/lib/ipc/command-error'
 import { subscribeToBackupProgress } from '@/lib/ipc/backup-progress'
@@ -62,11 +64,24 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
   const announceDone = useCallback(
     (report: BackupReport) => {
       const added = report.run?.newVisits ?? 0
-      toast.success(
+      const title =
         added > 0
           ? t('shell.backup.done', { count: added })
-          : t('shell.backup.doneNothingNew'),
-      )
+          : t('shell.backup.doneNothingNew')
+      const warnings = countRunWarnings(report)
+      const runId = report.run?.id
+      if (warnings === 0 || runId === undefined) {
+        toast.success(title)
+        return
+      }
+      toast.warning(title, {
+        description: t('shell.backup.warnings', { count: warnings }),
+        duration: 10_000,
+        action: {
+          label: t('shell.backup.viewDetails'),
+          onClick: () => openRun(runId),
+        },
+      })
     },
     [t],
   )

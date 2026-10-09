@@ -751,6 +751,7 @@ fn search_history_internal_empty_query_returns_recent_visits() {
                     starred_only: None,
                     start_date: None,
                     end_date: None,
+                    browser_kind: None,
                 },
             ))
             .expect("empty query returns recent visits");
@@ -792,6 +793,7 @@ fn search_history_internal_supports_lexical_fallback() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("lexical search");
@@ -831,6 +833,7 @@ fn search_history_internal_empty_query_honors_starred_facet() {
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("starred-only recency");
@@ -868,6 +871,7 @@ fn semantic_search_history_uses_public_wrapper_for_search_results() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("public search wrapper");
@@ -904,6 +908,7 @@ fn semantic_search_history_caps_the_fe_wrapper_at_the_model_facing_row_cap() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("public search wrapper");
@@ -1118,6 +1123,7 @@ fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("semantic empty fallback");
@@ -1268,6 +1274,7 @@ fn semantic_matches_returns_no_hits_with_honest_note_when_index_is_empty() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1350,6 +1357,7 @@ fn semantic_matches_returns_real_hits_and_surfaces_stale_ledger_note() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1410,6 +1418,7 @@ fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1450,6 +1459,7 @@ fn semantic_matches_rejects_a_dim_mismatch_with_an_honest_note() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1521,6 +1531,7 @@ fn semantic_matches_rejects_same_dim_fingerprint_drift_with_an_honest_note() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1578,6 +1589,7 @@ fn semantic_matches_filters_by_profile_and_domain_facets() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1604,6 +1616,7 @@ fn semantic_matches_filters_by_profile_and_domain_facets() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1654,6 +1667,7 @@ fn semantic_matches_picks_most_recent_visit_among_a_pages_visits() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1699,6 +1713,7 @@ fn semantic_matches_attaches_capped_enrichment_excerpt_for_an_enriched_hit() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1753,6 +1768,7 @@ fn semantic_matches_leaves_excerpt_none_for_a_non_enriched_hit() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1808,6 +1824,7 @@ fn semantic_matches_enrichment_join_keeps_one_hit_for_a_multi_visit_enriched_pag
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1855,6 +1872,7 @@ fn semantic_matches_reports_no_visible_hits_when_all_are_facet_filtered_out() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
             None,
         ))
@@ -1895,6 +1913,7 @@ fn search_history_internal_uses_lexical_results_when_index_is_empty() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("lexical fallback search");
@@ -1944,6 +1963,7 @@ fn search_history_internal_merges_real_semantic_hits_with_lexical() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("merged search");
@@ -2018,6 +2038,7 @@ fn rrf_ranks_a_dual_list_page_above_a_single_list_page() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("hybrid search");
@@ -2109,6 +2130,7 @@ fn rrf_fuses_a_multi_visit_page_into_one_dual_list_row() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("hybrid search");
@@ -2181,6 +2203,7 @@ fn rrf_semantic_weight_zero_degrades_to_lexical_order() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("lexical-weighted search");
@@ -2230,6 +2253,7 @@ fn rrf_pagination_cursor_walks_the_fused_pool() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("page 1");
@@ -2254,6 +2278,7 @@ fn rrf_pagination_cursor_walks_the_fused_pool() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("page 2");
@@ -2290,6 +2315,7 @@ fn ai_off_search_is_lexical_only() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("lexical-only");
@@ -2372,6 +2398,7 @@ fn starred_boost_promotes_a_relevant_favorite_without_dominating() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("boosted hybrid search");
@@ -2437,6 +2464,7 @@ fn starred_boost_off_leaves_favorites_unpromoted() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("boost-off search");
@@ -2486,6 +2514,7 @@ fn is_starred_facet_restricts_semantic_recall_to_starred_pages() {
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("starred-facet search");
@@ -2536,6 +2565,7 @@ fn is_starred_facet_resolves_via_pkmap_scan_when_reverse_sidecars_absent() {
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("starred-facet search via fallback");
@@ -2575,6 +2605,7 @@ fn is_starred_facet_before_any_index_build_resolves_empty_without_a_store() {
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("starred-facet search with no store");
@@ -2614,6 +2645,7 @@ fn is_starred_facet_with_nothing_starred_returns_no_semantic_hits() {
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("empty-starred-facet search");
@@ -2649,6 +2681,7 @@ fn is_starred_facet_constrains_the_lexical_plane_too() {
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("lexical starred-facet search");
@@ -2709,6 +2742,7 @@ fn is_starred_facet_recalls_an_older_starred_match_on_the_lexical_plane() {
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("lexical starred-facet search with an older starred match");
@@ -3191,6 +3225,7 @@ fn search_response_carries_a_note_code_per_english_note_for_lexical_fallback() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("lexical-fallback search");
@@ -3227,6 +3262,7 @@ fn search_history_internal_recency_path_excludes_out_of_range_visits() {
                 starred_only: None,
                 start_date: Some("2026-06-19".to_string()),
                 end_date: Some("2026-06-19".to_string()),
+                browser_kind: None,
             },
         ))
         .expect("recency date-filtered search");
@@ -3261,6 +3297,7 @@ fn search_history_internal_lexical_path_excludes_out_of_range_visits() {
                 starred_only: None,
                 start_date: Some("2026-06-19".to_string()),
                 end_date: Some("2026-06-19".to_string()),
+                browser_kind: None,
             },
         ))
         .expect("lexical date-filtered search");
@@ -3312,6 +3349,7 @@ fn search_history_internal_semantic_path_excludes_out_of_range_visits() {
                 starred_only: None,
                 start_date: Some("2026-06-19".to_string()),
                 end_date: Some("2026-06-19".to_string()),
+                browser_kind: None,
             },
         ))
         .expect("semantic date-filtered search");
@@ -3342,6 +3380,7 @@ fn search_history_internal_recency_has_more_and_applied_limit() {
         starred_only: None,
         start_date: None,
         end_date: None,
+        browser_kind: None,
     };
 
     let limited = runtime
@@ -3381,6 +3420,7 @@ fn search_history_internal_lexical_has_more_and_applied_limit() {
         starred_only: None,
         start_date: None,
         end_date: None,
+        browser_kind: None,
     };
 
     let limited = runtime
@@ -3767,6 +3807,7 @@ fn sort_oldest_with_date_range_returns_first_in_that_range() {
                 sort: Some("oldest".to_string()),
                 start_date: Some("2025-01-01".to_string()),
                 end_date: Some("2025-12-31".to_string()),
+                browser_kind: None,
                 ..AiSearchRequest::default()
             },
         ))

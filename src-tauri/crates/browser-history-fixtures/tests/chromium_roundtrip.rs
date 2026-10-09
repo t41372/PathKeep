@@ -113,12 +113,8 @@ fn chromium_fixture_round_trips_through_production_parser() {
     assert_eq!(visit_one.source_url_id, 1);
     assert_eq!(visit_one.visit_time_ms, visit_one_ms);
     assert_eq!(visit_one.transition, Some(805306368));
-    // Despite the field name `visit_duration_ms`, the Chromium parser passes
-    // the raw `visits.visit_duration` value through, which Chrome itself
-    // stores as microseconds. This is a known naming inconsistency in
-    // production code (see import-dedup-audit.md); the fixture writes the
-    // value in Chrome's native microsecond unit and the round-trip confirms.
-    assert_eq!(visit_one.visit_duration_ms, Some(30_000_000));
+    // The fixture writes Chrome's microseconds; the parser hands on milliseconds.
+    assert_eq!(visit_one.visit_duration_ms, Some(30_000));
     assert!(visit_one.is_known_to_sync);
     assert_eq!(visit_one.visited_link_id, Some(42));
 

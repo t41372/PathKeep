@@ -257,10 +257,13 @@ struct ExportWriter<'a, W: Write + ?Sized> {
     count: usize,
 }
 
+const HTML_HEAD: &[u8] = b"<!doctype html><html><head><meta charset=\"utf-8\"></head><body>";
+
 impl<'a, W: Write> ExportWriter<'a, W> {
     fn new(writer: &'a mut W, format: &'a ExportFormat) -> Result<Self> {
         if matches!(format, ExportFormat::Html) {
-            writer.write_all(b"<html><body>")?;
+            // Without a declared charset a browser may read the UTF-8 titles as Latin-1.
+            writer.write_all(HTML_HEAD)?;
         }
         Ok(Self { writer, format, count: 0 })
     }
@@ -426,10 +429,11 @@ mod tests {
             "https://b.example/"
         );
         let html = render(ExportFormat::Html, &rows);
-        assert!(html.starts_with("<html><body><article><h2>A</h2>"));
+        assert!(html.starts_with(std::str::from_utf8(HTML_HEAD).unwrap()));
+        assert!(html.contains("<body><article><h2>A</h2>"));
         assert!(html.ends_with("</article></body></html>"));
         assert_eq!(html.matches("</article>\n<article>").count(), 1);
-        assert_eq!(render(ExportFormat::Html, &[]), "<html><body></body></html>");
+        assert!(render(ExportFormat::Html, &[]).ends_with("<body></body></html>"));
         assert_eq!(render(ExportFormat::Jsonl, &[]), "");
     }
 }

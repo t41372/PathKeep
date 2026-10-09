@@ -180,7 +180,7 @@ Settings → General 的兩個開關。
 - GUI wizard 流程：
   1. 拖入 Takeout 的 zip、解壓後的資料夾，或單一 dedicated Chrome history JSON 檔。
   2. 先做 dry-run：掃描文件、識別格式、產生報告。
-  3. **目前 shipping scope 採 Chrome-first**：只有 dedicated Chrome history payload（例如 `BrowserHistory.json`、`History.json`、德文化的 `Verlauf.json`）進入 importer。
+  3. **目前 shipping scope 採 Chrome-first**：只有 dedicated Chrome history payload（例如 `BrowserHistory.json`、`History.json`、德文化的 `Verlauf.json`）進入 importer。Takeout 不寫 JSON Lines，`.jsonl` 檔就算每行看起來像瀏覽記錄也不匯入（看起來像歷史的標 `needs-review`）；PathKeep 自己的 JSONL 匯出也不是匯入格式。
   4. dedicated Chrome history payload 的 parser 也必須對齊真實 Takeout envelope，而不是只靠 repo 自造 fixture；目前已驗到的 canonical shape 是頂層 `Browser History` 陣列，時間欄位使用 `time_usec`。
   5. wizard 的第一屏就必須明講「PathKeep 現在要什麼 Takeout 類型」，並教使用者在 Google Takeout 完成匯出後，先確認 zip / 資料夾 / 單一 JSON 檔裡是否真的有 dedicated Chrome history payload，再進入掃描。
   6. 若使用者提供的是 `My Activity/Chrome/*.json`、`我的活動/Chrome/我的活動.json`、或任何 `.html` activity 匯出，UI 不能只顯示 generic ignored / no matches；必須直接說這不是目前 importer 支援的 dedicated Chrome history payload。
@@ -200,6 +200,7 @@ Settings → General 的兩個開關。
   - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。
 - Import review surface 應把 `new import wizard` 與「這次匯入結果」放在首要層級；recent batch history、revert / restore、doctor report 與 repair CTA 退到次要 review surface，避免歷史批次搶走新匯入流程的注意力。
 - 提供詳細但可掃讀的操作指南：怎麼從 Google Takeout 請求 Chrome 匯出、怎麼下載，以及如何確認壓縮包 / 資料夾裡真的有 dedicated Chrome history JSON，而不是 My Activity JSON / HTML。
+  - 2026-10-09 介面：匯入卡在拖放區下有可展開的「怎麼從 Google Takeout 取得」（打開 takeout.google.com 全部取消選取、勾 Chrome〔資料選項裡可以只留歷史記錄〕、以 .zip 建立匯出、拖進來不用解壓縮；並說明 Takeout 裡是 Chrome 同步到帳號的歷史，可能比本機 Chrome 久）。預覽時若匯出裡有「我的活動 → Chrome」（JSON 或 HTML），寫明 PathKeep 不讀它、請改勾 Chrome；什麼都沒找到時寫明檔案裡沒有 Chrome 歷史與該怎麼匯出。`takeout-import.spec` 驗兩種情況。要不要匯入「我的活動」見 STATUS `WORK-TAKEOUT-FLOW-2026-10`。
 
 ### 瀏覽器直接導入
 
@@ -316,6 +317,8 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 - 主 archive、raw 快照、cache 和 staging 不進 git。
 - Audit run detail 應直接暴露 manifest / artifact 路徑，並提供 open / copy path 動作，避免使用者自行猜測資料夾位置。
 - Audit run detail 可以用 `Summary / Artifacts / Warnings` 分頁降低資訊牆密度，但 open / copy path 動作與 warning honesty 不能被藏起來或延後載入。
+- Run 記錄的每一條 warning 都帶 code，run sheet 依 code 用使用者的語言寫成一句話（`src/features/backup/run-entries.ts`）：略過或失敗的進「警告」分頁，分頁上的數字就是清單長度；順利完成的附帶工作（搜尋詞、連結預覽、等背景工作恢復的索引）是 note，放在摘要下方，不算警告。有修法的附上動作（Safari 的完整磁碟取用權限、AI 設定、背景工作）。錯誤鏈這類證據保留原文顯示在句子下方；不認得的 code 與 code 化之前的舊記錄，顯示翻譯過的引言加原文，不會被丟掉。
+- Backup 結束後的附帶工作（Insights 更新、語意搜尋索引、連結預覽、內容抓取）產生的 warning 也寫回同一筆 run（`append_run_warnings`），不能只出現在當次回傳的 report 裡。
 - Doctor / 健康檢查命令：驗證四個 Turso 檔的完整性與 schema 版本、重新驗證 manifest 內容 hash，並把 outbox、快取統計與 canonical facts 比對。缺少引擎 `foreign_key_check` 時以明確關聯查詢檢查；不得把未檢查的項目宣稱為健康。
 - Audit runs 以 ID 游標續讀；最近 12 筆是第一頁，不是完整歷史的上限。
 - 原生 repair 可重建搜尋頁面摘要 / outbox 通知、快取總數和 import 可見筆數；不刪除或恢復可見 visits。回應須分別列出實際變更的數量。

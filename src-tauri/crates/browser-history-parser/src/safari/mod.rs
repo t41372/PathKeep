@@ -173,13 +173,6 @@ pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
         }
     }
 
-    warnings.push(ParserWarning {
-        code: "baseline-support".to_string(),
-        message:
-            "Safari baseline ingest captures history visits only. Full Disk Access may still be required before the desktop app can stage History.db."
-                .to_string(),
-    });
-
     Ok(DatabaseInspection { table_names, warnings })
 }
 
@@ -811,7 +804,6 @@ mod tests {
         assert_eq!(parsed.urls[0].title.as_deref(), Some("Safari Example"));
         assert_eq!(parsed.visits[0].source_visit_id, 9);
         assert_eq!(parsed.visits[0].app_id.as_deref(), Some("safari"));
-        assert!(parsed.warnings.iter().any(|warning| warning.code == "baseline-support"));
     }
 
     #[test]

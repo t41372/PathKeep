@@ -594,6 +594,7 @@ impl HostState {
             starred_only: args.starred_only,
             start_date: args.start_date,
             end_date: args.end_date,
+            browser_kind: None,
         };
         // Bm25 drops the embedding provider (lexical only → works with NO provider); the semantic
         // planes thread it (degrading to lexical with a note when none is configured).

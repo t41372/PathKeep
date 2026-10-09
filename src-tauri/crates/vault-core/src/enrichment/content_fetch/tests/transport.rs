@@ -24,11 +24,17 @@ fn shared_fetcher_returns_html_body_for_a_readable_article() {
 }
 
 #[test]
-fn shared_fetcher_reports_rate_limited_on_429() {
+fn shared_fetcher_reports_rate_limited_on_429_and_waits_as_asked() {
     let mut server = mockito::Server::new();
-    let _mock = server.mock("GET", "/r").with_status(429).create();
-    let outcome = shared_fetcher().fetch_html(&format!("{}/r", server.url()));
+    let _mock =
+        server.mock("GET", "/r").with_status(429).with_header("retry-after", "120").create();
+    let url = format!("{}/r", server.url());
+    let outcome = shared_fetcher().fetch_html(&url);
     assert!(matches!(outcome, FetchOutcome::Failed { status, .. } if status == "rate-limited"));
+    // The host asked for two minutes; nothing goes to it before then, not a retry a second later.
+    let wait = next_token_eta_secs(&url_domain(&url));
+    assert!((110..=120).contains(&wait), "{wait}");
+    assert!(!acquire_host_token(&url_domain(&url)));
 }
 
 #[test]
@@ -89,11 +95,19 @@ fn shared_fetcher_returns_github_repo_json() {
 }
 
 #[test]
-fn shared_fetcher_treats_github_403_as_rate_limited() {
+fn shared_fetcher_treats_github_quota_403_as_rate_limited() {
     let mut server = mockito::Server::new();
-    let _mock = server.mock("GET", "/repos/o/r").with_status(403).create();
+    let _quota = server
+        .mock("GET", "/repos/o/r")
+        .with_status(403)
+        .with_header("x-ratelimit-remaining", "0")
+        .create();
+    let _refused = server.mock("GET", "/repos/o/private").with_status(403).create();
     let outcome = shared_fetcher().fetch_json(&format!("{}/repos/o/r", server.url()), 65536);
     assert!(matches!(outcome, FetchOutcome::Failed { status, .. } if status == "rate-limited"));
+    // A 403 that is not about the quota is a refusal, not a reason to wait.
+    let outcome = shared_fetcher().fetch_json(&format!("{}/repos/o/private", server.url()), 65536);
+    assert!(matches!(outcome, FetchOutcome::Failed { status, .. } if status == "fetch-error"));
 }
 
 #[test]

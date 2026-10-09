@@ -1,5 +1,9 @@
-/** Recent runs from the snapshot. Each row opens the full audit detail in a sheet. */
-import { useState } from 'react'
+/**
+ * Recent runs from the snapshot. Each row opens the full audit detail in a
+ * sheet; the open run lives in the URL (`?run=`), so other screens and a
+ * finished backup's toast can link to it.
+ */
+import { useSearchParams } from 'react-router-dom'
 import { useFormat, useI18n, type Translator } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import type { BackupRunOverview } from '@/lib/types'
@@ -47,7 +51,12 @@ export function RunsCard() {
   const { t } = useI18n()
   const format = useFormat()
   const runs = useSnapshot().recentRuns
-  const [open, setOpen] = useState<number | null>(null)
+  const [params, setParams] = useSearchParams()
+  const open = Number(params.get('run')) || null
+  const setOpen = (runId: number | null) =>
+    setParams(runId === null ? {} : { run: String(runId) }, {
+      replace: runId === null,
+    })
 
   return (
     <section className="overflow-hidden rounded-xl border bg-card shadow-card">

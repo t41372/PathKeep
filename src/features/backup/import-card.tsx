@@ -1,16 +1,23 @@
 /**
- * Import: bring in a Google Takeout export. Follows preview → confirm →
- * import, so nothing is written until the user has seen what was found.
+ * Import: bring in a Google Takeout export. Says how to make one (which
+ * product to tick), then follows preview → confirm → import, so nothing is
+ * written until the user has seen what was found, and says when the export
+ * holds the wrong product.
  * Earlier imports (of any kind) are in the Recent imports card. The state
  * and the window-wide drop live in the page, which routes each drop to this
  * card or the browser-file card.
  */
-import { FileArchive, Loader2 } from 'lucide-react'
+import { ChevronRight, FileArchive, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useBackupRunner } from '@/app/backup-runner'
 import { SectionCard } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
@@ -95,6 +102,46 @@ function DropZone({
   )
 }
 
+/** How to make a Takeout export PathKeep reads: Chrome, as a .zip. */
+function TakeoutSteps() {
+  const { t } = useI18n()
+  const steps = [
+    t('backup.import.steps.open'),
+    t('backup.import.steps.chrome'),
+    t('backup.import.steps.zip'),
+    t('backup.import.steps.drop'),
+  ]
+  return (
+    <Collapsible className="group/steps flex flex-col gap-2">
+      <CollapsibleTrigger className="flex items-center gap-1.5 self-start text-[13px] text-muted-foreground hover:text-foreground">
+        <ChevronRight
+          className="size-3.5 transition-transform group-data-[state=open]/steps:rotate-90"
+          aria-hidden
+        />
+        {t('backup.import.steps.title')}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
+        <div className="flex flex-col gap-2 rounded-lg bg-muted px-3.5 py-3 text-[13px]">
+          <ol className="flex list-decimal flex-col gap-1 pl-4">
+            {steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <p className="text-muted-foreground">
+            {t('backup.import.steps.note')}
+          </p>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+/** The export holds My Activity's Chrome entries, which PathKeep does not read. */
+const isMyActivity = (inspection: TakeoutInspection) =>
+  inspection.quarantinedFiles.some((file) =>
+    file.reasonCode?.startsWith('chrome-my-activity'),
+  )
+
 function Found({
   inspection,
   path,
@@ -105,6 +152,7 @@ function Found({
   const { t } = useI18n()
   const format = useFormat()
   const empty = inspection.candidateItems === 0
+  const myActivity = isMyActivity(inspection)
   return (
     <div className="flex flex-col gap-1 rounded-lg bg-muted p-3 text-[13px]">
       <span
@@ -133,6 +181,8 @@ function Found({
           })}
         </span>
       )}
+      {myActivity && <span>{t('backup.import.myActivity')}</span>}
+      {empty && !myActivity && <span>{t('backup.import.nothingHint')}</span>}
       {!empty && (
         <span className="text-muted-foreground">
           {t('backup.import.dedupe')}
@@ -211,6 +261,7 @@ export function ImportCard({
             disabled={backup.running}
             onPath={(path) => void inspect(path)}
           />
+          <TakeoutSteps />
           {state.error && (
             <p
               role="alert"

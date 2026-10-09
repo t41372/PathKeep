@@ -408,12 +408,12 @@ fn broken_chrome_user_data_fixture(root: &Path) -> PathBuf {
 
 fn takeout_fixture(root: &Path) -> String {
     let source_dir = root.join("takeout-source");
-    fs::create_dir_all(&source_dir).expect("create takeout source");
+    fs::create_dir_all(source_dir.join("Chrome")).expect("create takeout source");
     fs::write(
-        source_dir.join("takeout.jsonl"),
-        r#"{"url":"https://example.com/imported","title":"Imported","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+        source_dir.join("Chrome/BrowserHistory.json"),
+        r#"{"Browser History":[{"url":"https://example.com/imported","title":"Imported","time_usec":1775037600000000}]}"#,
     )
-    .expect("write takeout jsonl");
+    .expect("write takeout history");
     source_dir.display().to_string()
 }
 
@@ -1172,6 +1172,7 @@ fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
             starred_only: None,
             start_date: None,
             end_date: None,
+            browser_kind: None,
         },
     )
     .expect("search history");
@@ -1781,6 +1782,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
             starred_only: None,
             start_date: None,
             end_date: None,
+            browser_kind: None,
         },
     )
     .expect("semantic search");
@@ -2088,6 +2090,7 @@ fn coverage_ai_queue_paused_and_semantic_fallback_paths_stay_truthful() {
             starred_only: None,
             start_date: None,
             end_date: None,
+            browser_kind: None,
         },
     )
     .expect("semantic search degrades to lexical when the embedding provider is disabled");

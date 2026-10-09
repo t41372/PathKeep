@@ -45,6 +45,22 @@ pub(crate) fn normalize(table: &str, fields: &[String], row: &mut Row) -> vault_
             .unwrap();
         row.values[index] = Value::Text(canonical_url_key(raw));
     }
+    // Only Chromium ever filled the visit duration, and the old app kept Chromium's microseconds
+    // in these millisecond columns. The conversion runs once, so it divides exactly once.
+    let duration = match table {
+        "visits" => fields.iter().position(|f| f == "visit_duration_ms"),
+        "visit_engagement_evidence"
+            if text(fields, &row.values, "metric_key") == Some("engagement.visit_duration_ms") =>
+        {
+            fields.iter().position(|f| f == "metric_value_int")
+        }
+        _ => None,
+    };
+    if let Some(index) = duration
+        && let Value::Integer(micros) = row.values[index]
+    {
+        row.values[index] = Value::Integer(micros.div_euclid(1_000));
+    }
     if table == "intelligence_jobs"
         && text(fields, &row.values, "job_type") == Some("enrichment-plugin")
     {

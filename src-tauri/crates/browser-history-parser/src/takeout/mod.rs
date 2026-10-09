@@ -48,7 +48,6 @@ pub use source::{
     classify_payload_path, classify_payload_path_with_sniff, inspect_history, recognize_payload,
 };
 
-pub const KIND_JSONL: &str = "jsonl";
 pub const KIND_BROWSER_JSON: &str = "browser-json";
 pub const KIND_TYPED_URL_JSON: &str = "typed-url-json";
 pub const KIND_SESSION_JSON: &str = "session-json";

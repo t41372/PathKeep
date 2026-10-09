@@ -13,7 +13,7 @@
 //! - Native-only typed-url/session payload handling.
 
 use super::{
-    KIND_BROWSER_JSON, KIND_JSONL, TakeoutPayloadCounts, TakeoutPayloadStreamReport,
+    KIND_BROWSER_JSON, TakeoutPayloadCounts, TakeoutPayloadStreamReport,
     TakeoutSourceEvidenceChunk, TakeoutSourceEvidenceConsumer, TakeoutStreamOptions, json_stream,
 };
 use crate::{
@@ -27,10 +27,7 @@ use crate::{
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    io::{BufRead, BufReader},
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Streams one Takeout browser-history payload into canonical row batches.
 pub(super) fn stream_browser_history_payload<C>(
@@ -48,45 +45,21 @@ where
     let chunk_size = chunk_size.max(1);
     let mut accumulator = BrowserHistoryAccumulator::new(source_path, kind, chunk_size, options);
 
-    if kind == KIND_JSONL {
-        let reader = BufReader::new(reader);
-        for (ordinal, line) in reader.lines().enumerate() {
-            // `BufRead::lines()` yields `Err(InvalidData)` on any invalid UTF-8
-            // byte — independent of I/O — so an adversarial / truncated `.jsonl`
-            // Takeout export must fail gracefully here, never panic the worker.
-            let line = line.map_err(|source| {
-                StreamHistoryError::Parse(ParseError::ReadSource {
-                    path: std::path::PathBuf::from(source_path),
-                    source,
-                })
-            })?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            let record = serde_json::from_str::<Value>(&line).map_err(|source| {
-                StreamHistoryError::Parse(ParseError::Json {
-                    path: format!("{source_path} line {}", ordinal + 1),
-                    source,
-                })
-            })?;
-            accumulator.observe_record(record, ordinal, consumer)?;
-        }
-    } else if kind == KIND_BROWSER_JSON {
-        json_stream::stream_payload_records(
-            reader,
-            source_path,
-            &["BrowserHistory", "Browser History"],
-            |record, ordinal| accumulator.observe_record(record, ordinal, consumer),
-        )
-        .map_err(|error| match error {
-            json_stream::JsonRecordStreamError::Parse(error) => StreamHistoryError::Parse(error),
-            json_stream::JsonRecordStreamError::Callback(error) => error,
-        })?;
-    } else {
+    if kind != KIND_BROWSER_JSON {
         return Err(StreamHistoryError::Parse(ParseError::UnsupportedProvider {
             provider: "google-takeout-browser-history",
         }));
     }
+    json_stream::stream_payload_records(
+        reader,
+        source_path,
+        &["BrowserHistory", "Browser History"],
+        |record, ordinal| accumulator.observe_record(record, ordinal, consumer),
+    )
+    .map_err(|error| match error {
+        json_stream::JsonRecordStreamError::Parse(error) => StreamHistoryError::Parse(error),
+        json_stream::JsonRecordStreamError::Callback(error) => error,
+    })?;
 
     accumulator.finish(consumer)
 }
@@ -319,12 +292,7 @@ fn parse_browser_record(
     ordinal: i64,
     record: Value,
 ) -> Result<BrowserRecordOutcome, ParseError> {
-    let url = record
-        .get("url")
-        .or_else(|| record.get("titleUrl"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    let url = record.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
     if url.is_empty() {
         return Ok(BrowserRecordOutcome::Ignore);
     }
@@ -333,15 +301,10 @@ fn parse_browser_record(
         .and_then(value_as_i64)
         .or_else(|| record.get("timeUsec").and_then(value_as_i64))
         .or_else(|| record.get("time_usec").and_then(value_as_i64))
-        .or_else(|| record.get("visitedAt").and_then(Value::as_str).and_then(parse_iso_to_micros))
     else {
         return Ok(BrowserRecordOutcome::MissingVisitTime);
     };
-    let title = record
-        .get("title")
-        .or_else(|| record.get("pageTitle"))
-        .and_then(Value::as_str)
-        .map(ToString::to_string);
+    let title = record.get("title").and_then(Value::as_str).map(ToString::to_string);
     Ok(BrowserRecordOutcome::Parsed(ParsedBrowserRecord {
         source_path: source_path.to_string(),
         source_url_id: stable_key_i64(format!("url::{url}").as_bytes()),
@@ -446,10 +409,6 @@ fn context_evidence_from_record(record: &ParsedBrowserRecord) -> Vec<ContextEvid
         }
     }
     items
-}
-
-fn parse_iso_to_micros(value: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(value).ok().map(|date| date.timestamp_micros())
 }
 
 fn value_as_i64(value: &Value) -> Option<i64> {

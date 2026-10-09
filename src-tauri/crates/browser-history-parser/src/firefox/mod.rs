@@ -112,13 +112,6 @@ pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
         }
     }
 
-    warnings.push(ParserWarning {
-        code: "baseline-support".to_string(),
-        message:
-            "Firefox baseline ingest captures visits and URLs. Downloads, search terms, and favicons stay unsupported in this slice."
-                .to_string(),
-    });
-
     Ok(DatabaseInspection { table_names, warnings })
 }
 
@@ -494,7 +487,6 @@ mod tests {
         assert!(!parsed.urls[0].hidden);
         assert_eq!(parsed.visits[0].source_visit_id, 11);
         assert_eq!(parsed.visits[0].app_id.as_deref(), Some("firefox"));
-        assert!(parsed.warnings.iter().any(|warning| warning.code == "baseline-support"));
     }
 
     #[test]

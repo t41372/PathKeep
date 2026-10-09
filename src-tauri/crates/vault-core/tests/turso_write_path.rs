@@ -94,15 +94,18 @@ fn cancelled_import_keeps_batch_identity_and_committed_progress() {
     for key in [None, Some([32; 32])] {
         let vault = Vault::open_temp_with_key(key).unwrap();
         let source = tempfile::tempdir().unwrap();
-        let file = source.path().join("history.jsonl");
-        {
-            use std::io::Write;
-            let mut out = std::io::BufWriter::new(std::fs::File::create(&file).unwrap());
-            for id in 0..20_003 {
-                writeln!(out,"{}",serde_json::json!({"url":"https://example.com/batched","title":"Batch",
-                    "visitedAt":chrono::DateTime::from_timestamp_millis(1_800_000_000_000+id).unwrap().to_rfc3339()})).unwrap();
-            }
-        }
+        std::fs::create_dir(source.path().join("Chrome")).unwrap();
+        let records = (0..20_003_i64)
+            .map(|id| {
+                serde_json::json!({"url":"https://example.com/batched","title":"Batch",
+                    "time_usec":(1_800_000_000_000 + id) * 1_000})
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(
+            source.path().join("Chrome/BrowserHistory.json"),
+            serde_json::json!({ "Browser History": records }).to_string(),
+        )
+        .unwrap();
         let cancel = vault_store::CancelToken::new();
         let result = vault_core::takeout::import_takeout_with_control(
             &vault,
@@ -148,10 +151,10 @@ fn failed_batch_creation_cannot_leave_a_phantom_import_run() {
     for key in [None, Some([77; 32])] {
         let vault = Vault::open_temp_with_key(key).unwrap();
         let source = vault.paths().app_root.join("input");
-        std::fs::create_dir(&source).unwrap();
+        std::fs::create_dir_all(source.join("Chrome")).unwrap();
         std::fs::write(
-            source.join("history.jsonl"),
-            "{\"url\":\"https://atomic.test\",\"visitedAt\":\"2026-01-01T00:00:00Z\"}\n",
+            source.join("Chrome/BrowserHistory.json"),
+            r#"{"Browser History":[{"url":"https://atomic.test","time_usec":1767225600000000}]}"#,
         )
         .unwrap();
         vault

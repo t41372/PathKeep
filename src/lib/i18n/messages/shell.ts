@@ -44,6 +44,9 @@ export const shell = defineMessages({
       done_other: 'Backup done · {count} new visits',
       doneNothingNew: 'Backup done · nothing new',
       failed: 'Backup failed',
+      warnings_one: '{count} warning: something was left out or didn’t finish.',
+      warnings_other:
+        '{count} warnings: some things were left out or didn’t finish.',
       viewDetails: 'Details',
       fullDiskAccess:
         'Safari was skipped because PathKeep does not have Full Disk Access.',
@@ -180,6 +183,8 @@ export const shell = defineMessages({
       done_other: '备份完成，新增 {count} 条记录',
       doneNothingNew: '备份完成，没有新记录',
       failed: '备份失败',
+      warnings_one: '{count} 条警告：有内容被跳过或没有完成。',
+      warnings_other: '{count} 条警告：有内容被跳过或没有完成。',
       viewDetails: '详情',
       fullDiskAccess: 'Safari 已跳过：PathKeep 没有完全磁盘访问权限。',
     },
@@ -312,6 +317,8 @@ export const shell = defineMessages({
       done_other: '備份完成，新增 {count} 條記錄',
       doneNothingNew: '備份完成，沒有新記錄',
       failed: '備份失敗',
+      warnings_one: '{count} 則警告：有內容被略過或沒有完成。',
+      warnings_other: '{count} 則警告：有內容被略過或沒有完成。',
       viewDetails: '詳情',
       fullDiskAccess: 'Safari 已略過：PathKeep 沒有「完整磁碟取用權限」。',
     },

@@ -11,8 +11,8 @@
 //! - Archive quarantine or import-batch semantics.
 
 use super::{
-    KIND_BROWSER_JSON, KIND_INDEX, KIND_JSONL, KIND_SESSION_JSON, KIND_TYPED_URL_JSON,
-    TakeoutPathDisposition, TakeoutPathMatch,
+    KIND_BROWSER_JSON, KIND_INDEX, KIND_SESSION_JSON, KIND_TYPED_URL_JSON, TakeoutPathDisposition,
+    TakeoutPathMatch,
 };
 use crate::{
     ParseError,
@@ -63,16 +63,6 @@ pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
     let file_name = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
     let first_segment = normalized.split('/').next().unwrap_or(normalized.as_str());
     let has_chrome_segment = normalized.split('/').any(|segment| segment == "chrome");
-
-    if file_name.ends_with(".jsonl") {
-        return TakeoutPathMatch {
-            family: KIND_JSONL,
-            recognized_kind: Some(KIND_JSONL),
-            locale: None,
-            disposition: TakeoutPathDisposition::WillImport,
-            reason_code: "jsonl-history-fixture",
-        };
-    }
 
     if is_importable_chrome_history_path(file_name, has_chrome_segment) {
         return TakeoutPathMatch {

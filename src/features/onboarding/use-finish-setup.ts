@@ -12,6 +12,7 @@
  */
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useRef, useState } from 'react'
+import { scheduleCopy } from '@/features/backup/schedule-copy'
 import { useBackupRunner } from '@/app/backup-runner'
 import { useAiProviders } from '@/features/ai-setup/use-ai-providers'
 import { useSemanticIndex } from '@/features/ai-setup/use-semantic-index'
@@ -115,7 +116,8 @@ export function useFinishSetup(draft: Draft, stages: Stage[]) {
           // interval and this app's paths.
           const plan = await scheduleClient.previewInstall()
           const result = await scheduleClient.applyInstall(plan)
-          if (!result.applied) throw new Error(result.message)
+          if (!result.applied)
+            throw new Error(scheduleCopy(t, result.message) ?? result.message)
           await client.invalidateQueries({ queryKey: queryKeys.schedule })
           return
         }

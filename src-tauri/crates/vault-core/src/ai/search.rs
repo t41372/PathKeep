@@ -150,6 +150,7 @@ impl Tool for SearchHistoryTool {
             starred_only: None,
             start_date: None,
             end_date: None,
+            browser_kind: None,
         };
         let response = search_history_internal(
             &self.context.vault,

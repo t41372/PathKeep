@@ -254,7 +254,9 @@ fetch_client_builder`) sets only a single static desktop Chrome UA, `Accept-Lang
   it never sets a cookie or `Referer` header and carries nothing account- or session-specific.
 - **Per-host rate-limited.** Content-fetch performs no egress without the opt-in above; og:image
   Background mode's automatic post-backup egress is budget-bounded per day. Per-host token buckets
-  (`enrichment/rate_limit.rs`) throttle requests and negative caching avoids retry storms.
+  (`enrichment/rate_limit.rs`) throttle requests and negative caching avoids retry storms. A host
+  that answers HTTP 429 (or GitHub's quota 403) gets no request at all for as long as its
+  `Retry-After` or quota reset asks, an hour when it does not say, clamped to a minute .. a day.
 
 ---
 

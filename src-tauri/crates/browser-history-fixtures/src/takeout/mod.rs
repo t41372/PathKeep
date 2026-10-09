@@ -1,7 +1,7 @@
-//! Google Takeout `BrowserHistory.json` / `.jsonl` payload generator.
+//! Google Takeout `BrowserHistory.json` payload generator.
 //!
 //! ## Responsibilities
-//! - Emit Takeout-format JSON or JSONL files containing browser-history
+//! - Emit Takeout-format JSON files containing browser-history
 //!   records in the shape `browser_history_parser::takeout` recognizes.
 //! - Stay faithful to the field names Google actually ships (`time_usec`,
 //!   `page_transition`, `client_id`, `favicon_url`) so the parser exercises
@@ -53,8 +53,6 @@ pub enum TakeoutPayloadFormat {
     StandardBrowserHistoryJson,
     /// Older / alternate Takeout layout using the `BrowserHistory` (no space) key.
     AlternateBrowserHistoryJson,
-    /// JSONL: one JSON record per line, no wrapping object.
-    JsonLines,
 }
 
 /// Builder for one Takeout `BrowserHistory.*` fixture.
@@ -83,7 +81,7 @@ impl TakeoutBrowserHistoryFixture {
     }
 
     /// Materializes the fixture at `path`. The conventional file name is
-    /// `BrowserHistory.json` (or `.jsonl`) inside a `Chrome` subdirectory,
+    /// `BrowserHistory.json` inside a `Chrome` subdirectory,
     /// since the Takeout source classifier looks at path segments — but the
     /// path is the caller's responsibility.
     pub fn write(&self, path: &Path) -> std::io::Result<()> {
@@ -99,12 +97,6 @@ impl TakeoutBrowserHistoryFixture {
             }
             TakeoutPayloadFormat::AlternateBrowserHistoryJson => {
                 self.write_wrapped_json(&mut writer, "BrowserHistory")?;
-            }
-            TakeoutPayloadFormat::JsonLines => {
-                for record in &self.records {
-                    writer.write_all(serialize_record(record).as_bytes())?;
-                    writer.write_all(b"\n")?;
-                }
             }
         }
 

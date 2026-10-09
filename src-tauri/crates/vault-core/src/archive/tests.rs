@@ -728,8 +728,6 @@ fn multi_browser_backup_ingests_firefox_and_safari_history() {
     assert_eq!(report.profiles.len(), 2);
     assert!(report.profiles.iter().any(|profile| profile.profile_id.starts_with("firefox:")));
     assert!(report.profiles.iter().any(|profile| profile.profile_id.starts_with("safari:")));
-    assert!(report.warnings.iter().any(|warning| warning.contains("Firefox baseline ingest")));
-    assert!(report.warnings.iter().any(|warning| warning.contains("Safari baseline ingest")));
 
     let history = vault.store().read(vault_store::Db::Archive,|s| s.query("SELECT p.profile_key FROM visits v JOIN source_profiles p ON p.id=v.source_profile_id",(),|r|Ok(r.get::<String>(0)?))).unwrap();
     assert_eq!(history.len(), 2);
@@ -772,7 +770,6 @@ fn safari_backup_baseline_ingests_history_without_firefox_or_chrome_dependency()
     assert_eq!(report.run.as_ref().expect("run").new_urls, 1);
     assert_eq!(report.profiles.len(), 1);
     assert_eq!(report.profiles[0].profile_id, "safari:default");
-    assert!(report.warnings.iter().any(|warning| warning.contains("Safari baseline ingest")));
 
     let history = vault.store().read(vault_store::Db::Archive,|s| s.query("SELECT p.profile_key FROM visits v JOIN source_profiles p ON p.id=v.source_profile_id",(),|r|Ok(r.get::<String>(0)?))).unwrap();
     assert_eq!(history.len(), 1);
@@ -1378,10 +1375,10 @@ fn seed_safari_fixture(root: &Path) -> PathBuf {
 
 fn seed_takeout_fixture(root: &Path) -> PathBuf {
     let source_dir = root.join("takeout-source");
-    fs::create_dir_all(&source_dir).expect("create takeout dir");
+    fs::create_dir_all(source_dir.join("Chrome")).expect("create takeout dir");
     fs::write(
-        source_dir.join("entries.jsonl"),
-        r#"{"url":"https://example.com/import","title":"Imported","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+        source_dir.join("Chrome/BrowserHistory.json"),
+        r#"{"Browser History":[{"url":"https://example.com/import","title":"Imported","time_usec":1775037600000000}]}"#,
     )
     .expect("write takeout fixture");
     source_dir

@@ -309,6 +309,7 @@ pub(crate) fn mcp_search_result(
         starred_only: None,
         start_date: None,
         end_date: None,
+        browser_kind: None,
     };
     let response = search_ai_history(vault, database_key, &search_request)?;
     record_mcp_query_run(

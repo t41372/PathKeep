@@ -247,8 +247,12 @@ fn extract_video_id(url: &str, adapter_id: &str) -> Option<String> {
 
 fn query_param(url: &str, key: &str) -> Option<String> {
     let (_, query) = url.split_once('?')?;
+    let query = query.split_once('#').map_or(query, |(query, _)| query);
     for pair in query.split('&') {
-        let (param_key, param_value) = pair.split_once('=')?;
+        // A flag without a value (`?feature&v=…`) is skipped, not the end of the search.
+        let Some((param_key, param_value)) = pair.split_once('=') else {
+            continue;
+        };
         if param_key == key {
             let value = normalize_whitespace(param_value);
             if !value.is_empty() {

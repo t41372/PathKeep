@@ -1029,6 +1029,7 @@ fn query_history_matches_a_direct_search_over_the_same_plane() {
                 starred_only: None,
                 start_date: None,
                 end_date: None,
+                browser_kind: None,
             },
         ))
         .expect("direct search");

@@ -677,6 +677,11 @@ export interface AiSearchRequest {
    * pages. Optional/absent means unfiltered. Mirrors the Rust `starred_only` (`#[serde(default)]`).
    */
   starredOnly?: boolean | null
+  /** Inclusive local days, `YYYY-MM-DD`. Like every filter, applied before ranking. */
+  startDate?: string | null
+  endDate?: string | null
+  /** A browser (`chrome`, `firefox`, …), all of its profiles. */
+  browserKind?: string | null
 }
 
 /**

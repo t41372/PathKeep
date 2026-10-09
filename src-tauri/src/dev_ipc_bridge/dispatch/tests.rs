@@ -934,6 +934,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             starred_only: None,
             start_date: None,
             end_date: None,
+            browser_kind: None,
         }),
     );
     dispatch_for_coverage(

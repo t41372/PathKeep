@@ -74,6 +74,7 @@ pub async fn answer_history_question_with_control(
             starred_only: None,
             start_date: None,
             end_date: None,
+            browser_kind: None,
         };
         let run_control = run_control.as_ref();
         let search_response = await_with_ai_cancellation(
