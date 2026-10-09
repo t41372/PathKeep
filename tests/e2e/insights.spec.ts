@@ -36,7 +36,11 @@ import {
   fixture,
   type FixtureVisit,
 } from './support/fixture'
-import { compareTokens, searchWords } from './support/search-words'
+import {
+  compareTokens,
+  searchFamilies,
+  searchWords,
+} from './support/search-words'
 
 const compact = new Intl.NumberFormat('en', {
   notation: 'compact',
@@ -461,21 +465,29 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
   await page.getByRole('option', { name: 'Days visited' }).click()
   await expectTopSite(page, testInfo, 'by days visited, 30d', perSiteDays)
 
-  // An average weekday against an average weekend day, last 30 days.
+  // An average weekday against an average weekend day, last 30 days: each
+  // kind's visits over how many of its days the range holds.
   let weekdays = 0
   let weekdayVisits = 0
+  let weekendVisits = 0
   for (let offset = 0; offset < 30; offset += 1) {
     const day = startOfDayDaysAgo(offset).getDay()
     if (day !== 0 && day !== 6) weekdays += 1
   }
   for (const visit of archivedVisits()) {
+    if (visit.at < since.getTime()) continue
     const day = new Date(visit.at).getDay()
-    if (visit.at >= since.getTime() && day !== 0 && day !== 6)
-      weekdayVisits += 1
+    if (day === 0 || day === 6) weekendVisits += 1
+    else weekdayVisits += 1
   }
+  const perDay = (visits: number, days: number) =>
+    new Intl.NumberFormat('en').format(Math.round(visits / days))
   await expect(card(page, 'Rhythm')).toContainText(
-    `Weekdays${new Intl.NumberFormat('en').format(Math.round(weekdayVisits / weekdays))} a day`,
+    `Weekdays${perDay(weekdayVisits, weekdays)} a day`,
     { timeout: 60_000 },
+  )
+  await expect(card(page, 'Rhythm')).toContainText(
+    `Weekends${perDay(weekendVisits, 30 - weekdays)} a day`,
   )
   await expectScreenIntact(page)
 
@@ -891,6 +903,196 @@ test('where searches end up counts each search on the site it led to', async ({
   })
   // A row may start with the site's letter badge.
   expect(shown.map((text) => text.replace(/^\S\s/, ''))).toEqual(expected)
+})
+
+test('things you came back to list searches and pages by when you last came back', async ({
+  page,
+}, testInfo) => {
+  // All time, per profile: search families with searches on more than one
+  // day (counted in searches), and pages opened on more than one day
+  // (counted in days, named by their first visit's title).
+  type Thread = {
+    key: string
+    label: string
+    count: number
+    last: number
+    search: boolean
+  }
+  const threads: Thread[] = []
+  for (const profile of archivedProfiles) {
+    const visits = fixture().visitsByProfile[profile]
+    for (const family of searchFamilies(visits))
+      if (family.days.size > 1)
+        threads.push({
+          key: `${profile}:${family.anchor}`,
+          label: family.anchor,
+          count: family.members,
+          last: family.latest,
+          search: true,
+        })
+    const pages = new Map<
+      string,
+      { title: string; first: number; last: number; days: Set<string> }
+    >()
+    for (const visit of visits) {
+      if (visit.term) continue
+      const entry = pages.get(visit.url) ?? {
+        title: visit.title,
+        first: visit.at,
+        last: visit.at,
+        days: new Set<string>(),
+      }
+      entry.days.add(dateKey(new Date(visit.at)))
+      if (visit.at < entry.first) {
+        entry.first = visit.at
+        entry.title = visit.title
+      }
+      entry.last = Math.max(entry.last, visit.at)
+      pages.set(visit.url, entry)
+    }
+    for (const [url, entry] of pages)
+      if (entry.days.size > 1)
+        threads.push({
+          key: url,
+          label: entry.title,
+          count: entry.days.size,
+          last: entry.last,
+          search: false,
+        })
+  }
+  // The card reads the ten newest, keeps one row per page (the profile that
+  // opened it on most days; a search's family is its profile's own), newest
+  // first, six at most.
+  const kept = new Map<string, Thread>()
+  for (const thread of threads
+    .sort((a, b) => b.last - a.last || b.count - a.count)
+    .slice(0, 10)) {
+    const old = kept.get(thread.key)
+    if (!old || thread.count > old.count) kept.set(thread.key, thread)
+  }
+  const expected = [...kept.values()]
+    .sort((a, b) => b.last - a.last)
+    .slice(0, 6)
+    .map((thread) =>
+      thread.search
+        ? `${thread.label} Searched ${thread.count} time${thread.count === 1 ? '' : 's'}`
+        : `${thread.label} Opened on ${thread.count} day${thread.count === 1 ? '' : 's'}`,
+    )
+
+  await page.goto('/#/insights')
+  const rows = card(page, 'Things you came back to').getByRole('listitem')
+  await expect(rows).toHaveCount(expected.length, { timeout: 60_000 })
+  const shown = (await rows.allInnerTexts()).map((text) =>
+    text
+      .replace(/\s+/g, ' ')
+      .replace(/ · last .*$/, '')
+      .trim(),
+  )
+  await testInfo.attach('things you came back to, all time', {
+    body: JSON.stringify({ expected, shown }, null, 2),
+    contentType: 'application/json',
+  })
+  expect(shown).toEqual(expected)
+})
+
+test('habits are sites visited on steady days, stopped ones first', async ({
+  page,
+}, testInfo) => {
+  // All time, every profile: a site's local days with a visit (a search's
+  // included). A habit needs 5 days over 14 or more, and steady gaps: daily
+  // under 2 days apart with little spread, weekly 5 to 10, periodic beyond 10
+  // (`classify_habit_pattern`). It has stopped when the time since the last
+  // visit is more than twice the usual gap.
+  const DAY = 86_400_000
+  const perSite = new Map<string, { days: Set<number>; last: number }>()
+  for (const visit of archivedVisits()) {
+    const at = new Date(visit.at)
+    const day = Date.UTC(at.getFullYear(), at.getMonth(), at.getDate()) / DAY
+    const entry = perSite.get(site(visit.url)) ?? {
+      days: new Set<number>(),
+      last: 0,
+    }
+    entry.days.add(day)
+    entry.last = Math.max(entry.last, visit.at)
+    perSite.set(site(visit.url), entry)
+  }
+  const now = Date.now()
+  const habits = [...perSite].flatMap(([host, { days, last }]) => {
+    const sorted = [...days].sort((a, b) => a - b)
+    const span = sorted.at(-1)! - sorted[0]
+    if (sorted.length < 5 || span < 14) return []
+    const gaps = sorted.slice(1).map((day, index) => day - sorted[index])
+    const mean = span / gaps.length
+    const variance = Math.max(
+      0,
+      gaps.reduce((sum, gap) => sum + gap * gap, 0) / gaps.length - mean * mean,
+    )
+    const cv = mean === 0 ? 0 : Math.sqrt(variance) / mean
+    const rhythm =
+      mean < 2 && cv < 0.5
+        ? 'Almost every day'
+        : mean >= 5 && mean <= 10 && cv < 0.6
+          ? 'About once a week'
+          : mean > 10 && cv < 0.8
+            ? `About every ${Math.round(mean)} days`
+            : null
+    if (!rhythm) return []
+    return [
+      {
+        host,
+        last,
+        days: sorted.length,
+        stopped: (now - last) / DAY > mean * 2,
+        text: `${host} ${rhythm} · ${sorted.length} days`,
+      },
+    ]
+  })
+  // The read orders by last visit, then site; the card puts stopped ones
+  // first, then the most days, and shows six.
+  const expected = habits
+    .sort((a, b) => b.last - a.last || (a.host < b.host ? -1 : 1))
+    .sort((a, b) => Number(b.stopped) - Number(a.stopped) || b.days - a.days)
+    .slice(0, 6)
+    .map((habit) => habit.text)
+
+  await page.goto('/#/insights')
+  const rows = card(page, 'Habits').getByRole('listitem')
+  await expect(rows).toHaveCount(expected.length, { timeout: 60_000 })
+  // A row: the site's letter badge (when it has no icon), its name, its
+  // rhythm and days; then when it was last visited or that it stopped.
+  const shown = (await rows.allInnerTexts()).map(
+    (text) =>
+      text
+        .replace(/\s+/g, ' ')
+        .trim()
+        .match(/^(?:\S )?(.+? · [\d,]+ days?)/)?.[1] ?? text,
+  )
+  await testInfo.attach('habits, all time', {
+    body: JSON.stringify({ expected, shown }, null, 2),
+    contentType: 'application/json',
+  })
+  expect(shown).toEqual(expected)
+})
+
+test('explore or focus counts the sites that took half the visits', async ({
+  page,
+}) => {
+  // Last 30 days, every visit (a search's included): the fewest sites,
+  // most visited first, that hold at least half of them.
+  const since = startOfDayDaysAgo(29).getTime()
+  const perSite = new Map<string, number>()
+  for (const visit of archivedVisits())
+    if (visit.at >= since)
+      perSite.set(site(visit.url), (perSite.get(site(visit.url)) ?? 0) + 1)
+  const counts = [...perSite.values()].sort((a, b) => b - a)
+  const total = counts.reduce((sum, count) => sum + count, 0)
+  let running = 0
+  const half = counts.findIndex((count) => (running += count) * 2 >= total) + 1
+  await page.goto('/#/insights?range=d30')
+  await expect(card(page, 'Explore or focus')).toContainText(
+    `Half of your visits went to ${half} site${half === 1 ? '' : 's'}.`,
+    { timeout: 60_000 },
+  )
 })
 
 test('kinds of sites count every visit by the kind of site it went to', async ({
