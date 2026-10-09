@@ -281,6 +281,8 @@ struct QueryFamilyRecord {
     first_seen_ms: i64,
     last_seen_ms: i64,
     queries: Vec<String>,
+    /// The local days with a search in the family, so a thread can say it came back on N days.
+    active_days: i64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

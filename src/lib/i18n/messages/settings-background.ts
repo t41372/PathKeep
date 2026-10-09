@@ -205,8 +205,8 @@ export const settingsBackground = defineMessages({
         daily_other: '{count} daily totals',
         structural_one: '{count} session, search and revisit record',
         structural_other: '{count} session, search and revisit records',
-        runtime_one: '{count} rebuild record',
-        runtime_other: '{count} rebuild records',
+        runtime_one: '{count} rebuild record or saved view',
+        runtime_other: '{count} rebuild records and saved views',
       },
       clearNothing: 'There is nothing to clear right now.',
       clearKeeps:
@@ -409,8 +409,8 @@ export const settingsBackground = defineMessages({
         daily_other: '{count} 条每日统计',
         structural_one: '{count} 条浏览段落、搜索与回访记录',
         structural_other: '{count} 条浏览段落、搜索与回访记录',
-        runtime_one: '{count} 条重建记录',
-        runtime_other: '{count} 条重建记录',
+        runtime_one: '{count} 条重建记录与保存的视图',
+        runtime_other: '{count} 条重建记录与保存的视图',
       },
       clearNothing: '目前没有可清除的内容。',
       clearKeeps:
@@ -612,8 +612,8 @@ export const settingsBackground = defineMessages({
         daily_other: '{count} 筆每日統計',
         structural_one: '{count} 筆瀏覽段落、搜尋與回訪紀錄',
         structural_other: '{count} 筆瀏覽段落、搜尋與回訪紀錄',
-        runtime_one: '{count} 筆重建紀錄',
-        runtime_other: '{count} 筆重建紀錄',
+        runtime_one: '{count} 筆重建紀錄與儲存的檢視',
+        runtime_other: '{count} 筆重建紀錄與儲存的檢視',
       },
       clearNothing: '目前沒有可清除的內容。',
       clearKeeps:

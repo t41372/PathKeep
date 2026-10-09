@@ -72,7 +72,7 @@ fn domain_deep_dive_request_accepts_legacy_domain_alias() {
 }
 
 #[test]
-fn entity_reference_serializes_with_existing_camel_case_tags() {
+fn entity_reference_serializes_tags_and_fields_in_camel_case() {
     let reference = InsightEntityReference::RefindPage {
         canonical_url: "https://example.com/docs".to_string(),
     };
@@ -81,7 +81,7 @@ fn entity_reference_serializes_with_existing_camel_case_tags() {
         serialized,
         serde_json::json!({
             "kind": "refindPage",
-            "canonical_url": "https://example.com/docs"
+            "canonicalUrl": "https://example.com/docs"
         })
     );
 }

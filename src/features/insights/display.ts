@@ -16,8 +16,3 @@ export function formatDuration(ms: number, t: Translator, format: Formatters) {
     value: format.number(Math.round(minutes / 60)),
   })
 }
-
-/** Share of a bar, for the soft fill behind ranked rows. */
-export function shareBar(value: number, max: number) {
-  return { width: `${Math.max(2, (value / Math.max(1, max)) * 100)}%` }
-}

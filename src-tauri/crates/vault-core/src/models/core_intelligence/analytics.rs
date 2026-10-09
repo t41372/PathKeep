@@ -223,7 +223,9 @@ pub struct ActivityMixTrend {
 #[serde(rename_all = "camelCase")]
 pub struct BreadthIndex {
     pub hhi: f32,
+    /// 0 (focused) .. 100 (wide), from how many sites hold half the visits.
     pub breadth_score: f32,
+    /// How many of the most visited sites hold half the visits.
     pub concentration_domain_count: i64,
 }
 

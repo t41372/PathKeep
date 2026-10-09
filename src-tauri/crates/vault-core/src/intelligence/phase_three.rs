@@ -36,6 +36,17 @@ pub fn get_breadth_index(
     })
 }
 
+/// Where on a focused-to-wide scale the sites holding half the visits put someone: 1 site is 0,
+/// 64 or more is 100, on a log scale so 2, 4, 8, 16 and 32 sites are evenly spaced. 1 - HHI, the
+/// score before, sits near 100 for nearly everyone, so it said "wide" next to "half your browsing
+/// is on 4 sites".
+fn breadth_score(sites_holding_half: i64) -> f32 {
+    if sites_holding_half <= 1 {
+        return 0.0;
+    }
+    ((sites_holding_half as f32).ln() / 64_f32.ln()).clamp(0.0, 1.0) * 100.0
+}
+
 /// How spread out the range's visits are over sites, from the range's shared site-day read.
 pub(crate) fn get_breadth_index_with_connection(
     connection: &Session<'_>,
@@ -74,7 +85,7 @@ pub(crate) fn get_breadth_index_with_connection(
 
     Ok(BreadthIndex {
         hhi,
-        breadth_score: ((1.0 - hhi).clamp(0.0, 1.0) * 100.0),
+        breadth_score: breadth_score(concentration_domain_count),
         concentration_domain_count,
     })
 }

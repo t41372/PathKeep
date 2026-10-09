@@ -91,6 +91,8 @@ export interface CoreIntelligenceSectionMeta {
   includesEnrichment: boolean
   state: 'ready' | 'stale' | 'disabled' | 'degraded'
   stateReason?: string | null
+  /** The reason as a code the interface translates; the English `stateReason` is for logs. */
+  stateReasonCode?: string | null
   notes: string[]
 }
 

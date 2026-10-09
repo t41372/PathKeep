@@ -113,9 +113,19 @@ pub(super) fn sum_table_row_counts(s: &Session<'_>, tables: &[&str]) -> Result<u
 fn count_derived_intelligence_state(
     connection: &Session<'_>,
 ) -> Result<ClearDerivedIntelligenceReport> {
-    let cleared_runtime_rows = table_row_count(connection, "deterministic_module_runtime")?
-        + table_row_count(connection, "core_intelligence_stage_checkpoints")?
-        + count_core_intelligence_job_triggers(connection)?
+    // Every table the clear deletes from is counted in one of the groups, so the dialog's
+    // numbers are what goes.
+    let cleared_runtime_rows = sum_table_row_counts(
+        connection,
+        &[
+            "deterministic_module_runtime",
+            "core_intelligence_stage_checkpoints",
+            "intelligence_counts",
+            "intelligence_generations",
+            "intelligence_builds",
+            "intelligence_overview_snapshots",
+        ],
+    )? + count_core_intelligence_job_triggers(connection)?
         + count_core_intelligence_jobs(connection)?;
     Ok(ClearDerivedIntelligenceReport {
         cleared_visit_derived_fact_rows: table_row_count(connection, "visit_derived_facts")?,
@@ -126,6 +136,8 @@ fn count_derived_intelligence_state(
                 "category_daily_rollups",
                 "engine_daily_rollups",
                 "daily_summary_rollups",
+                "intelligence_day_counts",
+                "intelligence_seen_domains",
             ],
         )?,
         cleared_structural_rows: sum_table_row_counts(
@@ -142,6 +154,9 @@ fn count_derived_intelligence_state(
                 "reopened_investigations",
                 "path_flows",
                 "compare_sets",
+                "visit_assignments",
+                "session_domains",
+                "session_paths",
             ],
         )?,
         cleared_runtime_rows,

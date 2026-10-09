@@ -72,7 +72,13 @@ pub fn normalize_visit_url(raw_url: &str) -> Option<NormalizedVisitUrl> {
         }
     }
 
-    let registrable_domain = registrable_domain_for_host(&host);
+    // Only a web page belongs to a site. An extension's page (`chrome-extension://<id>/…`) keeps
+    // its URL but has no site: its "host" is an id, not somewhere anyone browses to.
+    let registrable_domain = if matches!(parsed.scheme(), "http" | "https") {
+        registrable_domain_for_host(&host)
+    } else {
+        String::new()
+    };
     let subdomain = subdomain_for_host_and_domain(&host, &registrable_domain);
     Some(NormalizedVisitUrl {
         canonical_url: parsed.to_string(),

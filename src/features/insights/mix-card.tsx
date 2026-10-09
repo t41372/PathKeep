@@ -9,7 +9,7 @@
 import { SectionCard } from '@/components/app/section-card'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
-import { shareBar } from './display'
+import { ShareBar } from './share-bar'
 import { ListSkeleton, QueryBody, ScrollList, SectionStatus } from './parts'
 import { useActivityMix } from './queries'
 import { scopeDays, type Scope } from './range'
@@ -89,16 +89,8 @@ export function ActivityMixCard({ scope }: { scope: Scope }) {
                       className="relative flex h-8 items-center gap-2.5 px-2 text-[13px]"
                     >
                       <span
-                        aria-hidden
                         className={cn(
-                          'absolute inset-y-0 left-0 rounded-md transition-[width] duration-500',
-                          unclassified ? 'bg-muted' : 'bg-blue/15',
-                        )}
-                        style={shareBar(entry.visitCount, max)}
-                      />
-                      <span
-                        className={cn(
-                          'relative flex-1 truncate',
+                          'flex-1 truncate',
                           unclassified
                             ? 'text-muted-foreground'
                             : 'font-medium',
@@ -109,13 +101,18 @@ export function ActivityMixCard({ scope }: { scope: Scope }) {
                         )}
                       </span>
                       {points !== 0 && (
-                        <span className="relative font-mono text-[11px] text-muted-foreground">
+                        <span className="font-mono text-[11px] text-muted-foreground">
                           {t('insights.mix.points', {
                             value: `${points > 0 ? '+' : '−'}${format.number(Math.abs(points))}`,
                           })}
                         </span>
                       )}
-                      <span className="relative w-14 text-right font-mono text-xs text-muted-foreground">
+                      <ShareBar
+                        value={entry.visitCount}
+                        max={max}
+                        tone={unclassified ? 'muted' : 'blue'}
+                      />
+                      <span className="w-14 text-right font-mono text-xs text-muted-foreground">
                         {format.percent(entry.visitCount / total)}
                       </span>
                     </li>

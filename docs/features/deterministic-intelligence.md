@@ -194,7 +194,8 @@ Normalization 要求：
 - exact domain rule 先比對造訪的完整主機，再依序比對上層網域，到 registrable domain 為止：`mail.google.com` 先於 `google.com`，不會比對到 `co.uk` 這種公共後綴。之前只比 registrable domain，所以 Google 的文件、郵件、Gemini 都算成搜尋。
 - 站點清單在 `vault-core/src/visit_taxonomy/sites/`，每個 pack 一個檔案，只收分類一看就清楚的網站；入口網站與包山包海的 app（`yahoo.co.jp`、`naver.com`、`qq.com`）不收，只收其中分類清楚的主機（`news.naver.com`、`mail.qq.com`）。exact rule 只定網站分類，頁面種類留 unknown（文件站與搜尋引擎除外），因為頁面種類會影響 compare sets。
 - 要靠路徑分頁面種類的網站（GitHub、YouTube、Reddit、Amazon、Taobao）不寫 exact rule（會蓋掉路徑規則），改在它們的路徑規則後面加一條只看主機的規則，其餘頁面也有網站分類。測試保證：每條規則都比對得到、同一網域不重複、exact rule 不會蓋掉路徑規則。
-- title / query lexicon 只決定頁面種類，不決定網站分類（網站分類留 unknown）：頁面標題說的是這一頁，不是整個網站；之前「tokio vs smol」這種部落格文章因為 "vs" 被歸成購物、「訓練計畫」因為 "plan" 也是。
+- title / query lexicon 只決定頁面種類，不決定網站分類（網站分類留 unknown）：頁面標題說的是這一頁，不是整個網站；之前「tokio vs smol」這種部落格文章因為 "vs" 被歸成購物、「訓練計畫」因為 "plan" 也是。英文詞要整個詞相符（"api" 不算出現在 "rapid" 裡、"plan" 不算出現在 "explanation" 裡）；中文、日文標題詞之間沒有空格，照子字串比對。
+- 只有 http(s) 網頁屬於某個網站。擴充功能的頁面（`chrome-extension://<id>/…`）、本機檔案這類造訪算進總數，但不算網站：不出現在網站排名、網站數、新網站與網站之間的路線裡（2026-10-09，之前擴充功能的 id 被當成網站）。
 - 一個網站一天的分類取當天多數造訪的分類，平手時已知分類優先，再依名稱。之前取名稱最小的，一個被歸成 docs 的頁面就讓一整天的搜尋引擎變成 docs。
 - 建置記錄的規則版本包含 matcher 版本與每個 pack 的版本；改清單就改該 pack 的 version。打開 archive 時，若有設定檔的 Insights 是用別的規則建的（而且最近一次 Insights 工作是成功的），就排一次重建，不等下次備份。
 

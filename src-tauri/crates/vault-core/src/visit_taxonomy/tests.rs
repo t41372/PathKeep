@@ -24,7 +24,7 @@ use super::*;
 
 #[test]
 fn taxonomy_serialized_identifiers_cover_every_public_variant() {
-    assert!(taxonomy_version().starts_with("m5-taxonomy-v2|"));
+    assert!(taxonomy_version().starts_with(&format!("{TAXONOMY_VERSION}|")));
     assert_eq!(EvidenceTier::TierA.as_str(), "tier-a");
     assert_eq!(EvidenceTier::TierB.as_str(), "tier-b");
     assert_eq!(EvidenceTier::TierC.as_str(), "tier-c");
@@ -314,6 +314,20 @@ fn taxonomy_lexicon_and_unknown_fallback_are_honest() {
     assert_eq!(docs.taxonomy.page_category, PageCategory::DocsPage);
     assert_eq!(docs.taxonomy.domain_category, DomainCategory::Unknown);
     assert_eq!(docs.taxonomy.source, TaxonomyDecisionSource::LexiconRule);
+
+    // Latin words match whole: "rapid" holds "api" and "explanation" holds "plan"; neither counts.
+    let words = analyze_visit(
+        VisitAnalysisInput {
+            url: "https://mystery.example/post",
+            title: Some("Rapid explanation"),
+            query: None,
+            has_canonical_search_term: false,
+            external_referrer_url: None,
+            from_visit: None,
+        },
+        &[],
+    );
+    assert_eq!(words.taxonomy.page_category, PageCategory::Unknown);
 
     let unknown = analyze_visit(
         VisitAnalysisInput {

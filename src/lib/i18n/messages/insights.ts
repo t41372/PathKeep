@@ -39,6 +39,20 @@ export const insights = defineMessages({
         degraded: 'Partly available',
         disabled: 'Turned off',
       },
+      reasons: {
+        'module-never-built':
+          'Not worked out yet. It happens in the background after a backup, or the next time PathKeep opens.',
+        'module-no-successful-rebuild':
+          'The last attempt to work this out did not finish. Settings → Background work says why and can try again.',
+        'module-disabled': 'Turned off in Settings.',
+        'module-rebuild-required':
+          'This needs working out again; that happens in the background.',
+        'module-version-mismatch':
+          'This version of PathKeep works this out differently; it is being redone in the background.',
+        'module-version-changed':
+          'This version of PathKeep works this out differently; it is being redone in the background.',
+        unknown: 'Part of this is not available right now.',
+      },
     },
     kpi: {
       visits: 'Page visits',
@@ -380,6 +394,19 @@ export const insights = defineMessages({
         degraded: '部分可用',
         disabled: '已关闭',
       },
+      reasons: {
+        'module-never-built':
+          '还没整理出来。备份之后、或下次打开 PathKeep 时会在后台整理。',
+        'module-no-successful-rebuild':
+          '上次整理没有完成。设置 → 后台工作 会说明原因，也可以重试。',
+        'module-disabled': '已在设置里关闭。',
+        'module-rebuild-required': '这部分需要重新整理，会在后台进行。',
+        'module-version-mismatch':
+          '这个版本的 PathKeep 整理方式不同，正在后台重新整理。',
+        'module-version-changed':
+          '这个版本的 PathKeep 整理方式不同，正在后台重新整理。',
+        unknown: '这部分暂时无法使用。',
+      },
     },
     kpi: {
       visits: '页面浏览',
@@ -715,6 +742,19 @@ export const insights = defineMessages({
         stale: '正在更新',
         degraded: '部分可用',
         disabled: '已關閉',
+      },
+      reasons: {
+        'module-never-built':
+          '還沒整理出來。備份之後、或下次打開 PathKeep 時會在背景整理。',
+        'module-no-successful-rebuild':
+          '上次整理沒有完成。設定 → 背景工作 會說明原因，也可以重試。',
+        'module-disabled': '已在設定裡關閉。',
+        'module-rebuild-required': '這部分需要重新整理，會在背景進行。',
+        'module-version-mismatch':
+          '這個版本的 PathKeep 整理方式不同，正在背景重新整理。',
+        'module-version-changed':
+          '這個版本的 PathKeep 整理方式不同，正在背景重新整理。',
+        unknown: '這部分暫時無法使用。',
       },
     },
     kpi: {

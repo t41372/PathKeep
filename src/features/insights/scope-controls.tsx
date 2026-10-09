@@ -25,6 +25,7 @@ import { Separator } from '@/components/ui/separator'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { localDateKey } from '@/lib/backend-client/insights'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { profileLabel } from '@/lib/profile-label'
 import { useSourceStats } from '@/features/home/queries'
 import { isPreset, presets, useScope, type Scope } from './range'
 
@@ -181,7 +182,7 @@ function ProfileSelect() {
               decorative
               className="size-4 shrink-0"
             />
-            {source.browserName} · {source.profileName}
+            {profileLabel(source, t)}
           </SelectItem>
         ))}
         {scope.profileId &&

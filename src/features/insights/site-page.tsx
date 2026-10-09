@@ -24,7 +24,8 @@ import {
   insightsPath,
   searchPath,
 } from './links'
-import { rowLink, shareBar } from './display'
+import { rowLink } from './display'
+import { ShareBar } from './share-bar'
 import {
   DrillHeader,
   KpiTile,
@@ -121,12 +122,7 @@ export default function SitePage() {
                         title={page.url}
                         className="relative flex h-9 items-center gap-2.5 rounded-md px-2 text-[13px] hover:no-underline"
                       >
-                        <span
-                          aria-hidden
-                          className="absolute inset-y-0 left-0 rounded-md bg-brand-soft"
-                          style={shareBar(page.visitCount, max)}
-                        />
-                        <span className="relative flex min-w-0 flex-1 flex-col">
+                        <span className="flex min-w-0 flex-1 flex-col">
                           <span className="truncate font-medium">
                             {page.title || page.path}
                           </span>
@@ -136,7 +132,8 @@ export default function SitePage() {
                             </span>
                           )}
                         </span>
-                        <span className="relative font-mono text-xs text-muted-foreground">
+                        <ShareBar value={page.visitCount} max={max} />
+                        <span className="font-mono text-xs text-muted-foreground">
                           {format.number(page.visitCount)}
                         </span>
                       </Link>

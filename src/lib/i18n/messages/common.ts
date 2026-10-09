@@ -3,6 +3,8 @@ import { defineMessages } from '../define'
 /** Words reused across screens: actions, states and units. */
 export const common = defineMessages({
   en: {
+    /** A Google Takeout import, shown where a browser profile's name goes. */
+    takeoutProfile: 'Google Takeout',
     cancel: 'Cancel',
     close: 'Close',
     confirm: 'Confirm',
@@ -47,6 +49,7 @@ export const common = defineMessages({
     more: 'More',
   },
   'zh-CN': {
+    takeoutProfile: 'Google Takeout',
     cancel: '取消',
     close: '关闭',
     confirm: '确认',
@@ -90,6 +93,7 @@ export const common = defineMessages({
     more: '多',
   },
   'zh-TW': {
+    takeoutProfile: 'Google Takeout',
     cancel: '取消',
     close: '關閉',
     confirm: '確認',

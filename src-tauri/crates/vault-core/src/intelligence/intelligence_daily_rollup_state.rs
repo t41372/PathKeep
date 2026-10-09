@@ -50,25 +50,31 @@ impl DailyRollupAccumulator {
         // One local-time conversion per visit gives both the day and the hour.
         let local = local_datetime_from_millis(visit.visit_time_ms);
         let date_key = local.format("%Y-%m-%d").to_string();
-        let domain_key =
-            (date_key.clone(), visit.profile_id.clone(), visit.registrable_domain.clone());
-        let domain_entry =
-            self.domains.entry(domain_key).or_insert((Vec::new(), 0, 0, 0, HashSet::new(), 0));
-        domain_entry.5 = domain_entry.5.max(visit.visit_time_ms);
-        match domain_entry.0.iter_mut().find(|(category, _)| *category == visit.domain_category) {
-            Some((_, count)) => *count += 1,
-            None => domain_entry.0.push((visit.domain_category.clone(), 1)),
+        // A visit with no site (an extension page, a file) counts in the day's totals, not as a site.
+        let site = (!visit.registrable_domain.is_empty()).then_some(&visit.registrable_domain);
+        if let Some(site) = site {
+            let domain_key = (date_key.clone(), visit.profile_id.clone(), site.clone());
+            let domain_entry =
+                self.domains.entry(domain_key).or_insert((Vec::new(), 0, 0, 0, HashSet::new(), 0));
+            domain_entry.5 = domain_entry.5.max(visit.visit_time_ms);
+            match domain_entry.0.iter_mut().find(|(category, _)| *category == visit.domain_category)
+            {
+                Some((_, count)) => *count += 1,
+                None => domain_entry.0.push((visit.domain_category.clone(), 1)),
+            }
+            domain_entry.1 += 1;
+            domain_entry.2 += i64::from(visit.is_search_event);
+            domain_entry.3 += i64::from(visit.is_new_domain);
+            domain_entry.4.insert(visit.canonical_url.clone());
         }
-        domain_entry.1 += 1;
-        domain_entry.2 += i64::from(visit.is_search_event);
-        domain_entry.3 += i64::from(visit.is_new_domain);
-        domain_entry.4.insert(visit.canonical_url.clone());
 
         let category_key =
             (date_key.clone(), visit.profile_id.clone(), visit.domain_category.clone());
         let category_entry = self.categories.entry(category_key).or_insert((0, HashSet::new()));
         category_entry.0 += 1;
-        category_entry.1.insert(visit.registrable_domain.clone());
+        if let Some(site) = site {
+            category_entry.1.insert(site.clone());
+        }
 
         if let Some(engine) = &visit.search_engine {
             *self
@@ -89,11 +95,13 @@ impl DailyRollupAccumulator {
         summary_entry.0 += 1;
         summary_entry.5[local.hour() as usize] += 1;
         summary_entry.1 += i64::from(visit.is_search_event);
-        if visit.is_new_domain {
-            summary_entry.2.insert(visit.registrable_domain.clone());
+        if let Some(site) = site {
+            if visit.is_new_domain {
+                summary_entry.2.insert(site.clone());
+            }
+            summary_entry.3.insert(site.clone());
+            *summary_entry.4.entry(site.clone()).or_default() += 1;
         }
-        summary_entry.3.insert(visit.registrable_domain.clone());
-        *summary_entry.4.entry(visit.registrable_domain.clone()).or_default() += 1;
     }
 
     pub(super) fn finish(self) -> DailyRollupBundle {

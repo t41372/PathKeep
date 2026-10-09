@@ -174,7 +174,7 @@ fn classify_visit_taxonomy(
 
     for pack in RULE_PACKS {
         for rule in pack.lexicon_rules {
-            if rule.tokens.iter().any(|token| title_and_query.contains(token)) {
+            if rule.tokens.iter().any(|token| contains_word(&title_and_query, token)) {
                 return classification_from_rule(
                     pack,
                     rule.rule,
@@ -194,6 +194,21 @@ fn classify_visit_taxonomy(
         },
         ..TaxonomyClassification::default()
     }
+}
+
+/// Whether `text` holds `token` as a word. A Latin token needs a non-letter, non-digit on each
+/// side, so "api" does not match "rapid"; Chinese and Japanese titles put no spaces between words,
+/// so other tokens match anywhere. "API文档" still matches "api": `文` is not a Latin letter.
+fn contains_word(text: &str, token: &str) -> bool {
+    if !token.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+        return text.contains(token);
+    }
+    text.match_indices(token).any(|(start, _)| {
+        let before = text[..start].chars().next_back();
+        let after = text[start + token.len()..].chars().next();
+        !before.is_some_and(|ch| ch.is_ascii_alphanumeric())
+            && !after.is_some_and(|ch| ch.is_ascii_alphanumeric())
+    })
 }
 
 /// Converts a matched static rule into the exported classification payload.

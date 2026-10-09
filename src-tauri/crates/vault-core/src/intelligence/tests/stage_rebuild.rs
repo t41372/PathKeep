@@ -103,6 +103,8 @@ fn clear_derived_intelligence_state_reports_canonical_group_counts() {
                     "category_daily_rollups",
                     "engine_daily_rollups",
                     "daily_summary_rollups",
+                    "intelligence_day_counts",
+                    "intelligence_seen_domains",
                 ],
             )
         })
@@ -122,16 +124,29 @@ fn clear_derived_intelligence_state_reports_canonical_group_counts() {
                     "habit_patterns",
                     "reopened_investigations",
                     "path_flows",
+                    "compare_sets",
+                    "visit_assignments",
+                    "session_domains",
+                    "session_paths",
                 ],
             )
         })
         .expect("structural");
     let expected_runtime = intelligence
-        .read(move |session| table_row_count(session, "deterministic_module_runtime"))
-        .expect("module runtime")
-        + intelligence
-            .read(move |session| table_row_count(session, "core_intelligence_stage_checkpoints"))
-            .expect("stage checkpoints")
+        .read(move |session| {
+            sum_table_row_counts(
+                session,
+                &[
+                    "deterministic_module_runtime",
+                    "core_intelligence_stage_checkpoints",
+                    "intelligence_counts",
+                    "intelligence_generations",
+                    "intelligence_builds",
+                    "intelligence_overview_snapshots",
+                ],
+            )
+        })
+        .expect("runtime rows")
         + intelligence.read(count_core_intelligence_jobs).expect("runtime jobs")
         + intelligence.read(count_core_intelligence_job_triggers).expect("runtime triggers");
     drop(intelligence);

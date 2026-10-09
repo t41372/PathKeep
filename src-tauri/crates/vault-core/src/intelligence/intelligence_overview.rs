@@ -133,11 +133,12 @@ fn build_intelligence_primary_overview_with_connection(
         profile_id: request.profile_id.clone(),
         limit: Some(50),
     };
+    // The card scrolls; twenty fill it beside the searches column (`useRefindPages`).
     let refind_pages_request = RefindPagesRequest {
         cursor: None,
         date_range: request.date_range.clone(),
         profile_id: request.profile_id.clone(),
-        limit: Some(5),
+        limit: Some(20),
     };
     let discovery_trend_day_request = GranularityDateRangeRequest {
         date_range: request.date_range.clone(),
