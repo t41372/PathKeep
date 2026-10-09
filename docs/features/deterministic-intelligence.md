@@ -243,7 +243,7 @@ Query reformulation：
 
 這種 query family 應保留在同一條 ladder / group，而不是每改一個詞就硬切。
 
-比較詞的時候不算英文虛詞（this、what、my、vs…，完整清單在 `intelligence_shared.rs`）和網址片段（www、com…）：真實資料上，只搜「this」的那次被算成所有含 this 的搜尋的改寫，一共 31 次；「搜尋最多的詞」裡也不再出現它們。中日韓文還沒有斷詞，整段算一個詞。
+比較詞的時候不算虛詞（英文的 this、what、my、vs…，中文的 的、是、什麼、如何…，日文的 の、は、です…，完整清單在 `intelligence_shared.rs`）和網址片段（www、com…）：真實資料上，只搜「this」的那次被算成所有含 this 的搜尋的改寫，一共 31 次；「搜尋最多的詞」裡也不再出現它們。中文、日文的搜尋不再整句算一個詞（2026-10-09，`structural-rebuild-v8`；見 §7）。之前只按空格切，換個說法就跟原本的搜尋一個詞也不共用，改寫、query family 都分不到一起，「搜尋最多的詞」列出整句話。現在分兩種用途：顯示與計數（「搜尋最多的詞」）用字典切出的詞，「台北天氣」是 台北 / 天氣；比較兩次搜尋（改寫、query family、trail 拿標題比搜尋）用去掉虛詞後剩下的字、每相鄰兩字一組，因為字典會按前後文把同一句切成不同的詞（「什麼是非同步」切成 是非 / 同步，「非同步是什麼」切成 非同 / 步），兩兩一組的「非同」「同步」兩邊都有。拉丁字母照舊在非字母數字處切開。
 
 ### 5.5 Query reformulation ladder
 
@@ -438,6 +438,14 @@ Optional helpers：
 
 - language ID 可用於 lexicon / tokenizer selection
 - 更重的中文 / 日文斷詞器或模型資產，必須先經過 bundle-size / supply-chain / license review
+
+2026-10-09 的 review（搜尋詞的中文 / 日文斷詞）：用 ICU4X 的 `icu_segmenter`（`WordSegmenter::new_auto`：中日文用字典，泰、寮、高棉、緬文用小型 LSTM），只切含中日文字元的那一段，拉丁字母不變。顯示用字典切出的詞；比較用去掉虛詞後的相鄰兩字（字典切法隨前後文變，見 §5.4 下方）。
+
+- supply chain：Unicode Consortium 的 ICU4X，與已在用的 `icu_normalizer`、`icu_collator` 同一套、共用已鎖定的 `icu_provider` 等；新增的只有 `icu_segmenter`、`icu_segmenter_data` 與 ICU4X 維護者的 `core_maths`（依賴已有的 `libm`）。
+- license：Unicode-3.0（與 `icu_normalizer` 相同）。
+- bundle size：release 二進位增加約 2.4 MB（同樣 release 設定下有用與沒用的差，量自 Modal；`tech-stack.md`）。
+- 只用在搜尋詞（改寫、query family、「搜尋最多的詞」、trail 用標題比對搜尋的詞）；頁面種類的詞（`visit_taxonomy::tokenize_text`）仍照子字串比對中日文，不受影響。
+- 只用 bigram 不行：能把同一件事分到一起，但「搜尋最多的詞」會變成「麼是」「是非」這種片段；只用字典詞也不行：同一句換個語序切法就變。所以顯示用詞、比較用字典去掉虛詞後的兩字一組。
 
 重要原則：
 

@@ -36,6 +36,7 @@ import {
   fixture,
   type FixtureVisit,
 } from './support/fixture'
+import { compareTokens, searchWords } from './support/search-words'
 
 const compact = new Intl.NumberFormat('en', {
   notation: 'compact',
@@ -284,43 +285,6 @@ test('a custom range and one browser profile count only their visits', async ({
   ).toHaveText('Google Chrome · Work')
 })
 
-/** The words Insights counts for a search (see `search_words` in the backend). */
-/** English function words and URL parts, as the backend leaves them out (`is_stop_word`). */
-const fillerWords = new Set(
-  `a about above after again against all am an and any are as at be because been before
-  being below between both but by can com could did do does doing down during each edu few
-  for from further had has have having he her here hers herself him himself his how html
-  http https i if in into is it its itself just me more most my myself net no nor not of
-  off on once only or org other our ours ourselves out over own same she should so some
-  such than that the their theirs them themselves then there these they this those through
-  to too under until up versus very vs was we were what when where which while who whom
-  why will with would www you your yours yourself yourselves`.split(/\s+/),
-)
-
-/** A text's words as the backend compares them: lower case, filler words out. */
-function textWords(text: string) {
-  return new Set(
-    text
-      .toLowerCase()
-      .split(/[^\p{L}\p{N}]+/u)
-      .filter((word) => word && !fillerWords.has(word)),
-  )
-}
-function searchWords(term: string) {
-  return new Set(
-    term
-      .toLowerCase()
-      .split(/[^\p{L}\p{N}]+/u)
-      .filter(
-        (word) =>
-          word &&
-          !fillerWords.has(word) &&
-          word.length > 1 &&
-          !/^\d+$/.test(word),
-      ),
-  )
-}
-
 const batched = [
   'get_digest_summary',
   'get_top_sites',
@@ -381,6 +345,15 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
   expect(
     topWords.map(([word]) => `${word} ${compact.format(topCount)}`),
   ).toContain(firstWord)
+  // Every word shown has the count the searches give it: a Chinese search
+  // shown whole, as one word, has none.
+  for (const entry of await card(page, 'What you search for')
+    .getByRole('link')
+    .allInnerTexts()) {
+    const [, word, count] =
+      entry.replace(/\s+/g, ' ').match(/^(.+) (\S+)$/) ?? []
+    expect(compact.format(perWord.get(word ?? '') ?? 0), entry).toBe(count)
+  }
 
   // Opening the page made the two batch reads, not a read per card.
   await expect(
@@ -568,7 +541,7 @@ function searchTrails() {
       lastVisit = visit.at
       const open = trail && sameSession && visit.at - trail.lastAt <= TRAIL_GAP
       if (visit.term) {
-        const words = textWords(visit.term)
+        const words = compareTokens(visit.term)
         const shared = trail
           ? [...words].filter((word) => trail!.latest.has(word)).length
           : 0
@@ -607,7 +580,7 @@ function searchTrails() {
         const relates =
           (from[index] >= 0 && trail!.members.has(from[index])) ||
           trail!.sites.has(site(visit.url)) ||
-          [...textWords(visit.title)].some((word) => trail!.words.has(word))
+          [...compareTokens(visit.title)].some((word) => trail!.words.has(word))
         if (relates) {
           trail!.pages += 1
           trail!.members.add(index)

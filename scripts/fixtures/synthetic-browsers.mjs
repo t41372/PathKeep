@@ -123,7 +123,16 @@ const topics = [
   },
   {
     name: 'news',
-    search: ['weather tokyo', 'sqlite fts5 chinese tokenizer'],
+    // Two Chinese searches, with no spaces between words: Insights splits
+    // them into words (FIXTURE_CJK_WORDS, both start with 台北) and compares
+    // them by pairs of characters, so they form one family; split only at
+    // spaces, each was one word that matched nothing.
+    search: [
+      'weather tokyo',
+      'sqlite fts5 chinese tokenizer',
+      '台北天氣',
+      '台北天氣預報',
+    ],
     pages: [
       ['https://news.ycombinator.com/', 'Hacker News'],
       ['https://www.sqlite.org/fts5.html', 'SQLite FTS5 Extension'],
@@ -132,6 +141,17 @@ const topics = [
     ],
   },
 ]
+
+/**
+ * The words of the fixture's Chinese searches, as a reader splits them and
+ * as Insights does (ICU4X's dictionary; vault-core's tokenizer test pins
+ * these). The specs count search words by hand with them, since Chinese has
+ * no spaces to split at.
+ */
+export const FIXTURE_CJK_WORDS = {
+  台北天氣: ['台北', '天氣'],
+  台北天氣預報: ['台北', '天氣預報'],
+}
 
 function prng(seed) {
   let state = seed >>> 0 || 1

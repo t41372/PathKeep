@@ -52,6 +52,9 @@ export function appendFirefoxVisits(
 /** Creates a new Firefox places.sqlite holding `visits`. */
 export function writeFirefoxPlaces(file: string, visits: SyntheticVisit[]): void
 
+/** The words of the fixture's Chinese searches, as Insights splits them. */
+export const FIXTURE_CJK_WORDS: Record<string, string[]>
+
 /** Host → base64 PNG of the icons Chrome stored in the personal profile's `Favicons`. */
 export const FIXTURE_FAVICON_HOSTS: Record<string, string>
 

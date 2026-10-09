@@ -19,6 +19,8 @@
  *   as the fixture's browsers recorded each page's opener.
  * - Google's site view lists what was searched on it, as Frequent searches
  *   counts it (every fixture search is on Google).
+ * - A Chinese search, with no spaces between its words, is one search with a
+ *   longer wording of it: its view lists that wording among the others.
  *
  * Insights are computed by a background job after the first backup, so
  * every read waits for real numbers instead of reading a "computing" state.
@@ -31,8 +33,8 @@ import {
   expectCount,
   fixture,
   parseCount,
-  type FixtureVisit,
 } from './support/fixture'
+import { searchFamilies } from './support/search-words'
 
 const JOB_TIMEOUT = 60_000
 
@@ -405,6 +407,20 @@ test('the site of a search engine lists what was searched on it', async ({
   expect(await read(first)).toEqual(expected)
 })
 
+test('a Chinese search and a longer wording of it are one search', async ({
+  page,
+}) => {
+  // 台北天氣 and 台北天氣預報 share 台北, 北天 and 天氣 compared by pairs of
+  // characters; split only at spaces, each was one word and they had nothing
+  // in common.
+  await page.goto(`/#/insights/search/${encodeURIComponent('台北天氣')}`)
+  await drillIn(page, '“台北天氣”')
+  await expect(card(page, 'Other ways you searched it')).toContainText(
+    '台北天氣預報',
+    { timeout: JOB_TIMEOUT },
+  )
+})
+
 test('a search from Frequent searches shows how often and when', async ({
   page,
 }, testInfo) => {
@@ -418,35 +434,29 @@ test('a search from Frequent searches shows how often and when', async ({
   const query = decodeURIComponent(
     new URL(page.url()).hash.match(/search\/([^?]+)/)?.[1] ?? '',
   )
-  // The page counts the search's family: every wording sharing at least half
-  // its words (the fixture rewords some searches as "… v2", "… v2 eg").
-  const words = (text: string) =>
-    new Set(
-      text
-        .toLowerCase()
-        .split(/[^\p{L}\p{N}]+/u)
-        .filter(Boolean),
-    )
-  const sameFamily = (term: string) => {
-    const [a, b] = [words(term), words(query)]
-    const shared = [...a].filter((word) => b.has(word)).length
-    return shared / new Set([...a, ...b]).size >= 0.5
-  }
-  const searches = archivedVisits().filter(
-    (visit: FixtureVisit) => visit.term !== undefined && sameFamily(visit.term),
+  // The page counts the search's family in every profile, made by hand with
+  // the backend's rule (the fixture rewords some searches as "… v2", "… v2 eg").
+  const families = archivedProfiles.flatMap((profile) =>
+    searchFamilies(fixture().visitsByProfile[profile]).filter((family) =>
+      family.queries.has(query.toLowerCase()),
+    ),
   )
-  expect(searches.length, `the fixture searched "${query}"`).toBeGreaterThan(0)
+  const timesSearched = families.reduce(
+    (sum, family) => sum + family.members,
+    0,
+  )
+  expect(timesSearched, `the fixture searched "${query}"`).toBeGreaterThan(0)
 
   await drillIn(page, `“${query}”`)
   await expectCount(
     testInfo,
     `times "${query}" was searched`,
     await kpi(page, 'Times searched'),
-    searches.length,
+    timesSearched,
   )
 
   // The newest time in the list is the fixture's newest search, on its day.
-  const latest = Math.max(...searches.map((visit) => visit.at))
+  const latest = Math.max(...families.map((family) => family.latest))
   const times = card(page, 'Each time, and where it led').getByRole('listitem')
   await expect(times.first()).toBeVisible({ timeout: JOB_TIMEOUT })
   const dayLink = times.first().getByRole('link').first()

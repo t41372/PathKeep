@@ -27,10 +27,13 @@
 
 use super::SearchQueryKind;
 use crate::models::DateRange;
+use crate::visit_taxonomy::is_cjk_like;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Utc};
+use icu_segmenter::{WordSegmenter, WordSegmenterBorrowed, options::WordBreakInvariantOptions};
 use reqwest::Url;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 use vault_store::{Session, params_owned as params};
 
 /// Returns the local calendar day key used by deterministic daily rollups.
@@ -65,23 +68,67 @@ pub(super) fn date_range_bounds(range: &DateRange) -> Result<(i64, i64)> {
     Ok((start_dt.timestamp_millis(), end_dt.timestamp_millis()))
 }
 
-/// Tokenizes a normalized query into similarity-ready terms while dropping
-/// stop words and URL noise.
-pub(super) fn tokenize_query_terms(query: &str) -> Vec<String> {
+/// Word breaks for Chinese and Japanese, which put no spaces between words: ICU4X's dictionary
+/// for them (and its small models for Thai, Lao, Khmer and Burmese). Built once.
+static WORD_SEGMENTER: LazyLock<WordSegmenterBorrowed<'static>> =
+    LazyLock::new(|| WordSegmenter::new_auto(WordBreakInvariantOptions::default()));
+
+/// A query's tokens before function words are taken out: lower case, split at anything that is
+/// neither a letter nor a digit. A token can hold a whole Chinese or Japanese phrase.
+fn raw_tokens(query: &str) -> impl Iterator<Item = String> + '_ {
     query
         .split(|ch: char| !ch.is_alphanumeric() && !is_cjk_like(ch))
-        .filter_map(|token| {
-            let token = token.trim().to_lowercase();
-            (!token.is_empty() && !is_stop_word(&token)).then_some(token)
-        })
-        .collect()
+        .map(|token| token.trim().to_lowercase())
+        .filter(|token| !token.is_empty())
 }
 
-/// English function words and URL parts. They join unrelated searches: with "this" a term, a
-/// search for "this" counted as a rewording of every search containing it (31 times on a real
-/// archive), and "this" ranked among the words searched most.
+/// A phrase's dictionary words, each with whether it is a word at all (not a space or a mark).
+fn cjk_words(token: &str) -> Vec<(&str, bool)> {
+    let mut words = Vec::new();
+    let mut breaks = WORD_SEGMENTER.segment_str(token);
+    let mut start = breaks.next().unwrap_or(0);
+    while let Some(end) = breaks.next() {
+        words.push((&token[start..end], breaks.is_word_like()));
+        start = end;
+    }
+    words
+}
+
+/// The words a search is shown and counted under ("What you search for"): Latin text split at
+/// anything that is not a letter or digit, Chinese and Japanese at their dictionary word breaks
+/// (「台北天氣」 is 台北 / 天氣), function words and URL parts left out.
+pub(super) fn tokenize_query_terms(query: &str) -> Vec<String> {
+    let mut terms = Vec::new();
+    for token in raw_tokens(query) {
+        if token.chars().any(is_cjk_like) {
+            terms.extend(
+                cjk_words(&token)
+                    .into_iter()
+                    .filter(|(word, is_word)| *is_word && !is_stop_word(word))
+                    .map(|(word, _)| word.to_owned()),
+            );
+        } else if !is_stop_word(&token) {
+            terms.push(token);
+        }
+    }
+    terms
+}
+
+/// Function words (English, Chinese in both scripts, Japanese particles and endings) and URL
+/// parts. They join unrelated searches: with "this" a term, a search for "this" counted as a
+/// rewording of every search containing it (31 times on a real archive), and "this" ranked
+/// among the words searched most; 什麼, 如何 and の do the same once Chinese and Japanese
+/// searches are split into words.
 fn is_stop_word(token: &str) -> bool {
-    const WORDS: &str = "
+    const CJK: &str = "
+        的 了 是 在 和 與 与 及 或 嗎 吗 呢 吧 啊 呀 嘛 喔 哦 很 也 都 就 還 还 又 再 被 把 給 给 對 对
+        從 从 到 跟 為 为 以 之 其 等 有 沒 没 不 會 会 能 要 可 可以 一個 一个 個 个 這 这 那 這個 这个
+        那個 那个 這些 这些 那些 什麼 什么 甚麼 怎麼 怎么 怎樣 怎样 如何 為什麼 为什么 為何 为何 哪 哪裡
+        哪里 哪個 哪个 誰 谁 幾 几 多少 我 你 妳 您 他 她 它 我們 我们 你們 你们 他們 他们 自己
+        の は が を に で と も へ や か な ね よ から まで より です ます でした ました だ する した して
+        ある いる こと もの これ それ あれ この その あの どう どの なに 何 ない
+    ";
+    const LATIN: &str = "
         a about above after again against all am an and any are as at be because been before
         being below between both but by can com could did do does doing down during each edu few
         for from further had has have having he her here hers herself him himself his how html
@@ -91,8 +138,8 @@ fn is_stop_word(token: &str) -> bool {
         to too under until up versus very vs was we were what when where which while who whom
         why will with would www you your yours yourself yourselves
     ";
-    static STOP_WORDS: std::sync::LazyLock<HashSet<&str>> =
-        std::sync::LazyLock::new(|| WORDS.split_whitespace().collect());
+    static STOP_WORDS: LazyLock<HashSet<&str>> =
+        LazyLock::new(|| CJK.split_whitespace().chain(LATIN.split_whitespace()).collect());
     STOP_WORDS.contains(token)
 }
 
@@ -109,10 +156,48 @@ pub(super) fn search_words(query: &str) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
-/// Builds the set-based representation used by query-family similarity and
-/// related search-surface dedup heuristics.
+/// The set two searches (or a page title and a search) are compared by, for rewordings, query
+/// families and trails: Latin words as in [`tokenize_query_terms`]; for Chinese and Japanese,
+/// what is left of each phrase once its function words are out, in overlapping pairs of
+/// characters. A dictionary splits the same phrase differently by what surrounds it (什麼是非同步
+/// gives 是非 / 同步, 非同步是什麼 gives 非同 / 步), but the pairs 非同 and 同步 come out of both.
 pub(super) fn query_token_set(query: &str) -> HashSet<String> {
-    tokenize_query_terms(query).into_iter().collect()
+    let mut set = HashSet::new();
+    for token in raw_tokens(query) {
+        if !token.chars().any(is_cjk_like) {
+            if !is_stop_word(&token) {
+                set.insert(token);
+            }
+            continue;
+        }
+        let mut phrase = String::new();
+        for (word, is_word) in cjk_words(&token) {
+            if !is_word || is_stop_word(word) {
+                insert_pairs(&mut phrase, &mut set);
+            } else if word.chars().any(is_cjk_like) {
+                phrase.push_str(word);
+            } else {
+                insert_pairs(&mut phrase, &mut set);
+                set.insert(word.to_owned());
+            }
+        }
+        insert_pairs(&mut phrase, &mut set);
+    }
+    set
+}
+
+/// Adds a phrase's overlapping pairs of characters (the character itself when it stands alone)
+/// and empties it.
+fn insert_pairs(phrase: &mut String, set: &mut HashSet<String>) {
+    let chars = phrase.chars().collect::<Vec<_>>();
+    match chars.len() {
+        0 => {}
+        1 => {
+            set.insert(chars[0].to_string());
+        }
+        _ => set.extend(chars.windows(2).map(|pair| pair.iter().collect::<String>())),
+    }
+    phrase.clear();
 }
 
 /// Distinguishes keyword queries from navigational noise without requiring any
@@ -267,13 +352,6 @@ fn query_domain_candidate(query: &str) -> Option<String> {
     Some(crate::visit_taxonomy::registrable_domain_for_host(&host))
 }
 
-fn is_cjk_like(ch: char) -> bool {
-    matches!(
-        ch as u32,
-        0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0x3040..=0x30FF | 0xAC00..=0xD7AF
-    )
-}
-
 /// How many sites were new on each day of `range`. A site is new on the first day it appears
 /// in any browser profile, or in `profile_id` when one is given. Each profile's own rollups mark
 /// its first day for a site (`new_domain_visits`), so the whole archive takes the earliest of
@@ -316,6 +394,62 @@ mod tests {
         let error =
             local_datetime_from_result(LocalResult::None, date).expect_err("missing local result");
         assert!(error.to_string().contains("could not resolve local midnight"));
+    }
+
+    /// Chinese and Japanese put no spaces between words. Split only at spaces, a search was one
+    /// word, so a rewording of it shared nothing with it and Search concepts listed whole
+    /// sentences.
+    ///
+    /// Ways it can go wrong, each checked: the phrase stays one word; its function words survive
+    /// and join unrelated searches; the same words in another order no longer compare as one
+    /// search (a dictionary splits them differently by context); Simplified and Traditional
+    /// come apart; a Latin part of a mixed phrase is lost; Latin text splits differently.
+    #[test]
+    fn chinese_and_japanese_searches_split_into_words() {
+        let set =
+            |terms: &[&str]| terms.iter().map(|term| term.to_string()).collect::<HashSet<_>>();
+        let shown = |query: &str| tokenize_query_terms(query);
+        let compared = |query: &str| query_token_set(query);
+        // A rewording, as trails and families decide it: one set holds the other, or they share
+        // at least half their tokens.
+        let one_search = |a: &HashSet<String>, b: &HashSet<String>| {
+            let shared = a.intersection(b).count();
+            shared == a.len() || shared == b.len() || shared * 2 >= a.union(b).count()
+        };
+
+        assert_eq!(shown("tokio vs smol"), ["tokio", "smol"]);
+        assert_eq!(compared("tokio vs smol"), set(&["tokio", "smol"]));
+
+        let (asked, turned) = (compared("什麼是非同步"), compared("非同步是什麼"));
+        for tokens in [&asked, &turned] {
+            assert!(!tokens.is_empty());
+            for whole_or_function in ["什麼是非同步", "非同步是什麼", "什麼", "是"] {
+                assert!(!tokens.contains(whole_or_function), "{tokens:?}");
+            }
+        }
+        assert!(
+            one_search(&asked, &turned),
+            "the same words in another order: {asked:?} {turned:?}"
+        );
+        let words = shown("什麼是非同步");
+        assert!(!words.is_empty() && !words.iter().any(|word| word == "什麼是非同步"), "{words:?}");
+
+        for (query, word) in [("如何安裝rust", "安裝"), ("如何安装rust", "安装")] {
+            let words = shown(query);
+            assert!(
+                words.iter().any(|w| w == word) && words.iter().any(|w| w == "rust"),
+                "{query}: {words:?}"
+            );
+            assert!(!words.iter().any(|w| w == "如何"), "{query}: {words:?}");
+            assert!(compared(query).contains("rust"), "{query}");
+        }
+        assert_eq!(shown("東京の天気"), ["東京", "天気"]);
+        assert!(shown("什麼是").is_empty() && compared("什麼是").is_empty(), "only function words");
+
+        // The E2E fixture's searches (`FIXTURE_CJK_WORDS`): shown as these words, and one search.
+        assert_eq!(shown("台北天氣"), ["台北", "天氣"]);
+        assert_eq!(shown("台北天氣預報"), ["台北", "天氣預報"]);
+        assert!(one_search(&compared("台北天氣"), &compared("台北天氣預報")));
     }
 
     /// Search concepts showed "s" and "3" among a real archive's top words.
