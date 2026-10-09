@@ -21,7 +21,10 @@ use vault_store::{Db, Priority, Session, params};
 const MAX_AGENT_PAGE_SIZE: u32 = 200;
 const DEFAULT_AGENT_PAGE_SIZE: u32 = 50;
 const AUTO_TITLE_MAX_CHARS: usize = 80;
-const UNTITLED_CONVERSATION_TITLE: &str = "Untitled conversation";
+/// A conversation with no title yet: empty, so the interface shows "Untitled" in the user's
+/// language. Earlier versions stored the English placeholder below, which reads as empty too.
+const UNTITLED_CONVERSATION_TITLE: &str = "";
+const LEGACY_UNTITLED_CONVERSATION_TITLE: &str = "Untitled conversation";
 
 fn page_size(limit: Option<u32>) -> i64 {
     i64::from(limit.filter(|n| *n > 0).unwrap_or(DEFAULT_AGENT_PAGE_SIZE).min(MAX_AGENT_PAGE_SIZE))
@@ -30,7 +33,9 @@ fn page_size(limit: Option<u32>) -> i64 {
 fn summary(row: &vault_store::Row) -> vault_store::Result<AgentConversationSummary> {
     Ok(AgentConversationSummary {
         id: row.get(0)?,
-        title: row.get(1)?,
+        title: Some(row.get::<String>(1)?)
+            .filter(|title| title != LEGACY_UNTITLED_CONVERSATION_TITLE)
+            .unwrap_or_default(),
         provider_id: row.get(2)?,
         created_at: row.get(3)?,
         updated_at: row.get(4)?,
