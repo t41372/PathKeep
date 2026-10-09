@@ -415,14 +415,10 @@ mod tests {
                 .any(|note| note.contains("processing it in the background"))
         );
 
-        // W-AI-9-D: the read-only re-embed estimator returns a sized, honest report (no model load,
-        // no embedding) — `gpu_available` tracks the `metal` feature, so it is false in the default
-        // CPU-only build and true under `--all-features` (the authoritative coverage gate).
+        // W-AI-9-D: the read-only re-embed estimator counts the pages a run would index.
         let estimate = estimate_reembed_impl(ReembedScope::Full, &session)
             .expect("estimate should compute over the seeded archive");
         assert_eq!(estimate.scope, ReembedScope::Full);
-        assert!(estimate.est_minutes_gpu <= estimate.est_minutes_cpu);
-        assert_eq!(estimate.gpu_available, cfg!(feature = "metal"));
         let _ = run_ai_queue_jobs_impl(Some(1), &session)
             .expect("drain queued index job before immediate assistant claim");
 

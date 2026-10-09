@@ -1015,26 +1015,16 @@ pub struct AiIndexRequest {
     pub scope: ReembedScope,
 }
 
-/// Read-only cost/time estimate for a re-embed run (W-AI-9 Sub-block D, 05 §7 PME "estimate ~X time").
-///
-/// Pure math over bounded reads (working-set length or unique-content-key count) and the S1 throughput
-/// constants — NO model load, NO network, NO embedding. Surfaced BEFORE a re-embed fires so the user
-/// sees the cost (PME transparency). `gpu_available` reflects whether this binary was built with the
-/// `metal` feature, so the FE can tell an honest story instead of promising a speedup a CPU-only build
-/// cannot deliver.
+/// How much a re-embed run would index, shown before it starts (PME): the pages it covers. It says
+/// nothing about time: the rate depends on the engine and the machine, and a guessed rate told users
+/// a minutes-long rebuild would take most of a day.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ReembedEstimate {
     /// The scope this estimate was computed for (echoed back so the FE can label it).
     pub scope: ReembedScope,
-    /// How many pages would be embedded (working-set length, or unique `content_key` count for Full).
+    /// How many pages would be embedded (working-set length, or unique page count for Full).
     pub page_count: u64,
-    /// Estimated wall-clock minutes on the 4-core CPU baseline (S1: 1.25 docs/sec).
-    pub est_minutes_cpu: f64,
-    /// Estimated wall-clock minutes on the Metal GPU (CPU estimate ÷ the measured speedup).
-    pub est_minutes_gpu: f64,
-    /// Whether this binary can actually run the GPU path (`cfg!(feature = "metal")`).
-    pub gpu_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -149,9 +149,6 @@ function RebuildRow({ index }: { index: SemanticIndex }) {
   })
 
   const busy = index.building || start.isPending
-  const minutes = estimate.data
-    ? Math.max(1, Math.round(estimate.data.estMinutesCpu))
-    : 0
 
   return (
     <SettingRow
@@ -185,9 +182,6 @@ function RebuildRow({ index }: { index: SemanticIndex }) {
                 {estimate.data && estimate.data.pageCount > 0
                   ? t('settingsAi.rebuild.dialogBody', {
                       count: estimate.data.pageCount,
-                      minutes: t('settingsAi.rebuild.minutes', {
-                        count: minutes,
-                      }),
                     })
                   : t('settingsAi.rebuild.dialogBodyUnknown')}
               </AlertDialogDescription>

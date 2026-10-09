@@ -180,8 +180,7 @@ export interface AiSettings {
    * Opt-in to the Apple-Silicon Metal GPU heavy embedding tier (W-AI-9 Sub-block D, 05 §7). Mirrors
    * the Rust `gpu_enabled` (`#[serde(default)]`, hard-default-OFF). Optional here so older snapshots
    * without it still type-check; absent/false means "off". INERT unless the binary was built with the
-   * `metal` cargo feature — the Settings UI reads `ReembedEstimate.gpuAvailable` to tell the honest
-   * story ("requires a Metal-enabled build") rather than showing a green toggle that does nothing.
+   * `metal` cargo feature.
    */
   gpuEnabled?: boolean
 }
@@ -631,16 +630,12 @@ export interface AiIndexRequest {
 }
 
 /**
- * Read-only cost/time estimate for a re-embed run (W-AI-9 Sub-block D, 05 §7). Mirrors the Rust
- * `ReembedEstimate`. Surfaced BEFORE a re-embed fires so the user sees the cost (PME). `gpuAvailable`
- * is the single honest source of whether THIS binary can run the GPU path (built with `metal`).
+ * How much a re-embed run would index, shown before it starts (W-AI-9 Sub-block D, 05 §7). Mirrors
+ * the Rust `ReembedEstimate`. No time: the rate depends on the engine and the machine.
  */
 export interface ReembedEstimate {
   scope: ReembedScope
   pageCount: number
-  estMinutesCpu: number
-  estMinutesGpu: number
-  gpuAvailable: boolean
 }
 
 /**

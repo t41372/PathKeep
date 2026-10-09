@@ -381,7 +381,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 
 ### 任務類型
 
-- **Embedding 計算**：已交付（W-AI-4）；chunked / resumable backfill 生成 embedding vector 進 `derived/vectors/` sidecar plane，gated on `semantic_index_enabled`。re-embed scope 分 `incremental` / `working-set` / `full`，並有 cost / time estimator（CPU vs Metal GPU）。
+- **Embedding 計算**：已交付（W-AI-4）；chunked / resumable backfill 生成 embedding vector 進 `derived/vectors/` sidecar plane，gated on `semantic_index_enabled`。re-embed scope 分 `incremental` / `working-set` / `full`；重建前先說要重新索引幾個頁面（`estimate_reembed`）。2026-10-08 拿掉了時間估計：它用已移除的 candle 引擎的速度（1.25 頁 / 秒）計算，實際跑的是內建靜態模型，10 萬頁說要約 22 小時、實際幾分鐘。
 - **Content-fetch（readable content / og:image）**：已交付（W-ENRICH）但 **egress hard-default-OFF**（`content_fetch_enabled`，預設關）；開啟後背景抓取頁面內容做內容增強，SSRF-guarded、無 cookie/Referer、per-host rate-limited（見 [ai-security-posture.md](../architecture/ai-security-posture.md) §4）。
 - **Insight 計算**：計算各洞察模塊的結果。
 - **LLM 摘要生成**：生成 topic 命名、對比式摘要、定期總結等（有 LLM provider 時加值，無 provider 退 deterministic）。

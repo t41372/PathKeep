@@ -168,9 +168,8 @@ fn select_working_set_marks_domain_starred_pages() {
 }
 
 #[test]
-fn estimate_reembed_full_counts_unique_pages_and_sizes_cost() {
-    // W-AI-9-D: a Full re-embed estimate counts unique pages (`COUNT(*) FROM urls`) and applies the
-    // S1 throughput constants. Three seeded pages → 3 / 1.25 / 60 CPU minutes, GPU = /10.
+fn estimate_reembed_full_counts_unique_pages() {
+    // W-AI-9-D: a Full re-embed estimate counts unique pages (`COUNT(*) FROM pages`).
     let (_paths, _config, connection) = prepared_archive();
     let vault = connection.vault.clone();
     let _archive = TestDatabase::new(&vault, Db::Archive);
@@ -189,10 +188,6 @@ fn estimate_reembed_full_counts_unique_pages_and_sizes_cost() {
     .expect("estimate full");
     assert_eq!(estimate.scope, crate::ReembedScope::Full);
     assert_eq!(estimate.page_count, 3);
-    assert!((estimate.est_minutes_cpu - 3.0 / 1.25 / 60.0).abs() < 1e-9);
-    assert!((estimate.est_minutes_gpu - estimate.est_minutes_cpu / 10.0).abs() < 1e-9);
-    // Honest: in this CPU-only coverage build the GPU path is unavailable.
-    assert_eq!(estimate.gpu_available, cfg!(feature = "metal"));
 }
 
 #[test]

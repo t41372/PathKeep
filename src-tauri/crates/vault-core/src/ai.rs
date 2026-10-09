@@ -143,9 +143,8 @@ pub use self::vector_planes::{
 pub use self::vector_store::{VectorStore, VectorStoreHeader, vector_plane_bytes};
 pub use self::visit_content_map::{VisitContentMap, visit_map_plane_bytes};
 pub use self::working_set::{
-    CANDLE_CPU_DOCS_PER_SEC, CandidateSignals, METAL_SPEEDUP, WorkingSetCandidate,
-    WorkingSetConfig, WorkingSetPage, estimate_reembed, reembed_estimate_for, score_candidate,
-    select_working_set,
+    CandidateSignals, WorkingSetCandidate, WorkingSetConfig, WorkingSetPage, estimate_reembed,
+    score_candidate, select_working_set,
 };
 
 #[cfg(test)]
