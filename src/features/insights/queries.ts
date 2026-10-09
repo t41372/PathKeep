@@ -143,9 +143,12 @@ export function useFrequentSearches(scope: Scope, limit = 10) {
   })
 }
 
+/** As many as the overview batch reads (`intelligence_overview.rs`), so both fill one cache. */
+const REFIND_LIST_LENGTH = 20
+
 export function useRefindPages(scope: Scope) {
   return useSection(scope, 'refind', 'primary', () =>
-    insightsClient.refindPages(request(scope), 5),
+    insightsClient.refindPages(request(scope), REFIND_LIST_LENGTH),
   )
 }
 

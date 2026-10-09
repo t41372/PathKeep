@@ -36,7 +36,8 @@ import {
   useSessionDetail,
 } from './drill-queries'
 import { historyPath, insightsPath, pagePath, searchPath } from './links'
-import { formatDuration, rowLink, shareBar } from './display'
+import { formatDuration, rowLink } from './display'
+import { ShareBar } from './share-bar'
 import {
   DrillHeader,
   KpiTile,
@@ -311,19 +312,12 @@ function DaySitesCard({ date }: { date: string }) {
                     title={t('insights.day.siteInHistory')}
                     className="relative flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] hover:no-underline"
                   >
-                    <span
-                      aria-hidden
-                      className="absolute inset-y-0 left-0 rounded-md bg-brand-soft"
-                      style={shareBar(site.visitCount, max)}
-                    />
-                    <SiteIcon
-                      domain={site.registrableDomain}
-                      className="relative"
-                    />
-                    <span className="relative flex-1 truncate font-medium">
+                    <SiteIcon domain={site.registrableDomain} />
+                    <span className="flex-1 truncate font-medium">
                       {site.registrableDomain}
                     </span>
-                    <span className="relative font-mono text-xs text-muted-foreground">
+                    <ShareBar value={site.visitCount} max={max} />
+                    <span className="font-mono text-xs text-muted-foreground">
                       {format.number(site.visitCount)}
                     </span>
                   </Link>

@@ -36,7 +36,7 @@ import {
   searchPath,
   sitePath,
 } from './links'
-import { rowLink, shareBar } from './display'
+import { rowLink } from './display'
 import {
   DrillHeader,
   KpiTile,
@@ -342,7 +342,9 @@ function WhyCard({
                       <span className="h-1.5 overflow-hidden rounded-full bg-muted">
                         <span
                           className="block h-full rounded-full bg-brand transition-[width] duration-500"
-                          style={shareBar(factor.contribution, max)}
+                          style={{
+                            width: `${(Math.max(0, factor.contribution) / Math.max(1e-9, max)) * 100}%`,
+                          }}
                         />
                       </span>
                     </li>

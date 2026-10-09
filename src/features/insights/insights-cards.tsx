@@ -3,7 +3,6 @@
  * rhythm, searches and pages reopened. Each takes the range and owns its
  * query; each links into a drill-in.
  */
-import { Repeat } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { MouseHandlerDataParam } from 'recharts'
@@ -26,7 +25,8 @@ import { useFormat, useI18n } from '@/lib/i18n'
 import { barLabel } from './buckets'
 import { RhythmSummary } from './rhythm-summary'
 import { dayPath, pagePath, searchPath, sitePath } from './links'
-import { formatDuration, rowLink, shareBar } from './display'
+import { formatDuration, rowLink } from './display'
+import { ShareBar } from './share-bar'
 import {
   KpiTile,
   ListSkeleton,
@@ -273,9 +273,9 @@ export function TopSitesCard({ scope }: { scope: Scope }) {
         {(result) => {
           const max = Math.max(1, ...result.data.items.map(measure))
           return (
-            // Six rows show, as tall as the chart beside it; the rest of the 40
-            // scroll, and the fade says so.
-            <ScrollList maxHeight={6 * 38}>
+            // As many of the 40 as the column beside it is tall, at least six;
+            // the rest scroll, and the fades say so.
+            <ScrollList fill maxHeight={6 * 38}>
               <ul className="flex flex-col gap-1.5">
                 {result.data.items.map((site) => (
                   <li key={site.registrableDomain}>
@@ -283,19 +283,12 @@ export function TopSitesCard({ scope }: { scope: Scope }) {
                       to={sitePath(site.registrableDomain, scope)}
                       className="relative flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] hover:no-underline"
                     >
-                      <span
-                        aria-hidden
-                        className="absolute inset-y-0 left-0 rounded-md bg-brand-soft transition-[width] duration-500"
-                        style={shareBar(measure(site), max)}
-                      />
-                      <SiteIcon
-                        domain={site.registrableDomain}
-                        className="relative"
-                      />
-                      <span className="relative flex-1 truncate font-medium">
+                      <SiteIcon domain={site.registrableDomain} />
+                      <span className="flex-1 truncate font-medium">
                         {site.registrableDomain}
                       </span>
-                      <span className="relative font-mono text-xs text-muted-foreground">
+                      <ShareBar value={measure(site)} max={max} />
+                      <span className="w-12 text-right font-mono text-xs text-muted-foreground">
                         {shown(site)}
                       </span>
                     </Link>
@@ -420,33 +413,63 @@ export function SearchesAndRefindCard({ scope }: { scope: Scope }) {
         isEmpty={(result) => result.data.items.length === 0}
         empty={t('insights.refind.empty')}
       >
-        {(result) => (
-          <ul className="-mx-2 flex flex-col">
-            {result.data.items.map((page) => (
-              <li key={page.canonicalUrl}>
-                <Link
-                  to={pagePath(page.canonicalUrl, scope, page.profileId)}
-                  className={rowLink}
-                >
-                  <Repeat
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    aria-hidden
-                  />
-                  <span className="flex-1 truncate">
-                    {page.title || page.url}
-                  </span>
-                  <span className="text-xs text-muted-foreground tabular">
-                    {t('insights.refind.days', {
-                      count: page.crossDayCount,
-                      days: format.number(page.crossDayCount),
-                    })}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        {(result) => {
+          // Two pages can share a title (two chats in one app); the path tells them apart.
+          const titles = new Map<string, number>()
+          for (const page of result.data.items)
+            titles.set(
+              page.title ?? '',
+              (titles.get(page.title ?? '') ?? 0) + 1,
+            )
+          return (
+            <ScrollList fill maxHeight={5 * 36}>
+              <ul className="-mx-2 flex flex-col">
+                {result.data.items.map((page) => {
+                  const where = pageWhere(page.url)
+                  const shared = (titles.get(page.title ?? '') ?? 0) > 1
+                  return (
+                    <li key={page.canonicalUrl}>
+                      <Link
+                        to={pagePath(page.canonicalUrl, scope, page.profileId)}
+                        className={rowLink}
+                      >
+                        <SiteIcon domain={where.host} />
+                        <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                          <span className="truncate">
+                            {page.title || page.url}
+                          </span>
+                          {page.title && (
+                            <span className="truncate text-xs text-muted-foreground">
+                              {shared ? where.hostAndPath : where.host}
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-xs text-muted-foreground tabular">
+                          {t('insights.refind.days', {
+                            count: page.crossDayCount,
+                            days: format.number(page.crossDayCount),
+                          })}
+                        </span>
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            </ScrollList>
+          )
+        }}
       </QueryBody>
     </SectionCard>
   )
+}
+
+/** Where a page is, for a second line under its title: the host, or host and path. */
+function pageWhere(url: string) {
+  try {
+    const parsed = new URL(url)
+    const path = parsed.pathname === '/' ? '' : parsed.pathname
+    return { host: parsed.hostname, hostAndPath: `${parsed.hostname}${path}` }
+  } catch {
+    return { host: url, hostAndPath: url }
+  }
 }

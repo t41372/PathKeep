@@ -49,41 +49,74 @@ export function ListSkeleton({
 }
 
 /**
- * A list that scrolls inside its card instead of making the card taller. A
- * fade at the bottom says there is more until the end is reached.
+ * A list that scrolls inside its card instead of making the card taller.
+ * Fades at the top and bottom say there is more above or below.
+ *
+ * With `fill`, the list takes the height the card has left, at least
+ * `maxHeight`: a card beside a taller one shows more rows instead of an empty
+ * space, and the list never makes the row taller than its neighbour does.
  */
 export function ScrollList({
   maxHeight,
+  fill = false,
   children,
 }: {
   maxHeight: number
+  fill?: boolean
   children: ReactNode
 }) {
   const box = useRef<HTMLDivElement>(null)
-  const [more, setMore] = useState(false)
+  const [edges, setEdges] = useState({ above: false, below: false })
   const measure = useCallback(() => {
     const element = box.current
-    if (element)
-      setMore(
-        element.scrollTop + element.clientHeight < element.scrollHeight - 1,
-      )
+    if (!element) return
+    const above = element.scrollTop > 1
+    const below =
+      element.scrollTop + element.clientHeight < element.scrollHeight - 1
+    setEdges((old) =>
+      old.above === above && old.below === below ? old : { above, below },
+    )
   }, [])
   useLayoutEffect(() => measure(), [measure, children])
+  useLayoutEffect(() => {
+    const element = box.current
+    if (!fill || !element) return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [fill, measure])
+  const fade =
+    'pointer-events-none absolute inset-x-0 h-10 transition-opacity duration-200'
   return (
-    <div className="relative">
+    <div
+      className={cn('relative', fill && 'min-h-0 flex-1')}
+      style={fill ? { minHeight: maxHeight } : undefined}
+    >
       <div
         ref={box}
         onScroll={measure}
-        className="overflow-y-auto overscroll-contain"
-        style={{ maxHeight }}
+        className={cn(
+          'overflow-y-auto overscroll-contain',
+          fill && 'absolute inset-0',
+        )}
+        style={fill ? undefined : { maxHeight }}
       >
         {children}
       </div>
       <div
         aria-hidden
         className={cn(
-          'pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-card to-transparent transition-opacity duration-200',
-          more ? 'opacity-100' : 'opacity-0',
+          fade,
+          'top-0 bg-gradient-to-b from-card to-transparent',
+          edges.above ? 'opacity-100' : 'opacity-0',
+        )}
+      />
+      <div
+        aria-hidden
+        className={cn(
+          fade,
+          'bottom-0 bg-gradient-to-t from-card to-transparent',
+          edges.below ? 'opacity-100' : 'opacity-0',
         )}
       />
     </div>

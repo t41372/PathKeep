@@ -36,7 +36,7 @@ export function PathsCard({ scope }: { scope: Scope }) {
         empty={t('insights.paths.empty')}
       >
         {(result) => (
-          <ScrollList maxHeight={6 * 40}>
+          <ScrollList fill maxHeight={6 * 40}>
             <ul className="flex flex-col gap-1">
               {result.data.items.map((path) => (
                 <li

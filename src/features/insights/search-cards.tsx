@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom'
 import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
 import { useFormat, useI18n } from '@/lib/i18n'
-import { shareBar } from './display'
+import { ShareBar } from './share-bar'
 import { historyPath, searchPath, sitePath } from './links'
 import { ListSkeleton, QueryBody, ScrollList, SectionStatus } from './parts'
 import { rowLink } from './display'
@@ -57,26 +57,26 @@ export function SearchEnginesCard({ scope }: { scope: Scope }) {
                     key={engine.searchEngine}
                     className="relative flex h-8 items-center gap-2.5 px-2 text-[13px]"
                   >
-                    <span
-                      aria-hidden
-                      className="absolute inset-y-0 left-0 rounded-md bg-blue/15 transition-[width] duration-500"
-                      style={shareBar(engine.searchCount, max)}
-                    />
                     {engine.site ? (
                       <SiteIcon
                         domain={engine.site}
-                        className="relative size-4 rounded-[4px] text-[9px]"
+                        className="size-4 rounded-[4px] text-[9px]"
                       />
                     ) : (
                       <Search
-                        className="relative size-3.5 text-muted-foreground"
+                        className="size-3.5 text-muted-foreground"
                         aria-hidden
                       />
                     )}
-                    <span className="relative flex-1 truncate font-medium">
+                    <span className="flex-1 truncate font-medium">
                       {engine.displayName || engine.searchEngine}
                     </span>
-                    <span className="relative font-mono text-xs text-muted-foreground">
+                    <ShareBar
+                      value={engine.searchCount}
+                      max={max}
+                      tone="blue"
+                    />
+                    <span className="font-mono text-xs text-muted-foreground">
                       {format.compact(engine.searchCount)} ·{' '}
                       {format.percent(total ? engine.searchCount / total : 0)}
                     </span>
@@ -328,19 +328,12 @@ export function SearchLandingsCard({ scope }: { scope: Scope }) {
                       to={sitePath(landing.registrableDomain, scope)}
                       className="relative flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] hover:no-underline"
                     >
-                      <span
-                        aria-hidden
-                        className="absolute inset-y-0 left-0 rounded-md bg-green/15 transition-[width] duration-500"
-                        style={shareBar(landing.searchCount, max)}
-                      />
-                      <SiteIcon
-                        domain={landing.registrableDomain}
-                        className="relative"
-                      />
-                      <span className="relative flex-1 truncate font-medium">
+                      <SiteIcon domain={landing.registrableDomain} />
+                      <span className="flex-1 truncate font-medium">
                         {landing.registrableDomain}
                       </span>
-                      <span className="relative text-xs text-muted-foreground tabular">
+                      <ShareBar value={landing.searchCount} max={max} />
+                      <span className="text-xs text-muted-foreground tabular">
                         {t('insights.landings.counts', {
                           count: landing.searchCount,
                           searches: format.compact(landing.searchCount),
