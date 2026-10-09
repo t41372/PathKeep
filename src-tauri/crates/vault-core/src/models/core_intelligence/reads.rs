@@ -56,6 +56,10 @@ pub struct EngineRanking {
     pub search_engine: String,
     pub display_name: Option<String>,
     pub search_count: i64,
+    /// The site its searches are on (the host of its search rule), so the engine can be shown
+    /// with that site's icon. None for an engine no rule names any more.
+    #[serde(default)]
+    pub site: Option<String>,
 }
 
 /// One query the user searched for, counted over a date range.

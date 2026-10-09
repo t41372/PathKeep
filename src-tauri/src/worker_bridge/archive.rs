@@ -191,6 +191,15 @@ pub(crate) fn query_history_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads the icons of the sites a screen lists.
+pub(crate) fn load_site_favicons_impl(
+    domains: Vec<String>,
+    state: &SessionState,
+) -> Result<Vec<vault_core::SiteFavicon>, CommandError> {
+    worker_result(vault_worker::load_site_favicons(&state.vault()?, domains))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Loads favicon payloads for already-visible Explorer rows after the primary
 /// history query has painted.
 pub(crate) fn load_history_favicons_impl(

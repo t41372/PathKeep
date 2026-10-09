@@ -29,7 +29,7 @@
 
 use super::{
     date_range_bounds, display_name_for_search_engine_with_map, load_search_engine_display_names,
-    rfc3339_from_millis,
+    load_search_engine_sites, rfc3339_from_millis,
 };
 use super::{delete_search_engine_rule, list_search_engine_rules, upsert_search_engine_rule};
 use crate::models::{
@@ -59,6 +59,7 @@ pub(super) fn get_search_engine_ranking_with_connection(
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<EngineRanking>> {
     let display_names = load_search_engine_display_names(connection)?;
+    let sites = load_search_engine_sites(connection)?;
     let mut statement = connection.prepare(
         "SELECT search_engine, SUM(search_count)
          FROM engine_daily_rollups
@@ -79,6 +80,7 @@ pub(super) fn get_search_engine_ranking_with_connection(
                 let engine: String = row.get(0)?;
                 Ok(EngineRanking {
                     display_name: display_name_for_search_engine_with_map(&engine, &display_names),
+                    site: sites.get(&engine).cloned(),
                     search_engine: engine,
                     search_count: row.get(1)?,
                 })

@@ -166,6 +166,8 @@ export interface EngineRanking {
   searchEngine: string
   displayName?: string | null
   searchCount: number
+  /** The site its searches are on, for its icon. */
+  site?: string | null
 }
 
 /**

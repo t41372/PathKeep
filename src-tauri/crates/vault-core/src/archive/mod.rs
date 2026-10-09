@@ -97,7 +97,7 @@ pub use self::{
         BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
         BrowseDayTopUrl, ExportCancelled, cancel_export, export_history, export_search_history,
         get_browse_day_insights, get_export_progress, list_history, load_history_favicons,
-        og_images, og_images_fetch, record_export_failure, search_history,
+        load_site_favicons, og_images, og_images_fetch, record_export_failure, search_history,
     },
     read_models::{
         RunPage, archive_availability, archive_status, load_audit_run_detail,

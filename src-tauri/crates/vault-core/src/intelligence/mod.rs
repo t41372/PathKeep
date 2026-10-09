@@ -77,7 +77,8 @@ use self::site_dictionary::{
     classify_visit, delete_search_engine_rule, display_name_for_domain,
     display_name_for_search_engine, display_name_for_search_engine_with_map,
     list_search_engine_rules, load_enabled_search_engine_rules, load_search_engine_display_names,
-    load_site_dictionary_overrides, normalize_query, upsert_search_engine_rule,
+    load_search_engine_sites, load_site_dictionary_overrides, normalize_query,
+    upsert_search_engine_rule,
 };
 use crate::{
     intelligence_catalog::RebuildMode,

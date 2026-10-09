@@ -12,7 +12,7 @@
 import { ChevronDown, Search } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Favicon } from '@/components/app/favicon'
+import { SiteIcon } from '@/features/history/site-icon'
 import {
   CardError,
   PageScroll,
@@ -243,7 +243,7 @@ function LandingsCard({
           {sites.map(([site, count]) => (
             <li key={site}>
               <Link to={sitePath(site, scope)} className={rowLink}>
-                <Favicon domain={site} />
+                <SiteIcon domain={site} />
                 <span className="flex-1 truncate font-medium">{site}</span>
                 <span className="font-mono text-xs text-muted-foreground">
                   {t('insights.times', { count: String(count) })}
@@ -341,7 +341,7 @@ function TrailPages({ trailId, date }: { trailId: string; date: string }) {
                       aria-hidden
                     />
                   ) : (
-                    <Favicon
+                    <SiteIcon
                       domain={member.registrableDomain || hostOf(member.url)}
                       className="size-4"
                     />

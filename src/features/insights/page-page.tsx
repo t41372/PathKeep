@@ -12,8 +12,9 @@
 import { ExternalLink, Search } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { BrowserNames } from '@/components/app/browser-names'
 import { EvilBarChart } from '@/components/evilcharts/charts/recharts-bar-chart'
-import { Favicon } from '@/components/app/favicon'
+import { SiteIcon } from '@/features/history/site-icon'
 import {
   CardError,
   PageScroll,
@@ -76,7 +77,7 @@ export default function PagePage() {
         title={title}
         subtitle={<span className="font-mono">{pageUrl}</span>}
         icon={
-          <Favicon
+          <SiteIcon
             domain={page?.registrableDomain || detail.data?.domain || pageUrl}
             className="size-10 rounded-xl text-base"
           />
@@ -135,7 +136,7 @@ export default function PagePage() {
         <KpiTile
           label={t('insights.page.browsers')}
           value={format.number(detail.data?.browsers.length ?? 0)}
-          detail={detail.data?.browsers.join(', ')}
+          detail={detail.data && <BrowserNames names={detail.data.browsers} />}
           loading={loading}
         />
       </div>

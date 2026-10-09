@@ -12,7 +12,7 @@ import { useMemo } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { MouseHandlerDataParam } from 'recharts'
 import { EvilBarChart } from '@/components/evilcharts/charts/recharts-bar-chart'
-import { Favicon } from '@/components/app/favicon'
+import { SiteIcon } from '@/features/history/site-icon'
 import { PageScroll, SectionCard } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
 import { useFormat, useI18n } from '@/lib/i18n'
@@ -55,7 +55,7 @@ export default function SitePage() {
         eyebrow={t('insights.site.eyebrow')}
         title={domain}
         icon={
-          <Favicon domain={domain} className="size-10 rounded-xl text-base" />
+          <SiteIcon domain={domain} className="size-10 rounded-xl text-base" />
         }
         actions={
           <>

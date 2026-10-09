@@ -2,7 +2,8 @@
 //! Lazy Explorer favicon hydration.
 //!
 //! ## Responsibilities
-//! - Resolve favicon payloads for already-visible history rows.
+//! - Resolve favicon payloads for already-visible history rows, and a site's own icon for
+//!   screens that list sites.
 //! - Preserve exact page → same-host fallback precedence. Cross-host
 //!   fallbacks at the registrable-domain level are intentionally
 //!   forbidden — `tim.github.io` must not borrow `nick.github.io`'s
@@ -34,7 +35,7 @@
 use super::super::favicon_metadata::favicon_url_metadata;
 use crate::{
     Vault,
-    models::{HistoryFavicon, HistoryFaviconLookupEntry, HistoryFaviconLookupResult},
+    models::{HistoryFavicon, HistoryFaviconLookupEntry, HistoryFaviconLookupResult, SiteFavicon},
     utils::image_data_to_data_url,
 };
 use anyhow::Result;
@@ -188,6 +189,47 @@ fn load_favicons(
 
     Ok(results)
 }
+
+/// The most recently stored icon of each site: one shown for the site's own host, else for
+/// `www.` plus the site, in any profile. For screens that list sites, not visits (Insights);
+/// History looks icons up through a visit instead. A site's icon is never borrowed from another
+/// host under the same registrable domain (see the module note).
+pub fn load_site_favicons(vault: &Vault, domains: Vec<String>) -> Result<Vec<SiteFavicon>> {
+    vault.read(Db::Archive, move |s| {
+        let mut seen = HashSet::new();
+        let mut results = Vec::new();
+        for domain in domains.into_iter().take(SITE_FAVICON_BATCH) {
+            let domain = domain.trim().trim_end_matches('.').to_ascii_lowercase();
+            if domain.is_empty() || !seen.insert(domain.clone()) {
+                continue;
+            }
+            let mut image = None;
+            for host in [domain.clone(), format!("www.{domain}")] {
+                // No profile is -1, so the cross-profile query looks in every profile.
+                image = s
+                    .query(LOAD_FAVICON_CROSS_PROFILE_HOST_SQL, params![-1, host, "", 0], |r| {
+                        Ok(r.get::<Option<Vec<u8>>>(0)?)
+                    })?
+                    .pop()
+                    .flatten();
+                if image.is_some() {
+                    break;
+                }
+            }
+            results.push(SiteFavicon {
+                favicon: image
+                    .as_deref()
+                    .and_then(image_data_to_data_url)
+                    .map(|data_url| HistoryFavicon { data_url }),
+                domain,
+            });
+        }
+        Ok(results)
+    })
+}
+
+/// At most this many sites per call: two indexed lookups each, for the rows on screen.
+const SITE_FAVICON_BATCH: usize = 64;
 
 fn load_entry_favicon(
     s: &Session<'_>,

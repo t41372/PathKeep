@@ -17,7 +17,7 @@ import {
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { EvilBarChart } from '@/components/evilcharts/charts/recharts-bar-chart'
-import { Favicon } from '@/components/app/favicon'
+import { SiteIcon } from '@/features/history/site-icon'
 import { PageScroll, SectionCard } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
 import {
@@ -316,7 +316,7 @@ function DaySitesCard({ date }: { date: string }) {
                       className="absolute inset-y-0 left-0 rounded-md bg-brand-soft"
                       style={shareBar(site.visitCount, max)}
                     />
-                    <Favicon
+                    <SiteIcon
                       domain={site.registrableDomain}
                       className="relative"
                     />
@@ -459,7 +459,7 @@ function SessionVisits({
                     <span className="w-10 font-mono text-[11px] text-muted-foreground tabular">
                       {format.time(visit.visitTimeMs)}
                     </span>
-                    <Favicon
+                    <SiteIcon
                       domain={visit.registrableDomain}
                       className="size-4"
                     />

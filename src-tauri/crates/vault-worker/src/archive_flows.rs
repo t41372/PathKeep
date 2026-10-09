@@ -541,6 +541,14 @@ pub fn load_history_favicons(
     vault_core::load_history_favicons(vault, entries)
 }
 
+/// Loads each listed site's own icon, for screens that list sites (Insights).
+pub fn load_site_favicons(
+    vault: &Vault,
+    domains: Vec<String>,
+) -> Result<Vec<vault_core::SiteFavicon>> {
+    vault_core::load_site_favicons(vault, domains)
+}
+
 /// Loads cached og:image payloads for already-visible card-mode rows.
 pub fn load_history_og_images(
     vault: &Vault,

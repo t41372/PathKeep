@@ -408,6 +408,14 @@ export interface HistoryFaviconLookupResult {
   } | null
 }
 
+/** A site's own icon, for screens that list sites rather than visits. */
+export interface SiteFaviconResult {
+  domain: string
+  favicon?: {
+    dataUrl: string
+  } | null
+}
+
 /**
  * Defines one batch og:image lookup entry. Card-mode hydration keys by page
  * URL only — og:image describes the page itself, not the visit, and the

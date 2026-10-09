@@ -255,6 +255,57 @@ function writeChromeHistory(file, visits) {
 }
 
 /**
+ * Icons Chrome stored for three of the fixture's sites (16×16 PNGs in plain
+ * colors), so the app's icons can be checked against sites with and without one.
+ */
+export const FIXTURE_FAVICON_HOSTS = {
+  'github.com':
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGNQ0dQnCTGMahjVMHw1AADjI3wBdNntmQAAAABJRU5ErkJggg==',
+  'www.youtube.com':
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVR4nGP4z8BAEiJN9aiGUQ1DSgMAkPn/Afnh+ngAAAAASUVORK5CYII=',
+  'docs.rs':
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGN40aNBEmIY1TCqYfhqAADICZwQTKfnsQAAAABJRU5ErkJggg==',
+}
+
+/**
+ * Writes Chrome's `Favicons` next to a profile's `History`: one icon per host
+ * in FIXTURE_FAVICON_HOSTS, mapped to every page of that host the profile
+ * visited, as Chrome keeps them.
+ */
+function writeChromeFavicons(file, visits, now) {
+  const db = new DatabaseSync(file)
+  db.exec(`
+    CREATE TABLE favicons (id INTEGER PRIMARY KEY, url LONGVARCHAR NOT NULL, icon_type INTEGER DEFAULT 1);
+    CREATE TABLE favicon_bitmaps (id INTEGER PRIMARY KEY, icon_id INTEGER NOT NULL, last_updated INTEGER DEFAULT 0,
+      image_data BLOB, width INTEGER DEFAULT 0, height INTEGER DEFAULT 0, last_requested INTEGER DEFAULT 0);
+    CREATE TABLE icon_mapping (id INTEGER PRIMARY KEY, page_url LONGVARCHAR NOT NULL, icon_id INTEGER);
+  `)
+  const updated = Math.trunc(now * 1000 + CHROME_EPOCH_OFFSET_US)
+  const iconIds = new Map()
+  for (const [host, png] of Object.entries(FIXTURE_FAVICON_HOSTS)) {
+    const id = iconIds.size + 1
+    iconIds.set(host, id)
+    db.prepare(
+      'INSERT INTO favicons (id, url, icon_type) VALUES (?, ?, 1)',
+    ).run(id, `https://${host}/favicon.ico`)
+    db.prepare(
+      'INSERT INTO favicon_bitmaps (icon_id, last_updated, image_data, width, height) VALUES (?, ?, ?, 16, 16)',
+    ).run(id, updated, Buffer.from(png, 'base64'))
+  }
+  const mapped = new Set()
+  const insertMapping = db.prepare(
+    'INSERT INTO icon_mapping (page_url, icon_id) VALUES (?, ?)',
+  )
+  for (const visit of visits) {
+    const id = iconIds.get(new URL(visit.url).hostname)
+    if (id === undefined || mapped.has(visit.url)) continue
+    mapped.add(visit.url)
+    insertMapping.run(visit.url, id)
+  }
+  db.close()
+}
+
+/**
  * Adds visits to an existing synthetic Chrome profile, the way a browser
  * session would between two backups. E2E uses it to prove incremental backup.
  */
@@ -427,6 +478,11 @@ export function writeSyntheticBrowsers(
     else firefox.push(visit)
   }
   writeChromeHistory(path.join(chromeRoot, 'Default', 'History'), personal)
+  writeChromeFavicons(
+    path.join(chromeRoot, 'Default', 'Favicons'),
+    personal,
+    now,
+  )
   writeChromeHistory(path.join(chromeRoot, 'Profile 1', 'History'), work)
   writeFirefoxPlaces(
     path.join(firefoxRoot, 'k3x9.default-release', 'places.sqlite'),

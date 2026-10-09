@@ -114,10 +114,10 @@ pub use archive::{
     derived_health, detect_disk_encryption_mode, doctor, export_history, export_search_history,
     finish_interrupted_data_wipe, get_browse_day_insights, get_export_progress, get_url_detail,
     is_visited_url, list_history, load_audit_run_detail, load_dashboard_snapshot,
-    load_history_favicons, load_recent_runs, load_source_stats, og_images, og_images_fetch,
-    preview_data_wipe, preview_snapshot_restore, record_export_failure, recover_archive_on_launch,
-    repair_health_issues, request_running_jobs_stop, run_backup, run_backup_with_progress,
-    run_snapshot_restore, search_history, wipe_all_data,
+    load_history_favicons, load_recent_runs, load_site_favicons, load_source_stats, og_images,
+    og_images_fetch, preview_data_wipe, preview_snapshot_restore, record_export_failure,
+    recover_archive_on_launch, repair_health_issues, request_running_jobs_stop, run_backup,
+    run_backup_with_progress, run_snapshot_restore, search_history, wipe_all_data,
 };
 pub use browser_access::{
     DISCOVERY_ISSUE_DISCOVERY_ERROR, DISCOVERY_ISSUE_FULL_DISK_ACCESS,

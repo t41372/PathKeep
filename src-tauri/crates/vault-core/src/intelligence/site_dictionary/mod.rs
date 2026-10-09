@@ -43,7 +43,8 @@ pub(crate) use overrides::load_site_dictionary_overrides;
 pub(crate) use overrides::upsert_site_dictionary_override;
 pub(crate) use search_rules::{
     delete_search_engine_rule, display_name_for_search_engine_with_map, list_search_engine_rules,
-    load_enabled_search_engine_rules, load_search_engine_display_names, upsert_search_engine_rule,
+    load_enabled_search_engine_rules, load_search_engine_display_names, load_search_engine_sites,
+    upsert_search_engine_rule,
 };
 pub(crate) use types::SiteDictionaryEntry;
 #[cfg(test)]
