@@ -128,10 +128,11 @@ pub fn record_agent_citations(
         for c in citations {
             s.execute(
                 "INSERT INTO agent_citations(run_id, history_id, canonical_url, url, title,
-                 visited_at, score) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(run_id,
-                 history_id) DO UPDATE SET canonical_url=excluded.canonical_url,
-                 url=excluded.url, title=excluded.title, visited_at=excluded.visited_at,
-                 score=excluded.score",
+                 visited_at, score, profile_id) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(run_id, history_id) DO UPDATE SET
+                 canonical_url=excluded.canonical_url, url=excluded.url, title=excluded.title,
+                 visited_at=excluded.visited_at, score=excluded.score,
+                 profile_id=excluded.profile_id",
                 params![
                     id.as_str(),
                     c.history_id,
@@ -139,7 +140,8 @@ pub fn record_agent_citations(
                     c.url.as_str(),
                     c.title.as_deref(),
                     c.visited_at.as_deref(),
-                    c.score.map(f64::from)
+                    c.score.map(f64::from),
+                    c.profile_id.as_deref()
                 ],
             )?;
         }
@@ -199,8 +201,8 @@ fn load(s: &Session<'_>, id: &str) -> Result<Option<AgentRunTrace>> {
         },
     )?;
     run.citations = s.query(
-        "SELECT history_id, canonical_url, url, title, visited_at, score FROM agent_citations
-         WHERE run_id=?1 ORDER BY history_id",
+        "SELECT history_id, canonical_url, url, title, visited_at, score, profile_id
+         FROM agent_citations WHERE run_id=?1 ORDER BY history_id",
         [id],
         |r| {
             Ok(AgentCitationRecord {
@@ -210,6 +212,7 @@ fn load(s: &Session<'_>, id: &str) -> Result<Option<AgentRunTrace>> {
                 title: r.get(3)?,
                 visited_at: r.get(4)?,
                 score: r.get::<Option<f64>>(5)?.map(|v| v as f32),
+                profile_id: r.get(6)?,
             })
         },
     )?;

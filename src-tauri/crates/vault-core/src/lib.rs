@@ -64,38 +64,33 @@ pub use agent_store::{
 pub use ai::{
     AgentJournal, AgentRunOutcome, AgentSystemContext, AgentToolContext, AiIntegrationPreview,
     AiProviderRuntime, AiRunCancelled, AiRunControl, AnyEmbeddingProvider, BinaryPlane,
-    CANDLE_CPU_DOCS_PER_SEC, CANDLE_INAPP_BASE_URL, CandidateSignals, CandleEmbeddingProvider,
-    CodeOutcome, DEFAULT_CANDLE_MODEL_FILES, DEFAULT_CANDLE_MODEL_REPO, DEFAULT_CANDLE_QUANT,
-    DEFAULT_CANDLE_TOKENIZER_REPO, DEFAULT_MAX_ITERATIONS, DEFAULT_STATIC_MODEL_FILES,
+    CandidateSignals, CodeOutcome, DEFAULT_MAX_ITERATIONS, DEFAULT_STATIC_MODEL_FILES,
     DEFAULT_STATIC_MODEL_REPO, DEFAULT_TOKEN_BUDGET, EMBEDDING_FINGERPRINT_VERSION,
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingFingerprint, EmbeddingPooling, EmbeddingProvider,
     EmbeddingRole, ExternalEmbeddingProvider, FlatVectorIndex, HostCallRecord, IndexBackfillLedger,
     IndexBackfillProgress, Int8Plane, Int8PlaneReader, Int8Vector, LimitsHit, LlmCapabilities,
     LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider, LlmResponseFormat,
     LlmRole, LlmStreamChunk, LlmToolCall, LlmToolDef, LlmUsage, MAX_FETCH_IDS,
-    MAX_GUEST_MEMORY_BYTES, MAX_HOST_CALLS, MAX_OUTPUT_BYTES, MAX_ROWS_PER_CALL, METAL_SPEEDUP,
+    MAX_GUEST_MEMORY_BYTES, MAX_HOST_CALLS, MAX_OUTPUT_BYTES, MAX_ROWS_PER_CALL,
     ModelDownloadProgress, ModelFile, NarrativeSummary, NoopDownloadProgress, PlaneBuildReport,
-    PlaneHeader, QWEN3_QUERY_TASK, QueryFamilyFacts, ReverseMapHeader, ReverseVisitMap,
-    RigLlmProvider, STATIC_INAPP_BASE_URL, STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix,
-    StaticEmbeddingProvider, ToolRegistry, TopicFacts, VectorIndex, VectorStore, VectorStoreHeader,
-    VisitContentMap, WALL_TIME_BUDGET, WorkingSetCandidate, WorkingSetConfig, WorkingSetPage,
-    ai_index_status, ai_queue_status, answer_history_question,
-    answer_history_question_with_control, apply_role_instruction, binarize, binary_bytes_for_dim,
-    build_agent_system_context, build_ai_index, build_ai_index_with_control,
-    build_dedup_content_hash, build_planes_from_store, candle_repo_for_runtime,
-    content_key_from_hash, degrade_candle_to_external, degrade_static_to_external, dequantize_int8,
-    deregister_ai_chat_run, derived_plane_bytes, dot_product, drive_agent_run,
-    drive_ai_chat_stream, ensure_model_downloaded, estimate_reembed, gguf_file_name,
+    PlaneHeader, QueryFamilyFacts, ReverseMapHeader, ReverseVisitMap, RigLlmProvider,
+    STATIC_INAPP_BASE_URL, STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix, StaticEmbeddingProvider,
+    ToolRegistry, TopicFacts, VectorIndex, VectorStore, VectorStoreHeader, VisitContentMap,
+    WALL_TIME_BUDGET, WorkingSetCandidate, WorkingSetConfig, WorkingSetPage, ai_index_status,
+    ai_queue_status, answer_history_question, answer_history_question_with_control, binarize,
+    binary_bytes_for_dim, build_agent_system_context, build_ai_index, build_ai_index_with_control,
+    build_dedup_content_hash, build_planes_from_store, content_key_from_hash,
+    degrade_static_to_external, dequantize_int8, deregister_ai_chat_run, derived_plane_bytes,
+    dot_product, drive_agent_run, drive_ai_chat_stream, ensure_model_downloaded, estimate_reembed,
     hamming_distance, load_assistant_run_response, model_dir_for_repo, model_is_loadable,
     model_is_present_and_verified, parse_static_config, planes_are_stale, preview_ai_integrations,
     probe_tool_capability, provider_capabilities, provider_connection_failure_report,
-    quantize_int8, reconcile_ai_queue_controls, recoverable_ai_jobs, reembed_estimate_for,
-    register_ai_chat_run, request_ai_chat_cancel, request_cancel_all_ai_chat_runs,
-    resolve_agent_system_context, reverse_map_plane_bytes, run_code_in_sandbox,
-    runtime_uses_candle, runtime_uses_static, score_candidate, select_embedding_provider,
-    select_working_set, semantic_search_history, static_embed_ids, static_l2_normalize,
-    static_repo_for_runtime, summarize_query_family, summarize_topic, test_provider_connection,
-    vector_plane_bytes, visit_map_plane_bytes,
+    quantize_int8, reconcile_ai_queue_controls, recoverable_ai_jobs, register_ai_chat_run,
+    request_ai_chat_cancel, request_cancel_all_ai_chat_runs, resolve_agent_system_context,
+    reverse_map_plane_bytes, run_code_in_sandbox, runtime_uses_static, score_candidate,
+    select_embedding_provider, select_working_set, semantic_search_history, static_embed_ids,
+    static_l2_normalize, static_repo_for_runtime, summarize_query_family, summarize_topic,
+    test_provider_connection, vector_plane_bytes, visit_map_plane_bytes,
 };
 pub use annotations::{
     AnnotationPage, get_annotation, list_annotations, replace_tags, search_annotations, set_notes,
@@ -179,7 +174,8 @@ pub use takeout::{
     restore_import_batch_with_control, revert_import_batch, revert_import_batch_with_control,
 };
 /// Pure SHA-256 helpers (hex digest of bytes / of a file's contents). Re-exported so the worker's
-/// model-download tests + the candle e2e can pin digests against the same impl the manifest uses.
+/// model-download tests and the static model e2e can pin digests against the same impl the
+/// manifest uses.
 pub use utils::{file_sha256_hex, sha256_hex};
 
 pub mod search;

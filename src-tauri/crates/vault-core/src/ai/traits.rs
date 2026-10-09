@@ -26,8 +26,8 @@ use std::pin::Pin;
 
 /// Whether an embedding request is for a search query or an indexed document.
 ///
-/// Asymmetric embedding models (and instruction-tuned models such as the Qwen3 family)
-/// encode queries and documents differently. The role threads from the call site all the
+/// Asymmetric embedding models (instruction-tuned ones in particular) encode queries and
+/// documents differently. The role threads from the call site all the
 /// way to the provider so neither the index nor search silently mixes the two encodings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EmbeddingRole {
@@ -132,7 +132,7 @@ pub struct EmbeddingDescriptor {
     pub instruction_template: Option<String>,
 }
 
-/// Boundary trait for any source of embedding vectors (cloud, local, in-app candle).
+/// Boundary trait for any source of embedding vectors (cloud, local, in-app).
 ///
 /// Implementations live behind this trait so the index and search layers depend only on
 /// PathKeep types. The `role` parameter is mandatory so query/document asymmetry can never
@@ -140,8 +140,8 @@ pub struct EmbeddingDescriptor {
 ///
 /// `embed` is intentionally RPITIT (`-> impl Future`) to keep the high-volume embedding hot
 /// path (the 14.4M-row S1 throughput gate) monomorphized and inlinable — it is therefore NOT
-/// `dyn`-compatible. W-AI-4 ships two coexisting impls (external `/v1/embeddings` + in-app
-/// candle) selected at runtime; it MUST dispatch them via an `enum AnyEmbeddingProvider { .. }`
+/// `dyn`-compatible. The coexisting impls (external `/v1/embeddings` + the in-app static model)
+/// are selected at runtime and MUST be dispatched via an `enum AnyEmbeddingProvider { .. }`
 /// with a hand-rolled `impl EmbeddingProvider`, NOT `Box<dyn EmbeddingProvider>`. Do not box
 /// `embed` for false symmetry with `LlmProvider::chat_stream` (whose only boxed part is the
 /// stream item, on a far lower-volume path).

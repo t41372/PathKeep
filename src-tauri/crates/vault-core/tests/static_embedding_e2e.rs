@@ -1,12 +1,13 @@
 //! Env-gated real-machine tests for the in-app HAND-ROLLED static (model2vec) engine (W-AI-4c).
 //!
 //! These link `vault-core` as a normal dependency, so they exercise the REAL safetensors matrix
-//! load, tokenizer, and hf-hub download path (NOT the `cfg(test)` stub). They are gated on env vars
+//! load, tokenizer, and download path (NOT the `cfg(test)` stub). They are gated on env vars
 //! so they NEVER run in the coverage gate / CI:
 //!
 //! - `PATHKEEP_STATIC_S1=1` → S1 throughput benchmark (docs/sec single + batched, plus the
 //!   extrapolated 14.4M first-fill wall clock). The static tier is the WHOLE point of W-AI-4c: it
-//!   must be ORDERS faster than candle's ~1.25 d/s (so the 14.4M first fill is minutes, not days).
+//!   must be orders of magnitude faster than a transformer forward pass (~1.25 d/s measured for a
+//!   quantized Qwen3 on the target), so the 14.4M first fill is minutes, not days.
 //! - `PATHKEEP_STATIC_PARITY=1` → hand-roll-vs-reference cosine parity (THE static correctness
 //!   proof): the SAME texts embedded by our hand-rolled engine and by the Python model2vec reference
 //!   must have cosine > 0.999. The reference vectors are PINNED in a committed fixture
@@ -136,9 +137,12 @@ async fn static_s1_throughput_benchmark() {
     eprintln!(
         "| static | dim {dim} | single {single_dps:.0} d/s | batched {batch_dps:.0} d/s | 14.4M ETA {eta_14m_minutes:.1} min |"
     );
-    eprintln!("(candle Q8_0 baseline: ~1.25 d/s → 14.4M ≈ days; static should be ORDERS faster)");
+    eprintln!("(a quantized transformer did ~1.25 d/s → 14.4M ≈ days; static must be far faster)");
     eprintln!("=== end S1 ===\n");
-    assert!(batch_dps > 100.0, "static throughput must be ORDERS faster than candle (>100 d/s)");
+    assert!(
+        batch_dps > 100.0,
+        "static throughput must be far faster than a transformer (>100 d/s)"
+    );
 }
 
 /// Path to the COMMITTED Python-model2vec reference fixture (the standing parity gate).

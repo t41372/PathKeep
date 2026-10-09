@@ -108,9 +108,9 @@ pub(super) fn rig_llm_capabilities(config: &super::AiProviderConfig) -> LlmCapab
     // floor does not advertise it through rig.
     let prompt_cache = native_tool_calling;
     LlmCapabilities {
-        // Honest floor: only native adapters self-certify tool calling; the OpenAI-compat floor
-        // must be probed (see `probe_tool_capability`) before the harness trusts it.
-        tool_call: native_tool_calling,
+        // The same answer the agent acts on when it decides to send tools, so the connection
+        // test never reports "no tools" for a provider the agent then sends tools to.
+        tool_call: request_format_self_certifies_tools(&config.request_format),
         structured_output: native_tool_calling,
         streaming: interactive_chat,
         prompt_cache,
@@ -922,12 +922,11 @@ mod tests {
 
     #[test]
     fn capabilities_reflect_request_format() {
-        // Honest floor: the OpenAI-compat floor streams but does NOT self-certify tool calling /
-        // structured output — it is probe-required (W-AI-7).
+        // The OpenAI-compatible floor streams and is sent tools; structured output stays native-only.
         let openai = RigLlmProvider::new(runtime(AiRequestFormat::OpenAi, "caps-openai"));
         let caps = openai.capabilities();
         assert!(caps.streaming);
-        assert!(!caps.tool_call, "floor must not optimistically claim tool calling");
+        assert!(caps.tool_call, "the report matches what the agent sends");
         assert!(!caps.structured_output);
         assert!(!caps.prompt_cache);
         assert_eq!(caps.max_context_tokens, None);

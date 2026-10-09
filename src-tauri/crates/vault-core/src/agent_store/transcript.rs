@@ -254,8 +254,8 @@ fn hydrate_messages(
         std::collections::HashMap::new();
     s.for_each(
         &format!(
-            "SELECT run_id, history_id, canonical_url, url, title, visited_at, score FROM
-             agent_citations WHERE run_id IN ({placeholders}) ORDER BY run_id, history_id"
+            "SELECT run_id, history_id, canonical_url, url, title, visited_at, score, profile_id
+             FROM agent_citations WHERE run_id IN ({placeholders}) ORDER BY run_id, history_id"
         ),
         args,
         |r| {
@@ -266,7 +266,7 @@ fn hydrate_messages(
                 title: r.get(4)?,
                 visited_at: r.get::<Option<String>>(5)?.unwrap_or_default(),
                 score: r.get::<Option<f64>>(6)?.map(|v| v as f32),
-                profile_id: String::new(),
+                profile_id: r.get::<Option<String>>(7)?.unwrap_or_default(),
             });
             Ok(())
         },

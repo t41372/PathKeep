@@ -616,12 +616,9 @@ pub fn build_ai_index_now(
     })
 }
 
-/// Estimates the cost/time of a re-embed run for one scope (W-AI-9 Sub-block D, 05 §7).
-///
-/// Read-only: it opens the archive-attached connection and calls the PURE [`estimate_reembed`] (which
-/// reads only the bounded working set or the `COUNT(*)` of unique pages), so it NEVER loads a model,
-/// embeds, or touches the network. Surfaced to the FE BEFORE a re-embed fires so the user sees the
-/// cost (PME). `gpu_available` reflects whether THIS binary was built with the `metal` feature.
+/// Counts what a re-embed run for one scope would index (W-AI-9 Sub-block D, 05 §7), shown before it
+/// starts. Read-only: it reads only the bounded working set or the `COUNT(*)` of unique pages, so it
+/// never loads a model, embeds, or touches the network.
 pub fn estimate_reembed_now(
     vault: &vault_core::Vault,
     scope: ReembedScope,

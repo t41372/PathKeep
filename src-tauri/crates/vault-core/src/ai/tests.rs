@@ -3020,8 +3020,8 @@ fn normalize_local_base_url_rewrites_only_the_localhost_host_label() {
     );
     // A leading-substring host (`localhosts`) is not the exact label.
     assert_eq!(normalize_local_base_url("http://localhosts:1234"), "http://localhosts:1234");
-    // The candle in-app sentinel has no `://`; its host token is `candle`, never `localhost`.
-    assert_eq!(normalize_local_base_url(CANDLE_INAPP_BASE_URL), CANDLE_INAPP_BASE_URL);
+    // The in-app sentinel has no `://`; its host token is `static`, never `localhost`.
+    assert_eq!(normalize_local_base_url(STATIC_INAPP_BASE_URL), STATIC_INAPP_BASE_URL);
     // An IPv6 loopback literal is left exactly as-is (its inner colons are not a port separator,
     // and it is never the `localhost` label).
     assert_eq!(normalize_local_base_url("http://[::1]:1234/v1"), "http://[::1]:1234/v1");

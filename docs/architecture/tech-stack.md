@@ -24,11 +24,11 @@
 | Secret storage   | `keyring-core` + platform-native stores                                                             | 保持 native keyring truth，避免把多餘的 fallback runtime 打進桌面 binary                                                |
 | 全文搜尋         | SQLite FTS5 + ICU4X / OpenCC-asset lexical analyzer                                                 | 核心召回能力，不依賴外部服務；CJK gram / substring / bounded typo 召回不上 embedding                                    |
 | 向量 / 語義檢索  | 自製 `FlatVectorIndex`（binary-recall → int8-rescore）                                              | hand-rolled flat 向量盤（`derived/vectors/`），不引入 LanceDB；optional、consent-gated（AI redesign 2026 交付）         |
-| Embedding 引擎   | model2vec static base + candle Qwen3 quality tier                                                   | in-app 純 Rust 推理；content-hash dedup；opt-in Apple-Silicon Metal GPU tier（off-by-default `metal` cargo feature）    |
+| Embedding 引擎   | model2vec static（`safetensors` + `tokenizers`）                                                    | in-app 純 Rust 推理；content-hash dedup。candle Qwen3 層與 Metal GPU 層 2026-10-09 移除（畫面上從沒有入口）             |
 | AI 框架          | rig.rs（external transport）+ 自有 trait 邊界                                                       | rig 藏進 `LlmProvider`/`EmbeddingProvider` adapter；in-app embedding / vector / agent harness / code-mode 為自有實作    |
 | 對外 AI 介面     | rmcp（localhost stdio MCP server）                                                                  | opt-in、hard-default-OFF、read-only、audited；對外暴露同一條 bounded search                                             |
 | 沙箱             | Wasmtime + Javy（code-mode）                                                                        | LLM 生成 JS 在零 ambient 權限沙箱跑只讀查詢；default-enabled，沙箱本身即安全邊界                                        |
-| AI 推理          | 本地推理（Ollama / LM Studio / in-app candle）或雲端 API                                            | 可選、可配置；in-app candle embedding 不依賴外部 server                                                                 |
+| AI 推理          | 本地推理（Ollama / LM Studio / in-app static embedding）或雲端 API                                  | 可選、可配置；in-app embedding 不依賴外部 server                                                                        |
 | 審計             | 本地 audit artifacts + optional Git history                                                         | 審計檔案不依賴使用者電腦安裝 Git；Git 可用時才提供額外可追溯性                                                          |
 
 ## 數據庫分層架構
@@ -46,14 +46,14 @@
 
 ## AI 框架決策：rig.rs（external transport）+ 自有 trait 邊界
 
-> **2026-06 AI redesign 落地 note：** AI redesign 2026 program（W-AI-1..9）已交付並 reachable。rig 不再是「整個 AI 棧」，而是被藏進 `LlmProvider` / `EmbeddingProvider` adapter 的 external transport；in-app embedding（candle）、向量盤（自製 `FlatVectorIndex`）、agent harness、code-mode 沙箱、MCP 對外面都是自有實作。下方的 supply-chain / packaging amendment 仍準確（記錄當時為何先移除 LanceDB），保留作歷史脈絡——但「optional AI deferred / no vector payload」這個 v0.1.0/v0.2.0 結論已被本 program 取代。
+> **2026-06 AI redesign 落地 note：** AI redesign 2026 program（W-AI-1..9）已交付並 reachable。rig 不再是「整個 AI 棧」，而是被藏進 `LlmProvider` / `EmbeddingProvider` adapter 的 external transport；in-app embedding（起初 candle，2026-10-09 起只剩 model2vec static）、向量盤（自製 `FlatVectorIndex`）、agent harness、code-mode 沙箱、MCP 對外面都是自有實作。下方的 supply-chain / packaging amendment 仍準確（記錄當時為何先移除 LanceDB），保留作歷史脈絡——但「optional AI deferred / no vector payload」這個 v0.1.0/v0.2.0 結論已被本 program 取代。
 
-| 維度          | 說明                                                                                                    |
-| ------------- | ------------------------------------------------------------------------------------------------------- |
-| 為什麼 rig.rs | Rust 原生 LLM/Embedding 框架，作 external chat / embedding transport，藏在自有 trait 後面               |
-| Embedding     | 雙 `EmbeddingProvider`：external（OpenAI-compatible `/v1/embeddings`）+ in-app candle Qwen3（純 Rust）  |
-| LLM           | external streaming chat（OpenAI-compatible / Anthropic / Google / Ollama / LM Studio）；驅動 agent 問答 |
-| 向量存儲      | 自製 `FlatVectorIndex`（`derived/vectors/` 的 `.pkvec/.pkbin/.pki8/.pkmap` sidecar plane），非 LanceDB  |
+| 維度          | 說明                                                                                                       |
+| ------------- | ---------------------------------------------------------------------------------------------------------- |
+| 為什麼 rig.rs | Rust 原生 LLM/Embedding 框架，作 external chat / embedding transport，藏在自有 trait 後面                  |
+| Embedding     | 雙 `EmbeddingProvider`：external（OpenAI-compatible `/v1/embeddings`）+ in-app model2vec static（純 Rust） |
+| LLM           | external streaming chat（OpenAI-compatible / Anthropic / Google / Ollama / LM Studio）；驅動 agent 問答    |
+| 向量存儲      | 自製 `FlatVectorIndex`（`derived/vectors/` 的 `.pkvec/.pkbin/.pki8/.pkmap` sidecar plane），非 LanceDB     |
 
 2026-04-07 implementation note：
 

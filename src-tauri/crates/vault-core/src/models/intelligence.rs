@@ -318,7 +318,7 @@ pub fn built_in_static_embedding_provider() -> AiProviderConfig {
 ///
 /// Mirrors the built-in-merge pattern used for enrichment plugins / deterministic modules: the static
 /// provider is re-materialized FIRST on every load so it can never be deleted or corrupted out of the
-/// list, while every user-defined provider (external / candle) is preserved verbatim after it. A
+/// list, while every user-defined (external) provider is preserved verbatim after it. A
 /// user-customized static `default_model` (a future swapped static model) is the ONE field carried
 /// over from the stored row; the identity fields are always forced back to canonical so a hand-edited
 /// config cannot disable the sentinel or flip its purpose. Idempotent: re-merging an already-merged
@@ -343,7 +343,7 @@ pub fn merge_embedding_providers(current: &[AiProviderConfig]) -> Vec<AiProvider
 
 /// Defaults the selected embedding provider to the built-in static one when none is validly selected.
 ///
-/// Respects an explicit, still-VALID user selection (an external/candle provider that exists in the
+/// Respects an explicit, still-VALID user selection (an external provider that exists in the
 /// list) — it is never silently overridden. Only `None` or a DANGLING id (pointing at a provider that
 /// no longer exists) falls back to the built-in static provider, so the always-on local tier is the
 /// honest default the moment AI is configured. Must be called AFTER [`merge_embedding_providers`] so
@@ -529,16 +529,6 @@ pub struct AiSettings {
     /// one (the normalized top is `1.0`, the boost cap is `0.5`). Zero disables the boost entirely.
     #[serde(default = "default_starred_boost")]
     pub starred_boost: f32,
-    /// Opt-in: run the heavy-tier candle embedding on the Apple-Silicon Metal GPU (W-AI-9 Sub-block D,
-    /// 05 §7). ADDITIVE + `#[serde(default)]` so a frozen config without the field deserializes to
-    /// `false`. HARD-DEFAULT-OFF: a fresh install never touches the GPU. INERT unless the binary was
-    /// built with the off-by-default `metal` cargo feature — in a CPU-only build the engine selects
-    /// `Device::Cpu` regardless of this flag (the FE renders an honest "needs a Metal build" state
-    /// rather than a green toggle that lies). Toggling this does NOT change `model_id`/fingerprint
-    /// (CPU and Metal produce the same vectors), so it never auto-invalidates the index — re-embedding
-    /// is an explicit user action.
-    #[serde(default)]
-    pub gpu_enabled: bool,
 }
 
 /// Default RRF `k` constant (the canonical Reciprocal Rank Fusion value).
@@ -680,8 +670,6 @@ impl Default for AiSettings {
             lexical_weight: default_search_weight(),
             semantic_weight: default_search_weight(),
             starred_boost: default_starred_boost(),
-            // Hard-default-OFF: no GPU is touched until the user opts in AND the binary is a Metal build.
-            gpu_enabled: false,
         }
     }
 }
@@ -1015,26 +1003,16 @@ pub struct AiIndexRequest {
     pub scope: ReembedScope,
 }
 
-/// Read-only cost/time estimate for a re-embed run (W-AI-9 Sub-block D, 05 §7 PME "estimate ~X time").
-///
-/// Pure math over bounded reads (working-set length or unique-content-key count) and the S1 throughput
-/// constants — NO model load, NO network, NO embedding. Surfaced BEFORE a re-embed fires so the user
-/// sees the cost (PME transparency). `gpu_available` reflects whether this binary was built with the
-/// `metal` feature, so the FE can tell an honest story instead of promising a speedup a CPU-only build
-/// cannot deliver.
+/// How much a re-embed run would index, shown before it starts (PME): the pages it covers. It says
+/// nothing about time: the rate depends on the engine and the machine, and a guessed rate told users
+/// a minutes-long rebuild would take most of a day.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ReembedEstimate {
     /// The scope this estimate was computed for (echoed back so the FE can label it).
     pub scope: ReembedScope,
-    /// How many pages would be embedded (working-set length, or unique `content_key` count for Full).
+    /// How many pages would be embedded (working-set length, or unique page count for Full).
     pub page_count: u64,
-    /// Estimated wall-clock minutes on the 4-core CPU baseline (S1: 1.25 docs/sec).
-    pub est_minutes_cpu: f64,
-    /// Estimated wall-clock minutes on the Metal GPU (CPU estimate ÷ the measured speedup).
-    pub est_minutes_gpu: f64,
-    /// Whether this binary can actually run the GPU path (`cfg!(feature = "metal")`).
-    pub gpu_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1262,7 +1240,7 @@ pub const MODEL_DOWNLOAD_PROGRESS_EVENT: &str = "pathkeep://model-download-progr
 /// [`MODEL_DOWNLOAD_PROGRESS_EVENT`].
 ///
 /// Mirrors the [`crate::ModelDownloadProgress`] trait callbacks so the worker can forward per-file
-/// download progress to the UI without leaking hf-hub types across the IPC boundary. `kind`-tagged
+/// download progress to the UI without leaking download types across the IPC boundary. `kind`-tagged
 /// so the front end can route each phase (started / finished / done / error) into the right UI state.
 pub enum ModelDownloadProgressEvent {
     /// One model file started downloading (`total_bytes` is the HTTP content-length, 0 if unknown).
@@ -1293,12 +1271,10 @@ pub enum ModelDownloadProgressEvent {
 /// Mirrors the front-end `AiChatCitation` shape so a reopened conversation renders the SAME
 /// starrable evidence rows the live turn streamed. The fields come from the durable `agent_citations`
 /// journal (keyed by the run that answered this message), so the evidence — and its W-STAR star key —
-/// survives a reopen exactly as it survived a crash. `profile_id` is not journaled with a citation
-/// (the star key is the canonical url, not the profile), so it is empty on the reconstructed row;
-/// every consumer (the evidence panel) keys off `canonical_url` / `url`, never `profile_id`.
+/// survives a reopen exactly as it survived a crash, with the same profile the live turn showed.
 pub struct AgentCitation {
     pub history_id: i64,
-    /// Empty on a reconstructed citation: the agent_citations journal does not retain the profile.
+    /// Empty only on rows converted from an archive that predates keeping it.
     #[serde(default)]
     pub profile_id: String,
     pub url: String,
@@ -2543,19 +2519,6 @@ mod tests {
         assert_eq!(settings.lexical_weight, 1.0);
         assert_eq!(settings.semantic_weight, 1.0);
         assert_eq!(settings.starred_boost, 0.15);
-        // W-AI-9-D: the GPU opt-in is additive + hard-default-OFF, so an older config parses to false.
-        assert!(!settings.gpu_enabled);
-    }
-
-    #[test]
-    fn ai_settings_gpu_enabled_round_trips_when_present() {
-        // An explicit `gpuEnabled: true` deserializes (and survives re-serialization), so a future
-        // Metal build honors the persisted opt-in.
-        let payload = json!({ "gpuEnabled": true });
-        let settings: AiSettings = serde_json::from_value(payload).unwrap();
-        assert!(settings.gpu_enabled);
-        let reserialized = serde_json::to_value(&settings).unwrap();
-        assert_eq!(reserialized["gpuEnabled"], json!(true));
     }
 
     #[test]

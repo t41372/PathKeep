@@ -81,7 +81,8 @@ These matter more than any test, and come first.
    `cfg(coverage)` twins (the coverage gate is gone), test-only stubs inside production code, dead
    commands (`get_browse_day_insights`, the legacy queued assistant, `narrative.rs`, and others),
    duplicate test-only builders in Insights. Code that is reachable from no screen but is described as
-   shipped in an accepted doc (the candle embedding tier) is a user decision first.
+   shipped in an accepted doc (the candle embedding tier) is a user decision first. The user
+   decided to remove the candle tier (2026-10-09); the review is `candle-removal.md`.
 4. **Tests that never run.** The `devtools-bridge` tests and the Vitest files run in the gate or go;
    clock-seeded torture tests get a fixed seed.
 5. **E2E scenarios the reports name** where a deleted test was the only guard: Takeout and Safari

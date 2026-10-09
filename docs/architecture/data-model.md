@@ -135,7 +135,9 @@ to return the complete transcript; save, rename and delete payloads are unchange
 All six desktop/worker entry points use the session's Vault and retain the existing
 App Lock gate. The agent journal uses that same Vault, including after keychain
 unlock without a legacy SQLCipher password. Process-death tests cover unfinished
-journals, completed runs, citations and idempotent tool-result replay in both modes.
+journals, completed runs and citations in both modes. Nothing replays an interrupted
+run: a reopened chat reads each answer's citations and token usage, and an answer cut
+by a crash stays marked interrupted (decided 2026-10-09).
 
 This branch is not usable as a complete archive application until migration area 6.
 Archive writes use Turso `.db` files. Password unlock retains the exact typed archive
@@ -428,7 +430,7 @@ writer results.
   - 自製 `FlatVectorIndex` 的 on-disk plane：`.pkvec`（raw f32 source）、`.pkmap`（visit→content_key dedup map，W-AI-4c）、`.pkbin`（binary-recall plane）、`.pki8`（int8-rescore plane）
   - 全屬可重建衍生狀態（14.4M 尾端的 f32 約 59 GB），**排除出 export bundle**，在 target 重嵌而非搬運
 - `models/`
-  - in-app candle embedding 下載的模型權重（SHA-256 pin）；可重新下載，**排除出 export bundle**
+  - in-app embedding（model2vec static）下載的模型權重（SHA-256 pin）；可重新下載，**排除出 export bundle**
 - `sidecars/intelligence-blobs/`
   - W-ENRICH content-fetch 抓回的 readable body / caption blob（content-addressed）；可重抓、可能大，**排除出 export bundle**（已投影的 bounded enrichment text 隨 archive 的 `search_documents` 搬移，目的地重建索引後仍能離線搜尋；intelligence DB 本身不進 native bundle）
 

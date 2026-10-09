@@ -4,7 +4,7 @@
 > Intelligence 是建立在 Archive 夠好的基礎上的增值層。  
 > AI 功能已由 AI redesign 2026 program 交付並 reachable；整個 AI 面 **預設關閉、consent-gated**，沒有 AI 時 deterministic intelligence 仍完整可用。
 >
-> **2026-06-22 AI shipped note（取代下方所有 v0.1/v0.2 deferral）：** AI redesign 2026 program（W-AI-1..9）已交付：streaming external LLM chat、durable agent harness、in-app（candle Qwen3）+ external embedding、`FlatVectorIndex` 語義/混合檢索（RRF + bounded starred boost + `is:starred` facet）、code-mode（Wasmtime + Javy 沙箱）、MCP 對外面、skills、site content-fetch enrichment。下方 2026-04/05 寫下的「AI Assistant / embedding / semantic / MCP / readable-content 全部 deferred、UI 必須顯示 `Coming in v0.3`」結論**已過時，不再適用**——這些 surface 現在已 reachable，但 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag）。安全邊界與 threat model 見 [ai-security-posture.md](../architecture/ai-security-posture.md)。
+> **2026-06-22 AI shipped note（取代下方所有 v0.1/v0.2 deferral）：** AI redesign 2026 program（W-AI-1..9）已交付：streaming external LLM chat、durable agent harness、in-app（model2vec static）+ external embedding（2026-10-09 移除 candle Qwen3 層）、`FlatVectorIndex` 語義/混合檢索（RRF + bounded starred boost + `is:starred` facet）、code-mode（Wasmtime + Javy 沙箱）、MCP 對外面、skills、site content-fetch enrichment。下方 2026-04/05 寫下的「AI Assistant / embedding / semantic / MCP / readable-content 全部 deferred、UI 必須顯示 `Coming in v0.3`」結論**已過時，不再適用**——這些 surface 現在已 reachable，但 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag）。安全邊界與 threat model 見 [ai-security-posture.md](../architecture/ai-security-posture.md)。
 >
 > **2026-04-15 truth note:** deterministic baseline 已由 [core-intelligence-ultimate-design.md](core-intelligence-ultimate-design.md) 正式接管；[deterministic-intelligence.md](deterministic-intelligence.md) 與 [ADR-006](../architecture/decisions/006-deterministic-intelligence-boundary.md) 保留為它的歷史與 trade-off 背景。這份文檔現在描述 optional AI / assistant / MCP / semantic runtime / queue review 的 shipping contract；任何殘留的 deterministic insights / session / dwell / embedding-first baseline wording，都屬 legacy 敘述，不再是 accepted source of truth。
 >
@@ -68,7 +68,7 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 ### 需求要點
 
 - semantic / hybrid search 已交付（W-AI-4/5/6），但 **off by default + consent-gated**（master `ai.enabled` + `semantic_index_enabled`）；沒開時 History 搜尋維持全文 / regex（lexical recall v2）。
-- 向量相似度走 in-app（candle Qwen3）或 external（OpenAI-compatible `/v1/embeddings`）embedding，寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
+- 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding，寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
 - Embedding 增量計算、content-hash dedup（一個 content_key 一條向量，fan-out 到所有共享該內容的 visit）、本地索引、避免重算。
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
@@ -105,7 +105,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 - queued assistant request 可在執行前 replay / cancel；running AI / deterministic job 改為 cooperative stop request，而不是假裝立即中斷。UI 必須清楚說明「已請求取消，會在目前 phase / chunk 邊界停止」。
 - Assistant 必須尊重 shell 的共享 profile scope；若使用者透過 deep-link 帶進明確 `profileId`，頁面級 scope 優先於共享 scope。
 - Assistant 的 empty / AI-disabled state 不能只剩靜態說明；至少要提供 seeded prompt 建議、queue / settings 修復入口，以及在共享 profile scope 生效時明講目前回答邊界是 scoped view。
-- shipped（W-AI-1/2/3/7）：Assistant 現在是 streaming chat surface——token / reasoning / tool-use 即時可視，markdown 串流渲染，引用的頁面可連回 History（`/history?q=<標題>&visit=<id>`）。底層是 durable agent harness（journal-before-observe + replay，崩潰可續跑不重複收費），可呼叫 5 個工具：`search_history`（hybrid）、`search_bm25`、`search_vector`、`search_hybrid`、`run_code`（code-mode 沙箱，見 §4-code-mode）。chat 持久化在 `derived/agent.db`，transcript **不進 export**。整個 surface gated on `ai.enabled && assistant_enabled`（預設關）。
+- shipped（W-AI-1/2/3/7）：Assistant 現在是 streaming chat surface——token / reasoning / tool-use 即時可視，markdown 串流渲染，引用的頁面可連回 History（`/history?q=<標題>&visit=<id>`）。底層是自己寫的 agent loop（取消、token 預算、回合上限、引用）。回答中途 app 被關掉或當掉，那則回答標成中斷，要重問；不會從中斷處續跑（用戶 2026-10-09 決定：不做續跑，改正這裡原本「崩潰可續跑不重複收費」的說法）。重開對話時讀得到的是每則回答的引用與 token 用量，可呼叫 5 個工具：`search_history`（hybrid）、`search_bm25`、`search_vector`、`search_hybrid`、`run_code`（code-mode 沙箱，見 §4-code-mode）。chat 持久化在 `derived/agent.db`，transcript **不進 export**。整個 surface gated on `ai.enabled && assistant_enabled`（預設關）。
 
 ---
 
@@ -381,7 +381,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 
 ### 任務類型
 
-- **Embedding 計算**：已交付（W-AI-4）；chunked / resumable backfill 生成 embedding vector 進 `derived/vectors/` sidecar plane，gated on `semantic_index_enabled`。re-embed scope 分 `incremental` / `working-set` / `full`，並有 cost / time estimator（CPU vs Metal GPU）。
+- **Embedding 計算**：已交付（W-AI-4）；chunked / resumable backfill 生成 embedding vector 進 `derived/vectors/` sidecar plane，gated on `semantic_index_enabled`。re-embed scope 分 `incremental` / `working-set` / `full`；重建前先說要重新索引幾個頁面（`estimate_reembed`）。2026-10-08 拿掉了時間估計：它用已移除的 candle 引擎的速度（1.25 頁 / 秒）計算，實際跑的是內建靜態模型，10 萬頁說要約 22 小時、實際幾分鐘。
 - **Content-fetch（readable content / og:image）**：已交付（W-ENRICH）但 **egress hard-default-OFF**（`content_fetch_enabled`，預設關）；開啟後背景抓取頁面內容做內容增強，SSRF-guarded、無 cookie/Referer、per-host rate-limited（見 [ai-security-posture.md](../architecture/ai-security-posture.md) §4）。
 - **Insight 計算**：計算各洞察模塊的結果。
 - **LLM 摘要生成**：生成 topic 命名、對比式摘要、定期總結等（有 LLM provider 時加值，無 provider 退 deterministic）。

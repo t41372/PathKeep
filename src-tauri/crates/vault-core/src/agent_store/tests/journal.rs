@@ -12,6 +12,7 @@ fn citation(history_id: i64, canonical: &str) -> AgentCitationRecord {
         title: Some(format!("page {history_id}")),
         visited_at: Some("2026-06-21T00:00:00Z".to_string()),
         score: Some(0.5),
+        profile_id: Some("chrome:Default".to_string()),
     }
 }
 
@@ -449,9 +450,7 @@ fn load_conversation_reconstructs_citations_and_usage_for_the_answering_turn() {
         "the W-STAR star key survives the reopen"
     );
     assert_eq!(assistant.citations[1].history_id, 20);
-    // profile_id is not journaled with a citation; it reconstructs empty (every consumer keys off
-    // canonical_url/url, never profile_id).
-    assert!(assistant.citations[0].profile_id.is_empty());
+    assert_eq!(assistant.citations[0].profile_id, "chrome:Default", "the profile survives too");
 }
 
 #[test]

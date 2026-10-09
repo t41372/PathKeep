@@ -1,9 +1,6 @@
 dist
 node_modules
-# Downloaded candle model weights / caches for the env-gated W-AI-4b tests (large, reproducible).
-artifacts/candle-models
 src-tauri/artifacts
-**/candle-models
 playwright-report
 artifacts/e2e
 .playwright-mcp

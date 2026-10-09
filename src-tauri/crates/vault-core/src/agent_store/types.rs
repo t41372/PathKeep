@@ -90,6 +90,8 @@ pub struct AgentCitationRecord {
     pub title: Option<String>,
     pub visited_at: Option<String>,
     pub score: Option<f32>,
+    /// The browser profile of the cited visit; none on rows converted from before it was kept.
+    pub profile_id: Option<String>,
 }
 
 /// A fully loaded run trace for replay/inspection: the header plus its ordered steps + citations.

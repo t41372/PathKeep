@@ -111,6 +111,7 @@ fn journal_crash_child() {
             title: None,
             visited_at: None,
             score: Some(0.5),
+            profile_id: None,
         }],
     )
     .unwrap();

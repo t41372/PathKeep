@@ -5,7 +5,7 @@
 > 這份文檔不是在描述「理想上想做什麼」，而是在描述 **PathKeep 現在實際上已經做了什麼、怎麼做、哪些地方只做到一半、哪些舊文檔已經不夠準**。  
 > 如果你要重新設計 intelligence UI，或要先搞清楚現在 repo 裡的 intelligence 到底是什麼，先讀這份。
 >
-> **2026-06-22 AI-shipped note:** optional AI layer 已由 AI redesign 2026 program（W-AI-1..9）交付並 reachable——streaming assistant、durable agent harness、in-app（candle Qwen3）+ external embedding、`FlatVectorIndex` 語義/混合檢索、code-mode 沙箱、MCP 對外面、skills、content-fetch enrichment 都已落地，但整個 AI 面 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag）。本文中早期標 `v0.2 disabled / Coming in v0.3` 的 AI 行已更新為 shipped 狀態；安全邊界與 threat model 見 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md)。
+> **2026-06-22 AI-shipped note:** optional AI layer 已由 AI redesign 2026 program（W-AI-1..9）交付並 reachable——streaming assistant、durable agent harness、in-app（model2vec static）+ external embedding（2026-10-09 移除 candle Qwen3 層）、`FlatVectorIndex` 語義/混合檢索、code-mode 沙箱、MCP 對外面、skills、content-fetch enrichment 都已落地，但整個 AI 面 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag）。本文中早期標 `v0.2 disabled / Coming in v0.3` 的 AI 行已更新為 shipped 狀態；安全邊界與 threat model 見 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md)。
 >
 > **2026-04-15 reset note:** deterministic / Core Intelligence 的 accepted baseline 已改由 [core-intelligence-ultimate-design.md](core-intelligence-ultimate-design.md) 接管，主產品 route 也已 hard-cut 到 `/intelligence`。這份文檔保留的價值，現在主要是說明 pre-reset shipping surface、optional AI layer、Jobs/runtime review 與哪些舊 `insights` / snapshot 概念只剩歷史脈絡；不要再把本文中提到的 `load_insights` / thread-detail snapshot surface 當成新的 product contract。除非特別標示 pre-reset，本文中的「Insights」都應理解為現在的 `/intelligence` deterministic product surface。
 >

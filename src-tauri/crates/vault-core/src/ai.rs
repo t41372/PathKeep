@@ -15,12 +15,13 @@ mod chat_stream;
 mod code_mode;
 mod control;
 mod dedup;
-mod embedding_candle;
+mod embedding_engine;
 mod embedding_external;
 mod embedding_static;
 mod fingerprint;
 mod indexing;
 mod llm;
+mod model_files;
 mod narrative;
 mod native_ledger;
 mod provider;
@@ -107,16 +108,8 @@ pub use self::code_mode::{
     MAX_OUTPUT_BYTES, MAX_ROWS_PER_CALL, WALL_TIME_BUDGET, run_code_in_sandbox,
 };
 pub use self::dedup::{build_dedup_content_hash, content_key_from_hash};
-pub use self::embedding_candle::{
-    CANDLE_INAPP_BASE_URL, CANDLE_MAX_INPUT_TOKENS, CandleEmbeddingProvider,
-    DEFAULT_CANDLE_MODEL_FILES, DEFAULT_CANDLE_MODEL_REPO, DEFAULT_CANDLE_QUANT,
-    DEFAULT_CANDLE_TOKENIZER_REPO, ModelDownloadProgress, ModelFile, NoopDownloadProgress,
-    QWEN3_QUERY_TASK, apply_role_instruction, candle_repo_for_runtime, degrade_candle_to_external,
-    ensure_model_downloaded, gguf_file_name, last_token_pool, model_dir_for_repo,
-    model_is_loadable, model_is_present_and_verified, query_instruction_template,
-    runtime_uses_candle, select_embedding_provider,
-};
-pub use self::embedding_external::{AnyEmbeddingProvider, ExternalEmbeddingProvider};
+pub use self::embedding_engine::{AnyEmbeddingProvider, select_embedding_provider};
+pub use self::embedding_external::ExternalEmbeddingProvider;
 pub use self::embedding_static::{
     DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, STATIC_EMBEDDING_DIM,
     STATIC_INAPP_BASE_URL, STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix, StaticEmbeddingProvider,
@@ -125,6 +118,10 @@ pub use self::embedding_static::{
 };
 pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint};
 pub use self::llm::{RigLlmProvider, probe_tool_capability};
+pub use self::model_files::{
+    ModelDownloadProgress, ModelFile, NoopDownloadProgress, ensure_model_downloaded,
+    model_dir_for_repo, model_is_loadable, model_is_present_and_verified,
+};
 pub use self::narrative::{
     NarrativeSummary, QueryFamilyFacts, TopicFacts, summarize_query_family, summarize_topic,
 };
@@ -143,9 +140,8 @@ pub use self::vector_planes::{
 pub use self::vector_store::{VectorStore, VectorStoreHeader, vector_plane_bytes};
 pub use self::visit_content_map::{VisitContentMap, visit_map_plane_bytes};
 pub use self::working_set::{
-    CANDLE_CPU_DOCS_PER_SEC, CandidateSignals, METAL_SPEEDUP, WorkingSetCandidate,
-    WorkingSetConfig, WorkingSetPage, estimate_reembed, reembed_estimate_for, score_candidate,
-    select_working_set,
+    CandidateSignals, WorkingSetCandidate, WorkingSetConfig, WorkingSetPage, estimate_reembed,
+    score_candidate, select_working_set,
 };
 
 #[cfg(test)]

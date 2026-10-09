@@ -106,13 +106,11 @@ export const settingsAi = defineMessages({
       needsSemantic: 'Turn on local semantic search first.',
       dialogTitle: 'Rebuild the search index?',
       dialogBody_one:
-        'This indexes {count} page again and takes about {minutes} on this computer. Your history is not changed.',
+        'This indexes {count} page again, in the background: you can keep using PathKeep, and its progress shows here. Your history is not changed.',
       dialogBody_other:
-        'This indexes {count} pages again and takes about {minutes} on this computer. Your history is not changed.',
+        'This indexes {count} pages again, in the background: you can keep using PathKeep, and its progress shows here. Your history is not changed.',
       dialogBodyUnknown:
         'This indexes your whole history again. It can take a while. Your history is not changed.',
-      minutes_one: '{count} minute',
-      minutes_other: '{count} minutes',
       confirm: 'Rebuild',
       started: 'Rebuilding the search index.',
       failed: 'Could not start the rebuild. {message}',
@@ -247,13 +245,11 @@ export const settingsAi = defineMessages({
       needsSemantic: '请先开启本地语义搜索。',
       dialogTitle: '要重建搜索索引吗？',
       dialogBody_one:
-        '这会重新索引 {count} 个页面，在这台电脑上约需 {minutes}。你的历史不会被更改。',
+        '这会在后台重新索引 {count} 个页面，期间可以照常使用 PathKeep，进度显示在这里。你的历史不会被更改。',
       dialogBody_other:
-        '这会重新索引 {count} 个页面，在这台电脑上约需 {minutes}。你的历史不会被更改。',
+        '这会在后台重新索引 {count} 个页面，期间可以照常使用 PathKeep，进度显示在这里。你的历史不会被更改。',
       dialogBodyUnknown:
         '这会重新索引你的全部历史，可能要花一些时间。你的历史不会被更改。',
-      minutes_one: '{count} 分钟',
-      minutes_other: '{count} 分钟',
       confirm: '重建',
       started: '正在重建搜索索引。',
       failed: '无法开始重建。{message}',
@@ -387,13 +383,11 @@ export const settingsAi = defineMessages({
       needsSemantic: '請先開啟本機語意搜尋。',
       dialogTitle: '要重建搜尋索引嗎？',
       dialogBody_one:
-        '這會重新索引 {count} 個頁面，在這台電腦上約需 {minutes}。你的歷史不會被變更。',
+        '這會在背景重新索引 {count} 個頁面，期間可以照常使用 PathKeep，進度顯示在這裡。你的歷史不會被變更。',
       dialogBody_other:
-        '這會重新索引 {count} 個頁面，在這台電腦上約需 {minutes}。你的歷史不會被變更。',
+        '這會在背景重新索引 {count} 個頁面，期間可以照常使用 PathKeep，進度顯示在這裡。你的歷史不會被變更。',
       dialogBodyUnknown:
         '這會重新索引你的全部歷史，可能要花一些時間。你的歷史不會被變更。',
-      minutes_one: '{count} 分鐘',
-      minutes_other: '{count} 分鐘',
       confirm: '重建',
       started: '正在重建搜尋索引。',
       failed: '無法開始重建。{message}',

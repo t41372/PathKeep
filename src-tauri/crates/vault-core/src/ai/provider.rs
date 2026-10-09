@@ -72,8 +72,8 @@ pub(super) fn l2_normalize(vector: &mut [f32]) {
 /// userinfo, port, path, query, and fragment are preserved verbatim. A host that merely CONTAINS
 /// the substring (`localhost.example.com`, `mylocalhost`) is left untouched — it is a different,
 /// real host. IPv6 literals (`[::1]`), already-numeric hosts (`127.0.0.1`), cloud hosts, and the
-/// candle in-app sentinel (`candle:in-app`, which has no `://` and whose "host" token is `candle`)
-/// all fall through unchanged. Pure and total: any input that does not present a `localhost` host
+/// in-app sentinel (`static:in-app`, which has no `://` and whose "host" token is `static`) all
+/// fall through unchanged. Pure and total: any input that does not present a `localhost` host
 /// label is returned as an owned copy of the original.
 pub(super) fn normalize_local_base_url(base_url: &str) -> String {
     // Locate the authority. With a scheme, the authority begins right after `://`; without one
@@ -169,15 +169,14 @@ pub(super) fn embedding_descriptor_for(
         model_id: provider.config.default_model.clone(),
         effective_dim,
         // TODO(W-AI-4): these two are transport-defaults valid ONLY for the current float32 +
-        // L2-normalized rig path. Per-provider adapters (candle, Voyage/Cohere int8) MUST set
+        // L2-normalized rig path. Per-provider adapters (Voyage/Cohere int8) MUST set
         // dtype/normalized from the real transport before any fingerprint built from this
         // descriptor is persisted — otherwise two distinct encodings could share a fingerprint
         // (A-S2). `EmbeddingFingerprint::from_descriptor` has no production caller until then.
         dtype: EmbeddingDtype::Float32,
         // Vectors leave this layer L2-normalized via `l2_normalize`.
         normalized: true,
-        // rig's hosted `/v1/embeddings` path does not expose pooling; it stays unknown until
-        // the in-app candle engine (which owns its pooling) lands.
+        // rig's hosted `/v1/embeddings` path does not expose pooling.
         pooling: EmbeddingPooling::Unknown,
         instruction_template: None,
     }
@@ -656,24 +655,28 @@ pub(super) async fn embed_text_batch(
 pub(super) async fn embed_query(
     provider: &AiProviderRuntime,
     query: &str,
-    _role: EmbeddingRole,
+    role: EmbeddingRole,
 ) -> Result<Vec<f32>> {
     let requested_dim = resolve_embed_request_dim(provider)?;
-    // OPTIONAL key (see `AiProviderRuntime::api_key_for_transport`): forward a present, non-blank
-    // secret as the token; an absent key sends an empty one. rig 0.34's openai/gemini clients still
-    // emit an auth header (upstream limitation, see `llm.rs` module note), but a keyless local model
-    // ignores it. The DOMINANT embedding flow — the index backfill — runs through the reqwest
-    // `ExternalEmbeddingProvider`, which genuinely omits the header when keyless. We keep rig here
-    // (rather than rerouting) so an OpenAI provider WITHOUT an explicit base URL still resolves to
-    // rig's hosted default instead of erroring on the external adapter's required base URL.
-    let api_key = provider.api_key_for_transport().unwrap_or_default();
     match provider.config.request_format {
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            let mut builder = openai::Client::builder().api_key(api_key);
-            if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(normalize_local_base_url(base_url));
+            // A configured endpoint (a local server, a proxy) goes through the adapter the index
+            // backfill uses, which sends no auth header when there is no key: a keyless local
+            // server must not get an empty `Bearer` (intelligence.md). Only OpenAI's own hosted
+            // service, which always needs a key, goes through rig.
+            if provider.config.base_url.is_some() {
+                let embedder =
+                    super::embedding_external::ExternalEmbeddingProvider::new(provider.clone())?;
+                return embedder
+                    .embed(&[query.to_string()], role)
+                    .await?
+                    .pop()
+                    .context("the embedding provider returned no vector");
             }
-            let client = builder.build()?;
+            let api_key = provider
+                .api_key_for_transport()
+                .context("OpenAI's embedding service needs an API key")?;
+            let client = openai::Client::builder().api_key(api_key).build()?;
             let embedding = match requested_dim {
                 Some(ndims) => {
                     client
@@ -691,6 +694,9 @@ pub(super) async fn embed_query(
             Ok(finalize_embedding_vector(embedding.vec))
         }
         AiRequestFormat::Google => {
+            let api_key = provider
+                .api_key_for_transport()
+                .context("Gemini's embedding API needs an API key")?;
             let mut builder = gemini::Client::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(normalize_local_base_url(base_url));

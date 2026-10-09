@@ -176,14 +176,6 @@ export interface AiSettings {
   lexicalWeight?: number
   semanticWeight?: number
   starredBoost?: number
-  /**
-   * Opt-in to the Apple-Silicon Metal GPU heavy embedding tier (W-AI-9 Sub-block D, 05 §7). Mirrors
-   * the Rust `gpu_enabled` (`#[serde(default)]`, hard-default-OFF). Optional here so older snapshots
-   * without it still type-check; absent/false means "off". INERT unless the binary was built with the
-   * `metal` cargo feature — the Settings UI reads `ReembedEstimate.gpuAvailable` to tell the honest
-   * story ("requires a Metal-enabled build") rather than showing a green toggle that does nothing.
-   */
-  gpuEnabled?: boolean
 }
 /**
  * Represents a read model or status snapshot for ai index.
@@ -250,8 +242,7 @@ export interface StaticEmbeddingStatus {
  * `pathkeep://model-download-progress` Tauri channel. Mirrors the Rust
  * `ModelDownloadProgressEvent` (`#[serde(tag = "kind", rename_all = "camelCase")]`).
  *
- * Both the static tier and the heavy candle tier emit on this single channel; the
- * stream is per-file (no upfront file count and `totalBytes` may be 0 when unknown),
+ * The in-app model download emits on this channel; the stream is per-file (no upfront file count and `totalBytes` may be 0 when unknown),
  * so the UI shows honest per-file / indeterminate progress, never a fabricated percent.
  * Exactly one terminal `done`/`error` always follows so a subscriber never hangs.
  *
@@ -631,16 +622,12 @@ export interface AiIndexRequest {
 }
 
 /**
- * Read-only cost/time estimate for a re-embed run (W-AI-9 Sub-block D, 05 §7). Mirrors the Rust
- * `ReembedEstimate`. Surfaced BEFORE a re-embed fires so the user sees the cost (PME). `gpuAvailable`
- * is the single honest source of whether THIS binary can run the GPU path (built with `metal`).
+ * How much a re-embed run would index, shown before it starts (W-AI-9 Sub-block D, 05 §7). Mirrors
+ * the Rust `ReembedEstimate`. No time: the rate depends on the engine and the machine.
  */
 export interface ReembedEstimate {
   scope: ReembedScope
   pageCount: number
-  estMinutesCpu: number
-  estMinutesGpu: number
-  gpuAvailable: boolean
 }
 
 /**

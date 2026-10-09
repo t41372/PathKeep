@@ -6,8 +6,9 @@
 //!   against the owned [`ToolRegistry`] and thread the result back as a `tool_result` message
 //! - enforce the run invariants: cooperative cancel at every checkpoint, a per-run token budget, a
 //!   max-iteration ceiling, and stall/no-progress detection
-//! - JOURNAL every model turn + tool result BEFORE observing/emitting it (so a crash leaves an
-//!   interrupted partial trace and a resume = replay, never a re-call of the model)
+//! - JOURNAL every model turn + tool result BEFORE observing/emitting it, and pin the citations.
+//!   Nothing reads the step journal back: an interrupted answer is not resumed (decided
+//!   2026-10-09), and a reopened chat reads only the citations and the run's token usage.
 //! - degrade honestly: when the provider cannot do tool calls (the WU-1 probe), fall back to a
 //!   deterministic retrieve-then-answer shape (seeded evidence, no tool loop) + an honest note
 //!

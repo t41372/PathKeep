@@ -519,7 +519,7 @@ fn static_tier_index_writes_real_vectors_and_semantic_search_finds_the_seeded_pa
         store.path().metadata().expect("meta").len() > 0,
         "the .pkvec store holds non-zero bytes"
     );
-    // The stored vectors are the static engine's real dim (not the candle/external stub dim).
+    // The stored vectors are the static engine's real dim (not the external stub dim).
     let header = store.read_header().expect("header").expect("present");
     assert!(header.dim > 1, "static engine produced a real multi-dim vector (dim {})", header.dim);
 

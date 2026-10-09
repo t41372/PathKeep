@@ -363,6 +363,7 @@ impl AgentJournal for AgentVaultJournal {
                 title: citation.title.clone(),
                 visited_at: Some(citation.visited_at.clone()),
                 score: citation.score,
+                profile_id: Some(citation.profile_id.clone()).filter(|id| !id.is_empty()),
             })
             .collect();
         record_agent_citations(&self.vault, &self.run_id, &records)?;

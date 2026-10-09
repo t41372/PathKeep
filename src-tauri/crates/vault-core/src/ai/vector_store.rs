@@ -404,6 +404,30 @@ impl VectorStore {
         Ok(data_len / record_len)
     }
 
+    /// Cuts off a record an interrupted append left half-written, so the next build can read the
+    /// store again. Half a record is not a vector, and nothing is lost: the build's cursor only moves
+    /// past a chunk once it is fully written, so that chunk is embedded again. Returns the bytes cut.
+    pub fn trim_torn_tail(&self) -> Result<u64> {
+        if !self.exists() {
+            return Ok(0);
+        }
+        let file = File::open(&self.path)
+            .with_context(|| format!("opening vector store {}", self.path.display()))?;
+        let mut reader = BufReader::new(file);
+        let header = read_header(&mut reader)?;
+        let data_start = reader.stream_position().context("reading vector store data offset")?;
+        let total = self.path.metadata().context("vector store metadata")?.len();
+        let torn = total.saturating_sub(data_start) % (8 + 4 * header.dim) as u64;
+        if torn > 0 {
+            OpenOptions::new()
+                .write(true)
+                .open(&self.path)
+                .and_then(|file| file.set_len(total - torn))
+                .with_context(|| format!("trimming vector store {}", self.path.display()))?;
+        }
+        Ok(torn)
+    }
+
     /// Deletes the store file if it exists, returning whether a file was removed.
     ///
     /// Used by the index "clear" path; the vector plane is rebuildable so a clean delete is the

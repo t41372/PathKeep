@@ -153,16 +153,22 @@ pub fn unix_micros_to_chrome_time(value: i64) -> i64 {
     value.saturating_add(CHROME_UNIX_EPOCH_OFFSET_MICROS)
 }
 
-/// Converts a `"YYYY-MM-DD"` date string to the inclusive Unix-millisecond range `[start_ms, end_ms]`
-/// for that day (UTC). `start_ms` is midnight UTC; `end_ms` is `23:59:59.999` UTC. Returns `None`
-/// for an unparseable date. Used by the agent search tools so a `start_date`/`end_date` filter maps
-/// cleanly onto `list_history`'s existing `start_time_ms` / `end_time_ms` filter (Unix ms).
+/// The instants of the user's local calendar day `YYYY-MM-DD`, in Unix ms: from local midnight to the
+/// last millisecond before the next one (23 or 25 hours across a daylight-saving change). Agent date
+/// filters mean the user's day, the same day `localDate` groups results by; a UTC day was off by the
+/// UTC offset (in UTC+8, "June 19" ran from 08:00 June 19 to 08:00 June 20). `None` for an
+/// unparseable date.
 pub fn date_str_to_unix_ms_range(date: &str) -> Option<(i64, i64)> {
-    use chrono::NaiveDate;
-    let parsed = NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()?;
-    let start = parsed.and_hms_opt(0, 0, 0)?;
-    let end = parsed.and_hms_milli_opt(23, 59, 59, 999)?;
-    Some((start.and_utc().timestamp_millis(), end.and_utc().timestamp_millis()))
+    let day = chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()?;
+    Some((local_day_start_ms(day)?, local_day_start_ms(day.succ_opt()?)? - 1))
+}
+
+/// When a local day begins: midnight, or the first hour after a daylight-saving gap at midnight.
+fn local_day_start_ms(day: chrono::NaiveDate) -> Option<i64> {
+    use chrono::{Local, TimeZone};
+    (0..=2)
+        .find_map(|hour| Local.from_local_datetime(&day.and_hms_opt(hour, 0, 0)?).earliest())
+        .map(|start| start.timestamp_millis())
 }
 
 /// Extracts a normalized domain/host string from a URL-like input.
@@ -340,14 +346,18 @@ mod tests {
     }
 
     #[test]
-    fn date_str_to_unix_ms_range_covers_full_day_and_rejects_bad_input() {
-        // A valid date covers midnight to end-of-day.
+    fn date_str_to_unix_ms_range_covers_the_local_day_and_rejects_bad_input() {
+        // The range is the user's day: its first and last instants fall on that local date, and
+        // the next instant starts the next one, whatever the time zone the tests run in.
+        use chrono::{Local, NaiveDate, TimeZone};
+        let local_date =
+            |ms: i64| Local.timestamp_millis_opt(ms).single().expect("instant").date_naive();
         let (start, end) = date_str_to_unix_ms_range("2026-06-19").expect("valid date");
-        // 2026-06-19T00:00:00Z in Unix ms = 1781827200000
-        assert_eq!(start, 1_781_827_200_000);
-        // 2026-06-19T23:59:59.999Z in Unix ms
-        assert_eq!(end, 1_781_913_599_999);
-        assert!(start < end);
+        let june_19 = NaiveDate::from_ymd_opt(2026, 6, 19).unwrap();
+        assert_eq!(local_date(start), june_19);
+        assert_eq!(local_date(start - 1), june_19.pred_opt().unwrap());
+        assert_eq!(local_date(end), june_19);
+        assert_eq!(local_date(end + 1), june_19.succ_opt().unwrap());
 
         // Leading/trailing whitespace is tolerated.
         assert!(date_str_to_unix_ms_range("  2026-06-19 ").is_some());
