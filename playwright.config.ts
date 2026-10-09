@@ -143,6 +143,7 @@ export default defineConfig({
         'search-limits.spec.ts',
         'links.spec.ts',
         'home.spec.ts',
+        'clock.spec.ts',
       ],
       'first-run',
     ),

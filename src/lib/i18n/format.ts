@@ -40,7 +40,40 @@ export function startOfDay(value: DateInput) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
 
-export function createFormatters(locale: string, t: Translator) {
+/** A 12- or 24-hour clock; undefined leaves it to the language. */
+export type HourCycle = 'h12' | 'h23' | undefined
+
+/** The clock a language uses when neither the user nor the OS said. */
+function languageClock(locale: string): 'h12' | 'h23' {
+  const cycle = dateFormat(locale, { hour: 'numeric' }).resolvedOptions()
+    .hourCycle
+  return cycle === 'h11' || cycle === 'h12' ? 'h12' : 'h23'
+}
+
+function clockOptions(hourCycle: 'h12' | 'h23'): Intl.DateTimeFormatOptions {
+  // "6:37 AM" but "06:37": a 12-hour clock without a leading zero.
+  return {
+    hour: hourCycle === 'h12' ? 'numeric' : '2-digit',
+    minute: '2-digit',
+    hourCycle,
+  }
+}
+
+export function createFormatters(
+  locale: string,
+  t: Translator,
+  hourCycle: HourCycle = undefined,
+) {
+  const cycle = hourCycle ?? languageClock(locale)
+  const clock = clockOptions(cycle)
+  const time = (value: DateInput) =>
+    dateFormat(locale, clock).format(toDate(value))
+  /** An hour on its own, "6 AM" / "06", for chart axes. */
+  const hour = (value: number) =>
+    dateFormat(locale, {
+      hour: cycle === 'h12' ? 'numeric' : '2-digit',
+      hourCycle: cycle,
+    }).format(new Date(2000, 0, 1, value))
   return {
     number: (value: number) => numberFormat(locale).format(value),
     compact: (value: number) =>
@@ -74,12 +107,11 @@ export function createFormatters(locale: string, t: Translator) {
       dateFormat(locale, { month: 'short', day: 'numeric' }).format(
         toDate(value),
       ),
-    time: (value: DateInput) =>
-      dateFormat(locale, {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      }).format(toDate(value)),
+    time,
+    hour,
+    /** One hour of the day as a span, "6:00 AM–7:00 AM" / "06:00–07:00". */
+    hourSpan: (value: number) =>
+      `${time(new Date(2000, 0, 1, value))}–${time(new Date(2000, 0, 1, (value + 1) % 24))}`,
     weekdayDate: (value: DateInput) =>
       dateFormat(locale, {
         weekday: 'long',
@@ -104,13 +136,7 @@ export function createFormatters(locale: string, t: Translator) {
       const days = Math.round(
         (startOfDay(now).getTime() - startOfDay(date).getTime()) / 86_400_000,
       )
-      if (days === 0) {
-        return dateFormat(locale, {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false,
-        }).format(date)
-      }
+      if (days === 0) return time(date)
       if (days === 1) return t('common.yesterday')
       return dateFormat(locale, { month: 'short', day: 'numeric' }).format(date)
     },
@@ -120,14 +146,10 @@ export function createFormatters(locale: string, t: Translator) {
       const days = Math.round(
         (startOfDay(now).getTime() - startOfDay(date).getTime()) / 86_400_000,
       )
-      const time = dateFormat(locale, {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      }).format(date)
-      if (days === 0) return `${t('common.today')} ${time}`
-      if (days === 1) return `${t('common.yesterday')} ${time}`
-      return `${dateFormat(locale, { month: 'short', day: 'numeric' }).format(date)} ${time}`
+      const at = time(date)
+      if (days === 0) return `${t('common.today')} ${at}`
+      if (days === 1) return `${t('common.yesterday')} ${at}`
+      return `${dateFormat(locale, { month: 'short', day: 'numeric' }).format(date)} ${at}`
     },
   }
 }
@@ -135,6 +157,9 @@ export function createFormatters(locale: string, t: Translator) {
 export type Formatters = ReturnType<typeof createFormatters>
 
 export function useFormat(): Formatters {
-  const { locale, t } = useI18n()
-  return useMemo(() => createFormatters(locale, t), [locale, t])
+  const { locale, t, hourCycle } = useI18n()
+  return useMemo(
+    () => createFormatters(locale, t, hourCycle),
+    [locale, t, hourCycle],
+  )
 }

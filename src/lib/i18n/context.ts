@@ -1,7 +1,11 @@
 import { createContext, useContext } from 'react'
 import type { LanguagePreference } from '@/lib/types'
 import type { ResolvedLanguage } from './define'
+import type { HourCycle } from './format'
 import type { Translator } from './runtime'
+
+/** Which clock times use: the OS's setting, or one the user picked in Settings. */
+export type ClockPreference = 'system' | 'h12' | 'h23'
 
 export interface I18nValue {
   language: ResolvedLanguage
@@ -10,6 +14,10 @@ export interface I18nValue {
   preference: LanguagePreference
   t: Translator
   setPreference: (preference: LanguagePreference) => void
+  clock: ClockPreference
+  /** The clock to format with; undefined when neither the user nor the OS said. */
+  hourCycle: HourCycle
+  setClock: (clock: ClockPreference) => void
 }
 
 export const I18nContext = createContext<I18nValue | null>(null)

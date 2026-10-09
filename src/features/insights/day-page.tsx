@@ -240,6 +240,7 @@ function DayReopenedCard({ date }: { date: string }) {
 
 function HoursCard({ date }: { date: string }) {
   const { t } = useI18n()
+  const format = useFormat()
   const day = useDay(date)
   const config = useMemo(
     () => ({
@@ -253,10 +254,10 @@ function HoursCard({ date }: { date: string }) {
   const points = useMemo(
     () =>
       (day.data?.data.hourlyActivity ?? []).map((bucket) => ({
-        hour: String(bucket.hour).padStart(2, '0'),
+        hour: format.hour(bucket.hour),
         visits: bucket.visitCount,
       })),
-    [day.data],
+    [day.data, format],
   )
   return (
     <SectionCard

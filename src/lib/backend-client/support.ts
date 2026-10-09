@@ -24,6 +24,8 @@ export const supportClient = {
   openPathInFileManager: (path: string) =>
     call<string>('open_path_in_file_manager', { path }),
   openExternalUrl: (url: string) => call<string>('open_external_url', { url }),
+  /** The clock the OS shows, or null when it does not say (Linux). */
+  systemClock: () => call<'h12' | 'h23' | null>('system_clock'),
   /** A page from the archive; a file:// URL opens only if the user visited it. */
   openVisitedPage: (url: string) => call<string>('open_visited_page', { url }),
   /**

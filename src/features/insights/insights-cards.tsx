@@ -305,6 +305,7 @@ export function TopSitesCard({ scope }: { scope: Scope }) {
 
 export function RhythmCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
+  const format = useFormat()
   const rhythm = useRhythm(scope)
   const weekdayList = t('insights.rhythm.weekdays')
   const weekdays = useMemo(() => weekdayList.split(','), [weekdayList])
@@ -325,13 +326,13 @@ export function RhythmCard({ scope }: { scope: Scope }) {
           level: heatLevel(visits, max),
           label: t('insights.rhythm.cell', {
             day: weekdays[row] ?? '',
-            hour: String(hour).padStart(2, '0'),
+            hour: format.time(new Date(2000, 0, 1, hour)),
             visits: t('common.visits', { count: visits }),
           }),
         }
       }),
     )
-  }, [rhythm.data, t, weekdays])
+  }, [rhythm.data, t, weekdays, format])
 
   return (
     <SectionCard
@@ -353,9 +354,7 @@ export function RhythmCard({ scope }: { scope: Scope }) {
               gap={3}
               rowLabels={weekdays}
               columnLabels={Array.from({ length: 24 }, (_, hour) =>
-                hour % 6 === 0 || hour === 23
-                  ? String(hour).padStart(2, '0')
-                  : null,
+                hour % 6 === 0 || hour === 23 ? format.hour(hour) : null,
               )}
             />
           </div>

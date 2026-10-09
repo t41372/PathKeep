@@ -950,6 +950,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<PathPayload>(payload)?;
             json_value!(file_manager::open_path_in_file_manager_impl(payload.path)?)
         }
+        "system_clock" => json_value!(vault_platform::system_hour_cycle()),
         "open_external_url" => {
             let payload = parse_payload::<UrlPayload>(payload)?;
             json_value!(file_manager::open_external_url_impl(payload.url)?)

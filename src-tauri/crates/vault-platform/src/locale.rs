@@ -6,6 +6,8 @@
 //!
 //! ## Responsibilities
 //! - Return BCP 47-ish language tags, most preferred first.
+//! - Say whether the OS shows times on a 12- or a 24-hour clock, which the webview's `Intl`
+//!   cannot tell: it follows the language, not the user's clock setting.
 //!
 //! ## Not responsible for
 //! - Choosing among PathKeep's supported languages (the caller does that).
@@ -72,6 +74,73 @@ fn platform_languages() -> Vec<String> {
         .collect()
 }
 
+/// Whether the OS shows times on a 12-hour clock (`Some(true)`) or a 24-hour one
+/// (`Some(false)`); `None` when it does not say, and the language's own default applies.
+pub fn uses_12_hour_clock() -> Option<bool> {
+    platform_hour_pattern().map(|pattern| hour_pattern_is_12_hour(&pattern))
+}
+
+/// The same answer as the frontend's hour cycle names it: "h12", "h23", or none.
+pub fn system_hour_cycle() -> Option<&'static str> {
+    uses_12_hour_clock().map(|twelve| if twelve { "h12" } else { "h23" })
+}
+
+/// macOS: the hour field the current locale prefers, with the "24-hour time" switch folded in.
+#[cfg(target_os = "macos")]
+fn platform_hour_pattern() -> Option<String> {
+    use objc2_foundation::{NSDateFormatter, NSLocale, NSString};
+    let locale = NSLocale::currentLocale();
+    NSDateFormatter::dateFormatFromTemplate_options_locale(
+        &NSString::from_str("j"),
+        0,
+        Some(&*locale),
+    )
+    .map(|pattern| pattern.to_string())
+}
+
+/// Windows: the user's short time format (Settings → Time & language → Region).
+#[cfg(target_os = "windows")]
+fn platform_hour_pattern() -> Option<String> {
+    const LOCALE_SSHORTTIME: u32 = 0x79;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetLocaleInfoEx(name: *const u16, lctype: u32, data: *mut u16, len: i32) -> i32;
+    }
+    let mut buffer = [0u16; 80];
+    // SAFETY: a null name is LOCALE_NAME_USER_DEFAULT; the buffer length is passed in UTF-16
+    // units and the call writes at most that many, returning 0 on failure.
+    let written = unsafe {
+        GetLocaleInfoEx(
+            std::ptr::null(),
+            LOCALE_SSHORTTIME,
+            buffer.as_mut_ptr(),
+            buffer.len() as i32,
+        )
+    };
+    (written > 1).then(|| String::from_utf16_lossy(&buffer[..written as usize - 1]))
+}
+
+/// Linux has no clock setting a desktop app can read.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn platform_hour_pattern() -> Option<String> {
+    None
+}
+
+/// An LDML or Windows time pattern uses `h` / `K` for a 12-hour clock and `H` / `k` for a
+/// 24-hour one; text in single quotes is literal.
+fn hour_pattern_is_12_hour(pattern: &str) -> bool {
+    let mut quoted = false;
+    for ch in pattern.chars() {
+        match ch {
+            '\'' => quoted = !quoted,
+            'h' | 'K' if !quoted => return true,
+            'H' | 'k' if !quoted => return false,
+            _ => {}
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,6 +156,16 @@ mod tests {
         assert_eq!(windows_langid_tag(0x0409), Some("en"));
         assert_eq!(windows_langid_tag(0x0809), Some("en"));
         assert_eq!(windows_langid_tag(0x0411), None);
+    }
+
+    #[test]
+    fn hour_patterns_say_which_clock() {
+        for twelve in ["h a", "h:mm tt", "ah時", "K:mm"] {
+            assert!(hour_pattern_is_12_hour(twelve), "{twelve}");
+        }
+        for twenty_four in ["HH", "H:mm", "HH'h'mm", "k:mm"] {
+            assert!(!hour_pattern_is_12_hour(twenty_four), "{twenty_four}");
+        }
     }
 
     #[test]
