@@ -72,8 +72,8 @@ pub(super) fn l2_normalize(vector: &mut [f32]) {
 /// userinfo, port, path, query, and fragment are preserved verbatim. A host that merely CONTAINS
 /// the substring (`localhost.example.com`, `mylocalhost`) is left untouched — it is a different,
 /// real host. IPv6 literals (`[::1]`), already-numeric hosts (`127.0.0.1`), cloud hosts, and the
-/// candle in-app sentinel (`candle:in-app`, which has no `://` and whose "host" token is `candle`)
-/// all fall through unchanged. Pure and total: any input that does not present a `localhost` host
+/// in-app sentinel (`static:in-app`, which has no `://` and whose "host" token is `static`) all
+/// fall through unchanged. Pure and total: any input that does not present a `localhost` host
 /// label is returned as an owned copy of the original.
 pub(super) fn normalize_local_base_url(base_url: &str) -> String {
     // Locate the authority. With a scheme, the authority begins right after `://`; without one
@@ -169,15 +169,14 @@ pub(super) fn embedding_descriptor_for(
         model_id: provider.config.default_model.clone(),
         effective_dim,
         // TODO(W-AI-4): these two are transport-defaults valid ONLY for the current float32 +
-        // L2-normalized rig path. Per-provider adapters (candle, Voyage/Cohere int8) MUST set
+        // L2-normalized rig path. Per-provider adapters (Voyage/Cohere int8) MUST set
         // dtype/normalized from the real transport before any fingerprint built from this
         // descriptor is persisted — otherwise two distinct encodings could share a fingerprint
         // (A-S2). `EmbeddingFingerprint::from_descriptor` has no production caller until then.
         dtype: EmbeddingDtype::Float32,
         // Vectors leave this layer L2-normalized via `l2_normalize`.
         normalized: true,
-        // rig's hosted `/v1/embeddings` path does not expose pooling; it stays unknown until
-        // the in-app candle engine (which owns its pooling) lands.
+        // rig's hosted `/v1/embeddings` path does not expose pooling.
         pooling: EmbeddingPooling::Unknown,
         instruction_template: None,
     }

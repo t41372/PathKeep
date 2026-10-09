@@ -152,8 +152,8 @@ export const intelligenceClient = {
   downloadStaticEmbeddingModel: () =>
     call<void>('download_static_embedding_model'),
   /**
-   * Requests cancellation of an in-flight in-app embedding model download (static or heavy tier;
-   * they share one process-global cancel flag). The cancelled download emits a terminal `error`
+   * Requests cancellation of an in-flight in-app embedding model download (a process-global
+   * cancel flag). The cancelled download emits a terminal `error`
    * event on the progress channel. No-op when nothing is downloading.
    */
   cancelStaticEmbeddingModelDownload: () =>

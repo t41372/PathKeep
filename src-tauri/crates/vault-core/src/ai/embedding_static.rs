@@ -10,29 +10,29 @@
 //!   thread [`EmbeddingRole`] through (static models are symmetric — query == document — so the role
 //!   is a DOCUMENTED no-op here, mirrored in the descriptor's empty instruction template).
 //! - load the model files (safetensors embedding matrix + tokenizer.json + config.json) via OUR OWN
-//!   code (reusing the in-tree `tokenizers` + candle's bundled `safetensors`), download on demand via
-//!   the SHARED W-AI-4b consent-gated, SHA-256-verified [`super::embedding_candle::ensure_model_downloaded`].
+//!   code (`tokenizers` and `safetensors`), download on demand via the consent-gated,
+//!   SHA-256-verified [`super::model_files::ensure_model_downloaded`].
 //!
 //! ## Not responsible for
 //! - provider config/secret resolution (the worker's `AiProviderRuntime` carries those)
 //! - vector persistence, the embed loop, dedup, or queue bookkeeping (engine-agnostic, elsewhere)
-//! - the heavy Qwen3 tier (candle) or chat/LLM inference
+//! - choosing between this and an external provider (`embedding_engine`), or chat/LLM inference
 //!
 //! ## Supply-chain decision (W-AI-4c): HAND-ROLLED, no new crate
 //! `model2vec-rs` is MIT on GitHub but ships a "Non-standard" license field on crates.io (would trip
 //! `cargo deny check licenses`, whose allowlist is SPDX-only) and is a single-org crate at ~193 stars
 //! — an order of magnitude under the >6k supply-chain gate. model2vec inference is, by design,
 //! trivial (table lookup + mean-pool + normalize: the PCA/zipf/SIF regularization is BAKED INTO the
-//! distilled matrix at distillation time, NOT re-applied at inference). So we hand-roll it from the
-//! crates already in-tree from the candle path (`tokenizers`, candle's `safetensors`, `hf-hub`),
-//! adding ZERO new dependencies and keeping `cargo deny`/`audit` green. The pooling/lookup/normalize
-//! math is PURE → un-gated + unit-tested against a tiny synthetic matrix (far more testable than the
-//! candle forward); only the real safetensors/tokenizer load + download are `cfg`-gated.
+//! distilled matrix at distillation time, NOT re-applied at inference). So we hand-roll it on
+//! Hugging Face's own `tokenizers` and `safetensors` crates, keeping `cargo deny`/`audit` green. The
+//! pooling/lookup/normalize math is PURE → un-gated + unit-tested against a tiny synthetic matrix;
+//! only the real safetensors/tokenizer load + download are `cfg`-gated.
 
-use super::embedding_candle::ModelFile;
+use super::embedding_engine::AnyEmbeddingProvider;
+use super::embedding_external::ExternalEmbeddingProvider;
+use super::model_files::ModelFile;
 #[cfg(not(any(test, coverage)))]
-use super::embedding_candle::model_dir_for_repo;
-use super::embedding_external::{AnyEmbeddingProvider, ExternalEmbeddingProvider};
+use super::model_files::model_dir_for_repo;
 use super::traits::{
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
 };
@@ -42,7 +42,7 @@ use anyhow::{Context, Result};
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
-// Model manifest (always compiled — pure data; load/download live in candle's shared helpers).
+// Model manifest (always compiled — pure data; load/download live in `model_files`).
 // ---------------------------------------------------------------------------
 
 /// The default static model's Hugging Face repository id.
@@ -55,15 +55,14 @@ pub const DEFAULT_STATIC_MODEL_REPO: &str = "minishlab/potion-multilingual-128M"
 
 /// Reserved `base_url` sentinel marking an embedding provider as the in-app STATIC engine.
 ///
-/// Selecting static vs candle vs external is config-driven by `base_url` with no schema change:
-/// this sentinel routes to the static engine, [`super::embedding_candle::CANDLE_INAPP_BASE_URL`]
-/// routes to candle, any other URL routes to the external `/v1/embeddings` adapter. `default_model`
-/// still carries the repo id (D4), so a future static model is a config change, not a code change.
+/// Selecting static vs external is config-driven by `base_url` with no schema change: this sentinel
+/// routes to the static engine, any other URL to the external `/v1/embeddings` adapter
+/// (`embedding_engine::select_embedding_provider`). `default_model` still carries the repo id (D4).
 pub const STATIC_INAPP_BASE_URL: &str = "static:in-app";
 
 /// The files the static engine needs, with their pinned SHA-256 digests.
 ///
-/// model2vec ships everything in ONE repo (unlike the candle GGUF/tokenizer split): the
+/// model2vec ships everything in ONE repo: the
 /// `model.safetensors` embedding matrix, the `tokenizer.json` (a Unigram tokenizer derived from
 /// bge-m3, unk token `[UNK]` id 1), and `config.json` (carries `normalize` + `hidden_dim`). All three
 /// come from [`DEFAULT_STATIC_MODEL_REPO`].
@@ -71,7 +70,7 @@ pub const STATIC_INAPP_BASE_URL: &str = "static:in-app";
 /// SHA-256 BOUNDARY NOTE (F2): these are the REAL recomputed hashes of the files downloaded on
 /// 2026-06-21 from `minishlab/potion-multilingual-128M` (HF `main`), captured via the env-gated e2e
 /// download (config.json `595e4cab…`, tokenizer.json `19f19090…`, model.safetensors `14b5eb39…`). A
-/// fat-fingered or substituted file is caught by [`super::embedding_candle::verify_file_sha256`]
+/// fat-fingered or substituted file is caught by [`super::model_files::verify_file_sha256`]
 /// failing rather than loading a wrong matrix; the manifest test pins the 64-hex shape.
 pub const DEFAULT_STATIC_MODEL_FILES: &[ModelFile] = &[
     ModelFile {
@@ -115,7 +114,7 @@ pub const STATIC_EMBEDDING_DIM: u32 = 256;
 pub const STATIC_MAX_INPUT_TOKENS: usize = 2048;
 
 // ---------------------------------------------------------------------------
-// Routing + selection (pure decision logic — config-driven, mirrors the candle selector).
+// Routing + selection (pure decision logic — config-driven).
 // ---------------------------------------------------------------------------
 
 /// Whether a resolved provider runtime is configured to use the in-app static engine.
@@ -140,7 +139,7 @@ pub fn static_repo_for_runtime(runtime: &AiProviderRuntime) -> &str {
 
 /// Degrades a static runtime whose model is absent to the external adapter, or a clear error (S3).
 ///
-/// Pure decision logic (no matrix load, no network), mirroring the candle degradation contract: if
+/// Pure decision logic (no matrix load, no network): if
 /// the runtime carries a usable external base URL (NOT the static sentinel), build the external
 /// provider so the backfill proceeds against `/v1/embeddings`; otherwise return an actionable "model
 /// not downloaded" error the caller turns into a download prompt. The backfill is NEVER hard-failed
@@ -163,7 +162,7 @@ pub fn degrade_static_to_external(
 
 /// Selects the static engine for a static-routed runtime (config-driven, W-AI-4c).
 ///
-/// Routing + DEGRADATION contract (mirrors the candle selector's S3): selects the static engine ONLY
+/// Routing + DEGRADATION contract (S3): selects the static engine ONLY
 /// when the model is present + verified on disk (the consent gate); otherwise degrades to the
 /// external adapter when one is configured, else returns a clear "not downloaded" error. Called only
 /// after [`runtime_uses_static`] returns true.
@@ -174,10 +173,7 @@ pub fn select_static_embedding_provider(
 ) -> Result<AnyEmbeddingProvider> {
     let repo = static_repo_for_runtime(runtime);
     let model_dir = model_dir_for_repo(paths, repo);
-    if super::embedding_candle::model_is_present_and_verified(
-        &model_dir,
-        DEFAULT_STATIC_MODEL_FILES,
-    ) {
+    if super::model_files::model_is_present_and_verified(&model_dir, DEFAULT_STATIC_MODEL_FILES) {
         let provider = StaticEmbeddingProvider::load(paths, repo, DEFAULT_STATIC_MODEL_FILES)?;
         return Ok(AnyEmbeddingProvider::Static(Box::new(provider)));
     }
@@ -360,7 +356,7 @@ impl StaticEmbeddingMatrix {
 ///
 /// model2vec divides by `‖v‖ + 1e-32` (its exact epsilon) so a zero vector stays zero rather than
 /// producing NaNs, and a near-zero vector does not blow up. Kept as a dedicated helper (rather than
-/// reusing the candle/provider `l2_normalize`, which uses a different epsilon policy) so the static
+/// reusing the provider `l2_normalize`, which uses a different epsilon policy) so the static
 /// output matches the model2vec reference bit-for-bit at the parity boundary. PURE → unit-tested.
 pub fn static_l2_normalize(vector: &mut [f32]) {
     let norm = vector.iter().map(|&component| component * component).sum::<f32>().sqrt() + 1e-32;
@@ -409,60 +405,63 @@ const STATIC_TOKEN_MAPPING_TENSOR_NAMES: &[&str] = &["mapping", "token_mapping"]
 ///
 /// Reads the tensor named one of [`STATIC_EMBEDDING_TENSOR_NAMES`] as `[vocab, dim]` f32, plus an
 /// optional `weights` tensor (`[vocab]`). Offline (no network): reads only the file on disk. Gated
-/// to the real build because it needs candle's safetensors loader; the PURE pooling above is what
-/// the tests exercise. HARD-ERRORS on a `mapping`/`token_mapping` tensor (a vocab-quantized export):
-/// the hand-roll indexes rows by raw token id, so honoring such a map would require row remapping the
-/// supported f32 default never needs — failing loudly beats silently scrambling vectors.
+/// to the real build; the PURE pooling above is what the tests exercise. HARD-ERRORS on a
+/// `mapping`/`token_mapping` tensor (a vocab-quantized export): the hand-roll indexes rows by raw
+/// token id, so honoring such a map would require row remapping the supported f32 default never
+/// needs — failing loudly beats silently scrambling vectors. Other dtypes than f32 are refused for
+/// the same reason: the supported exports are f32.
 #[cfg(not(any(test, coverage)))]
 fn load_static_matrix(
     safetensors_path: &std::path::Path,
     unk_token_id: Option<u32>,
 ) -> Result<StaticEmbeddingMatrix> {
-    use candle_core::Device;
-    let tensors = candle_core::safetensors::load(safetensors_path, &Device::Cpu)
-        .with_context(|| format!("loading static safetensors {}", safetensors_path.display()))?;
+    let bytes = std::fs::read(safetensors_path)
+        .with_context(|| format!("reading static safetensors {}", safetensors_path.display()))?;
+    let tensors = safetensors::SafeTensors::deserialize(&bytes)
+        .with_context(|| format!("parsing static safetensors {}", safetensors_path.display()))?;
     if let Some(mapping_name) =
-        STATIC_TOKEN_MAPPING_TENSOR_NAMES.iter().find(|name| tensors.contains_key(**name))
+        STATIC_TOKEN_MAPPING_TENSOR_NAMES.iter().find(|name| tensors.tensor(name).is_ok())
     {
         anyhow::bail!(
             "static safetensors {} carries a `{mapping_name}` token-remapping tensor (a vocab-quantized model2vec export), which is unsupported by the hand-rolled engine — use the f32 export (e.g. {DEFAULT_STATIC_MODEL_REPO})",
             safetensors_path.display()
         );
     }
-    let matrix_tensor = STATIC_EMBEDDING_TENSOR_NAMES
+    let (name, matrix_tensor) = STATIC_EMBEDDING_TENSOR_NAMES
         .iter()
-        .find_map(|name| tensors.get(*name))
+        .find_map(|name| tensors.tensor(name).ok().map(|tensor| (*name, tensor)))
         .with_context(|| {
             format!(
                 "static safetensors {} has no embedding tensor (looked for {STATIC_EMBEDDING_TENSOR_NAMES:?})",
                 safetensors_path.display()
             )
         })?;
-    let (vocab_size, dim) = matrix_tensor
-        .dims2()
-        .context("static embedding tensor is not a 2-D [vocab, dim] matrix")?;
-    let rows = matrix_tensor
-        .to_dtype(candle_core::DType::F32)
-        .context("casting static embedding matrix to f32")?
-        .flatten_all()
-        .context("flattening static embedding matrix")?
-        .to_vec1::<f32>()
-        .context("reading static embedding matrix rows")?;
-    let weights = match tensors.get("weights") {
-        Some(weights_tensor) => Some(
-            weights_tensor
-                .to_dtype(candle_core::DType::F32)
-                .context("casting static weights to f32")?
-                .flatten_all()
-                .context("flattening static weights")?
-                .to_vec1::<f32>()
-                .context("reading static weights")?,
-        ),
-        None => None,
+    let &[vocab_size, dim] = matrix_tensor.shape() else {
+        anyhow::bail!("static embedding tensor is not a 2-D [vocab, dim] matrix");
+    };
+    let rows = f32_values(&matrix_tensor, name)?;
+    let weights = match tensors.tensor("weights") {
+        Ok(weights_tensor) => Some(f32_values(&weights_tensor, "weights")?),
+        Err(_) => None,
     };
     let matrix = StaticEmbeddingMatrix::new(rows, dim, weights)?.with_unk_token(unk_token_id);
     debug_assert_eq!(matrix.vocab_size(), vocab_size);
     Ok(matrix)
+}
+
+/// An f32 tensor's values in order (safetensors stores them little-endian).
+#[cfg(not(any(test, coverage)))]
+fn f32_values(tensor: &safetensors::tensor::TensorView<'_>, name: &str) -> Result<Vec<f32>> {
+    anyhow::ensure!(
+        tensor.dtype() == safetensors::Dtype::F32,
+        "static tensor `{name}` is {:?}, not f32",
+        tensor.dtype()
+    );
+    Ok(tensor
+        .data()
+        .chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        .collect())
 }
 
 /// Resolves the unk token id pooling should DROP, matching the model2vec reference exactly.
@@ -536,8 +535,8 @@ pub(super) fn unk_spec_from_tokenizer_json(tokenizer_json: &[u8]) -> Option<UnkS
 /// In-app static (model2vec) embedding provider implementing [`EmbeddingProvider`].
 ///
 /// Holds the loaded matrix + tokenizer + normalize flag (real build) or the deterministic descriptor
-/// (test/coverage build). No mutex is needed: pooling is read-only over an immutable matrix (unlike
-/// the candle KV cache), so forwards are naturally concurrent. The real engine is gated behind
+/// (test/coverage build). No mutex is needed: pooling is read-only over an immutable matrix, so
+/// forwards are naturally concurrent. The real engine is gated behind
 /// `cfg(not(any(test, coverage)))`; the stub returns deterministic, normalized vectors with the same
 /// public call graph so the `Static` enum arm and the embed loop are exercised at 100% coverage
 /// without a matrix.
@@ -562,8 +561,7 @@ pub struct StaticEmbeddingProvider {
 /// The loaded static engine: the immutable embedding matrix + tokenizer.
 ///
 /// Both are immutable after load and shared behind an `Arc`, so embedding is lock-free and
-/// concurrent across the worker pool (the static tier's throughput advantage over the candle path,
-/// whose mutable KV cache forces a mutex). F4: always compiled — the REAL `embed` compute
+/// concurrent across the worker pool. F4: always compiled — the REAL `embed` compute
 /// (tokenize → matrix lookup → mean-pool → optional L2-norm) runs in every build, including coverage.
 struct StaticEngine {
     matrix: StaticEmbeddingMatrix,
@@ -587,7 +585,7 @@ impl StaticEmbeddingProvider {
     #[cfg(not(any(test, coverage)))]
     pub fn load(paths: &ProjectPaths, repo: &str, files: &[ModelFile]) -> Result<Self> {
         let model_dir = model_dir_for_repo(paths, repo);
-        if !super::embedding_candle::model_is_loadable(&model_dir, files) {
+        if !super::model_files::model_is_loadable(&model_dir, files) {
             anyhow::bail!(
                 "static model {repo} is not present or not verified in {}; download it (with consent) before selecting the static engine",
                 model_dir.display()
@@ -1119,7 +1117,7 @@ mod tests {
         assert!(names.contains(&"config.json"));
         assert!(names.contains(&"tokenizer.json"));
         assert!(names.contains(&"model.safetensors"));
-        // model2vec ships everything in ONE repo (unlike the candle GGUF/tokenizer split).
+        // model2vec ships everything in ONE repo.
         for file in DEFAULT_STATIC_MODEL_FILES {
             assert_eq!(file.repo, DEFAULT_STATIC_MODEL_REPO);
             // Every digest is the pinned 64-hex shape (sentinel zeros are still 64 hex).

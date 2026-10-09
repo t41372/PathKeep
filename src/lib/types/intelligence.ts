@@ -176,13 +176,6 @@ export interface AiSettings {
   lexicalWeight?: number
   semanticWeight?: number
   starredBoost?: number
-  /**
-   * Opt-in to the Apple-Silicon Metal GPU heavy embedding tier (W-AI-9 Sub-block D, 05 §7). Mirrors
-   * the Rust `gpu_enabled` (`#[serde(default)]`, hard-default-OFF). Optional here so older snapshots
-   * without it still type-check; absent/false means "off". INERT unless the binary was built with the
-   * `metal` cargo feature.
-   */
-  gpuEnabled?: boolean
 }
 /**
  * Represents a read model or status snapshot for ai index.
@@ -249,8 +242,7 @@ export interface StaticEmbeddingStatus {
  * `pathkeep://model-download-progress` Tauri channel. Mirrors the Rust
  * `ModelDownloadProgressEvent` (`#[serde(tag = "kind", rename_all = "camelCase")]`).
  *
- * Both the static tier and the heavy candle tier emit on this single channel; the
- * stream is per-file (no upfront file count and `totalBytes` may be 0 when unknown),
+ * The in-app model download emits on this channel; the stream is per-file (no upfront file count and `totalBytes` may be 0 when unknown),
  * so the UI shows honest per-file / indeterminate progress, never a fabricated percent.
  * Exactly one terminal `done`/`error` always follows so a subscriber never hangs.
  *

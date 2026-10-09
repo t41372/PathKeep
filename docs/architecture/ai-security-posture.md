@@ -41,16 +41,15 @@ The AI surface is governed by `AiSettings` in `vault-core/src/models/intelligenc
 is **hard-default-OFF** except the offline title-normalization plugin. From the `Default` impl
 (`models/intelligence.rs`):
 
-| Flag                     | Default | Capability gated                                                   |
-| ------------------------ | ------- | ------------------------------------------------------------------ |
-| `enabled`                | `false` | **Master AI flag** — gates everything below                        |
-| `assistant_enabled`      | `false` | Streaming chat + agent harness                                     |
-| `semantic_index_enabled` | `false` | Embedding backfill + semantic/hybrid retrieval                     |
-| `mcp_enabled`            | `false` | Outward MCP server                                                 |
-| `skill_enabled`          | `false` | MCP usage-guide (skill) payload                                    |
-| `content_fetch_enabled`  | `false` | Site content fetch (network egress)                                |
-| `gpu_enabled`            | `false` | Apple-Silicon Metal embedding tier (also requires a `metal` build) |
-| `enrichment_enabled`     | `true`  | Offline title-normalization plugin only (no network, no egress)    |
+| Flag                     | Default | Capability gated                                                |
+| ------------------------ | ------- | --------------------------------------------------------------- |
+| `enabled`                | `false` | **Master AI flag** — gates everything below                     |
+| `assistant_enabled`      | `false` | Streaming chat + agent harness                                  |
+| `semantic_index_enabled` | `false` | Embedding backfill + semantic/hybrid retrieval                  |
+| `mcp_enabled`            | `false` | Outward MCP server                                              |
+| `skill_enabled`          | `false` | MCP usage-guide (skill) payload                                 |
+| `content_fetch_enabled`  | `false` | Site content fetch (network egress)                             |
+| `enrichment_enabled`     | `true`  | Offline title-normalization plugin only (no network, no egress) |
 
 ### Master + sub-flag enforcement
 
@@ -290,17 +289,6 @@ the user's data, encrypted with the export password, and leaves out what the oth
   on the source machine as more private than browsing history; the user decided they are not, and that
   chats are backed up and moved like the rest (data-model.md). The bundle round-trip test covers it.
   Files exported by PathKeep 0.3 have no chats; the import dialog says so.
-- **The GPU tier is an opt-in reproducible-build feature.** Metal is an off-by-default `metal` cargo
-  feature (`vault-core/Cargo.toml`); `gpu_enabled` is inert unless the binary was built with it. The
-  default/CI build compiles out `Device::new_metal(0)` entirely (`ai/embedding_candle.rs::select_device`,
-  cfg-gated `candle_device_for`), so a CPU-only build never touches GPU code. Toggling `gpu_enabled` does
-  not change the embedding `model_id`/fingerprint (CPU and Metal produce the same vectors), so it never
-  auto-invalidates the index. **candle's Metal backend is activated only on Apple targets**: the `metal`
-  feature pulls candle's metal deps through the macOS-only `vault-metal-backend` shim crate rather than
-  `candle-core/metal` directly, because candle's metal path (candle-metal-kernels → objc2-metal → objc2)
-  `compile_error!`s off Apple. That keeps `cargo clippy --workspace --all-targets --all-features` green on
-  the Linux CI runner (`--all-features` enables the `metal` feature there, but it is inert for candle);
-  vault-core's own `cfg(feature = "metal")` code still compiles on Linux via candle's `dummy_metal_backend`.
 
 ---
 
@@ -363,10 +351,3 @@ These are flagged for later; none blocks the shipped surface, but each is a real
 - **A full prompt-injection red-team is recommended.** Basic adversarial cases are covered by the sandbox
   contract and read-only tools; a dedicated red-team over injected page titles/URLs would harden the
   assumption that untrusted LLM steering cannot exfiltrate.
-- **A Metal CI lane must re-run `cargo deny` and must run on macOS.** The candle `metal` crates only
-  enter the dependency graph under `--features metal` **on an Apple target** (via the `vault-metal-backend`
-  shim); the Linux CI runner enables the `metal` feature under `--all-features` but never compiles candle's
-  Metal backend, so its clippy pass does NOT lint the `Device::new_metal(0)` call site. That site is linted
-  where developers build — on macOS, where `bun run lint:rust` (`--all-features`) does compile it. A future
-  Metal CI lane that actually builds the backend MUST run on macOS AND re-run `cargo deny check`, since the
-  metal crates only enter the graph there (noted in `vault-core/Cargo.toml`).

@@ -109,7 +109,6 @@ pub async fn build_ai_index_with_control(
     ledger: Option<Arc<dyn IndexBackfillLedger>>,
 ) -> Result<AiIndexReport> {
     let paths = vault.paths();
-    let config = vault.config();
     validate_provider(provider, AiProviderPurpose::Embedding)?;
     let started_at = now_rfc3339();
     let source_watermark = current_source_watermark(vault)?;
@@ -154,9 +153,6 @@ pub async fn build_ai_index_with_control(
     let full_rebuild = request.full_rebuild || scope_requests_full_rebuild;
     let wipe_requested = full_rebuild || request.clear_only;
     let perform_wipe = wipe_requested && !is_resume;
-    // The Metal heavy-tier opt-in (W-AI-9-D): only changes the candle forward-pass device in a
-    // `metal` build; INERT (CPU) otherwise and never affects the vectors/fingerprint.
-    let gpu_enabled = config.ai.gpu_enabled;
 
     let result: Result<AiIndexReport> = async {
         let run_control = run_control.as_ref();
@@ -255,7 +251,6 @@ pub async fn build_ai_index_with_control(
             start_embedded_so_far,
             ledger.as_ref(),
             perform_wipe,
-            gpu_enabled,
         )
         .await?;
 
@@ -606,15 +601,12 @@ async fn run_embedding_backfill(
     start_embedded_so_far: u64,
     ledger: Option<&Arc<dyn IndexBackfillLedger>>,
     perform_wipe: bool,
-    gpu_enabled: bool,
 ) -> Result<BackfillOutcome> {
     let paths = vault.paths();
 
-    // Config-driven engine selection: static (W-AI-4c) / candle (W-AI-4b) / external `/v1/embeddings`.
-    // The loop below is engine-agnostic. `gpu_enabled` is the heavy-tier Metal opt-in (W-AI-9-D); it
-    // only changes the candle forward-pass device in a `metal` build and never the vectors/fingerprint.
-    let embedder =
-        super::super::embedding_candle::select_embedding_provider(paths, provider, gpu_enabled)?;
+    // Config-driven engine selection: the in-app static model or an external `/v1/embeddings`.
+    // The loop below is engine-agnostic.
+    let embedder = super::super::embedding_engine::select_embedding_provider(paths, provider)?;
     // WorkingSet enumerates every eligible canonical page through cursors. Incremental/Full
     // visit every captured candidate; Full performs its one-time wipe in the caller.
     let working_set_filter = working_set_canonical_urls(vault, request.scope)?;
@@ -730,7 +722,7 @@ async fn run_embedding_backfill(
                     // `perform_wipe` (NOT `request.full_rebuild`) drives the store reset: a full_rebuild
                     // RESUME appends to the partial store rather than truncating it (CRITICAL-1). The
                     // fingerprint is stamped from the SELECTED engine's real descriptor (static = Mean,
-                    // candle = LastToken, external = Unknown), so two engines never share a fingerprint.
+                    // external = Unknown), so two engines never share a fingerprint.
                     let store = vector_store_for_chunk(
                         &mut store,
                         paths,
@@ -830,7 +822,7 @@ fn vector_store_for_chunk<'a>(
         // Stamp the fingerprint from the SELECTED engine's real descriptor (its true dtype /
         // normalized / pooling / instruction, A-S2 fix) with the observed dim, but key it by the
         // provider CONFIG identity so the on-disk store name + Turso ledger stay in sync. This is
-        // what keeps a candle-built and an external-built index distinct at the same dim while
+        // what keeps a static-built and an external-built index distinct at the same dim while
         // staying findable by the same provider/model pair the rest of the pipeline uses.
         let descriptor = EmbeddingDescriptor {
             provider_id: provider.config.id.clone(),

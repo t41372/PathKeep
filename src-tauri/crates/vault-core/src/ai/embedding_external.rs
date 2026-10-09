@@ -1,4 +1,4 @@
-//! External OpenAI-compatible `/v1/embeddings` provider + the runtime dispatch enum.
+//! External OpenAI-compatible `/v1/embeddings` provider.
 //!
 //! ## Responsibilities
 //! - own the ONE place reqwest/serde touch the OpenAI-compatible embeddings wire shape
@@ -6,13 +6,11 @@
 //! - implement the rig-free [`EmbeddingProvider`] boundary against that wire shape, honoring
 //!   the 02 §C.3 correctness 鐵律: read the ACTUAL returned vector length as `effective_dim`,
 //!   defensively L2-normalize every returned vector, and thread [`EmbeddingRole`] through
-//! - expose [`AnyEmbeddingProvider`], a hand-rolled enum that dispatches `EmbeddingProvider`
-//!   without `Box<dyn>` so the embedding hot path stays monomorphized (W-AI-0 §8 carryover)
 //!
 //! ## Not responsible for
 //! - resolving provider config or secrets (the worker's `AiProviderRuntime` carries both)
 //! - vector persistence, indexing, queue bookkeeping (those live in `vector_store`/`indexing`)
-//! - in-app candle inference (W-AI-4b adds a second variant + role instruction templating)
+//! - choosing between this and the in-app static engine (`embedding_engine`)
 //!
 //! ## Why this module exists
 //! The `EmbeddingProvider` trait is vendor-free by contract (`traits.rs`). This adapter is the
@@ -23,8 +21,6 @@
 //! response decoding, descriptor/dtype derivation, normalize) are un-gated and unit-tested so a
 //! field/label swap is caught by the unit + mutation gates rather than shipping silently.
 
-use super::embedding_candle::CandleEmbeddingProvider;
-use super::embedding_static::StaticEmbeddingProvider;
 use super::provider::l2_normalize;
 use super::traits::{
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
@@ -191,11 +187,10 @@ pub(super) fn external_descriptor(
         // This adapter emits float32 components and unconditionally L2-normalizes them below.
         dtype: EmbeddingDtype::Float32,
         normalized: true,
-        // A hosted `/v1/embeddings` server does not expose its pooling; it stays unknown until
-        // the in-app candle engine (which owns its pooling) lands in 4b.
+        // A hosted `/v1/embeddings` server does not expose its pooling.
         pooling: EmbeddingPooling::Unknown,
         // OpenAI-compatible servers have no role/instruction field, so no template is applied
-        // (see `embed`'s role note). Instruction templating arrives with candle in 4b.
+        // (see `embed`'s role note).
         instruction_template: None,
     }
 }
@@ -235,8 +230,8 @@ impl ExternalEmbeddingProvider {
             .context("external embedding provider requires a base URL")?;
         // Pin a `localhost` host to `127.0.0.1` (see `normalize_local_base_url`) so the dominant
         // backfill embedding path reaches an IPv4-only local server (LM Studio / Ollama) instead
-        // of the macOS dual-stack 503. Every other host — including the candle sentinel — is
-        // returned unchanged before the trailing-slash trim joins `/embeddings`.
+        // of the macOS dual-stack 503. Every other host is returned unchanged before the
+        // trailing-slash trim joins `/embeddings`.
         let normalized = super::provider::normalize_local_base_url(base);
         let trimmed = normalized.trim_end_matches('/');
         Ok(format!("{trimmed}/embeddings"))
@@ -247,9 +242,8 @@ impl EmbeddingProvider for ExternalEmbeddingProvider {
     /// Embeds a batch of texts under one role, re-chunking to [`EMBEDDING_HTTP_BATCH`] per call.
     ///
     /// `role` is threaded per the trait contract but is a DOCUMENTED NO-OP for OpenAI-compatible
-    /// servers, which have no query/document instruction field. The parameter stays wired so the
-    /// candle adapter (4b) — which DOES apply role-specific instruction prefixes — slots in
-    /// without changing any call site.
+    /// servers, which have no query/document instruction field. The parameter stays wired because
+    /// the trait carries it for engines that prefix a role instruction.
     fn embed(
         &self,
         texts: &[String],
@@ -429,76 +423,10 @@ fn stub_response_bytes(
     serde_json::to_vec(&serde_json::json!({ "data": data })).expect("stub response is serializable")
 }
 
-/// Hand-rolled runtime dispatch over the coexisting embedding engines (W-AI-0 §8 carryover).
-///
-/// NOT `Box<dyn EmbeddingProvider>`: the trait's `embed` is RPITIT (kept monomorphized for the
-/// 14.4M-row hot path), so it is not `dyn`-compatible, and boxing would add an allocation per
-/// embed call. This enum is the sanctioned alternative — each method dispatches by match. 4a
-/// ships only the `External` variant; W-AI-4b ADDS a `Candle(..)` variant here and a match arm in
-/// each method, which is the only change needed to plug the in-app engine in.
-pub enum AnyEmbeddingProvider {
-    /// OpenAI-compatible `/v1/embeddings` external provider.
-    External(ExternalEmbeddingProvider),
-    /// In-app candle QUANTIZED Qwen3-Embedding engine (W-AI-4b): real instruction-prefixed,
-    /// last-token pooled, L2-normalized vectors with NO network, from a GGUF checkpoint. Selected
-    /// when the user has consented to the in-app model AND it is present + verified on disk (the
-    /// selector drives that, degrading to External when the model is absent).
-    ///
-    /// Boxed (the concrete provider, NOT `Box<dyn EmbeddingProvider>`) because the loaded engine
-    /// carries a full quantized model + tokenizer behind a mutex (large) vs the external variant's
-    /// ~200 B — boxing keeps the enum (which is moved on every embed-loop iteration) small without
-    /// reintroducing dynamic dispatch (the match still monomorphizes the RPITIT `embed`).
-    Candle(Box<CandleEmbeddingProvider>),
-    /// In-app HAND-ROLLED static (model2vec) engine (W-AI-4c): the Tier-0 fast base that embeds
-    /// 100% of unique content (05 §2). Symmetric (no query/document instruction), Mean-pooled,
-    /// L2-normalized vectors from a static embedding matrix — orders of magnitude faster than candle
-    /// (no transformer forward). Selected when the user has consented to the static model AND it is
-    /// present + verified on disk; degrades to candle/External when absent. Boxed for the same
-    /// small-enum reason as `Candle` (the loaded matrix is large).
-    Static(Box<StaticEmbeddingProvider>),
-}
-
-impl EmbeddingProvider for AnyEmbeddingProvider {
-    // `async move` (not `async fn`) is deliberate: each variant's `embed` returns a DISTINCT
-    // RPITIT future type, so a `match` cannot return them directly without boxing. The
-    // single-future `async move` keeps the dispatch allocation-free and is the spot 4b extends
-    // with a `Candle` arm. `manual_async_fn` would have us drop the explicit future, but the
-    // explicit signature documents the boxing-free contract this enum exists to provide.
-    #[allow(clippy::manual_async_fn)]
-    fn embed(
-        &self,
-        texts: &[String],
-        role: EmbeddingRole,
-    ) -> impl std::future::Future<Output = Result<Vec<Vec<f32>>>> + Send {
-        async move {
-            match self {
-                Self::External(provider) => provider.embed(texts, role).await,
-                Self::Candle(provider) => provider.embed(texts, role).await,
-                Self::Static(provider) => provider.embed(texts, role).await,
-            }
-        }
-    }
-
-    fn model_id(&self) -> &str {
-        match self {
-            Self::External(provider) => provider.model_id(),
-            Self::Candle(provider) => provider.model_id(),
-            Self::Static(provider) => provider.model_id(),
-        }
-    }
-
-    fn descriptor(&self) -> EmbeddingDescriptor {
-        match self {
-            Self::External(provider) => provider.descriptor(),
-            Self::Candle(provider) => provider.descriptor(),
-            Self::Static(provider) => provider.descriptor(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::embedding_engine::AnyEmbeddingProvider;
     use crate::ai::embedding_static::StaticEmbeddingProvider;
     use crate::ai::provider::l2_normalize;
     use crate::models::{AiProviderConfig, AiProviderPurpose};
@@ -837,27 +765,6 @@ mod tests {
         assert_eq!(any.model_id(), "text-embedding-test");
         assert_eq!(any.descriptor().dtype, EmbeddingDtype::Float32);
         let vectors = any.embed(&["hi".to_string()], EmbeddingRole::Document).await.expect("embed");
-        assert_eq!(vectors.len(), 1);
-        assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
-    }
-
-    #[tokio::test]
-    async fn any_provider_dispatches_candle_variant() {
-        // The W-AI-4b Candle arm must be reachable through the enum so the index/search loops can
-        // run the in-app engine without a call-site change. Uses the deterministic candle stub.
-        let provider = CandleEmbeddingProvider::new_stub(
-            "candle:qwen3",
-            "Qwen/Qwen3-Embedding-0.6B-GGUF",
-            "Q8_0",
-            false,
-        );
-        let any = AnyEmbeddingProvider::Candle(Box::new(provider));
-        // The candle model id carries the quant so a quant swap invalidates the fingerprint.
-        assert_eq!(any.model_id(), "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0");
-        assert_eq!(any.descriptor().pooling, EmbeddingPooling::LastToken);
-        assert!(any.descriptor().instruction_template.is_some());
-        let vectors =
-            any.embed(&["hi".to_string()], EmbeddingRole::Document).await.expect("candle embed");
         assert_eq!(vectors.len(), 1);
         assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
     }

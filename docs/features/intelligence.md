@@ -4,7 +4,7 @@
 > Intelligence 是建立在 Archive 夠好的基礎上的增值層。  
 > AI 功能已由 AI redesign 2026 program 交付並 reachable；整個 AI 面 **預設關閉、consent-gated**，沒有 AI 時 deterministic intelligence 仍完整可用。
 >
-> **2026-06-22 AI shipped note（取代下方所有 v0.1/v0.2 deferral）：** AI redesign 2026 program（W-AI-1..9）已交付：streaming external LLM chat、durable agent harness、in-app（candle Qwen3）+ external embedding、`FlatVectorIndex` 語義/混合檢索（RRF + bounded starred boost + `is:starred` facet）、code-mode（Wasmtime + Javy 沙箱）、MCP 對外面、skills、site content-fetch enrichment。下方 2026-04/05 寫下的「AI Assistant / embedding / semantic / MCP / readable-content 全部 deferred、UI 必須顯示 `Coming in v0.3`」結論**已過時，不再適用**——這些 surface 現在已 reachable，但 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag）。安全邊界與 threat model 見 [ai-security-posture.md](../architecture/ai-security-posture.md)。
+> **2026-06-22 AI shipped note（取代下方所有 v0.1/v0.2 deferral）：** AI redesign 2026 program（W-AI-1..9）已交付：streaming external LLM chat、durable agent harness、in-app（model2vec static）+ external embedding（2026-10-09 移除 candle Qwen3 層）、`FlatVectorIndex` 語義/混合檢索（RRF + bounded starred boost + `is:starred` facet）、code-mode（Wasmtime + Javy 沙箱）、MCP 對外面、skills、site content-fetch enrichment。下方 2026-04/05 寫下的「AI Assistant / embedding / semantic / MCP / readable-content 全部 deferred、UI 必須顯示 `Coming in v0.3`」結論**已過時，不再適用**——這些 surface 現在已 reachable，但 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag）。安全邊界與 threat model 見 [ai-security-posture.md](../architecture/ai-security-posture.md)。
 >
 > **2026-04-15 truth note:** deterministic baseline 已由 [core-intelligence-ultimate-design.md](core-intelligence-ultimate-design.md) 正式接管；[deterministic-intelligence.md](deterministic-intelligence.md) 與 [ADR-006](../architecture/decisions/006-deterministic-intelligence-boundary.md) 保留為它的歷史與 trade-off 背景。這份文檔現在描述 optional AI / assistant / MCP / semantic runtime / queue review 的 shipping contract；任何殘留的 deterministic insights / session / dwell / embedding-first baseline wording，都屬 legacy 敘述，不再是 accepted source of truth。
 >
@@ -68,7 +68,7 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 ### 需求要點
 
 - semantic / hybrid search 已交付（W-AI-4/5/6），但 **off by default + consent-gated**（master `ai.enabled` + `semantic_index_enabled`）；沒開時 History 搜尋維持全文 / regex（lexical recall v2）。
-- 向量相似度走 in-app（candle Qwen3）或 external（OpenAI-compatible `/v1/embeddings`）embedding，寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
+- 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding，寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
 - Embedding 增量計算、content-hash dedup（一個 content_key 一條向量，fan-out 到所有共享該內容的 visit）、本地索引、避免重算。
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。

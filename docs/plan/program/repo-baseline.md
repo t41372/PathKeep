@@ -33,7 +33,6 @@
 | `src-tauri/crates/vault-core/src/models/intelligence.rs`                | 2713 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/agent_store.rs`                        | 2318 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/migration/fault_tests.rs`              | 2063 | 測試檔                             |
-| `src-tauri/crates/vault-core/src/ai/embedding_candle.rs`                | 2056 | 程式碼                             |
 | `src-tauri/crates/vault-worker/src/archive_flows.rs`                    | 2006 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/archive/search_projection.rs`          | 1949 | 程式碼                             |
 | `src-tauri/crates/vault-core/src/enrichment/content_fetch.rs`           | 1928 | 程式碼                             |
@@ -171,7 +170,6 @@
 | 檔案                                                                                                       | 行數  | test 區佔比            | stance                                                                      |
 | ---------------------------------------------------------------------------------------------------------- | ----- | ---------------------- | --------------------------------------------------------------------------- |
 | [`vault-core/src/ai/tests.rs`](../../../src-tauri/crates/vault-core/src/ai/tests.rs)                       | ~3712 | 全檔即 AI 模組共用測試 | accepted；這是 `ai/` 的集中測試面，不是 production 巨檔。                   |
-| [`vault-core/src/ai/embedding_candle.rs`](../../../src-tauri/crates/vault-core/src/ai/embedding_candle.rs) | ~1756 | ~580 行 test           | accepted；candle 引擎 + 模型下載/驗證一體，production 主體 < 1000 行。      |
 | [`vault-core/src/ai/agent_harness.rs`](../../../src-tauri/crates/vault-core/src/ai/agent_harness.rs)       | ~1631 | ~1040 行 test（過半）  | accepted；agent run/journal durability，test 比 production code 還多。      |
 | [`vault-core/src/ai/llm.rs`](../../../src-tauri/crates/vault-core/src/ai/llm.rs)                           | ~1247 | ~527 行 test           | accepted；rig LLM provider + streaming transport，production 主體 ~720 行。 |
 | [`vault-core/src/ai/embedding_static.rs`](../../../src-tauri/crates/vault-core/src/ai/embedding_static.rs) | ~1045 | ~297 行 test           | accepted；model2vec 靜態引擎，production 主體 < 750 行。                    |
@@ -189,7 +187,7 @@
 - [`vault-worker/src/archive_flows.rs`](../../../src-tauri/crates/vault-worker/src/archive_flows.rs) ~1845 行：og:image 抓取 worker-pool 是裡面最該抽出的一塊（建議抽到專屬 module），其餘 archive flow orchestration 責任本身正確。
 - ~~`src/pages/intelligence/sections.tsx` ~1086 行~~：已隨舊前端刪除（2026-10）。
 
-> 2026-10-02：本節的行數是 2026-06-21 的數字。現在 `ai/tests.rs` 5871、`embedding_candle.rs` 2056、`agent_harness.rs` 3047、`llm.rs` 1342、`embedding_static.rs` 1249、`ai/search.rs` 1747、`archive_flows.rs` 2006 行，見上方「巨型檔案清單」。
+> 2026-10-02：本節的行數是 2026-06-21 的數字。現在 `ai/tests.rs` 5871、`agent_harness.rs` 3047（`embedding_candle.rs` 2026-10-09 移除：共用的模型下載與驗證搬到 `ai/model_files.rs`）、`llm.rs` 1342、`embedding_static.rs` 1249、`ai/search.rs` 1747、`archive_flows.rs` 2006 行，見上方「巨型檔案清單」。
 
 ### 待辦
 

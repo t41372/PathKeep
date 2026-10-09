@@ -1,8 +1,8 @@
-//! Worker-side consent-gated in-app embedding model download (W-AI-4b, §C.5).
+//! Worker-side consent-gated in-app embedding model download (§C.5).
 //!
 //! ## Responsibilities
 //! - drive [`vault_core::ensure_model_downloaded`] OFF the UI thread (its own background thread,
-//!   mirroring the streaming-chat + import/backup off-thread pattern) so a multi-hundred-MB GGUF
+//!   mirroring the streaming-chat + import/backup off-thread pattern) so a multi-hundred-MB
 //!   download never blocks the renderer
 //! - bridge the vault-core [`vault_core::ModelDownloadProgress`] trait callbacks onto the desktop
 //!   emit sink as [`vault_core::ModelDownloadProgressEvent`]s on
@@ -11,8 +11,7 @@
 //!
 //! ## Not responsible for
 //! - emitting Tauri events directly (the desktop command supplies the `emit` sink closure)
-//! - the consent UI. The `download_static_embedding_model` command is the only caller; the heavier
-//!   Candle-tier download command was removed in 2026-10 because no frontend called it.
+//! - the consent UI. The `download_static_embedding_model` command is the only caller.
 //!
 //! ## Why consent stays honored
 //! The command always passes `consented = true` ONLY because reaching this code IS the explicit
@@ -261,7 +260,8 @@ mod tests {
         let repo = "Stub/Repo";
         let model_dir = vault_core::model_dir_for_repo(&paths, repo);
         std::fs::create_dir_all(&model_dir).expect("mkdir");
-        let entries: [(&str, &[u8]); 2] = [("config.json", b"cfg"), ("weights.gguf", b"weights")];
+        let entries: [(&str, &[u8]); 2] =
+            [("config.json", b"cfg"), ("model.safetensors", b"weights")];
         let files: Vec<vault_core::ModelFile> = entries
             .iter()
             .map(|(name, bytes)| {

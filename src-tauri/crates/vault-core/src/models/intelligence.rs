@@ -318,7 +318,7 @@ pub fn built_in_static_embedding_provider() -> AiProviderConfig {
 ///
 /// Mirrors the built-in-merge pattern used for enrichment plugins / deterministic modules: the static
 /// provider is re-materialized FIRST on every load so it can never be deleted or corrupted out of the
-/// list, while every user-defined provider (external / candle) is preserved verbatim after it. A
+/// list, while every user-defined (external) provider is preserved verbatim after it. A
 /// user-customized static `default_model` (a future swapped static model) is the ONE field carried
 /// over from the stored row; the identity fields are always forced back to canonical so a hand-edited
 /// config cannot disable the sentinel or flip its purpose. Idempotent: re-merging an already-merged
@@ -343,7 +343,7 @@ pub fn merge_embedding_providers(current: &[AiProviderConfig]) -> Vec<AiProvider
 
 /// Defaults the selected embedding provider to the built-in static one when none is validly selected.
 ///
-/// Respects an explicit, still-VALID user selection (an external/candle provider that exists in the
+/// Respects an explicit, still-VALID user selection (an external provider that exists in the
 /// list) — it is never silently overridden. Only `None` or a DANGLING id (pointing at a provider that
 /// no longer exists) falls back to the built-in static provider, so the always-on local tier is the
 /// honest default the moment AI is configured. Must be called AFTER [`merge_embedding_providers`] so
@@ -529,16 +529,6 @@ pub struct AiSettings {
     /// one (the normalized top is `1.0`, the boost cap is `0.5`). Zero disables the boost entirely.
     #[serde(default = "default_starred_boost")]
     pub starred_boost: f32,
-    /// Opt-in: run the heavy-tier candle embedding on the Apple-Silicon Metal GPU (W-AI-9 Sub-block D,
-    /// 05 §7). ADDITIVE + `#[serde(default)]` so a frozen config without the field deserializes to
-    /// `false`. HARD-DEFAULT-OFF: a fresh install never touches the GPU. INERT unless the binary was
-    /// built with the off-by-default `metal` cargo feature — in a CPU-only build the engine selects
-    /// `Device::Cpu` regardless of this flag (the FE renders an honest "needs a Metal build" state
-    /// rather than a green toggle that lies). Toggling this does NOT change `model_id`/fingerprint
-    /// (CPU and Metal produce the same vectors), so it never auto-invalidates the index — re-embedding
-    /// is an explicit user action.
-    #[serde(default)]
-    pub gpu_enabled: bool,
 }
 
 /// Default RRF `k` constant (the canonical Reciprocal Rank Fusion value).
@@ -680,8 +670,6 @@ impl Default for AiSettings {
             lexical_weight: default_search_weight(),
             semantic_weight: default_search_weight(),
             starred_boost: default_starred_boost(),
-            // Hard-default-OFF: no GPU is touched until the user opts in AND the binary is a Metal build.
-            gpu_enabled: false,
         }
     }
 }
@@ -1252,7 +1240,7 @@ pub const MODEL_DOWNLOAD_PROGRESS_EVENT: &str = "pathkeep://model-download-progr
 /// [`MODEL_DOWNLOAD_PROGRESS_EVENT`].
 ///
 /// Mirrors the [`crate::ModelDownloadProgress`] trait callbacks so the worker can forward per-file
-/// download progress to the UI without leaking hf-hub types across the IPC boundary. `kind`-tagged
+/// download progress to the UI without leaking download types across the IPC boundary. `kind`-tagged
 /// so the front end can route each phase (started / finished / done / error) into the right UI state.
 pub enum ModelDownloadProgressEvent {
     /// One model file started downloading (`total_bytes` is the HTTP content-length, 0 if unknown).
@@ -2531,19 +2519,6 @@ mod tests {
         assert_eq!(settings.lexical_weight, 1.0);
         assert_eq!(settings.semantic_weight, 1.0);
         assert_eq!(settings.starred_boost, 0.15);
-        // W-AI-9-D: the GPU opt-in is additive + hard-default-OFF, so an older config parses to false.
-        assert!(!settings.gpu_enabled);
-    }
-
-    #[test]
-    fn ai_settings_gpu_enabled_round_trips_when_present() {
-        // An explicit `gpuEnabled: true` deserializes (and survives re-serialization), so a future
-        // Metal build honors the persisted opt-in.
-        let payload = json!({ "gpuEnabled": true });
-        let settings: AiSettings = serde_json::from_value(payload).unwrap();
-        assert!(settings.gpu_enabled);
-        let reserialized = serde_json::to_value(&settings).unwrap();
-        assert_eq!(reserialized["gpuEnabled"], json!(true));
     }
 
     #[test]
