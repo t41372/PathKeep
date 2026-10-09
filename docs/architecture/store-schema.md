@@ -360,6 +360,14 @@ the new keyword searches join in visit order (all of them again, writing only th
 differ, if the search that opened that open trail changed kind); then it writes all of it in
 one transaction with its done mark, so readers see the old aggregates or the new ones. A larger
 append, or stored rows the update does not expect, builds the aggregates into a new generation.
+A build records two rule versions: the URL rules (normalization, site, search; with the daily
+and structural versions, `rule_version`) and the category rules (matcher, packs, the
+categories a user set for sites; `category_version`). A change of the first builds anew. A
+change of only the second sorts the visits already built again in place (`build_reclassify`):
+each of the profile's URLs is classified once (a category depends on the URL, its title and its
+search, not on a visit), the facts of the visits whose categories moved are rewritten, the daily
+rollups of their days are made again (a day's category rows are removed first) and the compare
+sets of their trails are replaced with the in-place aggregate write.
 Checkpoints and their writes commit in one batch; superseded generations are reclaimed in
 bounded writes. No TEMP tables are used.
 

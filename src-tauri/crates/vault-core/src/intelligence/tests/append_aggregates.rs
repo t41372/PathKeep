@@ -32,7 +32,7 @@ const AGGREGATE_TABLES: &[&str] = &[
     "compare_sets",
 ];
 
-struct Visit {
+pub(super) struct Visit {
     id: i64,
     url: String,
     title: String,
@@ -45,7 +45,7 @@ struct Visit {
 /// compare set), a blog, sometimes back to the docs. Queries reword one another so families
 /// grow over time; the same few pages and sites come back day after day. The cuts fall inside
 /// the morning trails of days 12, 18 and 24.
-fn visits() -> Vec<Visit> {
+pub(super) fn visits() -> Vec<Visit> {
     let topics = ["rust async runtime", "rust async runtimes compared", "tokio vs smol"];
     let mut visits = Vec::new();
     let mut id = 100;
@@ -101,7 +101,7 @@ fn visits() -> Vec<Visit> {
     visits
 }
 
-fn add(db: &TestDatabase, batch: &[Visit]) {
+pub(super) fn add(db: &TestDatabase, batch: &[Visit]) {
     let rows = batch
         .iter()
         .map(|v| (v.id, v.url.clone(), v.title.clone(), v.at, v.from, v.search.clone()))
@@ -116,7 +116,7 @@ fn add(db: &TestDatabase, batch: &[Visit]) {
     sync_archive_totals(db);
 }
 
-fn build(vault: &crate::Vault) -> String {
+pub(super) fn build(vault: &crate::Vault) -> String {
     run_core_intelligence(vault, &CoreIntelligenceRebuildRequest::default())
         .expect("build")
         .execution_mode
@@ -125,8 +125,18 @@ fn build(vault: &crate::Vault) -> String {
 
 /// Every aggregate row of the published generation, without the generation and build time.
 fn aggregates(vault: &crate::Vault) -> Vec<(String, Vec<String>)> {
+    published(vault, AGGREGATE_TABLES, "aggregates")
+}
+
+/// Every row of `tables` in the published generation of `group`, without the generation and
+/// build time, each as one sorted line.
+pub(super) fn published(
+    vault: &crate::Vault,
+    tables: &[&str],
+    group: &'static str,
+) -> Vec<(String, Vec<String>)> {
     let db = TestDatabase::new(vault, Db::Intelligence);
-    AGGREGATE_TABLES
+    tables
         .iter()
         .map(|table| {
             let name = format!("{table}_rows");
@@ -138,7 +148,7 @@ fn aggregates(vault: &crate::Vault) -> Vec<(String, Vec<String>)> {
                         .filter(|column| column != "generation" && column != "computed_at")
                         .collect::<Vec<_>>();
                     let sql = format!(
-                        "SELECT {} FROM {name} WHERE generation=(SELECT aggregates FROM \
+                        "SELECT {} FROM {name} WHERE generation=(SELECT {group} FROM \
                          intelligence_generations WHERE profile_id='chrome:Default')",
                         columns.join(",")
                     );
@@ -163,7 +173,7 @@ fn aggregates(vault: &crate::Vault) -> Vec<(String, Vec<String>)> {
         .collect()
 }
 
-fn vault() -> crate::Vault {
+pub(super) fn vault() -> crate::Vault {
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,

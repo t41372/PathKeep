@@ -24,6 +24,7 @@ where
     if state.daily_done {
         return Ok(0);
     }
+    super::build_reclassify::days(vault, state, limit, progress)?;
     let mut cursor = state.daily_cursor;
     if cursor.is_none()
         && !state.full
@@ -38,7 +39,9 @@ where
     let mut pending = PendingDays::default();
     let mut day_end = cursor;
     let mut processed = 0;
-    loop {
+    // Without new visits (a build that only sorted visits into new categories) there are no new
+    // days; without a cursor this would read the profile from its first visit.
+    while state.full || cursor.is_some() {
         let batch = build_rows::derived_page(vault, state, cursor, limit)?;
         if batch.is_empty() {
             break;
@@ -259,7 +262,9 @@ where
     if state.aggregates_done {
         return Ok(());
     }
-    if state.append.is_some() {
+    // An append or a change of categories updates the published aggregates in place; a build
+    // with a generation of its own builds them all.
+    if state.aggregate_generation != state.id {
         return super::build_append::aggregates(vault, state, limit, progress);
     }
     super::build_refind::rebuild(vault, state, limit, progress)?;

@@ -17,11 +17,17 @@
 //! - These are compact value types; large-archive memory behavior is governed
 //!   by the caller's batching strategy, not by this type module.
 
-/// The matcher's version. v2: a host is matched before its parents (`mail.google.com` before
-/// `google.com`). v3: a Latin lexicon word matches whole words only ("api" not in "rapid").
-/// v4: only http(s) pages have a site; an extension's page no longer counts as one.
-/// What builds record is `taxonomy_version()`, which adds every pack's version.
+/// The category matcher's version: which category a page and its site get. v2: a host is matched
+/// before its parents (`mail.google.com` before `google.com`). v3: a Latin lexicon word matches
+/// whole words only ("api" not in "rapid"). v4: no change of its own (it carried the first URL
+/// rule change below). What builds record is `taxonomy_version()`, which adds every pack's
+/// version; a change there sorts visits into categories again without building Insights anew.
 pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v4";
+
+/// The URL rules' version: how a URL is normalized, which site it belongs to and which search it
+/// is. A change moves visits between sites and searches, so Insights are built anew. v1: only
+/// http(s) pages have a site; an extension's page no longer counts as one.
+pub(super) const URL_RULES_VERSION: &str = "m5-url-v1";
 
 /// URL normalized for rule-based visit taxonomy and matching.
 #[derive(Debug, Clone, PartialEq, Eq)]

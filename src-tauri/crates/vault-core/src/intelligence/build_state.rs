@@ -62,6 +62,13 @@ pub(super) struct BuildState {
     /// (`build_append`); `None` when the aggregates are built into a new generation.
     #[serde(default)]
     pub append: Option<super::build_append::AppendBase>,
+    /// The category rules this build sorts visits with (`incremental::category_version`).
+    #[serde(default)]
+    pub category_version: String,
+    /// When only the category rules changed since the last build: the visits already built are
+    /// sorted again in place (`build_reclassify`) instead of building anew.
+    #[serde(default)]
+    pub reclassify: Option<super::build_reclassify::Reclassify>,
 }
 
 pub(super) fn load(s: &Session<'_>, profile: &str) -> Result<Option<BuildState>> {

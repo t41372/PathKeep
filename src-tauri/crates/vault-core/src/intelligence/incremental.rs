@@ -6,8 +6,12 @@
 //! These helpers keep the Core Intelligence rebuild stages honest about whether a
 //! queued job can stay incremental or must fall back to a scoped full refresh.
 
-use crate::{intelligence_catalog::RebuildMode, visit_taxonomy::taxonomy_version};
+use crate::{
+    intelligence_catalog::RebuildMode,
+    visit_taxonomy::{taxonomy_version, url_rules_version},
+};
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 #[cfg(test)]
 use vault_store::OptionalRow;
@@ -46,10 +50,11 @@ pub(super) fn stage_name(stage: RebuildMode) -> &'static str {
 
 pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Result<String> {
     match stage {
+        // v3: categories left out; they have their own version (`category_version`).
         RebuildMode::VisitDerive => Ok(format!(
-            "visit-derived-facts-v2:{}:{}:{}",
-            taxonomy_version(),
-            load_site_dictionary_signature(connection)?,
+            "visit-derived-facts-v3:{}:{}:{}",
+            url_rules_version(),
+            override_digest(connection, "search", "search_engine", "search_engine IS NOT NULL")?,
             super::intelligence_overview_snapshot::load_search_rule_signature(connection)?
         )),
         RebuildMode::DailyRollup => Ok("daily-rollups-v2".to_string()),
@@ -282,6 +287,45 @@ pub(super) fn watermark_regressed(
         || current.visible_search_term_count < previous.visible_search_term_count
 }
 
+/// The rules that put a visit's page and site into categories: the matcher, every rule pack and
+/// the categories the user set for sites. When only these change, a build sorts the archive's
+/// pages again instead of starting over (`build_reclassify`).
+pub(super) fn category_version(connection: &Session<'_>) -> Result<String> {
+    Ok(format!(
+        "{}:{}",
+        taxonomy_version(),
+        override_digest(
+            connection,
+            "categories",
+            "COALESCE(domain_category,'')||'|'||COALESCE(page_category,'')||'|'||COALESCE(interaction_kind,'')",
+            "domain_category IS NOT NULL OR page_category IS NOT NULL OR interaction_kind IS NOT NULL",
+        )?
+    ))
+}
+
+/// A digest of what the user's site overrides set in one respect (`value`, for the rows
+/// `filter` keeps), so a change there, and only there, changes it.
+fn override_digest(
+    connection: &Session<'_>,
+    label: &str,
+    value: &str,
+    filter: &str,
+) -> Result<String> {
+    let rows = connection.query(
+        &format!(
+            "SELECT target_kind,target_value,{value} FROM site_dictionary_overrides
+             WHERE {filter} ORDER BY target_kind,target_value"
+        ),
+        (),
+        |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<String>(2)?)),
+    )?;
+    let mut digest = Sha256::new();
+    for (kind, target, value) in &rows {
+        digest.update(format!("{kind}\u{1f}{target}\u{1f}{value}\u{1e}"));
+    }
+    Ok(format!("{label}:{}:{:x}", rows.len(), digest.finalize()))
+}
+
 pub(super) fn load_site_dictionary_signature(connection: &Session<'_>) -> Result<String> {
     connection
         .query_one(
@@ -310,7 +354,7 @@ mod tests {
                     assert!(
                         stage_version(connection, RebuildMode::VisitDerive)
                             .expect("visit version")
-                            .starts_with("visit-derived-facts-v2:")
+                            .starts_with("visit-derived-facts-v3:")
                     );
                     assert_eq!(
                         stage_version(connection, RebuildMode::StructuralRebuild)

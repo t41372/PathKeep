@@ -51,11 +51,14 @@ fn rule_version(s: &Session<'_>) -> Result<String> {
 /// new site list, a changed matcher): they show the old labels until the next build.
 pub(crate) fn built_with_other_rules(s: &Session<'_>) -> Result<bool> {
     let current = rule_version(s)?;
+    let categories = super::incremental::category_version(s)?;
     let profiles = s.query("SELECT profile_id FROM intelligence_generations", params![], |r| {
         Ok(r.get::<String>(0)?)
     })?;
     for profile in profiles {
-        if build_state::load(s, &profile)?.is_some_and(|state| state.rule_version != current) {
+        if build_state::load(s, &profile)?.is_some_and(|state| {
+            state.rule_version != current || state.category_version != categories
+        }) {
             return Ok(true);
         }
     }
@@ -64,20 +67,29 @@ pub(crate) fn built_with_other_rules(s: &Session<'_>) -> Result<bool> {
 
 pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Result<BuildState> {
     let profile = source.profile_id.clone();
-    let (previous, rule_version) = vault
-        .read(Db::Intelligence, move |s| Ok((build_state::load(s, &profile)?, rule_version(s)?)))?;
+    let (previous, rule_version, category_version) = vault.read(Db::Intelligence, move |s| {
+        Ok((
+            build_state::load(s, &profile)?,
+            rule_version(s)?,
+            super::incremental::category_version(s)?,
+        ))
+    })?;
     let pending = previous.as_ref().is_some_and(|old| {
         !(old.facts_done && old.daily_done && old.navigation_done && old.aggregates_done)
     });
     if let Some(old) = previous.as_ref()
         && pending
         && old.rule_version == rule_version
+        && old.category_version == category_version
         && old.source == source.watermark
         && old.archive_revision == source.revision
     {
         return Ok(old.clone());
     }
     let rules_changed = previous.as_ref().is_some_and(|old| old.rule_version != rule_version);
+    // Only the categories changed: the visits already built are sorted again in place.
+    let categories_changed =
+        previous.as_ref().is_some_and(|old| old.category_version != category_version);
     let mut full = force_full || previous.is_none() || rules_changed || pending;
     let mut fallback = if force_full {
         Some("manual-full-rebuild")
@@ -102,7 +114,11 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
     let mut dirty = None;
     let mut appended = 0;
     if let Some(old) = previous.as_ref() {
-        if old.source == source.watermark && old.archive_revision == source.revision && !full {
+        if old.source == source.watermark
+            && old.archive_revision == source.revision
+            && !full
+            && !categories_changed
+        {
             return Ok(old.clone());
         }
         if !full {
@@ -157,6 +173,16 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
         }
         _ => None,
     };
+    let reclassify = match previous.as_ref() {
+        Some(old) if !full && categories_changed => Some(super::build_reclassify::Reclassify {
+            up_to_visit_id: old.source.max_visit_id,
+            ..Default::default()
+        }),
+        _ => None,
+    };
+    // The aggregates are updated in place for a small append, or for new categories with no new
+    // visits; otherwise they are built into a generation of this build's own.
+    let in_place = append.is_some() || (reclassify.is_some() && dirty.is_none());
     let source = source.clone();
     vault.write(Db::Intelligence, Priority::Batch, move |s| {
         let id = build_state::allocate(s, &source.profile_id)?;
@@ -175,11 +201,7 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
             facts_generation: reuse(|s| s.facts_generation),
             daily_generation: reuse(|s| s.daily_generation),
             navigation_generation: reuse(|s| s.navigation_generation),
-            aggregate_generation: if append.is_some() {
-                reuse(|s| s.aggregate_generation)
-            } else {
-                id
-            },
+            aggregate_generation: if in_place { reuse(|s| s.aggregate_generation) } else { id },
             cursor: if full { None } else { old.and_then(|s| s.cursor) },
             facts_done: false,
             daily_done: false,
@@ -196,9 +218,11 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
             structural_cursor: if full { None } else { old.and_then(|s| s.structural_cursor) },
             counts: if full { BTreeMap::new() } else { old.unwrap().counts.clone() },
             append,
+            category_version,
+            reclassify,
         };
         let mut state = state;
-        if state.append.is_none() {
+        if state.aggregate_generation == state.id {
             for (table, group) in build_state::TABLES {
                 if *group == "aggregates" {
                     state.counts.remove(*table);
@@ -288,6 +312,7 @@ where
             state.source.visible_visit_count as usize,
         ))?;
     }
+    super::build_reclassify::reclassify(vault, state, on_progress)?;
     state.facts_done = true;
     state.counts.insert("visit_derived_facts".into(), state.processed);
     checkpoint(vault, state, RebuildMode::VisitDerive)

@@ -24,6 +24,7 @@ mod build_needed;
 mod fixtures;
 mod frequent_searches;
 mod new_sites;
+mod reclassify;
 mod rhythm;
 mod schema_overview;
 mod search_families;

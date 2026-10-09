@@ -1,19 +1,21 @@
-//! Responsibilities: bring a profile's aggregates up to date after an append, in place, by
+//! Responsibilities: bring a profile's aggregates up to date in place after an append, by
 //! building again only what the new visits touch: the pages they open, the paths on the days
 //! they fall on, the search trails they join or start and the query families their searches
-//! join. Everything is worked out first, reading only, and written in one transaction, so a
-//! reader sees all of the old aggregates or all of the new ones.
+//! join; and after new categories (`build_reclassify`), the compare sets of the trails whose
+//! pages moved. Everything is worked out first, reading only, and written in one transaction, so
+//! a reader sees all of the old aggregates or all of the new ones.
 //! Not responsible for: the full build (`build_stages::aggregates`), which an append too large
 //! for one write uses instead (`IN_PLACE_LIMIT`); facts, rollups and sessions, which their own
 //! stages extend in place.
-//! Failure modes: something the new visits touch is left as it was; the write is cut in two
-//! (it is one transaction with the build's done mark); the search that opened the trail still
-//! open at the last build changes kind once its landing is known, so the families from that
-//! search on are not what a build from scratch makes (they are made again from every search and
-//! only the ones that differ are written).
+//! Failure modes: something the new visits or categories touch is left as it was; the write is
+//! cut in two (it is one transaction with the build's done mark); the search that opened the
+//! trail still open at the last build changes kind once its landing is known, so the families
+//! from that search on are not what a build from scratch makes (they are made again from every
+//! search and only the ones that differ are written).
 //!
 //! The decision and its alternatives: `docs/architecture/research/2026-10-incremental-aggregates.md`.
-//! `tests/append_aggregates.rs` compares every aggregate after appends with a build from scratch.
+//! `tests/append_aggregates.rs` compares every aggregate after appends with a build from
+//! scratch; `tests/reclassify.rs` does the same after new categories.
 
 use super::build_state::{self, BuildState};
 use super::compare_sets::{self, CompareSetAccumulator, CompareSetRecord};
@@ -113,15 +115,36 @@ pub(super) fn aggregates<F>(
 where
     F: FnMut(CoreIntelligenceProgress) -> Result<()>,
 {
-    let Some(base) = state.append.clone() else { bail!("not an append") };
-    let pages = page_rows(vault, state, &base, limit, progress)?;
-    let Some(paths) = path_changes(vault, state, &base)? else {
-        return start_over(vault, state, limit, progress);
-    };
-    let (trails, compare_sets) = compare_sets_again(vault, state, &base, limit, progress)?;
-    let Some((families, gone_families)) = family_changes(vault, state, &base, progress)? else {
-        return start_over(vault, state, limit, progress);
-    };
+    let base = state.append.clone();
+    let reclassified = state.reclassify.as_ref().map(|work| work.trails.clone());
+    if base.is_none() && reclassified.is_none() {
+        bail!("an in-place update with neither new visits nor new categories");
+    }
+    let mut pages = Vec::new();
+    let mut paths = Vec::new();
+    let mut trails = BTreeSet::new();
+    let mut compare_sets = Vec::new();
+    let mut families = Vec::new();
+    let mut gone_families = Vec::new();
+    if let Some(base) = &base {
+        pages = page_rows(vault, state, base, limit, progress)?;
+        let Some(gains) = path_changes(vault, state, base)? else {
+            return start_over(vault, state, limit, progress);
+        };
+        paths = gains;
+        (trails, compare_sets) = compare_sets_again(vault, state, base, limit, progress)?;
+        let Some(changed) = family_changes(vault, state, base, progress)? else {
+            return start_over(vault, state, limit, progress);
+        };
+        (families, gone_families) = changed;
+    }
+    // Trails whose pages moved to other categories, unless the append's walk saw them already.
+    if let Some(reclassified) = reclassified {
+        let rest = reclassified.difference(&trails).cloned().collect::<Vec<_>>();
+        let (walked, sets) = trails_again(vault, state, &rest, limit)?;
+        trails.extend(walked);
+        compare_sets.extend(sets);
+    }
     let changes = Changes { pages, paths, trails, compare_sets, families, gone_families };
     let mut saved = state.clone();
     saved.aggregates_done = true;
@@ -280,6 +303,60 @@ where
         progress(build_state::progress(state, "compare-sets", walked, state.dirty_visit_count))?;
     }
     Ok((trails, accumulator.finish(vault, state.navigation_generation)?))
+}
+
+/// The compare sets of `trails` again, each walked over its own span the way the full walk sees
+/// it: from its search to its last visit, with the visits outside any trail in between, stopping
+/// at another trail's visit.
+fn trails_again(
+    vault: &Vault,
+    state: &BuildState,
+    trails: &[String],
+    limit: usize,
+) -> Result<(BTreeSet<String>, Vec<CompareSetRecord>)> {
+    let generation = state.navigation_generation;
+    let ids = trails.to_vec();
+    let mut spans = vault.read(Db::Intelligence, move |s| {
+        let mut spans = Vec::new();
+        for trail in ids {
+            let span = s
+                .query_one(
+                    "SELECT t.first_visit_ms,t.last_visit_ms,m.visit_id FROM search_trails_rows t
+                     JOIN search_trail_members_rows m
+                       ON m.generation=t.generation AND m.trail_id=t.trail_id AND m.ordinal=0
+                     WHERE t.generation=?1 AND t.trail_id=?2",
+                    params![generation, trail.as_str()],
+                    |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?)),
+                )
+                .optional()?;
+            spans.extend(span.map(|span| (span, trail)));
+        }
+        Ok(spans)
+    })?;
+    spans.sort();
+    let mut accumulator = CompareSetAccumulator::default();
+    for ((first, last, search), trail) in &spans {
+        let mut cursor =
+            Some(VisibleVisitBatchCursor { visit_time_ms: *first, visit_id: search - 1 });
+        'trail: loop {
+            let batch = build_rows::derived_page(vault, state, cursor, limit)?;
+            let Some(tail) = batch.last() else { break };
+            cursor = Some(VisibleVisitBatchCursor {
+                visit_time_ms: tail.visit_time_ms,
+                visit_id: tail.visit_id,
+            });
+            for visit in &batch {
+                let other = visit.trail_id.as_ref().is_some_and(|id| id != trail);
+                if visit.visit_time_ms > *last || other {
+                    break 'trail;
+                }
+                accumulator.add(visit);
+            }
+        }
+        accumulator.resolve(vault, generation)?;
+    }
+    let sets = accumulator.finish(vault, generation)?;
+    Ok((spans.into_iter().map(|(_, trail)| trail).collect(), sets))
 }
 
 /// The families the new keyword searches change, added in visit order to the stored families

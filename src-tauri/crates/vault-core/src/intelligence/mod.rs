@@ -12,6 +12,7 @@
 
 mod build_append;
 mod build_pipeline;
+mod build_reclassify;
 mod build_refind;
 mod build_rows;
 mod build_stages;
