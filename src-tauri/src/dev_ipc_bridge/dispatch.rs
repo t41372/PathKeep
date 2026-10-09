@@ -210,6 +210,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<HistoryFaviconPayload>(payload)?;
             json_value!(worker_bridge::load_history_favicons_impl(payload.entries, &state.session)?)
         }
+        "load_site_favicons" => {
+            let payload = parse_payload::<SiteFaviconPayload>(payload)?;
+            json_value!(worker_bridge::load_site_favicons_impl(payload.domains, &state.session)?)
+        }
         "load_history_og_images" => {
             let payload = parse_payload::<HistoryOgImagePayload>(payload)?;
             json_value!(worker_bridge::load_history_og_images_impl(

@@ -94,6 +94,13 @@ pub(super) struct HistoryFaviconPayload {
     pub(super) entries: Vec<HistoryFaviconLookupEntry>,
 }
 
+/// Bridge envelope for load_site_favicons: the sites a screen lists.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SiteFaviconPayload {
+    pub(super) domains: Vec<String>,
+}
+
 /// Mirrors the favicon lookup batching for og:image hydration so the
 /// dev bridge can exercise the card-mode hydration path under Playwright.
 #[derive(Debug, Deserialize)]

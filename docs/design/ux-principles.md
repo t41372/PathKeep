@@ -8,7 +8,7 @@
 
 ## 1. 視覺設計方向
 
-PathKeep 看起來是一個安靜的 macOS 原生工具：半透明的視窗浮在柔和的漸層上，內容放在圓角面板裡，資料本身是畫面的重心。
+PathKeep 看起來是一個安靜的 macOS 原生工具：半透明的視窗浮在柔和的漸層上，內容放在圓角面板裡，資料本身是畫面的重心。視窗材質可選（Settings → General → 視窗，macOS 與 Windows）：不透明（預設）畫自己的柔和漸層；毛玻璃用系統材質（macOS vibrancy、Windows 11 Mica），透出模糊的桌面，app 不再畫漸層（`window-material.ts`）。
 
 - **視窗**：`body` 是一層徑向漸層（淺色偏藍到暖橘，深色偏紫黑），app frame 是 62 % 不透明的玻璃層加 40 px 背景模糊，左邊是導航列，右邊是放當前畫面的圓角面板。macOS 上標題列與導航列頂部融為一體（overlay titlebar，可拖動）。
 - **導航列**：76 px 寬，五個主畫面（Home / History / Insights / Ask / Backup）是圖示加文字的直排按鈕；下方是 ⌘K、鎖定、語言、深淺色切換與 Settings。

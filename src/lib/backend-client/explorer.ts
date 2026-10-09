@@ -16,6 +16,7 @@
 import type {
   HistoryFaviconLookupEntry,
   HistoryFaviconLookupResult,
+  SiteFaviconResult,
   HistoryOgImageLookupEntry,
   HistoryOgImageLookupResult,
   HistoryQuery,
@@ -95,6 +96,9 @@ export const explorerClient = {
     }),
   loadHistoryFavicons: (entries: HistoryFaviconLookupEntry[]) =>
     call<HistoryFaviconLookupResult[]>('load_history_favicons', { entries }),
+  /** Each site's own icon, for screens that list sites (Insights). */
+  loadSiteFavicons: (domains: string[]) =>
+    call<SiteFaviconResult[]>('load_site_favicons', { domains }),
   loadHistoryOgImages: (entries: HistoryOgImageLookupEntry[]) =>
     call<HistoryOgImageLookupResult[]>('load_history_og_images', { entries }),
   markOgImagesShown: (urls: string[]) =>

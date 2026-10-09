@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { MouseHandlerDataParam } from 'recharts'
 import { EvilBarChart } from '@/components/evilcharts/charts/recharts-bar-chart'
-import { Favicon } from '@/components/app/favicon'
+import { SiteIcon } from '@/features/history/site-icon'
 import { heatLevel } from '@/components/app/heat-level'
 import { Heatmap, type HeatCell } from '@/components/app/heatmap'
 import { CardError, SectionCard } from '@/components/app/section-card'
@@ -288,7 +288,7 @@ export function TopSitesCard({ scope }: { scope: Scope }) {
                         className="absolute inset-y-0 left-0 rounded-md bg-brand-soft transition-[width] duration-500"
                         style={shareBar(measure(site), max)}
                       />
-                      <Favicon
+                      <SiteIcon
                         domain={site.registrableDomain}
                         className="relative"
                       />

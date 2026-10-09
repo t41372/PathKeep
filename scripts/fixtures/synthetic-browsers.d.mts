@@ -51,3 +51,6 @@ export function appendFirefoxVisits(
 
 /** Creates a new Firefox places.sqlite holding `visits`. */
 export function writeFirefoxPlaces(file: string, visits: SyntheticVisit[]): void
+
+/** Host → base64 PNG of the icons Chrome stored in the personal profile's `Favicons`. */
+export const FIXTURE_FAVICON_HOSTS: Record<string, string>

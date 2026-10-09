@@ -1,7 +1,7 @@
 /** Citation chips under an answer: the history pages the assistant relied on. */
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Favicon } from '@/components/app/favicon'
+import { SiteIcon } from '@/features/history/site-icon'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { historyLink, hostOf } from './citations'
 import type { AiChatCitation } from '@/lib/types'
@@ -38,7 +38,7 @@ export function Sources({ citations }: { citations: AiChatCitation[] }) {
             }
             className="flex h-[26px] max-w-[240px] items-center gap-1.5 rounded-full border px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground hover:no-underline"
           >
-            <Favicon domain={host} className="size-3.5 rounded-[4px]" />
+            <SiteIcon domain={host} className="size-3.5 rounded-[4px]" />
             <span className="truncate">{title}</span>
           </Link>
         )

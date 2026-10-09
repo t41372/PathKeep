@@ -211,6 +211,20 @@ pub(crate) async fn query_history(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the icons of the sites a screen lists, off the UI thread.
+pub(crate) async fn load_site_favicons(
+    domains: Vec<String>,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::SiteFavicon>, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("load_site_favicons", move || {
+        worker_bridge::load_site_favicons_impl(domains, &session)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads favicon payloads for already-visible Explorer rows after the primary
 /// page content has rendered.
 pub(crate) async fn load_history_favicons(

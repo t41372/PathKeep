@@ -706,6 +706,14 @@ pub struct HistoryFavicon {
     pub data_url: String,
 }
 
+/// A site's icon, for screens that list sites rather than visits (Insights).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteFavicon {
+    pub domain: String,
+    pub favicon: Option<HistoryFavicon>,
+}
+
 /// One batch favicon lookup entry used by Explorer's post-reveal icon hydration path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

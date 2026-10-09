@@ -1,15 +1,26 @@
 /** The detail panel's numbers: four stat tiles and the 12-week bar chart, from `get_url_detail`. */
+import type { ReactNode } from 'react'
+import { BrowserNames } from '@/components/app/browser-names'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useUrlDetail } from './queries'
 
-function Tile({ label, value }: { label: string; value: string }) {
+function Tile({
+  label,
+  value,
+  title = typeof value === 'string' ? value : undefined,
+}: {
+  label: string
+  value: ReactNode
+  /** The full value on hover, for one too long for the tile. */
+  title?: string
+}) {
   return (
     <div className="flex min-w-0 flex-col gap-[3px] rounded-[10px] bg-muted px-3 py-2.5">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="truncate font-semibold tabular" title={value}>
+      <span className="truncate font-semibold tabular" title={title}>
         {value}
       </span>
     </div>
@@ -70,7 +81,8 @@ export function DetailStats({ url }: { url: string }) {
         />
         <Tile
           label={t('history.detail.statBrowser')}
-          value={data.browsers.length > 0 ? data.browsers.join(', ') : '—'}
+          value={<BrowserNames names={data.browsers} />}
+          title={data.browsers.join(', ')}
         />
       </div>
       <div className="flex flex-col gap-2">

@@ -1,9 +1,11 @@
 /**
  * Stored favicons for visible rows. Lookups are batched, cached per site and
  * never block rendering: rows paint a letter badge first and swap the icon in
- * when it arrives.
+ * when it arrives. A row with a visit looks its icon up through the visit
+ * (`load_history_favicons`); a row that is only a site, as on Insights, asks
+ * for the site's own icon (`load_site_favicons`).
  *
- * Responsible for: the per-site cache and batching `load_history_favicons`.
+ * Responsible for: the per-site cache and batching both lookups.
  * Not responsible for: deciding which rows are visible (virtualized rows
  * request on mount).
  */
@@ -62,6 +64,45 @@ async function flush() {
 
 function schedule() {
   timer ??= setTimeout(() => void flush(), FLUSH_DELAY_MS)
+}
+
+const sitesQueued = new Set<string>()
+let sitesTimer: ReturnType<typeof setTimeout> | undefined
+
+async function flushSites() {
+  sitesTimer = undefined
+  const batch = [...sitesQueued].slice(0, BATCH)
+  if (batch.length === 0) return
+  for (const domain of batch) {
+    sitesQueued.delete(domain)
+    inflight.add(domain)
+  }
+  try {
+    for (const result of await explorerClient.loadSiteFavicons(batch))
+      cache.set(result.domain, result.favicon?.dataUrl ?? null)
+  } catch {
+    // A failed lookup just leaves the letter badge in place.
+  }
+  for (const domain of batch) {
+    inflight.delete(domain)
+    if (!cache.has(domain)) cache.set(domain, null)
+  }
+  notify()
+  if (sitesQueued.size > 0)
+    sitesTimer ??= setTimeout(() => void flushSites(), FLUSH_DELAY_MS)
+}
+
+/** Asks for a site's own icon, for a row that has no visit to look it up through. */
+export function requestSiteFavicon(domain: string) {
+  if (
+    cache.has(domain) ||
+    queued.has(domain) ||
+    sitesQueued.has(domain) ||
+    inflight.has(domain)
+  )
+    return
+  sitesQueued.add(domain)
+  sitesTimer ??= setTimeout(() => void flushSites(), FLUSH_DELAY_MS)
 }
 
 export function requestFavicon(

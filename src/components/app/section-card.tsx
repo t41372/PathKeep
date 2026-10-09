@@ -5,6 +5,8 @@ import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { recordRenderError } from '@/lib/runtime-diagnostics'
+import { dragRegion } from './drag-region'
+import { TitleBarStrip } from './title-bar'
 
 /**
  * What a card shows when its query failed. Without it a failed card looks
@@ -110,7 +112,10 @@ export function PageHeader({
   actions?: ReactNode
 }) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4">
+    <header
+      {...dragRegion()}
+      className="flex flex-wrap items-end justify-between gap-4"
+    >
       <div className="flex flex-col gap-1">
         {eyebrow && (
           <span className="text-[13px] text-muted-foreground">{eyebrow}</span>
@@ -137,6 +142,7 @@ export function PageScroll({
 }) {
   return (
     <div className="flex-1 overflow-y-auto">
+      <TitleBarStrip />
       <div
         className={cn(
           'mx-auto flex flex-col gap-5 px-10 pt-9 pb-12',

@@ -3,6 +3,7 @@
  * boot failure, the one-time archive upgrade, and launch recovery.
  */
 import { useState } from 'react'
+import { backdropDragRegion } from '@/components/app/drag-region'
 import { BrandMark } from '@/components/app/brand-mark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,7 +26,10 @@ import { useSession } from '../session'
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center p-8">
+    <div
+      {...backdropDragRegion()}
+      className="fixed inset-0 flex items-center justify-center p-8"
+    >
       <div className="flex w-full max-w-md animate-rise flex-col items-center gap-3 text-center">
         <BrandMark className="mb-2 size-12" />
         {children}

@@ -6,7 +6,7 @@
 import { ChevronRight } from 'lucide-react'
 import { Fragment } from 'react'
 import { Link } from 'react-router-dom'
-import { Favicon } from '@/components/app/favicon'
+import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { sitePath } from './links'
@@ -57,7 +57,7 @@ export function PathsCard({ scope }: { scope: Scope }) {
                             to={sitePath(step.registrableDomain, scope)}
                             className="flex min-w-0 items-center gap-1.5 rounded-md px-1 hover:bg-muted hover:no-underline"
                           >
-                            <Favicon domain={step.registrableDomain} />
+                            <SiteIcon domain={step.registrableDomain} />
                             <span className="truncate">{step.label}</span>
                           </Link>
                         ) : (

@@ -250,6 +250,21 @@
     font-size: 14px;
     font-synthesis: none;
   }
+  /* Glass: the system blurs the desktop behind the window, so the app paints
+     no wallpaper of its own and its translucent layers sit on the real one. */
+  html[data-window-material='glass'] body {
+    background: transparent;
+  }
+  /* The system material already blurs and tints; the window and panel layers
+     only need enough tint to keep text readable, or the glass barely shows. */
+  html[data-window-material='glass'] {
+    --window: rgb(250 250 252 / 0.14);
+    --panel: rgb(255 255 255 / 0.42);
+  }
+  html.dark[data-window-material='glass'] {
+    --window: rgb(24 24 34 / 0.18);
+    --panel: rgb(30 30 42 / 0.3);
+  }
   .tabular {
     font-variant-numeric: tabular-nums;
   }

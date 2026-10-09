@@ -40,7 +40,7 @@ pub use self::day_insights::{
 pub use self::export::{
     ExportCancelled, cancel_export, export_history, get_export_progress, record_export_failure,
 };
-pub use self::favicons::load_history_favicons;
+pub use self::favicons::{load_history_favicons, load_site_favicons};
 // og_images functions are re-exported via the `og_images` module path so the
 // worker and Tauri command crates can address them as
 // `vault_core::archive::history::og_images::*`. They land in C3/C4.

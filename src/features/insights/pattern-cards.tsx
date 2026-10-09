@@ -9,7 +9,8 @@
  */
 import { FileText, Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { Favicon } from '@/components/app/favicon'
+import { BrowserIcon } from '@/lib/browser-icons'
+import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSourceStats } from '@/features/home/queries'
@@ -218,7 +219,7 @@ export function HabitsCard({ scope }: { scope: Scope }) {
                   to={sitePath(habit.registrableDomain, scope)}
                   className={cn(rowLink, 'py-2')}
                 >
-                  <Favicon domain={habit.registrableDomain} />
+                  <SiteIcon domain={habit.registrableDomain} />
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="truncate font-medium">
                       {habit.registrableDomain}
@@ -258,10 +259,7 @@ export function BrowsersCard({ scope }: { scope: Scope }) {
   const browsers = useBrowsers(scope)
   const sources = useSourceStats()
   const names = new Map(
-    (sources.data ?? []).map((source) => [
-      source.profileId,
-      `${source.browserName} · ${source.profileName}`,
-    ]),
+    (sources.data ?? []).map((source) => [source.profileId, source]),
   )
   return (
     <SectionCard
@@ -292,6 +290,7 @@ export function BrowsersCard({ scope }: { scope: Scope }) {
             <div className="flex flex-col gap-3">
               <ul className="flex flex-col gap-2.5">
                 {ordered.map((profile) => {
+                  const source = names.get(profile.profileId)
                   const only = exclusiveDomains
                     .filter((entry) => entry.profileId === profile.profileId)
                     .sort((a, b) => b.visitCount - a.visitCount)
@@ -299,8 +298,19 @@ export function BrowsersCard({ scope }: { scope: Scope }) {
                   return (
                     <li key={profile.profileId} className="flex flex-col gap-1">
                       <span className="flex items-baseline justify-between gap-2 text-[13px]">
-                        <span className="truncate font-medium">
-                          {names.get(profile.profileId) ?? profile.profileName}
+                        <span className="flex min-w-0 items-center gap-1.5 font-medium">
+                          {source && (
+                            <BrowserIcon
+                              browserName={source.browserName}
+                              decorative
+                              className="size-4 shrink-0"
+                            />
+                          )}
+                          <span className="truncate">
+                            {source
+                              ? `${source.browserName} · ${source.profileName}`
+                              : profile.profileName}
+                          </span>
                         </span>
                         <span className="shrink-0 text-xs text-muted-foreground tabular">
                           {t('common.visits', { count: profile.visitCount })} ·{' '}

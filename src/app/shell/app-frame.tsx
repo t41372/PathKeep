@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
+import { backdropDragRegion } from '@/components/app/drag-region'
 import { useI18n } from '@/lib/i18n'
 import { subscribeToOpenCommandPalette } from '@/lib/ipc/desktop-events'
 import { useSession } from '../session'
@@ -49,7 +50,11 @@ export function AppFrame() {
   }, [])
 
   return (
-    <div className="flex h-full bg-window backdrop-blur-[40px] backdrop-saturate-[1.4]">
+    // The margin around the main panel is window background, and drags it like a title bar.
+    <div
+      {...backdropDragRegion()}
+      className="flex h-full bg-window backdrop-blur-[40px] backdrop-saturate-[1.4]"
+    >
       <NavRail onOpenPalette={() => setPaletteOpen(true)} onLock={lock} />
       <main className="my-2.5 mr-2.5 flex min-w-0 flex-1 overflow-hidden rounded-xl border bg-panel">
         <Outlet />

@@ -5,7 +5,7 @@
  * its own.
  */
 import { Link } from 'react-router-dom'
-import { Favicon } from '@/components/app/favicon'
+import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { pagePath, searchPath } from './links'
@@ -61,7 +61,7 @@ export function ComparedPagesCard({ scope }: { scope: Scope }) {
                           to={pagePath(page.canonicalUrl, scope)}
                           className="flex h-7 max-w-[220px] items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs transition-colors hover:bg-muted hover:no-underline"
                         >
-                          <Favicon domain={page.registrableDomain} />
+                          <SiteIcon domain={page.registrableDomain} />
                           <span className="truncate">
                             {page.title || page.registrableDomain}
                           </span>

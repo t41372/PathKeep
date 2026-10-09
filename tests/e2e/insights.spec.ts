@@ -14,7 +14,9 @@
  * not sites (Insights counts searches separately), so they are left out of
  * the count. "Kinds of sites" puts every visit under the kind of site it
  * went to, as decided by hand for each fixture site, with sites on no list
- * shown last as not classified, however their page titles read.
+ * shown last as not classified, however their page titles read. A site
+ * shows the icon its browser stored (the fixture's Chrome has icons for three
+ * sites), and its letter when there is none.
  */
 import {
   expect,
@@ -23,6 +25,7 @@ import {
   type Page,
   type TestInfo,
 } from '@playwright/test'
+import { FIXTURE_FAVICON_HOSTS } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import { archivedVisits, fixture, type FixtureVisit } from './support/fixture'
 
 const compact = new Intl.NumberFormat('en', {
@@ -760,5 +763,31 @@ test('kinds of sites count every visit by the kind of site it went to', async ({
   expect([...shown].sort()).toEqual([...expected].sort())
   // Most visits first; sites on no list last, whatever their share.
   expect(shown.at(-1)).toMatch(/^Not classified /)
+  await expectScreenIntact(page)
+})
+
+test('a site shows the icon its browser stored, and its letter when there is none', async ({
+  page,
+}) => {
+  await page.goto('/#/insights')
+  const rows = card(page, 'Top sites').getByRole('listitem')
+  await expect(rows.first()).toBeVisible({ timeout: 60_000 })
+  // The fixture's Chrome stored a different icon for github.com,
+  // www.youtube.com and docs.rs; a site's icon is its own host's, else www.'s,
+  // and never another site's.
+  for (const [site, host] of [
+    ['github.com', 'github.com'],
+    ['youtube.com', 'www.youtube.com'],
+    ['docs.rs', 'docs.rs'],
+  ] as const) {
+    const icon = rows.filter({ hasText: site }).locator('img')
+    await expect(icon, site).toHaveAttribute(
+      'src',
+      `data:image/png;base64,${FIXTURE_FAVICON_HOSTS[host]}`,
+    )
+  }
+  const strava = rows.filter({ hasText: 'strava.com' })
+  await expect(strava).toHaveCount(1)
+  await expect(strava.locator('img')).toHaveCount(0)
   await expectScreenIntact(page)
 })

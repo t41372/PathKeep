@@ -201,6 +201,7 @@ fn run_app() -> Result<()> {
             cancel_search,
             search_indexer_state,
             load_history_favicons,
+            load_site_favicons,
             load_history_og_images,
             mark_og_images_shown,
             trigger_og_image_refetch,

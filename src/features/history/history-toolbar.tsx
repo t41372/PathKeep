@@ -3,6 +3,7 @@
  * toggle. Controlled by the page; holds no data of its own.
  */
 import { ChevronDown, Globe, Search, X } from 'lucide-react'
+import { dragRegion } from '@/components/app/drag-region'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -172,7 +173,10 @@ export function HistoryToolbar(props: Props) {
   const { draft, onDraft, view, onView, starredCount } = props
 
   return (
-    <div className="flex flex-col gap-3 border-b px-7 pt-5 pb-3.5">
+    <div
+      {...dragRegion()}
+      className="flex flex-col gap-3 border-b px-7 pt-5 pb-3.5"
+    >
       <div className="flex flex-wrap items-center gap-2.5">
         <div className="relative flex min-w-[260px] flex-1 items-center">
           <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" />

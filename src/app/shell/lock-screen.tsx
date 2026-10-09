@@ -7,6 +7,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { backdropDragRegion } from '@/components/app/drag-region'
 import { BrandMark } from '@/components/app/brand-mark'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -56,7 +57,10 @@ export function LockScreen({ kind }: { kind: 'app' | 'archive' }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/40 backdrop-blur-2xl">
+    <div
+      {...backdropDragRegion()}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/40 backdrop-blur-2xl"
+    >
       <form
         onSubmit={submit}
         className="flex w-[320px] animate-rise flex-col items-center gap-3 text-center"

@@ -10,6 +10,7 @@ import { CalendarRange } from 'lucide-react'
 import { enUS, zhCN, zhTW } from 'date-fns/locale'
 import { useState } from 'react'
 import type { DateRange as PickedDays } from 'react-day-picker'
+import { BrowserIcon } from '@/lib/browser-icons'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
@@ -175,6 +176,11 @@ function ProfileSelect() {
         </SelectItem>
         {profiles.map((source) => (
           <SelectItem key={source.profileId} value={source.profileId}>
+            <BrowserIcon
+              browserName={source.browserName}
+              decorative
+              className="size-4 shrink-0"
+            />
             {source.browserName} · {source.profileName}
           </SelectItem>
         ))}

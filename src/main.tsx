@@ -15,8 +15,10 @@ import {
 import { installRuntimeDiagnostics } from './lib/runtime-diagnostics'
 import { resolveAppRuntime } from './lib/runtime'
 import { applyStoredTheme } from './lib/theme'
+import { applyStoredWindowMaterial } from './lib/window-material'
 
 applyStoredTheme()
+applyStoredWindowMaterial()
 document.documentElement.setAttribute(
   'data-pathkeep-runtime',
   resolveAppRuntime(),

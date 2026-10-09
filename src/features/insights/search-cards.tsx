@@ -7,7 +7,7 @@
  */
 import { RotateCcw, Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { Favicon } from '@/components/app/favicon'
+import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { shareBar } from './display'
@@ -62,10 +62,17 @@ export function SearchEnginesCard({ scope }: { scope: Scope }) {
                       className="absolute inset-y-0 left-0 rounded-md bg-blue/15 transition-[width] duration-500"
                       style={shareBar(engine.searchCount, max)}
                     />
-                    <Search
-                      className="relative size-3.5 text-muted-foreground"
-                      aria-hidden
-                    />
+                    {engine.site ? (
+                      <SiteIcon
+                        domain={engine.site}
+                        className="relative size-4 rounded-[4px] text-[9px]"
+                      />
+                    ) : (
+                      <Search
+                        className="relative size-3.5 text-muted-foreground"
+                        aria-hidden
+                      />
+                    )}
                     <span className="relative flex-1 truncate font-medium">
                       {engine.displayName || engine.searchEngine}
                     </span>
@@ -326,7 +333,7 @@ export function SearchLandingsCard({ scope }: { scope: Scope }) {
                         className="absolute inset-y-0 left-0 rounded-md bg-green/15 transition-[width] duration-500"
                         style={shareBar(landing.searchCount, max)}
                       />
-                      <Favicon
+                      <SiteIcon
                         domain={landing.registrableDomain}
                         className="relative"
                       />

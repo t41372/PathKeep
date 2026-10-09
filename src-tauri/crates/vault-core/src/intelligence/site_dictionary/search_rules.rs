@@ -285,6 +285,18 @@ pub(crate) fn load_search_engine_display_names(
     Ok(rules.into_iter().map(|rule| (rule.engine_id, rule.display_name)).collect::<HashMap<_, _>>())
 }
 
+/// Each search engine's site: the host its rule matches, for showing the engine with that site's
+/// icon. An engine with several rules takes the first in the Settings order.
+pub(crate) fn load_search_engine_sites(
+    connection: &Session<'_>,
+) -> Result<HashMap<String, String>> {
+    let mut sites = HashMap::new();
+    for rule in list_search_engine_rules(connection)? {
+        sites.entry(rule.engine_id).or_insert(rule.host_pattern);
+    }
+    Ok(sites)
+}
+
 /// Resolves a search-engine label from a preloaded map, falling back to
 /// hard-coded aliases for legacy rows.
 pub(crate) fn display_name_for_search_engine_with_map(
