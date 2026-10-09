@@ -1,8 +1,11 @@
 # Insights aggregates after an append: rebuild or update
 
-Status: proposal, waiting for the user's decision (2026-10-08). It would change a recorded
-decision: `store-schema.md` and `data-model.md` say an append build extends the
-fact/daily/navigation groups and _replaces_ the aggregates.
+Status: the user chose B on 2026-10-09. It changes a recorded decision: `store-schema.md` and
+`data-model.md` say an append build extends the fact/daily/navigation groups and _replaces_ the
+aggregates; they are updated when B lands.
+
+On a benchmark shaped like real browsing (Zipf, `PATHKEEP_BENCH_SHAPE=habits`) the same append
+of 10,000 visits takes 13.7 minutes, 12 of them in the refind-pages stage.
 
 ## The problem
 

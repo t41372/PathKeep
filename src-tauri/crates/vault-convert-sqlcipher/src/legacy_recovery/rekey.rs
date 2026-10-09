@@ -74,24 +74,15 @@ fn write_rekey_journal(paths: &ProjectPaths, journal: &RekeyJournal) -> Result<(
         .context("writing the interrupted-rekey journal")
 }
 
-/// Reads the interrupted-rekey marker. `Ok(None)` when it is absent OR unparseable.
-///
-/// A corrupt marker we cannot act on is best-effort removed and treated as absent (mirrors
-/// `read_import_journal`): the on-disk archive is left exactly as it is, so a damaged marker
-/// can never block opens forever.
+/// Reads the interrupted-rekey marker. `Ok(None)` when it is absent OR unparseable; the caller
+/// decides what an unparseable one means ([`super::drop_unreadable_marker`]).
 fn read_rekey_journal(paths: &ProjectPaths) -> Result<Option<RekeyJournal>> {
     let path = rekey_journal_path(paths);
     if !path.exists() {
         return Ok(None);
     }
     let bytes = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-    match serde_json::from_slice::<RekeyJournal>(&bytes) {
-        Ok(journal) => Ok(Some(journal)),
-        Err(_) => {
-            let _ = remove_file_durably(&path);
-            Ok(None)
-        }
-    }
+    Ok(serde_json::from_slice::<RekeyJournal>(&bytes).ok())
 }
 
 /// Maps a configured [`ArchiveMode`] to the on-disk header a file in that mode presents.
@@ -126,6 +117,8 @@ pub(super) fn recover_interrupted_rekey(paths: &ProjectPaths) -> Result<bool> {
     let _lock = ArchiveWriteLock::acquire(paths)
         .context("acquiring the archive write lock for interrupted-rekey recovery")?;
     let Some(journal) = read_rekey_journal(paths)? else {
+        // Present (checked above) but unreadable.
+        super::drop_unreadable_marker(paths, &rekey_journal_path(paths))?;
         return Ok(false);
     };
     resolve_interrupted_rekey(paths, &journal)?;
@@ -321,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn recover_interrupted_rekey_removes_a_corrupt_marker() {
+    fn a_corrupt_rekey_marker_goes_only_when_the_archive_is_consistent() {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
         fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
@@ -335,6 +328,13 @@ mod tests {
             !rekey_journal_path(&paths).exists(),
             "the unactionable corrupt marker must be removed",
         );
+
+        // The decrypt direction cut after the history-vault swap: nothing can say which way to go.
+        super::super::fixtures::plaintext_header(&paths.archive_database_path);
+        super::super::fixtures::encrypted_header(&paths.source_evidence_database_path);
+        fs::write(rekey_journal_path(&paths), b"not valid json").expect("seed corrupt marker");
+        assert!(recover_interrupted_rekey(&paths).is_err(), "a mixed archive fails closed");
+        assert!(rekey_journal_path(&paths).exists(), "the marker stays to keep the state flagged");
     }
 
     #[test]

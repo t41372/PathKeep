@@ -80,13 +80,12 @@ fn write_restore_journal(paths: &ProjectPaths, journal: &RestoreJournal) -> Resu
 
 /// Reads the interrupted-restore marker. `Ok(None)` when it is absent OR unparseable.
 ///
-/// DIVERGENCE from `read_rekey_journal`/`read_import_journal`, which silently DELETE a corrupt
-/// marker: unlike rekey/import (whose canonical history-vault is never absent), a restore can be
-/// mid-window with the canonical ABSENT. Dropping an unparseable marker HERE would then let launch
-/// step (4) see an Absent canonical, return `Healthy`, and boot a brand-new EMPTY archive over the
-/// quarantined originals. So this LEAVES an unparseable marker in place and the canonical-aware
-/// drop/fail-closed decision is the CALLER's ([`recover_interrupted_restore`]): drop it only when
-/// the canonical is present, fail closed (leave it) when the canonical is absent.
+/// Like the rekey and import markers, an unparseable one is never dropped here: a restore can be
+/// mid-window with the canonical ABSENT, and dropping the marker then would let launch step (4)
+/// see an Absent canonical, return `Healthy`, and boot a brand-new EMPTY archive over the
+/// quarantined originals. The canonical-aware drop/fail-closed decision is the CALLER's
+/// ([`recover_interrupted_restore`]): drop it only when the canonical is present, fail closed
+/// (leave it) when the canonical is absent.
 fn read_restore_journal(paths: &ProjectPaths) -> Result<Option<RestoreJournal>> {
     let path = restore_journal_path(paths);
     if !path.exists() {

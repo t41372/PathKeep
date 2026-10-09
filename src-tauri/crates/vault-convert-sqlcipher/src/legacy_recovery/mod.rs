@@ -129,6 +129,25 @@ fn recover_locked(paths: &ProjectPaths, config: &AppConfig) -> Result<LaunchReco
     }
 }
 
+/// Drops an old-app marker that cannot be read, or refuses to. Without its journal nothing can
+/// be finished or rolled back, which is safe only when the canonical archive and source evidence
+/// agree on their at-rest mode. When they disagree, the cut operation left a mixed archive: the
+/// marker stays and launch fails closed (quality-matrix 鐵律 3), so the recovery screen takes over.
+fn drop_unreadable_marker(paths: &ProjectPaths, marker: &Path) -> Result<()> {
+    let archive = detect_disk_encryption_mode(&paths.archive_database_path);
+    let evidence = detect_disk_encryption_mode(&paths.source_evidence_database_path);
+    if evidence != DiskEncryptionMode::Absent && archive != evidence {
+        anyhow::bail!(
+            "the recovery marker {} cannot be read, and the archive ({archive:?}) and source \
+             evidence ({evidence:?}) are in different at-rest modes, so what it recorded can be \
+             neither finished nor undone automatically. Restore from a safety snapshot.",
+            marker.display(),
+        );
+    }
+    vault_core::durable_io::remove_file_durably(marker)
+        .context("removing the unreadable recovery marker")
+}
+
 fn unrecoverable(
     paths: &ProjectPaths,
     config: &AppConfig,
