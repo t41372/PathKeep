@@ -192,7 +192,7 @@ Normalization 要求：
 2026-10-08 note（precedence 不變）：
 
 - exact domain rule 先比對造訪的完整主機，再依序比對上層網域，到 registrable domain 為止：`mail.google.com` 先於 `google.com`，不會比對到 `co.uk` 這種公共後綴。之前只比 registrable domain，所以 Google 的文件、郵件、Gemini 都算成搜尋。
-- 站點清單在 `vault-core/src/visit_taxonomy/sites.rs`，按 pack 分，只收分類一看就清楚的網站；入口網站與包山包海的 app（`yahoo.co.jp`、`naver.com`、`qq.com`）不收，只收其中分類清楚的主機（`news.naver.com`、`mail.qq.com`）。exact rule 只定網站分類，頁面種類留 unknown（文件站與搜尋引擎除外），因為頁面種類會影響 compare sets。
+- 站點清單在 `vault-core/src/visit_taxonomy/sites/`，每個 pack 一個檔案，只收分類一看就清楚的網站；入口網站與包山包海的 app（`yahoo.co.jp`、`naver.com`、`qq.com`）不收，只收其中分類清楚的主機（`news.naver.com`、`mail.qq.com`）。exact rule 只定網站分類，頁面種類留 unknown（文件站與搜尋引擎除外），因為頁面種類會影響 compare sets。
 - 要靠路徑分頁面種類的網站（GitHub、YouTube、Reddit、Amazon、Taobao）不寫 exact rule（會蓋掉路徑規則），改在它們的路徑規則後面加一條只看主機的規則，其餘頁面也有網站分類。測試保證：每條規則都比對得到、同一網域不重複、exact rule 不會蓋掉路徑規則。
 - title / query lexicon 只決定頁面種類，不決定網站分類（網站分類留 unknown）：頁面標題說的是這一頁，不是整個網站；之前「tokio vs smol」這種部落格文章因為 "vs" 被歸成購物、「訓練計畫」因為 "plan" 也是。
 - 一個網站一天的分類取當天多數造訪的分類，平手時已知分類優先，再依名稱。之前取名稱最小的，一個被歸成 docs 的頁面就讓一整天的搜尋引擎變成 docs。
