@@ -454,8 +454,19 @@ function SessionRow({
             {format.time(session.lastVisitMs)}
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="truncate text-[13px] font-medium">
-              {session.autoTitle || t('insights.day.untitledSession')}
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-[13px] font-medium">
+                {session.autoTitle || t('insights.day.untitledSession')}
+              </span>
+              {/* One of the day's deep dives (the KPI above counts them). */}
+              {session.isDeepDive && (
+                <span
+                  title={t('insights.kpi.deepDivesDetail')}
+                  className="shrink-0 rounded-full bg-brand/12 px-1.5 py-px text-[11px] font-medium text-brand"
+                >
+                  {t('insights.day.deepDive')}
+                </span>
+              )}
             </span>
             <span className="text-xs text-muted-foreground">
               {t('insights.day.sessionMeta', {
