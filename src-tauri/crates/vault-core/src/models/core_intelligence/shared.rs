@@ -150,7 +150,7 @@ pub struct CoreIntelligenceSectionTiming {
 
 /// Reusable shared-entity reference carried by trusted output payloads.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InsightEntityReference {
     Day { date: String },
     Domain { domain: String },
