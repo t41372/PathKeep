@@ -241,6 +241,8 @@ Query reformulation：
 
 這種 query family 應保留在同一條 ladder / group，而不是每改一個詞就硬切。
 
+比較詞的時候不算英文虛詞（this、what、my、vs…，完整清單在 `intelligence_shared.rs`）和網址片段（www、com…）：真實資料上，只搜「this」的那次被算成所有含 this 的搜尋的改寫，一共 31 次；「搜尋最多的詞」裡也不再出現它們。中日韓文還沒有斷詞，整段算一個詞。
+
 ### 5.5 Query reformulation ladder
 
 這是 deterministic baseline 的核心 shipping surface：

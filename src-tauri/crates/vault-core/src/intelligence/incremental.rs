@@ -54,7 +54,8 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
         )),
         RebuildMode::DailyRollup => Ok("daily-rollups-v2".to_string()),
         // v3: Threads count the days a search came back on; compare sets need sibling pages.
-        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v3".to_string()),
+        // v4: a full English stop-word list for rewordings, families and search words.
+        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v4".to_string()),
         RebuildMode::FullRebuild => Ok("full-rebuild-v2".to_string()),
     }
 }
@@ -314,7 +315,7 @@ mod tests {
                     assert_eq!(
                         stage_version(connection, RebuildMode::StructuralRebuild)
                             .expect("structural version"),
-                        "structural-rebuild-v3"
+                        "structural-rebuild-v4"
                     );
                     assert_eq!(
                         stage_version(connection, RebuildMode::FullRebuild).expect("full version"),

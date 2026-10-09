@@ -66,23 +66,34 @@ pub(super) fn date_range_bounds(range: &DateRange) -> Result<(i64, i64)> {
 }
 
 /// Tokenizes a normalized query into similarity-ready terms while dropping
-/// obvious stop words and URL noise.
+/// stop words and URL noise.
 pub(super) fn tokenize_query_terms(query: &str) -> Vec<String> {
-    let stop_words = [
-        "a", "an", "and", "com", "edu", "for", "from", "how", "html", "http", "https", "in", "is",
-        "net", "of", "on", "org", "the", "to", "what", "when", "where", "with", "www",
-    ];
     query
         .split(|ch: char| !ch.is_alphanumeric() && !is_cjk_like(ch))
         .filter_map(|token| {
             let token = token.trim().to_lowercase();
-            if token.is_empty() || stop_words.contains(&token.as_str()) {
-                None
-            } else {
-                Some(token)
-            }
+            (!token.is_empty() && !is_stop_word(&token)).then_some(token)
         })
         .collect()
+}
+
+/// English function words and URL parts. They join unrelated searches: with "this" a term, a
+/// search for "this" counted as a rewording of every search containing it (31 times on a real
+/// archive), and "this" ranked among the words searched most.
+fn is_stop_word(token: &str) -> bool {
+    const WORDS: &str = "
+        a about above after again against all am an and any are as at be because been before
+        being below between both but by can com could did do does doing down during each edu few
+        for from further had has have having he her here hers herself him himself his how html
+        http https i if in into is it its itself just me more most my myself net no nor not of
+        off on once only or org other our ours ourselves out over own same she should so some
+        such than that the their theirs them themselves then there these they this those through
+        to too under until up versus very vs was we were what when where which while who whom
+        why will with would www you your yours yourself yourselves
+    ";
+    static STOP_WORDS: std::sync::LazyLock<HashSet<&str>> =
+        std::sync::LazyLock::new(|| WORDS.split_whitespace().collect());
+    STOP_WORDS.contains(token)
 }
 
 /// The words a keyword search is counted under in "Search concepts": its query terms without
