@@ -865,6 +865,21 @@ fn backup_keeps_readable_profiles_when_safari_staging_loses_access() {
 #[test]
 fn dashboard_snapshot_tracks_cached_totals_across_import_visibility_changes() {
     let vault = crate::Vault::open_temp().unwrap();
+    // The search outbox's high-water mark: the background indexer empties the outbox whenever it
+    // catches up, but the mark only rises, so it shows each step queued search work.
+    let queued = |vault: &crate::Vault| {
+        vault
+            .store()
+            .read(vault_store::Db::Archive, |s| {
+                s.query_one(
+                    "SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name='search_outbox'),0)",
+                    (),
+                    |r| Ok(r.get::<i64>(0)?),
+                )
+            })
+            .unwrap()
+    };
+    let mut before = queued(&vault);
     let source = seed_takeout_fixture(&vault.paths().app_root);
     let imported = crate::import_takeout(
         &vault,
@@ -879,6 +894,9 @@ fn dashboard_snapshot_tracks_cached_totals_across_import_visibility_changes() {
         if step == "restore" {
             crate::restore_import_batch(&vault, batch).unwrap();
         }
+        let after = queued(&vault);
+        assert!(after > before, "{step} queues search work");
+        before = after;
         vault.store().read(vault_store::Db::Archive,move |s| {
             let stats=s.query_one("SELECT stats_json FROM runs WHERE run_type=?1 ORDER BY id DESC LIMIT 1",[step],|r|Ok(r.get::<String>(0)?))?;
             let stats:Value=serde_json::from_str(&stats).unwrap();
@@ -886,7 +904,6 @@ fn dashboard_snapshot_tracks_cached_totals_across_import_visibility_changes() {
             assert_eq!(s.query_one("SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL",(),|r|Ok(r.get::<i64>(0)?))?,expected);
             assert_eq!(s.query_one("SELECT COALESCE(SUM(visible_visit_count),0) FROM search_document_profiles",(),|r|Ok(r.get::<i64>(0)?))?,expected);
             assert_eq!(s.query_one("SELECT COUNT(*) FROM search_documents WHERE title LIKE '%Imported%' AND newest_visit_ms IS NOT NULL",(),|r|Ok(r.get::<i64>(0)?))?,expected);
-            assert!(s.query_one("SELECT COUNT(*) FROM search_outbox",(),|r|Ok(r.get::<i64>(0)?))?>0);
             Ok(())
         }).unwrap();
     }
