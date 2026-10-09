@@ -142,6 +142,23 @@ pub fn run_core_intelligence_now(
     intelligence::run_core_intelligence(vault, request)
 }
 
+/// Gets Insights going when an archive opens. A build the app quit in the middle of is queued
+/// again by the store, but nothing ran the queue until the next backup or a visit to Settings.
+/// An archive whose Insights were never built showed empty Insights, and an empty Home, until
+/// someone pressed Rebuild; and after an update with new rules, Insights kept the old labels
+/// until the next backup.
+pub(crate) fn resume_insights(vault: &vault_core::Vault) -> Result<()> {
+    if let Some(reason) = vault_core::intelligence_runtime::insights_build_needed(vault)? {
+        enqueue_deterministic_rebuild_job(
+            vault,
+            &CoreIntelligenceRebuildRequest { full_rebuild: true, ..Default::default() },
+            reason,
+        )?;
+    }
+    maybe_spawn_intelligence_queue_drain(vault, 1);
+    Ok(())
+}
+
 /// Queues one deterministic rebuild and starts background draining if allowed.
 pub fn queue_core_intelligence_rebuild(
     vault: &vault_core::Vault,

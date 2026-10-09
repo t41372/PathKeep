@@ -19,6 +19,7 @@
 //! checks rather than by allocating huge in-memory test datasets.
 
 mod batch_equivalence;
+mod build_needed;
 mod fixtures;
 mod frequent_searches;
 mod new_sites;

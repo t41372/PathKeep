@@ -123,7 +123,9 @@ test('background work: queue, pause, cancel, retry, clear and rebuild', async ({
   await expect(dialog.getByText(/Kept: your history/)).toBeVisible()
   await dialog.getByRole('button', { name: 'Clear', exact: true }).click()
   await expect(
-    page.getByText('Insights data cleared. Insights are empty until rebuilt.'),
+    page.getByText(
+      'Insights data cleared. Insights are empty until they are built again.',
+    ),
   ).toBeVisible()
 
   const afterClear = await clearPreview()

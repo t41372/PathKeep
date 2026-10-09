@@ -288,7 +288,7 @@ pub(crate) fn enrichment_plugin_enabled(config: &AppConfig, plugin_id: &str) -> 
 }
 
 use crate::Vault;
-use vault_store::{Db, Priority};
+use vault_store::{Db, OptionalRow, Priority};
 
 /// Executes `intelligence_job_stop_requested` on the current storage owner.
 pub fn intelligence_job_stop_requested(vault: &Vault, job_id: i64) -> Result<bool> {
@@ -355,6 +355,47 @@ pub fn enqueue_core_intelligence_job(
     let reason = reason.to_owned();
     vault.write(Db::Intelligence, Priority::Interactive, move |s| {
         enqueue::enqueue_core_intelligence_job_in_session(s, &job_type, &request, &reason)
+    })
+}
+
+/// Why the archive's Insights need a build that nothing has queued, if they do. Either the archive
+/// has visits and no Insights build was attempted since the store was new or cleared (a fresh
+/// install that imported visits outside a backup, a removed store, Insights data cleared in
+/// Settings, whose dialog says they come back the next time PathKeep opens), so every Insights
+/// read stays empty; or they were built with rules this version of PathKeep changed, so they show
+/// the old labels until the next backup. Not while an Insights build is queued or running, nor
+/// after the last one failed or was cancelled: Settings shows that and retrying is the user's call.
+pub fn insights_build_needed(vault: &Vault) -> Result<Option<&'static str>> {
+    vault.read(Db::Intelligence, |s| {
+        let deterministic = [
+            VISIT_DERIVE_JOB_TYPE,
+            DAILY_ROLLUP_JOB_TYPE,
+            STRUCTURAL_REBUILD_JOB_TYPE,
+            FULL_REBUILD_JOB_TYPE,
+        ];
+        let latest = s
+            .query_one(
+                "SELECT state FROM intelligence_jobs WHERE job_type IN (?1,?2,?3,?4)
+                 ORDER BY id DESC LIMIT 1",
+                deterministic,
+                |row| Ok(row.get::<String>(0)?),
+            )
+            .optional()?;
+        match latest.as_deref() {
+            None => {
+                let has_visits = s.query_one(
+                    "SELECT COALESCE((SELECT value FROM archive.archive_totals WHERE name='visits'), 0) > 0
+                        AND NOT EXISTS(SELECT 1 FROM intelligence_generations)",
+                    (),
+                    |row| Ok(row.get::<i64>(0)? != 0),
+                )?;
+                Ok(has_visits.then_some("The archive has visits and its Insights were never built."))
+            }
+            Some("succeeded") if crate::intelligence::built_with_other_rules(s)? => {
+                Ok(Some("The Insights were built with rules this version of PathKeep changed."))
+            }
+            Some(_) => Ok(None),
+        }
     })
 }
 

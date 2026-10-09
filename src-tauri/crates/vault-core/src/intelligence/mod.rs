@@ -84,6 +84,7 @@ use crate::{
     models::{CoreIntelligenceStageTimings, DerivedRuntimeNote},
 };
 
+pub(crate) use self::build_pipeline::built_with_other_rules;
 pub use self::compare_sets::get_compare_sets;
 pub use self::day_insights::get_day_insights;
 pub use self::host_artifacts::{build_intelligence_local_host, preview_intelligence_local_host};

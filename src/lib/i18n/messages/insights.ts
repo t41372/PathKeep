@@ -35,7 +35,7 @@ export const insights = defineMessages({
       state: 'Status',
       states: {
         ready: 'Up to date',
-        stale: 'Updating after the last backup',
+        stale: 'Updating',
         degraded: 'Partly available',
         disabled: 'Turned off',
       },
@@ -315,7 +315,7 @@ export const insights = defineMessages({
       recentDays: 'Recent days you opened it',
       noDays: 'No recent days to show.',
     },
-    stale: 'Updating after the last backup…',
+    stale: 'Updating your Insights…',
   },
   'zh-CN': {
     title: '洞察',
@@ -351,7 +351,7 @@ export const insights = defineMessages({
       state: '状态',
       states: {
         ready: '已是最新',
-        stale: '正在根据上次备份更新',
+        stale: '正在更新',
         degraded: '部分可用',
         disabled: '已关闭',
       },
@@ -627,7 +627,7 @@ export const insights = defineMessages({
       recentDays: '最近打开的日子',
       noDays: '没有可显示的日子。',
     },
-    stale: '正在根据上次备份更新…',
+    stale: '正在更新你的洞察…',
   },
   'zh-TW': {
     title: '洞察',
@@ -663,7 +663,7 @@ export const insights = defineMessages({
       state: '狀態',
       states: {
         ready: '已是最新',
-        stale: '正在根據上次備份更新',
+        stale: '正在更新',
         degraded: '部分可用',
         disabled: '已關閉',
       },
@@ -939,6 +939,6 @@ export const insights = defineMessages({
       recentDays: '最近打開的日子',
       noDays: '沒有可顯示的日子。',
     },
-    stale: '正在根據上次備份更新…',
+    stale: '正在更新你的洞察…',
   },
 })
