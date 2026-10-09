@@ -47,8 +47,12 @@ function applyMaterial(material: WindowMaterial) {
   void (
     effective === 'glass'
       ? window.setEffects({
-          effects: [Effect.UnderWindowBackground, Effect.Mica],
-          state: EffectState.FollowsWindowActiveState,
+          // macOS: the sidebar material lets more of the desktop through than the
+          // window background one. Windows: Mica (Acrylic lags while resizing).
+          // Active: following the window's focus turned the glass flat whenever
+          // another window was in front.
+          effects: [Effect.Sidebar, Effect.Mica],
+          state: EffectState.Active,
         })
       : window.clearEffects()
   ).catch(() => undefined)
