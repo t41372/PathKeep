@@ -18,6 +18,7 @@
 //! large-data contract is protected by batch-size assertions and equivalence
 //! checks rather than by allocating huge in-memory test datasets.
 
+mod append_aggregates;
 mod batch_equivalence;
 mod build_needed;
 mod fixtures;

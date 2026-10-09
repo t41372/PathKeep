@@ -1,6 +1,6 @@
 //! Responsibilities: page ranked navigation flows: all time from the stored flows, a date range
 //! from the sessions' stored path segments; count a profile's flows from those segments for the
-//! build that stores them.
+//! build that stores them, all of them or those of the last days an append rewrites.
 //! Not responsible for: building the segments, or source-evidence hydration.
 //! Failure modes: a result cap hides flows, repeated domains inflate windows, a session
 //! boundary joins unrelated paths, a path crossing two segments counts twice or not at all, or a
@@ -145,13 +145,48 @@ pub(super) fn profile_flows(
         let Some((session, segment, ..)) = rows.last() else { break };
         after = Some((session.clone(), *segment));
         for (_, _, prefix_len, sites) in rows {
-            let sites: Vec<(String, i64)> = serde_json::from_str(&sites)?;
-            for steps in 2..=4 {
-                count_segment_paths(&sites, prefix_len as usize, steps, &mut flows);
-            }
+            count_all_lengths(prefix_len, &sites, &mut flows)?;
         }
     }
-    Ok(flows
+    Ok(records(profile, flows))
+}
+
+/// The paths of a profile's segments of `from_day` and later, counted like `profile_flows`. An
+/// append writes only segments of those days (it rewrites the last open one and adds later
+/// ones), so the difference of this count before and after it is what it adds to each flow.
+pub(super) fn day_flows(
+    s: &Session<'_>,
+    generation: i64,
+    profile: &str,
+    from_day: &str,
+) -> Result<Vec<PathFlowRecord>> {
+    let rows = s.query(
+        "SELECT prefix_len,sites_json FROM session_paths INDEXED BY idx_session_paths_range
+         WHERE date_key>=?1 AND generation=?2 AND profile_id=?3",
+        params![from_day, generation, profile],
+        |r| Ok((r.get::<i64>(0)?, r.get::<String>(1)?)),
+    )?;
+    let mut flows = HashMap::new();
+    for (prefix_len, sites) in rows {
+        count_all_lengths(prefix_len, &sites, &mut flows)?;
+    }
+    Ok(records(profile, flows))
+}
+
+fn count_all_lengths(
+    prefix_len: i64,
+    sites_json: &str,
+    flows: &mut HashMap<(String, usize), FlowAggregate>,
+) -> Result<()> {
+    let sites: Vec<(String, i64)> = serde_json::from_str(sites_json)?;
+    for steps in 2..=4 {
+        count_segment_paths(&sites, prefix_len as usize, steps, flows);
+    }
+    Ok(())
+}
+
+fn records(profile: &str, flows: HashMap<(String, usize), FlowAggregate>) -> Vec<PathFlowRecord> {
+    flows
         .into_iter()
         .map(|((flow_pattern, steps), aggregate)| PathFlowRecord {
             profile_id: profile.to_owned(),
@@ -160,9 +195,8 @@ pub(super) fn profile_flows(
             occurrence_count: aggregate.occurrence_count,
             last_seen_ms: aggregate.last_seen_ms,
         })
-        .collect())
+        .collect()
 }
-
 fn flow(profile: Option<&str>, steps: usize, pattern: String, count: i64, time: i64) -> PathFlow {
     PathFlow {
         flow_id: format!("flow:{}:{steps}:{pattern}", profile.unwrap_or("all-profiles")),

@@ -259,6 +259,9 @@ where
     if state.aggregates_done {
         return Ok(());
     }
+    if state.append.is_some() {
+        return super::build_append::aggregates(vault, state, limit, progress);
+    }
     super::build_refind::rebuild(vault, state, limit, progress)?;
     let mut compare = super::compare_sets::CompareSetAccumulator::default();
     let mut cursor = None;
@@ -337,7 +340,7 @@ where
     super::build_pipeline::checkpoint(vault, state, RebuildMode::StructuralRebuild)
 }
 
-fn load_families<F>(
+pub(super) fn load_families<F>(
     vault: &Vault,
     state: &BuildState,
     progress: &mut F,

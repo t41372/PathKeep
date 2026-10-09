@@ -1,8 +1,15 @@
 # Insights aggregates after an append: rebuild or update
 
 Status: the user chose B on 2026-10-09. It changes a recorded decision: `store-schema.md` and
-`data-model.md` say an append build extends the fact/daily/navigation groups and _replaces_ the
-aggregates; they are updated when B lands.
+`data-model.md` said an append build extends the fact/daily/navigation groups and _replaces_ the
+aggregates; `store-schema.md` now describes B as built (`intelligence/build_append.rs`).
+
+As built, three details differ from the text below. Habits are no longer stored: the Habits
+card already worked them out from the daily rollups when read, and so do the interrupted habits
+and the habit explanation now, so there is nothing to update. Common paths count the segments of
+the days the append wrote before and after it and add the difference, which covers the
+segment the last build saved open. The size limit is set on the visits appended (100,000), known
+before the build starts, rather than on the keys touched.
 
 On a benchmark shaped like real browsing (Zipf, `PATHKEEP_BENCH_SHAPE=habits`) the same append
 of 10,000 visits takes 13.7 minutes, 12 of them in the refind-pages stage.

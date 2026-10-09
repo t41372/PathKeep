@@ -10,6 +10,7 @@
 //! search trails, refind pages, rollups, and related analytics in
 //! `derived/history-intelligence.sqlite`.
 
+mod build_append;
 mod build_pipeline;
 mod build_refind;
 mod build_rows;
@@ -270,7 +271,7 @@ struct StructuralVisitRecord {
     is_search_event: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct QueryFamilyRecord {
     family_id: String,
     profile_id: String,

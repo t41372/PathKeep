@@ -351,8 +351,17 @@ visit_id)`; visit/generation and trail indexes support point hydration.
   `idx_session_paths_range (date_key, generation, profile_id)`.
 
 Full builds retain published rows until replacement stages commit. Append builds extend the
-fact/daily/navigation groups and replace aggregates. Checkpoints and their writes commit in
-one batch; superseded generations are reclaimed in bounded writes. No TEMP tables are used.
+fact/daily/navigation groups in place. An append of up to 100,000 visits
+(`build_append::IN_PLACE_LIMIT`) also updates the published aggregates in place: it works out,
+reading only, each page a new visit opened (its refind row from all its visits), what each flow
+gains (`session_paths` of the days it wrote, after it, less before it), the compare sets of the
+trails walked again from the start of the trail open at the last build, and the query families
+the new keyword searches join in visit order (all of them again, writing only those that
+differ, if the search that opened that open trail changed kind); then it writes all of it in
+one transaction with its done mark, so readers see the old aggregates or the new ones. A larger
+append, or stored rows the update does not expect, builds the aggregates into a new generation.
+Checkpoints and their writes commit in one batch; superseded generations are reclaimed in
+bounded writes. No TEMP tables are used.
 
 **`page_content_enrichments`** has primary key `id` and unique `(canonical_url, content_source)`.
 It stores status/time, final URL, language, title, blob path/size/hash, snippets, extraction JSON,

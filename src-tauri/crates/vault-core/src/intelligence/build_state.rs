@@ -58,6 +58,10 @@ pub(super) struct BuildState {
     pub stream_json: Option<String>,
     pub structural_cursor: Option<VisibleVisitBatchCursor>,
     pub counts: std::collections::BTreeMap<String, usize>,
+    /// For an append that updates the aggregates in place, what it needs from before it
+    /// (`build_append`); `None` when the aggregates are built into a new generation.
+    #[serde(default)]
+    pub append: Option<super::build_append::AppendBase>,
 }
 
 pub(super) fn load(s: &Session<'_>, profile: &str) -> Result<Option<BuildState>> {

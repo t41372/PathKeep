@@ -100,6 +100,7 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
         None
     };
     let mut dirty = None;
+    let mut appended = 0;
     if let Some(old) = previous.as_ref() {
         if old.source == source.watermark && old.archive_revision == source.revision && !full {
             return Ok(old.clone());
@@ -132,6 +133,7 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
                 );
             }
             dirty = min_time;
+            appended = count;
         }
     }
     let dirty_visit_count = previous.as_ref().map_or(source.watermark.visible_visit_count, |old| {
@@ -145,6 +147,16 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
             source.watermark.visible_visit_count - old.source.visible_visit_count
         }
     }) as usize;
+    // An append small enough for one write updates the published aggregates in place; this is
+    // what it needs from before. A larger one builds them into a new generation.
+    let append = match (previous.as_ref(), dirty) {
+        (Some(old), Some(first_new_ms))
+            if !full && appended <= super::build_append::IN_PLACE_LIMIT =>
+        {
+            Some(super::build_append::base(vault, old, first_new_ms)?)
+        }
+        _ => None,
+    };
     let source = source.clone();
     vault.write(Db::Intelligence, Priority::Batch, move |s| {
         let id = build_state::allocate(s, &source.profile_id)?;
@@ -163,7 +175,11 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
             facts_generation: reuse(|s| s.facts_generation),
             daily_generation: reuse(|s| s.daily_generation),
             navigation_generation: reuse(|s| s.navigation_generation),
-            aggregate_generation: id,
+            aggregate_generation: if append.is_some() {
+                reuse(|s| s.aggregate_generation)
+            } else {
+                id
+            },
             cursor: if full { None } else { old.and_then(|s| s.cursor) },
             facts_done: false,
             daily_done: false,
@@ -179,11 +195,14 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
             stream_json: if full { None } else { old.and_then(|s| s.stream_json.clone()) },
             structural_cursor: if full { None } else { old.and_then(|s| s.structural_cursor) },
             counts: if full { BTreeMap::new() } else { old.unwrap().counts.clone() },
+            append,
         };
         let mut state = state;
-        for (table, group) in build_state::TABLES {
-            if *group == "aggregates" {
-                state.counts.remove(*table);
+        if state.append.is_none() {
+            for (table, group) in build_state::TABLES {
+                if *group == "aggregates" {
+                    state.counts.remove(*table);
+                }
             }
         }
         build_state::save(s, &state)?;

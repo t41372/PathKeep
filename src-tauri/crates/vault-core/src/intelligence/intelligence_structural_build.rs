@@ -24,9 +24,11 @@
 
 #[cfg(test)]
 use super::SearchEventBatchCursor;
-use super::{QueryFamilyRecord, SearchEventRecord, query_token_set};
 #[cfg(test)]
-use super::{SearchQueryKind, normalize_query};
+use super::SearchQueryKind;
+use super::{
+    QueryFamilyRecord, SearchEventRecord, local_date_key, normalize_query, query_token_set,
+};
 #[cfg(test)]
 use anyhow::Result;
 #[cfg(test)]
@@ -212,6 +214,39 @@ pub(super) fn build_query_families_from_batches(
 }
 
 impl QueryFamilyAccumulator {
+    /// Continues a build that stopped: `families` are one profile's families in the order they
+    /// were made, each with the days it was searched on counted. Every event added after this
+    /// must be later than the events already in them (an append: an earlier visit makes the
+    /// build start over), so an event's day is new unless it is its family's last day.
+    pub(super) fn resume(families: Vec<QueryFamilyRecord>) -> Self {
+        let mut accumulator = Self::default();
+        for family in families {
+            let index = accumulator.families.len();
+            let tokens = query_token_set(&normalize_query(&family.anchor_query));
+            for token in &tokens {
+                accumulator
+                    .by_token
+                    .entry((family.profile_id.clone(), family.search_engine.clone(), token.clone()))
+                    .or_default()
+                    .push(index);
+            }
+            accumulator.tokens.push(tokens);
+            accumulator
+                .queries
+                .push(family.queries.iter().map(|query| normalize_query(query)).collect());
+            accumulator
+                .days
+                .push(std::collections::HashSet::from([local_date_key(family.last_seen_ms)]));
+            accumulator.families.push(family);
+        }
+        accumulator
+    }
+
+    /// The families as they stand, in the order they were made.
+    pub(super) fn families(&self) -> &[QueryFamilyRecord] {
+        &self.families
+    }
+
     /// Merges one ordered search event into the current family set without
     /// materializing a second copy of every family token set.
     pub(super) fn add_event(&mut self, event: &SearchEventRecord) {
@@ -241,7 +276,7 @@ impl QueryFamilyAccumulator {
                 if self.queries[index].insert(event.normalized_query.clone()) {
                     family.queries.push(event.raw_query.clone());
                 }
-                if self.days[index].insert(super::local_date_key(event.visit_time_ms)) {
+                if self.days[index].insert(local_date_key(event.visit_time_ms)) {
                     family.active_days += 1;
                 }
                 return;
@@ -256,8 +291,7 @@ impl QueryFamilyAccumulator {
         }
         self.tokens.push(tokens);
         self.queries.push(std::collections::HashSet::from([event.normalized_query.clone()]));
-        self.days
-            .push(std::collections::HashSet::from([super::local_date_key(event.visit_time_ms)]));
+        self.days.push(std::collections::HashSet::from([local_date_key(event.visit_time_ms)]));
         self.families.push(QueryFamilyRecord {
             family_id: format!("family:{}:{:04}", event.profile_id, self.families.len() + 1),
             profile_id: event.profile_id.clone(),
