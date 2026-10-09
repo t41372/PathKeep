@@ -17,6 +17,7 @@ import { useSourceStats } from '@/features/home/queries'
 import { cn } from '@/lib/cn'
 import type { HabitPattern } from '@/lib/core-intelligence/types'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { profileLabel } from '@/lib/profile-label'
 import { pagePath, searchPath, sitePath } from './links'
 import { rowLink } from './display'
 import { ListSkeleton, QueryBody, SectionStatus } from './parts'
@@ -310,7 +311,7 @@ export function BrowsersCard({ scope }: { scope: Scope }) {
                           )}
                           <span className="truncate">
                             {source
-                              ? `${source.browserName} · ${source.profileName}`
+                              ? profileLabel(source, t)
                               : profile.profileName}
                           </span>
                         </span>

@@ -27,6 +27,7 @@ import { useUrlDetail } from '@/features/history/queries'
 import { useSourceStats } from '@/features/home/queries'
 import type { RefindScoreFactor } from '@/lib/core-intelligence/types'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { profileLabel } from '@/lib/profile-label'
 import { useRefindPage } from './drill-queries'
 import {
   dayPath,
@@ -352,7 +353,7 @@ function WhyCard({
                 <p className="text-xs text-muted-foreground">
                   {t('insights.page.countedIn', {
                     profile: profile
-                      ? `${profile.browserName} · ${profile.profileName}`
+                      ? profileLabel(profile, t)
                       : page.profileId,
                   })}
                   {page.profileCount > 1 &&
