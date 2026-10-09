@@ -53,7 +53,8 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
             super::intelligence_overview_snapshot::load_search_rule_signature(connection)?
         )),
         RebuildMode::DailyRollup => Ok("daily-rollups-v2".to_string()),
-        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v2".to_string()),
+        // v3: Threads count the days a search came back on; compare sets need sibling pages.
+        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v3".to_string()),
         RebuildMode::FullRebuild => Ok("full-rebuild-v2".to_string()),
     }
 }
@@ -313,7 +314,7 @@ mod tests {
                     assert_eq!(
                         stage_version(connection, RebuildMode::StructuralRebuild)
                             .expect("structural version"),
-                        "structural-rebuild-v2"
+                        "structural-rebuild-v3"
                     );
                     assert_eq!(
                         stage_version(connection, RebuildMode::FullRebuild).expect("full version"),

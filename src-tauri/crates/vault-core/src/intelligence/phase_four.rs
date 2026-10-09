@@ -16,7 +16,7 @@ use crate::models::{
     ScopedDateRangeRequest, SessionSummary, TrailSummary,
 };
 use anyhow::{Context, Result};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use vault_store::{OptionalRow, Session, params_owned as params};
 
 pub fn get_compare_set_detail(
@@ -183,7 +183,7 @@ pub(super) fn build_compare_sets_for_trail(
 
         let multi_domain = distinct_domains.len() >= 2;
         let sibling_compare = !multi_domain
-            && has_sibling_path_variation(&members)
+            && has_sibling_pages(&members)
             && members
                 .windows(2)
                 .filter(|window| {
@@ -247,23 +247,24 @@ pub(super) fn is_compare_candidate_category(page_category: &str) -> bool {
     )
 }
 
-fn has_sibling_path_variation(members: &[&CompareTrailMember]) -> bool {
-    let mut path_prefixes = HashMap::<String, usize>::new();
+/// Whether two different pages of the trail sit side by side under one parent path
+/// (`/products/a` and `/products/b`): the "sibling URLs" a same-site comparison is made of.
+fn has_sibling_pages(members: &[&CompareTrailMember]) -> bool {
+    let mut pages_by_parent = HashMap::<&str, HashSet<&str>>::new();
     for member in members {
-        let prefix = path_prefix(&member.url);
-        *path_prefixes.entry(prefix).or_default() += 1;
+        let parent = parent_path(&member.url);
+        if !parent.is_empty() {
+            pages_by_parent.entry(parent).or_default().insert(&member.canonical_url);
+        }
     }
-    path_prefixes.len() >= 2
+    pages_by_parent.values().any(|pages| pages.len() >= 2)
 }
 
-fn path_prefix(url: &str) -> String {
-    url.split_once("://")
-        .and_then(|(_, rest)| rest.split_once('/'))
-        .map(|(_, path)| {
-            let mut segments = path.split('/').filter(|segment| !segment.is_empty());
-            segments.next().unwrap_or("/").to_string()
-        })
-        .unwrap_or_else(|| "/".to_string())
+/// Host and path up to the last segment, without query or fragment; empty for a site's root.
+fn parent_path(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let page = rest.split(['?', '#']).next().unwrap_or(rest).trim_end_matches('/');
+    page.rsplit_once('/').map_or("", |(parent, _)| parent)
 }
 
 fn load_compare_trail_members(
@@ -486,7 +487,7 @@ mod tests {
     use super::{
         CompareTrailMember, build_compare_sets_for_trail, get_compare_set_detail,
         get_compare_set_detail_with_connection, get_multi_browser_diff_with_connection,
-        load_session_summary, load_trail_summary, parse_compare_set_id, path_prefix,
+        load_session_summary, load_trail_summary, parent_path, parse_compare_set_id,
     };
     use crate::models::{CompareSetDetailRequest, DateRange, ScopedDateRangeRequest};
     use crate::test_support::native::TestDatabase;
@@ -611,9 +612,10 @@ mod tests {
     }
 
     #[test]
-    fn path_prefix_extracts_first_segment() {
-        assert_eq!(path_prefix("https://example.com/docs/rust"), "docs");
-        assert_eq!(path_prefix("https://example.com"), "/");
+    fn parent_path_is_what_sibling_pages_share() {
+        assert_eq!(parent_path("https://shop.example/products/a?ref=1"), "shop.example/products");
+        assert_eq!(parent_path("https://shop.example/products/b/"), "shop.example/products");
+        assert_eq!(parent_path("https://shop.example/"), "");
     }
 
     #[test]
