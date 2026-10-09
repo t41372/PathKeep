@@ -19,8 +19,9 @@
 
 /// The matcher's version. v2: a host is matched before its parents (`mail.google.com` before
 /// `google.com`). v3: a Latin lexicon word matches whole words only ("api" not in "rapid").
+/// v4: only http(s) pages have a site; an extension's page no longer counts as one.
 /// What builds record is `taxonomy_version()`, which adds every pack's version.
-pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v3";
+pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v4";
 
 /// URL normalized for rule-based visit taxonomy and matching.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -113,7 +113,10 @@ impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
             trail_id,
             ordinal
         ])?;
-        *self.domain_updates.entry((session_id.to_owned(), domain.to_owned())).or_default() += 1;
+        if !domain.is_empty() {
+            *self.domain_updates.entry((session_id.to_owned(), domain.to_owned())).or_default() +=
+                1;
+        }
         Ok(())
     }
 
@@ -296,7 +299,10 @@ impl StructuralTailStreamState {
         let session = self.current_session.as_mut().expect("structural session");
         session.push_visit(&visit);
         let session_id = session.record.session_id.clone();
-        if let Some(closed) = session.path.push(&visit.registrable_domain, visit.visit_time_ms) {
+        // A path goes from site to site; a visit with no site (an extension page) is not a step.
+        if !visit.registrable_domain.is_empty()
+            && let Some(closed) = session.path.push(&visit.registrable_domain, visit.visit_time_ms)
+        {
             persist.persist_path(&session_id, &closed)?;
         }
         let ordinal = session.record.visit_count - 1;
