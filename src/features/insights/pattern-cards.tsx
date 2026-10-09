@@ -162,7 +162,9 @@ export function BreadthCard({ scope }: { scope: Scope }) {
               </div>
               <p className="text-[13px] text-muted-foreground">
                 {t(`insights.breadth.${word}`)}
-                {newSites != null &&
+                {/* Over all time every site was new once; the count says nothing. */}
+                {scope.range !== 'all' &&
+                  newSites != null &&
                   newSites > 0 &&
                   ` ${t('insights.breadth.newSites', {
                     count: newSites,
