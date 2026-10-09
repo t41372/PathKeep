@@ -408,12 +408,12 @@ fn broken_chrome_user_data_fixture(root: &Path) -> PathBuf {
 
 fn takeout_fixture(root: &Path) -> String {
     let source_dir = root.join("takeout-source");
-    fs::create_dir_all(&source_dir).expect("create takeout source");
+    fs::create_dir_all(source_dir.join("Chrome")).expect("create takeout source");
     fs::write(
-        source_dir.join("takeout.jsonl"),
-        r#"{"url":"https://example.com/imported","title":"Imported","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+        source_dir.join("Chrome/BrowserHistory.json"),
+        r#"{"Browser History":[{"url":"https://example.com/imported","title":"Imported","time_usec":1775037600000000}]}"#,
     )
-    .expect("write takeout jsonl");
+    .expect("write takeout history");
     source_dir.display().to_string()
 }
 

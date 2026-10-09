@@ -180,7 +180,7 @@ Settings → General 的兩個開關。
 - GUI wizard 流程：
   1. 拖入 Takeout 的 zip、解壓後的資料夾，或單一 dedicated Chrome history JSON 檔。
   2. 先做 dry-run：掃描文件、識別格式、產生報告。
-  3. **目前 shipping scope 採 Chrome-first**：只有 dedicated Chrome history payload（例如 `BrowserHistory.json`、`History.json`、德文化的 `Verlauf.json`）進入 importer。
+  3. **目前 shipping scope 採 Chrome-first**：只有 dedicated Chrome history payload（例如 `BrowserHistory.json`、`History.json`、德文化的 `Verlauf.json`）進入 importer。Takeout 不寫 JSON Lines，`.jsonl` 檔就算每行看起來像瀏覽記錄也不匯入（看起來像歷史的標 `needs-review`）；PathKeep 自己的 JSONL 匯出也不是匯入格式。
   4. dedicated Chrome history payload 的 parser 也必須對齊真實 Takeout envelope，而不是只靠 repo 自造 fixture；目前已驗到的 canonical shape 是頂層 `Browser History` 陣列，時間欄位使用 `time_usec`。
   5. wizard 的第一屏就必須明講「PathKeep 現在要什麼 Takeout 類型」，並教使用者在 Google Takeout 完成匯出後，先確認 zip / 資料夾 / 單一 JSON 檔裡是否真的有 dedicated Chrome history payload，再進入掃描。
   6. 若使用者提供的是 `My Activity/Chrome/*.json`、`我的活動/Chrome/我的活動.json`、或任何 `.html` activity 匯出，UI 不能只顯示 generic ignored / no matches；必須直接說這不是目前 importer 支援的 dedicated Chrome history payload。

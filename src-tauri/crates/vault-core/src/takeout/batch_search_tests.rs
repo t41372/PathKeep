@@ -25,21 +25,19 @@ impl Fixture {
         fs::create_dir_all(&source).expect("source directory");
         let records = (first_url..first_url + count)
             .map(|index| {
-                let visited_at = chrono::DateTime::from_timestamp_millis(
-                    1_775_000_000_000 + time_offset + index as i64 * 1_000,
-                )
-                .expect("visit timestamp")
-                .to_rfc3339();
                 json!({
                     "url": format!("https://batch.example/page/{index}"),
                     "title": format!("Batchneedle page {index}"),
-                    "visitedAt": visited_at,
+                    "time_usec": (1_775_000_000_000 + time_offset + index as i64 * 1_000) * 1_000,
                 })
-                .to_string()
             })
-            .collect::<Vec<_>>()
-            .join("\n");
-        fs::write(source.join("history.jsonl"), records).expect("import fixture");
+            .collect::<Vec<_>>();
+        fs::create_dir_all(source.join("Chrome")).expect("Chrome directory");
+        fs::write(
+            source.join("Chrome/BrowserHistory.json"),
+            json!({ "Browser History": records }).to_string(),
+        )
+        .expect("import fixture");
         import_takeout(
             &self.vault,
             &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },

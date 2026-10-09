@@ -235,10 +235,10 @@ mod tests {
 
     fn takeout_fixture(root: &Path) -> String {
         let source_dir = root.join("takeout-source");
-        fs::create_dir_all(&source_dir).expect("takeout dir");
+        fs::create_dir_all(source_dir.join("Chrome")).expect("takeout dir");
         fs::write(
-            source_dir.join("takeout.jsonl"),
-            r#"{"url":"https://example.com/takeout","title":"Takeout","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+            source_dir.join("Chrome/BrowserHistory.json"),
+            r#"{"Browser History":[{"url":"https://example.com/takeout","title":"Takeout","time_usec":1775037600000000}]}"#,
         )
         .expect("write takeout");
         source_dir.display().to_string()

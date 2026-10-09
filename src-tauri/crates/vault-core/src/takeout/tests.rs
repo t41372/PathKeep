@@ -33,12 +33,13 @@ fn initialized_plaintext_config() -> AppConfig {
     }
 }
 
-/// Writes a directory-based Takeout fixture with a chosen folder name.
-fn write_takeout_fixture_with_name(dir: &Path, name: &str, lines: &[&str]) -> PathBuf {
+/// Writes a Takeout folder holding `Chrome/BrowserHistory.json` with these records.
+fn write_takeout_fixture_with_name(dir: &Path, name: &str, records: &[&str]) -> PathBuf {
     let source_dir = dir.join(name);
-    fs::create_dir_all(&source_dir).expect("create takeout source dir");
-    let source = source_dir.join("takeout.jsonl");
-    fs::write(&source, lines.join("\n")).expect("write takeout fixture");
+    let chrome_dir = source_dir.join("Chrome");
+    fs::create_dir_all(&chrome_dir).expect("create takeout source dir");
+    fs::write(chrome_dir.join("BrowserHistory.json"), chrome_browser_history_payload(records))
+        .expect("write takeout fixture");
     source_dir
 }
 
@@ -48,8 +49,8 @@ fn write_takeout_fixture(dir: &Path) -> PathBuf {
         dir,
         "takeout-source",
         &[
-            r#"{"url":"https://example.com/one","title":"One","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
-            r#"{"url":"https://example.com/two","title":"Two","visitedAt":"2026-04-01T11:00:00+00:00"}"#,
+            r#"{"url":"https://example.com/one","title":"One","time_usec":1775037600000000}"#,
+            r#"{"url":"https://example.com/two","title":"Two","time_usec":1775041200000000}"#,
         ],
     )
 }
@@ -182,7 +183,8 @@ fn inspect_takeout_caps_preview_entries_at_preview_limit() {
     let lines = (0..=PREVIEW_LIMIT)
         .map(|index| {
             format!(
-                "{{\"url\":\"https://example.com/{index}\",\"title\":\"Item {index}\",\"visitedAt\":\"2026-04-01T10:{index:02}:00+00:00\"}}"
+                "{{\"url\":\"https://example.com/{index}\",\"title\":\"Item {index}\",\"time_usec\":{}}}",
+                1_775_037_600_000_000_i64 + index as i64 * 60_000_000
             )
         })
         .collect::<Vec<_>>();
@@ -363,16 +365,12 @@ fn import_takeout_deduplicates_matching_history_from_different_files() {
     let source_a = write_takeout_fixture_with_name(
         dir.path(),
         "takeout-a",
-        &[
-            r#"{"url":"https://example.com/one","title":"One","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
-        ],
+        &[r#"{"url":"https://example.com/one","title":"One","time_usec":1775037600000000}"#],
     );
     let source_b = write_takeout_fixture_with_name(
         dir.path(),
         "takeout-b",
-        &[
-            r#"{"url":"https://example.com/one","title":"One","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
-        ],
+        &[r#"{"url":"https://example.com/one","title":"One","time_usec":1775037600000000}"#],
     );
 
     let first = import_takeout(
@@ -416,7 +414,7 @@ fn takeout_records_without_timestamps_are_skipped_with_a_note() {
         dir.path(),
         "takeout-missing-time",
         &[
-            r#"{"url":"https://example.com/valid","title":"Valid","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+            r#"{"url":"https://example.com/valid","title":"Valid","time_usec":1775037600000000}"#,
             r#"{"url":"https://example.com/missing","title":"Missing"}"#,
         ],
     );
@@ -725,7 +723,7 @@ fn recognize_and_parse_takeout_payloads() {
     assert_eq!(recognize_takeout_file("BrowserHistory.json"), Some("browser-json".to_string()));
     assert_eq!(recognize_takeout_file("Chrome/History.json"), Some("browser-json".to_string()));
     assert_eq!(recognize_takeout_file("Chrome/Verlauf.json"), Some("browser-json".to_string()));
-    assert_eq!(recognize_takeout_file("entries.jsonl"), Some("jsonl".to_string()));
+    assert_eq!(recognize_takeout_file("entries.jsonl"), None);
     assert_eq!(recognize_takeout_file("archive_browser.html"), Some("takeout-index".to_string()));
     assert_eq!(recognize_takeout_file("notes.txt"), None);
 
@@ -915,28 +913,7 @@ fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
 }
 
 #[test]
-fn takeout_parsers_cover_blank_lines_arrays_and_unusable_payloads() {
-    let payload = collect_records_from_payload(
-        "fixture.jsonl",
-        "jsonl",
-        br#"
-{"url":"https://example.com/ok","title":"OK","visitedAt":"2026-04-01T10:00:00+00:00"}
-{"url":"https://example.com/missing","title":"Missing"}
-{"title":"Ignored"}
-"#,
-    )
-    .expect("collect jsonl");
-    assert_eq!(payload.records.len(), 1);
-    assert_eq!(payload.skipped_missing_visit_time, 1);
-
-    let array_payload = collect_records_from_payload(
-        "array.json",
-        "browser-json",
-        br#"[{"titleUrl":"https://example.com/array","pageTitle":"Array","visitedAt":"2026-04-01T10:00:00+00:00"}]"#,
-    )
-    .expect("collect array");
-    assert_eq!(array_payload.records.len(), 1);
-
+fn takeout_parsers_cover_unusable_payloads() {
     let empty_payload =
         collect_records_from_payload("empty.json", "browser-json", br#"{"notHistory":[]}"#)
             .expect("collect empty");
@@ -949,19 +926,23 @@ fn takeout_parsers_cover_blank_lines_arrays_and_unusable_payloads() {
 }
 
 #[test]
-fn import_takeout_quarantines_unknown_files_and_skips_index_entries() {
+fn import_takeout_imports_browser_history_only() {
     let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     ensure_paths(&paths).expect("ensure paths");
 
-    let source = dir.path().join("mixed-takeout");
-    fs::create_dir_all(&source).expect("create mixed source");
+    let source = write_takeout_fixture_with_name(
+        dir.path(),
+        "mixed-takeout",
+        &[r#"{"url":"https://example.com/import","title":"Import","time_usec":1775037600000000}"#],
+    );
+    // JSON Lines is not a Takeout format: a file of history-shaped lines stays out.
     fs::write(
         source.join("entries.jsonl"),
-        r#"{"url":"https://example.com/import","title":"Import","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+        r#"{"url":"https://example.com/not-takeout","title":"Not Takeout","time_usec":1775037600000000}"#,
     )
-    .expect("write importable payload");
+    .expect("write json lines");
     fs::write(source.join("archive_browser.html"), "<html></html>").expect("write index");
     fs::write(source.join("notes.txt"), "quarantine me").expect("write unknown file");
 

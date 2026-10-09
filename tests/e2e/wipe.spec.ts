@@ -3,8 +3,9 @@
  * and PathKeep starts over at onboarding.
  *
  * Proves: the preview's visit count is the archive's real size (the first
- * backup, the ten added in backup.spec and the browser file imported in
- * browser-import.spec), an installed automatic backup
+ * backup, the ten added in backup.spec, the browser file imported in
+ * browser-import.spec and the Takeout folder imported in
+ * takeout-import.spec), an installed automatic backup
  * is named in the preview and removed with the data, the archive and the
  * stored key are gone afterwards, and the browsers' own history files are
  * untouched.
@@ -18,6 +19,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { browserFileVisitCount } from './support/browser-file'
+import { takeoutVisitCount } from './support/takeout-file'
 import {
   archivedVisits,
   backend,
@@ -60,7 +62,8 @@ test('delete all data previews, deletes, and returns to onboarding', async ({
   page,
 }, testInfo) => {
   const before = browserFileHashes()
-  const expectedVisits = archivedVisits().length + 10 + browserFileVisitCount()
+  const expectedVisits =
+    archivedVisits().length + 10 + browserFileVisitCount() + takeoutVisitCount()
 
   if (schedulerSupported) {
     await page.goto('/#/backup')

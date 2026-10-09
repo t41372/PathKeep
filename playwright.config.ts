@@ -153,6 +153,7 @@ export default defineConfig({
         'backup.spec.ts',
         'schedule.spec.ts',
         'browser-import.spec.ts',
+        'takeout-import.spec.ts',
         'lock.spec.ts',
         'security.spec.ts',
       ],

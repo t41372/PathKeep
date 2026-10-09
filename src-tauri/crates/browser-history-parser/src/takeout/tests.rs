@@ -204,9 +204,10 @@ fn classify_payload_path_handles_localized_history_and_review_only_paths() {
 
 #[test]
 fn classify_payload_path_covers_takeout_scope_matrix() {
+    // Takeout never writes JSON Lines, so such a file is not imported, whatever it holds.
     let jsonl = classify_payload_path("entries.jsonl");
-    assert_eq!(jsonl.recognized_kind, Some(KIND_JSONL));
-    assert_eq!(jsonl.reason_code, "jsonl-history-fixture");
+    assert_eq!(jsonl.recognized_kind, None);
+    assert_ne!(jsonl.disposition, TakeoutPathDisposition::WillImport);
 
     for typed_url in ["TypedUrl.json", "Typed Url.json"] {
         let matched = classify_payload_path(typed_url);
@@ -497,30 +498,19 @@ fn parse_payload_extracts_browser_history_records() {
 }
 
 #[test]
-fn browser_history_payload_covers_jsonl_skips_duplicates_and_error_paths() {
-    let jsonl = parse_payload(
-        "entries.jsonl",
-        KIND_JSONL,
-        b"\n{\"url\":\"\",\"time_usec\":1711965600000000}\n{\"url\":\"https://example.com/repeat\",\"title\":\"Old\",\"time_usec\":\"1711965600000000\"}\n{\"url\":\"https://example.com/repeat\",\"title\":\"New\",\"visitedAt\":\"2024-04-01T11:00:00+00:00\"}\n{\"url\":\"https://example.com/missing-time\"}\n",
+fn browser_history_payload_skips_duplicates_and_error_paths() {
+    let parsed = parse_payload(
+        "BrowserHistory.json",
+        KIND_BROWSER_JSON,
+        br#"{"Browser History":[{"url":"","time_usec":1711965600000000},{"url":"https://example.com/repeat","title":"Old","time_usec":"1711965600000000"},{"url":"https://example.com/repeat","title":"New","time_usec":1711969200000000},{"url":"https://example.com/missing-time"}]}"#,
     )
-    .expect("jsonl payload");
-    assert_eq!(jsonl.record_count, 2);
-    assert_eq!(jsonl.skipped_missing_visit_time, 1);
-    assert_eq!(jsonl.history.urls.len(), 1);
-    assert_eq!(jsonl.history.urls[0].visit_count, 2);
-    assert_eq!(jsonl.history.urls[0].title.as_deref(), Some("New"));
-    assert!(jsonl.history.warnings.iter().any(|warning| warning.code == "missing-visit-time"));
-
-    let bad_jsonl =
-        parse_payload("entries.jsonl", KIND_JSONL, b"{").expect_err("bad jsonl payload");
-    assert!(bad_jsonl.to_string().contains("entries.jsonl line 1"));
-
-    // Regression: a non-UTF-8 byte in a JSONL line must surface as a graceful
-    // ReadSource error, never panic the import worker (BufRead::lines yields
-    // Err(InvalidData) on invalid UTF-8 regardless of I/O success).
-    let non_utf8_jsonl = parse_payload("entries.jsonl", KIND_JSONL, b"\xff\xfe garbage\n")
-        .expect_err("non-utf8 jsonl payload");
-    assert!(non_utf8_jsonl.to_string().contains("entries.jsonl"));
+    .expect("browser history payload");
+    assert_eq!(parsed.record_count, 2);
+    assert_eq!(parsed.skipped_missing_visit_time, 1);
+    assert_eq!(parsed.history.urls.len(), 1);
+    assert_eq!(parsed.history.urls[0].visit_count, 2);
+    assert_eq!(parsed.history.urls[0].title.as_deref(), Some("New"));
+    assert!(parsed.history.warnings.iter().any(|warning| warning.code == "missing-visit-time"));
 
     let bad_browser_json =
         parse_payload("BrowserHistory.json", KIND_BROWSER_JSON, b"{").expect_err("bad json");

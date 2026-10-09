@@ -1375,10 +1375,10 @@ fn seed_safari_fixture(root: &Path) -> PathBuf {
 
 fn seed_takeout_fixture(root: &Path) -> PathBuf {
     let source_dir = root.join("takeout-source");
-    fs::create_dir_all(&source_dir).expect("create takeout dir");
+    fs::create_dir_all(source_dir.join("Chrome")).expect("create takeout dir");
     fs::write(
-        source_dir.join("entries.jsonl"),
-        r#"{"url":"https://example.com/import","title":"Imported","visitedAt":"2026-04-01T10:00:00+00:00"}"#,
+        source_dir.join("Chrome/BrowserHistory.json"),
+        r#"{"Browser History":[{"url":"https://example.com/import","title":"Imported","time_usec":1775037600000000}]}"#,
     )
     .expect("write takeout fixture");
     source_dir
