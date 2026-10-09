@@ -496,6 +496,8 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_site_flows_site ON site_flows_rows(registrable_domain,date_key,generation,profile_id)",
     "CREATE INDEX idx_refind_pages_range ON refind_pages_rows(last_seen_ms,generation,profile_id,first_seen_ms)",
     "CREATE INDEX idx_search_events_profile_query ON search_events_rows(profile_id,normalized_query, generation)",
+    // One engine's keyword searches in a range (what was searched on a site, the site page).
+    "CREATE INDEX idx_search_events_engine_time ON search_events_rows(query_kind,search_engine,visit_time_ms,generation)",
 
     "CREATE VIEW visit_derived_facts AS SELECT r.visit_id,r.profile_id,a.session_id,a.trail_id,r.registrable_domain,r.canonical_url,r.domain_category,r.page_category,r.search_engine,r.search_query,r.is_new_domain,r.is_search_event,r.evidence_tier,r.taxonomy_source,r.taxonomy_pack,r.taxonomy_version,r.computed_at
       FROM visit_derived_facts_rows r

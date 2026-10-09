@@ -28,7 +28,7 @@ import {
 import { rowLink } from './display'
 import { category, UNCLASSIFIED } from './categories'
 import { ShareBar } from './share-bar'
-import { ArrivalsCard, OnwardCard } from './site-flows'
+import { ArrivalsCard, OnwardCard, SiteSearchesCard } from './site-flows'
 import {
   DrillHeader,
   KpiTile,
@@ -192,6 +192,7 @@ export default function SitePage() {
         <ArrivalsCard domain={domain} scope={scope} />
         <OnwardCard domain={domain} scope={scope} />
       </div>
+      <SiteSearchesCard domain={domain} scope={scope} />
     </PageScroll>
   )
 }

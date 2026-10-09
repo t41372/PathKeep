@@ -17,6 +17,8 @@
  * - A site's view says how its visits from elsewhere began (typed, from a
  *   search, from a link), which sites linked to it and which it led on to,
  *   as the fixture's browsers recorded each page's opener.
+ * - Google's site view lists what was searched on it, as Frequent searches
+ *   counts it (every fixture search is on Google).
  *
  * Insights are computed by a background job after the first backup, so
  * every read waits for real numbers instead of reading a "computing" state.
@@ -375,6 +377,32 @@ test('a site says how its visits began and where its links led', async ({
       top.top,
     )
   }
+})
+
+test('the site of a search engine lists what was searched on it', async ({
+  page,
+}) => {
+  // The query a search link opens, and the count at the end of its text.
+  const read = async (link: Locator) => {
+    const href = (await link.getAttribute('href')) ?? ''
+    const query = decodeURIComponent(href.match(/search\/([^?]+)/)?.[1] ?? '')
+    const text = (await link.innerText()).replace(/\s+/g, ' ').trim()
+    return { query, count: parseCount(text.match(/(\d[\d,]*)\D*$/)?.[1] ?? '') }
+  }
+  await page.goto('/#/insights')
+  const frequent = card(page, 'Frequent searches')
+    .locator('a[href*="/insights/search/"]')
+    .first()
+  await expect(frequent).toBeVisible({ timeout: JOB_TIMEOUT })
+  const expected = await read(frequent)
+
+  await page.goto('/#/insights/site/google.com')
+  await drillIn(page, 'google.com')
+  const first = card(page, 'Searched on this site')
+    .locator('a[href*="/insights/search/"]')
+    .first()
+  await expect(first).toBeVisible({ timeout: JOB_TIMEOUT })
+  expect(await read(first)).toEqual(expected)
 })
 
 test('a search from Frequent searches shows how often and when', async ({

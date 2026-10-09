@@ -93,6 +93,9 @@ pub struct DomainDeepDive {
     pub search_sites: Vec<SiteFlowStat>,
     /// Sites opened from links on this one.
     pub onward: Vec<SiteFlowStat>,
+    /// What was searched on the site (its search engines' keyword searches) in the window, most
+    /// often first, each as last typed; empty for a site with no search engine.
+    pub site_searches: Vec<DomainSearchStat>,
 }
 
 /// A site searches ended on: where the user's answers come from.

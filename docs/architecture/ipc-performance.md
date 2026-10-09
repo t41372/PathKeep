@@ -171,7 +171,7 @@ At 14.4M visits with 1.8M search events (median of 5):
 | same count joined to `archive.visits`, 30 days | 440 ms |               |
 | same count joined to `archive.visits`, 1 year  | 559 ms |               |
 
-The joined shape scans every search event whatever the range. A covering index that also holds `normalized_query` and `raw_query` cut the one-year read to 95 ms in a trial; not worth a second copy of every query.
+The joined shape scans every search event whatever the range. The site page's "Searched on this site" runs the same count for one search engine through `idx_search_events_engine_time (query_kind, search_engine, visit_time_ms, generation)`, so it reads that engine's searches in the range only. A covering index that also holds `normalized_query` and `raw_query` cut the one-year read to 95 ms in a trial; not worth a second copy of every query.
 
 One-time cost: the migration fills in the time for existing events with one `UPDATE` against the archive, then builds the index. At 14.4M visits that took 2.2 s with the archive in the page cache and 9.4 s on the first run after the archive was generated (cold cache). Intelligence migrations run lazily, on the first intelligence read after an upgrade (not behind the "Upgrading your archive" screen), off the UI thread; that read and any that start beside it wait for it. Because several reads start at once, migrations now run under a process-wide lock. Without it every concurrent read would try to apply the pending migration, and the late ones could fail on SQLite's 5 s busy timeout or on the duplicate version row.
 

@@ -1,11 +1,13 @@
 /**
  * Where a site's visits came from and where its links led, over the scope:
  * the visits that came from elsewhere (typed or bookmarked, from a search,
- * from a link) with the sites behind them, and the sites opened from it.
+ * from a link) with the sites behind them, and the sites opened from it;
+ * and, for a site with a search engine, what was searched on it.
  *
  * Reads the site drill-in's `get_domain_deep_dive` (its `site_flows` sums);
  * the browser's record of which page opened each page decides every count.
  */
+import { Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
@@ -13,7 +15,8 @@ import type { SiteFlowStat } from '@/lib/core-intelligence/types'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSite } from './drill-queries'
-import { sitePath } from './links'
+import { rowLink } from './display'
+import { searchPath, sitePath } from './links'
 import { ListSkeleton, QueryBody, SectionStatus } from './parts'
 import type { Scope } from './range'
 import { ShareBar } from './share-bar'
@@ -138,6 +141,48 @@ export function OnwardCard({
       >
         {(result) => <SiteList sites={result.data.onward} scope={scope} />}
       </QueryBody>
+    </SectionCard>
+  )
+}
+
+/**
+ * What was searched on the site, for a site with a search engine (YouTube's
+ * own search, say). Shown once the site's numbers are in and only when there
+ * is something, at the end of the page, so it never moves the cards above.
+ */
+export function SiteSearchesCard({
+  domain,
+  scope,
+}: {
+  domain: string
+  scope: Scope
+}) {
+  const { t } = useI18n()
+  const site = useSite(domain, scope)
+  const searches = site.data?.data.siteSearches ?? []
+  if (searches.length === 0) return null
+  return (
+    <SectionCard
+      title={t('insights.site.siteSearches')}
+      subtitle={t('insights.site.siteSearchesHint')}
+      action={<SectionStatus meta={site.data?.meta} />}
+    >
+      <ul className="-mx-2 flex flex-col">
+        {searches.map((search) => (
+          <li key={search.query}>
+            <Link to={searchPath(search.query, scope)} className={rowLink}>
+              <Search
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
+              <span className="flex-1 truncate">{search.query}</span>
+              <span className="font-mono text-xs text-muted-foreground">
+                {t('insights.times', { count: search.count })}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </SectionCard>
   )
 }

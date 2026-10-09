@@ -140,6 +140,7 @@ pub fn get_domain_deep_dive(
         let landing_searches=super::paging::finish(rows.into_iter().flatten().collect(),limit)?;
         let (arrivals, referrers, search_sites, onward) =
             site_flows(connection, domain, &request.date_range, profile_id)?;
+        let site_searches = site_searches(connection, domain, start_ms, end_ms, profile_id)?;
 
         Ok(DomainDeepDive {
             registrable_domain: domain.to_string(),
@@ -156,8 +157,84 @@ pub fn get_domain_deep_dive(
             referrers,
             search_sites,
             onward,
+            site_searches,
         })
     })
+}
+
+/// Searches shown per site.
+const SITE_SEARCHES_SHOWN: usize = 8;
+
+/// One engine's most frequent keyword searches in a range, grouped by normalized query as
+/// Frequent searches groups them, each with its newest spelling.
+const SITE_SEARCHES_SQL: &str = "WITH counts AS (
+        SELECT normalized_query,COUNT(*) AS search_count,MAX(visit_time_ms) AS last_time
+        FROM search_events_rows INDEXED BY idx_search_events_engine_time
+        WHERE query_kind='keyword' AND search_engine=?1 AND visit_time_ms>=?2 AND visit_time_ms<?3
+          AND generation IN (SELECT navigation FROM intelligence_generations)
+          AND (?4 IS NULL OR profile_id=?4)
+        GROUP BY normalized_query ORDER BY search_count DESC,normalized_query LIMIT ?5
+     ) SELECT c.normalized_query,c.search_count,c.last_time,
+        (SELECT raw_query FROM search_events_rows newest INDEXED BY idx_search_events_query_time
+         WHERE newest.query_kind='keyword' AND newest.normalized_query=c.normalized_query
+           AND newest.search_engine=?1
+           AND newest.generation IN (SELECT navigation FROM intelligence_generations)
+           AND newest.visit_time_ms>=?2 AND newest.visit_time_ms<?3
+           AND (?4 IS NULL OR newest.profile_id=?4)
+         ORDER BY newest.visit_time_ms DESC,newest.visit_id DESC LIMIT 1)
+     FROM counts c";
+
+/// What was searched on the site in the window: the keyword searches of each search engine whose
+/// rule matches the site (usually one), merged by normalized query. Cost follows the engine's
+/// searches in the range, as Frequent searches' does (`ipc-performance.md` §8).
+fn site_searches(
+    connection: &Session<'_>,
+    domain: &str,
+    start_ms: i64,
+    end_ms: i64,
+    profile_id: Option<&str>,
+) -> Result<Vec<DomainSearchStat>> {
+    let engines = super::load_search_engine_sites(connection)?
+        .into_iter()
+        .filter(|(_, host)| crate::visit_taxonomy::registrable_domain_for_host(host) == domain)
+        .map(|(engine, _)| engine)
+        .collect::<Vec<_>>();
+    // normalized query -> (count, newest time, newest spelling)
+    let mut merged = HashMap::<String, (i64, i64, String)>::new();
+    for engine in engines {
+        let rows = connection.query(
+            SITE_SEARCHES_SQL,
+            params![engine.as_str(), start_ms, end_ms, profile_id, SITE_SEARCHES_SHOWN as i64],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<i64>(1)?,
+                    r.get::<i64>(2)?,
+                    r.get::<Option<String>>(3)?,
+                ))
+            },
+        )?;
+        for (normalized, count, last, raw) in rows {
+            let entry = merged.entry(normalized.clone()).or_insert((0, i64::MIN, normalized));
+            entry.0 += count;
+            if last > entry.1 {
+                entry.1 = last;
+                if let Some(raw) = raw {
+                    entry.2 = raw;
+                }
+            }
+        }
+    }
+    // Most often first, then by normalized query, as Frequent searches orders them.
+    let mut searches = merged.into_iter().collect::<Vec<_>>();
+    searches.sort_by(|(a, (a_count, ..)), (b, (b_count, ..))| {
+        b_count.cmp(a_count).then_with(|| a.cmp(b))
+    });
+    Ok(searches
+        .into_iter()
+        .take(SITE_SEARCHES_SHOWN)
+        .map(|(_, (count, _, query))| DomainSearchStat { query, count })
+        .collect())
 }
 
 /// Other sites shown on the site page per list.

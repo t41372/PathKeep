@@ -54,6 +54,11 @@ export interface DomainDeepDive {
   searchSites: SiteFlowStat[]
   /** Sites opened from links on this one. */
   onward: SiteFlowStat[]
+  /**
+   * What was searched on the site (its search engines' keyword searches),
+   * most often first; empty for a site with no search engine.
+   */
+  siteSearches: DomainSearchStat[]
 }
 
 /**

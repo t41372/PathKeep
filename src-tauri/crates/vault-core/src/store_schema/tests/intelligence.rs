@@ -144,6 +144,7 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_domain_daily_site",
     "idx_session_paths_range",
     "idx_site_flows_site",
+    "idx_search_events_engine_time",
 ];
 pub(super) const ROWS: &[Fixture] = &[
     Fixture {
