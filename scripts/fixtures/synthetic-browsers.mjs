@@ -247,6 +247,27 @@ export function generateVisits({
   return visits.filter((visit) => visit.at <= now)
 }
 
+/** A browser session: visits closer than this belong together. */
+const SESSION_GAP_MS = 30 * 60_000
+
+/**
+ * For each visit (in time order), the index of the visit it was opened from,
+ * or -1: a page that was not typed (or searched) follows a link on the page
+ * before it in the same browser, if that came within the session. Browsers
+ * record this as `from_visit`; Insights uses it to tell which pages a search
+ * led to.
+ */
+export function openedFrom(visits) {
+  return visits.map((visit, index) =>
+    index > 0 &&
+    !visit.typed &&
+    !visit.term &&
+    visit.at - visits[index - 1].at <= SESSION_GAP_MS
+      ? index - 1
+      : -1,
+  )
+}
+
 function writeChromeHistory(file, visits) {
   const db = new DatabaseSync(file)
   createChromeSchema(db)
@@ -345,7 +366,7 @@ function insertChromeVisits(db, visits) {
     'INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden) VALUES (?, ?, ?, 0, 0, 0, 0)',
   )
   const insertVisit = db.prepare(
-    'INSERT INTO visits (url, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id) VALUES (?, ?, 0, ?, ?, 0, 0, NULL, NULL)',
+    'INSERT INTO visits (url, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id) VALUES (?, ?, ?, ?, ?, 0, 0, NULL, NULL)',
   )
   const bump = db.prepare(
     'UPDATE urls SET visit_count = visit_count + 1, typed_count = typed_count + ?, last_visit_time = ? WHERE id = ?',
@@ -353,8 +374,10 @@ function insertChromeVisits(db, visits) {
   const insertTerm = db.prepare(
     'INSERT INTO keyword_search_terms (keyword_id, url_id, term, normalized_term) VALUES (2, ?, ?, ?)',
   )
+  const from = openedFrom(visits)
+  const visitIds = []
   db.exec('BEGIN')
-  for (const visit of visits) {
+  for (const [index, visit] of visits.entries()) {
     let id = urlIds.get(visit.url)
     if (id === undefined) {
       id = nextUrlId()
@@ -364,12 +387,14 @@ function insertChromeVisits(db, visits) {
     }
     const time = Math.trunc(visit.at * 1000 + CHROME_EPOCH_OFFSET_US)
     // 0x30000000 = chain start + chain end; core type 1 = typed, 0 = link.
-    insertVisit.run(
+    const inserted = insertVisit.run(
       id,
       time,
+      from[index] >= 0 ? visitIds[from[index]] : 0,
       0x30000000 | (visit.typed ? 1 : 0),
       visit.duration * 1000,
     )
+    visitIds.push(Number(inserted.lastInsertRowid))
     bump.run(visit.typed ? 1 : 0, time, id)
   }
   db.exec('COMMIT')
@@ -415,13 +440,15 @@ function insertFirefoxVisits(db, visits) {
     'INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date) VALUES (?, ?, ?, 0, 0, 0)',
   )
   const insertVisit = db.prepare(
-    'INSERT INTO moz_historyvisits (place_id, visit_date, from_visit, visit_type) VALUES (?, ?, 0, ?)',
+    'INSERT INTO moz_historyvisits (place_id, visit_date, from_visit, visit_type) VALUES (?, ?, ?, ?)',
   )
   const bump = db.prepare(
     'UPDATE moz_places SET visit_count = visit_count + 1, last_visit_date = ? WHERE id = ?',
   )
+  const from = openedFrom(visits)
+  const visitIds = []
   db.exec('BEGIN')
-  for (const visit of visits) {
+  for (const [index, visit] of visits.entries()) {
     let id = ids.get(visit.url)
     if (id === undefined) {
       id = nextId()
@@ -429,7 +456,13 @@ function insertFirefoxVisits(db, visits) {
       insertPlace.run(id, visit.url, visit.title)
     }
     const time = Math.trunc(visit.at * 1000)
-    insertVisit.run(id, time, visit.typed ? 2 : 1)
+    const inserted = insertVisit.run(
+      id,
+      time,
+      from[index] >= 0 ? visitIds[from[index]] : 0,
+      visit.typed ? 2 : 1,
+    )
+    visitIds.push(Number(inserted.lastInsertRowid))
     bump.run(time, id)
   }
   db.exec('COMMIT')

@@ -199,8 +199,10 @@ where
                 stream.process_visit(
                     StructuralVisitRecord {
                         visit_id: visit.visit_id,
+                        source_visit_id: visit.source_visit_id,
                         profile_id: visit.profile_id,
                         url: visit.url,
+                        title: visit.title,
                         visit_time_ms: visit.visit_time_ms,
                         from_visit: visit.from_visit,
                         registrable_domain: visit.registrable_domain,

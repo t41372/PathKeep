@@ -348,12 +348,14 @@ impl StructuralTailStreamState {
                 || visit.visit_time_ms - trail.record.last_visit_ms > super::TRAIL_GAP_MS
             {
                 self.finish_trail(computed_at, persist)?;
-            } else {
+            } else if trail.relates(&visit) {
                 let member = trail.append_visit(&visit);
                 trail_id = Some(trail.record.trail_id.clone());
                 self.report.member_count += 1;
                 persist.persist_trail_member(&member)?;
                 trail.record.members.truncate(1);
+            } else if trail.pass_unrelated() {
+                self.finish_trail(computed_at, persist)?;
             }
         }
 
@@ -670,8 +672,10 @@ mod tests {
     ) -> StructuralVisitRecord {
         StructuralVisitRecord {
             visit_id,
+            source_visit_id: visit_id,
             profile_id: "chrome:Default".to_string(),
             url: url.to_string(),
+            title: None,
             visit_time_ms,
             from_visit: (visit_id > 1).then_some(visit_id - 1),
             registrable_domain: registrable_domain.to_string(),

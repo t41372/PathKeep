@@ -25,7 +25,10 @@ import {
   type Page,
   type TestInfo,
 } from '@playwright/test'
-import { FIXTURE_FAVICON_HOSTS } from '../../scripts/fixtures/synthetic-browsers.mjs'
+import {
+  FIXTURE_FAVICON_HOSTS,
+  openedFrom,
+} from '../../scripts/fixtures/synthetic-browsers.mjs'
 import { archivedVisits, fixture, type FixtureVisit } from './support/fixture'
 
 const compact = new Intl.NumberFormat('en', {
@@ -277,11 +280,27 @@ test('a custom range and one browser profile count only their visits', async ({
 })
 
 /** The words Insights counts for a search (see `search_words` in the backend). */
+/** English function words and URL parts, as the backend leaves them out (`is_stop_word`). */
 const fillerWords = new Set(
-  'a an and com edu for from how html http https in is net of on org the to what when where with www'.split(
-    ' ',
-  ),
+  `a about above after again against all am an and any are as at be because been before
+  being below between both but by can com could did do does doing down during each edu few
+  for from further had has have having he her here hers herself him himself his how html
+  http https i if in into is it its itself just me more most my myself net no nor not of
+  off on once only or org other our ours ourselves out over own same she should so some
+  such than that the their theirs them themselves then there these they this those through
+  to too under until up versus very vs was we were what when where which while who whom
+  why will with would www you your yours yourself yourselves`.split(/\s+/),
 )
+
+/** A text's words as the backend compares them: lower case, filler words out. */
+function textWords(text: string) {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((word) => word && !fillerWords.has(word)),
+  )
+}
 function searchWords(term: string) {
   return new Set(
     term
@@ -487,10 +506,14 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
 })
 
 /**
- * Search trails by hand, by the documented rule: a search continues the
- * current trail when it is in the same browser and session (30 minutes), the
- * trail's last visit is under 15 minutes old, and the two searches share at
- * least half their words or one's words are all in the other.
+ * Search trails by hand, by the documented rule
+ * (`deterministic-intelligence.md` §5.4): a search continues the current trail
+ * when it is in the same browser and session (30 minutes), the trail's last
+ * visit is under 15 minutes old, and the two searches share at least half
+ * their words or one's words are all in the other. A page belongs to the
+ * trail when it was opened from one of the trail's visits, is on a site the
+ * trail went to, or its title shares a word with the trail's searches; three
+ * pages in a row that do not end it.
  */
 function searchTrails() {
   const SESSION_GAP = 30 * 60_000
@@ -506,22 +529,22 @@ function searchTrails() {
     let trail: {
       rewordings: number
       latest: Set<string>
+      words: Set<string>
+      members: Set<number>
+      sites: Set<string>
+      unrelated: number
       lastAt: number
       landing?: string
       landsNext: boolean
     } | null = null
-    for (const visit of [...visits].sort((a, b) => a.at - b.at)) {
+    const ordered = [...visits].sort((a, b) => a.at - b.at)
+    const from = openedFrom(ordered)
+    for (const [index, visit] of ordered.entries()) {
       const sameSession = visit.at - lastVisit <= SESSION_GAP
       lastVisit = visit.at
       const open = trail && sameSession && visit.at - trail.lastAt <= TRAIL_GAP
       if (visit.term) {
-        // The search's words as the backend compares them: filler words out.
-        const words = new Set(
-          visit.term
-            .toLowerCase()
-            .split(/[^\p{L}\p{N}]+/u)
-            .filter((word) => word && !fillerWords.has(word)),
-        )
+        const words = textWords(visit.term)
         const shared = trail
           ? [...words].filter((word) => trail!.latest.has(word)).length
           : 0
@@ -535,6 +558,9 @@ function searchTrails() {
           if ([...words].join(' ') !== [...trail!.latest].join(' '))
             trail!.rewordings += 1
           trail!.latest = words
+          for (const word of words) trail!.words.add(word)
+          trail!.members.add(index)
+          trail!.unrelated = 0
           trail!.lastAt = visit.at
           // The page opened after the last wording becomes the landing.
           trail!.landsNext = true
@@ -542,16 +568,31 @@ function searchTrails() {
           trail = {
             rewordings: 0,
             latest: words,
+            words: new Set(words),
+            members: new Set([index]),
+            sites: new Set(),
+            unrelated: 0,
             lastAt: visit.at,
             landsNext: false,
           }
           trails.push(trail)
         }
       } else if (open) {
-        trail!.lastAt = visit.at
-        if (trail!.landing === undefined || trail!.landsNext) {
-          trail!.landing = site(visit.url)
-          trail!.landsNext = false
+        const relates =
+          (from[index] >= 0 && trail!.members.has(from[index])) ||
+          trail!.sites.has(site(visit.url)) ||
+          [...textWords(visit.title)].some((word) => trail!.words.has(word))
+        if (relates) {
+          trail!.members.add(index)
+          trail!.sites.add(site(visit.url))
+          trail!.unrelated = 0
+          trail!.lastAt = visit.at
+          if (trail!.landing === undefined || trail!.landsNext) {
+            trail!.landing = site(visit.url)
+            trail!.landsNext = false
+          }
+        } else if (++trail!.unrelated >= 3) {
+          trail = null
         }
       } else {
         trail = null

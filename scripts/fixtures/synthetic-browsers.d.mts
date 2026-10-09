@@ -54,3 +54,11 @@ export function writeFirefoxPlaces(file: string, visits: SyntheticVisit[]): void
 
 /** Host → base64 PNG of the icons Chrome stored in the personal profile's `Favicons`. */
 export const FIXTURE_FAVICON_HOSTS: Record<string, string>
+
+/**
+ * For each visit (in time order), the index of the visit it was opened from,
+ * or -1 (written as the browsers' `from_visit`).
+ */
+export function openedFrom(
+  visits: readonly Pick<SyntheticVisit, 'at' | 'typed' | 'term'>[],
+): number[]

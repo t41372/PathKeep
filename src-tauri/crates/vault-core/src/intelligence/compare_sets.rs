@@ -23,9 +23,9 @@ pub(super) struct CompareSetRecord {
     pub last_visit_ms: i64,
 }
 
-/// Collects each search trail's pages as visits stream past in time order (a trail's visits
-/// are contiguous), and turns finished trails into compare sets once their query and landing
-/// are loaded, one query per batch.
+/// Collects each search trail's pages as visits stream past in time order (one trail at a time,
+/// with pages outside it in between), and turns finished trails into compare sets once their
+/// query and landing are loaded, one query per batch.
 #[derive(Debug, Default)]
 pub(super) struct CompareSetAccumulator {
     profile_id: String,
@@ -37,12 +37,15 @@ pub(super) struct CompareSetAccumulator {
 
 impl CompareSetAccumulator {
     pub fn add(&mut self, visit: &VisitRecord) {
-        if self.current_trail != visit.trail_id {
+        // A trail's pages can have other pages of the session between them; it ends when the
+        // next trail starts (trails follow one another, a search at a time).
+        let Some(trail) = visit.trail_id.as_ref() else { return };
+        if self.current_trail.as_ref() != Some(trail) {
             self.close_trail();
-            self.current_trail = visit.trail_id.clone();
+            self.current_trail = Some(trail.clone());
         }
         self.profile_id.clone_from(&visit.profile_id);
-        if visit.trail_id.is_none() || visit.is_search_event {
+        if visit.is_search_event {
             return;
         }
         if super::phase_four::is_compare_candidate_category(&visit.page_category) {

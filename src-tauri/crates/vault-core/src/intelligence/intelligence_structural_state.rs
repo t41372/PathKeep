@@ -26,7 +26,10 @@ use super::{
     SessionRecord, StructuralVisitRecord, TrailMemberRecord, TrailRecord, display_name_for_domain,
     jaccard, local_date_key, normalize_query, query_token_set,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+/// Unrelated visits in a row that end a search trail (`deterministic-intelligence.md` §5.4).
+const UNRELATED_VISITS_ENDING_A_TRAIL: u32 = 3;
 
 /// The longest common path is four sites, so a segment keeps the three sites before its own.
 const PATH_PREFIX_SITES: usize = 3;
@@ -166,6 +169,17 @@ pub(super) struct TrailBuildState {
     /// rest of the state between rebuild batches; states saved before it existed read as false.
     #[serde(default)]
     lands_next: bool,
+    /// What a page shares with the trail when it belongs to it (`relates`): the trail's visits
+    /// by the browser's ids (`from_visit` names those), its pages' sites and its searches' words.
+    #[serde(default)]
+    source_visit_ids: HashSet<i64>,
+    #[serde(default)]
+    sites: HashSet<String>,
+    #[serde(default)]
+    words: HashSet<String>,
+    /// Visits in a row since the last one that belonged to the trail.
+    #[serde(default)]
+    unrelated: u32,
 }
 
 impl TrailBuildState {
@@ -200,7 +214,31 @@ impl TrailBuildState {
             },
             next_ordinal: 1,
             lands_next: false,
+            source_visit_ids: HashSet::from([visit.source_visit_id]),
+            sites: HashSet::new(),
+            words: query_token_set(visit.search_query.as_deref().unwrap_or_default()),
+            unrelated: 0,
         }
+    }
+
+    /// Whether a page belongs to the search that started this trail (`deterministic-intelligence.md`
+    /// §5.4): it was opened from one of the trail's visits, it is on a site the trail already
+    /// went to, or its title shares a word with the trail's searches. Other pages of the same
+    /// session are not part of the search, however soon they follow it.
+    pub(super) fn relates(&self, visit: &StructuralVisitRecord) -> bool {
+        visit.from_visit.is_some_and(|from| self.source_visit_ids.contains(&from))
+            || (!visit.registrable_domain.is_empty()
+                && self.sites.contains(&visit.registrable_domain))
+            || visit.title.as_deref().is_some_and(|title| {
+                query_token_set(title).iter().any(|word| self.words.contains(word))
+            })
+    }
+
+    /// Counts a visit that does not belong to the trail; true once enough came in a row that
+    /// the search is over.
+    pub(super) fn pass_unrelated(&mut self) -> bool {
+        self.unrelated += 1;
+        self.unrelated >= UNRELATED_VISITS_ENDING_A_TRAIL
     }
 
     /// Builds the synthetic member row for the search event that seeded this
@@ -225,6 +263,11 @@ impl TrailBuildState {
     pub(super) fn append_visit(&mut self, visit: &StructuralVisitRecord) -> TrailMemberRecord {
         let ordinal = self.next_ordinal;
         self.next_ordinal += 1;
+        self.unrelated = 0;
+        self.source_visit_ids.insert(visit.source_visit_id);
+        if !visit.registrable_domain.is_empty() {
+            self.sites.insert(visit.registrable_domain.clone());
+        }
         let lands = self.record.landing_url.is_none() || self.lands_next;
         let role = if lands { "landing" } else { "click" };
         self.record.visit_count += 1;
@@ -270,6 +313,9 @@ impl TrailBuildState {
     pub(super) fn append_rewording(&mut self, search: &StructuralVisitRecord) -> TrailMemberRecord {
         let ordinal = self.next_ordinal;
         self.next_ordinal += 1;
+        self.unrelated = 0;
+        self.source_visit_ids.insert(search.source_visit_id);
+        self.words.extend(query_token_set(search.search_query.as_deref().unwrap_or_default()));
         let query = search.search_query.clone().unwrap_or_else(|| "search".to_string());
         if self
             .record
@@ -329,8 +375,10 @@ mod tests {
     ) -> StructuralVisitRecord {
         StructuralVisitRecord {
             visit_id,
+            source_visit_id: visit_id,
             profile_id: "chrome:Default".to_string(),
             url: url.to_string(),
+            title: None,
             visit_time_ms: 1_762_000_000_000 + visit_id,
             from_visit: None,
             registrable_domain: domain.to_string(),

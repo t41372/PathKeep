@@ -261,8 +261,11 @@ struct TrailMemberRecord {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct StructuralVisitRecord {
     visit_id: i64,
+    /// The browser's own id for the visit; another visit's `from_visit` names it.
+    source_visit_id: i64,
     profile_id: String,
     url: String,
+    title: Option<String>,
     visit_time_ms: i64,
     from_visit: Option<i64>,
     registrable_domain: String,

@@ -233,6 +233,8 @@ Normalization 要求：
 - 出現高信心的新搜尋
 - 接續多筆 visits 與現有 group 無關
 
+實作（2026-10-09，`structural-rebuild-v5`）：同一個 session、距 trail 上一個頁面 15 分鐘內的頁面，只有在「從 trail 的某個造訪點開」（`from_visit`）、「在 trail 已經去過的網站」或「標題和這串搜尋有共同的詞」時才算進 trail；連續 3 個不相關的頁面就結束這條 trail。之前同一 session 裡接著的每個頁面都算進去，真實資料上平均每次搜尋「打開」23 個頁面。研究型頁面類別本身不算吸附條件（任何文件頁都會被吸進來）。
+
 Query reformulation：
 
 - `sqlite wal`
