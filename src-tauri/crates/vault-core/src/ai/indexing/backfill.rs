@@ -669,6 +669,12 @@ async fn run_embedding_backfill(
     let mut tracker = DedupTracker::new();
     let existing_store =
         VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    if !perform_wipe {
+        // A crash mid-append leaves half a record at the end of either file; until it is cut off,
+        // every incremental or resumed build fails reading them.
+        existing_store.trim_torn_tail()?;
+        visit_map.trim_torn_tail()?;
+    }
     tracker.load_existing(&existing_store, &visit_map, perform_wipe)?;
 
     // Run the chunked embed loop inside a Result-returning scope so an error anywhere inside it first

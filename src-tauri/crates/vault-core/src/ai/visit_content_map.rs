@@ -89,6 +89,24 @@ impl VisitContentMap {
         Ok(())
     }
 
+    /// Cuts off a record an interrupted append left half-written (see
+    /// [`super::vector_store::VectorStore::trim_torn_tail`]). Returns the bytes cut.
+    pub fn trim_torn_tail(&self) -> Result<u64> {
+        if !self.exists() {
+            return Ok(0);
+        }
+        let total = self.path.metadata().context("visit map metadata")?.len();
+        let torn = total.saturating_sub(VISIT_MAP_MAGIC.len() as u64) % RECORD_LEN as u64;
+        if torn > 0 {
+            OpenOptions::new()
+                .write(true)
+                .open(&self.path)
+                .and_then(|file| file.set_len(total - torn))
+                .with_context(|| format!("trimming visit map {}", self.path.display()))?;
+        }
+        Ok(torn)
+    }
+
     /// Appends a batch of `(history_id, content_key)` records to the end of the map.
     ///
     /// Contiguous append, never rewrites earlier records, so backfilling 14.4M visits is O(rows

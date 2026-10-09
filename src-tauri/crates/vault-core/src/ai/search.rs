@@ -300,7 +300,9 @@ pub(super) fn reverse_sidecars_usable(
     };
     let sidecars =
         ReverseVisitMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
-    Ok(!sidecars.is_stale_against(&header.fingerprint_hash)?)
+    // A sidecar that cannot be read (a corrupt header, a torn write) only costs the fast path;
+    // the `.pkmap` scan surfaces any real I/O problem itself.
+    Ok(sidecars.is_stale_against(&header.fingerprint_hash).is_ok_and(|stale| !stale))
 }
 
 /// Resolves result content_keys → their visits via the keyed `.pkrev` sidecar, falling back to scan.
