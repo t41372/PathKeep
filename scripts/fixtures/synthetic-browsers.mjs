@@ -289,9 +289,20 @@ export const FIXTURE_FAVICON_HOSTS = {
 }
 
 /**
+ * Pages whose own icon is not their site's, stored on the page's latest visit,
+ * after the site's: a host that serves several things (here an issue page with
+ * GitHub's status icon, as Google's host has Maps and Drive). The page shows it
+ * in History; the site keeps its own on Insights.
+ */
+export const FIXTURE_PAGE_ICONS = {
+  'https://github.com/tokio-rs/tokio/issues/5124':
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR42mO4WcVGEmIY1TCqYfhqAAA9D1kQCshyLAAAAABJRU5ErkJggg==',
+}
+
+/**
  * Writes Chrome's `Favicons` next to a profile's `History`: one icon per host
  * in FIXTURE_FAVICON_HOSTS, mapped to every page of that host the profile
- * visited, as Chrome keeps them.
+ * visited, as Chrome keeps them, except the pages in FIXTURE_PAGE_ICONS.
  */
 function writeChromeFavicons(file, visits, now) {
   const db = new DatabaseSync(file)
@@ -301,24 +312,44 @@ function writeChromeFavicons(file, visits, now) {
       image_data BLOB, width INTEGER DEFAULT 0, height INTEGER DEFAULT 0, last_requested INTEGER DEFAULT 0);
     CREATE TABLE icon_mapping (id INTEGER PRIMARY KEY, page_url LONGVARCHAR NOT NULL, icon_id INTEGER);
   `)
-  const updated = Math.trunc(now * 1000 + CHROME_EPOCH_OFFSET_US)
+  const chromeTime = (ms) => Math.trunc(ms * 1000 + CHROME_EPOCH_OFFSET_US)
+  // Sites' icons were stored before the profile's first visit, so every visit
+  // can show them (History shows no icon stored after the visit).
+  const first = visits.reduce((min, visit) => Math.min(min, visit.at), now)
   const iconIds = new Map()
-  for (const [host, png] of Object.entries(FIXTURE_FAVICON_HOSTS)) {
+  const addIcon = (key, iconUrl, png, at) => {
     const id = iconIds.size + 1
-    iconIds.set(host, id)
+    iconIds.set(key, id)
     db.prepare(
       'INSERT INTO favicons (id, url, icon_type) VALUES (?, ?, 1)',
-    ).run(id, `https://${host}/favicon.ico`)
+    ).run(id, iconUrl)
     db.prepare(
       'INSERT INTO favicon_bitmaps (icon_id, last_updated, image_data, width, height) VALUES (?, ?, ?, 16, 16)',
-    ).run(id, updated, Buffer.from(png, 'base64'))
+    ).run(id, at, Buffer.from(png, 'base64'))
+  }
+  for (const [host, png] of Object.entries(FIXTURE_FAVICON_HOSTS)) {
+    addIcon(
+      host,
+      `https://${host}/favicon.ico`,
+      png,
+      chromeTime(first - DAY_MS),
+    )
+  }
+  for (const [page, png] of Object.entries(FIXTURE_PAGE_ICONS)) {
+    const latest = visits
+      .filter((visit) => visit.url === page)
+      .reduce((max, visit) => Math.max(max, visit.at), -Infinity)
+    // On the page's latest visit: the newest icon of its host.
+    if (latest > -Infinity)
+      addIcon(page, `${page}/status.png`, png, chromeTime(latest))
   }
   const mapped = new Set()
   const insertMapping = db.prepare(
     'INSERT INTO icon_mapping (page_url, icon_id) VALUES (?, ?)',
   )
   for (const visit of visits) {
-    const id = iconIds.get(new URL(visit.url).hostname)
+    const id =
+      iconIds.get(visit.url) ?? iconIds.get(new URL(visit.url).hostname)
     if (id === undefined || mapped.has(visit.url)) continue
     mapped.add(visit.url)
     insertMapping.run(visit.url, id)

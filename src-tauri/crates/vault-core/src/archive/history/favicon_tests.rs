@@ -72,6 +72,15 @@ fn lookup_queries_seek_indexes_before_loading_blobs() {
                     .join("\n");
                 assert!(plan.contains("SEARCH favicons"), "{plan}");
             }
+            let args = params!["example.com", "https://example.com/", "http://example.com/"]
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()?;
+            let plan = s
+                .query(&format!("EXPLAIN QUERY PLAN {LOAD_SITE_ICON_SQL}"), args, |r| {
+                    Ok(r.get::<String>(3)?)
+                })?
+                .join("\n");
+            assert!(plan.contains("SEARCH favicons"), "{plan}");
             Ok(())
         })
         .unwrap();

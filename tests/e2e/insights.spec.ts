@@ -27,6 +27,7 @@ import {
 } from '@playwright/test'
 import {
   FIXTURE_FAVICON_HOSTS,
+  FIXTURE_PAGE_ICONS,
   openedFrom,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import { archivedVisits, fixture, type FixtureVisit } from './support/fixture'
@@ -810,12 +811,34 @@ test('kinds of sites count every visit by the kind of site it went to', async ({
 test('a site shows the icon its browser stored, and its letter when there is none', async ({
   page,
 }) => {
+  // History shows a page's own icon: the issue page has GitHub's status icon,
+  // stored after GitHub's own.
+  const issue = 'https://github.com/tokio-rs/tokio/issues/5124'
+  await page.goto('/#/history')
+  await page
+    .getByRole('searchbox', { name: 'Search history' })
+    .fill('spawn_blocking pool exhaustion')
+  await expect(
+    page
+      .getByRole('option', { name: /spawn_blocking pool exhaustion/ })
+      .first()
+      // The row's site icon; a row also shows its browser's badge.
+      .locator('img[src^="data:image"]'),
+  ).toHaveAttribute(
+    'src',
+    `data:image/png;base64,${FIXTURE_PAGE_ICONS[issue]}`,
+    {
+      timeout: 30_000,
+    },
+  )
+  // Insights, opened next in the same window, still shows each site's own.
   await page.goto('/#/insights')
   const rows = card(page, 'Top sites').getByRole('listitem')
   await expect(rows.first()).toBeVisible({ timeout: 60_000 })
   // The fixture's Chrome stored a different icon for github.com,
-  // www.youtube.com and docs.rs; a site's icon is its own host's, else www.'s,
-  // and never another site's.
+  // www.youtube.com and docs.rs; a site's icon is its own host's (its front
+  // page's, else the one most of its pages have), else www.'s, and never
+  // another site's or one page's.
   for (const [site, host] of [
     ['github.com', 'github.com'],
     ['youtube.com', 'www.youtube.com'],

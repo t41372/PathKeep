@@ -6,7 +6,13 @@
 import { useEffect } from 'react'
 import { Favicon } from '@/components/app/favicon'
 import type { HistoryFaviconLookupEntry } from '@/lib/types'
-import { requestFavicon, requestSiteFavicon, useFavicon } from './favicon-store'
+import {
+  requestFavicon,
+  requestSiteFavicon,
+  siteKey,
+  useFavicon,
+  visitKey,
+} from './favicon-store'
 
 export function SiteIcon({
   domain,
@@ -18,9 +24,10 @@ export function SiteIcon({
   lookup?: HistoryFaviconLookupEntry
   className?: string
 }) {
-  const src = useFavicon(domain)
+  // A page's icon (through a visit) and a site's own are kept apart.
+  const src = useFavicon(lookup ? visitKey(lookup) : siteKey(domain))
   useEffect(() => {
-    if (lookup) requestFavicon(domain, lookup)
+    if (lookup) requestFavicon(lookup)
     else requestSiteFavicon(domain)
   }, [domain, lookup])
   return <Favicon domain={domain} src={src} className={className} />
