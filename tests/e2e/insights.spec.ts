@@ -12,7 +12,9 @@
  * browser profile filter count only their visits. The top site's own screen
  * keeps the scope and does the same in every range. Search result pages are
  * not sites (Insights counts searches separately), so they are left out of
- * the count.
+ * the count. "Kinds of sites" puts every visit under the kind of site it
+ * went to, as decided by hand for each fixture site, with sites on no list
+ * shown last as not classified, however their page titles read.
  */
 import {
   expect,
@@ -307,6 +309,7 @@ const batched = [
   'get_search_effectiveness',
   'get_friction_signals',
   'get_stable_sources',
+  'get_activity_mix',
 ]
 
 test('the cards brought back from 0.3 count what the archive holds, read in two batches', async ({
@@ -698,4 +701,64 @@ test('where searches end up is counted like the archive', async ({
     leaders.some(([host]) => shown.includes(host)),
     `${shown} should name one of ${leaders.map(([host]) => host).join(', ')}`,
   ).toBe(true)
+})
+
+/**
+ * The kind of site a fixture visit went to, decided by hand from what each
+ * site is: a search on Google is a search; GitHub is for building software;
+ * docs.rs, SQLite's and Tauri's sites and any page under /docs are
+ * documentation; YouTube is video; Reddit and Hacker News are forums; B&H is
+ * a shop. The rest (personal blogs, Strava, a JLPT course, camera reviews,
+ * running advice) are on no list, whatever their page titles say.
+ */
+function kindOf(visit: FixtureVisit) {
+  if (visit.term) return 'Search'
+  const url = new URL(visit.url)
+  switch (url.hostname) {
+    case 'github.com':
+      return 'Building software'
+    case 'docs.rs':
+    case 'www.sqlite.org':
+    case 'v2.tauri.app':
+      return 'Documentation'
+    case 'www.youtube.com':
+      return 'Video'
+    case 'www.reddit.com':
+    case 'news.ycombinator.com':
+      return 'Forums and Q&A'
+    case 'www.bhphotovideo.com':
+      return 'Shopping'
+  }
+  return url.pathname.startsWith('/docs') ? 'Documentation' : 'Not classified'
+}
+
+test('kinds of sites count every visit by the kind of site it went to', async ({
+  page,
+}, testInfo) => {
+  const perKind = new Map<string, number>()
+  for (const visit of archivedVisits())
+    perKind.set(kindOf(visit), (perKind.get(kindOf(visit)) ?? 0) + 1)
+  const total = archivedVisits().length
+  const percent = new Intl.NumberFormat('en', {
+    style: 'percent',
+    maximumFractionDigits: 1,
+  })
+  const expected = [...perKind].map(
+    ([kind, visits]) => `${kind} ${percent.format(visits / total)}`,
+  )
+
+  await page.goto('/#/insights')
+  const rows = card(page, 'Kinds of sites').getByRole('listitem')
+  await expect(rows).toHaveCount(expected.length, { timeout: 60_000 })
+  const shown = (await rows.allInnerTexts()).map((text) =>
+    text.replace(/\s+/g, ' ').trim(),
+  )
+  await testInfo.attach('kinds of sites, all time', {
+    body: JSON.stringify({ expected, shown }, null, 2),
+    contentType: 'application/json',
+  })
+  expect([...shown].sort()).toEqual([...expected].sort())
+  // Most visits first; sites on no list last, whatever their share.
+  expect(shown.at(-1)).toMatch(/^Not classified /)
+  await expectScreenIntact(page)
 })

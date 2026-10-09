@@ -149,6 +149,12 @@ export function useRefindPages(scope: Scope) {
   )
 }
 
+export function useActivityMix(scope: Scope) {
+  return useSection(scope, 'activity-mix', 'primary', () =>
+    insightsClient.activityMix(request(scope)),
+  )
+}
+
 export function useSearchEngines(scope: Scope) {
   return useSection(scope, 'search-engines', 'primary', () =>
     insightsClient.searchEngines(request(scope)),

@@ -35,6 +35,7 @@ function fillPrimary(
     client.setQueryData(insightsKey(scope, name), value)
   put('digest', overview.digestSummary)
   put('top-sites', overview.topSites)
+  put('activity-mix', overview.activityMix)
   put('refind', overview.refindPages)
   put('search-engines', overview.searchEngineRanking)
   put('search-concepts', overview.topSearchConcepts)

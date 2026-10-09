@@ -88,6 +88,31 @@ export const insights = defineMessages({
       title: 'Frequent searches',
       empty: 'No searches in this range.',
     },
+    mix: {
+      title: 'Kinds of sites',
+      explain:
+        "Each visit counts toward the kind of site it went to. Kinds come from PathKeep's built-in lists of well-known sites in several regions; sites on no list are not classified. Visits to search engines count as Search.",
+      compared:
+        'The small numbers are the change in share, in percentage points, from the previous {days} days.',
+      points: '{value} pts',
+      categories: {
+        ai: 'AI',
+        community: 'Forums and Q&A',
+        developer: 'Building software',
+        docs: 'Documentation',
+        education: 'Learning and reference',
+        entertainment: 'Music, games and shows',
+        finance: 'Money',
+        news: 'News',
+        search: 'Search',
+        shopping: 'Shopping',
+        social: 'Social',
+        travel: 'Travel and maps',
+        video: 'Video',
+        work: 'Work tools',
+        unknown: 'Not classified',
+      },
+    },
     engines: {
       title: 'Where you search',
       explain:
@@ -403,6 +428,30 @@ export const insights = defineMessages({
       title: '常用搜索词',
       empty: '这段时间没有搜索。',
     },
+    mix: {
+      title: '哪类网站',
+      explain:
+        '每次浏览算进它去的那类网站。类别来自 PathKeep 内置的各地常见网站清单；不在清单上的网站算“未分类”。去搜索引擎的浏览算“搜索”。',
+      compared: '小字是和前 {days} 天相比，占比变化了几个百分点。',
+      points: '{value} 个百分点',
+      categories: {
+        ai: 'AI',
+        community: '论坛与问答',
+        developer: '写程序',
+        docs: '文档',
+        education: '学习与查询',
+        entertainment: '音乐、游戏与影视',
+        finance: '理财',
+        news: '新闻',
+        search: '搜索',
+        shopping: '购物',
+        social: '社交',
+        travel: '旅行与地图',
+        video: '视频',
+        work: '工作工具',
+        unknown: '未分类',
+      },
+    },
     engines: {
       title: '在哪里搜索',
       explain:
@@ -714,6 +763,30 @@ export const insights = defineMessages({
     searches: {
       title: '常用搜尋詞',
       empty: '這段時間沒有搜尋。',
+    },
+    mix: {
+      title: '哪類網站',
+      explain:
+        '每次瀏覽算進它去的那類網站。類別來自 PathKeep 內建的各地常見網站清單；不在清單上的網站算「未分類」。去搜尋引擎的瀏覽算「搜尋」。',
+      compared: '小字是和前 {days} 天相比，占比變化了幾個百分點。',
+      points: '{value} 個百分點',
+      categories: {
+        ai: 'AI',
+        community: '論壇與問答',
+        developer: '寫程式',
+        docs: '文件',
+        education: '學習與查詢',
+        entertainment: '音樂、遊戲與影劇',
+        finance: '理財',
+        news: '新聞',
+        search: '搜尋',
+        shopping: '購物',
+        social: '社群',
+        travel: '旅行與地圖',
+        video: '影片',
+        work: '工作工具',
+        unknown: '未分類',
+      },
     },
     engines: {
       title: '在哪裡搜尋',
