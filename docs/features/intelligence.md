@@ -105,7 +105,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 - queued assistant request 可在執行前 replay / cancel；running AI / deterministic job 改為 cooperative stop request，而不是假裝立即中斷。UI 必須清楚說明「已請求取消，會在目前 phase / chunk 邊界停止」。
 - Assistant 必須尊重 shell 的共享 profile scope；若使用者透過 deep-link 帶進明確 `profileId`，頁面級 scope 優先於共享 scope。
 - Assistant 的 empty / AI-disabled state 不能只剩靜態說明；至少要提供 seeded prompt 建議、queue / settings 修復入口，以及在共享 profile scope 生效時明講目前回答邊界是 scoped view。
-- shipped（W-AI-1/2/3/7）：Assistant 現在是 streaming chat surface——token / reasoning / tool-use 即時可視，markdown 串流渲染，引用的頁面可連回 History（`/history?q=<標題>&visit=<id>`）。底層是 durable agent harness（journal-before-observe + replay，崩潰可續跑不重複收費），可呼叫 5 個工具：`search_history`（hybrid）、`search_bm25`、`search_vector`、`search_hybrid`、`run_code`（code-mode 沙箱，見 §4-code-mode）。chat 持久化在 `derived/agent.db`，transcript **不進 export**。整個 surface gated on `ai.enabled && assistant_enabled`（預設關）。
+- shipped（W-AI-1/2/3/7）：Assistant 現在是 streaming chat surface——token / reasoning / tool-use 即時可視，markdown 串流渲染，引用的頁面可連回 History（`/history?q=<標題>&visit=<id>`）。底層是自己寫的 agent loop（取消、token 預算、回合上限、引用）。回答中途 app 被關掉或當掉，那則回答標成中斷，要重問；不會從中斷處續跑（用戶 2026-10-09 決定：不做續跑，改正這裡原本「崩潰可續跑不重複收費」的說法）。重開對話時讀得到的是每則回答的引用與 token 用量，可呼叫 5 個工具：`search_history`（hybrid）、`search_bm25`、`search_vector`、`search_hybrid`、`run_code`（code-mode 沙箱，見 §4-code-mode）。chat 持久化在 `derived/agent.db`，transcript **不進 export**。整個 surface gated on `ai.enabled && assistant_enabled`（預設關）。
 
 ---
 

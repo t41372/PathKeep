@@ -135,7 +135,9 @@ to return the complete transcript; save, rename and delete payloads are unchange
 All six desktop/worker entry points use the session's Vault and retain the existing
 App Lock gate. The agent journal uses that same Vault, including after keychain
 unlock without a legacy SQLCipher password. Process-death tests cover unfinished
-journals, completed runs, citations and idempotent tool-result replay in both modes.
+journals, completed runs and citations in both modes. Nothing replays an interrupted
+run: a reopened chat reads each answer's citations and token usage, and an answer cut
+by a crash stays marked interrupted (decided 2026-10-09).
 
 This branch is not usable as a complete archive application until migration area 6.
 Archive writes use Turso `.db` files. Password unlock retains the exact typed archive
