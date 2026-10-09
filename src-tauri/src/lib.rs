@@ -345,6 +345,7 @@ fn run_app() -> Result<()> {
             open_path_in_file_manager,
             open_external_url,
             open_visited_page,
+            system_clock,
             reveal_logs,
             export_conversation_file,
             check_for_app_update,

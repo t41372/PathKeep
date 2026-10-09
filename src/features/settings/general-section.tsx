@@ -1,5 +1,5 @@
 /**
- * Settings → General: language, appearance, how PathKeep sits on the desktop
+ * Settings → General: language, clock, appearance, how PathKeep sits on the desktop
  * (open at login, menu bar icon) and the two features that contact websites.
  */
 import {
@@ -7,7 +7,12 @@ import {
   SettingsGroup,
   SettingsSection,
 } from '@/components/app/setting-row'
-import { languageNames, supportedLanguages, useI18n } from '@/lib/i18n'
+import {
+  languageNames,
+  supportedLanguages,
+  useI18n,
+  type ClockPreference,
+} from '@/lib/i18n'
 import { useChooseLanguage } from '@/lib/queries/language'
 import { useTheme, type ThemePreference } from '@/lib/theme'
 import {
@@ -25,6 +30,7 @@ export function GeneralSection() {
   return (
     <SettingsSection title={t('settings.nav.general')}>
       <LanguageRow />
+      <ClockRow />
       <AppearanceRow />
       {windowMaterialAvailable() && <WindowMaterialRow />}
       <DesktopRows />
@@ -34,6 +40,28 @@ export function GeneralSection() {
       />
       <OnlineRows />
     </SettingsSection>
+  )
+}
+
+function ClockRow() {
+  const { t, clock, setClock } = useI18n()
+  return (
+    <SettingRow
+      title={t('settings.general.clock.title')}
+      description={t('settings.general.clock.description')}
+      htmlFor="settings-clock"
+      control={
+        <RowSelect
+          id="settings-clock"
+          value={clock}
+          onChange={(value) => setClock(value as ClockPreference)}
+          options={(['system', 'h12', 'h23'] as const).map((value) => ({
+            value,
+            label: t(`settings.general.clock.${value}`),
+          }))}
+        />
+      }
+    />
   )
 }
 

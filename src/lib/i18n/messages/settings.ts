@@ -30,6 +30,13 @@ export const settings = defineMessages({
         title: 'Appearance',
         description: 'Light, dark or match system',
       },
+      clock: {
+        title: 'Clock',
+        description: 'How times are shown',
+        system: 'Match system',
+        h12: '12-hour (1:30 PM)',
+        h23: '24-hour (13:30)',
+      },
       material: {
         title: 'Window',
         description:
@@ -217,6 +224,13 @@ export const settings = defineMessages({
         title: '外观',
         description: '浅色、深色或跟随系统',
       },
+      clock: {
+        title: '时间格式',
+        description: '时间怎么显示',
+        system: '跟随系统',
+        h12: '12 小时制（下午 1:30）',
+        h23: '24 小时制（13:30）',
+      },
       material: {
         title: '窗口',
         description: '不透明，或用系统的毛玻璃，透出模糊的桌面',
@@ -392,6 +406,13 @@ export const settings = defineMessages({
       appearance: {
         title: '外觀',
         description: '淺色、深色或跟隨系統',
+      },
+      clock: {
+        title: '時間格式',
+        description: '時間怎麼顯示',
+        system: '跟隨系統',
+        h12: '12 小時制（下午 1:30）',
+        h23: '24 小時制（13:30）',
       },
       material: {
         title: '視窗',

@@ -1,4 +1,4 @@
-export { useI18n, type I18nValue } from './context'
+export { useI18n, type ClockPreference, type I18nValue } from './context'
 export {
   supportedLanguages,
   type ResolvedLanguage,

@@ -95,7 +95,7 @@ export const insights = defineMessages({
       busiest: 'Busiest hours:',
       title: 'Rhythm',
       subtitle: 'Visits by hour of the day, across the week',
-      cell: '{day} {hour}:00 · {visits}',
+      cell: '{day} {hour} · {visits}',
       weekdays: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun',
     },
     searches: {
@@ -448,7 +448,7 @@ export const insights = defineMessages({
       busiest: '最忙的时段：',
       title: '浏览节奏',
       subtitle: '一周内每小时的浏览量',
-      cell: '周{day} {hour} 点 · {visits}',
+      cell: '周{day} {hour} · {visits}',
       weekdays: '一,二,三,四,五,六,日',
     },
     searches: {
@@ -797,7 +797,7 @@ export const insights = defineMessages({
       busiest: '最忙的時段：',
       title: '瀏覽節奏',
       subtitle: '一週內每小時的瀏覽量',
-      cell: '週{day} {hour} 點 · {visits}',
+      cell: '週{day} {hour} · {visits}',
       weekdays: '一,二,三,四,五,六,日',
     },
     searches: {

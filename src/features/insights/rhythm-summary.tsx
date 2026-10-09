@@ -60,8 +60,6 @@ export function RhythmSummary({
     .filter((entry) => entry.visits > 0)
     .sort((a, b) => b.visits - a.visits)
     .slice(0, 3)
-  const hourLabel = (hour: number) =>
-    `${String(hour).padStart(2, '0')}:00–${String((hour + 1) % 24).padStart(2, '0')}:00`
 
   return (
     <div className="flex flex-col gap-3 text-[13px]">
@@ -93,7 +91,7 @@ export function RhythmSummary({
             <span key={entry.hour}>
               {index > 0 && ', '}
               <span className="font-medium text-foreground tabular">
-                {hourLabel(entry.hour)}
+                {format.hourSpan(entry.hour)}
               </span>
             </span>
           ))}
