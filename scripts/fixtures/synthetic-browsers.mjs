@@ -153,6 +153,59 @@ export const FIXTURE_CJK_WORDS = {
   台北天氣預報: ['台北', '天氣預報'],
 }
 
+/**
+ * One search in which the same product was compared on two shops: after the
+ * search, its pages were opened in `order`, back and forth. Insights lists
+ * such a search under "Pages you compared". It happens at 05:00, `days + 1`
+ * days before `now`: between two of the older stretch's sparse days, so no
+ * other visit falls on that day, in the Personal profile. The specs find it
+ * alone on that day's page.
+ */
+export const FIXTURE_COMPARE = {
+  term: 'standing desk frame',
+  pages: [
+    [
+      'https://www.amazon.com/dp/B0DESKFRAME',
+      'FlexiSpot E7 Standing Desk Frame - Amazon.com',
+    ],
+    [
+      'https://www.amazon.de/dp/B0DESKFRAME',
+      'FlexiSpot E7 Schreibtischgestell : Amazon.de',
+    ],
+  ],
+  order: [0, 1, 0, 1, 0],
+}
+
+/** The visits of FIXTURE_COMPARE on the day starting at `dayStart`. */
+function compareScene(dayStart) {
+  const { term, pages, order } = FIXTURE_COMPARE
+  let at = dayStart + 5 * 3_600_000
+  const visits = [
+    {
+      url: `https://www.google.com/search?q=${encodeURIComponent(term)}`,
+      title: `${term} - Google Search`,
+      at,
+      typed: true,
+      term,
+      duration: 20_000,
+      profile: 'chrome:Default',
+    },
+  ]
+  for (const index of order) {
+    at += 120_000
+    const [url, title] = pages[index]
+    visits.push({
+      url,
+      title,
+      at,
+      typed: false,
+      duration: 90_000,
+      profile: 'chrome:Default',
+    })
+  }
+  return visits
+}
+
 function prng(seed) {
   let state = seed >>> 0 || 1
   return () => {
@@ -255,6 +308,7 @@ export function generateVisits({
       }
     }
   }
+  visits.push(...compareScene(today.getTime() - (days + 1) * DAY_MS))
   // Two sessions can start in the same minute and produce the same visit
   // twice. A browser never records two visits at the same instant, and
   // PathKeep counts identical visits once, so keep every timestamp unique.
@@ -551,11 +605,21 @@ export function writeSyntheticBrowsers(
   )
 
   const all = generateVisits({ now, days, olderDays, perDay, seed })
-  // Split by topic-ish hash so each browser has a recognisable mix.
+  // Split by topic-ish hash so each browser has a recognisable mix; a visit
+  // that names its profile goes there.
   const personal = []
   const work = []
   const firefox = []
+  const named = {
+    'chrome:Default': personal,
+    'chrome:Profile 1': work,
+    'firefox:k3x9.default-release': firefox,
+  }
   for (const visit of all) {
+    if (visit.profile) {
+      named[visit.profile].push(visit)
+      continue
+    }
     const bucket = (visit.url.length + Math.floor(visit.at / DAY_MS)) % 5
     if (bucket < 2) personal.push(visit)
     else if (bucket < 4) work.push(visit)

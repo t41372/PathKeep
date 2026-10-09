@@ -21,12 +21,19 @@
  *   counts it (every fixture search is on Google).
  * - A Chinese search, with no spaces between its words, is one search with a
  *   longer wording of it: its view lists that wording among the others.
+ * - A search that went back and forth between one product on two shops is
+ *   the one set on its day's "Pages you compared": both pages, most opened
+ *   first, how often each was opened and which the search opened first; the
+ *   set leads to the page's view and the search's.
  *
  * Insights are computed by a background job after the first backup, so
  * every read waits for real numbers instead of reading a "computing" state.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { openedFrom } from '../../scripts/fixtures/synthetic-browsers.mjs'
+import {
+  FIXTURE_COMPARE,
+  openedFrom,
+} from '../../scripts/fixtures/synthetic-browsers.mjs'
 import {
   archivedProfiles,
   archivedVisits,
@@ -419,6 +426,66 @@ test('a Chinese search and a longer wording of it are one search', async ({
     '台北天氣預報',
     { timeout: JOB_TIMEOUT },
   )
+})
+
+test('a search that went back and forth between two shops is a set of compared pages on its day', async ({
+  page,
+}, testInfo) => {
+  const { term, pages, order } = FIXTURE_COMPARE
+  const search = archivedVisits().find((visit) => visit.term === term)
+  expect(search, 'the fixture made the search').toBeTruthy()
+  // By hand: how often the search opened each page, most first; the first
+  // page it opened is where it landed.
+  const opened = countBy(
+    order.map((index) => pages[index]),
+    ([url]) => url,
+  )
+  const expected = [...opened]
+    .sort((a, b) => b[1] - a[1])
+    .map(([url, times]) => ({
+      url,
+      title: pages.find(([candidate]) => candidate === url)![1],
+      times,
+      landing: url === pages[order[0]][0],
+    }))
+  const sites = new Set(pages.map(([url]) => siteOf(url))).size
+  await testInfo.attach('compared pages', {
+    body: JSON.stringify(expected, null, 2),
+    contentType: 'application/json',
+  })
+
+  await page.goto(`/#/insights/day/${localDateKey(search!.at)}`)
+  const sets = card(page, 'Pages you compared').getByRole('listitem')
+  await expect(sets).toHaveCount(1, { timeout: JOB_TIMEOUT })
+  const set = sets.first()
+  await expect(set.getByRole('link', { name: term, exact: true })).toBeVisible()
+  await expect(set).toContainText(`${expected.length} pages on ${sites} sites`)
+  const chips = set.locator('a[href*="/insights/page/"]')
+  await expect(chips).toHaveCount(expected.length)
+  for (const [index, want] of expected.entries()) {
+    const chip = chips.nth(index)
+    await expect(chip).toContainText(want.title)
+    await expect(chip).toContainText(`${want.times}×`)
+    if (want.landing)
+      await expect(chip).toHaveAttribute(
+        'title',
+        'Opened first from the search',
+      )
+    else await expect(chip).not.toHaveAttribute('title', /./)
+  }
+
+  // The page the search opened most leads to its own view, with its visits.
+  await chips.first().click()
+  await drillIn(page, expected[0].title)
+  await expectCount(
+    testInfo,
+    `visits to ${expected[0].url}`,
+    await kpi(page, 'Visits'),
+    archivedVisits().filter((visit) => visit.url === expected[0].url).length,
+  )
+  await page.goBack()
+  await set.getByRole('link', { name: term, exact: true }).click()
+  await drillIn(page, `“${term}”`)
 })
 
 test('a search from Frequent searches shows how often and when', async ({

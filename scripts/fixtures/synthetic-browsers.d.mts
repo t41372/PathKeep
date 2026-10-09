@@ -8,6 +8,8 @@ export interface SyntheticVisit {
   duration: number
   /** Set on search result pages: the query that was typed. */
   term?: string
+  /** Set when the visit must be in this profile; others are split by a hash. */
+  profile?: SyntheticProfileId
 }
 
 export type SyntheticProfileId =
@@ -54,6 +56,15 @@ export function writeFirefoxPlaces(file: string, visits: SyntheticVisit[]): void
 
 /** The words of the fixture's Chinese searches, as Insights splits them. */
 export const FIXTURE_CJK_WORDS: Record<string, string[]>
+
+/** A search that compared one product on two shops, and the pages it opened in order. */
+export const FIXTURE_COMPARE: {
+  term: string
+  /** URL and title of each page. */
+  pages: [string, string][]
+  /** Which page each visit after the search opened. */
+  order: number[]
+}
 
 /** Host → base64 PNG of the icons Chrome stored in the personal profile's `Favicons`. */
 export const FIXTURE_FAVICON_HOSTS: Record<string, string>

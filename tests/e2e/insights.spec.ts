@@ -489,6 +489,36 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
   await expect(card(page, 'Rhythm')).toContainText(
     `Weekends${perDay(weekendVisits, 30 - weekdays)} a day`,
   )
+  // The three hours of the day with the most visits in those 30 days, most
+  // first, on the clock the app uses here: Linux has no clock setting to
+  // read, and English then uses 12 hours.
+  const perHour = new Array<number>(24).fill(0)
+  for (const visit of archivedVisits())
+    if (visit.at >= since.getTime()) perHour[new Date(visit.at).getHours()] += 1
+  const busiest = perHour
+    .map((visits, hour) => ({ hour, visits }))
+    .filter((entry) => entry.visits > 0)
+    .sort((a, b) => b.visits - a.visits || a.hour - b.hour)
+    .slice(0, 3)
+  await testInfo.attach('busiest hours, 30d', {
+    body: JSON.stringify({ perHour, busiest }, null, 2),
+    contentType: 'application/json',
+  })
+  const spans = await page.evaluate(
+    (hours) => {
+      const time = new Intl.DateTimeFormat('en', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hourCycle: 'h12',
+      })
+      const at = (hour: number) => time.format(new Date(2000, 0, 1, hour))
+      return hours.map((hour) => `${at(hour)}–${at((hour + 1) % 24)}`)
+    },
+    busiest.map((entry) => entry.hour),
+  )
+  await expect(card(page, 'Rhythm')).toContainText(
+    `Busiest hours: ${spans.join(', ')}`,
+  )
   await expectScreenIntact(page)
 
   // What the page looks like, section by section.
@@ -763,8 +793,8 @@ test('where searches end up is counted like the archive', async ({
  * The kind of site a fixture visit went to, decided by hand from what each
  * site is: a search on Google is a search; GitHub is for building software;
  * docs.rs, SQLite's and Tauri's sites and any page under /docs are
- * documentation; YouTube is video; Reddit and Hacker News are forums; B&H is
- * a shop. The rest (personal blogs, Strava, a JLPT course, camera reviews,
+ * documentation; YouTube is video; Reddit and Hacker News are forums; B&H and
+ * Amazon are shops. The rest (personal blogs, Strava, a JLPT course, camera reviews,
  * running advice) are on no list, whatever their page titles say.
  */
 function kindOf(visit: FixtureVisit) {
@@ -783,6 +813,8 @@ function kindOf(visit: FixtureVisit) {
     case 'news.ycombinator.com':
       return 'Forums and Q&A'
     case 'www.bhphotovideo.com':
+    case 'www.amazon.com':
+    case 'www.amazon.de':
       return 'Shopping'
   }
   return url.pathname.startsWith('/docs') ? 'Documentation' : 'Not classified'
