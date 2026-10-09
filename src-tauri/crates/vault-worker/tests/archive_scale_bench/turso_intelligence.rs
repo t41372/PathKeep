@@ -72,7 +72,7 @@ fn encrypted_intelligence_at_scale() {
     }
     let vault = super::turso_reads::open(root.path());
     vault.store().write(Db::Archive,Priority::Batch,|s| {
-        s.execute("WITH RECURSIVE ids(id) AS(VALUES(14400001) UNION ALL SELECT id+1 FROM ids WHERE id<14410000) INSERT INTO visits(id,url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT id,(id-1)%2880000+1,CAST(id AS TEXT),?1+id*10000,'2025-04-07T00:00:00Z',1,0 FROM ids",[START])?;
+        s.execute(&format!("WITH RECURSIVE ids(id) AS(VALUES(14400001) UNION ALL SELECT id+1 FROM ids WHERE id<14410000) INSERT INTO visits(id,url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT id,{},CAST(id AS TEXT),?1+id*10000,'2025-04-07T00:00:00Z',1,0 FROM ids",super::turso_reads::visit_page()),[START])?;
         s.execute("UPDATE archive_totals SET value=value+10000 WHERE name IN ('visits','sourceVisits:1')",())?;
         Ok(())
     }).unwrap();
