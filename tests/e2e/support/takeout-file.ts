@@ -1,7 +1,9 @@
 /**
  * The Google Takeout folder `takeout-import.spec` imports: Chrome's
  * `BrowserHistory.json` in the shape Takeout writes it (a `Browser History`
- * array, times in Unix microseconds), plus files that must stay out. Times
+ * array, times in Unix microseconds), plus files that must stay out: My
+ * Activity's Chrome entries (the HTML Takeout writes by default), JSON Lines
+ * and the archive index. Times
  * come from the fixture's `now`, so a repeated run writes the same folder,
  * and `wipe.spec` can count what the import left in the archive.
  */
@@ -71,5 +73,32 @@ export function writeTakeoutFolder() {
       .join('\n'),
   )
   writeFileSync(path.join(root, 'archive_browser.html'), '<html></html>')
+  writeMyActivity(root)
+  return root
+}
+
+/**
+ * My Activity → Chrome, as Takeout writes it by default (HTML). Its entries
+ * carry the same title prefix, so if they were imported the search would
+ * count them.
+ */
+function writeMyActivity(root: string) {
+  mkdirSync(path.join(root, 'My Activity', 'Chrome'), { recursive: true })
+  const entries = [0, 1]
+    .map(
+      (index) =>
+        `<div class="outer-cell"><div class="content-cell">Visited <a href="https://activity.e2e.example/${index}">${TAKEOUT_TITLE} activity ${index}</a><br>Oct 1, 2026, 9:0${index}:00 AM UTC</div></div>`,
+    )
+    .join('')
+  writeFileSync(
+    path.join(root, 'My Activity', 'Chrome', 'MyActivity.html'),
+    `<html><body>${entries}</body></html>`,
+  )
+}
+
+/** A Takeout folder with only My Activity's Chrome entries. */
+export function writeMyActivityOnlyFolder() {
+  const root = path.join(fixture().root, 'Takeout-my-activity')
+  writeMyActivity(root)
   return root
 }

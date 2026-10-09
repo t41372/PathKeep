@@ -81,6 +81,18 @@ export const backup = defineMessages({
     import: {
       title: 'Import',
       subtitle: 'Bring in older history from a Google Takeout export.',
+      steps: {
+        title: 'How to get it from Google Takeout',
+        open: 'Open takeout.google.com and deselect everything.',
+        chrome: 'Tick Chrome. In its data options you can keep just History.',
+        zip: 'Create the export as a .zip. Google emails you when it is ready to download.',
+        drop: 'Drop the .zip here or choose it. There is no need to unzip it.',
+        note: 'Takeout holds the history Chrome synced to your Google account, which can go back further than Chrome on this computer.',
+      },
+      nothingHint:
+        'There is no Chrome history in this file. In Takeout, tick Chrome and export it as a .zip.',
+      myActivity:
+        'This export has My Activity’s Chrome entries, which PathKeep does not read. In Takeout, tick Chrome instead of My Activity.',
       drop: 'Drop a Takeout .zip here',
       dropActive: 'Release to inspect it',
       choose: 'Choose file',
@@ -241,6 +253,18 @@ export const backup = defineMessages({
     import: {
       title: '导入',
       subtitle: '从 Google Takeout 导出文件里导入更早的历史记录。',
+      steps: {
+        title: '怎样从 Google Takeout 取得',
+        open: '打开 takeout.google.com，取消全选。',
+        chrome: '勾选 Chrome。在它的数据选项里可以只留“历史记录”。',
+        zip: '以 .zip 格式创建导出。准备好后 Google 会发邮件通知你下载。',
+        drop: '把 .zip 拖到这里或选择它，不用解压。',
+        note: 'Takeout 里是 Chrome 同步到你 Google 账号的历史记录，可能比这台电脑上的 Chrome 记得更久。',
+      },
+      nothingHint:
+        '这个文件里没有 Chrome 历史记录。在 Takeout 里勾选 Chrome，以 .zip 格式导出。',
+      myActivity:
+        '这个导出里是“我的活动”中的 Chrome 记录，PathKeep 不读这些。在 Takeout 里改为勾选 Chrome，而不是“我的活动”。',
       drop: '把 Takeout 的 .zip 拖到这里',
       dropActive: '松开即可检查',
       choose: '选择文件',
@@ -398,6 +422,18 @@ export const backup = defineMessages({
     import: {
       title: '匯入',
       subtitle: '從 Google Takeout 匯出檔匯入更早的歷史記錄。',
+      steps: {
+        title: '怎麼從 Google Takeout 取得',
+        open: '打開 takeout.google.com，全部取消選取。',
+        chrome: '勾選 Chrome。在它的資料選項裡可以只留「歷史記錄」。',
+        zip: '以 .zip 格式建立匯出。準備好後 Google 會寄信通知你下載。',
+        drop: '把 .zip 拖到這裡或選擇它，不用解壓縮。',
+        note: 'Takeout 裡是 Chrome 同步到你 Google 帳號的歷史記錄，可能比這台電腦上的 Chrome 記得更久。',
+      },
+      nothingHint:
+        '這個檔案裡沒有 Chrome 歷史記錄。在 Takeout 裡勾選 Chrome，以 .zip 格式匯出。',
+      myActivity:
+        '這份匯出裡是「我的活動」中的 Chrome 記錄，PathKeep 不讀這些。在 Takeout 裡改為勾選 Chrome，而不是「我的活動」。',
       drop: '把 Takeout 的 .zip 拖到這裡',
       dropActive: '放開即可檢查',
       choose: '選擇檔案',

@@ -200,6 +200,7 @@ Settings → General 的兩個開關。
   - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。
 - Import review surface 應把 `new import wizard` 與「這次匯入結果」放在首要層級；recent batch history、revert / restore、doctor report 與 repair CTA 退到次要 review surface，避免歷史批次搶走新匯入流程的注意力。
 - 提供詳細但可掃讀的操作指南：怎麼從 Google Takeout 請求 Chrome 匯出、怎麼下載，以及如何確認壓縮包 / 資料夾裡真的有 dedicated Chrome history JSON，而不是 My Activity JSON / HTML。
+  - 2026-10-09 介面：匯入卡在拖放區下有可展開的「怎麼從 Google Takeout 取得」（打開 takeout.google.com 全部取消選取、勾 Chrome〔資料選項裡可以只留歷史記錄〕、以 .zip 建立匯出、拖進來不用解壓縮；並說明 Takeout 裡是 Chrome 同步到帳號的歷史，可能比本機 Chrome 久）。預覽時若匯出裡有「我的活動 → Chrome」（JSON 或 HTML），寫明 PathKeep 不讀它、請改勾 Chrome；什麼都沒找到時寫明檔案裡沒有 Chrome 歷史與該怎麼匯出。`takeout-import.spec` 驗兩種情況。要不要匯入「我的活動」見 STATUS `WORK-TAKEOUT-FLOW-2026-10`。
 
 ### 瀏覽器直接導入
 
