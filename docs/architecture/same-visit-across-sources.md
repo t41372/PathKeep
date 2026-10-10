@@ -1,6 +1,6 @@
 # 同一次造訪，來自兩個來源
 
-> **狀態：用戶 2026-10-09 決定「都保存，只算一次」（`takeout-my-activity-tradeoff.md` §3.3 的 C）。2026-10-09 實作（`archive/same_visit.rs`）。**
+> **狀態：用戶 2026-10-09 決定「都保存，只算一次」（`takeout-my-activity-tradeoff.md` §3.3 的 C）。2026-10-09 實作（`archive/same_visit.rs`），2026-10-10 在 14.4M 與用戶真實資料的副本上量過（§4）。**
 > **範圍：** archive 的寫入（備份、匯入、匯入的復原與恢復）、所有讀取（History、搜尋、洞察、Home、總數）、一次性的既有資料處理、匯入卡的文案。
 > **牽涉的已接受文檔：** `docs/plan/program/import-dedup-audit.md` §1（「跨來源只能在讀取時合併」）與 `BACKLOG.md` 的「跨瀏覽器的視覺重複是設計」：本文取代這兩處的說法，理由見 §2。
 
@@ -8,7 +8,7 @@
 
 PathKeep 從來沒有跨來源合併過，舊版（SQLCipher）也沒有：visits 的兩個唯一索引都含來源設定檔（`idx_visits_profile_source_visit_id`、`idx_visits_profile_event_fingerprint`），沒有任何「同一次造訪」的連結；History 列出每一列，總數是列數，洞察按設定檔各自建置再加總。測試 T3（`dedup_scenarios_takeout.rs`）甚至把「Chrome 與 Takeout 同樣三筆＝六列」定為契約。用戶記得的「只顯示一個」是另外兩件事：同一來源重匯不重複，以及 History 搜尋一頁一列。
 
-用戶真實資料的副本上（只數，不看內容；`takeout-my-activity-tradeoff.md` §3.3）：本機 Chrome 與舊版匯入的 Takeout 在兩者重疊的三週裡有約 12,400 次造訪兩邊都有，洞察各算一次；用戶的「我的活動」樣本 109,406 次造訪全部已在舊版匯入的 Takeout 裡。同一次造訪在兩邊是同一個網址、同一個時刻（Chrome 同步保留時間戳，差 0 ms）。
+用戶真實資料的副本上（只數，不看內容；`takeout-my-activity-tradeoff.md` §3.3）：本機 Chrome 與舊版匯入的 Takeout 在兩者重疊的三週裡有約 12,400 次造訪兩邊都有，洞察各算一次；用戶的「我的活動」樣本 109,406 次造訪有 109,367 次已在舊版匯入的 Takeout 裡。同一次造訪在兩邊是同一個網址、同一個時刻（Chrome 同步保留時間戳，差 0 ms）。
 
 ## 2. 為什麼不只在讀取時合併
 
@@ -33,13 +33,13 @@ PathKeep 從來沒有跨來源合併過，舊版（SQLCipher）也沒有：visit
 - 寫入時（備份與匯入的每一批）：每批先問一次哪些來源在這批的時間範圍內有算進去的造訪（`same_visit::candidates`；瀏覽器只跟 Takeout 來源比），沒有就一筆都不查；有才每筆用網址與時間查一次（`idx_urls_url` → `idx_visits_visible_url_time`）。被代表的那筆直接寫成隱藏的，不先寫進去再藏，總數、搜尋文件都不動。新來的若比現有代表的順序高（Takeout 先匯入、之後本機 Chrome 備份到同一段日子，正是用戶的情形），它成為代表，舊代表與其他筆改指向它。
 - 復原一個匯入：它的代表被復原時，組裡下一個順序最高的變成代表（`reverted_at`、`same_as` 清掉，其他改指它）；它被代表的那幾筆已經不算，維持原狀。
 - 恢復一個匯入：它的造訪先回來，再照寫入時的規則重連一次。
-- 已有的 archive（用戶的 12,400 筆）：開啟時跑一次整個 archive 的連結（Turso 格式未發佈，放在 store 的版本升級裡，記下已跑過），之後洞察照上面的水位規則重建受影響的設定檔。
+- 已有的 archive（用戶的 12,400 筆）：舊版（SQLCipher）archive 轉換成現在的格式時一次連完（`conversion::link_same_visits`，在算總數與頁面之前），洞察在轉換後從頭建置。現在的格式還沒發佈，沒有別的既有 archive 要處理。
 
 **看得到的改變。**
 
 - 「所有瀏覽器」的 History、洞察、Home：同一次造訪只出現一次，數字變小到真實的次數。
 - 篩選到某個來源時，只看到這個來源算進去的造訪：篩選 Takeout 時，本機 Chrome 也記了的那幾天的造訪不在 Takeout 底下，在 Chrome 底下。造訪的詳情寫「Google Takeout 也記了這次」。
-- 匯入卡在「新增」「已在這個來源」之外，多一個數：「已在 archive，來自 Chrome / Takeout」。用戶的「我的活動」會是 109,406 筆寫入、0 筆新的造訪，卡片要照這樣說，不能寫「匯入了 109,406 筆」。
+- 匯入卡在「新增」「已在這個來源」之外，多一個數：「已在 archive，來自 Chrome / Takeout」。用戶的「我的活動」是 109,406 筆寫入、39 筆新的造訪（§4），卡片要照這樣說，不能寫「匯入了 109,406 筆」。
 - 匯入的審閱仍列出它寫入的每一筆，可以整批復原。
 
 ## 4. 證明
@@ -47,4 +47,10 @@ PathKeep 從來沒有跨來源合併過，舊版（SQLCipher）也沒有：visit
 - T3 改寫：同樣三筆來自 Chrome 與 Takeout，仍是六列，三組連結、算三次；先匯入 Takeout 再備份 Chrome，代表換成 Chrome 的那筆；復原 Takeout 不動 Chrome 的造訪；恢復後重連。X3（兩個 Chrome 設定檔）照舊不連。
 - 洞察：先匯入 Takeout、再備份重疊的 Chrome，洞察等於只有一份造訪時從頭建置的結果（日 rollup、熱門網站、session）。
 - E2E（`takeout-import.spec`）：匯入一份「我的活動」，其中幾筆是 fixture 的 Chrome 已有的造訪：匯入卡說幾筆已在 archive，History 每次造訪一列、詳情寫兩個來源，洞察那天的造訪數照手算的不重複次數。
-- 效能：14.4M 的匯入與重疊的備份在 benchmark 上量連結的成本，再說它夠快；History 時間線與搜尋的查詢計畫照舊走 `idx_visits_visible_*`。
+- 效能：每個連結用的語句都要走索引（`same_visit_tests.rs` 檢查查詢計畫）。History 時間線與搜尋的查詢計畫照舊走 `idx_visits_visible_*`。
+
+**量到的（2026-10-10）。**
+
+- 14.4M 的 archive（`archive_scale_bench/turso_same_visit.rs`，Modal）：匯入 100 萬筆不跟任何來源重疊的 Takeout 紀錄 1,000 s（每筆 1.0 ms，不查找）；匯入 100 萬筆瀏覽器已有的造訪 699 s（每筆 0.70 ms：每筆查一次，寫成隱藏的，不算進總數、不寫搜尋文件，所以比新的造訪便宜）。連結不讓匯入變慢；匯入本身的速度另列（STATUS Takeout 6）。
+- 用戶真實資料的副本（本機，只數）：轉換時的一次連結 6.7 s，264,387 筆 Takeout 造訪裡 12,416 筆藏到本機瀏覽器的那一筆後面，沒有指向不算的代表的副本；archive 總數 387,266 → 374,850，洞察從頭建置後也是 374,850。接著匯入樣本的「我的活動」85 s：109,367 筆連上、39 筆新的（`takeout-my-activity-tradeoff.md` §3.4），總數與洞察都是 374,889。
+- 量的時候找到的：把副本指向新代表的那句 `UPDATE visits SET same_as=? WHERE same_as=?` 每次讀遍所有造訪，部分索引只在條件寫出 `same_as IS NOT NULL` 時用得上。轉換時藏一筆、瀏覽器備份換掉 Takeout 的代表、復原一個匯入，每筆都會讀一次整個 archive；副本上連結跑了十分鐘還沒完。加上條件之後是上面的 6.7 s，`same_visit_tests.rs` 擋它回來。

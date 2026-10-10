@@ -8,8 +8,9 @@
 //! Failure modes: two browsers' own visits merged (only Takeout copies are linked); a copy that
 //! outranks the stand-in left hidden (the browser's record must stand in); a group with two
 //! stand-ins or a copy pointing at a hidden copy (groups stay flat); a lookup per visit when the
-//! archive has nothing to link with (each chunk asks first which sources could hold a copy).
-//! Tests: `same_visit_tests.rs`, T3 in `ingest/dedup_scenarios_takeout.rs`.
+//! archive has nothing to link with (each chunk asks first which sources could hold a copy); a
+//! statement run once per copy that reads every visit.
+//! Tests: `same_visit_tests.rs` (plans), T3 and T8–T10 in `ingest/dedup_scenarios_takeout.rs`.
 
 use crate::utils::now_rfc3339;
 use vault_store::{Result, Session, params};
@@ -73,8 +74,7 @@ pub(crate) fn candidates(
             continue;
         }
         let overlaps = s.query_one(
-            "SELECT EXISTS(SELECT 1 FROM visits INDEXED BY idx_visits_visible_profile_time_id
-             WHERE source_profile_id=?1 AND reverted_at IS NULL AND visit_time_ms BETWEEN ?2 AND ?3)",
+            OVERLAPS_SQL,
             params![id, from_ms - SAME_VISIT_MS, to_ms + SAME_VISIT_MS],
             |r| Ok(r.get::<i64>(0)? != 0),
         )?;
@@ -85,6 +85,10 @@ pub(crate) fn candidates(
     let list = ranks.iter().map(|(id, _)| id.to_string()).collect::<Vec<_>>().join(",");
     Ok(Candidates { own_rank, ranks, list })
 }
+
+const OVERLAPS_SQL: &str =
+    "SELECT EXISTS(SELECT 1 FROM visits INDEXED BY idx_visits_visible_profile_time_id
+    WHERE source_profile_id=?1 AND reverted_at IS NULL AND visit_time_ms BETWEEN ?2 AND ?3)";
 
 /// The counted copy of a visit, found in one of the candidates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,14 +118,7 @@ pub(crate) fn stand_in(
     }
     let found = s
         .query(
-            &format!(
-                "SELECT v.id, v.source_profile_id, u.page_id FROM urls u INDEXED BY idx_urls_url
-                 JOIN visits v INDEXED BY idx_visits_visible_url_time ON v.url_id=u.id
-                 WHERE u.url=?1 AND u.source_profile_id IN ({}) AND v.reverted_at IS NULL
-                   AND v.visit_time_ms BETWEEN ?2 AND ?3
-                 ORDER BY abs(v.visit_time_ms-?4), v.id LIMIT 1",
-                candidates.list
-            ),
+            &stand_in_sql(&candidates.list),
             params![url, at_ms - SAME_VISIT_MS, at_ms + SAME_VISIT_MS, at_ms],
             |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?)),
         )?
@@ -134,21 +131,35 @@ pub(crate) fn stand_in(
     }))
 }
 
+/// `profiles`: the candidates' ids as an SQL list.
+fn stand_in_sql(profiles: &str) -> String {
+    format!(
+        "SELECT v.id, v.source_profile_id, u.page_id FROM urls u INDEXED BY idx_urls_url
+         JOIN visits v INDEXED BY idx_visits_visible_url_time ON v.url_id=u.id
+         WHERE u.url=?1 AND u.source_profile_id IN ({profiles}) AND v.reverted_at IS NULL
+           AND v.visit_time_ms BETWEEN ?2 AND ?3
+         ORDER BY abs(v.visit_time_ms-?4), v.id LIMIT 1"
+    )
+}
+
 /// Hides `visit` behind `stand_in`; copies that pointed at `visit` follow it.
 /// `visit` was counted: its import's visible count goes down with it.
 pub(crate) fn hide_behind(s: &Session<'_>, run: i64, visit: i64, stand_in: i64) -> Result<()> {
-    s.execute(
-        "UPDATE import_batches SET visible_items=visible_items-1
-         WHERE id=(SELECT import_batch_id FROM visits WHERE id=?1)",
-        [visit],
-    )?;
-    s.execute(
-        "UPDATE visits SET reverted_at=?1, reverted_by_run_id=?2, same_as=?3 WHERE id=?4",
-        params![now_rfc3339(), run, stand_in, visit],
-    )?;
-    s.execute("UPDATE visits SET same_as=?1 WHERE same_as=?2", params![stand_in, visit])?;
+    s.execute(HIDE_FROM_BATCH_SQL, [visit])?;
+    s.execute(HIDE_SQL, params![now_rfc3339(), run, stand_in, visit])?;
+    s.execute(FOLLOW_SQL, params![stand_in, visit])?;
     Ok(())
 }
+
+const HIDE_FROM_BATCH_SQL: &str = "UPDATE import_batches SET visible_items=visible_items-1
+    WHERE id=(SELECT import_batch_id FROM visits WHERE id=?1)";
+const HIDE_SQL: &str =
+    "UPDATE visits SET reverted_at=?1, reverted_by_run_id=?2, same_as=?3 WHERE id=?4";
+
+/// Points the copies of a visit at its new stand-in (`?1`) instead of the old one (`?2`).
+/// `same_as IS NOT NULL` lets the partial index answer; without it every visit is read, once
+/// per copy hidden.
+const FOLLOW_SQL: &str = "UPDATE visits SET same_as=?1 WHERE same_as IS NOT NULL AND same_as=?2";
 
 /// A copy that now stands in for its visit, after the stand-in was undone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,31 +171,29 @@ pub(crate) struct Promoted {
 /// When the stand-in `visit` is undone (its import reverted), the best of its copies that are
 /// not undone themselves (in `batch`, or in another reverted import) stands in instead.
 pub(crate) fn promote(s: &Session<'_>, visit: i64, batch: i64) -> Result<Option<Promoted>> {
-    let copies = s.query(
-        "SELECT v.id, v.source_profile_id, COALESCE(p.profile_key, '') FROM visits v INDEXED BY idx_visits_same_as
-         JOIN source_profiles p ON p.id=v.source_profile_id
-         LEFT JOIN import_batches b ON b.id=v.import_batch_id
-         WHERE v.same_as IS NOT NULL AND v.same_as=?1 AND (v.import_batch_id IS NULL
-           OR (v.import_batch_id!=?2 AND b.status NOT IN ('reverted','reverting')))",
-        params![visit, batch],
-        |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?, r.get::<String>(2)?)),
-    )?;
+    let copies = s.query(COPIES_SQL, params![visit, batch], |r| {
+        Ok((r.get::<i64>(0)?, r.get::<i64>(1)?, r.get::<String>(2)?))
+    })?;
     let Some(&(best, profile, _)) = copies.iter().min_by_key(|(id, _, key)| (rank(key), *id))
     else {
         return Ok(None);
     };
-    s.execute(
-        "UPDATE visits SET reverted_at=NULL, reverted_by_run_id=NULL, same_as=NULL WHERE id=?1",
-        [best],
-    )?;
-    s.execute("UPDATE visits SET same_as=?1 WHERE same_as=?2 AND id!=?1", params![best, visit])?;
-    s.execute(
-        "UPDATE import_batches SET visible_items=visible_items+1
-         WHERE id=(SELECT import_batch_id FROM visits WHERE id=?1)",
-        [best],
-    )?;
+    s.execute(PROMOTE_SQL, [best])?;
+    s.execute(FOLLOW_SQL, params![best, visit])?;
+    s.execute(SHOW_IN_BATCH_SQL, [best])?;
     Ok(Some(Promoted { visit: best, profile }))
 }
+
+const COPIES_SQL: &str = "SELECT v.id, v.source_profile_id, COALESCE(p.profile_key, '')
+    FROM visits v INDEXED BY idx_visits_same_as
+    JOIN source_profiles p ON p.id=v.source_profile_id
+    LEFT JOIN import_batches b ON b.id=v.import_batch_id
+    WHERE v.same_as IS NOT NULL AND v.same_as=?1 AND (v.import_batch_id IS NULL
+      OR (v.import_batch_id!=?2 AND b.status NOT IN ('reverted','reverting')))";
+const PROMOTE_SQL: &str =
+    "UPDATE visits SET reverted_at=NULL, reverted_by_run_id=NULL, same_as=NULL WHERE id=?1";
+const SHOW_IN_BATCH_SQL: &str = "UPDATE import_batches SET visible_items=visible_items+1
+    WHERE id=(SELECT import_batch_id FROM visits WHERE id=?1)";
 
 /// What linking one counted visit changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,3 +263,7 @@ pub(crate) fn link_existing(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "same_visit_tests.rs"]
+mod tests;
