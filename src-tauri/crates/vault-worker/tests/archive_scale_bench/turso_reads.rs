@@ -196,6 +196,18 @@ fn seed_searches(vault: &Vault) -> i64 {
     distinct.len() as i64
 }
 
+/// The first visit seeded (`PATHKEEP_BENCH_FIRST_VISIT`, 1 by default). A later one keeps only
+/// the last visits, at the same times: a range at the end of the data (the Insights bench's 30
+/// days and year) reads the rows it would among 14.4M, and seeding and the full build take a
+/// fraction of the time; all time covers less. For the Insights benchmark only: the archive
+/// reads here count on all 14.4M.
+pub(super) fn first_seeded_visit() -> i64 {
+    std::env::var("PATHKEEP_BENCH_FIRST_VISIT")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1)
+}
+
 pub(super) fn seed(vault: &Vault) {
     vault.store().write(Db::Archive,Priority::Batch,|s| {
         s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,discovered_at,profile_key) VALUES(1,'chrome','Default','/bench','','chrome:Default') ON CONFLICT(id) DO NOTHING",())?;
@@ -241,7 +253,9 @@ pub(super) fn seed(vault: &Vault) {
         .read(Db::Archive, |s| {
             s.query_one("SELECT COALESCE(MAX(id),0)+1 FROM visits", (), |r| Ok(r.get::<i64>(0)?))
         })
-        .unwrap();
+        .unwrap()
+        .max(first_seeded_visit());
+    let seeded = VISITS - first_seeded_visit() + 1;
     for first in (first_visit..=VISITS).step_by(STEP as usize) {
         let end = (first + STEP - 1).min(VISITS);
         vault.store().write(Db::Archive,Priority::Batch,move |s| {
@@ -257,7 +271,7 @@ pub(super) fn seed(vault: &Vault) {
         .store()
         .write(Db::Archive, Priority::Batch, move |s| {
             for (name, value) in
-                [("visits", VISITS), ("urls", PAGES + search_pages), ("sourceProfiles", 1)]
+                [("visits", seeded), ("urls", PAGES + search_pages), ("sourceProfiles", 1)]
             {
                 s.execute(
                     "UPDATE archive_totals SET value=?2 WHERE name=?1",
@@ -266,7 +280,7 @@ pub(super) fn seed(vault: &Vault) {
             }
             s.execute(
                 "INSERT INTO archive_totals(name,value) VALUES('sourceVisits:1',?1) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                [VISITS],
+                [seeded],
             )?;
             Ok(())
         })
