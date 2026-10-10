@@ -3,6 +3,7 @@
 //!
 //! ## Responsibilities
 //! - Totals, first/last visit, recording browsers and a 12-week visit histogram for one exact URL.
+//! - Which other sources also recorded its visits, counted once under the browser's record.
 //!
 //! ## Not responsible for
 //! - Fuzzy URL matching or normalization; the URL must match a stored `urls.url` exactly.
@@ -59,6 +60,7 @@ const URL_FIRST_SQL: &str = "SELECT visit_time_ms FROM visits INDEXED BY idx_vis
 const URL_LAST_SQL: &str = "SELECT visit_time_ms FROM visits INDEXED BY idx_visits_visible_url_time WHERE url_id=?1 AND reverted_at IS NULL ORDER BY visit_time_ms DESC,id DESC LIMIT 1";
 const URL_RANGE_SQL: &str = "SELECT COUNT(*) FROM visits INDEXED BY idx_visits_visible_url_time WHERE url_id=?1 AND reverted_at IS NULL AND visit_time_ms>=?2 AND visit_time_ms<?3";
 const URL_DOMAIN_SQL: &str = "SELECT registrable_domain FROM pages WHERE url=?1";
+const URL_COPIES_SQL: &str = "SELECT DISTINCT source_profiles.browser_kind FROM urls INDEXED BY idx_urls_url CROSS JOIN source_profiles ON source_profiles.id=urls.source_profile_id WHERE urls.url=?1 AND EXISTS(SELECT 1 FROM visits INDEXED BY idx_visits_copies_url WHERE same_as IS NOT NULL AND url_id=urls.id)";
 
 pub(crate) fn url_detail_for_session(
     s: &Session<'_>,
@@ -109,6 +111,13 @@ pub(crate) fn url_detail_for_session(
 
     let mut browsers: Vec<(String, i64)> = by_browser.into_iter().collect();
     browsers.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    let mut also_recorded_by = s
+        .query(URL_COPIES_SQL, [url], |r| Ok(browser_display_name(&r.get::<String>(0)?)))?
+        .into_iter()
+        .filter(|name| !browsers.iter().any(|(counted, _)| counted == name))
+        .collect::<Vec<_>>();
+    also_recorded_by.sort();
+    also_recorded_by.dedup();
 
     let domain = s
         .query(URL_DOMAIN_SQL, [url], |r| Ok(r.get::<Option<String>>(0)?))?
@@ -124,6 +133,7 @@ pub(crate) fn url_detail_for_session(
         first_visit_at: first_ms.and_then(rfc3339_from_ms),
         last_visit_at: last_ms.and_then(rfc3339_from_ms),
         browsers: browsers.into_iter().map(|(name, _)| name).collect(),
+        also_recorded_by,
         weekly_visits: weeks
             .iter()
             .zip(weekly)

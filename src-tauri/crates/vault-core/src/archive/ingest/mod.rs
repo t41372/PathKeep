@@ -126,7 +126,8 @@ pub(super) fn process_profile_snapshot(
         create_checkpoint(vault, run_id, snapshot, &hash, &watermark)?;
     }
     let profile_key = snapshot.profile.profile_id.clone();
-    vault.write(Db::Archive, Priority::Batch, move |s| {
+    let replaced = progress.replaced_profiles.iter().copied().collect::<Vec<_>>();
+    let replaced_profiles = vault.write(Db::Archive, Priority::Batch, move |s| {
         let mut cursor = load_watermark(s, &profile_key)?;
         cursor.last_schema_hash = Some(hash);
         if checkpoint {
@@ -134,12 +135,14 @@ pub(super) fn process_profile_snapshot(
         }
         cursor.last_source_batch_id = Some(source_batch_id);
         save_watermark(s, &profile_key, &cursor)?;
-        Ok(())
+        Ok(crate::archive::same_visit::profile_keys(s, &replaced)?)
     })?;
     Ok(BackupProfileSummary {
         profile_id: snapshot.profile.profile_id.clone(),
         new_urls: progress.new_urls,
         new_visits: progress.new_visits,
+        same_visits: progress.same_visits,
+        replaced_profiles,
         new_downloads: progress.new_downloads,
         checkpoint_created: checkpoint,
         notes: backup_warning_messages(&warnings),

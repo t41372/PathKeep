@@ -111,7 +111,8 @@ const STATEMENTS: &[&str] = &[
   event_fingerprint TEXT,
   payload_hash TEXT,
   recorded_at TEXT,
-  import_batch_id INTEGER
+  import_batch_id INTEGER,
+  same_as INTEGER
 )",
     r"CREATE TABLE downloads (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -334,6 +335,10 @@ const STATEMENTS: &[&str] = &[
     "CREATE TABLE archive_totals(name TEXT PRIMARY KEY,value INTEGER NOT NULL)",
     "INSERT INTO archive_totals VALUES('sourceProfiles',0),('urls',0),('visits',0),('downloads',0),('manifests',0),('snapshots',0)",
     "CREATE INDEX idx_visits_batch_url ON visits(import_batch_id,url_id)",
+    // The copies of a visit that another source's copy stands in for (`archive::same_visit`):
+    // by stand-in, and by page address for History's "also recorded by".
+    "CREATE INDEX idx_visits_same_as ON visits(same_as) WHERE same_as IS NOT NULL",
+    "CREATE INDEX idx_visits_copies_url ON visits(url_id) WHERE same_as IS NOT NULL",
     "CREATE INDEX idx_og_images_eviction ON og_images(fetched_at,id)",
     "CREATE INDEX idx_og_images_lru ON og_images(last_shown_at IS NULL DESC,last_shown_at,fetched_at,id)",
     "CREATE INDEX idx_pages_canonical_url ON pages(canonical_url)",

@@ -93,6 +93,10 @@ pub struct UrlDetail {
     pub last_visit_at: Option<String>,
     /// Browser names that recorded the URL, most visits first.
     pub browsers: Vec<String>,
+    /// Sources that also recorded these visits, which count under one of `browsers`
+    /// (`docs/architecture/same-visit-across-sources.md`).
+    #[serde(default)]
+    pub also_recorded_by: Vec<String>,
     /// Twelve entries, oldest first, ending with the current week.
     pub weekly_visits: Vec<UrlWeeklyVisits>,
 }
@@ -163,6 +167,14 @@ pub struct BackupRunOverview {
 pub struct BackupProfileSummary {
     pub profile_id: String,
     pub new_visits: usize,
+    /// New visits that another source already had (a Takeout import of the same visit): kept,
+    /// and counted under that source (`docs/architecture/same-visit-across-sources.md`).
+    #[serde(default)]
+    pub same_visits: usize,
+    /// Sources whose copies of visits this backup's own records now stand in for: they count
+    /// fewer visits, and their Insights are built again.
+    #[serde(default)]
+    pub replaced_profiles: Vec<String>,
     pub new_urls: usize,
     pub new_downloads: usize,
     pub checkpoint_created: bool,

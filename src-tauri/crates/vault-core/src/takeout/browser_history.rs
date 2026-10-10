@@ -183,9 +183,15 @@ pub fn import_browser_history_with_control(
     let counts=consumer.finish()?;
     let stats = ImportStats {
         imported_items: counts.new_visits,
-        duplicate_items: counts.visit_count - counts.new_visits,
+        duplicate_items: counts.visit_count - counts.new_visits - counts.same_visits,
+        same_visit_items: counts.same_visits,
+        replaced_profiles: counts.replaced_profiles.clone(),
         skipped_items: counts.skipped_visits,
     };
+    let replaced = stats.replaced_profiles.iter().copied().collect::<Vec<_>>();
+    let replaced_profiles = vault.read(Db::Archive, move |s| {
+        Ok(crate::archive::same_visit::profile_keys(s, &replaced)?)
+    })?;
     let notes = parser_warning_notes(&streamed.warnings);
     let mut inspection = TakeoutInspection {
         source_path: request.source_path.clone(),
@@ -193,6 +199,8 @@ pub fn import_browser_history_with_control(
         candidate_items: counts.visit_count + counts.skipped_visits,
         imported_items: stats.imported_items,
         duplicate_items: stats.duplicate_items,
+        same_visit_items: stats.same_visit_items,
+        replaced_profiles,
         recognized_files: vec![browser_file_report(&staged, "previewed", counts.visit_count)],
         notes: notes.iter().map(|n| n.message.clone()).collect(),
         note_details: notes,

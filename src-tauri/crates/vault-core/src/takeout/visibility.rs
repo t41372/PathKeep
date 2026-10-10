@@ -4,11 +4,13 @@
 //! restore turns a partial import into a complete import, concurrent producers change
 //! one batch twice, cancellation blocks the queue.
 //! Per-profile counters use only changed rows returned by the same transaction; no visit-sized allocation.
+//! A visit another source also recorded (`archive::same_visit`): undoing its counted copy lets
+//! the best other copy count; restoring links it again.
 //! Tests: batch_search_tests and turso_write_path.
 use super::*;
 use crate::{
     Vault,
-    archive::{search_documents, write_runs},
+    archive::{same_visit, search_documents, write_runs},
 };
 use vault_store::{CancelToken, Db, Priority, Session, params};
 const URLS_PER_CHUNK: usize = 1_000;
@@ -126,17 +128,40 @@ fn chunk(s: &Session<'_>, batch: i64, restore: bool, run: i64) -> Result<usize> 
     let mut visits = 0u64;
     let mut by_profile = std::collections::BTreeMap::<i64, i64>::new();
     for id in &ids {
-        s.for_each("UPDATE visits SET reverted_at=CASE WHEN ?3=1 THEN NULL ELSE ?4 END,
+        // Undo and restore move only the batch's own counted visits: a copy hidden behind
+        // another source's copy of the same visit (`same_as`) stays hidden either way.
+        let changed = s.query(
+            "UPDATE visits SET reverted_at=CASE WHEN ?3=1 THEN NULL ELSE ?4 END,
             reverted_by_run_id=CASE WHEN ?3=1 THEN NULL ELSE ?5 END WHERE import_batch_id=?1 AND url_id=?2
-            AND ((?3=1 AND reverted_at IS NOT NULL) OR (?3=0 AND reverted_at IS NULL)) RETURNING source_profile_id",
-            params![batch,*id,i64::from(restore),at.as_str(),run],|r| {
-                visits+=1;
-                *by_profile.entry(r.get::<i64>(0)?).or_default()+=if restore {1} else {-1};
-                Ok(())
-            })?;
-        pages.insert(
-            s.query_one("SELECT page_id FROM urls WHERE id=?1", [*id], |r| Ok(r.get::<i64>(0)?))?,
-        );
+            AND same_as IS NULL AND ((?3=1 AND reverted_at IS NOT NULL) OR (?3=0 AND reverted_at IS NULL))
+            RETURNING id, source_profile_id, visit_time_ms",
+            params![batch, *id, i64::from(restore), at.as_str(), run],
+            |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?)),
+        )?;
+        let (page, url) = s.query_one("SELECT page_id, url FROM urls WHERE id=?1", [*id], |r| {
+            Ok((r.get::<i64>(0)?, r.get::<String>(1)?))
+        })?;
+        pages.insert(page);
+        for (visit, profile, at_ms) in changed {
+            visits += 1;
+            *by_profile.entry(profile).or_default() += if restore { 1 } else { -1 };
+            if restore {
+                // Back, it is linked again: another source's copy may stand in for it, or it
+                // may take that copy's place.
+                match same_visit::link(s, run, visit, profile, &url, at_ms)? {
+                    same_visit::Linked::Alone => {}
+                    same_visit::Linked::Hidden { .. } => {
+                        *by_profile.entry(profile).or_default() -= 1;
+                    }
+                    same_visit::Linked::Replaced { stand_in } => {
+                        *by_profile.entry(stand_in.profile).or_default() -= 1;
+                    }
+                }
+            } else if let Some(promoted) = same_visit::promote(s, visit, batch)? {
+                // The best other copy of the visit counts in its place.
+                *by_profile.entry(promoted.profile).or_default() += 1;
+            }
+        }
     }
     for (profile, delta) in by_profile {
         crate::archive::totals::add_visits(s, profile, delta)?;

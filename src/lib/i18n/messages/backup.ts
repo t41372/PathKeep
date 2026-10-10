@@ -121,6 +121,10 @@ export const backup = defineMessages({
       imported_other: '{count} new visits imported',
       duplicates_one: '{count} visit was already in your archive.',
       duplicates_other: '{count} visits were already in your archive.',
+      sameVisits_one:
+        '{count} visit was already in your archive from another source (the browser, or another export). It is kept and counted once.',
+      sameVisits_other:
+        '{count} visits were already in your archive from another source (the browser, or another export). They are kept and counted once.',
       another: 'Import another',
       batches: {
         title: 'Recent imports',
@@ -291,6 +295,10 @@ export const backup = defineMessages({
       imported_other: '已导入 {count} 条新的浏览记录',
       duplicates_one: '另有 {count} 条已经在存档里。',
       duplicates_other: '另有 {count} 条已经在存档里。',
+      sameVisits_one:
+        '{count} 条已经从别的来源（浏览器本身，或另一份导出）进了存档：一并保存，只算一次。',
+      sameVisits_other:
+        '{count} 条已经从别的来源（浏览器本身，或另一份导出）进了存档：一并保存，只算一次。',
       another: '再导入一个',
       batches: {
         title: '最近的导入',
@@ -460,6 +468,10 @@ export const backup = defineMessages({
       imported_other: '已匯入 {count} 筆新的瀏覽記錄',
       duplicates_one: '另有 {count} 筆已經在存檔裡。',
       duplicates_other: '另有 {count} 筆已經在存檔裡。',
+      sameVisits_one:
+        '{count} 筆已經從別的來源（瀏覽器本身，或另一份匯出）進了存檔：一併保存，只算一次。',
+      sameVisits_other:
+        '{count} 筆已經從別的來源（瀏覽器本身，或另一份匯出）進了存檔：一併保存，只算一次。',
       another: '再匯入一個',
       batches: {
         title: '最近的匯入',

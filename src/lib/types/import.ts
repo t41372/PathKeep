@@ -148,6 +148,12 @@ export interface TakeoutInspection {
   candidateItems: number
   importedItems: number
   duplicateItems: number
+  /**
+   * Written, but another source (the browser, another export) already had the
+   * same visit, which counts there (`same-visit-across-sources.md`). Absent
+   * on payloads from before.
+   */
+  sameVisitItems?: number
   /** Diagnostic English prose; rendered only when a code has no catalog entry. */
   notes: string[]
   /** Coded mirror of `notes`; absent on payloads written before code-ification. */

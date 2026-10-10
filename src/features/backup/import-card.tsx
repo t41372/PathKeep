@@ -314,6 +314,13 @@ export function ImportCard({
                 count: state.result.duplicateItems,
               })}
             </span>
+            {(state.result.sameVisitItems ?? 0) > 0 && (
+              <span className="text-muted-foreground">
+                {t('backup.import.sameVisits', {
+                  count: state.result.sameVisitItems ?? 0,
+                })}
+              </span>
+            )}
           </div>
           <div>
             <Button size="sm" variant="outline" onClick={reset}>

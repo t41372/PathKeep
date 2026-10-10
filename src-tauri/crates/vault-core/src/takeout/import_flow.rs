@@ -236,6 +236,8 @@ where
                 inspection.preview_range_end = preview_range.end;
                 stats.imported_items += file_stats.stats.imported_items;
                 stats.duplicate_items += file_stats.stats.duplicate_items;
+                stats.same_visit_items += file_stats.stats.same_visit_items;
+                stats.replaced_profiles.extend(file_stats.stats.replaced_profiles);
                 if file_stats.stats.skipped_items > 0 {
                     inspection.push_note(skipped_missing_visit_time_note(
                         file_stats.stats.skipped_items,
@@ -278,6 +280,11 @@ where
 
         inspection.imported_items = stats.imported_items;
         inspection.duplicate_items = stats.duplicate_items;
+        inspection.same_visit_items = stats.same_visit_items;
+        let replaced = stats.replaced_profiles.iter().copied().collect::<Vec<_>>();
+        inspection.replaced_profiles = vault.read(Db::Archive, move |s| {
+            Ok(crate::archive::same_visit::profile_keys(s, &replaced)?)
+        })?;
         progress_log_lines.push("Refreshing derived import review surfaces.".to_string());
         emit_import_progress(
             &mut report_progress,
@@ -480,7 +487,8 @@ pub(super) fn finalize_successful_import_run(
 ) -> Result<()> {
     let inspection = inspection.clone();
     let extra = json!({"profilesProcessed":1,"candidateItems":inspection.candidate_items,"importBatchId":batch_id,
-        "importedItems":stats.imported_items,"duplicateItems":stats.duplicate_items,"skippedItems":stats.skipped_items});
+        "importedItems":stats.imported_items,"duplicateItems":stats.duplicate_items,
+        "sameVisitItems":stats.same_visit_items,"skippedItems":stats.skipped_items});
     vault.write(Db::Archive, Priority::Batch, move |s| {
         batches::finalize_import_batch(s, batch_id, &inspection)?;
         crate::archive::write_runs::complete_in(

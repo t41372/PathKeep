@@ -155,3 +155,6 @@ mod turso_reads;
 
 #[path = "archive_scale_bench/turso_intelligence.rs"]
 mod turso_intelligence;
+
+#[path = "archive_scale_bench/turso_same_visit.rs"]
+mod turso_same_visit;

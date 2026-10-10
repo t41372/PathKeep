@@ -41,6 +41,7 @@ use browser_history_parser::takeout::{
 
 use serde_json::{Value, json};
 use std::{
+    collections::BTreeSet,
     fs,
     io::Read,
     path::{Path, PathBuf},
@@ -101,6 +102,10 @@ struct ParsedTakeoutRecord {
 struct ImportStats {
     imported_items: usize,
     duplicate_items: usize,
+    /// Written, but another source already had the same visit (`archive::same_visit`).
+    same_visit_items: usize,
+    /// Sources whose copies an imported visit now stands in for.
+    replaced_profiles: BTreeSet<i64>,
     skipped_items: usize,
 }
 
@@ -221,13 +226,15 @@ pub fn takeout_profile(kind: &str) -> &'static str {
     if kind == KIND_MY_ACTIVITY_JSON { "takeout::my-activity" } else { "takeout::browser-history" }
 }
 
-/// The profiles an import put visits in, from the files it read.
+/// The profiles whose Insights an import changed: those it put visits in, from the files it read,
+/// and those whose copies of a visit it now stands in for.
 pub fn takeout_profiles(inspection: &TakeoutInspection) -> Vec<String> {
     let mut profiles = inspection
         .recognized_files
         .iter()
         .filter(|file| file.records > 0)
         .map(|file| takeout_profile(&file.kind).to_owned())
+        .chain(inspection.replaced_profiles.iter().cloned())
         .collect::<Vec<_>>();
     profiles.sort();
     profiles.dedup();

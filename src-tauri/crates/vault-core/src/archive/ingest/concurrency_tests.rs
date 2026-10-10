@@ -535,6 +535,7 @@ fn batched_backup_equals_one_transaction_of_parsed_facts() {
                         id,
                         visit,
                         &sha256_hex(&serde_json::to_vec(visit).unwrap()),
+                        None,
                     )?;
                     writes::track_url_visit_bounds(&mut bounds, id, visit);
                     cursor.last_visit_id = cursor.last_visit_id.max(visit.source_visit_id);

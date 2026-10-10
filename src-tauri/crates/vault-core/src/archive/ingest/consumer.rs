@@ -13,6 +13,7 @@ use super::{
 };
 use crate::{
     Vault,
+    archive::same_visit,
     utils::{now_rfc3339, sha256_hex},
 };
 use anyhow::Result;
@@ -41,6 +42,12 @@ pub(crate) struct ArchiveStreamProgress {
     pub new_urls: usize,
     pub new_visits: usize,
     pub new_downloads: usize,
+    /// New visits written hidden: another source's copy stands in for them
+    /// (`archive::same_visit`). Not in `new_visits`.
+    pub same_visits: usize,
+    /// Sources whose copies a new visit took the place of; their counted visits went down, so
+    /// their Insights are built again.
+    pub replaced_profiles: BTreeSet<i64>,
     pub skipped_visits: usize,
     pub inserted_search_terms: usize,
     pub url_count: usize,
@@ -213,10 +220,12 @@ impl<'a> ArchiveChunkConsumer<'a> {
                                 - before.skipped_visits,
                         ),
                         ("importedItems", progress.new_visits - before.new_visits),
+                        ("sameVisitItems", progress.same_visits - before.same_visits),
                         (
                             "duplicateItems",
                             (progress.visit_count - before.visit_count)
-                                - (progress.new_visits - before.new_visits),
+                                - (progress.new_visits - before.new_visits)
+                                - (progress.same_visits - before.same_visits),
                         ),
                     ] {
                         summary[key] =
@@ -345,6 +354,11 @@ fn apply_batch(
         }
         Batch::Visits(rows) => {
             let mut bounds = HashMap::new();
+            let span = rows.iter().map(|(visit, _)| visit.visit_time_ms);
+            let candidates = match (span.clone().min(), span.max()) {
+                (Some(from), Some(to)) => same_visit::candidates(s, c.source_profile_id, from, to)?,
+                _ => same_visit::Candidates::default(),
+            };
             for (mut visit, hash) in rows {
                 if p.first_visit_iso.as_ref().is_none_or(|v| v > &visit.visit_time_iso) {
                     p.first_visit_iso = Some(visit.visit_time_iso.clone());
@@ -357,6 +371,12 @@ fn apply_batch(
                     p.skipped_visits += 1;
                     continue;
                 };
+                // Another source's copy of this visit: it stands in, unless this one outranks it.
+                let stand_in =
+                    same_visit::stand_in(s, &candidates, &visit.url, visit.visit_time_ms)?;
+                let hidden = stand_in
+                    .filter(|stand_in| !stand_in.outranked_by(&candidates))
+                    .map(|stand_in| stand_in.visit);
                 let inserted = if let Some(origin) = &c.import {
                     if origin.source_kind == "takeout" {
                         visit.transition = None;
@@ -375,11 +395,21 @@ fn apply_batch(
                         &visit,
                         &hash,
                         origin,
+                        hidden,
                     )?
                 } else {
-                    insert_visit(s, c.run_id, c.source_profile_id, id, &visit, &hash)?
+                    insert_visit(s, c.run_id, c.source_profile_id, id, &visit, &hash, hidden)?
                 };
-                if inserted > 0 {
+                if inserted.is_some() && hidden.is_some() {
+                    p.same_visits += 1;
+                } else if let Some(new_visit) = inserted {
+                    if let Some(replaced) = stand_in {
+                        same_visit::hide_behind(s, c.run_id, replaced.visit, new_visit)?;
+                        crate::archive::totals::add_visits(s, replaced.profile, -1)?;
+                        p.replaced_profiles.insert(replaced.profile);
+                        // Recounted below, with this visit in and the replaced copy out.
+                        moved_pages.insert(replaced.page);
+                    }
                     p.new_visits += 1;
                     track_url_visit_bounds(&mut bounds, id, &visit);
                     added
@@ -442,7 +472,8 @@ fn apply_batch(
             crate::archive::search_documents::text_changed(s, page)?;
         }
     }
-    for (page, (count, newest)) in added {
+    for (page, (count, newest)) in added.into_iter().filter(|(page, _)| !moved_pages.contains(page))
+    {
         crate::archive::search_documents::visits_added(
             s,
             page,
@@ -480,8 +511,9 @@ mod statement_benchmark {
     // Visit: resolve URL + insert + update bounds (3), document text (5),
     // profile membership + newest time + outbox (3).
     const VISIT_ROW_BUDGET: usize = 3 + 5 + 3;
-    // Watermark (1), run progress read/write (2), three cached totals (3).
-    const BATCH_BUDGET: usize = 1 + 2 + 3;
+    // Watermark (1), run progress read/write (2), three cached totals (3), the sources a visit
+    // batch may share visits with (1, and one more per other source; `archive::same_visit`).
+    const BATCH_BUDGET: usize = 1 + 2 + 3 + 1;
     #[test]
     fn statements_follow_the_row_and_batch_budget() {
         measure(32);

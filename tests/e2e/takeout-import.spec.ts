@@ -10,13 +10,16 @@
  * how the visits began rather than that none came from elsewhere. My
  * Activity in JSON, in a Chinese account's folder, imports its visits: each
  * the page behind Google's redirect, titled without "Visited ", the "Used
- * Chrome" record left out, and nothing new the second time.
+ * Chrome" record left out, and nothing new the second time. A My Activity
+ * export of visits the browsers already recorded keeps them and counts them
+ * once: the card says they were already there from another source, the page
+ * keeps its visit count, and its details say Takeout recorded them too.
  *
  * The folder is written for this test (see `support/takeout-file.ts`); none
  * of its pages are in the archive before the import.
  */
 import { expect, test, type Page } from '@playwright/test'
-import { parseCount } from './support/fixture'
+import { archivedVisits, parseCount } from './support/fixture'
 import {
   ACTIVITY_TITLE,
   TAKEOUT_TITLE,
@@ -24,6 +27,7 @@ import {
   activityVisitCount,
   takeoutPageCount,
   takeoutVisitCount,
+  writeMyActivityCopiesFolder,
   writeMyActivityJsonFolder,
   writeMyActivityOnlyFolder,
   writeTakeoutFolder,
@@ -172,4 +176,53 @@ test('My Activity in JSON imports the pages it visited, once', async ({
     timeout: 60_000,
   })
   await expectSearchHits(page, { pages, visits }, ACTIVITY_TITLE)
+})
+
+/** A page every browser visited; its visits are copied into My Activity below. */
+const SHARED_URL = 'https://news.ycombinator.com/item?id=41502281'
+const SHARED_TITLE = 'Hacker News · Why I left tokio'
+
+test('visits the browsers already recorded are kept and counted once', async ({
+  page,
+}) => {
+  const visits = archivedVisits().filter((visit) => visit.url === SHARED_URL)
+  expect(visits.length, 'the browsers visited the page').toBeGreaterThan(1)
+  const { root, copies } = writeMyActivityCopiesFolder(SHARED_URL)
+
+  await inspect(page, root)
+  await expect(page.getByText(`${copies} visits found`)).toBeVisible({
+    timeout: 30_000,
+  })
+  await page.getByRole('button', { name: 'Import', exact: true }).click()
+  await expect(page.getByText('0 new visits imported')).toBeVisible({
+    timeout: 60_000,
+  })
+  await expect(
+    page.getByText(
+      `${copies} visits were already in your archive from another source (the browser, or another export). They are kept and counted once.`,
+    ),
+  ).toBeVisible()
+
+  await page.goto('/#/history')
+  await page
+    .getByRole('searchbox', { name: 'Search history' })
+    .fill('why I left tokio')
+  const row = page
+    .getByRole('listbox', { name: 'History results' })
+    .getByRole('option')
+    .filter({ hasText: SHARED_TITLE })
+  await expect(row).toHaveCount(1)
+  await row.click()
+  const detail = page.getByRole('complementary', { name: 'Page details' })
+  const total = detail.getByText('Total visits').locator('..')
+  await expect(total).toContainText(/\d/)
+  expect(
+    parseCount((await total.innerText()).replace('Total visits', '')),
+    'the page counts each visit once',
+  ).toBe(visits.length)
+  await expect(
+    detail.getByText(
+      'Google Takeout recorded these visits too. They count once.',
+    ),
+  ).toBeVisible()
 })

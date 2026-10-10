@@ -147,6 +147,16 @@ invented between independently rebuilt intelligence tables.
 - Index `idx_visits_visible_profile_time_id`: `visits(source_profile_id, visit_time_ms ASC, id ASC) WHERE reverted_at IS NULL`.
 - Index `idx_visits_visible_url_time`: `visits( url_id, visit_time_ms DESC, id DESC ) WHERE reverted_at IS NULL`.
 - Index `idx_visits_visible_batch_time_id`: `visits(import_batch_id, visit_time_ms DESC, id DESC) WHERE reverted_at IS NULL AND import_batch_id IS NOT NULL`, for complete review pagination.
+- `reverted_at` set means the visit is not counted: its import was undone (`same_as` empty), or
+  another source's copy of the same visit stands in for it (`same_as` = that copy's id;
+  `docs/architecture/same-visit-across-sources.md`). Either way `reverted_by_run_id` names the
+  run that hid it, and every read, total and search document counts only `reverted_at IS NULL`.
+- `same_as`: the stand-in of this hidden copy. Groups are flat: every copy points at the one
+  counted visit.
+- Index `idx_visits_same_as`: `visits(same_as) WHERE same_as IS NOT NULL`, for re-pointing copies
+  when the stand-in changes or is undone.
+- Index `idx_visits_copies_url`: `visits(url_id) WHERE same_as IS NOT NULL`, for History's "also
+  recorded by".
 - Index `idx_visits_import_batch_id`: `visits(import_batch_id)`.
 - Index `idx_visits_batch_url`: `visits(import_batch_id, url_id)`; keyset walks stay within the changed batch.
 - Resumable visibility uses `import_batches.previous_status`, `visibility_cursor`, and `visibility_run_id`; `reverting` / `restoring` resume from the last committed URL chunk. The schema also includes `idx_og_images_eviction` and `idx_og_images_lru` so eviction follows an index rather than sorting each page.

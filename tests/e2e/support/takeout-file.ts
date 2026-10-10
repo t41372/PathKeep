@@ -2,15 +2,15 @@
  * The Google Takeout folders `takeout-import.spec` imports: Chrome's
  * `BrowserHistory.json` in the shape Takeout writes it (a `Browser History`
  * array, times in Unix microseconds), plus files that must stay out: My
- * Activity's Chrome entries in HTML (Takeout's default), JSON Lines and the
- * archive index; and My Activity's Chrome entries in JSON, in a
+ * Activity's Chrome entries in HTML (Takeout's default), Search's My Activity,
+ * JSON Lines and the archive index; and My Activity's Chrome entries in JSON, in a
  * Traditional Chinese account's folder. Times
  * come from the fixture's `now`, so a repeated run writes the same folder,
  * and `wipe.spec` can count what the import left in the archive.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { fixture } from './fixture'
+import { archivedVisits, fixture } from './fixture'
 
 /** Every imported title starts with this, so one search finds exactly them. */
 export const TAKEOUT_TITLE = 'Takeout ledger'
@@ -78,6 +78,23 @@ export function writeTakeoutFolder() {
   )
   writeFileSync(path.join(root, 'archive_browser.html'), '<html></html>')
   writeMyActivity(root)
+  // Another product's My Activity, in JSON and with the same title prefix:
+  // searches are not visits, so if it were imported the search would count it.
+  mkdirSync(path.join(root, 'My Activity', 'Search'), { recursive: true })
+  writeFileSync(
+    path.join(root, 'My Activity', 'Search', 'MyActivity.json'),
+    JSON.stringify(
+      [0, 1].map((index) => ({
+        header: 'Search',
+        title: `Searched for ${TAKEOUT_TITLE} ${index}`,
+        titleUrl: `https://www.google.com/search?q=takeout+ledger+${index}`,
+        time: new Date(
+          fixture().now - 40 * DAY_MS + index * HOUR_MS,
+        ).toISOString(),
+        products: ['Search'],
+      })),
+    ),
+  )
   return root
 }
 
@@ -160,4 +177,26 @@ export function writeMyActivityJsonFolder() {
   } as (typeof records)[number])
   writeFileSync(path.join(folder, '我的活動.json'), JSON.stringify(records))
   return root
+}
+
+/**
+ * My Activity copies of every visit the browsers recorded to `url`, as
+ * Takeout writes them: the same page and instant, behind Google's redirect.
+ * They are the same visits, so importing them adds nothing that counts.
+ */
+export function writeMyActivityCopiesFolder(url: string) {
+  const root = path.join(fixture().root, 'Takeout-my-activity-copies')
+  const folder = path.join(root, 'My Activity', 'Chrome')
+  mkdirSync(folder, { recursive: true })
+  const copies = archivedVisits()
+    .filter((visit) => visit.url === url)
+    .sort((a, b) => b.at - a.at)
+    .map((visit) => ({
+      title: `Visited ${visit.title}`,
+      titleUrl: `https://www.google.com/url?q=${encodeURIComponent(visit.url)}&usg=AOvVaw0e2e`,
+      time: new Date(visit.at).toISOString(),
+      products: ['Chrome'],
+    }))
+  writeFileSync(path.join(folder, 'MyActivity.json'), JSON.stringify(copies))
+  return { root, copies: copies.length }
 }

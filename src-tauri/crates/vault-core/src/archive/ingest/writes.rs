@@ -184,7 +184,12 @@ pub(super) fn upsert_url(
     )
 }
 
-/// Inserts one canonical visit row when it has not already been observed for this profile.
+/// A new visit that another source's copy already stands in for: it is written hidden behind
+/// that copy (`archive::same_visit`).
+pub(super) type HiddenBehind = Option<i64>;
+
+/// Inserts one canonical visit row when it has not already been observed for this profile;
+/// its id, or `None` when it was already there.
 pub(super) fn insert_visit(
     archive: &Session<'_>,
     run_id: i64,
@@ -192,7 +197,8 @@ pub(super) fn insert_visit(
     url_id: i64,
     visit: &ParsedVisit,
     payload_hash: &str,
-) -> Result<u64> {
+    hidden: HiddenBehind,
+) -> Result<Option<i64>> {
     let fingerprint = visit_event_fingerprint(
         "chromium-history",
         &visit.url,
@@ -201,7 +207,17 @@ pub(super) fn insert_visit(
         visit.transition,
         visit.app_id.as_deref(),
     );
-    write_visit(archive, run_id, source_profile_id, url_id, visit, payload_hash, &fingerprint, None)
+    write_visit(
+        archive,
+        run_id,
+        source_profile_id,
+        url_id,
+        visit,
+        payload_hash,
+        &fingerprint,
+        None,
+        hidden,
+    )
 }
 
 /// Import origins preserve their existing fingerprint domain and batch identity.
@@ -214,7 +230,8 @@ pub(super) fn insert_import_visit(
     visit: &ParsedVisit,
     payload_hash: &str,
     origin: &super::consumer::ImportOrigin,
-) -> Result<u64> {
+    hidden: HiddenBehind,
+) -> Result<Option<i64>> {
     let fingerprint = visit_event_fingerprint(
         &origin.source_kind,
         &visit.url,
@@ -232,6 +249,7 @@ pub(super) fn insert_import_visit(
         payload_hash,
         &fingerprint,
         Some(origin.batch_id),
+        hidden,
     )
 }
 
@@ -245,8 +263,10 @@ fn write_visit(
     payload_hash: &str,
     fingerprint: &str,
     batch_id: Option<i64>,
-) -> Result<u64> {
-    archive.execute(
+    hidden: HiddenBehind,
+) -> Result<Option<i64>> {
+    let hidden_at = hidden.map(|_| now_rfc3339());
+    let ids = archive.query(
         "INSERT OR IGNORE INTO visits (
                url_id,
                source_visit_id,
@@ -264,9 +284,14 @@ fn write_visit(
                event_fingerprint,
                payload_hash,
                recorded_at,
-               import_batch_id
+               import_batch_id,
+               same_as,
+               reverted_at,
+               reverted_by_run_id
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                     ?18, ?19, CASE WHEN ?18 IS NULL THEN NULL ELSE ?8 END)
+             RETURNING id",
         params![
             url_id,
             visit.source_visit_id.to_string(),
@@ -285,8 +310,12 @@ fn write_visit(
             payload_hash,
             now_rfc3339(),
             batch_id,
+            hidden,
+            hidden_at,
         ],
-    )
+        |row| Ok(row.get::<i64>(0)?),
+    )?;
+    Ok(ids.into_iter().next())
 }
 
 /// Inserts one canonical download row when it is new for the source profile.
