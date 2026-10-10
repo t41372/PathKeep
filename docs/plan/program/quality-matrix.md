@@ -10,16 +10,17 @@
 
 `bun run check` 是唯一的 per-commit gate，本地與 GitHub `CI` workflow 跑同一條。依序執行：
 
-| 步驟           | Command                 | 保護什麼                                                                  |
-| -------------- | ----------------------- | ------------------------------------------------------------------------- |
-| Format         | `bun run format:check`  | Prettier                                                                  |
-| Lint           | `bun run lint`          | ESLint（`--max-warnings 0`）                                              |
-| i18n           | `bun run check:i18n`    | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                     |
-| Typecheck      | `bun run typecheck`     | `tsc -b`                                                                  |
-| Build          | `bun run build`         | TypeScript + Vite bundle                                                  |
-| Rust           | `bun run check:rust`    | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace` |
-| Release config | `bun run release:check` | updater URL、Windows bundle、WebView2、support link 不得漂移              |
-| E2E            | `bun run test:e2e`      | 真實 Rust 後端 + Vite 前端 + Playwright，見下                             |
+| 步驟           | Command                 | 保護什麼                                                                                                                                                            |
+| -------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format         | `bun run format:check`  | Prettier                                                                                                                                                            |
+| Lint           | `bun run lint`          | ESLint（`--max-warnings 0`）                                                                                                                                        |
+| i18n           | `bun run check:i18n`    | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                                                                                                               |
+| Typecheck      | `bun run typecheck`     | `tsc -b`                                                                                                                                                            |
+| Unit           | `bun run test:unit`     | Vitest：少數必須單獨測的（例如 regex 方言對照表），寫的理由在檔頭                                                                                                   |
+| Build          | `bun run build`         | TypeScript + Vite bundle                                                                                                                                            |
+| Rust           | `bun run check:rust`    | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace`，再加帶 `devtools-bridge` feature 的 bridge dispatcher 測試（`test:desktop-bridge:rust`） |
+| Release config | `bun run release:check` | updater URL、Windows bundle、WebView2、support link 不得漂移                                                                                                        |
+| E2E            | `bun run test:e2e`      | 真實 Rust 後端 + Vite 前端 + Playwright，見下                                                                                                                       |
 
 `bun run check:base` 是不含 build 與 E2E 的快速 triage（`check:js` + `check:rust`），不能代替 `check`。
 
@@ -55,8 +56,6 @@ E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的�
 | `bun run check:supply-chain`                              | `cargo audit` + `cargo deny`（需要網路與對應 cargo 工具）；CI 另有獨立步驟                |
 | `bun run check:platform`                                  | host-matched keyring / scheduler / launcher / updater native 測試，含 debug desktop build |
 | `bun run verify`                                          | `check` + `desktop:build:debug`；release / milestone closeout 的本地預演                  |
-| `bun run test:desktop-bridge:rust`                        | bridge dispatcher 的 Rust 測試（帶 `devtools-bridge` feature）                            |
-| `bun run test:unit`                                       | Vitest；沒有測試時直接通過。少量、隔離的測試用，不在 gate 內                              |
 | GitHub `Platform Native` / `Native Dependencies` workflow | manual / path-triggered，見各 workflow                                                    |
 
 ## Honest Boundaries

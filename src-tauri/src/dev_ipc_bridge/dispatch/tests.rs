@@ -1484,7 +1484,9 @@ fn dispatch_export_progress_and_cancel_work_while_export_is_running() {
                 .await
                 .unwrap();
         assert_eq!(progress["state"], "done");
-        assert_eq!(progress["bytesWritten"], 26);
+        // The bytes reported are the file's: an empty HTML export is its head and tail alone.
+        let written = std::fs::metadata(done["path"].as_str().unwrap()).unwrap().len();
+        assert_eq!(progress["bytesWritten"], json!(written));
         assert_eq!(progress["totalRows"], json!(100000));
         assert_eq!(
             dispatch_command(&state, "cancel_export", json!({"exportId":"bridge-done"}))

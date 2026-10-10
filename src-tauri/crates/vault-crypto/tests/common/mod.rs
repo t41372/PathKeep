@@ -147,17 +147,13 @@ impl Rng {
         Rng(seed.max(1))
     }
 
-    /// Seed from `VAULT_CRYPTO_SEED` if set, otherwise from the clock. Printed by callers.
-    pub fn from_env_or_clock() -> (Rng, u64) {
+    /// The same seed on every run, so a failure repeats; `VAULT_CRYPTO_SEED` picks another to
+    /// explore. A seed from the clock made each run test something different.
+    pub fn from_env_or_fixed() -> (Rng, u64) {
         let seed = std::env::var("VAULT_CRYPTO_SEED")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or_else(|| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos() as u64
-            });
+            .unwrap_or(0x5EED_C0DE);
         (Rng::new(seed), seed)
     }
 
