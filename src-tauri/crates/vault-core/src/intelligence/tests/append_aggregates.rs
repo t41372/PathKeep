@@ -5,7 +5,9 @@
 //!   with the same visits in one full build, and compare every aggregate table row for row.
 //! - Cross the append boundaries where an aggregate keeps state: a session and a search trail
 //!   that continue into the next backup, a page reopened on later days, a site visited on days
-//!   on both sides, a search that joins a family started earlier, paths through the same sites.
+//!   on both sides, a search that joins a family started earlier, a rewording that continues in
+//!   the next backup the trail its search began (it joins that search's family), paths through
+//!   the same sites.
 //!
 //! ## Not responsible for
 //! - Facts, daily rollups and sessions; their own equivalence tests cover them.
@@ -41,10 +43,11 @@ pub(super) struct Visit {
     search: Option<String>,
 }
 
-/// Thirty days of mornings: a search, the docs it led to, two issues read back and forth (a
-/// compare set), a blog, sometimes back to the docs. Queries reword one another so families
-/// grow over time; the same few pages and sites come back day after day. The cuts fall inside
-/// the morning trails of days 12, 18 and 24.
+/// Thirty days of mornings: a search (on some days reworded a few minutes later), the docs it
+/// led to, two issues read back and forth (a compare set), a blog, sometimes back to the docs.
+/// Queries reword one another so families grow over time; the same few pages and sites come
+/// back day after day. The cuts fall inside the morning trails of days 12, 17 (between a search
+/// and its rewording), 18 and 24.
 pub(super) fn visits() -> Vec<Visit> {
     let topics = ["rust async runtime", "rust async runtimes compared", "tokio vs smol"];
     let mut visits = Vec::new();
@@ -52,12 +55,15 @@ pub(super) fn visits() -> Vec<Visit> {
     for day in 0..30_i64 {
         let base = START_MS + day * DAY_MS;
         let query = topics[(day % 3) as usize];
-        let steps: Vec<(String, String, Option<String>)> = vec![
+        let search = |query: &str| {
             (
                 format!("https://www.google.com/search?q={}", query.replace(' ', "+")),
                 format!("{query} - Google Search"),
                 Some(query.to_string()),
-            ),
+            )
+        };
+        let mut steps: Vec<(String, String, Option<String>)> = vec![
+            search(query),
             (
                 format!("https://docs.rs/tokio/latest/page-{}", day % 4),
                 format!("tokio docs {}", day % 4),
@@ -81,9 +87,13 @@ pub(super) fn visits() -> Vec<Visit> {
                 None,
             ),
         ];
+        if day % 5 == 2 {
+            steps.insert(1, search(&format!("{query} v2")));
+        }
+        let last = steps.len() - 1;
         let mut previous = None;
         for (step, (url, title, search)) in steps.into_iter().enumerate() {
-            if day % 7 == 3 && step == 6 {
+            if day % 7 == 3 && step == last {
                 continue; // Some days end early.
             }
             visits.push(Visit {
@@ -186,8 +196,16 @@ pub(super) fn vault() -> crate::Vault {
 #[test]
 fn aggregates_after_appends_equal_a_full_build() {
     let all = visits();
-    // Cut inside a day, mid-session and mid-trail, so state crosses every boundary.
-    let cuts = [all.len() * 2 / 5 + 2, all.len() * 3 / 5 + 1, all.len() * 4 / 5 + 3];
+    // Cut inside a day, mid-session and mid-trail, so state crosses every boundary; one cut falls
+    // between a search and its rewording, so the next backup begins inside the open trail.
+    let rewording = (all.len() / 2..all.len() - 1)
+        .find(|&index| all[index].search.is_some() && all[index + 1].search.is_some())
+        .expect("a search reworded right after it")
+        + 1;
+    let mut cuts =
+        vec![all.len() * 2 / 5 + 2, all.len() * 3 / 5 + 1, rewording, all.len() * 4 / 5 + 3];
+    cuts.sort_unstable();
+    cuts.dedup();
 
     let appended = vault();
     let archive = TestDatabase::new(&appended, Db::Archive);
@@ -199,7 +217,8 @@ fn aggregates_after_appends_equal_a_full_build() {
         .unwrap();
     add(&archive, &all[..cuts[0]]);
     assert_eq!(build(&appended), "fallback-full", "the first build starts from nothing");
-    for window in [cuts[0]..cuts[1], cuts[1]..cuts[2], cuts[2]..all.len()] {
+    let ends = cuts.iter().skip(1).copied().chain([all.len()]);
+    for window in cuts.iter().copied().zip(ends).map(|(start, end)| start..end) {
         add(&archive, &all[window]);
         assert_eq!(build(&appended), "incremental", "each backup after that appends");
     }

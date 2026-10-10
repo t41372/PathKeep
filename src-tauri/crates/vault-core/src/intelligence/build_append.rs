@@ -508,7 +508,21 @@ where
         return Ok(Some((changed, gone)));
     }
     let before = stored.iter().map(|family| family.member_count).collect::<Vec<_>>();
-    let mut accumulator = QueryFamilyAccumulator::resume(stored);
+    // The last search the stored families took: the first new one may continue its trail.
+    let (profile, after) = (state.profile_id.clone(), base.after_visit_id);
+    let last = vault.read(Db::Intelligence, move |s| {
+        Ok(s.query_one(
+            "SELECT visit_id,profile_id,search_engine,raw_query,normalized_query,query_kind,
+                    trail_id,visit_time_ms
+             FROM search_events_rows INDEXED BY idx_search_events_profile_visit
+             WHERE profile_id=?3 AND visit_id<=?2 AND generation=?1 AND query_kind='keyword'
+             ORDER BY visit_id DESC LIMIT 1",
+            params![navigation, after, profile],
+            search_event,
+        )
+        .optional()?)
+    })?;
+    let mut accumulator = QueryFamilyAccumulator::resume(stored, last);
     let mut after = base.after_visit_id;
     loop {
         let profile = state.profile_id.clone();
@@ -520,18 +534,7 @@ where
                  WHERE generation=?1 AND visit_id>?2 AND profile_id=?3 AND query_kind='keyword'
                  ORDER BY visit_id LIMIT 4096",
                 params![navigation, after, profile],
-                |r| {
-                    Ok(SearchEventRecord {
-                        visit_id: r.get(0)?,
-                        profile_id: r.get(1)?,
-                        search_engine: r.get(2)?,
-                        raw_query: r.get(3)?,
-                        normalized_query: r.get(4)?,
-                        query_kind: parse_search_query_kind(&r.get::<String>(5)?),
-                        trail_id: r.get(6)?,
-                        visit_time_ms: r.get(7)?,
-                    })
-                },
+                search_event,
             )?)
         })?;
         let Some(last) = events.last() else { break };
@@ -553,6 +556,21 @@ where
 /// The profile's stored families in the order they were made, each with the days it was
 /// searched on (kept on its reopened row when more than one). `None` when their numbers are not
 /// 1 to N.
+/// A row of `visit_id,profile_id,search_engine,raw_query,normalized_query,query_kind,trail_id,
+/// visit_time_ms` from `search_events_rows`.
+fn search_event(r: &vault_store::Row) -> vault_store::Result<SearchEventRecord> {
+    Ok(SearchEventRecord {
+        visit_id: r.get(0)?,
+        profile_id: r.get(1)?,
+        search_engine: r.get(2)?,
+        raw_query: r.get(3)?,
+        normalized_query: r.get(4)?,
+        query_kind: parse_search_query_kind(&r.get::<String>(5)?),
+        trail_id: r.get(6)?,
+        visit_time_ms: r.get(7)?,
+    })
+}
+
 fn stored_families(vault: &Vault, state: &BuildState) -> Result<Option<Vec<QueryFamilyRecord>>> {
     let generation = state.aggregate_generation;
     let mut families = Vec::new();

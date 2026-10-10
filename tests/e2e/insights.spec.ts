@@ -28,7 +28,6 @@ import {
 import {
   FIXTURE_FAVICON_HOSTS,
   FIXTURE_PAGE_ICONS,
-  openedFrom,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import {
   archivedProfiles,
@@ -37,8 +36,8 @@ import {
   type FixtureVisit,
 } from './support/fixture'
 import {
-  compareTokens,
   searchFamilies,
+  searchTrails,
   searchWords,
 } from './support/search-words'
 
@@ -538,117 +537,18 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
   }
 })
 
-/**
- * Search trails by hand, by the documented rule
- * (`deterministic-intelligence.md` §5.4): a search continues the current trail
- * when it is in the same browser and session (30 minutes), the trail's last
- * visit is under 15 minutes old, and the two searches share at least half
- * their words or one's words are all in the other. A page belongs to the
- * trail when it was opened from one of the trail's visits, is on a site the
- * trail went to, or its title shares a word with the trail's searches; three
- * pages in a row that do not end it.
- */
-function searchTrails() {
-  const SESSION_GAP = 30 * 60_000
-  const TRAIL_GAP = 15 * 60_000
-  const trails: {
-    /** The search as first typed (`initial_query`). */
-    query: string
-    rewordings: number
-    /** Pages it opened, its rewordings not counted (`max_depth`). */
-    pages: number
-    latest: Set<string>
-    landing?: string
-  }[] = []
-  for (const visits of Object.values(fixture().visitsByProfile)) {
-    if (!archivedVisits().includes(visits[0])) continue
-    let lastVisit = -Infinity
-    let trail: {
-      query: string
-      rewordings: number
-      pages: number
-      latest: Set<string>
-      words: Set<string>
-      members: Set<number>
-      sites: Set<string>
-      unrelated: number
-      lastAt: number
-      landing?: string
-      landsNext: boolean
-    } | null = null
-    const ordered = [...visits].sort((a, b) => a.at - b.at)
-    const from = openedFrom(ordered)
-    for (const [index, visit] of ordered.entries()) {
-      const sameSession = visit.at - lastVisit <= SESSION_GAP
-      lastVisit = visit.at
-      const open = trail && sameSession && visit.at - trail.lastAt <= TRAIL_GAP
-      if (visit.term) {
-        const words = compareTokens(visit.term)
-        const shared = trail
-          ? [...words].filter((word) => trail!.latest.has(word)).length
-          : 0
-        const union = trail ? new Set([...words, ...trail.latest]).size : 0
-        const rewords =
-          open &&
-          (shared === words.size ||
-            shared === trail!.latest.size ||
-            shared / union >= 0.5)
-        if (rewords) {
-          if ([...words].join(' ') !== [...trail!.latest].join(' '))
-            trail!.rewordings += 1
-          trail!.latest = words
-          for (const word of words) trail!.words.add(word)
-          trail!.members.add(index)
-          trail!.unrelated = 0
-          trail!.lastAt = visit.at
-          // The page opened after the last wording becomes the landing.
-          trail!.landsNext = true
-        } else {
-          trail = {
-            query: visit.term,
-            rewordings: 0,
-            pages: 0,
-            latest: words,
-            words: new Set(words),
-            members: new Set([index]),
-            sites: new Set(),
-            unrelated: 0,
-            lastAt: visit.at,
-            landsNext: false,
-          }
-          trails.push(trail)
-        }
-      } else if (open) {
-        const relates =
-          (from[index] >= 0 && trail!.members.has(from[index])) ||
-          trail!.sites.has(site(visit.url)) ||
-          [...compareTokens(visit.title)].some((word) => trail!.words.has(word))
-        if (relates) {
-          trail!.pages += 1
-          trail!.members.add(index)
-          trail!.sites.add(site(visit.url))
-          trail!.unrelated = 0
-          trail!.lastAt = visit.at
-          if (trail!.landing === undefined || trail!.landsNext) {
-            trail!.landing = site(visit.url)
-            trail!.landsNext = false
-          }
-        } else if (++trail!.unrelated >= 3) {
-          trail = null
-        }
-      } else {
-        trail = null
-      }
-    }
-  }
-  return trails
+/** Every archived profile's search trails, by hand (`support/search-words.ts`). */
+function allSearchTrails() {
+  return archivedProfiles.flatMap((profile) =>
+    searchTrails(fixture().visitsByProfile[profile]),
+  )
 }
 
 test('reworded searches are counted, and listed as searches that took several tries', async ({
   page,
 }, testInfo) => {
   test.setTimeout(180_000)
-  const trails = searchTrails()
+  const trails = allSearchTrails()
   const reworded = trails.filter((trail) => trail.rewordings >= 2)
   const average =
     trails.reduce((sum, trail) => sum + trail.rewordings, 0) / trails.length
@@ -764,7 +664,7 @@ test('where searches end up is counted like the archive', async ({
 }, testInfo) => {
   test.setTimeout(180_000)
   const perSite = new Map<string, number>()
-  for (const trail of searchTrails())
+  for (const trail of allSearchTrails())
     if (trail.landing)
       perSite.set(trail.landing, (perSite.get(trail.landing) ?? 0) + 1)
   const top = Math.max(...perSite.values())
@@ -878,7 +778,7 @@ test('how searches go averages rewordings and pages per search engine', async ({
   page,
 }) => {
   // All time; every fixture search is on Google.
-  const trails = searchTrails()
+  const trails = allSearchTrails()
   const average = (value: (trail: (typeof trails)[number]) => number) =>
     new Intl.NumberFormat('en').format(
       Math.round(
@@ -906,7 +806,7 @@ test('where searches end up counts each search on the site it led to', async ({
   // All time: each trail counts for its landing site, with how many
   // different searches (as first typed) led there.
   const perSite = new Map<string, { searches: number; queries: Set<string> }>()
-  for (const trail of searchTrails()) {
+  for (const trail of allSearchTrails()) {
     if (!trail.landing) continue
     const entry = perSite.get(trail.landing) ?? {
       searches: 0,

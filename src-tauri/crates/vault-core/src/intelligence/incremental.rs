@@ -69,7 +69,9 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
         // v8: Chinese and Japanese searches split into words, with their function words left out.
         // v9: `site_flows` counts the visits whose browser does not record openers; a query family
         // takes a search like any of its wordings, not only its first.
-        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v9".to_string()),
+        // v10: a query family is compared by its first search again, and a rewording in the trail
+        // of the search before it joins that search's family (v9 chained through wordings).
+        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v10".to_string()),
         RebuildMode::FullRebuild => Ok("full-rebuild-v2".to_string()),
     }
 }
@@ -368,7 +370,7 @@ mod tests {
                     assert_eq!(
                         stage_version(connection, RebuildMode::StructuralRebuild)
                             .expect("structural version"),
-                        "structural-rebuild-v9"
+                        "structural-rebuild-v10"
                     );
                     assert_eq!(
                         stage_version(connection, RebuildMode::FullRebuild).expect("full version"),

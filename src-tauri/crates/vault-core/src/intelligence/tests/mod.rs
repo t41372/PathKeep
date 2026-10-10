@@ -22,6 +22,7 @@ mod append_aggregates;
 mod append_plans;
 mod batch_equivalence;
 mod build_needed;
+mod family_scale;
 mod fixtures;
 mod frequent_searches;
 mod new_sites;
