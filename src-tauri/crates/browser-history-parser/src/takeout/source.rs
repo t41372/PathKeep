@@ -11,8 +11,8 @@
 //! - Archive quarantine or import-batch semantics.
 
 use super::{
-    KIND_BROWSER_JSON, KIND_INDEX, KIND_SESSION_JSON, KIND_TYPED_URL_JSON, TakeoutPathDisposition,
-    TakeoutPathMatch,
+    KIND_BROWSER_JSON, KIND_INDEX, KIND_MY_ACTIVITY_JSON, KIND_SESSION_JSON, KIND_TYPED_URL_JSON,
+    TakeoutPathDisposition, TakeoutPathMatch,
 };
 use crate::{
     ParseError,
@@ -105,15 +105,11 @@ pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
     }
 
     if is_chrome_activity_json_path(&normalized) {
-        return TakeoutPathMatch {
-            family: "chrome-activity",
-            recognized_kind: None,
-            locale: Some(chrome_activity_locale(&normalized)),
-            disposition: TakeoutPathDisposition::NeedsReview,
-            reason_code: "chrome-my-activity-json",
-        };
+        return my_activity_match(Some(chrome_activity_locale(&normalized)));
     }
 
+    // My Activity in HTML (Takeout's default) is recognized but not read: the import card asks
+    // for the JSON export instead.
     if is_chrome_activity_html_path(&normalized) {
         return TakeoutPathMatch {
             family: "chrome-activity",
@@ -204,8 +200,23 @@ pub fn classify_payload_path_with_sniff(
             reason_code: "chrome-history-json",
         });
     }
+    // My Activity's folder and file are named in the account's language; the content says it.
+    if snippet_contains_my_activity_payload(&snippet) {
+        return Ok(my_activity_match(path_match.locale));
+    }
 
     Ok(path_match)
+}
+
+/// My Activity's Chrome entries in JSON, which are imported.
+fn my_activity_match(locale: Option<&'static str>) -> TakeoutPathMatch {
+    TakeoutPathMatch {
+        family: "chrome-activity",
+        recognized_kind: Some(KIND_MY_ACTIVITY_JSON),
+        locale,
+        disposition: TakeoutPathDisposition::WillImport,
+        reason_code: "chrome-my-activity-json",
+    }
 }
 
 /// Recognizes the supported Takeout payload family for one file path.
@@ -534,6 +545,17 @@ pub(super) fn read_takeout_zip_reader(
     let mut bytes = Vec::new();
     reader.read_to_end(&mut bytes).map_err(|source| ParseError::ReadSource { path, source })?;
     Ok(bytes)
+}
+
+/// A JSON array of activity records of Chrome: `products` holds `"Chrome"`, and they have a
+/// `time` and a page (`titleUrl`). Search or Maps activity has other products and stays out.
+fn snippet_contains_my_activity_payload(snippet: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(snippet);
+    text.trim_start().starts_with('[')
+        && text.contains("\"products\"")
+        && text.contains("\"Chrome\"")
+        && text.contains("\"titleUrl\"")
+        && text.contains("\"time\"")
 }
 
 fn snippet_contains_browser_history_payload(snippet: &[u8]) -> bool {

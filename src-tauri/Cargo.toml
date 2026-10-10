@@ -67,6 +67,7 @@ tempfile = "3.23.0"
 tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "sync"] }
+url = "2.5.7"
 walkdir = "2.5.0"
 # code-mode sandbox runtime (W-AI-8, D7 / §G Layer 2). Pure-Rust Cranelift JIT + runtime; the
 # `component-model`/`async` features are pulled transitively by `wasmtime-wasi`'s preview1 support
@@ -107,7 +108,7 @@ tauri-plugin-stronghold = "2.3.1"
 tauri-plugin-updater = "2.10.1"
 tokio.workspace = true
 tower-http = { version = "0.6.6", optional = true, features = ["cors"] }
-url = "2.5.7"
+url.workspace = true
 vault-core = { version = "0.1.0", path = "crates/vault-core" }
 vault-platform = { version = "0.1.0", path = "crates/vault-platform" }
 vault-owner-ipc = { path = "crates/vault-owner-ipc" }

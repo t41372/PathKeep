@@ -31,7 +31,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use browser_history_parser::takeout::{
-    KIND_INDEX, TakeoutPathDisposition, TakeoutPathMatch,
+    KIND_INDEX, KIND_MY_ACTIVITY_JSON, TakeoutPathDisposition, TakeoutPathMatch,
     classify_payload_path_with_sniff as classify_takeout_payload_with_sniff,
 };
 #[cfg(test)]
@@ -213,6 +213,25 @@ fn merge_preview_range(
             preview_range.end = Some(next_end.to_string());
         }
     }
+}
+
+/// The source profile a Takeout payload's visits go to. Chrome's own history and My Activity's
+/// Chrome entries are two sources: each keeps its records, and either can be undone or told apart.
+pub fn takeout_profile(kind: &str) -> &'static str {
+    if kind == KIND_MY_ACTIVITY_JSON { "takeout::my-activity" } else { "takeout::browser-history" }
+}
+
+/// The profiles an import put visits in, from the files it read.
+pub fn takeout_profiles(inspection: &TakeoutInspection) -> Vec<String> {
+    let mut profiles = inspection
+        .recognized_files
+        .iter()
+        .filter(|file| file.records > 0)
+        .map(|file| takeout_profile(&file.kind).to_owned())
+        .collect::<Vec<_>>();
+    profiles.sort();
+    profiles.dedup();
+    profiles
 }
 
 fn file_report_kind(path_match: TakeoutPathMatch) -> String {

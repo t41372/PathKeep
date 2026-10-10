@@ -182,13 +182,13 @@ fn classify_payload_path_handles_localized_history_and_review_only_paths() {
     assert_eq!(german.disposition, TakeoutPathDisposition::WillImport);
 
     let activity = classify_payload_path("My Activity/Chrome/MyActivity.json");
-    assert_eq!(activity.recognized_kind, None);
-    assert_eq!(activity.disposition, TakeoutPathDisposition::NeedsReview);
+    assert_eq!(activity.recognized_kind, Some(KIND_MY_ACTIVITY_JSON));
+    assert_eq!(activity.disposition, TakeoutPathDisposition::WillImport);
     assert_eq!(activity.reason_code, "chrome-my-activity-json");
 
     let activity_zh_tw = classify_payload_path("Takeout/我的活動/Chrome/我的活動.json");
-    assert_eq!(activity_zh_tw.recognized_kind, None);
-    assert_eq!(activity_zh_tw.disposition, TakeoutPathDisposition::NeedsReview);
+    assert_eq!(activity_zh_tw.recognized_kind, Some(KIND_MY_ACTIVITY_JSON));
+    assert_eq!(activity_zh_tw.disposition, TakeoutPathDisposition::WillImport);
     assert_eq!(activity_zh_tw.reason_code, "chrome-my-activity-json");
     assert_eq!(activity_zh_tw.locale, Some("zh-tw"));
 
@@ -1196,4 +1196,61 @@ fn parse_history_merges_reports_and_adapter_passthrough_edges() {
     assert_eq!(recorder.downloads, 1);
     assert_eq!(recorder.search_terms, 1);
     assert_eq!(recorder.favicons, 1);
+}
+
+/// My Activity in another language's folder is recognized by what it holds, and streams as
+/// visits: the page behind Google's redirect, the title without its prefix, the time from `time`;
+/// Chrome's own records and other products' are left out and said so. Search activity under a
+/// `Chrome` folder is not taken for it.
+#[test]
+fn my_activity_json_is_recognized_by_content_and_streams_its_pages() {
+    let dir = tempdir().expect("tempdir");
+    let folder = dir.path().join("Mi actividad").join("Chrome");
+    fs::create_dir_all(&folder).expect("folder");
+    let file = folder.join("MiActividad.json");
+    let records = r#"[
+      {"header":"docs.example","title":"Visited Docs","titleUrl":"https://www.google.com/url?q=https://docs.example/a&usg=x","time":"2025-04-22T18:30:56.385Z","products":["Chrome"]},
+      {"header":"Chrome","title":"Used Chrome","time":"2025-04-22T18:00:00Z","products":["Chrome"]},
+      {"header":"Search","title":"Searched for x","titleUrl":"https://www.google.com/search?q=x","time":"2025-04-22T17:00:00Z","products":["Search"]},
+      {"header":"blog.example","title":"Visited Post","titleUrl":"https://blog.example/p","time":"2025-04-21T08:00:00Z","products":["Chrome"]}
+    ]"#;
+    fs::write(&file, records).expect("write");
+    let path = file.display().to_string();
+    let matched = classify_payload_path_with_sniff(dir.path(), &path, false).expect("sniff");
+    assert_eq!(matched.recognized_kind, Some(KIND_MY_ACTIVITY_JSON));
+    assert_eq!(matched.disposition, TakeoutPathDisposition::WillImport);
+
+    let search = dir.path().join("Mi actividad").join("Chrome").join("Busqueda.json");
+    fs::write(&search, r#"[{"title":"Searched for x","titleUrl":"https://www.google.com/search?q=x","time":"2025-04-22T17:00:00Z","products":["Search"]}]"#)
+        .expect("write search");
+    let search_match =
+        classify_payload_path_with_sniff(dir.path(), &search.display().to_string(), false)
+            .expect("sniff search");
+    assert_eq!(search_match.recognized_kind, None);
+
+    let report = parse_payload(&path, KIND_MY_ACTIVITY_JSON, records.as_bytes()).expect("parse");
+    let mut visits = report
+        .history
+        .visits
+        .iter()
+        .map(|visit| (visit.url.as_str(), visit.title.as_deref(), visit.visit_time_ms))
+        .collect::<Vec<_>>();
+    visits.sort();
+    assert_eq!(
+        visits,
+        vec![
+            ("https://blog.example/p", Some("Post"), 1_745_222_400_000),
+            ("https://docs.example/a", Some("Docs"), 1_745_346_656_385),
+        ]
+    );
+    let warnings =
+        report.history.warnings.iter().map(|warning| warning.code.as_str()).collect::<Vec<_>>();
+    assert_eq!(warnings, vec!["no-page", "other-product"]);
+    assert!(
+        report
+            .history
+            .native_entities
+            .iter()
+            .all(|entity| entity.entity_kind == "takeout-my-activity")
+    );
 }

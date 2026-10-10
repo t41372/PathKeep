@@ -27,6 +27,7 @@
 
 mod browser_history;
 mod json_stream;
+mod my_activity;
 mod payloads;
 mod source;
 
@@ -49,6 +50,8 @@ pub use source::{
 };
 
 pub const KIND_BROWSER_JSON: &str = "browser-json";
+/// My Activity's Chrome entries as JSON (`docs/architecture/takeout-my-activity-tradeoff.md`).
+pub const KIND_MY_ACTIVITY_JSON: &str = "my-activity-json";
 pub const KIND_TYPED_URL_JSON: &str = "typed-url-json";
 pub const KIND_SESSION_JSON: &str = "session-json";
 pub const KIND_INDEX: &str = "takeout-index";

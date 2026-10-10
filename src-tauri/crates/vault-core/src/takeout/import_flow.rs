@@ -73,19 +73,31 @@ where
         ..TakeoutInspection::default()
     };
     let mut found_importable_payload = false;
-    let synthetic_profile = "takeout::browser-history".to_string();
-    let (profile, profile_source, request_copy) =
-        (synthetic_profile.clone(), source.to_path_buf(), request.clone());
-    let (source_profile_id, batch_id, run_id) =
+    // One source profile per format (`takeout_profile`), all in one batch that undoes together.
+    let mut profiles = classified_files
+        .iter()
+        .filter(|file| file.path_match.disposition == TakeoutPathDisposition::WillImport)
+        .filter_map(|file| file.path_match.recognized_kind)
+        .filter(|kind| *kind != KIND_INDEX)
+        .map(takeout_profile)
+        .collect::<Vec<_>>();
+    profiles.sort_unstable();
+    profiles.dedup();
+    let (profile_source, request_copy) = (source.to_path_buf(), request.clone());
+    let (source_profile_ids, batch_id, run_id) =
         vault.write(Db::Archive, Priority::Batch, move |s| {
-            let source = upsert_takeout_profile(s, &profile, &profile_source)?;
-            let batch = batches::create_import_batch(s, &profile, &request_copy)?;
-            let run = crate::archive::write_runs::start_in(s, "import", "manual", &[profile])?;
+            let mut ids = std::collections::BTreeMap::new();
+            for profile in &profiles {
+                ids.insert(*profile, upsert_takeout_profile(s, profile, &profile_source)?);
+            }
+            let batch = batches::create_import_batch(s, profiles[0], &request_copy)?;
+            let scope = profiles.iter().map(|profile| profile.to_string()).collect::<Vec<_>>();
+            let run = crate::archive::write_runs::start_in(s, "import", "manual", &scope)?;
             s.execute(
                 "UPDATE runs SET stats_json=?2 WHERE id=?1",
                 vault_store::params![run, json!({"importBatchId":batch}).to_string()],
             )?;
-            Ok((source, batch, run))
+            Ok((ids, batch, run))
         })?;
     let guard = super::import_run::ImportRun::new(vault, run_id, batch_id);
     guard.run(|| {
@@ -175,7 +187,8 @@ where
                                 cancel,
                                 run_id,
                                 batch_id,
-                                source_profile_id,
+                                source_profile_id: source_profile_ids[takeout_profile(kind)],
+                                profile_key: takeout_profile(kind),
                             },
                             classified_file,
                             kind,

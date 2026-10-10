@@ -180,12 +180,12 @@ Settings → General 的兩個開關。
 - GUI wizard 流程：
   1. 拖入 Takeout 的 zip、解壓後的資料夾，或單一 dedicated Chrome history JSON 檔。
   2. 先做 dry-run：掃描文件、識別格式、產生報告。
-  3. **目前 shipping scope 採 Chrome-first**：只有 dedicated Chrome history payload（例如 `BrowserHistory.json`、`History.json`、德文化的 `Verlauf.json`）進入 importer。Takeout 不寫 JSON Lines，`.jsonl` 檔就算每行看起來像瀏覽記錄也不匯入（看起來像歷史的標 `needs-review`）；PathKeep 自己的 JSONL 匯出也不是匯入格式。
+  3. **匯入兩種 Chrome 紀錄**：dedicated Chrome history payload（例如 `BrowserHistory.json`、`History.json`、德文化的 `Verlauf.json`），以及 2026-10-09 起「我的活動 → Chrome」的 JSON（依內容辨識，各語言的資料夾名都行；做法見 `docs/architecture/takeout-my-activity-tradeoff.md`），兩者各進自己的來源（`takeout::browser-history`、`takeout::my-activity`）。Takeout 不寫 JSON Lines，`.jsonl` 檔就算每行看起來像瀏覽記錄也不匯入（看起來像歷史的標 `needs-review`）；PathKeep 自己的 JSONL 匯出也不是匯入格式。
   4. dedicated Chrome history payload 的 parser 也必須對齊真實 Takeout envelope，而不是只靠 repo 自造 fixture；目前已驗到的 canonical shape 是頂層 `Browser History` 陣列，時間欄位使用 `time_usec`。
   5. wizard 的第一屏就必須明講「PathKeep 現在要什麼 Takeout 類型」，並教使用者在 Google Takeout 完成匯出後，先確認 zip / 資料夾 / 單一 JSON 檔裡是否真的有 dedicated Chrome history payload，再進入掃描。
-  6. 若使用者提供的是 `My Activity/Chrome/*.json`、`我的活動/Chrome/我的活動.json`、或任何 `.html` activity 匯出，UI 不能只顯示 generic ignored / no matches；必須直接說這不是目前 importer 支援的 dedicated Chrome history payload。
+  6. 若使用者提供的是「我的活動」的 `.html` 匯出（Takeout 的預設格式），UI 不能只顯示 generic ignored / no matches；必須直接說 PathKeep 讀不了 HTML，請在 Takeout 把「我的活動」改為 JSON，或改勾 Chrome。
   7. 已知但刻意不導入的檔案（例如 typed URL / session companion、Takeout index、其他 Google product export）必須明確標示為 `known-but-ignored`，而不是混進 quarantine 噪音。
-  8. 看起來像瀏覽歷史、但其實屬於更寬的 Google activity surface（例如 Chrome 相關 `My Activity`）要標成 `needs-review`，不能直接猜成 browser history。
+  8. 看起來像瀏覽歷史、但其實屬於更寬的 Google activity surface（搜尋、地圖等其他產品的「我的活動」）不匯入；「我的活動 → Chrome」的 JSON 只取 `products` 含 Chrome、有網址的紀錄（「Used Chrome」不是造訪）。
   9. 真正未支援或 parse 失敗的 payload 才進入 review / quarantine follow-through，並在 UI 中顯示原因和檔案摘要。
   10. 用戶確認後，才正式寫入 archive。
 - path recognition 不能再只靠檔名 substring；已知 English / German 檔名可以走 fast path，但對 direct JSON 與未知語言檔名也必須靠 payload header sniff 辨識 dedicated Chrome history shape，而不是繼續擴張 hardcoded locale tables。
@@ -200,7 +200,7 @@ Settings → General 的兩個開關。
   - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。
 - Import review surface 應把 `new import wizard` 與「這次匯入結果」放在首要層級；recent batch history、revert / restore、doctor report 與 repair CTA 退到次要 review surface，避免歷史批次搶走新匯入流程的注意力。
 - 提供詳細但可掃讀的操作指南：怎麼從 Google Takeout 請求 Chrome 匯出、怎麼下載，以及如何確認壓縮包 / 資料夾裡真的有 dedicated Chrome history JSON，而不是 My Activity JSON / HTML。
-  - 2026-10-09 介面：匯入卡在拖放區下有可展開的「怎麼從 Google Takeout 取得」（打開 takeout.google.com 全部取消選取、勾 Chrome〔資料選項裡可以只留歷史記錄〕、以 .zip 建立匯出、拖進來不用解壓縮；並說明 Takeout 裡是 Chrome 同步到帳號的歷史，可能比本機 Chrome 久）。預覽時若匯出裡有「我的活動 → Chrome」（JSON 或 HTML），寫明 PathKeep 不讀它、請改勾 Chrome；什麼都沒找到時寫明檔案裡沒有 Chrome 歷史與該怎麼匯出。`takeout-import.spec` 驗兩種情況。要不要匯入「我的活動」見 STATUS `WORK-TAKEOUT-FLOW-2026-10`。
+  - 2026-10-09 介面：匯入卡在拖放區下有可展開的「怎麼從 Google Takeout 取得」（打開 takeout.google.com 全部取消選取、勾 Chrome〔資料選項裡可以只留歷史記錄〕、以 .zip 建立匯出、拖進來不用解壓縮；並說明 Takeout 裡是 Chrome 同步到帳號的歷史，可能比本機 Chrome 久）。預覽時若匯出裡有 HTML 的「我的活動 → Chrome」，寫明 PathKeep 讀不了、請改為 JSON 或改勾 Chrome；什麼都沒找到時寫明檔案裡沒有 Chrome 歷史與該怎麼匯出。JSON 的「我的活動」照常預覽與匯入（Google 的轉址解開、標題去掉 `Visited `）。`takeout-import.spec` 驗這三種情況。
 
 ### 瀏覽器直接導入
 

@@ -1,9 +1,10 @@
 /**
- * The Google Takeout folder `takeout-import.spec` imports: Chrome's
+ * The Google Takeout folders `takeout-import.spec` imports: Chrome's
  * `BrowserHistory.json` in the shape Takeout writes it (a `Browser History`
  * array, times in Unix microseconds), plus files that must stay out: My
- * Activity's Chrome entries (the HTML Takeout writes by default), JSON Lines
- * and the archive index. Times
+ * Activity's Chrome entries in HTML (Takeout's default), JSON Lines and the
+ * archive index; and My Activity's Chrome entries in JSON, in a
+ * Traditional Chinese account's folder. Times
  * come from the fixture's `now`, so a repeated run writes the same folder,
  * and `wipe.spec` can count what the import left in the archive.
  */
@@ -103,5 +104,60 @@ function writeMyActivity(root: string) {
 export function writeMyActivityOnlyFolder() {
   const root = path.join(fixture().root, 'Takeout-my-activity')
   writeMyActivity(root)
+  return root
+}
+
+/** Every My Activity title starts with this, after Google's "Visited " prefix. */
+export const ACTIVITY_TITLE = 'Activity ledger'
+
+/**
+ * Four visits to two pages, 50 days ago, on a site no other spec visits. Two
+ * are behind Google's click redirect, as Takeout writes most of them.
+ */
+function activityVisits(): (TakeoutVisit & { redirected: boolean })[] {
+  const start = fixture().now - 50 * DAY_MS
+  return Array.from({ length: 4 }, (_, index) => ({
+    url: `https://activity.e2e.example/page/${index % 2}`,
+    title: `${ACTIVITY_TITLE} ${index % 2}`,
+    at: start + index * HOUR_MS,
+    redirected: index % 2 === 0,
+  }))
+}
+
+export function activityVisitCount() {
+  return activityVisits().length
+}
+
+export function activityPageCount() {
+  return new Set(activityVisits().map((visit) => visit.url)).size
+}
+
+/**
+ * My Activity → Chrome in JSON, under the folder and file names a Traditional
+ * Chinese account gets: the visits above, newest first as Takeout lists them,
+ * and a "Used Chrome" record that is not a visit.
+ */
+export function writeMyActivityJsonFolder() {
+  const root = path.join(fixture().root, 'Takeout-my-activity-json')
+  const folder = path.join(root, '我的活動', 'Chrome')
+  mkdirSync(folder, { recursive: true })
+  const records = activityVisits()
+    .map((visit) => ({
+      header: 'activity.e2e.example',
+      title: `Visited ${visit.title}`,
+      titleUrl: visit.redirected
+        ? `https://www.google.com/url?q=${encodeURIComponent(visit.url)}&usg=AOvVaw0e2e`
+        : visit.url,
+      time: new Date(visit.at).toISOString(),
+      products: ['Chrome'],
+    }))
+    .reverse()
+  records.push({
+    header: 'Chrome',
+    title: 'Used Chrome',
+    time: new Date(fixture().now - 51 * DAY_MS).toISOString(),
+    products: ['Chrome'],
+  } as (typeof records)[number])
+  writeFileSync(path.join(folder, '我的活動.json'), JSON.stringify(records))
   return root
 }

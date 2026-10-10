@@ -881,12 +881,10 @@ where
     let mut inspection =
         import_takeout_with_progress(&vault.with_config(config.clone()), request, report_progress)?;
     if inspection.imported_items > 0 {
+        let profiles = vault_core::takeout::takeout_profiles(&inspection);
         append_core_refresh_import_result(
             &mut inspection.notes,
-            enqueue_and_spawn_deterministic_refresh(
-                vault,
-                &["takeout::browser-history".to_string()],
-            ),
+            enqueue_and_spawn_deterministic_refresh(vault, &profiles),
         );
     }
     Ok(inspection)

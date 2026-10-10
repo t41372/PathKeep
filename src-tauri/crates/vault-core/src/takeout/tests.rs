@@ -540,7 +540,7 @@ fn import_takeout_marks_malformed_import_runs_failed() {
 }
 
 #[test]
-fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
+fn my_activity_html_stays_in_review_and_creates_no_batch() {
     let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
@@ -550,10 +550,10 @@ fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
     fs::create_dir_all(source.join("我的活動").join("Chrome")).expect("create activity source");
     fs::write(source.join(".DS_Store"), "noise").expect("write ds_store");
     fs::write(
-        source.join("我的活動").join("Chrome").join("我的活動.json"),
-        r#"[{"header":"google.com","title":"Visited Example","titleUrl":"https://example.com","time":"2026-04-22T18:30:56.385Z","products":["Chrome"]}]"#,
+        source.join("我的活動").join("Chrome").join("我的活動.html"),
+        "<html><body><div>Visited <a href=\"https://example.com\">Example</a></div></body></html>",
     )
-    .expect("write my activity json");
+    .expect("write my activity html");
 
     let inspection = inspect_takeout(
         &paths,
@@ -564,9 +564,8 @@ fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
     assert_eq!(inspection.quarantined_files.len(), 1);
     assert_eq!(
         inspection.quarantined_files[0].reason_code.as_deref(),
-        Some("chrome-my-activity-json")
+        Some("chrome-my-activity-html")
     );
-    assert_eq!(inspection.quarantined_files[0].detected_locale.as_deref(), Some("zh-tw"));
     assert_eq!(inspection.detected_locale.as_deref(), Some("zh-tw"));
 
     let imported = import_takeout(
@@ -576,18 +575,17 @@ fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
     .expect("import my activity");
     assert!(imported.import_batch.is_none());
     assert_eq!(imported.imported_items, 0);
-    assert_eq!(imported.quarantined_files.len(), 1);
     assert_eq!(load_import_batches(&vault, None, 16).expect("load batches").items.len(), 0);
 }
 
+/// Chrome's history and My Activity in one export: each goes to its own source profile, in one
+/// batch; My Activity's page is the one behind Google's redirect, without the "Visited " prefix;
+/// "Used Chrome" is not a visit; importing again adds nothing.
 #[test]
-fn import_takeout_quarantines_review_needed_payloads_while_importing_supported_history() {
+fn my_activity_json_imports_into_its_own_profile_beside_chrome_history() {
     let vault = crate::Vault::open_temp().unwrap();
     let dir = tempdir().expect("tempdir");
-    let paths = sample_paths(dir.path());
-    ensure_paths(&paths).expect("ensure paths");
-
-    let source = dir.path().join("mixed-review-takeout");
+    let source = dir.path().join("both-takeout");
     fs::create_dir_all(source.join("Chrome")).expect("create chrome source");
     fs::create_dir_all(source.join("My Activity").join("Chrome")).expect("create activity source");
     fs::write(
@@ -596,35 +594,61 @@ fn import_takeout_quarantines_review_needed_payloads_while_importing_supported_h
             r#"{"url":"https://example.com/imported","title":"Imported","time_usec":1711965600000000}"#,
         ]),
     )
-    .expect("write importable browser history");
+    .expect("write browser history");
     fs::write(
         source.join("My Activity").join("Chrome").join("MyActivity.json"),
-        r#"[{"header":"Chrome","title":"Visited Review","titleUrl":"https://review.example","time":"2026-04-22T18:30:56.385Z","products":["Chrome"]}]"#,
+        r#"[{"header":"docs.example","title":"Visited Docs","titleUrl":"https://www.google.com/url?q=https://docs.example/a&usg=x","time":"2026-04-22T18:30:56.385Z","products":["Chrome"]},
+            {"header":"Chrome","title":"Used Chrome","time":"2026-04-22T18:00:00Z","products":["Chrome"]}]"#,
     )
-    .expect("write review-needed my activity");
+    .expect("write my activity");
+    let request = TakeoutRequest { source_path: source.display().to_string(), dry_run: false };
 
-    let imported = import_takeout(
-        &vault,
-        &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
-    )
-    .expect("import mixed review takeout");
-
-    assert_eq!(imported.imported_items, 1);
-    assert_eq!(imported.quarantined_files.len(), 1);
+    let imported = import_takeout(&vault, &request).expect("import");
+    assert_eq!(imported.imported_items, 2);
+    assert!(imported.quarantined_files.is_empty());
     assert_eq!(
-        imported.quarantined_files[0].reason_code.as_deref(),
-        Some("chrome-my-activity-json")
+        takeout_profiles(&imported),
+        vec!["takeout::browser-history".to_string(), "takeout::my-activity".to_string()]
     );
-    assert!(
-        vault
-            .paths()
-            .quarantine_dir
-            .join("mixed-review-takeout")
-            .join("My Activity")
-            .join("Chrome")
-            .join("MyActivity.json")
-            .exists()
+    let rows = crate::test_support::native::TestDatabase::new(&vault, Db::Archive)
+        .read(|s| {
+            Ok(s.query(
+                "SELECT p.profile_key, u.url, u.title, v.visit_time_ms FROM visits v
+                 JOIN urls u ON u.id=v.url_id JOIN source_profiles p ON p.id=v.source_profile_id
+                 ORDER BY p.profile_key",
+                (),
+                |r| {
+                    Ok((
+                        r.get::<String>(0)?,
+                        r.get::<String>(1)?,
+                        r.get::<Option<String>>(2)?,
+                        r.get::<i64>(3)?,
+                    ))
+                },
+            )?)
+        })
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (
+                "takeout::browser-history".to_string(),
+                "https://example.com/imported".to_string(),
+                Some("Imported".to_string()),
+                1_711_965_600_000
+            ),
+            (
+                "takeout::my-activity".to_string(),
+                "https://docs.example/a".to_string(),
+                Some("Docs".to_string()),
+                1_776_882_656_385
+            ),
+        ]
     );
+
+    let again = import_takeout(&vault, &request).expect("import again");
+    assert_eq!(again.imported_items, 0);
+    assert_eq!(again.duplicate_items, 2);
 }
 
 #[test]

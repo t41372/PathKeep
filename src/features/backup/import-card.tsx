@@ -136,7 +136,7 @@ function TakeoutSteps() {
   )
 }
 
-/** The export holds My Activity's Chrome entries, which PathKeep does not read. */
+/** The export holds My Activity's Chrome entries as HTML, which PathKeep cannot read (JSON it imports). */
 const isMyActivity = (inspection: TakeoutInspection) =>
   inspection.quarantinedFiles.some((file) =>
     file.reasonCode?.startsWith('chrome-my-activity'),
