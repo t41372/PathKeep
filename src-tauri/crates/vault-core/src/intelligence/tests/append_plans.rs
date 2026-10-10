@@ -4,8 +4,10 @@
 //! At 14.4M visits a 10,000-visit append looked up and replaced 5,378 pages' refind rows; a
 //! lookup planned without the page's key reads every refind row of the profile, and the whole
 //! step took hours instead of seconds. Failure modes: a statement on a large table planned as a
-//! scan, or as a search on the generation and profile alone; either reads the whole table once
-//! per page. Deletes and updates are checked too (`vault_store` captures their plans).
+//! scan, or as a search on the generation, profile and a handful of kinds alone; either reads a
+//! whole slice of the table once per page or flow (the existence check of a path flow, searched
+//! by profile and step count, read every flow of that length: 94 s for 4,812 flows). Deletes
+//! and updates are checked too (`vault_store` captures their plans).
 use super::append_aggregates::{add, build, vault, visits};
 use super::fixtures::seed_core_intelligence_fixture;
 use crate::test_support::native::TestDatabase;
@@ -29,11 +31,20 @@ const LARGE: &[&str] = &[
     "site_flows_rows",
 ];
 
-/// Columns that only narrow a table to one build or one profile, never to one row.
-const BROAD: &[&str] = &["generation", "profile_id"];
+/// Columns that only narrow a table to one build, one profile or one of a few kinds, never to
+/// one row.
+const BROAD: &[&str] = &[
+    "generation",
+    "profile_id",
+    "step_count",
+    "kind",
+    "query_kind",
+    "search_engine",
+    "page_category",
+];
 
 /// A plan step that reads a large table without a key: a scan, or a search constrained only
-/// by the build and the profile. A read of the top rows in an index's order (the overview the
+/// by the build, the profile and kinds. A read of the top rows in an index's order (the overview the
 /// build warms afterwards) stops at its `LIMIT`, so it does not count.
 fn reads_whole(step: &str, sql: &str) -> bool {
     let mut words = step.split_whitespace();
