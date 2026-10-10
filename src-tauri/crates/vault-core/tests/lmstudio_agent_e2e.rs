@@ -250,7 +250,7 @@ fn tool_context(vault: &Vault, config: &AppConfig) -> AgentToolContext {
         default_limit: config.ai.retrieval_top_k.max(1),
         run_control: None,
         // Pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
-        tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
+        time_zone: chrono_tz::UTC,
     }
 }
 

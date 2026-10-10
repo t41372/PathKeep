@@ -17,14 +17,15 @@
 //!
 //! ## Dependencies
 //! - `archive::search_lexical` for repo-owned Unicode/OpenCC normalization.
-//! - `chrono` for visit-date operator normalization.
+//! - `chrono` for visit-date operator normalization; dates are days in the computer's time zone.
 //!
 //! ## Performance notes
 //! - Parsing is linear in query length and all SQL filter vectors are capped so
 //!   a pasted query cannot create unbounded temp-table work.
 
 use super::search_lexical::{normalized_compact_filter_terms, normalized_filter_terms};
-use chrono::{Datelike, NaiveDate, TimeZone, Utc};
+use crate::utils::local_day_range_ms;
+use chrono::NaiveDate;
 
 /// Parsed local-history equivalent of Google-style advanced search operators.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -271,45 +272,30 @@ fn push_filter_values(target: &mut Vec<String>, values: Vec<String>) {
     }
 }
 
+/// From the start of the day (or year) in the computer's time zone, the zone History shows days in.
 fn parse_after_date(raw: &str) -> Option<i64> {
-    let date = parse_query_date(raw)?;
-    Utc.with_ymd_and_hms(date.year, date.month, date.day, 0, 0, 0)
-        .single()
-        .map(|value| value.timestamp_millis())
+    let (first, _) = parse_query_days(raw)?;
+    Some(local_day_range_ms(first)?.0)
 }
 
+/// To the end of the day (or year) in the computer's time zone.
 fn parse_before_date(raw: &str) -> Option<i64> {
-    let date = parse_query_date(raw)?;
-    let (month, day) = if date.year_only { (12, 31) } else { (date.month, date.day) };
-    Utc.with_ymd_and_hms(date.year, month, day, 23, 59, 59)
-        .single()
-        .map(|value| value.timestamp_millis() + 999)
+    let (_, last) = parse_query_days(raw)?;
+    Some(local_day_range_ms(last)?.1)
 }
 
-fn parse_query_date(raw: &str) -> Option<QueryDate> {
+/// The first and last day a date operand names: one day, or a whole year.
+fn parse_query_days(raw: &str) -> Option<(NaiveDate, NaiveDate)> {
     let trimmed = raw.trim().replace('/', "-");
     if trimmed.len() == 4 && trimmed.chars().all(|character| character.is_ascii_digit()) {
-        return trimmed.parse::<i32>().ok().map(|year| QueryDate {
-            year,
-            month: 1,
-            day: 1,
-            year_only: true,
-        });
+        let year = trimmed.parse::<i32>().ok()?;
+        return Some((
+            NaiveDate::from_ymd_opt(year, 1, 1)?,
+            NaiveDate::from_ymd_opt(year, 12, 31)?,
+        ));
     }
-    NaiveDate::parse_from_str(&trimmed, "%Y-%m-%d").ok().map(|date| QueryDate {
-        year: date.year(),
-        month: date.month(),
-        day: date.day(),
-        year_only: false,
-    })
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct QueryDate {
-    year: i32,
-    month: u32,
-    day: u32,
-    year_only: bool,
+    let day = NaiveDate::parse_from_str(&trimmed, "%Y-%m-%d").ok()?;
+    Some((day, day))
 }
 
 #[cfg(test)]

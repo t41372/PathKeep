@@ -159,7 +159,11 @@ pub fn unix_micros_to_chrome_time(value: i64) -> i64 {
 /// UTC offset (in UTC+8, "June 19" ran from 08:00 June 19 to 08:00 June 20). `None` for an
 /// unparseable date.
 pub fn date_str_to_unix_ms_range(date: &str) -> Option<(i64, i64)> {
-    let day = chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()?;
+    local_day_range_ms(chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()?)
+}
+
+/// The instants of the local calendar day `day`, as in [`date_str_to_unix_ms_range`].
+pub(crate) fn local_day_range_ms(day: chrono::NaiveDate) -> Option<(i64, i64)> {
     Some((local_day_start_ms(day)?, local_day_start_ms(day.succ_opt()?)? - 1))
 }
 
@@ -169,6 +173,17 @@ fn local_day_start_ms(day: chrono::NaiveDate) -> Option<i64> {
     (0..=2)
         .find_map(|hour| Local.from_local_datetime(&day.and_hms_opt(hour, 0, 0)?).earliest())
         .map(|start| start.timestamp_millis())
+}
+
+/// The computer's time zone: `TZ` when it names an IANA zone (as the C library and
+/// `chrono::Local` read it), else the system setting, else UTC when neither can be told.
+pub fn computer_time_zone() -> chrono_tz::Tz {
+    let named = |name: &str| name.trim_start_matches(':').parse::<chrono_tz::Tz>().ok();
+    std::env::var("TZ")
+        .ok()
+        .and_then(|name| named(&name))
+        .or_else(|| iana_time_zone::get_timezone().ok().and_then(|name| named(&name)))
+        .unwrap_or(chrono_tz::UTC)
 }
 
 /// Extracts a normalized domain/host string from a URL-like input.

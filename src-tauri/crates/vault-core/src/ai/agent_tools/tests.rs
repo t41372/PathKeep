@@ -11,8 +11,8 @@ use crate::models::{AiProviderConfig, AiProviderPurpose, AiRequestFormat};
 use secrecy::SecretString;
 
 /// The UTC offset the tests render LOCAL times with — deterministic, host-clock-independent.
-fn utc() -> chrono::FixedOffset {
-    chrono::FixedOffset::east_opt(0).unwrap()
+fn utc() -> chrono_tz::Tz {
+    chrono_tz::UTC
 }
 
 fn embedding_runtime() -> AiProviderRuntime {
@@ -51,7 +51,7 @@ fn context_with(embedding: Option<AiProviderRuntime>) -> (tempfile::TempDir, Age
         // and `run_code` threads `None` into the sandbox (no cancel hook) as a safe default.
         run_control: None,
         // Tests pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
-        tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
+        time_zone: chrono_tz::UTC,
     };
     (dir, context)
 }
@@ -1352,9 +1352,13 @@ async fn list_annotations_pages_every_byte_of_a_long_cjk_note() {
 fn format_local_ms_renders_local_and_handles_an_invalid_instant() {
     // Success: an epoch-ms instant renders as `YYYY-MM-DD HH:MM` in the offset. 1_700_000_000_000ms
     // is 2023-11-14T22:13:20Z; in +08:00 that is the 15th, 06:13 — proving the offset is applied.
-    let plus8 = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+    let plus8 = chrono_tz::Asia::Taipei;
     assert_eq!(format_local_ms(1_700_000_000_000, plus8), "2023-11-15 06:13");
     assert_eq!(format_local_ms(1_700_000_000_000, utc()), "2023-11-14 22:13");
+    // Each instant gets its own date's offset: noon in New York in winter (EST) and in summer (EDT).
+    let new_york = chrono_tz::America::New_York;
+    assert_eq!(format_local_ms(1_772_384_400_000, new_york), "2026-03-01 12:00");
+    assert_eq!(format_local_ms(1_782_921_600_000, new_york), "2026-07-01 12:00");
     // Parse-failure branch: `from_timestamp_millis` returns None for an out-of-range instant, so the
     // helper yields the empty string (never panics). i64::MAX ms is far past the representable range.
     assert_eq!(format_local_ms(i64::MAX, utc()), "");
@@ -1363,7 +1367,7 @@ fn format_local_ms_renders_local_and_handles_an_invalid_instant() {
 #[test]
 fn format_local_rfc3339_renders_local_and_passes_through_unparseable_input() {
     // Success: an RFC-3339 UTC instant renders as LOCAL `YYYY-MM-DD HH:MM` in the offset.
-    let plus8 = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+    let plus8 = chrono_tz::Asia::Taipei;
     assert_eq!(format_local_rfc3339("2026-06-21T22:30:00Z", plus8), "2026-06-22 06:30");
     assert_eq!(format_local_rfc3339("2026-06-21T22:30:00Z", utc()), "2026-06-21 22:30");
     // Parse-failure branch: an unparseable value is returned UNCHANGED (never panics, never empty).
@@ -1373,7 +1377,7 @@ fn format_local_rfc3339_renders_local_and_passes_through_unparseable_input() {
 #[test]
 fn local_date_rfc3339_renders_the_local_day_and_is_empty_on_parse_failure() {
     // Success: the LOCAL calendar date can roll over relative to UTC when the offset crosses midnight.
-    let plus8 = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+    let plus8 = chrono_tz::Asia::Taipei;
     assert_eq!(local_date_rfc3339("2026-06-21T22:30:00Z", plus8), "2026-06-22");
     assert_eq!(local_date_rfc3339("2026-06-21T22:30:00Z", utc()), "2026-06-21");
     // Parse-failure branch: an unparseable value yields the empty string (never panics).
@@ -1564,7 +1568,7 @@ async fn search_history_renders_local_visit_times_in_the_summary() {
         applied_limit: Some(50),
         has_more: false,
     };
-    let plus8 = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+    let plus8 = chrono_tz::Asia::Taipei;
     let text = summarize_search_for_model("search_history", &response, plus8);
     assert!(
         text.contains("2026-06-22 06:30"),
@@ -1594,11 +1598,7 @@ fn a_partial_index_is_explicit_in_the_model_facing_search_result() {
     .unwrap();
     assert!(result.items.is_empty());
     assert!(!result.search_state.as_ref().unwrap().coverage_complete);
-    let summary = summarize_search_for_model(
-        "search_history",
-        &result,
-        chrono::FixedOffset::east_opt(0).unwrap(),
-    );
+    let summary = summarize_search_for_model("search_history", &result, chrono_tz::UTC);
     assert!(summary.contains("coverageComplete\":false"), "{summary}");
     assert!(summary.contains("incomplete"), "{summary}");
     assert!(!summary.contains("no matching history rows"), "{summary}");
