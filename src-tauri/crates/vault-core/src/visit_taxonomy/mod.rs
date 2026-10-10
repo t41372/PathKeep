@@ -41,4 +41,6 @@ pub use self::url::{
     registrable_domain_for_url,
 };
 
-pub(crate) use self::rules::taxonomy_version;
+pub(crate) use self::rules::{taxonomy_version, url_rules_version};
+pub(crate) use self::text::is_cjk_like;
+pub(crate) use self::types::Opener;

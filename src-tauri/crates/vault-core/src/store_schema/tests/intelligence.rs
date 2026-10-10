@@ -6,6 +6,7 @@ use super::{Fixture, ForeignKey};
 pub(super) const TABLES: &[&str] = &[
     "session_domains",
     "session_paths",
+    "site_flows_rows",
     "__pk_migrations",
     "ai_assistant_runs",
     "ai_embeddings",
@@ -18,7 +19,6 @@ pub(super) const TABLES: &[&str] = &[
     "deterministic_module_runtime",
     "domain_daily_rollups_rows",
     "engine_daily_rollups_rows",
-    "habit_patterns_rows",
     "intelligence_job_triggers",
     "intelligence_jobs",
     "intelligence_overview_snapshots",
@@ -56,6 +56,7 @@ pub(super) const TABLES: &[&str] = &[
 pub(super) const INDEXES: &[&str] = &[
     "sqlite_autoindex_session_domains_1",
     "sqlite_autoindex_session_paths_1",
+    "sqlite_autoindex_site_flows_rows_1",
     "idx_search_trail_members_order",
     "idx_search_events_query_time",
     "idx_ai_embeddings_history_id",
@@ -91,7 +92,6 @@ pub(super) const INDEXES: &[&str] = &[
     "sqlite_autoindex_deterministic_module_runtime_1",
     "sqlite_autoindex_domain_daily_rollups_rows_1",
     "sqlite_autoindex_engine_daily_rollups_rows_1",
-    "sqlite_autoindex_habit_patterns_rows_1",
     "sqlite_autoindex_intelligence_jobs_1",
     "sqlite_autoindex_intelligence_overview_snapshots_1",
     "sqlite_autoindex_path_flows_rows_1",
@@ -130,7 +130,6 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_search_trails_recent",
     "idx_search_trails_friction",
     "idx_query_families_recent",
-    "idx_query_families_members",
     "idx_query_family_queries_query",
     "idx_reopened_investigations_recent",
     "idx_path_flows_profile_rank",
@@ -143,6 +142,8 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_search_trails_landing",
     "idx_domain_daily_site",
     "idx_session_paths_range",
+    "idx_site_flows_site",
+    "idx_search_events_engine_time",
 ];
 pub(super) const ROWS: &[Fixture] = &[
     Fixture {
@@ -156,6 +157,12 @@ pub(super) const ROWS: &[Fixture] = &[
         columns: "generation,profile_id,session_id,segment,date_key,prefix_len,sites_json",
         values: "1,'sample','sample',0,'2026-01-01',0,'[]'",
         updated: "prefix_len=1",
+    },
+    Fixture {
+        table: "site_flows_rows",
+        columns: "generation,profile_id,date_key,registrable_domain,kind,other,visit_count",
+        values: "1,'sample','2026-01-01','sample','link','sample',1",
+        updated: "visit_count=2",
     },
     Fixture {
         table: "intelligence_generations",
@@ -278,12 +285,6 @@ pub(super) const ROWS: &[Fixture] = &[
         updated: "url = 'changed'",
     },
     Fixture {
-        table: "habit_patterns_rows",
-        columns: "generation, profile_id, registrable_domain, habit_type, mean_interval_days, cv, visit_count, last_visited_ms, is_interrupted, computed_at",
-        values: "1, 'sample', 'sample', 'sample', 1.5, 1.5, 1, 1, 1, 'sample'",
-        updated: "habit_type = 'changed'",
-    },
-    Fixture {
         table: "reopened_investigations_rows",
         columns: "generation, investigation_id, profile_id, anchor_type, anchor_id, anchor_label, occurrence_count, distinct_days, first_seen_ms, last_seen_ms, evidence_json, computed_at",
         values: "1, 'sample', 'sample', 'sample', 'sample', 'sample', 1, 1, 1, 1, 'sample', 'sample'",
@@ -391,7 +392,6 @@ pub(super) const VIEWS: &[&str] = &[
     "query_families",
     "query_family_queries",
     "refind_pages",
-    "habit_patterns",
     "reopened_investigations",
     "path_flows",
     "compare_sets",

@@ -16,7 +16,6 @@
 //!
 //! ## Dependencies
 //! - Shared session/trail build state in `intelligence_structural_state`.
-//! - Dirty-range cleanup helpers in `intelligence_structural_persist`.
 //! - Parent-module structural record types, search-query helpers, and SQLite
 //!   row loaders.
 //! - `archive.visits`, `search_events`, `search_trails`, and related structural
@@ -28,11 +27,14 @@
 //! - Range deletes stay scoped to one profile and one dirty window so large
 //!   rebuilds do not rewrite unaffected structural rows.
 
-use super::intelligence_structural_state::{PathSegment, SessionBuildState, TrailBuildState};
+use super::intelligence_structural_state::{
+    OpenerWindow, PathSegment, SessionBuildState, TrailBuildState,
+};
 use super::{
     StructuralTailStreamReport, StructuralVisitRecord, TrailRecord, classify_search_query_kind,
-    normalize_query, search_words,
+    local_date_key, normalize_query, search_words,
 };
+use crate::visit_taxonomy::Opener;
 use anyhow::Result;
 use vault_store::{Session, params_owned as params};
 
@@ -46,6 +48,9 @@ pub(super) struct StructuralTailPersist<'tx, 'db> {
     assignment_statement: vault_store::Statement<'tx, 'db>,
     domain_statement: vault_store::Statement<'tx, 'db>,
     domain_updates: std::collections::BTreeMap<(String, String), i64>,
+    flow_statement: vault_store::Statement<'tx, 'db>,
+    /// `(day, site, kind, other)` → visits, added to `site_flows` with the domain counts.
+    flow_updates: std::collections::BTreeMap<(String, String, &'static str, String), i64>,
     session_statement: vault_store::Statement<'tx, 'db>,
     path_statement: vault_store::Statement<'tx, 'db>,
     trail_statement: vault_store::Statement<'tx, 'db>,
@@ -62,6 +67,13 @@ impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
         Ok(Self {
             generation,profile_id:profile_id.to_owned(),
             domain_updates:Default::default(),
+            flow_updates: Default::default(),
+            flow_statement: tx.prepare(
+                "INSERT INTO site_flows_rows(generation,profile_id,date_key,registrable_domain,kind,other,visit_count)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7)
+                 ON CONFLICT(generation,date_key,profile_id,registrable_domain,kind,other)
+                 DO UPDATE SET visit_count=visit_count+excluded.visit_count",
+            )?,
             domain_statement:tx.prepare("INSERT INTO session_domains(generation,profile_id,session_id,domain,visit_count) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(generation,session_id,domain) DO UPDATE SET visit_count=visit_count+excluded.visit_count")?,
             assignment_statement: tx.prepare(
                 "INSERT OR REPLACE INTO visit_assignments (generation,profile_id,visit_id,session_id,trail_id,ordinal)
@@ -120,14 +132,34 @@ impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
         Ok(())
     }
 
-    /// Saves domain deltas in the same transaction as assignments and the replay cursor.
-    pub(super) fn flush_domain_counts(&mut self) -> Result<()> {
+    /// Counts one visit toward a site's arrivals or onward sites (`site_flows`) on `day`.
+    pub(super) fn count_flow(&mut self, day: &str, site: &str, kind: &'static str, other: &str) {
+        *self
+            .flow_updates
+            .entry((day.to_owned(), site.to_owned(), kind, other.to_owned()))
+            .or_default() += 1;
+    }
+
+    /// Saves domain and site-flow deltas in the same transaction as assignments and the replay
+    /// cursor.
+    pub(super) fn flush_counts(&mut self) -> Result<()> {
         for ((session, domain), count) in std::mem::take(&mut self.domain_updates) {
             self.domain_statement.execute(params![
                 self.generation,
                 self.profile_id,
                 session,
                 domain,
+                count
+            ])?;
+        }
+        for ((day, site, kind, other), count) in std::mem::take(&mut self.flow_updates) {
+            self.flow_statement.execute(params![
+                self.generation,
+                self.profile_id,
+                day,
+                site,
+                kind,
+                other,
                 count
             ])?;
         }
@@ -273,6 +305,8 @@ pub(super) struct StructuralTailStreamState {
     pub(super) current_session: Option<SessionBuildState>,
     pub(super) current_trail: Option<TrailBuildState>,
     pub(super) report: StructuralTailStreamReport,
+    #[serde(default)]
+    pub(super) openers: OpenerWindow,
 }
 
 impl StructuralTailStreamState {
@@ -349,12 +383,14 @@ impl StructuralTailStreamState {
                 || visit.visit_time_ms - trail.record.last_visit_ms > super::TRAIL_GAP_MS
             {
                 self.finish_trail(computed_at, persist)?;
-            } else {
+            } else if trail.relates(&visit) {
                 let member = trail.append_visit(&visit);
                 trail_id = Some(trail.record.trail_id.clone());
                 self.report.member_count += 1;
                 persist.persist_trail_member(&member)?;
                 trail.record.members.truncate(1);
+            } else if trail.pass_unrelated() {
+                self.finish_trail(computed_at, persist)?;
             }
         }
 
@@ -365,7 +401,38 @@ impl StructuralTailStreamState {
             ordinal,
             &visit.registrable_domain,
         )?;
+        self.count_flows(&visit, persist);
         Ok(())
+    }
+
+    /// How the visit began, by its opener: nothing (typed, a bookmark), a search's results, a
+    /// link on another site, or a page PathKeep did not see; the opener's site gains an onward
+    /// site. Moving between pages of one site counts for neither. A visit whose browser does not
+    /// record openers (Safari, Takeout) counts as unrecorded, so the site page can say it does
+    /// not know rather than that nothing came.
+    fn count_flows(
+        &mut self,
+        visit: &StructuralVisitRecord,
+        persist: &mut StructuralTailPersist<'_, '_>,
+    ) {
+        let site = visit.registrable_domain.as_str();
+        if !site.is_empty() {
+            let day = local_date_key(visit.visit_time_ms);
+            match Opener::of(visit.from_visit) {
+                Opener::Unrecorded => persist.count_flow(&day, site, "unrecorded", ""),
+                Opener::Nothing => persist.count_flow(&day, site, "direct", ""),
+                Opener::Visit(id) => match self.openers.get(id) {
+                    Some((opener, _)) if opener == site => {}
+                    Some((opener, is_search)) if !opener.is_empty() => {
+                        let kind = if *is_search { "search" } else { "link" };
+                        persist.count_flow(&day, site, kind, opener);
+                        persist.count_flow(&day, opener, "onward", site);
+                    }
+                    _ => persist.count_flow(&day, site, "link", ""),
+                },
+            }
+        }
+        self.openers.push(visit.source_visit_id, site, visit.is_search_event);
     }
 
     /// Flushes the current trail when a session boundary or replay end is hit.
@@ -621,10 +688,11 @@ mod tests {
                 drop(persist);
 
                 let trails = connection.query(
-                    "SELECT trail_id, reformulation_count, queries_json, landing_domain FROM search_trails ORDER BY trail_id",
+                    "SELECT trail_id, reformulation_count, queries_json, landing_domain, visit_count, max_depth FROM search_trails ORDER BY trail_id",
                     (),
-                    |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?, row.get::<String>(2)?, row.get::<Option<String>>(3)?)),
+                    |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?, row.get::<String>(2)?, row.get::<Option<String>>(3)?, row.get::<i64>(4)?, row.get::<i64>(5)?)),
                 )?;
+                // Visits count the three searches; the depth counts the two pages they opened.
                 assert_eq!(
                     trails,
                     vec![
@@ -633,12 +701,16 @@ mod tests {
                             1,
                             r#"["tokio select","tokio select macro"]"#.to_string(),
                             Some("tokio.rs".to_string()),
+                            5,
+                            2,
                         ),
                         (
                             "trail:chrome:Default:6".to_string(),
                             0,
                             r#"["weather tokyo"]"#.to_string(),
                             Some("weather.example".to_string()),
+                            2,
+                            1,
                         ),
                     ]
                 );
@@ -671,8 +743,10 @@ mod tests {
     ) -> StructuralVisitRecord {
         StructuralVisitRecord {
             visit_id,
+            source_visit_id: visit_id,
             profile_id: "chrome:Default".to_string(),
             url: url.to_string(),
+            title: None,
             visit_time_ms,
             from_visit: (visit_id > 1).then_some(visit_id - 1),
             registrable_domain: registrable_domain.to_string(),

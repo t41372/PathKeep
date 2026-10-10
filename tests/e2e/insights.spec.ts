@@ -25,8 +25,21 @@ import {
   type Page,
   type TestInfo,
 } from '@playwright/test'
-import { FIXTURE_FAVICON_HOSTS } from '../../scripts/fixtures/synthetic-browsers.mjs'
-import { archivedVisits, fixture, type FixtureVisit } from './support/fixture'
+import {
+  FIXTURE_FAVICON_HOSTS,
+  FIXTURE_PAGE_ICONS,
+} from '../../scripts/fixtures/synthetic-browsers.mjs'
+import {
+  archivedProfiles,
+  archivedVisits,
+  fixture,
+  type FixtureVisit,
+} from './support/fixture'
+import {
+  searchFamilies,
+  searchTrails,
+  searchWords,
+} from './support/search-words'
 
 const compact = new Intl.NumberFormat('en', {
   notation: 'compact',
@@ -76,14 +89,13 @@ const dateKey = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
 /**
- * A visit's site as Insights counts it: the registrable domain. The fixture's
- * hosts all sit under one-label suffixes except `github.io`, which the public
- * suffix list makes a suffix of its own.
+ * A visit's site as Insights counts it: the registrable domain under the
+ * public suffix list's ICANN section (`visit_taxonomy::registrable_domain_for_host`),
+ * so every `*.github.io` page is on github.io. The fixture's hosts all sit
+ * under one-label suffixes.
  */
 function site(url: string) {
-  const labels = new URL(url).hostname.split('.')
-  const suffix = labels.slice(-2).join('.') === 'github.io' ? 3 : 2
-  return labels.slice(-suffix).join('.')
+  return new URL(url).hostname.split('.').slice(-2).join('.')
 }
 
 /** Visits per site, by hand, between two instants. */
@@ -276,27 +288,6 @@ test('a custom range and one browser profile count only their visits', async ({
   ).toHaveText('Google Chrome · Work')
 })
 
-/** The words Insights counts for a search (see `search_words` in the backend). */
-const fillerWords = new Set(
-  'a an and com edu for from how html http https in is net of on org the to what when where with www'.split(
-    ' ',
-  ),
-)
-function searchWords(term: string) {
-  return new Set(
-    term
-      .toLowerCase()
-      .split(/[^\p{L}\p{N}]+/u)
-      .filter(
-        (word) =>
-          word &&
-          !fillerWords.has(word) &&
-          word.length > 1 &&
-          !/^\d+$/.test(word),
-      ),
-  )
-}
-
 const batched = [
   'get_digest_summary',
   'get_top_sites',
@@ -357,6 +348,15 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
   expect(
     topWords.map(([word]) => `${word} ${compact.format(topCount)}`),
   ).toContain(firstWord)
+  // Every word shown has the count the searches give it: a Chinese search
+  // shown whole, as one word, has none.
+  for (const entry of await card(page, 'What you search for')
+    .getByRole('link')
+    .allInnerTexts()) {
+    const [, word, count] =
+      entry.replace(/\s+/g, ' ').match(/^(.+) (\S+)$/) ?? []
+    expect(compact.format(perWord.get(word ?? '') ?? 0), entry).toBe(count)
+  }
 
   // Opening the page made the two batch reads, not a read per card.
   await expect(
@@ -431,6 +431,19 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
   await expect(card(page, 'New sites')).toContainText(
     `${newInWindow} site${newInWindow === 1 ? '' : 's'} visited for the first time`,
   )
+  // And what share of the range's sites they were, against the tile above.
+  const distinctTile = page.getByRole('group', { name: 'Distinct sites' })
+  await expect(distinctTile).toHaveAttribute('aria-busy', 'false')
+  // The tile's second line is its number (see insights-drill.spec's `kpi`).
+  const distinct = Number(
+    ((await distinctTile.innerText()).split('\n')[1] ?? '')
+      .trim()
+      .replace(/,/g, ''),
+  )
+  expect(distinct, 'the range has sites').toBeGreaterThan(0)
+  await expect(card(page, 'New sites')).toContainText(
+    `${new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 1 }).format(Math.min(1, newInWindow / distinct))} of the sites you visited`,
+  )
 
   // Last 30 days, ordered by days visited.
   await page.goto('/#/insights?range=d30')
@@ -451,21 +464,59 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
   await page.getByRole('option', { name: 'Days visited' }).click()
   await expectTopSite(page, testInfo, 'by days visited, 30d', perSiteDays)
 
-  // An average weekday against an average weekend day, last 30 days.
+  // An average weekday against an average weekend day, last 30 days: each
+  // kind's visits over how many of its days the range holds.
   let weekdays = 0
   let weekdayVisits = 0
+  let weekendVisits = 0
   for (let offset = 0; offset < 30; offset += 1) {
     const day = startOfDayDaysAgo(offset).getDay()
     if (day !== 0 && day !== 6) weekdays += 1
   }
   for (const visit of archivedVisits()) {
+    if (visit.at < since.getTime()) continue
     const day = new Date(visit.at).getDay()
-    if (visit.at >= since.getTime() && day !== 0 && day !== 6)
-      weekdayVisits += 1
+    if (day === 0 || day === 6) weekendVisits += 1
+    else weekdayVisits += 1
   }
+  const perDay = (visits: number, days: number) =>
+    new Intl.NumberFormat('en').format(Math.round(visits / days))
   await expect(card(page, 'Rhythm')).toContainText(
-    `Weekdays${new Intl.NumberFormat('en').format(Math.round(weekdayVisits / weekdays))} a day`,
+    `Weekdays${perDay(weekdayVisits, weekdays)} a day`,
     { timeout: 60_000 },
+  )
+  await expect(card(page, 'Rhythm')).toContainText(
+    `Weekends${perDay(weekendVisits, 30 - weekdays)} a day`,
+  )
+  // The three hours of the day with the most visits in those 30 days, most
+  // first, on the clock the app uses here: Linux has no clock setting to
+  // read, and English then uses 12 hours.
+  const perHour = new Array<number>(24).fill(0)
+  for (const visit of archivedVisits())
+    if (visit.at >= since.getTime()) perHour[new Date(visit.at).getHours()] += 1
+  const busiest = perHour
+    .map((visits, hour) => ({ hour, visits }))
+    .filter((entry) => entry.visits > 0)
+    .sort((a, b) => b.visits - a.visits || a.hour - b.hour)
+    .slice(0, 3)
+  await testInfo.attach('busiest hours, 30d', {
+    body: JSON.stringify({ perHour, busiest }, null, 2),
+    contentType: 'application/json',
+  })
+  const spans = await page.evaluate(
+    (hours) => {
+      const time = new Intl.DateTimeFormat('en', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hourCycle: 'h12',
+      })
+      const at = (hour: number) => time.format(new Date(2000, 0, 1, hour))
+      return hours.map((hour) => `${at(hour)}–${at((hour + 1) % 24)}`)
+    },
+    busiest.map((entry) => entry.hour),
+  )
+  await expect(card(page, 'Rhythm')).toContainText(
+    `Busiest hours: ${spans.join(', ')}`,
   )
   await expectScreenIntact(page)
 
@@ -486,86 +537,18 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
   }
 })
 
-/**
- * Search trails by hand, by the documented rule: a search continues the
- * current trail when it is in the same browser and session (30 minutes), the
- * trail's last visit is under 15 minutes old, and the two searches share at
- * least half their words or one's words are all in the other.
- */
-function searchTrails() {
-  const SESSION_GAP = 30 * 60_000
-  const TRAIL_GAP = 15 * 60_000
-  const trails: {
-    rewordings: number
-    latest: Set<string>
-    landing?: string
-  }[] = []
-  for (const visits of Object.values(fixture().visitsByProfile)) {
-    if (!archivedVisits().includes(visits[0])) continue
-    let lastVisit = -Infinity
-    let trail: {
-      rewordings: number
-      latest: Set<string>
-      lastAt: number
-      landing?: string
-      landsNext: boolean
-    } | null = null
-    for (const visit of [...visits].sort((a, b) => a.at - b.at)) {
-      const sameSession = visit.at - lastVisit <= SESSION_GAP
-      lastVisit = visit.at
-      const open = trail && sameSession && visit.at - trail.lastAt <= TRAIL_GAP
-      if (visit.term) {
-        // The search's words as the backend compares them: filler words out.
-        const words = new Set(
-          visit.term
-            .toLowerCase()
-            .split(/[^\p{L}\p{N}]+/u)
-            .filter((word) => word && !fillerWords.has(word)),
-        )
-        const shared = trail
-          ? [...words].filter((word) => trail!.latest.has(word)).length
-          : 0
-        const union = trail ? new Set([...words, ...trail.latest]).size : 0
-        const rewords =
-          open &&
-          (shared === words.size ||
-            shared === trail!.latest.size ||
-            shared / union >= 0.5)
-        if (rewords) {
-          if ([...words].join(' ') !== [...trail!.latest].join(' '))
-            trail!.rewordings += 1
-          trail!.latest = words
-          trail!.lastAt = visit.at
-          // The page opened after the last wording becomes the landing.
-          trail!.landsNext = true
-        } else {
-          trail = {
-            rewordings: 0,
-            latest: words,
-            lastAt: visit.at,
-            landsNext: false,
-          }
-          trails.push(trail)
-        }
-      } else if (open) {
-        trail!.lastAt = visit.at
-        if (trail!.landing === undefined || trail!.landsNext) {
-          trail!.landing = site(visit.url)
-          trail!.landsNext = false
-        }
-      } else {
-        trail = null
-      }
-    }
-  }
-  return trails
+/** Every archived profile's search trails, by hand (`support/search-words.ts`). */
+function allSearchTrails() {
+  return archivedProfiles.flatMap((profile) =>
+    searchTrails(fixture().visitsByProfile[profile]),
+  )
 }
 
 test('reworded searches are counted, and listed as searches that took several tries', async ({
   page,
 }, testInfo) => {
   test.setTimeout(180_000)
-  const trails = searchTrails()
+  const trails = allSearchTrails()
   const reworded = trails.filter((trail) => trail.rewordings >= 2)
   const average =
     trails.reduce((sum, trail) => sum + trail.rewordings, 0) / trails.length
@@ -681,7 +664,7 @@ test('where searches end up is counted like the archive', async ({
 }, testInfo) => {
   test.setTimeout(180_000)
   const perSite = new Map<string, number>()
-  for (const trail of searchTrails())
+  for (const trail of allSearchTrails())
     if (trail.landing)
       perSite.set(trail.landing, (perSite.get(trail.landing) ?? 0) + 1)
   const top = Math.max(...perSite.values())
@@ -710,8 +693,8 @@ test('where searches end up is counted like the archive', async ({
  * The kind of site a fixture visit went to, decided by hand from what each
  * site is: a search on Google is a search; GitHub is for building software;
  * docs.rs, SQLite's and Tauri's sites and any page under /docs are
- * documentation; YouTube is video; Reddit and Hacker News are forums; B&H is
- * a shop. The rest (personal blogs, Strava, a JLPT course, camera reviews,
+ * documentation; YouTube is video; Reddit and Hacker News are forums; B&H and
+ * Amazon are shops. The rest (personal blogs, Strava, a JLPT course, camera reviews,
  * running advice) are on no list, whatever their page titles say.
  */
 function kindOf(visit: FixtureVisit) {
@@ -730,10 +713,319 @@ function kindOf(visit: FixtureVisit) {
     case 'news.ycombinator.com':
       return 'Forums and Q&A'
     case 'www.bhphotovideo.com':
+    case 'www.amazon.com':
+    case 'www.amazon.de':
       return 'Shopping'
   }
   return url.pathname.startsWith('/docs') ? 'Documentation' : 'Not classified'
 }
+
+test('browsers compared name the sites they share and what each mostly visits', async ({
+  page,
+}) => {
+  const percent = new Intl.NumberFormat('en', {
+    style: 'percent',
+    maximumFractionDigits: 1,
+  })
+  // Each browser profile's two biggest kinds of sites, unclassified left out;
+  // a tie at the cut leaves the second open.
+  const kindLines = archivedProfiles.map((profile) => {
+    const visits = fixture().visitsByProfile[profile]
+    const perKind = new Map<string, number>()
+    for (const visit of visits)
+      perKind.set(kindOf(visit), (perKind.get(kindOf(visit)) ?? 0) + 1)
+    const ranked = [...perKind]
+      .filter(([kind]) => kind !== 'Not classified')
+      .sort((a, b) => b[1] - a[1])
+    const part = ([kind, count]: [string, number]) =>
+      `${kind} ${percent.format(count / visits.length)}`
+    return ranked.length > 2 && ranked[1][1] === ranked[2][1]
+      ? `Mostly ${part(ranked[0])}, `
+      : `Mostly ${ranked.slice(0, 2).map(part).join(', ')}`
+  })
+  // Sites more than one profile visited, most visits in all of them first.
+  // Unlike Top sites, the card counts every visit, a search's included.
+  const perProfile = archivedProfiles.map((profile) => {
+    const perSite = new Map<string, number>()
+    for (const visit of fixture().visitsByProfile[profile])
+      perSite.set(site(visit.url), (perSite.get(site(visit.url)) ?? 0) + 1)
+    return perSite
+  })
+  const shared = [...new Set(perProfile.flatMap((sites) => [...sites.keys()]))]
+    .filter((key) => perProfile.filter((sites) => sites.has(key)).length > 1)
+    .map((key) => ({
+      key,
+      visits: perProfile.reduce((sum, sites) => sum + (sites.get(key) ?? 0), 0),
+    }))
+    // Ties by name in byte order, as the backend sorts them.
+    .sort((a, b) => b.visits - a.visits || (a.key < b.key ? -1 : 1))
+
+  await page.goto('/#/insights')
+  const browsers = card(page, 'Browsers compared')
+  for (const line of kindLines)
+    await expect(browsers.getByText(line).first()).toBeVisible({
+      timeout: 60_000,
+    })
+  await expect(browsers).toContainText(
+    `${shared.length} sites were visited in more than one browser. Most visited of them: ${shared
+      .slice(0, 3)
+      .map((entry) => entry.key)
+      .join(', ')}`,
+  )
+})
+
+test('how searches go averages rewordings and pages per search engine', async ({
+  page,
+}) => {
+  // All time; every fixture search is on Google.
+  const trails = allSearchTrails()
+  const average = (value: (trail: (typeof trails)[number]) => number) =>
+    new Intl.NumberFormat('en').format(
+      Math.round(
+        (trails.reduce((sum, trail) => sum + value(trail), 0) / trails.length) *
+          10,
+      ) / 10,
+    )
+  await page.goto('/#/insights')
+  const google = card(page, 'How your searches go')
+    .getByRole('listitem')
+    .filter({ hasText: 'Google' })
+    .first()
+  await expect(google).toContainText(
+    `${new Intl.NumberFormat('en').format(trails.length)} searches`,
+    { timeout: 60_000 },
+  )
+  await expect(google).toContainText(
+    `Reworded ${average((trail) => trail.rewordings)}× on average · ${average((trail) => trail.pages)} pages opened per search`,
+  )
+})
+
+test('where searches end up counts each search on the site it led to', async ({
+  page,
+}, testInfo) => {
+  // All time: each trail counts for its landing site, with how many
+  // different searches (as first typed) led there.
+  const perSite = new Map<string, { searches: number; queries: Set<string> }>()
+  for (const trail of allSearchTrails()) {
+    if (!trail.landing) continue
+    const entry = perSite.get(trail.landing) ?? {
+      searches: 0,
+      queries: new Set<string>(),
+    }
+    entry.searches += 1
+    entry.queries.add(trail.query)
+    perSite.set(trail.landing, entry)
+  }
+  const expected = [...perSite]
+    .sort(([a, x], [b, y]) => y.searches - x.searches || (a < b ? -1 : 1))
+    .slice(0, 3)
+    .map(
+      ([host, entry]) =>
+        `${host} ${entry.searches} search${entry.searches === 1 ? '' : 'es'} · ${entry.queries.size} different`,
+    )
+  await page.goto('/#/insights')
+  const rows = card(page, 'Where your searches end up').getByRole('listitem')
+  await expect(rows.first()).toBeVisible({ timeout: 60_000 })
+  const shown = (await rows.allInnerTexts())
+    .slice(0, 3)
+    .map((text) => text.replace(/\s+/g, ' ').trim())
+  await testInfo.attach('landings, all time', {
+    body: JSON.stringify({ expected, shown }, null, 2),
+    contentType: 'application/json',
+  })
+  // A row may start with the site's letter badge.
+  expect(shown.map((text) => text.replace(/^\S\s/, ''))).toEqual(expected)
+})
+
+test('things you came back to list searches and pages by when you last came back', async ({
+  page,
+}, testInfo) => {
+  // All time, per profile: search families with searches on more than one
+  // day (counted in searches), and pages opened on more than one day
+  // (counted in days, named by their first visit's title).
+  type Thread = {
+    key: string
+    label: string
+    count: number
+    last: number
+    search: boolean
+  }
+  const threads: Thread[] = []
+  for (const profile of archivedProfiles) {
+    const visits = fixture().visitsByProfile[profile]
+    for (const family of searchFamilies(visits))
+      if (family.days.size > 1)
+        threads.push({
+          key: `${profile}:${family.anchor}`,
+          label: family.anchor,
+          count: family.members,
+          last: family.latest,
+          search: true,
+        })
+    const pages = new Map<
+      string,
+      { title: string; first: number; last: number; days: Set<string> }
+    >()
+    for (const visit of visits) {
+      if (visit.term) continue
+      const entry = pages.get(visit.url) ?? {
+        title: visit.title,
+        first: visit.at,
+        last: visit.at,
+        days: new Set<string>(),
+      }
+      entry.days.add(dateKey(new Date(visit.at)))
+      if (visit.at < entry.first) {
+        entry.first = visit.at
+        entry.title = visit.title
+      }
+      entry.last = Math.max(entry.last, visit.at)
+      pages.set(visit.url, entry)
+    }
+    for (const [url, entry] of pages)
+      if (entry.days.size > 1)
+        threads.push({
+          key: url,
+          label: entry.title,
+          count: entry.days.size,
+          last: entry.last,
+          search: false,
+        })
+  }
+  // The card reads the ten newest, keeps one row per page (the profile that
+  // opened it on most days; a search's family is its profile's own), newest
+  // first, six at most.
+  const kept = new Map<string, Thread>()
+  for (const thread of threads
+    .sort((a, b) => b.last - a.last || b.count - a.count)
+    .slice(0, 10)) {
+    const old = kept.get(thread.key)
+    if (!old || thread.count > old.count) kept.set(thread.key, thread)
+  }
+  const expected = [...kept.values()]
+    .sort((a, b) => b.last - a.last)
+    .slice(0, 6)
+    .map((thread) =>
+      thread.search
+        ? `${thread.label} Searched ${thread.count} time${thread.count === 1 ? '' : 's'}`
+        : `${thread.label} Opened on ${thread.count} day${thread.count === 1 ? '' : 's'}`,
+    )
+
+  await page.goto('/#/insights')
+  const rows = card(page, 'Things you came back to').getByRole('listitem')
+  await expect(rows).toHaveCount(expected.length, { timeout: 60_000 })
+  const shown = (await rows.allInnerTexts()).map((text) =>
+    text
+      .replace(/\s+/g, ' ')
+      .replace(/ · last .*$/, '')
+      .trim(),
+  )
+  await testInfo.attach('things you came back to, all time', {
+    body: JSON.stringify({ expected, shown }, null, 2),
+    contentType: 'application/json',
+  })
+  expect(shown).toEqual(expected)
+})
+
+test('habits are sites visited on steady days, stopped ones first', async ({
+  page,
+}, testInfo) => {
+  // All time, every profile: a site's local days with a visit (a search's
+  // included). A habit needs 5 days over 14 or more, and steady gaps: daily
+  // under 2 days apart with little spread, weekly 5 to 10, periodic beyond 10
+  // (`classify_habit_pattern`). It has stopped when the time since the last
+  // visit is more than twice the usual gap.
+  const DAY = 86_400_000
+  const perSite = new Map<string, { days: Set<number>; last: number }>()
+  for (const visit of archivedVisits()) {
+    const at = new Date(visit.at)
+    const day = Date.UTC(at.getFullYear(), at.getMonth(), at.getDate()) / DAY
+    const entry = perSite.get(site(visit.url)) ?? {
+      days: new Set<number>(),
+      last: 0,
+    }
+    entry.days.add(day)
+    entry.last = Math.max(entry.last, visit.at)
+    perSite.set(site(visit.url), entry)
+  }
+  const now = Date.now()
+  const habits = [...perSite].flatMap(([host, { days, last }]) => {
+    const sorted = [...days].sort((a, b) => a - b)
+    const span = sorted.at(-1)! - sorted[0]
+    if (sorted.length < 5 || span < 14) return []
+    const gaps = sorted.slice(1).map((day, index) => day - sorted[index])
+    const mean = span / gaps.length
+    const variance = Math.max(
+      0,
+      gaps.reduce((sum, gap) => sum + gap * gap, 0) / gaps.length - mean * mean,
+    )
+    const cv = mean === 0 ? 0 : Math.sqrt(variance) / mean
+    const rhythm =
+      mean < 2 && cv < 0.5
+        ? 'Almost every day'
+        : mean >= 5 && mean <= 10 && cv < 0.6
+          ? 'About once a week'
+          : mean > 10 && cv < 0.8
+            ? `About every ${Math.round(mean)} days`
+            : null
+    if (!rhythm) return []
+    return [
+      {
+        host,
+        last,
+        days: sorted.length,
+        stopped: (now - last) / DAY > mean * 2,
+        text: `${host} ${rhythm} · ${sorted.length} days`,
+      },
+    ]
+  })
+  // The read orders by last visit, then site; the card puts stopped ones
+  // first, then the most days, and shows six.
+  const expected = habits
+    .sort((a, b) => b.last - a.last || (a.host < b.host ? -1 : 1))
+    .sort((a, b) => Number(b.stopped) - Number(a.stopped) || b.days - a.days)
+    .slice(0, 6)
+    .map((habit) => habit.text)
+
+  await page.goto('/#/insights')
+  const rows = card(page, 'Habits').getByRole('listitem')
+  await expect(rows).toHaveCount(expected.length, { timeout: 60_000 })
+  // A row: the site's letter badge (when it has no icon), its name, its
+  // rhythm and days; then when it was last visited or that it stopped.
+  const shown = (await rows.allInnerTexts()).map(
+    (text) =>
+      text
+        .replace(/\s+/g, ' ')
+        .trim()
+        .match(/^(?:\S )?(.+? · [\d,]+ days?)/)?.[1] ?? text,
+  )
+  await testInfo.attach('habits, all time', {
+    body: JSON.stringify({ expected, shown }, null, 2),
+    contentType: 'application/json',
+  })
+  expect(shown).toEqual(expected)
+})
+
+test('explore or focus counts the sites that took half the visits', async ({
+  page,
+}) => {
+  // Last 30 days, every visit (a search's included): the fewest sites,
+  // most visited first, that hold at least half of them.
+  const since = startOfDayDaysAgo(29).getTime()
+  const perSite = new Map<string, number>()
+  for (const visit of archivedVisits())
+    if (visit.at >= since)
+      perSite.set(site(visit.url), (perSite.get(site(visit.url)) ?? 0) + 1)
+  const counts = [...perSite.values()].sort((a, b) => b - a)
+  const total = counts.reduce((sum, count) => sum + count, 0)
+  let running = 0
+  const half = counts.findIndex((count) => (running += count) * 2 >= total) + 1
+  await page.goto('/#/insights?range=d30')
+  await expect(card(page, 'Explore or focus')).toContainText(
+    `Half of your visits went to ${half} site${half === 1 ? '' : 's'}.`,
+    { timeout: 60_000 },
+  )
+})
 
 test('kinds of sites count every visit by the kind of site it went to', async ({
   page,
@@ -769,12 +1061,34 @@ test('kinds of sites count every visit by the kind of site it went to', async ({
 test('a site shows the icon its browser stored, and its letter when there is none', async ({
   page,
 }) => {
+  // History shows a page's own icon: the issue page has GitHub's status icon,
+  // stored after GitHub's own.
+  const issue = 'https://github.com/tokio-rs/tokio/issues/5124'
+  await page.goto('/#/history')
+  await page
+    .getByRole('searchbox', { name: 'Search history' })
+    .fill('spawn_blocking pool exhaustion')
+  await expect(
+    page
+      .getByRole('option', { name: /spawn_blocking pool exhaustion/ })
+      .first()
+      // The row's site icon; a row also shows its browser's badge.
+      .locator('img[src^="data:image"]'),
+  ).toHaveAttribute(
+    'src',
+    `data:image/png;base64,${FIXTURE_PAGE_ICONS[issue]}`,
+    {
+      timeout: 30_000,
+    },
+  )
+  // Insights, opened next in the same window, still shows each site's own.
   await page.goto('/#/insights')
   const rows = card(page, 'Top sites').getByRole('listitem')
   await expect(rows.first()).toBeVisible({ timeout: 60_000 })
   // The fixture's Chrome stored a different icon for github.com,
-  // www.youtube.com and docs.rs; a site's icon is its own host's, else www.'s,
-  // and never another site's.
+  // www.youtube.com and docs.rs; a site's icon is its own host's (its front
+  // page's, else the one most of its pages have), else www.'s, and never
+  // another site's or one page's.
   for (const [site, host] of [
     ['github.com', 'github.com'],
     ['youtube.com', 'www.youtube.com'],

@@ -80,10 +80,10 @@ pub(super) fn open(root: &Path) -> Vault {
 /// - `habits`: closer to real browsing, where a site gets about 19 visits on a day it is visited
 ///   (the real data in `ipc-performance.md` §11). Half of a day's visits go to 50 sites visited
 ///   every day, the other half to 400 sites that change from day to day: about 450 site-day rows
-///   a day.
+///   a day. 4% of its visits are searches (`visit_page_and_opener`).
 ///
 /// A data root keeps the shape it was seeded with; seed another shape into another root.
-pub(super) fn visit_page() -> String {
+fn visit_page() -> String {
     match std::env::var("PATHKEEP_BENCH_SHAPE").as_deref() {
         Err(_) | Ok("cycle") => "(id-1)%2880000+1".to_owned(),
         Ok("habits") => {
@@ -96,6 +96,116 @@ pub(super) fn visit_page() -> String {
         }
         Ok(other) => panic!("unknown PATHKEEP_BENCH_SHAPE {other}: cycle or habits"),
     }
+}
+
+/// In the `habits` shape every 25th visit is a search: 4%, the share on the real-data copy
+/// (15,544 of 386,891 visits, `ipc-performance.md` §11). The `cycle` shape has none.
+const SEARCH_EVERY: i64 = 25;
+/// Searches made for the seeded visits and for the 100,000 an append may add after them.
+const SEARCH_SLOTS: i64 = (VISITS + 100_000) / SEARCH_EVERY;
+
+fn searches_seeded() -> bool {
+    std::env::var("PATHKEEP_BENCH_SHAPE").as_deref() == Ok("habits")
+}
+
+/// The `url_id` and `from_visit` of visit `id`, as SQL over `id`, for `INSERT INTO visits`.
+/// Every 144th visit is page 1, so one page has 100,000 visits. In the `habits` shape every
+/// 25th other visit is the next search of `search_history::synthetic_searches` on Google
+/// (`bench_search_slots` maps it to its page), and the two visits after it were each opened
+/// from the one before, so a search's trail has pages. Other visits record no opener.
+pub(super) fn visit_page_and_opener() -> String {
+    if searches_seeded() {
+        format!(
+            "CASE WHEN id%144=0 THEN 1 WHEN id%{SEARCH_EVERY}=0 THEN (SELECT page_id FROM bench_search_slots WHERE slot=id/{SEARCH_EVERY}) ELSE {} END,CASE WHEN id%{SEARCH_EVERY} IN (1,2) THEN id-1 END",
+            visit_page()
+        )
+    } else {
+        format!("CASE WHEN id%144=0 THEN 1 ELSE {} END,NULL", visit_page())
+    }
+}
+
+/// A Google search address for `query`, encoded as a browser sends it.
+fn search_url(query: &str) -> String {
+    let mut url = String::from("https://www.google.com/search?q=");
+    for byte in query.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                url.push(byte as char)
+            }
+            b' ' => url.push('+'),
+            _ => url.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    url
+}
+
+/// Adds a page for every different search the visits make, after the archive pages, and the
+/// slot table that gives each search visit its page. Returns how many pages it added.
+fn seed_searches(vault: &Vault) -> i64 {
+    let queries =
+        vault_core::test_support::search_history::synthetic_searches(SEARCH_SLOTS as usize + 1);
+    let mut pages = std::collections::HashMap::<&str, i64>::new();
+    let mut slots = Vec::with_capacity(queries.len());
+    for query in &queries {
+        let next = PAGES + 1 + pages.len() as i64;
+        slots.push(*pages.entry(query.as_str()).or_insert(next));
+    }
+    let mut distinct = pages.into_iter().collect::<Vec<_>>();
+    distinct.sort_by_key(|(_, page)| *page);
+    vault
+        .store()
+        .write(Db::Archive, Priority::Batch, |s| {
+            s.execute(
+                "CREATE TABLE bench_search_slots(slot INTEGER PRIMARY KEY, page_id INTEGER NOT NULL)",
+                (),
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    for chunk in distinct.chunks(STEP as usize) {
+        let rows = chunk.iter().map(|(query, page)| (query.to_string(), *page)).collect::<Vec<_>>();
+        vault.store().write(Db::Archive,Priority::Batch,move |s| {
+            for (query, page) in &rows {
+                let url = search_url(query);
+                let title = format!("{query} - Google Search");
+                s.execute("INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(?1,?2,?2,'google.com')",params![*page,url.as_str()])?;
+                s.execute("INSERT INTO urls(id,page_id,url,title,visit_count,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id,source_url_id) VALUES(?1,?1,?2,?3,1,?4,'2020-09-13T12:26:40Z',?4,'2025-09-13T12:26:40Z',1,0,?1)",params![*page,url.as_str(),title.as_str(),START])?;
+                s.execute("INSERT INTO search_documents(page_id,url,title,search_terms,normalized_url,normalized_title,normalized_search_terms,cjk_grams,compact_text,updated_at) VALUES(?1,?2,?3,?4,?2,?3,?4,'','','')",params![*page,url.as_str(),title.as_str(),query.as_str()])?;
+                s.execute("INSERT INTO search_document_profiles(page_id,source_profile_id,visible_visit_count,newest_visit_ms) VALUES(?1,1,1,?2)",params![*page,START])?;
+            }
+            Ok(())
+        }).unwrap();
+    }
+    for (first, chunk) in slots.chunks(STEP as usize).enumerate() {
+        let first = (first * STEP as usize) as i64;
+        let chunk = chunk.to_vec();
+        vault
+            .store()
+            .write(Db::Archive, Priority::Batch, move |s| {
+                for (offset, page) in chunk.iter().enumerate() {
+                    s.execute(
+                        "INSERT INTO bench_search_slots(slot,page_id) VALUES(?1,?2)",
+                        params![first + offset as i64, *page],
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+    }
+    println!("BENCH seed_searches slots={} pages={}", slots.len(), distinct.len());
+    distinct.len() as i64
+}
+
+/// The first visit seeded (`PATHKEEP_BENCH_FIRST_VISIT`, 1 by default). A later one keeps only
+/// the last visits, at the same times: a range at the end of the data (the Insights bench's 30
+/// days and year) reads the rows it would among 14.4M, and seeding and the full build take a
+/// fraction of the time; all time covers less. For the Insights benchmark only: the archive
+/// reads here count on all 14.4M.
+pub(super) fn first_seeded_visit() -> i64 {
+    std::env::var("PATHKEEP_BENCH_FIRST_VISIT")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1)
 }
 
 pub(super) fn seed(vault: &Vault) {
@@ -123,16 +233,33 @@ pub(super) fn seed(vault: &Vault) {
             assert!(directory_bytes(&vault.paths().app_root) < 40_000_000_000);
         }
     }
+    let search_pages = if !searches_seeded() {
+        0
+    } else if first_page <= PAGES {
+        seed_searches(vault)
+    } else {
+        // A data root seeded before: its search pages are already there.
+        vault
+            .store()
+            .read(Db::Archive, |s| {
+                s.query_one("SELECT COUNT(*) FROM pages WHERE id>?1", [PAGES], |r| {
+                    Ok(r.get::<i64>(0)?)
+                })
+            })
+            .unwrap()
+    };
     let first_visit = vault
         .store()
         .read(Db::Archive, |s| {
             s.query_one("SELECT COALESCE(MAX(id),0)+1 FROM visits", (), |r| Ok(r.get::<i64>(0)?))
         })
-        .unwrap();
+        .unwrap()
+        .max(first_seeded_visit());
+    let seeded = VISITS - first_seeded_visit() + 1;
     for first in (first_visit..=VISITS).step_by(STEP as usize) {
         let end = (first + STEP - 1).min(VISITS);
         vault.store().write(Db::Archive,Priority::Batch,move |s| {
-            s.execute(&format!("WITH RECURSIVE ids(id) AS(VALUES(?1) UNION ALL SELECT id+1 FROM ids WHERE id<?2) INSERT INTO visits(id,url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT id,CASE WHEN id%144=0 THEN 1 ELSE {} END,CAST(id AS TEXT),?3+id*10000,'2023-01-01T00:00:00Z',1,0 FROM ids",visit_page()),params![first,end,START])?;
+            s.execute(&format!("WITH RECURSIVE ids(id) AS(VALUES(?1) UNION ALL SELECT id+1 FROM ids WHERE id<?2) INSERT INTO visits(id,url_id,from_visit,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT id,{},CAST(id AS TEXT),?3+id*10000,'2023-01-01T00:00:00Z',1,0 FROM ids",visit_page_and_opener()),params![first,end,START])?;
             Ok(())
         }).unwrap();
         if first % 1_000_000 == 1 {
@@ -142,8 +269,10 @@ pub(super) fn seed(vault: &Vault) {
     }
     vault
         .store()
-        .write(Db::Archive, Priority::Batch, |s| {
-            for (name, value) in [("visits", VISITS), ("urls", PAGES), ("sourceProfiles", 1)] {
+        .write(Db::Archive, Priority::Batch, move |s| {
+            for (name, value) in
+                [("visits", seeded), ("urls", PAGES + search_pages), ("sourceProfiles", 1)]
+            {
                 s.execute(
                     "UPDATE archive_totals SET value=?2 WHERE name=?1",
                     params![name, value],
@@ -151,7 +280,7 @@ pub(super) fn seed(vault: &Vault) {
             }
             s.execute(
                 "INSERT INTO archive_totals(name,value) VALUES('sourceVisits:1',?1) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                [VISITS],
+                [seeded],
             )?;
             Ok(())
         })

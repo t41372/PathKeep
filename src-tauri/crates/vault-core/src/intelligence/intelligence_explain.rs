@@ -6,7 +6,8 @@
 //! - Translate persisted deterministic entities into explanation payloads that
 //!   show why an entity exists.
 //! - Reuse persisted evidence rows instead of recomputing entity state during an
-//!   explanation request.
+//!   explanation request; a habit is worked out from its site's daily rollups, as the
+//!   Habits card does.
 //! - Keep explanation-specific parsing and factor-building out of the rebuild
 //!   pipeline.
 //!
@@ -33,7 +34,7 @@ use super::{
     },
     normalize_query,
 };
-use crate::models::{EntityExplanationRequest, ExplainabilityFactor, Explanation};
+use crate::models::{EntityExplanationRequest, ExplainabilityFactor, Explanation, HabitPattern};
 use anyhow::{Context, Result};
 use std::collections::{BTreeSet, HashSet};
 use vault_store::{OptionalRow, Session, params_owned as params};
@@ -139,7 +140,7 @@ fn explain_session(
              FROM visit_derived_facts
              JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
              WHERE visit_derived_facts.session_id = ?1
-               AND visits.from_visit IS NOT NULL",
+               AND visits.from_visit > 0",
             [session_id],
             |row| Ok(row.get::<i64>(0)?),
         )
@@ -412,25 +413,9 @@ fn explain_habit_pattern(
     limit: usize,
 ) -> Result<Explanation> {
     let (profile_id, registrable_domain) = parse_two_part_entity_id(entity_id, "habit_pattern")?;
-    let (habit_type, mean_interval_days, cv, visit_count, is_interrupted) = connection
-        .query_one(
-            "SELECT habit_type, mean_interval_days, cv, visit_count, is_interrupted
-             FROM habit_patterns
-             WHERE profile_id = ?1
-               AND registrable_domain = ?2",
-            params![profile_id, registrable_domain],
-            |row| {
-                Ok((
-                    row.get::<String>(0)?,
-                    row.get::<f64>(1)? as f32,
-                    row.get::<f64>(2)? as f32,
-                    row.get::<i64>(3)?,
-                    row.get::<i64>(4)? != 0,
-                ))
-            },
-        )
-        .optional()?
-        .with_context(|| format!("habit pattern {entity_id} was not found"))?;
+    let HabitPattern { habit_type, mean_interval_days, cv, visit_count, is_interrupted, .. } =
+        super::phase_three::site_habit(connection, profile_id, registrable_domain)?
+            .with_context(|| format!("habit pattern {entity_id} was not found"))?;
     let visit_ids =
         load_domain_visit_ids(connection, profile_id, registrable_domain, cursor, limit)?;
     Ok(Explanation {
@@ -621,6 +606,16 @@ mod tests {
         connection
             .execute("INSERT INTO intelligence_generations(profile_id) VALUES('p1')", ())
             .unwrap();
+        let today = chrono::Local::now();
+        for back in 0..15 {
+            let day = today - chrono::Duration::days(back);
+            connection
+                .execute(
+                    "INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,domain_category,visit_count,search_count,new_domain_visits,unique_urls,last_visit_ms) VALUES ('p1',?1,'quiet.example','reference',1,0,0,1,?2)",
+                    params![day.format("%Y-%m-%d").to_string(), day.timestamp_millis()],
+                )
+                .unwrap();
+        }
         connection.execute_batch("
                 INSERT INTO sessions_rows
                   (session_id, profile_id, first_visit_ms, last_visit_ms, visit_count,
@@ -662,8 +657,12 @@ INSERT INTO visit_assignments(visit_id,profile_id,session_id,trail_id) VALUES (1
                   ('family-1', 'p1', 'pathkeep coverage', 2, 'google', 1000, 4000,
                    '[\"pathkeep coverage\", \"pathkeep docs\"]', 'now');
 
-                INSERT INTO habit_patterns_rows(profile_id,registrable_domain,habit_type,mean_interval_days,cv,visit_count,last_visited_ms,is_interrupted,computed_at) VALUES ('p1','docs.com','weekly',7.0,0.25,5,4000,1,'now'),
-('p1','quiet.example','daily',1.0,0.1,3,5000,0,'now');
+                INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,domain_category,visit_count,search_count,new_domain_visits,unique_urls,last_visit_ms)
+                VALUES ('p1','2020-01-01','docs.com','reference',1,0,0,1,0),
+                  ('p1','2020-01-08','docs.com','reference',1,0,0,1,0),
+                  ('p1','2020-01-15','docs.com','reference',1,0,0,1,0),
+                  ('p1','2020-01-22','docs.com','reference',1,0,0,1,0),
+                  ('p1','2020-01-29','docs.com','reference',1,0,0,1,0);
 
                 INSERT INTO refind_pages_rows(profile_id,canonical_url,url,title,registrable_domain,cross_day_count,trail_count,search_arrival_count,typed_revisit_count,refind_score,evidence_json,first_seen_ms,last_seen_ms,computed_at)
                 VALUES('p1','https://docs.com/a','https://docs.com/a','Docs','docs.com',2,2,1,0,1,'{\"visitIds\":[2,3,\"skip\"]}',1000,4000,'');
@@ -782,7 +781,7 @@ INSERT INTO visit_assignments(visit_id,profile_id,session_id,trail_id) VALUES (1
             interrupted.trigger_rule_code.as_deref(),
             Some(Explanation::TRIGGER_RULE_HABIT_PATTERN_INTERRUPTED)
         );
-        assert_eq!(interrupted.trigger_rule_habit_type.as_deref(), Some("weekly"));
+        assert_eq!(interrupted.trigger_rule_habit_type.as_deref(), Some("weekly_habit"));
         let active = {
             connection
                 .read(move |session| explain_habit_pattern(session, "p1::quiet.example", None, 50))
@@ -793,7 +792,7 @@ INSERT INTO visit_assignments(visit_id,profile_id,session_id,trail_id) VALUES (1
             active.trigger_rule_code.as_deref(),
             Some(Explanation::TRIGGER_RULE_HABIT_PATTERN)
         );
-        assert_eq!(active.trigger_rule_habit_type.as_deref(), Some("daily"));
+        assert_eq!(active.trigger_rule_habit_type.as_deref(), Some("daily_habit"));
 
         let path_flow = {
             connection

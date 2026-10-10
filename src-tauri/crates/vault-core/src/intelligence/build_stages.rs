@@ -24,6 +24,7 @@ where
     if state.daily_done {
         return Ok(0);
     }
+    super::build_reclassify::days(vault, state, limit, progress)?;
     let mut cursor = state.daily_cursor;
     if cursor.is_none()
         && !state.full
@@ -38,7 +39,9 @@ where
     let mut pending = PendingDays::default();
     let mut day_end = cursor;
     let mut processed = 0;
-    loop {
+    // Without new visits (a build that only sorted visits into new categories) there are no new
+    // days; without a cursor this would read the profile from its first visit.
+    while state.full || cursor.is_some() {
         let batch = build_rows::derived_page(vault, state, cursor, limit)?;
         if batch.is_empty() {
             break;
@@ -196,8 +199,10 @@ where
                 stream.process_visit(
                     StructuralVisitRecord {
                         visit_id: visit.visit_id,
+                        source_visit_id: visit.source_visit_id,
                         profile_id: visit.profile_id,
                         url: visit.url,
+                        title: visit.title,
                         visit_time_ms: visit.visit_time_ms,
                         from_visit: visit.from_visit,
                         registrable_domain: visit.registrable_domain,
@@ -210,7 +215,7 @@ where
                     &mut persist,
                 )?;
             }
-            persist.flush_domain_counts()?;
+            persist.flush_counts()?;
             drop(persist);
             saved.stream_json = Some(serde_json::to_string(&stream)?);
             build_state::save(s, &saved)?;
@@ -259,9 +264,12 @@ where
     if state.aggregates_done {
         return Ok(());
     }
+    // An append or a change of categories updates the published aggregates in place; a build
+    // with a generation of its own builds them all.
+    if state.aggregate_generation != state.id {
+        return super::build_append::aggregates(vault, state, limit, progress);
+    }
     super::build_refind::rebuild(vault, state, limit, progress)?;
-    let mut accumulator =
-        super::intelligence_structural_aggregates::StructuralAggregateAccumulator::default();
     let mut compare = super::compare_sets::CompareSetAccumulator::default();
     let mut cursor = None;
     let mut processed = 0;
@@ -271,7 +279,6 @@ where
             break;
         }
         for visit in &batch {
-            accumulator.add_summary_visit(visit);
             compare.add(visit);
         }
         compare.resolve(vault, state.navigation_generation)?;
@@ -283,7 +290,8 @@ where
         processed += batch.len();
         progress(build_state::progress(state, "refind-pages", processed, state.processed))?;
     }
-    let (_, flows, habits) = accumulator.finish();
+    let flows =
+        super::path_flows::profile_flows(vault, state.navigation_generation, &state.profile_id)?;
     let compare_sets = compare.finish(vault, state.navigation_generation)?;
     for chunk in compare_sets.chunks(512) {
         let rows = chunk.to_vec();
@@ -306,30 +314,26 @@ where
         progress(build_state::progress(state, "search-trails", processed, state.processed))?;
     }
     macro_rules! write {
-        ($rows:ident,$batch:ident,$pages:expr,$habits:expr,$reopened:expr,$flows:expr) => {
+        ($rows:ident,$batch:ident,$pages:expr,$reopened:expr,$flows:expr) => {
             for chunk in $rows.chunks(512) {
                 let $batch = chunk.to_vec();
                 let generation = state.aggregate_generation;
                 let at = state.computed_at.clone();
                 vault.write(Db::Intelligence, Priority::Batch, move |s| {
-                    build_rows::persist_aggregates(
-                        s, generation, $pages, $habits, $reopened, $flows, &at,
-                    )
+                    build_rows::persist_aggregates(s, generation, $pages, $reopened, $flows, &at)
                 })?;
                 progress(build_state::progress(state, "refind-pages", processed, state.processed))?;
             }
         };
     }
-    write!(habits, rows, &[], &rows, &[], &[]);
-    write!(reopened, rows, &[], &[], &rows, &[]);
-    write!(flows, rows, &[], &[], &[], &rows);
+    write!(reopened, rows, &[], &rows, &[]);
+    write!(flows, rows, &[], &[], &rows);
     for (table, count) in [
         ("query_families", families.len()),
         (
             "query_family_queries",
             families.iter().map(|family| build_rows::family_query_keys(family).len()).sum(),
         ),
-        ("habit_patterns", habits.len()),
         (
             "reopened_investigations",
             state.counts.get("reopened_investigations").copied().unwrap_or(0) + reopened.len(),
@@ -343,7 +347,7 @@ where
     super::build_pipeline::checkpoint(vault, state, RebuildMode::StructuralRebuild)
 }
 
-fn load_families<F>(
+pub(super) fn load_families<F>(
     vault: &Vault,
     state: &BuildState,
     progress: &mut F,

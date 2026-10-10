@@ -23,7 +23,6 @@ pub(super) const TABLES: &[(&str, &str)] = &[
     ("query_families", "aggregates"),
     ("query_family_queries", "aggregates"),
     ("refind_pages", "aggregates"),
-    ("habit_patterns", "aggregates"),
     ("reopened_investigations", "aggregates"),
     ("path_flows", "aggregates"),
     ("compare_sets", "aggregates"),
@@ -59,6 +58,17 @@ pub(super) struct BuildState {
     pub stream_json: Option<String>,
     pub structural_cursor: Option<VisibleVisitBatchCursor>,
     pub counts: std::collections::BTreeMap<String, usize>,
+    /// For an append that updates the aggregates in place, what it needs from before it
+    /// (`build_append`); `None` when the aggregates are built into a new generation.
+    #[serde(default)]
+    pub append: Option<super::build_append::AppendBase>,
+    /// The category rules this build sorts visits with (`incremental::category_version`).
+    #[serde(default)]
+    pub category_version: String,
+    /// When only the category rules changed since the last build: the visits already built are
+    /// sorted again in place (`build_reclassify`) instead of building anew.
+    #[serde(default)]
+    pub reclassify: Option<super::build_reclassify::Reclassify>,
 }
 
 pub(super) fn load(s: &Session<'_>, profile: &str) -> Result<Option<BuildState>> {
@@ -181,6 +191,7 @@ pub(super) fn collect_old_generations(vault: &Vault, state: &BuildState) -> Resu
                 ("visit_assignments", 2),
                 ("session_domains", 2),
                 ("session_paths", 2),
+                ("site_flows_rows", 2),
                 ("intelligence_seen_domains", 0),
                 ("intelligence_day_counts", 1),
             ] {

@@ -3,34 +3,29 @@
  *
  * Proves: a search counts as something the user came back to only when it was
  * searched on more than one day, and the days it shows are the local days
- * with a search in its family, not how many ways it was worded. The fixture's
- * families are simple: one search and its rewordings ("… v2", "… v2 eg"),
- * kept apart per browser profile, so the days are counted here by hand. Every
- * search thread in the archive is checked through the read Home uses, and the
- * search threads on Home itself show the same days.
+ * with a search in its family, not how many ways it was worded. The families
+ * are made by hand with the backend's rule (`support/search-words.ts`): a
+ * search and its rewordings ("… v2", "… v2 eg"), and the fixture's two
+ * Chinese searches together, kept apart per browser profile. Every search
+ * thread in the archive is checked through the read Home uses, and the search
+ * threads on Home itself show the same days.
  */
 import { expect, test } from '@playwright/test'
 import { archivedProfiles, backend, fixture } from './support/fixture'
-
-const localDay = (at: number) => {
-  const day = new Date(at)
-  return `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`
-}
+import { searchFamilies } from './support/search-words'
 
 /** Days per search family (named by its first wording), per profile. */
 function searchDays() {
   return new Map(
-    archivedProfiles.map((profile) => {
-      const days = new Map<string, Set<string>>()
-      for (const visit of fixture().visitsByProfile[profile]) {
-        if (!visit.term) continue
-        const base = visit.term.replace(/ v2( eg)?$/, '')
-        const set = days.get(base) ?? new Set<string>()
-        set.add(localDay(visit.at))
-        days.set(base, set)
-      }
-      return [profile as string, days]
-    }),
+    archivedProfiles.map((profile) => [
+      profile as string,
+      new Map(
+        searchFamilies(fixture().visitsByProfile[profile]).map((family) => [
+          family.anchor,
+          family.days,
+        ]),
+      ),
+    ]),
   )
 }
 
@@ -97,5 +92,41 @@ test('searches come back on several days, counted in days', async ({
       options.map((thread) => thread.days),
       label,
     ).toContain(days)
+  }
+})
+
+test('a search, its rewordings and another wording of it are one family', async () => {
+  // What the fixture means, whatever the grouping rule: each search and its
+  // "v2" rewordings are one thing, and so are 台北天氣 and 台北天氣預報 with
+  // theirs; a rule that splits them shows the same search twice on Home.
+  const familyOf = async (query: string, profileId: string) => {
+    const { data } = await backend<{
+      data: { families: { familyId: string }[] }
+    }>('get_search_families', { request: { query, profileId } })
+    return data.families.map((family) => family.familyId)
+  }
+  for (const profile of archivedProfiles) {
+    const terms = new Set(
+      fixture()
+        .visitsByProfile[profile].filter((visit) => visit.term)
+        .map((visit) => visit.term!),
+    )
+    const groups = new Map<string, string[]>()
+    for (const term of terms) {
+      const topic = term
+        .replace(/ v2( eg)?$/, '')
+        .replace(/^台北天氣預報$/, '台北天氣')
+      groups.set(topic, [...(groups.get(topic) ?? []), term])
+    }
+    for (const [topic, wordings] of groups) {
+      if (wordings.length < 2) continue
+      const families = new Set<string>()
+      for (const wording of wordings)
+        for (const id of await familyOf(wording, profile)) families.add(id)
+      expect(
+        families.size,
+        `${topic} (${profile}): ${wordings.join(' / ')}`,
+      ).toBe(1)
+    }
   }
 })

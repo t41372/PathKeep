@@ -105,7 +105,10 @@ let request=&request;
 
 pub use super::session_details::{get_session_detail, get_trail_detail};
 
-/// Returns one page of search trails for the requested scope and engine filter.
+/// Returns one page of the search trails begun in the requested range, for the scope and engine
+/// filter. A trail counts where its search was made: counting every trail that touched the range
+/// needs a bound on how far back one can begin, and without it the count read every trail of the
+/// build (0.45 s at 14.4M visits for any range).
 pub fn get_search_trails(
     vault: &crate::Vault,
     request: &SearchTrailQueryRequest,
@@ -117,11 +120,12 @@ let request=&request;
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let total: i64 = connection.query_one(
         "SELECT COUNT(*)
-         FROM search_trails
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND (?2 IS NULL OR search_engine = ?2)
-           AND last_visit_ms >= ?3
-           AND first_visit_ms < ?4",
+         FROM search_trails_rows r INDEXED BY idx_search_trails_recent
+         WHERE r.first_visit_ms >= ?3
+           AND r.first_visit_ms < ?4
+           AND r.generation IN (SELECT navigation FROM intelligence_generations)
+           AND (?1 IS NULL OR r.profile_id = ?1)
+           AND (?2 IS NULL OR r.search_engine = ?2)",
         params![request.profile_id.as_deref(), request.engine.as_deref(), start_ms, end_ms],
         |row| Ok(row.get(0)?),
     )?;
@@ -136,7 +140,7 @@ let request=&request;
          WHERE r.generation IN (SELECT navigation FROM intelligence_generations)
            AND (?1 IS NULL OR r.profile_id = ?1)
            AND (?2 IS NULL OR r.search_engine = ?2)
-           AND r.last_visit_ms >= ?3
+           AND r.first_visit_ms >= ?3
            AND {upper}
          ORDER BY r.first_visit_ms DESC, r.trail_id DESC LIMIT ?7"
     ))?;

@@ -14,17 +14,34 @@
  *   day view.
  * - A "Pages you keep reopening" row opens the page view, whose visit total
  *   across browsers equals the fixture's.
+ * - A site's view says how its visits from elsewhere began (typed, from a
+ *   search, from a link), which sites linked to it and which it led on to,
+ *   as the fixture's browsers recorded each page's opener.
+ * - Google's site view lists what was searched on it, as Frequent searches
+ *   counts it (every fixture search is on Google).
+ * - A Chinese search, with no spaces between its words, is one search with a
+ *   longer wording of it: its view lists that wording among the others.
+ * - A search that went back and forth between one product on two shops is
+ *   the one set on its day's "Pages you compared": both pages, most opened
+ *   first, how often each was opened and which the search opened first; the
+ *   set leads to the page's view and the search's.
  *
  * Insights are computed by a background job after the first backup, so
  * every read waits for real numbers instead of reading a "computing" state.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
+  FIXTURE_COMPARE,
+  openedFrom,
+} from '../../scripts/fixtures/synthetic-browsers.mjs'
+import {
+  archivedProfiles,
   archivedVisits,
   expectCount,
+  fixture,
   parseCount,
-  type FixtureVisit,
 } from './support/fixture'
+import { searchFamilies } from './support/search-words'
 
 const JOB_TIMEOUT = 60_000
 
@@ -113,7 +130,10 @@ test('a day from the Home heatmap matches the fixture, then opens History', asyn
   // A day before the fixture began has nothing, and says so.
   await page.goto('/#/insights/day/2020-01-15')
   await drillIn(page, 'Wednesday, January 15')
-  await expect(page.getByText('No visits on this day.')).toBeVisible({
+  // Each card that lists the day's visits says so; Top sites stands for them.
+  await expect(
+    card(page, 'Top sites').getByText('No visits on this day.'),
+  ).toBeVisible({
     timeout: JOB_TIMEOUT,
   })
   await expectCount(
@@ -260,6 +280,214 @@ test('a site from Top sites shows its 30-day visits', async ({
   )
 })
 
+/**
+ * How each site's visits began, counted by hand as the fixture's browsers
+ * record openers (`openedFrom`): a page that was not typed or searched was
+ * opened from the visit before it. A visit counts when its opener was not on
+ * the same site: none means typed, a search's results a search, any other
+ * page a link, and that page's site gains an onward site.
+ */
+function siteFlows() {
+  type Flows = {
+    direct: number
+    search: number
+    link: number
+    referrers: Map<string, number>
+    onward: Map<string, number>
+  }
+  const flows = new Map<string, Flows>()
+  const of = (site: string) => {
+    let entry = flows.get(site)
+    if (!entry) {
+      entry = {
+        direct: 0,
+        search: 0,
+        link: 0,
+        referrers: new Map(),
+        onward: new Map(),
+      }
+      flows.set(site, entry)
+    }
+    return entry
+  }
+  const bump = (counts: Map<string, number>, key: string) =>
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  for (const profile of archivedProfiles) {
+    const visits = fixture().visitsByProfile[profile]
+    const from = openedFrom(visits)
+    for (const [index, visit] of visits.entries()) {
+      const site = siteOf(visit.url)
+      const opener = from[index] >= 0 ? visits[from[index]] : null
+      if (!opener) {
+        of(site).direct += 1
+        continue
+      }
+      const openerSite = siteOf(opener.url)
+      if (openerSite === site) continue
+      if (opener.term) of(site).search += 1
+      else {
+        of(site).link += 1
+        bump(of(site).referrers, openerSite)
+      }
+      bump(of(openerSite).onward, site)
+    }
+  }
+  return flows
+}
+
+test('a site says how its visits began and where its links led', async ({
+  page,
+}, testInfo) => {
+  const flows = siteFlows()
+  // The site with the most visits from elsewhere among those reached all three ways.
+  const [site, expected] = [...flows]
+    .filter(([, f]) => f.direct > 0 && f.search > 0 && f.link > 0)
+    .sort(
+      ([, a], [, b]) =>
+        b.direct + b.search + b.link - (a.direct + a.search + a.link),
+    )[0]
+  await page.goto(`/#/insights/site/${site}`)
+  await drillIn(page, site)
+
+  const arrivals = card(page, 'How you got here')
+  for (const [label, count] of [
+    ['Typed or bookmarked', expected.direct],
+    ['From a search', expected.search],
+    ['From a link', expected.link],
+  ] as const) {
+    const row = arrivals.getByRole('listitem').filter({ hasText: label })
+    await expect(row).toBeVisible({ timeout: JOB_TIMEOUT })
+    const text = (await row.innerText()).replace(/\s+/g, ' ')
+    await expectCount(
+      testInfo,
+      `${site}: ${label.toLowerCase()}, all time`,
+      parseCount(text.match(new RegExp(`${label} (\\d[\\d,]*)`))?.[1] ?? ''),
+      count,
+    )
+  }
+  // The site that linked here most, and the one this site led to most.
+  for (const [title, counts] of [
+    ['How you got here', expected.referrers],
+    ['Where you went next', expected.onward],
+  ] as const) {
+    const top = leaders(counts)
+    const first = card(page, title).getByRole('link').first()
+    await expect(first).toBeVisible({ timeout: JOB_TIMEOUT })
+    const text = (await first.innerText()).replace(/\s+/g, ' ').trim()
+    expect(
+      // A row may start with the site's letter badge.
+      top.keys.some((key) => text.includes(key)),
+      `${title}: ${text} should be one of ${top.keys.join(', ')}`,
+    ).toBe(true)
+    await expectCount(
+      testInfo,
+      `${site}: ${title.toLowerCase()}, the first site`,
+      parseCount(text.match(/(\d[\d,]*)$/)?.[1] ?? ''),
+      top.top,
+    )
+  }
+})
+
+test('the site of a search engine lists what was searched on it', async ({
+  page,
+}) => {
+  // The query a search link opens, and the count at the end of its text.
+  const read = async (link: Locator) => {
+    const href = (await link.getAttribute('href')) ?? ''
+    const query = decodeURIComponent(href.match(/search\/([^?]+)/)?.[1] ?? '')
+    const text = (await link.innerText()).replace(/\s+/g, ' ').trim()
+    return { query, count: parseCount(text.match(/(\d[\d,]*)\D*$/)?.[1] ?? '') }
+  }
+  await page.goto('/#/insights')
+  const frequent = card(page, 'Frequent searches')
+    .locator('a[href*="/insights/search/"]')
+    .first()
+  await expect(frequent).toBeVisible({ timeout: JOB_TIMEOUT })
+  const expected = await read(frequent)
+
+  await page.goto('/#/insights/site/google.com')
+  await drillIn(page, 'google.com')
+  const first = card(page, 'Searched on this site')
+    .locator('a[href*="/insights/search/"]')
+    .first()
+  await expect(first).toBeVisible({ timeout: JOB_TIMEOUT })
+  expect(await read(first)).toEqual(expected)
+})
+
+test('a Chinese search and a longer wording of it are one search', async ({
+  page,
+}) => {
+  // 台北天氣 and 台北天氣預報 share 台北, 北天 and 天氣 compared by pairs of
+  // characters; split only at spaces, each was one word and they had nothing
+  // in common.
+  await page.goto(`/#/insights/search/${encodeURIComponent('台北天氣')}`)
+  await drillIn(page, '“台北天氣”')
+  await expect(card(page, 'Other ways you searched it')).toContainText(
+    '台北天氣預報',
+    { timeout: JOB_TIMEOUT },
+  )
+})
+
+test('a search that went back and forth between two shops is a set of compared pages on its day', async ({
+  page,
+}, testInfo) => {
+  const { term, pages, order } = FIXTURE_COMPARE
+  const search = archivedVisits().find((visit) => visit.term === term)
+  expect(search, 'the fixture made the search').toBeTruthy()
+  // By hand: how often the search opened each page, most first; the first
+  // page it opened is where it landed.
+  const opened = countBy(
+    order.map((index) => pages[index]),
+    ([url]) => url,
+  )
+  const expected = [...opened]
+    .sort((a, b) => b[1] - a[1])
+    .map(([url, times]) => ({
+      url,
+      title: pages.find(([candidate]) => candidate === url)![1],
+      times,
+      landing: url === pages[order[0]][0],
+    }))
+  const sites = new Set(pages.map(([url]) => siteOf(url))).size
+  await testInfo.attach('compared pages', {
+    body: JSON.stringify(expected, null, 2),
+    contentType: 'application/json',
+  })
+
+  await page.goto(`/#/insights/day/${localDateKey(search!.at)}`)
+  const sets = card(page, 'Pages you compared').getByRole('listitem')
+  await expect(sets).toHaveCount(1, { timeout: JOB_TIMEOUT })
+  const set = sets.first()
+  await expect(set.getByRole('link', { name: term, exact: true })).toBeVisible()
+  await expect(set).toContainText(`${expected.length} pages on ${sites} sites`)
+  const chips = set.locator('a[href*="/insights/page/"]')
+  await expect(chips).toHaveCount(expected.length)
+  for (const [index, want] of expected.entries()) {
+    const chip = chips.nth(index)
+    await expect(chip).toContainText(want.title)
+    await expect(chip).toContainText(`${want.times}×`)
+    if (want.landing)
+      await expect(chip).toHaveAttribute(
+        'title',
+        'Opened first from the search',
+      )
+    else await expect(chip).not.toHaveAttribute('title', /./)
+  }
+
+  // The page the search opened most leads to its own view, with its visits.
+  await chips.first().click()
+  await drillIn(page, expected[0].title)
+  await expectCount(
+    testInfo,
+    `visits to ${expected[0].url}`,
+    await kpi(page, 'Visits'),
+    archivedVisits().filter((visit) => visit.url === expected[0].url).length,
+  )
+  await page.goBack()
+  await set.getByRole('link', { name: term, exact: true }).click()
+  await drillIn(page, `“${term}”`)
+})
+
 test('a search from Frequent searches shows how often and when', async ({
   page,
 }, testInfo) => {
@@ -273,35 +501,29 @@ test('a search from Frequent searches shows how often and when', async ({
   const query = decodeURIComponent(
     new URL(page.url()).hash.match(/search\/([^?]+)/)?.[1] ?? '',
   )
-  // The page counts the search's family: every wording sharing at least half
-  // its words (the fixture rewords some searches as "… v2", "… v2 eg").
-  const words = (text: string) =>
-    new Set(
-      text
-        .toLowerCase()
-        .split(/[^\p{L}\p{N}]+/u)
-        .filter(Boolean),
-    )
-  const sameFamily = (term: string) => {
-    const [a, b] = [words(term), words(query)]
-    const shared = [...a].filter((word) => b.has(word)).length
-    return shared / new Set([...a, ...b]).size >= 0.5
-  }
-  const searches = archivedVisits().filter(
-    (visit: FixtureVisit) => visit.term !== undefined && sameFamily(visit.term),
+  // The page counts the search's family in every profile, made by hand with
+  // the backend's rule (the fixture rewords some searches as "… v2", "… v2 eg").
+  const families = archivedProfiles.flatMap((profile) =>
+    searchFamilies(fixture().visitsByProfile[profile]).filter((family) =>
+      family.queries.has(query.toLowerCase()),
+    ),
   )
-  expect(searches.length, `the fixture searched "${query}"`).toBeGreaterThan(0)
+  const timesSearched = families.reduce(
+    (sum, family) => sum + family.members,
+    0,
+  )
+  expect(timesSearched, `the fixture searched "${query}"`).toBeGreaterThan(0)
 
   await drillIn(page, `“${query}”`)
   await expectCount(
     testInfo,
     `times "${query}" was searched`,
     await kpi(page, 'Times searched'),
-    searches.length,
+    timesSearched,
   )
 
   // The newest time in the list is the fixture's newest search, on its day.
-  const latest = Math.max(...searches.map((visit) => visit.at))
+  const latest = Math.max(...families.map((family) => family.latest))
   const times = card(page, 'Each time, and where it led').getByRole('listitem')
   await expect(times.first()).toBeVisible({ timeout: JOB_TIMEOUT })
   const dayLink = times.first().getByRole('link').first()
@@ -358,7 +580,32 @@ test('a page you keep reopening shows its visits across browsers', async ({
     visits.length,
   )
   await expect(page.getByText('Why it is listed')).toBeVisible()
-  await expect(
-    card(page, 'Why it is listed').getByText(/Opened on \d+ different days/),
-  ).toBeVisible({ timeout: JOB_TIMEOUT })
+  const why = card(page, 'Why it is listed')
+  await expect(why.getByText(/Opened on \d+ different days/)).toBeVisible({
+    timeout: JOB_TIMEOUT,
+  })
+  // Opened directly (typed, a bookmark: nothing opened it), in the profile
+  // the score is counted in. Chrome and Firefox record "nothing" as 0.
+  const scores = (new URLSearchParams(
+    new URL(page.url()).hash.split('?')[1] ?? '',
+  ).get('scores') ?? '') as (typeof archivedProfiles)[number]
+  const inProfile = fixture().visitsByProfile[scores]
+  expect(inProfile, `${scores} is an archived profile`).toBeTruthy()
+  const from = openedFrom(inProfile)
+  const direct = inProfile.filter(
+    (visit, index) =>
+      visit.url.replace(/\/$/, '') === canonical.replace(/\/$/, '') &&
+      from[index] < 0 &&
+      !visit.term,
+  ).length
+  if (direct > 0) {
+    const factor = why.getByText(/Opened directly \d+ times?/)
+    await expect(factor).toBeVisible()
+    await expectCount(
+      testInfo,
+      `${canonical} opened directly in ${scores}`,
+      parseCount((await factor.innerText()).match(/(\d[\d,]*)/)?.[1] ?? ''),
+      direct,
+    )
+  }
 })

@@ -231,19 +231,23 @@ pub(super) fn get_top_search_concepts_with_connection(
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
     let limit = request.limit.unwrap_or(20).clamp(1, 1000) as usize;
     let cursor = super::paging::cursor::<(i64, String)>(request.cursor.as_deref())?;
+    // The range's searches by their time, then each one's terms by its key. Through the
+    // `search_events` and `search_event_terms` views Turso read every row of the build: 2.5 s
+    // for 30 days at 14.4M visits.
     let mut statement = connection.prepare(
-        "SELECT search_event_terms.term,
+        "SELECT t.term,
                 COUNT(*) AS frequency,
-                GROUP_CONCAT(DISTINCT search_events.search_engine)
-         FROM search_event_terms
-         JOIN search_events ON search_events.visit_id = search_event_terms.visit_id
-         WHERE (?1 IS NULL OR search_events.profile_id = ?1)
-           AND search_events.query_kind = 'keyword'
-           AND search_events.visit_time_ms >= ?2
-           AND search_events.visit_time_ms < ?3
-         GROUP BY search_event_terms.term
-         HAVING ?5 IS NULL OR COUNT(*)<?5 OR (COUNT(*)=?5 AND search_event_terms.term>?6)
-         ORDER BY frequency DESC, search_event_terms.term ASC
+                GROUP_CONCAT(DISTINCT e.search_engine)
+         FROM search_events_rows e INDEXED BY idx_search_events_kind_time
+         CROSS JOIN search_event_terms_rows t ON t.generation = e.generation AND t.visit_id = e.visit_id
+         WHERE e.query_kind = 'keyword'
+           AND e.visit_time_ms >= ?2
+           AND e.visit_time_ms < ?3
+           AND e.generation IN (SELECT navigation FROM intelligence_generations)
+           AND (?1 IS NULL OR e.profile_id = ?1)
+         GROUP BY t.term
+         HAVING ?5 IS NULL OR COUNT(*)<?5 OR (COUNT(*)=?5 AND t.term>?6)
+         ORDER BY frequency DESC, t.term ASC
          LIMIT ?4",
     )?;
     let rows = statement

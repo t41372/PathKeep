@@ -10,7 +10,9 @@
 //! search trails, refind pages, rollups, and related analytics in
 //! `derived/history-intelligence.sqlite`.
 
+mod build_append;
 mod build_pipeline;
+mod build_reclassify;
 mod build_refind;
 mod build_rows;
 mod build_stages;
@@ -41,7 +43,6 @@ mod intelligence_shared;
 mod intelligence_structural_aggregates;
 mod intelligence_structural_build;
 #[cfg(test)]
-mod intelligence_structural_persist;
 #[cfg(test)]
 mod intelligence_structural_stage;
 mod intelligence_structural_state;
@@ -243,6 +244,8 @@ struct TrailRecord {
     landing_domain: Option<String>,
     first_visit_ms: i64,
     last_visit_ms: i64,
+    /// The pages the search opened: its landing and the pages after it, not its rewordings
+    /// (`visit_count` counts those too).
     max_depth: i64,
     queries: Vec<String>,
     members: Vec<TrailMemberRecord>,
@@ -260,8 +263,11 @@ struct TrailMemberRecord {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct StructuralVisitRecord {
     visit_id: i64,
+    /// The browser's own id for the visit; another visit's `from_visit` names it.
+    source_visit_id: i64,
     profile_id: String,
     url: String,
+    title: Option<String>,
     visit_time_ms: i64,
     from_visit: Option<i64>,
     registrable_domain: String,
@@ -271,7 +277,7 @@ struct StructuralVisitRecord {
     is_search_event: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct QueryFamilyRecord {
     family_id: String,
     profile_id: String,
@@ -323,18 +329,6 @@ struct PathFlowRecord {
     step_count: i64,
     occurrence_count: i64,
     last_seen_ms: i64,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct HabitPatternRecord {
-    profile_id: String,
-    registrable_domain: String,
-    habit_type: String,
-    mean_interval_days: f32,
-    cv: f32,
-    visit_count: i64,
-    last_visited_ms: i64,
-    is_interrupted: bool,
 }
 
 /// One site's visits on one day, in one browser profile.

@@ -190,6 +190,8 @@ export const insights = defineMessages({
       pages_other: '{pages} pages',
       sites_one: 'on {sites} site',
       sites_other: 'on {sites} sites',
+      landing: 'Opened first from the search',
+      openDay: 'Show this day',
     },
     newSites: {
       title: 'New sites',
@@ -197,6 +199,7 @@ export const insights = defineMessages({
       none: 'No site in this range was new; every one had been visited before.',
       total_one: '{sites} site visited for the first time',
       total_other: '{sites} sites visited for the first time',
+      share: '{share} of the sites you visited',
       explain:
         'A site counts on the first day you visited it in any browser, or in the browser profile chosen above.',
     },
@@ -251,11 +254,14 @@ export const insights = defineMessages({
     browsers: {
       title: 'Browsers compared',
       explain:
-        'Visits and sites per browser profile in this range. A site is listed under one browser when only that browser visited it.',
+        'Visits and sites per browser profile in this range, and the kinds of sites each mostly visits (unclassified sites left out). A site is listed under one browser when only that browser visited it; the sites more than one visited are counted below, the most visited named.',
       single: 'Only one browser has visits in this range.',
       only: 'Only here:',
       shared_one: '{count} site was visited in more than one browser.',
       shared_other: '{count} sites were visited in more than one browser.',
+      sharedTop: 'Most visited of them:',
+      kinds: 'Mostly {kinds}',
+      kindsJoin: ', ',
     },
     day: {
       reopened: 'Pages you came back to',
@@ -274,6 +280,7 @@ export const insights = defineMessages({
       sessionsHint: 'Visits close together in one browser, in order',
       noSessions: 'No sessions on this day.',
       untitledSession: 'Browsing',
+      deepDive: 'Deep dive',
       sessionMeta: '{pages} · {sites}',
       searchCount_one: '{count} search',
       searchCount_other: '{count} searches',
@@ -281,8 +288,37 @@ export const insights = defineMessages({
       searched: 'Searched “{query}”',
       searches: 'Searches',
       noSearches: 'No searches on this day.',
+      mixCompared:
+        'The small numbers are the change in share, in percentage points, from the day before.',
+      timesInAll_one: '{count} time in all',
+      timesInAll_other: '{count} times in all',
+      trailAfter: '{pages} after',
+      noCompared: 'No search this day had you comparing pages.',
     },
     site: {
+      arrivals: 'How you got here',
+      arrivalsHint: 'Each visit that came from somewhere other than this site',
+      arrivalsExplain:
+        'The browser records which page opened each page. A visit counts here when that page was not on this site: none at all means you typed the address, used a bookmark or opened a new tab; a search results page means a search; any other page means a link. Moving between pages of this site is not counted.',
+      direct: 'Typed or bookmarked',
+      fromSearch: 'From a search',
+      fromLink: 'From a link',
+      noArrivals: 'No visit came here from somewhere else in this range.',
+      arrivalsUnrecorded:
+        "Your visits here came from a browser that doesn't record which page opened a page (Safari, or history imported from Google Takeout), so PathKeep can't tell how you got here.",
+      onwardUnrecorded:
+        "Your visits here came from a browser that doesn't record which page opened a page (Safari, or history imported from Google Takeout), so PathKeep can't tell where you went next.",
+      unrecordedNote_one:
+        "{count} visit here isn't counted: its browser doesn't record which page opened a page (Safari, or history imported from Google Takeout).",
+      unrecordedNote_other:
+        "{count} visits here aren't counted: their browser doesn't record which page opened a page (Safari, or history imported from Google Takeout).",
+      referrers: 'Links from',
+      searchSites: 'Searches on',
+      onward: 'Where you went next',
+      onwardHint: 'Sites you opened from links on this one',
+      noOnward: 'You did not open another site from this one in this range.',
+      siteSearches: 'Searched on this site',
+      siteSearchesHint: 'What you searched for here, most often first',
       eyebrow: 'Site',
       activeDays: 'Days visited',
       ofDays: 'out of {days}',
@@ -317,6 +353,8 @@ export const insights = defineMessages({
       ledTo: 'Opened {site}',
       noLanding: 'No page opened from the results',
       trailMeta: '{pages} after · {engine}',
+      reworded_one: 'reworded once',
+      reworded_other: 'reworded {count} times',
       landings: 'Where it led',
       landingsHint_one: 'Sites opened from the search on the left',
       landingsHint_other: 'Sites opened from the {count} results on the left',
@@ -333,6 +371,7 @@ export const insights = defineMessages({
       browsers: 'Browsers',
       weeks: 'Visits, last 12 weeks',
       why: 'Why it is listed',
+      score: 'Score {score}, the bars added up.',
       whyExplain:
         'Each signal adds to the page’s score, weighted by how strongly it shows you come back to it.',
       notRefound: 'This page is not counted as reopened in this range.',
@@ -540,6 +579,8 @@ export const insights = defineMessages({
       pages_other: '{pages} 个页面',
       sites_one: '在 {sites} 个网站',
       sites_other: '在 {sites} 个网站',
+      landing: '搜索后第一个打开的页面',
+      openDay: '查看这一天',
     },
     newSites: {
       title: '新网站',
@@ -547,6 +588,7 @@ export const insights = defineMessages({
       none: '这段时间没有新网站，去过的网站之前都去过。',
       total_one: '第一次去的网站 {sites} 个',
       total_other: '第一次去的网站 {sites} 个',
+      share: '占去过的网站的 {share}',
       explain:
         '一个网站算在你第一次在任何浏览器（或上面选的浏览器配置）去它的那一天。',
     },
@@ -601,11 +643,14 @@ export const insights = defineMessages({
     browsers: {
       title: '各浏览器对比',
       explain:
-        '这段时间每个浏览器配置的浏览量和网站数。只有一个浏览器去过的网站会列在它下面。',
+        '这段时间每个浏览器配置的浏览量和网站数，以及它主要去哪类网站（不算未分类的）。只有一个浏览器去过的网站会列在它下面；不止一个浏览器去过的网站在最下面计数，并写出最常去的几个。',
       single: '这段时间只有一个浏览器有浏览记录。',
       only: '只在这里：',
       shared_one: '有 {count} 个网站在不止一个浏览器里去过。',
       shared_other: '有 {count} 个网站在不止一个浏览器里去过。',
+      sharedTop: '其中最常去的：',
+      kinds: '主要是 {kinds}',
+      kindsJoin: '、',
     },
     day: {
       reopened: '回来再看的页面',
@@ -624,6 +669,7 @@ export const insights = defineMessages({
       sessionsHint: '同一个浏览器里时间相近的浏览，按顺序排列',
       noSessions: '这一天没有浏览时段。',
       untitledSession: '浏览',
+      deepDive: '深入浏览',
       sessionMeta: '{pages} · {sites}',
       searchCount_one: '{count} 次搜索',
       searchCount_other: '{count} 次搜索',
@@ -631,8 +677,36 @@ export const insights = defineMessages({
       searched: '搜索“{query}”',
       searches: '搜索',
       noSearches: '这一天没有搜索。',
+      mixCompared: '小字是和前一天相比，占比变化了几个百分点。',
+      timesInAll_one: '一共搜索过 {count} 次',
+      timesInAll_other: '一共搜索过 {count} 次',
+      trailAfter: '之后 {pages}',
+      noCompared: '这一天的搜索里没有来回比较页面。',
     },
     site: {
+      arrivals: '怎么来到这里',
+      arrivalsHint: '从这个网站以外来的每一次浏览',
+      arrivalsExplain:
+        '浏览器会记下每个页面是从哪个页面打开的。打开它的页面不在这个网站上，才算在这里：没有打开它的页面，表示你输入了网址、用了书签或开了新标签页；是搜索结果页，算从搜索来；其他页面，算从链接来。在这个网站的页面之间移动不算。',
+      direct: '输入网址或书签',
+      fromSearch: '从搜索来',
+      fromLink: '从链接来',
+      noArrivals: '这段时间没有从别处来到这里的浏览。',
+      arrivalsUnrecorded:
+        '这里的浏览来自不记录“从哪一页打开”的浏览器（Safari，或从 Google Takeout 导入的记录），所以 PathKeep 无法知道你是怎么来的。',
+      onwardUnrecorded:
+        '这里的浏览来自不记录“从哪一页打开”的浏览器（Safari，或从 Google Takeout 导入的记录），所以 PathKeep 无法知道你接着去了哪里。',
+      unrecordedNote_one:
+        '有 {count} 次浏览没算进来：它的浏览器不记录是从哪一页打开的（Safari，或从 Google Takeout 导入的记录）。',
+      unrecordedNote_other:
+        '有 {count} 次浏览没算进来：它们的浏览器不记录是从哪一页打开的（Safari，或从 Google Takeout 导入的记录）。',
+      referrers: '链接来自',
+      searchSites: '在这些地方搜索',
+      onward: '接着去了哪里',
+      onwardHint: '从这个网站的链接打开的网站',
+      noOnward: '这段时间没有从这个网站打开别的网站。',
+      siteSearches: '在这个网站上搜索',
+      siteSearchesHint: '你在这里搜索过什么，最常搜的在前',
       eyebrow: '网站',
       activeDays: '造访天数',
       ofDays: '共 {days} 天',
@@ -667,6 +741,8 @@ export const insights = defineMessages({
       ledTo: '打开了 {site}',
       noLanding: '没有从结果打开页面',
       trailMeta: '之后 {pages} · {engine}',
+      reworded_one: '改写 1 次',
+      reworded_other: '改写 {count} 次',
       landings: '打开了哪些网站',
       landingsHint_one: '从这次搜索结果打开的网站',
       landingsHint_other: '从左边 {count} 次搜索结果打开的网站',
@@ -683,6 +759,7 @@ export const insights = defineMessages({
       browsers: '浏览器',
       weeks: '近 12 周浏览',
       why: '为什么列在这里',
+      score: '得分 {score}，即上面各项相加。',
       whyExplain: '每个信号都会给页面加分，越能说明你会回来看，权重越高。',
       notRefound: '这段时间这个页面没有算作反复打开。',
       factors: {
@@ -889,6 +966,8 @@ export const insights = defineMessages({
       pages_other: '{pages} 個頁面',
       sites_one: '在 {sites} 個網站',
       sites_other: '在 {sites} 個網站',
+      landing: '搜尋後第一個打開的頁面',
+      openDay: '查看這一天',
     },
     newSites: {
       title: '新網站',
@@ -896,6 +975,7 @@ export const insights = defineMessages({
       none: '這段時間沒有新網站，去過的網站之前都去過。',
       total_one: '第一次去的網站 {sites} 個',
       total_other: '第一次去的網站 {sites} 個',
+      share: '占去過的網站的 {share}',
       explain:
         '一個網站算在你第一次在任何瀏覽器（或上面選的瀏覽器設定檔）去它的那一天。',
     },
@@ -950,11 +1030,14 @@ export const insights = defineMessages({
     browsers: {
       title: '各瀏覽器比較',
       explain:
-        '這段時間每個瀏覽器設定檔的瀏覽量和網站數。只有一個瀏覽器去過的網站會列在它下面。',
+        '這段時間每個瀏覽器設定檔的瀏覽量和網站數，以及它主要去哪類網站（不算未分類的）。只有一個瀏覽器去過的網站會列在它下面；不只一個瀏覽器去過的網站在最下面計數，並寫出最常去的幾個。',
       single: '這段時間只有一個瀏覽器有瀏覽記錄。',
       only: '只在這裡：',
       shared_one: '有 {count} 個網站在不只一個瀏覽器裡去過。',
       shared_other: '有 {count} 個網站在不只一個瀏覽器裡去過。',
+      sharedTop: '其中最常去的：',
+      kinds: '主要是 {kinds}',
+      kindsJoin: '、',
     },
     day: {
       reopened: '回來再看的頁面',
@@ -973,6 +1056,7 @@ export const insights = defineMessages({
       sessionsHint: '同一個瀏覽器裡時間相近的瀏覽，依順序排列',
       noSessions: '這一天沒有瀏覽時段。',
       untitledSession: '瀏覽',
+      deepDive: '深入瀏覽',
       sessionMeta: '{pages} · {sites}',
       searchCount_one: '{count} 次搜尋',
       searchCount_other: '{count} 次搜尋',
@@ -980,8 +1064,36 @@ export const insights = defineMessages({
       searched: '搜尋「{query}」',
       searches: '搜尋',
       noSearches: '這一天沒有搜尋。',
+      mixCompared: '小字是和前一天相比，占比變化了幾個百分點。',
+      timesInAll_one: '一共搜尋過 {count} 次',
+      timesInAll_other: '一共搜尋過 {count} 次',
+      trailAfter: '之後 {pages}',
+      noCompared: '這一天的搜尋裡沒有來回比較頁面。',
     },
     site: {
+      arrivals: '怎麼來到這裡',
+      arrivalsHint: '從這個網站以外來的每一次瀏覽',
+      arrivalsExplain:
+        '瀏覽器會記下每個頁面是從哪個頁面打開的。打開它的頁面不在這個網站上，才算在這裡：沒有打開它的頁面，表示你輸入了網址、用了書籤或開了新分頁；是搜尋結果頁，算從搜尋來；其他頁面，算從連結來。在這個網站的頁面之間移動不算。',
+      direct: '輸入網址或書籤',
+      fromSearch: '從搜尋來',
+      fromLink: '從連結來',
+      noArrivals: '這段時間沒有從別處來到這裡的瀏覽。',
+      arrivalsUnrecorded:
+        '這裡的瀏覽來自不記錄「從哪一頁打開」的瀏覽器（Safari，或從 Google Takeout 匯入的紀錄），所以 PathKeep 無法知道你是怎麼來的。',
+      onwardUnrecorded:
+        '這裡的瀏覽來自不記錄「從哪一頁打開」的瀏覽器（Safari，或從 Google Takeout 匯入的紀錄），所以 PathKeep 無法知道你接著去了哪裡。',
+      unrecordedNote_one:
+        '有 {count} 次瀏覽沒算進來：它的瀏覽器不記錄是從哪一頁打開的（Safari，或從 Google Takeout 匯入的紀錄）。',
+      unrecordedNote_other:
+        '有 {count} 次瀏覽沒算進來：它們的瀏覽器不記錄是從哪一頁打開的（Safari，或從 Google Takeout 匯入的紀錄）。',
+      referrers: '連結來自',
+      searchSites: '在這些地方搜尋',
+      onward: '接著去了哪裡',
+      onwardHint: '從這個網站的連結打開的網站',
+      noOnward: '這段時間沒有從這個網站打開別的網站。',
+      siteSearches: '在這個網站上搜尋',
+      siteSearchesHint: '你在這裡搜尋過什麼，最常搜的在前',
       eyebrow: '網站',
       activeDays: '造訪天數',
       ofDays: '共 {days} 天',
@@ -1016,6 +1128,8 @@ export const insights = defineMessages({
       ledTo: '打開了 {site}',
       noLanding: '沒有從結果打開頁面',
       trailMeta: '之後 {pages} · {engine}',
+      reworded_one: '改寫 1 次',
+      reworded_other: '改寫 {count} 次',
       landings: '打開了哪些網站',
       landingsHint_one: '從這次搜尋結果打開的網站',
       landingsHint_other: '從左邊 {count} 次搜尋結果打開的網站',
@@ -1032,6 +1146,7 @@ export const insights = defineMessages({
       browsers: '瀏覽器',
       weeks: '近 12 週瀏覽',
       why: '為什麼列在這裡',
+      score: '得分 {score}，即上面各項相加。',
       whyExplain: '每個訊號都會替頁面加分，越能說明你會回來看，權重越高。',
       notRefound: '這段時間這個頁面沒有算作反覆打開。',
       factors: {

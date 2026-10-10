@@ -21,10 +21,14 @@ fn encrypted_intelligence_at_scale() {
     if let Ok(root) = std::env::var("PATHKEEP_INTELLIGENCE_BENCH_CHILD") {
         let vault = super::turso_reads::open(Path::new(&root));
         match std::env::var("PATHKEEP_INTELLIGENCE_BENCH_PHASE").unwrap().as_str() {
-            "full" => rebuild(&vault, true),
+            "full" => rebuild(&vault, true, "full"),
             "incremental" => {
                 require_published_baseline(&vault).unwrap();
-                rebuild(&vault, false);
+                rebuild(&vault, false, "incremental-10000");
+            }
+            "categories" => {
+                require_published_baseline(&vault).unwrap();
+                rebuild(&vault, false, "categories");
             }
             operation if operation.starts_with("insights-") => {
                 require_published_baseline(&vault).unwrap();
@@ -72,13 +76,23 @@ fn encrypted_intelligence_at_scale() {
     }
     let vault = super::turso_reads::open(root.path());
     vault.store().write(Db::Archive,Priority::Batch,|s| {
-        s.execute(&format!("WITH RECURSIVE ids(id) AS(VALUES(14400001) UNION ALL SELECT id+1 FROM ids WHERE id<14410000) INSERT INTO visits(id,url_id,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT id,{},CAST(id AS TEXT),?1+id*10000,'2025-04-07T00:00:00Z',1,0 FROM ids",super::turso_reads::visit_page()),[START])?;
+        s.execute(&format!("WITH RECURSIVE ids(id) AS(VALUES(14400001) UNION ALL SELECT id+1 FROM ids WHERE id<14410000) INSERT INTO visits(id,url_id,from_visit,source_visit_id,visit_time_ms,visit_time_iso,source_profile_id,created_by_run_id) SELECT id,{},CAST(id AS TEXT),?1+id*10000,'2025-04-07T00:00:00Z',1,0 FROM ids",super::turso_reads::visit_page_and_opener()),[START])?;
         s.execute("UPDATE archive_totals SET value=value+10000 WHERE name IN ('visits','sourceVisits:1')",())?;
         Ok(())
     }).unwrap();
     vault.close().unwrap();
     drop(vault);
     child(root.path(), "incremental");
+    // A site visited every day moves to another category: its visits' facts are rewritten and
+    // every day's rollups made again, in place.
+    let vault = super::turso_reads::open(root.path());
+    vault.store().write(Db::Intelligence,Priority::Batch,|s| {
+        s.execute("INSERT INTO site_dictionary_overrides(target_kind,target_value,domain_category,page_category,created_at,updated_at) VALUES('exact-domain','site1.test','docs','docs_page','','')",())?;
+        Ok(())
+    }).unwrap();
+    vault.close().unwrap();
+    drop(vault);
+    child(root.path(), "categories");
     let bytes = super::turso_reads::directory_bytes(root.path());
     assert!(bytes < MAX_BYTES, "benchmark data exceeded 40 GB: {bytes}");
     println!("INTELLIGENCE_BENCH visits={VISITS} pages={PAGES} peak_final_data_bytes={bytes}");
@@ -120,7 +134,7 @@ fn child(root: &Path, phase: &str) {
     assert!(status.success(), "benchmark phase {phase} failed");
     assert!(super::turso_reads::directory_bytes(root) < MAX_BYTES);
 }
-fn rebuild(vault: &Vault, full: bool) {
+fn rebuild(vault: &Vault, full: bool, label: &str) {
     load();
     let start = Instant::now();
     let (ready, wait) = std::sync::mpsc::channel();
@@ -147,6 +161,9 @@ fn rebuild(vault: &Vault, full: bool) {
     let mut measured = false;
     let mut phase = String::new();
     let mut last_report = Instant::now();
+    // The last event of the current phase, printed when the next phase starts: the work between
+    // a phase's last event and the next phase's first is otherwise invisible.
+    let mut last_event = (None, 0);
     vault_core::run_core_intelligence_with_progress(
         vault,
         &CoreIntelligenceRebuildRequest {
@@ -155,6 +172,12 @@ fn rebuild(vault: &Vault, full: bool) {
             ..Default::default()
         },
         |p| {
+            if phase != p.phase && !phase.is_empty() {
+                println!(
+                    "INTELLIGENCE_BENCH phase_end={phase} processed={:?} elapsed_ms={}",
+                    last_event.0, last_event.1
+                );
+            }
             if phase != p.phase || last_report.elapsed().as_secs() >= 60 {
                 println!(
                     "INTELLIGENCE_BENCH phase={} processed={:?} total={:?} elapsed_ms={}",
@@ -166,6 +189,7 @@ fn rebuild(vault: &Vault, full: bool) {
                 phase = p.phase.clone();
                 last_report = Instant::now();
             }
+            last_event = (p.processed_items, start.elapsed().as_millis());
             if !measured
                 && p.phase == "visit-derived-facts"
                 && p.processed_items.is_some_and(|n| n >= 4096)
@@ -187,8 +211,7 @@ fn rebuild(vault: &Vault, full: bool) {
     assert!(written < completed, "interactive write must finish during the rebuild");
     println!("INTELLIGENCE_BENCH interactive_write_wait_ms={:.3}", delay.as_secs_f64() * 1000.0);
     println!(
-        "INTELLIGENCE_BENCH {} elapsed_ms={} peak_rss_bytes={:?}",
-        if full { "full" } else { "incremental-10000" },
+        "INTELLIGENCE_BENCH {label} elapsed_ms={} peak_rss_bytes={:?}",
         start.elapsed().as_millis(),
         super::turso_reads::peak_rss_bytes()
     );

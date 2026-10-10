@@ -17,11 +17,17 @@
 //! - These are compact value types; large-archive memory behavior is governed
 //!   by the caller's batching strategy, not by this type module.
 
-/// The matcher's version. v2: a host is matched before its parents (`mail.google.com` before
-/// `google.com`). v3: a Latin lexicon word matches whole words only ("api" not in "rapid").
-/// v4: only http(s) pages have a site; an extension's page no longer counts as one.
-/// What builds record is `taxonomy_version()`, which adds every pack's version.
+/// The category matcher's version: which category a page and its site get. v2: a host is matched
+/// before its parents (`mail.google.com` before `google.com`). v3: a Latin lexicon word matches
+/// whole words only ("api" not in "rapid"). v4: no change of its own (it carried the first URL
+/// rule change below). What builds record is `taxonomy_version()`, which adds every pack's
+/// version; a change there sorts visits into categories again without building Insights anew.
 pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v4";
+
+/// The URL rules' version: how a URL is normalized, which site it belongs to and which search it
+/// is. A change moves visits between sites and searches, so Insights are built anew. v1: only
+/// http(s) pages have a site; an extension's page no longer counts as one.
+pub(super) const URL_RULES_VERSION: &str = "m5-url-v1";
 
 /// URL normalized for rule-based visit taxonomy and matching.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +44,29 @@ pub struct NormalizedVisitUrl {
 }
 
 /// Strength of local evidence supporting a derived interpretation.
+/// Which page opened a visit, from the browser's `from_visit`. Chromium and Firefox write 0 when
+/// nothing did (an address typed, a bookmark, a new tab, another app); Safari and Google Takeout
+/// record nothing at all, so their visits say neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Opener {
+    /// The browser does not record what opened a page.
+    Unrecorded,
+    /// Nothing did.
+    Nothing,
+    /// The browser's own id of the visit that did (`source_visit_id`).
+    Visit(i64),
+}
+
+impl Opener {
+    pub(crate) fn of(from_visit: Option<i64>) -> Self {
+        match from_visit {
+            None => Self::Unrecorded,
+            Some(id) if id <= 0 => Self::Nothing,
+            Some(id) => Self::Visit(id),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EvidenceTier {
     TierA,

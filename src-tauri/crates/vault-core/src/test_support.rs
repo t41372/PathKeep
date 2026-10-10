@@ -120,3 +120,5 @@ pub mod history;
 pub mod native;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod search;
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod search_history;

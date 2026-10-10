@@ -1,4 +1,5 @@
-//! Common paths for a date range, counted from the sessions' stored path segments.
+//! Common paths for a date range and for all time, counted from the sessions' stored path
+//! segments.
 //!
 //! Ways this can go wrong, each covered below: a path that crosses from one segment into the
 //! next (the size bound, local midnight, a rebuild batch boundary) is counted twice or not at
@@ -11,7 +12,7 @@ use crate::intelligence::{get_path_flows, local_date_key, path_flows::is_path};
 use crate::models::{CoreIntelligenceRebuildRequest, DateRange, PathFlowRequest};
 use crate::test_support::native::TestDatabase;
 use chrono::{Local, NaiveDate};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const PROFILE: &str = "chrome:Default";
 const SITES: usize = 6;
@@ -163,11 +164,30 @@ fn a_range_counts_each_path_once_across_segments_batches_and_appends() {
 
     let today = Local::now().format("%Y-%m-%d").to_string();
     let everything = DateRange { start: "2000-01-01".into(), end: "2099-12-31".into() };
+    // All time also holds the seed fixture's visits (a search, then the issue it found).
+    let seed = [
+        (1, "google.com".to_string(), 1_711_929_600_000),
+        (2, "github.com".to_string(), 1_711_929_660_000),
+        (3, "github.com".to_string(), 1_712_016_000_000),
+    ];
+    let archive = seed.iter().cloned().chain(all.iter().cloned()).collect::<Vec<_>>();
+    let days = archive.iter().map(|(_, _, time)| local_date_key(*time)).collect::<BTreeSet<_>>();
+    let days = days.into_iter().collect::<Vec<_>>();
     for steps in [2, 3, 4] {
-        // The stored all-time flows, built by another pass over every visit, are the reference.
+        // All time reads the flows the build stored; a range counts the segments when read.
         let stored =
             read(&vault, DateRange { start: "1900-01-01".into(), end: today.clone() }, steps);
-        assert!(!stored.is_empty(), "no {steps}-site paths in the fixture");
+        let want = expected(&archive, &days, steps as usize);
+        assert!(!want.is_empty(), "no {steps}-site paths in the fixture");
+        assert_eq!(
+            stored,
+            want.iter()
+                .map(|(pattern, (count, last))| {
+                    (pattern.clone(), (*count, crate::intelligence::rfc3339_from_millis(*last)))
+                })
+                .collect::<BTreeMap<_, _>>(),
+            "{steps}-site paths of all time"
+        );
         assert_eq!(read(&vault, everything.clone(), steps), stored, "{steps}-site paths");
 
         let next_day = local_date_key(local_ms(day.succ_opt().unwrap(), 12));

@@ -1,4 +1,5 @@
-//! Responsibilities: stream canonical-page aggregates without retaining the archive's page set.
+//! Responsibilities: stream canonical-page aggregates without retaining the archive's page set;
+//! build one page's row again from all its visits (what an append does for each page it opens).
 //! Not responsible for: sessions, query families or publishing generations.
 //! Failure modes: canonical groups straddle a batch, a restart duplicates pages, chronological
 //! provenance changes with key order, or one popular page prevents cancellation between reads.
@@ -21,6 +22,37 @@ const COLUMNS:&str="SELECT f.visit_id,f.profile_id,f.canonical_url,f.registrable
     LEFT JOIN visit_assignments a INDEXED BY idx_assignments_visit_generation ON a.visit_id=f.visit_id AND a.generation=?3
     WHERE f.generation=?1 AND f.profile_id=?2 AND f.is_search_event=0";
 
+fn visit_row(r: &vault_store::Row) -> vault_store::Result<VisitRecord> {
+    Ok(VisitRecord {
+        visit_id: r.get(0)?,
+        profile_id: r.get(1)?,
+        canonical_url: r.get(2)?,
+        registrable_domain: r.get(3)?,
+        url: r.get(4)?,
+        title: r.get(5)?,
+        visit_time_ms: r.get(6)?,
+        from_visit: r.get(7)?,
+        trail_id: r.get(8)?,
+        source_profile_id: 0,
+        source_visit_id: 0,
+        source_url_id: 0,
+        transition_type: None,
+        external_referrer_url: None,
+        domain_category: String::new(),
+        page_category: String::new(),
+        search_engine: None,
+        search_query: None,
+        is_new_domain: false,
+        is_search_event: false,
+        evidence_tier: String::new(),
+        taxonomy_source: String::new(),
+        taxonomy_pack: None,
+        taxonomy_version: None,
+        display_name: None,
+        session_id: None,
+    })
+}
+
 fn page(
     vault: &Vault,
     state: &BuildState,
@@ -31,10 +63,7 @@ fn page(
     let navigation = state.navigation_generation;
     let profile = state.profile_id.clone();
     vault.read(Db::Intelligence,move |s| {
-        let map=|r:&vault_store::Row|->vault_store::Result<VisitRecord> {Ok(VisitRecord {
-            visit_id:r.get(0)?,profile_id:r.get(1)?,canonical_url:r.get(2)?,registrable_domain:r.get(3)?,url:r.get(4)?,title:r.get(5)?,visit_time_ms:r.get(6)?,from_visit:r.get(7)?,trail_id:r.get(8)?,
-            source_profile_id:0,source_visit_id:0,source_url_id:0,transition_type:None,external_referrer_url:None,domain_category:String::new(),page_category:String::new(),search_engine:None,search_query:None,is_new_domain:false,is_search_event:false,evidence_tier:String::new(),taxonomy_source:String::new(),taxonomy_pack:None,taxonomy_version:None,display_name:None,session_id:None,
-        })};
+        let map = visit_row;
         let mut rows;
         if let Some((key,id))=after {
             rows=s.query(&format!("{COLUMNS} AND f.canonical_url=?4 AND f.visit_id>?5 ORDER BY f.canonical_url,f.visit_id LIMIT ?6"),params![facts,profile,navigation,key,id,limit as i64],map)?;
@@ -46,6 +75,43 @@ fn page(
         }
         Ok(rows)
     })
+}
+
+/// One page's refind row from all its visits, or `None` when the page is not one people come
+/// back to. Reads the visits `limit` at a time, so a page opened daily for years stays bounded.
+pub(super) fn page_record(
+    vault: &Vault,
+    state: &BuildState,
+    canonical_url: &str,
+    limit: usize,
+) -> Result<Option<RefindPageRecord>> {
+    let mut accumulator = StructuralAggregateAccumulator::default();
+    let mut first = None::<(i64, i64)>;
+    let mut after = i64::MIN;
+    loop {
+        let (facts, navigation) = (state.facts_generation, state.navigation_generation);
+        let (profile, url) = (state.profile_id.clone(), canonical_url.to_owned());
+        let rows = vault.read(Db::Intelligence, move |s| {
+            Ok(s.query(
+                &format!("{COLUMNS} AND f.canonical_url=?4 AND f.visit_id>?5 ORDER BY f.visit_id LIMIT ?6"),
+                params![facts, profile, navigation, url, after, limit as i64],
+                visit_row,
+            )?)
+        })?;
+        let Some(last) = rows.last() else { break };
+        after = last.visit_id;
+        for visit in &rows {
+            // The URL and title shown come from the chronologically first visit.
+            let order = (visit.visit_time_ms, visit.visit_id);
+            let earliest = first.is_none_or(|old| order < old);
+            first = Some(first.map_or(order, |old| old.min(order)));
+            accumulator.add_refind_visit(visit, earliest);
+        }
+        if rows.len() < limit {
+            break;
+        }
+    }
+    Ok(accumulator.finish().pop())
 }
 
 pub(super) fn rebuild<F>(
@@ -75,7 +141,7 @@ where
         }
         for visit in &rows {
             if current.as_deref().is_some_and(|key| key != visit.canonical_url) {
-                batch.extend(std::mem::take(&mut accumulator).finish().0);
+                batch.extend(std::mem::take(&mut accumulator).finish());
                 completed_key = current.take();
                 first = None;
                 completed_groups += 1;
@@ -98,7 +164,7 @@ where
         progress(build_state::progress(state, "refind-pages", scanned, state.processed))?;
     }
     if current.is_some() {
-        batch.extend(accumulator.finish().0);
+        batch.extend(accumulator.finish());
         completed_key = current;
     }
     persist(vault, state, &mut batch, completed_key)?;
@@ -125,7 +191,6 @@ fn persist(
             s,
             saved.aggregate_generation,
             &rows,
-            &[],
             &reopened,
             &[],
             &saved.computed_at,

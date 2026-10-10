@@ -556,7 +556,7 @@ recovery, cancellation and exact command/channel shapes.
 - enrichment queue contract 掛在 `derived/intelligence.db` 的 `intelligence_jobs`，並以 `job_type = 'enrichment-plugin'`、`plugin_id`、`run_id`、payload / artifact trace、`lease_owner`、`lease_expires_at`、`heartbeat_at`、`stop_requested` 區分；額外 trigger 關聯則落在 `intelligence_job_triggers`。這是 derived-state runtime policy，不是 canonical ingest schema 的一部分。
 - built-in enrichment runtime 目前是 first-party only；Settings / Insights 可以 review、retry、cancel 內建 job，但 third-party plugin execution 仍保持 deferred，不進 shipping runtime。
 - `page_content_enrichments` 保存在 `derived/intelligence.db`，以 `(canonical_url, content_source)` 共用 readable-text evidence；它服務 optional AI / assistant / enrichment flows，不是 legacy insights snapshot。
-- 2026-04-15 hard reset 後，deterministic/Core Intelligence 的可重建 derived tables 改為：`visit_derived_facts`、`domain_daily_rollups`、`category_daily_rollups`、`engine_daily_rollups`、`daily_summary_rollups`、`sessions`、`search_trails`、`search_trail_members`、`search_events`、`search_event_terms`、`query_families`、`refind_pages`、`habit_patterns`、`reopened_investigations`、`path_flows`、`compare_sets`（2026-10-08 起在 aggregate 建置時算好，不再每次讀取現算）。`clear_derived_intelligence_state` 只會清掉這些 Core Intelligence rows 與對應 runtime trace，不會動 canonical archive facts；回報欄位也必須按 stage 分組為 `clearedVisitDerivedFactRows`、`clearedDailyRollupRows`、`clearedStructuralRows`、`clearedRuntimeRows`，只有真的清 enrichment 時才額外回 `clearedEnrichmentRows`。
+- 2026-04-15 hard reset 後，deterministic/Core Intelligence 的可重建 derived tables 改為：`visit_derived_facts`、`domain_daily_rollups`、`category_daily_rollups`、`engine_daily_rollups`、`daily_summary_rollups`、`sessions`、`search_trails`、`search_trail_members`、`search_events`、`search_event_terms`、`query_families`、`refind_pages`、`reopened_investigations`、`path_flows`、`compare_sets`（2026-10-08 起在 aggregate 建置時算好，不再每次讀取現算）。2026-10-09 起不再存 `habit_patterns`：習慣、停掉的習慣與習慣的說明都在讀取時由 `domain_daily_rollups` 算出（同一個分類規則），「停掉了」本來就跟著今天變，存下來只會過期。全部時間的 `path_flows` 改由 `session_paths` 計數，跟日期範圍同一套數法，visit 不再為了路線再走一遍。`clear_derived_intelligence_state` 只會清掉這些 Core Intelligence rows 與對應 runtime trace，不會動 canonical archive facts；回報欄位也必須按 stage 分組為 `clearedVisitDerivedFactRows`、`clearedDailyRollupRows`、`clearedStructuralRows`、`clearedRuntimeRows`，只有真的清 enrichment 時才額外回 `clearedEnrichmentRows`。
 - `visit_derived_facts` 是新的 visit-level explanation state，持久化 `session_id`、`trail_id`、`registrable_domain`、`canonical_url`、`domain_category`、`page_category`、`search_engine`、`search_query`、`is_new_domain`、`is_search_event`、`evidence_tier`、`taxonomy_source`、`taxonomy_pack`、`taxonomy_version`。這些都屬 derived explanation state，而不是 canonical archive fact。
 - desktop / worker app snapshot 的 canonical runtime readiness 欄位現在是 `intelligenceStatus`，對應型別是 `IntelligenceStatus`；repo 已不再保留 `insightStatus` / `InsightStatus` alias，新 surface 必須直接使用 canonical naming。
 - Core Intelligence read path 不再依賴 `insight_snapshot_payloads` 這種整包 JSON snapshot。前台應以實體 / rollup query（sessions、trails、rollups、refind、domain deep dive、digest）為主路徑；若保留舊 snapshot payload，只能視為 legacy inert data，不再是 accepted contract。
@@ -637,6 +637,18 @@ cursor. A resumed long session reads these counts instead of replaying every ear
 sites of its own, each row starting with the last three sites of the one before. Common paths
 for a date range count the rows of those days, each path in the row of its last site, instead
 of replaying the range's visits.
+`site_flows` holds, per site and local day, how its visits began and the sites its links
+opened, so the site page sums a range's days instead of reading the site's visits and their
+neighbours.
+
+`visits.from_visit` keeps what the browser wrote, and its three states mean different things
+(`visit_taxonomy::Opener`): Chromium and Firefox write `0` when nothing opened the page (an
+address typed, a bookmark, a new tab, another app) and the browser's own id of the opener
+otherwise; Safari and Google Takeout record nothing (`NULL`), so their visits say neither.
+Typed revisits, navigation evidence, the session's link-chain depth and site arrivals all read
+it this way; until 2026-10-09 they took any value, `0` included, for an opener, so Chromium's
+and Firefox's typed visits never counted as typed and every one of their visits counted as a
+link step.
 The cards that rank or count sites (top sites, explore or focus, habits, browsers compared and
 the KPI row's site count) share one read of a range's `domain_daily_rollups` rows, in date
 order, that keeps running totals per site, not its days (`intelligence::site_days`). Each vault

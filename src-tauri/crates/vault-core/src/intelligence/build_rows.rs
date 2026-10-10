@@ -148,7 +148,7 @@ pub(super) fn derived_page(
 }
 
 use super::{
-    DailyRollupBundle, HabitPatternRecord, PathFlowRecord, QueryFamilyRecord, RefindPageRecord,
+    DailyRollupBundle, PathFlowRecord, QueryFamilyRecord, RefindPageRecord,
     ReopenedInvestigationRecord,
 };
 
@@ -280,7 +280,6 @@ pub(super) fn persist_aggregates(
     s: &Session<'_>,
     generation: i64,
     refind_pages: &[RefindPageRecord],
-    habits: &[HabitPatternRecord],
     reopened: &[ReopenedInvestigationRecord],
     path_flows: &[PathFlowRecord],
     computed_at: &str,
@@ -289,9 +288,6 @@ pub(super) fn persist_aggregates(
  (generation,profile_id, canonical_url, url, title, registrable_domain, cross_day_count, trail_count, search_arrival_count,
               typed_revisit_count, refind_score, evidence_json, first_seen_ms, last_seen_ms, computed_at)
  VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)")?;
-    let mut insert_habit_patterns=s.prepare("INSERT OR REPLACE INTO habit_patterns_rows
- (generation,profile_id, registrable_domain, habit_type, mean_interval_days, cv, visit_count, last_visited_ms, is_interrupted, computed_at)
- VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")?;
     let mut insert_reopened_investigations=s.prepare("INSERT OR REPLACE INTO reopened_investigations_rows
  (generation,investigation_id, profile_id, anchor_type, anchor_id, anchor_label, occurrence_count, distinct_days,
               first_seen_ms, last_seen_ms, evidence_json, computed_at)
@@ -320,20 +316,6 @@ pub(super) fn persist_aggregates(
             evidence,
             page.first_seen_ms,
             page.last_seen_ms,
-            computed_at,
-        ])?;
-    }
-    for habit in habits {
-        insert_habit_patterns.execute(params![
-            generation,
-            habit.profile_id,
-            habit.registrable_domain,
-            habit.habit_type,
-            habit.mean_interval_days,
-            habit.cv,
-            habit.visit_count,
-            habit.last_visited_ms,
-            i64::from(habit.is_interrupted),
             computed_at,
         ])?;
     }

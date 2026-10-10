@@ -42,9 +42,8 @@ use crate::{
         CoreIntelligencePrimaryOverview, CoreIntelligenceSecondaryOverview,
         CoreIntelligenceSectionResult, CoreIntelligenceSectionTiming,
         CoreIntelligenceSectionWindow, GranularityDateRangeRequest, IntelligenceRuntimeSnapshot,
-        PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, RefindPagesRequest,
-        ScopedDateRangeRequest, SearchEffectivenessRequest, TopSearchConceptsRequest,
-        TopSitesRequest,
+        PagedDateRangeRequest, PathFlowRequest, RefindPagesRequest, ScopedDateRangeRequest,
+        SearchEffectivenessRequest, TopSearchConceptsRequest, TopSitesRequest,
     },
 };
 use anyhow::Result;
@@ -145,8 +144,6 @@ fn build_intelligence_primary_overview_with_connection(
         profile_id: request.profile_id.clone(),
         granularity: "day".to_string(),
     };
-    let interrupted_habits_request =
-        ProfileScopedRequest { profile_id: request.profile_id.clone() };
 
     let mut timings = Vec::new();
     let (digest_summary, timing) = build_overview_timed_section_result(
@@ -251,15 +248,16 @@ fn build_intelligence_primary_overview_with_connection(
         |data| data.is_empty(),
     )?;
     timings.push(timing);
+    // The scope's habits that went quiet, from the habits just read.
     let (interrupted_habits, timing) = build_overview_timed_section_result(
         "habits",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
         || {
-            phase_three::get_interrupted_habits_with_connection(
-                connection,
-                &interrupted_habits_request,
-            )
+            Ok(phase_three::interrupted_among(
+                &habit_patterns.data,
+                Local::now().timestamp_millis(),
+            ))
         },
         |data| data.is_empty(),
     )?;
@@ -542,17 +540,14 @@ fn refresh_for_today(
         &runtime.modules,
     )?;
     payload.on_this_day.data = on_this_day;
+    let interrupted =
+        phase_three::interrupted_among(&payload.habit_patterns.data, today.timestamp_millis());
     for habit in &mut payload.habit_patterns.data {
-        if let Ok(last) = chrono::DateTime::parse_from_rfc3339(&habit.last_visited_at) {
-            let days_since =
-                (today.timestamp_millis() - last.timestamp_millis()).max(0) as f32 / 86_400_000.0;
-            habit.is_interrupted = days_since > habit.mean_interval_days * 2.0;
-        }
+        habit.is_interrupted = interrupted
+            .iter()
+            .any(|quiet| quiet.habit.registrable_domain == habit.registrable_domain);
     }
-    payload.interrupted_habits.data = phase_three::get_interrupted_habits_with_connection(
-        connection,
-        &ProfileScopedRequest { profile_id: request.profile_id.clone() },
-    )?;
+    payload.interrupted_habits.data = interrupted;
     for meta in [
         &mut payload.digest_summary.meta,
         &mut payload.top_sites.meta,

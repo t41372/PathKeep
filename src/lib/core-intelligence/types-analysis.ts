@@ -47,6 +47,42 @@ export interface DomainDeepDive {
   landingSearches: Page<DomainSearchStat>
   /** Days without visits are left out. */
   visitTrend: DomainTrendPoint[]
+  arrivals: SiteArrivals
+  /** Sites whose links opened this one, most visits first. */
+  referrers: SiteFlowStat[]
+  /** Search engines whose results opened it, by the engine's site. */
+  searchSites: SiteFlowStat[]
+  /** Sites opened from links on this one. */
+  onward: SiteFlowStat[]
+  /**
+   * What was searched on the site (its search engines' keyword searches),
+   * most often first; empty for a site with no search engine.
+   */
+  siteSearches: DomainSearchStat[]
+}
+
+/**
+ * How the visits to a site began: each visit whose opener (the page the
+ * browser says opened it) was not on the site.
+ */
+export interface SiteArrivals {
+  /** No opener: typed, a bookmark, a new tab or another app. */
+  direct: number
+  /** Opened from a search's results. */
+  search: number
+  /** Opened from a link on another site, or on a page PathKeep did not see. */
+  link: number
+  /**
+   * Visits from browsers that do not record what opened a page (Safari,
+   * Google Takeout): how they began is not known.
+   */
+  unrecorded: number
+}
+
+/** Another site, and how many visits went between it and the site. */
+export interface SiteFlowStat {
+  registrableDomain: string
+  visitCount: number
 }
 
 export interface DomainPageStat {
@@ -277,6 +313,7 @@ export interface CompareSetDetail {
 export interface BrowserDiff {
   profiles: BrowserProfileSummary[]
   exclusiveDomains: ExclusiveDomainEntry[]
+  /** Sites more than one profile visited, most visits (all profiles) first. */
   sharedDomains: string[]
   categoryDistributions: BrowserCategoryDistribution[]
 }

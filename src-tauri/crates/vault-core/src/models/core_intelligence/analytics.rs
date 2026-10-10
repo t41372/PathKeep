@@ -43,6 +43,30 @@ pub struct DomainSearchStat {
     pub count: i64,
 }
 
+/// How the visits to a site in the window began: each visit whose opener (the page the browser
+/// says opened it) was not on the site.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteArrivals {
+    /// No opener: typed, a bookmark, a new tab or another app.
+    pub direct: i64,
+    /// Opened from a search's results.
+    pub search: i64,
+    /// Opened from a link on another site, or on a page PathKeep did not see.
+    pub link: i64,
+    /// Visits to the site from browsers that do not record what opened a page (Safari, Google
+    /// Takeout): how they began is not known, so they count toward none of the above.
+    pub unrecorded: i64,
+}
+
+/// Another site, and how many visits went between it and the deep dive's site in the window.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteFlowStat {
+    pub registrable_domain: String,
+    pub visit_count: i64,
+}
+
 /// Full read model for one registrable-domain deep dive.
 ///
 /// Totals, active days and the trend come from `domain_daily_rollups`, the
@@ -65,6 +89,16 @@ pub struct DomainDeepDive {
     pub landing_searches: crate::models::IntelligencePage<DomainSearchStat>,
     /// Visits per local day; days without visits are left out.
     pub visit_trend: Vec<DomainTrendPoint>,
+    pub arrivals: SiteArrivals,
+    /// Sites whose links opened this one, most visits first.
+    pub referrers: Vec<SiteFlowStat>,
+    /// Search engines whose results opened it, by the engine's site.
+    pub search_sites: Vec<SiteFlowStat>,
+    /// Sites opened from links on this one.
+    pub onward: Vec<SiteFlowStat>,
+    /// What was searched on the site (its search engines' keyword searches) in the window, most
+    /// often first, each as last typed; empty for a site with no search engine.
+    pub site_searches: Vec<DomainSearchStat>,
 }
 
 /// A site searches ended on: where the user's answers come from.
@@ -344,6 +378,7 @@ pub struct BrowserCategoryDistribution {
 pub struct BrowserDiff {
     pub profiles: Vec<BrowserProfileSummary>,
     pub exclusive_domains: Vec<ExclusiveDomainEntry>,
+    /// Sites more than one profile visited in the range, most visits (all profiles) first.
     pub shared_domains: Vec<String>,
     pub category_distributions: Vec<BrowserCategoryDistribution>,
 }

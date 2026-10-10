@@ -3,7 +3,8 @@
  * the searches. Reached from the Home year heatmap, the daily activity chart
  * and every date in the other drill-ins; links onward to History.
  *
- * Reads: `get_day_insights` (KPIs against the day before, hours, top sites),
+ * Reads: `get_day_insights` (KPIs against the day before, hours, top sites,
+ * kinds of sites, pages reopened),
  * `get_sessions` and `get_search_queries` for the exact day, and
  * `get_session_detail` only when a session is opened.
  */
@@ -27,7 +28,10 @@ import {
 } from '@/components/ui/collapsible'
 import { localDateKey } from '@/lib/backend-client/insights'
 import { cn } from '@/lib/cn'
-import type { SessionSummary } from '@/lib/core-intelligence/types'
+import type {
+  SessionSummary,
+  TrailSummary,
+} from '@/lib/core-intelligence/types'
 import { useFormat, useI18n } from '@/lib/i18n'
 import {
   useDay,
@@ -37,6 +41,9 @@ import {
 } from './drill-queries'
 import { historyPath, insightsPath, pagePath, searchPath } from './links'
 import { formatDuration, rowLink } from './display'
+import { ComparedPagesCard } from './compare-card'
+import { MixList } from './mix-card'
+import type { Scope } from './range'
 import { ShareBar } from './share-bar'
 import {
   DrillHeader,
@@ -53,6 +60,15 @@ function parseDay(value: string) {
   const [year, month, day] = value.split('-').map(Number)
   const date = new Date(year, month - 1, day)
   return localDateKey(date) === value ? date : null
+}
+
+/** One day, every browser profile: the scope of the cards shared with Insights. */
+function dayScope(date: string): Scope {
+  return {
+    range: 'custom',
+    dates: { start: date, end: date },
+    profileId: null,
+  }
 }
 
 function shift(date: Date, days: number) {
@@ -167,6 +183,30 @@ function DayContent({ date }: { date: string }) {
           hint={hint}
           loading={loading}
         />
+        <KpiTile
+          label={t('insights.kpi.newSites')}
+          value={format.number(data?.digestSummary.newDomains.value ?? 0)}
+          metric={data?.digestSummary.newDomains}
+          explain={t('insights.kpi.newSitesDetail')}
+          hint={hint}
+          loading={loading}
+        />
+        <KpiTile
+          label={t('insights.kpi.deepDives')}
+          value={format.number(data?.digestSummary.deepReadPages.value ?? 0)}
+          metric={data?.digestSummary.deepReadPages}
+          explain={t('insights.kpi.deepDivesDetail')}
+          hint={hint}
+          loading={loading}
+        />
+        <KpiTile
+          label={t('insights.kpi.reopened')}
+          value={format.number(data?.digestSummary.refindPages.value ?? 0)}
+          metric={data?.digestSummary.refindPages}
+          explain={t('insights.kpi.reopenedDetail')}
+          hint={hint}
+          loading={loading}
+        />
       </div>
       {day.isError && day.data === undefined ? (
         <SectionCard>
@@ -184,10 +224,41 @@ function DayContent({ date }: { date: string }) {
         <SessionsCard date={date} />
         <div className="flex min-w-0 flex-col gap-4">
           <DaySearchesCard date={date} />
+          <ComparedPagesCard
+            scope={dayScope(date)}
+            empty={t('insights.day.noCompared')}
+          />
+          <DayMixCard date={date} />
           <DayReopenedCard date={date} />
         </div>
       </div>
     </>
+  )
+}
+
+/** What kinds of sites the day's visits went to, against the day before. */
+function DayMixCard({ date }: { date: string }) {
+  const { t } = useI18n()
+  const day = useDay(date)
+  return (
+    <SectionCard
+      title={t('insights.mix.title')}
+      action={
+        <SectionStatus
+          meta={day.data?.meta}
+          explain={`${t('insights.mix.explain')} ${t('insights.day.mixCompared')}`}
+        />
+      }
+    >
+      <QueryBody
+        query={day}
+        skeleton={<ListSkeleton rows={4} />}
+        isEmpty={(result) => result.data.activityMix.categories.length === 0}
+        empty={t('insights.day.empty')}
+      >
+        {(result) => <MixList mix={result.data.activityMix} compared />}
+      </QueryBody>
+    </SectionCard>
   )
 }
 
@@ -383,8 +454,19 @@ function SessionRow({
             {format.time(session.lastVisitMs)}
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="truncate text-[13px] font-medium">
-              {session.autoTitle || t('insights.day.untitledSession')}
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-[13px] font-medium">
+                {session.autoTitle || t('insights.day.untitledSession')}
+              </span>
+              {/* One of the day's deep dives (the KPI above counts them). */}
+              {session.isDeepDive && (
+                <span
+                  title={t('insights.kpi.deepDivesDetail')}
+                  className="shrink-0 rounded-full bg-brand/12 px-1.5 py-px text-[11px] font-medium text-brand"
+                >
+                  {t('insights.day.deepDive')}
+                </span>
+              )}
             </span>
             <span className="text-xs text-muted-foreground">
               {t('insights.day.sessionMeta', {
@@ -442,9 +524,14 @@ function SessionVisits({
                       className="size-3.5 shrink-0 text-blue"
                       aria-hidden
                     />
-                    <span className="truncate">
+                    <span className="flex-1 truncate">
                       {t('insights.day.searched', { query: visit.searchQuery })}
                     </span>
+                    <TrailNote
+                      trail={result.trails.find(
+                        (trail) => trail.firstVisitMs === visit.visitTimeMs,
+                      )}
+                    />
                   </Link>
                 ) : (
                   <Link
@@ -467,6 +554,34 @@ function SessionVisits({
         )}
       </QueryBody>
     </div>
+  )
+}
+
+/**
+ * What a search that started a trail led to: the pages opened after it and
+ * how often it was reworded. The session's other searches are its rewordings.
+ */
+function TrailNote({ trail }: { trail: TrailSummary | undefined }) {
+  const { t } = useI18n()
+  if (!trail) return null
+  const parts = []
+  if (trail.maxDepth > 0) {
+    parts.push(
+      t('insights.day.trailAfter', {
+        pages: t('common.pages', { count: trail.maxDepth }),
+      }),
+    )
+  }
+  if (trail.reformulationCount > 0) {
+    parts.push(
+      t('insights.search.reworded', { count: trail.reformulationCount }),
+    )
+  }
+  if (parts.length === 0) return null
+  return (
+    <span className="shrink-0 text-xs text-muted-foreground">
+      {parts.join(' · ')}
+    </span>
   )
 }
 
@@ -495,6 +610,12 @@ function DaySearchesCard({ date }: { date: string }) {
                     aria-hidden
                   />
                   <span className="flex-1 truncate">{row.rawQuery}</span>
+                  {/* The search's family, over all time: shown when it was made on other days too. */}
+                  {row.familyCount > row.exactRepeatCount && (
+                    <span className="text-xs text-muted-foreground">
+                      {t('insights.day.timesInAll', { count: row.familyCount })}
+                    </span>
+                  )}
                   <span className="font-mono text-xs text-muted-foreground tabular">
                     {format.time(row.searchedAtMs)}
                   </span>

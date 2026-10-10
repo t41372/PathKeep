@@ -247,7 +247,7 @@ define_builtin_module!(
     DOMAIN_DEEP_DIVE_MODULE_ID,
     DOMAIN_DEEP_DIVE_MODULE_VERSION,
     &[VISIT_DERIVED_FACTS_MODULE_ID, DAILY_ROLLUPS_MODULE_ID],
-    &["habit_patterns", "path_flows"],
+    &["path_flows"],
     &[RebuildMode::StructuralRebuild, RebuildMode::FullRebuild],
     &["habit_pattern", "path_flow"]
 );

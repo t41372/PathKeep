@@ -325,9 +325,8 @@ primary keys prepend `generation` to the logical key shown here.
 | `search_event_terms`      | `visit_id, term`                           | Keyword concept terms.                                                                                                                            |
 | `query_families`          | `family_id`                                | Related queries and repetition counts.                                                                                                            |
 | `refind_pages`            | `profile_id, canonical_url`                | Reuse signals, score and bounded persisted evidence sample. Public evidence is paged from facts.                                                  |
-| `habit_patterns`          | `profile_id, registrable_domain`           | Cadence and interruption state.                                                                                                                   |
 | `reopened_investigations` | `investigation_id`                         | Recurring query/page anchors. Reference evidence resolves through the refind row.                                                                 |
-| `path_flows`              | `profile_id, flow_pattern, step_count`     | Repeated all-time navigation windows.                                                                                                             |
+| `path_flows`              | `profile_id, flow_pattern, step_count`     | Repeated all-time navigation windows, counted from `session_paths` the way a date range counts them.                                              |
 | `compare_sets`            | `compare_set_id`                           | Pages of one kind compared within a search trail, found while the aggregate build streams visits; read newest first by `idx_compare_sets_recent`. |
 
 Generation and checkpoint tables:
@@ -350,10 +349,36 @@ visit_id)`; visit/generation and trail indexes support point hydration.
   last visit time, cut at local midnight and every 256 sites, each segment starting with the
   previous segment's last three sites. Bounded common paths read it through
   `idx_session_paths_range (date_key, generation, profile_id)`.
+- `site_flows_rows(generation, profile_id, date_key, registrable_domain, kind, other,
+visit_count)` has primary key `(generation, date_key, profile_id, registrable_domain, kind,
+other)`: per local day, how a site's visits began (`direct`, `search` or `link`, with the
+  opener's site in `other`, empty when PathKeep did not see it), the sites its links opened
+  (`onward`), and the visits whose browser does not record openers (`unrecorded`, Safari and
+  Takeout). The session walk counts it, finding each visit's opener among the last 512 visits
+  it walked (kept with the walk's state, so an append continues it), and adds the counts with
+  the domain counts. The site page reads it through `idx_site_flows_site (registrable_domain,
+date_key, generation, profile_id)`.
 
 Full builds retain published rows until replacement stages commit. Append builds extend the
-fact/daily/navigation groups and replace aggregates. Checkpoints and their writes commit in
-one batch; superseded generations are reclaimed in bounded writes. No TEMP tables are used.
+fact/daily/navigation groups in place. An append of up to 100,000 visits
+(`build_append::IN_PLACE_LIMIT`) also updates the published aggregates in place: it works out,
+reading only, each page a new visit opened (its refind row from all its visits), what each flow
+gains (`session_paths` of the days it wrote, after it, less before it), the compare sets of the
+trails walked again from the start of the trail open at the last build, and the query families
+the new keyword searches join in visit order (all of them again, writing only those that
+differ, if the search that opened that open trail changed kind); then it writes all of it in
+one transaction with its done mark, so readers see the old aggregates or the new ones. A larger
+append, or stored rows the update does not expect, builds the aggregates into a new generation.
+A build records two rule versions: the URL rules (normalization, site, search; with the daily
+and structural versions, `rule_version`) and the category rules (matcher, packs, the
+categories a user set for sites; `category_version`). A change of the first builds anew. A
+change of only the second sorts the visits already built again in place (`build_reclassify`):
+each of the profile's URLs is classified once (a category depends on the URL, its title and its
+search, not on a visit), the facts of the visits whose categories moved are rewritten, the daily
+rollups of their days are made again (a day's category rows are removed first) and the compare
+sets of their trails are replaced with the in-place aggregate write.
+Checkpoints and their writes commit in one batch; superseded generations are reclaimed in
+bounded writes. No TEMP tables are used.
 
 **`page_content_enrichments`** has primary key `id` and unique `(canonical_url, content_source)`.
 It stores status/time, final URL, language, title, blob path/size/hash, snippets, extraction JSON,
@@ -400,12 +425,19 @@ identity, session overlap/order, trail member order, domain/date rollups and que
 Exact physical DDL is `src-tauri/crates/vault-core/src/store_schema/intelligence.rs`.
 
 Paged lists keep one index in exactly their list order, with `generation` last:
-`idx_sessions_recent`, `idx_search_trails_recent`, `idx_search_trails_friction`,
-`idx_query_families_recent`, `idx_query_families_members`,
+`idx_sessions_recent`, `idx_search_trails_recent`, `idx_query_families_recent`,
 `idx_reopened_investigations_recent`, `idx_refind_pages_score` and, for one profile's all-time
 flows, `idx_path_flows_profile_rank`. These reads use the `_rows` table with `INDEXED BY` and
 check `generation IN (SELECT … FROM intelligence_generations)` per row, because through the
 views Turso 0.8.1 reads the whole generation by primary key and sorts it on every page.
+
+Lists ranked by something other than time over a range (friction, the hardest topics) read the
+range's rows through a time index and sort them: walked in rank order, a short range read rows
+until it found a page of its own (friction took 0.4 s for any range at 14.4M visits). Friction's
+index is partial, holding only the trails that may be friction (`idx_search_trails_friction`).
+`idx_refind_pages_score` is the exception: pages are walked by score, since the pages reopened
+most are the ones in use (about 1 ms for 30 days or a year at 14.4M), where a year's pages sorted
+would be hundreds of thousands; a range of long-unused pages walks further.
 
 Keyset cursors are written in the bounded form, `a<=?X AND (a<?X OR b<?Y)` (nested for more
 keys, `>=`/`>` for ascending keys), and the cursor clause is only in the statement text after

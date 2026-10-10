@@ -1,9 +1,8 @@
-//! Failure modes: repeated pages inflate scores, paths cross sessions or habit gaps disappear.
+//! Failure modes: repeated pages inflate scores.
 //! Structural aggregate builders for Core Intelligence.
 //!
 //! ## Responsibilities
-//! - Build refind pages, path flows, and habit patterns from deterministic
-//!   visit records.
+//! - Build refind pages from deterministic visit records.
 //! - Build reopened-investigation rows from structural entities without pulling
 //!   route-level explainability into the rebuild path.
 //! - Provide the streamed aggregate-rebuild path used by structural staged
@@ -11,6 +10,8 @@
 //!
 //! ## Not responsible for
 //! - Session/trail grouping or query-family similarity logic.
+//! - Paths between sites: `path_flows` counts them from the sessions' stored segments.
+//! - Habits: the reads work them out from the site-day rollups (`phase_three`).
 //! - Persisting structural rows into SQLite.
 //! - Choosing fallback versus incremental rebuild scope.
 //!
@@ -22,8 +23,6 @@
 //! ## Performance notes
 //! - The batched aggregate path consumes ordered visit batches and only keeps
 //!   compact hash-map state for the current aggregates.
-//! - Path-flow and habit builders deduplicate consecutive domains/days instead
-//!   of retaining whole sessions in memory.
 //! - Refind evidence keeps only a bounded, most-recent sample of visit ids plus
 //!   a total counter, so a page revisited daily for decades cannot inflate the
 //!   accumulator or the persisted evidence JSON beyond a fixed size.
@@ -33,14 +32,13 @@ use super::DerivedVisitBatchCursor;
 #[cfg(test)]
 use super::load_profile_derived_visit_batch;
 use super::{
-    HabitPatternRecord, PathFlowRecord, QueryFamilyRecord, RefindPageRecord,
-    ReopenedInvestigationRecord, VisitRecord, local_date_key, local_datetime_from_millis,
+    QueryFamilyRecord, RefindPageRecord, ReopenedInvestigationRecord, VisitRecord, local_date_key,
 };
+use crate::visit_taxonomy::Opener;
 #[cfg(test)]
 use anyhow::Result;
-use chrono::{NaiveDate, Utc};
 use serde_json::json;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 /// Upper bound on how many visit ids are embedded in one refind-page evidence
 /// payload.
@@ -107,13 +105,102 @@ fn refind_evidence_json(
     typed_revisit_count: i64,
     sample: &RecentVisitSample,
 ) -> String {
+    evidence_with_visits(
+        cross_day_count,
+        trail_count,
+        search_arrival_count,
+        typed_revisit_count,
+        &sample.visit_ids(),
+        sample.total,
+    )
+}
+
+fn evidence_with_visits(
+    cross_day_count: i64,
+    trail_count: i64,
+    search_arrival_count: i64,
+    typed_revisit_count: i64,
+    visit_ids: &[i64],
+    total: i64,
+) -> String {
     let factors=refind_signals(cross_day_count,trail_count,search_arrival_count,typed_revisit_count).into_iter().map(|(signal,raw,weight)|json!({"signal":signal,"rawValue":raw,"weight":weight,"contribution":raw as f32*weight})).collect::<Vec<_>>();
     json!({
         "factors": factors,
-        "visitIds": sample.visit_ids(),
-        "totalVisitCount": sample.total
+        "visitIds": visit_ids,
+        "totalVisitCount": total
     })
     .to_string()
+}
+
+fn refind_score(days: i64, trails: i64, searches: i64, typed: i64) -> f32 {
+    (days as f32 * 2.0) + (trails as f32 * 1.5) + searches as f32 + (typed as f32 * 1.2)
+}
+
+/// What a page's new visits add to its stored refind row after an append, where every new visit
+/// is later than every stored one.
+#[derive(Debug, Default)]
+pub(super) struct RefindAddition {
+    /// The local days of the new visits.
+    pub days: std::collections::BTreeSet<String>,
+    /// Trails among the new visits that none of the page's earlier visits was in.
+    pub new_trails: i64,
+    pub search_arrivals: i64,
+    pub typed_revisits: i64,
+    /// `(visit_time_ms, visit_id)` of each new visit.
+    pub visits: Vec<(i64, i64)>,
+}
+
+/// A stored refind row with an append's new visits added: what building the row from all the
+/// page's visits gives (`append_aggregates.rs` checks that). A new day counts unless it is the
+/// row's last day, since no stored visit is later; the new visits are the newest, so they lead the
+/// visit sample. `stored_visit_ids` and `stored_total` are the row's evidence sample and count.
+pub(super) fn add_to_refind_page(
+    stored: RefindPageRecord,
+    stored_visit_ids: &[i64],
+    stored_total: i64,
+    mut addition: RefindAddition,
+) -> RefindPageRecord {
+    let last_day = local_date_key(stored.last_seen_ms);
+    let cross_day_count = stored.cross_day_count
+        + addition.days.iter().filter(|day| **day != last_day).count() as i64;
+    let trail_count = stored.trail_count + addition.new_trails;
+    let search_arrival_count = stored.search_arrival_count + addition.search_arrivals;
+    let typed_revisit_count = stored.typed_revisit_count + addition.typed_revisits;
+    addition.visits.sort_unstable_by(|a, b| b.cmp(a));
+    let last_seen_ms = addition
+        .visits
+        .first()
+        .map_or(stored.last_seen_ms, |(time, _)| (*time).max(stored.last_seen_ms));
+    let visit_ids = addition
+        .visits
+        .iter()
+        .map(|(_, id)| *id)
+        .chain(stored_visit_ids.iter().copied())
+        .take(REFIND_EVIDENCE_VISIT_SAMPLE)
+        .collect::<Vec<_>>();
+    let total = stored_total + addition.visits.len() as i64;
+    RefindPageRecord {
+        refind_score: refind_score(
+            cross_day_count,
+            trail_count,
+            search_arrival_count,
+            typed_revisit_count,
+        ),
+        evidence_json: evidence_with_visits(
+            cross_day_count,
+            trail_count,
+            search_arrival_count,
+            typed_revisit_count,
+            &visit_ids,
+            total,
+        ),
+        cross_day_count,
+        trail_count,
+        search_arrival_count,
+        typed_revisit_count,
+        last_seen_ms,
+        ..stored
+    }
 }
 
 /// The scoring vocabulary is shared by rebuilds and explanations.
@@ -152,14 +239,7 @@ struct RefindAccumulatorEntry {
 /// holding the full profile visit vector in memory.
 #[derive(Debug, Default)]
 pub(super) struct StructuralAggregateAccumulator {
-    profile_id: Option<String>,
     refind_pages: HashMap<String, RefindAccumulatorEntry>,
-    flow_counts: HashMap<(String, String, i64), (i64, i64)>,
-    current_session_id: Option<String>,
-    current_profile_id: Option<String>,
-    current_sequence: Vec<(String, i64)>,
-    habit_days: HashMap<String, BTreeSet<NaiveDate>>,
-    last_visit_ms: HashMap<String, i64>,
 }
 
 /// Builds refind pages from one already-materialized visit slice.
@@ -183,7 +263,9 @@ pub(super) fn build_refind_pages(visits: &[VisitRecord]) -> Vec<RefindPageRecord
                 members.iter().filter(|visit| visit.trail_id.is_some()).count() as i64;
             let typed_revisit_count = members
                 .iter()
-                .filter(|visit| visit.from_visit.is_none() && !visit.is_search_event)
+                .filter(|visit| {
+                    Opener::of(visit.from_visit) == Opener::Nothing && !visit.is_search_event
+                })
                 .count() as i64;
             let cross_day_count = distinct_days.len() as i64;
             let trail_count = trail_ids.len() as i64;
@@ -276,78 +358,13 @@ pub(super) fn build_reopened_investigations(
     records
 }
 
-/// Builds path-flow rows from an already-materialized visit slice.
-#[cfg(test)]
-pub(super) fn build_path_flows(visits: &[VisitRecord]) -> Vec<PathFlowRecord> {
-    let mut flows = HashMap::<(String, String, i64), (i64, i64)>::new();
-    let mut current_session = None::<String>;
-    let mut current_profile = None::<String>;
-    let mut current_sequence = Vec::<(String, i64)>::new();
-
-    let mut flush_sequence = |profile_id: &str, sequence: &[(String, i64)]| {
-        flush_path_flow_sequence(&mut flows, profile_id, sequence)
-    };
-
-    for visit in visits {
-        let session_id = visit
-            .session_id
-            .clone()
-            .unwrap_or_else(|| format!("sessionless:{}:{}", visit.profile_id, visit.visit_id));
-        if current_session.as_deref() != Some(session_id.as_str()) {
-            if let (Some(profile_id), false) =
-                (current_profile.as_deref(), current_sequence.is_empty())
-            {
-                flush_sequence(profile_id, &current_sequence);
-            }
-            current_session = Some(session_id);
-            current_profile = Some(visit.profile_id.clone());
-            current_sequence.clear();
-        }
-        if current_sequence
-            .last()
-            .is_none_or(|(last_domain, _)| *last_domain != visit.registrable_domain)
-        {
-            current_sequence.push((visit.registrable_domain.clone(), visit.visit_time_ms));
-        } else if let Some((_, last_seen_ms)) = current_sequence.last_mut() {
-            *last_seen_ms = visit.visit_time_ms;
-        }
-    }
-    if let (Some(profile_id), false) = (current_profile.as_deref(), current_sequence.is_empty()) {
-        flush_sequence(profile_id, &current_sequence);
-    }
-
-    finish_path_flows(flows)
-}
-
-/// Builds habit-pattern rows from an already-materialized visit slice.
-#[cfg(test)]
-pub(super) fn build_habit_patterns(visits: &[VisitRecord]) -> Vec<HabitPatternRecord> {
-    let mut by_domain = HashMap::<String, BTreeSet<NaiveDate>>::new();
-    let mut last_visit = HashMap::<String, i64>::new();
-    for visit in visits {
-        by_domain
-            .entry(visit.registrable_domain.clone())
-            .or_default()
-            .insert(local_datetime_from_millis(visit.visit_time_ms).date_naive());
-        last_visit
-            .entry(visit.registrable_domain.clone())
-            .and_modify(|value| *value = (*value).max(visit.visit_time_ms))
-            .or_insert(visit.visit_time_ms);
-    }
-    habit_records_for_domains(
-        visits.first().map(|visit| visit.profile_id.clone()),
-        by_domain,
-        last_visit,
-    )
-}
-
-/// Rebuilds refind/path-flow/habit rows by streaming already-derived visits in
-/// visit order instead of materializing a second full profile visit vector.
+/// Rebuilds refind rows by streaming already-derived visits in visit order instead of
+/// materializing a second full profile visit vector.
 #[cfg(test)]
 pub(super) fn build_structural_profile_aggregates_from_batches(
     connection: &vault_store::Session<'_>,
     profile_id: &str,
-) -> Result<(Vec<RefindPageRecord>, Vec<PathFlowRecord>, Vec<HabitPatternRecord>)> {
+) -> Result<Vec<RefindPageRecord>> {
     let mut accumulator = StructuralAggregateAccumulator::default();
     let mut cursor = None;
     loop {
@@ -372,22 +389,12 @@ pub(super) fn build_structural_profile_aggregates_from_batches(
 }
 
 impl StructuralAggregateAccumulator {
-    /// Adds one derived visit into every structural aggregate that still depends
-    /// on visit-level evidence.
+    /// Adds one derived visit in visit order.
     #[cfg(test)]
     pub(super) fn add_visit(&mut self, visit: &VisitRecord) {
-        self.profile_id.get_or_insert_with(|| visit.profile_id.clone());
         self.record_refind_page(visit);
-        self.record_path_flow(visit);
-        self.record_habit_day(visit);
     }
 
-    /// Keeps cross-page summaries separate from the per-page refind accumulator.
-    pub(super) fn add_summary_visit(&mut self, visit: &VisitRecord) {
-        self.profile_id.get_or_insert_with(|| visit.profile_id.clone());
-        self.record_path_flow(visit);
-        self.record_habit_day(visit);
-    }
     /// Accepts indexed page order while preserving chronological URL/title provenance.
     pub(super) fn add_refind_visit(&mut self, visit: &VisitRecord, earliest: bool) {
         self.record_refind_page(visit);
@@ -398,29 +405,8 @@ impl StructuralAggregateAccumulator {
     }
 
     /// Finalizes the streamed aggregate state into persisted structural rows.
-    pub(super) fn finish(
-        mut self,
-    ) -> (Vec<RefindPageRecord>, Vec<PathFlowRecord>, Vec<HabitPatternRecord>) {
-        if let (Some(profile_id), false) =
-            (self.current_profile_id.as_deref(), self.current_sequence.is_empty())
-        {
-            flush_path_flow_tail(&mut self.flow_counts, profile_id, &self.current_sequence);
-        }
-        let StructuralAggregateAccumulator {
-            profile_id,
-            refind_pages,
-            flow_counts,
-            current_session_id: _,
-            current_profile_id: _,
-            current_sequence: _,
-            habit_days,
-            last_visit_ms,
-        } = self;
-        (
-            finish_refind_pages(refind_pages),
-            finish_path_flows(flow_counts),
-            habit_records_for_domains(profile_id, habit_days, last_visit_ms),
-        )
+    pub(super) fn finish(self) -> Vec<RefindPageRecord> {
+        finish_refind_pages(self.refind_pages)
     }
 
     /// Tracks one visit inside the refind-page accumulator keyed by canonical
@@ -446,58 +432,12 @@ impl StructuralAggregateAccumulator {
             entry.trail_ids.insert(trail_id.clone());
             entry.search_arrival_count += 1;
         }
-        if visit.from_visit.is_none() {
+        if Opener::of(visit.from_visit) == Opener::Nothing {
             entry.typed_revisit_count += 1;
         }
         entry.first_seen_ms = entry.first_seen_ms.min(visit.visit_time_ms);
         entry.last_seen_ms = entry.last_seen_ms.max(visit.visit_time_ms);
         entry.visit_sample.observe(visit.visit_time_ms, visit.visit_id);
-    }
-
-    /// Tracks session-local domain sequences for path-flow rebuilds.
-    fn record_path_flow(&mut self, visit: &VisitRecord) {
-        let session_id = visit
-            .session_id
-            .clone()
-            .unwrap_or_else(|| format!("sessionless:{}:{}", visit.profile_id, visit.visit_id));
-        if self.current_session_id.as_deref() != Some(session_id.as_str()) {
-            if let (Some(profile_id), false) =
-                (self.current_profile_id.as_deref(), self.current_sequence.is_empty())
-            {
-                flush_path_flow_tail(&mut self.flow_counts, profile_id, &self.current_sequence);
-            }
-            self.current_session_id = Some(session_id);
-            self.current_profile_id = Some(visit.profile_id.clone());
-            self.current_sequence.clear();
-        }
-        if self
-            .current_sequence
-            .last()
-            .is_none_or(|(last_domain, _)| *last_domain != visit.registrable_domain)
-        {
-            if let Some(profile) = self.current_profile_id.as_deref() {
-                flush_path_flow_tail(&mut self.flow_counts, profile, &self.current_sequence);
-            }
-            if self.current_sequence.len() == 4 {
-                self.current_sequence.remove(0);
-            }
-            self.current_sequence.push((visit.registrable_domain.clone(), visit.visit_time_ms));
-        } else if let Some((_, last_seen_ms)) = self.current_sequence.last_mut() {
-            *last_seen_ms = visit.visit_time_ms;
-        }
-    }
-
-    /// Records the unique local day touched by one domain visit for habit
-    /// detection.
-    fn record_habit_day(&mut self, visit: &VisitRecord) {
-        self.habit_days
-            .entry(visit.registrable_domain.clone())
-            .or_default()
-            .insert(local_datetime_from_millis(visit.visit_time_ms).date_naive());
-        self.last_visit_ms
-            .entry(visit.registrable_domain.clone())
-            .and_modify(|value| *value = (*value).max(visit.visit_time_ms))
-            .or_insert(visit.visit_time_ms);
     }
 }
 
@@ -510,10 +450,12 @@ fn finish_refind_pages(
         .filter_map(|entry| {
             let cross_day_count = entry.distinct_days.len() as i64;
             let trail_count = entry.trail_ids.len() as i64;
-            let score = (cross_day_count as f32 * 2.0)
-                + (trail_count as f32 * 1.5)
-                + entry.search_arrival_count as f32
-                + (entry.typed_revisit_count as f32 * 1.2);
+            let score = refind_score(
+                cross_day_count,
+                trail_count,
+                entry.search_arrival_count,
+                entry.typed_revisit_count,
+            );
             if cross_day_count < 2 && trail_count < 2 && entry.typed_revisit_count < 2 {
                 return None;
             }
@@ -543,125 +485,9 @@ fn finish_refind_pages(
         .collect()
 }
 
-/// Finalizes the compact path-flow counter map into persisted rows.
-fn finish_path_flows(
-    flow_counts: HashMap<(String, String, i64), (i64, i64)>,
-) -> Vec<PathFlowRecord> {
-    flow_counts
-        .into_iter()
-        .map(|((profile_id, flow_pattern, step_count), (occurrence_count, last_seen_ms))| {
-            PathFlowRecord { profile_id, flow_pattern, step_count, occurrence_count, last_seen_ms }
-        })
-        .collect()
-}
-
-/// Finalizes domain-day accumulators into persisted habit-pattern rows.
-fn habit_records_for_domains(
-    profile_id: Option<String>,
-    habit_days: HashMap<String, BTreeSet<NaiveDate>>,
-    last_visit_ms: HashMap<String, i64>,
-) -> Vec<HabitPatternRecord> {
-    let Some(profile_id) = profile_id else {
-        return Vec::new();
-    };
-    habit_days
-        .into_iter()
-        .filter_map(|(domain, days)| {
-            if days.len() < 5 {
-                return None;
-            }
-            let parsed_days = days.into_iter().collect::<Vec<_>>();
-            if (*parsed_days.last()? - *parsed_days.first()?).num_days() < 14 {
-                return None;
-            }
-            let intervals = parsed_days
-                .windows(2)
-                .map(|window| (window[1] - window[0]).num_days() as f32)
-                .collect::<Vec<_>>();
-            let mean = intervals.iter().sum::<f32>() / intervals.len() as f32;
-            let variance = intervals.iter().map(|value| (*value - mean).powi(2)).sum::<f32>()
-                / intervals.len() as f32;
-            let std_dev = variance.sqrt();
-            let cv = if mean == 0.0 { 0.0 } else { std_dev / mean };
-            let habit_type = if mean < 2.0 && cv < 0.5 {
-                Some("daily_habit")
-            } else if (5.0..=10.0).contains(&mean) && cv < 0.6 {
-                Some("weekly_habit")
-            } else if mean > 10.0 && cv < 0.8 {
-                Some("periodic_reference")
-            } else {
-                None
-            }?;
-            let last_visited_ms = *last_visit_ms.get(&domain).unwrap_or(&0);
-            let days_since_last =
-                ((Utc::now().timestamp_millis() - last_visited_ms) as f32 / 86_400_000.0).max(0.0);
-            Some(HabitPatternRecord {
-                profile_id: profile_id.clone(),
-                registrable_domain: domain,
-                habit_type: habit_type.to_string(),
-                mean_interval_days: mean,
-                cv,
-                visit_count: parsed_days.len() as i64,
-                last_visited_ms,
-                is_interrupted: days_since_last > mean * 2.0,
-            })
-        })
-        .collect()
-}
-
-/// Emits only windows ending at the just-completed domain; older domains are disposable.
-fn flush_path_flow_tail(
-    flows: &mut HashMap<(String, String, i64), (i64, i64)>,
-    profile: &str,
-    sequence: &[(String, i64)],
-) {
-    for size in [2, 3, 4] {
-        if sequence.len() < size {
-            continue;
-        }
-        let window = &sequence[sequence.len() - size..];
-        if !super::path_flows::is_path(window) {
-            continue;
-        }
-        let pattern =
-            window.iter().map(|(domain, _)| domain.as_str()).collect::<Vec<_>>().join(" → ");
-        let end = window.last().unwrap().1;
-        let entry = flows.entry((profile.to_owned(), pattern, size as i64)).or_default();
-        entry.0 += 1;
-        entry.1 = entry.1.max(end);
-    }
-}
-
-/// Emits all path-flow n-grams for one completed session-local domain sequence.
-#[cfg(test)]
-fn flush_path_flow_sequence(
-    flows: &mut HashMap<(String, String, i64), (i64, i64)>,
-    profile_id: &str,
-    sequence: &[(String, i64)],
-) {
-    for step_count in [2_usize, 3_usize, 4_usize] {
-        if sequence.len() < step_count {
-            continue;
-        }
-        for window in
-            sequence.windows(step_count).filter(|window| super::path_flows::is_path(window))
-        {
-            let flow_pattern =
-                window.iter().map(|(domain, _)| domain.as_str()).collect::<Vec<_>>().join(" → ");
-            let last_seen_ms =
-                window.iter().map(|(_, visit_time_ms)| *visit_time_ms).max().unwrap_or(0);
-            let key = (profile_id.to_string(), flow_pattern, step_count as i64);
-            let entry = flows.entry(key).or_insert((0, 0));
-            entry.0 += 1;
-            entry.1 = entry.1.max(last_seen_ms);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     /// Builds a non-search visit to one canonical URL at a chosen time so the
     /// refind builders treat repeated calls as revisits of the same page.
@@ -707,11 +533,6 @@ mod tests {
             .collect::<Vec<_>>();
         let total = value["totalVisitCount"].as_i64().expect("totalVisitCount");
         (visit_ids, total)
-    }
-
-    #[test]
-    fn habit_records_without_profile_short_circuits() {
-        assert!(habit_records_for_domains(None, HashMap::new(), HashMap::new()).is_empty());
     }
 
     #[test]
@@ -828,7 +649,7 @@ mod tests {
         for visit in &visits {
             accumulator.add_visit(visit);
         }
-        let (streamed, _, _) = accumulator.finish();
+        let streamed = accumulator.finish();
 
         assert_eq!(in_memory.len(), 1);
         assert_eq!(streamed.len(), 1);
@@ -838,34 +659,5 @@ mod tests {
         let (sample_ids, total) = parse_visit_evidence(&streamed[0].evidence_json);
         assert_eq!(sample_ids.len(), REFIND_EVIDENCE_VISIT_SAMPLE);
         assert_eq!(total, observed as i64);
-    }
-    #[test]
-    fn bounded_path_flow_tail_matches_all_reference_windows() {
-        let visits = (0..10_003)
-            .map(|i| {
-                let mut v = refind_visit(i + 1, 1_700_000_000_000 + i * 1000);
-                v.registrable_domain = format!("site{}.test", (i / 2) % 37);
-                v.session_id = Some(format!("session:{}", i / 501));
-                v
-            })
-            .collect::<Vec<_>>();
-        let expected = build_path_flows(&visits);
-        let mut stream = StructuralAggregateAccumulator::default();
-        for visit in &visits {
-            stream.add_summary_visit(visit);
-            assert!(stream.current_sequence.len() <= 4);
-        }
-        let actual = stream.finish().1;
-        let rows = |values: Vec<PathFlowRecord>| {
-            let mut rows = values
-                .into_iter()
-                .map(|r| {
-                    (r.profile_id, r.flow_pattern, r.step_count, r.occurrence_count, r.last_seen_ms)
-                })
-                .collect::<Vec<_>>();
-            rows.sort();
-            rows
-        };
-        assert_eq!(rows(actual), rows(expected));
     }
 }

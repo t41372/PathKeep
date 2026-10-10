@@ -353,6 +353,11 @@ function WhyCard({
               </ul>
               {page && (
                 <p className="text-xs text-muted-foreground">
+                  {t('insights.page.score', {
+                    score: format.number(
+                      Math.round(page.refindScore * 10) / 10,
+                    ),
+                  })}{' '}
                   {t('insights.page.countedIn', {
                     profile: profile
                       ? profileLabel(profile, t)

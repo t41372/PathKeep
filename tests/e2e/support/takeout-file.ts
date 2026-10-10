@@ -23,11 +23,14 @@ interface TakeoutVisit {
   at: number
 }
 
-/** Six visits to three pages, 60 days ago. */
+/**
+ * Six visits to three pages, 60 days ago, on a site no other spec visits, so
+ * its Insights page holds only what Takeout recorded.
+ */
 function takeoutVisits(): TakeoutVisit[] {
   const start = fixture().now - 60 * DAY_MS
   return Array.from({ length: 6 }, (_, index) => ({
-    url: `https://takeout.e2e.example/ledger/${index % 3}`,
+    url: `https://takeout.example/ledger/${index % 3}`,
     title: `${TAKEOUT_TITLE} ${index % 3}`,
     at: start + index * HOUR_MS,
   }))

@@ -123,7 +123,16 @@ const topics = [
   },
   {
     name: 'news',
-    search: ['weather tokyo', 'sqlite fts5 chinese tokenizer'],
+    // Two Chinese searches, with no spaces between words: Insights splits
+    // them into words (FIXTURE_CJK_WORDS, both start with 台北) and compares
+    // them by pairs of characters, so they form one family; split only at
+    // spaces, each was one word that matched nothing.
+    search: [
+      'weather tokyo',
+      'sqlite fts5 chinese tokenizer',
+      '台北天氣',
+      '台北天氣預報',
+    ],
     pages: [
       ['https://news.ycombinator.com/', 'Hacker News'],
       ['https://www.sqlite.org/fts5.html', 'SQLite FTS5 Extension'],
@@ -132,6 +141,70 @@ const topics = [
     ],
   },
 ]
+
+/**
+ * The words of the fixture's Chinese searches, as a reader splits them and
+ * as Insights does (ICU4X's dictionary; vault-core's tokenizer test pins
+ * these). The specs count search words by hand with them, since Chinese has
+ * no spaces to split at.
+ */
+export const FIXTURE_CJK_WORDS = {
+  台北天氣: ['台北', '天氣'],
+  台北天氣預報: ['台北', '天氣預報'],
+}
+
+/**
+ * One search in which the same product was compared on two shops: after the
+ * search, its pages were opened in `order`, back and forth. Insights lists
+ * such a search under "Pages you compared". It happens at 05:00, `days + 1`
+ * days before `now`: between two of the older stretch's sparse days, so no
+ * other visit falls on that day, in the Personal profile. The specs find it
+ * alone on that day's page.
+ */
+export const FIXTURE_COMPARE = {
+  term: 'standing desk frame',
+  pages: [
+    [
+      'https://www.amazon.com/dp/B0DESKFRAME',
+      'FlexiSpot E7 Standing Desk Frame - Amazon.com',
+    ],
+    [
+      'https://www.amazon.de/dp/B0DESKFRAME',
+      'FlexiSpot E7 Schreibtischgestell : Amazon.de',
+    ],
+  ],
+  order: [0, 1, 0, 1, 0],
+}
+
+/** The visits of FIXTURE_COMPARE on the day starting at `dayStart`. */
+function compareScene(dayStart) {
+  const { term, pages, order } = FIXTURE_COMPARE
+  let at = dayStart + 5 * 3_600_000
+  const visits = [
+    {
+      url: `https://www.google.com/search?q=${encodeURIComponent(term)}`,
+      title: `${term} - Google Search`,
+      at,
+      typed: true,
+      term,
+      duration: 20_000,
+      profile: 'chrome:Default',
+    },
+  ]
+  for (const index of order) {
+    at += 120_000
+    const [url, title] = pages[index]
+    visits.push({
+      url,
+      title,
+      at,
+      typed: false,
+      duration: 90_000,
+      profile: 'chrome:Default',
+    })
+  }
+  return visits
+}
 
 function prng(seed) {
   let state = seed >>> 0 || 1
@@ -235,6 +308,7 @@ export function generateVisits({
       }
     }
   }
+  visits.push(...compareScene(today.getTime() - (days + 1) * DAY_MS))
   // Two sessions can start in the same minute and produce the same visit
   // twice. A browser never records two visits at the same instant, and
   // PathKeep counts identical visits once, so keep every timestamp unique.
@@ -245,6 +319,27 @@ export function generateVisits({
     }
   }
   return visits.filter((visit) => visit.at <= now)
+}
+
+/** A browser session: visits closer than this belong together. */
+const SESSION_GAP_MS = 30 * 60_000
+
+/**
+ * For each visit (in time order), the index of the visit it was opened from,
+ * or -1: a page that was not typed (or searched) follows a link on the page
+ * before it in the same browser, if that came within the session. Browsers
+ * record this as `from_visit`; Insights uses it to tell which pages a search
+ * led to.
+ */
+export function openedFrom(visits) {
+  return visits.map((visit, index) =>
+    index > 0 &&
+    !visit.typed &&
+    !visit.term &&
+    visit.at - visits[index - 1].at <= SESSION_GAP_MS
+      ? index - 1
+      : -1,
+  )
 }
 
 function writeChromeHistory(file, visits) {
@@ -268,9 +363,20 @@ export const FIXTURE_FAVICON_HOSTS = {
 }
 
 /**
+ * Pages whose own icon is not their site's, stored on the page's latest visit,
+ * after the site's: a host that serves several things (here an issue page with
+ * GitHub's status icon, as Google's host has Maps and Drive). The page shows it
+ * in History; the site keeps its own on Insights.
+ */
+export const FIXTURE_PAGE_ICONS = {
+  'https://github.com/tokio-rs/tokio/issues/5124':
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR42mO4WcVGEmIY1TCqYfhqAAA9D1kQCshyLAAAAABJRU5ErkJggg==',
+}
+
+/**
  * Writes Chrome's `Favicons` next to a profile's `History`: one icon per host
  * in FIXTURE_FAVICON_HOSTS, mapped to every page of that host the profile
- * visited, as Chrome keeps them.
+ * visited, as Chrome keeps them, except the pages in FIXTURE_PAGE_ICONS.
  */
 function writeChromeFavicons(file, visits, now) {
   const db = new DatabaseSync(file)
@@ -280,24 +386,44 @@ function writeChromeFavicons(file, visits, now) {
       image_data BLOB, width INTEGER DEFAULT 0, height INTEGER DEFAULT 0, last_requested INTEGER DEFAULT 0);
     CREATE TABLE icon_mapping (id INTEGER PRIMARY KEY, page_url LONGVARCHAR NOT NULL, icon_id INTEGER);
   `)
-  const updated = Math.trunc(now * 1000 + CHROME_EPOCH_OFFSET_US)
+  const chromeTime = (ms) => Math.trunc(ms * 1000 + CHROME_EPOCH_OFFSET_US)
+  // Sites' icons were stored before the profile's first visit, so every visit
+  // can show them (History shows no icon stored after the visit).
+  const first = visits.reduce((min, visit) => Math.min(min, visit.at), now)
   const iconIds = new Map()
-  for (const [host, png] of Object.entries(FIXTURE_FAVICON_HOSTS)) {
+  const addIcon = (key, iconUrl, png, at) => {
     const id = iconIds.size + 1
-    iconIds.set(host, id)
+    iconIds.set(key, id)
     db.prepare(
       'INSERT INTO favicons (id, url, icon_type) VALUES (?, ?, 1)',
-    ).run(id, `https://${host}/favicon.ico`)
+    ).run(id, iconUrl)
     db.prepare(
       'INSERT INTO favicon_bitmaps (icon_id, last_updated, image_data, width, height) VALUES (?, ?, ?, 16, 16)',
-    ).run(id, updated, Buffer.from(png, 'base64'))
+    ).run(id, at, Buffer.from(png, 'base64'))
+  }
+  for (const [host, png] of Object.entries(FIXTURE_FAVICON_HOSTS)) {
+    addIcon(
+      host,
+      `https://${host}/favicon.ico`,
+      png,
+      chromeTime(first - DAY_MS),
+    )
+  }
+  for (const [page, png] of Object.entries(FIXTURE_PAGE_ICONS)) {
+    const latest = visits
+      .filter((visit) => visit.url === page)
+      .reduce((max, visit) => Math.max(max, visit.at), -Infinity)
+    // On the page's latest visit: the newest icon of its host.
+    if (latest > -Infinity)
+      addIcon(page, `${page}/status.png`, png, chromeTime(latest))
   }
   const mapped = new Set()
   const insertMapping = db.prepare(
     'INSERT INTO icon_mapping (page_url, icon_id) VALUES (?, ?)',
   )
   for (const visit of visits) {
-    const id = iconIds.get(new URL(visit.url).hostname)
+    const id =
+      iconIds.get(visit.url) ?? iconIds.get(new URL(visit.url).hostname)
     if (id === undefined || mapped.has(visit.url)) continue
     mapped.add(visit.url)
     insertMapping.run(visit.url, id)
@@ -345,7 +471,7 @@ function insertChromeVisits(db, visits) {
     'INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden) VALUES (?, ?, ?, 0, 0, 0, 0)',
   )
   const insertVisit = db.prepare(
-    'INSERT INTO visits (url, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id) VALUES (?, ?, 0, ?, ?, 0, 0, NULL, NULL)',
+    'INSERT INTO visits (url, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id) VALUES (?, ?, ?, ?, ?, 0, 0, NULL, NULL)',
   )
   const bump = db.prepare(
     'UPDATE urls SET visit_count = visit_count + 1, typed_count = typed_count + ?, last_visit_time = ? WHERE id = ?',
@@ -353,8 +479,10 @@ function insertChromeVisits(db, visits) {
   const insertTerm = db.prepare(
     'INSERT INTO keyword_search_terms (keyword_id, url_id, term, normalized_term) VALUES (2, ?, ?, ?)',
   )
+  const from = openedFrom(visits)
+  const visitIds = []
   db.exec('BEGIN')
-  for (const visit of visits) {
+  for (const [index, visit] of visits.entries()) {
     let id = urlIds.get(visit.url)
     if (id === undefined) {
       id = nextUrlId()
@@ -364,12 +492,14 @@ function insertChromeVisits(db, visits) {
     }
     const time = Math.trunc(visit.at * 1000 + CHROME_EPOCH_OFFSET_US)
     // 0x30000000 = chain start + chain end; core type 1 = typed, 0 = link.
-    insertVisit.run(
+    const inserted = insertVisit.run(
       id,
       time,
+      from[index] >= 0 ? visitIds[from[index]] : 0,
       0x30000000 | (visit.typed ? 1 : 0),
       visit.duration * 1000,
     )
+    visitIds.push(Number(inserted.lastInsertRowid))
     bump.run(visit.typed ? 1 : 0, time, id)
   }
   db.exec('COMMIT')
@@ -415,13 +545,15 @@ function insertFirefoxVisits(db, visits) {
     'INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date) VALUES (?, ?, ?, 0, 0, 0)',
   )
   const insertVisit = db.prepare(
-    'INSERT INTO moz_historyvisits (place_id, visit_date, from_visit, visit_type) VALUES (?, ?, 0, ?)',
+    'INSERT INTO moz_historyvisits (place_id, visit_date, from_visit, visit_type) VALUES (?, ?, ?, ?)',
   )
   const bump = db.prepare(
     'UPDATE moz_places SET visit_count = visit_count + 1, last_visit_date = ? WHERE id = ?',
   )
+  const from = openedFrom(visits)
+  const visitIds = []
   db.exec('BEGIN')
-  for (const visit of visits) {
+  for (const [index, visit] of visits.entries()) {
     let id = ids.get(visit.url)
     if (id === undefined) {
       id = nextId()
@@ -429,7 +561,13 @@ function insertFirefoxVisits(db, visits) {
       insertPlace.run(id, visit.url, visit.title)
     }
     const time = Math.trunc(visit.at * 1000)
-    insertVisit.run(id, time, visit.typed ? 2 : 1)
+    const inserted = insertVisit.run(
+      id,
+      time,
+      from[index] >= 0 ? visitIds[from[index]] : 0,
+      visit.typed ? 2 : 1,
+    )
+    visitIds.push(Number(inserted.lastInsertRowid))
     bump.run(time, id)
   }
   db.exec('COMMIT')
@@ -467,11 +605,21 @@ export function writeSyntheticBrowsers(
   )
 
   const all = generateVisits({ now, days, olderDays, perDay, seed })
-  // Split by topic-ish hash so each browser has a recognisable mix.
+  // Split by topic-ish hash so each browser has a recognisable mix; a visit
+  // that names its profile goes there.
   const personal = []
   const work = []
   const firefox = []
+  const named = {
+    'chrome:Default': personal,
+    'chrome:Profile 1': work,
+    'firefox:k3x9.default-release': firefox,
+  }
   for (const visit of all) {
+    if (visit.profile) {
+      named[visit.profile].push(visit)
+      continue
+    }
     const bucket = (visit.url.length + Math.floor(visit.at / DAY_MS)) % 5
     if (bucket < 2) personal.push(visit)
     else if (bucket < 4) work.push(visit)

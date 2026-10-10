@@ -85,12 +85,15 @@ pub(super) fn get_query_families_with_connection(
     request: &PagedDateRangeRequest,
 ) -> Result<QueryFamilyResult> {
     let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    // Counted on the rows, from the range's start in the list's index: through the
+    // `query_families` view Turso read every family of the build for any range.
     let total: i64 = connection.query_one(
         "SELECT COUNT(*)
-         FROM query_families
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND last_seen_ms >= ?2
-           AND first_seen_ms < ?3",
+         FROM query_families_rows r INDEXED BY idx_query_families_recent
+         WHERE r.last_seen_ms >= ?2
+           AND r.first_seen_ms < ?3
+           AND r.generation IN (SELECT aggregates FROM intelligence_generations)
+           AND (?1 IS NULL OR r.profile_id = ?1)",
         params![request.profile_id.as_deref(), start_ms, end_ms],
         |row| Ok(row.get(0)?),
     )?;

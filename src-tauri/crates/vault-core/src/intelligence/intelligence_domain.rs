@@ -24,8 +24,10 @@
 //!   come from `domain_daily_rollups`; top pages seek the site's URLs through
 //!   `idx_urls_registrable_domain` and count each URL's visits in the window
 //!   through `idx_visits_visible_url_time`; landing searches read
-//!   `search_trails` through its profile-and-time index. The cost grows with
-//!   the site's own URLs and visits in the window, not with the archive.
+//!   `search_trails` through its profile-and-time index; arrivals and onward
+//!   sites sum the site's `site_flows` rows for the window's days. The cost
+//!   grows with the site's own URLs and visits in the window, not with the
+//!   archive.
 //! - Discovery trend collapses dates after SQL aggregation so the Rust side
 //!   never materializes visit-level rows for charting.
 
@@ -35,7 +37,8 @@ use super::{
 use crate::models::{
     CategoryFilteredDateRangeRequest, DiscoveryTrend, DiscoveryTrendPoint, DomainDeepDive,
     DomainDeepDiveRequest, DomainPageStat, DomainSearchStat, DomainTrend, DomainTrendPoint,
-    DomainTrendRequest, OnThisDayEntry, RhythmHeatmap, RhythmHeatmapCell,
+    DomainTrendRequest, OnThisDayEntry, RhythmHeatmap, RhythmHeatmapCell, SiteArrivals,
+    SiteFlowStat,
 };
 use anyhow::Result;
 use chrono::{Datelike, Local, Timelike};
@@ -135,6 +138,9 @@ pub fn get_domain_deep_dive(
                 };Ok(item)
             })?;
         let landing_searches=super::paging::finish(rows.into_iter().flatten().collect(),limit)?;
+        let (arrivals, referrers, search_sites, onward) =
+            site_flows(connection, domain, &request.date_range, profile_id)?;
+        let site_searches = site_searches(connection, domain, start_ms, end_ms, profile_id)?;
 
         Ok(DomainDeepDive {
             registrable_domain: domain.to_string(),
@@ -147,8 +153,148 @@ pub fn get_domain_deep_dive(
             top_pages,
             landing_searches,
             visit_trend,
+            arrivals,
+            referrers,
+            search_sites,
+            onward,
+            site_searches,
         })
     })
+}
+
+/// Searches shown per site.
+const SITE_SEARCHES_SHOWN: usize = 8;
+
+/// One engine's most frequent keyword searches in a range, grouped by normalized query as
+/// Frequent searches groups them, each with its newest spelling.
+const SITE_SEARCHES_SQL: &str = "WITH counts AS (
+        SELECT normalized_query,COUNT(*) AS search_count,MAX(visit_time_ms) AS last_time
+        FROM search_events_rows INDEXED BY idx_search_events_engine_time
+        WHERE query_kind='keyword' AND search_engine=?1 AND visit_time_ms>=?2 AND visit_time_ms<?3
+          AND generation IN (SELECT navigation FROM intelligence_generations)
+          AND (?4 IS NULL OR profile_id=?4)
+        GROUP BY normalized_query ORDER BY search_count DESC,normalized_query LIMIT ?5
+     ) SELECT c.normalized_query,c.search_count,c.last_time,
+        (SELECT raw_query FROM search_events_rows newest INDEXED BY idx_search_events_query_time
+         WHERE newest.query_kind='keyword' AND newest.normalized_query=c.normalized_query
+           AND newest.search_engine=?1
+           AND newest.generation IN (SELECT navigation FROM intelligence_generations)
+           AND newest.visit_time_ms>=?2 AND newest.visit_time_ms<?3
+           AND (?4 IS NULL OR newest.profile_id=?4)
+         ORDER BY newest.visit_time_ms DESC,newest.visit_id DESC LIMIT 1)
+     FROM counts c";
+
+/// What was searched on the site in the window: the keyword searches of each search engine whose
+/// rule matches the site (usually one), merged by normalized query. Cost follows the engine's
+/// searches in the range, as Frequent searches' does (`ipc-performance.md` §8).
+fn site_searches(
+    connection: &Session<'_>,
+    domain: &str,
+    start_ms: i64,
+    end_ms: i64,
+    profile_id: Option<&str>,
+) -> Result<Vec<DomainSearchStat>> {
+    let engines = super::load_search_engine_sites(connection)?
+        .into_iter()
+        .filter(|(_, host)| crate::visit_taxonomy::registrable_domain_for_host(host) == domain)
+        .map(|(engine, _)| engine)
+        .collect::<Vec<_>>();
+    // normalized query -> (count, newest time, newest spelling)
+    let mut merged = HashMap::<String, (i64, i64, String)>::new();
+    for engine in engines {
+        let rows = connection.query(
+            SITE_SEARCHES_SQL,
+            params![engine.as_str(), start_ms, end_ms, profile_id, SITE_SEARCHES_SHOWN as i64],
+            |r| {
+                Ok((
+                    r.get::<String>(0)?,
+                    r.get::<i64>(1)?,
+                    r.get::<i64>(2)?,
+                    r.get::<Option<String>>(3)?,
+                ))
+            },
+        )?;
+        for (normalized, count, last, raw) in rows {
+            let entry = merged.entry(normalized.clone()).or_insert((0, i64::MIN, normalized));
+            entry.0 += count;
+            if last > entry.1 {
+                entry.1 = last;
+                if let Some(raw) = raw {
+                    entry.2 = raw;
+                }
+            }
+        }
+    }
+    // Most often first, then by normalized query, as Frequent searches orders them.
+    let mut searches = merged.into_iter().collect::<Vec<_>>();
+    searches.sort_by(|(a, (a_count, ..)), (b, (b_count, ..))| {
+        b_count.cmp(a_count).then_with(|| a.cmp(b))
+    });
+    Ok(searches
+        .into_iter()
+        .take(SITE_SEARCHES_SHOWN)
+        .map(|(_, (count, _, query))| DomainSearchStat { query, count })
+        .collect())
+}
+
+/// Other sites shown on the site page per list.
+const SITE_FLOWS_SHOWN: usize = 8;
+
+/// The site's arrivals in the window and, most visits first, the sites whose links opened it,
+/// the search engines' sites whose results did, and the sites its links opened.
+fn site_flows(
+    connection: &Session<'_>,
+    domain: &str,
+    range: &crate::models::DateRange,
+    profile_id: Option<&str>,
+) -> Result<(SiteArrivals, Vec<SiteFlowStat>, Vec<SiteFlowStat>, Vec<SiteFlowStat>)> {
+    let rows = connection.query(
+        "SELECT r.kind,r.other,SUM(r.visit_count)
+         FROM site_flows_rows r INDEXED BY idx_site_flows_site
+         WHERE r.registrable_domain=?1 AND r.date_key>=?2 AND r.date_key<=?3
+           AND r.generation IN (SELECT navigation FROM intelligence_generations)
+           AND (?4 IS NULL OR r.profile_id=?4)
+         GROUP BY r.kind,r.other",
+        params![domain, range.start.as_str(), range.end.as_str(), profile_id],
+        |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?)),
+    )?;
+    let mut arrivals = SiteArrivals::default();
+    let (mut referrers, mut search_sites, mut onward) = (Vec::new(), Vec::new(), Vec::new());
+    for (kind, other, visit_count) in rows {
+        let list = match kind.as_str() {
+            "direct" => {
+                arrivals.direct += visit_count;
+                continue;
+            }
+            "unrecorded" => {
+                arrivals.unrecorded += visit_count;
+                continue;
+            }
+            "search" => {
+                arrivals.search += visit_count;
+                &mut search_sites
+            }
+            "link" => {
+                arrivals.link += visit_count;
+                &mut referrers
+            }
+            "onward" => &mut onward,
+            _ => continue,
+        };
+        // An opener PathKeep did not see counts toward the arrivals but names no site.
+        if !other.is_empty() {
+            list.push(SiteFlowStat { registrable_domain: other, visit_count });
+        }
+    }
+    for list in [&mut referrers, &mut search_sites, &mut onward] {
+        list.sort_by(|a, b| {
+            b.visit_count
+                .cmp(&a.visit_count)
+                .then_with(|| a.registrable_domain.cmp(&b.registrable_domain))
+        });
+        list.truncate(SITE_FLOWS_SHOWN);
+    }
+    Ok((arrivals, referrers, search_sites, onward))
 }
 
 /// Buckets visits into a day-of-week by hour heatmap without materializing

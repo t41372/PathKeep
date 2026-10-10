@@ -329,13 +329,15 @@ pub(crate) fn get_search_effectiveness_with_connection(
     } else {
         ""
     };
+    // The families searched in the range, from its start in recency order, sorted by size.
+    // Walked in size order instead, a short range read families until it found a page of its own.
     let rows = connection.query(
         &format!(
             "SELECT r.family_id,r.anchor_query,r.member_count,r.first_seen_ms,r.last_seen_ms
-        FROM query_families_rows r INDEXED BY idx_query_families_members
-        WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)
-          AND (?1 IS NULL OR r.profile_id=?1) AND (?2 IS NULL OR r.search_engine=?2)
-          AND r.last_seen_ms>=?3 AND r.first_seen_ms<?4 {after_clause}
+        FROM query_families_rows r INDEXED BY idx_query_families_recent
+        WHERE r.last_seen_ms>=?3 AND r.first_seen_ms<?4
+          AND r.generation IN (SELECT aggregates FROM intelligence_generations)
+          AND (?1 IS NULL OR r.profile_id=?1) AND (?2 IS NULL OR r.search_engine=?2) {after_clause}
         ORDER BY r.member_count DESC,r.last_seen_ms DESC,r.family_id LIMIT ?8"
         ),
         params![
@@ -392,17 +394,58 @@ pub(crate) fn get_friction_signals_with_connection(
     } else {
         ""
     };
-    let rows=connection.query(&format!("SELECT r.initial_query,r.landing_domain,r.reformulation_count,r.visit_count,r.trail_id
+    // The trails begun in the range that may be friction, from their own partial index, sorted.
+    // Walked in friction order instead, a range read trails until it found a page of its own:
+    // 0.4 s for any range at 14.4M visits.
+    let rows = connection.query(
+        &format!(
+            "SELECT r.initial_query,r.landing_domain,r.reformulation_count,r.visit_count,r.trail_id
         FROM search_trails_rows r INDEXED BY idx_search_trails_friction
-        WHERE r.generation IN (SELECT navigation FROM intelligence_generations)
-          AND (?1 IS NULL OR r.profile_id=?1) AND r.last_visit_ms>=?2 AND r.first_visit_ms<?3
-          AND (r.reformulation_count>=2 OR (r.landing_domain IS NULL AND r.visit_count>=3)) {after_clause}
-        ORDER BY r.reformulation_count DESC,r.visit_count DESC,r.trail_id LIMIT ?7"),
-        params![request.profile_id,start,end,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str()),(limit+1) as i64],|r| {
-            let reforms=r.get::<i64>(2)?;let visits=r.get::<i64>(3)?;let query=r.get::<String>(0)?;
-            let description=if reforms>=2 {format!("Repeated search reformulation after query '{query}'.")} else {"Search trail did not settle on a stable landing page.".to_owned()};
-            Ok((FrictionSignal {registrable_domain:r.get(1)?,url:None,evidence_type:"weak".into(),signal_kind:if reforms>=2 {"excessive_reformulation"} else {"bounce_pattern"}.into(),occurrence_count:visits.max(reforms),description,search_query:query,reformulation_count:reforms,visit_count:visits},(reforms,visits,r.get::<String>(4)?)))
-        })?;
+        WHERE r.first_visit_ms>=?2 AND r.first_visit_ms<?3
+          AND (r.reformulation_count >= 2 OR (r.landing_domain IS NULL AND r.visit_count >= 3))
+          AND r.generation IN (SELECT navigation FROM intelligence_generations)
+          AND (?1 IS NULL OR r.profile_id=?1) {after_clause}
+        ORDER BY r.reformulation_count DESC,r.visit_count DESC,r.trail_id LIMIT ?7"
+        ),
+        params![
+            request.profile_id,
+            start,
+            end,
+            after.as_ref().map(|v| v.0),
+            after.as_ref().map(|v| v.1),
+            after.as_ref().map(|v| v.2.as_str()),
+            (limit + 1) as i64
+        ],
+        |r| {
+            let reforms = r.get::<i64>(2)?;
+            let visits = r.get::<i64>(3)?;
+            let query = r.get::<String>(0)?;
+            let description = if reforms >= 2 {
+                format!("Repeated search reformulation after query '{query}'.")
+            } else {
+                "Search trail did not settle on a stable landing page.".to_owned()
+            };
+            Ok((
+                FrictionSignal {
+                    registrable_domain: r.get(1)?,
+                    url: None,
+                    evidence_type: "weak".into(),
+                    signal_kind: if reforms >= 2 {
+                        "excessive_reformulation"
+                    } else {
+                        "bounce_pattern"
+                    }
+                    .into(),
+                    occurrence_count: visits.max(reforms),
+                    description,
+                    search_query: query,
+                    reformulation_count: reforms,
+                    visit_count: visits,
+                },
+                (reforms, visits, r.get::<String>(4)?),
+            ))
+        },
+    )?;
     super::paging::finish(rows, limit)
 }
 

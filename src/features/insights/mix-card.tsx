@@ -8,40 +8,16 @@
  */
 import { SectionCard } from '@/components/app/section-card'
 import { cn } from '@/lib/cn'
+import type { ActivityMix } from '@/lib/core-intelligence/types'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { category, UNCLASSIFIED } from './categories'
 import { ShareBar } from './share-bar'
 import { ListSkeleton, QueryBody, ScrollList, SectionStatus } from './parts'
 import { useActivityMix } from './queries'
 import { scopeDays, type Scope } from './range'
 
-const UNCLASSIFIED = 'unknown'
-const CATEGORIES = [
-  'ai',
-  'community',
-  'developer',
-  'docs',
-  'education',
-  'entertainment',
-  'finance',
-  'news',
-  'search',
-  'shopping',
-  'social',
-  'travel',
-  'video',
-  'work',
-  UNCLASSIFIED,
-] as const
-type Category = (typeof CATEGORIES)[number]
-
-/** The backend's category, or not classified for one this version has no name for. */
-function category(name: string): Category {
-  return CATEGORIES.find((known) => known === name) ?? UNCLASSIFIED
-}
-
 export function ActivityMixCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
   const mix = useActivityMix(scope)
   // All time has no previous period to compare with.
   const days = scopeDays(scope)
@@ -60,69 +36,77 @@ export function ActivityMixCard({ scope }: { scope: Scope }) {
         isEmpty={(result) => result.data.categories.length === 0}
         empty={t('insights.topSites.empty')}
       >
-        {(result) => {
-          const moved = new Map(
-            result.data.changeVsPrevious.map((entry) => [
-              entry.domainCategory,
-              Math.round(entry.changePoints * 100),
-            ]),
-          )
-          const rows = [...result.data.categories].sort(
-            (a, b) =>
-              Number(a.domainCategory === UNCLASSIFIED) -
-                Number(b.domainCategory === UNCLASSIFIED) ||
-              b.visitCount - a.visitCount,
-          )
-          const max = Math.max(1, ...rows.map((entry) => entry.visitCount))
-          const total = rows.reduce((sum, entry) => sum + entry.visitCount, 0)
-          return (
-            <ScrollList maxHeight={6 * 38}>
-              <ul className="flex flex-col gap-1.5">
-                {rows.map((entry) => {
-                  const unclassified = entry.domainCategory === UNCLASSIFIED
-                  const points = days
-                    ? (moved.get(entry.domainCategory) ?? 0)
-                    : 0
-                  return (
-                    <li
-                      key={entry.domainCategory}
-                      className="relative flex h-8 items-center gap-2.5 px-2 text-[13px]"
-                    >
-                      <span
-                        className={cn(
-                          'flex-1 truncate',
-                          unclassified
-                            ? 'text-muted-foreground'
-                            : 'font-medium',
-                        )}
-                      >
-                        {t(
-                          `insights.mix.categories.${category(entry.domainCategory)}`,
-                        )}
-                      </span>
-                      {points !== 0 && (
-                        <span className="font-mono text-[11px] text-muted-foreground">
-                          {t('insights.mix.points', {
-                            value: `${points > 0 ? '+' : '−'}${format.number(Math.abs(points))}`,
-                          })}
-                        </span>
-                      )}
-                      <ShareBar
-                        value={entry.visitCount}
-                        max={max}
-                        tone={unclassified ? 'muted' : 'blue'}
-                      />
-                      <span className="w-14 text-right font-mono text-xs text-muted-foreground">
-                        {format.percent(entry.visitCount / total)}
-                      </span>
-                    </li>
-                  )
-                })}
-              </ul>
-            </ScrollList>
-          )
-        }}
+        {(result) => <MixList mix={result.data} compared={days !== null} />}
       </QueryBody>
     </SectionCard>
+  )
+}
+
+/**
+ * Each kind of site with its share of the visits, not classified last; with
+ * `compared`, how each share moved from the previous period of the same length.
+ */
+export function MixList({
+  mix,
+  compared,
+}: {
+  mix: ActivityMix
+  compared: boolean
+}) {
+  const { t } = useI18n()
+  const format = useFormat()
+  const moved = new Map(
+    mix.changeVsPrevious.map((entry) => [
+      entry.domainCategory,
+      Math.round(entry.changePoints * 100),
+    ]),
+  )
+  const rows = [...mix.categories].sort(
+    (a, b) =>
+      Number(a.domainCategory === UNCLASSIFIED) -
+        Number(b.domainCategory === UNCLASSIFIED) ||
+      b.visitCount - a.visitCount,
+  )
+  const max = Math.max(1, ...rows.map((entry) => entry.visitCount))
+  const total = rows.reduce((sum, entry) => sum + entry.visitCount, 0)
+  return (
+    <ScrollList maxHeight={6 * 38}>
+      <ul className="flex flex-col gap-1.5">
+        {rows.map((entry) => {
+          const unclassified = entry.domainCategory === UNCLASSIFIED
+          const points = compared ? (moved.get(entry.domainCategory) ?? 0) : 0
+          return (
+            <li
+              key={entry.domainCategory}
+              className="relative flex h-8 items-center gap-2.5 px-2 text-[13px]"
+            >
+              <span
+                className={cn(
+                  'flex-1 truncate',
+                  unclassified ? 'text-muted-foreground' : 'font-medium',
+                )}
+              >
+                {t(`insights.mix.categories.${category(entry.domainCategory)}`)}
+              </span>
+              {points !== 0 && (
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {t('insights.mix.points', {
+                    value: `${points > 0 ? '+' : '−'}${format.number(Math.abs(points))}`,
+                  })}
+                </span>
+              )}
+              <ShareBar
+                value={entry.visitCount}
+                max={max}
+                tone={unclassified ? 'muted' : 'blue'}
+              />
+              <span className="w-14 text-right font-mono text-xs text-muted-foreground">
+                {format.percent(entry.visitCount / total)}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </ScrollList>
   )
 }

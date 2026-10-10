@@ -86,7 +86,7 @@ pub(crate) fn get_multi_browser_diff_with_connection(
     let category_distributions = load_category_distributions(connection, request)?;
 
     let mut exclusive_domains = Vec::new();
-    let mut shared_domains = Vec::new();
+    let mut shared = Vec::new();
     for site in &days.sites {
         match site.per_profile.as_slice() {
             [(profile, visit_count)] => exclusive_domains.push(ExclusiveDomainEntry {
@@ -95,7 +95,10 @@ pub(crate) fn get_multi_browser_diff_with_connection(
                 visit_count: *visit_count,
             }),
             [] => {}
-            _ => shared_domains.push(site.domain.clone()),
+            both => shared.push((
+                both.iter().map(|(_, visit_count)| visit_count).sum::<i64>(),
+                site.domain.clone(),
+            )),
         }
     }
 
@@ -106,7 +109,11 @@ pub(crate) fn get_multi_browser_diff_with_connection(
             .then_with(|| left.profile_id.cmp(&right.profile_id))
             .then_with(|| left.registrable_domain.cmp(&right.registrable_domain))
     });
-    shared_domains.sort();
+    // Most visits in every profile together first, so the card can name the ones that matter.
+    shared.sort_by(|(left_visits, left), (right_visits, right)| {
+        right_visits.cmp(left_visits).then_with(|| left.cmp(right))
+    });
+    let shared_domains = shared.into_iter().map(|(_, domain)| domain).collect();
 
     Ok(BrowserDiff { profiles, exclusive_domains, shared_domains, category_distributions })
 }

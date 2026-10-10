@@ -1,7 +1,8 @@
 /**
  * When the user found new sites: sites visited for the first time per day,
  * week or month of the scope (in any browser, or in the one profile chosen),
- * with the total. Bars group like the activity chart (`buckets.ts`).
+ * with the total and, for a bounded range, what share of the range's sites
+ * they were. Bars group like the activity chart (`buckets.ts`).
  */
 import { useMemo } from 'react'
 import { EvilBarChart } from '@/components/evilcharts/charts/recharts-bar-chart'
@@ -10,13 +11,14 @@ import { isStale } from '@/lib/backend-client/insights'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { barLabel, chartDates, rangeBars } from './buckets'
 import { SectionStatus } from './parts'
-import { useNewSites } from './queries'
-import type { Scope } from './range'
+import { useDigest, useNewSites } from './queries'
+import { scopeDays, type Scope } from './range'
 
 export function NewSitesCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const format = useFormat()
   const newSites = useNewSites(scope)
+  const digest = useDigest(scope)
   const { length, bars, total } = useMemo(() => {
     const byDay = new Map(
       (newSites.data?.data.points ?? []).map((point) => [
@@ -41,15 +43,29 @@ export function NewSitesCard({ scope }: { scope: Scope }) {
     [t],
   )
 
+  // Over all time every site is new, so the share says nothing there.
+  const distinct = digest.data?.data.distinctDomains.value ?? 0
+  const share =
+    scopeDays(scope) !== null && distinct > 0
+      ? t('insights.newSites.share', {
+          share: format.percent(Math.min(1, total / distinct)),
+        })
+      : null
+
   return (
     <SectionCard
       title={t('insights.newSites.title')}
       subtitle={
         newSites.data && total > 0
-          ? t('insights.newSites.total', {
-              count: total,
-              sites: format.number(total),
-            })
+          ? [
+              t('insights.newSites.total', {
+                count: total,
+                sites: format.number(total),
+              }),
+              share,
+            ]
+              .filter(Boolean)
+              .join(' · ')
           : undefined
       }
       action={

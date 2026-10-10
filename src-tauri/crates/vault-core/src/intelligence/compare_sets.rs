@@ -23,9 +23,9 @@ pub(super) struct CompareSetRecord {
     pub last_visit_ms: i64,
 }
 
-/// Collects each search trail's pages as visits stream past in time order (a trail's visits
-/// are contiguous), and turns finished trails into compare sets once their query and landing
-/// are loaded, one query per batch.
+/// Collects each search trail's pages as visits stream past in time order (one trail at a time,
+/// with pages outside it in between), and turns finished trails into compare sets once their
+/// query and landing are loaded, one query per batch.
 #[derive(Debug, Default)]
 pub(super) struct CompareSetAccumulator {
     profile_id: String,
@@ -37,12 +37,15 @@ pub(super) struct CompareSetAccumulator {
 
 impl CompareSetAccumulator {
     pub fn add(&mut self, visit: &VisitRecord) {
-        if self.current_trail != visit.trail_id {
+        // A trail's pages can have other pages of the session between them; it ends when the
+        // next trail starts (trails follow one another, a search at a time).
+        let Some(trail) = visit.trail_id.as_ref() else { return };
+        if self.current_trail.as_ref() != Some(trail) {
             self.close_trail();
-            self.current_trail = visit.trail_id.clone();
+            self.current_trail = Some(trail.clone());
         }
         self.profile_id.clone_from(&visit.profile_id);
-        if visit.trail_id.is_none() || visit.is_search_event {
+        if visit.is_search_event {
             return;
         }
         if super::phase_four::is_compare_candidate_category(&visit.page_category) {
@@ -80,7 +83,7 @@ impl CompareSetAccumulator {
         let known = vault.read(Db::Intelligence, move |s| {
             let mut known = HashMap::new();
             for chunk in ids.chunks(400) {
-                let slots = (3..chunk.len() + 3).map(|i| format!("?{i}")).collect::<Vec<_>>();
+                let slots = (3..chunk.len() + 3).map(|i| format!("(?{i})")).collect::<Vec<_>>();
                 let mut values = vec![
                     vault_store::Value::Integer(generation),
                     vault_store::Value::Text(profile.clone()),
@@ -88,8 +91,13 @@ impl CompareSetAccumulator {
                 values.extend(chunk.iter().cloned().map(vault_store::Value::Text));
                 s.for_each(
                     &format!(
-                        "SELECT trail_id,initial_query,landing_url FROM search_trails_rows
-                         WHERE generation=?1 AND profile_id=?2 AND trail_id IN ({})",
+                        // Joined to the ids, so each one seeks the key; `trail_id IN (...)`
+                        // was planned as a read of the whole generation.
+                        "WITH requested(trail_id) AS (VALUES {})
+                         SELECT t.trail_id,t.initial_query,t.landing_url FROM requested
+                         CROSS JOIN search_trails_rows t
+                           ON t.generation=?1 AND t.trail_id=requested.trail_id
+                         WHERE t.profile_id=?2",
                         slots.join(",")
                     ),
                     values,

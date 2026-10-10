@@ -117,6 +117,28 @@ LEFT JOIN favicon_blobs
   ON favicon_blobs.blob_hash = favicon_match.image_blob_hash
 "#;
 
+/// A site's own icon among the icons stored for its host's pages, in any profile: the front
+/// page's when there is one, else the one most of its pages share (the newest on a tie). Taking
+/// the newest alone gave a host that serves several products whichever was opened last, so a
+/// site showed another product's icon (Maps' for google.com). `?1` is the host, `?2` and `?3`
+/// its front page over https and http.
+pub(crate) const LOAD_SITE_ICON_SQL: &str = r#"
+SELECT COALESCE(favicon_blobs.image_data, icon.image_data)
+FROM (
+  SELECT image_blob_hash, image_data, MAX(page_url IN (?2, ?3)) AS front_page,
+         COUNT(*) AS pages, MAX(last_updated_ms) AS updated
+  FROM favicons INDEXED BY idx_favicons_host_lookup
+  WHERE page_host IS NOT NULL
+    AND page_host = ?1
+    AND (image_blob_hash IS NOT NULL OR image_data IS NOT NULL)
+  GROUP BY image_blob_hash, image_data
+  ORDER BY front_page DESC, pages DESC, updated DESC
+  LIMIT 1
+) AS icon
+LEFT JOIN favicon_blobs
+  ON favicon_blobs.blob_hash = icon.image_blob_hash
+"#;
+
 // NOTE: registrable-domain fallback queries used to live here. They were
 // removed when the fallback chain proved to leak icons across unrelated
 // sites that share a registrable suffix (e.g. `*.github.io`,
@@ -190,8 +212,8 @@ fn load_favicons(
     Ok(results)
 }
 
-/// The most recently stored icon of each site: one shown for the site's own host, else for
-/// `www.` plus the site, in any profile. For screens that list sites, not visits (Insights);
+/// Each site's own icon (`LOAD_SITE_ICON_SQL`): for the site's own host, else for `www.` plus
+/// the site, in any profile. For screens that list sites, not visits (Insights);
 /// History looks icons up through a visit instead. A site's icon is never borrowed from another
 /// host under the same registrable domain (see the module note).
 pub fn load_site_favicons(vault: &Vault, domains: Vec<String>) -> Result<Vec<SiteFavicon>> {
@@ -206,8 +228,9 @@ pub fn load_site_favicons(vault: &Vault, domains: Vec<String>) -> Result<Vec<Sit
             let mut image = None;
             for host in [domain.clone(), format!("www.{domain}")] {
                 // No profile is -1, so the cross-profile query looks in every profile.
+                let front = (format!("https://{host}/"), format!("http://{host}/"));
                 image = s
-                    .query(LOAD_FAVICON_CROSS_PROFILE_HOST_SQL, params![-1, host, "", 0], |r| {
+                    .query(LOAD_SITE_ICON_SQL, params![host, front.0, front.1], |r| {
                         Ok(r.get::<Option<Vec<u8>>>(0)?)
                     })?
                     .pop()

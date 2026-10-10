@@ -33,6 +33,17 @@ fn plans_of<T>(vault: &Vault, db: Db, index: &str, read: impl FnOnce() -> T) -> 
     plans
 }
 
+/// The statements that read a page, leaving out the list's total (`SELECT COUNT`), which reads
+/// the same index for the whole window (`intelligence_read_plans` checks it reads no more).
+fn pages_only(plans: Vec<QueryPlan>) -> Vec<QueryPlan> {
+    let pages: Vec<_> = plans
+        .into_iter()
+        .filter(|plan| !plan.sql.trim_start().starts_with("SELECT COUNT"))
+        .collect();
+    assert!(!pages.is_empty(), "no statement read a page");
+    pages
+}
+
 /// The list's table is searched through `index` with `bounds` bound values, and nothing sorts it
 /// or scans it. A cursor the planner cannot seek on shows up as `SCAN` (or as fewer bounds when
 /// the window bound alone is used), a read through a view as `USE SORTER FOR ORDER BY`.
@@ -46,6 +57,26 @@ fn assert_seeks(plans: &[QueryPlan], alias: &str, index: &str, bounds: usize) {
         let constraint = &seek[seek.find('(').unwrap()..];
         assert_eq!(constraint.matches('?').count(), bounds, "{plan:?}");
         assert!(!plan.steps.iter().any(|step| step.contains("SORTER")), "{plan:?}");
+        assert!(
+            !plan.steps.iter().any(|step| step.starts_with(&format!("SCAN {alias}"))),
+            "{plan:?}"
+        );
+    }
+}
+
+/// A list ranked by something other than time (friction, the hardest topics) reads the rows of
+/// its range through a time index and sorts them: walked in rank order, a short range read rows
+/// until it found a page of its own. Every page sorts the range again, which the range bounds.
+/// The table is searched through `index` on at least `bounds` bound values, never scanned.
+fn assert_range_sorted(plans: &[QueryPlan], alias: &str, index: &str, bounds: usize) {
+    for plan in plans {
+        let seek = plan.steps.iter().find(|step| {
+            step.starts_with(&format!("SEARCH {alias} USING INDEX {index} ("))
+                || step.starts_with(&format!("SEARCH {alias} USING COVERING INDEX {index} ("))
+        });
+        let seek = seek.unwrap_or_else(|| panic!("{index} is not searched: {plan:?}"));
+        let constraint = &seek[seek.find('(').unwrap()..];
+        assert!(constraint.matches('?').count() >= bounds, "{plan:?}");
         assert!(
             !plan.steps.iter().any(|step| step.starts_with(&format!("SCAN {alias}"))),
             "{plan:?}"
@@ -111,7 +142,8 @@ fn session_trail_and_family_pages_seek_to_their_cursor() {
         assert!(cursor.is_some());
         let plans =
             plans_of(&vault, Db::Intelligence, "idx_search_trails_recent", || trails(cursor));
-        assert_seeks(&plans, "r", "idx_search_trails_recent", 1);
+        // The window's start and the cursor both bound first_visit_ms.
+        assert_seeks(&pages_only(plans), "r", "idx_search_trails_recent", 2);
 
         let families = |cursor| {
             vault_core::get_query_families(
@@ -130,7 +162,7 @@ fn session_trail_and_family_pages_seek_to_their_cursor() {
         let plans =
             plans_of(&vault, Db::Intelligence, "idx_query_families_recent", || families(cursor));
         // The window's start and the cursor both bound last_seen_ms.
-        assert_seeks(&plans, "r", "idx_query_families_recent", 2);
+        assert_seeks(&pages_only(plans), "r", "idx_query_families_recent", 2);
     }
 }
 
@@ -151,7 +183,8 @@ fn ranked_summary_pages_seek_to_their_cursor() {
         let plans = plans_of(&vault, Db::Intelligence, "idx_search_trails_friction", || {
             vault_core::get_friction_signals(&vault, &request(cursor)).unwrap()
         });
-        assert_seeks(&plans, "r", "idx_search_trails_friction", 1);
+        // The trails begun in the window, between its two bounds.
+        assert_range_sorted(&plans, "r", "idx_search_trails_friction", 2);
 
         let cursor =
             vault_core::get_reopened_investigations(&vault, &request(None)).unwrap().next_cursor;
@@ -179,8 +212,8 @@ fn ranked_summary_pages_seek_to_their_cursor() {
         let cursor = topics(None).hardest_topics.next_cursor;
         assert!(cursor.is_some());
         let plans =
-            plans_of(&vault, Db::Intelligence, "idx_query_families_members", || topics(cursor));
-        assert_seeks(&plans, "r", "idx_query_families_members", 1);
+            plans_of(&vault, Db::Intelligence, "idx_query_families_recent", || topics(cursor));
+        assert_range_sorted(&plans, "r", "idx_query_families_recent", 1);
 
         let refind = |cursor| {
             vault_core::get_refind_pages(

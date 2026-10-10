@@ -181,19 +181,6 @@ const STATEMENTS: &[&str] = &[
   computed_at TEXT NOT NULL,
   PRIMARY KEY(generation, profile_id, canonical_url)
 )",
-    r"CREATE TABLE habit_patterns_rows (
-  generation INTEGER NOT NULL DEFAULT 0,
-  profile_id TEXT NOT NULL,
-  registrable_domain TEXT NOT NULL,
-  habit_type TEXT NOT NULL,
-  mean_interval_days REAL NOT NULL,
-  cv REAL NOT NULL,
-  visit_count INTEGER NOT NULL,
-  last_visited_ms INTEGER NOT NULL,
-  is_interrupted INTEGER NOT NULL DEFAULT 0,
-  computed_at TEXT NOT NULL,
-  PRIMARY KEY(generation, profile_id, registrable_domain)
-)",
     r"CREATE TABLE reopened_investigations_rows (
   generation INTEGER NOT NULL DEFAULT 0,
   investigation_id TEXT NOT NULL,
@@ -440,6 +427,13 @@ const STATEMENTS: &[&str] = &[
     // starts with the last sites of the one before it (`prefix_len`); see `PathSegment`.
     "CREATE TABLE session_paths(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,session_id TEXT NOT NULL,segment INTEGER NOT NULL,
         date_key TEXT NOT NULL,prefix_len INTEGER NOT NULL,sites_json TEXT NOT NULL,PRIMARY KEY(generation,session_id,segment))",
+    // How each site's visits began and where its links led, per local day: `kind` is `direct`
+    // (no opener), `search` or `link` (the opener's site in `other`, empty when PathKeep did not
+    // see the opener) for arrivals, `onward` for visits to `other` opened from the site, and
+    // `unrecorded` for visits whose browser does not record openers.
+    "CREATE TABLE site_flows_rows(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,date_key TEXT NOT NULL,
+        registrable_domain TEXT NOT NULL,kind TEXT NOT NULL,other TEXT NOT NULL,visit_count INTEGER NOT NULL,
+        PRIMARY KEY(generation,date_key,profile_id,registrable_domain,kind,other))",
     "CREATE INDEX idx_vdf_visit_generation ON visit_derived_facts_rows(visit_id,generation)",
     "CREATE INDEX idx_assignments_visit_generation ON visit_assignments(visit_id,generation)",
     "CREATE INDEX idx_assignments_generation_session ON visit_assignments(generation,session_id,ordinal,visit_id)",
@@ -468,9 +462,10 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_search_trails_recent ON search_trails_rows(first_visit_ms DESC, trail_id DESC, generation)",
     // Searches that landed on one site, by time (the site page).
     "CREATE INDEX idx_search_trails_landing ON search_trails_rows(landing_domain, first_visit_ms, generation, profile_id, initial_query)",
-    "CREATE INDEX idx_search_trails_friction ON search_trails_rows(reformulation_count DESC, visit_count DESC, trail_id, generation)",
+    // The trails that may be friction (reworded twice or more, or no landing after three
+    // visits), by when they began: a range reads only its own, then sorts them.
+    "CREATE INDEX idx_search_trails_friction ON search_trails_rows(first_visit_ms, generation, profile_id) WHERE reformulation_count >= 2 OR (landing_domain IS NULL AND visit_count >= 3)",
     "CREATE INDEX idx_query_families_recent ON query_families_rows(last_seen_ms DESC, family_id DESC, generation)",
-    "CREATE INDEX idx_query_families_members ON query_families_rows(member_count DESC, last_seen_ms DESC, family_id, generation)",
     "CREATE INDEX idx_reopened_investigations_recent ON reopened_investigations_rows(last_seen_ms DESC, occurrence_count DESC, investigation_id, generation)",
     "CREATE INDEX idx_path_flows_profile_rank ON path_flows_rows(profile_id, step_count, occurrence_count DESC, last_seen_ms DESC, flow_pattern, generation)",
     // Compare sets newest first, for every profile or one (`compare_sets::get_compare_sets`).
@@ -499,8 +494,12 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_domain_daily_site ON domain_daily_rollups_rows(registrable_domain,date_key,generation,profile_id)",
     "CREATE INDEX idx_sessions_range ON sessions_rows(first_visit_ms,generation,profile_id)",
     "CREATE INDEX idx_session_paths_range ON session_paths(date_key,generation,profile_id)",
+    // One site's days (the site page's arrivals and onward sites).
+    "CREATE INDEX idx_site_flows_site ON site_flows_rows(registrable_domain,date_key,generation,profile_id)",
     "CREATE INDEX idx_refind_pages_range ON refind_pages_rows(last_seen_ms,generation,profile_id,first_seen_ms)",
     "CREATE INDEX idx_search_events_profile_query ON search_events_rows(profile_id,normalized_query, generation)",
+    // One engine's keyword searches in a range (what was searched on a site, the site page).
+    "CREATE INDEX idx_search_events_engine_time ON search_events_rows(query_kind,search_engine,visit_time_ms,generation)",
 
     "CREATE VIEW visit_derived_facts AS SELECT r.visit_id,r.profile_id,a.session_id,a.trail_id,r.registrable_domain,r.canonical_url,r.domain_category,r.page_category,r.search_engine,r.search_query,r.is_new_domain,r.is_search_event,r.evidence_tier,r.taxonomy_source,r.taxonomy_pack,r.taxonomy_version,r.computed_at
       FROM visit_derived_facts_rows r
@@ -529,8 +528,6 @@ const STATEMENTS: &[&str] = &[
     "CREATE VIEW query_family_queries AS SELECT r.family_id,r.profile_id,r.normalized_query FROM query_family_queries_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW refind_pages AS SELECT r.profile_id,r.canonical_url,r.url,r.title,r.registrable_domain,r.cross_day_count,r.trail_count,r.search_arrival_count,r.typed_revisit_count,r.refind_score,r.evidence_json,r.first_seen_ms,r.last_seen_ms,r.computed_at FROM refind_pages_rows r
-      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
-    "CREATE VIEW habit_patterns AS SELECT r.profile_id,r.registrable_domain,r.habit_type,r.mean_interval_days,r.cv,r.visit_count,r.last_visited_ms,r.is_interrupted,r.computed_at FROM habit_patterns_rows r
       WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
     "CREATE VIEW reopened_investigations AS SELECT r.investigation_id,r.profile_id,r.anchor_type,r.anchor_id,r.anchor_label,r.occurrence_count,r.distinct_days,r.first_seen_ms,r.last_seen_ms,CASE WHEN r.anchor_type='reference_page' THEN
         (SELECT p.evidence_json FROM refind_pages_rows p WHERE p.generation=r.generation AND p.profile_id=r.profile_id AND p.canonical_url=r.anchor_id LIMIT 1 OFFSET 0)

@@ -171,7 +171,7 @@ At 14.4M visits with 1.8M search events (median of 5):
 | same count joined to `archive.visits`, 30 days | 440 ms |               |
 | same count joined to `archive.visits`, 1 year  | 559 ms |               |
 
-The joined shape scans every search event whatever the range. A covering index that also holds `normalized_query` and `raw_query` cut the one-year read to 95 ms in a trial; not worth a second copy of every query.
+The joined shape scans every search event whatever the range. The site page's "Searched on this site" runs the same count for one search engine through `idx_search_events_engine_time (query_kind, search_engine, visit_time_ms, generation)`, so it reads that engine's searches in the range only. A covering index that also holds `normalized_query` and `raw_query` cut the one-year read to 95 ms in a trial; not worth a second copy of every query.
 
 One-time cost: the migration fills in the time for existing events with one `UPDATE` against the archive, then builds the index. At 14.4M visits that took 2.2 s with the archive in the page cache and 9.4 s on the first run after the archive was generated (cold cache). Intelligence migrations run lazily, on the first intelligence read after an upgrade (not behind the "Upgrading your archive" screen), off the UI thread; that read and any that start beside it wait for it. Because several reads start at once, migrations now run under a process-wide lock. Without it every concurrent read would try to apply the pending migration, and the late ones could fail on SQLite's 5 s busy timeout or on the duplicate version row.
 
@@ -284,6 +284,95 @@ The same follow-ups on the 14.4M benchmark (same VM; its one-site-day-per-visit 
 | all time, KPI row read on its own (not the snapshot) | 90 s         | 0.95 s        |
 
 Full rebuild 5,795 s (was 5,955): sessions and trails 476 s (was 402, the path segments), aggregates 1,592 s, the overview snapshot warm 207 s (was 844). The first one-year batch is still the cost of one walk over the year's site-day rows, now done once and kept: 3.15M rows on the benchmark, each brought into Rust, which costs more per row than the SQL groupings it replaced. On the real data the same batch takes 74 ms. Not measured in this run: the export and the append, the client lost the sandbox when the machine slept.
+
+**An append updated in place (2026-10-09, ④):** the benchmark in its realistic shape (`PATHKEEP_BENCH_SHAPE=habits`), same VM, appending 10,000 visits after a full build:
+
+| stage                          | time  |                                                                             |
+| ------------------------------ | ----- | --------------------------------------------------------------------------- |
+| facts, rollups, sessions       | 7 s   |                                                                             |
+| refind pages                   | 270 s | 5,378 pages, each read again from all its visits; the most visited dominate |
+| compare sets                   | 6 s   | the trails walked from the one left open                                    |
+| paths, families, the one write | < 1 s |                                                                             |
+| all-time snapshot warm         | 85 s  | the whole all-time overview again                                           |
+| **total**                      | 376 s | was 13.7 min (aggregates rebuilt from every visit)                          |
+
+The full build in the same run took 2,385 s; the process peaked at 474 MB in both. Next: merge a page's new visits into its stored refind row instead of reading its history again, and warm the snapshot from what changed.
+
+**Every Insights read, 2026-10-09** (`35e35471`, same benchmark and shape, Modal VM on an AMD EPYC 9554, each read in a new process, first call / second call). The `habits` shape had no searches in this run, so the search cards read empty tables; see below.
+
+| 14.4M visits, ms                    | 30 days     | 1 year      | all time      |
+| ----------------------------------- | ----------- | ----------- | ------------- |
+| primary overview (the first batch)  | 189 / 95    | 1,402 / 200 | 12 / 12       |
+| secondary overview                  | 140 / 114   | 967 / 844   | 12 / 5        |
+| `get_digest_summary` on its own     | 69 / 69     | 173 / 172   | 2,892 / 138   |
+| `get_interrupted_habits` on its own | 2,748 / 0.8 | 2,777 / 0.8 | 0.3 / 0.4     |
+| `get_path_flows` on its own         | 91 / 85     | 795 / 785   | 1,012 / 1,007 |
+| `get_discovery_trend` (per day)     | 11 / 11     | 11 / 11     | 18 / 18       |
+| `get_multi_browser_diff`            | 5 / 5       | 8 / 9       | 11 / 14       |
+| every other card read               | under 2     | under 3     | under 5       |
+
+All time is answered from the snapshot. Opening a range costs its two batches; the cards read on their own only when they change their own options. Three reads stand out: common paths for a long range (0.8–1.0 s every time, the stored session paths of every day in it), the first interrupted-habits read in a process (2.7 s, then under 1 ms), and the all-time digest when it is read without the snapshot (2.9 s the first time).
+
+An export between two reads (`export-between-reads`): the secondary overview took 110 ms before, 1,992 ms just after the export (the export pushed the Insights pages out of the cache) and 116 ms again after that; the export itself took 489 s for 5.0 GB and the process stayed at 722 MB resident afterwards (peak 957 MB).
+
+**The three questions before merge (2026-10-09).** Asked of the in-place append: how long an append takes, how long new categories take, and whether the full build got slower.
+
+- Full build: not slower. Run back to back on one VM (Intel Xeon 8375C, CPU probe 1.65–1.66 s throughout), `d182481e` took 2,777 s and `35e35471` 2,823 s. The earlier 2,385 s against 2,850 s came from two different hosts (an EPYC 9554 runs the same build in about 2,360 s).
+- Append of 10,000 visits: 126 s on the EPYC, of which 94 s were spent writing path flows: before each of the 4,812 flows the append asked whether its row existed, and Turso planned that through `idx_path_flows_profile_rank` on profile and step count, a read of every flow of that length (19 ms a flow). It is one upsert now (`RETURNING` the count), and `append_plans.rs` counts step count and the other kind columns as columns that never find one row.
+- New categories (an override that moves `site1.test`): 62 s on the EPYC, 72 s on the Xeon. 61 s of it sorts all 2.88M pages again, even for one site's override; the rest warms the all-time snapshot.
+
+**Searches at scale.** None of these runs had a single search: every seeded page was `site{n}.test/page/{id}`, so search events, trails, query families and Chinese segmentation had never run at 14.4M. The `habits` shape now makes every 25th visit a Google search (4%, the share on the real-data copy) from `test_support::search_history::synthetic_searches`: repeats, rewordings a minute later, new searches of one to six words drawn by Zipf's law from 50,000 words, and 5% in Chinese; the two visits after a search are opened from it. 580,001 searches, 307,694 different ones.
+
+Query families alone, 576,000 of those searches in one profile (`intelligence/tests/family_scale.rs`, release, in memory):
+
+| rule                                     | build   | families | largest family | append's re-index |
+| ---------------------------------------- | ------- | -------- | -------------- | ----------------- |
+| v9: like any wording of a family         | 2,780 s | 15,066   | 164,788        | 1.2 s             |
+| v10, first search, containment counts    | 4.2 s   | 131,736  | 6,683          | 0.7 s             |
+| v10, first search, half and at least two | 6.3 s   | 185,131  | 3,589          | 1.0 s             |
+
+v9's cost grew with every batch (13 s for the first 48,000 searches, 469 s for the last); v10's stays flat. The largest family under the shipped rule is begun by the generator's two most common words, which it draws independently (`deterministic-intelligence.md` §5.4).
+
+The whole benchmark with searches (structural v10 with containment, the rule before the last row; same EPYC; `PATHKEEP_BENCH_SHAPE=habits`):
+
+| 14.4M visits, 580,001 searches | time    | without searches |                                                                                                             |
+| ------------------------------ | ------- | ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| full build                     | 2,915 s | 2,356 s          | sessions and trails 698 s (359), refind and compare sets 657 s (582), families 33 s; peak 611 MB            |
+| append of 10,000 visits        | 65 s    | 126 s            | facts to sessions 6.5 s, refind 25.6 s (5,181 pages), families 1.3 s, write 3.0 s, all-time snapshot 28.4 s |
+| new categories                 | 90 s    | 62 s             | 3.19M pages sorted again 66.8 s, snapshot 21 s                                                              |
+
+The reads that searches made slow (ms, first / second call):
+
+| 14.4M visits with searches | 30 days       | 1 year        | all time      |
+| -------------------------- | ------------- | ------------- | ------------- |
+| primary overview           | 2,836 / 2,729 | 4,336 / 3,152 | 12 / 12       |
+| secondary overview         | 557 / 539     | 1,980 / 1,858 | 12 / 7        |
+| `get_top_search_concepts`  | 2,534 / 2,530 | 2,823 / 2,811 | 3,989 / 3,978 |
+| `get_search_trails`        | 995 / 462     | 455 / 454     | 447 / 447     |
+| `get_friction_signals`     | 388 / 398     | 396 / 396     | 430 / 427     |
+| `get_query_families`       | 89 / 90       | 89 / 89       | 92 / 94       |
+| `get_path_flows`           | 115 / 101     | 911 / 894     | 1,851 / 1,827 |
+| `get_search_effectiveness` | 21 / 18       | 275 / 270     | 1,412 / 1,379 |
+| `get_frequent_searches`    | 21 / 13       | 225 / 182     | 1,159 / 987   |
+| `get_stable_sources`       | 12 / 10       | 170 / 160     | 804 / 798     |
+
+What you search for, search trails, friction and query families cost about the same whatever the range, so they read more than the range.
+
+**After keeping the search reads in their range (2026-10-09).** What you search for walks the range's searches by time and joins each one's terms by key, instead of reading the `search_events` and `search_event_terms` views (every row of the build). The query family and trail totals count the rows through their time index; trails are counted and listed by when they began. Friction reads the trails that may be friction from a partial index by time and sorts them; the hardest topics read the families searched in the range and sort them by size. Walked in rank order, both read past a short range until they found a page of their own. `intelligence_read_plans.rs` now runs every Insights read for 30 days and all time, across profiles and in one, and fails when a statement scans a large table or searches one only by generation, profile and kind columns; pages by refind score are the one exception (`store-schema.md`).
+
+Measured with the last 3.6M visits of the same benchmark (`PATHKEEP_BENCH_FIRST_VISIT=10800001`: the same days and density at the end of the data, so 30 days and a year read the rows they would among 14.4M), on the Xeon VM, about 30% slower than the EPYC above (ms, first / second call):
+
+| at the end of 14.4M visits with searches | 30 days before | 30 days after | 1 year before | 1 year after  |
+| ---------------------------------------- | -------------- | ------------- | ------------- | ------------- |
+| primary overview                         | 2,836 / 2,729  | 287 / 160     | 4,336 / 3,152 | 1,677 / 865   |
+| secondary overview                       | 557 / 539      | 225 / 222     | 1,980 / 1,858 | 2,023 / 1,770 |
+| `get_top_search_concepts`                | 2,534 / 2,530  | 36 / 35       | 2,823 / 2,811 | 550 / 510     |
+| `get_search_trails`                      | 995 / 462      | 3 / 4         | 455 / 454     | 31 / 30       |
+| `get_friction_signals`                   | 388 / 398      | 0.3 / 0.3     | 396 / 396     | 0.3 / 0.1     |
+| `get_query_families`                     | 89 / 90        | 16 / 16       | 89 / 89       | 152 / 97      |
+| `get_search_effectiveness`               | 21 / 18        | 43 / 45       | 275 / 270     | 563 / 526     |
+
+The "before" columns are the EPYC run above, so the gains are if anything understated. 30 days is back to where it was without searches. What a year still costs grows with the rows in it: common paths 1.1 s (it was 0.9 s before searches), What you search for and the hardest topics about 0.5 s, the stable sources and frequent searches about 0.2 s, and the first interrupted-habits read in a process 0.84 s; STATUS item 14. The export between reads with searches: 534 ms before, 4.9 s just after, 532 ms again; 5.3 GB in 509 s.
 
 ## Other reads
 

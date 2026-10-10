@@ -79,6 +79,10 @@ export interface TrailSummary {
   landingDomain?: string | null
   firstVisitMs: number
   lastVisitMs: number
+  /**
+   * The pages the search opened: its landing and the pages after it, not its
+   * rewordings (`visitCount` counts those too).
+   */
   maxDepth: number
   queries: string[]
 }

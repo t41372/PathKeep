@@ -19,7 +19,9 @@
 //!   built-in rules and does not grow with archive size.
 
 use super::sites;
-use super::types::{DomainCategory, InteractionKind, PageCategory, TAXONOMY_VERSION};
+use super::types::{
+    DomainCategory, InteractionKind, PageCategory, TAXONOMY_VERSION, URL_RULES_VERSION,
+};
 use std::sync::LazyLock;
 
 /// Compact category tuple shared by all built-in rule variants.
@@ -98,9 +100,16 @@ pub(super) const fn rule(
     }
 }
 
-/// The taxonomy a build classifies visits with: the matcher's version and every pack's. A build
-/// records it, so a changed pack makes the next build classify every visit again, and opening the
-/// archive queues that build.
+/// The URL rules' version (`URL_RULES_VERSION`): what a visit's site and search are. A build
+/// records it, and a change makes the next build start over.
+pub(crate) fn url_rules_version() -> &'static str {
+    URL_RULES_VERSION
+}
+
+/// The taxonomy a build sorts visits into categories with: the matcher's version and every
+/// pack's. A build records it, so a changed pack makes the next build sort the archive's pages
+/// again (only the visits whose categories move change), and opening the archive queues that
+/// build.
 pub(crate) fn taxonomy_version() -> &'static str {
     static VERSION: LazyLock<String> = LazyLock::new(|| {
         RULE_PACKS.iter().fold(TAXONOMY_VERSION.to_string(), |version, pack| {
