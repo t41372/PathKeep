@@ -355,9 +355,10 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
   - chat / assistant：OpenAI-compatible、Anthropic、Google、Ollama、LM Studio
   - embeddings：OpenAI-compatible、Google、Ollama、LM Studio
   - Anthropic 在 day one 只作 chat provider，不作 embedding provider
-- provider connection test 必須回傳 latency、capability report、error code、action hint、retry hint，而不是只有 pass / fail。
+- provider connection test 必須回傳 latency、capability report、error code、action hint、retry hint，而不是只有 pass / fail。 2026-10-09 起 Settings → AI 失敗時依 error code 用使用者的語言寫原因（金鑰不被接受、連不上那個位址、被限流、沒有那個模型、這個服務不能用在這裡、服務已關閉），不認得的 code 才引用後端的訊息；`ask.spec` 驗錯的金鑰與沒有東西在聽的位址。
 - secret clear 只清除 credential，不刪除 provider preset / model selection，讓使用者能先保留配置再補 key。
 - **API key 是可選的，不是前置條件**：本地 / LAN 自架 provider（LM Studio、Ollama、llama-server…）不需要 key。PathKeep 絕不因「沒存 key」就自行擋下 provider 呼叫——`resolve_provider_runtime` 在缺 key 時照常 resolve（`api_key: Option<SecretString>` 為 `None`），transport 對缺 / 空白 key 完全不送 `Authorization` header（不送空的 `Bearer `）。只有 provider 自己回傳的錯誤（真正的 401/403…）才算失敗。雲端 provider 需要 key 時，由它自己的 401 帶出，而不是我們的 precondition。
+  - 新增服務的表單照這條：位址在這台電腦上（localhost / 127.0.0.1 / [::1]）時，API key 欄寫「可不填」但仍可輸入（vLLM、LiteLLM 這類本機伺服器可能要 key）；之前整欄停用，連要 key 的本機伺服器也設定不了。雲端服務仍必填。
   - 已知 transport 細節：OpenAI-compatible embeddings 走我們自管的 reqwest `/v1/embeddings`，缺 key 真正省略 header；rig 0.34 的 openai/anthropic/gemini chat client 在 `.api_key()` 後一定會帶 auth header（上游限制），keyless local model 會忽略它，仍可運作。
   - FE（2026-10）：Settings → AI 與 onboarding 第 6 步共用「新增 AI 服務」表單（`src/features/ai-setup/`）。按下新增時依序：把 provider 寫進 config 並選為目前服務（同時打開 `ai.enabled` 與 `assistantEnabled`）→ 有填 key 才存進鑰匙圈 → 自動測一次連線。只做 chat（`llmProviders`）；介面上沒有分開設定 embedding provider，本機語意搜尋用內建的靜態模型。
 

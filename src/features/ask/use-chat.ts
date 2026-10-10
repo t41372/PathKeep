@@ -9,9 +9,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
-import { subscribeToAiChatStream } from '@/lib/ipc/ai-stream'
+import { listenToAiChatStream } from '@/lib/ipc/ai-stream'
 import { describeError } from '@/lib/errors'
-import type { AiChatStreamChunk } from '@/lib/types'
+import type { AiChatStreamChunk, AiChatStreamEvent } from '@/lib/types'
 import {
   assistantTurn,
   buildTranscript,
@@ -187,28 +187,40 @@ export function useChat(options: ChatOptions) {
       commit([...history, assistant])
       setStreaming(true)
 
-      intelligenceClient
-        .sendChat({
-          messages: buildTranscript(history, systemPrompt),
-          providerId,
-          toolsEnabled: true,
-          conversationId: conversationRef.current,
-          messageId: assistant.id,
+      void (async () => {
+        // Listen before sending: a run can be over (a quick answer, a refused
+        // connection) before `ai_chat_send` says which run is ours.
+        const early: AiChatStreamEvent[] = []
+        const unsubscribe = await listenToAiChatStream((event) => {
+          if (run.runId === null) early.push(event)
+          else if (event.runId === run.runId) applyChunk(run, event.chunk)
         })
-        .then(async (ack) => {
-          if (runRef.current !== run) {
-            void intelligenceClient.cancelChat(ack.runId).catch(() => undefined)
-            return
-          }
-          run.runId = ack.runId
-          const unsubscribe = await subscribeToAiChatStream(
-            ack.runId,
-            (chunk) => applyChunk(run, chunk),
-          )
-          if (runRef.current === run) run.unsubscribe = unsubscribe
-          else unsubscribe()
-        })
-        .catch((reason: unknown) => finish(run, 'error', describeError(reason)))
+        if (runRef.current !== run) return unsubscribe()
+        run.unsubscribe = unsubscribe
+        let runId: string
+        try {
+          runId = (
+            await intelligenceClient.sendChat({
+              messages: buildTranscript(history, systemPrompt),
+              providerId,
+              toolsEnabled: true,
+              conversationId: conversationRef.current,
+              messageId: assistant.id,
+            })
+          ).runId
+        } catch (reason) {
+          finish(run, 'error', describeError(reason))
+          return
+        }
+        if (runRef.current !== run) {
+          void intelligenceClient.cancelChat(runId).catch(() => undefined)
+          return
+        }
+        run.runId = runId
+        for (const event of early.splice(0)) {
+          if (event.runId === runId) applyChunk(run, event.chunk)
+        }
+      })()
     },
     [applyChunk, commit, finish],
   )

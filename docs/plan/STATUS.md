@@ -100,6 +100,7 @@
   - [ ] 4. 刪 B / C，連同只有它們在用的程式碼（`cfg(coverage)` 雙胞胎、production 裡的測試替身、沒有呼叫者的命令）；只在畫面上到不了、但已定案文檔說已上線的 candle embedding：用戶 2026-10-09 決定拿掉（連同只測它的測試、退回外部服務的分支、文檔裡「已交付」的說法）。2026-10-09 已寫、待 gate：審查階段的對照與拆分見 `test-audit-2026-10/candle-removal.md`；`embedding_candle.rs` 刪除，共用的模型下載 / 驗證搬到 `ai/model_files.rs`，選引擎與分派搬到 `ai/embedding_engine.rs`（static 或 external）；`gpu_enabled`、`metal` feature 與 `vault-metal-backend` crate 拿掉；candle-core / nn / transformers、hf-hub 拿掉，static 模型改用 Hugging Face 的 `safetensors` crate 讀（連帶拿掉 candle-core 硬開的 C `onig` 建置）；文檔改成 in-app 只有 model2vec static。還要在 Modal 上跑一次 `PATHKEEP_STATIC_PARITY=1` 的 static 對照測試（新的讀檔與沒有 onig 的 tokenizer 只有它驗得到）。另外留著、分開做：`ReembedScope::WorkingSet`（只為 heavy 層存在）、`degrade_static_to_external` 到不了的分支、設定的 static 模型永遠拿預設模型的雜湊驗證。Ask 的「崩潰可續跑」：用戶 2026-10-09 決定改文檔（中斷的回答標成中斷、要重問），只保留重開對話讀得到的紀錄（引用、用量），沒人讀的步驟日誌不再寫。
   - [ ] 5. 從不執行的測試（devtools-bridge、Vitest）進 gate 或刪；用時鐘當種子的測試改固定種子。
   - [ ] 6. 補 E2E：Takeout / Safari 匯入、Ask（假的 OpenAI 相容 server）、連線測試、語意索引建置中斷再續、星號與筆記搜尋、og:image、備份後警告、搜尋排序。
+    - 2026-10-09：Ask 與連線測試（`ask.spec`，`support/fake-model.ts` 是 127.0.0.1 上的 OpenAI 相容服務：給工具就呼叫 `search_history`、拿到結果就回一句固定的答案、串流照 OpenAI 的格式、錯的金鑰回 401）：在 Settings → AI 新增服務、連線測試、在 Ask 問、引用的頁面是 fixture 那頁、送出的請求帶金鑰與搜尋結果；錯的金鑰與沒有東西在聽的位址各說出原因。寫的時候發現本機位址的 API key 欄被停用，連要 key 的本機伺服器都設定不了，改成可不填。
   - [ ] 7. `quality-matrix.md` 與 AGENTS.md 寫明什麼情況才寫 unit test；修 README 列的過期文檔。
 
 - [ ] **WORK-UI-WINDOW-ICONS-2026-10** — 視窗拖動、icon 一致、毛玻璃（用戶 2026-10-08）

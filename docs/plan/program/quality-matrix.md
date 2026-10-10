@@ -10,16 +10,17 @@
 
 `bun run check` 是唯一的 per-commit gate，本地與 GitHub `CI` workflow 跑同一條。依序執行：
 
-| 步驟           | Command                 | 保護什麼                                                                  |
-| -------------- | ----------------------- | ------------------------------------------------------------------------- |
-| Format         | `bun run format:check`  | Prettier                                                                  |
-| Lint           | `bun run lint`          | ESLint（`--max-warnings 0`）                                              |
-| i18n           | `bun run check:i18n`    | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                     |
-| Typecheck      | `bun run typecheck`     | `tsc -b`                                                                  |
-| Build          | `bun run build`         | TypeScript + Vite bundle                                                  |
-| Rust           | `bun run check:rust`    | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace` |
-| Release config | `bun run release:check` | updater URL、Windows bundle、WebView2、support link 不得漂移              |
-| E2E            | `bun run test:e2e`      | 真實 Rust 後端 + Vite 前端 + Playwright，見下                             |
+| 步驟           | Command                 | 保護什麼                                                                                                                                                            |
+| -------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format         | `bun run format:check`  | Prettier                                                                                                                                                            |
+| Lint           | `bun run lint`          | ESLint（`--max-warnings 0`）                                                                                                                                        |
+| i18n           | `bun run check:i18n`    | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                                                                                                               |
+| Typecheck      | `bun run typecheck`     | `tsc -b`                                                                                                                                                            |
+| Unit           | `bun run test:unit`     | Vitest：少數必須單獨測的（例如 regex 方言對照表），寫的理由在檔頭                                                                                                   |
+| Build          | `bun run build`         | TypeScript + Vite bundle                                                                                                                                            |
+| Rust           | `bun run check:rust`    | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace`，再加帶 `devtools-bridge` feature 的 bridge dispatcher 測試（`test:desktop-bridge:rust`） |
+| Release config | `bun run release:check` | updater URL、Windows bundle、WebView2、support link 不得漂移                                                                                                        |
+| E2E            | `bun run test:e2e`      | 真實 Rust 後端 + Vite 前端 + Playwright，見下                                                                                                                       |
 
 `bun run check:base` 是不含 build 與 E2E 的快速 triage（`check:js` + `check:rust`），不能代替 `check`。
 
@@ -45,6 +46,23 @@ E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的�
 
 `scripts/run-playwright.mjs` 結束時會印出這個路徑。該資料夾不進 git（見 `artifacts/e2e/README.md`）；CI 以 `if: always()` 上傳成 `e2e-artifacts`。重現同一條 run：`PATHKEEP_E2E_NOW=<fixture.json 的 now> bun run test:e2e`。
 
+## 什麼時候才寫 unit test
+
+功能由 E2E 證明（AGENTS.md「測試是契約」）。unit test 只在這幾種情況寫，而且寫在程式碼之前：先在測試檔頭列出這段邏輯會怎麼壞（failure modes），每個情況一個有名字的測試，再寫程式碼。
+
+- 規格清楚的純邏輯，E2E 要逐一跑太貴：例如 regex 方言對照表（60 個 pattern）、query family 的歸組規則（每個 failure mode 一個例子，另拿「逐一比較」的參考實作對照）。
+- 資料完整性與當機復原：寫到一半被殺掉、重開後資料要對（`vault-crypto` 的 crash / tamper 測試，種子固定、可用環境變數換）。
+- 安全邊界：SSRF 每一跳、`file://` 不能被打開、鎖定時不讀 Keychain。
+- 修過的 bug，而 E2E 重現不了（時間、競爭、14.4M 才出現的查詢計畫：`intelligence_read_plans`、`append_plans`）。
+
+不寫的（2026-10 審查的 B / C，見 `docs/plan/test-audit-2026-10/`）：
+
+- 鎖住沒人看得到的細節：內部字串、私有 helper 的輸出、計數、內部順序；
+- 重述程式碼、探測常數，或為了 coverage / mutation 分數的近似重複；
+- 照抄程式碼現在的行為（寫在程式碼之後的測試就是這樣）。E2E 的手算也一樣：用 fixture 想表達的結果去驗，例如 `home.spec` 驗「每個搜尋與它的改寫是一組」，不只照抄後端規則。
+
+測試照它要保證的事命名（`a_search_goes_to_the_first_search_it_is_most_like`），不照實作命名。
+
 ## Slow / Optional
 
 不在 `bun run check` 內，但要在 CI 或 release 前跑：
@@ -55,8 +73,6 @@ E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的�
 | `bun run check:supply-chain`                              | `cargo audit` + `cargo deny`（需要網路與對應 cargo 工具）；CI 另有獨立步驟                |
 | `bun run check:platform`                                  | host-matched keyring / scheduler / launcher / updater native 測試，含 debug desktop build |
 | `bun run verify`                                          | `check` + `desktop:build:debug`；release / milestone closeout 的本地預演                  |
-| `bun run test:desktop-bridge:rust`                        | bridge dispatcher 的 Rust 測試（帶 `devtools-bridge` feature）                            |
-| `bun run test:unit`                                       | Vitest；沒有測試時直接通過。少量、隔離的測試用，不在 gate 內                              |
 | GitHub `Platform Native` / `Native Dependencies` workflow | manual / path-triggered，見各 workflow                                                    |
 
 ## Honest Boundaries

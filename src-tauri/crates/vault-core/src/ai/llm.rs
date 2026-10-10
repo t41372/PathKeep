@@ -211,7 +211,7 @@ async fn probe_floor_tool_capability(runtime: &AiProviderRuntime) -> Result<bool
     let capable = match chat_impl(runtime, probe_request).await {
         Ok(_) => true,
         Err(error) => {
-            let message = error.to_string();
+            let message = format!("{error:#}");
             let (code, _, _) = super::provider::classify_provider_error(&message);
             // A reachability/auth failure is not evidence of "no tool support" — surface it so the
             // run fails honestly rather than silently degrading on a transient outage.
