@@ -131,7 +131,9 @@ read/seek/write`, `proc_exit`). Absent by construction: `path_open`, any `sock_*
    preopen. So **no filesystem, no network/sockets, no real clock, no host randomness, no environment**.
    `Math.random()` is QuickJS's own PRNG (deterministic), and `Date.now()` is 0.
 2. **Hard limits.** `code_mode.rs` constants: 5 s wall-time budget enforced via Wasmtime epoch
-   interruption (a 50 ms ticker on a dedicated OS thread); 64 MiB max linear memory via `StoreLimits`;
+   interruption (a 50 ms ticker on a dedicated OS thread). The ticker does not advance the epoch while the
+   host answers a `query_history` / `fetch_visits` call, so retrieval time does not count against the 5 s;
+   host calls are bounded by `MAX_HOST_CALLS` and cancellation instead. 64 MiB max linear memory via `StoreLimits`;
    `MAX_HOST_CALLS = 64`; `MAX_OUTPUT_BYTES = 256 KiB` (truncated on a UTF-8 char boundary); a 1 MiB RPC
    frame cap plus a raw-buffer cap as defense-in-depth.
 
@@ -146,10 +148,11 @@ pin. Production never needs `javy` installed — only the committed `.wasm` is l
 
 The only host surface is two synchronous RPC functions exposed to the guest, both **read-only**:
 
-- `query_history({ query, plane?, limit?, profileId?, domain?, starredOnly? })` — runs the _same_ shared
-  retrieval (`search_history_internal`) as the agent's search tools; `limit` is clamped to `[1, 50]`.
-- `fetch_visits(ids: number[])` — resolves up to 50 visit ids against a bounded recent-window read model;
-  silently drops unknown/reverted ids.
+- `query_history({ query?, plane?, sort?, limit?, cursor?, profileId?, domain?, starredOnly?, startDate?, endDate? })`
+  — runs the _same_ shared retrieval (`search_history_internal`) as the agent's search tools; `limit` is
+  clamped to `[1, 1000]` (`MAX_ROWS_PER_CALL`), and `cursor` pages through the rest of the matches.
+- `fetch_visits(ids: number[])` — looks up as many as 50 visits by visit id in the archive (`search::visits`),
+  whatever their age; silently drops unknown/reverted ids.
 
 Neither performs INSERT/UPDATE/DELETE. There is **no DB handle, no SQL string, no `func_wrap` bridge** —
 the linker only adds the scoped WASI context. The `run_code` tool description (`agent_tools.rs::
