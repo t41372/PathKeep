@@ -44,6 +44,19 @@ export const settingsAi = defineMessages({
       testing: 'Testing…',
       testOk: 'Connected to {model} in {ms} ms.',
       testFailed: 'Could not connect. {message}',
+      testErrors: {
+        'secret-missing':
+          'The service did not accept the API key. Check the key and test again.',
+        'network-error':
+          'Could not reach {address}. Check the address and that the service is running.',
+        'rate-limited':
+          'The service is limiting requests right now. Try again in a while.',
+        'bad-model':
+          'The service has no model called {model}. Check the model name.',
+        'unsupported-capability': 'This service cannot be used for this.',
+        'provider-disabled': 'This service is turned off.',
+        other: 'The service answered with an error: {message}',
+      },
       remove: 'Remove',
       removeTitle: 'Remove {name}?',
       removeBody:
@@ -69,7 +82,8 @@ export const settingsAi = defineMessages({
         apiKey: 'API key',
         apiKeyHint:
           'Kept in your system keychain, never in PathKeep’s settings file.',
-        apiKeyNotNeeded: 'A model on this computer needs no key.',
+        apiKeyOptional:
+          'Optional: only for a server on this computer that asks for one. It is kept in the system keychain.',
         optionalLater:
           'You can finish setup, including the API key and a connection test, later in Settings → AI.',
       },
@@ -184,6 +198,15 @@ export const settingsAi = defineMessages({
       testing: '测试中…',
       testOk: '已连接到 {model}，耗时 {ms} 毫秒。',
       testFailed: '无法连接。{message}',
+      testErrors: {
+        'secret-missing': '服务不接受这个 API 密钥。检查密钥后再测试一次。',
+        'network-error': '连不上 {address}。检查地址，以及服务是否在运行。',
+        'rate-limited': '服务暂时限制了请求，稍后再试。',
+        'bad-model': '服务上没有名为 {model} 的模型。检查模型名称。',
+        'unsupported-capability': '这个服务不能用在这里。',
+        'provider-disabled': '这个服务已关闭。',
+        other: '服务返回了错误：{message}',
+      },
       remove: '移除',
       removeTitle: '移除 {name}？',
       removeBody:
@@ -208,7 +231,8 @@ export const settingsAi = defineMessages({
         modelPlaceholder: '例如 {example}',
         apiKey: 'API 密钥',
         apiKeyHint: '保存在系统钥匙串里，不会写进 PathKeep 的设置文件。',
-        apiKeyNotNeeded: '这台电脑上的模型不需要密钥。',
+        apiKeyOptional:
+          '可不填：只有这台电脑上要求密钥的服务器才需要。密钥保存在系统钥匙串里。',
         optionalLater:
           '之后可以在「设置 → AI」里完成设置，包括 API 密钥和连接测试。',
       },
@@ -322,6 +346,15 @@ export const settingsAi = defineMessages({
       testing: '測試中…',
       testOk: '已連線到 {model}，耗時 {ms} 毫秒。',
       testFailed: '無法連線。{message}',
+      testErrors: {
+        'secret-missing': '服務不接受這個 API 金鑰。檢查金鑰後再測試一次。',
+        'network-error': '連不上 {address}。檢查位址，以及服務是否在執行。',
+        'rate-limited': '服務暫時限制了請求，稍後再試。',
+        'bad-model': '服務上沒有叫 {model} 的模型。檢查模型名稱。',
+        'unsupported-capability': '這個服務不能用在這裡。',
+        'provider-disabled': '這個服務已關閉。',
+        other: '服務回傳了錯誤：{message}',
+      },
       remove: '移除',
       removeTitle: '要移除 {name} 嗎？',
       removeBody:
@@ -346,7 +379,8 @@ export const settingsAi = defineMessages({
         modelPlaceholder: '例如 {example}',
         apiKey: 'API 金鑰',
         apiKeyHint: '儲存在系統鑰匙圈裡，不會寫進 PathKeep 的設定檔。',
-        apiKeyNotNeeded: '這台電腦上的模型不需要金鑰。',
+        apiKeyOptional:
+          '可不填：只有這台電腦上要求金鑰的伺服器才需要。金鑰儲存在系統鑰匙圈裡。',
         optionalLater:
           '之後可以在「設定 → AI」裡完成設定，包括 API 金鑰和連線測試。',
       },

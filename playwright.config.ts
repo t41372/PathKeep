@@ -155,6 +155,7 @@ export default defineConfig({
         'schedule.spec.ts',
         'browser-import.spec.ts',
         'takeout-import.spec.ts',
+        'ask.spec.ts',
         'lock.spec.ts',
         'security.spec.ts',
       ],

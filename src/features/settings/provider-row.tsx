@@ -27,7 +27,10 @@ import { useAiProviders } from '@/features/ai-setup/use-ai-providers'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
-import type { AiProviderConfig } from '@/lib/types'
+import type {
+  AiProviderConfig,
+  AiProviderConnectionTestReport,
+} from '@/lib/types'
 import { RowSelect } from './row-select'
 
 const NONE = '__none'
@@ -88,6 +91,37 @@ export function ProviderRow() {
   )
 }
 
+/** The reasons `classify_provider_error` gives, each said in the user's language. */
+const TEST_ERRORS = [
+  'secret-missing',
+  'network-error',
+  'rate-limited',
+  'bad-model',
+  'unsupported-capability',
+  'provider-disabled',
+] as const
+
+/**
+ * Why a connection test failed, from the reason the backend classified (its
+ * own message is English and technical); the message itself only when the
+ * reason is unknown.
+ */
+function testFailure(
+  t: ReturnType<typeof useI18n>['t'],
+  report: AiProviderConnectionTestReport,
+  provider: AiProviderConfig,
+) {
+  const code = TEST_ERRORS.find((known) => known === report.errorCode)
+  if (!code)
+    return t('settingsAi.provider.testErrors.other', {
+      message: report.message,
+    })
+  return t(`settingsAi.provider.testErrors.${code}`, {
+    address: provider.baseUrl ?? '',
+    model: report.model || provider.defaultModel,
+  })
+}
+
 function ProviderDetails({
   provider,
   providers,
@@ -121,7 +155,7 @@ function ProviderDetails({
           : {
               ok: false,
               text: t('settingsAi.provider.testFailed', {
-                message: report.message ?? '',
+                message: testFailure(t, report, provider),
               }),
             }
         : null

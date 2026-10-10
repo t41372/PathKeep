@@ -109,14 +109,13 @@ export function ProviderForm({
         hint={
           needsKey
             ? t('settingsAi.provider.form.apiKeyHint')
-            : t('settingsAi.provider.form.apiKeyNotNeeded')
+            : t('settingsAi.provider.form.apiKeyOptional')
         }
       >
         <Input
           id={`${idPrefix}-key`}
           type="password"
           value={draft.apiKey}
-          disabled={!needsKey}
           autoComplete="off"
           spellCheck={false}
           onChange={(event) => set({ apiKey: event.target.value })}
