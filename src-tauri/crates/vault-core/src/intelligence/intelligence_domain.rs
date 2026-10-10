@@ -31,9 +31,7 @@
 //! - Discovery trend collapses dates after SQL aggregation so the Rust side
 //!   never materializes visit-level rows for charting.
 
-use super::{
-    collapse_date_key, date_range_bounds, display_name_for_domain, local_datetime_from_millis,
-};
+use super::{collapse_date_key, date_range_bounds, display_name_for_domain};
 use crate::models::{
     CategoryFilteredDateRangeRequest, DiscoveryTrend, DiscoveryTrendPoint, DomainDeepDive,
     DomainDeepDiveRequest, DomainPageStat, DomainSearchStat, DomainTrend, DomainTrendPoint,
@@ -41,7 +39,7 @@ use crate::models::{
     SiteFlowStat,
 };
 use anyhow::Result;
-use chrono::{Datelike, Local, Timelike};
+use chrono::{Datelike, Timelike};
 use std::collections::{BTreeMap, HashMap};
 use vault_store::{Session, params_owned as params};
 
@@ -56,7 +54,7 @@ pub fn get_domain_deep_dive(
     vault.read(vault_store::Db::Intelligence, move |connection| {
         let request = &request;
 
-        let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+        let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
         let domain = request.registrable_domain.as_str();
         let profile_id = request.profile_id.as_deref();
 
@@ -356,7 +354,8 @@ pub(super) fn rhythm_from_visits(
     connection: &Session<'_>,
     request: &CategoryFilteredDateRangeRequest,
 ) -> Result<RhythmHeatmap> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let zone = super::InsightsZone::for_reading(connection)?;
+    let (start_ms, end_ms) = zone.range_bounds(&request.date_range)?;
     let mut statement = connection.prepare(
         "SELECT visits.visit_time_ms
      FROM visit_derived_facts
@@ -373,7 +372,7 @@ pub(super) fn rhythm_from_visits(
     )?;
     for row in rows {
         let visit_time_ms = row?;
-        let local = local_datetime_from_millis(visit_time_ms);
+        let local = zone.datetime(visit_time_ms);
         let dow = local.weekday().num_days_from_sunday() as i64;
         let hour = local.hour() as i64;
         *buckets.entry((dow, hour)).or_default() += 1;
@@ -487,14 +486,14 @@ pub(crate) fn get_on_this_day_with_connection(
     s: &Session<'_>,
     profile: Option<&str>,
 ) -> Result<Vec<OnThisDayEntry>> {
-    let today = Local::now();
+    let today = super::InsightsZone::for_reading(s)?.today();
     let month_day = today.format("%m-%d").to_string();
     let year = today.year();
     let days=s.query("SELECT date_key,SUM(total_visits) FROM daily_summary_rollups WHERE (?1 IS NULL OR profile_id=?1) AND SUBSTR(date_key,6)=?2 AND CAST(SUBSTR(date_key,1,4) AS INTEGER)<>?3 GROUP BY date_key ORDER BY date_key DESC",params![profile,month_day,year],|r|Ok((r.get::<String>(0)?,r.get::<i64>(1)?)))?;
     let mut result = Vec::new();
     for (date, total_visits) in days {
         let range = crate::models::DateRange { start: date.clone(), end: date.clone() };
-        let (start, end) = date_range_bounds(&range)?;
+        let (start, end) = date_range_bounds(s, &range)?;
         let deep_dive_sessions=s.query_one("SELECT COUNT(*) FROM intelligence_generations g CROSS JOIN sessions_rows r INDEXED BY idx_sessions_overlap ON r.profile_id=g.profile_id WHERE r.generation=g.navigation AND (?1 IS NULL OR g.profile_id=?1) AND r.is_deep_dive=1 AND r.last_visit_ms>=?2 AND r.first_visit_ms<?3",params![profile,start,end],|r|Ok(r.get::<i64>(0)?))?;
         // One day: read it directly rather than through the range cache (`site_days`).
         let sites = super::site_days::SiteDays::read(

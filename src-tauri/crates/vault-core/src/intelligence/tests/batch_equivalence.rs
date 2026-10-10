@@ -34,10 +34,6 @@ use super::super::{
     intelligence_structural_build::{
         build_query_families, build_query_families_from_batches, load_profile_search_events,
     },
-    intelligence_structural_stage::{
-        expand_structural_rebuild_start, load_profile_dirty_date_keys,
-        load_profile_first_visible_visit_ms, load_structural_delta_summary,
-    },
     site_dictionary::normalize_query,
 };
 use super::fixtures::{
@@ -313,9 +309,9 @@ fn structural_aggregate_builders_cover_reopened_investigations() {
     }));
 }
 
-/// Regression coverage for structural stage helper boundaries.
+/// A profile with no visible visits builds nothing and says so.
 #[test]
-fn structural_stage_helpers_cover_noop_delta_and_dirty_windows() {
+fn a_structural_rebuild_of_a_profile_without_visits_does_nothing() {
     let root = tempfile::tempdir().expect("tempdir");
     let _paths = project_paths_with_root(root.path());
     let config = AppConfig {
@@ -354,34 +350,6 @@ fn structural_stage_helpers_cover_noop_delta_and_dirty_windows() {
         &CoreIntelligenceRebuildRequest::default(),
     )
     .expect("full rebuild");
-    let intelligence = TestDatabase::new(&vault, vault_store::Db::Intelligence);
-
-    let dirty_keys = intelligence
-        .read(move |s| load_profile_dirty_date_keys(s, "chrome:Default", None, None))
-        .expect("all dirty dates");
-    assert!(!dirty_keys.is_empty());
-    let filtered_keys = intelligence
-        .read(move |s| {
-            load_profile_dirty_date_keys(s, "chrome:Default", Some(1712102400000), Some(2))
-        })
-        .expect("filtered dirty dates");
-    assert!(!filtered_keys.is_empty());
-
-    let delta = intelligence
-        .read(move |s| load_structural_delta_summary(s, "chrome:Default", 2))
-        .expect("structural delta");
-    assert!(delta.delta_count >= 1);
-    assert!(delta.dirty_from_visit_ms.is_some());
-    assert!(!delta.dirty_date_keys.is_empty());
-
-    let first_visible = intelligence
-        .read(move |s| load_profile_first_visible_visit_ms(s, "chrome:Default"))
-        .expect("first visible visit")
-        .expect("first visible visit exists");
-    let expanded = intelligence
-        .read(move |s| expand_structural_rebuild_start(s, "chrome:Default", first_visible + 60_000))
-        .expect("expanded structural start");
-    assert!(expanded <= first_visible + 60_000);
 
     let empty_report = run_core_intelligence_job_type_with_progress(
         &vault,

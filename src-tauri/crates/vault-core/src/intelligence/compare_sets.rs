@@ -186,7 +186,7 @@ pub(crate) fn get_compare_sets_with_connection(
     s: &Session<'_>,
     request: &ScopedPageRequest,
 ) -> Result<IntelligencePage<CompareSet>> {
-    let (start, end) = date_range_bounds(&request.date_range)?;
+    let (start, end) = date_range_bounds(s, &request.date_range)?;
     let limit = request.limit.unwrap_or(6).clamp(1, 1000) as usize;
     let after = super::paging::cursor::<(i64, String)>(request.cursor.as_deref())?;
     // Bounded cursor clause, only after the first page: the form Turso seeks on.

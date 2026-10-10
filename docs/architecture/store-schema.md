@@ -331,8 +331,11 @@ primary keys prepend `generation` to the logical key shown here.
 
 Generation and checkpoint tables:
 
-- `intelligence_generations(profile_id, facts, daily, navigation, aggregates)` selects the
-  published generation of each group; `profile_id` is the primary key.
+- `intelligence_generations(profile_id, facts, daily, navigation, aggregates, time_zone)`
+  selects the published generation of each group; `profile_id` is the primary key.
+  `time_zone` is the IANA zone the published data put days and hours in
+  (`insights-time-zone.md`): reads interpret date ranges in it, and a build with no zone chosen
+  in Settings keeps it.
 - `intelligence_builds(id, profile_id, state_json, updated_at)` stores captured source/rule
   state, cursors, dirty days, stage completion flags and the structural stream checkpoint.
 - `intelligence_counts(generation, profile_id, table_name, value)` provides cached counts.

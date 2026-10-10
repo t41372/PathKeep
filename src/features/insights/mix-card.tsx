@@ -9,12 +9,13 @@
 import { SectionCard } from '@/components/app/section-card'
 import { cn } from '@/lib/cn'
 import type { ActivityMix } from '@/lib/core-intelligence/types'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { category, UNCLASSIFIED } from './categories'
 import { ShareBar } from './share-bar'
 import { ListSkeleton, QueryBody, ScrollList, SectionStatus } from './parts'
 import { useActivityMix } from './queries'
 import { scopeDays, type Scope } from './range'
+import { useInsightsFormat } from './zone'
 
 export function ActivityMixCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
@@ -54,7 +55,7 @@ export function MixList({
   compared: boolean
 }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const moved = new Map(
     mix.changeVsPrevious.map((entry) => [
       entry.domainCategory,

@@ -36,21 +36,26 @@ pub(super) fn sources(vault: &Vault, profile: Option<&str>) -> Result<Vec<Source
     })
 }
 
-/// The rules a build classifies and groups visits by. A profile last built with others is built
-/// again from scratch.
-fn rule_version(s: &Session<'_>) -> Result<String> {
+/// The rules a build classifies and groups visits by, and the zone it puts them on days in. A
+/// profile last built with others is built again from scratch.
+fn rule_version(s: &Session<'_>, zone: super::InsightsZone) -> Result<String> {
     Ok(format!(
-        "{}|{}|{}",
+        "{}|{}|{}|zone={}",
         stage_version(s, RebuildMode::VisitDerive)?,
         stage_version(s, RebuildMode::DailyRollup)?,
-        stage_version(s, RebuildMode::StructuralRebuild)?
+        stage_version(s, RebuildMode::StructuralRebuild)?,
+        zone.name()
     ))
 }
 
 /// Whether the Insights of some profile were last built with rules other than this version's (a
-/// new site list, a changed matcher): they show the old labels until the next build.
-pub(crate) fn built_with_other_rules(s: &Session<'_>) -> Result<bool> {
-    let current = rule_version(s)?;
+/// new site list, a changed matcher) or in another zone than Insights' now: they show the old
+/// labels or days until the next build.
+pub(crate) fn built_with_other_rules(
+    s: &Session<'_>,
+    config: &crate::models::AppConfig,
+) -> Result<bool> {
+    let current = rule_version(s, super::InsightsZone::for_build(s, config)?)?;
     let categories = super::incremental::category_version(s)?;
     let profiles = s.query("SELECT profile_id FROM intelligence_generations", params![], |r| {
         Ok(r.get::<String>(0)?)
@@ -67,13 +72,17 @@ pub(crate) fn built_with_other_rules(s: &Session<'_>) -> Result<bool> {
 
 pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Result<BuildState> {
     let profile = source.profile_id.clone();
-    let (previous, rule_version, category_version) = vault.read(Db::Intelligence, move |s| {
-        Ok((
-            build_state::load(s, &profile)?,
-            rule_version(s)?,
-            super::incremental::category_version(s)?,
-        ))
-    })?;
+    let config = vault.config().clone();
+    let (previous, rule_version, category_version, zone) =
+        vault.read(Db::Intelligence, move |s| {
+            let zone = super::InsightsZone::for_build(s, &config)?;
+            Ok((
+                build_state::load(s, &profile)?,
+                rule_version(s, zone)?,
+                super::incremental::category_version(s)?,
+                zone,
+            ))
+        })?;
     let pending = previous.as_ref().is_some_and(|old| {
         !(old.facts_done && old.daily_done && old.navigation_done && old.aggregates_done)
     });
@@ -220,6 +229,7 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
             append,
             category_version,
             reclassify,
+            zone: zone.name().to_owned(),
         };
         let mut state = state;
         if state.aggregate_generation == state.id {
@@ -263,6 +273,7 @@ where
         seen.extend(page);
     }
     let mut dates: BTreeSet<String> = state.dirty_dates.iter().cloned().collect();
+    let zone = state.zone();
     on_progress(build_state::progress(
         state,
         "visit-derived-facts",
@@ -288,7 +299,7 @@ where
             );
             super::intelligence_visit_records::apply_site_dictionary(visit, query, dictionary);
             visit.is_new_domain = seen.insert(visit.registrable_domain.clone());
-            dates.insert(local_date_key(visit.visit_time_ms));
+            dates.insert(zone.date_key(visit.visit_time_ms));
             state.dirty_from_ms = Some(
                 state.dirty_from_ms.map_or(visit.visit_time_ms, |v| v.min(visit.visit_time_ms)),
             );

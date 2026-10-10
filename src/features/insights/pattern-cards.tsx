@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useSourceStats } from '@/features/home/queries'
 import { cn } from '@/lib/cn'
 import type { HabitPattern } from '@/lib/core-intelligence/types'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { profileLabel } from '@/lib/profile-label'
 import { pagePath, searchPath, sitePath } from './links'
 import { category, UNCLASSIFIED } from './categories'
@@ -30,10 +30,11 @@ import {
   useThreads,
 } from './queries'
 import type { Scope } from './range'
+import { useInsightsFormat } from './zone'
 
 export function ThreadsCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const threads = useThreads(scope)
   return (
     <SectionCard
@@ -111,7 +112,7 @@ function breadthWord(score: number) {
 
 export function BreadthCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const breadth = useBreadth(scope)
   const digest = useDigest(scope)
   const newSites = digest.data?.data.newDomains.value
@@ -196,7 +197,7 @@ function habitRhythm(habit: HabitPattern, t: ReturnType<typeof useI18n>['t']) {
 
 export function HabitsCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const habits = useHabits(scope)
   return (
     <SectionCard
@@ -259,7 +260,7 @@ export function HabitsCard({ scope }: { scope: Scope }) {
 
 export function BrowsersCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const browsers = useBrowsers(scope)
   const sources = useSourceStats()
   const names = new Map(

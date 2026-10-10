@@ -1,24 +1,25 @@
 /** Derived data shared by Home's cards. */
 import { useMemo } from 'react'
-import {
-  isStale,
-  localDateKey,
-  type Section,
-} from '@/lib/backend-client/insights'
+import { isStale, type Section } from '@/lib/backend-client/insights'
 import type { DiscoveryTrendPoint } from '@/lib/core-intelligence/types'
+import { addDays } from '@/lib/time-zone'
 import { useSnapshot } from '@/lib/queries/app'
 import { useSourceStats } from './queries'
 
-/** Fills days the backend omitted (no visits) so the series is continuous. */
-export function dailySeries(points: DiscoveryTrendPoint[], days: number) {
+/**
+ * The `days` days ending `today` (Insights' today), filling days the backend
+ * omitted (no visits) so the series is continuous.
+ */
+export function dailySeries(
+  points: DiscoveryTrendPoint[],
+  days: number,
+  today: string,
+) {
   const byDay = new Map(
     points.map((point) => [point.dateKey, point.totalVisits]),
   )
-  const today = new Date()
   return Array.from({ length: days }, (_, index) => {
-    const date = new Date(today)
-    date.setDate(today.getDate() - (days - 1 - index))
-    const dateKey = localDateKey(date)
+    const dateKey = addDays(today, index - (days - 1))
     return { dateKey, visits: byDay.get(dateKey) ?? 0 }
   })
 }

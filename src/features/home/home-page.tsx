@@ -26,6 +26,8 @@ import {
   useBrowserSummaries,
 } from './home-data'
 import { useThirtyDayTrend } from './queries'
+import { useInsightsZone } from '@/features/insights/zone'
+import { todayIn } from '@/lib/time-zone'
 
 function greeting(t: Translator, hour = new Date().getHours()) {
   if (hour < 5) return t('home.greetingEvening')
@@ -97,9 +99,10 @@ function StatCards() {
   const dashboard = useDashboard()
   const trend = useThirtyDayTrend()
   const browsers = useBrowserSummaries()
+  const today = todayIn(useInsightsZone().shown)
 
   const data = dashboard.data
-  const thisWeek = dailySeries(trend.data?.data.points ?? [], 7).reduce(
+  const thisWeek = dailySeries(trend.data?.data.points ?? [], 7, today).reduce(
     (sum, day) => sum + day.visits,
     0,
   )

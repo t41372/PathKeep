@@ -21,7 +21,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import type { TopSite } from '@/lib/core-intelligence/types'
 import { isStale } from '@/lib/backend-client/insights'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { barLabel } from './buckets'
 import { RhythmSummary } from './rhythm-summary'
 import { dayPath, pagePath, searchPath, sitePath } from './links'
@@ -44,10 +44,11 @@ import {
   type SiteOrder,
 } from './queries'
 import { scopeDays, type Scope } from './range'
+import { useInsightsFormat } from './zone'
 
 export function KpiRow({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const digest = useDigest(scope)
   const data = digest.data?.data
   // All time has no previous period to compare with.
@@ -134,7 +135,7 @@ export function KpiRow({ scope }: { scope: Scope }) {
 
 export function DailyActivityCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const navigate = useNavigate()
   const daily = useDailyActivity(scope)
   const length = daily.data?.length ?? 'day'
@@ -227,7 +228,7 @@ const siteOrders = {
 
 export function TopSitesCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const [order, setOrder] = useState<SiteOrder>('visits')
   const sites = useTopSites(scope, order)
   const measure = siteOrders[order]
@@ -305,7 +306,7 @@ export function TopSitesCard({ scope }: { scope: Scope }) {
 
 export function RhythmCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const rhythm = useRhythm(scope)
   const weekdayList = t('insights.rhythm.weekdays')
   const weekdays = useMemo(() => weekdayList.split(','), [weekdayList])
@@ -326,7 +327,7 @@ export function RhythmCard({ scope }: { scope: Scope }) {
           level: heatLevel(visits, max),
           label: t('insights.rhythm.cell', {
             day: weekdays[row] ?? '',
-            hour: format.time(new Date(2000, 0, 1, hour)),
+            hour: format.clockTime(hour),
             visits: t('common.visits', { count: visits }),
           }),
         }
@@ -367,7 +368,7 @@ export function RhythmCard({ scope }: { scope: Scope }) {
 
 export function SearchesAndRefindCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const searches = useFrequentSearches(scope)
   const refind = useRefindPages(scope)
 

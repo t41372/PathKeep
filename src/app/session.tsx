@@ -39,6 +39,7 @@ import type {
   ArchiveRecoveryReport,
   ArchiveUpgradeAssessment,
 } from '@/lib/types'
+import { prefetchInsightsZone } from '@/features/insights/zone'
 
 export type SessionPhase =
   | 'booting'
@@ -110,6 +111,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const enter = useCallback(
     (snapshot: AppSnapshot) => {
       queryClient.setQueryData(queryKeys.snapshot, snapshot)
+      if (snapshot.config.initialized) prefetchInsightsZone()
       // The config holds the language for the scheduler and worker. An explicit
       // choice there wins; 'system' (the default) leaves the local choice alone.
       const configured = snapshot.config.preferredLanguage

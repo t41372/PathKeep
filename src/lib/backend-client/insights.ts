@@ -22,6 +22,7 @@ import type {
   FrequentSearch,
   FrictionSignal,
   HabitPattern,
+  InsightsTimeZone,
   InterruptedHabit,
   ObservedInteraction,
   OnThisDayEntry,
@@ -43,6 +44,7 @@ import type {
   TopSite,
   TrailDetail,
 } from '../core-intelligence/types'
+import { addDays, todayIn } from '../time-zone'
 import { call } from './shared'
 
 export interface Section<T> {
@@ -71,6 +73,8 @@ interface Scope {
 }
 
 export const insightsClient = {
+  /** The zone of the Insights on screen, and the zone of the next build. */
+  timeZone: () => call<InsightsTimeZone>('get_insights_time_zone'),
   digest: (scope: Scope) =>
     section<DigestSummary>('get_digest_summary', { request: scope }),
   /** Per day; charts group days into weeks themselves (see insights/buckets). */
@@ -247,18 +251,19 @@ export function pollWhileStale(query: {
   return isStale(query.state.data) ? 5_000 : false
 }
 
-/** `YYYY-MM-DD` in local time, the format every insights command expects. */
+/**
+ * `YYYY-MM-DD` of a local `Date` (the computer's zone). History's days; a
+ * range for Insights is in Insights' zone instead (`lastDays`).
+ */
 export function localDateKey(date: Date) {
   const pad = (value: number) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
-/** The last `days` days, ending today. */
-export function lastDays(days: number): DateRange {
-  const end = new Date()
-  const start = new Date(end)
-  start.setDate(start.getDate() - (days - 1))
-  return { start: localDateKey(start), end: localDateKey(end) }
+/** The last `days` days, ending today in `zone` (Insights' zone). */
+export function lastDays(days: number, zone: string): DateRange {
+  const end = todayIn(zone)
+  return { start: addDays(end, -(days - 1)), end }
 }
 
 export function calendarYear(year: number): DateRange {

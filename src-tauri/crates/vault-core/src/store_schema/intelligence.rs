@@ -407,8 +407,10 @@ const STATEMENTS: &[&str] = &[
   error_message TEXT
 )",
 
+    // `time_zone`: the IANA zone the published data puts visits on days in (`insights_zone.rs`).
     "CREATE TABLE intelligence_generations(profile_id TEXT PRIMARY KEY, facts INTEGER NOT NULL DEFAULT 0,
-        daily INTEGER NOT NULL DEFAULT 0,navigation INTEGER NOT NULL DEFAULT 0,aggregates INTEGER NOT NULL DEFAULT 0)",
+        daily INTEGER NOT NULL DEFAULT 0,navigation INTEGER NOT NULL DEFAULT 0,aggregates INTEGER NOT NULL DEFAULT 0,
+        time_zone TEXT)",
     "CREATE TABLE intelligence_builds(id INTEGER PRIMARY KEY AUTOINCREMENT,profile_id TEXT NOT NULL,
         state_json TEXT NOT NULL,updated_at TEXT NOT NULL)",
     "CREATE INDEX idx_intelligence_builds_profile ON intelligence_builds(profile_id,id DESC)",

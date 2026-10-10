@@ -142,6 +142,13 @@ export interface AppConfig {
    * shape always carries an `ogImage` value, even from older configs.
    */
   ogImage?: OgImageSettingsConfig
+  /**
+   * The IANA zone chosen for Insights in Settings. Unset, Insights keep the
+   * zone they were built in (`docs/architecture/insights-time-zone.md`).
+   */
+  insightsTimeZone?: string | null
+  /** The computer's zone when the user chose to keep Insights' own; no notice while the computer stays in it. */
+  insightsZoneKeptFor?: string | null
 }
 
 /**

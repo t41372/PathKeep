@@ -85,7 +85,7 @@ pub(super) fn page_record(
     canonical_url: &str,
     limit: usize,
 ) -> Result<Option<RefindPageRecord>> {
-    let mut accumulator = StructuralAggregateAccumulator::default();
+    let mut accumulator = StructuralAggregateAccumulator::new(state.zone());
     let mut first = None::<(i64, i64)>;
     let mut after = i64::MIN;
     loop {
@@ -129,7 +129,7 @@ where
     let mut cursor = state.refind_after.clone().map(|key| (key, i64::MAX));
     let mut current = None::<String>;
     let mut first = None::<(i64, i64)>;
-    let mut accumulator = StructuralAggregateAccumulator::default();
+    let mut accumulator = StructuralAggregateAccumulator::new(state.zone());
     let mut batch = Vec::new();
     let mut scanned = 0;
     let mut completed_key = None;
@@ -141,7 +141,13 @@ where
         }
         for visit in &rows {
             if current.as_deref().is_some_and(|key| key != visit.canonical_url) {
-                batch.extend(std::mem::take(&mut accumulator).finish());
+                batch.extend(
+                    std::mem::replace(
+                        &mut accumulator,
+                        StructuralAggregateAccumulator::new(state.zone()),
+                    )
+                    .finish(),
+                );
                 completed_key = current.take();
                 first = None;
                 completed_groups += 1;

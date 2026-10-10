@@ -670,6 +670,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 &state.session
             )?)
         }
+        "get_insights_time_zone" => {
+            json_value!(worker_bridge::get_insights_time_zone_impl(&state.session)?)
+        }
         "get_sessions" => {
             let payload = parse_payload::<WrappedRequest<PagedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_sessions_impl(payload.request, &state.session)?)

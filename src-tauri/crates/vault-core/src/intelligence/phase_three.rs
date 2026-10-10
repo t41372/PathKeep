@@ -11,8 +11,8 @@
 //! - common path flows
 //! - browser-reported interaction metrics
 
+use super::rfc3339_from_millis;
 use super::site_days::{SiteDayCache, SiteDayScope, VisitDays};
-use super::{date_range_bounds, rfc3339_from_millis};
 use crate::{
     intelligence::site_dictionary::display_name_for_domain,
     models::{
@@ -21,7 +21,7 @@ use crate::{
     },
 };
 use anyhow::Result;
-use chrono::{Datelike, Local, NaiveDate};
+use chrono::{Datelike, NaiveDate, Utc};
 use std::collections::HashMap;
 use vault_store::{Session, Value as SqlValue, params_from_iter, params_owned as params};
 
@@ -109,7 +109,8 @@ pub(crate) fn get_habit_patterns_with_connection(
     cache: &SiteDayCache,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<HabitPattern>> {
-    let (_, end_ms) = date_range_bounds(&request.date_range)?;
+    let zone = super::InsightsZone::for_reading(connection)?;
+    let (_, end_ms) = zone.range_bounds(&request.date_range)?;
     let days = cache
         .get(connection, &SiteDayScope::of(&request.date_range, request.profile_id.as_deref()))?;
     let mut habits = days
@@ -122,7 +123,7 @@ pub(crate) fn get_habit_patterns_with_connection(
                     .days
                     .last_date()
                     .and_then(|day| day.succ_opt())
-                    .map(local_midnight_ms)
+                    .map(|next| day_start_ms(zone, next))
                     .unwrap_or(end_ms);
                 last_day_end.min(end_ms) - 1
             } else {
@@ -163,20 +164,18 @@ pub(super) fn site_habit(
     }
     if last_visited_ms == 0 {
         // Rows built before the rollup kept the time: the end of the last active day.
+        let zone = super::InsightsZone::for_reading(connection)?;
         last_visited_ms = days
             .last_date()
             .and_then(|day| day.succ_opt())
-            .map_or(0, |next| local_midnight_ms(next) - 1);
+            .map_or(0, |next| day_start_ms(zone, next) - 1);
     }
     Ok(classify_habit_pattern(domain, &days, last_visited_ms))
 }
 
-/// Local midnight at the start of `day`, in Unix milliseconds.
-fn local_midnight_ms(day: NaiveDate) -> i64 {
-    day.and_hms_opt(0, 0, 0)
-        .and_then(|naive| naive.and_local_timezone(Local).earliest())
-        .map(|local| local.timestamp_millis())
-        .unwrap_or_default()
+/// The start of `day` in Insights' zone, in Unix milliseconds.
+fn day_start_ms(zone: super::InsightsZone, day: NaiveDate) -> i64 {
+    zone.start_of(day).map(|start| start.timestamp_millis()).unwrap_or_default()
 }
 
 pub fn get_interrupted_habits(
@@ -200,12 +199,12 @@ pub(crate) fn get_interrupted_habits_with_connection(
     let all_time = ScopedDateRangeRequest {
         date_range: DateRange {
             start: super::intelligence_overview_snapshot::ALL_TIME_SCOPE_START.to_owned(),
-            end: Local::now().format("%Y-%m-%d").to_string(),
+            end: super::InsightsZone::for_reading(connection)?.today_key(),
         },
         profile_id: request.profile_id.clone(),
     };
     let habits = get_habit_patterns_with_connection(connection, cache, &all_time)?;
-    Ok(interrupted_among(&habits, Local::now().timestamp_millis()))
+    Ok(interrupted_among(&habits, Utc::now().timestamp_millis()))
 }
 
 /// The habits among `habits` that went quiet by `now_ms`: no visit for twice their usual gap.
@@ -239,7 +238,8 @@ pub fn get_observed_interactions(
     if !available {
         return Ok(crate::models::IntelligencePage::default());
     }
-    let (start, end) = date_range_bounds(&request.date_range)?;
+    let zone = vault.read(Db::Intelligence, super::InsightsZone::for_reading)?;
+    let (start, end) = zone.range_bounds(&request.date_range)?;
     let profile = request.profile_id.clone();
     let limit = request.limit.unwrap_or(100).clamp(1, 512) as usize;
     let after = super::paging::cursor::<(i64, i64)>(request.cursor.as_deref())?;
@@ -345,7 +345,7 @@ fn classify_habit_pattern(
     }?;
 
     let days_since_last_visit =
-        ((Local::now().timestamp_millis() - last_visited_ms).max(0) as f32 / 86_400_000.0).max(0.0);
+        ((Utc::now().timestamp_millis() - last_visited_ms).max(0) as f32 / 86_400_000.0).max(0.0);
 
     Some(HabitPattern {
         registrable_domain: domain.to_string(),
@@ -565,7 +565,7 @@ mod tests {
 
     #[test]
     fn classify_habit_pattern_detects_weekly_habit() {
-        let now = chrono::Local::now().timestamp_millis();
+        let now = chrono::Utc::now().timestamp_millis();
         let weekly = visit_days([1, 8, 15, 22, 29].map(april));
         let habit = classify_habit_pattern("example.com", &weekly, now).expect("habit");
         assert_eq!(habit.habit_type, "weekly_habit");
@@ -944,7 +944,9 @@ mod tests {
                 open = Some((session.clone(), PathSegment::default()));
             }
             let (_, path) = open.as_mut().unwrap();
-            if let Some(closed) = path.push(&domain, time) {
+            if let Some(closed) =
+                path.push(crate::intelligence::InsightsZone::system(), &domain, time)
+            {
                 segments.push((session, closed));
             }
         }

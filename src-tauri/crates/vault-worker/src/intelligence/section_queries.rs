@@ -183,7 +183,7 @@ pub fn get_discovery_trend(
     )
 }
 
-/// Loads the section-wrapped "On This Day" payload for the current local calendar day.
+/// Loads the section-wrapped "On This Day" payload for today in Insights' time zone.
 pub fn get_on_this_day(
     vault: &vault_core::Vault,
     profile_id: Option<&str>,
@@ -192,7 +192,7 @@ pub fn get_on_this_day(
         vault,
         "on-this-day",
         CoreIntelligenceSectionWindow::CalendarDayHistory {
-            reference_date: Local::now().format("%Y-%m-%d").to_string(),
+            reference_date: vault_core::insights_today(vault)?,
         },
         |vault| intelligence::get_on_this_day(vault, profile_id),
         |data| data.is_empty(),

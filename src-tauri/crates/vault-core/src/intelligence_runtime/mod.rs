@@ -366,7 +366,8 @@ pub fn enqueue_core_intelligence_job(
 /// the old labels until the next backup. Not while an Insights build is queued or running, nor
 /// after the last one failed or was cancelled: Settings shows that and retrying is the user's call.
 pub fn insights_build_needed(vault: &Vault) -> Result<Option<&'static str>> {
-    vault.read(Db::Intelligence, |s| {
+    let config = vault.config().clone();
+    vault.read(Db::Intelligence, move |s| {
         let deterministic = [
             VISIT_DERIVE_JOB_TYPE,
             DAILY_ROLLUP_JOB_TYPE,
@@ -391,8 +392,10 @@ pub fn insights_build_needed(vault: &Vault) -> Result<Option<&'static str>> {
                 )?;
                 Ok(has_visits.then_some("The archive has visits and its Insights were never built."))
             }
-            Some("succeeded") if crate::intelligence::built_with_other_rules(s)? => {
-                Ok(Some("The Insights were built with rules this version of PathKeep changed."))
+            Some("succeeded") if crate::intelligence::built_with_other_rules(s, &config)? => {
+                Ok(Some(
+                    "The Insights were built with rules this version of PathKeep changed, or in another time zone.",
+                ))
             }
             Some(_) => Ok(None),
         }

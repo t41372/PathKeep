@@ -109,7 +109,8 @@ fn family_scale() {
 
     // An append: index the stored families again, then add a day of searches.
     let started = Instant::now();
-    let mut resumed = QueryFamilyAccumulator::resume(built, None);
+    let mut resumed =
+        QueryFamilyAccumulator::resume(super::super::InsightsZone::system(), built, None);
     println!("FAMILY_BENCH resume elapsed_ms={}", started.elapsed().as_millis());
     let started = Instant::now();
     for (index, query) in queries.iter().take(40).enumerate() {

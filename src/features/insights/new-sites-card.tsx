@@ -8,15 +8,16 @@ import { useMemo } from 'react'
 import { EvilBarChart } from '@/components/evilcharts/charts/recharts-bar-chart'
 import { CardError, SectionCard } from '@/components/app/section-card'
 import { isStale } from '@/lib/backend-client/insights'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { barLabel, chartDates, rangeBars } from './buckets'
 import { SectionStatus } from './parts'
 import { useDigest, useNewSites } from './queries'
 import { scopeDays, type Scope } from './range'
+import { useInsightsFormat } from './zone'
 
 export function NewSitesCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const newSites = useNewSites(scope)
   const digest = useDigest(scope)
   const { length, bars, total } = useMemo(() => {

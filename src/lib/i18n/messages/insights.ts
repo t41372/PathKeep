@@ -4,6 +4,16 @@ export const insights = defineMessages({
   en: {
     title: 'Insights',
     subtitle: 'Computed from your local archive. Nothing leaves this computer.',
+    zone: {
+      differs: 'Insights use {insights}; this computer is now on {computer}.',
+      differsNote:
+        'Days and hours in Insights stay as they are unless you switch. Switching builds Insights again.',
+      use: 'Use {zone}',
+      keep: 'Keep {zone}',
+      saving: 'Saving…',
+      label: '{name} ({offset})',
+      labelWithPlace: '{name}, {place} ({offset})',
+    },
     openInHistory: 'Open in History',
     sections: { time: 'When you browse', searching: 'Searching' },
     patterns: 'Patterns',
@@ -398,6 +408,16 @@ export const insights = defineMessages({
   'zh-CN': {
     title: '洞察',
     subtitle: '全部来自本机存档，不经过网络',
+    zone: {
+      differs: '洞察用的是{insights}，这台电脑现在是{computer}。',
+      differsNote:
+        '不切换的话，洞察里的日子和时刻保持不变；切换会重新整理洞察。',
+      use: '改用{zone}',
+      keep: '保持{zone}',
+      saving: '正在保存…',
+      label: '{name}（{offset}）',
+      labelWithPlace: '{name}・{place}（{offset}）',
+    },
     openInHistory: '在历史中打开',
     sections: { time: '什么时候浏览', searching: '搜索' },
     patterns: '规律',
@@ -785,6 +805,16 @@ export const insights = defineMessages({
   'zh-TW': {
     title: '洞察',
     subtitle: '全部來自本機存檔，不經過網路',
+    zone: {
+      differs: '洞察用的是{insights}，這台電腦現在是{computer}。',
+      differsNote:
+        '不切換的話，洞察裡的日子與時刻維持不變；切換會重新整理洞察。',
+      use: '改用{zone}',
+      keep: '保持{zone}',
+      saving: '正在儲存…',
+      label: '{name}（{offset}）',
+      labelWithPlace: '{name}・{place}（{offset}）',
+    },
     openInHistory: '在歷史中打開',
     sections: { time: '什麼時候瀏覽', searching: '搜尋' },
     patterns: '規律',

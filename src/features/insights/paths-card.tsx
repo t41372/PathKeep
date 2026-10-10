@@ -8,15 +8,16 @@ import { Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { sitePath } from './links'
 import { ListSkeleton, QueryBody, ScrollList, SectionStatus } from './parts'
 import { usePaths } from './queries'
 import type { Scope } from './range'
+import { useInsightsFormat } from './zone'
 
 export function PathsCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const paths = usePaths(scope)
   return (
     <SectionCard

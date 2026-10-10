@@ -69,6 +69,16 @@ pub(super) struct BuildState {
     /// sorted again in place (`build_reclassify`) instead of building anew.
     #[serde(default)]
     pub reclassify: Option<super::build_reclassify::Reclassify>,
+    /// The IANA zone this build puts visits on days in (`insights_zone.rs`); part of its rules.
+    #[serde(default)]
+    pub zone: String,
+}
+
+impl BuildState {
+    /// The zone this build puts visits on days and hours in.
+    pub(super) fn zone(&self) -> super::InsightsZone {
+        super::InsightsZone::named(&self.zone).unwrap_or_else(super::InsightsZone::system)
+    }
 }
 
 pub(super) fn load(s: &Session<'_>, profile: &str) -> Result<Option<BuildState>> {
@@ -107,6 +117,10 @@ pub(super) fn publish(s: &Session<'_>, state: &BuildState, groups: &[&str]) -> R
             params![state.profile_id, generation],
         )?;
     }
+    s.execute(
+        "UPDATE intelligence_generations SET time_zone=?2 WHERE profile_id=?1",
+        params![state.profile_id, state.zone],
+    )?;
     save(s, state)
 }
 

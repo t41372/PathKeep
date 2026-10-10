@@ -1,5 +1,5 @@
 /**
- * One local calendar day: how much, when, where, the browsing sessions and
+ * One calendar day in Insights' time zone: how much, when, where, the browsing sessions and
  * the searches. Reached from the Home year heatmap, the daily activity chart
  * and every date in the other drill-ins; links onward to History.
  *
@@ -26,13 +26,13 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import { localDateKey } from '@/lib/backend-client/insights'
 import { cn } from '@/lib/cn'
 import type {
   SessionSummary,
   TrailSummary,
 } from '@/lib/core-intelligence/types'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
+import { addDays, isDateKey, todayIn } from '@/lib/time-zone'
 import {
   useDay,
   useDaySearches,
@@ -45,6 +45,7 @@ import { ComparedPagesCard } from './compare-card'
 import { MixList } from './mix-card'
 import type { Scope } from './range'
 import { ShareBar } from './share-bar'
+import { useInsightsFormat, useInsightsZone } from './zone'
 import {
   DrillHeader,
   KpiTile,
@@ -53,52 +54,46 @@ import {
   SectionStatus,
 } from './parts'
 
-const dayKey = /^\d{4}-\d{2}-\d{2}$/
-
-function parseDay(value: string) {
-  if (!dayKey.test(value)) return null
-  const [year, month, day] = value.split('-').map(Number)
-  const date = new Date(year, month - 1, day)
-  return localDateKey(date) === value ? date : null
-}
-
 /** One day, every browser profile: the scope of the cards shared with Insights. */
-function dayScope(date: string): Scope {
+function dayScope(date: string, zone: string): Scope {
   return {
     range: 'custom',
     dates: { start: date, end: date },
     profileId: null,
+    zone,
   }
-}
-
-function shift(date: Date, days: number) {
-  const next = new Date(date)
-  next.setDate(next.getDate() + days)
-  return localDateKey(next)
 }
 
 export default function DayPage() {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const { date = '' } = useParams()
-  const day = parseDay(date)
-  const today = localDateKey(new Date())
-  const valid = day !== null && date <= today
+  const day = isDateKey(date)
+  const today = todayIn(useInsightsZone().shown)
+  const valid = day && date <= today
 
   return (
     <PageScroll wide>
       <DrillHeader
         back={insightsPath()}
         eyebrow={t('insights.day.eyebrow')}
-        title={day ? format.weekdayDate(day) : date}
-        subtitle={day ? String(day.getFullYear()) : undefined}
+        title={
+          day
+            ? format.day(date, {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+              })
+            : date
+        }
+        subtitle={day ? date.slice(0, 4) : undefined}
         actions={
           day && (
             <>
               <div className="flex items-center gap-1">
                 <Button variant="outline" size="icon-sm" asChild>
                   <Link
-                    to={`/insights/day/${shift(day, -1)}`}
+                    to={`/insights/day/${addDays(date, -1)}`}
                     aria-label={t('insights.day.previous')}
                   >
                     <ChevronLeft />
@@ -112,7 +107,7 @@ export default function DayPage() {
                   asChild={date < today}
                 >
                   {date < today ? (
-                    <Link to={`/insights/day/${shift(day, 1)}`}>
+                    <Link to={`/insights/day/${addDays(date, 1)}`}>
                       <ChevronRight />
                     </Link>
                   ) : (
@@ -142,7 +137,8 @@ export default function DayPage() {
 
 function DayContent({ date }: { date: string }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
+  const zone = useInsightsZone().shown
   const day = useDay(date)
   const data = day.data?.data
   const hint = t('insights.day.vsPrevious')
@@ -225,7 +221,7 @@ function DayContent({ date }: { date: string }) {
         <div className="flex min-w-0 flex-col gap-4">
           <DaySearchesCard date={date} />
           <ComparedPagesCard
-            scope={dayScope(date)}
+            scope={dayScope(date, zone)}
             empty={t('insights.day.noCompared')}
           />
           <DayMixCard date={date} />
@@ -265,7 +261,7 @@ function DayMixCard({ date }: { date: string }) {
 /** Pages opened again that day that the user also came back to on other days. */
 function DayReopenedCard({ date }: { date: string }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const day = useDay(date)
   return (
     <SectionCard
@@ -311,7 +307,7 @@ function DayReopenedCard({ date }: { date: string }) {
 
 function HoursCard({ date }: { date: string }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const day = useDay(date)
   const config = useMemo(
     () => ({
@@ -362,7 +358,7 @@ function HoursCard({ date }: { date: string }) {
 
 function DaySitesCard({ date }: { date: string }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const day = useDay(date)
   return (
     <SectionCard title={t('insights.topSites.title')}>
@@ -443,7 +439,7 @@ function SessionRow({
   date: string
 }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const [open, setOpen] = useState(false)
   return (
     <li>
@@ -501,7 +497,7 @@ function SessionVisits({
   date: string
 }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const detail = useSessionDetail(sessionId, true)
   return (
     <div className="pb-2 pl-[104px] pr-2">
@@ -587,7 +583,7 @@ function TrailNote({ trail }: { trail: TrailSummary | undefined }) {
 
 function DaySearchesCard({ date }: { date: string }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const searches = useDaySearches(date)
   return (
     <SectionCard

@@ -170,6 +170,13 @@ pub struct AppConfig {
     pub deterministic: DeterministicSettings,
     pub ai: AiSettings,
     pub og_image: OgImageSettings,
+    /// The IANA zone Insights puts visits on days in, when chosen in Settings
+    /// (`docs/architecture/insights-time-zone.md`). Unset, Insights keeps the zone its data was
+    /// built in, and the computer's zone for the first build.
+    pub insights_time_zone: Option<String>,
+    /// The computer's zone when the user chose to keep Insights in its own: the notice that the
+    /// two differ stays hidden until the computer's zone changes again.
+    pub insights_zone_kept_for: Option<String>,
 }
 
 /// How aggressively the og:image worker fetches link-preview bytes.
@@ -272,6 +279,8 @@ impl Default for AppConfig {
             deterministic: DeterministicSettings::default(),
             ai: AiSettings::default(),
             og_image: OgImageSettings::default(),
+            insights_time_zone: None,
+            insights_zone_kept_for: None,
         }
     }
 }

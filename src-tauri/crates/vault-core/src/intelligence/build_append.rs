@@ -26,8 +26,7 @@ use super::intelligence_structural_build::QueryFamilyAccumulator;
 use super::intelligence_structural_stream::StructuralTailStreamState;
 use super::{
     CoreIntelligenceProgress, PathFlowRecord, QueryFamilyRecord, RebuildMode, RefindPageRecord,
-    SearchEventRecord, VisibleVisitBatchCursor, build_rows, local_date_key,
-    parse_search_query_kind,
+    SearchEventRecord, VisibleVisitBatchCursor, build_rows, parse_search_query_kind,
 };
 use crate::Vault;
 use crate::visit_taxonomy::Opener;
@@ -65,7 +64,7 @@ pub(super) struct AppendBase {
 pub(super) fn base(vault: &Vault, old: &BuildState, first_new_ms: i64) -> Result<AppendBase> {
     let stream: StructuralTailStreamState =
         old.stream_json.as_deref().map(serde_json::from_str).transpose()?.unwrap_or_default();
-    let first_new_day = local_date_key(first_new_ms);
+    let first_new_day = old.zone().date_key(first_new_ms);
     let paths_from_day = stream
         .current_session
         .as_ref()
@@ -244,6 +243,7 @@ where
         let chunk = by_page.by_ref().take(256).collect::<Vec<_>>();
         done += chunk.len();
         let (generation, profile) = (state.aggregate_generation, state.profile_id.clone());
+        let zone = state.zone();
         let merged = vault.read(Db::Intelligence, move |s| {
             let mut merged = Vec::with_capacity(chunk.len());
             for (url, visits) in chunk {
@@ -255,7 +255,7 @@ where
                 let mut addition = RefindAddition::default();
                 let mut trails = BTreeSet::new();
                 for ((time, id), typed, trail) in visits {
-                    addition.days.insert(local_date_key(time));
+                    addition.days.insert(zone.date_key(time));
                     addition.visits.push((time, id));
                     addition.typed_revisits += i64::from(typed);
                     if let Some(trail) = trail {
@@ -279,7 +279,7 @@ where
                         .is_some();
                     addition.new_trails += i64::from(!seen);
                 }
-                merged.push((url, Some(add_to_refind_page(stored, &ids, count, addition))));
+                merged.push((url, Some(add_to_refind_page(zone, stored, &ids, count, addition))));
             }
             Ok(merged)
         })?;
@@ -522,7 +522,7 @@ where
         )
         .optional()?)
     })?;
-    let mut accumulator = QueryFamilyAccumulator::resume(stored, last);
+    let mut accumulator = QueryFamilyAccumulator::resume(state.zone(), stored, last);
     let mut after = base.after_visit_id;
     loop {
         let profile = state.profile_id.clone();

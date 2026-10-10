@@ -13,13 +13,14 @@ import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
 import type { SiteArrivals, SiteFlowStat } from '@/lib/core-intelligence/types'
 import { cn } from '@/lib/cn'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { useSite } from './drill-queries'
 import { rowLink } from './display'
 import { searchPath, sitePath } from './links'
 import { ListSkeleton, QueryBody, SectionStatus } from './parts'
 import type { Scope } from './range'
 import { ShareBar } from './share-bar'
+import { useInsightsFormat } from './zone'
 
 const kinds = [
   { key: 'direct', label: 'insights.site.direct', tone: 'bg-brand' },
@@ -35,7 +36,7 @@ export function ArrivalsCard({
   scope: Scope
 }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const site = useSite(domain, scope)
   return (
     <SectionCard
@@ -227,7 +228,7 @@ function SiteList({
   sites: SiteFlowStat[]
   scope: Scope
 }) {
-  const format = useFormat()
+  const format = useInsightsFormat()
   if (sites.length === 0) return null
   const max = Math.max(1, ...sites.map((site) => site.visitCount))
   return (

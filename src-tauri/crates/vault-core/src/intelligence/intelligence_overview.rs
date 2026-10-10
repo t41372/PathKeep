@@ -47,7 +47,6 @@ use crate::{
     },
 };
 use anyhow::Result;
-use chrono::Local;
 use std::time::Instant;
 use vault_store::Session;
 
@@ -167,7 +166,7 @@ fn build_intelligence_primary_overview_with_connection(
     let (on_this_day, timing) = build_overview_timed_section_result(
         "on-this-day",
         CoreIntelligenceSectionWindow::CalendarDayHistory {
-            reference_date: Local::now().format("%Y-%m-%d").to_string(),
+            reference_date: super::InsightsZone::for_reading(connection)?.today_key(),
         },
         runtime,
         || {
@@ -256,7 +255,7 @@ fn build_intelligence_primary_overview_with_connection(
         || {
             Ok(phase_three::interrupted_among(
                 &habit_patterns.data,
-                Local::now().timestamp_millis(),
+                chrono::Utc::now().timestamp_millis(),
             ))
         },
         |data| data.is_empty(),
@@ -526,22 +525,22 @@ fn refresh_for_today(
     request: &ScopedDateRangeRequest,
     payload: &mut CoreIntelligencePrimaryOverview,
 ) -> Result<()> {
-    let today = Local::now();
+    let zone = super::InsightsZone::for_reading(connection)?;
     let on_this_day = super::intelligence_domain::get_on_this_day_with_connection(
         connection,
         request.profile_id.as_deref(),
     )?;
     payload.on_this_day.meta = build_core_intelligence_section_meta_with_modules(
         "on-this-day",
-        CoreIntelligenceSectionWindow::CalendarDayHistory {
-            reference_date: today.format("%Y-%m-%d").to_string(),
-        },
+        CoreIntelligenceSectionWindow::CalendarDayHistory { reference_date: zone.today_key() },
         on_this_day.is_empty(),
         &runtime.modules,
     )?;
     payload.on_this_day.data = on_this_day;
-    let interrupted =
-        phase_three::interrupted_among(&payload.habit_patterns.data, today.timestamp_millis());
+    let interrupted = phase_three::interrupted_among(
+        &payload.habit_patterns.data,
+        chrono::Utc::now().timestamp_millis(),
+    );
     for habit in &mut payload.habit_patterns.data {
         habit.is_interrupted = interrupted
             .iter()
@@ -600,18 +599,21 @@ pub(super) fn warm_overview_snapshots(
     vault: &crate::Vault,
     checkpoint: &mut impl FnMut() -> Result<()>,
 ) -> Result<()> {
-    let profiles = vault.read(vault_store::Db::Intelligence, |s| {
-        Ok(s.query(
-            "SELECT profile_id FROM intelligence_generations ORDER BY profile_id",
-            (),
-            |r| Ok(r.get::<String>(0)?),
-        )?)
+    let (profiles, zone) = vault.read(vault_store::Db::Intelligence, |s| {
+        Ok((
+            s.query(
+                "SELECT profile_id FROM intelligence_generations ORDER BY profile_id",
+                (),
+                |r| Ok(r.get::<String>(0)?),
+            )?,
+            super::InsightsZone::for_reading(s)?,
+        ))
     })?;
     for profile in std::iter::once(None).chain(profiles.into_iter().map(Some)) {
         let request = ScopedDateRangeRequest {
             date_range: crate::models::DateRange {
                 start: super::intelligence_overview_snapshot::ALL_TIME_SCOPE_START.into(),
-                end: Local::now().format("%Y-%m-%d").to_string(),
+                end: zone.today_key(),
             },
             profile_id: profile.clone(),
         };

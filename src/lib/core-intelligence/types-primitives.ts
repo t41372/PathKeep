@@ -31,6 +31,17 @@ export interface DateRange {
   end: string
 }
 
+/**
+ * The zone Insights put days and hours in (`docs/architecture/insights-time-zone.md`).
+ * Mirrors `vault_core::InsightsTimeZone`.
+ */
+export interface InsightsTimeZone {
+  /** The IANA zone of the Insights on screen; every date range is read in it. */
+  shown: string
+  /** The zone the next build uses; differs from `shown` while a rebuild in a newly chosen zone runs. */
+  next: string
+}
+
 /** Standard pagination params. */
 export interface PaginationParams {
   page: number

@@ -32,7 +32,7 @@ use super::intelligence_structural_state::{
 };
 use super::{
     StructuralTailStreamReport, StructuralVisitRecord, TrailRecord, classify_search_query_kind,
-    local_date_key, normalize_query, search_words,
+    normalize_query, search_words,
 };
 use crate::visit_taxonomy::Opener;
 use anyhow::Result;
@@ -43,6 +43,8 @@ use vault_store::{Session, params_owned as params};
 /// Prepared statements for streamed structural replay so each visit does not
 /// pay repeated SQLite prepare costs.
 pub(super) struct StructuralTailPersist<'tx, 'db> {
+    /// The zone the days of paths and site flows are in (the build's).
+    pub(super) zone: super::InsightsZone,
     generation: i64,
     profile_id: String,
     assignment_statement: vault_store::Statement<'tx, 'db>,
@@ -63,8 +65,14 @@ pub(super) struct StructuralTailPersist<'tx, 'db> {
 
 impl<'tx, 'db> StructuralTailPersist<'tx, 'db> {
     /// Prepares the structural replay write set inside one transaction.
-    pub(super) fn new(tx: &'tx Session<'db>, generation: i64, profile_id: &str) -> Result<Self> {
+    pub(super) fn new(
+        tx: &'tx Session<'db>,
+        generation: i64,
+        profile_id: &str,
+        zone: super::InsightsZone,
+    ) -> Result<Self> {
         Ok(Self {
+            zone,
             generation,profile_id:profile_id.to_owned(),
             domain_updates:Default::default(),
             flow_updates: Default::default(),
@@ -335,7 +343,8 @@ impl StructuralTailStreamState {
         let session_id = session.record.session_id.clone();
         // A path goes from site to site; a visit with no site (an extension page) is not a step.
         if !visit.registrable_domain.is_empty()
-            && let Some(closed) = session.path.push(&visit.registrable_domain, visit.visit_time_ms)
+            && let Some(closed) =
+                session.path.push(persist.zone, &visit.registrable_domain, visit.visit_time_ms)
         {
             persist.persist_path(&session_id, &closed)?;
         }
@@ -417,7 +426,7 @@ impl StructuralTailStreamState {
     ) {
         let site = visit.registrable_domain.as_str();
         if !site.is_empty() {
-            let day = local_date_key(visit.visit_time_ms);
+            let day = persist.zone.date_key(visit.visit_time_ms);
             match Opener::of(visit.from_visit) {
                 Opener::Unrecorded => persist.count_flow(&day, site, "unrecorded", ""),
                 Opener::Nothing => persist.count_flow(&day, site, "direct", ""),
@@ -524,7 +533,7 @@ mod tests {
 
         {
             let tx = connection;
-            let mut persist = StructuralTailPersist::new(tx,1,"chrome:Default").expect("persist");
+            let mut persist = StructuralTailPersist::new(tx, 1, "chrome:Default", crate::intelligence::InsightsZone::system()).expect("persist");
             persist
                 .update_search_event_kind(
                     42,
@@ -554,7 +563,7 @@ mod tests {
 
         {
             let tx = connection;
-            let mut persist = StructuralTailPersist::new(tx,1,"chrome:Default").expect("persist");
+            let mut persist = StructuralTailPersist::new(tx, 1, "chrome:Default", crate::intelligence::InsightsZone::system()).expect("persist");
             persist
                 .update_search_event_kind(
                     42,
@@ -590,7 +599,7 @@ mod tests {
         connection.execute("INSERT INTO intelligence_generations(profile_id,facts,daily,navigation,aggregates) VALUES('chrome:Default',1,1,1,1)",())?;
         let computed_at = "2026-04-26T00:00:00Z";
         let tx = connection;
-        let mut persist = StructuralTailPersist::new(tx,1,"chrome:Default").expect("persist");
+        let mut persist = StructuralTailPersist::new(tx, 1, "chrome:Default", crate::intelligence::InsightsZone::system()).expect("persist");
         let mut state = StructuralTailStreamState::default();
 
         state
@@ -664,7 +673,7 @@ mod tests {
         vault
             .write(vault_store::Db::Intelligence, vault_store::Priority::Batch, |connection| {
                 connection.execute("INSERT INTO intelligence_generations(profile_id,facts,daily,navigation,aggregates) VALUES('chrome:Default',1,1,1,1)",())?;
-                let mut persist = StructuralTailPersist::new(connection, 1, "chrome:Default")?;
+                let mut persist = StructuralTailPersist::new(connection, 1, "chrome:Default", crate::intelligence::InsightsZone::system())?;
                 let mut state = StructuralTailStreamState::default();
                 let search = |id: i64, query: &str| StructuralVisitRecord {
                     search_query: Some(query.to_string()),

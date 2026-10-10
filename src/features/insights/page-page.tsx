@@ -26,7 +26,7 @@ import { useOpenPage } from '@/features/history/open-link'
 import { useUrlDetail } from '@/features/history/queries'
 import { useSourceStats } from '@/features/home/queries'
 import type { RefindScoreFactor } from '@/lib/core-intelligence/types'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { profileLabel } from '@/lib/profile-label'
 import { useRefindPage } from './drill-queries'
 import {
@@ -46,6 +46,7 @@ import {
 } from './parts'
 import { useScope } from './range'
 import { ScopeControls } from './scope-controls'
+import { useInsightsFormat } from './zone'
 
 const factorKeys: Record<string, 'days' | 'trails' | 'searches' | 'direct'> = {
   cross_day_count: 'days',
@@ -57,7 +58,7 @@ const factorKeys: Record<string, 'days' | 'trails' | 'searches' | 'direct'> = {
 export default function PagePage() {
   const { t } = useI18n()
   const openPage = useOpenPage()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const { url: canonicalUrl = '' } = useParams()
   const [params] = useSearchParams()
   // Whose re-find score to show: the row the link came from (`scores`).
@@ -214,7 +215,7 @@ export default function PagePage() {
                     to={dayPath(day)}
                     className="flex h-7 items-center rounded-full border bg-card px-3 text-[13px] tabular transition-colors hover:bg-muted hover:no-underline"
                   >
-                    {format.date(`${day}T00:00:00`)}
+                    {format.day(day)}
                   </Link>
                 ))}
               </div>
@@ -228,7 +229,7 @@ export default function PagePage() {
 
 function WeeksCard({ url }: { url: string }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const detail = useUrlDetail(url)
   const config = useMemo(
     () => ({
@@ -263,7 +264,7 @@ function WeeksCard({ url }: { url: string }) {
               axisLine={false}
               minTickGap={24}
               tickFormatter={(value: string) =>
-                format.monthDay(`${value}T00:00:00`)
+                format.day(value, { month: 'short', day: 'numeric' })
               }
               className="font-mono"
             />
@@ -289,7 +290,7 @@ function WhyCard({
   profileId: string | null
 }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const [scope] = useScope()
   const refind = useRefindPage(canonicalUrl, scope, profileId)
   const sources = useSourceStats()

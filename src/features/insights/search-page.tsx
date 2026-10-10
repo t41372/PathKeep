@@ -24,10 +24,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import { localDateKey, isStale } from '@/lib/backend-client/insights'
+import { isStale } from '@/lib/backend-client/insights'
+import { dateKeyIn } from '@/lib/time-zone'
 import { cn } from '@/lib/cn'
 import type { TrailSummary } from '@/lib/core-intelligence/types'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { useSearch, useTrailDetail } from './drill-queries'
 import {
   dayPath,
@@ -46,6 +47,7 @@ import {
 } from './parts'
 import { useScope, type Scope } from './range'
 import { ScopeControls } from './scope-controls'
+import { useInsightsFormat, useInsightsZone } from './zone'
 
 /** Engine ids are lowercase (`google`); show them as names. */
 function engineName(id: string) {
@@ -62,7 +64,7 @@ function hostOf(url: string) {
 
 export default function SearchPage() {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const { query = '' } = useParams()
   const [scope] = useScope()
   const search = useSearch(query, scope)
@@ -259,9 +261,10 @@ function LandingsCard({
 
 function TrailRow({ trail }: { trail: TrailSummary }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
+  const { shown } = useInsightsZone()
   const [open, setOpen] = useState(false)
-  const date = localDateKey(new Date(trail.firstVisitMs))
+  const date = dateKeyIn(trail.firstVisitMs, shown)
   return (
     <li>
       <Collapsible open={open} onOpenChange={setOpen}>
@@ -316,7 +319,7 @@ function TrailRow({ trail }: { trail: TrailSummary }) {
 
 function TrailPages({ trailId, date }: { trailId: string; date: string }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const detail = useTrailDetail(trailId, true)
   return (
     <div className="pb-2 pl-[108px] pr-2">

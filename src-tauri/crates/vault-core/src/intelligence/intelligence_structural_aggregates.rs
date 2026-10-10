@@ -32,7 +32,7 @@ use super::DerivedVisitBatchCursor;
 #[cfg(test)]
 use super::load_profile_derived_visit_batch;
 use super::{
-    QueryFamilyRecord, RefindPageRecord, ReopenedInvestigationRecord, VisitRecord, local_date_key,
+    InsightsZone, QueryFamilyRecord, RefindPageRecord, ReopenedInvestigationRecord, VisitRecord,
 };
 use crate::visit_taxonomy::Opener;
 #[cfg(test)]
@@ -155,12 +155,13 @@ pub(super) struct RefindAddition {
 /// row's last day, since no stored visit is later; the new visits are the newest, so they lead the
 /// visit sample. `stored_visit_ids` and `stored_total` are the row's evidence sample and count.
 pub(super) fn add_to_refind_page(
+    zone: InsightsZone,
     stored: RefindPageRecord,
     stored_visit_ids: &[i64],
     stored_total: i64,
     mut addition: RefindAddition,
 ) -> RefindPageRecord {
-    let last_day = local_date_key(stored.last_seen_ms);
+    let last_day = zone.date_key(stored.last_seen_ms);
     let cross_day_count = stored.cross_day_count
         + addition.days.iter().filter(|day| **day != last_day).count() as i64;
     let trail_count = stored.trail_count + addition.new_trails;
@@ -237,8 +238,10 @@ struct RefindAccumulatorEntry {
 
 /// Streams structural aggregate state across many derived-visit batches without
 /// holding the full profile visit vector in memory.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct StructuralAggregateAccumulator {
+    /// The zone the days a page was opened on are in (the build's).
+    zone: InsightsZone,
     refind_pages: HashMap<String, RefindAccumulatorEntry>,
 }
 
@@ -255,7 +258,7 @@ pub(super) fn build_refind_pages(visits: &[VisitRecord]) -> Vec<RefindPageRecord
             let first = members.first()?;
             let distinct_days = members
                 .iter()
-                .map(|visit| local_date_key(visit.visit_time_ms))
+                .map(|visit| InsightsZone::system().date_key(visit.visit_time_ms))
                 .collect::<HashSet<_>>();
             let trail_ids =
                 members.iter().filter_map(|visit| visit.trail_id.clone()).collect::<HashSet<_>>();
@@ -365,7 +368,7 @@ pub(super) fn build_structural_profile_aggregates_from_batches(
     connection: &vault_store::Session<'_>,
     profile_id: &str,
 ) -> Result<Vec<RefindPageRecord>> {
-    let mut accumulator = StructuralAggregateAccumulator::default();
+    let mut accumulator = StructuralAggregateAccumulator::new(InsightsZone::system());
     let mut cursor = None;
     loop {
         let batch = load_profile_derived_visit_batch(
@@ -389,6 +392,10 @@ pub(super) fn build_structural_profile_aggregates_from_batches(
 }
 
 impl StructuralAggregateAccumulator {
+    pub(super) fn new(zone: InsightsZone) -> Self {
+        Self { zone, refind_pages: HashMap::new() }
+    }
+
     /// Adds one derived visit in visit order.
     #[cfg(test)]
     pub(super) fn add_visit(&mut self, visit: &VisitRecord) {
@@ -427,7 +434,7 @@ impl StructuralAggregateAccumulator {
                 ..RefindAccumulatorEntry::default()
             }
         });
-        entry.distinct_days.insert(local_date_key(visit.visit_time_ms));
+        entry.distinct_days.insert(self.zone.date_key(visit.visit_time_ms));
         if let Some(trail_id) = &visit.trail_id {
             entry.trail_ids.insert(trail_id.clone());
             entry.search_arrival_count += 1;
@@ -645,7 +652,7 @@ mod tests {
 
         let in_memory = build_refind_pages(&visits);
 
-        let mut accumulator = StructuralAggregateAccumulator::default();
+        let mut accumulator = StructuralAggregateAccumulator::new(InsightsZone::system());
         for visit in &visits {
             accumulator.add_visit(visit);
         }

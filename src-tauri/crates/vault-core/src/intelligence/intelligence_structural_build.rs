@@ -26,9 +26,7 @@
 use super::SearchEventBatchCursor;
 #[cfg(test)]
 use super::SearchQueryKind;
-use super::{
-    QueryFamilyRecord, SearchEventRecord, local_date_key, normalize_query, query_token_set,
-};
+use super::{InsightsZone, QueryFamilyRecord, SearchEventRecord, normalize_query, query_token_set};
 #[cfg(test)]
 use anyhow::Result;
 use std::cmp::Ordering;
@@ -90,8 +88,10 @@ fn better(candidate: (Likeness, usize), best: Option<(Likeness, usize)>) -> bool
 /// are indexed by token and size, and a search reads only the sizes that could still beat the
 /// best it has found, and at each size only the tokens with the fewest first searches
 /// (`candidates`).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct QueryFamilyAccumulator {
+    /// The zone the days a family was searched on are in (the build's).
+    zone: InsightsZone,
     families: Vec<QueryFamilyRecord>,
     /// A number for each profile and engine: families never cross them.
     scopes: HashMap<String, HashMap<String, usize>>,
@@ -112,6 +112,14 @@ pub(super) struct QueryFamilyAccumulator {
     days: Vec<HashSet<String>>,
     /// The trail of the last search added, and the family it went to.
     last_trail: Option<(usize, String, usize)>,
+}
+
+/// In tests, the computer's zone, as a first build takes.
+#[cfg(test)]
+impl Default for QueryFamilyAccumulator {
+    fn default() -> Self {
+        Self::new(InsightsZone::system())
+    }
 }
 
 /// Groups keyword search events into query families the plain way, comparing each search with
@@ -175,13 +183,13 @@ pub(super) fn build_query_families(events: &[SearchEventRecord]) -> Vec<QueryFam
                 {
                     family.queries.push(event.raw_query.clone());
                 }
-                if days[index].insert(local_date_key(event.visit_time_ms)) {
+                if days[index].insert(InsightsZone::system().date_key(event.visit_time_ms)) {
                     family.active_days += 1;
                 }
                 index
             }
             None => {
-                days.push(HashSet::from([local_date_key(event.visit_time_ms)]));
+                days.push(HashSet::from([InsightsZone::system().date_key(event.visit_time_ms)]));
                 families.push(QueryFamilyRecord {
                     family_id: format!("family:{}:{:04}", event.profile_id, families.len() + 1),
                     profile_id: event.profile_id.clone(),
@@ -315,16 +323,35 @@ pub(super) fn build_query_families_from_batches(
 }
 
 impl QueryFamilyAccumulator {
+    /// An empty accumulator that puts days in `zone`.
+    pub(super) fn new(zone: InsightsZone) -> Self {
+        Self {
+            zone,
+            families: Vec::new(),
+            scopes: HashMap::new(),
+            scope_count: 0,
+            token_ids: HashMap::new(),
+            firsts: Vec::new(),
+            by_token: HashMap::new(),
+            largest: HashMap::new(),
+            by_query: HashMap::new(),
+            queries: Vec::new(),
+            days: Vec::new(),
+            last_trail: None,
+        }
+    }
+
     /// Continues a build that stopped: `families` are one profile's families in the order they
     /// were made, each with the days it was searched on counted, and `last` is the last search
     /// added to them, whose trail the next search may continue. Every event added after this
     /// must be later than the events already in them (an append: an earlier visit makes the
     /// build start over), so an event's day is new unless it is its family's last day.
     pub(super) fn resume(
+        zone: InsightsZone,
         families: Vec<QueryFamilyRecord>,
         last: Option<SearchEventRecord>,
     ) -> Self {
-        let mut accumulator = Self::default();
+        let mut accumulator = Self::new(zone);
         for family in families {
             let index = accumulator.families.len();
             let scope = accumulator.scope(&family.profile_id, &family.search_engine);
@@ -336,7 +363,7 @@ impl QueryFamilyAccumulator {
                 by_query.entry(query.clone()).or_insert(index);
             }
             accumulator.queries.push(queries);
-            accumulator.days.push(HashSet::from([local_date_key(family.last_seen_ms)]));
+            accumulator.days.push(HashSet::from([zone.date_key(family.last_seen_ms)]));
             accumulator.families.push(family);
         }
         if let Some(event) = last {
@@ -384,7 +411,7 @@ impl QueryFamilyAccumulator {
                 let family = &mut self.families[index];
                 family.member_count += 1;
                 family.last_seen_ms = family.last_seen_ms.max(event.visit_time_ms);
-                if self.days[index].insert(local_date_key(event.visit_time_ms)) {
+                if self.days[index].insert(self.zone.date_key(event.visit_time_ms)) {
                     family.active_days += 1;
                 }
                 if self.queries[index].insert(event.normalized_query.clone()) {
@@ -404,7 +431,7 @@ impl QueryFamilyAccumulator {
                     .or_default()
                     .insert(event.normalized_query.clone(), index);
                 self.queries.push(HashSet::from([event.normalized_query.clone()]));
-                self.days.push(HashSet::from([local_date_key(event.visit_time_ms)]));
+                self.days.push(HashSet::from([self.zone.date_key(event.visit_time_ms)]));
                 self.families.push(QueryFamilyRecord {
                     family_id: format!("family:{}:{:04}", event.profile_id, index + 1),
                     profile_id: event.profile_id.clone(),
@@ -749,7 +776,11 @@ mod tests {
         for event in &events[..3] {
             before.add_event(event);
         }
-        let mut appended = QueryFamilyAccumulator::resume(before.finish(), Some(events[2].clone()));
+        let mut appended = QueryFamilyAccumulator::resume(
+            InsightsZone::system(),
+            before.finish(),
+            Some(events[2].clone()),
+        );
         for event in &events[3..] {
             appended.add_event(event);
         }

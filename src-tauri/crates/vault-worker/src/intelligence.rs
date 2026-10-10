@@ -32,7 +32,6 @@ mod section_queries;
 
 use crate::job_runtime::WorkerPool;
 use anyhow::Result;
-use chrono::Local;
 use vault_core::{
     ActivityMix, ActivityMixTrend, BreadthIndex, BrowserDiff, CategoryFilteredDateRangeRequest,
     CompareSet, CompareSetDetail, CompareSetDetailRequest, CoreIntelligencePrimaryOverview,
@@ -78,11 +77,12 @@ pub use self::content_fetch::{
 pub use self::model_download::{cancel_model_download, download_static_embedding_model};
 pub use self::route_queries::{
     delete_search_engine_rule, explain_entity, explain_refind, get_domain_trend,
-    get_frequent_searches, get_hub_pages, get_intelligence_primary_overview, get_navigation_path,
-    get_query_families, get_query_family_detail, get_refind_page_detail, get_refind_pages,
-    get_search_engine_ranking, get_search_families, get_search_queries, get_search_trails,
-    get_session_detail, get_sessions, get_top_search_concepts, get_top_sites, get_trail_detail,
-    list_search_engine_rules, upsert_search_engine_rule,
+    get_frequent_searches, get_hub_pages, get_insights_time_zone,
+    get_intelligence_primary_overview, get_navigation_path, get_query_families,
+    get_query_family_detail, get_refind_page_detail, get_refind_pages, get_search_engine_ranking,
+    get_search_families, get_search_queries, get_search_trails, get_session_detail, get_sessions,
+    get_top_search_concepts, get_top_sites, get_trail_detail, list_search_engine_rules,
+    upsert_search_engine_rule,
 };
 pub use self::runtime::{
     cancel_intelligence_job_now, load_intelligence_runtime_snapshot,
@@ -93,7 +93,9 @@ pub(crate) use self::runtime::{
     drain_one_enrichment_intelligence_job, drain_one_priority_intelligence_job,
     execute_core_intelligence_job,
 };
-pub(crate) use self::runtime::{maybe_spawn_intelligence_queue_drain, resume_insights};
+pub(crate) use self::runtime::{
+    maybe_spawn_intelligence_queue_drain, rebuild_in_chosen_zone, resume_insights,
+};
 pub use self::section_queries::{
     build_intelligence_local_host, get_activity_mix, get_activity_mix_trend, get_breadth_index,
     get_browsing_rhythm, get_compare_set_detail, get_compare_sets, get_day_insights,

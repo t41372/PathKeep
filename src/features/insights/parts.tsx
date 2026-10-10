@@ -30,7 +30,8 @@ import type {
   CoreIntelligenceSectionMeta,
   KpiMetric,
 } from '@/lib/core-intelligence/types'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
+import { useInsightsFormat } from './zone'
 
 export function ListSkeleton({
   rows,
@@ -151,7 +152,7 @@ export function KpiTile({
   explain?: string
 }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const change = metric?.changePercent
   return (
     <div
@@ -225,7 +226,7 @@ export function SectionStatus({
   explain?: ReactNode
 }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   if (!meta && !explain) return null
   const stale = meta?.state === 'stale'
   const limited = meta?.state === 'degraded' || meta?.state === 'disabled'

@@ -31,7 +31,16 @@ pub(super) fn days(
     start: i64,
     end: i64,
 ) -> Result<Vec<String>> {
-    Ok(s.query(&format!("SELECT DISTINCT strftime('%Y-%m-%d',datetime(v.visit_time_ms/1000,'unixepoch','localtime')) {VISITS} AND v.visit_time_ms>=?3 AND v.visit_time_ms<?4 ORDER BY 1 DESC"),params![profile,url,start,end],|r|Ok(r.get::<String>(0)?))?)
+    // The days in Insights' zone, not SQL's `localtime` (the computer's).
+    let zone = super::InsightsZone::for_reading(s)?;
+    let times = s.query(
+        &format!("SELECT v.visit_time_ms {VISITS} AND v.visit_time_ms>=?3 AND v.visit_time_ms<?4"),
+        params![profile, url, start, end],
+        |r| Ok(r.get::<i64>(0)?),
+    )?;
+    let days =
+        times.into_iter().map(|ms| zone.date_key(ms)).collect::<std::collections::BTreeSet<_>>();
+    Ok(days.into_iter().rev().collect())
 }
 pub(super) fn trails(
     s: &Session<'_>,

@@ -39,6 +39,19 @@ use tauri::State;
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the zone of the Insights on screen and of the next build off the UI thread.
+pub(crate) async fn get_insights_time_zone(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::InsightsTimeZone, CommandError> {
+    let session_database_key_state = state.inner().clone();
+    run_blocking_command("get_insights_time_zone", move || {
+        worker_bridge::get_insights_time_zone_impl(&session_database_key_state)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads one paginated sessions list off the UI thread.
 pub(crate) async fn get_sessions(
     request: vault_core::PagedDateRangeRequest,

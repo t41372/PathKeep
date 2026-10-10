@@ -7,20 +7,20 @@
  * weekends does not tilt the comparison.
  */
 import type { RhythmHeatmap } from '@/lib/core-intelligence/types'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { chartDates } from './buckets'
 import { useNewSites } from './queries'
 import type { Scope } from './range'
-
-const parse = (key: string) => new Date(`${key}T00:00:00`)
+import { useInsightsFormat } from './zone'
+import { addDays, dayAsUtcDate } from '@/lib/time-zone'
 
 /** How many weekdays and weekend days `start..end` holds. */
 function dayCounts(start: string, end: string) {
   let weekdays = 0
   let weekends = 0
-  const last = parse(end)
-  for (const day = parse(start); day <= last; day.setDate(day.getDate() + 1)) {
-    if (day.getDay() === 0 || day.getDay() === 6) weekends += 1
+  for (let day = start; day <= end; day = addDays(day, 1)) {
+    const weekday = dayAsUtcDate(day).getUTCDay()
+    if (weekday === 0 || weekday === 6) weekends += 1
     else weekdays += 1
   }
   return { weekdays, weekends }
@@ -34,7 +34,7 @@ export function RhythmSummary({
   rhythm: RhythmHeatmap
 }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const days = useNewSites(scope)
   const dates = chartDates(
     scope,

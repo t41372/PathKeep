@@ -88,7 +88,7 @@ pub fn get_hub_pages(
 ) -> Result<crate::models::IntelligencePage<HubPage>> {
     let request = request.clone();
     vault.read(vault_store::Db::Intelligence,move |connection| {
-        let (start_ms,end_ms)=date_range_bounds(&request.date_range)?;
+        let (start_ms,end_ms)=date_range_bounds(connection, &request.date_range)?;
         let limit=request.limit.unwrap_or(10).clamp(1,1000) as usize;
         let after=super::paging::cursor::<(i64,String,String)>(request.cursor.as_deref())?;
         let rows=connection.query(

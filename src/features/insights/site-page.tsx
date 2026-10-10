@@ -16,7 +16,7 @@ import { EvilBarChart } from '@/components/evilcharts/charts/recharts-bar-chart'
 import { SiteIcon } from '@/features/history/site-icon'
 import { PageScroll, SectionCard } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { useSite } from './drill-queries'
 import {
   dayPath,
@@ -40,10 +40,11 @@ import { barLabel, chartDates, rangeBars } from './buckets'
 import { scopeDays, useScope, type Scope } from './range'
 import { ScopeControls } from './scope-controls'
 import { isStale } from '@/lib/backend-client/insights'
+import { useInsightsFormat } from './zone'
 
 export default function SitePage() {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const { domain = '' } = useParams()
   const [scope] = useScope()
   const days = scopeDays(scope)
@@ -199,7 +200,7 @@ export default function SitePage() {
 
 function SiteTrendCard({ domain, scope }: { domain: string; scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const navigate = useNavigate()
   const site = useSite(domain, scope)
   const { length, bars: points } = useMemo(() => {

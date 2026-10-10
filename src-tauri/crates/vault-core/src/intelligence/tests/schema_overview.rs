@@ -29,7 +29,7 @@ use super::super::{
     intelligence_rebuild::run_core_intelligence,
     intelligence_shared::{
         build_kpi, classify_search_query_kind, collapse_date_key, jaccard, local_date_key,
-        local_datetime_from_millis, previous_date_range, query_token_set, tokenize_query_terms,
+        previous_date_range, query_token_set, tokenize_query_terms,
     },
     intelligence_structural_build::load_profile_search_events,
     site_dictionary::normalize_query,
@@ -97,8 +97,6 @@ fn shared_query_and_date_helpers_cover_boundary_inputs() {
     .expect("previous date range");
     assert_eq!(previous.start, "2026-04-07");
     assert_eq!(previous.end, "2026-04-09");
-    let fallback_now = local_datetime_from_millis(i64::MAX);
-    assert!(fallback_now.timestamp_millis() > 0);
 }
 
 /// Regression coverage for normalize query trims and lowercases.

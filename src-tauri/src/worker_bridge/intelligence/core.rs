@@ -36,6 +36,14 @@ use vault_core::{
 use super::super::worker_result;
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads the zone of the Insights on screen and of the next build.
+pub(crate) fn get_insights_time_zone_impl(
+    state: &crate::session::SessionState,
+) -> Result<vault_core::InsightsTimeZone, CommandError> {
+    worker_result(vault_worker::get_insights_time_zone(&state.vault()?))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Loads one paginated sessions list.
 pub(crate) fn get_sessions_impl(
     request: PagedDateRangeRequest,

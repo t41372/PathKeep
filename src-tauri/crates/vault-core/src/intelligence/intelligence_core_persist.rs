@@ -202,7 +202,7 @@ mod tests {
         let state=build_state::BuildState {profile_id:"p1".into(),facts_generation:2,..Default::default()};
         build_rows::persist_facts(connection,&state,&visits)?;
         build_rows::persist_daily(connection,2,&rollups)?;
-        let mut persist=intelligence_structural_stream::StructuralTailPersist::new(connection,2,"p1")?;
+        let mut persist=intelligence_structural_stream::StructuralTailPersist::new(connection,2,"p1",crate::intelligence::InsightsZone::system())?;
         for visit in &visits {if let Some(session)=visit.session_id.as_deref() {persist.persist_assignment(visit.visit_id,session,visit.trail_id.as_deref(),visit.visit_id,&visit.registrable_domain)?;}}
         for session in &sessions {persist.persist_session(session,at)?;}
         for trail in &trails {persist.persist_trail(trail,at)?;for member in &trail.members {persist.persist_trail_member(member)?;}}

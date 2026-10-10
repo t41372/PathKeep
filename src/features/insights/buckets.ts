@@ -3,16 +3,16 @@
  * happened, grouped into Monday-start weeks or calendar months when the range
  * is long. All time starts at the first day with data.
  *
- * Every bar is keyed by the local date it starts on (`YYYY-MM-DD`), whatever
+ * Every bar is keyed by the day it starts on (`YYYY-MM-DD`), whatever
  * its length, so axes format the key as a date and a day bar can link to its
  * day. The backend's own week keys (`2025-W41`) are not dates, which is why
  * charts ask it for days and group them here.
  *
  * Responsible for: filling and grouping. Not responsible for: fetching.
  */
-import { localDateKey } from '@/lib/backend-client/insights'
 import type { DateRange } from '@/lib/core-intelligence/types'
 import type { Formatters } from '@/lib/i18n'
+import { addDays, dayAsUtcDate } from '@/lib/time-zone'
 import type { Scope } from './range'
 
 export type BarLength = 'day' | 'week' | 'month'
@@ -32,8 +32,6 @@ export interface Bars<T extends Counts> {
   bars: Bar<T>[]
 }
 
-const parse = (key: string) => new Date(`${key}T00:00:00`)
-
 /** The days the chart covers: the scope's, or from the first data for all time. */
 export function chartDates(scope: Scope, dataDays: Iterable<string>) {
   if (scope.range !== 'all') return scope.dates
@@ -49,24 +47,22 @@ export function rangeBars<T extends Counts>(
   zero: T,
 ): Bars<T> {
   const days: Bar<T>[] = []
-  const end = parse(dates.end)
   for (
-    const cursor = parse(dates.start);
-    cursor <= end;
-    cursor.setDate(cursor.getDate() + 1)
+    let dateKey = dates.start;
+    dateKey <= dates.end;
+    dateKey = addDays(dateKey, 1)
   ) {
-    const dateKey = localDateKey(cursor)
     days.push({ ...zero, ...byDay.get(dateKey), dateKey })
   }
   const length = barLength(days.length)
   if (length === 'day') return { length, bars: days }
   const startsBar =
     length === 'week'
-      ? (date: Date) => date.getDay() === 1
-      : (date: Date) => date.getDate() === 1
+      ? (key: string) => dayAsUtcDate(key).getUTCDay() === 1
+      : (key: string) => key.endsWith('-01')
   const bars: Bar<T>[] = []
   for (const day of days) {
-    if (bars.length === 0 || startsBar(parse(day.dateKey))) {
+    if (bars.length === 0 || startsBar(day.dateKey)) {
       bars.push({ ...zero, dateKey: day.dateKey })
     }
     const bar = bars[bars.length - 1] as Counts
@@ -82,6 +78,6 @@ export function barLabel(
   dateKey: string,
 ) {
   return length === 'month'
-    ? format.date(parse(dateKey), { month: 'short', year: 'numeric' })
-    : format.monthDay(parse(dateKey))
+    ? format.day(dateKey, { month: 'short', year: 'numeric' })
+    : format.day(dateKey, { month: 'short', day: 'numeric' })
 }

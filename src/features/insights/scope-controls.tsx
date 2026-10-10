@@ -24,13 +24,16 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { localDateKey } from '@/lib/backend-client/insights'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { profileLabel } from '@/lib/profile-label'
 import { useSourceStats } from '@/features/home/queries'
 import { isPreset, presets, useScope, type Scope } from './range'
+import { useInsightsFormat } from './zone'
+import { todayIn } from '@/lib/time-zone'
 
 const calendarLocales = { en: enUS, 'zh-CN': zhCN, 'zh-TW': zhTW }
 const ALL_PROFILES = 'all'
+/** The calendar shows days as local-midnight dates; keys go through these. */
 const parse = (key: string) => new Date(`${key}T00:00:00`)
 
 export function ScopeControls() {
@@ -44,7 +47,7 @@ export function ScopeControls() {
 
 function RangeToggle() {
   const { t, language } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const [scope, setScope] = useScope()
   const [picking, setPicking] = useState(false)
   const [draft, setDraft] = useState<PickedDays | undefined>()
@@ -59,8 +62,8 @@ function RangeToggle() {
   }
   const customLabel = (current: Scope) => {
     const options = { month: 'short', day: 'numeric', year: 'numeric' } as const
-    const start = format.date(parse(current.dates.start), options)
-    const end = format.date(parse(current.dates.end), options)
+    const start = format.day(current.dates.start, options)
+    const end = format.day(current.dates.end, options)
     return start === end ? start : `${start} – ${end}`
   }
 
@@ -116,7 +119,7 @@ function RangeToggle() {
           selected={draft}
           onSelect={setDraft}
           locale={calendarLocales[language]}
-          disabled={{ after: new Date() }}
+          disabled={{ after: parse(todayIn(scope.zone)) }}
           defaultMonth={draft?.from}
           captionLayout="dropdown"
         />
