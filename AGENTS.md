@@ -40,7 +40,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 - **E2E tests prove features.** Prefer them as the only testing mechanism, and use them to verify complex features in the real app. Pick a medium-to-hard scenario, not the simplest one that passes, because a half-built feature usually passes the happy path.
 - **Test the real thing, not a spherical chicken.** Tests run in a separate environment that is otherwise real. An idealized mock lets every test pass while the product breaks the moment someone opens it.
 - **Every E2E run ends with a verifiable, repeatable artifact.**
-- **Don't write unit tests after the code.** Tests written afterward encode what the code does, not what it should do. When something truly has to be tested in isolation, first write down every way it could fail, then write the code.
+- **Don't write unit tests after the code.** Tests written afterward encode what the code does, not what it should do. When something truly has to be tested in isolation, first write down every way it could fail, then write the code. When that is: `quality-matrix.md` §什麼時候才寫 unit test.
 - **Written for the people who maintain it.** Our code is read and maintained by people for years. Keep the architecture elegant, the code clean, and the whole system easy to maintain. Text, whether in docs, comments, or the UI, says things plainly, the way a person would. No AI slop.
 
 **文檔跟著代碼走**：改功能更新 `docs/features/`，新技術決策更新 `docs/architecture/`。新模塊交付時附 doc comments——檔頭標明職責邊界（Responsibilities / Not responsible for），exported 符號說「為什麼存在」而非「做了什麼」。

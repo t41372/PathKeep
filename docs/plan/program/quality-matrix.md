@@ -46,6 +46,23 @@ E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的�
 
 `scripts/run-playwright.mjs` 結束時會印出這個路徑。該資料夾不進 git（見 `artifacts/e2e/README.md`）；CI 以 `if: always()` 上傳成 `e2e-artifacts`。重現同一條 run：`PATHKEEP_E2E_NOW=<fixture.json 的 now> bun run test:e2e`。
 
+## 什麼時候才寫 unit test
+
+功能由 E2E 證明（AGENTS.md「測試是契約」）。unit test 只在這幾種情況寫，而且寫在程式碼之前：先在測試檔頭列出這段邏輯會怎麼壞（failure modes），每個情況一個有名字的測試，再寫程式碼。
+
+- 規格清楚的純邏輯，E2E 要逐一跑太貴：例如 regex 方言對照表（60 個 pattern）、query family 的歸組規則（每個 failure mode 一個例子，另拿「逐一比較」的參考實作對照）。
+- 資料完整性與當機復原：寫到一半被殺掉、重開後資料要對（`vault-crypto` 的 crash / tamper 測試，種子固定、可用環境變數換）。
+- 安全邊界：SSRF 每一跳、`file://` 不能被打開、鎖定時不讀 Keychain。
+- 修過的 bug，而 E2E 重現不了（時間、競爭、14.4M 才出現的查詢計畫：`intelligence_read_plans`、`append_plans`）。
+
+不寫的（2026-10 審查的 B / C，見 `docs/plan/test-audit-2026-10/`）：
+
+- 鎖住沒人看得到的細節：內部字串、私有 helper 的輸出、計數、內部順序；
+- 重述程式碼、探測常數，或為了 coverage / mutation 分數的近似重複；
+- 照抄程式碼現在的行為（寫在程式碼之後的測試就是這樣）。E2E 的手算也一樣：用 fixture 想表達的結果去驗，例如 `home.spec` 驗「每個搜尋與它的改寫是一組」，不只照抄後端規則。
+
+測試照它要保證的事命名（`a_search_goes_to_the_first_search_it_is_most_like`），不照實作命名。
+
 ## Slow / Optional
 
 不在 `bun run check` 內，但要在 CI 或 release 前跑：
