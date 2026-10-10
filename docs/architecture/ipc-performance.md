@@ -356,7 +356,23 @@ The reads that searches made slow (ms, first / second call):
 | `get_frequent_searches`    | 21 / 13       | 225 / 182     | 1,159 / 987   |
 | `get_stable_sources`       | 12 / 10       | 170 / 160     | 804 / 798     |
 
-What you search for, search trails, friction and query families cost about the same whatever the range, so they read more than the range; they are next (STATUS item 13). The export between reads with searches: 534 ms before, 4.9 s just after, 532 ms again; 5.3 GB in 509 s.
+What you search for, search trails, friction and query families cost about the same whatever the range, so they read more than the range.
+
+**After keeping the search reads in their range (2026-10-09).** What you search for walks the range's searches by time and joins each one's terms by key, instead of reading the `search_events` and `search_event_terms` views (every row of the build). The query family and trail totals count the rows through their time index; trails are counted and listed by when they began. Friction reads the trails that may be friction from a partial index by time and sorts them; the hardest topics read the families searched in the range and sort them by size. Walked in rank order, both read past a short range until they found a page of their own. `intelligence_read_plans.rs` now runs every Insights read for 30 days and all time, across profiles and in one, and fails when a statement scans a large table or searches one only by generation, profile and kind columns; pages by refind score are the one exception (`store-schema.md`).
+
+Measured with the last 3.6M visits of the same benchmark (`PATHKEEP_BENCH_FIRST_VISIT=10800001`: the same days and density at the end of the data, so 30 days and a year read the rows they would among 14.4M), on the Xeon VM, about 30% slower than the EPYC above (ms, first / second call):
+
+| at the end of 14.4M visits with searches | 30 days before | 30 days after | 1 year before | 1 year after  |
+| ---------------------------------------- | -------------- | ------------- | ------------- | ------------- |
+| primary overview                         | 2,836 / 2,729  | 287 / 160     | 4,336 / 3,152 | 1,677 / 865   |
+| secondary overview                       | 557 / 539      | 225 / 222     | 1,980 / 1,858 | 2,023 / 1,770 |
+| `get_top_search_concepts`                | 2,534 / 2,530  | 36 / 35       | 2,823 / 2,811 | 550 / 510     |
+| `get_search_trails`                      | 995 / 462      | 3 / 4         | 455 / 454     | 31 / 30       |
+| `get_friction_signals`                   | 388 / 398      | 0.3 / 0.3     | 396 / 396     | 0.3 / 0.1     |
+| `get_query_families`                     | 89 / 90        | 16 / 16       | 89 / 89       | 152 / 97      |
+| `get_search_effectiveness`               | 21 / 18        | 43 / 45       | 275 / 270     | 563 / 526     |
+
+The "before" columns are the EPYC run above, so the gains are if anything understated. 30 days is back to where it was without searches. What a year still costs grows with the rows in it: common paths 1.1 s (it was 0.9 s before searches), What you search for and the hardest topics about 0.5 s, the stable sources and frequent searches about 0.2 s, and the first interrupted-habits read in a process 0.84 s; STATUS item 14. The export between reads with searches: 534 ms before, 4.9 s just after, 532 ms again; 5.3 GB in 509 s.
 
 ## Other reads
 

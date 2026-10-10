@@ -130,7 +130,6 @@ pub(super) const INDEXES: &[&str] = &[
     "idx_search_trails_recent",
     "idx_search_trails_friction",
     "idx_query_families_recent",
-    "idx_query_families_members",
     "idx_query_family_queries_query",
     "idx_reopened_investigations_recent",
     "idx_path_flows_profile_rank",

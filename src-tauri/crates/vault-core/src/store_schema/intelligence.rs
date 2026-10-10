@@ -462,9 +462,10 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_search_trails_recent ON search_trails_rows(first_visit_ms DESC, trail_id DESC, generation)",
     // Searches that landed on one site, by time (the site page).
     "CREATE INDEX idx_search_trails_landing ON search_trails_rows(landing_domain, first_visit_ms, generation, profile_id, initial_query)",
-    "CREATE INDEX idx_search_trails_friction ON search_trails_rows(reformulation_count DESC, visit_count DESC, trail_id, generation)",
+    // The trails that may be friction (reworded twice or more, or no landing after three
+    // visits), by when they began: a range reads only its own, then sorts them.
+    "CREATE INDEX idx_search_trails_friction ON search_trails_rows(first_visit_ms, generation, profile_id) WHERE reformulation_count >= 2 OR (landing_domain IS NULL AND visit_count >= 3)",
     "CREATE INDEX idx_query_families_recent ON query_families_rows(last_seen_ms DESC, family_id DESC, generation)",
-    "CREATE INDEX idx_query_families_members ON query_families_rows(member_count DESC, last_seen_ms DESC, family_id, generation)",
     "CREATE INDEX idx_reopened_investigations_recent ON reopened_investigations_rows(last_seen_ms DESC, occurrence_count DESC, investigation_id, generation)",
     "CREATE INDEX idx_path_flows_profile_rank ON path_flows_rows(profile_id, step_count, occurrence_count DESC, last_seen_ms DESC, flow_pattern, generation)",
     // Compare sets newest first, for every profile or one (`compare_sets::get_compare_sets`).

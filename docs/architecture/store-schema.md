@@ -425,12 +425,19 @@ identity, session overlap/order, trail member order, domain/date rollups and que
 Exact physical DDL is `src-tauri/crates/vault-core/src/store_schema/intelligence.rs`.
 
 Paged lists keep one index in exactly their list order, with `generation` last:
-`idx_sessions_recent`, `idx_search_trails_recent`, `idx_search_trails_friction`,
-`idx_query_families_recent`, `idx_query_families_members`,
+`idx_sessions_recent`, `idx_search_trails_recent`, `idx_query_families_recent`,
 `idx_reopened_investigations_recent`, `idx_refind_pages_score` and, for one profile's all-time
 flows, `idx_path_flows_profile_rank`. These reads use the `_rows` table with `INDEXED BY` and
 check `generation IN (SELECT … FROM intelligence_generations)` per row, because through the
 views Turso 0.8.1 reads the whole generation by primary key and sorts it on every page.
+
+Lists ranked by something other than time over a range (friction, the hardest topics) read the
+range's rows through a time index and sort them: walked in rank order, a short range read rows
+until it found a page of its own (friction took 0.4 s for any range at 14.4M visits). Friction's
+index is partial, holding only the trails that may be friction (`idx_search_trails_friction`).
+`idx_refind_pages_score` is the exception: pages are walked by score, since the pages reopened
+most are the ones in use (about 1 ms for 30 days or a year at 14.4M), where a year's pages sorted
+would be hundreds of thousands; a range of long-unused pages walks further.
 
 Keyset cursors are written in the bounded form, `a<=?X AND (a<?X OR b<?Y)` (nested for more
 keys, `>=`/`>` for ascending keys), and the cursor clause is only in the statement text after
