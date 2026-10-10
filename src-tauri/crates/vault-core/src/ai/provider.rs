@@ -287,7 +287,9 @@ pub(super) fn provider_connection_report_from_probe(
             ..AiProviderConnectionTestReport::default()
         }),
         Err(error) => {
-            let (error_code, action_hint, retry_hint) = classify_provider_error(&error.to_string());
+            // The whole chain: the reason ("connection refused") is below the client's message.
+            let (error_code, action_hint, retry_hint) =
+                classify_provider_error(&format!("{error:#}"));
             Ok(AiProviderConnectionTestReport {
                 provider_id: provider.config.id.clone(),
                 purpose: match provider.config.purpose {
@@ -396,10 +398,12 @@ pub(super) fn classify_provider_error(
             Some("Save the model selection and test again.".to_string()),
         );
     }
+    // "error sending request" is how the HTTP client says nothing answered at the address.
     if normalized.contains("timed out")
         || normalized.contains("dns")
         || normalized.contains("refused")
         || normalized.contains("network")
+        || normalized.contains("error sending request")
     {
         return (
             Some("network-error".to_string()),

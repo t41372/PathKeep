@@ -525,6 +525,11 @@ fn provider_validation_readiness_and_error_branches_stay_actionable() {
         ("provider is not configured for embeddings", "unsupported-capability", false),
         ("model not found", "bad-model", true),
         ("dns refused network timed out", "network-error", true),
+        (
+            "CompletionError: HttpError: Http client error: error sending request for url (http://127.0.0.1:9/v1/chat/completions)",
+            "network-error",
+            true,
+        ),
         ("unexpected provider failure", "provider-error", true),
     ];
     for (message, code, retry_expected) in cases {
