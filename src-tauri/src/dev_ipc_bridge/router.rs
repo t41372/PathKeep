@@ -38,7 +38,7 @@ use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use super::{DevIpcBridgeState, config::DevIpcBridgeConfig, dispatch::dispatch_command};
 use crate::PRODUCT_DISPLAY_NAME;
 
-/// Builds the health and command routes for the local browser mirror.
+/// Builds the health, command and event routes for the local browser mirror.
 ///
 /// Invalid CORS origins fail startup rather than weakening the localhost-only
 /// development boundary. The returned router carries cloned bridge state for
@@ -61,6 +61,7 @@ pub(super) fn build_router(
 
     Ok(Router::new()
         .route("/health", get(bridge_health))
+        .route("/events", get(super::events::events))
         .route("/searches/{session_id}/events", get(super::search::events))
         .route("/commands/{command}", post(bridge_invoke))
         .layer(cors)

@@ -30,7 +30,7 @@ pub(crate) async fn import_takeout(
     let state = state.inner().clone();
     run_blocking_command("import_takeout", move || {
         worker_bridge::import_takeout_impl(request, &state, |event| {
-            let _ = app.emit("pathkeep://import-progress", &event);
+            let _ = app.emit(vault_core::IMPORT_PROGRESS_EVENT, &event);
         })
     })
     .await
@@ -61,7 +61,7 @@ pub(crate) async fn import_browser_history(
     let state = state.inner().clone();
     run_blocking_command("import_browser_history", move || {
         worker_bridge::import_browser_history_impl(request, &state, |event| {
-            let _ = app.emit("pathkeep://import-progress", &event);
+            let _ = app.emit(vault_core::IMPORT_PROGRESS_EVENT, &event);
         })
     })
     .await

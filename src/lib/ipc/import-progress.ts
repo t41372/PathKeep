@@ -9,21 +9,17 @@
  */
 
 import type { ImportProgressEvent } from '../types'
+import { listenDesktopEvent } from './events'
 
 export type ImportProgressListener = (event: ImportProgressEvent) => void
 
 export async function subscribeToImportProgress(
   listener: ImportProgressListener,
 ) {
-  try {
-    const { listen } = await import('@tauri-apps/api/event')
-    return await listen<ImportProgressEvent>(
-      'pathkeep://import-progress',
-      ({ payload }) => {
-        if (payload) listener(payload)
-      },
-    )
-  } catch {
-    return () => {}
-  }
+  return listenDesktopEvent<ImportProgressEvent | null>(
+    'pathkeep://import-progress',
+    (payload) => {
+      if (payload) listener(payload)
+    },
+  )
 }

@@ -15,6 +15,7 @@
  */
 
 import type { BackupProgressEvent } from '../types'
+import { listenDesktopEvent } from './events'
 
 /**
  * Defines the type-level contract for backup progress listener.
@@ -31,15 +32,10 @@ export type BackupProgressListener = (event: BackupProgressEvent) => void
 export async function subscribeToBackupProgress(
   listener: BackupProgressListener,
 ) {
-  try {
-    const { listen } = await import('@tauri-apps/api/event')
-    return await listen<BackupProgressEvent>(
-      'pathkeep://backup-progress',
-      ({ payload }) => {
-        if (payload) listener(payload)
-      },
-    )
-  } catch {
-    return () => {}
-  }
+  return listenDesktopEvent<BackupProgressEvent | null>(
+    'pathkeep://backup-progress',
+    (payload) => {
+      if (payload) listener(payload)
+    },
+  )
 }

@@ -121,7 +121,7 @@ PathKeep 是 desktop app，最終 truth gate 是實際的 Tauri 視窗。
 
 ### 因此必須記住
 
-- 瀏覽器裡看起來對，不代表 overlay titlebar、拖動區、選單列圖示、`pathkeep://` 事件、鑰匙圈、排程、Finder 顯示、更新、視窗尺寸與捲動在真機上對。dev bridge 下沒有選單列，也收不到桌面事件。
+- 瀏覽器裡看起來對，不代表 overlay titlebar、拖動區、選單列圖示、`pathkeep://` 事件、鑰匙圈、排程、Finder 顯示、更新、視窗尺寸與捲動在真機上對。dev bridge 下沒有選單列；`pathkeep://` 桌面事件（Ask 的串流、備份 / 匯入 / 下載進度）由 bridge 的 `/events`（SSE）送到瀏覽器（`src/lib/ipc/events.ts`），選單列與 Tauri 視窗本身的行為仍要在真機上看。
 - 截圖若來自瀏覽器，必須誠實標示，不得冒充 desktop 已驗收。
 - Windows / Linux 的系統匣、登入啟動、語言偵測程式碼從未編譯過（見 STATUS），在那兩個平台上點過之前不算完成。
 

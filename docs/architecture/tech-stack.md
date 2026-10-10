@@ -91,7 +91,7 @@
 
 - `devtools-bridge` 是 **開發期 feature-gated surface**，只在 `bun run desktop:dev:bridge` 或 `tauri dev --features devtools-bridge` 時啟用。
 - 這條 bridge 只把 typed desktop command facade 鏡射到 localhost，方便 Chrome / Playwright / CDP 調試；它不是 shipping API，也不應被當成 plugin sandbox 或 remote control surface。
-- 2026-10 起沒有 browser-preview 假後端。瀏覽器裡驗證 UI 用 `bun run dev:demo`（debug 後端 + dev bridge + 合成 Chrome×2 / Firefox 歷史，`--first-run --fresh` 從 onboarding 開始）；E2E 用 `bun run test:e2e`，同樣跑在真後端上，產物在 `artifacts/e2e/`。dev bridge 下沒有選單列圖示，也收不到 `pathkeep://` 桌面事件。
+- 2026-10 起沒有 browser-preview 假後端。瀏覽器裡驗證 UI 用 `bun run dev:demo`（debug 後端 + dev bridge + 合成 Chrome×2 / Firefox 歷史，`--first-run --fresh` 從 onboarding 開始）；E2E 用 `bun run test:e2e`，同樣跑在真後端上，產物在 `artifacts/e2e/`。dev bridge 下沒有選單列圖示；`pathkeep://` 桌面事件由 bridge 的 `/events`（server-sent events）送到瀏覽器，前端用 `listenDesktopEvent` 在 Tauri 與 bridge 下聽同一個事件（2026-10-09 起；之前收不到，Ask 在 E2E 裡永遠停在「處理中」）。
 
 2026-10 desktop integration note：開機時啟動、選單列 / 系統匣圖示與 `pathkeep://open-command-palette`、`pathkeep://backup-finished` 兩個事件見 [desktop-command-surface.md](desktop-command-surface.md)「Open at login 與選單列圖示（2026-10）」。
 

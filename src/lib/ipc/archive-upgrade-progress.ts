@@ -15,6 +15,7 @@
  */
 
 import type { ArchiveUpgradeProgress } from '../types'
+import { listenDesktopEvent } from './events'
 
 /**
  * Defines the type-level contract for archive-upgrade progress listener.
@@ -30,21 +31,16 @@ export type ArchiveUpgradeProgressListener = (
  * Subscribes to the one-time archive-upgrade progress channel.
  *
  * This helper should stay small, explicit, and easy to test because the upgrade
- * screen relies on it as a shared contract. It degrades to a no-op unsubscribe
- * when the Tauri event bridge is unavailable (browser preview / non-desktop).
+ * screen relies on it as a shared contract. In the app and through the dev
+ * bridge alike (`listenDesktopEvent`).
  */
 export async function subscribeToArchiveUpgradeProgress(
   listener: ArchiveUpgradeProgressListener,
 ) {
-  try {
-    const { listen } = await import('@tauri-apps/api/event')
-    return await listen<ArchiveUpgradeProgress>(
-      'pathkeep://archive-upgrade',
-      ({ payload }) => {
-        if (payload) listener(payload)
-      },
-    )
-  } catch {
-    return () => {}
-  }
+  return listenDesktopEvent<ArchiveUpgradeProgress | null>(
+    'pathkeep://archive-upgrade',
+    (payload) => {
+      if (payload) listener(payload)
+    },
+  )
 }

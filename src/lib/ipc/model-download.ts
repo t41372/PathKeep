@@ -18,8 +18,7 @@
  * - Rendering any UI or deciding copy.
  *
  * ## Dependencies
- * - `@tauri-apps/api/event` for the live channel (absent under the dev HTTP bridge / browser
- *   preview, where the subscription degrades to a no-op unsubscribe by design).
+ * - `listenDesktopEvent` for the live channel (Tauri events, or the dev bridge's `/events`).
  * - `react` for the hook exports (`useState`, `useEffect`, `useRef`).
  *
  * ## Why the latch mirrors the backend cancel flag
@@ -31,6 +30,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { ModelDownloadProgressEvent } from '../types'
+import { listenDesktopEvent } from './events'
 
 /** Tauri event channel for in-app model download progress. Must match the Rust literal. */
 export const MODEL_DOWNLOAD_PROGRESS_EVENT =
@@ -43,24 +43,18 @@ export type ModelDownloadProgressListener = (
 /**
  * Subscribes to the in-app model download progress channel.
  *
- * Returns an unsubscribe function. When the Tauri event bridge is unavailable (browser preview /
- * dev HTTP bridge) it degrades to a no-op unsubscribe instead of throwing, so callers can always
+ * Returns an unsubscribe function; without any event source it is a no-op, so callers can always
  * subscribe unconditionally.
  */
 export async function subscribeToModelDownloadProgress(
   listener: ModelDownloadProgressListener,
 ): Promise<() => void> {
-  try {
-    const { listen } = await import('@tauri-apps/api/event')
-    return await listen<ModelDownloadProgressEvent>(
-      MODEL_DOWNLOAD_PROGRESS_EVENT,
-      ({ payload }) => {
-        if (payload) listener(payload)
-      },
-    )
-  } catch {
-    return () => {}
-  }
+  return listenDesktopEvent<ModelDownloadProgressEvent | null>(
+    MODEL_DOWNLOAD_PROGRESS_EVENT,
+    (payload) => {
+      if (payload) listener(payload)
+    },
+  )
 }
 
 // Process-global download-in-flight latch (mirrors the backend's global cancel flag). A module

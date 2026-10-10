@@ -384,6 +384,9 @@ impl ArchiveUpgradePhase {
     }
 }
 
+/// The event `ArchiveUpgradeProgress` goes out on, to the window and to the dev bridge's browsers.
+pub const ARCHIVE_UPGRADE_EVENT: &str = "pathkeep://archive-upgrade";
+
 /// Streamed progress for the first-run "Upgrading your archive…" experience.
 ///
 /// `processed`/`total` are honest unit counts for the phases that HAVE a
