@@ -107,6 +107,9 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
   （`src/features/history/queries.ts`），讀取失敗會說「無法載入備註」。
 - **已加星**視圖用 `useStarList()`（`list_stars`，依加星時間由新到舊，每頁 500 筆，捲到底
   再載入下一頁，沒有總數上限）在每列顯示筆記預覽；筆記與標籤跟著每一項一起回傳。
+  History 的列在加星的頁面旁畫星號，星號帶「已加星」的標籤（三種語言），讀螢幕的人也聽得到。
+  E2E（`history-tools.spec`）：筆記的字（拉丁字與中文）找到那一頁、`note:` / `-note:`、改了筆記舊字找不到；
+  兩個設定檔的頁面加星，Starred、列上的星號與 `is:starred` 一致，拿掉一個重新整理後三處都沒有。
 - **標籤**：詳情面板備註上方的標籤列（`src/features/history/tag-editor.tsx`）。
   輸入後按 Enter 或逗號新增（可一次貼上逗號分隔的多個）；輸入框空著時按 Backspace 移到最後一個標籤，
   在標籤上按 Backspace / Delete 移除，←/→ 在標籤與輸入框之間移動；每個標籤也有「移除」按鈕。

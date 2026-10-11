@@ -80,9 +80,15 @@ interface VisitRowProps {
   onOpen: (item: VisitItem) => void
 }
 
+/** Says "Starred" to assistive technology too, not only with the icon. */
 function StarMark({ starred }: { starred: boolean }) {
+  const { t } = useI18n()
   return starred ? (
-    <Star className="size-[13px] shrink-0 fill-brand text-brand" aria-hidden />
+    <Star
+      className="size-[13px] shrink-0 fill-brand text-brand"
+      role="img"
+      aria-label={t('history.starred.mark')}
+    />
   ) : null
 }
 
