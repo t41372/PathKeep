@@ -140,7 +140,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
   - 安裝結果記入審計日誌，並透過 inline progress / success / failure result 回到 UI。
   - 移除 / 解除安裝同樣要留下 verify 訊號與 audit artifact，讓使用者能確認 PathKeep 實際移除了哪些檔案。
   - 已知 legacy scheduler conflict 必須透過使用者明確點擊 `repair_schedule` 才能自動修復；不得在 status detection、install 或 remove 中靜默清理 legacy tasks。
-- Dashboard / Settings / Schedule 必須共享平台 capability 與 troubleshooting 語法，至少能清楚暴露 manual-review、mismatch、legacy install、permission warning 等狀態，並直接引導回排程頁修復。
+- Dashboard / Settings / Schedule 必須共享平台 capability 與 troubleshooting 語法，至少能清楚暴露 manual-review、mismatch、legacy install、permission warning 等狀態，並直接引導回排程頁修復。（v0.4：Home 的警告列與 Backup 的自動備份卡用同一組排程器回報的問題與文字，Home 的連到 Backup；另有「已經停了」：安裝了，但系統超過三次檢查都沒啟動 PathKeep。）
 - Settings 的 independent support inspections（schedule / keyring / security）失敗時，必須在 Settings 本身留下可見 failure + retry，不能用 `null` status 偽裝成沒有問題。
 - Schedule 的 Verify surface 必須直接列出 install state、detected files、typed issues、verification checks、latest audit artifact 與最近一次 apply / remove / repair 結果，避免 verify 只剩一段模糊狀態字串或 raw backend English warning。
 - 2026-10 介面：Backup → 自動備份卡有每小時 / 每 6 小時 / 每天 / 自訂 / 關。選任何間隔、關閉、重新安裝或移除舊版工作都先開對話框：安裝類顯示 `preview_schedule`（帶 `dueAfterHours`，不寫 config）產生的完整 plist / XML / systemd 檔與存放位置，關閉類列出會移除的檔案；按下確認才存間隔並 `apply_schedule` 剛才顯示的那份 plan。關閉不改存下的間隔。「詳情」sheet 是 Verify：檢查項（後端 `schedule.verify*` key 的在地化文字）、問題（`schedule.issue*`）、找到的檔案、最近一次變更（`lastAction`，讀最新的 `audit/scheduler/*.json`，含寫入 / 移除的檔案與記錄檔路徑；舊記錄沒有結果欄位時顯示「沒有記錄結果」）、最近的自動執行、手動步驟（`schedule.manual*`，檔案與指令都可複製）。Linux 卡片直接顯示手動步驟，選間隔只存設定。
@@ -290,7 +290,7 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 - 若使用者選擇記住 database key，PathKeep 只在啟動後的第一個 unlocked app session 讀取一次 keyring，之後把 active session key 保留在記憶體直到使用者手動鎖定 archive 或結束 app；不得在每次 shell refresh / status hydrate 時反覆重讀 keyring 並造成原生授權提示。
 - 不加密模式也可以使用，但 UI 必須明確標示「數據庫為明文」。
 - Linux 沒有可用 keyring 時：仍允許加密模式，但每次啟動都需要輸入主密碼。不做弱保護 fallback。
-- keyring unavailable、session locked、password-loss 風險與 rekey boundary 不能只留在 Security；Dashboard 與 Settings 也要保留可見 warning 與導向 Security 的修復入口。
+- keyring unavailable、session locked、password-loss 風險與 rekey boundary 不能只留在 Security；Dashboard 與 Settings 也要保留可見 warning 與導向 Security 的修復入口。（v0.4：Home 的警告列，見 `screens-and-nav.md` Home；E2E `home-alerts.spec`。）
 - 提供完整的 rekey 流程：更改密碼、明文→加密、加密→明文。
 - 更改密碼與加密→明文都必須先輸入**目前的密碼**（2026-10-04）：後端用它解開 key envelope 驗證，錯了就拒絕（preview 與 execute 都檢查）。否則任何坐在已解鎖視窗前的人都能把 archive 換成自己的密碼或改成明文。明文→加密沒有目前的密碼，不需要。錯誤碼 `archive-password-required` / `archive-password-wrong`，契約見 `desktop-command-surface.md` §2026-10。
 - 改密碼只原子替換 envelope，資料庫、搜尋檔案與 keychain data key 不變，也不在資料庫新增 run。模式切換完整複製四個資料庫，核對列數與內容摘要並重建搜尋後，以目的模式保存安全快照，才經 journal 換檔並記錄原生 `rekey` run；取消或中斷不會丟失原檔。
