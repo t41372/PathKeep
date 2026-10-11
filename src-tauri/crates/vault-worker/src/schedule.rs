@@ -103,6 +103,23 @@ pub fn schedule_status(
         .transpose()?
         .and_then(|status| status.last_successful_backup_at);
     let ledger = load_schedule_attempt_ledger(&paths, native_schedule_interval_hours(&config))?;
+    if status.install_state == "installed" {
+        // When it was installed, if the audit trail recorded it.
+        let installed_at = status
+            .last_action
+            .as_ref()
+            .filter(|action| action.action == "apply" && action.status == "ok")
+            .map(|action| action.at.as_str());
+        status.issues.extend(
+            vault_core::overdue_issue(
+                &ledger.attempts,
+                installed_at,
+                native_schedule_interval_hours(&config),
+                chrono::Utc::now(),
+            )
+            .map(schedule_attempt_issue),
+        );
+    }
     status.last_scheduled_success_at = ledger.last_success_at;
     status.recent_attempts = ledger.attempts;
     status.issues.extend(ledger.health_issues.into_iter().map(schedule_attempt_issue));
@@ -120,6 +137,11 @@ fn schedule_attempt_issue(issue: vault_core::ScheduledBackupHealthIssue) -> Sche
             "schedule.issueScheduleAttemptInterruptedTitle",
             "schedule.issueScheduleAttemptInterruptedDetail",
             "schedule.issueScheduleAttemptInterruptedConsequence",
+        ),
+        "scheduled-backup-overdue" => (
+            "schedule.issueScheduleOverdueTitle",
+            "schedule.issueScheduleOverdueDetail",
+            "schedule.issueScheduleOverdueConsequence",
         ),
         _ => (
             "schedule.issueScheduleAttemptLedgerUnreadableTitle",

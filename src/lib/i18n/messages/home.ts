@@ -6,6 +6,39 @@ export const home = defineMessages({
     greetingAfternoon: 'Good afternoon',
     greetingEvening: 'Good evening',
     title: '{greeting}',
+    alerts: {
+      label: 'Needs your attention',
+      openBackup: 'Open Backup',
+      openSecurity: 'Open Security settings',
+      scheduleFallback: 'Automatic backup needs attention',
+      fullDiskAccess: {
+        title: 'Safari’s history can’t be read',
+        detail:
+          'macOS keeps Safari’s history from PathKeep until you give it Full Disk Access. Until then Safari is not backed up.',
+      },
+      discoveryError: {
+        title: 'PathKeep couldn’t look for your browsers',
+        detail:
+          'The browsers on this computer could not be listed, so new history may be missed.',
+      },
+      keychainUnavailable: {
+        title: 'The keychain isn’t available',
+        detail:
+          'The archive password can’t be saved, so PathKeep asks for it every time it starts, and automatic backups can’t run without you.',
+      },
+      keyMissing: {
+        title: 'The archive password is no longer in the keychain',
+        detail:
+          'PathKeep will ask for it the next time it starts, and automatic backups can’t open the archive until it is saved again.',
+      },
+      passwordRisk: {
+        title: 'Only you have the archive password',
+        detail:
+          'The archive is encrypted and its password isn’t in the keychain. If the password is lost, nothing can open the archive, PathKeep included.',
+        keep: 'Save it in the keychain',
+        dismiss: 'I keep it safe',
+      },
+    },
     stats: {
       saved: 'Saved visits',
       savedSub_one: '{count} new this week',
@@ -74,6 +107,38 @@ export const home = defineMessages({
     greetingAfternoon: '下午好',
     greetingEvening: '晚上好',
     title: '{greeting}，这是你走过的路',
+    alerts: {
+      label: '需要你处理',
+      openBackup: '打开备份',
+      openSecurity: '打开安全设置',
+      scheduleFallback: '自动备份需要处理',
+      fullDiskAccess: {
+        title: '读不到 Safari 的历史',
+        detail:
+          '在你给 PathKeep 完全磁盘访问权限之前，macOS 不让它读 Safari 的历史，这期间 Safari 不会被备份。',
+      },
+      discoveryError: {
+        title: 'PathKeep 找不到你的浏览器',
+        detail: '没能列出这台电脑上的浏览器，新的历史可能会漏掉。',
+      },
+      keychainUnavailable: {
+        title: '钥匙串不可用',
+        detail:
+          '存不了存档的密码，所以 PathKeep 每次启动都要问，自动备份也没法在你不在时运行。',
+      },
+      keyMissing: {
+        title: '存档的密码已经不在钥匙串里',
+        detail:
+          'PathKeep 下次启动会问密码，自动备份在重新存好之前也打不开存档。',
+      },
+      passwordRisk: {
+        title: '存档的密码只有你知道',
+        detail:
+          '存档已加密，密码不在钥匙串里。密码一旦丢了，谁都打不开存档，PathKeep 也不行。',
+        keep: '存到钥匙串',
+        dismiss: '我有妥善保管',
+      },
+    },
     stats: {
       saved: '已保存记录',
       savedSub_one: '本周新增 {count}',
@@ -141,6 +206,38 @@ export const home = defineMessages({
     greetingAfternoon: '午安',
     greetingEvening: '晚安',
     title: '{greeting}，這是你走過的路',
+    alerts: {
+      label: '需要你處理',
+      openBackup: '打開備份',
+      openSecurity: '打開安全性設定',
+      scheduleFallback: '自動備份需要處理',
+      fullDiskAccess: {
+        title: '讀不到 Safari 的歷史',
+        detail:
+          '在你給 PathKeep 完整磁碟取用權限之前，macOS 不讓它讀 Safari 的歷史，這段期間 Safari 不會被備份。',
+      },
+      discoveryError: {
+        title: 'PathKeep 找不到你的瀏覽器',
+        detail: '沒能列出這台電腦上的瀏覽器，新的歷史可能會漏掉。',
+      },
+      keychainUnavailable: {
+        title: '鑰匙圈無法使用',
+        detail:
+          '存不了存檔的密碼，所以 PathKeep 每次啟動都要問，自動備份也沒辦法在你不在時執行。',
+      },
+      keyMissing: {
+        title: '存檔的密碼已經不在鑰匙圈裡',
+        detail:
+          'PathKeep 下次啟動會問密碼，自動備份在重新存好之前也打不開存檔。',
+      },
+      passwordRisk: {
+        title: '存檔的密碼只有你知道',
+        detail:
+          '存檔已加密，密碼不在鑰匙圈裡。密碼一旦遺失，誰都打不開存檔，PathKeep 也不行。',
+        keep: '存到鑰匙圈',
+        dismiss: '我有妥善保管',
+      },
+    },
     stats: {
       saved: '已保存記錄',
       savedSub_one: '本週新增 {count}',

@@ -149,6 +149,8 @@ export interface AppConfig {
   insightsTimeZone?: string | null
   /** The computer's zone when the user chose to keep Insights' own; no notice while the computer stays in it. */
   insightsZoneKeptFor?: string | null
+  /** The user keeps the archive password safe themselves; Home stops warning about it. */
+  passwordKeptElsewhere?: boolean
 }
 
 /**

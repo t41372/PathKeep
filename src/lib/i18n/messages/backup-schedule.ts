@@ -154,6 +154,11 @@ export const backupSchedule = defineMessages({
       issueScheduleAttemptInterruptedDetail:
         'PathKeep was stopped before the backup finished, for example by a shutdown.',
       issueScheduleAttemptInterruptedConsequence: 'The next run tries again.',
+      issueScheduleOverdueTitle: 'Automatic backups have stopped running',
+      issueScheduleOverdueDetail:
+        'The system has not started PathKeep for longer than this schedule allows, not even to check whether a backup is due.',
+      issueScheduleOverdueConsequence:
+        'New history is not saved, and the browsers may delete it first. Reinstall the automatic backup, or back up now.',
       issueScheduleAttemptLedgerUnreadableTitle:
         'PathKeep could not read its list of automatic runs',
       issueScheduleAttemptLedgerUnreadableDetail:
@@ -365,6 +370,11 @@ export const backupSchedule = defineMessages({
       issueScheduleAttemptInterruptedDetail:
         '备份完成前 PathKeep 被停止了，比如关机。',
       issueScheduleAttemptInterruptedConsequence: '下次运行会再试一次。',
+      issueScheduleOverdueTitle: '自动备份已经停了',
+      issueScheduleOverdueDetail:
+        '系统超过这个排程该有的时间都没有启动 PathKeep，连检查要不要备份都没有。',
+      issueScheduleOverdueConsequence:
+        '新的历史不会被保存，浏览器还可能先把它删掉。请重新安装自动备份，或现在就备份。',
       issueScheduleAttemptLedgerUnreadableTitle:
         'PathKeep 无法读取自动运行的记录',
       issueScheduleAttemptLedgerUnreadableDetail:
@@ -568,6 +578,11 @@ export const backupSchedule = defineMessages({
       issueScheduleAttemptInterruptedDetail:
         '備份完成前 PathKeep 被停止了，例如關機。',
       issueScheduleAttemptInterruptedConsequence: '下次執行會再試一次。',
+      issueScheduleOverdueTitle: '自動備份已經停了',
+      issueScheduleOverdueDetail:
+        '系統超過這個排程該有的時間都沒有啟動 PathKeep，連檢查要不要備份都沒有。',
+      issueScheduleOverdueConsequence:
+        '新的歷史不會被儲存，瀏覽器還可能先把它刪掉。請重新安裝自動備份，或現在就備份。',
       issueScheduleAttemptLedgerUnreadableTitle:
         'PathKeep 無法讀取自動執行的記錄',
       issueScheduleAttemptLedgerUnreadableDetail:

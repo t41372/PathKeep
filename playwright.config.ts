@@ -163,6 +163,7 @@ export default defineConfig({
         'search-ranking.spec.ts',
         'schedule.spec.ts',
         'browser-import.spec.ts',
+        'home-alerts.spec.ts',
         'takeout-import.spec.ts',
         'ask.spec.ts',
         'lock.spec.ts',

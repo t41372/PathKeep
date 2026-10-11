@@ -245,6 +245,41 @@ fn derive_health_issues(
     }
 }
 
+/// The system has stopped starting scheduled backups: no attempt of any outcome for three of
+/// its checks, counted from the newest attempt or from when the schedule was installed,
+/// whichever is later. A "not due yet" run counts, since it shows the scheduler calls; failed
+/// runs have an issue of their own. `attempts` is newest first, as the ledger returns them.
+pub fn overdue_issue(
+    attempts: &[ScheduledBackupAttempt],
+    installed_at: Option<&str>,
+    check_interval_hours: f64,
+    now: DateTime<Utc>,
+) -> Option<ScheduledBackupHealthIssue> {
+    let parse = |timestamp: &str| {
+        DateTime::parse_from_rfc3339(timestamp).ok().map(|value| value.with_timezone(&Utc))
+    };
+    let since = attempts
+        .first()
+        .and_then(|attempt| parse(&attempt.started_at))
+        .into_iter()
+        .chain(installed_at.and_then(parse))
+        .max()?;
+    let check_minutes = if check_interval_hours.is_finite() && check_interval_hours > 0.0 {
+        (check_interval_hours * 60.0).ceil() as i64
+    } else {
+        60
+    };
+    (now.signed_duration_since(since) > Duration::minutes(check_minutes.saturating_mul(3))).then(
+        || ScheduledBackupHealthIssue {
+            code: "scheduled-backup-overdue".to_string(),
+            severity: "warning".to_string(),
+            detected_at: now.to_rfc3339(),
+            related_attempt_id: attempts.first().map(|attempt| attempt.id.clone()),
+            evidence: vec![since.to_rfc3339_opts(chrono::SecondsFormat::Secs, false)],
+        },
+    )
+}
+
 fn materialize_interrupted_attempts(
     attempts: &mut [ScheduledBackupAttempt],
     check_interval_hours: f64,
@@ -506,6 +541,55 @@ mod tests {
         let mut issues = Vec::new();
         derive_health_issues(&attempts, detected_at, &mut issues);
         assert!(issues.iter().any(|issue| issue.code == "worker-interrupted"));
+    }
+
+    // Failure modes of `overdue_issue`: a schedule installed a moment ago flagged before it
+    // could run; "not due yet" runs taken for silence (they prove the scheduler calls); flagged
+    // after two missed checks, when a sleeping laptop catches up on waking; a reinstall after a
+    // long silence still flagged; a timestamp it cannot read taken as a long silence.
+    #[test]
+    fn a_schedule_the_system_stopped_calling_is_overdue() {
+        let now =
+            DateTime::parse_from_rfc3339("2026-10-10T12:00:00+00:00").unwrap().with_timezone(&Utc);
+        let attempt = |started_at: &str, outcome| ScheduledBackupAttempt {
+            id: started_at.to_string(),
+            started_at: started_at.to_string(),
+            finished_at: Some(started_at.to_string()),
+            outcome,
+            phase: ScheduledBackupAttemptPhase::Finished,
+            reason_code: None,
+            detail: None,
+            run_id: None,
+        };
+        let skipped = attempt("2026-10-10T09:30:00+00:00", ScheduledBackupAttemptOutcome::Skipped);
+        // Hourly checks: two hours and a half of silence is not yet three missed checks.
+        assert!(overdue_issue(std::slice::from_ref(&skipped), None, 1.0, now).is_none());
+        let silent = attempt("2026-10-10T08:30:00+00:00", ScheduledBackupAttemptOutcome::Skipped);
+        let issue = overdue_issue(std::slice::from_ref(&silent), None, 1.0, now).expect("overdue");
+        assert_eq!(issue.code, "scheduled-backup-overdue");
+        assert_eq!(issue.evidence, vec!["2026-10-10T08:30:00+00:00"]);
+        // Installed again since: measured from the install.
+        assert!(
+            overdue_issue(
+                std::slice::from_ref(&silent),
+                Some("2026-10-10T11:00:00+00:00"),
+                1.0,
+                now
+            )
+            .is_none()
+        );
+        // Installed, never run, and the system never started it.
+        assert!(overdue_issue(&[], Some("2026-10-10T11:50:00+00:00"), 1.0, now).is_none());
+        assert!(overdue_issue(&[], Some("2026-10-09T12:00:00+00:00"), 1.0, now).is_some());
+        // Nothing to measure from, or nothing readable.
+        assert!(overdue_issue(&[], None, 1.0, now).is_none());
+        let unreadable = attempt("yesterday", ScheduledBackupAttemptOutcome::Skipped);
+        assert!(overdue_issue(&[unreadable], None, 1.0, now).is_none());
+        // Daily backups are checked every six hours: eighteen hours of silence.
+        let daily = attempt("2026-10-09T19:00:00+00:00", ScheduledBackupAttemptOutcome::Success);
+        assert!(overdue_issue(std::slice::from_ref(&daily), None, 6.0, now).is_none());
+        let daily = attempt("2026-10-09T17:00:00+00:00", ScheduledBackupAttemptOutcome::Success);
+        assert!(overdue_issue(&[daily], None, 6.0, now).is_some());
     }
 
     #[test]

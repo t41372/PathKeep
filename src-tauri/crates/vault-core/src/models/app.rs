@@ -177,6 +177,9 @@ pub struct AppConfig {
     /// The computer's zone when the user chose to keep Insights in its own: the notice that the
     /// two differ stays hidden until the computer's zone changes again.
     pub insights_zone_kept_for: Option<String>,
+    /// The user said they keep the archive password safe themselves: Home stops warning that an
+    /// encrypted archive whose password is not in the keychain cannot be opened without it.
+    pub password_kept_elsewhere: bool,
 }
 
 /// How aggressively the og:image worker fetches link-preview bytes.
@@ -281,6 +284,7 @@ impl Default for AppConfig {
             og_image: OgImageSettings::default(),
             insights_time_zone: None,
             insights_zone_kept_for: None,
+            password_kept_elsewhere: false,
         }
     }
 }
