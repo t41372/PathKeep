@@ -72,6 +72,12 @@ const MY_ACTIVITY_HINT =
 
 async function inspect(page: Page, folder: string) {
   await page.goto('/#/backup')
+  // The card keeps the last import's result until the user starts another.
+  const card = page
+    .getByRole('heading', { name: 'Import', exact: true })
+    .locator('xpath=ancestor::section[1]')
+  const another = card.getByRole('button', { name: 'Import another' })
+  if (await another.isVisible()) await another.click()
   const field = page.getByRole('textbox', {
     name: 'Path to a Takeout .zip or folder',
   })

@@ -127,6 +127,14 @@ export const backup = defineMessages({
         '{count} visits were already in your archive from another source (the browser, or another export). They are kept and counted once.',
       continued:
         'This finished the import of this export that stopped on {date}; the numbers include what it saved then.',
+      stop: 'Stop',
+      stopping: 'Stopping…',
+      stopFailed: 'Could not stop the import',
+      stoppedToast: 'Import stopped',
+      stopped_one: 'Stopped. {count} new visit was saved.',
+      stopped_other: 'Stopped. {count} new visits were saved.',
+      stoppedNext:
+        'Import the same export again to finish it. It reads the export from the start, but passes quickly over what was saved.',
       another: 'Import another',
       batches: {
         title: 'Recent imports',
@@ -303,6 +311,14 @@ export const backup = defineMessages({
         '{count} 条已经从别的来源（浏览器本身，或另一份导出）进了存档：一并保存，只算一次。',
       continued:
         '接着完成了 {date} 中断的这份导出；上面的数字包括那次已经存下的。',
+      stop: '停止',
+      stopping: '正在停止…',
+      stopFailed: '没能停止导入',
+      stoppedToast: '导入已停止',
+      stopped_one: '已停止。存下了 {count} 条新的浏览记录。',
+      stopped_other: '已停止。存下了 {count} 条新的浏览记录。',
+      stoppedNext:
+        '再导入同一份导出就能完成：会从头再读一遍，已经存下的很快略过，接着存剩下的。',
       another: '再导入一个',
       batches: {
         title: '最近的导入',
@@ -478,6 +494,14 @@ export const backup = defineMessages({
         '{count} 筆已經從別的來源（瀏覽器本身，或另一份匯出）進了存檔：一併保存，只算一次。',
       continued:
         '接著完成了 {date} 中斷的這份匯出；上面的數字包括那次已經存下的。',
+      stop: '停止',
+      stopping: '正在停止…',
+      stopFailed: '沒能停止匯入',
+      stoppedToast: '匯入已停止',
+      stopped_one: '已停止。存下了 {count} 筆新的瀏覽記錄。',
+      stopped_other: '已停止。存下了 {count} 筆新的瀏覽記錄。',
+      stoppedNext:
+        '再匯入同一份匯出就能完成：會從頭再讀一遍，已經存下的很快略過，接著存剩下的。',
       another: '再匯入一個',
       batches: {
         title: '最近的匯入',

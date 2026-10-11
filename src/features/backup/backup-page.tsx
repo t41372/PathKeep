@@ -2,7 +2,8 @@
  * Backup: what PathKeep copies, when it runs, how older history comes in,
  * and what recent runs did. Each card owns its own data and actions, except
  * the two import cards: a file dropped anywhere on the window belongs to
- * exactly one of them, so the page owns their state and routes each drop.
+ * exactly one of them, so the page routes each drop. Their runs live above
+ * the router (`import-runner.tsx`).
  */
 import { BackupNowButton } from '@/components/app/backup-button'
 import { PageHeader, PageScroll } from '@/components/app/section-card'
@@ -16,8 +17,7 @@ import { ProgressCard } from './progress-card'
 import { RunsCard } from './runs-card'
 import { ScheduleCard } from './schedule-card'
 import { SourcesCard } from './sources-card'
-import { useBrowserImport } from './use-browser-import'
-import { useTakeoutImport } from './use-takeout-import'
+import { useBrowserImport, useTakeoutImport } from './import-runner'
 
 export default function BackupPage() {
   const { t } = useI18n()
@@ -52,6 +52,7 @@ export default function BackupPage() {
           hovering={hovering && browserIdle}
           onInspect={(path, source) => void browser.inspect(path, source)}
           onConfirm={() => void browser.confirm()}
+          onStop={() => void browser.stop()}
           onReset={browser.reset}
         />
         <ImportsCard />

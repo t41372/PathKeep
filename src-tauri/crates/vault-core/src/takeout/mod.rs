@@ -7,6 +7,7 @@ mod batch_review;
 mod batches;
 mod browser_history;
 mod import_flow;
+mod import_jobs;
 mod import_run;
 mod inspect;
 mod payload_import;
@@ -62,6 +63,7 @@ pub use self::{
         import_browser_history_with_progress, inspect_browser_history,
     },
     import_flow::{import_takeout, import_takeout_with_control, import_takeout_with_progress},
+    import_jobs::{ImportJob, stop_import},
     inspect::inspect_takeout,
 };
 

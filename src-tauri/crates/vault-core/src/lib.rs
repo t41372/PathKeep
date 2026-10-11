@@ -170,10 +170,11 @@ pub use stars::{
     starred_history_ids, unset_star,
 };
 pub use takeout::{
-    ImportBatchPage, import_browser_history, import_browser_history_with_progress, import_takeout,
-    import_takeout_with_progress, inspect_browser_history, inspect_takeout, load_import_batches,
-    preview_import_batch, preview_import_batch_page, restore_import_batch,
+    ImportBatchPage, ImportJob, import_browser_history, import_browser_history_with_progress,
+    import_takeout, import_takeout_with_progress, inspect_browser_history, inspect_takeout,
+    load_import_batches, preview_import_batch, preview_import_batch_page, restore_import_batch,
     restore_import_batch_with_control, revert_import_batch, revert_import_batch_with_control,
+    stop_import,
 };
 /// Pure SHA-256 helpers (hex digest of bytes / of a file's contents). Re-exported so the worker's
 /// model-download tests and the static model e2e can pin digests against the same impl the

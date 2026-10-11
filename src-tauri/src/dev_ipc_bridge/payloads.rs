@@ -144,6 +144,9 @@ pub(super) struct ExportIdPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct TakeoutPayload {
     pub(super) request: TakeoutRequest,
+    /// Names the run for `stop_import`; only imports have one.
+    #[serde(default)]
+    pub(super) import_id: Option<String>,
 }
 
 /// Carries Browser Direct scan or import options through the dev mirror.
@@ -151,6 +154,16 @@ pub(super) struct TakeoutPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct BrowserHistoryPayload {
     pub(super) request: BrowserHistoryImportRequest,
+    /// Names the run for `stop_import`; only imports have one.
+    #[serde(default)]
+    pub(super) import_id: Option<String>,
+}
+
+/// Names the import `stop_import` stops.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ImportIdPayload {
+    pub(super) import_id: String,
 }
 
 /// Selects an import batch for preview, revert, or restore commands.

@@ -78,7 +78,9 @@ pub fn import_browser_history_with_progress(
     import_browser_history_with_control(vault, request, &CancelToken::new(), progress)
 }
 
-/// An interrupted import retains its batch ID so its committed prefix can be reverted.
+/// An interrupted import retains its batch ID so its committed prefix can be reverted. One that
+/// `cancel` stops returns what it saved (`TakeoutInspection::stopped`); the next import of the
+/// file is a new batch, where those visits count as already in the archive.
 pub fn import_browser_history_with_control(
     vault: &Vault,
     request: &BrowserHistoryImportRequest,
@@ -241,11 +243,17 @@ pub fn import_browser_history_with_control(
     );
     Ok(inspection)
     });
-    result.map_err(|error| {
-        let saved =
-            review::save_failure(vault, batch_id, &request.source_path, partial_review, &error);
-        super::import_run::with_review_context(error, saved)
-    })
+    match result {
+        // Stopped by the user: what it saved stays, and nothing failed to read.
+        Err(error) if super::import_flow::stopped(cancel, &error) => {
+            batches::stopped_inspection(vault, batch_id, &request.source_path, None)
+        }
+        result => result.map_err(|error| {
+            let saved =
+                review::save_failure(vault, batch_id, &request.source_path, partial_review, &error);
+            super::import_run::with_review_context(error, saved)
+        }),
+    }
 }
 
 fn upsert_browser_history_profile(

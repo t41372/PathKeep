@@ -7,8 +7,9 @@
  * Traditional Chinese account's folder; and a download as Google sends it, one
  * .zip with Chrome's history and My Activity's copy of it. Times come from the
  * fixture's `now`, so a repeated run writes the same files, and `wipe.spec`
- * can count what the imports left in the archive. Also the larger export
- * `takeout-continue.spec` stops half way and imports again.
+ * can count what the imports left in the archive. Also the larger exports
+ * `takeout-continue.spec` and `import-stop.spec` stop half way and import
+ * again.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -310,6 +311,32 @@ export function writeContinuedFolder() {
   const records = Array.from({ length: continuedVisitCount() }, (_, n) => ({
     url: `https://continued.example/page-${n % 2_000}`,
     title: `Continued page ${n % 2_000}`,
+    time_usec: (start + n * 60_000) * 1_000,
+  }))
+  writeFileSync(
+    path.join(folder, 'Chrome', 'BrowserHistory.json'),
+    JSON.stringify({ 'Browser History': records }),
+  )
+  return folder
+}
+
+/**
+ * The visits of the export `import-stop.spec` stops from the card: five of
+ * the import's 10,000-record parts, so a Stop after the first lands well
+ * before the end.
+ */
+export function stoppedVisitCount() {
+  return 50_000
+}
+
+/** That export, as a Takeout folder; 300 pages on a site of its own. */
+export function writeStoppedFolder() {
+  const folder = path.join(fixture().root, 'takeout-stopped')
+  mkdirSync(path.join(folder, 'Chrome'), { recursive: true })
+  const start = fixture().now - 500 * DAY_MS
+  const records = Array.from({ length: stoppedVisitCount() }, (_, n) => ({
+    url: `https://stopped.example/page-${n % 300}`,
+    title: `Stopped page ${n % 300}`,
     time_usec: (start + n * 60_000) * 1_000,
   }))
   writeFileSync(

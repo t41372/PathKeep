@@ -32,8 +32,7 @@ use vault_core::{
     ExportRequest, HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse,
     ImportBatchDetail, ImportProgressEvent, TakeoutInspection, TakeoutRequest, ai_queue,
     clear_derived_intelligence_state, doctor, export_history, get_browse_day_insights,
-    import_browser_history_with_progress, import_takeout_with_progress, inspect_browser_history,
-    inspect_takeout,
+    inspect_browser_history, inspect_takeout,
     intelligence_runtime::{
         DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
         enqueue_core_intelligence_job, mark_all_deterministic_modules_stale,
@@ -869,13 +868,17 @@ pub fn import_takeout_source(
     session_database_key: Option<&str>,
     request: &TakeoutRequest,
 ) -> Result<TakeoutInspection> {
-    import_takeout_source_with_progress(vault, session_database_key, request, |_| {})
+    import_takeout_source_with_progress(vault, session_database_key, request, None, |_| {})
 }
 
+/// Imports a Takeout source with progress events. Under `import_id`, `stop_import` can stop it
+/// between batches of records; a stopped import returns what it saved, and its Insights are
+/// refreshed like a finished one's.
 pub fn import_takeout_source_with_progress<F>(
     vault: &Vault,
     _session_database_key: Option<&str>,
     request: &TakeoutRequest,
+    import_id: Option<&str>,
     report_progress: F,
 ) -> Result<TakeoutInspection>
 where
@@ -883,8 +886,13 @@ where
 {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let mut inspection =
-        import_takeout_with_progress(&vault.with_config(config.clone()), request, report_progress)?;
+    let job = vault_core::ImportJob::start(import_id)?;
+    let mut inspection = vault_core::takeout::import_takeout_with_control(
+        &vault.with_config(config.clone()),
+        request,
+        job.cancel_token(),
+        report_progress,
+    )?;
     if inspection.imported_items > 0 {
         let profiles = vault_core::takeout::takeout_profiles(&inspection);
         append_core_refresh_import_result(
@@ -901,13 +909,16 @@ pub fn import_browser_history_source(
     session_database_key: Option<&str>,
     request: &BrowserHistoryImportRequest,
 ) -> Result<TakeoutInspection> {
-    import_browser_history_source_with_progress(vault, session_database_key, request, |_| {})
+    import_browser_history_source_with_progress(vault, session_database_key, request, None, |_| {})
 }
 
+/// Imports a browser's history file with progress events; `import_id` lets `stop_import` stop
+/// it, as for Takeout.
 pub fn import_browser_history_source_with_progress<F>(
     vault: &Vault,
     _session_database_key: Option<&str>,
     request: &BrowserHistoryImportRequest,
+    import_id: Option<&str>,
     report_progress: F,
 ) -> Result<TakeoutInspection>
 where
@@ -915,9 +926,11 @@ where
 {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let mut inspection = import_browser_history_with_progress(
+    let job = vault_core::ImportJob::start(import_id)?;
+    let mut inspection = vault_core::takeout::import_browser_history_with_control(
         &vault.with_config(config.clone()),
         request,
+        job.cancel_token(),
         report_progress,
     )?;
     if inspection.imported_items > 0 {

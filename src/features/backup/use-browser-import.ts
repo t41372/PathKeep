@@ -2,9 +2,11 @@
  * Browser Direct import as a small state machine: inspect a history file or
  * profile folder (a read-only preview that counts new and already-archived
  * visits), import on confirmation, then refresh everything that depends on
- * the archive. Mirrors `use-takeout-import.ts`.
+ * the archive. A running import can be stopped. Mirrors
+ * `use-takeout-import.ts`, and like it runs once for the whole app
+ * (`import-runner.tsx`).
  */
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { refreshAfterArchiveChange } from '@/app/backup-runner'
 import { importClient } from '@/lib/backend-client/import'
@@ -79,10 +81,17 @@ export type BrowserImportState =
       source: BrowserSource
       inspection: TakeoutInspection
     }
-  | { step: 'importing'; path: string; progress: ImportProgressEvent | null }
+  | {
+      step: 'importing'
+      path: string
+      /** Names the run for `stopImport`. */
+      importId: string
+      progress: ImportProgressEvent | null
+      stopping: boolean
+    }
   | { step: 'done'; path: string; result: TakeoutInspection }
 
-export function useBrowserImport() {
+export function useBrowserImportRun() {
   const { t } = useI18n()
   const [state, setState] = useState<BrowserImportState>({ step: 'idle' })
   const busy = useRef(false)
@@ -113,8 +122,15 @@ export function useBrowserImport() {
   const confirm = useCallback(async () => {
     if (state.step !== 'preview' || busy.current) return
     const { path, source } = state
+    const importId = crypto.randomUUID()
     busy.current = true
-    setState({ step: 'importing', path, progress: null })
+    setState({
+      step: 'importing',
+      path,
+      importId,
+      progress: null,
+      stopping: false,
+    })
     const unsubscribe = await subscribeToImportProgress((progress) =>
       setState((current) =>
         current.step === 'importing' ? { ...current, progress } : current,
@@ -123,11 +139,14 @@ export function useBrowserImport() {
     try {
       const result = await importClient.importBrowserHistory(
         request(path, source, false),
+        importId,
       )
       setState({ step: 'done', path, result })
-      toast.success(
-        t('backupImport.browser.done', { count: result.importedItems }),
-      )
+      if (result.stopped) toast.success(t('backup.import.stoppedToast'))
+      else
+        toast.success(
+          t('backupImport.browser.done', { count: result.importedItems }),
+        )
       await refreshAfterArchiveChange()
     } catch (error) {
       const description = describeError(error, 'import_browser_history')
@@ -140,7 +159,31 @@ export function useBrowserImport() {
     }
   }, [state, t])
 
+  /** Asks the import to stop after the batch it is writing, as for Takeout. */
+  const stop = useCallback(async () => {
+    if (state.step !== 'importing' || state.stopping) return
+    const { importId } = state
+    const marked = (stopping: boolean) =>
+      setState((current) =>
+        current.step === 'importing' && current.importId === importId
+          ? { ...current, stopping }
+          : current,
+      )
+    marked(true)
+    try {
+      await importClient.stopImport(importId)
+    } catch (error) {
+      marked(false)
+      toast.error(t('backup.import.stopFailed'), {
+        description: describeError(error, 'stop_import'),
+      })
+    }
+  }, [state, t])
+
   const reset = useCallback(() => setState({ step: 'idle' }), [])
 
-  return { state, inspect, confirm, reset }
+  return useMemo(
+    () => ({ state, inspect, confirm, stop, reset }),
+    [state, inspect, confirm, stop, reset],
+  )
 }

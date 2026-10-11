@@ -21,19 +21,28 @@ pub(crate) async fn inspect_takeout(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Imports a Takeout source into the current archive.
+/// Imports a Takeout source into the current archive; `stop_import` stops it under `import_id`.
 pub(crate) async fn import_takeout(
     app: AppHandle,
     request: vault_core::TakeoutRequest,
+    import_id: Option<String>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
     let state = state.inner().clone();
     run_blocking_command("import_takeout", move || {
-        worker_bridge::import_takeout_impl(request, &state, |event| {
+        worker_bridge::import_takeout_impl(request, import_id, &state, |event| {
             let _ = app.emit(vault_core::IMPORT_PROGRESS_EVENT, &event);
         })
     })
     .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Asks the import running under `import_id` to stop after the batch it is writing. True if one
+/// was running and had not been asked already.
+pub(crate) fn stop_import(import_id: String) -> bool {
+    worker_bridge::stop_import_impl(&import_id)
 }
 
 #[cfg(not(test))]
@@ -52,15 +61,16 @@ pub(crate) async fn inspect_browser_history(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Imports a local browser history database into the current archive.
+/// Imports a local browser history database into the current archive; stoppable like Takeout.
 pub(crate) async fn import_browser_history(
     app: AppHandle,
     request: vault_core::BrowserHistoryImportRequest,
+    import_id: Option<String>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
     let state = state.inner().clone();
     run_blocking_command("import_browser_history", move || {
-        worker_bridge::import_browser_history_impl(request, &state, |event| {
+        worker_bridge::import_browser_history_impl(request, import_id, &state, |event| {
             let _ = app.emit(vault_core::IMPORT_PROGRESS_EVENT, &event);
         })
     })

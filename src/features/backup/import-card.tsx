@@ -24,7 +24,7 @@ import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import type { TakeoutInspection } from '@/lib/types'
 import { canUseNativeFiles, pickTakeoutFile } from './file-drop'
-import type { ImportState, useTakeoutImport } from './use-takeout-import'
+import type { ImportState, useTakeoutImportRun } from './use-takeout-import'
 
 const baseName = (path: string) =>
   path.split(/[\\/]/).filter(Boolean).pop() ?? path
@@ -238,11 +238,28 @@ function Importing({
   )
 }
 
+/** Stops the running import after the batch it is writing; shared with the browser-file card. */
+export function StopButton({
+  stopping,
+  onStop,
+}: {
+  stopping: boolean
+  onStop: () => void
+}) {
+  const { t } = useI18n()
+  return (
+    <Button size="sm" variant="outline" disabled={stopping} onClick={onStop}>
+      {stopping && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
+      {stopping ? t('backup.import.stopping') : t('backup.import.stop')}
+    </Button>
+  )
+}
+
 export function ImportCard({
   takeout,
   hovering,
 }: {
-  takeout: ReturnType<typeof useTakeoutImport>
+  takeout: ReturnType<typeof useTakeoutImportRun>
   hovering: boolean
 }) {
   const { t } = useI18n()
@@ -301,14 +318,28 @@ export function ImportCard({
           </div>
         </>
       )}
-      {state.step === 'importing' && <Importing progress={state.progress} />}
+      {state.step === 'importing' && (
+        <>
+          <Importing progress={state.progress} />
+          <div>
+            <StopButton
+              stopping={state.stopping}
+              onStop={() => void takeout.stop()}
+            />
+          </div>
+        </>
+      )}
       {state.step === 'done' && (
         <>
           <div className="flex flex-col gap-1 rounded-lg bg-muted p-3 text-[13px]">
             <span className="text-base font-semibold tabular">
-              {t('backup.import.imported', {
-                count: state.result.importedItems,
-              })}
+              {state.result.stopped
+                ? t('backup.import.stopped', {
+                    count: state.result.importedItems,
+                  })
+                : t('backup.import.imported', {
+                    count: state.result.importedItems,
+                  })}
             </span>
             <span className="text-muted-foreground">
               {t('backup.import.duplicates', {
@@ -322,12 +353,15 @@ export function ImportCard({
                 })}
               </span>
             )}
-            {state.result.continuedFrom && (
+            {state.result.continuedFrom && !state.result.stopped && (
               <span className="text-muted-foreground">
                 {t('backup.import.continued', {
                   date: format.date(state.result.continuedFrom),
                 })}
               </span>
+            )}
+            {state.result.stopped && (
+              <span>{t('backup.import.stoppedNext')}</span>
             )}
           </div>
           <div>

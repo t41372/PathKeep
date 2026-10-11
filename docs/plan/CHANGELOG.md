@@ -2834,3 +2834,6 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - CI and Modal happened to run in UTC. On this Mac (America/Phoenix) four Rust tests failed, and one more failed in a zone east of UTC. Each test assumed the computer was in UTC while the product used the computer's zone or the Insights zone, as it should.
   - Each test now states its zone: it pins the Insights zone or records it on the data it builds, or works out its expectation in the computer's zone.
   - `test:rust` runs in `Pacific/Kiritimati` (UTC+14, no daylight saving), where a test that assumes UTC shows. E2E runs the app and the browser in UTC, the zone the specs count days in. Every Rust test passes in Kiritimati and in Phoenix.
+
+- [x] `WORK-IMPORT-CANCEL` follow-up — A stopped import is not listed as one that broke off (2026-10-11).
+  - A user's Stop marked the batch interrupted, like an import the app closed or crashed in the middle of, and "Recent imports" lists those first, waiting to be finished. A browser file imported again is a new batch, so the stopped one stayed first for good. It is now `stopped`: shown the same ("Stopped partway"), listed by time; a Takeout export imported again still carries it on.

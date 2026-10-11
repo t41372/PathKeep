@@ -399,9 +399,14 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let events = state.events.clone();
             json_value!(worker_bridge::import_takeout_impl(
                 payload.request,
+                payload.import_id,
                 &state.session,
                 move |event| events.emit(vault_core::IMPORT_PROGRESS_EVENT, &event)
             )?)
+        }
+        "stop_import" => {
+            let payload = parse_payload::<ImportIdPayload>(payload)?;
+            json_value!(worker_bridge::stop_import_impl(&payload.import_id))
         }
         "inspect_browser_history" => {
             let payload = parse_payload::<BrowserHistoryPayload>(payload)?;
@@ -415,6 +420,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let events = state.events.clone();
             json_value!(worker_bridge::import_browser_history_impl(
                 payload.request,
+                payload.import_id,
                 &state.session,
                 move |event| events.emit(vault_core::IMPORT_PROGRESS_EVENT, &event)
             )?)

@@ -418,7 +418,7 @@ fn a_large_import_ends_the_same_however_it_is_written() {
             }
         },
     );
-    assert!(stopped.is_err(), "the import stopped");
+    assert!(stopped.expect("a stop is not an error").stopped, "the import stopped");
     crate::takeout::import_takeout(&vault, &request(export.path())).expect("run again");
     check_claims(&vault);
     assert!(

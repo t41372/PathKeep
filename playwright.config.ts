@@ -182,9 +182,12 @@ export default defineConfig({
       ['semantic-index.spec.ts', 'takeout-continue.spec.ts'],
       'change',
     ),
+    // Large imports, after the semantic index is built so it does not embed
+    // their pages (a project runs its files in name order, so not in restart).
+    project('stop', ['import-stop.spec.ts'], 'restart'),
     // Opening the moved file replaces the archive and its password, so it runs
     // after every test that relies on the archive first-run created.
-    project('move', ['move.spec.ts'], 'restart'),
+    project('move', ['move.spec.ts'], 'stop'),
     project('wipe', ['wipe.spec.ts'], 'move'),
     // Needs the empty data folder wipe leaves behind.
     project('upgrade', ['upgrade.spec.ts'], 'wipe'),

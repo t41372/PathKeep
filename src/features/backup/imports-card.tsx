@@ -59,10 +59,17 @@ function batchAction(
     case 'restoring':
       return { action: 'restore', finishing: true }
     default:
-      // imported, interrupted, failed: undo hides whatever it added.
+      // imported, interrupted, stopped, failed: undo hides whatever it added.
       return { action: 'revert', finishing: false }
   }
 }
+
+/**
+ * An import that ended before it finished: broken off (the app closed or
+ * crashed; listed first) or stopped by the user. Either keeps what it saved.
+ */
+const endedPartway = (status: string) =>
+  status === 'interrupted' || status === 'stopped'
 
 function useActionLabel() {
   const { t } = useI18n()
@@ -127,7 +134,7 @@ export function ImportsCard() {
                           ? t('backupImport.batches.undoStopped')
                           : batch.status === 'restoring'
                             ? t('backupImport.batches.restoreStopped')
-                            : batch.status === 'interrupted'
+                            : endedPartway(batch.status)
                               ? t('backupImport.batches.stopped', {
                                   imported: format.number(batch.importedItems),
                                 })
@@ -246,7 +253,7 @@ function BatchReview({
               : t('backupImport.batches.undoNote', {
                   count: current.visibleItems,
                 })}
-          {current.status === 'interrupted' &&
+          {endedPartway(current.status) &&
             ` ${t('backupImport.batches.stoppedNote')}`}
         </DialogDescription>
       </DialogHeader>

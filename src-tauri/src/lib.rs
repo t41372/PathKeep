@@ -237,6 +237,7 @@ fn run_app() -> Result<()> {
             cancel_export,
             inspect_takeout,
             import_takeout,
+            stop_import,
             inspect_browser_history,
             import_browser_history,
             preview_import_batch,
