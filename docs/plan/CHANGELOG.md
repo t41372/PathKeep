@@ -2829,3 +2829,8 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - The imports' state moved above the router, so leaving Backup during an import keeps its progress and its Stop; before, the card came back blank while the import ran on.
   - Also fixed: a Takeout import stopped inside a file marked that file as unreadable in its review.
   - The gate now runs on this Mac, in UTC like CI: Modal billed past the user's limits and is no longer used. Four existing tests fail outside UTC (`WORK-TESTS-ANY-TIME-ZONE` in BACKLOG).
+
+- [x] `WORK-TESTS-ANY-TIME-ZONE` — The gate gives the same result on any computer, whatever its time zone (2026-10-11).
+  - CI and Modal happened to run in UTC. On this Mac (America/Phoenix) four Rust tests failed, and one more failed in a zone east of UTC. Each test assumed the computer was in UTC while the product used the computer's zone or the Insights zone, as it should.
+  - Each test now states its zone: it pins the Insights zone or records it on the data it builds, or works out its expectation in the computer's zone.
+  - `test:rust` runs in `Pacific/Kiritimati` (UTC+14, no daylight saving), where a test that assumes UTC shows. E2E runs the app and the browser in UTC, the zone the specs count days in. Every Rust test passes in Kiritimati and in Phoenix.

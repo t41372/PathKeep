@@ -222,14 +222,14 @@
     - [x] 3. E2E：開始一個匯入、停止、再匯入同一份接著做完。`import-stop.spec`（自己一個 `stop` 專案，在 restart 之後：放進 restart 會照檔名排在語意索引之前，索引多了這些頁就逾時）：5 萬筆的 Takeout 匯出，存下第一批後離開 Backup 再回來仍在匯入，按停止，卡片的筆數等於批次的可見筆數、批次 interrupted，再匯入同一份是同一批、5 萬筆全在；5 萬筆的 Firefox 檔案停下後再匯入是新的一批，補上其餘的、存下的算已在存檔裡。`wipe.spec` 把兩份都算進去。匯入的結果現在離開 Backup 也留著，`browser-import.spec` 與 `takeout-import.spec` 再檢查一個檔案前先按「再匯入一個」，跟使用者一樣。gate 84 裡 `security.spec` 的改密碼一次超過 60 秒（重跑 8.7 s 過），另列 BACKLOG `WORK-REKEY-STALL`。`insights-time-zone.spec` 等時區重建完成時，「正在重新整理」的通知可能還沒出現就判定完成，讀到前一個時區的數字（gate 86：100 ≠ 62）；改成等後端說每個設定檔的洞察都已在選的時區（`get_insights_time_zone`）。
     - [x] 4. 文檔、CHANGELOG。`features/archive.md`、`screens-and-nav.md` Backup、`desktop-command-surface.md`（`stop_import`、`importId`）。這個 block 起 gate 改在本機跑（Modal 超過用戶設的上限仍扣款，2026-10-11 停用；AGENTS.md 已改），本機以 `TZ=UTC` 跑，跟 CI 一樣：在 America/Phoenix 有 4 個既有測試只在 UTC 會過，另列 BACKLOG `WORK-TESTS-ANY-TIME-ZONE`。
 
-- [ ] **WORK-TESTS-ANY-TIME-ZONE** — 有些測試只在 UTC 的機器上會過（2026-10-11 從 BACKLOG 搬上：本機 gate 每次都靠它；同日改回本機跑 gate 時發現）
+- [x] **WORK-TESTS-ANY-TIME-ZONE** — 有些測試只在 UTC 的機器上會過（2026-10-11 從 BACKLOG 搬上：本機 gate 每次都靠它；同日改回本機跑 gate 時發現）
   - 讀先：`docs/architecture/insights-time-zone.md`、`docs/plan/program/quality-matrix.md`、`vault-core/src/utils.rs`（`local_day_range_ms`、`computer_time_zone`）。
   - 現象：CI 與之前的 Modal 都是 UTC。在這台 Mac（America/Phoenix）上 `bun run check` 有 4 個 vault-core 測試失敗：`ai::code_mode::tests::query_history_rows_carry_local_time_fields`（用電腦時區的中午建造訪，卻用釘死的 UTC 顯示，19:00 ≠ 12:00）、`search::ported_queries::history_keyword_query_supports_google_like_local_operators`（造訪在 1970-01-01 UTC 午夜後幾秒，`after:`/`before:` 照電腦時區的日子算，那是前一天）、`intelligence::compare_sets::tests::sets_found_while_streaming_are_read_back_newest_first`、`intelligence::tests::stage_rebuild::explain_entity_and_provider_snapshots_build_from_core_intelligence_tables`（後兩個還沒看原因）。產品本身一致：AI 工具、搜尋的日期條件與顯示都用電腦時區；是測試假設了 UTC。2026-07-26 在這台跑過全綠，所以是那之後加的測試或改動。暫時在本機以 `TZ=UTC` 跑 gate，跟 CI 一樣。
   - 方向：每個測試要嘛釘住自己用的時區（夾具、條件、顯示用同一個），要嘛照電腦時區算期望值；gate 另在一個非 UTC、跨日界的時區（例如 Pacific/Kiritimati 或 America/Phoenix）跑一次 Rust 測試，擋住新的。
   - 步驟：
-    - [ ] 1. 每個失敗的測試寫下它假設了什麼（後兩個先查出原因），改成釘住自己用的時區，或照電腦時區算期望值；不改產品的時區行為（AI 工具、搜尋、洞察都照電腦或洞察的時區，已一致）。
-    - [ ] 2. gate 在一個非 UTC、日界跟 UTC 差很多的時區再跑一次 Rust 測試，擋住新的；本機 gate 不再需要 `TZ=UTC`。
-    - [ ] 3. 文檔（`quality-matrix.md`）、CHANGELOG。
+    - [x] 1. 每個失敗的測試寫下它假設了什麼（後兩個先查出原因），改成釘住自己用的時區，或照電腦時區算期望值；不改產品的時區行為（AI 工具、搜尋、洞察都照電腦或洞察的時區，已一致）。2026-10-11：`code_mode` 的日期測試用電腦時區顯示（跟 app 一樣，日期條件也是電腦時區）；搜尋的 `after:`/`before:` 用那筆造訪在電腦時區的那一天；`compare_sets` 的 generation 記下 UTC（洞察照資料建的時區讀範圍，沒記就用電腦時區）；`stage_rebuild` 釘 `insights_time_zone` 為 UTC，「往年今天」也照 UTC 算今天（原本用電腦時區，`Pacific/Kiritimati` 才露出來），2 月 29 日往回找到有這天的年份。
+    - [x] 2. gate 在一個非 UTC、日界跟 UTC 差很多的時區再跑一次 Rust 測試，擋住新的；本機 gate 不再需要 `TZ=UTC`。不另跑一次：`test:rust` 與 `test:desktop-bridge:rust` 固定在 `Pacific/Kiritimati`（UTC+14、沒有夏令時間），每台電腦都一樣；E2E 的 app 與瀏覽器固定在 UTC（`scripts/run-playwright.mjs`），spec 本來就照 UTC 數日子。驗證：全部 Rust 測試在 Kiritimati 與 America/Phoenix 都過（`--no-fail-fast`）；完整的 `bun run check` 在這台 Mac 上不加任何時區設定全過（gate 88）。
+    - [x] 3. 文檔（`quality-matrix.md`）、CHANGELOG。`quality-matrix.md` 寫下兩個固定的時區與測試的規矩，順便補上現在的 E2E 專案順序。
 
 - [ ] **WORK-SITE-CATEGORY-REVIEW** — 讓用戶看見並改網站分類（2026-10-11 從 BACKLOG 搬上；2026-10-08 從 `WORK-INSIGHTS-RESTORE-2026-10` 拆出）
   - 讀先：`docs/features/deterministic-intelligence.md` §5.2、§6.3；`vault-core/src/intelligence/site_dictionary/overrides.rs`；`docs/design/screens-and-nav.md` §Insights。
