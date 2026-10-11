@@ -522,15 +522,15 @@ cancel 也不是假裝立即中止，而是 cooperative stop：
 
 ### 2026-10 起（M18 redesign）
 
-舊的 Dashboard / Explorer / Assistant / Intelligence / Jobs / Maintenance / Integrations 與 sidebar 工作條都已刪除。現在用到 intelligence 的畫面：
+舊的 Dashboard / Explorer / Assistant / Intelligence / Jobs / Maintenance / Integrations 與 sidebar 工作條都已刪除。現在用到 intelligence 的畫面（逐卡的內容見 [screens-and-nav.md](../design/screens-and-nav.md)）：
 
-- **Home**：最近 30 天趨勢（`get_discovery_trend`）、On this day、「你的一年」日曆熱力圖（某年的 `get_discovery_trend`，點某天進 `/history?date=`）、「常回來的主題」（90 天 reopened investigations，點進 `/history?q=`）。
+- **Home**：最近 30 天趨勢（`get_discovery_trend`）、On this day、「你的一年」日曆熱力圖（某年的 `get_discovery_trend`，點某天進 Insights 的 day，`/insights/day/D`）、「常回來的主題」（90 天 reopened investigations，點進 search 或 page drill-in，範圍 90 天）。
 - **History**：「語意」搜尋方式（`search_ai_history`，需開啟本機語意搜尋且索引就緒）；網站視圖用 top sites。
-- **Insights**：唯一的分析頁，範圍 7 天 / 30 天 / 90 天 / 1 年。KPI（digest：頁面瀏覽、不同網站、搜尋次數、活躍時間）、每日活動（discovery trend + activity mix 的 search 類別）、熱門網站、節奏（星期 × 小時）、常搜尋（query families 依文字合併）、常重開的頁面（refind pages）。所有查詢在區段 `stale` 時每 5 秒重拉。沒有 day / domain / entity 路由、沒有 explainability、沒有 evidence / freshness badge、沒有 profile scope。
+- **Insights**：唯一的分析頁。範圍 全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天 / 自訂，可只看一個瀏覽器設定檔（`?profile=`）。進頁讀 primary 與 secondary overview 兩批；全部時間與到今天為止的最近範圍由快照回答。drill-in：day、site、search、page（`/insights/day|site|search|page/…`）。每張卡的 ⓘ 說明計算時間、範圍、狀態與算法；背景重算中卡片顯示「正在更新」並每 5 秒重拉。
 - **Ask**：串流對話（`ai_chat_send` + 串流事件 + `ai_chat_cancel`），對話存在 `derived/agent.sqlite`，清單可改名、刪除。不經過 AI queue。
-- **Settings → AI**：本機語意搜尋（模型下載、建索引進度）、AI 服務、MCP 伺服器、重建搜尋索引。**Settings → About**：重建洞察（`queue_core_intelligence_rebuild`，full rebuild）。
+- **Settings → AI**：本機語意搜尋（模型下載、建索引進度）、AI 服務、MCP 伺服器、重建搜尋索引。**Settings → Background work**：洞察與搜尋索引 / 助理兩個背景佇列的工作（重試、取消）、暫停 / 繼續、同時跑幾個工作、重建洞察（`queue_core_intelligence_rebuild`，full rebuild）。
 
-沒有任何畫面顯示 queue、runtime digest、plugin / module 狀態或讓使用者暫停背景工作。前端沒有呼叫的 32 個 intelligence 讀取命令列在 [desktop-command-surface.md](../architecture/desktop-command-surface.md) §2026-10。
+前端沒有呼叫的讀取命令列在 [desktop-command-surface.md](../architecture/desktop-command-surface.md) §2026-10。
 
 以下是 2026-10 之前的描述，留作紀錄。
 

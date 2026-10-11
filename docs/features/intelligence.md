@@ -68,7 +68,7 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 ### 需求要點
 
 - semantic / hybrid search 已交付（W-AI-4/5/6），但 **off by default + consent-gated**（master `ai.enabled` + `semantic_index_enabled`）；沒開時 History 搜尋維持全文 / regex（lexical recall v2）。
-- 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding，寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
+- 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding（v0.4 的 Settings 只開 in-app 模型；external 的 embeddings 服務只能寫在 config 檔的 `ai.embeddingProviders`，沒有表單），寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
 - Embedding 增量計算、content-hash dedup（一個 content_key 一條向量，fan-out 到所有共享該內容的 visit）、本地索引、避免重算。
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
@@ -118,7 +118,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 > **shipped（W-AI-9-B）：** localhost stdio MCP server 已交付（`vault-worker/src/mcp.rs`，`mcp-server` CLI），opt-in、hard-default-OFF（`ai.enabled && mcp_enabled`，皆預設關）、unlock-gated、**read-only**（只有 `search-history` / `archive-status` / `usage-guide` 三個 tool，無任何 write/mutation tool）。SQLCipher key 留在 worker，**永遠不跨給外部 caller**；search limit clamp 到 `[1, 50]`；每次外部查詢寫一筆 `mcp_query` run 進 Audit ledger。詳細邊界見 [ai-security-posture.md](../architecture/ai-security-posture.md) §3。
 
 - 在 Settings 的 AI provider / integration preferences 中手動開啟。
-- App 只會在 AI / MCP 明確啟用、且當前 app session 處於 unlocked 時啟動本地 MCP server。
+- App 只會在 AI / MCP 明確啟用、且當前 app session 處於 unlocked 時允許本地 MCP server 回答。v0.4：PathKeep 自己不常駐 server；使用者的工具需要時用 Settings → AI 列出的命令啟動它，開關只決定准不准。
 - 提供搜尋、檢索歷史紀錄的 MCP tools；若 session 之後被 App Lock 鎖住，history query 相關 tool 必須回傳 locked refusal，而不是繞過 UI 直接讀 archive。
 - 安全考量：只綁定 localhost，不對外暴露，並且必須尊重 visibility、lock state 與 capability gating。
 - 若沒有 embedding provider，但使用者仍明確啟用 AI + MCP，read-only recall 仍可在 lexical mode 下運作；consent / capability copy 必須明講 semantic recall 目前不可用。
@@ -127,7 +127,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 
 ### AI IDE Skill
 
-- 提供一個 skill 定義檔（markdown 格式的指令文件），讓 AI coding assistant（如 Cursor, Gemini CLI, Copilot 等）能夠理解如何使用 MCP server 搜尋用戶的歷史紀錄。
+- （v0.4 沒有介面產生或顯示這個檔案。）提供一個 skill 定義檔（markdown 格式的指令文件），讓 AI coding assistant（如 Cursor, Gemini CLI, Copilot 等）能夠理解如何使用 MCP server 搜尋用戶的歷史紀錄。
 - Skill 描述：可用的 MCP tools、典型查詢範例、回傳資料格式。
 - 搭配 MCP server 使用 — skill 告訴 AI「怎麼問」，MCP server 負責「怎麼答」。
 
@@ -253,7 +253,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 
 ### V1 洞察顯示契約
 
-- 每張 insight card 都必須顯示生成時間、資料視窗、evidence 數量，以及是否依賴 Chromium-only enhancement。
+- 每張 insight card 都必須顯示生成時間、資料視窗、evidence 數量，以及是否依賴 Chromium-only enhancement。（v0.4 的 ⓘ 有計算時間、範圍、狀態與算法，還沒有 evidence 數量；從洞察帶問題進 Ask 也還沒有。）
 - Dashboard 的 On This Day，以及 Intelligence 的 Site Analytics / Periodic Summary / Topic Timeline，都必須能 deep-link 回 Explorer evidence，或帶著 scoped question 跳進 Assistant。
 - deterministic intelligence baseline 也屬於正式 shipping surface：`open-loop` / `revisit` cards 與 `query ladders` 必須在沒有 embedding / LLM 時仍可用；`query ladders` 只在 Chromium search term evidence 形成至少 2-step refinement 時顯示，並能 deep-link 回 Explorer 的 canonical query。
 - 即使 AI disabled、provider unavailable、embedding 尚未建立，或 AI-generated card / topic surface 暫時為空，On This Day（Dashboard）、Site Analytics、Periodic Summary 這類 canonical / statistical surface 仍必須用純資料庫 / 統計結果繼續顯示，而不是讓整個 intelligence 區塊變空白。
@@ -264,7 +264,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 
 ### M4-A 進階 intelligence slice
 
-- Insights 頁現在還必須顯示 storage analytics：tracked storage、reclaimable bytes、dominant group，以及 latest growth signal。這個 growth signal 必須能 deep-link 回對應的 Audit run，而不是只停在摘要數字。
+- （v0.4：storage analytics 在 Settings → Storage，不在 Insights。）Insights 頁現在還必須顯示 storage analytics：tracked storage、reclaimable bytes、dominant group，以及 latest growth signal。這個 growth signal 必須能 deep-link 回對應的 Audit run，而不是只停在摘要數字。
 - storage analytics 的 top-level summary 現在固定先分成兩個 bucket：`core history`（canonical archive + source evidence）與 `other data`（search / intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files）。更細的 breakdown 再在卡片內展開，而不是先讓使用者背四個內部 slice 名稱。
 - Maintenance 頁必須提供 enrichment / derived-state panel，顯示 built-in plugin registry、network boundary、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。runtime queue / recent job review 不在 Maintenance 內複製，必須 deep-link 到 Jobs。plugin / module 的內部版本標記屬 diagnostics / runtime trace，不應佔據主產品 review chrome。
 - shell chrome 左下角必須常駐一個小型 background-work status strip，顯示 queued / running / failed 概況並 deep-link 到 dedicated Jobs 頁；使用者不應該只能靠 Settings / Intelligence 才知道 background queue 還在跑什麼。
@@ -282,12 +282,12 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 - queue / runtime contract 以 durable lease + heartbeat + cooperative stop 為準：claim 必須 compare-and-set，running cancel 只會設 stop request，worker 需在 phase / chunk 邊界自行結束並留下 cancelled trace；terminal success 不得覆蓋已 cancel / failed 的 job。
 - derived intelligence refresh 在 backup / import 成功後必須自動排入 runtime job 並留下可 review 的 queue / recent-job trace；Insights / Settings 仍保留手動 rebuild 作為 override，但不能再把最新 derived state 完全變成使用者自己記得去按的 follow-up。
 - 2026-04-15 之後，deterministic/Core Intelligence 的主路徑改為直接讀 `sessions`、`search_trails`、`query_families`、rollups、`refind_pages`、`compare_sets`、`reopened_investigations` 等 persisted entities / rollups，而不是再靠 `load_insights()` 這種整包 snapshot-first read model。若 repo 內仍保留舊 snapshot payload fallback，只能視為 legacy inert path，不再是 accepted shipping contract。
-- Insights 頁自己的頂部 runtime surface 只能是 digest，而不是第二個 Jobs。它應該先顯示 analysis snapshot，再把 runtime queue 收斂成一個小型摘要與 `Open Jobs` 入口，避免整頁一打開就被 runtime / retry / cancel chrome 吞掉主洞察內容。
+- （v0.4：Insights 頁沒有 runtime surface；佇列在 Settings → Background work，卡片只標「正在更新」。卡片順序見 screens-and-nav.md。）Insights 頁自己的頂部 runtime surface 只能是 digest，而不是第二個 Jobs。它應該先顯示 analysis snapshot，再把 runtime queue 收斂成一個小型摘要與 `Open Jobs` 入口，避免整頁一打開就被 runtime / retry / cancel chrome 吞掉主洞察內容。
 - Insights 的內容分組必須符合 `spotlight -> research signals -> evidence / health`：最先看到的是 highlights / summary / top sites / browsing rhythm，接著才是 query groups、topic timeline、query evolution，最後才是 reference pages、source effectiveness、storage analytics 與 deterministic module health。`On This Day` 留在 Dashboard，不再佔據 `/intelligence` 的 spotlight 區。
 - clear derived state 必須回傳按 stage 分組的清除數量報告：至少涵蓋 `visit-derived-facts` rows、daily rollup rows、structural rows、runtime rows；只有在該維護路徑真的清 enrichment 時才額外回 enrichment rows。報告也必須明講 canonical archive、manifests、rollback state 完全未被動到。
 - full rebuild 不得先把 live derived snapshot 清空再等待後續重算完成；scope 內的 derived rows、snapshot payload 與 deterministic module runtime 狀態更新必須以同一個 archive transaction 原子替換，避免只清掉一半或留下不一致的 stale trace。這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
 - queue / progress persistence 也屬 recoverability contract：如果使用者突然關閉 app、程序崩潰或主機斷電，重新開啟後 Jobs 頁必須能誠實呈現上次停在哪個 job、是否已被 recover/requeue，以及最後一次 heartbeat / progress update；不可把 interrupted long-running work 假裝成從未發生。
-- Top sites（Insights 與單日視圖）不計搜尋結果頁：在搜尋引擎上的搜尋算「搜尋」，列在 Searches / Frequent searches，不算對該網站的造訪；單日視圖的 Distinct sites 同理。網站詳情頁（某一網站 30 天造訪）仍計入該網站的所有造訪。2026-10-07 起這樣算，讓兩處 Top sites 的數字一致，也合乎 E2E 規格。
+- Top sites（Insights 與單日視圖）不計搜尋結果頁：在搜尋引擎上的搜尋算「搜尋」，列在 Searches / Frequent searches，不算對該網站的造訪；單日視圖的 Distinct sites 同理。網站詳情頁（某一網站在所選範圍內的造訪）仍計入該網站的所有造訪。2026-10-07 起這樣算，讓兩處 Top sites 的數字一致，也合乎 E2E 規格。
 - 搜尋落地網站（stable sources）/ refind 類 surface 的 domain key 必須跟 canonical visit evidence 使用同一套 registrable-domain normalization；不能因為 `docs.example.com` / `www.example.com` 分裂而把同一來源錯拆成多個 source role。
 - Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
 - Dashboard 的 `Browsing Rhythm` preview 固定以 calendar year 呈現，若 archive 內橫跨多個年份可切換年份；年份來源來自 `getDiscoveryTrend(..., 'day')` 的 `availableYears`，而不是把 hourly detail API 誤當成年視圖的 source of truth。year pager 必須遵守時間直覺：左箭頭看更早的年份、右箭頭看較新的年份；若選中的年份只覆蓋部分日期，卡片還要直接顯示該年份內實際有資料的起訖範圍。
@@ -301,6 +301,8 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 - 2026-04-09 truth closeout：目前的 intelligence 支援邊界與未完成項，見 [../plan/m4-full-polish/intelligence-60-year-envelope.md](../plan/m4-full-polish/intelligence-60-year-envelope.md)。在該文件有真實 large-archive artifact 之前，不可把 PathKeep 寫成已完成「60 年資料量、所有 AI 開啟、仍可流暢使用全部功能」的最終性能背書。
 
 ### Profile-Scoped Insights（Profile 級別洞察篩選）
+
+> v0.4：設定檔篩選在 Insights 右上角（`?profile=`，兩個以上有瀏覽紀錄的設定檔才出現），不是 topbar 的共享 scope；路由是 `/insights`、`/insights/day|site|search|page/…`。site、search、page 帶著設定檔，day 涵蓋所有設定檔。下面以 `/intelligence` 為準的段落是舊前端的。
 
 洞察系統支援以特定瀏覽器 profile 為範圍查看洞察資料，增強現有的 shared profile scope 功能。
 
@@ -345,12 +347,12 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
   - **請求格式**（Request Format）= API 協議，如 OpenAI-compatible, Anthropic, Google
   - **Provider** = 請求格式 + Base URL + API Key + 可用模型列表 + 模型配置
   - 用戶可以創建多個 Provider
-  - Provider 可以被啟用/禁用
+  - Provider 可以被啟用/禁用（v0.4 的 Settings → AI 只有選用、新增、連線測試與移除；移除連同金鑰一起刪）
 - 預設 Provider preset：Ollama, LM Studio, OpenAI, Anthropic, Google
 - 所有 preset 都支援自定義 Base URL
 - Embedding 和 LLM 分別配置：兩者可以用不同的 Provider 和模型。
 - **底層使用 rig.rs** 作為統一的 AI 框架，處理所有 provider 的請求格式和通信。
-- Settings 的 provider editor 採本地 draft + explicit save：欄位編輯不應在每次輸入時直接落盤或觸發 blocking overlay；secret store / clear 仍保留獨立明確動作。
+- （v0.4 沒有編輯既有 provider 的表單，要改就移除再新增。）Settings 的 provider editor 採本地 draft + explicit save：欄位編輯不應在每次輸入時直接落盤或觸發 blocking overlay；secret store / clear 仍保留獨立明確動作。
 - day-one provider matrix：
   - chat / assistant：OpenAI-compatible、Anthropic、Google、Ollama、LM Studio
   - embeddings：OpenAI-compatible、Google、Ollama、LM Studio

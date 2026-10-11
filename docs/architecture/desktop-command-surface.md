@@ -1,6 +1,8 @@
 # Desktop Command Surface
 
 > 這是 M0 凍結的 Tauri command surface 草案。正式 IPC facade 仍可暫留單檔，但命名與 envelope 之後要向這裡收斂。
+>
+> 2026-10：草案裡的 dashboard、explorer、audit 是舊前端的畫面。現在註冊的命令全在 `src-tauri/src/lib.rs`（`generate_handler!`），畫面呼叫的每一個都經過 `src/lib/backend-client/` 的 typed client；這次 redesign 改了什麼見下方「2026-10 redesign backend」。
 
 本草案與 [module-boundary-map.md](module-boundary-map.md) 的 command sections 同步維護；若兩者出現衝突，以本文件的 API 分類為準。
 
@@ -147,7 +149,7 @@ Changed for Backup (2026-10-04), all additive:
 - `schedule_status.lastAction` is filled from the newest `audit/scheduler/*.json` (`action`, `status` ok / failed / unknown, `at`, `files`, `auditPath`). Scheduler audit files now carry `at`, `success` and `files`.
 - `inspect_browser_history` reads the session key (the Tauri command takes `SessionState`; payload unchanged) and returns `duplicateItems`: visits the archive already holds for the same source profile, by the two unique keys the import's `INSERT OR IGNORE` hits. Preview entries carry `status: "duplicate"` for those.
 
-`query_history` also takes `groupByUrl: true` (with search text): one row per URL string instead of per visit, each the page's newest matching visit with `visitCount`, `totalVisits` beside the page `total`, cursor paging only. History search and the ⌘K palette use it (`explorerClient.searchPages`); the timeline does not. Contract and failure modes: `vault-core/src/archive/history/grouped.rs`; cost: `ipc-performance.md` §6.
+`query_history` also takes `groupByUrl: true` (with search text): one row per URL string instead of per visit, each the page's newest matching visit with `visitCount`, `totalVisits` beside the page `total`, cursor paging only. The ⌘K palette uses it (`explorerClient.searchPages`). Since 2026-10-06 History's full-text and regex search stream through a search session instead: `start_search`, `next_search_page` and `cancel_search` (contract in [search.md](search.md)); the timeline uses neither. Contract and failure modes: `vault-core/src/archive/history/grouped.rs`; cost: `ipc-performance.md` §6.
 
 `preview_rekey_archive` / `rekey_archive` (2026-10-04): `RekeyRequest` gains `currentKey`. For an encrypted archive both commands refuse unless it decrypts the archive file: code `archive-password-required` when it is missing (also what an older client that never sends it gets), `archive-password-wrong` when it does not open the file. The rekey then opens the archive with that verified key and no longer reads the session key, so an unlocked session alone cannot change or remove the encryption, through Tauri or the dev bridge. A plaintext archive has no password and ignores the field. The preview no longer reads the session either, and its `archive-locked` warning code is gone. Why the check opens the file instead of comparing with the session key, and the failure modes it is tested against: `vault-worker/src/current_password.rs`.
 
@@ -158,7 +160,7 @@ Removed, after checking `src/`, the MCP server (`vault-worker/src/mcp.rs`: `sear
 
 `get_insights_time_zone` (2026-10) returns `{ shown, next }`: the IANA zone the Insights on screen put days and hours in, and the one the next build uses. Insights, Home and Settings read it once when the archive opens and every 5 s while the two differ (a rebuild in a newly chosen zone); every date range sent to an Insights read is in `shown` (`insights-time-zone.md`).
 
-Insights' drill-ins and pattern cards (2026-10) call: `get_day_insights`, `get_sessions`, `get_session_detail`, `get_search_queries`, `get_query_families`, `get_domain_deep_dive`, `get_query_family_detail`, `get_trail_detail`, `get_refind_page_detail`, `get_breadth_index`, `get_habit_patterns`, `get_multi_browser_diff` (plus `get_url_detail` from History). Changes made so they hold at 14.4M visits and say true things:
+Insights (2026-10) opens with `get_intelligence_primary_overview` and `get_intelligence_secondary_overview`, and its cards and drill-ins also call `get_day_insights`, `get_sessions`, `get_session_detail`, `get_search_queries`, `get_query_families`, `get_search_families`, `get_domain_deep_dive`, `get_query_family_detail`, `get_trail_detail`, `get_refind_page_detail`, `get_breadth_index`, `get_habit_patterns`, `get_interrupted_habits`, `get_multi_browser_diff`, `get_activity_mix`, `get_search_engine_ranking`, `get_search_effectiveness`, `get_stable_sources`, `get_friction_signals`, `get_path_flows` and `get_compare_sets` (plus `get_url_detail` from History). Changes made so they hold at 14.4M visits and say true things:
 
 - `get_sessions` seeks `idx_sessions_profile_time` (`profile_id IN` the archive's profile keys, `first_visit_ms` from a day before the range); `(?1 IS NULL OR profile_id = ?1)` scanned every session for one day's list. A session that started more than a day before the range and ran into it is listed only from its first day.
 - `get_session_detail` reads the session's profile first and looks visits up by `(profile_id, session_id)`; `session_id` alone scanned every derived visit row.
@@ -167,7 +169,7 @@ Insights' drill-ins and pattern cards (2026-10) call: `get_day_insights`, `get_s
 - `get_query_family_detail` finds the family's eight most recent trails through its search events on the new `idx_search_events_profile_query` (intelligence migration 10) instead of decoding every trail in the range.
 - `get_refind_pages` without a profile keeps one row per page (the best-scoring profile) and every row carries `profileId` and `profileCount`; `get_refind_page_detail`'s explanation now comes from the same profile's row.
 
-Still not called by any screen: `run_core_intelligence_now`, `get_search_trails`, `get_navigation_path`, `get_hub_pages`, `get_search_engine_ranking`, `get_domain_trend`, `explain_refind`, `explain_entity`, `get_activity_mix`, `get_stable_sources`, `get_search_effectiveness`, `get_friction_signals`, `get_interrupted_habits`, `get_intelligence_embed_cards`, `get_intelligence_widget_snapshot`, `get_intelligence_public_snapshot`, `preview_intelligence_local_host`, `build_intelligence_local_host`, `get_path_flows`, `get_observed_interactions`, `get_compare_sets`, `get_compare_set_detail`. Why the Insights cards that would use them were not built is in `docs/features/intelligence.md` §0. Decide on these when step 5 of the redesign removes the old frontend's leftovers.
+Still not called by any screen (2026-10-10): `run_core_intelligence_now`, `get_search_trails`, `get_navigation_path`, `get_hub_pages`, `get_domain_trend`, `explain_refind`, `explain_entity`, `get_intelligence_embed_cards`, `get_intelligence_widget_snapshot`, `get_intelligence_public_snapshot`, `preview_intelligence_local_host`, `build_intelligence_local_host`, `get_observed_interactions` (it has a typed client, but Insights left Observed Interactions out on purpose) and `get_compare_set_detail`. The user decided on 2026-10-02 to keep the intelligence reads for Insights to grow into rather than delete them.
 
 ## 單一資料庫擁有者（Turso 遷移 §2）
 

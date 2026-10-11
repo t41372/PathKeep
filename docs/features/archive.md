@@ -65,7 +65,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
   1. 對瀏覽器的 History / Favicons SQLite 做一致性 snapshot，寫到 staging 區；原則上優先使用 SQLite Backup API，而不是單純 raw file copy。
   2. 對 staging 副本做完整性檢查（`PRAGMA quick_check`）。
   3. 解析並寫入 archive 數據庫。
-  4. 無法讀取的 profile 仍保留在 onboarding / dashboard 清單中，並附帶權限或支援限制說明。
+  4. 無法讀取的 profile 仍保留在 onboarding 與 Backup 的來源清單中，並附帶權限或支援限制說明。
 - Staging / raw-source checkpoint 的實際檔案或目錄名稱不得直接使用 raw `profile_id`；`firefox:default-release`、`chrome:Default` 這類 ID 必須在檔案系統邊界轉成可逆的 Windows-safe path segment，archive metadata / UI / selected profile contract 則繼續保留原始 ID。
 - M1 的 day-one onboarding 必須先把 storage path、browser detection、security choice、schedule preview 和 first backup boundary 全部展示出來，再允許任何 mutating run。
 - Onboarding 的 schedule step 必須能選擇備份間隔，並讓使用者明確選擇「setup 完成時安裝 native schedule」或「先跳過」。Install happy path 在 archive 初始化 / keyring setup 完成後才呼叫既有 `apply_schedule`；skip path（2026-10：排程步驟的「略過」或選「手動」）只前進，之後可在 Backup → 自動備份開啟，不得呼叫 `apply_schedule`、`remove_schedule`、`repair_schedule` 或其他 scheduler mutation。
@@ -128,12 +128,13 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 - Settings、Onboarding 與 Schedule 都必須把 browser discovery 的 permission / discovery failure 視為 blocked 或 degraded state；不得把它渲染成空白 profile 清單。Full Disk Access case 必須說明影響、提供直達 System Settings、重新偵測，以及任何 launcher failure 的可見 diagnostic。
 - Reinstall / update schedule 是以**執行當下**的 current build + current config 重新產生 plan 的 reconciliation，不得重播 route cache 的舊 plan。若無法卸載仍 loaded 的既有 LaunchAgent，apply 必須失敗並回傳 `launchctl` evidence，不得宣稱已修復。
 - **預設備份間隔為每 12 小時**。用戶可以在設定中自定義整數分鐘間隔；`6h / 12h / 24h / 72h` 只是快捷預設，不是上限或唯一選項，最短為 1 分鐘。
+  - 2026-10 的介面跟這條不同，待用戶決定照哪個：Backup 的快捷是每小時 / 每 6 小時 / 每天 / 自訂 / 關；onboarding 預先選好每小時；新安裝的 config 預設 72 小時，onboarding 選「手動」時留著它。
 - 「沒有一直開機也能補跑」：開機/登入後，如果距離上次備份已超時，自動補跑。
 - 排程的設定走 Preview/Manual/Execute 流程：
   - 用戶能看到將要安裝的 plist / XML / service 文件的內容。
   - 用戶能選擇手動複製並安裝，或讓 app 代為安裝。
-  - Schedule 主頁必須由 state machine 驅動，只顯示當前狀態可用的主要操作；`CHECKING`、`NOT_INSTALLED`、`INSTALLED_OK`、`INSTALLED_WARN`、`INSTALLED_ERROR` 不得同時把所有 install/remove/repair 操作攤開。
-  - Schedule 主頁必須把 interval selection、current config/status、install/update CTA、remove CTA、repair CTA 與 legacy/error attention state 放在第一層；Preview / Manual / Execute / Verify 的資訊改為 state-local details，不再是常駐主架構。
+  - Backup 的自動備份卡必須由 state machine 驅動，只顯示當前狀態可用的主要操作；`CHECKING`、`NOT_INSTALLED`、`INSTALLED_OK`、`INSTALLED_WARN`、`INSTALLED_ERROR` 不得同時把所有 install/remove/repair 操作攤開。
+  - Backup 的自動備份卡必須把 interval selection、current config/status、install/update CTA、remove CTA、repair CTA 與 legacy/error attention state 放在第一層；Preview / Manual / Execute / Verify 的資訊改為 state-local details，不再是常駐主架構。
   - 如果使用者在已安裝狀態修改備份間隔，UI 必須顯示 explicit update/install action；native apply 可沿用目前 overwrite 行為。
   - 如果原生排程已安裝，Schedule 頁也必須提供明確的移除 / 解除安裝 CTA，而不是要求使用者自己回到系統資料夾手動刪檔。
   - 安裝結果記入審計日誌，並透過 inline progress / success / failure result 回到 UI。
@@ -178,7 +179,7 @@ Settings → General 的兩個開關。
 ### Google Takeout 導入
 
 - GUI wizard 流程：
-  1. 拖入 Takeout 的 zip、解壓後的資料夾，或單一 dedicated Chrome history JSON 檔。
+  1. 拖入 Takeout 的 zip、解壓後的資料夾（名稱裡要有 takeout，其他資料夾當成瀏覽器設定檔），或單一 dedicated Chrome history JSON 檔。用「選擇檔案」只能選 .zip。
   2. 先做 dry-run：掃描文件、識別格式、產生報告。
   3. **匯入兩種 Chrome 紀錄**：dedicated Chrome history payload（例如 `BrowserHistory.json`、`History.json`、德文化的 `Verlauf.json`），以及 2026-10-09 起「我的活動 → Chrome」的 JSON（依內容辨識，各語言的資料夾名都行；做法見 `docs/architecture/takeout-my-activity-tradeoff.md`），兩者各進自己的來源（`takeout::browser-history`、`takeout::my-activity`）。Takeout 不寫 JSON Lines，`.jsonl` 檔就算每行看起來像瀏覽記錄也不匯入（看起來像歷史的標 `needs-review`）；PathKeep 自己的 JSONL 匯出也不是匯入格式。
   4. dedicated Chrome history payload 的 parser 也必須對齊真實 Takeout envelope，而不是只靠 repo 自造 fixture；目前已驗到的 canonical shape 是頂層 `Browser History` 陣列，時間欄位使用 `time_usec`。
@@ -207,7 +208,7 @@ Settings → General 的兩個開關。
 - 同樣走 Preview/Manual/Execute 流程。
 - 2026-10 介面：Backup →「匯入瀏覽器歷史」卡，選檔案或資料夾（瀏覽器模式貼路徑），可選「來自」哪個瀏覽器（預設自動辨識；Edge / Atlas / Comet 會帶 `browserName` 保留產品名）。拖進視窗的檔案依名稱分給這張卡或 Takeout 卡（`History` / `History.db` / `places.sqlite` / `.sqlite` / `.db` 與其他資料夾 → 這張；`.zip` / `.json` / 名稱含 takeout → Takeout）。預覽顯示新增幾筆、存檔已有幾筆、檔案裡共幾筆、時間範圍與最近幾筆；按「匯入 N 筆」才寫入。
 - `inspect_browser_history` 讀存檔（需要 session key，受 App Lock 限制）計算 `duplicateItems`：同一個來源 profile 下 `(source_profile_id, source_visit_id)` 或 `(source_profile_id, event_fingerprint)` 已存在的 visit，和匯入的 `INSERT OR IGNORE` 用同兩個唯一鍵，所以預覽的「新增」就是匯入會加的數量；預覽列 `status` 為 `duplicate`。手選檔案的 profile id 由路徑雜湊得出，同一個檔案再匯入時才會比對到；換路徑視為另一個來源。同一檔案內 fingerprint 相同的兩筆不在預覽偵測範圍（瀏覽器不會寫這種資料）。
-- `/import` 的 Browser Direct 入口必須走 `inspect_browser_history` / `import_browser_history`，不得把本地 `History` / `History.db` 送進 Google Takeout parser。
+- Backup 的瀏覽器檔案匯入（Browser Direct）必須走 `inspect_browser_history` / `import_browser_history`，不得把本地 `History` / `History.db` 送進 Google Takeout parser。
 - Browser Direct 目前公開承諾只顯示已驗證的 Google Chrome、Microsoft Edge / Edge Dev、Firefox、macOS ChatGPT Atlas browser history profile、macOS Perplexity Comet browser history profile、與 macOS Safari baseline；其他 adapter 即使有內部 parser / discovery coverage，也不能在這個 UI 入口升級成公開承諾。
 - Microsoft Edge / Edge Dev 必須被當成 Chromium-family adapter：`browserFamily` 使用 `chromium`，但 `profileId`、`source_profiles.browser_product` 與 UI 顯示必須保留 `Microsoft Edge` / `Microsoft Edge Dev`。只有手動選 raw `History` 且沒有 discovery metadata 時，才可使用 generic Chromium fallback。
 - Safari Browser Direct 接受直接選取 `History.db`：每次造訪的時間是 2001 年起的秒數，換成本機的日；頁面的名稱取 Safari 為它存的最新一個標題（最後一次造訪沒有標題就往前找）。Safari 不記哪一頁開啟哪一頁，洞察照實說不知道。`browser-import.spec` 驗另一台 Mac 的 `History.db`：預覽、匯入、每天的造訪數、名稱、重看不重複。
@@ -350,8 +351,9 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 
 **第二層：背景 content-fetch（W-ENRICH，已交付但 egress hard-default-OFF）**
 
-- master switch `content_fetch_enabled` **預設 OFF**：開啟前完全不抓取網頁正文、不重新訪問使用者歷史 URL、無任何網路 egress。
-- 開啟後可抓取 readable text / meta description / OG tags（含 og:image 卡片預覽）；site adapters 解析結構化欄位。
+- master switch `content_fetch_enabled` **預設 OFF**：開啟前完全不抓取網頁正文、不為它重新訪問使用者歷史 URL。
+- 開啟後可抓取 readable text / meta description / OG tags；site adapters 解析結構化欄位。
+- 連結預覽不在這層：它是另一個設定（`og_image.fetch_enabled`，**預設開**，見 [og-images.md](og-images.md)），只為 History 的預覽抓每頁的 HTML 找 og:image、再下載那張圖。onboarding 的完成步驟寫明「會下載每個頁面的預覽圖」，Settings → General 的「線上」分組可關。
 - 邊界：triple consent gate（master + per-extractor + per-domain）、SSRF-guarded（每個 URL + redirect hop + sub-resource）、無 cookie/Referer/fingerprinting、per-host rate-limited、offline-first。詳見 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md) §4。
 
 **第三層：基於 URL 的專屬 enrichment 插件**
@@ -383,9 +385,9 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 
 ### M4-A / v1 已落地邊界
 
-- 2026-06-22 content-fetch shipped note：W-ENRICH 已交付 content-fetch（readable text / og:image / site adapters），取代上面 2026-04/05 的「readable-content-refetch deferred、UI 顯示 `Coming in v0.3`」結論。但 egress **hard-default-OFF**（`content_fetch_enabled` 預設關），開啟前沒有任何網路存取。
+- 2026-06-22 content-fetch shipped note：W-ENRICH 已交付 content-fetch（readable text / og:image / site adapters），取代上面 2026-04/05 的「readable-content-refetch deferred、UI 顯示 `Coming in v0.3`」結論。但 egress **hard-default-OFF**（`content_fetch_enabled` 預設關），開啟前 content fetch 沒有任何網路存取（連結預覽另計，見上一節）。
 - content-fetch 的 contract：只寫入 derived enrichment / insight tables（capped `enrichment_summary` 進 intelligence DB、raw body blob 進 `sidecars/intelligence-blobs/` content-addressed，隨搬家檔一起搬），不能修改 canonical `visits` / `downloads` / `search_terms` / `manifests`。
-- manual backup / import 完成後不應同步阻塞等待 enrichment 或 insights rebuild；derived refresh 仍然是 explicit follow-up，由 Insights / Settings 的 rebuild surface 觸發，避免大型真實 profile 把核心 archive run 拖成整段不可操作。
+- manual backup / import 完成後不應同步阻塞等待 enrichment 或 insights rebuild。每次改變了 archive 的備份或匯入之後，洞察的更新自動排進背景佇列（只重算有新造訪的設定檔），備份不等它；Settings → Background work 顯示佇列、可暫停，也能整個重建。
 - content-fetch 的 freshness window（負緩存退避）、client timeout、redirect policy（每 hop SSRF-guarded）、failure taxonomy（PDF / sign-in redirect / rate-limit 等人話邊界）與 site adapters 都已落地；詳見 [og-images.md](og-images.md) 與 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md) §4。
 - Settings 必須提供 plugin version、queue、freshness、derived tables、storage impact、latest growth signal，以及 `rebuild derived state` / `clear derived state` controls。`clear derived state` 只能清除 enrichment / insight tables，不可影響 canonical archive facts 或 rollback ledger。
 - 第三方 plugin API、獨立 enrichment queue、以及 provider-specific structured plugins 仍在後續 M4 work 中，不應假裝 v1 已經完整落地。

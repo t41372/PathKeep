@@ -179,8 +179,7 @@ CREATE INDEX idx_og_images_last_shown   ON og_images(last_shown_at)   WHERE last
 `triggerOgImageRefetch`、`getOgImageStorageStats`、`getOgImageCoverageStats`、`clearOgImageCache`、
 `runOgImageCleanup` 有呼叫者；`prefetchOgImages` 目前沒有。
 
-**仍未處理**：onboarding 沒有告知預設會向造訪過的網站下載預覽圖（舊 Ready 步的 egress 披露已隨舊前端刪除），
-唯一的入口是 Settings → General 的開關。這屬於 onboarding，本次沒有改。
+onboarding 的完成步驟告知預設會下載每個頁面的預覽圖（「連網」一列），並說可在 Settings → General 關閉。
 
 E2E（`tests/e2e/history-tools.spec.ts`）量測預覽框在讀取中與最終狀態的大小一致、最終狀態與後端記錄的
 `fetch_status` 相符，並在傳輸層把一頁的回應換成一張 PNG，確認圖片畫出且回報 `mark_og_images_shown`；

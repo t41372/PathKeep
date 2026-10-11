@@ -1,5 +1,15 @@
 # Core Intelligence — Ultimate Design
 
+> **2026-10 註記（v0.4 前端）**：下面的介面描述大多是舊前端的。現在的畫面與路由見
+> [screens-and-nav.md](../design/screens-and-nav.md)，對照見
+> [intelligence-current-state.md](intelligence-current-state.md) §8「2026-10 起」。跟本文不同的主要幾處：
+>
+> - 沒有 Dashboard、Explorer 與側欄；History 只有時間線 / 網站 / 已加星三個視圖，沒有按 session 或 trail 看。
+> - 路由是 `/insights`、`/insights/day|site|search|page/…`，沒有 `/intelligence/domain` 與 compare set 的頁；比較過的頁面是 Insights 與 day 裡的一張卡。
+> - 只有 Insights 有時間範圍：全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天 / 自訂，不是全 app 共用的日 / 週 / 月 / 季 / 年選擇器。
+> - 節奏是星期 × 小時的熱力圖；日曆熱力圖在 Home（「你的一年」）。
+> - 搜尋相關是幾張分開的卡（常搜尋、在哪裡搜尋、搜尋什麼、搜尋得怎麼樣、試了好幾次的搜尋、搜尋最後到了哪裡），沒有四個分頁的 Search Activity。
+
 ## Turso storage contract (2026-10)
 
 Deterministic reads use the session Vault's read pools. Rebuilds page Archive facts and
@@ -308,7 +318,7 @@ Core Intelligence 的功能分布在三個位置：
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-> 2026-04-28 implementation note：`全部時間 / All time` 是可手動選擇的 preset，不是首次進入預設。route grammar 使用 `?range=all`；目前 transport 仍沿用 concrete `DateRange`，後續 all-time cache / preload / invalidation 策略見 [`../plan/intelligence-all-time-cache-invalidation.md`](../plan/intelligence-all-time-cache-invalidation.md)。
+> 2026-04-28 implementation note：`全部時間 / All time` 是可手動選擇的 preset，不是首次進入預設。（已過時：2026-06-20 起全部時間就是首次進入的預設，2026-10-08 依用戶要求在 v0.4 恢復。）route grammar 使用 `?range=all`；目前 transport 仍沿用 concrete `DateRange`，後續 all-time cache / preload / invalidation 策略見 [`../plan/intelligence-all-time-cache-invalidation.md`](../plan/intelligence-all-time-cache-invalidation.md)。
 
 ### 2.3 Explorer 頁面的 Intelligence 增強
 
@@ -923,7 +933,7 @@ is_deep_dive =
 
 ### 4.B 全局時間範圍選擇器
 
-所有功能共用：日/週/月/季度/年/自定義。是一個全局 UI 組件。
+所有功能共用：日/週/月/季度/年/自定義。是一個全局 UI 組件。（v0.4 沒有這個：只有 Insights 有範圍，見文首的 2026-10 註記。）
 
 ### 4.C 外部服務（低優先級）
 
