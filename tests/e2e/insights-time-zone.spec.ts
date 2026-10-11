@@ -47,12 +47,14 @@ function visitsOn(day: string, zone: string) {
 
 /**
  * A recent day whose visits differ most between Taipei's day and UTC's, so
- * the count shows which zone Insights used.
+ * the count shows which zone Insights used. It has visits in Taipei, so the
+ * day shows times to read the zone from.
  */
 function telltaleDay() {
   let best = { day: '', difference: -1 }
   for (let back = 3; back <= 12; back += 1) {
     const day = dayIn(Date.now() - back * 86_400_000, TAIPEI)
+    if (visitsOn(day, TAIPEI) === 0) continue
     const difference = Math.abs(visitsOn(day, TAIPEI) - visitsOn(day, 'UTC'))
     if (difference > best.difference) best = { day, difference }
   }
