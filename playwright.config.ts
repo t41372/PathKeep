@@ -71,6 +71,9 @@ function prepareFixture() {
     ),
     // Lets export.spec.ts watch and stop an export of the small fixture. Debug only.
     PATHKEEP_TEST_EXPORT_ROW_DELAY_US: '500',
+    // The launcher runs the app itself and starts it again when a spec kills
+    // it after creating this file (semantic-index.spec.ts).
+    PATHKEEP_E2E_RESTART_FILE: path.join(root, 'restart-app'),
     // Keep the build cache between runs; a cold Rust build takes minutes.
     CARGO_TARGET_DIR:
       process.env.CARGO_TARGET_DIR ??
@@ -152,11 +155,13 @@ export default defineConfig({
       ],
       'first-run',
     ),
+    // A project runs its files in name order, so what must come first or
+    // last gets a project of its own.
+    // It counts the fixture's visits, before the specs after it add some.
+    project('zone', ['insights-time-zone.spec.ts'], 'read'),
     project(
       'change',
       [
-        // First: it counts the fixture's visits, before other specs add some.
-        'insights-time-zone.spec.ts',
         'background-work.spec.ts',
         'backup.spec.ts',
         'link-preview.spec.ts',
@@ -169,11 +174,13 @@ export default defineConfig({
         'lock.spec.ts',
         'security.spec.ts',
       ],
-      'read',
+      'zone',
     ),
+    // It kills the app and the launcher starts it again, behind App Lock.
+    project('restart', ['semantic-index.spec.ts'], 'change'),
     // Opening the moved file replaces the archive and its password, so it runs
     // after every test that relies on the archive first-run created.
-    project('move', ['move.spec.ts'], 'change'),
+    project('move', ['move.spec.ts'], 'restart'),
     project('wipe', ['wipe.spec.ts'], 'move'),
     // Needs the empty data folder wipe leaves behind.
     project('upgrade', ['upgrade.spec.ts'], 'wipe'),

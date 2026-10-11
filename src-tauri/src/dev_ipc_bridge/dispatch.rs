@@ -551,6 +551,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<WrappedRequest<AiIndexRequest>>(payload)?;
             json_value!(worker_bridge::build_ai_index_impl(payload.request, &state.session)?)
         }
+        "estimate_reembed" => {
+            let payload = parse_payload::<ReembedScopePayload>(payload)?;
+            json_value!(worker_bridge::estimate_reembed_impl(payload.scope, &state.session)?)
+        }
         "reset_ai_index_build" => {
             // Clears stuck index jobs then enqueues a clean build via `build_ai_index_now` (which only
             // SPAWNS the drain — no `block_on` on this thread — so it is safe inline like `build_ai_index`).

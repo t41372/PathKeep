@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process'
+import { existsSync, rmSync } from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export function resolveDesktopBridgeEnv(env = process.env) {
@@ -38,6 +40,19 @@ if (process.argv[1] === scriptPath) {
     `PathKeep desktop bridge enabled at ${resolved.devIpcUrl}. Open ${resolved.devServerUrl} in Chrome or run bun run test:e2e.`,
   )
 
+  if (env.PATHKEEP_E2E_RESTART_FILE) {
+    await superviseForE2E(
+      env,
+      tauriConfigOverride,
+      env.PATHKEEP_E2E_RESTART_FILE,
+    )
+  } else {
+    runTauriDev(env, tauriConfigOverride)
+  }
+}
+
+/** `tauri dev`, which builds and runs the app and the frontend's dev server. */
+function runTauriDev(env, tauriConfigOverride) {
   const child = spawn(
     'bun',
     [
@@ -68,4 +83,75 @@ if (process.argv[1] === scriptPath) {
 
     process.exit(code ?? 0)
   })
+}
+
+/**
+ * For the E2E run (`PATHKEEP_E2E_RESTART_FILE`): does what `tauri dev` does —
+ * the worker sidecar, Vite, one build of the app — but runs the app itself, so
+ * a spec can kill it the way a crash would and get it back. When the app exits
+ * and the restart file exists, the file is removed and the app starts again on
+ * the same ports and data; any other exit ends the run, as with `tauri dev`.
+ */
+async function superviseForE2E(env, tauriConfigOverride, restartFile) {
+  const run = (command, args, extraEnv = {}) =>
+    new Promise((resolve, reject) => {
+      const child = spawn(command, args, {
+        stdio: 'inherit',
+        env: { ...env, ...extraEnv },
+      })
+      child.on('error', reject)
+      child.on('exit', (code) =>
+        code === 0
+          ? resolve()
+          : reject(
+              new Error(`${command} ${args.join(' ')} exited with ${code}`),
+            ),
+      )
+    })
+  rmSync(restartFile, { force: true })
+  // `tauri dev` builds the sidecar in debug (it sets TAURI_ENV_DEBUG); so does this.
+  await run('bun', ['run', 'prepare:worker-sidecar', '--profile', 'debug'])
+  const vite = spawn('bun', ['run', 'dev'], { stdio: 'inherit', env })
+  await run(
+    'cargo',
+    [
+      'build',
+      '--manifest-path',
+      'src-tauri/Cargo.toml',
+      '--features',
+      'devtools-bridge',
+    ],
+    { TAURI_CONFIG: tauriConfigOverride },
+  )
+  const target = path.resolve(env.CARGO_TARGET_DIR ?? 'src-tauri/target')
+  const binary = path.join(
+    target,
+    'debug',
+    process.platform === 'win32' ? 'pathkeep-desktop.exe' : 'pathkeep-desktop',
+  )
+
+  let app = null
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, () => {
+      vite.kill(signal)
+      app?.kill(signal)
+      process.exit(1)
+    })
+  }
+  const start = () => {
+    app = spawn(binary, [], { stdio: 'inherit', env })
+    app.on('exit', (code, signal) => {
+      if (existsSync(restartFile)) {
+        rmSync(restartFile, { force: true })
+        console.log(
+          'PathKeep E2E: the app stopped as a spec asked; starting it again.',
+        )
+        start()
+        return
+      }
+      vite.kill()
+      process.exit(code ?? (signal ? 1 : 0))
+    })
+  }
+  start()
 }

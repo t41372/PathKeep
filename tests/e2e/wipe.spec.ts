@@ -17,7 +17,7 @@
  */
 import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { browserFileVisitCount } from './support/browser-file'
 import { PREVIEW_VISIT_COUNT } from './support/preview-server'
 import { rankingVisitCount } from './support/ranking-pages'
@@ -35,18 +35,9 @@ import {
   fixture,
   parseCount,
 } from './support/fixture'
+import { unlockIfLocked } from './support/app'
 
 const schedulerSupported = process.platform !== 'linux'
-
-/** App lock is on from lock.spec; unlock if this page load locked it. */
-async function unlockIfLocked(page: Page) {
-  const lock = page.getByRole('heading', { name: 'PathKeep is locked' })
-  if (await lock.isVisible().catch(() => false)) {
-    await page.getByPlaceholder('Passcode').fill('4826')
-    await page.getByPlaceholder('Passcode').press('Enter')
-    await expect(lock).toBeHidden()
-  }
-}
 
 const installState = async () =>
   (

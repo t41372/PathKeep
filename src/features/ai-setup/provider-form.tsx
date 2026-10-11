@@ -1,6 +1,7 @@
 /**
  * Fields for describing one AI service: kind, name, address, model, API key.
- * Used by the Add dialog in Settings and inline in onboarding.
+ * Used by the add and edit dialog in Settings, for the assistant and for
+ * semantic search's embeddings, and inline in onboarding.
  */
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,10 +13,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useI18n } from '@/lib/i18n'
+import type { AiProviderPurpose } from '@/lib/types'
 import {
   draftNeedsKey,
   presetFor,
-  providerPresets,
+  presetsFor,
   type ProviderDraft,
   type ProviderKind,
 } from './providers'
@@ -24,19 +26,29 @@ export function ProviderForm({
   draft,
   onChange,
   idPrefix,
+  purpose,
+  keySaved = false,
 }: {
   draft: ProviderDraft
   onChange: (draft: ProviderDraft) => void
   idPrefix: string
+  purpose?: AiProviderPurpose
+  /** Editing a service whose key is stored: an empty field keeps it. */
+  keySaved?: boolean
 }) {
   const { t } = useI18n()
-  const preset = presetFor(draft.kind)
-  const needsKey = draftNeedsKey(draft)
+  const preset = presetFor(draft.kind, purpose)
+  const needsKey = draftNeedsKey(draft, purpose)
   const set = (patch: Partial<ProviderDraft>) =>
     onChange({ ...draft, ...patch })
 
   const pickKind = (kind: ProviderKind) =>
-    set({ kind, baseUrl: presetFor(kind).baseUrl, model: '', apiKey: '' })
+    set({
+      kind,
+      baseUrl: presetFor(kind, purpose).baseUrl,
+      model: '',
+      apiKey: '',
+    })
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -52,7 +64,7 @@ export function ProviderForm({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {providerPresets.map((item) => (
+            {presetsFor(purpose).map((item) => (
               <SelectItem key={item.kind} value={item.kind}>
                 {t(`settingsAi.provider.kinds.${item.kind}`)}
               </SelectItem>
@@ -107,9 +119,11 @@ export function ProviderForm({
         id={`${idPrefix}-key`}
         label={t('settingsAi.provider.form.apiKey')}
         hint={
-          needsKey
-            ? t('settingsAi.provider.form.apiKeyHint')
-            : t('settingsAi.provider.form.apiKeyOptional')
+          keySaved
+            ? t('settingsAi.provider.form.apiKeyKeep')
+            : needsKey
+              ? t('settingsAi.provider.form.apiKeyHint')
+              : t('settingsAi.provider.form.apiKeyOptional')
         }
       >
         <Input

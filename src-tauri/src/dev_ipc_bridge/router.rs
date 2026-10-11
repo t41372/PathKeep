@@ -72,7 +72,8 @@ pub(super) fn build_router(
 ///
 /// The health route intentionally exposes only product/runtime/port metadata,
 /// not archive status or user data, because it is meant to identify the dev
-/// transport rather than become another read model.
+/// transport rather than become another read model. The process id lets an E2E
+/// spec stop this app the way a crash would, and see the restarted one answer.
 async fn bridge_health(
     State(state): State<DevIpcBridgeState>,
 ) -> Result<axum::Json<Value>, (StatusCode, axum::Json<Value>)> {
@@ -81,6 +82,7 @@ async fn bridge_health(
         "productName": PRODUCT_DISPLAY_NAME,
         "runtime": "browser-desktop-bridge",
         "port": state.port,
+        "pid": std::process::id(),
     })))
 }
 

@@ -1,11 +1,17 @@
 /**
- * What the app knows about AI providers: the kinds the user can add, whether
- * the selected assistant provider is usable, and how to label it.
+ * What the app knows about AI providers: the kinds the user can add for the
+ * assistant and for semantic search's embeddings, whether the selected
+ * assistant provider is usable, and how to label one.
  *
  * Shared by Ask (to decide between chat and the setup screen), Settings → AI
  * and onboarding. Not responsible for any UI.
  */
-import type { AiProviderConfig, AiRequestFormat, AiSettings } from '@/lib/types'
+import type {
+  AiProviderConfig,
+  AiProviderPurpose,
+  AiRequestFormat,
+  AiSettings,
+} from '@/lib/types'
 
 export type ProviderKind =
   | 'openai'
@@ -69,10 +75,46 @@ export const providerPresets: readonly ProviderPreset[] = [
   },
 ]
 
-export function presetFor(kind: ProviderKind) {
-  return (
-    providerPresets.find((preset) => preset.kind === kind) ?? providerPresets[0]
-  )
+/**
+ * Services that turn text into embeddings for semantic search. PathKeep sends
+ * them OpenAI's `/embeddings` request, so every address ends in `/v1`
+ * (Ollama and LM Studio both answer it there). Anthropic has no embeddings,
+ * and Gemini's are not OpenAI-shaped.
+ */
+export const embeddingPresets: readonly ProviderPreset[] = [
+  {
+    kind: 'ollama',
+    requestFormat: 'ollama',
+    baseUrl: 'http://localhost:11434/v1',
+    baseUrlHint: '',
+    modelHint: 'nomic-embed-text',
+    needsKey: false,
+  },
+  {
+    kind: 'lm-studio',
+    requestFormat: 'lm-studio',
+    baseUrl: 'http://localhost:1234/v1',
+    baseUrlHint: '',
+    modelHint: '',
+    needsKey: false,
+  },
+  {
+    kind: 'openai',
+    requestFormat: 'openai',
+    baseUrl: 'https://api.openai.com/v1',
+    baseUrlHint: '',
+    modelHint: 'text-embedding-3-small',
+    needsKey: true,
+  },
+]
+
+export function presetsFor(purpose: AiProviderPurpose = 'llm') {
+  return purpose === 'embedding' ? embeddingPresets : providerPresets
+}
+
+export function presetFor(kind: ProviderKind, purpose?: AiProviderPurpose) {
+  const presets = presetsFor(purpose)
+  return presets.find((preset) => preset.kind === kind) ?? presets[0]
 }
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0'])
@@ -118,8 +160,12 @@ export function providerLabel(provider: AiProviderConfig) {
   return `${provider.name} · ${provider.defaultModel}`
 }
 
-export function newProviderId(kind: ProviderKind) {
-  return `llm-${kind}-${crypto.randomUUID().slice(0, 8)}`
+export function newProviderId(
+  kind: ProviderKind,
+  purpose: AiProviderPurpose = 'llm',
+) {
+  const prefix = purpose === 'embedding' ? 'embed' : 'llm'
+  return `${prefix}-${kind}-${crypto.randomUUID().slice(0, 8)}`
 }
 
 export interface ProviderDraft {
@@ -130,22 +176,45 @@ export interface ProviderDraft {
   apiKey: string
 }
 
-export function emptyDraft(kind: ProviderKind = 'ollama'): ProviderDraft {
-  const preset = presetFor(kind)
+export function emptyDraft(
+  kind: ProviderKind = 'ollama',
+  purpose?: AiProviderPurpose,
+): ProviderDraft {
+  const preset = presetFor(kind, purpose)
   return { kind, name: '', baseUrl: preset.baseUrl, model: '', apiKey: '' }
+}
+
+const KIND_FOR_FORMAT: Record<AiRequestFormat, ProviderKind> = {
+  ollama: 'ollama',
+  'lm-studio': 'lm-studio',
+  openai: 'openai',
+  anthropic: 'anthropic',
+  google: 'gemini',
+}
+
+/** A saved service as the form shows it for editing; its key stays where it is. */
+export function draftFromProvider(provider: AiProviderConfig): ProviderDraft {
+  return {
+    kind: KIND_FOR_FORMAT[provider.requestFormat],
+    name: provider.name,
+    baseUrl: provider.baseUrl ?? '',
+    model: provider.defaultModel,
+    apiKey: '',
+  }
 }
 
 export function draftToProvider(
   draft: ProviderDraft,
   id: string,
   label: string,
+  purpose: AiProviderPurpose = 'llm',
 ): AiProviderConfig {
-  const preset = presetFor(draft.kind)
+  const preset = presetFor(draft.kind, purpose)
   const model = draft.model.trim()
   return {
     id,
     name: draft.name.trim() || label,
-    purpose: 'llm',
+    purpose,
     requestFormat: preset.requestFormat,
     enabled: true,
     baseUrl: draft.baseUrl.trim() || null,
@@ -156,12 +225,25 @@ export function draftToProvider(
 }
 
 /** Hosted services need a key; anything on this computer does not. */
-export function draftNeedsKey(draft: ProviderDraft) {
-  const preset = presetFor(draft.kind)
+export function draftNeedsKey(
+  draft: ProviderDraft,
+  purpose?: AiProviderPurpose,
+) {
+  const preset = presetFor(draft.kind, purpose)
   return preset.needsKey && !isLocalUrl(draft.baseUrl)
 }
 
-export function draftIsComplete(draft: ProviderDraft) {
+/** Ready to save. `keySaved`: editing a service whose key is already stored. */
+export function draftIsComplete(
+  draft: ProviderDraft,
+  {
+    purpose,
+    keySaved = false,
+  }: { purpose?: AiProviderPurpose; keySaved?: boolean } = {},
+) {
   if (!draft.model.trim()) return false
-  return !draftNeedsKey(draft) || draft.apiKey.trim().length > 0
+  if (purpose === 'embedding' && !draft.baseUrl.trim()) return false
+  return (
+    keySaved || !draftNeedsKey(draft, purpose) || draft.apiKey.trim().length > 0
+  )
 }

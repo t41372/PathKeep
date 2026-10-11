@@ -7,7 +7,8 @@
  * the results back, and shows the answer with the pages it found: the
  * fixture's page about spawn_blocking is cited, and its address is in what the
  * model was sent. A wrong key and an address nothing listens on each fail the
- * connection test with the reason in words, not the backend's error text.
+ * connection test with the reason in words, not the backend's error text; the
+ * service with the wrong key, edited in place with the right one, connects.
  */
 import { expect, test, type Page } from '@playwright/test'
 import { FAKE_ANSWER, startFakeModel } from './support/fake-model'
@@ -83,12 +84,15 @@ test('Ask answers from a search of the archive, with the pages it found', async 
       .map((message) => JSON.stringify(message.content))
       .join('\n')
     expect(results).toContain(ISSUE_URL)
+
   } finally {
     await model.close()
   }
 })
 
-test('the connection test says why it could not connect', async ({ page }) => {
+test('the connection test says why it could not connect, and an edited key fixes it', async ({
+  page,
+}) => {
   const model = await startFakeModel({ apiKey: KEY, searchFor: 'anything' })
   try {
     await addService(page, {
@@ -101,6 +105,22 @@ test('the connection test says why it could not connect', async ({ page }) => {
       page.getByText(
         'Could not connect. The service did not accept the API key. Check the key and test again.',
       ),
+    ).toBeVisible({ timeout: 30_000 })
+
+    // The same service, its key changed in place: the rest stays as saved.
+    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    const edit = page.getByRole('dialog', { name: 'Edit E2E wrong key' })
+    await expect(edit.getByRole('textbox', { name: 'Address' })).toHaveValue(
+      model.url,
+    )
+    await expect(edit.getByRole('textbox', { name: 'Model' })).toHaveValue(
+      'e2e-model',
+    )
+    await edit.getByLabel('API key').fill(KEY)
+    await edit.getByRole('button', { name: 'Save' }).click()
+    await expect(page.getByText('E2E wrong key is saved.')).toBeVisible()
+    await expect(
+      page.getByText(/^Connected to e2e-model in \d+ ms\.$/),
     ).toBeVisible({ timeout: 30_000 })
 
     // Nothing listens on port 9 (discard) on this machine.
