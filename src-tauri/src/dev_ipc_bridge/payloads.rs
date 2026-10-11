@@ -30,8 +30,8 @@ use serde::Deserialize;
 use vault_core::{
     AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowseDayInsightsRequest,
     BrowserHistoryImportRequest, ExportRequest, HistoryFaviconLookupEntry,
-    HistoryOgImageLookupEntry, HistoryQuery, ReplaceTagsRequest, SchedulePlan, SetNotesRequest,
-    SetStarRequest, StarEntityKind, StarSort, StarStatusRequest, TakeoutRequest,
+    HistoryOgImageLookupEntry, HistoryQuery, ReembedScope, ReplaceTagsRequest, SchedulePlan,
+    SetNotesRequest, SetStarRequest, StarEntityKind, StarSort, StarStatusRequest, TakeoutRequest,
 };
 
 /// Carries archive bootstrap input across the browser automation mirror without
@@ -208,6 +208,13 @@ pub(super) struct InputPayload<T> {
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProviderIdPayload {
     pub(super) provider_id: String,
+}
+
+/// Which pages a re-embed estimate sizes, as `estimate_reembed` takes it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ReembedScopePayload {
+    pub(super) scope: ReembedScope,
 }
 
 /// Bounds queue execution during dev automation so callers can avoid launching

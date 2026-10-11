@@ -30,6 +30,8 @@ import {
 export const STATIC_MODEL_APPROX_BYTES = 531 * 1024 * 1024
 
 const POLL_MS = 2000
+/** Shared with Settings → Background work, so the queue is polled once. */
+const QUEUE_KEY = ['ai', 'queue']
 
 /** Master switch stays on only while something else still needs it. */
 function masterStaysOn(ai: AiSettings) {
@@ -47,7 +49,13 @@ export function useSemanticIndex() {
   const save = useSaveConfig()
   const status: AiIndexStatus = snapshot.aiStatus
   const ai = snapshot.config.ai
-  const modelDownloaded = status.staticEmbedding?.modelDownloaded ?? false
+  // Only the in-app model is downloaded; an embeddings service set in the
+  // config is ready as it is, and the index's progress is what to show.
+  const usesInAppModel =
+    (ai.embeddingProviderId ?? BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID) ===
+    BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID
+  const modelDownloaded =
+    !usesInAppModel || (status.staticEmbedding?.modelDownloaded ?? false)
 
   const cancelled = useRef(false)
   const [restart, setRestart] = useState(0)
@@ -55,6 +63,14 @@ export function useSemanticIndex() {
   const [building, setBuilding] = useState(
     status.queuedJobs + status.runningJobs > 0 && status.state !== 'disabled',
   )
+  // Only a queue answer from after the build was queued may end the watch;
+  // one cached from an earlier build would end it at once.
+  const [watchedFrom, setWatchedFrom] = useState(() => Date.now())
+  const watchBuild = useCallback(async () => {
+    await client.cancelQueries({ queryKey: QUEUE_KEY, exact: true })
+    setWatchedFrom(Date.now())
+    setBuilding(true)
+  }, [client])
   const [error, setError] = useState<string | null>(null)
   const download = useModelDownloadProgress(modelDownloaded, cancelled, restart)
 
@@ -65,23 +81,23 @@ export function useSemanticIndex() {
   )
 
   const queue = useQuery({
-    queryKey: ['ai', 'queue'],
+    queryKey: QUEUE_KEY,
     queryFn: intelligenceClient.getQueueStatus,
     enabled: building,
     refetchInterval: POLL_MS,
     staleTime: 0,
   })
 
+  const current = queue.dataUpdatedAt > watchedFrom ? queue.data : undefined
   const queueIdle =
-    queue.data !== undefined &&
-    queue.data.indexQueued + queue.data.indexRunning === 0
+    current !== undefined && current.indexQueued + current.indexRunning === 0
   useEffect(() => {
     if (!building || !queueIdle) return
     setBuilding(false)
     void refreshSnapshot().catch(() => undefined)
   }, [building, queueIdle, refreshSnapshot])
 
-  const running = queue.data?.recentJobs.find(
+  const running = current?.recentJobs.find(
     (job) => job.state === 'running' && job.progressEmbedTarget !== undefined,
   )
   const progress: IndexProgress | null =
@@ -109,14 +125,14 @@ export function useSemanticIndex() {
       setRestart((count) => count + 1)
       // Downloads the model if needed, then queues the full index build.
       await runLocalSemanticSetup()
-      setBuilding(true)
+      await watchBuild()
       await refreshSnapshot()
     } catch (reason) {
       if (!cancelled.current) setError(describeError(reason))
     } finally {
       setSetupRunning(false)
     }
-  }, [refreshSnapshot, save])
+  }, [refreshSnapshot, save, watchBuild])
 
   const disable = useCallback(async () => {
     setError(null)
@@ -152,9 +168,9 @@ export function useSemanticIndex() {
           scope,
         })
       }
-      setBuilding(true)
+      await watchBuild()
     },
-    [status.state],
+    [status.state, watchBuild],
   )
 
   return {

@@ -14,8 +14,9 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { backend, fixture } from './support/fixture'
+import { unlockIfLocked } from './support/app'
 
 test.skip(
   process.platform === 'linux',
@@ -34,19 +35,6 @@ const installState = async () =>
 const savedInterval = async () =>
   (await backend<{ config: { dueAfterHours: number } }>('app_snapshot')).config
     .dueAfterHours
-
-/**
- * Specs in a project run in file-name order, so lock.spec may already have
- * turned App Lock on; unlock if this page load locked it.
- */
-async function unlockIfLocked(page: Page) {
-  const lock = page.getByRole('heading', { name: 'PathKeep is locked' })
-  if (await lock.isVisible().catch(() => false)) {
-    await page.getByPlaceholder('Passcode').fill('4826')
-    await page.getByPlaceholder('Passcode').press('Enter')
-    await expect(lock).toBeHidden()
-  }
-}
 
 /** Files in the sandbox that stand in for the OS scheduler. */
 function sandboxedSchedulerFiles(): string[] {

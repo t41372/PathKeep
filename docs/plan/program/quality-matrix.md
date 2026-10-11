@@ -28,7 +28,7 @@
 
 E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的：
 
-- `playwright.config.ts` 透過 `scripts/pathkeep-dev-desktop-bridge.mjs` 啟動帶 `devtools-bridge` feature 的 debug Rust 後端與 Vite 前端，Playwright 驅動真正的畫面。
+- `playwright.config.ts` 透過 `scripts/pathkeep-dev-desktop-bridge.mjs` 啟動帶 `devtools-bridge` feature 的 debug Rust 後端與 Vite 前端，Playwright 驅動真正的畫面。E2E 時（`PATHKEEP_E2E_RESTART_FILE`）腳本不經 `tauri dev`：自己跑 worker sidecar、Vite 與一次 app 的建置，再自己顧著 app，讓 spec 能像當機一樣殺掉 app、由腳本在同樣的連接埠與資料上重開（`tests/e2e/support/app.ts`）；沒有 spec 要求的結束照舊結束整個 run。
 - 網路：E2E 後端擋掉自己發起的抓取（`PATHKEEP_TEST_BLOCK_NETWORK`），只有連結預覽可以連到 spec 自己在 `https://127.0.0.1` 開的網站（`PATHKEEP_TEST_PREVIEW_SERVER_CA`，憑證在 `tests/e2e/support/tls/`）；使用者設定的 AI 服務（spec 自己開的假服務）照常連。兩個開關都只在 debug 建置有效。
 - 測資是臨時目錄裡的合成瀏覽器 profile（兩個 Chrome、一個 Firefox，真實 SQLite，seed 固定，`scripts/fixtures/synthetic-browsers.mjs`），archive、keyring、project root 都在該目錄內；cargo target 放在 `var/playwright/desktop-bridge/cargo-target` 以便重用編譯快取。
 - 預期數字一律由測資算出（`tests/e2e/support/fixture.ts`），不在 spec 裡手寫。

@@ -193,10 +193,13 @@ pub fn app_snapshot_with_vault(
 ) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
+    // The session's vault keeps the settings it was opened with. Its reads must describe the saved
+    // ones, or a search index built with a newly chosen embeddings service reads as empty.
+    let vault = vault.map(|vault| vault.with_config(config.clone()));
     let browser_discovery = snapshot_browser_profiles();
     // One archive open and one intelligence open for everything below; each open of an encrypted
     // archive derives its key again.
-    let reads = load_snapshot_reads(&paths, &config, session_database_key, vault)?;
+    let reads = load_snapshot_reads(&paths, &config, session_database_key, vault.as_ref())?;
     let ai_status = degrade_ai_status(&config, reads.ai_status);
     let intelligence_status = degrade_intelligence_status(reads.intelligence_status);
     let app_lock_status = resolved_app_lock_status(&paths, &config)?;
