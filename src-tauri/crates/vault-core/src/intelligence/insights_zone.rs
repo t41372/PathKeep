@@ -21,9 +21,11 @@ use vault_store::{Db, Session};
 pub fn insights_time_zone(vault: &Vault) -> Result<InsightsTimeZone> {
     let config = vault.config().clone();
     vault.read(Db::Intelligence, move |s| {
+        let next = InsightsZone::for_build(s, &config)?;
         Ok(InsightsTimeZone {
             shown: InsightsZone::for_reading(s)?.name().to_owned(),
-            next: InsightsZone::for_build(s, &config)?.name().to_owned(),
+            next: next.name().to_owned(),
+            rebuilding_from: InsightsZone::published_besides(s, next)?,
         })
     })
 }
@@ -80,6 +82,19 @@ impl InsightsZone {
             |r| Ok(r.get::<String>(0)?),
         )?;
         Ok(names.first().and_then(|name| Self::named(name)))
+    }
+
+    /// A zone some profile's published data is in other than `zone`. A rebuild in a new zone
+    /// publishes one profile at a time, and reads move to the new zone with the first one
+    /// (`published`): until the last one, this says the rebuild is not done.
+    pub(crate) fn published_besides(s: &Session<'_>, zone: Self) -> Result<Option<String>> {
+        let names = s.query(
+            "SELECT time_zone FROM intelligence_generations WHERE time_zone IS NOT NULL
+               AND time_zone<>?1 ORDER BY profile_id LIMIT 1",
+            [zone.name()],
+            |r| Ok(r.get::<String>(0)?),
+        )?;
+        Ok(names.into_iter().next())
     }
 
     /// Its IANA name, which builds record and settings show.

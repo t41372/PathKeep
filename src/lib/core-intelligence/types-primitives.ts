@@ -40,6 +40,12 @@ export interface InsightsTimeZone {
   shown: string
   /** The zone the next build uses; differs from `shown` while a rebuild in a newly chosen zone runs. */
   next: string
+  /**
+   * The zone some profiles' Insights are still in while a rebuild moves them
+   * to `next`. Reads move to `next` with the first profile rebuilt, so this
+   * outlasts `shown !== next`.
+   */
+  rebuildingFrom: string | null
 }
 
 /** Standard pagination params. */

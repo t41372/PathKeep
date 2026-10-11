@@ -31,6 +31,7 @@ import {
 import {
   useChooseInsightsZone,
   useInsightsZone,
+  zoneRebuilding,
   zoneText,
 } from '@/features/insights/zone'
 import { ZoneNotice } from '@/features/insights/zone-notice'
@@ -73,7 +74,9 @@ export function InsightsZoneRow() {
   )
   const labelled = useZoneLabels(zones, locale)
   const current = zoneLabel(zone.next, locale)
-  const rebuilding = zone.shown !== zone.next
+  const rebuilding = zoneRebuilding(zone)
+  // What the Insights not yet rebuilt are still in.
+  const old = zone.rebuildingFrom ?? zone.shown
 
   return (
     <SettingRow
@@ -85,8 +88,8 @@ export function InsightsZoneRow() {
           {rebuilding && (
             <span className="mt-1 block text-foreground">
               {t('settings.general.insightsZone.rebuilding', {
-                zone: zoneText(zone.next, locale, t, [zone.shown]),
-                old: zoneText(zone.shown, locale, t, [zone.next]),
+                zone: zoneText(zone.next, locale, t, [old]),
+                old: zoneText(old, locale, t, [zone.next]),
               })}
             </span>
           )}

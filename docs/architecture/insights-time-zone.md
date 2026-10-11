@@ -45,7 +45,7 @@ archive 存的時刻全是 UTC：每個 parser（Chromium、Firefox、Safari、T
 
 **其他兩處。** History 搜尋的 `after:` / `before:` 改按電腦時區切日子（與 History 的顯示一致；`archive/search_query.rs` 用 `utils::local_day_range_ms`）。Ask agent 寫給模型的時間改用電腦的 IANA 時區逐筆換算（`AgentToolContext.time_zone`），不再是開聊天當下的固定 offset。
 
-**已知的小落差。** History 的「網站」篩選清單的次數來自 Insights 的資料，所以按洞察的日子算；兩個時區不同時，選某幾天時次數與 History 列表可能差幾筆。多個設定檔換時區重建時逐一發佈，重建中「所有瀏覽器」的數字可能一部分是新時區；卡片這時顯示「正在更新」。
+**已知的小落差。** History 的「網站」篩選清單的次數來自 Insights 的資料，所以按洞察的日子算；兩個時區不同時，選某幾天時次數與 History 列表可能差幾筆。多個設定檔換時區重建時逐一發佈，重建中「所有瀏覽器」的數字可能一部分是新時區；卡片這時顯示「正在更新」。讀取在第一個設定檔發佈時就換到新時區，所以「重建完了沒」不能只看 `shown` 與 `next` 相不相同：`get_insights_time_zone` 另外回報還沒換過去的設定檔的時區（`rebuildingFrom`，查 `intelligence_generations`），Settings 一直說「正在按…重新整理」到最後一個設定檔發佈，那時前端才丟掉快取的洞察讀取。（2026-10-10 之前只看 `shown`，Settings 在第一個設定檔發佈時就說好了，之後讀到的數字是兩個時區混著的，而且留在快取裡；`insights-time-zone.spec` 真的第一個跑時讀到柏林那天 52 筆，應該是 59。）
 
 **證明。**
 

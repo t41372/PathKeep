@@ -26,6 +26,11 @@ import { useSaveSetting } from '@/features/settings/use-save-setting'
 /** The zone, or the computer's while it could not be read (`unknown`). */
 type ZoneState = InsightsTimeZone & { unknown?: true }
 
+/** Whether a rebuild in a new zone has not yet reached every profile. */
+export function zoneRebuilding(zone: InsightsTimeZone) {
+  return zone.shown !== zone.next || zone.rebuildingFrom !== null
+}
+
 /**
  * Read once when the archive opens (`prefetchInsightsZone`), and again every
  * few seconds while a rebuild in a new zone runs. A failed read stands in the
@@ -41,10 +46,20 @@ export const insightsZoneQuery = queryOptions({
       zone = await insightsClient.timeZone()
     } catch {
       const computer = computerTimeZone()
-      zone = { shown: computer, next: computer, unknown: true }
+      zone = {
+        shown: computer,
+        next: computer,
+        rebuildingFrom: null,
+        unknown: true,
+      }
     }
-    // A rebuild in a new zone is done: every cached Insights read has the old days.
-    if (before && before.shown !== zone.shown) {
+    // Reads moved to another zone, or a rebuild in it reached the last
+    // profile: cached Insights reads hold the old days.
+    if (
+      before &&
+      (before.shown !== zone.shown ||
+        (zoneRebuilding(before) && !zoneRebuilding(zone)))
+    ) {
       void queryClient.invalidateQueries({
         predicate: ({ queryKey }) =>
           queryKey[0] === queryKeys.archiveData[0] &&
@@ -57,7 +72,7 @@ export const insightsZoneQuery = queryOptions({
   refetchInterval: (query) => {
     const zone = query.state.data
     if (zone?.unknown) return 15_000
-    return zone && zone.shown !== zone.next ? 5_000 : false
+    return zone && zoneRebuilding(zone) ? 5_000 : false
   },
 })
 
