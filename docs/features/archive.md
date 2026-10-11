@@ -200,7 +200,7 @@ Settings → General 的兩個開關。
   - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。
 - Import review surface 應把 `new import wizard` 與「這次匯入結果」放在首要層級；recent batch history、revert / restore、doctor report 與 repair CTA 退到次要 review surface，避免歷史批次搶走新匯入流程的注意力。
 - 提供詳細但可掃讀的操作指南：怎麼從 Google Takeout 請求 Chrome 匯出、怎麼下載，以及如何確認壓縮包 / 資料夾裡真的有 dedicated Chrome history JSON，而不是 My Activity JSON / HTML。
-  - 2026-10-09 介面：匯入卡在拖放區下有可展開的「怎麼從 Google Takeout 取得」（打開 takeout.google.com 全部取消選取、勾 Chrome〔資料選項裡可以只留歷史記錄〕、以 .zip 建立匯出、拖進來不用解壓縮；並說明 Takeout 裡是 Chrome 同步到帳號的歷史，可能比本機 Chrome 久）。預覽時若匯出裡有 HTML 的「我的活動 → Chrome」，寫明 PathKeep 讀不了、請改為 JSON 或改勾 Chrome；什麼都沒找到時寫明檔案裡沒有 Chrome 歷史與該怎麼匯出。JSON 的「我的活動」照常預覽與匯入（Google 的轉址解開、標題去掉 `Visited `）。匯入的造訪若別的來源（瀏覽器本身、另一份匯出）已經有同一次（同網址、1 秒內），一併保存、只算一次，卡片多一行說幾筆是這樣（`docs/architecture/same-visit-across-sources.md`）。`takeout-import.spec` 驗這三種情況。
+  - 2026-10-09 介面：匯入卡在拖放區下有可展開的「怎麼從 Google Takeout 取得」（打開 takeout.google.com 全部取消選取、勾 Chrome〔資料選項裡可以只留歷史記錄〕、以 .zip 建立匯出、拖進來不用解壓縮；並說明 Takeout 裡是 Chrome 同步到帳號的歷史，可能比本機 Chrome 久）。預覽時若匯出裡有 HTML 的「我的活動 → Chrome」，寫明 PathKeep 讀不了、請改為 JSON 或改勾 Chrome；什麼都沒找到時寫明檔案裡沒有 Chrome 歷史與該怎麼匯出。JSON 的「我的活動」照常預覽與匯入（Google 的轉址解開、標題去掉 `Visited `）。匯入的造訪若別的來源（瀏覽器本身、另一份匯出）已經有同一次（同網址、1 秒內），一併保存、只算一次，卡片多一行說幾筆是這樣（`docs/architecture/same-visit-across-sources.md`）。同一份匯出裡同時有 Chrome 歷史與「我的活動」時，先寫 Chrome 歷史，「我的活動」的副本記成已在 archive，跟檔案在 zip 裡的順序或資料夾名稱無關。`takeout-import.spec` 驗這幾種情況，包括一個照 Google 寄出的樣子做的 .zip（`Takeout/` 下有 Chrome 的 `History.json` 與其他檔案、「我的活動」的 JSON）。
 
 ### 瀏覽器直接導入
 

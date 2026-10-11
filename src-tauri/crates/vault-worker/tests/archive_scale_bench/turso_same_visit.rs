@@ -4,10 +4,14 @@
 //! Failure modes: measuring an import that looks nothing up (copies outside the browser's time
 //! range), a warm cache passed off as cold, leftover benchmark data.
 //!
-//! The archive holds 14.4M visits of one browser (`turso_reads::seed`). Two Takeout imports of
-//! `PATHKEEP_BENCH_SAME_VISITS` records (default 1M) go through the real import: copies of the
-//! browser's latest visits, each looked up and written hidden, and as many records a year after
-//! them, which overlap no source and look nothing up. The difference is the linking.
+//! The archive holds 14.4M visits of one browser (`turso_reads::seed`). Three Takeout imports of
+//! `PATHKEEP_BENCH_SAME_VISITS` records (default 1M) go through the real import:
+//! - records a year after the browser's last visit: they overlap no source and look nothing up;
+//! - copies of the browser's latest visits: each looked up and written hidden;
+//! - the same copies 5 s later: each looked up, nothing found within 1 s, written in full.
+//!
+//! The third minus the first is what looking up costs an import that overlaps the browser.
+//! The second is cheaper than either: a hidden copy adds no totals or search documents.
 
 use super::turso_reads::{directory_bytes, open, seed};
 use std::{path::Path, time::Instant};
@@ -66,7 +70,7 @@ fn import(vault: &Vault, folder: &Path, label: &str) {
 }
 
 #[test]
-#[ignore = "encrypted 14.4M visits benchmark; imports two Takeout files and removes its data"]
+#[ignore = "encrypted 14.4M visits benchmark; imports three Takeout files and removes its data"]
 fn takeout_import_links_the_same_visits_at_scale() {
     let root = tempfile::tempdir().unwrap();
     let vault = open(root.path());
@@ -79,6 +83,10 @@ fn takeout_import_links_the_same_visits_at_scale() {
     let copies = tempfile::tempdir().unwrap();
     write_takeout(&vault, copies.path(), count, 0);
     import(&vault, copies.path(), "copies of the browser's visits");
+    // Inside the window `same_visit::candidates` checks, outside the one a copy is matched in.
+    let later = tempfile::tempdir().unwrap();
+    write_takeout(&vault, later.path(), count, 5_000);
+    import(&vault, later.path(), "5 s after the browser's visits (looked up, not found)");
     vault.store().close().unwrap();
     drop(vault);
     println!("BENCH database_bytes={}", directory_bytes(root.path()));

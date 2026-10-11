@@ -53,10 +53,20 @@ where
 
     let source = Path::new(&request.source_path);
     let files = inspect::gather_takeout_files(source)?;
-    let classified_files = files
+    let mut classified_files = files
         .iter()
         .map(|file| inspect::classify_takeout_file(source, file))
         .collect::<Result<Vec<_>>>()?;
+    // Chrome's history before My Activity: when an export has both, My Activity's copy of a
+    // visit is then written hidden behind Chrome's, and the card counts it as already there.
+    // Written the other way round, it would count as new and then be replaced. Name order
+    // (the stable sort keeps it) does not decide this: My Activity's folder is named after the
+    // account's language.
+    classified_files.sort_by_key(|file| {
+        file.path_match
+            .recognized_kind
+            .map_or(u8::MAX, |kind| crate::archive::same_visit::rank(takeout_profile(kind)))
+    });
     let planned_files = classified_files
         .iter()
         .filter(|file| {

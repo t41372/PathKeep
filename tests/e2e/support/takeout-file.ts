@@ -3,14 +3,16 @@
  * `BrowserHistory.json` in the shape Takeout writes it (a `Browser History`
  * array, times in Unix microseconds), plus files that must stay out: My
  * Activity's Chrome entries in HTML (Takeout's default), Search's My Activity,
- * JSON Lines and the archive index; and My Activity's Chrome entries in JSON, in a
- * Traditional Chinese account's folder. Times
- * come from the fixture's `now`, so a repeated run writes the same folder,
- * and `wipe.spec` can count what the import left in the archive.
+ * JSON Lines and the archive index; My Activity's Chrome entries in JSON, in a
+ * Traditional Chinese account's folder; and a download as Google sends it, one
+ * .zip with Chrome's history and My Activity's copy of it. Times come from the
+ * fixture's `now`, so a repeated run writes the same files, and `wipe.spec`
+ * can count what the imports left in the archive.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { archivedVisits, fixture } from './fixture'
+import { zipBytes } from './zip-file'
 
 /** Every imported title starts with this, so one search finds exactly them. */
 export const TAKEOUT_TITLE = 'Takeout ledger'
@@ -199,4 +201,94 @@ export function writeMyActivityCopiesFolder(url: string) {
     }))
   writeFileSync(path.join(folder, 'MyActivity.json'), JSON.stringify(copies))
   return { root, copies: copies.length }
+}
+
+/** Every title in the .zip below starts with this. */
+export const ZIP_TITLE = 'Zipped parcel'
+
+/** Four visits to two pages, 70 days ago, on a site no other spec visits. */
+function zipVisits(): TakeoutVisit[] {
+  const start = fixture().now - 70 * DAY_MS
+  return Array.from({ length: 4 }, (_, index) => ({
+    url: `https://parcel.e2e.example/item/${index % 2}`,
+    title: `${ZIP_TITLE} ${index % 2}`,
+    at: start + index * HOUR_MS,
+  }))
+}
+
+export function zipVisitCount() {
+  return zipVisits().length
+}
+
+export function zipPageCount() {
+  return new Set(zipVisits().map((visit) => visit.url)).size
+}
+
+/**
+ * A Takeout download with Chrome and My Activity ticked, as one .zip: a
+ * `Takeout` folder holding Chrome's history under its current name
+ * (`History.json`) next to Chrome's other files, and My Activity's Chrome
+ * entries in JSON, which repeat every visit (same page and instant, behind
+ * Google's redirect). My Activity's folder has the name an Indonesian account
+ * gets, which sorts before "Chrome", and the zip lists it first too. Chrome's
+ * bookmarks and search engines carry the title, so if they were read as visits
+ * the search would count them.
+ */
+export function writeTakeoutZip() {
+  const visits = zipVisits()
+  const history = {
+    'Browser History': visits.map((visit) => ({
+      favicon_url: '',
+      page_transition: 'LINK',
+      title: visit.title,
+      url: visit.url,
+      client_id: 'e2e-zip-client',
+      time_usec: visit.at * 1000,
+    })),
+  }
+  const activity = [...visits]
+    .sort((a, b) => b.at - a.at)
+    .map((visit) => ({
+      header: 'parcel.e2e.example',
+      title: `Visited ${visit.title}`,
+      titleUrl: `https://www.google.com/url?q=${encodeURIComponent(visit.url)}&usg=AOvVaw0e2e`,
+      time: new Date(visit.at).toISOString(),
+      products: ['Chrome'],
+    }))
+  const saved = Math.floor((fixture().now - 80 * DAY_MS) / 1000)
+  const bookmarks = [
+    '<!DOCTYPE NETSCAPE-Bookmark-file-1>',
+    '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+    '<TITLE>Bookmarks</TITLE>',
+    '<H1>Bookmarks</H1>',
+    '<DL><p>',
+    `<DT><A HREF="https://parcel.e2e.example/saved" ADD_DATE="${saved}">${ZIP_TITLE} bookmark</A>`,
+    '</DL><p>',
+  ].join('\n')
+  const engines = {
+    'Search Engines': [
+      {
+        short_name: `${ZIP_TITLE} search`,
+        keyword: 'parcel',
+        url: 'https://parcel.e2e.example/search?q={searchTerms}',
+        suggestions_url: '',
+        favicon_url: '',
+      },
+    ],
+  }
+  const file = path.join(fixture().root, 'takeout-20261009T101500Z-001.zip')
+  writeFileSync(
+    file,
+    zipBytes([
+      [
+        'Takeout/Aktivitas Saya/Chrome/AktivitasSaya.json',
+        JSON.stringify(activity),
+      ],
+      ['Takeout/Chrome/Bookmarks.html', bookmarks],
+      ['Takeout/Chrome/History.json', JSON.stringify(history)],
+      ['Takeout/Chrome/Search Engines.json', JSON.stringify(engines)],
+      ['Takeout/archive_browser.html', '<html></html>'],
+    ]),
+  )
+  return file
 }

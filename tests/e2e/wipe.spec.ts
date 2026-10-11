@@ -4,7 +4,7 @@
  *
  * Proves: the preview's visit count is the archive's real size (the first
  * backup, the ten added in backup.spec, the browser file imported in
- * browser-import.spec and the Takeout folder and My Activity export
+ * browser-import.spec and the Takeout folders, My Activity export and .zip
  * imported in takeout-import.spec), an installed automatic backup
  * is named in the preview and removed with the data, the archive and the
  * stored key are gone afterwards, and the browsers' own history files are
@@ -19,7 +19,11 @@ import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { browserFileVisitCount } from './support/browser-file'
-import { activityVisitCount, takeoutVisitCount } from './support/takeout-file'
+import {
+  activityVisitCount,
+  takeoutVisitCount,
+  zipVisitCount,
+} from './support/takeout-file'
 import {
   archivedVisits,
   backend,
@@ -67,7 +71,8 @@ test('delete all data previews, deletes, and returns to onboarding', async ({
     10 +
     browserFileVisitCount() +
     takeoutVisitCount() +
-    activityVisitCount()
+    activityVisitCount() +
+    zipVisitCount()
 
   if (schedulerSupported) {
     await page.goto('/#/backup')

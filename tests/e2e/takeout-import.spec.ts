@@ -13,10 +13,14 @@
  * Chrome" record left out, and nothing new the second time. A My Activity
  * export of visits the browsers already recorded keeps them and counts them
  * once: the card says they were already there from another source, the page
- * keeps its visit count, and its details say Takeout recorded them too.
+ * keeps its visit count, and its details say Takeout recorded them too. A
+ * download as Google sends it, one .zip with Chrome's `History.json`, Chrome's
+ * other files and My Activity's copy of every visit, imports each visit once
+ * and says the copies were already there, whichever the zip lists first.
  *
- * The folder is written for this test (see `support/takeout-file.ts`); none
- * of its pages are in the archive before the import.
+ * The folders and the zip are written for this test (see
+ * `support/takeout-file.ts`); none of their pages are in the archive before
+ * the import.
  */
 import { expect, test, type Page } from '@playwright/test'
 import { archivedVisits, parseCount } from './support/fixture'
@@ -31,6 +35,10 @@ import {
   writeMyActivityJsonFolder,
   writeMyActivityOnlyFolder,
   writeTakeoutFolder,
+  writeTakeoutZip,
+  ZIP_TITLE,
+  zipPageCount,
+  zipVisitCount,
 } from './support/takeout-file'
 
 /** Waits for History's search for `query` to count exactly `pages` and `visits`. */
@@ -178,6 +186,47 @@ test('My Activity in JSON imports the pages it visited, once', async ({
   await expectSearchHits(page, { pages, visits }, ACTIVITY_TITLE)
 })
 
+const SAME_VISITS = (count: number) =>
+  `${count} visits were already in your archive from another source (the browser, or another export). They are kept and counted once.`
+
+test('a Takeout .zip with Chrome history and My Activity counts each visit once', async ({
+  page,
+}) => {
+  const zip = writeTakeoutZip()
+  const visits = zipVisitCount()
+  const pages = zipPageCount()
+  await expectSearchHits(page, { pages: 0, visits: 0 }, ZIP_TITLE)
+
+  // Chrome's history and My Activity's copy of it; bookmarks and search
+  // engines are not visits.
+  await inspect(page, zip)
+  await expect(page.getByText(`${2 * visits} visits found`)).toBeVisible({
+    timeout: 30_000,
+  })
+  await page.getByRole('button', { name: 'Import', exact: true }).click()
+  // My Activity is listed first and its folder name sorts first; Chrome's
+  // history is still written first, so the copies are the ones kept aside.
+  await expect(page.getByText(`${visits} new visits imported`)).toBeVisible({
+    timeout: 60_000,
+  })
+  await expect(page.getByText(SAME_VISITS(visits))).toBeVisible()
+  await expectSearchHits(page, { pages, visits }, ZIP_TITLE)
+
+  // The same download again: every record is already there.
+  await inspect(page, zip)
+  await expect(page.getByText(`${2 * visits} visits found`)).toBeVisible({
+    timeout: 30_000,
+  })
+  await page.getByRole('button', { name: 'Import', exact: true }).click()
+  await expect(page.getByText('0 new visits imported')).toBeVisible({
+    timeout: 60_000,
+  })
+  await expect(
+    page.getByText(`${2 * visits} visits were already in your archive.`),
+  ).toBeVisible()
+  await expectSearchHits(page, { pages, visits }, ZIP_TITLE)
+})
+
 /** A page every browser visited; its visits are copied into My Activity below. */
 const SHARED_URL = 'https://news.ycombinator.com/item?id=41502281'
 const SHARED_TITLE = 'Hacker News · Why I left tokio'
@@ -197,11 +246,7 @@ test('visits the browsers already recorded are kept and counted once', async ({
   await expect(page.getByText('0 new visits imported')).toBeVisible({
     timeout: 60_000,
   })
-  await expect(
-    page.getByText(
-      `${copies} visits were already in your archive from another source (the browser, or another export). They are kept and counted once.`,
-    ),
-  ).toBeVisible()
+  await expect(page.getByText(SAME_VISITS(copies))).toBeVisible()
 
   await page.goto('/#/history')
   await page
