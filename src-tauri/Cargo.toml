@@ -126,6 +126,14 @@ tempfile.workspace = true
 [build-dependencies]
 tauri-build = { version = "2.5.1", features = [] }
 
+# Dev and test builds keep line tables, not full debug info: backtraces and the thread dumps of
+# a hung test still name each file and line, but a debugger no longer sees local variables.
+# Linking every test binary with full debug info peaked at 20.6 GiB on an 8-core machine, and a
+# gate that recompiled the workspace while linking ran out of 32 GiB. With line tables: 13.7 GiB,
+# 22 s instead of 76 s, and target/debug 29 GB instead of 68 GB (2026-10-11, Modal).
+[profile.dev]
+debug = "line-tables-only"
+
 # The RustCrypto primitives are many times slower unoptimized: a debug-build unlock (Argon2id
 # over 256 MiB) took 6.6 s instead of 0.36 s, and the encrypted search index decrypts every
 # block it reads. They are small crates, so optimizing them in dev and test builds costs

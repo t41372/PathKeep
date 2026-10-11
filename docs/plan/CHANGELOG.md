@@ -2791,3 +2791,8 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - `archive::ingest::import_equivalence` pins what an import leaves in the archive. The same 21,000-record export, over a browser backup, gave identical per-table digests before and after each change, and an interrupted import run again or undone and restored ends the same.
   - Not done, with the reasons in §12: rebuilding search documents only at the end (pages would be unsearchable during the import), and dropping indexes during a large import (the app is in use).
   - Found on the way, in BACKLOG: other paths that open a temporary file per query (`WORK-EPHEMERAL-TEMP-FILES`); a Takeout import that is interrupted reads its file from the start again (`WORK-TAKEOUT-RESUME`).
+
+- [x] `WORK-TEST-LINK-MEMORY` — The gate fits in 32 GiB again (2026-10-11).
+  - Dev and test builds keep line tables instead of full debug info (`src-tauri/Cargo.toml`). Backtraces and hung-test thread dumps still name each file and line; a debugger no longer sees local variables.
+  - Relinking every test binary after a workspace change: 76 s, a 20.6 GiB peak and a 68 GB `target/debug` with full debug info; 22 s, 13.7 GiB and 29 GB with line tables (Modal, 8 cores). Split debug info was as fast, but Windows MSVC does not support it unpacked.
+  - The full `bun run check` passed in 32 GiB, recompiling everything after the profile change, with a peak of 13.1 GiB. Before, it twice ran out of memory at 32 GiB and needed 48.
