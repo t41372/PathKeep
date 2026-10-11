@@ -160,6 +160,7 @@ export default defineConfig({
         'background-work.spec.ts',
         'backup.spec.ts',
         'link-preview.spec.ts',
+        'search-ranking.spec.ts',
         'schedule.spec.ts',
         'browser-import.spec.ts',
         'takeout-import.spec.ts',
