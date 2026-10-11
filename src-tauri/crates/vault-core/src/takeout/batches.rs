@@ -168,6 +168,46 @@ pub(super) fn continue_or_create_import_batch(
     Ok((id, Some(ContinuedBatch { created_at, imported_items, same_visit_items })))
 }
 
+/// What an import the user stopped reports: the counts its batch holds, which every committed
+/// batch of records has added to (`consumer::flush`), since a stop in the middle of a file
+/// leaves the run's own tallies short. `continued_from` is set when it carried on an earlier
+/// run, whose counts the batch includes.
+pub(super) fn stopped_inspection(
+    vault: &crate::Vault,
+    batch_id: i64,
+    source_path: &str,
+    continued_from: Option<String>,
+) -> Result<TakeoutInspection> {
+    let (detail, same_visit_items) = vault.read(Db::Archive, move |s| {
+        let detail = load_import_batch_detail(s, batch_id)?;
+        let summary =
+            s.query_one("SELECT summary_json FROM import_batches WHERE id=?1", [batch_id], |r| {
+                Ok(r.get::<String>(0)?)
+            })?;
+        let summary: serde_json::Value = serde_json::from_str(&summary)?;
+        Ok((detail, summary["sameVisitItems"].as_u64().unwrap_or(0) as usize))
+    })?;
+    Ok(TakeoutInspection {
+        source_path: source_path.to_owned(),
+        candidate_items: detail.batch.candidate_items,
+        imported_items: detail.batch.imported_items,
+        duplicate_items: detail.batch.duplicate_items,
+        same_visit_items,
+        continued_from,
+        stopped: true,
+        preview_entries: detail.preview_entries,
+        recognized_files: detail.recognized_files,
+        quarantined_files: detail.quarantined_files,
+        notes: detail.notes,
+        note_details: detail.note_details,
+        detected_locale: detail.detected_locale,
+        preview_range_start: detail.preview_range_start,
+        preview_range_end: detail.preview_range_end,
+        import_batch: Some(detail.batch),
+        ..TakeoutInspection::default()
+    })
+}
+
 /// Finalizes the import-batch summary after canonical writes complete.
 pub(super) fn finalize_import_batch(
     archive: &Session<'_>,

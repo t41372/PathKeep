@@ -24,7 +24,7 @@ interface Batch {
   visibleItems: number
 }
 
-/** The import batches of `folder`, newest first. */
+/** The import batches of `folder`: interrupted ones first, then newest first. */
 async function batchesOf(folder: string) {
   const page = await backend<{ items: Batch[] }>('load_import_batches', {
     limit: 64,

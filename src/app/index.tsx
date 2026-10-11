@@ -10,6 +10,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { I18nProvider } from '@/lib/i18n'
 import { queryClient } from '@/lib/query'
 import { ThemeProvider } from '@/lib/theme'
+import { ImportRunnerProvider } from '@/features/backup/import-runner'
 import { BackupRunnerProvider } from './backup-runner'
 import { createAppRouter, createOnboardingRouter } from './router'
 import { SessionProvider, useSession } from './session'
@@ -60,8 +61,10 @@ export default function App() {
           <TooltipProvider delayDuration={400}>
             <SessionProvider>
               <BackupRunnerProvider>
-                <SessionGate />
-                <Toaster position="bottom-right" />
+                <ImportRunnerProvider>
+                  <SessionGate />
+                  <Toaster position="bottom-right" />
+                </ImportRunnerProvider>
               </BackupRunnerProvider>
             </SessionProvider>
           </TooltipProvider>

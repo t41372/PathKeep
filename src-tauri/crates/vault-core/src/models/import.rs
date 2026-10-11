@@ -181,6 +181,10 @@ pub struct TakeoutInspection {
     /// include what that run wrote.
     #[serde(default)]
     pub continued_from: Option<String>,
+    /// The user stopped it: the counts are what it saved before it stopped, and its batch is
+    /// interrupted (a Takeout export imported again carries on in it).
+    #[serde(default)]
+    pub stopped: bool,
     pub preview_entries: Vec<TakeoutPreviewEntry>,
     pub import_batch: Option<ImportBatchOverview>,
     pub notes: Vec<String>,

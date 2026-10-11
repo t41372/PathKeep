@@ -159,6 +159,11 @@ export interface TakeoutInspection {
    * began; the counts include what it wrote then.
    */
   continuedFrom?: string | null
+  /**
+   * The user stopped it: the counts are what it saved, and its batch is
+   * interrupted (the same Takeout export imported again carries on in it).
+   */
+  stopped?: boolean
   /** Diagnostic English prose; rendered only when a code has no catalog entry. */
   notes: string[]
   /** Coded mirror of `notes`; absent on payloads written before code-ification. */

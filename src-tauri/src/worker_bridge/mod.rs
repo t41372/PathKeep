@@ -354,6 +354,7 @@ mod tests {
 
         let imported = import_takeout_impl(
             TakeoutRequest { source_path: takeout_source, dry_run: false },
+            None,
             &session,
             |_| {},
         )

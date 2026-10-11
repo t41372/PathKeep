@@ -66,6 +66,12 @@ async function expectSearchHits(page: Page, expected: number) {
 /** Types the file's path into the Browser Direct card and waits for the preview. */
 async function inspectFile(page: Page, file = browserFilePath()) {
   await page.goto('/#/backup')
+  // The card keeps the last import's result until the user starts another.
+  const card = page
+    .getByRole('heading', { name: 'Import a browser’s history' })
+    .locator('xpath=ancestor::section[1]')
+  const another = card.getByRole('button', { name: 'Import another' })
+  if (await another.isVisible()) await another.click()
   const field = page.getByRole('textbox', {
     name: 'Path to a history file or profile folder',
   })

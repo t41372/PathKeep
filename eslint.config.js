@@ -104,6 +104,7 @@ export default defineConfig([
       'src/app/backup-runner.tsx',
       'src/app/router.tsx',
       'src/app/session.tsx',
+      'src/features/backup/import-runner.tsx',
       'src/lib/i18n/provider.tsx',
       'src/lib/theme.tsx',
     ],

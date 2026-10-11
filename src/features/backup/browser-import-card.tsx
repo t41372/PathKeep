@@ -27,6 +27,7 @@ import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import type { TakeoutInspection } from '@/lib/types'
 import { canUseNativeFiles, pickBrowserHistory } from './file-drop'
+import { StopButton } from './import-card'
 import {
   browserSources,
   newVisits,
@@ -310,12 +311,14 @@ export function BrowserImportCard({
   hovering,
   onInspect,
   onConfirm,
+  onStop,
   onReset,
 }: {
   state: BrowserImportState
   hovering: boolean
   onInspect: (path: string, source: BrowserSource) => void
   onConfirm: () => void
+  onStop: () => void
   onReset: () => void
 }) {
   const { t } = useI18n()
@@ -386,20 +389,34 @@ export function BrowserImportCard({
           </div>
         </>
       )}
-      {state.step === 'importing' && <Importing progress={state.progress} />}
+      {state.step === 'importing' && (
+        <>
+          <Importing progress={state.progress} />
+          <div>
+            <StopButton stopping={state.stopping} onStop={onStop} />
+          </div>
+        </>
+      )}
       {state.step === 'done' && (
         <>
           <div className="flex flex-col gap-1 rounded-lg bg-muted p-3 text-[13px]">
             <span className="text-base font-semibold tabular">
-              {t('backupImport.browser.done', {
-                count: state.result.importedItems,
-              })}
+              {state.result.stopped
+                ? t('backup.import.stopped', {
+                    count: state.result.importedItems,
+                  })
+                : t('backupImport.browser.done', {
+                    count: state.result.importedItems,
+                  })}
             </span>
             <span className="text-muted-foreground">
               {t('backup.import.duplicates', {
                 count: state.result.duplicateItems,
               })}
             </span>
+            {state.result.stopped && (
+              <span>{t('backupImport.browser.stoppedNext')}</span>
+            )}
           </div>
           <div>
             <Button size="sm" variant="outline" onClick={onReset}>

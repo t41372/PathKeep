@@ -3,7 +3,7 @@
  * Browser Direct: a separate places.sqlite, as if copied from another
  * computer. Visits are derived from the fixture's `now`, so a repeated run
  * writes the same file, and `wipe.spec` can count what the import left in
- * the archive.
+ * the archive. Also the larger file `import-stop.spec` stops half way.
  */
 import path from 'node:path'
 import type { FixtureVisit } from './fixture'
@@ -52,4 +52,24 @@ export function laterBrowserFileVisits(): FixtureVisit[] {
 /** Visits the archive shows once browser-import.spec has finished (all restored). */
 export function browserFileVisitCount() {
   return firstBrowserFileVisits().length + laterBrowserFileVisits().length
+}
+
+/**
+ * The visits of the Firefox file `import-stop.spec` stops half way and then
+ * imports in full: five of the import's 10,000-visit parts, 300 pages on a
+ * site of its own, about 600 days ago.
+ */
+export function largeBrowserFileVisits(): FixtureVisit[] {
+  const start = fixture().now - 600 * DAY_MS
+  return Array.from({ length: 50_000 }, (_, index) => ({
+    url: `https://stopped-laptop.e2e.example/page/${index % 300}`,
+    title: `Stopped laptop page ${index % 300}`,
+    at: start + index * 60_000,
+    typed: false,
+    duration: 20_000,
+  }))
+}
+
+export function largeBrowserFilePath() {
+  return path.join(fixture().root, 'stopped-laptop', 'places.sqlite')
 }

@@ -30,7 +30,9 @@ where
     import_takeout_with_control(vault, request, &CancelToken::new(), report_progress)
 }
 
-/// Exposes cooperative cancellation while preserving committed batch identity.
+/// Imports a Takeout source that `cancel` can stop between batches of records. A stopped
+/// import is not an error: it returns what it saved (`TakeoutInspection::stopped`), its batch
+/// interrupted so the same export imported again carries on in it.
 pub fn import_takeout_with_control<F>(
     vault: &Vault,
     request: &TakeoutRequest,
@@ -112,7 +114,7 @@ where
             Ok((ids, batch, continued, run))
         })?;
     let guard = super::import_run::ImportRun::new(vault, run_id, batch_id);
-    guard.run(|| {
+    let outcome = guard.run(|| {
         let mut stats = ImportStats::default();
         let mut progress_log_lines = vec![format!(
             "Queued {} Takeout payload(s) from {}.",
@@ -220,6 +222,17 @@ where
                         )
                     }) {
                         Ok(file_stats) => file_stats,
+                        // Stopped, not unreadable. Listed with what was read of it, so its
+                        // source's Insights take in what it saved (`takeout_profiles`).
+                        Err(error) if stopped(cancel, &error) => {
+                            inspection.recognized_files.push(file_report_from_match(
+                                classified_file,
+                                "stopped",
+                                last_processed_records,
+                                None,
+                            ));
+                            return Err(error);
+                        }
                         Err(error) => {
                             let mut report = file_report_from_match(
                                 classified_file,
@@ -344,7 +357,23 @@ where
             &progress_log_lines,
         );
         Ok(inspection)
-    })
+    });
+    match outcome {
+        // The batch is interrupted now (`ImportRun`), and what it saved stays.
+        Err(error) if stopped(cancel, &error) => batches::stopped_inspection(
+            vault,
+            batch_id,
+            &request.source_path,
+            continued.map(|earlier| earlier.created_at),
+        ),
+        outcome => outcome,
+    }
+}
+
+/// Whether `error` is the import's own token stopping it, as `stop_import` does. Other
+/// cancellations (the store interrupted under it) stay errors.
+pub(super) fn stopped(cancel: &CancelToken, error: &anyhow::Error) -> bool {
+    cancel.check().is_err() && crate::archive::write_runs::failure_status(error) == "interrupted"
 }
 
 #[derive(Default)]

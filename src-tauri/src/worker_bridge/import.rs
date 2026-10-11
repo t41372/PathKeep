@@ -12,9 +12,10 @@ pub(crate) fn inspect_takeout_impl(
     worker_result(vault_worker::inspect_takeout_source(&request))
 }
 
-/// Imports one Takeout source into the archive.
+/// Imports one Takeout source into the archive; `stop_import_impl(import_id)` stops it.
 pub(crate) fn import_takeout_impl(
     request: TakeoutRequest,
+    import_id: Option<String>,
     state: &crate::session::SessionState,
     report_progress: impl FnMut(vault_core::ImportProgressEvent),
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
@@ -25,8 +26,14 @@ pub(crate) fn import_takeout_impl(
         &vault,
         session_database_key,
         &request,
+        import_id.as_deref(),
         report_progress,
     ))
+}
+
+/// Asks a running import to stop after the batch it is writing; false if none runs under the id.
+pub(crate) fn stop_import_impl(import_id: &str) -> bool {
+    vault_core::stop_import(import_id)
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -39,9 +46,10 @@ pub(crate) fn inspect_browser_history_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
-/// Imports one local browser history database into the archive.
+/// Imports one local browser history database into the archive; stoppable like Takeout.
 pub(crate) fn import_browser_history_impl(
     request: BrowserHistoryImportRequest,
+    import_id: Option<String>,
     state: &crate::session::SessionState,
     report_progress: impl FnMut(vault_core::ImportProgressEvent),
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
@@ -52,6 +60,7 @@ pub(crate) fn import_browser_history_impl(
         &vault,
         session_database_key,
         &request,
+        import_id.as_deref(),
         report_progress,
     ))
 }

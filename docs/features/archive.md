@@ -195,7 +195,8 @@ Settings → General 的兩個開關。
 - import / manual backup 這類 archive-write 任務必須下沉到 shell-owned task store：Import route 只負責啟動與顯示 handoff card，Jobs 是 canonical live progress / console / recovery surface，sidebar footer 顯示 compact status；使用者切頁後不得丟失進度。當已有 archive-write task 正在跑時，第二個 import / backup action 必須連到現有任務並通知使用者，而不是啟動並行寫入。
 - 若 import batch 的 audit artifact 遺失或上一次 post-commit 寫入失敗，recent batch preview 與 doctor repair 都必須能重建同一批 JSON review artifact，而不是讓 committed batch 永久失去 review surface。
 - 批次列表與批次內的記錄都有續讀游標；16 個批次、24 筆預覽只是預設頁大小，不能讓較舊批次或其餘記錄無法到達。未完成的撤銷 / 恢復與 interrupted 批次優先顯示。後端契約見 [data-model](../architecture/data-model.md#turso-archive-read-contract)。
-- 中斷的匯入接著做（2026-10-11）：Takeout 匯入在 app 關掉或當掉時停在中途，已寫入的部分照常保留（狀態 interrupted）。同一份匯出（同一個路徑）再匯入一次，就接著寫進同一批，而不是另開一批：整份重新讀過，之前那次寫過的紀錄既不算新增、也不算「已經在存檔裡」，寫過的頁不再重寫搜尋文件，所以前段很快；結束時這一批的數字包括兩次寫入的，匯入卡寫「接著完成了 {日期} 中斷的這份匯出」。已經完成或已撤銷的匯入不會被重新打開：同一份檔案再匯入是新的一批，裡面的紀錄都是重複。瀏覽器檔案匯入（Browser Direct）每次仍是新的一批。
+- 中斷的匯入接著做（2026-10-11）：Takeout 匯入在使用者按「停止」、app 關掉或當掉時停在中途，已寫入的部分照常保留（狀態 interrupted）。同一份匯出（同一個路徑）再匯入一次，就接著寫進同一批，而不是另開一批：整份重新讀過，之前那次寫過的紀錄既不算新增、也不算「已經在存檔裡」，寫過的頁不再重寫搜尋文件，所以前段很快；結束時這一批的數字包括兩次寫入的，匯入卡寫「接著完成了 {日期} 中斷的這份匯出」。已經完成或已撤銷的匯入不會被重新打開：同一份檔案再匯入是新的一批，裡面的紀錄都是重複。瀏覽器檔案匯入（Browser Direct）每次仍是新的一批。
+- 匯入中可以停止（2026-10-11）：Takeout 與瀏覽器檔案匯入的卡片在匯入中有「停止」，寫完手上這一批（最多 10,000 筆）就停。停下不算失敗：卡片寫「已停止。存下了 N 筆新的瀏覽記錄」，N 是這一批匯入實際存下的；Takeout 再匯入同一份就寫進同一批完成它（從頭再讀一遍，已存的很快略過：100 萬筆約 62 秒，進度從 0 數起），瀏覽器檔案再匯入則補上其餘的、已存下的算作已在存檔裡。存下的造訪照常進洞察。剛好寫完最後一批才按的，照常完成。匯入在整個 app 裡只有一份（`import-runner.tsx`），離開 Backup 再回來，進度與「停止」都還在。
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
   - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。
   - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。

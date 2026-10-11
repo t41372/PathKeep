@@ -3,10 +3,16 @@
 //! Failure modes: split commits, duplicate imports, lost shared-page membership,
 //! encrypted writes differ, reverted pages keep a visible search timestamp; an interrupted import
 //! run again starts a second batch, counts its earlier records as new or duplicates, or reopens
-//! one that was undone.
+//! one that was undone; a stopped import reports a failure, a file it could not read, or counts
+//! short of what it saved.
 
-use browser_history_fixtures::{TakeoutBrowserHistoryFixture, TakeoutBrowserRecord};
-use vault_core::{ReplaceTagsRequest, SetNotesRequest, TakeoutRequest, Vault};
+use browser_history_fixtures::{
+    ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow, TakeoutBrowserHistoryFixture,
+    TakeoutBrowserRecord,
+};
+use vault_core::{
+    BrowserHistoryImportRequest, ReplaceTagsRequest, SetNotesRequest, TakeoutRequest, Vault,
+};
 use vault_store::{Db, Priority};
 
 #[test]
@@ -125,9 +131,22 @@ fn cancelled_import_keeps_batch_identity_and_committed_progress() {
                 }
             },
         );
-        assert!(result.is_err());
+        // Stopped is not an error: it reports what it saved, from its batch.
+        let stopped = result.unwrap();
+        assert!(stopped.stopped);
+        assert_eq!((stopped.imported_items, stopped.duplicate_items), (10_000, 0));
+        assert!(
+            stopped.recognized_files.iter().all(|file| file.status == "stopped"),
+            "stopping is not a failure to read the file"
+        );
+        assert!(stopped.note_details.is_empty());
+        assert!(
+            !vault_core::takeout::takeout_profiles(&stopped).is_empty(),
+            "Insights are told which source it saved visits to"
+        );
         let batches = vault_core::load_import_batches(&vault, None, 16).unwrap().items;
         assert_eq!(batches.len(), 1);
+        assert_eq!(stopped.import_batch.as_ref().map(|batch| batch.id), Some(batches[0].id));
         assert_eq!(batches[0].status, "interrupted");
         assert_eq!(batches[0].visible_items, 10_000);
         assert_eq!(batches[0].imported_items, 10_000);
@@ -200,7 +219,7 @@ fn an_undone_interrupted_import_is_not_carried_on() {
                 cancel.cancel();
             }
         });
-    assert!(stopped.is_err());
+    assert!(stopped.unwrap().stopped);
     let first = vault_core::load_import_batches(&vault, None, 16).unwrap().items.remove(0);
     vault_core::revert_import_batch(&vault, first.id).unwrap();
 
@@ -210,6 +229,74 @@ fn an_undone_interrupted_import_is_not_carried_on() {
     let batches = vault_core::load_import_batches(&vault, None, 16).unwrap().items;
     let undone = batches.iter().find(|batch| batch.id == first.id).unwrap();
     assert_eq!((undone.status.as_str(), undone.visible_items), ("reverted", 0));
+}
+
+/// A browser's history file stopped half way keeps what it saved, and reports it from its
+/// batch; the file imported again is a new import, where those visits are already there.
+#[test]
+fn a_stopped_browser_file_import_keeps_what_it_saved() {
+    let vault = Vault::open_temp().unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let history = folder.path().join("History");
+    let start = 1_800_000_000_000_i64;
+    let mut fixture = ChromiumHistoryFixture::new().add_url(ChromiumUrlRow {
+        id: 1,
+        url: "https://example.com/stopped".into(),
+        title: Some("Stopped".into()),
+        visit_count: 20_003,
+        typed_count: 0,
+        last_visit_unix_ms: start + 20_002,
+        hidden: false,
+    });
+    for id in 0..20_003 {
+        fixture = fixture.add_visit(ChromiumVisitRow {
+            id: id + 1,
+            url_id: 1,
+            visit_time_unix_ms: start + id,
+            from_visit: None,
+            transition: Some(1),
+            visit_duration_micros: None,
+            is_known_to_sync: false,
+            visited_link_id: None,
+            external_referrer_url: None,
+            app_id: None,
+        });
+    }
+    fixture.write(&history).unwrap();
+    let request = BrowserHistoryImportRequest {
+        source_path: history.display().to_string(),
+        dry_run: false,
+        browser_family: Some("chromium".into()),
+        profile_id: Some("chrome:Stopped".into()),
+        browser_name: Some("Google Chrome".into()),
+        profile_name: Some("Stopped".into()),
+    };
+    let cancel = vault_store::CancelToken::new();
+    let stopped = vault_core::takeout::import_browser_history_with_control(
+        &vault,
+        &request,
+        &cancel,
+        |event| {
+            if event.imported_records.is_some_and(|n| n >= 10_000) {
+                cancel.cancel();
+            }
+        },
+    )
+    .expect("a stop is not an error");
+    assert!(stopped.stopped);
+    assert!(stopped.note_details.is_empty(), "nothing failed to read");
+    let batch = vault_core::load_import_batches(&vault, None, 16).unwrap().items.remove(0);
+    assert_eq!(batch.status, "interrupted");
+    assert_eq!(stopped.imported_items, batch.visible_items);
+    assert!((10_000..20_003).contains(&stopped.imported_items), "{}", stopped.imported_items);
+
+    let again = vault_core::import_browser_history(&vault, &request).unwrap();
+    assert!(!again.stopped);
+    assert_ne!(again.import_batch.as_ref().unwrap().id, batch.id, "a new import");
+    assert_eq!(
+        (again.imported_items, again.duplicate_items),
+        (20_003 - stopped.imported_items, stopped.imported_items)
+    );
 }
 
 #[test]
