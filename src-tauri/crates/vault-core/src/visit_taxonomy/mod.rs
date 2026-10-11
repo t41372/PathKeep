@@ -29,7 +29,7 @@ mod text;
 mod types;
 mod url;
 
-pub use self::classification::analyze_visit;
+pub use self::classification::{analyze_visit, listed_parts};
 pub use self::text::tokenize_text;
 pub use self::types::{
     DomainCategory, EvidenceTier, InteractionKind, NormalizedVisitUrl, PageCategory,

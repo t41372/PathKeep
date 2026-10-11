@@ -159,6 +159,15 @@ pub(super) struct BrowserHistoryPayload {
     pub(super) import_id: Option<String>,
 }
 
+/// A site and the category the user gives it (`null`: back to PathKeep's lists).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SiteCategoryPayload {
+    pub(super) site: String,
+    #[serde(default)]
+    pub(super) category: Option<String>,
+}
+
 /// Names the import `stop_import` stops.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

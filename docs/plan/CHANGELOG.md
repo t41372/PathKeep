@@ -2837,3 +2837,14 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
 
 - [x] `WORK-IMPORT-CANCEL` follow-up — A stopped import is not listed as one that broke off (2026-10-11).
   - A user's Stop marked the batch interrupted, like an import the app closed or crashed in the middle of, and "Recent imports" lists those first, waiting to be finished. A browser file imported again is a new batch, so the stopped one stayed first for good. It is now `stopped`: shown the same ("Stopped partway"), listed by time; a Takeout export imported again still carries it on.
+
+- [x] `WORK-SITE-CATEGORY-REVIEW` — A site's kind can be seen and changed from its Insights page (2026-10-11).
+  - Each site page has "Kind of site": the kind PathKeep's lists give it, or one the user picks. Picking one builds Insights again; until they are built with it, the control says "Updating Insights…". Choosing "PathKeep's list" gives the site back to the lists.
+  - The "Not classified" row of "Kinds of sites" opens the sites on no list, most visited first, each linking to its page.
+  - Only the site's kind changes: its pages keep the kinds the rules give them. Before, a saved override needed a site kind, a page kind and an interaction, so one with just the site kind was dropped, and one with all three would have made every GitHub page the same kind.
+  - Parts of a site that PathKeep's lists sort on their own keep their kinds: calling google.com something else leaves Gmail and Google Docs as the lists have them, and Hacker News stays a forum when ycombinator.com gets a kind. The site page lists those parts, when the archive has pages on them, next to the control. The user chose this over changing the whole domain (with a warning) or a control for each part; the docs' "the user's override comes first" now reads "on the same name".
+  - "Updating Insights…" comes from the backend: each build carries the categories the published Insights were built with. The page compared the site's built kind with the kind of its home page, so a site whose pages path rules sort (a documentation site on github.io) said it was updating forever and reloaded every 2 seconds.
+  - Opening another site or page from a drill-in no longer shows the previous one's numbers under its name while it loads.
+  - Changing one site re-sorts only that site's pages. Each build records the overrides it was built with, and the next one walks just the sites whose kind changed, so the cost follows the site's visits and days, not the archive. A change made while a build runs no longer restarts it from scratch: the build carries on and takes in the change before it ends.
+  - The catch-up build when the app opens no longer forces a full rebuild; the build decides what it needs.
+  - Not measured on the 14.4M bench: its archive (about 40 GB) does not fit on this Mac. The user asked to finish the blocks first and run the real measurements together (`WORK-SCALE-BENCH-RERUN`).

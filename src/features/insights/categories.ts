@@ -22,6 +22,11 @@ const CATEGORIES = [
 ] as const
 type Category = (typeof CATEGORIES)[number]
 
+/** The kinds a user can give a site on its page. */
+export const SITE_CATEGORIES = CATEGORIES.filter(
+  (name) => name !== UNCLASSIFIED,
+)
+
 /** The backend's category, or not classified for one this version has no name for. */
 export function category(name: string): Category {
   return CATEGORIES.find((known) => known === name) ?? UNCLASSIFIED

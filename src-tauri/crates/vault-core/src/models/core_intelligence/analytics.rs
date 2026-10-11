@@ -99,6 +99,31 @@ pub struct DomainDeepDive {
     /// What was searched on the site (its search engines' keyword searches) in the window, most
     /// often first, each as last typed; empty for a site with no search engine.
     pub site_searches: Vec<DomainSearchStat>,
+    /// The category the user set for the site, as set now: `domain_category` is the one Insights
+    /// were built with, which follows once they are built again.
+    #[serde(default)]
+    pub user_category: Option<String>,
+    /// The category PathKeep's own lists give the site (`unknown`: on none), which it goes back
+    /// to without the user's.
+    #[serde(default)]
+    pub list_category: String,
+    /// The parts of the site the lists sort on their own, which keep their categories whatever
+    /// the user sets for the site; only those the archive has pages on.
+    #[serde(default)]
+    pub listed_parts: Vec<SitePart>,
+    /// Insights were built with another category for the site than the one set now: the change
+    /// is being built.
+    #[serde(default)]
+    pub category_pending: bool,
+}
+
+/// A host of a site that PathKeep's lists sort on its own (`mail.google.com` in `google.com`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SitePart {
+    pub host: String,
+    /// The category the lists give it.
+    pub category: String,
 }
 
 /// A site searches ended on: where the user's answers come from.

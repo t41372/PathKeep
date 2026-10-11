@@ -174,7 +174,7 @@ Normalization 要求：
 
 分類 precedence 固定為：
 
-1. user override
+1. user override（使用者替整個網站選的類別不蓋過清單另外分類的部分，見下方 2026-10-11 note）
 2. exact domain rule
 3. host / path / query rule
 4. title / query lexicon
@@ -198,6 +198,11 @@ Normalization 要求：
 - title / query lexicon 只決定頁面種類，不決定網站分類（網站分類留 unknown）：頁面標題說的是這一頁，不是整個網站；之前「tokio vs smol」這種部落格文章因為 "vs" 被歸成購物、「訓練計畫」因為 "plan" 也是。英文詞要整個詞相符（"api" 不算出現在 "rapid" 裡、"plan" 不算出現在 "explanation" 裡）；中文、日文標題詞之間沒有空格，照子字串比對。
 - 只有 http(s) 網頁屬於某個網站。擴充功能的頁面（`chrome-extension://<id>/…`）、本機檔案這類造訪算進總數，但不算網站：不出現在網站排名、網站數、新網站與網站之間的路線裡（2026-10-09，之前擴充功能的 id 被當成網站）。
 - 一個網站一天的分類取當天多數造訪的分類，平手時已知分類優先，再依名稱。之前取名稱最小的，一個被歸成 docs 的頁面就讓一整天的搜尋引擎變成 docs。
+
+2026-10-11 note（使用者選的網站類別）：
+
+- 網站頁可以改網站類別（`set_site_category`）：存成一筆 user override，只帶網站類別，跟 exact rule 一樣只決定網站類別，頁面種類與 interaction 照規則（GitHub 的 issue 在使用者叫它「工作工具」的網站上仍是 issue）。帶了頁面種類與 interaction 的 override 照舊整個由它決定。override 比對網站（registrable domain），網站的主機都跟著改，清單另外分類的部分除外：清單的 exact rule 或路徑規則單獨列出的、在網站之下的主機（`google.com` 裡的 `mail.google.com`、`docs.google.com`，`ycombinator.com` 裡的 `news.ycombinator.com`）和它們底下的主機保留清單的類別；網站本身、`www.` 和清單沒列的主機照使用者選的。網站頁列出存檔裡有頁面的這些部分與類別。選回「PathKeep 清單」就刪掉這筆。2026-10-11 用戶決定（side agent 提醒在 `google.com` 選一個類別會連 Gmail、Google 文件一起改掉）；放棄的做法：整個網域都改、改之前先提醒（照原本「override 永遠優先」的字面，但多用途網站一改就沒了清單的區分），以及每個部分都能各自改（範圍變大，清單只收分類一看就清楚的主機，需要的機會少）。
+- 改了之後只重新分類那個網站的頁：每次建置記下當時的 override，下一次跟現在的比，只有整個網站的類別變了（新增、改、拿掉）就只走那些網站的頁（`build_reclassify`，`store-schema.md`）；rule pack 換了或 override 指的是 host、網址開頭時，照舊每頁都分一次。建置中又改了另一個網站，同一個工作在建完後再跑一輪那個網站；app 中途關掉的建置照樣接著做，不因類別變了而整個重建。打開 app 時要補的建置不再強制 full，由建置自己決定。
 - 建置記錄的規則版本包含 matcher 版本與每個 pack 的版本；改清單就改該 pack 的 version。打開 archive 時，若有設定檔的 Insights 是用別的規則建的（而且最近一次 Insights 工作是成功的），就排一次重建，不等下次備份。
 
 ### 5.3 Burst construction
@@ -425,8 +430,8 @@ v1 taxonomy packs 以以下順序維護：
 
 - taxonomy pack 必須有 version
 - 每次新增 / 修改規則都要有 fixture
-- 使用者 override 永遠優先
-- unknown rate、top unmatched domains、top misclassified domains 要可 review
+- 使用者 override 永遠優先：同一個名稱上，使用者的先於清單；使用者替整個網站選的類別不蓋過清單另外分類的部分（主機更細，2026-10-11 用戶決定，見 §5.2 note）。指定主機或網址開頭的 override 照舊先於清單
+- unknown rate、top unmatched domains、top misclassified domains 要可 review（2026-10-11：「哪類網站」卡的「未分類」列打開範圍內不在清單上的網站，瀏覽最多的在前〔`get_sites_in_category`〕，連到網站頁改類別；分錯的網站一樣在網站頁改）
 
 2026-04-10 runtime guardrail：
 

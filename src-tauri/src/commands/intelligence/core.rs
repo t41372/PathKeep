@@ -251,6 +251,23 @@ pub(crate) async fn get_query_family_detail(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the sites put in one category in a range off the UI thread.
+pub(crate) async fn get_sites_in_category(
+    request: vault_core::SitesInCategoryRequest,
+    state: State<'_, SessionState>,
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<vault_core::IntelligencePage<vault_core::TopSite>>,
+    CommandError,
+> {
+    let session_database_key_state = state.inner().clone();
+    run_blocking_command("get_sites_in_category", move || {
+        worker_bridge::get_sites_in_category_impl(request, &session_database_key_state)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads top-site rollups for the requested scope off the UI thread.
 pub(crate) async fn get_top_sites(
     request: vault_core::TopSitesRequest,

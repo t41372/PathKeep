@@ -3,7 +3,13 @@
  * one backend aggregate or one bounded detail read; nothing here walks visit
  * rows on the client.
  */
-import { useQueries, useQuery } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { insightsClient, pollWhileStale } from '@/lib/backend-client/insights'
 import type { TrailSummary } from '@/lib/core-intelligence/types'
@@ -17,7 +23,18 @@ const key = (...parts: unknown[]) => [
   ...parts,
 ]
 
-const keepPrevious = <T>(previous: T | undefined) => previous
+/** Where a drill-in's key names its subject: `key(kind, subject, ...)`. */
+const SUBJECT = key().length + 1
+
+/**
+ * Keeps showing what a drill-in showed while it reads another range or
+ * profile of the same subject; another site or page starts blank, never with
+ * the previous one's numbers under its name.
+ */
+const keepPreviousOf =
+  (subject: string) =>
+  <T>(previous: T | undefined, query?: { queryKey: readonly unknown[] }) =>
+    query?.queryKey[SUBJECT] === subject ? previous : undefined
 
 export function useDay(date: string, enabled = true) {
   return useQuery({
@@ -59,8 +76,41 @@ export function useSite(domain: string, scope: Scope) {
   return useQuery({
     queryKey: key('site', domain, ...scopeKey(scope)),
     queryFn: () => insightsClient.site(domain, request(scope)),
-    placeholderData: keepPrevious,
-    refetchInterval: pollWhileStale,
+    placeholderData: keepPreviousOf(domain),
+    refetchInterval: (query) =>
+      // A category just set waits for Insights to be built with it.
+      query.state.data?.data.categoryPending ? 2_000 : pollWhileStale(query),
+  })
+}
+
+/**
+ * Sets a site's category (`null`: back to PathKeep's lists), then reads
+ * Insights again; it stays pending until they are read, so the site page
+ * never shows the old choice as settled in between.
+ */
+export function useSetSiteCategory(domain: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (category: string | null) =>
+      insightsClient.setSiteCategory(domain, category),
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: [...queryKeys.archiveData] }),
+  })
+}
+
+/** The sites in one category in the scope, most visits first, a page at a time. */
+export function useSitesInCategory(
+  category: string,
+  scope: Scope,
+  enabled: boolean,
+) {
+  return useInfiniteQuery({
+    queryKey: key('sites-in-category', category, ...scopeKey(scope)),
+    queryFn: ({ pageParam }) =>
+      insightsClient.sitesInCategory(category, request(scope), 20, pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.data.nextCursor ?? undefined,
+    enabled,
   })
 }
 
@@ -137,7 +187,7 @@ export function useRefindPage(
         dateRange: scope.dates,
         profileId,
       }),
-    placeholderData: keepPrevious,
+    placeholderData: keepPreviousOf(canonicalUrl),
     refetchInterval: pollWhileStale,
   })
 }

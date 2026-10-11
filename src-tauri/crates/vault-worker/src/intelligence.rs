@@ -81,12 +81,13 @@ pub use self::route_queries::{
     get_intelligence_primary_overview, get_navigation_path, get_query_families,
     get_query_family_detail, get_refind_page_detail, get_refind_pages, get_search_engine_ranking,
     get_search_families, get_search_queries, get_search_trails, get_session_detail, get_sessions,
-    get_top_search_concepts, get_top_sites, get_trail_detail, list_search_engine_rules,
-    upsert_search_engine_rule,
+    get_sites_in_category, get_top_search_concepts, get_top_sites, get_trail_detail,
+    list_search_engine_rules, upsert_search_engine_rule,
 };
 pub use self::runtime::{
     cancel_intelligence_job_now, load_intelligence_runtime_snapshot,
     queue_core_intelligence_rebuild, retry_intelligence_job_now, run_core_intelligence_now,
+    set_site_category,
 };
 #[cfg(all(test, coverage))]
 pub(crate) use self::runtime::{

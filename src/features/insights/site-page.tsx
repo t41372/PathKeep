@@ -39,6 +39,7 @@ import {
 import { barLabel, chartDates, rangeBars } from './buckets'
 import { scopeDays, useScope, type Scope } from './range'
 import { ScopeControls } from './scope-controls'
+import { SiteCategory } from './site-category'
 import { isStale } from '@/lib/backend-client/insights'
 import { useInsightsFormat } from './zone'
 
@@ -69,6 +70,7 @@ export default function SitePage() {
         }
         actions={
           <>
+            <SiteCategory domain={domain} site={data} />
             <ScopeControls />
             <Button variant="outline" size="sm" asChild>
               <Link to={historyPath({ domain, date: historyDateParam(scope) })}>

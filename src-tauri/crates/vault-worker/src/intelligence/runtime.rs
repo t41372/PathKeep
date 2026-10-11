@@ -169,12 +169,14 @@ pub fn run_core_intelligence_now(
 /// again by the store, but nothing ran the queue until the next backup or a visit to Settings.
 /// An archive whose Insights were never built showed empty Insights, and an empty Home, until
 /// someone pressed Rebuild; and after an update with new rules, Insights kept the old labels
-/// until the next backup.
+/// until the next backup. The build decides how much to redo (`build_pipeline::prepare`): all of
+/// it for new rules or none built yet, only the changed sites for a category the user set.
+/// Forcing a full build here rebuilt 14.4M visits for one site's category.
 pub(crate) fn resume_insights(vault: &vault_core::Vault) -> Result<()> {
     if let Some(reason) = vault_core::intelligence_runtime::insights_build_needed(vault)? {
         enqueue_deterministic_rebuild_job(
             vault,
-            &CoreIntelligenceRebuildRequest { full_rebuild: true, ..Default::default() },
+            &CoreIntelligenceRebuildRequest::default(),
             reason,
         )?;
     }
@@ -204,6 +206,17 @@ pub fn queue_core_intelligence_rebuild(
         state: state.clone(),
         notes: vec![core_intelligence_queue_note(job_id, &state, config.ai.job_queue_paused)],
     })
+}
+
+/// Sets a site's category from its Insights page (`None`: back to PathKeep's lists) and starts
+/// building Insights again, which sorts only that site's pages in (`build_reclassify`).
+pub fn set_site_category(
+    vault: &vault_core::Vault,
+    site: &str,
+    category: Option<&str>,
+) -> Result<CoreIntelligenceQueueReport> {
+    vault_core::set_site_category(vault, site, category)?;
+    queue_core_intelligence_rebuild(vault, &CoreIntelligenceRebuildRequest::default())
 }
 
 fn core_intelligence_queue_note(job_id: i64, state: &str, queue_paused: bool) -> String {
