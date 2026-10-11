@@ -155,7 +155,7 @@ export function DailyActivityCard({ scope }: { scope: Scope }) {
   const points = daily.data?.bars ?? []
   const openDay = (state: MouseHandlerDataParam) => {
     if (length === 'day' && typeof state.activeLabel === 'string') {
-      void navigate(dayPath(state.activeLabel))
+      void navigate(dayPath(state.activeLabel, scope))
     }
   }
 

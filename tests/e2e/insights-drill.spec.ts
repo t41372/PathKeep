@@ -11,7 +11,7 @@
  *   days visited and most visited page equal the fixture's.
  * - A Frequent searches chip opens the search view: how often it was
  *   searched in all and when last equal the fixture; its days lead to the
- *   day view.
+ *   day view, and back from the day to Insights in the range it came from.
  * - A "Pages you keep reopening" row opens the page view, whose visit total
  *   across browsers equals the fixture's.
  * - A site's view says how its visits from elsewhere began (typed, from a
@@ -551,14 +551,15 @@ test('a search from Frequent searches shows how often and when', async ({
   const latest = Math.max(...families.map((family) => family.latest))
   const times = card(page, 'Each time, and where it led').getByRole('listitem')
   await expect(times.first()).toBeVisible({ timeout: JOB_TIMEOUT })
+  // The day keeps the range it was opened from, for the way back.
   const dayLink = times.first().getByRole('link').first()
   await expect(dayLink).toHaveAttribute(
     'href',
-    `#/insights/day/${localDateKey(latest)}`,
+    `#/insights/day/${localDateKey(latest)}?range=d30`,
   )
   await dayLink.click()
   await expect(page).toHaveURL(
-    new RegExp(`#/insights/day/${localDateKey(latest)}$`),
+    new RegExp(`#/insights/day/${localDateKey(latest)}\\?range=d30$`),
   )
   await drillIn(
     page,
@@ -574,6 +575,14 @@ test('a search from Frequent searches shows how often and when', async ({
       .getByRole('listitem')
       .filter({ has: page.getByText(query, { exact: true }) }),
   ).toHaveCount(1, { timeout: JOB_TIMEOUT })
+
+  await page.getByRole('main').getByRole('link', { name: 'Insights' }).click()
+  await expect(page).toHaveURL(/#\/insights\?range=d30$/)
+  await expect(
+    page
+      .getByRole('group', { name: 'Time range' })
+      .getByRole('radio', { name: '30d' }),
+  ).toBeChecked()
 })
 
 test('a page you keep reopening shows its visits across browsers', async ({

@@ -260,6 +260,7 @@ function LandingsCard({
 }
 
 function TrailRow({ trail }: { trail: TrailSummary }) {
+  const [scope] = useScope()
   const { t } = useI18n()
   const format = useInsightsFormat()
   const { shown } = useInsightsZone()
@@ -270,7 +271,7 @@ function TrailRow({ trail }: { trail: TrailSummary }) {
       <Collapsible open={open} onOpenChange={setOpen}>
         <div className="flex items-start gap-3 rounded-lg p-2 transition-colors hover:bg-muted">
           <Link
-            to={dayPath(date)}
+            to={dayPath(date, scope)}
             className="min-w-[96px] pt-0.5 text-xs text-muted-foreground tabular hover:text-foreground"
           >
             {format.date(trail.firstVisitMs)}

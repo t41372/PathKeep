@@ -212,7 +212,7 @@ export default function PagePage() {
                 {result.data.recentDays.map((day) => (
                   <Link
                     key={day}
-                    to={dayPath(day)}
+                    to={dayPath(day, scope)}
                     className="flex h-7 items-center rounded-full border bg-card px-3 text-[13px] tabular transition-colors hover:bg-muted hover:no-underline"
                   >
                     {format.day(day)}

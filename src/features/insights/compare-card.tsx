@@ -64,6 +64,7 @@ export function ComparedPagesCard({
                       <Link
                         to={dayPath(
                           dateKeyIn(Date.parse(set.lastVisitedAt), scope.zone),
+                          scope,
                         )}
                         title={t('insights.compared.openDay')}
                         className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
