@@ -54,6 +54,12 @@ export function appendFirefoxVisits(
 /** Creates a new Firefox places.sqlite holding `visits`. */
 export function writeFirefoxPlaces(file: string, visits: SyntheticVisit[]): void
 
+/** Creates a new Safari History.db holding `visits`; a visit's title may be null, as in Safari. */
+export function writeSafariHistory(
+  file: string,
+  visits: readonly { url: string; title: string | null; at: number }[],
+): void
+
 /** The words of the fixture's Chinese searches, as Insights splits them. */
 export const FIXTURE_CJK_WORDS: Record<string, string[]>
 

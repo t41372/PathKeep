@@ -6,11 +6,14 @@
  * visits are new), the import adds exactly the new ones (search finds them,
  * no duplicates), undoing an import hides exactly what it added, and
  * restoring brings exactly those back. Each undo / restore shows the batch
- * before acting.
+ * before acting. A Safari History.db puts each visit on its own day (Safari
+ * counts seconds from 2001), names each page by the newest title Safari
+ * saved for it (an untitled latest visit keeps the one before), and Insights
+ * says Safari keeps no opener.
  *
- * The file is a separate places.sqlite written for this test (see
- * `support/browser-file.ts`), not one of the profiles the archive backs up,
- * so nothing in it is in the archive before the first import.
+ * The files are written for this test (see `support/browser-file.ts` and
+ * `support/safari-file.ts`), not profiles the archive backs up, so nothing in
+ * them is in the archive before the first import.
  */
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
@@ -18,6 +21,7 @@ import { expect, test, type Page } from '@playwright/test'
 import {
   appendFirefoxVisits,
   writeFirefoxPlaces,
+  writeSafariHistory,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import {
   BROWSER_FILE_TITLE,
@@ -26,6 +30,12 @@ import {
   laterBrowserFileVisits,
 } from './support/browser-file'
 import { expectCount, parseCount } from './support/fixture'
+import {
+  SAFARI_TITLE,
+  localDay,
+  safariFilePath,
+  safariVisits,
+} from './support/safari-file'
 
 /**
  * Searches History for the file's pages and waits for exactly `expected`
@@ -54,12 +64,12 @@ async function expectSearchHits(page: Page, expected: number) {
 }
 
 /** Types the file's path into the Browser Direct card and waits for the preview. */
-async function inspectFile(page: Page) {
+async function inspectFile(page: Page, file = browserFilePath()) {
   await page.goto('/#/backup')
   const field = page.getByRole('textbox', {
     name: 'Path to a history file or profile folder',
   })
-  await field.fill(browserFilePath())
+  await field.fill(file)
   await field.press('Enter')
   const preview = page.getByTestId('browser-import-preview')
   await expect(preview).toBeVisible({ timeout: 30_000 })
@@ -159,4 +169,94 @@ test('a browser file previews new vs archived visits, imports, undoes and restor
   await restore.getByRole('button', { name: 'Restore import' }).click()
   await expect(restore).toBeHidden({ timeout: 60_000 })
   await expectSearchHits(page, first.length + later.length)
+})
+
+/** Searches History for `query` and waits for exactly these pages and visits. */
+async function expectPagesAndVisits(
+  page: Page,
+  query: string,
+  expected: { pages: number; visits: number },
+) {
+  await page.goto('/#/history')
+  await page.getByRole('searchbox', { name: 'Search history' }).fill(query)
+  const header = page.getByText(/visits? · Full text$|^Nothing found$/).first()
+  await expect
+    .poll(
+      async () => {
+        const text = await header.innerText().catch(() => '')
+        if (text === 'Nothing found') return { pages: 0, visits: 0 }
+        const counts = text.match(
+          /^([\d,]+) pages? · ([\d,]+) visits? · Full text$/,
+        )
+        return counts
+          ? { pages: parseCount(counts[1]), visits: parseCount(counts[2]) }
+          : null
+      },
+      { timeout: 30_000 },
+    )
+    .toEqual(expected)
+}
+
+test('a Safari History.db puts each visit on its day, named as Safari last saw it', async ({
+  page,
+}) => {
+  const visits = safariVisits()
+  const pages = new Set(visits.map((visit) => visit.url)).size
+  mkdirSync(path.dirname(safariFilePath()), { recursive: true })
+  writeSafariHistory(safariFilePath(), visits)
+  await expectPagesAndVisits(page, SAFARI_TITLE, { pages: 0, visits: 0 })
+
+  const preview = await inspectFile(page, safariFilePath())
+  await expect(preview).toContainText('History.db · Safari history')
+  await expect(preview).toContainText(visitsLabel(visits.length, 'new visit'))
+  await expect(preview).toContainText('0 are already in your archive')
+  await page
+    .getByRole('button', { name: `Import ${visits.length} visits` })
+    .click()
+  await expect(
+    page.getByText(`Imported ${visits.length} new visits`).first(),
+  ).toBeVisible({ timeout: 60_000 })
+
+  // Every page by its newest title; the first one's older title is gone.
+  await expectPagesAndVisits(page, SAFARI_TITLE, {
+    pages,
+    visits: visits.length,
+  })
+  const rows = page
+    .getByRole('listbox', { name: 'History results' })
+    .getByRole('option')
+  for (const index of [0, 1, 2]) {
+    await expect(
+      rows.filter({ hasText: `${SAFARI_TITLE} ${index}` }),
+    ).toHaveCount(1)
+  }
+  await expect(rows.filter({ hasText: 'Almanac draft' })).toHaveCount(0)
+
+  // Each day holds the visits Safari recorded on it, in this computer's time.
+  for (const day of new Set(visits.map((visit) => localDay(visit.at)))) {
+    const onDay = visits.filter((visit) => localDay(visit.at) === day)
+    await expectPagesAndVisits(
+      page,
+      `${SAFARI_TITLE} after:${day} before:${day}`,
+      {
+        pages: new Set(onDay.map((visit) => visit.url)).size,
+        visits: onDay.length,
+      },
+    )
+  }
+
+  // Safari keeps no opener, so Insights can't say how the visits began.
+  await page.goto('/#/insights/site/almanac.example')
+  await expect(
+    page.getByText(
+      "Your visits here came from a browser that doesn't record which page opened a page (Safari, or history imported from Google Takeout), so PathKeep can't tell how you got here.",
+    ),
+  ).toBeVisible({ timeout: 60_000 })
+
+  // The same file again: nothing new.
+  const again = await inspectFile(page, safariFilePath())
+  await expect(again).toContainText('0 new visits')
+  await expect(again).toContainText(
+    `${visits.length} are already in your archive`,
+  )
 })

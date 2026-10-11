@@ -602,6 +602,47 @@ function insertFirefoxVisits(db, visits) {
   db.exec('COMMIT')
 }
 
+/** Seconds from 1970 to 2001, where Safari's visit times start. */
+const SAFARI_EPOCH_SECONDS = 978_307_200
+
+/**
+ * Writes a new Safari `History.db` with `visits`, laid out as Safari on macOS
+ * keeps it: one row per page in `history_items` (no title there), and each
+ * visit in `history_visits` with its own title, which may be null, and its
+ * time in seconds since 2001.
+ */
+export function writeSafariHistory(file, visits) {
+  const db = new DatabaseSync(file)
+  db.exec(`
+    CREATE TABLE history_items (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL UNIQUE, domain_expansion TEXT NULL, visit_count INTEGER NOT NULL, daily_visit_counts BLOB NOT NULL, weekly_visit_counts BLOB NULL, autocomplete_triggers BLOB NULL, should_recompute_derived_visit_counts INTEGER NOT NULL, visit_count_score INTEGER NOT NULL, status_code INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE history_visits (id INTEGER PRIMARY KEY AUTOINCREMENT, history_item INTEGER NOT NULL REFERENCES history_items(id) ON DELETE CASCADE, visit_time REAL NOT NULL, title TEXT NULL, load_successful BOOLEAN NOT NULL DEFAULT 1, http_non_get BOOLEAN NOT NULL DEFAULT 0, synthesized BOOLEAN NOT NULL DEFAULT 0, redirect_source INTEGER NULL UNIQUE REFERENCES history_visits(id) ON DELETE CASCADE, redirect_destination INTEGER NULL UNIQUE REFERENCES history_visits(id) ON DELETE CASCADE, origin INTEGER NOT NULL DEFAULT 0, generation INTEGER NOT NULL DEFAULT 0, attributes INTEGER NOT NULL DEFAULT 0, score INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX history_visits__last_visit ON history_visits (history_item, visit_time DESC, synthesized ASC);
+    CREATE TABLE metadata (key TEXT NOT NULL UNIQUE, value);
+  `)
+  const insertItem = db.prepare(
+    "INSERT INTO history_items (url, visit_count, daily_visit_counts, should_recompute_derived_visit_counts, visit_count_score) VALUES (?, 0, X'', 1, 0)",
+  )
+  const insertVisit = db.prepare(
+    'INSERT INTO history_visits (history_item, visit_time, title) VALUES (?, ?, ?)',
+  )
+  const bump = db.prepare(
+    'UPDATE history_items SET visit_count = visit_count + 1 WHERE id = ?',
+  )
+  const ids = new Map()
+  db.exec('BEGIN')
+  for (const visit of visits) {
+    let id = ids.get(visit.url)
+    if (id === undefined) {
+      id = Number(insertItem.run(visit.url).lastInsertRowid)
+      ids.set(visit.url, id)
+    }
+    insertVisit.run(id, visit.at / 1000 - SAFARI_EPOCH_SECONDS, visit.title)
+    bump.run(id)
+  }
+  db.exec('COMMIT')
+  db.close()
+}
+
 /**
  * Creates the fixture tree under `root` and returns the paths to export as
  * environment variables. `scale` multiplies the per-day volume.
