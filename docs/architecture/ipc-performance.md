@@ -434,7 +434,28 @@ Which days a page was opened on was worked out by the build and then thrown away
 | digest, all time (read directly)      | 77.2 s        | 76.0 s        | 10.8 s                          | 3.0 s          |
 | first batch, all time (from snapshot) | 88 ms         | 86 ms         | 14 ms                           | 12 ms          |
 
-The new count is faster than the span it replaced, because it reads a row per day instead of a row per refind page. The all-time digest read directly is dominated by reading every site-day row (§11); Insights opens all time from its snapshot. The full build collects day → keys in memory until the refind stage ends (8 bytes per page and day); peak memory did not change measurably in the build (478 MB against 476 MB in the `cycle` shape). The append's peak was 708 MB against 606 MB; it adds one new day of about 10,000 keys, which does not account for the difference, so it is noted as measured.
+The new count is faster than the span it replaced, because it reads a row per day instead of a row per refind page. The all-time digest read directly is dominated by reading every site-day row (§11); Insights opens all time from its snapshot. The full build collects day → keys in memory until the refind stage ends (8 bytes per page and day); peak memory did not change measurably in the build (478 MB against 476 MB in the `cycle` shape). The data grew from 22.19 to 22.44 GB (the day rows and the page keys). The append's peak was 708 MB against 606 MB; it adds one new day of about 10,000 keys, which does not account for the difference, so it is noted as measured.
+
+### 14. Ephemeral tables opened a temporary file on every run
+
+Turso 0.8.1 gives every ephemeral table a new temporary file: a directory and a file in `$TMPDIR`, encrypted by `vault_crypto::temp_io`, with its first page written, then removed (`op_open_ephemeral`). PathKeep sets `temp_store=FILE` so large sorts do not grow memory, and Turso has no setting that keeps small ephemeral tables in memory while sorts spill. Ephemeral tables back `RETURNING`, a materialized `IN (SELECT …)`, any `IN (…)` list, and compound selects. Sorts and hash joins create a file only when they spill. One file costs about 150 µs on macOS (directory 71 µs, file 66 µs, measured on the user's machine) and 130 µs on Modal; it is also a disk write.
+
+`vault_store` now records, when plan capture is on, each statement run whose program opens an ephemeral table (`Store::take_ephemeral_tables`). `vault-core/tests/ephemeral_tables.rs` drives a Takeout import, an Insights build and an append, the overviews for 30 days, a year and all time, a day page, History, and an undo and restore. It counted:
+
+| Step                        | Temporary files before                                  | After |
+| --------------------------- | ------------------------------------------------------- | ----- |
+| undo and restore, 400 URLs  | 806, of which 800 were one `UPDATE … RETURNING` per URL | 6     |
+| append                      | 432, of which 165 were one path-flow upsert per flow    | 267   |
+| build                       | 267 (the overview reads that warm the snapshots)        | 267   |
+| one range's two batches     | 44                                                      | 44    |
+| all time, from the snapshot | 3                                                       | 3     |
+| a day page                  | 16                                                      | 16    |
+| a History search            | 2                                                       | 2     |
+| an import (3,000 records)   | 3                                                       | 3     |
+
+The loops that ran one per row are rewritten without `RETURNING`. Undo and restore read the visits that change, then change them. The append inserts a new flow with `INSERT OR IGNORE` (`Session::insert`) and updates a stored one by its key, naming the key's index so the planner cannot pick the rank index (§11). The import had done the same in §12. An undo of 1M URLs would otherwise have created a million temporary files. The test fails when a statement opens one more than 50 times in a step; its fixture makes a per-row statement run hundreds of times.
+
+The reads are left as they are. Most Insights reads filter `generation IN (SELECT … FROM intelligence_generations)`, in 52 places and 16 views. That is 44 files, about 7 ms on macOS, each time a range is read live, and 3 when Insights opens on all time. Rewriting every read to bind its generations would not repay the change.
 
 ## Other reads
 

@@ -53,3 +53,24 @@ fn facade_rejects_unsafe_sql_and_transaction_escape() {
         "TEMP; VACUUM INTO"
     );
 }
+
+// Validation is remembered per text on each connection (statement_cache.rs). What that must not
+// change: a write the writer ran is still refused in a read; refused SQL is refused on every call,
+// never remembered as allowed.
+#[test]
+fn remembered_validation_still_refuses() {
+    let (_dir, store) = support::open();
+    let insert = "INSERT INTO visits(id) VALUES (1) RETURNING id";
+    store
+        .write(Db::Archive, Priority::Interactive, |tx| {
+            tx.query_one(insert, (), |r| Ok(r.get::<i64>(0)?))
+        })
+        .unwrap();
+    for _ in 0..3 {
+        let read = store.read(Db::Archive, |c| c.query_one(insert, (), |r| Ok(r.get::<i64>(0)?)));
+        assert!(matches!(read, Err(Error::RestrictedSql(_))), "{read:?}");
+        let vacuum = store.write(Db::Archive, Priority::Interactive, |tx| tx.execute("VACUUM", ()));
+        assert!(matches!(vacuum, Err(Error::RestrictedSql(_))), "{vacuum:?}");
+    }
+    assert_eq!(support::count(&store), 1);
+}

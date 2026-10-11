@@ -124,20 +124,25 @@ fn chunk(s: &Session<'_>, batch: i64, restore: bool, run: i64) -> Result<usize> 
         params![batch,cursor,URLS_PER_CHUNK as i64],|r|Ok(r.get::<i64>(0)?))?;
     let Some(last) = ids.last().copied() else { return Ok(0) };
     let at = now_rfc3339();
+    // The visits that change, then the change: not one `UPDATE … RETURNING`, which opens a
+    // temporary file per URL (`Session::insert`).
+    const CHANGES: &str = "import_batch_id=?1 AND url_id=?2 AND same_as IS NULL
+        AND ((?3=1 AND reverted_at IS NOT NULL) OR (?3=0 AND reverted_at IS NULL))";
+    let select = format!("SELECT id, source_profile_id, visit_time_ms FROM visits WHERE {CHANGES}");
+    let update = format!(
+        "UPDATE visits SET reverted_at=CASE WHEN ?3=1 THEN NULL ELSE ?4 END,
+         reverted_by_run_id=CASE WHEN ?3=1 THEN NULL ELSE ?5 END WHERE {CHANGES}"
+    );
     let mut pages = std::collections::BTreeSet::new();
     let mut visits = 0u64;
     let mut by_profile = std::collections::BTreeMap::<i64, i64>::new();
     for id in &ids {
         // Undo and restore move only the batch's own counted visits: a copy hidden behind
         // another source's copy of the same visit (`same_as`) stays hidden either way.
-        let changed = s.query(
-            "UPDATE visits SET reverted_at=CASE WHEN ?3=1 THEN NULL ELSE ?4 END,
-            reverted_by_run_id=CASE WHEN ?3=1 THEN NULL ELSE ?5 END WHERE import_batch_id=?1 AND url_id=?2
-            AND same_as IS NULL AND ((?3=1 AND reverted_at IS NOT NULL) OR (?3=0 AND reverted_at IS NULL))
-            RETURNING id, source_profile_id, visit_time_ms",
-            params![batch, *id, i64::from(restore), at.as_str(), run],
-            |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?)),
-        )?;
+        let changed = s.query(&select, params![batch, *id, i64::from(restore)], |r| {
+            Ok((r.get::<i64>(0)?, r.get::<i64>(1)?, r.get::<i64>(2)?))
+        })?;
+        s.execute(&update, params![batch, *id, i64::from(restore), at.as_str(), run])?;
         let (page, url) = s.query_one("SELECT page_id, url FROM urls WHERE id=?1", [*id], |r| {
             Ok((r.get::<i64>(0)?, r.get::<String>(1)?))
         })?;

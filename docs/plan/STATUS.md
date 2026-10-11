@@ -183,16 +183,35 @@
     - [x] 3. E2E：照 fixture 手數範圍內「不只一天打開」的頁，對 KPI 列與 day 頁（含沒有造訪的那天是 0）。fixture 的造訪不帶直接輸入與 trail 的完整資訊，手數會變成照抄規則；改驗 day 頁的 KPI 等於卡片列的（卡片只列前五）、fixture 裡沒有造訪的一天是 0（`insights-drill.spec`）。
     - [x] 4. 文檔、CHANGELOG。（`deterministic-intelligence.md` §5.7、`screens-and-nav.md`、`data-model.md`、`store-schema.md`、`ipc-performance.md` §13；gate 69。）
 
-- [ ] **WORK-EPHEMERAL-TEMP-FILES** — 每個用到暫存表的查詢都新開一個加密暫存檔（2026-10-11 從 BACKLOG 搬上；`WORK-IMPORT-BULK-WRITES` 取樣時找到）
+- [x] **WORK-EPHEMERAL-TEMP-FILES** — 每個用到暫存表的查詢都新開一個加密暫存檔（2026-10-11 從 BACKLOG 搬上；`WORK-IMPORT-BULK-WRITES` 取樣時找到）
   - 讀先：`docs/architecture/ipc-performance.md` §11–12、`docs/architecture/research/2026-10-turso-archive-reads.md`、`docs/architecture/turso-migration-design.md`、`vault-store` 的 `query_plans.rs`、Turso 0.8.1 `vdbe/execute.rs` 的 `op_open_ephemeral`。
   - 現象：Turso 0.8.1 的 `OpenEphemeral` 每次執行都 `TempFile::with_temp_store`：建一個暫存目錄、開一個檔（我們的 `vault_crypto::temp_io` 加密、取亂數）、寫第一頁（`vdbe/execute.rs` op_open_ephemeral）。我們設 `temp_store=FILE`（大的排序不放記憶體）。用到暫存表的有 `RETURNING`、物化的 `IN (SELECT …)`、`UNION` 等；排序與 hash join 只在溢出時才開檔，不受影響。匯入每筆造訪與網址原本各一次（`INSERT … RETURNING`），拿掉後 14.4M 上 100 萬筆從 699 s 變 432 s。
   - 還有的：洞察的讀取多半寫 `generation IN (SELECT … FROM intelligence_generations)`，若被物化，每個查詢開一次檔；Insights 追加的 `path_flows_rows` upsert 每條路線 `RETURNING`（每次追加約 4,800 條）；復原匯入每個網址 `UPDATE … RETURNING`。macOS 上建檔比 Linux 慢，也是 SSD 的寫入。
   - 方向：先用查詢計畫找出每個熱路徑的 `OpenEphemeral`，量 macOS 上每次的成本；能改寫的改寫（`Session::insert` 取代 `RETURNING`，子查詢改成先讀出值再帶參數），改不了的再看暫存表能不能放記憶體而排序仍溢出到檔案。
   - 步驟：
-    - [ ] 1. 用查詢計畫列出每個熱路徑（洞察的兩批與各卡、History、搜尋、追加、復原）哪些語句會開暫存表，各執行幾次。
-    - [ ] 2. 量一次暫存表的成本（Linux 在 Modal；macOS 在本機只量這一項）。
-    - [ ] 3. 改寫熱路徑上的；加一個查詢計畫的回歸測試，擋熱路徑再出現暫存表。
+    - [x] 1. 用查詢計畫列出每個熱路徑（洞察的兩批與各卡、History、搜尋、追加、復原）哪些語句會開暫存表，各執行幾次。2026-10-11：`vault_store` 開了查詢計畫記錄時，也用 `EXPLAIN` 看每次執行的語句會不會開暫存表（`Store::take_ephemeral_tables`）。`vault-core/tests/ephemeral_tables.rs` 走匯入、建置、追加、三種範圍、day、History、復原與恢復：復原與恢復 400 個網址 806 個暫存檔（每個網址一個 `UPDATE … RETURNING`）、追加 432（每條路線一個 upsert `RETURNING`，165）、建置 267（暖快照的讀取）、一個範圍的兩批 44、全部時間 3、day 16、History 搜尋 2。Turso 連 `IN (…)` 常數列與參數列都開暫存表。
+    - [x] 2. 量一次暫存表的成本（Linux 在 Modal；macOS 在本機只量這一項）。macOS（用戶這台，只量檔案系統）約 150 µs：目錄 71 µs、檔案 66 µs；Modal 約 130 µs（匯入的差反推）。
+    - [x] 3. 改寫熱路徑上的；加一個查詢計畫的回歸測試，擋熱路徑再出現暫存表。每列跑一次的改掉：復原與恢復先讀會變的造訪再改（806 → 6）；追加的路線 `INSERT OR IGNORE`（`Session::insert`）加按鍵更新、指名主鍵的索引（432 → 267）；匯入在 `WORK-IMPORT-BULK-WRITES` 已改。讀取不改：52 處加 16 個 view 的 `generation IN (SELECT …)`，一個現算範圍 44 個、約 7 ms，全部時間走快照 3 個，改寫每個讀取划不來。`ephemeral_tables.rs` 擋任何語句在一步裡開超過 50 次（fixture 讓每列一次的語句跑幾百次）。
+    - [x] 4. 文檔、CHANGELOG。（`ipc-performance.md` §14、`vault-store/README.md`、`research/2026-10-turso-archive-reads.md`。）
+
+- [ ] **WORK-TAKEOUT-RESUME** — 中斷的 Takeout 匯入從頭再讀（2026-10-11 從 BACKLOG 搬上；2026-10-10 `WORK-IMPORT-BULK-WRITES` 盤點時找到）
+  - 讀先：`docs/features/archive.md`（匯入）、`docs/architecture/takeout-my-activity-tradeoff.md`、`docs/architecture/same-visit-across-sources.md`、`docs/architecture/store-schema.md`（`import_batches`、`profile_watermarks`）；`takeout/import_flow.rs`、`takeout/payload_import.rs`、解析器 `browser-history-parser/src/takeout/`。
+  - 現象：Takeout 匯入每個檔案都從 `Watermark::default()` 開始（`takeout/payload_import.rs`），存下的 `profile_watermarks` 從不讀回；中斷後再匯入是新的一批、從第一筆重新解析，已寫入的前段靠 `INSERT OR IGNORE` 擋掉重複，但每筆仍付網址 upsert 與搜尋文件的成本。14.4M 的匯入在後段中斷，重來幾乎等於整個重跑。
+  - 方向：每個檔案記下已提交到第幾筆（跟批次同一個交易），重新匯入同一份檔案時從那裡接著讀；匯入卡說明是接著上次的。先寫下會怎麼錯（檔案換了、同名不同內容、兩種格式交錯）再做。
+  - 步驟：
+    - [ ] 1. 寫下會怎麼錯（檔案換了、同名不同內容、兩種格式在同一份匯出、中斷在一個 chunk 的中間、上次的批次已被復原），決定「接著上次」的條件與記在哪裡。
+    - [ ] 2. 每個檔案記下已提交到第幾筆（跟批次同一個交易），重新匯入同一份檔案時從那裡接著讀；`import_equivalence` 驗中斷後接著匯入跟一次跑完相同。
+    - [ ] 3. 匯入卡說明是接著上次的；E2E：中斷一個匯入再匯入一次。
     - [ ] 4. 文檔、CHANGELOG。
+
+- [ ] **WORK-HOME-ALERTS-FOLLOWUPS** — Home 警告列的兩個小缺口（2026-10-11 從 BACKLOG 搬上；2026-10-10 收工審查時找到）
+  - 讀先：`docs/features/archive.md`（Home 的警告）、`docs/design/screens-and-nav.md`（Home）、`docs/design/ux-principles.md`、`src/features/home/alerts.ts`、`vault-core` 的排程器狀態（`overdue_issue`）。
+  - 鑰匙圈整個不能用（例如沒有 secret service 的 Linux）又沒存密碼時，「只有你知道密碼」那列的「存到鑰匙圈」連到 Security，那裡的開關是停用的，走不通；「我有妥善保管」仍可用。要換成說得通的動作或文字。
+  - 「自動備份已經停了」從最新一次嘗試起算三次檢查。筆電整晚睡著時，醒來到 launchd 補跑之前的幾十秒內打開 Home 會看到它；要在桌面上看一次，必要時從喚醒時間起算。
+  - 步驟：
+    - [ ] 1. 鑰匙圈不能用時，「只有你知道密碼」那列換成走得通的動作或說法（三種語言）。
+    - [ ] 2. 「自動備份已經停了」從喚醒時間起算，或在剛醒來時不報；寫下會怎麼錯再改，必要時在桌面上看一次。
+    - [ ] 3. E2E（`home-alerts.spec`）、文檔、CHANGELOG。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 
