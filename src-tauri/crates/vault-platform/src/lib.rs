@@ -17,6 +17,7 @@ mod launcher;
 mod locale;
 mod login_item;
 mod open_files;
+mod power;
 mod sandbox;
 mod scheduler;
 pub mod test_support;
@@ -48,6 +49,8 @@ pub use login_item::{
 };
 /// Lifts the per-process open-file limit before the archive opens.
 pub use open_files::raise_open_file_limit;
+/// When the computer last woke or started, for the schedule's health checks.
+pub use power::awake_since;
 /// Debug-only redirect of scheduler and login-item state into a directory.
 pub use sandbox::{SANDBOX_DIR_ENV, sandbox_dir};
 /// Preview/apply/remove schedule adapters backed by the native scheduler.

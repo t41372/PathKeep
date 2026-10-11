@@ -21,7 +21,8 @@ export interface HomeAlert {
   tone: 'error' | 'warning'
   title: string
   detail: string
-  action: { label: string; to: string }
+  /** Where it is fixed; none when nothing in PathKeep can fix it. */
+  action?: { label: string; to: string }
   /** For a risk the user may accept: hides the alert for good. */
   dismiss?: { label: string; run: () => void }
 }
@@ -76,12 +77,12 @@ export function useHomeAlerts(): HomeAlert[] {
     const { config, keyringStatus: keyring } = snapshot
     if (snapshot.archiveStatus.encrypted) {
       if (config.rememberDatabaseKeyInKeyring && !keyring.available) {
+        // The system's keychain is missing; nothing in Security brings it back.
         alerts.push({
           id: 'keychain:unavailable',
           tone: 'warning',
           title: t('home.alerts.keychainUnavailable.title'),
           detail: t('home.alerts.keychainUnavailable.detail'),
-          action: openSecurity,
         })
       } else if (config.rememberDatabaseKeyInKeyring && !keyring.storedSecret) {
         alerts.push({
@@ -92,13 +93,18 @@ export function useHomeAlerts(): HomeAlert[] {
           action: openSecurity,
         })
       } else if (!keyring.storedSecret && !config.passwordKeptElsewhere) {
-        // Nowhere but in the user's memory.
+        // Nowhere but in the user's memory. Without a keychain the switch in
+        // Security is off for good, so only keeping it elsewhere is left.
         alerts.push({
           id: 'password:risk',
           tone: 'warning',
           title: t('home.alerts.passwordRisk.title'),
-          detail: t('home.alerts.passwordRisk.detail'),
-          action: { label: t('home.alerts.passwordRisk.keep'), to: SECURITY },
+          detail: keyring.available
+            ? t('home.alerts.passwordRisk.detail')
+            : t('home.alerts.passwordRisk.noKeychain'),
+          action: keyring.available
+            ? { label: t('home.alerts.passwordRisk.keep'), to: SECURITY }
+            : undefined,
           dismiss: {
             label: t('home.alerts.passwordRisk.dismiss'),
             run: () =>

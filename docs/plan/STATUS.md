@@ -204,14 +204,14 @@
     - [x] 3. 匯入卡說明是接著上次的；E2E：中斷一個匯入再匯入一次。匯入卡加一行「接著完成了 {日期} 中斷的這份匯出；上面的數字包括那次已經存下的」（三種語言）。`takeout-continue.spec`（restart 專案）在匯入存下第一個 chunk 後真的殺掉 app，重開再匯入：「25,000 筆新造訪」、「0 筆已在存檔裡」、那一行、只有一批且 25,000 筆可見。順帶修了 E2E 用的 dev IPC bridge：它只有一條執行緒，命令直接在上面跑，匯入跑完前其他請求與事件串流都在等（測試看不到匯入中的批次與進度）；現在每個命令跟桌面 app 一樣放到 blocking pool 跑（`dev_ipc_bridge/router.rs`）。重開後的頁要 reload，否則還是被殺掉那個 app 的畫面（`support/app.ts` 註明）；`wipe.spec` 把這份匯出的 25,000 筆算進要刪的造訪。
     - [x] 4. 文檔、CHANGELOG。（`features/archive.md`、`ipc-performance.md` §12；gate 78。）重新匯入已在存檔裡的紀錄會把來源證據再寫一份（每次執行一個 source batch；讀的人按造訪合併，不會算兩次），接著做的匯入也一樣，另列 BACKLOG `WORK-EVIDENCE-REIMPORT`。
 
-- [ ] **WORK-HOME-ALERTS-FOLLOWUPS** — Home 警告列的兩個小缺口（2026-10-11 從 BACKLOG 搬上；2026-10-10 收工審查時找到）
+- [x] **WORK-HOME-ALERTS-FOLLOWUPS** — Home 警告列的兩個小缺口（2026-10-11 從 BACKLOG 搬上；2026-10-10 收工審查時找到）
   - 讀先：`docs/features/archive.md`（Home 的警告）、`docs/design/screens-and-nav.md`（Home）、`docs/design/ux-principles.md`、`src/features/home/alerts.ts`、`vault-core` 的排程器狀態（`overdue_issue`）。
   - 鑰匙圈整個不能用（例如沒有 secret service 的 Linux）又沒存密碼時，「只有你知道密碼」那列的「存到鑰匙圈」連到 Security，那裡的開關是停用的，走不通；「我有妥善保管」仍可用。要換成說得通的動作或文字。
   - 「自動備份已經停了」從最新一次嘗試起算三次檢查。筆電整晚睡著時，醒來到 launchd 補跑之前的幾十秒內打開 Home 會看到它；要在桌面上看一次，必要時從喚醒時間起算。
   - 步驟：
-    - [ ] 1. 鑰匙圈不能用時，「只有你知道密碼」那列換成走得通的動作或說法（三種語言）。
-    - [ ] 2. 「自動備份已經停了」從喚醒時間起算，或在剛醒來時不報；寫下會怎麼錯再改，必要時在桌面上看一次。
-    - [ ] 3. E2E（`home-alerts.spec`）、文檔、CHANGELOG。
+    - [x] 1. 鑰匙圈不能用時，「只有你知道密碼」那列換成走得通的動作或說法（三種語言）。2026-10-11：這台電腦沒有鑰匙圈時，那列不連到 Security，改寫「存檔已加密，這台電腦上也沒有能存密碼的鑰匙圈……請把它存在密碼管理器裡，或寫下來放在安全的地方」，「我有妥善保管」照舊。「鑰匙圈無法使用」那列（設定要存在鑰匙圈、鑰匙圈卻不在）同樣拿掉「打開安全性」：Security 裡只有停用的開關，PathKeep 裡沒有能修的地方。E2E 用的檔案鑰匙圈可以被測試設成不可用（目錄裡放 `unavailable`，只在 debug build），跟真的沒有時一樣讀不到、存不了。
+    - [x] 2. 「自動備份已經停了」從喚醒時間起算，或在剛醒來時不報；寫下會怎麼錯再改，必要時在桌面上看一次。選「剛醒來時不報」：電腦醒來或開機後 15 分鐘內，「已經停了」與「中途停止」都不報（`schedule_attempts::caught_up`）；之後照舊從最後一次嘗試起算三次檢查，所以常睡的筆電上排程真的停了，醒來 15 分鐘後就會報。不從醒來起算三次檢查：每天備份的檢查間隔 6 小時，要連續醒著 18 小時才報，筆電上等於永遠不報。醒來時間：macOS `kern.waketime`／`kern.boottime`，Windows `CallNtPowerInformation(LastWakeTime)`（`vault_platform::awake_since`）；Linux 不回報已安裝的排程，用不到。讀不到就照常報，不當成剛醒。睡著前在跑的備份醒來後還在跑，不再被標成中斷；新的 worker 啟動時把前一次標成中斷的那條路不受影響，因為 launchd 與 Task Scheduler（`IgnoreNew`）都不會在舊的還活著時再起一個。驗證：`schedule_attempts.rs` 先寫下會怎麼錯再寫測試；macOS 在本機讀了這台的醒來時間，跟 `sysctl` 一致，但這台那之後沒睡過，睡一晚醒來的實際情形沒看到；`kern.waketime` 在 dark wake（Power Nap）是否也更新沒驗證（若會，launchd 在 dark wake 也會跑，帳本會有那次的嘗試）。Windows 只在 Modal 上對 msvc target 跑過 clippy，沒在 Windows 上執行。Linux 上排程永遠不是 installed，E2E 走不到這條路。
+    - [x] 3. E2E（`home-alerts.spec`）、文檔、CHANGELOG。E2E 驗兩則鑰匙圈警告在沒有鑰匙圈時不連到 Security、Security 的開關停用、鑰匙圈回來後又出現「存到鑰匙圈」；文檔 `features/archive.md`、`screens-and-nav.md` Home（gate 78）。
 
 - [ ] **WORK-IMPORT-CANCEL** — 匯入中停不下來（2026-10-11 加入；side agent 讀碼時發現，已在程式碼確認）
   - 讀先：`docs/features/archive.md`（匯入、中斷的匯入接著做）、`takeout/import_flow.rs`、`takeout/browser_history.rs`、`src-tauri/src/worker_bridge/import.rs`、匯出的取消（`vault_core::cancel_export`，同一種登記方式）、`src/features/backup/import-card.tsx`、`browser-import-card.tsx`。

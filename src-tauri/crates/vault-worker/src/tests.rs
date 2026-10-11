@@ -528,7 +528,7 @@ fn scheduled_worker_records_keyring_config_and_archive_open_failures_before_arch
     assert!(keyring_error.to_string().contains("reading"));
     let paths = project_paths().expect("paths");
     let keyring_ledger =
-        vault_core::load_schedule_attempt_ledger(&paths, 1.0).expect("keyring ledger");
+        vault_core::load_schedule_attempt_ledger(&paths, 1.0, None).expect("keyring ledger");
     assert_eq!(keyring_ledger.attempts[0].reason_code.as_deref(), Some("keyring"));
     fs::remove_dir(&secret_path).expect("remove blocking secret");
 
@@ -538,7 +538,7 @@ fn scheduled_worker_records_keyring_config_and_archive_open_failures_before_arch
         .expect_err("config parse must fail");
     assert!(config_error.to_string().contains("parsing config json"));
     let config_ledger =
-        vault_core::load_schedule_attempt_ledger(&paths, 1.0).expect("config ledger");
+        vault_core::load_schedule_attempt_ledger(&paths, 1.0, None).expect("config ledger");
     assert_eq!(config_ledger.attempts[0].reason_code.as_deref(), Some("config"));
 
     let config = AppConfig {
@@ -555,7 +555,7 @@ fn scheduled_worker_records_keyring_config_and_archive_open_failures_before_arch
         .expect_err("archive open must fail");
     assert!(!archive_error.to_string().is_empty());
     let archive_ledger =
-        vault_core::load_schedule_attempt_ledger(&paths, 1.0).expect("archive ledger");
+        vault_core::load_schedule_attempt_ledger(&paths, 1.0, None).expect("archive ledger");
     assert_eq!(archive_ledger.attempts[0].reason_code.as_deref(), Some("archive-open"));
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
@@ -907,7 +907,8 @@ fn mcp_surface_respects_native_visibility_and_locked_app_sessions() {
         "scheduled executor must reach a real skip or canonical run"
     );
     let paths = project_paths().expect("project paths");
-    let ledger = vault_core::load_schedule_attempt_ledger(&paths, 1.0).expect("attempt ledger");
+    let ledger =
+        vault_core::load_schedule_attempt_ledger(&paths, 1.0, None).expect("attempt ledger");
     assert!(
         matches!(
             ledger.attempts[0].outcome,

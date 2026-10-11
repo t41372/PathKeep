@@ -1,7 +1,7 @@
 /**
  * Home's alerts, under the header: one row per problem, each with the place
- * that fixes it. Renders nothing when there are none. Which alerts apply is
- * decided in `alerts.ts`.
+ * that fixes it when PathKeep has one. Renders nothing when there are none.
+ * Which alerts apply is decided in `alerts.ts`.
  */
 import { CircleAlert, TriangleAlert } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -48,9 +48,11 @@ export function HomeAlerts() {
                     {alert.dismiss.label}
                   </Button>
                 )}
-                <Button size="sm" variant="outline" asChild>
-                  <Link to={alert.action.to}>{alert.action.label}</Link>
-                </Button>
+                {alert.action && (
+                  <Button size="sm" variant="outline" asChild>
+                    <Link to={alert.action.to}>{alert.action.label}</Link>
+                  </Button>
+                )}
               </div>
             </li>
           )
