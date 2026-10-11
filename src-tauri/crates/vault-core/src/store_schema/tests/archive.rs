@@ -4,6 +4,7 @@
 use super::{Fixture, ForeignKey};
 
 pub(super) const TABLES: &[&str] = &[
+    "archive_meta",
     "archive_totals",
     "__pk_migrations",
     "downloads",
@@ -43,6 +44,7 @@ pub(super) const TABLES: &[&str] = &[
     "__turso_internal_seq___turso_internal_autoincrement_visits",
 ];
 pub(super) const INDEXES: &[&str] = &[
+    "sqlite_autoindex_archive_meta_1",
     "sqlite_autoindex_archive_totals_1",
     "idx_pages_canonical_url",
     "idx_url_annotations_canonical",

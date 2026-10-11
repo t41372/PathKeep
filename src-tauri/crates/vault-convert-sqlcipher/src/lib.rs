@@ -273,6 +273,8 @@ pub fn convert_owned(
     if state.projected == 0 {
         cancel.check()?;
         vault_core::conversion::link_same_visits(&vault)?;
+        // Every page was given its site by this build's public suffix list (`transfer`).
+        vault_core::archive::sites::record_list_version(&vault)?;
     }
     while let Some(last) =
         vault_core::conversion::project_pages(&vault, state.projected, source::PAGE)?

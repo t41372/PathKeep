@@ -333,6 +333,9 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_search_document_profiles_profile ON search_document_profiles(source_profile_id, newest_visit_ms DESC, page_id)",
     "INSERT INTO runs(id,run_type,trigger,started_at,finished_at,timezone,status,profile_scope_json,stats_json,warnings_json,due_only) VALUES(0,'system','compat','1970-01-01T00:00:00+00:00','1970-01-01T00:00:00+00:00','UTC','success','[]','{}','[]',0)",
     "CREATE TABLE archive_totals(name TEXT PRIMARY KEY,value INTEGER NOT NULL)",
+    // What the archive's stored values were computed with, where a release can change it: the
+    // public suffix list the pages' sites were split by (`archive::sites`).
+    "CREATE TABLE archive_meta(name TEXT PRIMARY KEY,value TEXT NOT NULL)",
     "INSERT INTO archive_totals VALUES('sourceProfiles',0),('urls',0),('visits',0),('downloads',0),('manifests',0),('snapshots',0)",
     "CREATE INDEX idx_visits_batch_url ON visits(import_batch_id,url_id)",
     // The copies of a visit that another source's copy stands in for (`archive::same_visit`):

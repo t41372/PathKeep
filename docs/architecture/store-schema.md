@@ -570,6 +570,11 @@ Archive runtime metadata (part of version 1):
 - `archive_totals(name, value)` caches enabled source profiles, URLs, visible visits,
   visible downloads, manifest rows and snapshot rows. It starts at zero; fact
   transactions apply deltas.
+- `archive_meta(name, value)` records what stored values were computed with where a
+  release can change it. `publicSuffixList` is the version of the public suffix list
+  that split `pages.registrable_domain` into sites. Conversion records it; an archive
+  that opens with another version splits its pages again in the background, once,
+  rewriting only the pages whose site changed (`archive::sites`).
 - `import_batches.visible_items` changes with visit visibility; `previous_status`
   is non-null with the `imported` default. New imports explicitly start it as `running`
   and update it to their terminal import state.

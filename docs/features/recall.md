@@ -35,7 +35,7 @@ closing the Vault releases all sessions. App Lock keeps the Vault open.
 
 ### 現在的 History
 
-- **三個視圖**：時間線（依天分組，同一天內相隔 30 分鐘以上切成 session）、網站（所選範圍內最常去的 200 個網站，每列帶該網站最近一頁的連結預覽縮圖，點一個切回時間線並篩選）、已加星（頁面與整個網站，附連結預覽縮圖、最多三個標籤與筆記預覽）。搜尋時改為結果列表，同一頁面只列一行並標出符合的瀏覽次數。
+- **三個視圖**：時間線（依天分組，同一天內相隔 30 分鐘以上切成 session）、網站（所選範圍內最常去的 200 個網站，每列帶該網站最近一頁的連結預覽縮圖，點一個切回時間線並篩選）、已加星（頁面與整個網站，附連結預覽縮圖、最多三個標籤與筆記預覽）。「整個網站」是照公共後綴清單切的網站（`deterministic-intelligence.md` §5.1）：舊版用「最後兩段」切，在舊版替 `*.github.io` 某一頁的網站加的星存成 `github.io`，現在 `github.io` 底下每個網站各自獨立，那顆星不再涵蓋任何頁面，要在那個網站上重新加。搜尋時改為結果列表，同一頁面只列一行並標出符合的瀏覽次數。
 - **搜尋框**：一個輸入框，打字 250 ms 後才寫進 URL 並查詢。三種方式：
   - **全文**（預設）：`query_history`（`groupByUrl`），依相關度排序；§1 的進階語法（`site:`、`-詞`、`"片語"`、`OR`、`intitle:`、`inurl:`、`filetype:`、`after:` / `before:`、`note:` / `tag:`）由後端解析。搜尋框裡的「?」（點擊、鍵盤或滑鼠停留）打開語法速查（`search-help.tsx`）：每個運算子一個例子，點一下就填進搜尋框並切回全文；日期例子固定是上個月。只有 `tag:` 而沒有關鍵字的搜尋從 `url_tags` 找候選，不掃整個 `urls`（[ipc-performance.md](../architecture/ipc-performance.md) §6）。
   - **Regex**：`query_history` 加 `regexMode`，依時間新到舊。把查詢用 `/…/` 包起來時，不管選了哪種方式都當 regex。前端用 Rust `regex` 的規則檢查（`regex-dialect.ts`：群組、巢狀字元類、跳脫字元、重複次數），擋下 look-around、反向參照、atomic / 條件群組、Rust 不認得的跳脫字元與不是重複次數的 `{`，用白話說明哪裡不支援，不送出查詢，畫面保留上一批結果（淡化）。不再用 JavaScript `RegExp`：它會擋下 Rust 接受的寫法（`a++`、`(?i)`、`(?P<name>…)`）。檢查器與後端共用一張案例表（`regex-dialect-cases.json`；Rust 測試 `regex_dialect_cases` 與 vitest 各跑一次）。只有編譯時才知道的錯誤（不存在的 Unicode 屬性、反向範圍、大小上限）仍會送到後端，畫面顯示「這個正規表示式無法執行」與 Rust 的訊息，不再是「搜尋沒有執行成功」。

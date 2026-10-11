@@ -167,6 +167,7 @@ Normalization 要求：
 - 去除常見 tracking params，例如 `utm_*`
 - 保留產品需要的語義參數，例如搜尋 query、商品 id、issue id、video id
 - host 與 registrable domain 分開存取
+- registrable domain 就是「網站」，照瀏覽器的方式切：Mozilla 的 Public Suffix List，ICANN 與私有兩段都用（`vault-core/vendor/publicsuffix/`，`bun run update:public-suffix-list` 更新）。`rust-lang.github.io` 與 `mio-rs.github.io` 是兩個網站，`news.bbc.co.uk` 在 `bbc.co.uk`；IP 位址、單一標籤的主機（`localhost`）與本身就是公共後綴的主機（`github.io`）各是自己的網站。清單的版本是 URL 規則版本的一部分，清單一換，洞察就整個重建。（2026-10-10 之前 app 實際上沒有載入任何清單，是「最後兩段」加 11 個手寫的兩段後綴。）
 - 對 IDN domain 做標準化處理
 
 ### 5.2 Taxonomy classification
@@ -191,7 +192,7 @@ Normalization 要求：
 
 2026-10-08 note（precedence 不變）：
 
-- exact domain rule 先比對造訪的完整主機，再依序比對上層網域，到 registrable domain 為止：`mail.google.com` 先於 `google.com`，不會比對到 `co.uk` 這種公共後綴。之前只比 registrable domain，所以 Google 的文件、郵件、Gemini 都算成搜尋。
+- exact domain rule 先比對造訪的完整主機，再依序比對上層網域，到網站擁有者在 ICANN 規則下註冊的網域為止：`mail.google.com` 先於 `google.com`；`tokio.readthedocs.io` 是自己的網站，但也走到 `readthedocs.io`，所以 Read the Docs 的規則涵蓋那裡的每個文件網站；不會比對到 `co.uk` 這種公共後綴。之前只比 registrable domain，所以 Google 的文件、郵件、Gemini 都算成搜尋。
 - 站點清單在 `vault-core/src/visit_taxonomy/sites/`，每個 pack 一個檔案，只收分類一看就清楚的網站；入口網站與包山包海的 app（`yahoo.co.jp`、`naver.com`、`qq.com`）不收，只收其中分類清楚的主機（`news.naver.com`、`mail.qq.com`）。exact rule 只定網站分類，頁面種類留 unknown（文件站與搜尋引擎除外），因為頁面種類會影響 compare sets。
 - 要靠路徑分頁面種類的網站（GitHub、YouTube、Reddit、Amazon、Taobao）不寫 exact rule（會蓋掉路徑規則），改在它們的路徑規則後面加一條只看主機的規則，其餘頁面也有網站分類。測試保證：每條規則都比對得到、同一網域不重複、exact rule 不會蓋掉路徑規則。
 - title / query lexicon 只決定頁面種類，不決定網站分類（網站分類留 unknown）：頁面標題說的是這一頁，不是整個網站；之前「tokio vs smol」這種部落格文章因為 "vs" 被歸成購物、「訓練計畫」因為 "plan" 也是。英文詞要整個詞相符（"api" 不算出現在 "rapid" 裡、"plan" 不算出現在 "explanation" 裡）；中文、日文標題詞之間沒有空格，照子字串比對。
