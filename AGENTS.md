@@ -27,7 +27,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 **構建可重現**：不依賴開發機全局 Homebrew / apt / winget。Native 依賴首選 Rust crate vendored/bundled（如 `rusqlite` 的 `bundled-sqlcipher-vendored-openssl`），次選 vcpkg manifest mode（`vcpkg.json`），都不行寫 ADR。帶 C/C++ 後端的 Rust crate 是標準做法，不需要額外審批。
 
-**重活在本機跑，但磁碟很緊**：2026-10-11 起不再用 Modal（它超過用戶設的 spend limit 照樣扣款）。編譯、clippy、測試、E2E、benchmark 都在本機跑。開跑前看剩餘空間，build 產物保持精簡；一個 block 做完就清掉可重建的產物（`cargo clean`、舊的 E2E 報告）。絕不刪用戶自己的東西來騰空間，要騰先問。
+**重活在本機跑，但磁碟很緊**：2026-10-11 起不再用 Modal（它超過用戶設的 spend limit 照樣扣款）。編譯、clippy、測試、E2E、benchmark 都在本機跑。開跑前看剩餘空間，build 產物保持精簡；工作告一段落、不再接著跑時清掉可重建的產物（`cargo clean`、`var/playwright` 的桌面 build、舊的 E2E 報告），接著做下一個 block 時留著，免得整個重編、寫更多 SSD。絕不刪用戶自己的東西來騰空間，要騰先問。
 
 **供應鏈信任**：新依賴需用戶授權，除非 GitHub stars > 6k、維護者高信譽、或由知名組織維護。不滿足門檻先寫風險評估等批准。
 
