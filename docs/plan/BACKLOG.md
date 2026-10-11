@@ -57,6 +57,10 @@
   - 原因：`count_refind_pages_in_range` 數的是 `refind_pages_rows` 裡第一次與最後一次造訪的區間跟範圍重疊的頁，不管範圍內有沒有打開過。
   - 要改成範圍內打開過、而且是「不只一天打開」的頁（跟 day 頁的卡同一個定義），並在 14.4M 上量一年與全部時間的代價（可能要按日存好）。
 
+- [ ] **WORK-HOME-ALERTS-FOLLOWUPS** — Home 警告列的兩個小缺口（2026-10-10 收工審查時找到）
+  - 鑰匙圈整個不能用（例如沒有 secret service 的 Linux）又沒存密碼時，「只有你知道密碼」那列的「存到鑰匙圈」連到 Security，那裡的開關是停用的，走不通；「我有妥善保管」仍可用。要換成說得通的動作或文字。
+  - 「自動備份已經停了」從最新一次嘗試起算三次檢查。筆電整晚睡著時，醒來到 launchd 補跑之前的幾十秒內打開 Home 會看到它；要在桌面上看一次，必要時從喚醒時間起算。
+
 - [ ] **WORK-SITE-CATEGORY-REVIEW** — 讓用戶看見並改網站分類（2026-10-08 從 `WORK-INSIGHTS-RESTORE-2026-10` 拆出）
   - 讀先：`docs/features/deterministic-intelligence.md` §5.2、§6.3；`vault-core/src/intelligence/site_dictionary/overrides.rs`；`docs/design/screens-and-nav.md` §Insights。
   - 起因：§6.3 要求 unknown 比例與最常去的未分類網站可 review、用戶 override 永遠優先。後端已有 override 表（`upsert_site_dictionary_override`），但沒有命令也沒有畫面，v0.3 也沒有。「哪類網站」卡只能寫出未分類的比例。
