@@ -14,6 +14,7 @@ import {
   openedFrom,
 } from '../../../scripts/fixtures/synthetic-browsers.mjs'
 import type { FixtureVisit } from './fixture'
+import { siteOf as site } from './public-suffix'
 
 /** English function words and URL parts, as the backend leaves them out (`is_stop_word`). */
 const fillerWords = new Set(
@@ -73,11 +74,6 @@ export function compareTokens(text: string) {
       set.add(chars[index - 1] + chars[index])
   }
   return set
-}
-
-/** The registrable domain of a fixture URL: every fixture host sits under a one-label suffix. */
-function site(url: string) {
-  return new URL(url).hostname.split('.').slice(-2).join('.')
 }
 
 /** How many tokens two searches have in common, and how many either has. */

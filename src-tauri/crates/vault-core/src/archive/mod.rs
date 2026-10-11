@@ -56,6 +56,7 @@ pub(crate) mod same_visit;
 pub(crate) mod search_lexical;
 mod search_opencc;
 pub(crate) mod search_query;
+pub mod sites;
 pub(crate) mod source_evidence;
 mod source_stats;
 mod url_detail;

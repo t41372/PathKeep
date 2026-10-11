@@ -36,6 +36,7 @@
     "native-deps:install:opencc": "node scripts/native-deps.mjs install --feature=opencc",
     "native-deps:env": "node scripts/native-deps.mjs env",
     "release:check": "node scripts/verify-release-config.mjs",
+    "update:public-suffix-list": "node scripts/update-public-suffix-list.mjs",
     "check:supply-chain": "bun run audit:rust && bun run deny:rust",
     "check:platform": "node scripts/run-platform-checks.mjs",
     "check:slow": "bun run check:supply-chain && bun run check:platform",

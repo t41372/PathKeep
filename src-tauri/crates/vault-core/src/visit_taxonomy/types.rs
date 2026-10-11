@@ -26,8 +26,10 @@ pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v4";
 
 /// The URL rules' version: how a URL is normalized, which site it belongs to and which search it
 /// is. A change moves visits between sites and searches, so Insights are built anew. v1: only
-/// http(s) pages have a site; an extension's page no longer counts as one.
-pub(super) const URL_RULES_VERSION: &str = "m5-url-v1";
+/// http(s) pages have a site; an extension's page no longer counts as one. v2: sites are split by
+/// the full public suffix list, as browsers split them (`url_rules_version` adds the list's own
+/// version, so a refreshed list builds them anew too).
+pub(super) const URL_RULES_VERSION: &str = "m5-url-v2";
 
 /// URL normalized for rule-based visit taxonomy and matching.
 #[derive(Debug, Clone, PartialEq, Eq)]

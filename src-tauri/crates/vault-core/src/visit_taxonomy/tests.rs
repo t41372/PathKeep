@@ -125,18 +125,41 @@ fn keeps_semantic_ids_and_extracts_cjk_search_terms() {
     assert_eq!(normalized.canonical_url, "https://www.baidu.com/s?wd=%E6%9C%AC%E5%9C%B0+AI");
 }
 
+// What a site is, the way a browser splits them (the full public suffix list). The ways it goes
+// wrong, each checked below:
+// - the private section left out, so every `*.github.io` is one site;
+// - a suffix of several labels (`co.uk`), a wildcard (`*.ck`) or an exception (`!www.ck`) split
+//   by label count;
+// - a host that is itself a public suffix (`github.io`), a single label or an address split into
+//   pieces (`127.0.0.1` as the site `0.1`);
+// - a refreshed list that leaves the version builds record unchanged, so Insights keep old sites.
 #[test]
-fn registrable_domain_handles_common_multi_label_suffixes() {
+fn sites_are_split_as_a_browser_splits_them() {
+    for (host, site) in [
+        ("rust-lang.github.io", "rust-lang.github.io"),
+        ("docs.tokio-rs.github.io", "tokio-rs.github.io"),
+        ("docs.news.bbc.co.uk", "bbc.co.uk"),
+        ("subdomain.example.com.cn", "example.com.cn"),
+        ("a.b.c.ck", "b.c.ck"),
+        ("www.ck", "www.ck"),
+        ("mail.google.com", "google.com"),
+        ("github.io", "github.io"),
+        ("co.uk", "co.uk"),
+        ("localhost", "localhost"),
+        ("nas.home.arpa", "nas.home.arpa"),
+        ("127.0.0.1", "127.0.0.1"),
+        ("[::1]", "[::1]"),
+        ("GitHub.COM.", "github.com"),
+        ("", ""),
+    ] {
+        assert_eq!(registrable_domain_for_host(host), site, "{host}");
+    }
     assert_eq!(
         registrable_domain_for_url("https://docs.news.bbc.co.uk/path").as_deref(),
         Some("bbc.co.uk")
     );
-    assert_eq!(
-        registrable_domain_for_url("https://subdomain.example.com.cn/path").as_deref(),
-        Some("example.com.cn")
-    );
-    assert_eq!(registrable_domain_for_host(""), "");
-    assert_eq!(registrable_domain_for_host("localhost"), "localhost");
+    let version = super::public_suffix_list_version();
+    assert!(!version.is_empty() && super::url_rules_version().ends_with(version));
     assert_eq!(
         extract_search_query_from_url("https://duckduckgo.com/?q=PathKeep+archive").as_deref(),
         Some("PathKeep archive")
@@ -418,12 +441,22 @@ fn a_host_with_its_own_rule_beats_its_parent() {
 }
 
 #[test]
-fn host_walk_stops_at_the_registrable_domain() {
+fn host_walk_stops_at_the_domain_the_owner_registered() {
     let walk = |host, registrable| host_and_parents(host, registrable).collect::<Vec<_>>();
     assert_eq!(
         walk("a.b.example.co.uk", "example.co.uk"),
         ["a.b.example.co.uk", "b.example.co.uk", "example.co.uk"]
     );
+    // A site under a private suffix reaches its owner's domain, never the public suffix above.
+    assert_eq!(
+        walk("tokio.readthedocs.io", "tokio.readthedocs.io"),
+        ["tokio.readthedocs.io", "readthedocs.io"]
+    );
+    assert_eq!(
+        walk("rust-lang.github.io", "rust-lang.github.io"),
+        ["rust-lang.github.io", "github.io"]
+    );
+    assert_eq!(walk("127.0.0.1", "127.0.0.1"), ["127.0.0.1"]);
     assert_eq!(walk("example.com", "example.com"), ["example.com"]);
     assert_eq!(walk("localhost", "localhost"), ["localhost"]);
     // A registrable domain the host is not under: only the host itself.

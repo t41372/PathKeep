@@ -35,6 +35,8 @@ import {
   fixture,
   type FixtureVisit,
 } from './support/fixture'
+// A visit's site as Insights counts it (`visit_taxonomy::registrable_domain_for_host`).
+import { siteOf as site } from './support/public-suffix'
 import {
   searchFamilies,
   searchTrails,
@@ -87,16 +89,6 @@ function startOfDayDaysAgo(days: number): Date {
 
 const dateKey = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-
-/**
- * A visit's site as Insights counts it: the registrable domain under the
- * public suffix list's ICANN section (`visit_taxonomy::registrable_domain_for_host`),
- * so every `*.github.io` page is on github.io. The fixture's hosts all sit
- * under one-label suffixes.
- */
-function site(url: string) {
-  return new URL(url).hostname.split('.').slice(-2).join('.')
-}
 
 /** Visits per site, by hand, between two instants. */
 function visitsPerSite(
@@ -692,10 +684,12 @@ test('where searches end up is counted like the archive', async ({
 /**
  * The kind of site a fixture visit went to, decided by hand from what each
  * site is: a search on Google is a search; GitHub is for building software;
- * docs.rs, SQLite's and Tauri's sites and any page under /docs are
- * documentation; YouTube is video; Reddit and Hacker News are forums; B&H and
- * Amazon are shops. The rest (personal blogs, Strava, a JLPT course, camera reviews,
- * running advice) are on no list, whatever their page titles say.
+ * docs.rs, SQLite's and Tauri's sites are documentation, and so is any page
+ * under /docs, /doc, /reference, /api, /guide or /guides on any site (the
+ * `docs-path` rule); YouTube is video; Reddit and Hacker News are forums; B&H
+ * and Amazon are shops. The rest (personal blogs, Strava, a JLPT course,
+ * camera reviews, running advice) are on no list, whatever their page titles
+ * say.
  */
 function kindOf(visit: FixtureVisit) {
   if (visit.term) return 'Search'
@@ -717,8 +711,12 @@ function kindOf(visit: FixtureVisit) {
     case 'www.amazon.de':
       return 'Shopping'
   }
-  return url.pathname.startsWith('/docs') ? 'Documentation' : 'Not classified'
+  return DOCS_PATHS.some((prefix) => url.pathname.startsWith(prefix))
+    ? 'Documentation'
+    : 'Not classified'
 }
+
+const DOCS_PATHS = ['/docs', '/doc', '/reference', '/api', '/guide', '/guides']
 
 test('browsers compared name the sites they share and what each mostly visits', async ({
   page,

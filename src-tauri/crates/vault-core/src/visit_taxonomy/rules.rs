@@ -100,10 +100,13 @@ pub(super) const fn rule(
     }
 }
 
-/// The URL rules' version (`URL_RULES_VERSION`): what a visit's site and search are. A build
-/// records it, and a change makes the next build start over.
+/// The URL rules' version (`URL_RULES_VERSION`) with the public suffix list's: what a visit's
+/// site and search are. A build records it, and a change makes the next build start over.
 pub(crate) fn url_rules_version() -> &'static str {
-    URL_RULES_VERSION
+    static VERSION: LazyLock<String> = LazyLock::new(|| {
+        format!("{URL_RULES_VERSION}|psl={}", super::url::public_suffix_list_version())
+    });
+    &VERSION
 }
 
 /// The taxonomy a build sorts visits into categories with: the matcher's version and every

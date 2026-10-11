@@ -57,6 +57,12 @@ export function writeFirefoxPlaces(file: string, visits: SyntheticVisit[]): void
 /** The words of the fixture's Chinese searches, as Insights splits them. */
 export const FIXTURE_CJK_WORDS: Record<string, string[]>
 
+/** A second site on github.io, visited three times two days before `now`. */
+export const FIXTURE_PAGES_SITE: {
+  site: string
+  pages: [url: string, title: string][]
+}
+
 /** A search that compared one product on two shops, and the pages it opened in order. */
 export const FIXTURE_COMPARE: {
   term: string

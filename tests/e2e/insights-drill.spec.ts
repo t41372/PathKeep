@@ -19,6 +19,8 @@
  *   as the fixture's browsers recorded each page's opener.
  * - Google's site view lists what was searched on it, as Frequent searches
  *   counts it (every fixture search is on Google).
+ * - Two sites on github.io are two sites, as in a browser: each site view
+ *   counts only its own visits and pages.
  * - A Chinese search, with no spaces between its words, is one search with a
  *   longer wording of it: its view lists that wording among the others.
  * - A search that went back and forth between one product on two shops is
@@ -32,6 +34,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   FIXTURE_COMPARE,
+  FIXTURE_PAGES_SITE,
   openedFrom,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import {
@@ -41,6 +44,7 @@ import {
   fixture,
   parseCount,
 } from './support/fixture'
+import { siteOf } from './support/public-suffix'
 import { searchFamilies } from './support/search-words'
 
 const JOB_TIMEOUT = 60_000
@@ -56,11 +60,6 @@ function startOfDayDaysAgo(days: number) {
   date.setHours(0, 0, 0, 0)
   date.setDate(date.getDate() - days)
   return date.getTime()
-}
-
-/** The registrable domain of a fixture URL (every fixture host is name.tld or sub.name.tld). */
-function siteOf(url: string) {
-  return new URL(url).hostname.split('.').slice(-2).join('.')
 }
 
 function countBy<T>(items: T[], keyOf: (item: T) => string) {
@@ -412,6 +411,32 @@ test('the site of a search engine lists what was searched on it', async ({
     .first()
   await expect(first).toBeVisible({ timeout: JOB_TIMEOUT })
   expect(await read(first)).toEqual(expected)
+})
+
+test('two sites on github.io are two sites, as in a browser', async ({
+  page,
+}, testInfo) => {
+  const sites = ['rust-lang.github.io', FIXTURE_PAGES_SITE.site]
+  for (const site of sites) {
+    const visits = archivedVisits().filter(
+      (visit) => !visit.term && siteOf(visit.url) === site,
+    )
+    expect(visits.length, `the fixture visited ${site}`).toBeGreaterThan(0)
+    await page.goto(`/#/insights/site/${site}`)
+    await drillIn(page, site)
+    await expectCount(
+      testInfo,
+      `${site} visits, all time`,
+      await kpi(page, 'Page visits'),
+      visits.length,
+    )
+    await expectCount(
+      testInfo,
+      `${site} pages, all time`,
+      await kpi(page, 'Pages'),
+      new Set(visits.map((visit) => visit.url)).size,
+    )
+  }
 })
 
 test('a Chinese search and a longer wording of it are one search', async ({

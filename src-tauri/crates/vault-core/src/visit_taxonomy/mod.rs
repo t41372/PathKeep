@@ -44,3 +44,4 @@ pub use self::url::{
 pub(crate) use self::rules::{taxonomy_version, url_rules_version};
 pub(crate) use self::text::is_cjk_like;
 pub(crate) use self::types::Opener;
+pub(crate) use self::url::public_suffix_list_version;

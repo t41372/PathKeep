@@ -206,6 +206,34 @@ function compareScene(dayStart) {
   return visits
 }
 
+/**
+ * A second site on github.io, besides the rust topic's rust-lang.github.io:
+ * browsers count every `*.github.io` site as its own (the public suffix
+ * list's private section), and so must Insights. Three evenings two days
+ * before `now`, in the Personal profile.
+ */
+export const FIXTURE_PAGES_SITE = {
+  site: 'mio-rs.github.io',
+  pages: [
+    ['https://mio-rs.github.io/guide/', 'Mio event loop guide'],
+    ['https://mio-rs.github.io/guide/poll.html', 'Polling with Mio'],
+  ],
+}
+
+function pagesSiteScene(dayStart) {
+  return [0, 1, 0].map((index, order) => {
+    const [url, title] = FIXTURE_PAGES_SITE.pages[index]
+    return {
+      url,
+      title,
+      at: dayStart + 21 * 3_600_000 + order * 300_000,
+      typed: false,
+      duration: 120_000,
+      profile: 'chrome:Default',
+    }
+  })
+}
+
 function prng(seed) {
   let state = seed >>> 0 || 1
   return () => {
@@ -309,6 +337,7 @@ export function generateVisits({
     }
   }
   visits.push(...compareScene(today.getTime() - (days + 1) * DAY_MS))
+  visits.push(...pagesSiteScene(today.getTime() - 2 * DAY_MS))
   // Two sessions can start in the same minute and produce the same visit
   // twice. A browser never records two visits at the same instant, and
   // PathKeep counts identical visits once, so keep every timestamp unique.

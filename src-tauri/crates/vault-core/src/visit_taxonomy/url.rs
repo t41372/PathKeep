@@ -16,24 +16,45 @@
 //!
 //! ## Dependencies
 //! - `reqwest::Url` for URL parsing and canonical query serialization.
-//! - `publicsuffix` plus a small fallback list for common multi-label suffixes.
+//! - `publicsuffix`, reading Mozilla's Public Suffix List as vendored in `vendor/publicsuffix/`.
 //!
 //! ## Performance notes
 //! - Work is bounded to one URL at a time. Callers processing millions of rows
 //!   should stream visits instead of materializing every normalized URL.
 
 use super::{text::normalize_whitespace, types::NormalizedVisitUrl};
-use publicsuffix::{IcannList, Psl};
+use publicsuffix::{IcannList, List, Psl, Type};
 use reqwest::Url;
-use std::sync::LazyLock;
+use std::{net::IpAddr, sync::LazyLock};
 
 const SEARCH_QUERY_KEYS: &[&str] =
     &["q", "query", "query_text", "search_query", "p", "wd", "word", "text", "keyword", "k"];
-const COMMON_MULTI_LABEL_PUBLIC_SUFFIXES: &[&str] = &[
-    "co.jp", "co.kr", "co.uk", "com.au", "com.cn", "com.hk", "com.sg", "com.tr", "com.tw",
-    "net.cn", "org.cn",
-];
-static PUBLIC_SUFFIX_LIST: LazyLock<IcannList> = LazyLock::new(IcannList::default);
+/// Mozilla's Public Suffix List, as `scripts/update-public-suffix-list.mjs` last fetched it.
+const PUBLIC_SUFFIX_LIST: &[u8] =
+    include_bytes!("../../vendor/publicsuffix/public_suffix_list.dat");
+
+/// Both sections of the list, as browsers use it to tell sites apart: `rust-lang.github.io` and
+/// `tokio-rs.github.io` are two sites, `news.bbc.co.uk` and `www.bbc.co.uk` one.
+static SITES: LazyLock<List> =
+    LazyLock::new(|| List::from_bytes(PUBLIC_SUFFIX_LIST).expect("the vendored suffix list"));
+
+/// Its ICANN section alone: the domain a site's owner registered (`readthedocs.io` for every
+/// `*.readthedocs.io` site, which the private section makes sites of their own).
+static OWNERS: LazyLock<IcannList> =
+    LazyLock::new(|| IcannList::from_bytes(PUBLIC_SUFFIX_LIST).expect("the vendored suffix list"));
+
+/// The list's own version (its `// VERSION:` line). What a site is changes with it, so it is part
+/// of the URL rules' version, and the archive records it for the pages it split.
+pub(crate) fn public_suffix_list_version() -> &'static str {
+    static VERSION: LazyLock<String> = LazyLock::new(|| {
+        String::from_utf8_lossy(PUBLIC_SUFFIX_LIST)
+            .lines()
+            .find_map(|line| line.strip_prefix("// VERSION:"))
+            .map(|version| version.trim().to_owned())
+            .expect("the vendored suffix list names its version")
+    });
+    &VERSION
+}
 
 /// Normalizes a raw visit URL into a stable matching form.
 pub fn normalize_visit_url(raw_url: &str) -> Option<NormalizedVisitUrl> {
@@ -103,29 +124,24 @@ pub fn registrable_domain_for_url(url: &str) -> Option<String> {
     normalize_visit_url(url).map(|value| value.registrable_domain)
 }
 
-/// Returns the registrable domain for a host, honoring common multi-label suffixes.
+/// The site a host belongs to, as a browser tells sites apart: its public suffix (by the full
+/// list, private section included) and one label before it. An address is its own site, and so
+/// is a host that is itself a public suffix (`github.io`) or a single label (`localhost`).
 pub fn registrable_domain_for_host(host: &str) -> String {
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
-    if host.is_empty() {
-        return String::new();
+    if host.is_empty() || host.starts_with('[') || host.parse::<IpAddr>().is_ok() {
+        return host;
     }
-    let fallback = fallback_registrable_domain_for_host(&host);
-    match (PUBLIC_SUFFIX_LIST.domain(host.as_bytes()), PUBLIC_SUFFIX_LIST.suffix(host.as_bytes())) {
-        (Some(domain), Some(suffix)) if domain.as_bytes() != suffix.as_bytes() => {
-            let candidate = String::from_utf8_lossy(domain.as_bytes()).to_string();
-            if candidate.split('.').count() < fallback.split('.').count() {
-                fallback
-            } else {
-                candidate
-            }
-        }
-        _ => fallback,
-    }
+    SITES
+        .domain(host.as_bytes())
+        .map(|domain| String::from_utf8_lossy(domain.as_bytes()).into_owned())
+        .unwrap_or(host)
 }
 
-/// The host, then each parent of it down to the registrable domain: `mail.google.com`, then
-/// `google.com`. Never further, so no rule can cover a public suffix such as `co.uk`. A host that
-/// is not under `registrable_domain` yields only itself.
+/// The host, then each parent of it, up to the domain the site's owner registered:
+/// `mail.google.com`, then `google.com`; `tokio.readthedocs.io`, then `readthedocs.io`, so a rule
+/// for Read the Docs covers every docs site there. Never further, so no rule can cover a public
+/// suffix such as `co.uk`. A host that is not under `registrable_domain` yields only itself.
 pub(super) fn host_and_parents<'a>(
     host: &'a str,
     registrable_domain: &'a str,
@@ -133,34 +149,35 @@ pub(super) fn host_and_parents<'a>(
     let under = !registrable_domain.is_empty()
         && (host == registrable_domain
             || host.strip_suffix(registrable_domain).is_some_and(|rest| rest.ends_with('.')));
+    let top = owner_domain(registrable_domain);
     std::iter::successors(Some(host), move |current| {
-        if !under || *current == registrable_domain {
+        if !under || *current == top {
             return None;
         }
         current.split_once('.').map(|(_, parent)| parent)
     })
 }
 
+/// The domain the owner of the site `registrable_domain` registered, by the list's ICANN section:
+/// the site itself, except under a private suffix (`readthedocs.io` for `tokio.readthedocs.io`).
+/// An address or a name no rule covers is its own: the list's default rule would cut `127.0.0.1`
+/// down to `0.1`.
+fn owner_domain(registrable_domain: &str) -> &str {
+    let private = SITES
+        .suffix(registrable_domain.as_bytes())
+        .is_some_and(|suffix| suffix.typ() == Some(Type::Private));
+    if !private {
+        return registrable_domain;
+    }
+    OWNERS
+        .domain(registrable_domain.as_bytes())
+        .map(|domain| &registrable_domain[registrable_domain.len() - domain.as_bytes().len()..])
+        .unwrap_or(registrable_domain)
+}
+
 /// Matches either an exact host or a subdomain of the provided suffix.
 pub(super) fn host_matches_suffix(host: &str, suffix: &str) -> bool {
     host == suffix || host.ends_with(&format!(".{suffix}"))
-}
-
-/// Provides a stable fallback when PSL data is too broad for known hosts.
-fn fallback_registrable_domain_for_host(host: &str) -> String {
-    let segments = host.split('.').collect::<Vec<_>>();
-    if segments.len() <= 2 {
-        host.to_string()
-    } else {
-        let suffix = format!("{}.{}", segments[segments.len() - 2], segments[segments.len() - 1]);
-        if COMMON_MULTI_LABEL_PUBLIC_SUFFIXES
-            .iter()
-            .any(|candidate| candidate.eq_ignore_ascii_case(&suffix))
-        {
-            return segments[segments.len() - 3..].join(".");
-        }
-        segments[segments.len() - 2..].join(".")
-    }
 }
 
 /// Detects built-in search-engine hosts that can safely expose query terms.
