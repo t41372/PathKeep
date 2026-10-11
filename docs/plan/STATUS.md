@@ -163,14 +163,36 @@
     - [x] 3. E2E：`takeout-import.spec` 照舊全過；大匯入的進度與取消照舊。（gate 66：`bun run check` 全過，E2E 69 條；取消與已提交的進度在 `turso_write_path.rs` 的 `cancelled_import_keeps_batch_identity_and_committed_progress`。）
     - [x] 4. 文檔（`store-schema.md` 若改了索引的建法）、CHANGELOG。索引沒改；`ipc-performance.md` §12，寫入模型回到 `turso-migration-design.md` §5 本來寫的「每批一個交易」。
 
-- [ ] **WORK-TEST-LINK-MEMORY** — `cargo test --workspace --all-targets` 連結時記憶體逼近 32 GB（2026-10-10 從 BACKLOG 搬上）
+- [x] **WORK-TEST-LINK-MEMORY** — `cargo test --workspace --all-targets` 連結時記憶體逼近 32 GB（2026-10-10 從 BACKLOG 搬上）
   - 讀先：`docs/plan/program/quality-matrix.md`、`.modal-offload.toml`、`.github/workflows/ci.yml`、`src-tauri/Cargo.toml` 的 profile。
   - 現象：Modal 上 8 核 32 GB 的 gate 兩次在連結測試執行檔時被 OOM 殺掉（rust-lld 每個 4–5 GB、幾個同時連），改用 48 GB 才跑完。同樣的指令在 CI 或開發機上也可能撞到。
   - 方向（要量了再定）：測試建置的 debug info 降到 `line-tables-only`（backtrace 仍有行號）、或限制同時連結的數量；比較兩者對建置時間、記憶體峰值與除錯的影響。
   - 步驟：
-    - [ ] 1. 在 Modal 上量：現在、`line-tables-only`、限制同時連結數，各自的建置時間、記憶體峰值；backtrace 是否仍有行號。
-    - [ ] 2. 照量到的改；`bun run check` 回到 32 GB 跑得完，`.modal-offload.toml` 與 CI 對齊。
-    - [ ] 3. 文檔（`quality-matrix.md` 若 gate 的環境要求變了）、CHANGELOG。
+    - [x] 1. 在 Modal 上量：現在、`line-tables-only`、限制同時連結數，各自的建置時間、記憶體峰值；backtrace 是否仍有行號。2026-10-11（8 核、48 GiB，三個 sandbox 同時；改動工作區所有原始檔後重建全部測試執行檔，每 0.5 秒取一次已用記憶體）：完整 debug info 76 s、峰值 20.6 GiB、`target/debug` 68 GB；`line-tables-only` 22 s、13.7 GiB、29 GB；`split-debuginfo=unpacked` 22 s、13.8 GiB、31 GB。三者 backtrace 都有檔名與行號。限制同時連結數沒量：cargo 只能限制全部工作數，編譯也一起變慢，而 line tables 已把連結的記憶體與時間都降下來。選 `line-tables-only`：跟 split 一樣快，各平台都能用（Windows MSVC 不支援 unpacked），target 最小（本機 `desktop:dev` 也省 SSD）；代價是除錯器看不到區域變數。
+    - [x] 2. 照量到的改；`bun run check` 回到 32 GB 跑得完，`.modal-offload.toml` 與 CI 對齊。`src-tauri/Cargo.toml` 的 `[profile.dev] debug = "line-tables-only"`（測試沿用 dev）；`.modal-offload.toml` 本來就是 32 GiB，CI 不另設。gate 67 在 32 GiB（沒有 `--memory-gib 48`）全過，改了 profile、全部重新編譯的最壞情形下整個 gate 峰值 13.1 GiB。
+    - [x] 3. 文檔（`quality-matrix.md` 若 gate 的環境要求變了）、CHANGELOG。gate 的環境沒變（`quality-matrix.md` 本來就沒寫記憶體），理由與數字寫在 `Cargo.toml` 的註解。
+
+- [ ] **WORK-INSIGHTS-REOPENED-KPI** — 「重新打開的頁面」KPI 數的不是範圍內打開的頁（2026-10-11 從 BACKLOG 搬上；2026-10-10 E2E 截圖看到）
+  - 讀先：`docs/features/intelligence.md`（KPI 列）、`docs/features/deterministic-intelligence.md`（refind 的定義）、`docs/design/screens-and-nav.md` §Insights、`docs/architecture/ipc-performance.md` §11、`docs/architecture/insights-time-zone.md`。
+  - 現象：沒有任何造訪的一天（day 頁 2026-09-29，頁面瀏覽 0），KPI「重新打開的頁面」寫 58；同一頁的「回來再看的頁面」卡說這天沒有。
+  - 原因：`count_refind_pages_in_range` 數的是 `refind_pages_rows` 裡第一次與最後一次造訪的區間跟範圍重疊的頁，不管範圍內有沒有打開過。
+  - 要改成範圍內打開過、而且是「不只一天打開」的頁（跟 day 頁的卡同一個定義），並在 14.4M 上量一年與全部時間的代價（可能要按日存好）。
+  - 步驟：
+    - [ ] 1. 寫下定義與會怎麼錯（範圍內沒打開過的頁、只在範圍內打開一天的頁、跨範圍邊界的頁、各設定檔與「所有瀏覽器」、時區的日子），再改 KPI 列與 day 頁的數。
+    - [ ] 2. 在 14.4M 上量一年、全部時間與自訂範圍的代價；預設範圍走快照，要的話按日存好。
+    - [ ] 3. E2E：照 fixture 手數範圍內「不只一天打開」的頁，對 KPI 列與 day 頁（含沒有造訪的那天是 0）。
+    - [ ] 4. 文檔、CHANGELOG。
+
+- [ ] **WORK-EPHEMERAL-TEMP-FILES** — 每個用到暫存表的查詢都新開一個加密暫存檔（2026-10-11 從 BACKLOG 搬上；`WORK-IMPORT-BULK-WRITES` 取樣時找到）
+  - 讀先：`docs/architecture/ipc-performance.md` §11–12、`docs/architecture/research/2026-10-turso-archive-reads.md`、`docs/architecture/turso-migration-design.md`、`vault-store` 的 `query_plans.rs`、Turso 0.8.1 `vdbe/execute.rs` 的 `op_open_ephemeral`。
+  - 現象：Turso 0.8.1 的 `OpenEphemeral` 每次執行都 `TempFile::with_temp_store`：建一個暫存目錄、開一個檔（我們的 `vault_crypto::temp_io` 加密、取亂數）、寫第一頁（`vdbe/execute.rs` op_open_ephemeral）。我們設 `temp_store=FILE`（大的排序不放記憶體）。用到暫存表的有 `RETURNING`、物化的 `IN (SELECT …)`、`UNION` 等；排序與 hash join 只在溢出時才開檔，不受影響。匯入每筆造訪與網址原本各一次（`INSERT … RETURNING`），拿掉後 14.4M 上 100 萬筆從 699 s 變 432 s。
+  - 還有的：洞察的讀取多半寫 `generation IN (SELECT … FROM intelligence_generations)`，若被物化，每個查詢開一次檔；Insights 追加的 `path_flows_rows` upsert 每條路線 `RETURNING`（每次追加約 4,800 條）；復原匯入每個網址 `UPDATE … RETURNING`。macOS 上建檔比 Linux 慢，也是 SSD 的寫入。
+  - 方向：先用查詢計畫找出每個熱路徑的 `OpenEphemeral`，量 macOS 上每次的成本；能改寫的改寫（`Session::insert` 取代 `RETURNING`，子查詢改成先讀出值再帶參數），改不了的再看暫存表能不能放記憶體而排序仍溢出到檔案。
+  - 步驟：
+    - [ ] 1. 用查詢計畫列出每個熱路徑（洞察的兩批與各卡、History、搜尋、追加、復原）哪些語句會開暫存表，各執行幾次。
+    - [ ] 2. 量一次暫存表的成本（Linux 在 Modal；macOS 在本機只量這一項）。
+    - [ ] 3. 改寫熱路徑上的；加一個查詢計畫的回歸測試，擋熱路徑再出現暫存表。
+    - [ ] 4. 文檔、CHANGELOG。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 
