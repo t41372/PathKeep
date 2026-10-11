@@ -578,6 +578,11 @@ Archive runtime metadata (part of version 1):
   that split `pages.registrable_domain` into sites. Conversion records it; an archive
   that opens with another version splits its pages again in the background, once,
   rewriting only the pages whose site changed (`archive::sites`).
+  `publicSuffixListStars` is the list whose split whole-site stars (`star`,
+  `entity_kind='domain'`) were last carried to: a star on a site the list split apart
+  (`github.io`) becomes a star on each site under it. Conversion leaves it unset, because
+  it checks the copied `star` table against the old file, so a converted archive carries
+  its stars when it first opens.
 - `import_batches.visible_items` changes with visit visibility; `previous_status`
   is non-null with the `imported` default. New imports explicitly start it as `running`
   and update it to their terminal import state.
