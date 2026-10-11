@@ -309,12 +309,18 @@ impl VaultSession {
             eprintln!("PathKeep could not resume Insights work: {error:#}");
         }
         // In the background: a release with a newer public suffix list splits the pages written
-        // before it into sites again. Nothing is read when the list is current.
+        // before it into sites again, and Insights' recent ranges kept on another day are built
+        // for today. Nothing is read or built when both are current.
         let opened = vault.clone();
         let started =
             std::thread::Builder::new().name("pathkeep-on-open".into()).spawn(move || {
                 if let Err(error) = vault_core::archive::sites::resplit_if_list_changed(&opened) {
                     eprintln!("PathKeep could not split pages into sites again: {error:#}");
+                }
+                if let Err(error) =
+                    vault_core::intelligence::warm_recent_overviews_if_stale(&opened)
+                {
+                    eprintln!("PathKeep could not prepare Insights' recent ranges: {error:#}");
                 }
             });
         if let Err(error) = started {

@@ -13,7 +13,9 @@
 //! ## Not responsible for
 //! - Building the overview payloads (owned by `intelligence_overview`).
 //! - Deciding when to warm the snapshot (the shell preloads it on idle).
-//! - Any scope other than all-time; only all-time is materialized.
+//! - Any other scope: only all time and the recent ranges the page offers, over every profile
+//!   (`RECENT_RANGE_DAYS`), are materialized; custom ranges and one profile's recent ranges are
+//!   computed each time.
 //!
 //! ## Dependencies
 //! - `incremental` for the per-profile source watermark and profile list.
@@ -38,6 +40,7 @@ use crate::models::{DateRange, ScopedDateRangeRequest};
 use crate::utils::now_rfc3339;
 use crate::visit_taxonomy::taxonomy_version;
 use anyhow::{Context, Result};
+use chrono::NaiveDate;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use vault_store::{OptionalRow, Session, params_owned as params};
@@ -63,11 +66,53 @@ impl OverviewBand {
     }
 }
 
-/// Returns true when a request targets the all-time scope, the only scope the
-/// snapshot cache materializes. Detected by the shared sentinel start date so
-/// the transport stays a plain `DateRange`.
+/// Returns true when a request targets the all-time scope. Detected by the shared sentinel start
+/// date so the transport stays a plain `DateRange`.
 pub(super) fn is_all_time_range(date_range: &DateRange) -> bool {
     date_range.start == ALL_TIME_SCOPE_START
+}
+
+/// The recent ranges the page offers (`presetDays` in `src/features/insights/range.ts`), each
+/// ending today. Their overviews over every profile are kept like all time's, so the range toggle
+/// answers at once whatever the archive's size.
+pub(super) const RECENT_RANGE_DAYS: [i64; 4] = [365, 90, 30, 7];
+
+/// The kept snapshot a request reads: all time (every profile, or one), or a recent range ending
+/// today over every profile. `None` for any other range, which is computed each time.
+pub(super) fn snapshot_key(
+    connection: &Session<'_>,
+    request: &ScopedDateRangeRequest,
+) -> Result<Option<String>> {
+    if is_all_time_range(&request.date_range) {
+        return Ok(Some(all_time_scope_key(request.profile_id.as_deref())));
+    }
+    if request.profile_id.is_some() {
+        return Ok(None);
+    }
+    let today = super::InsightsZone::for_reading(connection)?.today_key();
+    Ok(recent_range_days(&request.date_range, &today).map(|days| format!("recent:{days}")))
+}
+
+/// How many days `range` covers when it is one of the recent ranges ending `today`.
+fn recent_range_days(range: &DateRange, today: &str) -> Option<i64> {
+    let day = |key: &str| NaiveDate::parse_from_str(key, "%Y-%m-%d").ok();
+    let days = (day(&range.end)? - day(&range.start)?).num_days() + 1;
+    (range.end == today && RECENT_RANGE_DAYS.contains(&days)).then_some(days)
+}
+
+/// The recent ranges ending `today`, over every profile: the requests a build warms.
+pub(super) fn recent_range_requests(today: &str) -> Vec<ScopedDateRangeRequest> {
+    let Ok(end) = NaiveDate::parse_from_str(today, "%Y-%m-%d") else { return Vec::new() };
+    RECENT_RANGE_DAYS
+        .iter()
+        .map(|days| ScopedDateRangeRequest {
+            date_range: DateRange {
+                start: (end - chrono::Duration::days(days - 1)).format("%Y-%m-%d").to_string(),
+                end: today.to_owned(),
+            },
+            profile_id: None,
+        })
+        .collect()
 }
 
 /// Builds the snapshot scope key, distinguishing archive-wide from
@@ -79,9 +124,9 @@ pub(super) fn all_time_scope_key(profile_id: Option<&str>) -> String {
     }
 }
 
-/// Resolves one overview band for an all-time request, returning a persisted
-/// snapshot when its fingerprint still matches the current archive state and
-/// otherwise recomputing, persisting, and returning fresh data.
+/// Resolves one overview band for a request with a kept snapshot (`snapshot_key`), returning it
+/// when its fingerprint still matches the current archive state and otherwise recomputing and
+/// returning fresh data; any other request is computed.
 ///
 /// `build` is only invoked on a cache miss or fingerprint change, so steady-state
 /// opens never pay the all-time aggregation cost. A serialization or persistence
@@ -96,7 +141,7 @@ where
     T: Serialize + DeserializeOwned,
     F: FnOnce() -> Result<T>,
 {
-    let scope_key = all_time_scope_key(request.profile_id.as_deref());
+    let Some(scope_key) = snapshot_key(connection, request)? else { return build() };
     let fingerprint = request_fingerprint(connection, request)?;
     if let Some(existing) = load_overview_snapshot(connection, &scope_key, band)?
         && existing.fingerprint == fingerprint
@@ -108,15 +153,21 @@ where
     Ok(payload)
 }
 
-/// The fingerprint an all-time request is served under. All time always ends
-/// today, so its end date only says which day it was asked and is left out; the
-/// sections that depend on today are recomputed when a snapshot is served
-/// (`intelligence_overview::refresh_for_today`).
+/// The fingerprint a request with a kept snapshot is served under. All time always ends today, so
+/// its end date only says which day it was asked and is left out; the sections that depend on
+/// today are recomputed when a snapshot is served (`intelligence_overview::refresh_for_today`).
+/// A recent range's days move every day, so they are in its fingerprint: a snapshot from
+/// yesterday is not served today.
 pub(super) fn request_fingerprint(
     connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
 ) -> Result<String> {
-    compute_overview_fingerprint(connection, request.profile_id.as_deref())
+    let content = compute_overview_fingerprint(connection, request.profile_id.as_deref())?;
+    Ok(if is_all_time_range(&request.date_range) {
+        content
+    } else {
+        format!("{content}|days={}..{}", request.date_range.start, request.date_range.end)
+    })
 }
 
 /// Computes the content fingerprint for one all-time scope. The snapshot is
@@ -377,6 +428,54 @@ mod tests {
             start: "2026-05-01".to_string(),
             end: "2026-06-20".to_string(),
         }));
+    }
+
+    // Recent ranges: what goes wrong if the scope rules do —
+    // - a range the page does not offer is kept (every build would compute it for nothing);
+    // - yesterday's "last 30 days" is served today (its days moved);
+    // - one profile's recent range is served from the snapshot of every profile.
+    #[test]
+    fn recent_ranges_are_kept_for_today_over_every_profile() {
+        let db = open_schema_connection();
+        let today =
+            db.read(|s| Ok(super::super::InsightsZone::for_reading(s)?.today_key())).unwrap();
+        let requests = recent_range_requests(&today);
+        assert_eq!(requests.len(), RECENT_RANGE_DAYS.len());
+        let day = |key: &str| NaiveDate::parse_from_str(key, "%Y-%m-%d").unwrap();
+        let shifted = |request: &ScopedDateRangeRequest, by: i64| ScopedDateRangeRequest {
+            date_range: DateRange {
+                start: (day(&request.date_range.start) + chrono::Duration::days(by))
+                    .format("%Y-%m-%d")
+                    .to_string(),
+                end: (day(&request.date_range.end) + chrono::Duration::days(by))
+                    .format("%Y-%m-%d")
+                    .to_string(),
+            },
+            profile_id: request.profile_id.clone(),
+        };
+        let key =
+            |request: ScopedDateRangeRequest| db.read(move |s| snapshot_key(s, &request)).unwrap();
+        let print = |request: ScopedDateRangeRequest| {
+            db.read(move |s| request_fingerprint(s, &request)).unwrap()
+        };
+        for (request, days) in requests.iter().zip(RECENT_RANGE_DAYS) {
+            assert_eq!(key(request.clone()), Some(format!("recent:{days}")));
+            assert_eq!(key(shifted(request, -1)), None, "{days} days ending yesterday");
+            let one_profile = ScopedDateRangeRequest {
+                profile_id: Some("chrome:Default".into()),
+                ..request.clone()
+            };
+            assert_eq!(key(one_profile), None);
+            assert_ne!(print(request.clone()), print(shifted(request, -1)));
+        }
+        let thirty_one = ScopedDateRangeRequest {
+            date_range: DateRange {
+                start: (day(&today) - chrono::Duration::days(30)).format("%Y-%m-%d").to_string(),
+                end: today.clone(),
+            },
+            profile_id: None,
+        };
+        assert_eq!(key(thirty_one), None, "31 days is not a range the page offers");
     }
 
     #[test]

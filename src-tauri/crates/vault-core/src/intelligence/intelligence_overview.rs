@@ -26,7 +26,9 @@
 //!   honest staged-loading metadata without reopening data sources.
 
 use super::{
-    intelligence_overview_snapshot::{OverviewBand, is_all_time_range, resolve_overview_snapshot},
+    intelligence_overview_snapshot::{
+        OverviewBand, is_all_time_range, resolve_overview_snapshot, snapshot_key,
+    },
     intelligence_refind::{get_refind_pages_with_connection, get_top_sites_with_connection},
     intelligence_search_metrics::{
         get_search_engine_ranking_with_connection, get_top_search_concepts_with_connection,
@@ -71,17 +73,20 @@ pub fn get_intelligence_primary_overview(
         let cache = &cache;
 
         let runtime = load_intelligence_runtime_from_connection(connection, paths, config)?;
-        if is_all_time_range(&request.date_range) {
-            // All-time aggregates over the full archive are the heaviest scope, so
-            // serve a persisted snapshot whenever the archive fingerprint is stable
-            // and only recompute when the data actually changed.
+        if snapshot_key(connection, request)?.is_some() {
+            // All time and the recent ranges are the scopes the page opens on, so serve a kept
+            // snapshot whenever the archive fingerprint is stable and only recompute when the
+            // data actually changed.
             let mut payload: CoreIntelligencePrimaryOverview =
                 resolve_overview_snapshot(connection, OverviewBand::Primary, request, || {
                     build_intelligence_primary_overview_with_connection(
                         connection, cache, &runtime, request,
                     )
                 })?;
-            refresh_for_today(connection, &runtime, request, &mut payload)?;
+            // A recent range's snapshot is from today; all time's may be from any day.
+            if is_all_time_range(&request.date_range) {
+                refresh_for_today(connection, &runtime, request, &mut payload)?;
+            }
             for meta in [
                 &mut payload.digest_summary.meta,
                 &mut payload.on_this_day.meta,
@@ -303,7 +308,7 @@ pub fn get_intelligence_secondary_overview(
         let cache = &cache;
 
         let runtime = load_intelligence_runtime_from_connection(connection, paths, config)?;
-        if is_all_time_range(&request.date_range) {
+        if snapshot_key(connection, request)?.is_some() {
             let mut payload: CoreIntelligenceSecondaryOverview =
                 resolve_overview_snapshot(connection, OverviewBand::Secondary, request, || {
                     build_intelligence_secondary_overview_with_connection(
@@ -594,7 +599,10 @@ fn search_effectiveness_is_empty(data: &crate::models::SearchEffectiveness) -> b
         && data.hardest_topics.is_empty()
 }
 
-/// Warms immutable all-time payloads after publication, outside the render path.
+/// Warms the kept overviews after publication, outside the render path: all time, archive-wide
+/// and per profile, and the recent ranges ending today over every profile, so whichever range the
+/// page opens on answers at once. A scope whose data moved while it was built is left for the next
+/// build rather than saved stale.
 pub(super) fn warm_overview_snapshots(
     vault: &crate::Vault,
     checkpoint: &mut impl FnMut() -> Result<()>,
@@ -609,48 +617,92 @@ pub(super) fn warm_overview_snapshots(
             super::InsightsZone::for_reading(s)?,
         ))
     })?;
-    for profile in std::iter::once(None).chain(profiles.into_iter().map(Some)) {
-        let request = ScopedDateRangeRequest {
+    let today = zone.today_key();
+    let all_time = std::iter::once(None).chain(profiles.into_iter().map(Some)).map(|profile| {
+        ScopedDateRangeRequest {
             date_range: crate::models::DateRange {
                 start: super::intelligence_overview_snapshot::ALL_TIME_SCOPE_START.into(),
-                end: zone.today_key(),
+                end: today.clone(),
             },
-            profile_id: profile.clone(),
-        };
-        checkpoint()?;
-        let scope_request = request.clone();
-        let fingerprint = vault.read(vault_store::Db::Intelligence, move |s| {
-            super::intelligence_overview_snapshot::request_fingerprint(s, &scope_request)
-        })?;
-        let primary = get_intelligence_primary_overview(vault, &request)?;
-        checkpoint()?;
-        let secondary = get_intelligence_secondary_overview(vault, &request)?;
-        checkpoint()?;
-        vault.write(vault_store::Db::Intelligence, vault_store::Priority::Batch, move |s| {
-            use super::intelligence_overview_snapshot::{
-                all_time_scope_key, request_fingerprint, save_overview_snapshot,
-            };
-            if request_fingerprint(s, &request)? != fingerprint {
-                return Ok(());
-            }
-            let scope = all_time_scope_key(profile.as_deref());
-            save_overview_snapshot(
-                s,
-                &scope,
-                OverviewBand::Primary,
-                &fingerprint,
-                &serde_json::to_string(&primary)?,
-            )?;
-            save_overview_snapshot(
-                s,
-                &scope,
-                OverviewBand::Secondary,
-                &fingerprint,
-                &serde_json::to_string(&secondary)?,
-            )?;
-            Ok(())
-        })?;
+            profile_id: profile,
+        }
+    });
+    let recent = super::intelligence_overview_snapshot::recent_range_requests(&today);
+    for request in all_time.chain(recent) {
+        warm_one(vault, request, checkpoint)?;
     }
+    Ok(())
+}
+
+/// Keeps the recent ranges' overviews when the ones kept are from another day: the app opened on
+/// a new day, before any build that would have warmed them. Nothing to do before Insights were
+/// first built.
+pub fn warm_recent_overviews_if_stale(vault: &crate::Vault) -> Result<()> {
+    use super::intelligence_overview_snapshot::{
+        load_overview_snapshot, recent_range_requests, request_fingerprint,
+    };
+    let (built, today) = vault.read(vault_store::Db::Intelligence, |s| {
+        Ok((
+            s.query_one("SELECT EXISTS(SELECT 1 FROM intelligence_generations)", (), |r| {
+                Ok(r.get::<i64>(0)? != 0)
+            })?,
+            super::InsightsZone::for_reading(s)?.today_key(),
+        ))
+    })?;
+    if !built {
+        return Ok(());
+    }
+    for request in recent_range_requests(&today) {
+        let check = request.clone();
+        let current = vault.read(vault_store::Db::Intelligence, move |s| {
+            let Some(scope) = snapshot_key(s, &check)? else { return Ok(true) };
+            let fingerprint = request_fingerprint(s, &check)?;
+            Ok(load_overview_snapshot(s, &scope, OverviewBand::Secondary)?
+                .is_some_and(|kept| kept.fingerprint == fingerprint))
+        })?;
+        if !current {
+            warm_one(vault, request, &mut || Ok(()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Builds and keeps one scope's two overviews.
+fn warm_one(
+    vault: &crate::Vault,
+    request: ScopedDateRangeRequest,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<()> {
+    use super::intelligence_overview_snapshot::{request_fingerprint, save_overview_snapshot};
+    checkpoint()?;
+    let scope_request = request.clone();
+    let fingerprint = vault
+        .read(vault_store::Db::Intelligence, move |s| request_fingerprint(s, &scope_request))?;
+    let primary = get_intelligence_primary_overview(vault, &request)?;
+    checkpoint()?;
+    let secondary = get_intelligence_secondary_overview(vault, &request)?;
+    checkpoint()?;
+    vault.write(vault_store::Db::Intelligence, vault_store::Priority::Batch, move |s| {
+        let Some(scope) = snapshot_key(s, &request)? else { return Ok(()) };
+        if request_fingerprint(s, &request)? != fingerprint {
+            return Ok(());
+        }
+        save_overview_snapshot(
+            s,
+            &scope,
+            OverviewBand::Primary,
+            &fingerprint,
+            &serde_json::to_string(&primary)?,
+        )?;
+        save_overview_snapshot(
+            s,
+            &scope,
+            OverviewBand::Secondary,
+            &fingerprint,
+            &serde_json::to_string(&secondary)?,
+        )?;
+        Ok(())
+    })?;
     Ok(())
 }
 
