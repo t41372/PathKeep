@@ -52,6 +52,11 @@
   - 現象：Modal 上 8 核 32 GB 的 gate 兩次在連結測試執行檔時被 OOM 殺掉（rust-lld 每個 4–5 GB、幾個同時連），改用 48 GB 才跑完。同樣的指令在 CI 或開發機上也可能撞到。
   - 方向（要量了再定）：測試建置的 debug info 降到 `line-tables-only`（backtrace 仍有行號）、或限制同時連結的數量；比較兩者對建置時間、記憶體峰值與除錯的影響。
 
+- [ ] **WORK-INSIGHTS-REOPENED-KPI** — 「重新打開的頁面」KPI 數的不是範圍內打開的頁（2026-10-10 E2E 截圖看到）
+  - 現象：沒有任何造訪的一天（day 頁 2026-09-29，頁面瀏覽 0），KPI「重新打開的頁面」寫 58；同一頁的「回來再看的頁面」卡說這天沒有。
+  - 原因：`count_refind_pages_in_range` 數的是 `refind_pages_rows` 裡第一次與最後一次造訪的區間跟範圍重疊的頁，不管範圍內有沒有打開過。
+  - 要改成範圍內打開過、而且是「不只一天打開」的頁（跟 day 頁的卡同一個定義），並在 14.4M 上量一年與全部時間的代價（可能要按日存好）。
+
 - [ ] **WORK-SITE-CATEGORY-REVIEW** — 讓用戶看見並改網站分類（2026-10-08 從 `WORK-INSIGHTS-RESTORE-2026-10` 拆出）
   - 讀先：`docs/features/deterministic-intelligence.md` §5.2、§6.3；`vault-core/src/intelligence/site_dictionary/overrides.rs`；`docs/design/screens-and-nav.md` §Insights。
   - 起因：§6.3 要求 unknown 比例與最常去的未分類網站可 review、用戶 override 永遠優先。後端已有 override 表（`upsert_site_dictionary_override`），但沒有命令也沒有畫面，v0.3 也沒有。「哪類網站」卡只能寫出未分類的比例。

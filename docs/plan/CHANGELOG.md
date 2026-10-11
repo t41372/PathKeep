@@ -2750,3 +2750,24 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - The same visit recorded by Takeout and a browser is kept in both and counted once (`same-visit-across-sources.md`): History, search, Insights and totals count it once, the card says how many were already there, and undo and restore move which copy counts. On a copy of the user's data, 12,416 Takeout visits now stand behind the browser's own, and 109,367 of My Activity's 109,406 records were already there.
   - One Takeout with both Chrome history and My Activity writes Chrome history first, whatever the zip's order or the folder's language, so the card counts each shared visit once.
   - Speed: about 1 ms per record on a 14.4M archive (a 14.4M one-time import takes about 4 hours in the background); looking up copies costs nothing measurable. Faster bulk writes are in the backlog.
+
+- [x] `WORK-SITE-IDENTITY-PSL` — A site is what a browser counts as one (2026-10-10).
+  - PathKeep never loaded a public suffix list: the `publicsuffix` crate's default list is empty, so a site was a host's last two labels plus 11 hand-written suffixes. Mozilla's list now ships with the app (`vault-core/vendor/publicsuffix/`, refreshed with `bun run update:public-suffix-list`), both sections, as browsers use it: `rust-lang.github.io` and `mio-rs.github.io` are two sites, and an address is its own.
+  - Site rules walk from a host up to the domain its owner registered under ICANN's rules, so the rules for Read the Docs and GitHub's content hosts still cover every site there, and no rule reaches a suffix like `co.uk`.
+  - The list's version is part of the URL rules' version, so Insights rebuild when it changes. The archive records which list split its pages (`archive_meta`); an archive split by another list splits them again in the background, once, rewriting only the pages whose site changed.
+  - On a copy of the user's data (counts only): 3,755 of 198,154 pages move to another site, and 4,818 sites become 5,251.
+  - A whole-site star an earlier release saved as `github.io` becomes a star on every site it covered, with its time and profile (user decision, 2026-10-10); one under a site that still has pages stays as well, and a star with nothing under it is left alone. It runs when the archive opens, recorded apart from the list version, so a converted archive carries its stars after the conversion has checked them.
+  - E2E: two github.io sites each count only their own visits and pages; the specs split sites with the same list.
+
+- [x] `WORK-FRONTEND-REDESIGN-2026-10` — The new frontend replaces the old one (2026-10-02 – 10-10, `redesign/v0.4`).
+  - Every screen is rebuilt on the October prototype with shadcn components and evilcharts: Home, History, Insights, Ask, Backup, the lock screens, the ⌘K palette, onboarding, and Settings (General, Security, AI, Storage, Background work, About), in en, zh-CN and zh-TW.
+  - The gate is E2E first: the mutation and coverage gates are gone, and `bun run test:e2e` drives the real Rust backend from first run to wiping the data, leaving its artifacts in `artifacts/e2e/`.
+  - Backend: the commands the new screens call were added (`load_source_stats`, `get_url_detail`, `preview_wipe_all_data` / `wipe_all_data`) and dead ones removed. IPC hot spots fixed at 14.4M visits: History's first page 26 s → 1.9 ms, an encrypted `app_snapshot` 237 → 97 ms. An export streams with progress and Stop (14.4M visits as JSON Lines in 40 s).
+  - Added on the way: open at login and the menu bar icon; deleting all data also removes the automatic backup; App Lock with Touch ID and a passcode hint (option B); changing or removing the archive's encryption asks for its current password.
+  - The docs were checked against the app and brought in line (2026-10-10). Found while checking: going back to Insights from a day lost the range the day was opened from; a scan-failure hint sent people to the wrong Settings tab for the logs.
+  - What the accepted docs required and v0.4 lacked, built after the user decided (2026-10-10):
+    - Home lists what needs fixing, with the place to fix it: the scheduler's problems (including a new one, automatic backups that have stopped running), Safari without Full Disk Access, and an encrypted archive's password at risk.
+    - Each Insights card's ⓘ says how many visits or searches it rests on, and "Ask about this" opens Ask with the card's question waiting.
+    - Settings → AI adds an embeddings service for semantic search and edits any AI service in place.
+  - Backup intervals stay as v0.4 has them (hourly, 6 hours, daily, custom from 1 minute to 30 days), behind `backup-interval-tradeoff.md`; a fresh config now defaults to hourly.
+  - Left for the user: Windows and Linux on real machines (tray, open at login, language detection; Platform Native last passed on 2026-10-03).

@@ -9,7 +9,7 @@
 
 ## CURRENT FOCUS
 
-- [ ] **WORK-FRONTEND-REDESIGN-2026-10** — 用新 prototype 整個替換前端（用戶 2026-10-02 指示）
+- [x] **WORK-FRONTEND-REDESIGN-2026-10** — 用新 prototype 整個替換前端（用戶 2026-10-02 指示）
   - 分支：`redesign/v0.4`（從 `main@551f851d` 開出）。第一個遠端 agent 的工作以 `4bbd8d62` 一次導入，它自己的 commit 歷史沒有保留。
   - 讀先：
     `docs/design/prototype-2026-10/`（prototype HTML + 截圖；用 `python3 -m http.server` 開）
@@ -31,10 +31,10 @@
     - [x] 7. 文檔同步（features / design / architecture）、`bun run check` 全綠（gate 57 全過、只有語意索引那條，修好後 gate 58 的 E2E 68 條全過；`141b6b70` 等）。CHANGELOG 等整個 block 收工。
       - 2026-10-10：一個唯讀 agent 把 `docs/design/` 四份、`docs/features/` 與 `desktop-command-surface.md` 逐條對照現在的程式，找到的都核對過再改：開機順序（升級在解鎖之前）、鎖定畫面其實有 Touch ID 與「忘記密碼？」、Ask 沒有服務時清單照樣在、Insights 的範圍與 drill-in、Home 的熱力圖與主題連到 Insights、Background work、History 串流搜尋與「N+ 頁」、語意搜尋的篩選在後端、瀏覽器檔案匯入也能復原、連結預覽是預設開的另一個設定、備份後洞察自動更新、reduced motion 與不確定進度已補、毛玻璃與字型 token、哪些讀取命令現在有畫面在用。v0.4 沒做到的已定案要求在原處標明，列進 BACKLOG `WORK-REDESIGN-SPEC-GAPS`。順手修了兩個：從某個範圍點進 day 再按「← 洞察」會回到全部時間（day 的連結現在帶著範圍，`insights-drill.spec` 驗回到 30 天）；掃描失敗的提示叫人去「Settings → General」看記錄檔，記錄檔在 About。
       - 用戶 2026-10-10 決定：定案文檔要求、v0.4 沒做的都補做（下面 8–10）；備份間隔照 v0.4，改文檔（11）。
-    - [ ] 8. Home 的警告（`archive.md`：鑰匙圈不能用、App Lock 與忘記密碼的風險、加密卻沒存密碼、自動備份失敗或逾期，Home 與 Settings 都要看得到，並直接連到修的地方）。平常什麼都不顯示，有事才出現一列。E2E。
-    - [ ] 9. 洞察卡的 evidence 數量與「問問 Ask」（`intelligence.md`「V1 洞察顯示契約」）：每張卡的 ⓘ 寫出它依據的筆數（造訪、搜尋、天數），有 AI 服務時卡片可以把它的問題連同範圍帶進 Ask。E2E。
-    - [ ] 10. Settings → AI：新增 OpenAI 相容的 embeddings 服務給語意搜尋用（含連線測試），既有的 AI 服務可以就地編輯（名稱、位址、模型、金鑰）。E2E（`semantic-index.spec` 改用介面設定服務、`ask.spec` 編輯服務）。
-    - [ ] 11. 備份間隔照 v0.4（每小時 / 6 小時 / 每天 / 自訂，1 分鐘到 30 天，onboarding 預選每小時）：寫 trade-off 文檔、改 `archive.md`；新安裝的 config 預設也改成每小時（現在 72 小時）。
+    - [x] 8. Home 的警告（`archive.md`：鑰匙圈不能用、App Lock 與忘記密碼的風險、加密卻沒存密碼、自動備份失敗或逾期，Home 與 Settings 都要看得到，並直接連到修的地方）。平常什麼都不顯示，有事才出現一列。E2E。（2026-10-10，gate 60–63：`home-alerts.spec`；排程器另加「已經停了」：系統超過三次檢查都沒啟動 PathKeep。）
+    - [x] 9. 洞察卡的 evidence 數量與「問問 Ask」（`intelligence.md`「V1 洞察顯示契約」）：每張卡的 ⓘ 寫出它依據的筆數（造訪、搜尋、天數），有 AI 服務時卡片可以把它的問題連同範圍帶進 Ask。E2E。（2026-10-10，gate 60–63：`insights.spec` 驗自訂範圍的 Top sites 與常搜尋等於 KPI 列，`ask.spec` 驗「問問助理」帶著問題、沒送出。）
+    - [x] 10. Settings → AI：新增 OpenAI 相容的 embeddings 服務給語意搜尋用（含連線測試），既有的 AI 服務可以就地編輯（名稱、位址、模型、金鑰）。E2E（`semantic-index.spec` 改用介面設定服務、`ask.spec` 編輯服務）。（2026-10-10，gate 60–63：`semantic-index.spec` 用介面加服務，`ask.spec` 編輯金鑰。）
+    - [x] 11. 備份間隔照 v0.4（每小時 / 6 小時 / 每天 / 自訂，1 分鐘到 30 天，onboarding 預選每小時）：寫 trade-off 文檔、改 `archive.md`；新安裝的 config 預設也改成每小時（現在 72 小時）。（2026-10-10，`docs/design/backup-interval-tradeoff.md`。）
   - 已知缺口（2026-10-02 盤點）：
     - ~~前端呼叫但 Rust 沒註冊的命令~~：已補（`load_source_stats`、`get_url_detail`、`preview_wipe_all_data` / `wipe_all_data`），Tauri 與 dev bridge 都有。
     - ~~開機時啟動、選單列圖示~~：已做（用戶 2026-10-02 決定補做）。macOS 實機看過；**Windows / Linux 的 tray、登入啟動、語言偵測從沒編譯過**。2026-10-02 已推上 `origin/redesign/v0.4` 並手動觸發 CI 與 Platform Native workflow；編譯過了之後仍要在實機上點過一次。
@@ -143,14 +143,14 @@
 
   - [x] 6. Takeout 匯入的速度（2026-10-10 bench，`archive_scale_bench/turso_same_visit.rs`，Modal）：14.4M 的 archive 上匯入 100 萬筆 Takeout 紀錄（不跟任何來源重疊、不查同一次造訪）要 930 s，每筆約 0.93 ms（同一個 bench 再跑一次 1,000 s）；照這個速度 14.4M 的一次性匯入要約 3.7 小時。跟同一次造訪無關，是匯入本身（每筆網址的 upsert、搜尋文件的文字與計數）。先量清楚時間花在哪一步，再改。2026-10-10 量了（14.4M 上匯入 20 萬筆、GDB 每秒取樣一次，`scripts/profile-native.py`）：archive 的寫入執行緒 92% 時間在忙，是瓶頸（Tantivy 在別的執行緒追索引）。忙的時間裡：網址 upsert 21%（含 `INSERT … RETURNING` 讀完一列就 reset、由 reset 收尾的 12%）、寫造訪 15%、按頁更新搜尋文件 11%、commit / WAL / checkpoint 約 20%（一批 1 萬列，是資料量本身），**還有約 10% 是 vault-store 每次呼叫都把 SQL 重新切詞、轉大寫檢查一遍**——同一段 SQL 的檢查結果只跟文字與讀寫有關。已改：每條連線記下每段 SQL 的檢查結果（`statement_cache.rs`，讀寫分開記、拒絕的不記），`restrictions.rs` 驗記下之後讀的那邊仍拒絕寫、拒絕的每次都拒絕。重量（同一個 bench，100 萬筆）：不重疊的 990 s（之前兩次 1,000 / 1,048 s）、瀏覽器已有的 698 s（之前 699 / 719 s），在兩次執行的差異之內——取樣裡的 10% 沒有變成看得到的時間。留著：它少做重複的事、不改行為。剩下的都是每列的引擎工作（upsert、寫造訪、搜尋文件、commit），一般 Takeout（Chrome 歷史約一年、「我的活動」用戶的樣本 109,406 筆在副本上 85 s）幾分鐘內完成；1440 萬筆的一次性匯入約 4 小時，背景跑、有進度、可以繼續用 app。要再快得改寫入方式，另列 `WORK-IMPORT-BULK-WRITES`（BACKLOG）。
 
-- [ ] **WORK-SITE-IDENTITY-PSL** — 一個「網站」照瀏覽器的方式切（用戶 2026-10-09 決定，原在 BACKLOG）
+- [x] **WORK-SITE-IDENTITY-PSL** — 一個「網站」照瀏覽器的方式切（用戶 2026-10-09 決定，原在 BACKLOG）
   - 讀先：`vault-core/src/visit_taxonomy/url.rs`（`registrable_domain_for_host`）、`docs/architecture/data-model.md`（pages / facts 的 `registrable_domain`）、`deterministic-intelligence.md` §5.2。
   - 決定：用公共後綴清單的完整清單（含私有段），跟瀏覽器的 site isolation 一樣：`rust-lang.github.io`、各個 `*.vercel.app`、`*.blogspot.com` 各算一個網站。
   - 2026-10-09 發現：app 其實沒有用任何公共後綴清單。`url.rs` 的 `IcannList::default()` 是空的（`publicsuffix` crate 不內建清單資料），所以一直是「最後兩段」加一個手寫的 11 個兩段後綴（`co.uk`、`com.tw`…）；BACKLOG 原本寫「用 ICANN 段」是錯的。要照瀏覽器切就要有清單資料：(a) 從 publicsuffix.org 下載 Mozilla 維護的 `public_suffix_list.dat`（約 250 KB）放進 repo、附更新腳本，`List::from_bytes` 載入；或 (b) 加 `psl` crate（把清單編進程式碼，stars 遠少於 6k，要寫風險評估）。兩者都要用戶同意（下載檔案 / 新依賴），待問。
   - 2026-10-10 用戶決定：用已經依賴的 `publicsuffix` crate，清單從 publicsuffix.org 下載後放進 repo（`vault-core/vendor/publicsuffix/`，`bun run update:public-suffix-list` 更新），不加 `psl`。查證：Ente 的 Rust 依賴（`rust/Cargo.lock`）裡沒有 `psl` 或 `publicsuffix`。
   - [x] 1. 改 `registrable_domain_for_host` 與所有分網站的地方（archive 的 `pages.registrable_domain`、facts、rollup、網站規則的比對、History 的網站篩選、favicon 的同網站判斷）；archive 已存的值重算（Turso 格式未發佈，舊版轉換時就用新值）；按 registrable domain 寫的網站規則逐條檢查。2026-10-10 已寫、待 gate：完整清單（兩段）切網站，IP 位址、單一標籤與本身是公共後綴的主機是自己的網站；所有分網站的地方本來就都經過這個函式（archive 的頁面、洞察、網站規則、星號、轉換），History 與 favicon 沒有自己的切法。1,060 條網站規則裡 `readthedocs.io`、`githubusercontent.com` 本身是公共後綴（私有段），照新切法它們底下每個主機各是網站、規則就碰不到：規則比對改成走到網站擁有者在 ICANN 段下註冊的網域（`tokio.readthedocs.io` → `readthedocs.io`），不會到 `co.uk`。URL 規則版本 v2 加上清單版本，洞察整個重建。archive 新增 `archive_meta` 記下頁面用哪一版清單切，開啟時版本不同就在背景重切一次、只改有變的頁（`archive::sites`），轉換時直接記下。舊版替 `*.github.io` 加的整站星號存成 `github.io`，不再涵蓋頁面（`recall.md` 寫明）。用戶真實資料的副本上（只數）：198,154 頁裡 3,755 頁（1.9%）換到另一個網站，網站數 4,818 → 5,251。
   - [x] 2. E2E：fixture 裡兩個 `*.github.io` 網站在 Top sites 與網站頁各算一個；`insights.spec` 的 `site()` 改用同樣的清單。2026-10-10 已寫、待 gate：fixture 加一個固定的 `mio-rs.github.io`（不動亂數產生的造訪）；`insights-drill.spec` 驗兩個 github.io 網站的頁面各只算自己的造訪與頁數；三個 spec 的 `site()` 改用 `support/public-suffix.ts`，讀同一份清單。
-  - [ ] 3. 舊的整站星號跟著切開（用戶 2026-10-10 決定：星到它原本涵蓋的每個網站）。舊版存成 `github.io` 的整站星號，照新切法不再對到任何頁面。重切之後（`archive_meta` 另記一個版本，舊格式轉換完第一次開也會做），把它換成它底下每個造訪過的網站的星號，沿用原本的時間與設定檔；使用者已經星過的網站保留自己的；它自己的網站還有頁面就留著（`amazonaws.com` 與 `bucket.s3.amazonaws.com`）；底下什麼都沒有的不動。不放在轉換裡做：轉換會用舊檔驗證 `star` 表，中斷後續跑時會對不上。`sites_tests.rs` 驗這幾種與重跑不變。待 gate。
+  - [x] 3. 舊的整站星號跟著切開（用戶 2026-10-10 決定：星到它原本涵蓋的每個網站）。舊版存成 `github.io` 的整站星號，照新切法不再對到任何頁面。重切之後（`archive_meta` 另記一個版本，舊格式轉換完第一次開也會做），把它換成它底下每個造訪過的網站的星號，沿用原本的時間與設定檔；使用者已經星過的網站保留自己的；它自己的網站還有頁面就留著（`amazonaws.com` 與 `bucket.s3.amazonaws.com`）；底下什麼都沒有的不動。不放在轉換裡做：轉換會用舊檔驗證 `star` 表，中斷後續跑時會對不上。`sites_tests.rs` 驗這幾種與重跑不變（gate 60）。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 
