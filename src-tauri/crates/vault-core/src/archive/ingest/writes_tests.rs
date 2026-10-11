@@ -147,8 +147,9 @@ fn sync_url_bounds_no_change_for_middle_visit() {
             hidden: false,
             source_last_visit_marker: None,
         };
-        let (url_id, _, _) = upsert_url(transaction, 1, source_profile_id, &url, "hash-1")
-            .expect("upsert url");
+        let url_id = upsert_url(transaction, 1, source_profile_id, &url, "hash-1")
+            .expect("upsert url")
+            .id;
 
         // Widen bounds: first=1000, last=3000.
         sync_url_bounds(
@@ -216,7 +217,8 @@ fn older_url_observations_do_not_allocate_unpublished_page_anchors() {
                 row.url = "https://older.test".into();
                 row.last_visit_ms = 1000;
                 let older = upsert_url(s, 0, source, &row, "old")?;
-                assert_eq!((first.0, first.1), (older.0, older.1));
+                assert_eq!((first.id, first.page), (older.id, older.page));
+                assert!(!older.rewritten, "an older observation keeps the row as it was");
                 assert_eq!(
                     s.query_one("SELECT COUNT(*) FROM pages", (), |r| Ok(r.get::<i64>(0)?))?,
                     1

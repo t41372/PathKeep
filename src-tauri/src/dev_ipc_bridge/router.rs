@@ -20,9 +20,10 @@
 //!
 //! ## Performance notes
 //!
-//! The router only handles small command envelopes. Long-running archive,
-//! import, and intelligence work must remain behind the worker bridge and its
-//! off-main-thread contracts.
+//! The bridge serves every connection from one thread. Each command runs on
+//! the blocking pool, as the desktop app runs every command through
+//! `run_blocking_command`, so a long import or rebuild does not hold up other
+//! requests or the event streams while it runs.
 
 use anyhow::{Context, Result};
 use axum::{
@@ -91,6 +92,12 @@ async fn bridge_health(
 /// Empty request bodies map to an empty JSON object so no-argument commands can
 /// use the same endpoint as typed commands. Malformed JSON is rejected before
 /// dispatch, while command-level errors keep the existing string envelope.
+///
+/// The command runs on the blocking pool, like a desktop command: run on the
+/// bridge's one thread, an import answered nothing else until it was done, so a
+/// test could neither read the import's progress nor see its events. The
+/// command still runs inside this runtime's `block_on`, so work that builds or
+/// drops a runtime of its own keeps its own hop in `dispatch`.
 async fn bridge_invoke(
     State(state): State<DevIpcBridgeState>,
     Path(command): Path<String>,
@@ -103,7 +110,17 @@ async fn bridge_invoke(
             .map_err(|error| bad_request(format!("Invalid JSON payload: {error}")))?
     };
 
-    dispatch_command(&state, &command, payload).await.map(axum::Json).map_err(internal_error)
+    let runtime = tokio::runtime::Handle::current();
+    let name = command.clone();
+    tokio::task::spawn_blocking(move || {
+        runtime.block_on(dispatch_command(&state, &command, payload))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        Err(crate::command_error::CommandError::internal(format!("{name} join failed: {error}")))
+    })
+    .map(axum::Json)
+    .map_err(internal_error)
 }
 
 /// Shapes client-side request decoding failures as JSON.

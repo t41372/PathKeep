@@ -45,6 +45,9 @@ pub(crate) struct ArchiveStreamProgress {
     /// New visits written hidden: another source's copy stands in for them
     /// (`archive::same_visit`). Not in `new_visits`.
     pub same_visits: usize,
+    /// Records an interrupted run of this same import wrote already (`ImportOrigin::continuing`):
+    /// neither new nor duplicates.
+    pub written_before: usize,
     /// Sources whose copies a new visit took the place of; their counted visits went down, so
     /// their Insights are built again.
     pub replaced_profiles: BTreeSet<i64>,
@@ -65,7 +68,7 @@ impl ArchiveStreamProgress {
         ArchiveIngestProgress {
             processed_records: self.visit_count + self.skipped_visits,
             imported_records: self.new_visits,
-            duplicate_records: self.visit_count - self.new_visits,
+            duplicate_records: self.visit_count - self.new_visits - self.written_before,
             skipped_records: self.skipped_visits,
         }
     }
@@ -91,6 +94,9 @@ pub(crate) struct ImportOrigin {
     pub batch_id: i64,
     pub source_kind: String,
     pub source_path: Option<String>,
+    /// The batch is an interrupted import this run carries on, so a record already there may be
+    /// one its earlier run wrote (`takeout::batches::continue_or_create_import_batch`).
+    pub continuing: bool,
 }
 
 enum Batch {
@@ -252,7 +258,8 @@ impl<'a> ArchiveChunkConsumer<'a> {
                             "duplicateItems",
                             (progress.visit_count - before.visit_count)
                                 - (progress.new_visits - before.new_visits)
-                                - (progress.same_visits - before.same_visits),
+                                - (progress.same_visits - before.same_visits)
+                                - (progress.written_before - before.written_before),
                         ),
                     ] {
                         summary[key] =
@@ -356,10 +363,14 @@ fn apply_batch(
                     url.visit_count = url.visit_count.max(1);
                     url.typed_count = url.typed_count.max(0);
                 }
-                let (id, page, previous_page) =
+                let UpsertedUrl { id, page, previous_page, rewritten } =
                     upsert_url(s, c.run_id, c.source_profile_id, &url, &hash)?;
                 written.urls.insert(url.source_url_id, (id, page));
-                written.text.insert(page);
+                // An observation the row already had leaves the page's document as it is: what
+                // an import run again reads for the records it wrote before.
+                if rewritten {
+                    written.text.insert(page);
+                }
                 if let Some(old_page) = previous_page
                     && old_page != page
                 {
@@ -430,7 +441,12 @@ fn apply_batch(
                 } else {
                     insert_visit(s, c.run_id, c.source_profile_id, id, &visit, &hash, hidden)?
                 };
-                if inserted.is_some() && hidden.is_some() {
+                if inserted.is_none()
+                    && let Some(origin) = c.import.as_ref().filter(|origin| origin.continuing)
+                    && written_by(s, c.source_profile_id, &visit, origin.batch_id)?
+                {
+                    p.written_before += 1;
+                } else if inserted.is_some() && hidden.is_some() {
                     p.same_visits += 1;
                 } else if let Some(new_visit) = inserted {
                     if let Some(replaced) = stand_in {
@@ -513,6 +529,24 @@ fn write_documents(s: &Session<'_>, c: &WriteContext, written: &Written) -> Resu
         .collect();
     crate::archive::search_documents::pages_written(s, c.source_profile_id, &text, &added)?;
     Ok(())
+}
+
+/// Whether the record `visit` stands for is already in the archive from `batch`, which an
+/// interrupted run of the same import wrote. One seek of the source's unique visit id.
+fn written_by(
+    s: &Session<'_>,
+    profile: i64,
+    visit: &ParsedVisit,
+    batch: i64,
+) -> vault_store::Result<bool> {
+    Ok(!s
+        .query(
+            "SELECT 1 FROM visits INDEXED BY idx_visits_profile_source_visit_id
+             WHERE source_profile_id=?1 AND source_visit_id=?2 AND import_batch_id=?3",
+            params![profile, visit.source_visit_id.to_string(), batch],
+            |r| Ok(r.get::<i64>(0)?),
+        )?
+        .is_empty())
 }
 
 fn resolve_url(

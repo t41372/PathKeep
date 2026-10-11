@@ -13,7 +13,8 @@
 //! The third minus the first is what looking up costs an import that overlaps the browser.
 //! The second is cheaper than either: a hidden copy adds no totals or search documents.
 //! `PATHKEEP_BENCH_SAME_VISIT_ONLY=no-overlap` runs the first alone, for timing the import's
-//! writes (`WORK-IMPORT-BULK-WRITES`).
+//! writes (`WORK-IMPORT-BULK-WRITES`); `=again` then imports the same file a second time, what an
+//! interrupted import run again pays for the records it already wrote (`WORK-TAKEOUT-RESUME`).
 
 use super::turso_reads::{directory_bytes, open, seed};
 use std::{path::Path, time::Instant};
@@ -22,7 +23,12 @@ use vault_store::Db;
 
 /// Only the import that looks nothing up: what the write path itself costs.
 fn writes_only() -> bool {
-    std::env::var("PATHKEEP_BENCH_SAME_VISIT_ONLY").as_deref() == Ok("no-overlap")
+    matches!(std::env::var("PATHKEEP_BENCH_SAME_VISIT_ONLY").as_deref(), Ok("no-overlap" | "again"))
+}
+
+/// The same import a second time, every record already there.
+fn again() -> bool {
+    std::env::var("PATHKEEP_BENCH_SAME_VISIT_ONLY").as_deref() == Ok("again")
 }
 
 fn records() -> i64 {
@@ -87,6 +93,9 @@ fn takeout_import_links_the_same_visits_at_scale() {
     // A year after the browser's last visit: no source has visits then.
     write_takeout(&vault, apart.path(), count, 366 * 86_400_000);
     import(&vault, apart.path(), "no overlap (no lookups)");
+    if again() {
+        import(&vault, apart.path(), "the same file again (every record already there)");
+    }
     if writes_only() {
         finish(vault, root);
         return;

@@ -73,12 +73,12 @@ pub(crate) fn ensure_import_batch_audit_artifact(
     Ok((Some(path), commit))
 }
 
-pub(super) fn create_import_batch(
+pub(super) fn continue_or_create_takeout_batch(
     archive: &Session<'_>,
     profile_id: &str,
     request: &TakeoutRequest,
-) -> Result<i64> {
-    create_import_batch_for_source(
+) -> Result<(i64, Option<ContinuedBatch>)> {
+    continue_or_create_import_batch(
         archive,
         ImportBatchSource { source_kind: "takeout", source_path: &request.source_path, profile_id },
     )
@@ -121,6 +121,51 @@ pub(super) fn create_import_batch_for_source(
         |r|Ok(r.get::<i64>(0)?),
     )?;
     Ok(id)
+}
+
+/// An interrupted import of the same source that a new run carries on (`continue_or_create`).
+#[derive(Debug, Clone)]
+pub(super) struct ContinuedBatch {
+    /// When the interrupted import began.
+    pub(super) created_at: String,
+    /// What its earlier runs wrote, which this run adds to.
+    pub(super) imported_items: usize,
+    pub(super) same_visit_items: usize,
+}
+
+/// The batch a new import of `source` writes into: the latest interrupted import of the same
+/// kind and path, carried on so that one import stays one batch (to undo together), or a new one.
+/// An import that finished, or was undone, is never reopened: a run of the same file then adds a
+/// new batch, whose records the earlier one already holds count as duplicates.
+pub(super) fn continue_or_create_import_batch(
+    archive: &Session<'_>,
+    source: ImportBatchSource<'_>,
+) -> Result<(i64, Option<ContinuedBatch>)> {
+    let interrupted = archive.query(
+        "SELECT id, created_at, summary_json FROM import_batches
+         WHERE source_kind=?1 AND source_path=?2 AND status='interrupted'
+         ORDER BY id DESC LIMIT 1",
+        params![source.source_kind, source.source_path],
+        |r| Ok((r.get::<i64>(0)?, r.get::<String>(1)?, r.get::<String>(2)?)),
+    )?;
+    let Some((id, created_at, summary)) = interrupted.into_iter().next() else {
+        return Ok((create_import_batch_for_source(archive, source)?, None));
+    };
+    let mut summary: serde_json::Value = serde_json::from_str(&summary)?;
+    let count =
+        |summary: &serde_json::Value, key: &str| summary[key].as_u64().unwrap_or(0) as usize;
+    let (imported_items, same_visit_items) =
+        (count(&summary, "importedItems"), count(&summary, "sameVisitItems"));
+    // This run reads the whole export again, so what it reads and finds elsewhere is counted
+    // afresh; what the earlier run wrote stays counted.
+    summary["candidateItems"] = json!(0);
+    summary["duplicateItems"] = json!(0);
+    archive.execute(
+        "UPDATE import_batches SET status='running', previous_status='running', summary_json=?2
+         WHERE id=?1",
+        params![id, summary.to_string()],
+    )?;
+    Ok((id, Some(ContinuedBatch { created_at, imported_items, same_visit_items })))
 }
 
 /// Finalizes the import-batch summary after canonical writes complete.

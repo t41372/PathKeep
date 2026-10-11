@@ -23,8 +23,9 @@
 //!
 //! ## Performance notes
 //!
-//! The bridge accepts small command envelopes only. Long-running commands must
-//! continue to execute behind existing off-main-thread worker bridge contracts.
+//! The bridge accepts small command envelopes only. Its one thread serves the
+//! connections; each command runs on the blocking pool (`router::bridge_invoke`),
+//! as the desktop app runs its commands.
 
 use crate::session::SessionState;
 #[cfg(not(test))]

@@ -246,6 +246,7 @@ export function ImportCard({
   hovering: boolean
 }) {
   const { t } = useI18n()
+  const format = useFormat()
   const backup = useBackupRunner()
   const { state, inspect, confirm, reset } = takeout
 
@@ -318,6 +319,13 @@ export function ImportCard({
               <span className="text-muted-foreground">
                 {t('backup.import.sameVisits', {
                   count: state.result.sameVisitItems ?? 0,
+                })}
+              </span>
+            )}
+            {state.result.continuedFrom && (
+              <span className="text-muted-foreground">
+                {t('backup.import.continued', {
+                  date: format.date(state.result.continuedFrom),
                 })}
               </span>
             )}

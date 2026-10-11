@@ -113,6 +113,17 @@ struct StoredUrl {
     typed_count: i64,
 }
 
+/// What `upsert_url` did to a profile's URL row.
+pub(super) struct UpsertedUrl {
+    pub(super) id: i64,
+    pub(super) page: i64,
+    /// The page the row had before; `None` for a new row.
+    pub(super) previous_page: Option<i64>,
+    /// Whether the row is new or took this observation's URL and title, the things a page's
+    /// search document shows. Raised counts alone do not change it.
+    pub(super) rewritten: bool,
+}
+
 /// Upserts one canonical URL row and returns its stable archive id, its page and the page it
 /// had before (`None` for a new row). A newer observation replaces the row's URL, title and last
 /// visit; an older one only raises its counts, and writes nothing when they are not higher. Plain
@@ -124,7 +135,7 @@ pub(super) fn upsert_url(
     source_profile_id: i64,
     url: &ParsedUrl,
     payload_hash: &str,
-) -> Result<(i64, i64, Option<i64>)> {
+) -> Result<UpsertedUrl> {
     let stored = archive
         .query(
             "SELECT id,page_id,last_visit_ms,visit_count,typed_count FROM urls
@@ -166,7 +177,7 @@ pub(super) fn upsert_url(
                 ],
             )?
             .expect("a plain INSERT adds its row");
-        return Ok((id, page, None));
+        return Ok(UpsertedUrl { id, page, previous_page: None, rewritten: true });
     };
     if stored.last_visit_ms.is_some_and(|last| url.last_visit_ms > last) {
         let page = page_for(archive, &url.url)?;
@@ -189,7 +200,12 @@ pub(super) fn upsert_url(
                 page,
             ],
         )?;
-        return Ok((stored.id, page, Some(stored.page)));
+        return Ok(UpsertedUrl {
+            id: stored.id,
+            page,
+            previous_page: Some(stored.page),
+            rewritten: true,
+        });
     }
     // An older observation keeps the current URL and page.
     if url.visit_count > stored.visit_count || url.typed_count > stored.typed_count {
@@ -199,7 +215,12 @@ pub(super) fn upsert_url(
             params![stored.id, url.visit_count, url.typed_count],
         )?;
     }
-    Ok((stored.id, stored.page, Some(stored.page)))
+    Ok(UpsertedUrl {
+        id: stored.id,
+        page: stored.page,
+        previous_page: Some(stored.page),
+        rewritten: false,
+    })
 }
 
 /// A new visit that another source's copy already stands in for: it is written hidden behind

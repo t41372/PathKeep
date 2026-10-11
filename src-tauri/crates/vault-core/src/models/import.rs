@@ -177,6 +177,10 @@ pub struct TakeoutInspection {
     /// again.
     #[serde(default)]
     pub replaced_profiles: Vec<String>,
+    /// When the interrupted import of the same export this run carried on began; its counts
+    /// include what that run wrote.
+    #[serde(default)]
+    pub continued_from: Option<String>,
     pub preview_entries: Vec<TakeoutPreviewEntry>,
     pub import_batch: Option<ImportBatchOverview>,
     pub notes: Vec<String>,

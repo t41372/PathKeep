@@ -1,7 +1,9 @@
 //! Responsibilities: verify real public import, annotation and revert/restore APIs.
 //! Not responsible for: browser discovery, index consumption or UI orchestration.
 //! Failure modes: split commits, duplicate imports, lost shared-page membership,
-//! encrypted writes differ, reverted pages keep a visible search timestamp.
+//! encrypted writes differ, reverted pages keep a visible search timestamp; an interrupted import
+//! run again starts a second batch, counts its earlier records as new or duplicates, or reopens
+//! one that was undone.
 
 use browser_history_fixtures::{TakeoutBrowserHistoryFixture, TakeoutBrowserRecord};
 use vault_core::{ReplaceTagsRequest, SetNotesRequest, TakeoutRequest, Vault};
@@ -143,7 +145,71 @@ fn cancelled_import_keeps_batch_identity_and_committed_progress() {
             vault_core::preview_import_batch(&vault, batches[0].id).unwrap().batch.visible_items,
             10_000
         );
+
+        // Run again on the same export, the import carries on in its batch: one import, all of
+        // the file, the first run's records neither new again nor duplicates.
+        let request =
+            TakeoutRequest { source_path: source.path().display().to_string(), dry_run: false };
+        let finished = vault_core::import_takeout(&vault, &request).unwrap();
+        assert!(finished.continued_from.is_some(), "the run says it carried on");
+        assert_eq!(finished.import_batch.as_ref().unwrap().id, batches[0].id);
+        assert_eq!(
+            (finished.candidate_items, finished.imported_items, finished.duplicate_items),
+            (20_003, 20_003, 0)
+        );
+        let batches = vault_core::load_import_batches(&vault, None, 16).unwrap().items;
+        assert_eq!(batches.len(), 1, "no second batch");
+        assert_eq!(
+            (batches[0].status.as_str(), batches[0].visible_items, batches[0].imported_items),
+            ("imported", 20_003, 20_003)
+        );
+
+        // A finished import is not reopened: the same file again is a new import whose records
+        // are all duplicates.
+        let again = vault_core::import_takeout(&vault, &request).unwrap();
+        assert!(again.continued_from.is_none());
+        assert_eq!((again.imported_items, again.duplicate_items), (0, 20_003));
+        assert_eq!(vault_core::load_import_batches(&vault, None, 16).unwrap().items.len(), 2);
     }
+}
+
+/// An undone interrupted import stays undone: the same export run again starts a new import,
+/// and the visits the undone one wrote stay hidden.
+#[test]
+fn an_undone_interrupted_import_is_not_carried_on() {
+    let vault = Vault::open_temp().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    std::fs::create_dir(source.path().join("Chrome")).unwrap();
+    let records = (0..20_003_i64)
+        .map(|id| {
+            serde_json::json!({"url":"https://example.com/batched","title":"Batch",
+                "time_usec":(1_800_000_000_000 + id) * 1_000})
+        })
+        .collect::<Vec<_>>();
+    std::fs::write(
+        source.path().join("Chrome/BrowserHistory.json"),
+        serde_json::json!({ "Browser History": records }).to_string(),
+    )
+    .unwrap();
+    let request =
+        TakeoutRequest { source_path: source.path().display().to_string(), dry_run: false };
+    let cancel = vault_store::CancelToken::new();
+    let stopped =
+        vault_core::takeout::import_takeout_with_control(&vault, &request, &cancel, |event| {
+            if event.imported_records.is_some_and(|n| n >= 10_000) {
+                cancel.cancel();
+            }
+        });
+    assert!(stopped.is_err());
+    let first = vault_core::load_import_batches(&vault, None, 16).unwrap().items.remove(0);
+    vault_core::revert_import_batch(&vault, first.id).unwrap();
+
+    let next = vault_core::import_takeout(&vault, &request).unwrap();
+    assert!(next.continued_from.is_none(), "an undone import is not carried on");
+    assert_ne!(next.import_batch.as_ref().unwrap().id, first.id);
+    let batches = vault_core::load_import_batches(&vault, None, 16).unwrap().items;
+    let undone = batches.iter().find(|batch| batch.id == first.id).unwrap();
+    assert_eq!((undone.status.as_str(), undone.visible_items), ("reverted", 0));
 }
 
 #[test]

@@ -51,6 +51,11 @@
   - 目標：site 頁可改網站分類（寫 override、只重新分類受影響的造訪）；「哪類網站」卡的「未分類」列連到最常去的未分類網站。改分類要很快反映在 Insights。
   - E2E：改一個未分類 fixture 網站的分類，重建後卡上該類的占比照手算增加。
 
+- [ ] **WORK-EVIDENCE-REIMPORT** — 重新匯入已在存檔裡的紀錄，把它們的來源證據再寫一份（2026-10-11 `WORK-TAKEOUT-RESUME` 收工時找到）
+  - 讀先：`docs/architecture/data-model.md`（source evidence）、`archive/source_evidence.rs`、`archive/ingest/consumer.rs`、`intelligence/phase_three.rs`（讀證據的地方）。
+  - 現象：證據列（`visit_search_evidence`、`visit_navigation_evidence`、`visit_engagement_evidence`、`visit_context_evidence`、`native_entities`）掛在每次執行的 source batch 下，沒有內容鍵。同一份檔案再匯入一次（包括接著做中斷的匯入）時，已在存檔裡的造訪的證據再寫一份。讀的地方按造訪合併，數字不會錯，但佔空間、拖慢匯入。
+  - 方向：先在 14.4M 上量重新匯入多寫了多少列、多少空間與時間；再決定重複造訪的證據怎麼處理（同一來源的不再寫，另一個來源帶來的新欄位照寫），先寫下會怎麼錯。
+
 - [ ] **WORK-RUN-LIFECYCLE-GUARDS** — P1 follow-up from 2026-07-23 silent-failure audit
   - 讀先：`docs/architecture/decisions/003-run-model.md`；`docs/plan/program/quality-matrix.md`；`archive/maintenance.rs` retention/snapshot restore；Takeout / Browser Direct import run creation/finalization；Audit read models。
   - 目標：建立 reusable run-attempt finalizer/guard，讓 canonical run row 一旦建立，任何 transaction 前置、commit 後 follow-up、manifest/stats/batch finalization 錯誤都留下 terminal、帶原始錯誤與 partial-commit phase 的結果，不再永久 `running`。

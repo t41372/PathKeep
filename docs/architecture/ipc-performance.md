@@ -414,6 +414,8 @@ Left as it is:
 
 - **The checkpoint after each batch.** It did not appear in the samples: Turso checkpoints large commits itself.
 
+An interrupted import run again re-reads the records it already wrote (`WORK-TAKEOUT-RESUME`; it carries on in the same batch). Those records are duplicates, but each still rebuilt its page's search document and queued it for the index, because every URL of a chunk marked its page. Now only a URL row that is new or takes a newer observation marks its page. Importing the same 1,000,000 records a second time (`PATHKEEP_BENCH_SAME_VISIT_ONLY=again`, after a first import of 508–536 s on the same machines) went from 219 s to 62 s: 62 µs a record, against about 500 µs for a new one.
+
 What remains is the engine's own work per row: the B-tree inserts of `urls` (5 indexes) and `visits` (11, two of them keyed by hashes, so random), and the commit that writes the pages they touched.
 
 ### 13. "Pages reopened" counted pages that were not opened in the range
