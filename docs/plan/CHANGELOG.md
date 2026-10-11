@@ -2802,3 +2802,9 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - The days each page was opened on, which the build used to work out and discard, are kept as one row per profile and day of sorted page keys (`refind_day_pages_rows`). The KPI and the day card both read it; a range reads one row per day.
   - A row per page and day was tried first and dropped: at 14.4M visits in the `habits` shape a custom year's first batch went from 1.74 s to 5.6 s. With the day rows it is 2.0 s, and in the `cycle` shape the digest for a year went from 1.1 s to 0.4 s; builds and appends take as long as before (`ipc-performance.md` §13).
   - Tests: the failure modes in `intelligence/tests/reopened_pages.rs`, append == full build for the new table, and `insights-drill.spec` (a day's KPI equals its card, a day with no visits is 0).
+
+- [x] `WORK-EPHEMERAL-TEMP-FILES` — No loop opens a temporary file per row (2026-10-11).
+  - Turso gives every ephemeral table (`RETURNING`, `IN (SELECT …)`, any `IN (…)` list) a new temporary file each time the statement runs: about 150 µs on macOS, and a write to disk. PathKeep keeps `temp_store=FILE` so large sorts stay off memory.
+  - Undoing or restoring an import used one `UPDATE … RETURNING` per URL; it now reads the visits that change and then changes them (806 temporary files → 6 for 400 URLs; an import of 1M URLs would have made a million). An Insights append's path flows used one upsert with `RETURNING` per flow; they are now `INSERT OR IGNORE` plus an update by key (432 → 267 per append).
+  - Reads are left as they are: a range read live opens 44 (about 7 ms), all time from its snapshot 3 (`ipc-performance.md` §14).
+  - `vault_store` records statements that open an ephemeral table while plan capture is on, and `vault-core/tests/ephemeral_tables.rs` fails when one runs more than 50 times in a step.

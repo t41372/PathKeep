@@ -43,14 +43,6 @@
 
 > 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全流程跑完，confirmed findings 已全部修復並各自過獨立 review（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`、報告 `docs/review/2026-06-14/`）。剩下的是 verifier 標為 non-blocking 的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / trade-off 的 findings 不重開。
 
-- [ ] **WORK-TAKEOUT-RESUME** — 中斷的 Takeout 匯入從頭再讀（2026-10-10，`WORK-IMPORT-BULK-WRITES` 盤點時找到）
-  - 現象：Takeout 匯入每個檔案都從 `Watermark::default()` 開始（`takeout/payload_import.rs`），存下的 `profile_watermarks` 從不讀回；中斷後再匯入是新的一批、從第一筆重新解析，已寫入的前段靠 `INSERT OR IGNORE` 擋掉重複，但每筆仍付網址 upsert 與搜尋文件的成本。14.4M 的匯入在後段中斷，重來幾乎等於整個重跑。
-  - 方向：每個檔案記下已提交到第幾筆（跟批次同一個交易），重新匯入同一份檔案時從那裡接著讀；匯入卡說明是接著上次的。先寫下會怎麼錯（檔案換了、同名不同內容、兩種格式交錯）再做。
-
-- [ ] **WORK-HOME-ALERTS-FOLLOWUPS** — Home 警告列的兩個小缺口（2026-10-10 收工審查時找到）
-  - 鑰匙圈整個不能用（例如沒有 secret service 的 Linux）又沒存密碼時，「只有你知道密碼」那列的「存到鑰匙圈」連到 Security，那裡的開關是停用的，走不通；「我有妥善保管」仍可用。要換成說得通的動作或文字。
-  - 「自動備份已經停了」從最新一次嘗試起算三次檢查。筆電整晚睡著時，醒來到 launchd 補跑之前的幾十秒內打開 Home 會看到它；要在桌面上看一次，必要時從喚醒時間起算。
-
 - [ ] **WORK-SITE-CATEGORY-REVIEW** — 讓用戶看見並改網站分類（2026-10-08 從 `WORK-INSIGHTS-RESTORE-2026-10` 拆出）
   - 讀先：`docs/features/deterministic-intelligence.md` §5.2、§6.3；`vault-core/src/intelligence/site_dictionary/overrides.rs`；`docs/design/screens-and-nav.md` §Insights。
   - 起因：§6.3 要求 unknown 比例與最常去的未分類網站可 review、用戶 override 永遠優先。後端已有 override 表（`upsert_site_dictionary_override`），但沒有命令也沒有畫面，v0.3 也沒有。「哪類網站」卡只能寫出未分類的比例。
