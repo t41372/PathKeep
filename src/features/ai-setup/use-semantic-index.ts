@@ -109,30 +109,84 @@ export function useSemanticIndex() {
       : null
 
   const enabled = ai.enabled && ai.semanticIndexEnabled
+  const modelId =
+    ai.embeddingProviderId ?? BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID
+  /** The embeddings service chosen in Settings, or null for the in-app model. */
+  const service = usesInAppModel
+    ? null
+    : (ai.embeddingProviders.find((provider) => provider.id === modelId) ??
+      null)
+  const services = ai.embeddingProviders.filter(
+    (provider) => provider.id !== BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
+  )
+
+  /**
+   * Builds the whole index with `providerId`: the in-app model is downloaded
+   * first if it isn't here yet; a service needs nothing first.
+   */
+  const buildWith = useCallback(
+    async (providerId: string) => {
+      if (providerId !== BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID) {
+        await intelligenceClient.buildIndex({
+          fullRebuild: true,
+          clearOnly: false,
+          scope: 'full',
+        })
+      } else {
+        cancelled.current = false
+        setRestart((count) => count + 1)
+        await runLocalSemanticSetup()
+      }
+      await watchBuild()
+      await refreshSnapshot()
+    },
+    [refreshSnapshot, watchBuild],
+  )
 
   const enable = useCallback(async () => {
     setError(null)
     cancelled.current = false
     setSetupRunning(true)
     try {
-      await save.mutateAsync((config) => {
+      const snapshot = await save.mutateAsync((config) => {
         config.ai.enabled = true
         config.ai.semanticIndexEnabled = true
         config.ai.autoIndexAfterBackup = true
-        config.ai.embeddingProviderId = BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID
+        config.ai.embeddingProviderId ??= BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID
         return config
       })
-      setRestart((count) => count + 1)
-      // Downloads the model if needed, then queues the full index build.
-      await runLocalSemanticSetup()
-      await watchBuild()
-      await refreshSnapshot()
+      await buildWith(
+        snapshot.config.ai.embeddingProviderId ??
+          BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
+      )
     } catch (reason) {
       if (!cancelled.current) setError(describeError(reason))
     } finally {
       setSetupRunning(false)
     }
-  }, [refreshSnapshot, save, watchBuild])
+  }, [buildWith, save])
+
+  /** Makes the index with another model; builds it now when search is on. */
+  const chooseModel = useCallback(
+    async (providerId: string) => {
+      setError(null)
+      try {
+        const snapshot = await save.mutateAsync((config) => {
+          config.ai.embeddingProviderId = providerId
+          return config
+        })
+        const next = snapshot.config.ai
+        if (!(next.enabled && next.semanticIndexEnabled)) return
+        setSetupRunning(true)
+        await buildWith(providerId)
+      } catch (reason) {
+        if (!cancelled.current) setError(describeError(reason))
+      } finally {
+        setSetupRunning(false)
+      }
+    },
+    [buildWith, save],
+  )
 
   const disable = useCallback(async () => {
     setError(null)
@@ -182,7 +236,11 @@ export function useSemanticIndex() {
     building,
     progress,
     error,
+    modelId,
+    service,
+    services,
     enable,
+    chooseModel,
     disable,
     cancelDownload,
     rebuild,

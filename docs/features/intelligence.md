@@ -68,7 +68,7 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 ### 需求要點
 
 - semantic / hybrid search 已交付（W-AI-4/5/6），但 **off by default + consent-gated**（master `ai.enabled` + `semantic_index_enabled`）；沒開時 History 搜尋維持全文 / regex（lexical recall v2）。
-- 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding（v0.4 的 Settings 只開 in-app 模型；external 的 embeddings 服務只能寫在 config 檔的 `ai.embeddingProviders`，沒有表單），寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
+- 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding（Settings → AI 的「模型」選 in-app，或使用者加的 OpenAI 相容 embeddings 服務：Ollama、LM Studio、OpenAI 或相容的位址，存在 `ai.embeddingProviders`，加了就做連線測試），寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
 - Embedding 增量計算、content-hash dedup（一個 content_key 一條向量，fan-out 到所有共享該內容的 visit）、本地索引、避免重算。
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
@@ -347,12 +347,12 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
   - **請求格式**（Request Format）= API 協議，如 OpenAI-compatible, Anthropic, Google
   - **Provider** = 請求格式 + Base URL + API Key + 可用模型列表 + 模型配置
   - 用戶可以創建多個 Provider
-  - Provider 可以被啟用/禁用（v0.4 的 Settings → AI 只有選用、新增、連線測試與移除；移除連同金鑰一起刪）
+  - Provider 可以被啟用/禁用（v0.4 的 Settings → AI：選用、新增、就地編輯、連線測試與移除，沒有停用開關；移除連同金鑰一起刪）
 - 預設 Provider preset：Ollama, LM Studio, OpenAI, Anthropic, Google
 - 所有 preset 都支援自定義 Base URL
 - Embedding 和 LLM 分別配置：兩者可以用不同的 Provider 和模型。
 - **底層使用 rig.rs** 作為統一的 AI 框架，處理所有 provider 的請求格式和通信。
-- （v0.4 沒有編輯既有 provider 的表單，要改就移除再新增。）Settings 的 provider editor 採本地 draft + explicit save：欄位編輯不應在每次輸入時直接落盤或觸發 blocking overlay；secret store / clear 仍保留獨立明確動作。
+- （v0.4：編輯對話框在本地改，按「儲存」才寫入；金鑰欄留空就保留已存的，填了才換。）Settings 的 provider editor 採本地 draft + explicit save：欄位編輯不應在每次輸入時直接落盤或觸發 blocking overlay；secret store / clear 仍保留獨立明確動作。
 - day-one provider matrix：
   - chat / assistant：OpenAI-compatible、Anthropic、Google、Ollama、LM Studio
   - embeddings：OpenAI-compatible、Google、Ollama、LM Studio

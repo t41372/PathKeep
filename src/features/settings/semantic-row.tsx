@@ -1,17 +1,27 @@
 /**
- * Local semantic search: the switch, the one-time model download, and the
- * index build, each with live progress. All behavior comes from
- * `useSemanticIndex`; this file only renders it.
+ * Semantic search: the switch, which model makes the index (the in-app one,
+ * downloaded once, or an embeddings service the user adds), and the index
+ * build, each with live progress. Behavior comes from `useSemanticIndex` and
+ * `useAiProviders`; this file only renders it.
  */
+import { useState } from 'react'
+import { toast } from 'sonner'
 import { SettingRow } from '@/components/app/setting-row'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Switch } from '@/components/ui/switch'
+import { ProviderDialog } from '@/features/ai-setup/provider-dialog'
+import { providerLabel } from '@/features/ai-setup/providers'
+import { useAiProviders } from '@/features/ai-setup/use-ai-providers'
 import {
   STATIC_MODEL_APPROX_BYTES,
   type useSemanticIndex,
 } from '@/features/ai-setup/use-semantic-index'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '@/lib/types'
+import { ProviderDetails } from './provider-details'
+import { RowSelect } from './row-select'
 
 export type SemanticIndex = ReturnType<typeof useSemanticIndex>
 
@@ -26,9 +36,13 @@ export function SemanticRow({ index }: { index: SemanticIndex }) {
   return (
     <SettingRow
       title={t('settingsAi.semantic.title')}
-      description={t('settingsAi.semantic.description', {
-        size: format.bytes(size),
-      })}
+      description={
+        index.service
+          ? t('settingsAi.semantic.descriptionService', {
+              name: index.service.name,
+            })
+          : t('settingsAi.semantic.description', { size: format.bytes(size) })
+      }
       htmlFor="settings-semantic"
       control={
         <Switch
@@ -41,8 +55,64 @@ export function SemanticRow({ index }: { index: SemanticIndex }) {
         />
       }
     >
+      <ModelPicker index={index} />
       <SemanticStatus index={index} />
     </SettingRow>
+  )
+}
+
+const ADD = '__add'
+
+/** Which model makes the index, and the chosen service's own panel. */
+function ModelPicker({ index }: { index: SemanticIndex }) {
+  const { t } = useI18n()
+  const providers = useAiProviders('embedding')
+  const [adding, setAdding] = useState(false)
+
+  const choose = (value: string) => {
+    if (value === ADD) return setAdding(true)
+    if (value !== index.modelId) void index.chooseModel(value)
+  }
+
+  return (
+    <div className="flex flex-col gap-2 text-[13px]">
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor="settings-semantic-model" className="font-normal">
+          {t('settingsAi.semantic.model.label')}
+        </Label>
+        <RowSelect
+          id="settings-semantic-model"
+          value={index.modelId}
+          disabled={index.saving || index.setupRunning || providers.saving}
+          onChange={choose}
+          options={[
+            {
+              value: BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
+              label: t('settingsAi.semantic.model.inApp'),
+            },
+            ...index.services.map((service) => ({
+              value: service.id,
+              label: providerLabel(service),
+            })),
+            { value: ADD, label: t('settingsAi.semantic.model.add') },
+          ]}
+        />
+      </div>
+      {index.service && (
+        <ProviderDetails provider={index.service} providers={providers} />
+      )}
+      <ProviderDialog
+        open={adding}
+        onOpenChange={setAdding}
+        purpose="embedding"
+        onSave={async (draft) => {
+          const service = await providers.add(draft)
+          toast.success(t('settingsAi.provider.saved', { name: service.name }))
+          // Its index is built now if semantic search is on.
+          void index.chooseModel(service.id)
+        }}
+      />
+    </div>
   )
 }
 
@@ -93,7 +163,7 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
   }
 
   if (!index.enabled) {
-    return index.modelDownloaded ? (
+    return !index.service && index.modelDownloaded ? (
       <p className="text-[13px] text-muted-foreground">
         {t('settingsAi.semantic.offNote')}
       </p>

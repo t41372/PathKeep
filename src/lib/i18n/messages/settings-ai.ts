@@ -7,7 +7,24 @@ export const settingsAi = defineMessages({
     optionalNote:
       'Everything here is optional. PathKeep backs up, searches and analyzes your history without any of it.',
     semantic: {
-      title: 'Local semantic search',
+      title: 'Semantic search',
+      descriptionService:
+        'Find pages by meaning, not only by keywords. {name} builds the index.',
+      model: {
+        label: 'Model',
+        inApp: 'In-app model',
+        add: 'Add an embeddings service…',
+      },
+      serviceDialog: {
+        title: 'Add an embeddings service',
+        description:
+          'A service that turns text into embeddings, OpenAI-compatible. Semantic search sends it each page’s address, title and visit time to build the index, and your searches to find pages.',
+      },
+      serviceLocalNote: 'Runs on this computer. Pages and searches stay here.',
+      serviceRemoteNote:
+        'An online service. Each page’s address, title and visit time, and your searches, are sent to it.',
+      serviceRemoveBody:
+        'The service and its stored API key are removed from this computer. Semantic search goes back to the in-app model.',
       description:
         'Find pages by meaning, not only by keywords. The model runs on this computer. It downloads once, about {size}.',
       offNote: 'Turning it off keeps the downloaded model.',
@@ -63,6 +80,13 @@ export const settingsAi = defineMessages({
         'The service and its stored API key are removed from this computer. Your conversations are kept.',
       removeFailed: 'Could not remove the service.',
       saved: '{name} is ready.',
+      updated: '{name} is saved.',
+      edit: 'Edit',
+      editDialog: {
+        title: 'Edit {name}',
+        description: 'Change how PathKeep reaches this service.',
+        submit: 'Save',
+      },
       saveFailed: 'Could not save the service. {message}',
       selectFailed: 'Could not change the service. {message}',
       dialog: {
@@ -84,6 +108,7 @@ export const settingsAi = defineMessages({
           'Kept in your system keychain, never in PathKeep’s settings file.',
         apiKeyOptional:
           'Optional: only for a server on this computer that asks for one. It is kept in the system keychain.',
+        apiKeyKeep: 'Leave it empty to keep the saved key.',
         optionalLater:
           'You can finish setup, including the API key and a connection test, later in Settings → AI.',
       },
@@ -163,7 +188,24 @@ export const settingsAi = defineMessages({
     optionalNote:
       '这里的一切都是可选的。没有这些，PathKeep 也能备份、搜索和分析你的历史。',
     semantic: {
-      title: '本地语义搜索',
+      title: '语义搜索',
+      descriptionService:
+        '按含义而不只是关键词来查找页面。由 {name} 建立索引。',
+      model: {
+        label: '模型',
+        inApp: '应用内置模型',
+        add: '添加嵌入服务…',
+      },
+      serviceDialog: {
+        title: '添加嵌入服务',
+        description:
+          '把文字转成嵌入向量的服务，需兼容 OpenAI。语义搜索会把每个页面的网址、标题和访问时间发给它来建立索引，搜索时也会把你的搜索发给它。',
+      },
+      serviceLocalNote: '在这台电脑上运行，页面和搜索都留在这里。',
+      serviceRemoteNote:
+        '在线服务。每个页面的网址、标题和访问时间，以及你的搜索，都会发给它。',
+      serviceRemoveBody:
+        '这个服务和它保存的 API 密钥会从这台电脑上移除，语义搜索改回使用应用内置模型。',
       description:
         '按含义而不只是关键词来查找页面。模型在这台电脑上运行，只需下载一次，约 {size}。',
       offNote: '关闭后会保留已下载的模型。',
@@ -213,6 +255,13 @@ export const settingsAi = defineMessages({
         '这个服务和已保存的 API 密钥会从这台电脑上移除。你的对话会保留。',
       removeFailed: '无法移除这个服务。',
       saved: '{name} 已就绪。',
+      updated: '{name} 已保存。',
+      edit: '编辑',
+      editDialog: {
+        title: '编辑 {name}',
+        description: '更改 PathKeep 连接这个服务的方式。',
+        submit: '保存',
+      },
       saveFailed: '无法保存这个服务。{message}',
       selectFailed: '无法更换服务。{message}',
       dialog: {
@@ -233,6 +282,7 @@ export const settingsAi = defineMessages({
         apiKeyHint: '保存在系统钥匙串里，不会写进 PathKeep 的设置文件。',
         apiKeyOptional:
           '可不填：只有这台电脑上要求密钥的服务器才需要。密钥保存在系统钥匙串里。',
+        apiKeyKeep: '留空就保留已保存的密钥。',
         optionalLater:
           '之后可以在「设置 → AI」里完成设置，包括 API 密钥和连接测试。',
       },
@@ -311,7 +361,24 @@ export const settingsAi = defineMessages({
     optionalNote:
       '這裡的一切都是選用的。沒有這些，PathKeep 也能備份、搜尋和分析你的歷史。',
     semantic: {
-      title: '本機語意搜尋',
+      title: '語意搜尋',
+      descriptionService:
+        '依意思而不只是關鍵字來尋找頁面。由 {name} 建立索引。',
+      model: {
+        label: '模型',
+        inApp: 'App 內建模型',
+        add: '新增嵌入服務…',
+      },
+      serviceDialog: {
+        title: '新增嵌入服務',
+        description:
+          '把文字轉成嵌入向量的服務，需相容 OpenAI。語意搜尋會把每個頁面的網址、標題與造訪時間傳給它來建立索引，搜尋時也會把你的搜尋傳給它。',
+      },
+      serviceLocalNote: '在這台電腦上執行，頁面與搜尋都留在這裡。',
+      serviceRemoteNote:
+        '線上服務。每個頁面的網址、標題與造訪時間，以及你的搜尋，都會傳給它。',
+      serviceRemoveBody:
+        '這個服務與它儲存的 API 金鑰會從這台電腦上移除，語意搜尋改回使用 App 內建模型。',
       description:
         '依含義而不只是關鍵字來尋找頁面。模型在這台電腦上執行，只需下載一次，約 {size}。',
       offNote: '關閉後會保留已下載的模型。',
@@ -361,6 +428,13 @@ export const settingsAi = defineMessages({
         '這個服務和已儲存的 API 金鑰會從這台電腦移除。你的對話會保留。',
       removeFailed: '無法移除這個服務。',
       saved: '{name} 已就緒。',
+      updated: '{name} 已儲存。',
+      edit: '編輯',
+      editDialog: {
+        title: '編輯 {name}',
+        description: '變更 PathKeep 連線到這個服務的方式。',
+        submit: '儲存',
+      },
       saveFailed: '無法儲存這個服務。{message}',
       selectFailed: '無法更換服務。{message}',
       dialog: {
@@ -381,6 +455,7 @@ export const settingsAi = defineMessages({
         apiKeyHint: '儲存在系統鑰匙圈裡，不會寫進 PathKeep 的設定檔。',
         apiKeyOptional:
           '可不填：只有這台電腦上要求金鑰的伺服器才需要。金鑰儲存在系統鑰匙圈裡。',
+        apiKeyKeep: '留空就保留已儲存的金鑰。',
         optionalLater:
           '之後可以在「設定 → AI」裡完成設定，包括 API 金鑰和連線測試。',
       },
