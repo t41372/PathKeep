@@ -42,7 +42,7 @@
 
 ## 4. 卡片不能無限長高
 
-- 卡片不可隨內容無限長高。現在的做法是限制筆數（On this day 4 筆、常回來的主題 4 筆、熱門網站 6 筆、常搜尋 10 筆、常重開 5 筆），或在卡片 / 面板內捲動（History 列表、詳情面板、⌘K 清單最高 420 px、對話框）。
+- 卡片不可隨內容無限長高。現在的做法是限制筆數（On this day 4 筆、常回來的主題 4 筆、熱門網站至少 6 筆、跟旁邊那欄一樣高，其餘捲動、常搜尋 10 筆、常重開 5 筆），或在卡片 / 面板內捲動（History 列表、詳情面板、⌘K 清單最高 420 px、對話框）。
 - 要顯示「全部」時給明確入口（例如「全部 →」連到 Insights 或 History），不要把卡片撐長。
 - 內捲動不是偷藏內容：必須保留可見的溢出暗示。
 - raw 內容（排程檔、MCP 指令、錯誤全文）預設收合或放在有最大高度的 code block 內，路徑與錯誤允許任意斷行，不能把對話框撐寬。
@@ -93,11 +93,11 @@ PathKeep 的圖表不是裝飾。任何 chart / heatmap / score / badge 都必�
 - 不可把不同口徑的資料混成一張圖而不說明。
 - 不可把估算值、抽樣值、AI 改寫結果偽裝成 deterministic fact。
 - 卡片標題或副標要說時間窗（「最近 30 天」「每天的瀏覽數，所有瀏覽器」），Insights 的範圍由頁首切換器統一決定。
-- 圖表或列表若可 drill down，必須回到 History（`?date=`、`?domain=`、`?q=`）。
+- 圖表或列表若可 drill down，進 Insights 的 drill-in（day / site / search / page），drill-in 再連回 History（`?date=`、`?domain=`、`?q=`）。
 
 ### 明確紅線
 
-- 「你的一年」熱力圖的每一格必須對應**真實日期**，點擊進 `/history?date=YYYY-MM-DD`。
+- 「你的一年」熱力圖的每一格必須對應**真實日期**，點擊進那天的 drill-in `/insights/day/YYYY-MM-DD`。
 - 熱力圖與圖表的顏色只用 `--heat-*` / `--chart-*`，兩種主題下都不能接近背景色。
 - `On This Day` 只回看過去幾年的同一天；不得混入今年今天的資料。
 - 統計若跟所選範圍口徑不同，要明講（目前已知：Insights「常搜尋」的次數是整個 query family 的歷史總數，不受範圍限制，見 STATUS 待辦）。
@@ -134,7 +134,7 @@ History 是找回原始紀錄的主要工作台，不是內容 feed。
 > 2026-10 前的 Explorer 紅線要求「上下都有『第 N / 共 M 頁』、跳頁、每頁筆數，不准改成 infinite scroll」。M18 照用戶指定的 prototype 改成虛擬化的連續時間線（cursor 分頁、捲到底自動載入），那條紅線不再適用。下面是現在要守的。
 
 - **狀態在 URL 裡**：搜尋字串、方式、視圖、日期、瀏覽器、網站、選取的 visit 都要能從 URL 還原；外部連結（Home、Insights、Ask、⌘K）一律走 URL，不靠元件狀態傳遞。
-- **結果數誠實**：先顯示「100+」，精確總數算完再換；regex 依 Rust `regex` 的規則檢查，不合法時說「正規表示式無效」與哪裡不支援（look-around、反向參照…），不送查詢，保留上一批結果淡化顯示。
+- **結果數誠實**：數完之前寫「N+ 頁」，數完換成精確數字；regex 依 Rust `regex` 的規則檢查，不合法時說「正規表示式無效」與哪裡不支援（look-around、反向參照…），不送查詢，保留上一批結果淡化顯示。
 - **預覽不推擠**：連結預覽的框從第一次繪製就是最終大小（詳情面板 1.91 : 1、列縮圖 64 × 36），圖片到了或確定沒有都不改變周圍版面；清單列只讀已存的圖，不因捲動而對網站發請求。
 - **列表永遠虛擬化**，固定列高；載下一頁不得改變目前的捲動位置；改篩選時保留舊結果淡化顯示，不閃回空白。
 - **大量資料不得卡主線程**：14.4M 條時第一頁要維持毫秒級（見 [ipc-performance.md](../architecture/ipc-performance.md)）；favicon 在列出現之後才分批補上，不阻塞列表。
@@ -165,4 +165,4 @@ History 是找回原始紀錄的主要工作台，不是內容 feed。
 - **誠實**：有真實進度（筆數、位元組、百分比）就顯示 determinate 進度與數字；沒有才用不確定動畫。不確定動畫不准長得像「停在 X%」的 determinate 進度。
 - **transform / opacity only**：動畫只動 `transform` 或 `opacity`，不動 `width` / `left` 等觸發 layout 的屬性；determinate 的寬度變化用 transition。
 - **reduced-motion**：循環動畫要在 `prefers-reduced-motion` 下停止，退成靜態的部分填充，不能是空軌（看起來壞了）或滿軌（看起來做完了）。
-- 2026-10 現況，未全部達標：Backup 進度卡沒有百分比時用 1/3 寬的 `animate-pulse` 短條，reduced motion 下仍在脈動；shadcn `Progress` 在沒有 `value` 時畫空軌（Archive 升級畫面的不確定階段就是這樣）。舊的正典 `pk-indeterminate-bar` 已隨舊前端刪除，目前沒有共用的不確定進度元件。
+- 2026-10 現況：不確定的進度共用 `animate-indeterminate`（1/3 寬的短條來回滑動），`Progress` 沒有 `value` 時與 Backup 進度卡沒有百分比時都用它；reduced motion 下全域停下動畫。

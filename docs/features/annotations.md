@@ -104,7 +104,7 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
 - **筆記**：History 詳情面板底部的「備註」框（`src/features/history/note-editor.tsx`）。
   停止輸入 800 ms 後自動存（`set_url_notes`），換到另一頁時先把未存的內容寫掉；
   旁邊顯示「正在儲存… / 已儲存 / 無法儲存備註」。讀取用 `useUrlAnnotation(url)`
-  （`src/features/history/queries.ts`），讀取失敗會說「無法載入備註」。
+  （`src/features/history/queries.ts`），讀取失敗會說「無法載入這個頁面的標籤和備註」。
 - **已加星**視圖用 `useStarList()`（`list_stars`，依加星時間由新到舊，每頁 500 筆，捲到底
   再載入下一頁，沒有總數上限）在每列顯示筆記預覽；筆記與標籤跟著每一項一起回傳。
   History 的列在加星的頁面旁畫星號，星號帶「已加星」的標籤（三種語言），讀螢幕的人也聽得到。

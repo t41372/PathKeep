@@ -389,9 +389,9 @@ Generating the 14.4M archive took 208 s for the rows and 47 s to project 3.6M se
 
 ## Open risks
 
-- Keyword search over a word on more than 25,000 pages ranks only the most recently archived 25,000 (§6). A word that matches many pages but few inside a narrow filter still reads matches until it fills the window: "topic" with a one-week filter is 0.7 s here. The rare-term path is about 20 ms slower than before.
+- ~~Keyword search over a word on more than 25,000 pages ranks only the most recently archived 25,000 (§6).~~ Gone with the Turso search, which ranks every matching page ([search.md](search.md)).
 - `load_source_stats` recounts each profile after every backup (294 ms at 14.4M). It is cached until the archive file changes and runs off the UI thread.
 - `keyring_status()` on every `app_snapshot` is unmeasured (see 4).
-- A whole-archive export at 14.4M is a long job (66 minutes measured with a cold cache). Memory stays flat, but Settings shows only a spinner until it finishes: there is no progress or cancel yet. Keeping one archive connection for the whole walk, instead of reopening it per page, is the first thing to try.
-- Insights over long ranges (§11): at 14.4M visits in the benchmark's shape, one year takes 38 s for the first batch and 55 s for the second, and an all-time card read the snapshot does not hold takes over a minute. Top sites, breadth, habits and browsers each read the range's site-day rows separately; one pass could feed all four. Bounded path flows still replay every visit in range.
+- ~~A whole-archive export at 14.4M is a long job, with no progress or cancel.~~ One connection for the whole walk: 40 s for 14.4M visits as plain JSON Lines, with progress and Stop in Settings → Storage (§9).
+- Insights over long ranges (§11): all time and the recent ranges ending today open from snapshots. A custom range is read live, and in the benchmark's densest shape a custom year's first batch takes 39.9 s (1.74 s in the `habits` shape, 67 ms on real data). A site-month rollup would cut it to about 3 s; the trade-off is waiting on the user ([research/2026-10-site-month-rollup.md](research/2026-10-site-month-rollup.md)).
 - Numbers come from a machine several times faster than the target. The fixes change the shape of the work (one page instead of a sort over every visit, two key derivations instead of five), which holds on slower hardware, but absolute times there will be higher.

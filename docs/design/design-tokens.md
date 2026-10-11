@@ -21,7 +21,7 @@
 
 ## Surfaces
 
-The window is translucent glass over a gradient "wall":
+The window is translucent over a gradient "wall". With the glass window (Settings → General → Window, macOS and Windows) the system blurs the real desktop instead: `body` paints no wall, and `html[data-window-material='glass']` lowers `--window` to `rgb(250 250 252 / 0.14)` / dark `rgb(24 24 34 / 0.18)` and `--panel` to `rgb(255 255 255 / 0.42)` / dark `rgb(30 30 42 / 0.3)`, so the glass shows.
 
 | Token                     | Light                                                         | Dark                                                          | Used for                                                    |
 | ------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------- |
@@ -80,19 +80,19 @@ In dark mode the scale runs from dim to bright, so "more" still reads as more.
 
 - Radius: `--radius: 0.75rem` (12 px). Tailwind gets `rounded-sm` = 8 px, `rounded-md` = 10 px, `rounded-lg` = 12 px, `rounded-xl` = 16 px. Cards and the main panel use `rounded-xl`; heatmap cells use 3 px.
 - Shadows: `--shadow-card` (hairline lift for cards and the active nav item) and `--shadow-float` (popovers, the palette). Both have dark variants.
-- Motion: `animate-rise` (220 ms, `cubic-bezier(0.2, 0.7, 0.2, 1)`, 6 px rise + fade) for screens, settings sections, empty states and the lock screen. Hover and color changes use 100–200 ms transitions. The History detail panel slides by animating its width over 200 ms and turns that off under `motion-reduce`. shadcn components bring their own enter/exit animations from `tw-animate-css`.
+- Motion: `animate-rise` (220 ms, `cubic-bezier(0.2, 0.7, 0.2, 1)`, 6 px rise + fade) for screens, settings sections, empty states and the lock screen. Hover and color changes use 100–200 ms transitions. The History detail panel slides by animating its width over 200 ms. `animate-shake` (300 ms) shakes the lock screen after a wrong passcode; `animate-indeterminate` (1.4 s, looping) slides a third-width segment across a bar whose progress is unknown. shadcn components bring their own enter/exit animations from `tw-animate-css`. Under `prefers-reduced-motion` a global rule in `src/index.css` cuts every animation and transition to 0.01 ms.
 - Chat bubbles: `--user-bubble` / `--user-bubble-foreground` (inverted neutral).
 
 ## Base styles
 
-- `body`: 14 px Geist, antialiased, `font-synthesis: none`, background `--wall`. `html`, `body`, `#root` fill the window and never scroll; each screen owns its scroll container.
+- `body`: 14 px Geist with `--font-han` (PingFang, Noto Sans SC / TC, Microsoft YaHei / JhengHei) for Chinese, antialiased, `font-synthesis: none`, background `--wall`. `html`, `body`, `#root` fill the window and never scroll; each screen owns its scroll container.
 - `.tabular` turns on tabular figures for counts and times.
 - `::selection` uses `--brand-soft`.
 - Every element defaults to `border-border` and `outline-ring/50`.
 
 ## Rules
 
-- Use the Tailwind utilities above. Don't hard-code colors in components; the one exception is `favicon.tsx`, which derives a letter-badge hue from the domain.
+- Use the Tailwind utilities above. Don't hard-code colors in components. The exceptions: `favicon.tsx` derives a letter-badge hue from the domain; the onboarding password-strength meter has one amber step (`encryption-step.tsx`); the generic browser icon in `browser-icons.tsx` is drawn in fixed slate.
 - New tokens go into both `:root` and `.dark`, plus the `@theme inline` mapping, in `src/index.css`, and into this page.
 - Don't edit files under `src/components/ui/` or `src/components/evilcharts/` to restyle them; pass classes or props. They are registry code we keep as shipped.
 

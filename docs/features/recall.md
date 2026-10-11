@@ -35,17 +35,17 @@ closing the Vault releases all sessions. App Lock keeps the Vault open.
 
 ### 現在的 History
 
-- **三個視圖**：時間線（依天分組，同一天內相隔 30 分鐘以上切成 session）、網站（所選範圍內最常去的 200 個網站，每列帶該網站最近一頁的連結預覽縮圖，點一個切回時間線並篩選）、已加星（頁面與整個網站，附連結預覽縮圖、最多三個標籤與筆記預覽）。「整個網站」是照公共後綴清單切的網站（`deterministic-intelligence.md` §5.1）：舊版用「最後兩段」切，在舊版替 `*.github.io` 某一頁的網站加的星存成 `github.io`，現在 `github.io` 底下每個網站各自獨立，那顆星不再涵蓋任何頁面，要在那個網站上重新加。搜尋時改為結果列表，同一頁面只列一行並標出符合的瀏覽次數。
+- **三個視圖**：時間線（依天分組，同一天內相隔 30 分鐘以上切成 session）、網站（所選範圍內去過的網站，按瀏覽次數，每次載 200 個、捲到底再載，沒有上限；每列帶該網站最近一頁的連結預覽縮圖，點一個切回時間線並篩選）、已加星（頁面與整個網站，附連結預覽縮圖、最多三個標籤與筆記預覽）。「整個網站」是照公共後綴清單切的網站（`deterministic-intelligence.md` §5.1）：舊版用「最後兩段」切，在舊版替 `*.github.io` 某一頁的網站加的星存成 `github.io`，現在 `github.io` 底下每個網站各自獨立，那顆星不再涵蓋任何頁面，要在那個網站上重新加。搜尋時改為結果列表，同一頁面只列一行並標出符合的瀏覽次數。
 - **搜尋框**：一個輸入框，打字 250 ms 後才寫進 URL 並查詢。三種方式：
-  - **全文**（預設）：`query_history`（`groupByUrl`），依相關度排序；§1 的進階語法（`site:`、`-詞`、`"片語"`、`OR`、`intitle:`、`inurl:`、`filetype:`、`after:` / `before:`、`note:` / `tag:`）由後端解析。搜尋框裡的「?」（點擊、鍵盤或滑鼠停留）打開語法速查（`search-help.tsx`）：每個運算子一個例子，點一下就填進搜尋框並切回全文；日期例子固定是上個月。只有 `tag:` 而沒有關鍵字的搜尋從 `url_tags` 找候選，不掃整個 `urls`（[ipc-performance.md](../architecture/ipc-performance.md) §6）。
-  - **Regex**：`query_history` 加 `regexMode`，依時間新到舊。把查詢用 `/…/` 包起來時，不管選了哪種方式都當 regex。前端用 Rust `regex` 的規則檢查（`regex-dialect.ts`：群組、巢狀字元類、跳脫字元、重複次數），擋下 look-around、反向參照、atomic / 條件群組、Rust 不認得的跳脫字元與不是重複次數的 `{`，用白話說明哪裡不支援，不送出查詢，畫面保留上一批結果（淡化）。不再用 JavaScript `RegExp`：它會擋下 Rust 接受的寫法（`a++`、`(?i)`、`(?P<name>…)`）。檢查器與後端共用一張案例表（`regex-dialect-cases.json`；Rust 測試 `regex_dialect_cases` 與 vitest 各跑一次）。只有編譯時才知道的錯誤（不存在的 Unicode 屬性、反向範圍、大小上限）仍會送到後端，畫面顯示「這個正規表示式無法執行」與 Rust 的訊息，不再是「搜尋沒有執行成功」。
+  - **全文**（預設）：串流的搜尋 session（`start_search` / `next_search_page` / `cancel_search`，[search.md](../architecture/search.md)），每頁一列，依相關度排序；§1 的進階語法（`site:`、`-詞`、`"片語"`、`OR`、`intitle:`、`inurl:`、`filetype:`、`after:` / `before:`、`note:` / `tag:`）由後端解析。搜尋框裡的「?」（點擊、鍵盤或滑鼠停留）打開語法速查（`search-help.tsx`）：每個運算子一個例子，點一下就填進搜尋框並切回全文；日期例子固定是上個月。只有 `tag:` 而沒有關鍵字的搜尋從 `url_tags` 找候選，不掃整個 `urls`（[ipc-performance.md](../architecture/ipc-performance.md) §6）。
+  - **Regex**：同一個搜尋 session 加 `regex`，依時間新到舊。把查詢用 `/…/` 包起來時，不管選了哪種方式都當 regex。前端用 Rust `regex` 的規則檢查（`regex-dialect.ts`：群組、巢狀字元類、跳脫字元、重複次數），擋下 look-around、反向參照、atomic / 條件群組、Rust 不認得的跳脫字元與不是重複次數的 `{`，用白話說明哪裡不支援，不送出查詢，畫面保留上一批結果（淡化）。不再用 JavaScript `RegExp`：它會擋下 Rust 接受的寫法（`a++`、`(?i)`、`(?P<name>…)`）。檢查器與後端共用一張案例表（`regex-dialect-cases.json`；Rust 測試 `regex_dialect_cases` 與 vitest 各跑一次）。只有編譯時才知道的錯誤（不存在的 Unicode 屬性、反向範圍、大小上限）仍會送到後端，畫面顯示「這個正規表示式無法執行」與 Rust 的訊息，不再是「搜尋沒有執行成功」。
     - **完整掃描**：逐段掃描全部符合篩選的訪問，漸進回傳去重後的頁面與目前計數；完成前不把計數標為精確。完成後的游標接續全域排序，分頁不重複頁面。取消或關閉 Vault 會終止搜尋。
-  - **語意**：`search_ai_history`（AI 搜尋），只有 `ai.enabled`、`semanticIndexEnabled` 都開而且索引就緒時可選；否則自動退回全文。不可選時，按鈕的提示與結果數下方一行說明原因（未開啟、建立中、等待建立、已暫停、索引是空的、建立失敗、無法使用、archive 未設定），並連到 Settings → AI；可用時同一行寫出 provider 與模型、已索引頁數、更新時間，索引過期時提示去重建。後端只能依網域篩選，日期與瀏覽器篩選在前端對已載入的結果做。
+  - **語意**：`search_ai_history`（AI 搜尋），只有 `ai.enabled`、`semanticIndexEnabled` 都開而且索引就緒時可選；否則自動退回全文。不可選時，按鈕的提示與結果數下方一行說明原因（未開啟、建立中、等待建立、已暫停、索引是空的、建立失敗、無法使用、archive 未設定），並連到 Settings → AI；可用時同一行寫出 provider 與模型、已索引頁數、更新時間，索引過期時提示去重建。日期、瀏覽器與網站篩選都交給後端（`search_ai_history`），先篩每次造訪再排名，所以頁面與筆數都是篩過的。
 - **篩選**：日期（今天、昨天、最近 7 天、最近 30 天、自訂起訖日）、瀏覽器（依瀏覽器種類，不是單一 profile）、網站（從網站視圖或 Insights 帶入的 chip）。全部寫在 URL（`date`、`browser`、`domain`），可一鍵清除。
-- **列表**：虛擬化、固定列高；cursor 分頁，捲到接近底部自動載下一頁（每頁 100 筆，語意每頁 50 筆）。結果數先顯示「100+」，旁邊另一個 `limit: 1, includeTotal: true` 的查詢算完精確總數後再換成精確數字；全文搜尋被窗口截斷時一直是「N+」。
+- **列表**：虛擬化、固定列高；cursor 分頁，捲到接近底部自動載下一頁（每頁 100 筆，語意每頁 50 筆）。全文與 regex 的結果數跟著串流更新：還沒數完時是「N+ 頁」（下限），數完換成精確的頁數與瀏覽次數。
 - **詳情面板**：標題、網址；在瀏覽器打開、加星 / 取消、複製連結；連結預覽（og:image，固定 1.91 : 1 的框，見 [og-images.md](og-images.md) §4）；總瀏覽次數、第一次與最近一次瀏覽、來源瀏覽器（`get_url_detail`）；最近 12 週每週瀏覽數；同一 session 的其他頁面；標籤（點標籤就搜尋 `tag:名稱`，見 [annotations.md](annotations.md) §4）；備註。
 - **鍵盤**：↑↓ 移動選取、Enter 在瀏覽器打開、Esc 關閉面板。
-- **回滾**：介面上只有 Takeout 匯入批次能「復原」與「還原」（Backup → 匯入卡的近期匯入）。
+- **回滾**：介面上只有匯入批次（Takeout 與瀏覽器檔案）能「復原」與「還原」（Backup → 近期匯入）。
 
 ### 已接受要求中 2026-10 介面沒有做到的
 
@@ -107,7 +107,7 @@ closing the Vault releases all sessions. App Lock keeps the Vault open.
   - `after:2026-05-01` / `before:2026-05-07`：依 visit time 收窄；會與 UI date filters 取交集。
   - 不支援 Google 的 language / region / usage rights / related / image-only operators，因為 v0.1 archive 不保存或不能本地證明這些 web-index 屬性。
 - **Regex 搜尋**：Explorer 提供顯式的正則模式，用於 URL / title 的手動進階檢索。
-  - **切換按鈕**：搜尋列旁有 toggle button，讓用戶在 關鍵詞模式和 regex 模式之間切換。切換時保留目前輸入的搜尋字串，但清楚更新 placeholder 提示（如 "Search keywords…" ↔ "Regex pattern…"）。
+  - **切換按鈕**：搜尋列旁有 toggle button，讓用戶在 關鍵詞模式和 regex 模式之間切換。切換時保留目前輸入的搜尋字串。（v0.4：三種方式共用一個 placeholder。）
   - **Client-side regex 驗證**：每次輸入變更時即時驗證 pattern 合法性。Regex dialect 以後端 Rust `regex` crate 為準；look-around / backreference 這類 JavaScript 可接受但 Rust 不支援的語法必須在 UI 先擋下。Invalid regex 直接在 UI 阻止查詢並顯示錯誤訊息（如 "Invalid regex: unterminated group"），同時保留目前可見的搜尋結果不被清空。
   - **URL 參數**：regex 模式透過 `?regex=1` query string 持久化，讓搜尋結果可分享、可書籤、可重新載入。與其他 Explorer filter 參數（`q`、`profileId`、`domain` 等）正交組合。
   - 這個模式必須清楚標示自己不是 day-one 快速路徑；UI 先驗證 pattern，再執行 scoped query。
@@ -120,7 +120,7 @@ closing the Vault releases all sessions. App Lock keeps the Vault open.
   - 按 run ID / 導入批次
 - Explorer、Export、Dashboard、AI search、Insights 等 read models 都只能讀取**當前可見** facts；已 rollback 的 visits / downloads / search terms 不能漏出，restore 後則要重新可見。
 - 篩選狀態在 UI 上有清晰的標籤式展示，可逐個移除或一鍵清除。
-- shell chrome 提供共享的 profile viewing scope。Explorer 預設繼承這個 scope，但 route 上若有明確 `profileId` filter，頁面級 filter 必須優先。
+- （v0.4 沒有全 app 共用的 profile scope；History 用自己的瀏覽器篩選。）shell chrome 提供共享的 profile viewing scope。Explorer 預設繼承這個 scope，但 route 上若有明確 `profileId` filter，頁面級 filter 必須優先。
 
 ### Regex 搜尋的效能邊界
 
@@ -131,9 +131,9 @@ closing the Vault releases all sessions. App Lock keeps the Vault open.
 
 ### Regex 搜尋的已實現狀態
 
-- M1 已交付：Explorer 的 regex toggle、client-side validation、`?regex=1` URL 參數、post-filter 執行路徑。
+- M1 已交付：Explorer 的 regex toggle、client-side validation、`?regex=1` URL 參數、post-filter 執行路徑。（v0.4：History 的 `?mode=regex`，後端執行。）
 - 目前 regex 支援 URL 和 title 欄位的匹配；不支援 page content 或 enrichment 欄位。
-- regex 搜尋結果與 關鍵詞搜尋結果共用相同的 list / detail / export 介面，切換模式不改變下游 UX。
+- regex 搜尋結果與 關鍵詞搜尋結果共用相同的 list / detail 介面，切換模式不改變下游 UX。（v0.4 的 History 沒有匯出；整個 archive 的匯出在 Settings → Storage。）
 
 ### 單條記錄顯示
 

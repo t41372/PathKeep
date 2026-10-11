@@ -16,7 +16,7 @@ PathKeep 看起來是一個安靜的 macOS 原生工具：半透明的視窗浮�
 - **單一品牌色**：橘色 `--brand`。用在進行中的狀態、圖表主序列、熱力圖、焦點框與選取；主要按鈕是中性黑白，不是橘色。藍 / 綠 / 紫 / 紅只做第二序列與狀態。
 - **字體**：Geist（UI 與標題）與 Geist Mono（路徑、指令、版本）。中文走系統字體。數字用 tabular figures。
 - **主題**：淺色、深色、跟隨系統，三者等價；沒有「預設紙感」之類的主題命名。
-- **密度**：只有一種。頁面寬度上限 1040–1080 px，左右 40 px padding；Settings 內容欄 680 px。沒有 Density 切換、沒有材質開關。
+- **密度**：只有一種。頁面寬度上限 1040–1080 px，左右 40 px padding；Settings 內容欄 680 px。沒有 Density 切換。（視窗材質，不透明或毛玻璃，在 Settings → General，只在 macOS 與 Windows。）
 - **動畫**：克制。畫面與 Settings 分頁進場用 220 ms 的 `animate-rise`（6 px 上浮加淡入），History 詳情面板 200 ms 滑入；hover / 顏色變化 100–200 ms。沒有彈簧、沒有裝飾性循環動畫。
 - **圖表**：EvilCharts（Recharts）加我們自己的熱力圖，橘色色階一致。圖表回答「量什麼、哪段時間」，不當裝飾。
 - 需要操作透明的地方（加密、刪除資料、排程、還原）照樣清楚嚴謹，但用對話框與一行一行的設定列表達，不做成帳本頁。
@@ -57,7 +57,8 @@ PathKeep 看起來是一個安靜的 macOS 原生工具：半透明的視窗浮�
 | 搬到另一台電腦（匯入） | Settings → Storage → 對話框  | `preview_app_data_import` 檢查檔案                                       | 確認覆蓋後 `apply_app_data_import`，重新開機流程                                        |
 | 從安全副本還原         | Settings → Storage → 對話框  | 列出 `list_recovery_snapshots`                                           | `run_full_archive_restore`；目前 archive 移到一旁，不刪                                 |
 | 刪除所有資料           | Settings → Storage → 對話框  | `preview_wipe_all_data` 列出每個路徑與大小                               | 輸入 `DELETE` 才執行 `wipe_all_data`                                                    |
-| Takeout 匯入           | Backup → 匯入卡              | `inspect_takeout`：筆數、時間範圍、會被略過的檔案                        | `import_takeout`；之後可在同一張卡「復原」                                              |
+| Takeout 匯入           | Backup → 匯入卡              | `inspect_takeout`：筆數、時間範圍、會被略過的檔案                        | `import_takeout`；之後可在「近期匯入」卡「復原」                                        |
+| 瀏覽器檔案匯入         | Backup → 匯入卡              | `inspect_browser_history`：新的與已在 archive 的造訪                     | `import_browser_history`；之後可在「近期匯入」卡「復原」                                |
 | 健康檢查與修復         | Settings → About             | `doctor_report`（唯讀）                                                  | 確認後 `repair_health`                                                                  |
 
 ### Trust warning grammar
@@ -113,18 +114,18 @@ Insights 的卡片查詢失敗時顯示 `CardError`（「載入失敗」與重�
 | **啟動**         | `BootScreen`：品牌標誌加「正在打開你的 archive…」。                                                                                                                                                                                      |
 | **切換畫面**     | 每個畫面是 lazy chunk，載入時顯示 `ScreenFallback`：標題、四格統計卡、一大塊卡片的 skeleton。                                                                                                                                            |
 | **Home**         | 統計卡數字位置是 skeleton；趨勢圖、On this day、年度熱力圖、常回來的主題、來源各自 skeleton，各自到齊；Insights 還在建置時見上方 Stale。                                                                                                 |
-| **History**      | 第一頁載入時 12 列遞減透明的 skeleton；捲到底載入下一頁時列表尾端多 3 列 loading；改篩選時保留舊結果並淡化（`dimmed`），新結果到了再換。搜尋結果數先顯示「100+」，精確總數算完再補上。                                                   |
+| **History**      | 第一頁載入時 12 列遞減透明的 skeleton；捲到底載入下一頁時列表尾端多 3 列 loading；改篩選時保留舊結果並淡化（`dimmed`），新結果到了再換。搜尋結果數跟著串流更新，數完之前是「N+ 頁」。                                                    |
 | **Insights**     | KPI、瀏覽走勢、熱門網站、節奏、常搜尋、常重開頁面各自 skeleton；切換範圍或設定檔時保留上一份結果直到新結果到達。                                                                                                                         |
 | **Ask**          | 送出後回答區立即出現「處理中…」，搜尋 archive 時「正在搜尋你的 archive…」，思考過程與工具呼叫可展開；停止或中斷會留下說明。                                                                                                              |
-| **Backup**       | 備份進行時頁面頂端出現進度卡：第幾個來源、來源名稱、已處理 / 總筆數、百分比；沒有百分比時是脈動的短條。按鈕本身也顯示「備份中… N%」。                                                                                                    |
+| **Backup**       | 備份進行時頁面頂端出現進度卡：第幾個來源、來源名稱、已處理 / 總筆數、百分比；沒有百分比時是來回滑動的短條。按鈕本身也顯示「備份中… N%」。                                                                                                |
 | **Settings**     | 需要查詢的列（磁碟用量、鑰匙圈、開機啟動、MCP 指令、預覽圖快取…）先顯示 skeleton 列。長操作（重新加密、匯出、模型下載、建索引、更新）在列內或對話框內顯示進度與說明（例如重新加密時提醒「大型 archive 要幾分鐘，請讓 PathKeep 開著」）。 |
 | **Archive 升級** | `UpgradeScreen`：階段名稱加「N / M」與進度條。                                                                                                                                                                                           |
 
 ### 視覺規範
 
 - Skeleton 用 shadcn `Skeleton`（`bg-accent` 加 `animate-pulse`），尺寸要接近最終內容，避免載入完成後 layout shift。
-- `prefers-reduced-motion`：History 詳情面板的滑入在 reduced motion 下關閉；其他循環動畫（skeleton pulse、進度條脈動）目前沒有 reduced-motion 替代，屬已知缺口。
-- 進度條要有數字（百分比或筆數）與可讀的狀態說明。shadcn `Progress` 在沒有 `value` 時畫的是空軌，不是不確定動畫；需要不確定進度的地方（升級畫面的不確定階段）目前只會看到空軌，屬已知缺口。
+- `prefers-reduced-motion`：全域關掉動畫與轉場（`src/index.css`），skeleton、進度條與面板滑入都停下；狀態一律另有文字或顏色。
+- 進度條要有數字（百分比或筆數）與可讀的狀態說明。還不知道進度時（`Progress` 沒有 `value`、Backup 進度卡沒有百分比）畫一段來回滑動的短條（`animate-indeterminate`），不是空軌。
 - 同一份背景狀態只能有一個資料來源：snapshot 由 session 開機時載入後放進 TanStack Query 快取，各畫面只讀不重拉；備份進度由 `BackupRunnerProvider` 統一持有，Home、Backup、⌘K 與 onboarding 共用。
 - 大列表一律虛擬化（`@tanstack/react-virtual`，固定列高），列數再多 DOM 成本不變。
 - AI 長操作（模型下載、建索引）要同時顯示目前階段文字與進度。
