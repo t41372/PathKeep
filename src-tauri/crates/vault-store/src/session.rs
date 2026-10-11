@@ -57,7 +57,10 @@ impl<'a> Session<'a> {
         self
     }
     pub(crate) fn check_sql(&self, sql: &str) -> Result<()> {
-        let (scratch, archive) = crate::sql::validate(sql, self.read_only)?;
+        let (scratch, archive) = match self.prepared {
+            Some(cache) => cache.validated(sql, self.read_only)?,
+            None => crate::sql::validate(sql, self.read_only)?,
+        };
         if archive && let Some(gate) = self.archive {
             let mut held = self.archive_read.borrow_mut();
             if held.is_none() {

@@ -1,5 +1,6 @@
-//! Responsibilities: keep one connection's compiled statements for reuse across jobs.
-//! Not responsible for: validating SQL (session.rs) or caching results.
+//! Responsibilities: keep one connection's compiled statements for reuse across jobs, and what
+//! `sql::validate` said about each statement text, so a text is checked once, not per call.
+//! Not responsible for: the validation rules (sql.rs) or caching results.
 //! Failure modes: every call recompiles (Turso compiles on each `Connection::execute`,
 //! which made a 10,000-row evidence batch spend minutes in the compiler); dynamic SQL
 //! grows the cache without bound; a half-read statement keeps its read snapshot and
@@ -27,6 +28,9 @@ pub(crate) struct StatementCache {
     entries: RefCell<HashMap<String, Entry>>,
     clock: Cell<u64>,
     compiled: Arc<AtomicU64>,
+    /// Each text's validation, for a writer's and a reader's session apart. Checking a text again
+    /// on every call took a tenth of a Takeout import's write time. Refusals are not kept.
+    validated: RefCell<HashMap<String, [Option<(bool, bool)>; 2]>>,
 }
 struct Entry {
     statement: turso::Statement,
@@ -35,7 +39,28 @@ struct Entry {
 
 impl StatementCache {
     pub fn new(compiled: Arc<AtomicU64>) -> Self {
-        Self { entries: RefCell::default(), clock: Cell::new(0), compiled }
+        Self {
+            entries: RefCell::default(),
+            clock: Cell::new(0),
+            compiled,
+            validated: RefCell::default(),
+        }
+    }
+
+    /// `sql::validate(sql, read_only)`, checked once per text. Dynamic SQL beyond a few times the
+    /// statement bound starts the record over instead of growing it.
+    pub fn validated(&self, sql: &str, read_only: bool) -> Result<(bool, bool)> {
+        let slot = usize::from(read_only);
+        if let Some(known) = self.validated.borrow().get(sql).and_then(|known| known[slot]) {
+            return Ok(known);
+        }
+        let checked = crate::sql::validate(sql, read_only)?;
+        let mut validated = self.validated.borrow_mut();
+        if validated.len() >= 4 * CAPACITY {
+            validated.clear();
+        }
+        validated.entry(sql.to_owned()).or_default()[slot] = Some(checked);
+        Ok(checked)
     }
 
     /// Takes the statement out while it runs; `put` returns it.
