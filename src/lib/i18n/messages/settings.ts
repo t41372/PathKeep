@@ -37,6 +37,15 @@ export const settings = defineMessages({
         h12: '12-hour (1:30 PM)',
         h23: '24-hour (13:30)',
       },
+      insightsZone: {
+        title: 'Insights time zone',
+        description:
+          'Insights put each visit on a day and an hour in this zone. It stays put when you travel; changing it builds Insights again.',
+        rebuilding:
+          'Building Insights again in {zone}. Until that is done they stay in {old}.',
+        search: 'Search for a city or zone',
+        none: 'No zone matches.',
+      },
       material: {
         title: 'Window',
         description:
@@ -231,6 +240,14 @@ export const settings = defineMessages({
         h12: '12 小时制（下午 1:30）',
         h23: '24 小时制（13:30）',
       },
+      insightsZone: {
+        title: '洞察的时区',
+        description:
+          '洞察按这个时区把每次浏览算进某一天、某个小时。出门旅行时它不跟着变；改了会重新整理洞察。',
+        rebuilding: '正在按{zone}重新整理洞察，完成之前仍是{old}。',
+        search: '搜索城市或时区',
+        none: '没有符合的时区。',
+      },
       material: {
         title: '窗口',
         description: '不透明，或用系统的毛玻璃，透出模糊的桌面',
@@ -413,6 +430,14 @@ export const settings = defineMessages({
         system: '跟隨系統',
         h12: '12 小時制（下午 1:30）',
         h23: '24 小時制（13:30）',
+      },
+      insightsZone: {
+        title: '洞察的時區',
+        description:
+          '洞察按這個時區把每次瀏覽算進某一天、某個小時。出門旅行時它不跟著變；改了會重新整理洞察。',
+        rebuilding: '正在按{zone}重新整理洞察，完成之前仍是{old}。',
+        search: '搜尋城市或時區',
+        none: '沒有符合的時區。',
       },
       material: {
         title: '視窗',

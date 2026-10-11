@@ -15,4 +15,10 @@ export {
   type Translator,
 } from './runtime'
 export { messages, type MessageKey } from './messages'
-export { useFormat, startOfDay, type Formatters } from './format'
+export {
+  useFormat,
+  useZonedFormat,
+  startOfDay,
+  type FormatZone,
+  type Formatters,
+} from './format'

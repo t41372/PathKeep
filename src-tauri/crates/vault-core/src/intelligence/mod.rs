@@ -21,6 +21,7 @@ mod compare_sets;
 mod day_insights;
 mod host_artifacts;
 mod incremental;
+mod insights_zone;
 #[cfg(test)]
 mod intelligence_core_persist;
 mod intelligence_daily_rollup_state;
@@ -42,9 +43,6 @@ mod intelligence_sessions;
 mod intelligence_shared;
 mod intelligence_structural_aggregates;
 mod intelligence_structural_build;
-#[cfg(test)]
-#[cfg(test)]
-mod intelligence_structural_stage;
 mod intelligence_structural_state;
 mod intelligence_structural_stream;
 mod intelligence_summary;
@@ -68,10 +66,12 @@ use self::incremental::{
 #[cfg(test)]
 use self::intelligence_daily_rollups::load_profile_derived_visit_batch;
 
+#[cfg(test)]
+use self::intelligence_shared::local_date_key;
 use self::intelligence_shared::{
     build_kpi, classify_search_query_kind, collapse_date_key, count_refind_pages_in_range,
-    date_range_bounds, jaccard, local_date_key, local_datetime_from_millis, new_sites_by_day,
-    previous_date_range, query_token_set, rfc3339_from_millis, search_words,
+    date_range_bounds, jaccard, new_sites_by_day, previous_date_range, query_token_set,
+    rfc3339_from_millis, search_words,
 };
 use self::intelligence_visit_records::visit_from_row;
 use self::site_dictionary::{
@@ -90,6 +90,8 @@ pub(crate) use self::build_pipeline::built_with_other_rules;
 pub use self::compare_sets::get_compare_sets;
 pub use self::day_insights::get_day_insights;
 pub use self::host_artifacts::{build_intelligence_local_host, preview_intelligence_local_host};
+pub(crate) use self::insights_zone::InsightsZone;
+pub use self::insights_zone::{insights_time_zone, insights_today, is_insights_time_zone};
 pub use self::intelligence_domain::{
     get_browsing_rhythm, get_discovery_trend, get_domain_deep_dive, get_domain_trend,
     get_on_this_day,
@@ -425,14 +427,6 @@ struct SearchEventBatchCursor {
 struct VisibleVisitBatchCursor {
     visit_time_ms: i64,
     visit_id: i64,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct StructuralDeltaSummary {
-    delta_count: usize,
-    dirty_date_keys: Vec<String>,
-    dirty_from_visit_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]

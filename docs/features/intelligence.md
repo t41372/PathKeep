@@ -182,7 +182,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 讓用戶看到過去幾年的同一天，自己在瀏覽什麼。
 
 - 拉出歷年同一天（±1 天容差）的歷史紀錄，按年份分組展示。
-- 同一天的比對以使用者目前系統 timezone 的本地日曆日為準，不用 raw UTC 日期切片假裝對齊「今天」。
+- 同一天的比對以洞察時區的日曆日為準（`docs/architecture/insights-time-zone.md`），不用 raw UTC 日期切片假裝對齊「今天」。
 - 當前年份今天的紀錄不屬於 `On This Day`；這張卡只用來回看過去幾年的同一天，不能把今天剛產生的瀏覽紀錄混進歷史回顧。
 - 如果有足夠數據，用 LLM 生成一句話摘要。
 - 這張卡現在是 **Dashboard-only** surface，不再放進 `/intelligence`；因為它不受 Intelligence route time scope 影響，留在 Dashboard 更誠實。

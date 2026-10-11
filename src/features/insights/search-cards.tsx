@@ -9,7 +9,7 @@ import { RotateCcw, Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { ShareBar } from './share-bar'
 import { historyPath, searchPath, sitePath } from './links'
 import { ListSkeleton, QueryBody, ScrollList, SectionStatus } from './parts'
@@ -22,10 +22,11 @@ import {
   useSearchLandings,
 } from './queries'
 import type { Scope } from './range'
+import { useInsightsFormat } from './zone'
 
 export function SearchEnginesCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const engines = useSearchEngines(scope)
   return (
     <SectionCard
@@ -93,7 +94,7 @@ export function SearchEnginesCard({ scope }: { scope: Scope }) {
 
 export function SearchWordsCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const words = useSearchConcepts(scope)
   return (
     <SectionCard
@@ -142,7 +143,7 @@ export function SearchWordsCard({ scope }: { scope: Scope }) {
  */
 export function SearchOutcomesCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const outcomes = useSearchEffectiveness(scope)
   const decimal = (value: number) => format.number(Math.round(value * 10) / 10)
   return (
@@ -230,7 +231,7 @@ export function SearchOutcomesCard({ scope }: { scope: Scope }) {
 /** Searches reworded twice or more, or that never settled on a page. */
 export function SearchTriesCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const friction = useFriction(scope)
   return (
     <SectionCard
@@ -295,7 +296,7 @@ export function SearchTriesCard({ scope }: { scope: Scope }) {
 /** The sites searches ended on: where the user's answers come from. */
 export function SearchLandingsCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const landings = useSearchLandings(scope)
   return (
     <SectionCard

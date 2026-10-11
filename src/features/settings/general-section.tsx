@@ -1,5 +1,5 @@
 /**
- * Settings → General: language, clock, appearance, how PathKeep sits on the desktop
+ * Settings → General: language, clock, Insights' time zone, appearance, how PathKeep sits on the desktop
  * (open at login, menu bar icon) and the two features that contact websites.
  */
 import {
@@ -22,6 +22,7 @@ import {
 } from '@/lib/window-material'
 import type { LanguagePreference } from '@/lib/types'
 import { DesktopRows } from './desktop-rows'
+import { InsightsZoneRow } from './insights-zone-row'
 import { OnlineRows } from './online-rows'
 import { RowSelect } from './row-select'
 
@@ -31,6 +32,7 @@ export function GeneralSection() {
     <SettingsSection title={t('settings.nav.general')}>
       <LanguageRow />
       <ClockRow />
+      <InsightsZoneRow />
       <AppearanceRow />
       {windowMaterialAvailable() && <WindowMaterialRow />}
       <DesktopRows />

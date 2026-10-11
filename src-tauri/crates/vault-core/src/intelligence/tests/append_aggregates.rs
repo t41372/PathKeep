@@ -38,7 +38,7 @@ pub(super) struct Visit {
     id: i64,
     url: String,
     title: String,
-    at: i64,
+    pub(super) at: i64,
     from: Option<i64>,
     search: Option<String>,
 }
@@ -146,42 +146,47 @@ pub(super) fn published(
     tables: &[&str],
     group: &'static str,
 ) -> Vec<(String, Vec<String>)> {
-    let db = TestDatabase::new(vault, Db::Intelligence);
     tables
         .iter()
-        .map(|table| {
-            let name = format!("{table}_rows");
-            let rows = db
-                .read(move |s| {
-                    let columns = s
-                        .table_columns(&name)?
-                        .into_iter()
-                        .filter(|column| column != "generation" && column != "computed_at")
-                        .collect::<Vec<_>>();
-                    let sql = format!(
-                        "SELECT {} FROM {name} WHERE generation=(SELECT {group} FROM \
-                         intelligence_generations WHERE profile_id='chrome:Default')",
-                        columns.join(",")
-                    );
-                    let width = columns.len();
-                    let mut rows = s.query(&sql, (), move |r| {
-                        (0..width)
-                            .map(|index| {
-                                Ok(match r.get_value(index).map_err(vault_store::Error::from)? {
-                                    Value::Real(real) => format!("{real:.6}"),
-                                    other => format!("{other:?}"),
-                                })
-                            })
-                            .collect::<vault_store::Result<Vec<_>>>()
-                            .map(|values| values.join("|"))
-                    })?;
-                    rows.sort();
-                    Ok(rows)
-                })
-                .unwrap();
-            (table.to_string(), rows)
-        })
+        .map(|table| (table.to_string(), published_rows(vault, format!("{table}_rows"), group)))
         .collect()
+}
+
+/// Every row of the table `name` (its full name) in the published generation of `group`, as in
+/// [`published`].
+pub(super) fn published_rows(
+    vault: &crate::Vault,
+    name: String,
+    group: &'static str,
+) -> Vec<String> {
+    TestDatabase::new(vault, Db::Intelligence)
+        .read(move |s| {
+            let columns = s
+                .table_columns(&name)?
+                .into_iter()
+                .filter(|column| column != "generation" && column != "computed_at")
+                .collect::<Vec<_>>();
+            let sql = format!(
+                "SELECT {} FROM {name} WHERE generation=(SELECT {group} FROM \
+                         intelligence_generations WHERE profile_id='chrome:Default')",
+                columns.join(",")
+            );
+            let width = columns.len();
+            let mut rows = s.query(&sql, (), move |r| {
+                (0..width)
+                    .map(|index| {
+                        Ok(match r.get_value(index).map_err(vault_store::Error::from)? {
+                            Value::Real(real) => format!("{real:.6}"),
+                            other => format!("{other:?}"),
+                        })
+                    })
+                    .collect::<vault_store::Result<Vec<_>>>()
+                    .map(|values| values.join("|"))
+            })?;
+            rows.sort();
+            Ok(rows)
+        })
+        .unwrap()
 }
 
 pub(super) fn vault() -> crate::Vault {

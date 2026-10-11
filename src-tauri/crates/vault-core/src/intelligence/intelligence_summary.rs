@@ -229,7 +229,7 @@ pub(crate) fn get_stable_sources_with_connection(
     connection: &Session<'_>,
     request: &ScopedPageRequest,
 ) -> Result<IntelligencePage<StableSource>> {
-    let (start, end) = date_range_bounds(&request.date_range)?;
+    let (start, end) = date_range_bounds(connection, &request.date_range)?;
     let limit = request.limit.unwrap_or(10).clamp(1, 1000) as usize;
     let after = super::paging::cursor::<(i64, String)>(request.cursor.as_deref())?;
     let rows = connection.query(
@@ -285,7 +285,7 @@ pub(crate) fn get_search_effectiveness_with_connection(
     connection: &Session<'_>,
     request: &SearchEffectivenessRequest,
 ) -> Result<SearchEffectiveness> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
     let mut statement = connection.prepare(
         "SELECT r.search_engine,
                 AVG(r.reformulation_count),
@@ -386,7 +386,7 @@ pub(crate) fn get_friction_signals_with_connection(
     connection: &Session<'_>,
     request: &ScopedPageRequest,
 ) -> Result<IntelligencePage<FrictionSignal>> {
-    let (start, end) = date_range_bounds(&request.date_range)?;
+    let (start, end) = date_range_bounds(connection, &request.date_range)?;
     let limit = request.limit.unwrap_or(10).clamp(1, 1000) as usize;
     let after = super::paging::cursor::<(i64, i64, String)>(request.cursor.as_deref())?;
     let after_clause = if after.is_some() {
@@ -465,7 +465,7 @@ pub(crate) fn get_reopened_investigations_with_connection(
     connection: &Session<'_>,
     request: &ScopedPageRequest,
 ) -> Result<IntelligencePage<ReopenedInvestigation>> {
-    let (start, end) = date_range_bounds(&request.date_range)?;
+    let (start, end) = date_range_bounds(connection, &request.date_range)?;
     let limit = request.limit.unwrap_or(10).clamp(1, 1000) as usize;
     let after = super::paging::cursor::<(i64, i64, String)>(request.cursor.as_deref())?;
     let after_clause = if after.is_some() {
@@ -549,7 +549,7 @@ fn count_deep_dive_sessions(
     range: &DateRange,
     profile_id: Option<&str>,
 ) -> Result<i64> {
-    let (start_ms, end_ms) = date_range_bounds(range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, range)?;
     connection
         .query_one(
             "SELECT COUNT(*)
@@ -580,7 +580,7 @@ fn estimate_active_time_ms(
     range: &DateRange,
     profile_id: Option<&str>,
 ) -> Result<i64> {
-    let (start_ms, end_ms) = date_range_bounds(range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, range)?;
     connection
         .query_one(
             "SELECT COALESCE(SUM(MIN(r.last_visit_ms - r.first_visit_ms + ?4, r.visit_count * ?5)), 0)
@@ -620,9 +620,9 @@ mod tests {
             },
             profile_id: None,
         };
-        let (start_ms, _) = date_range_bounds(&request.date_range).expect("bounds");
+        let (start_ms, _) = super::super::InsightsZone::system().range_bounds(&request.date_range).expect("bounds");
         let previous = previous_date_range(&request.date_range).expect("previous range");
-        let (previous_start_ms, _) = date_range_bounds(&previous).expect("previous bounds");
+        let (previous_start_ms, _) = super::super::InsightsZone::system().range_bounds(&previous).expect("previous bounds");
 
         let rollup = |date: &str, profile: &str, domain: &str| {
             connection
@@ -705,8 +705,9 @@ mod tests {
                         },
                         profile_id: Some("p1".to_string()),
                     };
-                    let (start_ms, _) =
-                        date_range_bounds(&request.date_range).expect("date bounds");
+                    let (start_ms, _) = super::super::InsightsZone::system()
+                        .range_bounds(&request.date_range)
+                        .expect("date bounds");
                     connection
                         .execute(
                             "INSERT INTO search_trails_rows (

@@ -28,44 +28,30 @@
 use super::SearchQueryKind;
 use crate::models::DateRange;
 use crate::visit_taxonomy::is_cjk_like;
-use anyhow::{Context, Result};
-use chrono::{DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Utc};
+use anyhow::Result;
+use chrono::{Datelike, Duration, NaiveDate, TimeZone, Utc};
 use icu_segmenter::{WordSegmenter, WordSegmenterBorrowed, options::WordBreakInvariantOptions};
 use reqwest::Url;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 use vault_store::{Session, params_owned as params};
 
-/// Returns the local calendar day key used by deterministic daily rollups.
-pub(super) fn local_date_key(visit_time_ms: i64) -> String {
-    local_datetime_from_millis(visit_time_ms).format("%Y-%m-%d").to_string()
-}
-
-/// Converts a local-epoch millisecond timestamp into a stable UTC RFC3339
-/// string for payloads that expose exact event time.
+/// Converts an archive timestamp into a UTC RFC3339 string for payloads that expose exact event
+/// time.
 pub(super) fn rfc3339_from_millis(visit_time_ms: i64) -> String {
-    local_datetime_from_millis(visit_time_ms).with_timezone(&Utc).to_rfc3339()
+    Utc.timestamp_millis_opt(visit_time_ms).single().unwrap_or_default().to_rfc3339()
 }
 
-/// Resolves an archive visit timestamp into the local timezone even when the
-/// host timezone rules produce ambiguous edges.
-pub(super) fn local_datetime_from_millis(visit_time_ms: i64) -> chrono::DateTime<Local> {
-    match Local.timestamp_millis_opt(visit_time_ms) {
-        LocalResult::Single(value) => value,
-        _ => Local::now(),
-    }
+/// In tests, a visit's day in the zone a first build takes (the computer's).
+#[cfg(test)]
+pub(super) fn local_date_key(visit_time_ms: i64) -> String {
+    super::InsightsZone::system().date_key(visit_time_ms)
 }
 
-/// Expands a user-facing inclusive date range into `[start_ms, end_ms)` bounds
-/// so SQL filters can stay exact and timezone-safe.
-pub(super) fn date_range_bounds(range: &DateRange) -> Result<(i64, i64)> {
-    let start = NaiveDate::parse_from_str(&range.start, "%Y-%m-%d")
-        .with_context(|| format!("parsing start date {}", range.start))?;
-    let end = NaiveDate::parse_from_str(&range.end, "%Y-%m-%d")
-        .with_context(|| format!("parsing end date {}", range.end))?;
-    let start_dt = resolve_local_date(start)?;
-    let end_dt = resolve_local_date(end.succ_opt().unwrap_or(end))?;
-    Ok((start_dt.timestamp_millis(), end_dt.timestamp_millis()))
+/// Expands a user-facing inclusive date range into `[start_ms, end_ms)` bounds, in the zone the
+/// published Insights put their days in (`InsightsZone::for_reading`).
+pub(super) fn date_range_bounds(s: &Session<'_>, range: &DateRange) -> Result<(i64, i64)> {
+    super::InsightsZone::for_reading(s)?.range_bounds(range)
 }
 
 /// Word breaks for Chinese and Japanese, which put no spaces between words: ICU4X's dictionary
@@ -257,7 +243,7 @@ pub(super) fn count_refind_pages_in_range(
     range: &DateRange,
     profile_id: Option<&str>,
 ) -> Result<i64> {
-    let (start_ms, end_ms) = date_range_bounds(range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, range)?;
     connection
         .query_one(
             "SELECT COUNT(*)
@@ -313,22 +299,6 @@ pub(super) fn collapse_date_key(date_key: &str, granularity: &str) -> String {
     }
 }
 
-fn resolve_local_date(date: NaiveDate) -> Result<chrono::DateTime<Local>> {
-    let naive = date.and_hms_opt(0, 0, 0).expect("midnight");
-    local_datetime_from_result(Local.from_local_datetime(&naive), date)
-}
-
-fn local_datetime_from_result(
-    result: LocalResult<DateTime<Local>>,
-    date: NaiveDate,
-) -> Result<DateTime<Local>> {
-    match result {
-        LocalResult::Single(value) => Ok(value),
-        LocalResult::Ambiguous(first, _) => Ok(first),
-        LocalResult::None => anyhow::bail!("could not resolve local midnight for {}", date),
-    }
-}
-
 fn landing_domain_matches_candidate(landing_domain: &str, candidate_domain: &str) -> bool {
     landing_domain == candidate_domain
         || landing_domain.ends_with(&format!(".{candidate_domain}"))
@@ -380,21 +350,6 @@ pub(crate) fn new_sites_by_day(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn local_datetime_result_helper_covers_ambiguous_and_missing_edges() {
-        let date = NaiveDate::from_ymd_opt(2026, 4, 25).expect("date");
-        let now = Local::now();
-        assert_eq!(
-            local_datetime_from_result(LocalResult::Ambiguous(now, now), date)
-                .expect("ambiguous local result")
-                .timestamp_millis(),
-            now.timestamp_millis()
-        );
-        let error =
-            local_datetime_from_result(LocalResult::None, date).expect_err("missing local result");
-        assert!(error.to_string().contains("could not resolve local midnight"));
-    }
 
     /// Chinese and Japanese put no spaces between words. Split only at spaces, a search was one
     /// word, so a rewording of it shared nothing with it and Search concepts listed whole

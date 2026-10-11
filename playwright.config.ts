@@ -150,6 +150,8 @@ export default defineConfig({
     project(
       'change',
       [
+        // First: it counts the fixture's visits, before other specs add some.
+        'insights-time-zone.spec.ts',
         'background-work.spec.ts',
         'backup.spec.ts',
         'schedule.spec.ts',

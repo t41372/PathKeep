@@ -141,7 +141,7 @@ pub(super) fn get_refind_pages_with_connection(
     connection: &Session<'_>,
     request: &RefindPagesRequest,
 ) -> Result<crate::models::IntelligencePage<RefindPage>> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
     let limit = request.limit.unwrap_or(20).clamp(1, 1000) as usize;
     let cursor = super::paging::cursor::<(f64, i64, String, String)>(request.cursor.as_deref())?;
     // Through the `refind_pages` view Turso sorts the whole generation on every page and builds
@@ -179,7 +179,7 @@ pub(super) fn get_opened_refind_pages_with_connection(
     profile_id: Option<&str>,
     limit: usize,
 ) -> Result<crate::models::IntelligencePage<RefindPage>> {
-    let (start_ms, end_ms) = super::date_range_bounds(range)?;
+    let (start_ms, end_ms) = super::date_range_bounds(connection, range)?;
     let rows = connection.query(
         "WITH opened AS (
            SELECT DISTINCT f.profile_id, f.canonical_url
@@ -221,7 +221,7 @@ pub fn get_refind_page_detail(
     vault.read(vault_store::Db::Intelligence, move |connection| {
         let request = &request;
 
-        let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+        let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
         let page = load_refind_page_detail_row(connection, request)?;
         let profile_id = page.profile_id.clone();
         let explanation = build_refind_explanation(
@@ -324,7 +324,7 @@ fn load_refind_page_detail_row(
     connection: &Session<'_>,
     request: &RefindPageDetailRequest,
 ) -> Result<RefindPage> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
     connection
         .query_one(
             "SELECT profile_id, canonical_url, url, title, registrable_domain, cross_day_count, trail_count,

@@ -38,7 +38,6 @@ use crate::models::{DateRange, ScopedDateRangeRequest};
 use crate::utils::now_rfc3339;
 use crate::visit_taxonomy::taxonomy_version;
 use anyhow::{Context, Result};
-use chrono::Local;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use vault_store::{OptionalRow, Session, params_owned as params};
@@ -162,7 +161,7 @@ pub(super) fn compute_overview_fingerprint(
         search_rule_signature,
         checkpoint_signature,
         archive_delta_signature,
-        Local::now().offset(),
+        super::InsightsZone::for_reading(connection)?.name(),
     ))
 }
 
@@ -649,7 +648,9 @@ mod tests {
         let connection = open_fingerprint_connection();
         let fingerprint = fingerprint(&connection, None).expect("fingerprint");
         assert!(!fingerprint.contains("day="), "{fingerprint} must not hold today's date");
-        assert!(fingerprint.ends_with(&format!("tz={}", Local::now().offset())), "{fingerprint}");
+        // Before any build the zone is the computer's.
+        let zone = super::super::InsightsZone::system();
+        assert!(fingerprint.ends_with(&format!("tz={}", zone.name())), "{fingerprint}");
         let asked_on = |end: &str| {
             let request = ScopedDateRangeRequest {
                 date_range: DateRange { start: ALL_TIME_SCOPE_START.into(), end: end.into() },

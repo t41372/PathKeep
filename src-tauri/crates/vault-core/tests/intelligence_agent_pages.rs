@@ -29,7 +29,7 @@ async fn oversized_native_reports_page_through_every_domain() {
             default_domain: None,
             default_limit: 20,
             run_control: None,
-            tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
+            time_zone: chrono_tz::UTC,
         };
         let registry = ToolRegistry::with_default_search_tools();
         let mut cursor = None::<String>;
@@ -76,7 +76,7 @@ async fn agent_session_detail_forwards_the_independent_trail_cursor() {
             default_domain: None,
             default_limit: 20,
             run_control: None,
-            tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
+            time_zone: chrono_tz::UTC,
         };
         let registry = ToolRegistry::with_default_search_tools();
         let mut cursor = None::<String>;

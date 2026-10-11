@@ -61,7 +61,7 @@ pub fn get_search_queries(
 ) -> Result<SearchQueryListResult> {
     let request = request.clone();
     vault.read(Db::Intelligence,move |s| {
-        let (start,end)=date_range_bounds(&request.date_range)?;
+        let (start,end)=date_range_bounds(s, &request.date_range)?;
         let limit=request.page_size.clamp(1,1000) as usize;
         let after=super::paging::cursor::<Cursor>(request.cursor.as_deref())?;
         let filter=request.query.as_deref().map(normalize_query).filter(|q|!q.is_empty());

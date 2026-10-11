@@ -18,7 +18,7 @@ use super::build_state::{self, BuildState};
 use super::site_dictionary::{
     classify_visit, load_enabled_search_engine_rules, load_site_dictionary_overrides,
 };
-use super::{CoreIntelligenceProgress, VisibleVisitBatchCursor, build_rows, local_date_key};
+use super::{CoreIntelligenceProgress, VisibleVisitBatchCursor, build_rows};
 use crate::Vault;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -132,6 +132,7 @@ where
         work.url_after = last;
         checked += urls.len();
         let mut saved = state.clone();
+        let zone = saved.zone();
         let mut next = work.clone();
         *state = vault.write(Db::Intelligence, Priority::Batch, move |s| {
             for (url_id, categories) in &classified {
@@ -187,7 +188,7 @@ where
                         ],
                     )?;
                     if moved_category {
-                        next.days.insert(local_date_key(time));
+                        next.days.insert(zone.date_key(time));
                         next.trails.extend(trail);
                     }
                 }
@@ -227,11 +228,11 @@ where
     let total = pending.len();
     for (index, day) in pending.into_iter().enumerate() {
         let range = crate::models::DateRange { start: day.clone(), end: day.clone() };
-        let (start, end) = super::date_range_bounds(&range)?;
+        let (start, end) = state.zone().range_bounds(&range)?;
         let mut cursor =
             Some(VisibleVisitBatchCursor { visit_time_ms: start - 1, visit_id: i64::MAX });
         let mut accumulator =
-            super::intelligence_daily_rollup_state::DailyRollupAccumulator::default();
+            super::intelligence_daily_rollup_state::DailyRollupAccumulator::new(state.zone());
         'day: loop {
             let batch = build_rows::derived_page(vault, state, cursor, limit)?;
             let Some(last) = batch.last() else { break };

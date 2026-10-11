@@ -535,8 +535,8 @@ impl HostState {
                 "visitedAt": item.visited_at,
                 // LOCAL renderings so a script never converts epoch/timezone against the 0 clock:
                 // `visitedAtLocal` is the wall-clock time and `localDate` the YYYY-MM-DD day bucket.
-                "visitedAtLocal": format_local_rfc3339(&item.visited_at, self.context.tz_offset),
-                "localDate": local_date_rfc3339(&item.visited_at, self.context.tz_offset),
+                "visitedAtLocal": format_local_rfc3339(&item.visited_at, self.context.time_zone),
+                "localDate": local_date_rfc3339(&item.visited_at, self.context.time_zone),
                 "score": item.score,
                 "matchReason": item.match_reason,
                 "canonicalUrl": canonical_url,

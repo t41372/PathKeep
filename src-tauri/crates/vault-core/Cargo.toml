@@ -15,6 +15,9 @@ zeroize = "1"
 anyhow.workspace = true
 browser-history-parser = { version = "0.1.0", path = "../browser-history-parser" }
 chrono.workspace = true
+# The IANA zones Insights puts days in (`insights_zone.rs`) and Ask renders visit times in, from
+# the chrono maintainers.
+chrono-tz = "0.10"
 directories.workspace = true
 futures-core.workspace = true
 getrandom.workspace = true

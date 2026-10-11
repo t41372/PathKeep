@@ -606,13 +606,17 @@ mod tests {
         connection
             .execute("INSERT INTO intelligence_generations(profile_id) VALUES('p1')", ())
             .unwrap();
-        let today = chrono::Local::now();
+        let zone = super::super::InsightsZone::system();
+        let today = zone.today();
         for back in 0..15 {
             let day = today - chrono::Duration::days(back);
             connection
                 .execute(
                     "INSERT INTO domain_daily_rollups_rows(profile_id,date_key,registrable_domain,domain_category,visit_count,search_count,new_domain_visits,unique_urls,last_visit_ms) VALUES ('p1',?1,'quiet.example','reference',1,0,0,1,?2)",
-                    params![day.format("%Y-%m-%d").to_string(), day.timestamp_millis()],
+                    params![
+                        day.format("%Y-%m-%d").to_string(),
+                        zone.start_of(day).unwrap().timestamp_millis()
+                    ],
                 )
                 .unwrap();
         }

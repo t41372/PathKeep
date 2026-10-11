@@ -287,6 +287,7 @@ fn run_app() -> Result<()> {
             enqueue_content_fetch_working_set,
             run_core_intelligence_now,
             queue_core_intelligence_rebuild,
+            get_insights_time_zone,
             get_sessions,
             get_session_detail,
             get_search_trails,

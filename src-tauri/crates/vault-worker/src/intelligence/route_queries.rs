@@ -22,6 +22,12 @@
 use super::*;
 
 /// Loads one paginated sessions list.
+/// The zone of the Insights on screen and of the next build, for Settings and for the screens
+/// that put dates in Insights' zone.
+pub fn get_insights_time_zone(vault: &vault_core::Vault) -> Result<vault_core::InsightsTimeZone> {
+    with_core_intelligence(vault, vault_core::insights_time_zone)
+}
+
 pub fn get_sessions(
     vault: &vault_core::Vault,
     request: &PagedDateRangeRequest,

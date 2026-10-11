@@ -8,8 +8,8 @@
 //! - compare sets detected from search trails
 //! - multi-browser/profile behavioral diffs
 
+use super::date_range_bounds;
 use super::site_days::{SiteDayCache, SiteDayScope, SiteDays};
-use super::{date_range_bounds, local_date_key};
 use crate::models::{
     BrowserCategoryDistribution, BrowserDiff, BrowserProfileSummary, CategoryMixEntry, CompareSet,
     CompareSetDetail, CompareSetDetailRequest, CompareSetPage, ExclusiveDomainEntry,
@@ -51,10 +51,11 @@ pub(crate) fn get_compare_set_detail_with_connection(
         .as_deref()
         .map(|session_id| load_session_summary(connection, session_id))
         .transpose()?;
+    let zone = super::InsightsZone::for_reading(connection)?;
     let recent_days = trail_members
         .iter()
         .filter(|member| member.page_category == page_category)
-        .map(|member| local_date_key(member.visit_time_ms))
+        .map(|member| zone.date_key(member.visit_time_ms))
         .collect::<BTreeSet<_>>()
         .into_iter()
         .rev()
@@ -279,7 +280,7 @@ fn load_compare_trail_members(
     request: &ScopedDateRangeRequest,
     trail_id: Option<&str>,
 ) -> Result<Vec<CompareTrailMember>> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
     let mut statement = connection.prepare(
         "SELECT search_trails.trail_id,
                 search_trails.initial_query,

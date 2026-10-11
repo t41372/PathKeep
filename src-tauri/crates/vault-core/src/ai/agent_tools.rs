@@ -111,11 +111,10 @@ pub struct AgentToolContext {
     /// promptly traps the guest (the sandbox bumps the engine epoch on cancel). `None` outside an
     /// agent run (the harness tests, and any retrieval-only caller) — the search tools never read it.
     pub run_control: Option<Arc<dyn AiRunControl>>,
-    /// The host's current UTC offset, used to render visit timestamps as LOCAL date/time in
-    /// model-facing tool output so the clockless model never hand-computes epoch/timezone math.
-    /// A fixed offset resolved once per run from the OS clock — exact for non-DST zones and recent
-    /// visits, with at most a 1-hour skew for historical visits across a DST boundary.
-    pub tz_offset: chrono::FixedOffset,
+    /// The computer's time zone, in which model-facing tool output renders visit timestamps as
+    /// LOCAL date/time so the clockless model never hand-computes epoch/timezone math. A named
+    /// zone, so each instant gets the offset of its own date (daylight saving included).
+    pub time_zone: chrono_tz::Tz,
 }
 
 /// JSON arguments accepted by every retrieval tool (one shared shape across the planes).
@@ -303,7 +302,7 @@ impl AgentTool for HistorySearchTool {
                     .map(|normalized| normalized.canonical_url),
             })
             .collect::<Vec<_>>();
-        let model_text = summarize_search_for_model(self.name, &response, context.tz_offset);
+        let model_text = summarize_search_for_model(self.name, &response, context.time_zone);
         let coverage_incomplete =
             response.search_state.as_ref().is_some_and(|state| !state.coverage_complete);
         // The search tools carry no code-mode fields (those default); only `run_code` populates them.
@@ -311,27 +310,27 @@ impl AgentTool for HistorySearchTool {
     }
 }
 
-/// Renders a UTC epoch-millis instant as a LOCAL `YYYY-MM-DD HH:MM` string in `offset`.
+/// Renders a UTC epoch-millis instant as a LOCAL `YYYY-MM-DD HH:MM` string in `zone`.
 /// Model-facing output uses this so the clockless model never converts epoch ms or applies a
 /// timezone by hand (a real trace showed it burning hundreds of reasoning lines doing exactly that).
-pub(super) fn format_local_ms(ms: i64, offset: chrono::FixedOffset) -> String {
+pub(super) fn format_local_ms(ms: i64, zone: chrono_tz::Tz) -> String {
     chrono::DateTime::from_timestamp_millis(ms)
-        .map(|dt| dt.with_timezone(&offset).format("%Y-%m-%d %H:%M").to_string())
+        .map(|dt| dt.with_timezone(&zone).format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_default()
 }
 
-/// Renders an RFC-3339 timestamp as a LOCAL `YYYY-MM-DD HH:MM` string in `offset`; returns the input
+/// Renders an RFC-3339 timestamp as a LOCAL `YYYY-MM-DD HH:MM` string in `zone`; returns the input
 /// unchanged if it cannot be parsed (never panics on unexpected data).
-pub(super) fn format_local_rfc3339(value: &str, offset: chrono::FixedOffset) -> String {
+pub(super) fn format_local_rfc3339(value: &str, zone: chrono_tz::Tz) -> String {
     chrono::DateTime::parse_from_rfc3339(value)
-        .map(|dt| dt.with_timezone(&offset).format("%Y-%m-%d %H:%M").to_string())
+        .map(|dt| dt.with_timezone(&zone).format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_else(|_| value.to_string())
 }
 
-/// The LOCAL `YYYY-MM-DD` calendar date for an RFC-3339 timestamp in `offset` (empty on parse failure).
-pub(super) fn local_date_rfc3339(value: &str, offset: chrono::FixedOffset) -> String {
+/// The LOCAL `YYYY-MM-DD` calendar date for an RFC-3339 timestamp in `zone` (empty on parse failure).
+pub(super) fn local_date_rfc3339(value: &str, zone: chrono_tz::Tz) -> String {
     chrono::DateTime::parse_from_rfc3339(value)
-        .map(|dt| dt.with_timezone(&offset).format("%Y-%m-%d").to_string())
+        .map(|dt| dt.with_timezone(&zone).format("%Y-%m-%d").to_string())
         .unwrap_or_default()
 }
 
@@ -340,12 +339,12 @@ pub(super) fn local_date_rfc3339(value: &str, offset: chrono::FixedOffset) -> St
 /// 02 §F bounded-context rule: thread evidence by row id + count + a short line per hit, NEVER the
 /// full result set. Each line is `[id] visited | url — title (reason, score)` so the model can cite
 /// a real history row id; any degradation notes are appended so the model knows recall was limited.
-/// `offset` renders each row's `visited_at` as LOCAL time so the clockless model never converts epoch
+/// `zone` renders each row's `visited_at` as LOCAL time so the clockless model never converts epoch
 /// ms or a timezone by hand.
 fn summarize_search_for_model(
     tool_name: &str,
     response: &crate::models::AiSearchResponse,
-    offset: chrono::FixedOffset,
+    zone: chrono_tz::Tz,
 ) -> String {
     if response.items.is_empty() {
         let limit_info =
@@ -387,7 +386,7 @@ fn summarize_search_for_model(
         text.push_str(&format!(
             "\n[{id}] {visited} | {url} — {title} ({reason}, {score:.3})",
             id = item.history_id,
-            visited = format_local_rfc3339(&item.visited_at, offset),
+            visited = format_local_rfc3339(&item.visited_at, zone),
             url = item.url,
             title = item.title.clone().unwrap_or_else(|| "(untitled)".to_string()),
             reason = item.match_reason,
@@ -849,23 +848,23 @@ impl AgentTool for IntelligenceReportTool {
         // `visitTimeMs`) get sibling LOCAL string fields it can use directly without epoch/timezone math.
         match report {
             IntelReport::Sessions => {
-                enrich_session_like_local(&mut result_json["sessions"], context.tz_offset);
+                enrich_session_like_local(&mut result_json["sessions"], context.time_zone);
             }
             IntelReport::SearchTrails => {
-                enrich_session_like_local(&mut result_json["trails"], context.tz_offset);
+                enrich_session_like_local(&mut result_json["trails"], context.time_zone);
             }
             IntelReport::SessionDetail => {
-                enrich_first_last_visit_local(&mut result_json["session"], context.tz_offset);
+                enrich_first_last_visit_local(&mut result_json["session"], context.time_zone);
                 if let Some(visits) = result_json["visits"].as_array_mut() {
                     for visit in visits {
                         if let Some(ms) = visit.get("visitTimeMs").and_then(Value::as_i64) {
-                            visit["visitTimeLocal"] = json!(format_local_ms(ms, context.tz_offset));
+                            visit["visitTimeLocal"] = json!(format_local_ms(ms, context.time_zone));
                         }
                     }
                 }
                 // The session's trails carry firstVisitMs/lastVisitMs too — localize them so the
                 // drill-down the fix added doesn't reintroduce raw epoch ms inside its own payload.
-                enrich_session_like_local(&mut result_json["trails"], context.tz_offset);
+                enrich_session_like_local(&mut result_json["trails"], context.time_zone);
             }
             _ => {}
         }
@@ -924,10 +923,10 @@ const INTELLIGENCE_REPORT_MAX_BYTES: usize = 8_000;
 ///
 /// A no-op when `items` is not an array (a torn/empty report serializes to something else) — so the
 /// enrichment is best-effort and never panics on an unexpected shape. The raw ms fields are KEPT.
-fn enrich_session_like_local(items: &mut Value, offset: chrono::FixedOffset) {
+fn enrich_session_like_local(items: &mut Value, zone: chrono_tz::Tz) {
     if let Some(array) = items.as_array_mut() {
         for item in array {
-            enrich_first_last_visit_local(item, offset);
+            enrich_first_last_visit_local(item, zone);
         }
     }
 }
@@ -938,12 +937,12 @@ fn enrich_session_like_local(items: &mut Value, offset: chrono::FixedOffset) {
 /// Each LOCAL field is inserted only when its ms sibling is present and integer, so a partial object
 /// is enriched as far as it can be without ever overwriting or fabricating a value. The raw ms fields
 /// stay so a caller that wants the exact instant still has it.
-fn enrich_first_last_visit_local(item: &mut Value, offset: chrono::FixedOffset) {
+fn enrich_first_last_visit_local(item: &mut Value, zone: chrono_tz::Tz) {
     if let Some(ms) = item.get("firstVisitMs").and_then(Value::as_i64) {
-        item["firstVisitLocal"] = json!(format_local_ms(ms, offset));
+        item["firstVisitLocal"] = json!(format_local_ms(ms, zone));
     }
     if let Some(ms) = item.get("lastVisitMs").and_then(Value::as_i64) {
-        item["lastVisitLocal"] = json!(format_local_ms(ms, offset));
+        item["lastVisitLocal"] = json!(format_local_ms(ms, zone));
     }
 }
 

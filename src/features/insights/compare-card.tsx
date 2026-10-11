@@ -8,13 +8,14 @@
 import { Link } from 'react-router-dom'
 import { SiteIcon } from '@/features/history/site-icon'
 import { SectionCard } from '@/components/app/section-card'
-import { useFormat, useI18n } from '@/lib/i18n'
-import { localDateKey } from '@/lib/backend-client/insights'
+import { useI18n } from '@/lib/i18n'
 import { cn } from '@/lib/cn'
 import { dayPath, pagePath, searchPath } from './links'
 import { ListSkeleton, QueryBody, ScrollList, SectionStatus } from './parts'
 import { useCompareSets } from './queries'
 import type { Scope } from './range'
+import { useInsightsFormat } from './zone'
+import { dateKeyIn } from '@/lib/time-zone'
 
 export function ComparedPagesCard({
   scope,
@@ -25,7 +26,7 @@ export function ComparedPagesCard({
   empty?: string
 }) {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const sets = useCompareSets(scope)
   return (
     <SectionCard
@@ -61,7 +62,9 @@ export function ComparedPagesCard({
                         {set.searchQuery}
                       </Link>
                       <Link
-                        to={dayPath(localDateKey(new Date(set.lastVisitedAt)))}
+                        to={dayPath(
+                          dateKeyIn(Date.parse(set.lastVisitedAt), scope.zone),
+                        )}
                         title={t('insights.compared.openDay')}
                         className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
                       >

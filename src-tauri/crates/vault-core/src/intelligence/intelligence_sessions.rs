@@ -43,7 +43,7 @@ pub fn get_sessions(
     vault.read(vault_store::Db::Intelligence,move |connection| {
 let request=&request;
 
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
     // Exact interval overlap includes sessions spanning any number of days.
     let total: i64 = connection.query_one(
         "SELECT COUNT(*)
@@ -117,7 +117,7 @@ pub fn get_search_trails(
     vault.read(vault_store::Db::Intelligence,move |connection| {
 let request=&request;
 
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
     let total: i64 = connection.query_one(
         "SELECT COUNT(*)
          FROM search_trails_rows r INDEXED BY idx_search_trails_recent

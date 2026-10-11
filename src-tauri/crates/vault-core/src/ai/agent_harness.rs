@@ -1622,7 +1622,7 @@ mod tests {
             // exercise run_code build their own context with a real control).
             run_control: None,
             // Tests pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
-            tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
+            time_zone: chrono_tz::UTC,
         };
         (dir, context)
     }
@@ -2882,7 +2882,7 @@ mod tests {
             default_limit: 8,
             run_control: None,
             // Tests pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
-            tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
+            time_zone: chrono_tz::UTC,
         };
 
         let registry = ToolRegistry::with_default_search_tools();

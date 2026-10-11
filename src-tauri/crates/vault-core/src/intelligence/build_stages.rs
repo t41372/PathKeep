@@ -25,17 +25,18 @@ where
         return Ok(0);
     }
     super::build_reclassify::days(vault, state, limit, progress)?;
+    let zone = state.zone();
     let mut cursor = state.daily_cursor;
     if cursor.is_none()
         && !state.full
         && let Some(date) = state.dirty_dates.first()
     {
         let range = crate::models::DateRange { start: date.clone(), end: date.clone() };
-        let (start, _) = date_range_bounds(&range)?;
+        let (start, _) = zone.range_bounds(&range)?;
         cursor = Some(VisibleVisitBatchCursor { visit_time_ms: start - 1, visit_id: i64::MAX });
     }
     let mut current_date = None::<String>;
-    let mut accumulator = DailyRollupAccumulator::default();
+    let mut accumulator = DailyRollupAccumulator::new(zone);
     let mut pending = PendingDays::default();
     let mut day_end = cursor;
     let mut processed = 0;
@@ -47,10 +48,12 @@ where
             break;
         }
         for visit in &batch {
-            let date = local_date_key(visit.visit_time_ms);
+            let date = zone.date_key(visit.visit_time_ms);
             if current_date.as_deref().is_some_and(|old| old != date) {
                 let day = current_date.take().unwrap();
-                pending.add(day, std::mem::take(&mut accumulator).finish(), day_end);
+                let finished =
+                    std::mem::replace(&mut accumulator, DailyRollupAccumulator::new(zone));
+                pending.add(day, finished.finish(), day_end);
                 if pending.rows >= DAYS_PER_COMMIT_ROWS {
                     pending.flush(vault, state)?;
                 }
@@ -193,8 +196,12 @@ where
         });
         let mut saved = state.clone();
         stream = vault.write(Db::Intelligence, Priority::Batch, move |s| {
-            let mut persist =
-                StructuralTailPersist::new(s, saved.navigation_generation, &saved.profile_id)?;
+            let mut persist = StructuralTailPersist::new(
+                s,
+                saved.navigation_generation,
+                &saved.profile_id,
+                saved.zone(),
+            )?;
             for visit in batch {
                 stream.process_visit(
                     StructuralVisitRecord {
@@ -233,8 +240,12 @@ where
     let mut finished = stream.clone();
     let saved = state.clone();
     let report = vault.write(Db::Intelligence, Priority::Batch, move |s| {
-        let mut persist =
-            StructuralTailPersist::new(s, saved.navigation_generation, &saved.profile_id)?;
+        let mut persist = StructuralTailPersist::new(
+            s,
+            saved.navigation_generation,
+            &saved.profile_id,
+            saved.zone(),
+        )?;
         finished.finish(&saved.computed_at, &mut persist)?;
         Ok(finished.report)
     })?;
@@ -355,7 +366,8 @@ pub(super) fn load_families<F>(
 where
     F: FnMut(CoreIntelligenceProgress) -> Result<()>,
 {
-    let mut accumulator = super::intelligence_structural_build::QueryFamilyAccumulator::default();
+    let mut accumulator =
+        super::intelligence_structural_build::QueryFamilyAccumulator::new(state.zone());
     let mut after = 0;
     loop {
         let generation = state.navigation_generation;

@@ -284,6 +284,11 @@ pub fn save_user_config_with_vault(
             "encryption-mode-change-requires-rekey: use rekey_archive to change encryption"
         );
     }
+    if let Some(zone) = next_config.insights_time_zone.as_deref()
+        && !vault_core::is_insights_time_zone(zone)
+    {
+        anyhow::bail!("invalid-time-zone: {zone} is not an IANA time zone");
+    }
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
     validate_app_lock_change(
@@ -294,6 +299,14 @@ pub fn save_user_config_with_vault(
     )?;
     save_config(&paths, &next_config)?;
     reconcile_ai_queue_controls_or_restore_config(vault, &paths, &previous_config, &next_config)?;
+    // A new Insights time zone rebuilds Insights in it now, not at the next backup. A build
+    // running meanwhile is followed by one in the new zone when it ends (the intelligence drain).
+    if previous_config.insights_time_zone != next_config.insights_time_zone
+        && let Some(vault) = vault
+    {
+        crate::intelligence::rebuild_in_chosen_zone(&vault.with_config(next_config.clone()))
+            .context("queueing an Insights build in the new time zone")?;
+    }
     app_snapshot_with_vault(vault, session_database_key)
 }
 
@@ -484,6 +497,11 @@ where
         anyhow::bail!(
             "encryption-mode-change-requires-rekey: use rekey_archive to change encryption"
         );
+    }
+    if let Some(zone) = next_config.insights_time_zone.as_deref()
+        && !vault_core::is_insights_time_zone(zone)
+    {
+        anyhow::bail!("invalid-time-zone: {zone} is not an IANA time zone");
     }
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;

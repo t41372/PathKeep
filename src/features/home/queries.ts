@@ -1,5 +1,9 @@
-/** Data for Home. Every query sits under the archive key, so a backup refreshes it. */
+/**
+ * Data for Home. Every query sits under the archive key, so a backup refreshes
+ * it. The Insights reads are in Insights' time zone, like Insights itself.
+ */
 import { useQuery } from '@tanstack/react-query'
+import { useInsightsZone } from '@/features/insights/zone'
 import {
   calendarYear,
   insightsClient,
@@ -16,24 +20,28 @@ const key = (...parts: unknown[]) => [
 ]
 
 export function useThirtyDayTrend() {
+  const zone = useInsightsZone().shown
   return useQuery({
-    queryKey: key('trend-30'),
-    queryFn: () => insightsClient.discoveryTrend({ dateRange: lastDays(30) }),
+    queryKey: key('trend-30', zone),
+    queryFn: () =>
+      insightsClient.discoveryTrend({ dateRange: lastDays(30, zone) }),
     refetchInterval: pollWhileStale,
   })
 }
 
 export function useThirtyDayDigest() {
+  const zone = useInsightsZone().shown
   return useQuery({
-    queryKey: key('digest-30'),
-    queryFn: () => insightsClient.digest({ dateRange: lastDays(30) }),
+    queryKey: key('digest-30', zone),
+    queryFn: () => insightsClient.digest({ dateRange: lastDays(30, zone) }),
     refetchInterval: pollWhileStale,
   })
 }
 
 export function useYearTrend(year: number) {
+  const zone = useInsightsZone().shown
   return useQuery({
-    queryKey: key('year', year),
+    queryKey: key('year', year, zone),
     queryFn: () =>
       insightsClient.discoveryTrend({ dateRange: calendarYear(year) }),
     placeholderData: (previous) => previous,
@@ -42,18 +50,20 @@ export function useYearTrend(year: number) {
 }
 
 export function useOnThisDay() {
+  const zone = useInsightsZone().shown
   return useQuery({
-    queryKey: key('on-this-day'),
+    queryKey: key('on-this-day', zone),
     queryFn: () => insightsClient.onThisDay(),
     refetchInterval: pollWhileStale,
   })
 }
 
 export function useThreads() {
+  const zone = useInsightsZone().shown
   return useQuery({
-    queryKey: key('threads'),
+    queryKey: key('threads', zone),
     queryFn: () =>
-      insightsClient.reopenedInvestigations({ dateRange: lastDays(90) }),
+      insightsClient.reopenedInvestigations({ dateRange: lastDays(90, zone) }),
     refetchInterval: pollWhileStale,
   })
 }

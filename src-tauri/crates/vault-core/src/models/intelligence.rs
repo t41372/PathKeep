@@ -1762,6 +1762,22 @@ pub struct IntelligenceStatus {
     pub warning: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// The time zone Insights put days and hours in (`docs/architecture/insights-time-zone.md`).
+/// Screens read dates in `shown`; Settings shows `next`, and that a rebuild is under way while
+/// the two differ or `rebuilding_from` is set.
+pub struct InsightsTimeZone {
+    /// The IANA zone of the Insights on screen.
+    pub shown: String,
+    /// The IANA zone the next Insights build uses.
+    pub next: String,
+    /// The zone some profiles' Insights are still in while a rebuild moves them to `next`. It
+    /// outlasts `shown != next`: reads move to `next` with the first profile rebuilt, so until
+    /// the last one the numbers mix the two zones.
+    pub rebuilding_from: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 /// Aggregate queue counters for deterministic intelligence jobs.

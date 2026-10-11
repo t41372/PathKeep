@@ -84,7 +84,7 @@ pub(super) fn get_query_families_with_connection(
     connection: &Session<'_>,
     request: &PagedDateRangeRequest,
 ) -> Result<QueryFamilyResult> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
     // Counted on the rows, from the range's start in the list's index: through the
     // `query_families` view Turso read every family of the build for any range.
     let total: i64 = connection.query_one(
@@ -153,7 +153,7 @@ pub fn get_query_family_detail(
     vault.read(vault_store::Db::Intelligence,move |connection| {
 let request=&request;
 
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
     let (profile_id, family) = load_query_family_detail_row(connection, request)?;
     let normalized_queries = family
         .queries

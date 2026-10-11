@@ -29,6 +29,8 @@ export const queryKeys = {
   /** Prefix for every query whose result depends on archive contents. */
   archiveData: ['archive'] as const,
   dashboard: ['archive', 'dashboard'] as const,
+  /** The zone Insights put days in; a backup can finish a rebuild in a new one. */
+  insightsZone: ['archive', 'insights-zone'] as const,
   schedule: ['schedule-status'] as const,
   exportProgress: (exportId: string) => ['export-progress', exportId] as const,
 }

@@ -32,6 +32,7 @@ import {
 } from './pattern-cards'
 import { useScope } from './range'
 import { ScopeControls } from './scope-controls'
+import { ZoneNotice } from './zone-notice'
 import {
   SearchEnginesCard,
   SearchLandingsCard,
@@ -65,6 +66,7 @@ export default function InsightsPage() {
           subtitle={t('insights.subtitle')}
           actions={<ScopeControls />}
         />
+        <ZoneNotice />
         <KpiRow scope={scope} />
         <Row>
           <div className="flex min-w-0 flex-col gap-4">

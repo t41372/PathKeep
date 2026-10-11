@@ -9,7 +9,6 @@ import { Heatmap, HeatLegend, type HeatCell } from '@/components/app/heatmap'
 import { CardError, SectionCard } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { localDateKey } from '@/lib/backend-client/insights'
 import { BrowserIcon } from '@/lib/browser-icons'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
@@ -29,6 +28,8 @@ import {
   useThreads,
   useYearTrend,
 } from './queries'
+import { useInsightsFormat, useInsightsZone } from '@/features/insights/zone'
+import { addDays, dayAsUtcDate, todayIn } from '@/lib/time-zone'
 
 const trendConfig = {
   visits: {
@@ -39,13 +40,14 @@ const trendConfig = {
 
 export function TrendCard() {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
+  const today = todayIn(useInsightsZone().shown)
   const trend = useThirtyDayTrend()
   const digest = useThirtyDayDigest()
   const building = stillBuilding(trend.data, noVisits)
   const series = useMemo(
-    () => dailySeries(trend.data?.data.points ?? [], 30),
-    [trend.data],
+    () => dailySeries(trend.data?.data.points ?? [], 30, today),
+    [trend.data, today],
   )
   const change = digest.data?.data.totalVisits.changePercent
   const config = useMemo(
@@ -97,7 +99,7 @@ export function TrendCard() {
               interval={6}
               padding={{ left: 14, right: 14 }}
               tickFormatter={(value: string) =>
-                format.monthDay(`${value}T00:00:00`)
+                format.day(value, { month: 'short', day: 'numeric' })
               }
               className="font-mono"
             />
@@ -121,7 +123,8 @@ export function TrendCard() {
 
 export function OnThisDayCard() {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
+  const today = todayIn(useInsightsZone().shown)
   const onThisDay = useOnThisDay()
   const building = stillBuilding(onThisDay.data, (days) =>
     days.every((day) => day.totalVisits === 0),
@@ -134,7 +137,7 @@ export function OnThisDayCard() {
     <SectionCard
       title={t('home.onThisDay.title')}
       subtitle={t('home.onThisDay.subtitle', {
-        date: format.monthDay(new Date()),
+        date: format.day(today, { month: 'short', day: 'numeric' }),
       })}
     >
       {onThisDay.isError ? (
@@ -186,23 +189,22 @@ export function OnThisDayCard() {
   )
 }
 
-/** Monday-first week columns covering one calendar year. */
+/** Monday-first week columns covering one calendar year, up to `today`. */
 function yearColumns(
   year: number,
+  today: string,
   counts: Map<string, number>,
-  label: (date: Date, visits: number) => string,
+  label: (dateKey: string, visits: number) => string,
 ) {
   const max = Math.max(1, ...counts.values())
-  const first = new Date(year, 0, 1)
-  const offset = (first.getDay() + 6) % 7
-  const today = localDateKey(new Date())
+  const first = `${year}-01-01`
+  const offset = (dayAsUtcDate(first).getUTCDay() + 6) % 7
   const columns: HeatCell[][] = []
   for (let week = 0; week < 54; week += 1) {
     const column: HeatCell[] = []
     for (let row = 0; row < 7; row += 1) {
-      const date = new Date(year, 0, 1 + week * 7 + row - offset)
-      const dateKey = localDateKey(date)
-      const outside = date.getFullYear() !== year || dateKey > today
+      const dateKey = addDays(first, week * 7 + row - offset)
+      const outside = !dateKey.startsWith(`${year}-`) || dateKey > today
       const visits = counts.get(dateKey) ?? 0
       column.push(
         outside
@@ -210,7 +212,7 @@ function yearColumns(
           : {
               key: dateKey,
               level: heatLevel(visits, max),
-              label: label(date, visits),
+              label: label(dateKey, visits),
             },
       )
     }
@@ -221,9 +223,10 @@ function yearColumns(
 
 export function YearCard() {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
   const navigate = useNavigate()
-  const currentYear = new Date().getFullYear()
+  const today = todayIn(useInsightsZone().shown)
+  const currentYear = Number(today.slice(0, 4))
   const [year, setYear] = useState(currentYear)
   const trend = useYearTrend(year)
   const building = stillBuilding(trend.data, noVisits)
@@ -241,19 +244,19 @@ export function YearCard() {
       sum += visits
       if (!best || visits > best.visits) best = { dateKey, visits }
     }
-    const label = (date: Date, visits: number) =>
+    const label = (dateKey: string, visits: number) =>
       visits > 0
         ? t('home.year.cell', {
-            date: format.date(date),
+            date: format.day(dateKey),
             visits: t('common.visits', { count: visits }),
           })
-        : t('home.year.cellEmpty', { date: format.date(date) })
+        : t('home.year.cellEmpty', { date: format.day(dateKey) })
     return {
-      columns: yearColumns(year, counts, label),
+      columns: yearColumns(year, today, counts, label),
       total: sum,
       busiest: best,
     }
-  }, [points, year, t, format])
+  }, [points, year, today, t, format])
 
   return (
     <SectionCard
@@ -318,7 +321,7 @@ export function YearCard() {
             })}
             {busiest &&
               busiest.visits > 0 &&
-              ` · ${t('home.year.busiest', { date: format.monthDay(`${busiest.dateKey}T00:00:00`) })}`}
+              ` · ${t('home.year.busiest', { date: format.day(busiest.dateKey, { month: 'short', day: 'numeric' }) })}`}
           </span>
         )}
         <HeatLegend less={t('common.less')} more={t('common.more')} />
@@ -331,7 +334,8 @@ const threadColors = ['bg-blue', 'bg-brand', 'bg-green', 'bg-violet']
 
 export function ThreadsCard() {
   const { t } = useI18n()
-  const format = useFormat()
+  const format = useInsightsFormat()
+  const zone = useInsightsZone().shown
   const threads = useThreads()
   const building = stillBuilding(
     threads.data,
@@ -377,8 +381,8 @@ export function ThreadsCard() {
               <Link
                 to={
                   thread.anchorType === 'query_family'
-                    ? searchPath(thread.anchorLabel, presetScope('d90'))
-                    : pagePath(thread.anchorId, presetScope('d90'))
+                    ? searchPath(thread.anchorLabel, presetScope('d90', zone))
+                    : pagePath(thread.anchorId, presetScope('d90', zone))
                 }
                 className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted"
               >

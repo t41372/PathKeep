@@ -2,8 +2,13 @@
  * Locale-aware number and date formatting for the current language.
  * Formatter instances are cached per locale; creating Intl objects in render
  * paths is surprisingly expensive.
+ *
+ * Instants (a visit's time) are shown in the computer's zone, or in another
+ * zone given to `createFormatters` (Insights' own, `insights/zone.ts`).
+ * Calendar days (`YYYY-MM-DD` keys) go through `day`, which no zone moves.
  */
 import { useMemo } from 'react'
+import { dateKeyIn, dayAsUtcDate, daysBetween } from '@/lib/time-zone'
 import { useI18n } from './context'
 import type { Translator } from './runtime'
 
@@ -59,21 +64,55 @@ function clockOptions(hourCycle: 'h12' | 'h23'): Intl.DateTimeFormatOptions {
   }
 }
 
+/** Where instants are shown, when not in the computer's zone. */
+export interface FormatZone {
+  /** An IANA zone. */
+  timeZone: string
+  /** Times carry the zone ("14:12 GMT+8"), because it is not the computer's. */
+  label: boolean
+}
+
 export function createFormatters(
   locale: string,
   t: Translator,
   hourCycle: HourCycle = undefined,
+  zone: FormatZone | null = null,
 ) {
   const cycle = hourCycle ?? languageClock(locale)
-  const clock = clockOptions(cycle)
-  const time = (value: DateInput) =>
-    dateFormat(locale, clock).format(toDate(value))
+  const timeZone = zone?.timeZone
+  const clock: Intl.DateTimeFormatOptions = {
+    ...clockOptions(cycle),
+    timeZone,
+    timeZoneName: zone?.label ? 'short' : undefined,
+  }
+  /** An instant formatted in the zone. */
+  const at = (options: Intl.DateTimeFormatOptions) =>
+    dateFormat(locale, { ...options, timeZone })
+  const time = (value: DateInput) => at(clock).format(toDate(value))
+  /** A wall-clock hour of no particular day, the same in every zone. */
+  const wallClock = (value: number, options: Intl.DateTimeFormatOptions) =>
+    dateFormat(locale, { ...options, timeZone: 'UTC' }).format(
+      Date.UTC(2000, 0, 1, value),
+    )
   /** An hour on its own, "6 AM" / "06", for chart axes. */
   const hour = (value: number) =>
-    dateFormat(locale, {
+    wallClock(value, {
       hour: cycle === 'h12' ? 'numeric' : '2-digit',
       hourCycle: cycle,
-    }).format(new Date(2000, 0, 1, value))
+    })
+  const clockTime = (value: number) => wallClock(value, clockOptions(cycle))
+  /** Days from the instant's day to today's, in the zone. */
+  const daysAgo = (value: DateInput, now: Date) => {
+    if (!timeZone) {
+      return Math.round(
+        (startOfDay(now).getTime() - startOfDay(value).getTime()) / 86_400_000,
+      )
+    }
+    return daysBetween(
+      dateKeyIn(toDate(value).getTime(), timeZone),
+      dateKeyIn(now.getTime(), timeZone),
+    )
+  }
   return {
     number: (value: number) => numberFormat(locale).format(value),
     compact: (value: number) =>
@@ -98,22 +137,31 @@ export function createFormatters(
       const digits = size >= 100 || unit === 0 ? 0 : size >= 10 ? 1 : 2
       return `${numberFormat(locale, { maximumFractionDigits: digits }).format(size)} ${units[unit]}`
     },
+    /** The date of an instant. */
     date: (
       value: DateInput,
       options: Intl.DateTimeFormatOptions = { dateStyle: 'medium' },
-    ) => dateFormat(locale, options).format(toDate(value)),
-    /** Month and day, e.g. "Oct 2" / "10月2日". */
-    monthDay: (value: DateInput) =>
-      dateFormat(locale, { month: 'short', day: 'numeric' }).format(
-        toDate(value),
+    ) => at(options).format(toDate(value)),
+    /** A calendar day, `YYYY-MM-DD`: the same date in every zone. */
+    day: (
+      key: string,
+      options: Intl.DateTimeFormatOptions = { dateStyle: 'medium' },
+    ) =>
+      dateFormat(locale, { ...options, timeZone: 'UTC' }).format(
+        dayAsUtcDate(key),
       ),
+    /** Month and day of an instant, e.g. "Oct 2" / "10月2日". */
+    monthDay: (value: DateInput) =>
+      at({ month: 'short', day: 'numeric' }).format(toDate(value)),
     time,
     hour,
+    /** A wall-clock hour as a time, "6:00 AM" / "06:00". */
+    clockTime,
     /** One hour of the day as a span, "6:00 AM–7:00 AM" / "06:00–07:00". */
     hourSpan: (value: number) =>
-      `${time(new Date(2000, 0, 1, value))}–${time(new Date(2000, 0, 1, (value + 1) % 24))}`,
+      `${clockTime(value)}–${clockTime((value + 1) % 24)}`,
     weekdayDate: (value: DateInput) =>
-      dateFormat(locale, {
+      at({
         weekday: 'long',
         month: 'long',
         day: 'numeric',
@@ -128,28 +176,24 @@ export function createFormatters(
       if (hours < 24) return t('common.hoursAgo', { count: hours })
       const days = Math.floor(hours / 24)
       if (days < 30) return t('common.daysAgo', { count: days })
-      return dateFormat(locale, { dateStyle: 'medium' }).format(toDate(value))
+      return at({ dateStyle: 'medium' }).format(toDate(value))
     },
     /** "14:12" today, "Yesterday", otherwise a short date. */
     shortWhen: (value: DateInput, now = new Date()) => {
       const date = toDate(value)
-      const days = Math.round(
-        (startOfDay(now).getTime() - startOfDay(date).getTime()) / 86_400_000,
-      )
+      const days = daysAgo(date, now)
       if (days === 0) return time(date)
       if (days === 1) return t('common.yesterday')
-      return dateFormat(locale, { month: 'short', day: 'numeric' }).format(date)
+      return at({ month: 'short', day: 'numeric' }).format(date)
     },
     /** "Today 14:12", "Yesterday 09:41", otherwise a short date and time. */
     dayAndTime: (value: DateInput, now = new Date()) => {
       const date = toDate(value)
-      const days = Math.round(
-        (startOfDay(now).getTime() - startOfDay(date).getTime()) / 86_400_000,
-      )
-      const at = time(date)
-      if (days === 0) return `${t('common.today')} ${at}`
-      if (days === 1) return `${t('common.yesterday')} ${at}`
-      return `${dateFormat(locale, { month: 'short', day: 'numeric' }).format(date)} ${at}`
+      const days = daysAgo(date, now)
+      const clockText = time(date)
+      if (days === 0) return `${t('common.today')} ${clockText}`
+      if (days === 1) return `${t('common.yesterday')} ${clockText}`
+      return `${at({ month: 'short', day: 'numeric' }).format(date)} ${clockText}`
     },
   }
 }
@@ -157,9 +201,22 @@ export function createFormatters(
 export type Formatters = ReturnType<typeof createFormatters>
 
 export function useFormat(): Formatters {
+  return useZonedFormat(null)
+}
+
+/** Formatters that show instants in `zone` (see `FormatZone`). */
+export function useZonedFormat(zone: FormatZone | null): Formatters {
   const { locale, t, hourCycle } = useI18n()
+  const timeZone = zone?.timeZone
+  const label = zone?.label ?? false
   return useMemo(
-    () => createFormatters(locale, t, hourCycle),
-    [locale, t, hourCycle],
+    () =>
+      createFormatters(
+        locale,
+        t,
+        hourCycle,
+        timeZone ? { timeZone, label } : null,
+      ),
+    [locale, t, hourCycle, timeZone, label],
   )
 }

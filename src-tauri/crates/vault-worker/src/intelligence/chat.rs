@@ -25,9 +25,6 @@ use crate::context::{
     tokio_runtime,
 };
 use anyhow::Result;
-// `Offset::fix` resolves the host's current UTC offset into the fixed offset the tool context renders
-// LOCAL visit times with (so the clockless model never hand-computes epoch/timezone math).
-use chrono::Offset;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -466,7 +463,7 @@ where
         run_control: Some(control.clone()),
         // Resolve the host's current UTC offset ONCE per run so the tools render visit timestamps as
         // LOCAL date/time (the model has no clock; the sandbox reads 0).
-        tz_offset: chrono::Local::now().offset().fix(),
+        time_zone: vault_core::utils::computer_time_zone(),
     };
 
     // Inject the host-computed system context (current date/time/timezone + archive span) as the

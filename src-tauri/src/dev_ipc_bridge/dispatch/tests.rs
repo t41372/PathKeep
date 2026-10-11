@@ -1005,6 +1005,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         "queue_core_intelligence_rebuild",
         wrapped(CoreIntelligenceRebuildRequest::default()),
     );
+    dispatch_for_coverage(&state, "get_insights_time_zone", json!({}));
     dispatch_for_coverage(&state, "get_sessions", wrapped(paged.clone()));
     dispatch_for_coverage(&state, "get_session_detail", wrapped(json!({ "sessionId": "missing" })));
     dispatch_for_coverage(

@@ -30,7 +30,7 @@ pub(crate) fn get_path_flows_with_connection(
     let after = super::paging::cursor::<(i64, i64, String)>(request.cursor.as_deref())?;
     if request.date_range.start.as_str()
         <= super::intelligence_overview_snapshot::ALL_TIME_SCOPE_START
-        && request.date_range.end >= chrono::Local::now().format("%Y-%m-%d").to_string()
+        && request.date_range.end >= super::InsightsZone::for_reading(s)?.today_key()
     {
         let rows = if let Some(profile) = request.profile_id.as_deref() {
             // One profile has one row per flow, so its list is the rows table in index order and

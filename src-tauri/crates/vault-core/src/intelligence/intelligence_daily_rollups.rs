@@ -2,9 +2,8 @@
 //! Not responsible for: running production rebuilds or installing schemas.
 //! Failure modes: range boundaries lose visits, duplicate daily keys change aggregates,
 //! or timezone gaps panic. Tests below and batch_equivalence exercise these contracts.
-use super::{DerivedVisitBatchCursor, VisitRecord, display_name_for_domain, local_date_key};
-use anyhow::{Context, Result};
-use chrono::{DateTime, Local, LocalResult, NaiveDate, TimeZone};
+use super::{DerivedVisitBatchCursor, VisitRecord, display_name_for_domain};
+use anyhow::Result;
 use std::collections::HashSet;
 use vault_store::{Session, params_owned as params};
 
@@ -195,61 +194,6 @@ pub(super) fn ensure_unique_domain_rollup_rows(domain_rows: &[super::DomainDayRo
     Ok(())
 }
 
-fn load_profile_derived_visits_for_date_keys(
-    connection: &Session<'_>,
-    profile_id: &str,
-    date_keys: &[String],
-) -> Result<Vec<VisitRecord>> {
-    if date_keys.is_empty() {
-        return Ok(Vec::new());
-    }
-    let start_ms = local_day_start_ms(
-        date_keys.iter().min().context("missing minimum dirty date key for daily rollup")?,
-    )?;
-    let end_ms = local_day_end_exclusive_ms(
-        date_keys.iter().max().context("missing maximum dirty date key for daily rollup")?,
-    )?;
-    Ok(load_profile_derived_visits(connection, profile_id, Some(start_ms), None)?
-        .into_iter()
-        .filter(|visit| {
-            let date_key = local_date_key(visit.visit_time_ms);
-            date_keys.iter().any(|candidate| candidate == &date_key) && visit.visit_time_ms < end_ms
-        })
-        .collect())
-}
-
-fn local_day_start_ms(date_key: &str) -> Result<i64> {
-    let date = NaiveDate::parse_from_str(date_key, "%Y-%m-%d")
-        .with_context(|| format!("parsing local date key '{date_key}'"))?;
-    let start = date.and_hms_opt(0, 0, 0).context("building local day start")?;
-    local_result_timestamp_millis(
-        Local.from_local_datetime(&start),
-        format!("Local timezone could not represent day start for {date_key}."),
-    )
-}
-
-fn local_day_end_exclusive_ms(date_key: &str) -> Result<i64> {
-    let date = NaiveDate::parse_from_str(date_key, "%Y-%m-%d")
-        .with_context(|| format!("parsing local date key '{date_key}'"))?;
-    let next = date.succ_opt().context("computing next local day for dirty rollup range")?;
-    let start = next.and_hms_opt(0, 0, 0).context("building local day end")?;
-    local_result_timestamp_millis(
-        Local.from_local_datetime(&start),
-        format!("Local timezone could not represent next day start for {date_key}."),
-    )
-}
-
-fn local_result_timestamp_millis(
-    result: LocalResult<DateTime<Local>>,
-    none_message: String,
-) -> Result<i64> {
-    match result {
-        LocalResult::Single(value) => Ok(value.timestamp_millis()),
-        LocalResult::Ambiguous(first, _) => Ok(first.timestamp_millis()),
-        LocalResult::None => Err(anyhow::anyhow!(none_message)),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,39 +213,5 @@ mod tests {
         let duplicate_error =
             ensure_unique_domain_rollup_rows(&duplicate_rows).expect_err("duplicate row");
         assert!(duplicate_error.to_string().contains("duplicate domain daily rollup row"));
-
-        let vault = crate::Vault::open_temp().unwrap();
-        let visits = vault
-            .read(vault_store::Db::Intelligence, |s| {
-                load_profile_derived_visits_for_date_keys(s, "chrome:Default", &[])
-            })
-            .unwrap();
-        assert!(visits.is_empty());
-    }
-
-    #[test]
-    fn local_result_timestamp_millis_covers_timezone_edges() {
-        let now = Local::now();
-        assert_eq!(
-            local_result_timestamp_millis(LocalResult::Single(now), "none".to_string())
-                .expect("single local result"),
-            now.timestamp_millis()
-        );
-        assert_eq!(
-            local_result_timestamp_millis(LocalResult::Ambiguous(now, now), "none".to_string())
-                .expect("ambiguous local result"),
-            now.timestamp_millis()
-        );
-        let error = local_result_timestamp_millis(LocalResult::None, "missing".to_string())
-            .expect_err("missing local result");
-        assert!(error.to_string().contains("missing"));
-
-        let vault = crate::Vault::open_temp().unwrap();
-        let visits = vault
-            .read(vault_store::Db::Intelligence, |s| {
-                load_profile_derived_visits(s, "chrome:Default", None, None)
-            })
-            .unwrap();
-        assert!(visits.is_empty());
     }
 }

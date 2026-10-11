@@ -781,7 +781,7 @@ WHERE visit_time_ms BETWEEN ? AND ?
 GROUP BY hour
 ```
 
-**時區處理：** backup 時自動記錄設備時區（`runs.timezone`），用於 localtime 轉換。歷史導入數據使用當前時區（可能有誤差，UI 標註）。
+**時區處理：** 按洞察自己的時區（見 `docs/architecture/insights-time-zone.md`），每個時刻各自換算；`runs.timezone` 只用來顯示。
 
 **展示：** 主圖固定是按真實日期的日曆熱力圖；長時間窗允許卡片內橫向滾動。小時分布只出現在選中某一天後的 detail 區，不再回頭冒充主圖。
 

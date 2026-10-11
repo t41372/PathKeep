@@ -109,9 +109,32 @@ pub(crate) fn drain_one_priority_intelligence_job(vault: &vault_core::Vault) -> 
     else {
         return Ok(false);
     };
-    execute_core_intelligence_job(vault, job.id, &job.job_type)
+    // The drain outlives the settings it started with; each build uses the ones saved now.
+    let vault = vault.with_config(config);
+    execute_core_intelligence_job(&vault, job.id, &job.job_type)
         .with_context(|| format!("execute intelligence queue job {}", job.id))?;
+    // The Insights time zone was changed in Settings while the build ran in the old one.
+    let now = load_unlocked_config(vault.paths()).context("load intelligence queue config")?;
+    if now.insights_time_zone != vault.config().insights_time_zone {
+        rebuild_in_chosen_zone(&vault.with_config(now))?;
+    }
     Ok(true)
+}
+
+/// Queues an Insights build when the zone the next build would use is not the one the Insights
+/// on screen are in: a zone was just chosen in Settings. Unlike [`resume_insights`] it builds also
+/// after a failed or cancelled build, since choosing a zone asks for one.
+pub(crate) fn rebuild_in_chosen_zone(vault: &vault_core::Vault) -> Result<()> {
+    let zone = vault_core::insights_time_zone(vault)?;
+    if zone.shown != zone.next {
+        enqueue_deterministic_rebuild_job(
+            vault,
+            &CoreIntelligenceRebuildRequest::default(),
+            "Insights are built again in the time zone chosen in Settings.",
+        )?;
+        maybe_spawn_intelligence_queue_drain(vault, 1);
+    }
+    Ok(())
 }
 
 pub(crate) fn drain_one_enrichment_intelligence_job(vault: &vault_core::Vault) -> Result<bool> {
@@ -138,8 +161,8 @@ pub fn run_core_intelligence_now(
     vault: &vault_core::Vault,
     request: &CoreIntelligenceRebuildRequest,
 ) -> Result<CoreIntelligenceRebuildReport> {
-    let _config = load_unlocked_config(vault.paths())?;
-    intelligence::run_core_intelligence(vault, request)
+    let config = load_unlocked_config(vault.paths())?;
+    intelligence::run_core_intelligence(&vault.with_config(config), request)
 }
 
 /// Gets Insights going when an archive opens. A build the app quit in the middle of is queued

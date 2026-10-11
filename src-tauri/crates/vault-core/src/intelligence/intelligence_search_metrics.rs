@@ -159,7 +159,7 @@ pub(super) fn get_frequent_searches_with_connection(
     connection: &Session<'_>,
     request: &FrequentSearchesRequest,
 ) -> Result<crate::models::IntelligencePage<FrequentSearch>> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
     let limit = request.limit.unwrap_or(10).clamp(1, FREQUENT_SEARCHES_MAX_LIMIT) as usize;
     let cursor = super::paging::cursor::<(i64, String)>(request.cursor.as_deref())?;
     let rows = connection.query(
@@ -228,7 +228,7 @@ pub(super) fn get_top_search_concepts_with_connection(
     connection: &Session<'_>,
     request: &TopSearchConceptsRequest,
 ) -> Result<crate::models::IntelligencePage<SearchConcept>> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
     let limit = request.limit.unwrap_or(20).clamp(1, 1000) as usize;
     let cursor = super::paging::cursor::<(i64, String)>(request.cursor.as_deref())?;
     // The range's searches by their time, then each one's terms by its key. Through the

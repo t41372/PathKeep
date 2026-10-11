@@ -23,7 +23,7 @@
 //! - The accumulator only stores one row per `(date, profile, key)` bucket and
 //!   never touches SQLite.
 
-use super::{DailyRollupBundle, VisitRecord, local_datetime_from_millis};
+use super::{DailyRollupBundle, InsightsZone, VisitRecord};
 use chrono::Timelike;
 use std::collections::{HashMap, HashSet};
 
@@ -37,8 +37,10 @@ type DailySummaryKey = (String, String);
 type DailySummaryValue =
     (i64, i64, HashSet<String>, HashSet<String>, HashMap<String, i64>, [i64; 24]);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct DailyRollupAccumulator {
+    /// The zone the days and hours are in (the build's).
+    zone: InsightsZone,
     domains: HashMap<DailyDomainKey, DailyDomainValue>,
     categories: HashMap<DailyCategoryKey, DailyCategoryValue>,
     engines: HashMap<DailyEngineKey, i64>,
@@ -46,9 +48,19 @@ pub(super) struct DailyRollupAccumulator {
 }
 
 impl DailyRollupAccumulator {
+    pub(super) fn new(zone: InsightsZone) -> Self {
+        Self {
+            zone,
+            domains: HashMap::new(),
+            categories: HashMap::new(),
+            engines: HashMap::new(),
+            summaries: HashMap::new(),
+        }
+    }
+
     pub(super) fn add_visit(&mut self, visit: &VisitRecord) {
-        // One local-time conversion per visit gives both the day and the hour.
-        let local = local_datetime_from_millis(visit.visit_time_ms);
+        // One conversion per visit gives both the day and the hour.
+        let local = self.zone.datetime(visit.visit_time_ms);
         let date_key = local.format("%Y-%m-%d").to_string();
         // A visit with no site (an extension page, a file) counts in the day's totals, not as a site.
         let site = (!visit.registrable_domain.is_empty()).then_some(&visit.registrable_domain);
@@ -250,7 +262,7 @@ mod tests {
     }
 
     fn category_of(categories: &[&str]) -> String {
-        let mut day = DailyRollupAccumulator::default();
+        let mut day = DailyRollupAccumulator::new(InsightsZone::named("UTC").unwrap());
         for (id, category) in categories.iter().enumerate() {
             day.add_visit(&visit(id as i64, category));
         }

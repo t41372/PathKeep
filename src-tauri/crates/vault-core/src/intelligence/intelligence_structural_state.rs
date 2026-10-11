@@ -24,7 +24,7 @@
 
 use super::{
     SessionRecord, StructuralVisitRecord, TrailMemberRecord, TrailRecord, display_name_for_domain,
-    jaccard, local_date_key, normalize_query, query_token_set,
+    jaccard, normalize_query, query_token_set,
 };
 use crate::visit_taxonomy::Opener;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -88,14 +88,19 @@ impl PathSegment {
     /// Adds one visit. A visit to the site already last in the path only moves its time; a new
     /// site on another day than the segment's own, or past the size bound, closes this segment
     /// and returns it to be saved.
-    pub(super) fn push(&mut self, domain: &str, visit_time_ms: i64) -> Option<PathSegment> {
+    pub(super) fn push(
+        &mut self,
+        zone: super::InsightsZone,
+        domain: &str,
+        visit_time_ms: i64,
+    ) -> Option<PathSegment> {
         if let Some((last, time)) = self.sites.last_mut()
             && last == domain
         {
             *time = visit_time_ms;
             return None;
         }
-        let day = local_date_key(visit_time_ms);
+        let day = zone.date_key(visit_time_ms);
         let own = self.sites.len() - self.prefix_len;
         let closed = (own > 0 && (own >= PATH_SEGMENT_SITES || day != self.date_key)).then(|| {
             let prefix = self.sites[self.sites.len().saturating_sub(PATH_PREFIX_SITES)..].to_vec();

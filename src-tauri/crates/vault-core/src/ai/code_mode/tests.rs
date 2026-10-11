@@ -55,7 +55,7 @@ fn empty_context() -> AgentToolContext {
         // not through the tool context, so the context's own hook stays `None`.
         run_control: None,
         // Tests pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
-        tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
+        time_zone: chrono_tz::UTC,
     }
 }
 
