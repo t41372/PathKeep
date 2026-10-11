@@ -140,9 +140,9 @@ pub(crate) fn upsert_site_dictionary_override(
     Ok(())
 }
 
-/// Converts optional persisted category keys into one all-or-nothing taxonomy
-/// override. Partial taxonomy rows are ignored to avoid creating mixed
-/// user/built-in evidence with unclear semantics.
+/// Converts persisted category keys into a taxonomy override. A row needs a site category; its
+/// page kind and interaction are optional, and the rules give those it leaves out (a site category
+/// set on Insights' site page sets only that). A key PathKeep does not know drops the row.
 fn build_taxonomy_override(
     target_kind: &SiteDictionaryOverrideTargetKind,
     target_value: &str,
@@ -159,8 +159,14 @@ fn build_taxonomy_override(
         },
         value: target_value.to_string(),
         domain_category: parse_domain_category(domain_category?)?,
-        page_category: parse_page_category(page_category?)?,
-        interaction_kind: parse_interaction_kind(interaction_kind?)?,
+        page_category: match page_category {
+            Some(value) => Some(parse_page_category(value)?),
+            None => None,
+        },
+        interaction_kind: match interaction_kind {
+            Some(value) => Some(parse_interaction_kind(value)?),
+            None => None,
+        },
         note,
     })
 }

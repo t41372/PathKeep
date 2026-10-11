@@ -373,8 +373,8 @@ fn user_override_beats_pack_rules() {
         target: TaxonomyOverrideTarget::ExactDomain,
         value: "google.com".to_string(),
         domain_category: DomainCategory::Work,
-        page_category: PageCategory::Dashboard,
-        interaction_kind: InteractionKind::Manage,
+        page_category: Some(PageCategory::Dashboard),
+        interaction_kind: Some(InteractionKind::Manage),
         note: Some("manual-review".to_string()),
     };
     let analysis = analyze_visit(
@@ -392,6 +392,53 @@ fn user_override_beats_pack_rules() {
     assert_eq!(analysis.taxonomy.source, TaxonomyDecisionSource::UserOverride);
     assert_eq!(analysis.taxonomy.domain_category, DomainCategory::Work);
     assert_eq!(analysis.taxonomy.page_category, PageCategory::Dashboard);
+}
+
+// A site's category set by the user (Insights' site page). The ways it goes wrong: it replaces
+// the page kinds the rules give the site's pages (a GitHub issue no longer counted as an issue,
+// which compare sets and the page card read), it misses the site's other hosts, or a site no rule
+// knows stays unclassified.
+#[test]
+fn a_site_category_from_the_user_changes_only_the_site_category() {
+    let site = |value: &str, domain_category| TaxonomyOverride {
+        target: TaxonomyOverrideTarget::ExactDomain,
+        value: value.to_string(),
+        domain_category,
+        page_category: None,
+        interaction_kind: None,
+        note: None,
+    };
+    let classify = |url: &str, title: Option<&str>, overrides: &[TaxonomyOverride]| {
+        analyze_visit(
+            VisitAnalysisInput {
+                url,
+                title,
+                query: None,
+                has_canonical_search_term: false,
+                external_referrer_url: None,
+                from_visit: None,
+            },
+            overrides,
+        )
+        .taxonomy
+    };
+    let issue_url = "https://github.com/rust-lang/rust/issues/1";
+    let github = [site("github.com", DomainCategory::Work)];
+    let by_rules = classify(issue_url, Some("Issue"), &[]);
+    let by_user = classify(issue_url, Some("Issue"), &github);
+    assert_eq!(by_user.domain_category, DomainCategory::Work);
+    assert_eq!(by_rules.page_category, PageCategory::Issue);
+    assert_eq!(by_user.page_category, by_rules.page_category, "the page kind stays the rules'");
+    assert_eq!(by_user.interaction_kind, by_rules.interaction_kind);
+    assert_eq!(by_user.source, TaxonomyDecisionSource::UserOverride);
+    // The site's other hosts follow it.
+    let gist = classify("https://gist.github.com/someone/1", None, &github);
+    assert_eq!(gist.domain_category, DomainCategory::Work);
+    // A site no rule knows.
+    let notes = [site("e2e.example", DomainCategory::News)];
+    let page = classify("https://notes.e2e.example/a", Some("A page"), &notes);
+    assert_eq!(page.domain_category, DomainCategory::News);
+    assert_eq!(page.source, TaxonomyDecisionSource::UserOverride);
 }
 
 // The built-in site rules. The ways they go wrong, each checked below:
