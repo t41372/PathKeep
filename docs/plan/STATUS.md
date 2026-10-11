@@ -213,13 +213,35 @@
     - [x] 2. 「自動備份已經停了」從喚醒時間起算，或在剛醒來時不報；寫下會怎麼錯再改，必要時在桌面上看一次。選「剛醒來時不報」：電腦醒來或開機後 15 分鐘內，「已經停了」與「中途停止」都不報（`schedule_attempts::caught_up`）；之後照舊從最後一次嘗試起算三次檢查，所以常睡的筆電上排程真的停了，醒來 15 分鐘後就會報。不從醒來起算三次檢查：每天備份的檢查間隔 6 小時，要連續醒著 18 小時才報，筆電上等於永遠不報。醒來時間：macOS `kern.waketime`／`kern.boottime`，Windows `CallNtPowerInformation(LastWakeTime)`（`vault_platform::awake_since`）；Linux 不回報已安裝的排程，用不到。讀不到就照常報，不當成剛醒。睡著前在跑的備份醒來後還在跑，不再被標成中斷；新的 worker 啟動時把前一次標成中斷的那條路不受影響，因為 launchd 與 Task Scheduler（`IgnoreNew`）都不會在舊的還活著時再起一個。驗證：`schedule_attempts.rs` 先寫下會怎麼錯再寫測試；macOS 在本機讀了這台的醒來時間，跟 `sysctl` 一致，但這台那之後沒睡過，睡一晚醒來的實際情形沒看到；`kern.waketime` 在 dark wake（Power Nap）是否也更新沒驗證（若會，launchd 在 dark wake 也會跑，帳本會有那次的嘗試）。Windows 只在 Modal 上對 msvc target 跑過 clippy，沒在 Windows 上執行。Linux 上排程永遠不是 installed，E2E 走不到這條路。
     - [x] 3. E2E（`home-alerts.spec`）、文檔、CHANGELOG。E2E 驗兩則鑰匙圈警告在沒有鑰匙圈時不連到 Security、Security 的開關停用、鑰匙圈回來後又出現「存到鑰匙圈」；文檔 `features/archive.md`、`screens-and-nav.md` Home（gate 78）。
 
-- [ ] **WORK-IMPORT-CANCEL** — 匯入中停不下來（2026-10-11 加入；side agent 讀碼時發現，已在程式碼確認）
+- [x] **WORK-IMPORT-CANCEL** — 匯入中停不下來（2026-10-11 加入；side agent 讀碼時發現，已在程式碼確認）
   - 讀先：`docs/features/archive.md`（匯入、中斷的匯入接著做）、`takeout/import_flow.rs`、`takeout/browser_history.rs`、`src-tauri/src/worker_bridge/import.rs`、匯出的取消（`vault_core::cancel_export`，同一種登記方式）、`src/features/backup/import-card.tsx`、`browser-import-card.tsx`。
   - 現象：從介面開始的 Takeout 與瀏覽器檔案匯入走 `import_takeout_with_progress`，帶的是沒有人按得到的 `CancelToken::new()`；匯入中的卡片只有進度，「取消」只在預覽時有。要停只能關掉 app。14.4M 的一次性匯入約 1.7 小時。`WORK-TAKEOUT-RESUME` 讓停下的匯入能接著做，但停下本身還做不到。
   - 步驟：
-    - [ ] 1. 寫下會怎麼錯（停在一個 chunk 中間、停的同時剛好做完、停下後再匯入同一份接著做、瀏覽器檔案匯入、停下時別的寫入在排隊、停下後 app 關掉），再做後端：每個匯入有 id，取消命令照匯出的登記方式；停下後批次是 interrupted、已寫入的保留。
-    - [ ] 2. 匯入卡匯入中有「停止」（三種語言）；停下後寫已存下幾筆、同一份再匯入會接著做。
-    - [ ] 3. E2E：開始一個匯入、停止、再匯入同一份接著做完。
+    - [x] 1. 寫下會怎麼錯（停在一個 chunk 中間、停的同時剛好做完、停下後再匯入同一份接著做、瀏覽器檔案匯入、停下時別的寫入在排隊、停下後 app 關掉），再做後端：每個匯入有 id，取消命令照匯出的登記方式；停下後批次是 interrupted、已寫入的保留。2026-10-11：會怎麼錯另外找到三個：停在檔案中間時，那個檔案在審查裡被記成讀不了（「解析失敗」）；停下的匯入存下的造訪永遠進不了洞察（只有成功才排重算）；按了停止的 id 晚到，停到下一個匯入。做法：`takeout/import_jobs.rs` 照 id 登記每個匯入的 token，`stop_import(id)` 只停還在跑、還沒被要求停的那個，匯入結束就取消登記。停下不是錯誤：`import_takeout_with_control` 與瀏覽器檔案的版本回傳 `TakeoutInspection { stopped: true }`，數字從批次讀（每寫完一批都加進去；只看這次執行的統計，停在檔案中間時會少算），批次是 interrupted；停在檔案中間的那個檔案記成 `stopped` 與讀到的筆數，所以照常為它的來源排洞察重算。剛好寫完最後一批才停的照常完成。指令：`import_takeout` / `import_browser_history` 多一個選填的 `importId`（不放進 request：73 個建構處，且 id 屬於這次執行），新指令 `stop_import`。測試：`import_jobs` 的登記、`turso_write_path.rs` 驗 Takeout 停下的數字等於批次、檔案不是解析失敗、有來源可重算，以及瀏覽器檔案停下後再匯入是新的一批、存下的算已在存檔裡；原本期待取消是錯誤的三個測試改成新的契約。
+    - [x] 2. 匯入卡匯入中有「停止」（三種語言）；停下後寫已存下幾筆、同一份再匯入會接著做。「停止」→「正在停止…」，停下寫「已停止。存下了 N 筆新的瀏覽記錄」；下一句照實說：Takeout「再匯入同一份匯出就能完成：會從頭再讀一遍，已經存下的很快略過」（side agent 指出原本寫「從停下的地方接著做」不對：沒有記位置，重匯從第一筆讀起，已存的每筆約 62 µs，進度從 0 數起），瀏覽器檔案「再匯入這個檔案會補上其餘的；已經存下的會算作已在存檔裡」。兩種匯入的狀態搬到 router 之上（`features/backup/import-runner.tsx`，掛在 `src/app/index.tsx`）：原本放在 Backup 頁，離開再回來卡片變回空白、匯入卻還在跑，也沒有停止（`archive.md` 早就要求切頁不丟進度）。
+    - [x] 3. E2E：開始一個匯入、停止、再匯入同一份接著做完。`import-stop.spec`（自己一個 `stop` 專案，在 restart 之後：放進 restart 會照檔名排在語意索引之前，索引多了這些頁就逾時）：5 萬筆的 Takeout 匯出，存下第一批後離開 Backup 再回來仍在匯入，按停止，卡片的筆數等於批次的可見筆數、批次 interrupted，再匯入同一份是同一批、5 萬筆全在；5 萬筆的 Firefox 檔案停下後再匯入是新的一批，補上其餘的、存下的算已在存檔裡。`wipe.spec` 把兩份都算進去。匯入的結果現在離開 Backup 也留著，`browser-import.spec` 與 `takeout-import.spec` 再檢查一個檔案前先按「再匯入一個」，跟使用者一樣。gate 84 裡 `security.spec` 的改密碼一次超過 60 秒（重跑 8.7 s 過），另列 BACKLOG `WORK-REKEY-STALL`。`insights-time-zone.spec` 等時區重建完成時，「正在重新整理」的通知可能還沒出現就判定完成，讀到前一個時區的數字（gate 86：100 ≠ 62）；改成等後端說每個設定檔的洞察都已在選的時區（`get_insights_time_zone`）。
+    - [x] 4. 文檔、CHANGELOG。`features/archive.md`、`screens-and-nav.md` Backup、`desktop-command-surface.md`（`stop_import`、`importId`）。這個 block 起 gate 改在本機跑（Modal 超過用戶設的上限仍扣款，2026-10-11 停用；AGENTS.md 已改），本機以 `TZ=UTC` 跑，跟 CI 一樣：在 America/Phoenix 有 4 個既有測試只在 UTC 會過，另列 BACKLOG `WORK-TESTS-ANY-TIME-ZONE`。
+
+- [ ] **WORK-TESTS-ANY-TIME-ZONE** — 有些測試只在 UTC 的機器上會過（2026-10-11 從 BACKLOG 搬上：本機 gate 每次都靠它；同日改回本機跑 gate 時發現）
+  - 讀先：`docs/architecture/insights-time-zone.md`、`docs/plan/program/quality-matrix.md`、`vault-core/src/utils.rs`（`local_day_range_ms`、`computer_time_zone`）。
+  - 現象：CI 與之前的 Modal 都是 UTC。在這台 Mac（America/Phoenix）上 `bun run check` 有 4 個 vault-core 測試失敗：`ai::code_mode::tests::query_history_rows_carry_local_time_fields`（用電腦時區的中午建造訪，卻用釘死的 UTC 顯示，19:00 ≠ 12:00）、`search::ported_queries::history_keyword_query_supports_google_like_local_operators`（造訪在 1970-01-01 UTC 午夜後幾秒，`after:`/`before:` 照電腦時區的日子算，那是前一天）、`intelligence::compare_sets::tests::sets_found_while_streaming_are_read_back_newest_first`、`intelligence::tests::stage_rebuild::explain_entity_and_provider_snapshots_build_from_core_intelligence_tables`（後兩個還沒看原因）。產品本身一致：AI 工具、搜尋的日期條件與顯示都用電腦時區；是測試假設了 UTC。2026-07-26 在這台跑過全綠，所以是那之後加的測試或改動。暫時在本機以 `TZ=UTC` 跑 gate，跟 CI 一樣。
+  - 方向：每個測試要嘛釘住自己用的時區（夾具、條件、顯示用同一個），要嘛照電腦時區算期望值；gate 另在一個非 UTC、跨日界的時區（例如 Pacific/Kiritimati 或 America/Phoenix）跑一次 Rust 測試，擋住新的。
+  - 步驟：
+    - [ ] 1. 每個失敗的測試寫下它假設了什麼（後兩個先查出原因），改成釘住自己用的時區，或照電腦時區算期望值；不改產品的時區行為（AI 工具、搜尋、洞察都照電腦或洞察的時區，已一致）。
+    - [ ] 2. gate 在一個非 UTC、日界跟 UTC 差很多的時區再跑一次 Rust 測試，擋住新的；本機 gate 不再需要 `TZ=UTC`。
+    - [ ] 3. 文檔（`quality-matrix.md`）、CHANGELOG。
+
+- [ ] **WORK-SITE-CATEGORY-REVIEW** — 讓用戶看見並改網站分類（2026-10-11 從 BACKLOG 搬上；2026-10-08 從 `WORK-INSIGHTS-RESTORE-2026-10` 拆出）
+  - 讀先：`docs/features/deterministic-intelligence.md` §5.2、§6.3；`vault-core/src/intelligence/site_dictionary/overrides.rs`；`docs/design/screens-and-nav.md` §Insights。
+  - 起因：§6.3 要求 unknown 比例與最常去的未分類網站可 review、用戶 override 永遠優先。後端已有 override 表（`upsert_site_dictionary_override`），但沒有命令也沒有畫面，v0.3 也沒有。「哪類網站」卡只能寫出未分類的比例。
+  - 前提：`WORK-INSIGHTS-RESTORE-2026-10` 的 ⑥「重新分類」，否則改一個網站就整個重建（14.4M 約 97 分鐘）。
+  - ⑥ 已做（只重新分類分類真的變了的造訪），但仍把全部頁面各分類一次（14.4M 約 3.19M 頁、67 s）；只改用戶 override 時，要只重分 override 指到的網站的頁（2026-10-10 從 Insights 14 搬來）。
+  - 目標：site 頁可改網站分類（寫 override、只重新分類受影響的造訪）；「哪類網站」卡的「未分類」列連到最常去的未分類網站。改分類要很快反映在 Insights。
+  - E2E：改一個未分類 fixture 網站的分類，重建後卡上該類的占比照手算增加。
+  - 步驟：
+    - [ ] 1. 寫下會怎麼錯（改了分類卻要整個重建、只改一個網站卻重分全部頁面、override 被規則蓋掉、未分類比例與連結對不上、各設定檔與「所有瀏覽器」），再做後端：讀寫 override 的命令；只重新分類 override 指到的網站的頁。
+    - [ ] 2. site 頁可以改網站分類（三語）；「哪類網站」卡的「未分類」列連到最常去的未分類網站。在 14.4M 上量改一個網站要多久反映到 Insights。
+    - [ ] 3. E2E：改一個未分類 fixture 網站的分類，重建後卡上該類的占比照手算增加。
     - [ ] 4. 文檔、CHANGELOG。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_

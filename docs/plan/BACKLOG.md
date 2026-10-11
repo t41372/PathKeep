@@ -43,18 +43,16 @@
 
 > 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全流程跑完，confirmed findings 已全部修復並各自過獨立 review（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`、報告 `docs/review/2026-06-14/`）。剩下的是 verifier 標為 non-blocking 的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / trade-off 的 findings 不重開。
 
-- [ ] **WORK-SITE-CATEGORY-REVIEW** — 讓用戶看見並改網站分類（2026-10-08 從 `WORK-INSIGHTS-RESTORE-2026-10` 拆出）
-  - 讀先：`docs/features/deterministic-intelligence.md` §5.2、§6.3；`vault-core/src/intelligence/site_dictionary/overrides.rs`；`docs/design/screens-and-nav.md` §Insights。
-  - 起因：§6.3 要求 unknown 比例與最常去的未分類網站可 review、用戶 override 永遠優先。後端已有 override 表（`upsert_site_dictionary_override`），但沒有命令也沒有畫面，v0.3 也沒有。「哪類網站」卡只能寫出未分類的比例。
-  - 前提：`WORK-INSIGHTS-RESTORE-2026-10` 的 ⑥「重新分類」，否則改一個網站就整個重建（14.4M 約 97 分鐘）。
-  - ⑥ 已做（只重新分類分類真的變了的造訪），但仍把全部頁面各分類一次（14.4M 約 3.19M 頁、67 s）；只改用戶 override 時，要只重分 override 指到的網站的頁（2026-10-10 從 Insights 14 搬來）。
-  - 目標：site 頁可改網站分類（寫 override、只重新分類受影響的造訪）；「哪類網站」卡的「未分類」列連到最常去的未分類網站。改分類要很快反映在 Insights。
-  - E2E：改一個未分類 fixture 網站的分類，重建後卡上該類的占比照手算增加。
-
 - [ ] **WORK-EVIDENCE-REIMPORT** — 重新匯入已在存檔裡的紀錄，把它們的來源證據再寫一份（2026-10-11 `WORK-TAKEOUT-RESUME` 收工時找到）
   - 讀先：`docs/architecture/data-model.md`（source evidence）、`archive/source_evidence.rs`、`archive/ingest/consumer.rs`、`intelligence/phase_three.rs`（讀證據的地方）。
   - 現象：證據列（`visit_search_evidence`、`visit_navigation_evidence`、`visit_engagement_evidence`、`visit_context_evidence`、`native_entities`）掛在每次執行的 source batch 下，沒有內容鍵。同一份檔案再匯入一次（包括接著做中斷的匯入）時，已在存檔裡的造訪的證據再寫一份。讀的地方按造訪合併，數字不會錯，但佔空間、拖慢匯入。
   - 方向：先在 14.4M 上量重新匯入多寫了多少列、多少空間與時間；再決定重複造訪的證據怎麼處理（同一來源的不再寫，另一個來源帶來的新欄位照寫），先寫下會怎麼錯。
+
+- [ ] **WORK-REKEY-STALL** — 改密碼偶爾超過一分鐘才回來（2026-10-11 本機 gate 84 看到一次）
+  - 讀先：`vault-worker/src/app.rs`（`rekey_archive_database`）、`vault-core/src/maintenance/mod.rs`（`rewrap_password`：`ArchiveOpGate`、`ENVELOPE_ACCESS`）、`src-tauri/src/dev_ipc_bridge/router.rs`。
+  - 現象：`security.spec`「changing the archive password needs the current one」等「Password changed.」60 秒沒等到；trace 裡 `rekey_archive` 沒有回應，同時 `app_snapshot`、`get_maintenance_progress` 照常幾毫秒回來。幾分鐘後取樣，app 裡已經沒有卡在改密碼的執行緒（最後做完了）；重跑 gate 85 這個測試 8.7 s 過了。改密碼本身是三次 Argon2（各約 0.36 s）加寫一個檔，正常約 1 秒。
+  - 為什麼要查：dev IPC bridge 從 `WORK-TAKEOUT-RESUME` 起跟桌面 app 一樣讓命令同時跑，之前一次只跑一個，可能把這類互相等的情形藏起來了；桌面 app 本來就是同時跑。
+  - 方向：在改密碼卡住時取樣（E2E 失敗時自動對 app 跑 `sample`），找出它在等什麼，再修；寫下會怎麼錯（改密碼時有備份、匯入、洞察重算或另一個維護在跑）。
 
 - [ ] **WORK-RUN-LIFECYCLE-GUARDS** — P1 follow-up from 2026-07-23 silent-failure audit
   - 讀先：`docs/architecture/decisions/003-run-model.md`；`docs/plan/program/quality-matrix.md`；`archive/maintenance.rs` retention/snapshot restore；Takeout / Browser Direct import run creation/finalization；Audit read models。
