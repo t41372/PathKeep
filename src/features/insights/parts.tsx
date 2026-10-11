@@ -16,7 +16,9 @@ import {
   type ReactNode,
 } from 'react'
 import { Link } from 'react-router-dom'
+import { useCardTitle } from '@/components/app/card-title'
 import { CardError } from '@/components/app/section-card'
+import { Button } from '@/components/ui/button'
 import {
   Popover,
   PopoverContent,
@@ -30,7 +32,10 @@ import type {
   CoreIntelligenceSectionMeta,
   KpiMetric,
 } from '@/lib/core-intelligence/types'
-import { useI18n } from '@/lib/i18n'
+import { usableAssistantProvider } from '@/features/ai-setup/providers'
+import { useI18n, type Translator } from '@/lib/i18n'
+import { useSnapshot } from '@/lib/queries/app'
+import { ALL_TIME_START } from './range'
 import { useInsightsFormat } from './zone'
 
 export function ListSkeleton({
@@ -212,10 +217,38 @@ function reasonKey(code?: string | null) {
 }
 
 /**
+ * The question "Ask about this" puts in Ask: the card, and the dates it
+ * covers. Null when the card has no plain title or no dates to name.
+ */
+function askQuestion(
+  t: Translator,
+  day: (key: string) => string,
+  card: string | null,
+  meta: CoreIntelligenceSectionMeta | null | undefined,
+) {
+  if (!card || !meta) return null
+  const { window } = meta
+  if (window.kind === 'all-time')
+    return t('insights.status.question.all', { card })
+  if (window.kind !== 'date-range' || !window.dateRange.start) return null
+  const { start, end } = window.dateRange
+  if (start <= ALL_TIME_START)
+    return t('insights.status.question.all', { card })
+  if (start === end)
+    return t('insights.status.question.day', { card, day: day(start) })
+  return t('insights.status.question.range', {
+    card,
+    start: day(start),
+    end: day(end),
+  })
+}
+
+/**
  * Freshness and evidence for one section, for the card's header. Shows a
  * spinner while the background job after a backup is still refreshing it,
- * and an info button that says when it was computed, from what, and any
- * reason the backend gave for a limited result.
+ * and an info button that says when it was computed, from how many visits or
+ * searches, from what, and any reason the backend gave for a limited result.
+ * With an AI service set up, it also takes the card's question into Ask.
  */
 export function SectionStatus({
   meta,
@@ -227,7 +260,12 @@ export function SectionStatus({
 }) {
   const { t } = useI18n()
   const format = useInsightsFormat()
+  const card = useCardTitle()
+  const assistant = usableAssistantProvider(useSnapshot().config.ai)
   if (!meta && !explain) return null
+  const question = assistant
+    ? askQuestion(t, (key) => format.day(key), card, meta)
+    : null
   const stale = meta?.state === 'stale'
   const limited = meta?.state === 'degraded' || meta?.state === 'disabled'
   return (
@@ -281,12 +319,36 @@ export function SectionStatus({
                 {t('insights.status.state')}
               </dt>
               <dd>{t(`insights.status.states.${meta.state}`)}</dd>
+              {meta.evidence && (
+                <>
+                  <dt className="text-muted-foreground">
+                    {t('insights.status.basedOn')}
+                  </dt>
+                  <dd className="tabular">
+                    {t(`insights.status.evidence.${meta.evidence.unit}`, {
+                      count: meta.evidence.count,
+                    })}
+                  </dd>
+                </>
+              )}
             </dl>
+          )}
+          {meta?.chromiumOnly && (
+            <p className="text-xs text-muted-foreground">
+              {t('insights.status.chromiumOnly')}
+            </p>
           )}
           {limited && (meta?.stateReasonCode || meta?.stateReason) && (
             <p className="text-xs text-muted-foreground">
               {t(`insights.status.reasons.${reasonKey(meta.stateReasonCode)}`)}
             </p>
+          )}
+          {question && (
+            <Button size="sm" variant="outline" className="self-start" asChild>
+              <Link to={`/ask?q=${encodeURIComponent(question)}`}>
+                {t('insights.status.ask')}
+              </Link>
+            </Button>
           )}
         </PopoverContent>
       </Popover>

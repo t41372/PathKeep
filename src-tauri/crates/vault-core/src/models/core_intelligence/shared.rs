@@ -130,6 +130,45 @@ pub struct CoreIntelligenceSectionMeta {
     #[serde(default)]
     pub state_reason_code: Option<String>,
     pub notes: Vec<String>,
+    /// How much of the archive the card was computed from, counted for the scope it was read
+    /// for. None for sections that show their own counts (a site's, a search's).
+    #[serde(default)]
+    pub evidence: Option<SectionEvidence>,
+    /// The section needs what only Chromium browsers record (`intelligence.md`, V1 card
+    /// contract): Safari and Takeout visits leave it empty.
+    #[serde(default)]
+    pub chromium_only: bool,
+}
+
+/// How much of the archive a section's card was computed from, in the unit it counts.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SectionEvidence {
+    pub count: i64,
+    pub unit: SectionEvidenceUnit,
+}
+
+/// What a card counts as its evidence: everything it looked at in its range and scope, not just the
+/// rows it lists. Cards that look at the same things show the same count.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SectionEvidenceUnit {
+    /// Every visit (the KPI row's page visits).
+    Visits,
+    /// Visits to websites, search result pages included.
+    SiteVisits,
+    /// Visits to websites other than search result pages (Top sites).
+    PageVisits,
+    /// Keyword searches.
+    Searches,
+    /// Searches with the pages each led to (search trails).
+    SearchTrails,
+    /// Searches that led to a website (search trails with a landing site).
+    LandedSearches,
+    /// Days with any visit.
+    Days,
+    /// Browsing sessions begun in the range.
+    Sessions,
 }
 
 /// Generic transport envelope for one Core Intelligence section payload.

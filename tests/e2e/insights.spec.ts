@@ -8,8 +8,11 @@
  * fixture by hand, and the chart's axis shows what each bar covers: days for
  * up to 90 days, weeks for a year, months for all time (the fixture spans
  * three years). All time shows the archive's total visits with no comparison,
- * since there is no previous period. A custom range from a link and the
- * browser profile filter count only their visits. The top site's own screen
+ * since there is no previous period. Each card's ⓘ says how much it looked
+ * at, in what that card counts: cards that look at the same searches share a
+ * number, the one that looks only at searches that reached a site has its
+ * own, and all time's comes with its snapshot. A custom range from a link
+ * and the browser profile filter count only their visits. The top site's own screen
  * keeps the scope and does the same in every range. Search result pages are
  * not sites (Insights counts searches separately), so they are left out of
  * the count. "Kinds of sites" puts every visit under the kind of site it
@@ -33,6 +36,7 @@ import {
   archivedProfiles,
   archivedVisits,
   fixture,
+  localDay,
   type FixtureVisit,
 } from './support/fixture'
 // A visit's site as Insights counts it (`visit_taxonomy::registrable_domain_for_host`).
@@ -108,6 +112,28 @@ const card = (page: Page, title: string) =>
   page
     .getByRole('heading', { name: title, exact: true })
     .locator('xpath=ancestor::section[1]')
+
+/** A KPI tile's number, as it reads on screen. */
+async function kpiText(page: Page, label: string) {
+  const tile = page.getByRole('group', { name: label, exact: true })
+  await expect(tile).toHaveAttribute('aria-busy', 'false')
+  return (await tile.innerText()).split('\n')[1]?.trim() ?? ''
+}
+
+/** What a card's ⓘ says it was computed from ("1,234 visits"); the header's, before any inner list's own. */
+async function evidenceOf(page: Page, title: string) {
+  await card(page, title)
+    .getByRole('button', { name: 'About this number' })
+    .first()
+    .click()
+  const about = page.getByRole('dialog')
+  const based = about.getByText(/^[\d,]+ (visits?|searches?|days?)\b/)
+  await expect(based).toBeVisible()
+  const text = await based.innerText()
+  await page.keyboard.press('Escape')
+  await expect(about).toBeHidden()
+  return text
+}
 
 async function expectScreenIntact(page: Page) {
   await expect(
@@ -247,6 +273,23 @@ test('a custom range and one browser profile count only their visits', async ({
     'custom range',
     visitsPerSite(archivedVisits(), start.getTime(), until),
   )
+  // Each card says how much it was computed from, in what it counts: Top
+  // sites the visits to websites other than searches, Frequent searches the
+  // searches (the KPI row's), Habits the days with any visit.
+  const inRange = archivedVisits().filter(
+    (visit) => visit.at >= start.getTime() && visit.at < until,
+  )
+  const siteVisits = [
+    ...visitsPerSite(archivedVisits(), start.getTime(), until).values(),
+  ].reduce((sum, count) => sum + count, 0)
+  expect(await evidenceOf(page, 'Top sites')).toBe(
+    `${siteVisits.toLocaleString('en-US')} visits to websites, not counting searches`,
+  )
+  expect(await evidenceOf(page, 'Frequent searches')).toBe(
+    `${await kpiText(page, 'Searches')} searches`,
+  )
+  const days = new Set(inRange.map((visit) => localDay(visit.at))).size
+  expect(await evidenceOf(page, 'Habits')).toBe(`${days} days of browsing`)
   await expectScreenIntact(page)
 
   // Only the Work profile, over all time.
@@ -833,6 +876,19 @@ test('where searches end up counts each search on the site it led to', async ({
   })
   // A row may start with the site's letter badge.
   expect(shown.map((text) => text.replace(/^\S\s/, ''))).toEqual(expected)
+
+  // All time opens from the kept snapshot, which carries each card's count.
+  // This card looks only at the searches that reached a site; the other
+  // search cards look at every search and where it led.
+  const trails = allSearchTrails()
+  const landed = trails.filter((trail) => trail.landing).length
+  expect(landed).toBeLessThan(trails.length)
+  expect(await evidenceOf(page, 'Where your searches end up')).toBe(
+    `${landed.toLocaleString('en-US')} searches that led to a website`,
+  )
+  expect(await evidenceOf(page, 'Searches that took several tries')).toBe(
+    `${trails.length.toLocaleString('en-US')} searches and where they led`,
+  )
 })
 
 test('things you came back to list searches and pages by when you last came back', async ({

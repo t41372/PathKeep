@@ -12,6 +12,7 @@ export function Composer({
   onSend,
   onStop,
   focusKey,
+  initialText = '',
 }: {
   streaming: boolean
   providerLabel: string
@@ -19,9 +20,11 @@ export function Composer({
   onStop: () => void
   /** Changes when a different chat is opened, so the box takes focus again. */
   focusKey: string
+  /** What the box starts with: a question brought from elsewhere, not sent yet. */
+  initialText?: string
 }) {
   const { t } = useI18n()
-  const [text, setText] = useState('')
+  const [text, setText] = useState(initialText)
   const ref = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {

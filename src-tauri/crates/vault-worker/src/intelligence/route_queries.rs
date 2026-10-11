@@ -81,6 +81,7 @@ pub fn get_search_engine_ranking(
         vault,
         "search-activity",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_search_engine_ranking(vault, request),
         |data| data.is_empty(),
     )
@@ -132,6 +133,7 @@ pub fn get_top_search_concepts(
         vault,
         "search-activity",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_top_search_concepts(vault, request),
         |data| data.is_empty(),
     )
@@ -146,6 +148,7 @@ pub fn get_frequent_searches(
         vault,
         "search-activity",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_frequent_searches(vault, request),
         |data| data.is_empty(),
     )
@@ -160,6 +163,7 @@ pub fn get_search_queries(
         vault,
         "search-activity",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_search_queries(vault, request),
         |data| data.rows.is_empty(),
     )
@@ -174,6 +178,7 @@ pub fn get_search_families(
         vault,
         "search-activity",
         CoreIntelligenceSectionWindow::AllTime,
+        request.profile_id.as_deref(),
         |vault| intelligence::get_search_families(vault, request),
         |data| data.families.is_empty(),
     )
@@ -188,6 +193,7 @@ pub fn get_query_families(
         vault,
         "search-activity",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_query_families(vault, request),
         |data| data.families.is_empty(),
     )
@@ -202,6 +208,7 @@ pub fn get_query_family_detail(
         vault,
         "query-family-detail",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_query_family_detail(vault, request),
         query_family_detail_is_empty,
     )
@@ -216,6 +223,7 @@ pub fn get_top_sites(
         vault,
         "top-sites",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_top_sites(vault, request),
         |data| data.is_empty(),
     )
@@ -238,6 +246,7 @@ pub fn get_refind_pages(
         vault,
         "refind-pages",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_refind_pages(vault, request),
         |data| data.is_empty(),
     )
@@ -252,6 +261,7 @@ pub fn get_refind_page_detail(
         vault,
         "refind-page-detail",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_refind_page_detail(vault, request),
         refind_page_detail_is_empty,
     )

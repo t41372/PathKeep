@@ -6,7 +6,9 @@
  * PathKeep's tools, runs the search the model asks for on the archive, sends
  * the results back, and shows the answer with the pages it found: the
  * fixture's page about spawn_blocking is cited, and its address is in what the
- * model was sent. A wrong key and an address nothing listens on each fail the
+ * model was sent. An Insights card's "Ask about this" opens Ask with a new
+ * chat whose box holds the card's question and dates, sent only when the
+ * user sends it. A wrong key and an address nothing listens on each fail the
  * connection test with the reason in words, not the backend's error text; the
  * service with the wrong key, edited in place with the right one, connects.
  */
@@ -85,6 +87,25 @@ test('Ask answers from a search of the archive, with the pages it found', async 
       .join('\n')
     expect(results).toContain(ISSUE_URL)
 
+    // From an Insights card: its question waits in a new chat.
+    const sentBefore = model.requests.length
+    await page.goto('/#/insights?range=d30')
+    await page
+      .getByRole('heading', { name: 'Top sites', exact: true })
+      .locator('xpath=ancestor::section[1]')
+      .getByRole('button', { name: 'About this number' })
+      .click()
+    await page
+      .getByRole('dialog')
+      .getByRole('link', { name: 'Ask about this' })
+      .click()
+    await expect(page).toHaveURL(/#\/ask$/)
+    await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(
+      /^What stands out in “Top sites” in my browsing from .+ to .+\?$/,
+    )
+    expect(model.requests.length, 'nothing is sent before Send').toBe(
+      sentBefore,
+    )
   } finally {
     await model.close()
   }

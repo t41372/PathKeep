@@ -98,9 +98,12 @@ function AskChat({
     [open, pin, t],
   )
 
-  // The command palette links to /ask?new=1.
+  // The command palette links to /ask?new=1; an Insights card to
+  // /ask?q=<its question>, which waits in a new chat for the user to send it.
+  // Ask is not on screen when a card links here, so it reads `q` as it mounts.
+  const [question] = useState(() => params.get('q') ?? '')
   useEffect(() => {
-    if (params.get('new') !== '1') return
+    if (params.get('new') !== '1' && !params.get('q')) return
     startFresh()
     setParams({}, { replace: true })
   }, [params, setParams, startFresh])
@@ -184,6 +187,7 @@ function AskChat({
         </div>
         {providerId ? (
           <Composer
+            initialText={question}
             streaming={chat.streaming}
             providerLabel={label}
             onSend={submit}

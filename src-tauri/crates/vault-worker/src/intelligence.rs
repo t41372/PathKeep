@@ -133,16 +133,20 @@ fn with_core_intelligence<R>(
     f(vault)
 }
 
-/// Reads section data and its runtime metadata through the same owner.
+/// Reads section data and its runtime metadata through the same owner, with the visits or
+/// searches the card rests on in `profile`'s part of the window.
 fn with_core_intelligence_section<R>(
     vault: &vault_core::Vault,
     section_id: &str,
     window: CoreIntelligenceSectionWindow,
+    profile: Option<&str>,
     fetch: impl FnOnce(&vault_core::Vault) -> Result<R>,
     is_empty: impl FnOnce(&R) -> bool,
 ) -> Result<CoreIntelligenceSectionResult<R>> {
     let data = fetch(vault)?;
-    let meta = build_core_intelligence_section_meta(vault, section_id, window, is_empty(&data))?;
+    let mut meta =
+        build_core_intelligence_section_meta(vault, section_id, window, is_empty(&data))?;
+    intelligence::fill_section_evidence(vault, &mut meta, profile)?;
     Ok(CoreIntelligenceSectionResult { data, meta })
 }
 

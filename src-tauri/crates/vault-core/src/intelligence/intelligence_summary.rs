@@ -30,9 +30,10 @@ use super::{
 };
 use crate::models::{
     ActivityMix, ActivityMixTrend, ActivityMixTrendPoint, CategoryChangeEntry, CategoryMixEntry,
-    DateRange, DigestSummary, EngineEffectiveness, FrictionSignal, GranularityDateRangeRequest,
-    HardTopic, IntelligencePage, ReopenedInvestigation, ScopedDateRangeRequest, ScopedPageRequest,
-    SearchEffectiveness, SearchEffectivenessRequest, StableSource,
+    CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow, DateRange, DigestSummary,
+    EngineEffectiveness, FrictionSignal, GranularityDateRangeRequest, HardTopic, IntelligencePage,
+    ReopenedInvestigation, ScopedDateRangeRequest, ScopedPageRequest, SearchEffectiveness,
+    SearchEffectivenessRequest, SectionEvidence, SectionEvidenceUnit, StableSource,
 };
 use anyhow::Result;
 use std::collections::{BTreeMap, HashMap};
@@ -542,6 +543,138 @@ fn load_summary_totals(
             },
         )
         .map_err(Into::into)
+}
+
+/// Fills each section's `evidence`: how much of the archive its card was computed from, in the
+/// unit the card counts (`SectionEvidenceUnit`), for the scope it was read in. A section without
+/// a unit, or read for one calendar day across the years, has none.
+pub fn fill_section_evidence(
+    vault: &crate::Vault,
+    meta: &mut CoreIntelligenceSectionMeta,
+    profile_id: Option<&str>,
+) -> Result<()> {
+    if crate::intelligence_sections::evidence_unit(&meta.section_id).is_none() {
+        return Ok(());
+    }
+    let mut owned = meta.clone();
+    let cache = vault.site_days().clone();
+    let profile = profile_id.map(str::to_owned);
+    let filled = vault.read(vault_store::Db::Intelligence, move |s| {
+        fill_sections_evidence(s, &cache, &mut [&mut owned], profile.as_deref())?;
+        Ok(owned)
+    })?;
+    *meta = filled;
+    Ok(())
+}
+
+/// [`fill_section_evidence`] for the sections of one batch, on its open connection. Each count
+/// is taken once per window and unit; the site counts come from the site-day read the cards of
+/// the same scope keep (`SiteDayCache`).
+pub(crate) fn fill_sections_evidence(
+    connection: &Session<'_>,
+    cache: &SiteDayCache,
+    metas: &mut [&mut CoreIntelligenceSectionMeta],
+    profile_id: Option<&str>,
+) -> Result<()> {
+    let mut known: Vec<(DateRange, SectionEvidenceUnit, i64)> = Vec::new();
+    for meta in metas.iter_mut() {
+        let Some(unit) = crate::intelligence_sections::evidence_unit(&meta.section_id) else {
+            continue;
+        };
+        let range = match &meta.window {
+            CoreIntelligenceSectionWindow::DateRange { date_range } => date_range.clone(),
+            CoreIntelligenceSectionWindow::AllTime => {
+                DateRange { start: "0000-01-01".into(), end: "9999-12-31".into() }
+            }
+            CoreIntelligenceSectionWindow::CalendarDayHistory { .. } => continue,
+        };
+        let count =
+            match known.iter().find(|(seen, seen_unit, _)| *seen == range && *seen_unit == unit) {
+                Some((.., count)) => *count,
+                None => {
+                    let count = count_evidence(connection, cache, unit, &range, profile_id)?;
+                    known.push((range, unit, count));
+                    count
+                }
+            };
+        meta.evidence = Some(SectionEvidence { count, unit });
+    }
+    Ok(())
+}
+
+fn count_evidence(
+    connection: &Session<'_>,
+    cache: &SiteDayCache,
+    unit: SectionEvidenceUnit,
+    range: &DateRange,
+    profile_id: Option<&str>,
+) -> Result<i64> {
+    Ok(match unit {
+        SectionEvidenceUnit::Visits => {
+            load_summary_totals(connection, range, profile_id)?.total_visits
+        }
+        SectionEvidenceUnit::Searches => {
+            load_summary_totals(connection, range, profile_id)?.total_searches
+        }
+        SectionEvidenceUnit::Days => connection.query_one(
+            "SELECT COUNT(DISTINCT r.date_key)
+             FROM daily_summary_rollups_rows r INDEXED BY idx_daily_summary_range
+             WHERE r.date_key >= ?2 AND r.date_key <= ?3
+               AND r.generation IN (SELECT daily FROM intelligence_generations)
+               AND (?1 IS NULL OR r.profile_id = ?1)
+               AND r.total_visits > 0",
+            params![profile_id, range.start, range.end],
+            |row| Ok(row.get(0)?),
+        )?,
+        SectionEvidenceUnit::SiteVisits | SectionEvidenceUnit::PageVisits => {
+            let sites = cache.get(connection, &SiteDayScope::of(range, profile_id))?;
+            sites
+                .sites
+                .iter()
+                .map(|site| {
+                    if unit == SectionEvidenceUnit::PageVisits {
+                        site.page_visits
+                    } else {
+                        site.visits
+                    }
+                })
+                .sum()
+        }
+        SectionEvidenceUnit::SearchTrails | SectionEvidenceUnit::LandedSearches => {
+            // The trails begun in the range, as the search cards read them; `landed` keeps the
+            // ones that reached a site, all that Stable sources looks at.
+            let (start_ms, end_ms) = date_range_bounds(connection, range)?;
+            connection.query_one(
+                "SELECT COUNT(*)
+                 FROM search_trails_rows r INDEXED BY idx_search_trails_recent
+                 WHERE r.first_visit_ms >= ?2 AND r.first_visit_ms < ?3
+                   AND r.generation IN (SELECT navigation FROM intelligence_generations)
+                   AND (?1 IS NULL OR r.profile_id = ?1)
+                   AND (?4 = 0 OR r.landing_domain IS NOT NULL)",
+                params![
+                    profile_id,
+                    start_ms,
+                    end_ms,
+                    i64::from(unit == SectionEvidenceUnit::LandedSearches)
+                ],
+                |row| Ok(row.get(0)?),
+            )?
+        }
+        SectionEvidenceUnit::Sessions => {
+            // Sessions begun in the range. Common paths reads each session's segments by day, so a
+            // session running into the range's first day from the night before is the difference.
+            let (start_ms, end_ms) = date_range_bounds(connection, range)?;
+            connection.query_one(
+                "SELECT COUNT(*)
+                 FROM sessions_rows r INDEXED BY idx_sessions_range
+                 WHERE r.first_visit_ms >= ?2 AND r.first_visit_ms < ?3
+                   AND r.generation IN (SELECT navigation FROM intelligence_generations)
+                   AND (?1 IS NULL OR r.profile_id = ?1)",
+                params![profile_id, start_ms, end_ms],
+                |row| Ok(row.get(0)?),
+            )?
+        }
+    })
 }
 
 fn count_deep_dive_sessions(

@@ -9,7 +9,7 @@ use crate::{
     intelligence_runtime::load_module_runtime,
     models::{
         CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow, DERIVED_NOTE_MODULE_DISABLED,
-        DeterministicModuleRuntimeStatus,
+        DeterministicModuleRuntimeStatus, SectionEvidenceUnit,
     },
     utils::now_rfc3339,
 };
@@ -28,6 +28,8 @@ struct CoreIntelligenceSectionDescriptor {
     source_tables: &'static [&'static str],
     includes_enrichment: bool,
     data_kind: SectionDataKind,
+    /// What the card rests on, counted for its scope when it is read.
+    evidence: Option<SectionEvidenceUnit>,
     notes: &'static [&'static str],
     empty_degraded_reason: Option<&'static str>,
 }
@@ -39,6 +41,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["daily_summary_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: None,
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -49,6 +52,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["daily_summary_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: None,
         notes: &["Only prior years for the current local calendar day are considered."],
         empty_degraded_reason: None,
     },
@@ -58,6 +62,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["domain_daily_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::PageVisits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -72,6 +77,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         ],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Searches),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -81,6 +87,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["refind_pages"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Visits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -90,6 +97,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["category_daily_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Visits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -99,6 +107,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["daily_summary_rollups", "category_daily_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Visits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -108,6 +117,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["search_trails"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::LandedSearches),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -122,6 +132,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         ],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::SearchTrails),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -131,6 +142,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["search_trails", "search_trail_members"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::SearchTrails),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -140,6 +152,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["reopened_investigations"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Visits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -149,6 +162,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["daily_summary_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Days),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -158,6 +172,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["daily_summary_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::SiteVisits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -167,6 +182,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["path_flows"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Sessions),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -176,6 +192,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["domain_daily_rollups", "urls"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Days),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -191,6 +208,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         ],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Visits),
         notes: &[
             "Day insights reuse the existing deterministic entities for one exact local calendar day.",
         ],
@@ -202,6 +220,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["query_families", "search_trails", "search_events"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: None,
         notes: &[
             "Query-family detail promotes one search family into a shared route-first review surface.",
         ],
@@ -213,6 +232,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["refind_pages", "visit_derived_facts", "search_trails"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: None,
         notes: &[
             "Refind-page detail keeps evidence, repeat history, and related trails under one route.",
         ],
@@ -224,6 +244,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["compare_sets"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::SearchTrails),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -233,6 +254,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["domain_daily_rollups", "category_daily_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::SiteVisits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -247,6 +269,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         ],
         includes_enrichment: false,
         data_kind: SectionDataKind::CapabilityGated,
+        evidence: None,
         notes: &["Capability-gated: unsupported browsers legitimately produce no rows here."],
         empty_degraded_reason: Some(
             "No supported browser-reported interaction evidence is available for this scope yet.",
@@ -258,6 +281,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["domain_daily_rollups", "urls", "visits", "search_trails"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: None,
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -265,6 +289,11 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
 
 fn section_descriptor(section_id: &str) -> Option<&'static CoreIntelligenceSectionDescriptor> {
     CORE_INTELLIGENCE_SECTION_DESCRIPTORS.iter().find(|descriptor| descriptor.id == section_id)
+}
+
+/// What a section's card rests on, if it is counted (`intelligence::fill_section_evidence`).
+pub(crate) fn evidence_unit(section_id: &str) -> Option<SectionEvidenceUnit> {
+    section_descriptor(section_id)?.evidence
 }
 
 fn state_priority(state: &str) -> u8 {
@@ -367,6 +396,8 @@ fn build_module_backed_meta(
         state_reason,
         state_reason_code,
         notes,
+        evidence: None,
+        chromium_only: descriptor.data_kind == SectionDataKind::CapabilityGated,
     }
 }
 
@@ -393,6 +424,8 @@ fn build_direct_meta(
         state_reason,
         state_reason_code: None,
         notes,
+        evidence: None,
+        chromium_only: descriptor.data_kind == SectionDataKind::CapabilityGated,
     }
 }
 

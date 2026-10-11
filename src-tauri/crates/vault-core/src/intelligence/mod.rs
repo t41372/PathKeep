@@ -129,8 +129,9 @@ pub use self::intelligence_sessions::{
     get_search_trails, get_session_detail, get_sessions, get_trail_detail,
 };
 pub use self::intelligence_summary::{
-    get_activity_mix, get_activity_mix_trend, get_digest_summary, get_friction_signals,
-    get_reopened_investigations, get_search_effectiveness, get_stable_sources,
+    fill_section_evidence, get_activity_mix, get_activity_mix_trend, get_digest_summary,
+    get_friction_signals, get_reopened_investigations, get_search_effectiveness,
+    get_stable_sources,
 };
 pub use self::phase_four::{get_compare_set_detail, get_multi_browser_diff};
 pub use self::phase_three::{

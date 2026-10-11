@@ -253,7 +253,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 
 ### V1 洞察顯示契約
 
-- 每張 insight card 都必須顯示生成時間、資料視窗、evidence 數量，以及是否依賴 Chromium-only enhancement。（v0.4 的 ⓘ 有計算時間、範圍、狀態與算法，還沒有 evidence 數量；從洞察帶問題進 Ask 也還沒有。）
+- 每張 insight card 都必須顯示生成時間、資料視窗、evidence 數量，以及是否依賴 Chromium-only enhancement。（v0.4：每張卡的 ⓘ 寫出計算時間、範圍、狀態、算法，以及這張卡依據多少資料：它在這個範圍與設定檔裡看過的全部資料，不是它列出來的那幾列；用它自己數的東西當單位〔section meta 的 `evidence`：`count` 與 `unit`〕。看同一批資料的卡寫同一個數。熱門網站是網站造訪、不含搜尋；常搜尋、在哪裡搜尋、搜尋什麼是搜尋；搜尋得怎麼樣、試了好幾次的搜尋、比較過的頁面是搜尋與之後打開的頁面〔範圍內開始的 search trail〕；搜尋最後到了哪裡只看有打開網站的搜尋；新網站、習慣是有瀏覽的天數；探索還是專注、各瀏覽器對比是網站造訪；在網站之間怎麼走是範圍內開始的瀏覽 session〔它按天讀 session 的片段，前一晚跨進範圍第一天的那段是唯一的差別〕；常重開的頁面、你回頭再看的事、哪類網站、節奏、day 是全部造訪。單位在 `intelligence_sections.rs` 的登記表；數法在 `fill_sections_evidence`，跟兩批讀取一起算、存進快照〔全部時間與到今天為止的範圍打開時不再數〕，每個範圍與單位只數一次，讀日 rollup、站-日快取或 trail / session 的範圍索引，不掃造訪表。沒有單一單位的卡〔摘要、這一天、drill-in〕不寫；site、search、page drill-in 的 KPI 已經是它自己的數；只用 Chromium 才記錄的資料的卡加註〔`chromiumOnly`〕。有 AI 服務時 ⓘ 裡有「問問助理」：在 Ask 開新對話，輸入框放好這張卡的問題與日期，使用者送出才送。）
 - Dashboard 的 On This Day，以及 Intelligence 的 Site Analytics / Periodic Summary / Topic Timeline，都必須能 deep-link 回 Explorer evidence，或帶著 scoped question 跳進 Assistant。
 - deterministic intelligence baseline 也屬於正式 shipping surface：`open-loop` / `revisit` cards 與 `query ladders` 必須在沒有 embedding / LLM 時仍可用；`query ladders` 只在 Chromium search term evidence 形成至少 2-step refinement 時顯示，並能 deep-link 回 Explorer 的 canonical query。
 - 即使 AI disabled、provider unavailable、embedding 尚未建立，或 AI-generated card / topic surface 暫時為空，On This Day（Dashboard）、Site Analytics、Periodic Summary 這類 canonical / statistical surface 仍必須用純資料庫 / 統計結果繼續顯示，而不是讓整個 intelligence 區塊變空白。
