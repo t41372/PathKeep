@@ -3,7 +3,11 @@
  * link previews, semantic status and the search tips.
  *
  * Proves: a tag added in the detail panel filters History to exactly that
- * page (and stops doing so once removed); `site:` with `-word` returns the
+ * page (and stops doing so once removed); a word that is only in a note, in
+ * Latin or Chinese script, finds exactly that page, as do `note:` and
+ * `-note:`, until the note changes; stars on pages from two profiles show in
+ * the Starred list, on History's rows and in `is:starred`, and one removed
+ * is gone from all three after a reload; `site:` with `-word` returns the
  * exact page set the fixture predicts; a regex Rust cannot run is explained
  * in plain words and never sent, while the previous results stay; the link
  * preview box keeps its size from first paint to its final state, which
@@ -16,8 +20,10 @@ import {
   archivedVisits,
   backend,
   expectCount,
+  fixture,
   parseCount,
   type FixtureVisit,
+  type ProfileId,
 } from './support/fixture'
 
 const PREVIEW_URL = 'https://news.ycombinator.com/item?id=41502281'
@@ -79,6 +85,170 @@ async function expectResults(
   await expectCount(testInfo, `${name}: pages`, actual.pages, want.pages)
   await expectCount(testInfo, `${name}: visits`, actual.visits, want.visits)
 }
+
+const RUN_URL = 'https://www.strava.com/activities/1001'
+const RUN_TITLE = 'Strava · Afternoon run'
+const LOG_URL = 'https://www.strava.com/athlete/training'
+const LOG_TITLE = 'Strava · Training log'
+
+/** Opens a listed page's details and waits until the panel shows it, not the page before. */
+async function select(page: Page, title: string) {
+  await results(page).filter({ hasText: title }).click()
+  await expect(
+    detail(page).getByRole('heading', { name: title, exact: true }),
+  ).toBeVisible()
+}
+
+/** Waits until the archive holds `notes` for `url` (notes save after typing stops). */
+async function expectSavedNote(url: string, notes: string) {
+  await expect
+    .poll(
+      async () =>
+        (await backend<{ notes: string } | null>('get_url_annotation', { url }))
+          ?.notes,
+    )
+    .toBe(notes)
+}
+
+test('a note is found by its words, in either script, until it changes', async ({
+  page,
+}, testInfo) => {
+  const onStrava = expected(archivedVisits(), (visit) =>
+    visit.url.includes('strava.com/'),
+  )
+  const run = expected(archivedVisits(), (visit) => visit.url === RUN_URL)
+  const log = expected(archivedVisits(), (visit) => visit.url === LOG_URL)
+  expect(run.pages * log.pages, 'the fixture visited both pages').toBe(1)
+
+  // No fixture page has these words; after the notes, only the noted pages do.
+  await page.goto('/#/history')
+  await searchBox(page).fill('site:strava.com')
+  await expectResults(page, testInfo, 'site:strava.com', onStrava)
+  await select(page, RUN_TITLE)
+  const note = detail(page).getByRole('textbox', { name: 'Note' })
+  await note.fill('quokka sighting')
+  await expectSavedNote(RUN_URL, 'quokka sighting')
+  await select(page, LOG_TITLE)
+  await note.fill('设计系统')
+  await expectSavedNote(LOG_URL, '设计系统')
+
+  for (const [word, want] of [
+    ['quokka', run],
+    ['设计系统', log],
+    ['note:quokka', run],
+  ] as const) {
+    await searchBox(page).fill(word)
+    await expectResults(page, testInfo, word, want)
+  }
+  await searchBox(page).fill('site:strava.com -note:quokka')
+  await expectResults(page, testInfo, 'site:strava.com -note:quokka', {
+    ...onStrava,
+    pages: onStrava.pages - 1,
+    visits: onStrava.visits - run.visits,
+  })
+  await expect(results(page).filter({ hasText: RUN_TITLE })).toHaveCount(0)
+
+  // Changed, the note answers to its new words and not the old ones.
+  await searchBox(page).fill('site:strava.com')
+  await select(page, RUN_TITLE)
+  await note.fill('wombat sighting')
+  await expectSavedNote(RUN_URL, 'wombat sighting')
+  await searchBox(page).fill('quokka')
+  await expect(page.getByText('Nothing found')).toBeVisible({
+    timeout: 30_000,
+  })
+  await searchBox(page).fill('wombat')
+  await expectResults(page, testInfo, 'wombat', run)
+})
+
+/**
+ * A page `profile` visited whose title no other page has or contains, so a
+ * quoted search for it lists one row; none of `taken`, and none another test
+ * uses.
+ */
+function pageOf(profile: ProfileId, taken: string[]): FixtureVisit {
+  const titles = new Map<string, Set<string>>()
+  for (const visit of archivedVisits()) {
+    titles.set(
+      visit.title,
+      (titles.get(visit.title) ?? new Set()).add(visit.url),
+    )
+  }
+  const avoid = new Set([PREVIEW_URL, TAG_URL, RUN_URL, LOG_URL, ...taken])
+  const found = fixture().visitsByProfile[profile].find(
+    (visit) =>
+      !avoid.has(visit.url) &&
+      !visit.url.includes('/search?') &&
+      !visit.title.includes('"') &&
+      titles.get(visit.title)?.size === 1 &&
+      [...titles.keys()].every(
+        (title) => title === visit.title || !title.includes(visit.title),
+      ),
+  )
+  if (!found) throw new Error(`no page only ${profile} names this way`)
+  return found
+}
+
+/** Finds `visit`'s page in History and opens its details. */
+async function openDetails(page: Page, visit: FixtureVisit) {
+  await page.goto('/#/history')
+  await searchBox(page).fill(`"${visit.title}"`)
+  const row = results(page).filter({ hasText: visit.title })
+  await expect(row).toHaveCount(1)
+  await row.click()
+  await expect(detail(page)).toContainText(visit.url)
+  return row
+}
+
+test('stars from two profiles: the Starred list and History agree after a reload', async ({
+  page,
+}) => {
+  const work = pageOf('chrome:Profile 1', [])
+  const firefox = pageOf('firefox:k3x9.default-release', [work.url])
+  const personal = pageOf('chrome:Default', [work.url, firefox.url])
+  for (const visit of [work, firefox, personal]) {
+    await openDetails(page, visit)
+    await detail(page).getByRole('button', { name: 'Star this page' }).click()
+    await expect(
+      detail(page).getByRole('button', { name: 'Remove star' }),
+    ).toBeVisible()
+  }
+  await openDetails(page, firefox)
+  await detail(page).getByRole('button', { name: 'Remove star' }).click()
+  await expect(
+    detail(page).getByRole('button', { name: 'Star this page' }),
+  ).toBeVisible()
+
+  await page.reload()
+  await page.getByRole('tab', { name: /^Starred/ }).click()
+  // The list itself: the details of the page last opened stay beside it.
+  const starred = page.getByRole('listbox', { name: 'Starred' })
+  await expect(starred).toContainText(work.title)
+  await expect(starred).toContainText(personal.title)
+  await expect(starred).not.toContainText(firefox.title)
+
+  // History's rows say the same, and so does is:starred.
+  for (const [visit, isStarred] of [
+    [work, true],
+    [firefox, false],
+    [personal, true],
+  ] as const) {
+    const row = await openDetails(page, visit)
+    await expect(row.getByRole('img', { name: 'Starred' })).toHaveCount(
+      isStarred ? 1 : 0,
+    )
+    await searchBox(page).fill(`"${visit.title}" is:starred`)
+    if (isStarred) {
+      await expect(results(page).filter({ hasText: visit.title })).toHaveCount(
+        1,
+      )
+    } else {
+      await expect(page.getByText('Nothing found')).toBeVisible({
+        timeout: 30_000,
+      })
+    }
+  }
+})
 
 async function tagsOf(url: string) {
   const annotation = await backend<{ tags: string[] } | null>(

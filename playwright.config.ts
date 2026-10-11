@@ -64,6 +64,11 @@ function prepareFixture() {
     // launchd / Task Scheduler. Debug builds only; release ignores it.
     PATHKEEP_PLATFORM_TEST_SANDBOX_DIR: dirs.osSandbox,
     PATHKEEP_TEST_BLOCK_NETWORK: '1',
+    // Link previews may still reach link-preview.spec.ts's own HTTPS server
+    // on 127.0.0.1, which this authority signed. Debug only.
+    PATHKEEP_TEST_PREVIEW_SERVER_CA: path.resolve(
+      'tests/e2e/support/tls/ca.pem',
+    ),
     // Lets export.spec.ts watch and stop an export of the small fixture. Debug only.
     PATHKEEP_TEST_EXPORT_ROW_DELAY_US: '500',
     // Keep the build cache between runs; a cold Rust build takes minutes.
@@ -154,6 +159,8 @@ export default defineConfig({
         'insights-time-zone.spec.ts',
         'background-work.spec.ts',
         'backup.spec.ts',
+        'link-preview.spec.ts',
+        'search-ranking.spec.ts',
         'schedule.spec.ts',
         'browser-import.spec.ts',
         'takeout-import.spec.ts',

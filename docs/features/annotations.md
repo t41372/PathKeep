@@ -105,8 +105,11 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
   停止輸入 800 ms 後自動存（`set_url_notes`），換到另一頁時先把未存的內容寫掉；
   旁邊顯示「正在儲存… / 已儲存 / 無法儲存備註」。讀取用 `useUrlAnnotation(url)`
   （`src/features/history/queries.ts`），讀取失敗會說「無法載入備註」。
-- **已加星**視圖用 `useAnnotationList()`（`list_url_annotations`，上限 2000 筆）在每列
-  顯示筆記預覽。
+- **已加星**視圖用 `useStarList()`（`list_stars`，依加星時間由新到舊，每頁 500 筆，捲到底
+  再載入下一頁，沒有總數上限）在每列顯示筆記預覽；筆記與標籤跟著每一項一起回傳。
+  History 的列在加星的頁面旁畫星號，星號帶「已加星」的標籤（三種語言），讀螢幕的人也聽得到。
+  E2E（`history-tools.spec`）：筆記的字（拉丁字與中文）找到那一頁、`note:` / `-note:`、改了筆記舊字找不到；
+  兩個設定檔的頁面加星，Starred、列上的星號與 `is:starred` 一致，拿掉一個重新整理後三處都沒有。
 - **標籤**：詳情面板備註上方的標籤列（`src/features/history/tag-editor.tsx`）。
   輸入後按 Enter 或逗號新增（可一次貼上逗號分隔的多個）；輸入框空著時按 Backspace 移到最後一個標籤，
   在標籤上按 Backspace / Delete 移除，←/→ 在標籤與輸入框之間移動；每個標籤也有「移除」按鈕。
@@ -114,7 +117,7 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
   （trim、大小寫不分去重、最多 64 個、每個最多 64 bytes，`tags.ts`），超過時就地說明而不送出；
   寫入失敗會退回上次存好的那組並說明。點標籤本身會把 History 搜尋改成 `tag:名稱`
   （有空白或引號時加引號，例如 `tag:"e2e fts"`），切回全文。
-  **已加星**每列顯示最多三個標籤（多的寫 +N），資料來自同一個 `list_url_annotations`。
+  **已加星**每列顯示最多三個標籤（多的寫 +N），資料來自同一個 `list_stars`。
   標籤與備註共用一次 `get_url_annotation` 讀取，載入中與讀取失敗只顯示一次
   （`annotation-section.tsx`）。依 §2，介面不推薦既有標籤。
 - 沒有 localStorage 備援，也沒有 browser-preview 版本；舊的 `useLocalAnnotations`、

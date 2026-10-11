@@ -37,6 +37,7 @@ use tauri::AppHandle;
 
 mod config;
 mod dispatch;
+mod events;
 mod payloads;
 mod router;
 mod search;
@@ -60,21 +61,28 @@ struct DevIpcBridgeState {
     session: SessionState,
     port: u16,
     search_streams: search::Streams,
+    /// The desktop events, for browsers on `/events`.
+    events: events::Hub,
 }
 
 impl DevIpcBridgeState {
-    fn new(app: Arc<RwLock<Option<DevIpcAppHandle>>>, session: SessionState, port: u16) -> Self {
-        Self { app, session, port, search_streams: Arc::default() }
+    fn new(
+        app: Arc<RwLock<Option<DevIpcAppHandle>>>,
+        session: SessionState,
+        port: u16,
+        events: events::Hub,
+    ) -> Self {
+        Self { app, session, port, search_streams: Arc::default(), events }
     }
 
     #[cfg(test)]
     fn without_app(session: SessionState, port: u16) -> Self {
-        Self::new(Arc::new(RwLock::new(None)), session, port)
+        Self::new(Arc::new(RwLock::new(None)), session, port, events::Hub::default())
     }
 
     #[cfg(test)]
     fn with_app(app: DevIpcAppHandle, session: SessionState, port: u16) -> Self {
-        Self::new(Arc::new(RwLock::new(Some(app))), session, port)
+        Self::new(Arc::new(RwLock::new(Some(app))), session, port, events::Hub::default())
     }
 }
 
@@ -87,15 +95,18 @@ impl DevIpcBridgeState {
 #[derive(Clone)]
 pub(crate) struct DevIpcBridgeHandle {
     app: Arc<RwLock<Option<DevIpcAppHandle>>>,
+    events: events::Hub,
 }
 
 impl DevIpcBridgeHandle {
-    fn new(app: Arc<RwLock<Option<DevIpcAppHandle>>>) -> Self {
-        Self { app }
+    fn new(app: Arc<RwLock<Option<DevIpcAppHandle>>>, events: events::Hub) -> Self {
+        Self { app, events }
     }
 
-    /// Attaches the live Tauri handle once GUI setup reaches the app boundary.
+    /// Attaches the live Tauri handle once GUI setup reaches the app boundary, and forwards the
+    /// events the app sends its window to the bridge's browsers.
     pub(crate) fn attach_app(&self, app: DevIpcAppHandle) -> Result<()> {
+        self.events.forward_app_events(&app);
         let mut guard = self
             .app
             .write()
@@ -126,8 +137,9 @@ pub(crate) fn maybe_launch(session: SessionState) -> Result<Option<DevIpcBridgeH
         .context("marking PathKeep dev IPC bridge listener as non-blocking")?;
 
     let app = Arc::new(RwLock::new(None));
-    let bridge_handle = DevIpcBridgeHandle::new(app.clone());
-    let app_state = DevIpcBridgeState::new(app, session, config.port);
+    let events = events::Hub::default();
+    let bridge_handle = DevIpcBridgeHandle::new(app.clone(), events.clone());
+    let app_state = DevIpcBridgeState::new(app, session, config.port, events);
     let app_router = build_router(app_state, &config)?;
     let port = config.port;
 
@@ -171,7 +183,10 @@ pub(crate) fn maybe_launch(session: SessionState) -> Result<Option<DevIpcBridgeH
 pub(crate) fn maybe_launch(_session: SessionState) -> Result<Option<DevIpcBridgeHandle>> {
     if bridge_enabled() {
         resolve_bridge_config_from_env()?;
-        return Ok(Some(DevIpcBridgeHandle::new(Arc::new(RwLock::new(None)))));
+        return Ok(Some(DevIpcBridgeHandle::new(
+            Arc::new(RwLock::new(None)),
+            events::Hub::default(),
+        )));
     }
     Ok(None)
 }
@@ -196,7 +211,7 @@ mod tests {
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("mock app");
         let app_slot = Arc::new(RwLock::new(None));
-        let handle = DevIpcBridgeHandle::new(app_slot.clone());
+        let handle = DevIpcBridgeHandle::new(app_slot.clone(), events::Hub::default());
 
         handle.attach_app(app.handle().clone()).expect("attach app handle");
 
@@ -208,7 +223,7 @@ mod tests {
             let _guard = slot_for_panic.write().expect("write slot");
             panic!("poison app handle slot");
         });
-        let poisoned_handle = DevIpcBridgeHandle::new(poisoned_slot);
+        let poisoned_handle = DevIpcBridgeHandle::new(poisoned_slot, events::Hub::default());
 
         let error = poisoned_handle
             .attach_app(app.handle().clone())

@@ -26,7 +26,7 @@
   在 `og_image_blobs`。
 - HTTPS-only 的網路 fetch：解析 `<meta property="og:image:secure_url">` →
   `og:image` → `twitter:image` → `twitter:image:src`，HTTP body 上限 1 MiB、image
-  body 上限 2 MiB、單一 redirect、12 秒 total timeout。
+  body 上限 2 MiB、最多 8 次 redirect（每一跳都先過 SSRF 檢查）、15 秒 total timeout。
 - 顯式 fetch 狀態（`ok` / `missing` / `http_error` / `parse_error` / `too_large` /
   `unsupported_mime` / `blocked`）+ 負緩存 + 退避 refetch_after，避免 retry storm。
 - 使用者開關 `og_image.fetch_enabled`（預設 on）、per-domain blocklist、與四選一的清理
@@ -100,8 +100,10 @@ CREATE INDEX idx_og_images_last_shown   ON og_images(last_shown_at)   WHERE last
 
 ### Fetch 流程（`og_images_fetch.rs`）
 
-- `build_fetch_client()`：reqwest blocking client。UA `PathKeep/0.3 (link-preview;
-data-sovereignty)`、無 Referer、connect 8 s / total 12 s、最多 1 次 redirect、
+- `build_fetch_client()`：reqwest blocking client。UA 是桌面版 Chrome 127（Linux）的字串，
+  另帶 Chrome 會送的 `Accept-Language`、`Sec-Fetch-*` 與 `Sec-CH-UA*` 標頭（原本的
+  `PathKeep/0.3` UA 在約一半的測試網址被擋）；無 Referer、無 cookie、connect 10 s / total 15 s、
+  最多 8 次 redirect，每一跳先用 `net_guard::url_target_is_blocked` 檢查，指向非公開位址就停下不抓；
   https-only 由我們在進入點手動強制（http:// page URL 直接 `parse_error`）。
 - `fetch_og_image_for(client, page_url)` → `FetchedOgImage`：執行整條 pipeline，永遠
   回一個可持久化的結果（成功或負緩存）。
@@ -158,18 +160,24 @@ data-sovereignty)`、無 Referer、connect 8 s / total 12 s、最多 1 次 redir
   依網址快取約 120 筆，超過時淘汰最舊、而且沒有元件正在顯示的；`mark_og_images_shown` 每 2 秒批次送一次。
   時間線與搜尋結果列不載入預覽圖，列表維持毫秒級。
 
-設定入口不變：
+設定入口：
 
 - **Settings → General →「連結預覽」開關**（`src/features/settings/online-rows.tsx`）：
   寫 `AppConfig.ogImage.fetchEnabled`；打開時若 `fetchMode` 是 `off`，同時改成
   `background`。說明文字：「下載每頁提供的預覽圖，網站會看到一個來自你電腦的請求」。
 - **Settings → Storage →「連結預覽圖」**（`src/features/settings/storage-section.tsx`）：
-  張數與大小，「清除…」確認後呼叫 `clear_og_image_cache`。沒有 Run cleanup、清理策略選擇、
-  per-domain blocklist 介面。
+  張數與大小，「清除…」確認後呼叫 `clear_og_image_cache`。
+- **Settings → 背景工作 →「連結預覽」**（`src/features/settings/background/online-work-rows.tsx` 的
+  `LinkPreviewsRow`）：抓取開著時，用 `get_og_image_coverage_stats` 寫出多少網頁有預覽圖、已檢查幾個
+  （每次打開讀一次，不輪詢）；可選「何時抓取」（顯示時 / 每次備份後）與「保留圖片」（直到清除 / 30 天 /
+  90 天 / 最多 100 MB / 最多 500 MB），「立即清理」確認後呼叫 `run_og_image_cleanup`。抓取關著時只說明並連到
+  Settings → General。
+
+沒有 per-domain blocklist 介面。
 
 `src/lib/backend-client/explorer.ts` 的 typed methods 中，`loadHistoryOgImages`、`markOgImagesShown`、
-`triggerOgImageRefetch`、`getOgImageStorageStats`、`clearOgImageCache` 有呼叫者；
-`prefetchOgImages`、`getOgImageCoverageStats`、`runOgImageCleanup` 目前沒有。
+`triggerOgImageRefetch`、`getOgImageStorageStats`、`getOgImageCoverageStats`、`clearOgImageCache`、
+`runOgImageCleanup` 有呼叫者；`prefetchOgImages` 目前沒有。
 
 **仍未處理**：onboarding 沒有告知預設會向造訪過的網站下載預覽圖（舊 Ready 步的 egress 披露已隨舊前端刪除），
 唯一的入口是 Settings → General 的開關。這屬於 onboarding，本次沒有改。
@@ -177,6 +185,8 @@ data-sovereignty)`、無 Referer、connect 8 s / total 12 s、最多 1 次 redir
 E2E（`tests/e2e/history-tools.spec.ts`）量測預覽框在讀取中與最終狀態的大小一致、最終狀態與後端記錄的
 `fetch_status` 相符，並在傳輸層把一頁的回應換成一張 PNG，確認圖片畫出且回報 `mark_og_images_shown`；
 後端回傳 data URL 的路徑由 `load_og_images_collapses_duplicate_urls_via_tempdir_archive` 測試。
+
+真正的下載由 `tests/e2e/link-preview.spec.ts` 驗：測試在 127.0.0.1 開一個 HTTPS 網站（`support/preview-server.ts`，憑證由 `support/tls/ca.pem` 簽），把造訪寫進 Chrome 的歷史再備份；打開詳情時下載 og:image、畫出、之後不再向網站要；圖片網址轉址到 169.254.169.254 時在轉址那一步停下，詳情說拿不到預覽。E2E 的後端整個擋掉網路（`PATHKEEP_TEST_BLOCK_NETWORK`），只有 `PATHKEEP_TEST_PREVIEW_SERVER_CA` 指定憑證時，連結預覽可以連 `https://127.0.0.1`、並信任那張憑證；兩個開關都只在 debug 建置有效（`vault_core::test_support`），其他位址與其他種類的抓取照擋。
 
 ## 5. 與其他系統的互動
 

@@ -116,14 +116,12 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "initialize_archive" => {
             let payload = parse_payload::<InitializeArchivePayload>(payload)?;
-            // The dev HTTP bridge does NOT deliver Tauri events, so the upgrade
-            // progress reporter is a documented no-op here (mirroring how the dev
-            // backup path drops its emit sink); the upgrade work still runs.
+            let events = state.events.clone();
             json_value!(worker_bridge::initialize_archive_with_progress_impl(
                 payload.config,
                 payload.database_key,
                 &state.session,
-                |_| {}
+                move |event| events.emit(vault_core::ARCHIVE_UPGRADE_EVENT, &event)
             )?)
         }
         "assess_archive_upgrade" => {
@@ -200,7 +198,15 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "run_backup_now" => {
             let payload = parse_payload::<RunBackupPayload>(payload)?;
             let app = require_app_handle(state).ok();
-            json_value!(backup_now_off_thread(app, payload.due_only, state.session.clone()).await?)
+            json_value!(
+                backup_now_off_thread(
+                    app,
+                    payload.due_only,
+                    state.session.clone(),
+                    state.events.clone()
+                )
+                .await?
+            )
         }
         "query_history" => {
             let payload = parse_payload::<QueryHistoryPayload>(payload)?;
@@ -391,10 +397,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "import_takeout" => {
             let payload = parse_payload::<TakeoutPayload>(payload)?;
+            let events = state.events.clone();
             json_value!(worker_bridge::import_takeout_impl(
                 payload.request,
                 &state.session,
-                std::mem::drop::<vault_core::ImportProgressEvent>
+                move |event| events.emit(vault_core::IMPORT_PROGRESS_EVENT, &event)
             )?)
         }
         "inspect_browser_history" => {
@@ -406,10 +413,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "import_browser_history" => {
             let payload = parse_payload::<BrowserHistoryPayload>(payload)?;
+            let events = state.events.clone();
             json_value!(worker_bridge::import_browser_history_impl(
                 payload.request,
                 &state.session,
-                std::mem::drop::<vault_core::ImportProgressEvent>
+                move |event| events.emit(vault_core::IMPORT_PROGRESS_EVENT, &event)
             )?)
         }
         "preview_import_batch" => {
@@ -560,11 +568,16 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             // thread (blocking keyring/file IO), then spawns a background thread that
             // creates its own scoped `Runtime::new()` and drives the stream there. That
             // blocking config IO is why this arm must hop off the bridge's async thread.
-            // The dev HTTP bridge does NOT deliver Tauri events, so the emit sink is a
-            // no-op here (documented); streaming chunks only flow under real Tauri. The
-            // returned `{ runId }` is still verifiable.
+            // The chunks go to the browsers on `/events`.
             let payload = parse_payload::<WrappedRequest<AiChatSendRequest>>(payload)?;
-            json_value!(ai_chat_send_off_thread(payload.request, state.session.clone()).await?)
+            json_value!(
+                ai_chat_send_off_thread(
+                    payload.request,
+                    state.session.clone(),
+                    state.events.clone()
+                )
+                .await?
+            )
         }
         "ai_chat_cancel" => {
             let payload = parse_payload::<RunIdStringPayload>(payload)?;
@@ -574,10 +587,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "download_static_embedding_model" => {
-            // Spawns a background download thread off the worker; the dev HTTP bridge does NOT
-            // deliver Tauri events, so the progress sink is a no-op. The `Ok(())` ack is still
-            // verifiable.
-            json_value!(download_static_embedding_model_off_thread().await?)
+            // Spawns a background download thread off the worker; progress goes to the browsers
+            // on `/events`.
+            json_value!(download_static_embedding_model_off_thread(state.events.clone()).await?)
         }
         "cancel_ai_embedding_model_download" => {
             json_value!(worker_bridge::cancel_model_download_impl()?)
@@ -1060,21 +1072,21 @@ fn join_failure<T>(command: &str, error: tokio::task::JoinError) -> Result<T, Co
 /// `socket hang up` with no body.
 ///
 /// With a live app it takes the same path as the Tauri command, so the menu
-/// bar status follows bridge-started backups too.
+/// bar status follows bridge-started backups too, and its progress reaches the
+/// browsers through the app's events; without one, progress goes to them directly.
 async fn backup_now_off_thread(
     app: Option<DevIpcAppHandle>,
     due_only: bool,
     session: crate::session::SessionState,
+    events: super::events::Hub,
 ) -> Result<vault_core::BackupReport, CommandError> {
     tokio::task::spawn_blocking(move || match app {
         Some(app) => {
             desktop_integration::run_backup(&app, desktop_integration::BackupSource::App, due_only)
         }
-        None => worker_bridge::run_backup_now_impl(
-            due_only,
-            &session,
-            std::mem::drop::<vault_core::BackupProgressEvent>,
-        ),
+        None => worker_bridge::run_backup_now_impl(due_only, &session, move |event| {
+            events.emit(desktop_integration::BACKUP_PROGRESS_EVENT, &event)
+        }),
     })
     .await
     .unwrap_or_else(|error| join_failure("run_backup_now", error))
@@ -1138,30 +1150,30 @@ async fn search_ai_history_off_thread(
 /// resolves config + provider synchronously (blocking keyring/file IO) and then
 /// spawns the streaming thread, which creates its own scoped runtime; that
 /// blocking config IO is why this must not run on the bridge's async thread. The
-/// emit sink is dropped because the dev HTTP bridge does not deliver Tauri events.
+/// chunks go to the browsers on `/events`, on the event the window gets them on.
 async fn ai_chat_send_off_thread(
     request: vault_core::AiChatSendRequest,
     session: crate::session::SessionState,
+    events: super::events::Hub,
 ) -> Result<vault_core::AiChatSendAck, CommandError> {
     tokio::task::spawn_blocking(move || {
-        worker_bridge::ai_chat_send_impl(
-            request,
-            &session,
-            std::mem::drop::<vault_core::AiChatStreamEvent>,
-        )
+        worker_bridge::ai_chat_send_impl(request, &session, move |event| {
+            events.emit(vault_core::AI_CHAT_STREAM_EVENT, &event)
+        })
     })
     .await
     .unwrap_or_else(|error| join_failure("ai_chat_send", error))
 }
 
 /// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). The worker
-/// spawns the actual download thread; the emit sink is dropped because the dev HTTP bridge does not
-/// deliver Tauri events (progress only flows under real Tauri).
-async fn download_static_embedding_model_off_thread() -> Result<(), CommandError> {
+/// spawns the actual download thread; its progress goes to the browsers on `/events`.
+async fn download_static_embedding_model_off_thread(
+    events: super::events::Hub,
+) -> Result<(), CommandError> {
     tokio::task::spawn_blocking(move || {
-        worker_bridge::download_static_embedding_model_impl(
-            std::mem::drop::<vault_core::ModelDownloadProgressEvent>,
-        )
+        worker_bridge::download_static_embedding_model_impl(move |event| {
+            events.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event)
+        })
     })
     .await
     .unwrap_or_else(|error| join_failure("download_static_embedding_model", error))

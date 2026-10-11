@@ -80,7 +80,7 @@ fn a_kill_at_each_step_of_the_replacement_leaves_old_or_new() {
 
 #[test]
 fn kills_at_random_moments_during_repeated_rewraps_leave_a_working_envelope() {
-    let (mut rng, seed) = Rng::from_env_or_clock();
+    let (mut rng, seed) = Rng::from_env_or_fixed();
     println!("seed {seed}");
     let runs = 30;
     let mut finished_on = [0usize; 2];

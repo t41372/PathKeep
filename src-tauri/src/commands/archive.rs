@@ -31,7 +31,7 @@ pub(crate) async fn initialize_archive(
             database_key,
             &session,
             |event| {
-                let _ = app.emit("pathkeep://archive-upgrade", &event);
+                let _ = app.emit(vault_core::ARCHIVE_UPGRADE_EVENT, &event);
             },
         )
     })

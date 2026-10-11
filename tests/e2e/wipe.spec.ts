@@ -3,12 +3,12 @@
  * and PathKeep starts over at onboarding.
  *
  * Proves: the preview's visit count is the archive's real size (the first
- * backup, the ten added in backup.spec, the browser file imported in
- * browser-import.spec and the Takeout folders, My Activity export and .zip
- * imported in takeout-import.spec), an installed automatic backup
- * is named in the preview and removed with the data, the archive and the
- * stored key are gone afterwards, and the browsers' own history files are
- * untouched.
+ * backup, the visits added in backup.spec, link-preview.spec and
+ * search-ranking.spec, the Firefox and Safari files imported in
+ * browser-import.spec, and the Takeout folders, My Activity export and .zip
+ * imported in takeout-import.spec), an installed automatic backup is named in
+ * the preview and removed with the data, the archive and the stored key are
+ * gone afterwards, and the browsers' own history files are untouched.
  *
  * The automatic backup is installed through Backup like a user would. The
  * E2E backend keeps the OS scheduler in a sandbox folder (debug builds only),
@@ -19,6 +19,9 @@ import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { browserFileVisitCount } from './support/browser-file'
+import { PREVIEW_VISIT_COUNT } from './support/preview-server'
+import { rankingVisitCount } from './support/ranking-pages'
+import { safariVisitCount } from './support/safari-file'
 import {
   activityVisitCount,
   takeoutVisitCount,
@@ -70,6 +73,9 @@ test('delete all data previews, deletes, and returns to onboarding', async ({
     archivedVisits().length +
     10 +
     browserFileVisitCount() +
+    safariVisitCount() +
+    PREVIEW_VISIT_COUNT +
+    rankingVisitCount() +
     takeoutVisitCount() +
     activityVisitCount() +
     zipVisitCount()

@@ -44,6 +44,13 @@ export function fixture(): Fixture {
   return cached
 }
 
+/** `YYYY-MM-DD` of `at` in this computer's time zone: History's days, and `after:`'s. */
+export function localDay(at: number) {
+  const day = new Date(at)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`
+}
+
 /** The profiles first-run selects. Forks of Firefox are left unchecked. */
 export const archivedProfiles: ProfileId[] = [
   'chrome:Default',

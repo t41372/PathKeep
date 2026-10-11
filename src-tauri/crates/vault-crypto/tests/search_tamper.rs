@@ -243,7 +243,7 @@ fn every_kind_of_damage_is_an_integrity_error() {
     let baseline = search_everything(&open_directory(&original)).unwrap();
     read_every_file(&original).unwrap();
 
-    let (mut rng, seed) = Rng::from_env_or_clock();
+    let (mut rng, seed) = Rng::from_env_or_fixed();
     println!("seed {seed}");
     let damages = damages(&original, &mut rng);
     let (mut in_error, mut in_directory, mut not_read_by_search) = (0, 0, 0);

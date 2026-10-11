@@ -95,6 +95,7 @@ export const history = defineMessages({
     },
     starred: {
       wholeSite: 'Whole site',
+      mark: 'Starred',
     },
     detail: {
       label: 'Page details',
@@ -219,6 +220,7 @@ export const history = defineMessages({
     },
     starred: {
       wholeSite: '整个网站',
+      mark: '已加星',
     },
     detail: {
       label: '页面详情',
@@ -343,6 +345,7 @@ export const history = defineMessages({
     },
     starred: {
       wholeSite: '整個網站',
+      mark: '已加星',
     },
     detail: {
       label: '頁面詳情',

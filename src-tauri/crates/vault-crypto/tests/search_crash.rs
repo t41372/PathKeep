@@ -149,7 +149,7 @@ fn kills_during_commits_leave_the_last_commit() {
     let work = tempfile::tempdir().unwrap();
     let base = work.path().join("base");
     prepare(&base, BASE_BATCHES);
-    let (mut rng, seed) = Rng::from_env_or_clock();
+    let (mut rng, seed) = Rng::from_env_or_fixed();
     println!("seed {seed}, load {}", common::load_averages());
 
     // Calibrate: how long one batch takes, so kills spread over several commits.
@@ -226,7 +226,7 @@ fn kills_during_merges_leave_the_last_commit() {
     let work = tempfile::tempdir().unwrap();
     let base = work.path().join("base");
     prepare(&base, MERGE_SEGMENTS);
-    let (mut rng, seed) = Rng::from_env_or_clock();
+    let (mut rng, seed) = Rng::from_env_or_fixed();
     println!("seed {seed}, load {}", common::load_averages());
 
     // Calibrate the merge's duration.

@@ -217,6 +217,9 @@ impl TakeoutInspection {
     }
 }
 
+/// The event `ImportProgressEvent`s go out on, to the window and to the dev bridge's browsers.
+pub const IMPORT_PROGRESS_EVENT: &str = "pathkeep://import-progress";
+
 /// Progress event streamed while a Takeout import is running.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
