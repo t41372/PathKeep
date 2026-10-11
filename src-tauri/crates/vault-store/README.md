@@ -298,5 +298,7 @@ Archive's reader admission accounting, so checkpointing cannot truncate under th
 All mutations still use `write(Db::Archive, ...)`.
 
 `capture_query_plans(db, true)` enables opt-in diagnostics for actual query SQL and bound
-parameters, including prepared reads. `take_query_plans(db)` drains that evidence. Capture
+parameters, including prepared reads. `take_query_plans(db)` drains that evidence.
+`take_ephemeral_tables(db)` drains the statements, of any kind, whose program opened an ephemeral
+table while capture was on: each such run creates a temporary file. Capture
 is disabled by default and runs on the existing reader, without a second database owner.

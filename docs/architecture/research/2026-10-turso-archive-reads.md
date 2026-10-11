@@ -108,9 +108,9 @@ that probe's live MVCC sequence; its exact internal cause was not established. T
 uses the accepted single-owner WAL design, not MVCC.
 
 Turso buffers `UPDATE … RETURNING` before yielding results. Its ephemeral B-tree uses
-`temp_store=FILE` and the configured IO layer. Visibility accounting consumes returned
-profile IDs with `Session::for_each`; it does not collect changed visits in Rust, and the
-existing encrypted temporary-file IO protects spill data.
+`temp_store=FILE` and the configured IO layer, so each run creates a temporary file. Since
+2026-10-11 undo and restore read the visits that change and then update them, without
+`RETURNING` (`ipc-performance.md` §14).
 
 ## Failure modes and tests
 

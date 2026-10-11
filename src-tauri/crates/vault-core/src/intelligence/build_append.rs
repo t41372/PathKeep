@@ -677,18 +677,11 @@ fn write(s: &Session<'_>, state: &mut BuildState, changes: Changes) -> Result<()
     count("refind_day_pages", super::refind_days::add(s, generation, &profile, days)?, 0);
 
     for flow in &changes.paths {
-        // The flow's count after the write is its gain alone when the row is new; a stored row
-        // already counted the flow at least once. (Asking first whether the row existed was
-        // planned through the profile's rank index, a read of every flow of that length:
-        // 19 ms a flow, 94 s for an append's 4,812 at 14.4M visits.)
-        let total = s.query_one(
-            "INSERT INTO path_flows_rows
-               (generation,profile_id,flow_pattern,step_count,occurrence_count,last_seen_ms)
-             VALUES (?1,?2,?3,?4,?5,?6)
-             ON CONFLICT(generation,profile_id,flow_pattern,step_count) DO UPDATE SET
-               occurrence_count=occurrence_count+excluded.occurrence_count,
-               last_seen_ms=MAX(last_seen_ms,excluded.last_seen_ms)
-             RETURNING occurrence_count",
+        // A new flow's row is inserted; a stored one gains the new count. Not one upsert with
+        // `RETURNING`, which opens a temporary file per flow (`Session::insert`). The update names
+        // the key's index: a lookup planned through the profile's rank index read every flow of
+        // that length, 19 ms a flow, 94 s for an append's 4,812 at 14.4M visits.
+        let key = || {
             params![
                 generation,
                 profile.as_str(),
@@ -696,10 +689,25 @@ fn write(s: &Session<'_>, state: &mut BuildState, changes: Changes) -> Result<()
                 flow.step_count,
                 flow.occurrence_count,
                 flow.last_seen_ms
-            ],
-            |r| Ok(r.get::<i64>(0)?),
-        )?;
-        count("path_flows", usize::from(total == flow.occurrence_count), 0);
+            ]
+        };
+        let created = s
+            .insert(
+                "INSERT OR IGNORE INTO path_flows_rows
+                   (generation,profile_id,flow_pattern,step_count,occurrence_count,last_seen_ms)
+                 VALUES (?1,?2,?3,?4,?5,?6)",
+                key(),
+            )?
+            .is_some();
+        if !created {
+            s.execute(
+                "UPDATE path_flows_rows INDEXED BY sqlite_autoindex_path_flows_rows_1
+                 SET occurrence_count=occurrence_count+?5, last_seen_ms=MAX(last_seen_ms,?6)
+                 WHERE generation=?1 AND profile_id=?2 AND flow_pattern=?3 AND step_count=?4",
+                key(),
+            )?;
+        }
+        count("path_flows", usize::from(created), 0);
     }
 
     for trail in &changes.trails {

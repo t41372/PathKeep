@@ -19,6 +19,8 @@ pub struct QueryPlan {
 pub(crate) struct PlanCapture {
     enabled: AtomicBool,
     plans: Mutex<Vec<QueryPlan>>,
+    /// Each statement run whose program opens an ephemeral table, once per run.
+    ephemeral: Mutex<Vec<String>>,
 }
 impl PlanCapture {
     pub fn set_enabled(&self, enabled: bool) {
@@ -26,6 +28,9 @@ impl PlanCapture {
     }
     pub fn take(&self) -> Vec<QueryPlan> {
         std::mem::take(&mut *self.plans.lock().unwrap())
+    }
+    pub fn take_ephemeral(&self) -> Vec<String> {
+        std::mem::take(&mut *self.ephemeral.lock().unwrap())
     }
     pub fn record(
         &self,
@@ -35,6 +40,20 @@ impl PlanCapture {
     ) -> Result<()> {
         if !self.enabled.load(Ordering::Relaxed) {
             return Ok(());
+        }
+        // Turso gives every ephemeral table (`RETURNING`, a materialized subquery, a compound
+        // select) a new temporary file each time the statement runs, with `temp_store=FILE`.
+        let opens_ephemeral = session.runtime.block_on(async {
+            let mut rows = session.conn.query(&format!("EXPLAIN {sql}"), params.clone()).await?;
+            let mut found = false;
+            while let Some(row) = rows.next().await? {
+                found |=
+                    matches!(row.get_value(1)?, turso::Value::Text(op) if op == "OpenEphemeral");
+            }
+            Ok::<_, turso::Error>(found)
+        })?;
+        if opens_ephemeral {
+            self.ephemeral.lock().unwrap().push(sql.to_owned());
         }
         // Deletes and updates find their rows like a read does; one planned without its key
         // reads the whole table per row it touches.

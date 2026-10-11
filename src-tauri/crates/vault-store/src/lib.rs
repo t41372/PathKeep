@@ -139,6 +139,12 @@ impl Store {
         workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1.plans.set_enabled(enabled);
         Ok(())
     }
+    /// Drains the statements captured since the last call whose program opens an ephemeral table,
+    /// once per run: each such run creates a temporary file (`temp_store=FILE`).
+    pub fn take_ephemeral_tables(&self, db: Db) -> Result<Vec<String>> {
+        let workers = self.workers.read().unwrap();
+        Ok(workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1.plans.take_ephemeral())
+    }
     /// Drains captured plans; callers decide which scans and sorts are acceptable.
     pub fn take_query_plans(&self, db: Db) -> Result<Vec<QueryPlan>> {
         let workers = self.workers.read().unwrap();
