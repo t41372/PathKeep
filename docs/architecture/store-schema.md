@@ -405,7 +405,10 @@ user edits; built-in rules stay in code.
 **`core_intelligence_stage_checkpoints`** has primary key `(profile_id, stage)` and retains
 stage versions, source watermarks, dirty ranges and fallback reasons.
 **`intelligence_overview_snapshots`** has primary key `(scope_key, band)`, fingerprint and
-serialized payload. Producers warm it after publication; render reads do not write it.
+serialized payload. Scopes are all time (`all-time:archive-wide`, `all-time:profile:<id>`) and
+the recent ranges ending today over every profile (`recent:<days>` for 365, 90, 30 and 7 days,
+whose fingerprint carries their dates). Producers warm it after publication and when the app
+opens on a new day; render reads do not write it.
 
 **`intelligence_jobs`** has primary key `id`, unique `dedupe_key`, state/priority/attempt,
 payload/artifact JSON, scheduling and lease timestamps, errors and cancellation state.

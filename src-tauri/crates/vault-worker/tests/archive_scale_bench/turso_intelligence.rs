@@ -38,6 +38,10 @@ fn encrypted_intelligence_at_scale() {
                 require_published_baseline(&vault).unwrap();
                 export_between_reads(&vault);
             }
+            "site-days-sql" => {
+                require_published_baseline(&vault).unwrap();
+                site_days_sql(&vault);
+            }
             operation => {
                 require_published_baseline(&vault).unwrap();
                 read(&vault, "cold", operation);
@@ -63,16 +67,30 @@ fn encrypted_intelligence_at_scale() {
     vault.close().unwrap();
     drop(vault);
     child(root.path(), "full");
-    for operation in [
-        "overview",
-        "domain",
-        "sessions",
-        "insights-30d",
-        "insights-1y",
-        "insights-all",
-        "export-between-reads",
-    ] {
+    // `PATHKEEP_INTELLIGENCE_BENCH_OPERATIONS` (comma-separated) runs only those reads after the
+    // build, and nothing after them.
+    let only = std::env::var("PATHKEEP_INTELLIGENCE_BENCH_OPERATIONS").ok();
+    let operations = only.as_deref().map_or_else(
+        || {
+            vec![
+                "overview",
+                "domain",
+                "sessions",
+                "insights-30d",
+                "insights-1y",
+                "insights-all",
+                "export-between-reads",
+            ]
+        },
+        |list| list.split(',').collect(),
+    );
+    for operation in operations {
         child(root.path(), operation);
+    }
+    if only.is_some() {
+        drop(root);
+        println!("INTELLIGENCE_BENCH data_removed=true");
+        return;
     }
     let vault = super::turso_reads::open(root.path());
     vault.store().write(Db::Archive,Priority::Batch,|s| {
@@ -341,6 +359,50 @@ fn insights(vault: &Vault, range: &str) {
 
 /// On a real archive (2026-10-08) the overviews stayed 3-4x slower after an export and the
 /// app kept 3 GB resident. Reads, exports the whole app, reads again.
+/// What grouping a range's site-day rows by site in SQL costs, against the shared read
+/// (`intelligence::site_days`) the cards use: whether moving that grouping into SQL could bring a
+/// year under the 30-day first batch. Both read the same rows; the SQL returns one row per site.
+fn site_days_sql(vault: &Vault) {
+    for (range, start) in [("30d", "2025-03-09"), ("1y", "2024-04-08")] {
+        for pass in ["first", "again"] {
+            let started = Instant::now();
+            let sites = vault
+                .store()
+                .read(Db::Intelligence, move |s| {
+                    s.query(
+                        "SELECT r.registrable_domain, SUM(r.visit_count), SUM(r.search_count),
+                                SUM(CASE WHEN r.visit_count>r.search_count THEN r.unique_urls ELSE 0 END),
+                                COUNT(DISTINCT r.date_key), MIN(r.date_key), MAX(r.date_key),
+                                MAX(r.last_visit_ms)
+                         FROM domain_daily_rollups_rows r INDEXED BY idx_domain_daily_range
+                         WHERE r.date_key>=?1 AND r.date_key<=?2
+                           AND r.generation IN (SELECT daily FROM intelligence_generations)
+                         GROUP BY r.registrable_domain",
+                        vault_store::params![start, "2025-04-07"],
+                        |r| Ok(r.get::<String>(0)?),
+                    )
+                })
+                .unwrap()
+                .len();
+            println!(
+                "INTELLIGENCE_BENCH site-days-sql range={range} {pass} sites={sites} elapsed_ms={:.1}",
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+        let request = serde_json::from_value(serde_json::json!({
+            "dateRange": { "start": start, "end": "2025-04-07" },
+            "profileId": null, "limit": 20, "sortBy": "visits",
+        }))
+        .unwrap();
+        let started = Instant::now();
+        vault_core::get_top_sites(vault, &request).unwrap();
+        println!(
+            "INTELLIGENCE_BENCH site-days-sql range={range} shared-read top_sites elapsed_ms={:.1}",
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+}
+
 fn export_between_reads(vault: &Vault) {
     let request = ScopedDateRangeRequest {
         date_range: DateRange { start: "2025-03-09".into(), end: "2025-04-07".into() },

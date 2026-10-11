@@ -385,6 +385,8 @@ The "before" columns are the EPYC run above, so the gains are if anything unders
 
 Generating the 14.4M archive took 208 s for the rows and 47 s to project 3.6M search documents.
 
+**Recent ranges as snapshots (2026-10-10, STATUS Insights ⑤).** Same benchmark in the `cycle` shape, where every visit goes to a different site on its day (8,640 site-day rows a day). Grouping the shared site-day read by site in SQL instead of in Rust took 18.7 s for a year against 19.9 s, so the read stays as it is. 1 year, 90, 30 and 7 days ending today, over every profile, are now snapshots like all time (`recent:<days>` in `store-schema.md`), warmed after each build and when the app opens on a new day: a preset year's first batch takes 5.7 ms and its second 3.4 ms. A custom year is read live. Its first batch takes 39.9 s: the KPI row reads the year's site-day rows and the year before it, about 20 s each. Read again, it takes 1.6 s. The same read takes 1.74 s in the `habits` shape and 67 ms on the real-data copy. Whether to add a site-month rollup for archives this dense is in [research/2026-10-site-month-rollup.md](research/2026-10-site-month-rollup.md).
+
 ## Open risks
 
 - Keyword search over a word on more than 25,000 pages ranks only the most recently archived 25,000 (§6). A word that matches many pages but few inside a narrow filter still reads matches until it fills the window: "topic" with a one-week filter is 0.7 s here. The rare-term path is about 20 ms slower than before.

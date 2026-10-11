@@ -104,6 +104,7 @@ pub use self::intelligence_outputs::{
 };
 pub use self::intelligence_overview::{
     get_intelligence_primary_overview, get_intelligence_secondary_overview,
+    warm_recent_overviews_if_stale,
 };
 pub use self::intelligence_rebuild::{
     run_core_intelligence, run_core_intelligence_job_type_with_progress,
