@@ -27,6 +27,8 @@ pub(super) struct TakeoutPayloadImportContext<'a> {
     pub run_id: i64,
     pub batch_id: i64,
     pub source_profile_id: i64,
+    /// `takeout_profile` of the payload's kind.
+    pub profile_key: &'static str,
     pub cancel: &'a CancelToken,
 }
 
@@ -49,8 +51,14 @@ pub(super) fn import_supported_payload_with_progress<'a>(
     reader: &mut dyn std::io::Read,
     progress: Option<Box<dyn FnMut(TakeoutPayloadProgress) + 'a>>,
 ) -> Result<ImportedPayload> {
-    let TakeoutPayloadImportContext { vault, run_id, batch_id, source_profile_id, cancel } =
-        context;
+    let TakeoutPayloadImportContext {
+        vault,
+        run_id,
+        batch_id,
+        source_profile_id,
+        profile_key,
+        cancel,
+    } = context;
     let path = file.file.path.clone();
     let source_batch = SourceBatchInput {
         source_profile_id,
@@ -71,7 +79,7 @@ pub(super) fn import_supported_payload_with_progress<'a>(
     let write = WriteContext {
         run_id,
         source_profile_id,
-        profile_id: "takeout::browser-history".into(),
+        profile_id: profile_key.into(),
         browser_family: "takeout".into(),
         import: Some(ImportOrigin {
             batch_id,
@@ -105,7 +113,9 @@ pub(super) fn import_supported_payload_with_progress<'a>(
     let result = ImportedPayload {
         stats: ImportStats {
             imported_items: counts.new_visits,
-            duplicate_items: counts.visit_count - counts.new_visits,
+            duplicate_items: counts.visit_count - counts.new_visits - counts.same_visits,
+            same_visit_items: counts.same_visits,
+            replaced_profiles: counts.replaced_profiles.clone(),
             skipped_items: skipped,
         },
         record_count: report.record_count,
@@ -173,7 +183,11 @@ pub(super) fn upsert_takeout_profile(
            updated_at = excluded.updated_at,
            enabled = 1",
         params![
-            "Imported browser history".to_string(),
+            if profile_id == takeout_profile(KIND_MY_ACTIVITY_JSON) {
+                "Google My Activity (Chrome)"
+            } else {
+                "Imported browser history"
+            },
             source.display().to_string(),
             now_rfc3339(),
             profile_id,

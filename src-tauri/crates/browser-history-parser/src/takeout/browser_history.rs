@@ -1,4 +1,5 @@
-//! Browser-history payload parsing for Google Takeout.
+//! Browser-history payload parsing for Google Takeout: Chrome's own `History.json` and My
+//! Activity's Chrome entries (`my_activity`), which hold the same kind of visit.
 //!
 //! ## Responsibilities
 //! - Parse browser-history payload records into canonical URL/visit rows.
@@ -13,8 +14,9 @@
 //! - Native-only typed-url/session payload handling.
 
 use super::{
-    KIND_BROWSER_JSON, TakeoutPayloadCounts, TakeoutPayloadStreamReport,
+    KIND_BROWSER_JSON, KIND_MY_ACTIVITY_JSON, TakeoutPayloadCounts, TakeoutPayloadStreamReport,
     TakeoutSourceEvidenceChunk, TakeoutSourceEvidenceConsumer, TakeoutStreamOptions, json_stream,
+    my_activity::{self, ActivityRecord, SameInstant},
 };
 use crate::{
     ParseError,
@@ -43,13 +45,17 @@ where
     C::Error: std::fmt::Display,
 {
     let chunk_size = chunk_size.max(1);
-    let mut accumulator = BrowserHistoryAccumulator::new(source_path, kind, chunk_size, options);
-
-    if kind != KIND_BROWSER_JSON {
-        return Err(StreamHistoryError::Parse(ParseError::UnsupportedProvider {
-            provider: "google-takeout-browser-history",
-        }));
-    }
+    let format = match kind {
+        KIND_BROWSER_JSON => RecordFormat::BrowserHistory,
+        KIND_MY_ACTIVITY_JSON => RecordFormat::MyActivity(SameInstant::default()),
+        _ => {
+            return Err(StreamHistoryError::Parse(ParseError::UnsupportedProvider {
+                provider: "google-takeout-browser-history",
+            }));
+        }
+    };
+    let mut accumulator =
+        BrowserHistoryAccumulator::new(source_path, kind, format, chunk_size, options);
     json_stream::stream_payload_records(
         reader,
         source_path,
@@ -79,11 +85,38 @@ enum BrowserRecordOutcome {
     Parsed(ParsedBrowserRecord),
     Ignore,
     MissingVisitTime,
+    /// A My Activity record of Chrome itself ("Used Chrome"), not of a page.
+    NoPage,
+    /// A My Activity record of another Google product.
+    NotChrome,
+}
+
+/// Which of the two Takeout formats the records are in.
+enum RecordFormat {
+    BrowserHistory,
+    MyActivity(SameInstant),
+}
+
+impl RecordFormat {
+    fn table(&self) -> &'static str {
+        match self {
+            Self::BrowserHistory => "browser-history",
+            Self::MyActivity(_) => "my-activity",
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Self::BrowserHistory => "Takeout Browser History",
+            Self::MyActivity(_) => "Takeout My Activity (Chrome)",
+        }
+    }
 }
 
 struct BrowserHistoryAccumulator<'a> {
     source_path: &'a str,
     kind: &'a str,
+    format: RecordFormat,
     chunk_size: usize,
     options: TakeoutStreamOptions,
     pending_urls: BTreeMap<i64, ParsedUrl>,
@@ -97,6 +130,8 @@ struct BrowserHistoryAccumulator<'a> {
     record_count: usize,
     observed_record_count: usize,
     skipped_missing_visit_time: usize,
+    skipped_without_page: usize,
+    skipped_other_products: usize,
     earliest_visit_micros: Option<i64>,
     latest_visit_micros: Option<i64>,
 }
@@ -106,12 +141,14 @@ impl<'a> BrowserHistoryAccumulator<'a> {
     fn new(
         source_path: &'a str,
         kind: &'a str,
+        format: RecordFormat,
         chunk_size: usize,
         options: TakeoutStreamOptions,
     ) -> Self {
         Self {
             source_path,
             kind,
+            format,
             chunk_size,
             options,
             pending_urls: BTreeMap::new(),
@@ -125,6 +162,8 @@ impl<'a> BrowserHistoryAccumulator<'a> {
             record_count: 0,
             observed_record_count: 0,
             skipped_missing_visit_time: 0,
+            skipped_without_page: 0,
+            skipped_other_products: 0,
             earliest_visit_micros: None,
             latest_visit_micros: None,
         }
@@ -145,7 +184,15 @@ impl<'a> BrowserHistoryAccumulator<'a> {
             self.observed_columns.extend(object.keys().cloned());
         }
 
-        match parse_browser_record(self.source_path, ordinal as i64, record)? {
+        let outcome = match &mut self.format {
+            RecordFormat::BrowserHistory => {
+                parse_browser_record(self.source_path, ordinal as i64, record)?
+            }
+            RecordFormat::MyActivity(same_instant) => {
+                parse_activity_record(self.source_path, same_instant, record)
+            }
+        };
+        match outcome {
             BrowserRecordOutcome::Parsed(record) => {
                 self.record_count += 1;
                 self.earliest_visit_micros =
@@ -179,6 +226,8 @@ impl<'a> BrowserHistoryAccumulator<'a> {
             }
             BrowserRecordOutcome::Ignore => {}
             BrowserRecordOutcome::MissingVisitTime => self.skipped_missing_visit_time += 1,
+            BrowserRecordOutcome::NoPage => self.skipped_without_page += 1,
+            BrowserRecordOutcome::NotChrome => self.skipped_other_products += 1,
         }
         Ok(())
     }
@@ -218,27 +267,34 @@ impl<'a> BrowserHistoryAccumulator<'a> {
         C: HistoryBatchConsumer + TakeoutSourceEvidenceConsumer<C::Error>,
     {
         self.flush(consumer)?;
-        let warnings = if self.skipped_missing_visit_time > 0 {
-            vec![ParserWarning {
-                code: "missing-visit-time".to_string(),
-                message: format!(
-                    "Skipped {} Takeout Browser History record(s) without a usable visit timestamp.",
-                    self.skipped_missing_visit_time
-                ),
-            }]
-        } else {
-            Vec::new()
-        };
+        let label = self.format.label();
+        let warnings = [
+            (
+                self.skipped_missing_visit_time,
+                "missing-visit-time",
+                "record(s) without a usable visit timestamp",
+            ),
+            (self.skipped_without_page, "no-page", "record(s) of Chrome itself, not of a page"),
+            (self.skipped_other_products, "other-product", "record(s) of other Google products"),
+        ]
+        .into_iter()
+        .filter(|(count, _, _)| *count > 0)
+        .map(|(count, code, what)| ParserWarning {
+            code: code.to_string(),
+            message: format!("Skipped {count} {label} {what}."),
+        })
+        .collect::<Vec<_>>();
+        let table = self.format.table();
         Ok(TakeoutPayloadStreamReport {
             kind: self.kind.to_string(),
             history: StreamedHistory {
                 inspection: crate::types::DatabaseInspection {
-                    table_names: vec!["browser-history".to_string()],
+                    table_names: vec![table.to_string()],
                     warnings: Vec::new(),
                 },
                 schema_observation: SchemaObservation {
                     tables: vec![ObservedTable {
-                        name: "browser-history".to_string(),
+                        name: table.to_string(),
                         present: true,
                         required: false,
                         row_count: Some(self.observed_record_count as i64),
@@ -260,14 +316,14 @@ impl<'a> BrowserHistoryAccumulator<'a> {
                         available: self.record_count > 0,
                         populated_rows: self.record_count,
                         total_rows: self.record_count,
-                        notes: vec!["Takeout Browser History payload".to_string()],
+                        notes: vec![format!("{label} payload")],
                     },
                     CapabilityCoverage {
                         key: "context.takeout.browser_history".to_string(),
                         available: true,
                         populated_rows: self.context_evidence_count,
                         total_rows: self.record_count,
-                        notes: vec!["Takeout Browser History metadata".to_string()],
+                        notes: vec![format!("{label} metadata")],
                     },
                 ]),
                 typed_evidence: self.report_typed_evidence,
@@ -329,6 +385,33 @@ fn parse_browser_record(
     }))
 }
 
+/// One My Activity record. Its keys come from the page, the instant and which of the same page
+/// at that instant it is, not from its place in the file, so a later export of the same account
+/// does not import its visits again.
+fn parse_activity_record(
+    source_path: &str,
+    same_instant: &mut SameInstant,
+    record: Value,
+) -> BrowserRecordOutcome {
+    match my_activity::read_record(&record) {
+        ActivityRecord::Visit(visit) => {
+            let key = same_instant.key(&visit);
+            BrowserRecordOutcome::Parsed(ParsedBrowserRecord {
+                source_path: source_path.to_string(),
+                source_url_id: stable_key_i64(format!("url::{}", visit.url).as_bytes()),
+                source_visit_id: stable_key_i64(key.as_bytes()),
+                url: visit.url,
+                title: visit.title,
+                visit_time_micros: visit.time_micros,
+                raw_record: record,
+            })
+        }
+        ActivityRecord::NoPage => BrowserRecordOutcome::NoPage,
+        ActivityRecord::NotChrome => BrowserRecordOutcome::NotChrome,
+        ActivityRecord::NoTime => BrowserRecordOutcome::MissingVisitTime,
+    }
+}
+
 fn parsed_url_from_record(record: &ParsedBrowserRecord) -> ParsedUrl {
     ParsedUrl {
         source_url_id: record.source_url_id,
@@ -379,7 +462,12 @@ fn parsed_visit_from_record(record: &ParsedBrowserRecord) -> ParsedVisit {
 
 fn native_entity_from_record(kind: &str, record: &ParsedBrowserRecord) -> NativeEntity {
     NativeEntity {
-        entity_kind: "takeout-browser-history".to_string(),
+        entity_kind: if kind == KIND_MY_ACTIVITY_JSON {
+            "takeout-my-activity"
+        } else {
+            "takeout-browser-history"
+        }
+        .to_string(),
         native_primary_key: record.source_visit_id.to_string(),
         parent_native_primary_key: Some(record.source_url_id.to_string()),
         payload_json: record.raw_record.to_string(),

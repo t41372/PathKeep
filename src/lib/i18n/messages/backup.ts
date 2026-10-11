@@ -92,7 +92,7 @@ export const backup = defineMessages({
       nothingHint:
         'There is no Chrome history in this file. In Takeout, tick Chrome and export it as a .zip.',
       myActivity:
-        'This export has My Activity’s Chrome entries, which PathKeep does not read. In Takeout, tick Chrome instead of My Activity.',
+        'This export has My Activity’s Chrome entries as HTML, which PathKeep cannot read. In Takeout, choose JSON as the format for My Activity, or tick Chrome.',
       drop: 'Drop a Takeout .zip here',
       dropActive: 'Release to inspect it',
       choose: 'Choose file',
@@ -121,6 +121,10 @@ export const backup = defineMessages({
       imported_other: '{count} new visits imported',
       duplicates_one: '{count} visit was already in your archive.',
       duplicates_other: '{count} visits were already in your archive.',
+      sameVisits_one:
+        '{count} visit was already in your archive from another source (the browser, or another export). It is kept and counted once.',
+      sameVisits_other:
+        '{count} visits were already in your archive from another source (the browser, or another export). They are kept and counted once.',
       another: 'Import another',
       batches: {
         title: 'Recent imports',
@@ -264,7 +268,7 @@ export const backup = defineMessages({
       nothingHint:
         '这个文件里没有 Chrome 历史记录。在 Takeout 里勾选 Chrome，以 .zip 格式导出。',
       myActivity:
-        '这个导出里是“我的活动”中的 Chrome 记录，PathKeep 不读这些。在 Takeout 里改为勾选 Chrome，而不是“我的活动”。',
+        '这个导出里“我的活动”中的 Chrome 记录是 HTML，PathKeep 读不了。在 Takeout 里把“我的活动”的格式改为 JSON，或改为勾选 Chrome。',
       drop: '把 Takeout 的 .zip 拖到这里',
       dropActive: '松开即可检查',
       choose: '选择文件',
@@ -291,6 +295,10 @@ export const backup = defineMessages({
       imported_other: '已导入 {count} 条新的浏览记录',
       duplicates_one: '另有 {count} 条已经在存档里。',
       duplicates_other: '另有 {count} 条已经在存档里。',
+      sameVisits_one:
+        '{count} 条已经从别的来源（浏览器本身，或另一份导出）进了存档：一并保存，只算一次。',
+      sameVisits_other:
+        '{count} 条已经从别的来源（浏览器本身，或另一份导出）进了存档：一并保存，只算一次。',
       another: '再导入一个',
       batches: {
         title: '最近的导入',
@@ -433,7 +441,7 @@ export const backup = defineMessages({
       nothingHint:
         '這個檔案裡沒有 Chrome 歷史記錄。在 Takeout 裡勾選 Chrome，以 .zip 格式匯出。',
       myActivity:
-        '這份匯出裡是「我的活動」中的 Chrome 記錄，PathKeep 不讀這些。在 Takeout 裡改為勾選 Chrome，而不是「我的活動」。',
+        '這份匯出裡「我的活動」中的 Chrome 記錄是 HTML，PathKeep 讀不了。在 Takeout 裡把「我的活動」的格式改為 JSON，或改為勾選 Chrome。',
       drop: '把 Takeout 的 .zip 拖到這裡',
       dropActive: '放開即可檢查',
       choose: '選擇檔案',
@@ -460,6 +468,10 @@ export const backup = defineMessages({
       imported_other: '已匯入 {count} 筆新的瀏覽記錄',
       duplicates_one: '另有 {count} 筆已經在存檔裡。',
       duplicates_other: '另有 {count} 筆已經在存檔裡。',
+      sameVisits_one:
+        '{count} 筆已經從別的來源（瀏覽器本身，或另一份匯出）進了存檔：一併保存，只算一次。',
+      sameVisits_other:
+        '{count} 筆已經從別的來源（瀏覽器本身，或另一份匯出）進了存檔：一併保存，只算一次。',
       another: '再匯入一個',
       batches: {
         title: '最近的匯入',

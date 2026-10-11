@@ -72,6 +72,57 @@ pub fn project_pages(vault: &Vault, after: i64, limit: i64) -> anyhow::Result<Op
 }
 
 /// Converted facts supply the same cached totals that normal batches maintain.
+/// Links the same visit recorded by two sources (`archive::same_visit`) in an archive written
+/// before linking existed: each Takeout source's counted visits, best source first, are hidden
+/// behind another source's copy or take its place. Run before `refresh_totals` and
+/// `project_pages`, which count only what is left counted.
+pub fn link_same_visits(vault: &Vault) -> anyhow::Result<()> {
+    use crate::archive::same_visit;
+    let mut takeouts = vault.store().read(Db::Archive, |s| {
+        // v0.2 archives can hold a profile without a key; it is not a Takeout source.
+        s.query("SELECT id, COALESCE(profile_key, '') FROM source_profiles", (), |r| {
+            Ok((r.get::<i64>(0)?, r.get::<String>(1)?))
+        })
+    })?;
+    takeouts.retain(|(_, key)| same_visit::rank(key) > 0);
+    if takeouts.is_empty() {
+        return Ok(());
+    }
+    takeouts.sort_by_key(|(id, key)| (same_visit::rank(key), *id));
+    let run = vault.store().write(Db::Archive, Priority::Batch, |s| {
+        crate::archive::write_runs::start_in(s, "same-visit", "conversion", &[])
+            .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))
+    })?;
+    for (profile, _) in takeouts {
+        let mut after = 0;
+        loop {
+            let last = vault.store().write(Db::Archive, Priority::Batch, move |s| {
+                let rows = s.query(
+                    "SELECT v.id, u.url, v.visit_time_ms FROM visits v JOIN urls u ON u.id=v.url_id
+                     WHERE v.source_profile_id=?1 AND v.reverted_at IS NULL AND v.id>?2
+                     ORDER BY v.id LIMIT 2000",
+                    vault_store::params![profile, after],
+                    |r| Ok((r.get::<i64>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?)),
+                )?;
+                same_visit::link_existing(s, run, profile, &rows)?;
+                Ok(rows.last().map(|(id, _, _)| *id))
+            })?;
+            match last {
+                Some(last) => after = last,
+                None => break,
+            }
+        }
+    }
+    vault.store().write(Db::Archive, Priority::Batch, move |s| {
+        s.execute(
+            "UPDATE runs SET status='success', finished_at=?2 WHERE id=?1",
+            vault_store::params![run, crate::utils::now_rfc3339()],
+        )?;
+        Ok(())
+    })?;
+    Ok(())
+}
+
 pub fn refresh_totals(vault: &Vault) -> anyhow::Result<()> {
     Ok(vault.store().write(Db::Archive, Priority::Batch, |s| {
         for (name, table, predicate) in [

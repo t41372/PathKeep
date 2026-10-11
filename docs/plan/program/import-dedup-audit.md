@@ -45,6 +45,12 @@ key. The schema **cannot** merge two records that come from different
 `source_profiles` rows. Cross-browser aggregation must happen at read time
 (view layer), not at ingest.
 
+> 2026-10-09: superseded for Takeout by [same-visit-across-sources.md](../../architecture/same-visit-across-sources.md)
+> (user decision: keep every record, count the same visit once). The dedup keys above stay
+> per profile; the same visit across sources is linked at write time (`same_as`), and the
+> copies that are not its stand-in are hidden the way an undone import is, so reads need no
+> change. Two live browsers stay separate.
+
 ---
 
 ## 2. Confirmed Bugs (ranked by likely user impact)

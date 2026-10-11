@@ -85,6 +85,13 @@ export function DetailStats({ url }: { url: string }) {
           title={data.browsers.join(', ')}
         />
       </div>
+      {(data.alsoRecordedBy?.length ?? 0) > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {t('history.detail.alsoRecordedBy', {
+            names: (data.alsoRecordedBy ?? []).join(', '),
+          })}
+        </p>
+      )}
       <div className="flex flex-col gap-2">
         <span className="text-xs text-muted-foreground">
           {t('history.detail.weeks')}

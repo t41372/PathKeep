@@ -52,6 +52,7 @@ pub(crate) mod search_documents;
 pub(crate) mod write_runs;
 pub use self::write_runs::append_run_warnings;
 pub use search_documents::set_enrichment_text;
+pub(crate) mod same_visit;
 pub(crate) mod search_lexical;
 mod search_opencc;
 pub(crate) mod search_query;

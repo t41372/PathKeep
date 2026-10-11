@@ -136,7 +136,7 @@ function TakeoutSteps() {
   )
 }
 
-/** The export holds My Activity's Chrome entries, which PathKeep does not read. */
+/** The export holds My Activity's Chrome entries as HTML, which PathKeep cannot read (JSON it imports). */
 const isMyActivity = (inspection: TakeoutInspection) =>
   inspection.quarantinedFiles.some((file) =>
     file.reasonCode?.startsWith('chrome-my-activity'),
@@ -314,6 +314,13 @@ export function ImportCard({
                 count: state.result.duplicateItems,
               })}
             </span>
+            {(state.result.sameVisitItems ?? 0) > 0 && (
+              <span className="text-muted-foreground">
+                {t('backup.import.sameVisits', {
+                  count: state.result.sameVisitItems ?? 0,
+                })}
+              </span>
+            )}
           </div>
           <div>
             <Button size="sm" variant="outline" onClick={reset}>

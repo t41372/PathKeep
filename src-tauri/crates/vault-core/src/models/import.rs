@@ -169,6 +169,14 @@ pub struct TakeoutInspection {
     pub candidate_items: usize,
     pub imported_items: usize,
     pub duplicate_items: usize,
+    /// Written, but another source (a browser, another Takeout export) already had the same
+    /// visit, which counts there (`docs/architecture/same-visit-across-sources.md`).
+    #[serde(default)]
+    pub same_visit_items: usize,
+    /// Sources whose copies of visits this import now stands in for; their Insights are built
+    /// again.
+    #[serde(default)]
+    pub replaced_profiles: Vec<String>,
     pub preview_entries: Vec<TakeoutPreviewEntry>,
     pub import_batch: Option<ImportBatchOverview>,
     pub notes: Vec<String>,

@@ -53,10 +53,20 @@ where
 
     let source = Path::new(&request.source_path);
     let files = inspect::gather_takeout_files(source)?;
-    let classified_files = files
+    let mut classified_files = files
         .iter()
         .map(|file| inspect::classify_takeout_file(source, file))
         .collect::<Result<Vec<_>>>()?;
+    // Chrome's history before My Activity: when an export has both, My Activity's copy of a
+    // visit is then written hidden behind Chrome's, and the card counts it as already there.
+    // Written the other way round, it would count as new and then be replaced. Name order
+    // (the stable sort keeps it) does not decide this: My Activity's folder is named after the
+    // account's language.
+    classified_files.sort_by_key(|file| {
+        file.path_match
+            .recognized_kind
+            .map_or(u8::MAX, |kind| crate::archive::same_visit::rank(takeout_profile(kind)))
+    });
     let planned_files = classified_files
         .iter()
         .filter(|file| {
@@ -73,19 +83,31 @@ where
         ..TakeoutInspection::default()
     };
     let mut found_importable_payload = false;
-    let synthetic_profile = "takeout::browser-history".to_string();
-    let (profile, profile_source, request_copy) =
-        (synthetic_profile.clone(), source.to_path_buf(), request.clone());
-    let (source_profile_id, batch_id, run_id) =
+    // One source profile per format (`takeout_profile`), all in one batch that undoes together.
+    let mut profiles = classified_files
+        .iter()
+        .filter(|file| file.path_match.disposition == TakeoutPathDisposition::WillImport)
+        .filter_map(|file| file.path_match.recognized_kind)
+        .filter(|kind| *kind != KIND_INDEX)
+        .map(takeout_profile)
+        .collect::<Vec<_>>();
+    profiles.sort_unstable();
+    profiles.dedup();
+    let (profile_source, request_copy) = (source.to_path_buf(), request.clone());
+    let (source_profile_ids, batch_id, run_id) =
         vault.write(Db::Archive, Priority::Batch, move |s| {
-            let source = upsert_takeout_profile(s, &profile, &profile_source)?;
-            let batch = batches::create_import_batch(s, &profile, &request_copy)?;
-            let run = crate::archive::write_runs::start_in(s, "import", "manual", &[profile])?;
+            let mut ids = std::collections::BTreeMap::new();
+            for profile in &profiles {
+                ids.insert(*profile, upsert_takeout_profile(s, profile, &profile_source)?);
+            }
+            let batch = batches::create_import_batch(s, profiles[0], &request_copy)?;
+            let scope = profiles.iter().map(|profile| profile.to_string()).collect::<Vec<_>>();
+            let run = crate::archive::write_runs::start_in(s, "import", "manual", &scope)?;
             s.execute(
                 "UPDATE runs SET stats_json=?2 WHERE id=?1",
                 vault_store::params![run, json!({"importBatchId":batch}).to_string()],
             )?;
-            Ok((source, batch, run))
+            Ok((ids, batch, run))
         })?;
     let guard = super::import_run::ImportRun::new(vault, run_id, batch_id);
     guard.run(|| {
@@ -175,7 +197,8 @@ where
                                 cancel,
                                 run_id,
                                 batch_id,
-                                source_profile_id,
+                                source_profile_id: source_profile_ids[takeout_profile(kind)],
+                                profile_key: takeout_profile(kind),
                             },
                             classified_file,
                             kind,
@@ -223,6 +246,8 @@ where
                 inspection.preview_range_end = preview_range.end;
                 stats.imported_items += file_stats.stats.imported_items;
                 stats.duplicate_items += file_stats.stats.duplicate_items;
+                stats.same_visit_items += file_stats.stats.same_visit_items;
+                stats.replaced_profiles.extend(file_stats.stats.replaced_profiles);
                 if file_stats.stats.skipped_items > 0 {
                     inspection.push_note(skipped_missing_visit_time_note(
                         file_stats.stats.skipped_items,
@@ -265,6 +290,11 @@ where
 
         inspection.imported_items = stats.imported_items;
         inspection.duplicate_items = stats.duplicate_items;
+        inspection.same_visit_items = stats.same_visit_items;
+        let replaced = stats.replaced_profiles.iter().copied().collect::<Vec<_>>();
+        inspection.replaced_profiles = vault.read(Db::Archive, move |s| {
+            Ok(crate::archive::same_visit::profile_keys(s, &replaced)?)
+        })?;
         progress_log_lines.push("Refreshing derived import review surfaces.".to_string());
         emit_import_progress(
             &mut report_progress,
@@ -467,7 +497,8 @@ pub(super) fn finalize_successful_import_run(
 ) -> Result<()> {
     let inspection = inspection.clone();
     let extra = json!({"profilesProcessed":1,"candidateItems":inspection.candidate_items,"importBatchId":batch_id,
-        "importedItems":stats.imported_items,"duplicateItems":stats.duplicate_items,"skippedItems":stats.skipped_items});
+        "importedItems":stats.imported_items,"duplicateItems":stats.duplicate_items,
+        "sameVisitItems":stats.same_visit_items,"skippedItems":stats.skipped_items});
     vault.write(Db::Archive, Priority::Batch, move |s| {
         batches::finalize_import_batch(s, batch_id, &inspection)?;
         crate::archive::write_runs::complete_in(

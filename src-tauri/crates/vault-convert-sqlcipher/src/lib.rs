@@ -268,6 +268,12 @@ pub fn convert_owned(
             Ok(())
         })?;
     }
+    // The same visit from a Takeout import and a browser counts once from now on; the old
+    // format kept and counted both. Idempotent, so a resumed conversion runs it again.
+    if state.projected == 0 {
+        cancel.check()?;
+        vault_core::conversion::link_same_visits(&vault)?;
+    }
     while let Some(last) =
         vault_core::conversion::project_pages(&vault, state.projected, source::PAGE)?
     {

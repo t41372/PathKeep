@@ -258,14 +258,19 @@ where
         }
     }
     if !report.due_skipped && backup_changed_archive(report.run.as_ref()) {
-        let dirty_profiles = report
+        // Sources whose copies of a visit a backed-up visit now stands in for count fewer
+        // visits, so their Insights are built again too.
+        let mut dirty_profiles = report
             .profiles
             .iter()
             .filter(|profile| {
                 profile.new_visits > 0 || profile.new_urls > 0 || profile.new_downloads > 0
             })
             .map(|profile| profile.profile_id.clone())
+            .chain(report.profiles.iter().flat_map(|profile| profile.replaced_profiles.clone()))
             .collect::<Vec<_>>();
+        dirty_profiles.sort();
+        dirty_profiles.dedup();
         append_core_refresh_backup_result(
             &mut report,
             enqueue_and_spawn_deterministic_refresh(vault, &dirty_profiles),
@@ -881,12 +886,10 @@ where
     let mut inspection =
         import_takeout_with_progress(&vault.with_config(config.clone()), request, report_progress)?;
     if inspection.imported_items > 0 {
+        let profiles = vault_core::takeout::takeout_profiles(&inspection);
         append_core_refresh_import_result(
             &mut inspection.notes,
-            enqueue_and_spawn_deterministic_refresh(
-                vault,
-                &["takeout::browser-history".to_string()],
-            ),
+            enqueue_and_spawn_deterministic_refresh(vault, &profiles),
         );
     }
     Ok(inspection)
@@ -921,9 +924,11 @@ where
         if let Some(profile_id) =
             inspection.import_batch.as_ref().map(|batch| batch.profile_id.clone())
         {
+            let mut profiles = vec![profile_id];
+            profiles.extend(inspection.replaced_profiles.iter().cloned());
             append_core_refresh_import_result(
                 &mut inspection.notes,
-                enqueue_and_spawn_deterministic_refresh(vault, &[profile_id]),
+                enqueue_and_spawn_deterministic_refresh(vault, &profiles),
             );
         }
     }

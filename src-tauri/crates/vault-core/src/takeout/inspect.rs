@@ -367,6 +367,8 @@ pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
             files.push(TakeoutFile { path: entry.name().to_string(), from_zip: true });
         }
     }
+    // Name order, as for a folder, not the order the zip was written in.
+    files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
 }
 

@@ -7,9 +7,9 @@
 //!   reintroducing one giant Takeout parser module.
 
 use super::{
-    KIND_BROWSER_JSON, KIND_INDEX, KIND_SESSION_JSON, KIND_TYPED_URL_JSON, TakeoutPayloadCounts,
-    TakeoutPayloadStreamReport, TakeoutSourceEvidenceChunk, TakeoutSourceEvidenceConsumer,
-    TakeoutStreamOptions, browser_history, json_stream,
+    KIND_BROWSER_JSON, KIND_INDEX, KIND_MY_ACTIVITY_JSON, KIND_SESSION_JSON, KIND_TYPED_URL_JSON,
+    TakeoutPayloadCounts, TakeoutPayloadStreamReport, TakeoutSourceEvidenceChunk,
+    TakeoutSourceEvidenceConsumer, TakeoutStreamOptions, browser_history, json_stream,
 };
 use crate::{
     ParseError,
@@ -36,7 +36,7 @@ where
     C::Error: std::fmt::Display,
 {
     match kind {
-        KIND_BROWSER_JSON => {
+        KIND_BROWSER_JSON | KIND_MY_ACTIVITY_JSON => {
             browser_history::stream_browser_history_payload(
                 source_path,
                 kind,

@@ -67,6 +67,8 @@ pub fn run_snapshot_restore(
                 new_urls: stats["newUrls"].as_u64().unwrap_or(0) as usize,
                 new_visits: stats["newVisits"].as_u64().unwrap_or(0) as usize,
                 new_downloads: stats["newDownloads"].as_u64().unwrap_or(0) as usize,
+                same_visits: 0,
+                replaced_profiles: Vec::new(),
                 checkpoint_created: false,
                 notes: vec![],
                 note_details: vec![],

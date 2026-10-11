@@ -12,8 +12,11 @@
 //! - **T1** — Takeout baseline import (happy path).
 //! - **T2** — File-rename re-import deduplicates via fingerprint partial index.
 //! - **T2b** — Fingerprint divergence (title drift) exposes B3.
-//! - **T3** — Takeout × local Chrome same-period overlap (B4 contract).
+//! - **T3** — Takeout × local Chrome: both kept, counted once, in either order.
 //! - **T5** — `time_usec` unit contract (B6 pinning).
+//! - **T8** — My Activity × Takeout × Chrome: the best source counts, groups stay flat.
+//! - **T9** — Undo and restore move which copy counts.
+//! - **T10** — Insights count a visit from two sources once.
 
 use super::*;
 use browser_history_fixtures::{
@@ -71,13 +74,6 @@ fn run_one_ingest(
         None,
     )
     .expect("process profile snapshot")
-}
-
-fn count_archive_rows(env: &ScenarioEnv, table: &str) -> i64 {
-    let archive = env.open_archive();
-    archive
-        .query_row(&format!("SELECT COUNT(*) FROM {table}"), (), |row| Ok(row.get(0)?))
-        .expect("count rows")
 }
 
 fn count_urls_for_profile(env: &ScenarioEnv, profile_key: &str) -> i64 {
@@ -388,113 +384,279 @@ fn t2b_takeout_rename_with_title_change_demonstrates_b3_when_fingerprint_diverge
 // T3: Takeout x local Chrome same-period overlap — B4 contract
 // ======================================================================
 
-/// T3 — Same-period overlap between a local Chrome profile and the
-/// Takeout JSON of the same Chrome installation. The audit's **B4**
-/// observation: even when records describe literally the same browsing
-/// event, the fingerprint inputs differ between the two source paths
-/// (local Chrome has a real `transition` and the browser's real
-/// `app_id`; Takeout hardcodes `app_id = "takeout"` and `transition =
-/// None`), so even a hypothetical cross-source-profile fingerprint
-/// dedup would not match. This contract scenario pins the current
-/// storage truth — 3 + 3 = 6 visits across two profiles — and
-/// documents the input divergence so any future "merge across sources"
-/// proposal must address the fingerprint normalization gap first.
-#[test]
-fn t3_takeout_and_local_chrome_same_period_b4_contract() {
-    for key in [None, Some([83; 32])] {
-        let env = ScenarioEnv::new(key);
-        let day_one = 1_777_680_000_000_i64;
-        let day_two = 1_777_809_600_000_i64;
-        let day_three = 1_777_872_930_000_i64;
+/// What each source holds and counts of the same visit (`archive::same_visit`).
+#[derive(Debug, PartialEq, Eq)]
+struct SameVisits {
+    /// `(profile, rows, counted)` per source, by profile key.
+    sources: Vec<(String, i64, i64)>,
+    /// `archive_totals` 'visits'.
+    total: i64,
+    /// Hidden copies whose stand-in is itself hidden, or that point at nothing: groups are flat.
+    dangling: i64,
+}
 
-        let chrome_fixture = ChromiumHistoryFixture::new()
-            .add_url(ChromiumUrlRow {
-                id: 1,
-                url: "https://example.com/shared-one".to_string(),
-                title: Some("Shared One".to_string()),
-                visit_count: 1,
-                typed_count: 0,
-                last_visit_unix_ms: day_one,
-                hidden: false,
-            })
-            .add_url(ChromiumUrlRow {
-                id: 2,
-                url: "https://example.com/shared-two".to_string(),
-                title: Some("Shared Two".to_string()),
-                visit_count: 1,
-                typed_count: 0,
-                last_visit_unix_ms: day_two,
-                hidden: false,
-            })
-            .add_url(ChromiumUrlRow {
-                id: 3,
-                url: "https://example.com/shared-three".to_string(),
-                title: Some("Shared Three".to_string()),
-                visit_count: 1,
-                typed_count: 0,
-                last_visit_unix_ms: day_three,
-                hidden: false,
-            })
-            .add_visit(visit_row(10, 1, day_one))
-            .add_visit(visit_row(11, 2, day_two))
-            .add_visit(visit_row(12, 3, day_three));
-        let chrome_snapshot = snapshot_for_fixture(
-            &chrome_fixture,
-            chromium_profile("chrome:Default", "Google Chrome"),
-        );
-        run_one_ingest(&env, 1, &chrome_snapshot, false);
-
-        let takeout_source = tempdir().expect("takeout source root");
-        let takeout_payload = takeout_source.path().join("Chrome/BrowserHistory.json");
-        TakeoutBrowserHistoryFixture::new()
-            .add_record(takeout_record("https://example.com/shared-one", "Shared One", day_one))
-            .add_record(takeout_record("https://example.com/shared-two", "Shared Two", day_two))
-            .add_record(takeout_record(
-                "https://example.com/shared-three",
-                "Shared Three",
-                day_three,
-            ))
-            .write(&takeout_payload)
-            .expect("write takeout fixture");
-        crate::takeout::import_takeout(
-            &env.vault,
-            &crate::models::TakeoutRequest {
-                source_path: takeout_source.path().display().to_string(),
-                dry_run: false,
-            },
+fn same_visits(env: &ScenarioEnv) -> SameVisits {
+    let archive = env.open_archive();
+    let sources = archive
+        .query(
+            "SELECT p.profile_key, COUNT(v.id), COALESCE(SUM(CASE WHEN v.reverted_at IS NULL THEN 1 ELSE 0 END),0)
+             FROM source_profiles p JOIN visits v ON v.source_profile_id=p.id
+             GROUP BY p.profile_key ORDER BY p.profile_key",
+            (),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
-        .expect("import takeout");
-
-        // Each source kept independent rows under its own source_profile.
-        assert_eq!(count_visits_for_profile(&env, "chrome:Default"), 3);
-        assert_eq!(count_visits_for_profile(&env, "takeout::browser-history"), 3);
-        assert_eq!(count_archive_rows(&env, "visits"), 6);
-
-        // Fingerprint divergence: a future cross-source dedup design has to
-        // normalize app_id (and likely also project transition to None) before
-        // any pair of these visits could share a fingerprint.
-        let archive = env.open_archive();
-        let chrome_app_ids: Vec<Option<String>> = archive
+        .expect("count sources");
+    let total =
+        archive
+            .query_row("SELECT value FROM archive_totals WHERE name='visits'", (), |row| {
+                Ok(row.get(0)?)
+            })
+            .expect("total");
+    let dangling = archive
+        .query_row(
+            "SELECT COUNT(*) FROM visits c LEFT JOIN visits s ON s.id=c.same_as
+             WHERE c.same_as IS NOT NULL AND (s.id IS NULL OR s.reverted_at IS NOT NULL)",
+            (),
+            |row| Ok(row.get(0)?),
+        )
+        .expect("dangling");
+    let counted = archive
+        .query(
+            "SELECT p.id, COALESCE(SUM(CASE WHEN v.reverted_at IS NULL THEN 1 ELSE 0 END),0) FROM source_profiles p
+             LEFT JOIN visits v ON v.source_profile_id=p.id GROUP BY p.id",
+            (),
+            |row| Ok((row.get::<i64>(0)?, row.get::<i64>(1)?)),
+        )
+        .expect("counted per source");
+    for (profile, counted) in counted {
+        let cached = archive
             .query(
-                "SELECT app_id FROM visits
-             JOIN source_profiles ON source_profiles.id = visits.source_profile_id
-             WHERE source_profiles.profile_key = 'chrome:Default'",
-                (),
-                |row| Ok(row.get(0)?),
+                "SELECT value FROM archive_totals WHERE name=?1",
+                [format!("sourceVisits:{profile}")],
+                |row| Ok(row.get::<i64>(0)?),
             )
-            .expect("query rows");
-        let takeout_app_ids: Vec<Option<String>> = archive
-            .query(
-                "SELECT app_id FROM visits
-             JOIN source_profiles ON source_profiles.id = visits.source_profile_id
-             WHERE source_profiles.profile_key = 'takeout::browser-history'",
-                (),
-                |row| Ok(row.get(0)?),
-            )
-            .expect("query rows");
-        assert!(chrome_app_ids.iter().all(|app_id| app_id.is_none()));
-        assert!(takeout_app_ids.iter().all(|app_id| app_id.as_deref() == Some("takeout")));
+            .expect("source total")
+            .pop()
+            .unwrap_or(0);
+        assert_eq!(cached, counted, "the cached count of source {profile} is what it counts");
     }
+    SameVisits { sources, total, dangling }
+}
+
+fn sources(rows: &[(&str, i64, i64)], total: i64) -> SameVisits {
+    SameVisits {
+        sources: rows.iter().map(|(key, all, counted)| (key.to_string(), *all, *counted)).collect(),
+        total,
+        dangling: 0,
+    }
+}
+
+fn three_day_chrome() -> ProfileSnapshot {
+    let (day_one, day_two, day_three) =
+        (1_777_680_000_000_i64, 1_777_809_600_000, 1_777_872_930_000);
+    let mut fixture = ChromiumHistoryFixture::new();
+    for (id, name, at) in [(1, "one", day_one), (2, "two", day_two), (3, "three", day_three)] {
+        fixture = fixture
+            .add_url(ChromiumUrlRow {
+                id,
+                url: format!("https://example.com/shared-{name}"),
+                title: Some(format!("Shared {name}")),
+                visit_count: 1,
+                typed_count: 0,
+                last_visit_unix_ms: at,
+                hidden: false,
+            })
+            .add_visit(visit_row(id + 9, id, at));
+    }
+    snapshot_for_fixture(&fixture, chromium_profile("chrome:Default", "Google Chrome"))
+}
+
+/// The same three visits as `three_day_chrome`, in Takeout's copy of Chrome's history.
+fn three_day_takeout() -> Vec<TakeoutBrowserRecord> {
+    [("one", 1_777_680_000_000_i64), ("two", 1_777_809_600_000), ("three", 1_777_872_930_000)]
+        .into_iter()
+        .map(|(name, at)| {
+            takeout_record(
+                &format!("https://example.com/shared-{name}"),
+                &format!("Shared {name}"),
+                at,
+            )
+        })
+        .collect()
+}
+
+/// The same three visits in My Activity's JSON (behind Google's redirect, with its prefix).
+fn write_three_day_activity(root: &std::path::Path) {
+    let folder = root.join("My Activity").join("Chrome");
+    std::fs::create_dir_all(&folder).expect("activity folder");
+    let records = [("one", 1_777_680_000_000_i64), ("two", 1_777_809_600_000), ("three", 1_777_872_930_000)]
+        .into_iter()
+        .map(|(name, at)| {
+            serde_json::json!({
+                "title": format!("Visited Shared {name}"),
+                "titleUrl": format!("https://www.google.com/url?q=https://example.com/shared-{name}&usg=x"),
+                "time": chrono::DateTime::from_timestamp_millis(at).unwrap().to_rfc3339(),
+                "products": ["Chrome"],
+            })
+        })
+        .collect::<Vec<_>>();
+    std::fs::write(folder.join("MyActivity.json"), serde_json::to_string(&records).unwrap())
+        .expect("write activity");
+}
+
+fn import_folder(env: &ScenarioEnv, root: &std::path::Path) -> crate::models::TakeoutInspection {
+    crate::takeout::import_takeout(
+        &env.vault,
+        &crate::models::TakeoutRequest { source_path: root.display().to_string(), dry_run: false },
+    )
+    .expect("import takeout")
+}
+
+fn batch_of(inspection: &crate::models::TakeoutInspection) -> i64 {
+    inspection.import_batch.as_ref().expect("an import batch").id
+}
+
+/// T3 — Takeout's copy of a visit and the local Chrome's own are the same visit: both rows are
+/// kept, the Chrome one counts (`same-visit-across-sources.md`), whichever came first. The
+/// import says how many it already had from another source; a backup that takes over Takeout's
+/// copies names Takeout, whose Insights then change.
+#[test]
+fn t3_takeout_and_local_chrome_keep_both_and_count_once() {
+    for key in [None, Some([83; 32])] {
+        // Chrome first: Takeout's copies are written hidden behind Chrome's.
+        let env = ScenarioEnv::new(key);
+        run_one_ingest(&env, 900, &three_day_chrome(), false);
+        import_takeout_fixture(&env, &three_day_takeout(), "after-chrome");
+        assert_eq!(
+            same_visits(&env),
+            sources(&[("chrome:Default", 3, 3), ("takeout::browser-history", 3, 0)], 3)
+        );
+
+        // Takeout first: Chrome's backup takes over, and says whose copies it took over.
+        let env = ScenarioEnv::new(key);
+        import_takeout_fixture(&env, &three_day_takeout(), "before-chrome");
+        assert_eq!(same_visits(&env), sources(&[("takeout::browser-history", 3, 3)], 3));
+        let summary = run_one_ingest(&env, 900, &three_day_chrome(), false);
+        assert_eq!(summary.new_visits, 3);
+        assert_eq!(summary.replaced_profiles, vec!["takeout::browser-history".to_string()]);
+        assert_eq!(
+            same_visits(&env),
+            sources(&[("chrome:Default", 3, 3), ("takeout::browser-history", 3, 0)], 3)
+        );
+    }
+}
+
+/// T8 — My Activity, Takeout's Chrome history and the browser hold one visit: each better
+/// source takes over as it arrives, and every copy points at the one that counts.
+#[test]
+fn t8_my_activity_takeout_and_chrome_count_one_visit_once() {
+    let env = ScenarioEnv::new(None);
+    let activity = tempdir().expect("activity root");
+    write_three_day_activity(activity.path());
+    let imported = import_folder(&env, activity.path());
+    assert_eq!((imported.imported_items, imported.same_visit_items), (3, 0));
+
+    import_takeout_fixture(&env, &three_day_takeout(), "history");
+    assert_eq!(
+        same_visits(&env),
+        sources(&[("takeout::browser-history", 3, 3), ("takeout::my-activity", 3, 0)], 3)
+    );
+
+    run_one_ingest(&env, 900, &three_day_chrome(), false);
+    assert_eq!(
+        same_visits(&env),
+        sources(
+            &[
+                ("chrome:Default", 3, 3),
+                ("takeout::browser-history", 3, 0),
+                ("takeout::my-activity", 3, 0),
+            ],
+            3
+        )
+    );
+
+    // My Activity again: written, all already counted elsewhere.
+    let again = tempdir().expect("activity again");
+    write_three_day_activity(again.path());
+    let imported = import_folder(&env, again.path());
+    assert_eq!(
+        (imported.imported_items, imported.same_visit_items),
+        (0, 0),
+        "same source: duplicates"
+    );
+}
+
+/// T9 — Undoing the import whose copy counts lets the best other copy count; restoring it links
+/// it again. Undoing an import whose copies were hidden changes nothing that counts.
+#[test]
+fn t9_undo_and_restore_move_which_copy_counts() {
+    let env = ScenarioEnv::new(None);
+    let history = tempdir().expect("history root");
+    let payload = history.path().join("Chrome/BrowserHistory.json");
+    let mut fixture = TakeoutBrowserHistoryFixture::new();
+    for record in three_day_takeout() {
+        fixture = fixture.add_record(record);
+    }
+    fixture.write(&payload).expect("write history");
+    let history_batch = batch_of(&import_folder(&env, history.path()));
+    let activity = tempdir().expect("activity root");
+    write_three_day_activity(activity.path());
+    let activity_import = import_folder(&env, activity.path());
+    assert_eq!((activity_import.imported_items, activity_import.same_visit_items), (0, 3));
+    let activity_batch = batch_of(&activity_import);
+
+    crate::takeout::revert_import_batch(&env.vault, history_batch).expect("undo history");
+    assert_eq!(
+        same_visits(&env),
+        sources(&[("takeout::browser-history", 3, 0), ("takeout::my-activity", 3, 3)], 3)
+    );
+
+    crate::takeout::restore_import_batch(&env.vault, history_batch).expect("restore history");
+    assert_eq!(
+        same_visits(&env),
+        sources(&[("takeout::browser-history", 3, 3), ("takeout::my-activity", 3, 0)], 3)
+    );
+
+    crate::takeout::revert_import_batch(&env.vault, activity_batch).expect("undo activity");
+    crate::takeout::restore_import_batch(&env.vault, activity_batch).expect("restore activity");
+    assert_eq!(
+        same_visits(&env),
+        sources(&[("takeout::browser-history", 3, 3), ("takeout::my-activity", 3, 0)], 3)
+    );
+}
+
+/// Insights' visits per day over every source, from the published rollups.
+fn insights_days(env: &ScenarioEnv) -> Vec<(String, i64)> {
+    crate::intelligence::run_core_intelligence(
+        &env.vault,
+        &crate::models::CoreIntelligenceRebuildRequest::default(),
+    )
+    .expect("build Insights");
+    crate::test_support::store::Probe::for_db(&env.vault, vault_store::Db::Intelligence)
+        .query(
+            "SELECT date_key, SUM(total_visits) FROM daily_summary_rollups
+             GROUP BY date_key ORDER BY date_key",
+            (),
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("days")
+}
+
+/// T10 — Insights count a visit once: Takeout's copies were counted until the browser's backup
+/// took over, and the next build gives the days the browser alone gives (the Takeout profile,
+/// with fewer counted visits, is built again).
+#[test]
+fn t10_insights_count_a_visit_from_two_sources_once() {
+    let both = ScenarioEnv::new(None);
+    import_takeout_fixture(&both, &three_day_takeout(), "takeout first");
+    assert_eq!(insights_days(&both).iter().map(|(_, n)| n).sum::<i64>(), 3);
+    run_one_ingest(&both, 900, &three_day_chrome(), false);
+
+    let alone = ScenarioEnv::new(None);
+    run_one_ingest(&alone, 900, &three_day_chrome(), false);
+    let want = insights_days(&alone);
+    assert_eq!(want.iter().map(|(_, n)| n).sum::<i64>(), 3);
+    assert_eq!(insights_days(&both), want);
 }
 
 // ======================================================================

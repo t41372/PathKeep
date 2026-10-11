@@ -10,6 +10,11 @@ export interface UrlDetail {
   lastVisitAt: string | null
   /** Browser names (e.g. "Arc") that recorded this URL, most visits first. */
   browsers: string[]
+  /**
+   * Sources that also recorded these visits (Google Takeout), counted once
+   * under one of `browsers`. Absent from older backends.
+   */
+  alsoRecordedBy?: string[]
   /** Exactly 12 entries, oldest first, ending with the current week (Monday start, local time). */
   weeklyVisits: { weekStart: string; visits: number }[]
 }

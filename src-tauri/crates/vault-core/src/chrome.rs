@@ -133,7 +133,8 @@ pub fn browser_display_name(browser_kind: &str) -> String {
                 .find(|definition| definition.key == browser_kind)
                 .map(|definition| definition.name)
         })
-        .or((browser_kind == "safari").then_some("Safari"));
+        .or((browser_kind == "safari").then_some("Safari"))
+        .or((browser_kind == "takeout").then_some("Google Takeout"));
     known.map_or_else(|| browser_kind.to_string(), str::to_string)
 }
 
