@@ -94,20 +94,22 @@ where
     profiles.sort_unstable();
     profiles.dedup();
     let (profile_source, request_copy) = (source.to_path_buf(), request.clone());
-    let (source_profile_ids, batch_id, run_id) =
+    let (source_profile_ids, batch_id, continued, run_id) =
         vault.write(Db::Archive, Priority::Batch, move |s| {
             let mut ids = std::collections::BTreeMap::new();
             for profile in &profiles {
                 ids.insert(*profile, upsert_takeout_profile(s, profile, &profile_source)?);
             }
-            let batch = batches::create_import_batch(s, profiles[0], &request_copy)?;
+            // An interrupted import of the same export carries on in its batch.
+            let (batch, continued) =
+                batches::continue_or_create_takeout_batch(s, profiles[0], &request_copy)?;
             let scope = profiles.iter().map(|profile| profile.to_string()).collect::<Vec<_>>();
             let run = crate::archive::write_runs::start_in(s, "import", "manual", &scope)?;
             s.execute(
                 "UPDATE runs SET stats_json=?2 WHERE id=?1",
                 vault_store::params![run, json!({"importBatchId":batch}).to_string()],
             )?;
-            Ok((ids, batch, run))
+            Ok((ids, batch, continued, run))
         })?;
     let guard = super::import_run::ImportRun::new(vault, run_id, batch_id);
     guard.run(|| {
@@ -199,6 +201,7 @@ where
                                 batch_id,
                                 source_profile_id: source_profile_ids[takeout_profile(kind)],
                                 profile_key: takeout_profile(kind),
+                                continuing: continued.is_some(),
                             },
                             classified_file,
                             kind,
@@ -291,6 +294,13 @@ where
         inspection.imported_items = stats.imported_items;
         inspection.duplicate_items = stats.duplicate_items;
         inspection.same_visit_items = stats.same_visit_items;
+        // Carrying on an interrupted import: what it wrote then counts too. This run read the
+        // whole export, so what it read and found elsewhere is its own count.
+        if let Some(earlier) = &continued {
+            inspection.imported_items += earlier.imported_items;
+            inspection.same_visit_items += earlier.same_visit_items;
+            inspection.continued_from = Some(earlier.created_at.clone());
+        }
         let replaced = stats.replaced_profiles.iter().copied().collect::<Vec<_>>();
         inspection.replaced_profiles = vault.read(Db::Archive, move |s| {
             Ok(crate::archive::same_visit::profile_keys(s, &replaced)?)

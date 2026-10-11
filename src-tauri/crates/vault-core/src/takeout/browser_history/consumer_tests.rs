@@ -76,6 +76,7 @@ fn archive_consumer_reports_visits_without_matching_url_rows_as_skipped() {
             batch_id: 2,
             source_kind: "chromium-history-db".into(),
             source_path: None,
+            continuing: false,
         }),
     };
     let cancel = CancelToken::new();

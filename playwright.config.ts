@@ -176,8 +176,12 @@ export default defineConfig({
       ],
       'zone',
     ),
-    // It kills the app and the launcher starts it again, behind App Lock.
-    project('restart', ['semantic-index.spec.ts'], 'change'),
+    // They kill the app and the launcher starts it again, behind App Lock.
+    project(
+      'restart',
+      ['semantic-index.spec.ts', 'takeout-continue.spec.ts'],
+      'change',
+    ),
     // Opening the moved file replaces the archive and its password, so it runs
     // after every test that relies on the archive first-run created.
     project('move', ['move.spec.ts'], 'restart'),

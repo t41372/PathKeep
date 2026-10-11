@@ -6,7 +6,8 @@
  * backup, the visits added in backup.spec, link-preview.spec and
  * search-ranking.spec, the Firefox and Safari files imported in
  * browser-import.spec, and the Takeout folders, My Activity export and .zip
- * imported in takeout-import.spec), an installed automatic backup is named in
+ * imported in takeout-import.spec, and the export takeout-continue.spec
+ * imports in two runs), an installed automatic backup is named in
  * the preview and removed with the data, the archive and the stored key are
  * gone afterwards, and the browsers' own history files are untouched.
  *
@@ -24,6 +25,7 @@ import { rankingVisitCount } from './support/ranking-pages'
 import { safariVisitCount } from './support/safari-file'
 import {
   activityVisitCount,
+  continuedVisitCount,
   takeoutVisitCount,
   zipVisitCount,
 } from './support/takeout-file'
@@ -69,7 +71,8 @@ test('delete all data previews, deletes, and returns to onboarding', async ({
     rankingVisitCount() +
     takeoutVisitCount() +
     activityVisitCount() +
-    zipVisitCount()
+    zipVisitCount() +
+    continuedVisitCount()
 
   if (schedulerSupported) {
     await page.goto('/#/backup')

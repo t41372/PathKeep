@@ -125,6 +125,8 @@ export const backup = defineMessages({
         '{count} visit was already in your archive from another source (the browser, or another export). It is kept and counted once.',
       sameVisits_other:
         '{count} visits were already in your archive from another source (the browser, or another export). They are kept and counted once.',
+      continued:
+        'This finished the import of this export that stopped on {date}; the numbers include what it saved then.',
       another: 'Import another',
       batches: {
         title: 'Recent imports',
@@ -299,6 +301,8 @@ export const backup = defineMessages({
         '{count} 条已经从别的来源（浏览器本身，或另一份导出）进了存档：一并保存，只算一次。',
       sameVisits_other:
         '{count} 条已经从别的来源（浏览器本身，或另一份导出）进了存档：一并保存，只算一次。',
+      continued:
+        '接着完成了 {date} 中断的这份导出；上面的数字包括那次已经存下的。',
       another: '再导入一个',
       batches: {
         title: '最近的导入',
@@ -472,6 +476,8 @@ export const backup = defineMessages({
         '{count} 筆已經從別的來源（瀏覽器本身，或另一份匯出）進了存檔：一併保存，只算一次。',
       sameVisits_other:
         '{count} 筆已經從別的來源（瀏覽器本身，或另一份匯出）進了存檔：一併保存，只算一次。',
+      continued:
+        '接著完成了 {date} 中斷的這份匯出；上面的數字包括那次已經存下的。',
       another: '再匯入一個',
       batches: {
         title: '最近的匯入',

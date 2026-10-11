@@ -23,9 +23,8 @@
 //!
 //! ## Performance notes
 //!
-//! Dispatch only decodes small command envelopes. Heavy archive, import, and
-//! intelligence work must stay behind the existing worker bridge and
-//! off-main-thread command contracts.
+//! Dispatch only decodes small command envelopes, and runs on the blocking pool
+//! (`router::bridge_invoke`), so a long command here holds up nothing else.
 
 use crate::command_error::CommandError;
 use crate::{desktop_integration, file_manager, session::session_key, updater, worker_bridge};

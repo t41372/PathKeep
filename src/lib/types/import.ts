@@ -154,6 +154,11 @@ export interface TakeoutInspection {
    * on payloads from before.
    */
   sameVisitItems?: number
+  /**
+   * When the interrupted import of the same export that this run carried on
+   * began; the counts include what it wrote then.
+   */
+  continuedFrom?: string | null
   /** Diagnostic English prose; rendered only when a code has no catalog entry. */
   notes: string[]
   /** Coded mirror of `notes`; absent on payloads written before code-ification. */

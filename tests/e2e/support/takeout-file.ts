@@ -7,7 +7,8 @@
  * Traditional Chinese account's folder; and a download as Google sends it, one
  * .zip with Chrome's history and My Activity's copy of it. Times come from the
  * fixture's `now`, so a repeated run writes the same files, and `wipe.spec`
- * can count what the imports left in the archive.
+ * can count what the imports left in the archive. Also the larger export
+ * `takeout-continue.spec` stops half way and imports again.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -291,4 +292,29 @@ export function writeTakeoutZip() {
     ]),
   )
   return file
+}
+
+/**
+ * The visits of the export `takeout-continue.spec` imports: three of the
+ * import's 10,000-record parts, so it can be stopped after the first.
+ */
+export function continuedVisitCount() {
+  return 25_000
+}
+
+/** That export, as a Takeout folder with Chrome's `BrowserHistory.json`. */
+export function writeContinuedFolder() {
+  const folder = path.join(fixture().root, 'takeout-continued')
+  mkdirSync(path.join(folder, 'Chrome'), { recursive: true })
+  const start = fixture().now - 400 * DAY_MS
+  const records = Array.from({ length: continuedVisitCount() }, (_, n) => ({
+    url: `https://continued.example/page-${n % 2_000}`,
+    title: `Continued page ${n % 2_000}`,
+    time_usec: (start + n * 60_000) * 1_000,
+  }))
+  writeFileSync(
+    path.join(folder, 'Chrome', 'BrowserHistory.json'),
+    JSON.stringify({ 'Browser History': records }),
+  )
+  return folder
 }

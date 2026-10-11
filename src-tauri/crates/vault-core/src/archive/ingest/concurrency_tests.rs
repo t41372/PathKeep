@@ -513,7 +513,7 @@ fn batched_backup_equals_one_transaction_of_parsed_facts() {
                 let mut pages = std::collections::BTreeSet::new();
                 let mut cursor = Watermark::default();
                 for url in &parsed.urls {
-                    let (id, page, _) = writes::upsert_url(
+                    let writes::UpsertedUrl { id, page, .. } = writes::upsert_url(
                         s,
                         0,
                         profile_id,

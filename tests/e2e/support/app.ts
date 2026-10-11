@@ -38,7 +38,11 @@ async function runningPid(): Promise<number | null> {
   }
 }
 
-/** Kills the app (SIGKILL: nothing gets to finish or save) and waits for the new one to answer. */
+/**
+ * Kills the app (SIGKILL: nothing gets to finish or save) and waits for the
+ * new one to answer. A page loaded before still shows the old app until it
+ * is reloaded.
+ */
 export async function killAndRestartApp() {
   const restartFile = process.env.PATHKEEP_E2E_RESTART_FILE
   if (!restartFile)

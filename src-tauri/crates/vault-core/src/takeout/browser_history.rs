@@ -146,6 +146,8 @@ pub fn import_browser_history_with_control(
             batch_id,
             source_kind: staged.family.source_kind().into(),
             source_path: None,
+            // A browser's history file starts a new batch each time (Takeout carries on).
+            continuing: false,
         }),
     };
     let source_label = staged.requested_path.display().to_string();
