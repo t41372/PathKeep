@@ -194,15 +194,15 @@
     - [x] 3. 改寫熱路徑上的；加一個查詢計畫的回歸測試，擋熱路徑再出現暫存表。每列跑一次的改掉：復原與恢復先讀會變的造訪再改（806 → 6）；追加的路線 `INSERT OR IGNORE`（`Session::insert`）加按鍵更新、指名主鍵的索引（432 → 267）；匯入在 `WORK-IMPORT-BULK-WRITES` 已改。讀取不改：52 處加 16 個 view 的 `generation IN (SELECT …)`，一個現算範圍 44 個、約 7 ms，全部時間走快照 3 個，改寫每個讀取划不來。`ephemeral_tables.rs` 擋任何語句在一步裡開超過 50 次（fixture 讓每列一次的語句跑幾百次）。
     - [x] 4. 文檔、CHANGELOG。（`ipc-performance.md` §14、`vault-store/README.md`、`research/2026-10-turso-archive-reads.md`。）
 
-- [ ] **WORK-TAKEOUT-RESUME** — 中斷的 Takeout 匯入從頭再讀（2026-10-11 從 BACKLOG 搬上；2026-10-10 `WORK-IMPORT-BULK-WRITES` 盤點時找到）
+- [x] **WORK-TAKEOUT-RESUME** — 中斷的 Takeout 匯入從頭再讀（2026-10-11 從 BACKLOG 搬上；2026-10-10 `WORK-IMPORT-BULK-WRITES` 盤點時找到）
   - 讀先：`docs/features/archive.md`（匯入）、`docs/architecture/takeout-my-activity-tradeoff.md`、`docs/architecture/same-visit-across-sources.md`、`docs/architecture/store-schema.md`（`import_batches`、`profile_watermarks`）；`takeout/import_flow.rs`、`takeout/payload_import.rs`、解析器 `browser-history-parser/src/takeout/`。
   - 現象：Takeout 匯入每個檔案都從 `Watermark::default()` 開始（`takeout/payload_import.rs`），存下的 `profile_watermarks` 從不讀回；中斷後再匯入是新的一批、從第一筆重新解析，已寫入的前段靠 `INSERT OR IGNORE` 擋掉重複，但每筆仍付網址 upsert 與搜尋文件的成本。14.4M 的匯入在後段中斷，重來幾乎等於整個重跑。
   - 方向：每個檔案記下已提交到第幾筆（跟批次同一個交易），重新匯入同一份檔案時從那裡接著讀；匯入卡說明是接著上次的。先寫下會怎麼錯（檔案換了、同名不同內容、兩種格式交錯）再做。
   - 步驟：
-    - [ ] 1. 寫下會怎麼錯（檔案換了、同名不同內容、兩種格式在同一份匯出、中斷在一個 chunk 的中間、上次的批次已被復原），決定「接著上次」的條件與記在哪裡。
-    - [ ] 2. 每個檔案記下已提交到第幾筆（跟批次同一個交易），重新匯入同一份檔案時從那裡接著讀；`import_equivalence` 驗中斷後接著匯入跟一次跑完相同。
-    - [ ] 3. 匯入卡說明是接著上次的；E2E：中斷一個匯入再匯入一次。
-    - [ ] 4. 文檔、CHANGELOG。
+    - [x] 1. 寫下會怎麼錯（檔案換了、同名不同內容、兩種格式在同一份匯出、中斷在一個 chunk 的中間、上次的批次已被復原），決定「接著上次」的條件與記在哪裡。2026-10-11：不記「讀到第幾筆」。每筆造訪本來就有內容鍵（來源造訪 id、指紋），重讀一次是冪等的；另記一個位置是第二份真相，檔案換了或同名不同內容時會指錯，要確認檔案沒變得整份讀過（雜湊），JSON 陣列也沒辦法不解析前段就從中間讀起，兩種格式的匯出還要兩個位置。改成：同一個來源（種類＋路徑）最近一次 `interrupted` 的批次被接著做——寫進同一批、狀態回到 running，一次匯入就是一批，撤銷時一起撤。已完成或已撤銷的不重新打開（再匯入是新的一批、全是重複）。中斷在 chunk 中間沒有問題：一個 chunk 一個交易，要嘛整個寫了、要嘛整個沒寫。檔案換了：新的紀錄寫進同一批，之前寫的留在這批。瀏覽器檔案匯入（Browser Direct）照舊每次新的一批：它讀的是瀏覽器還在寫的資料庫，同一個路徑再匯入是較新的一份，不是同一份匯出；Chrome 只留 90 天，重來的代價小。
+    - [x] 2. 接著做的代價要低，數字要對；`import_equivalence` 驗中斷後接著匯入跟一次跑完相同。重讀的前段都是重複，原本每筆仍把它的頁標成要重建搜尋文件、排進索引；現在只有新的網址列或帶來較新觀察的網址列才標（`UpsertedUrl.rewritten`）。14.4M 上把同樣 100 萬筆再匯入一次 219 → 62 s（每筆 62 µs，新紀錄約 500 µs；`ipc-performance.md` §12）。這一批之前寫過的造訪（`written_by`：同一來源造訪、同一批）不算新增、也不算「已在存檔裡」，結束時加上之前那次的新增與同一次造訪數。`import_equivalence`（`WORK-IMPORT-BULK-WRITES` 步驟 2）已驗中斷後重跑跟一次跑完的各表相同；`turso_write_path.rs` 驗接著做只有一批、數字是 (20,003, 20,003, 0)、完成後再匯入是新的一批全是重複，以及撤銷過的中斷匯入不被接著做。
+    - [x] 3. 匯入卡說明是接著上次的；E2E：中斷一個匯入再匯入一次。匯入卡加一行「接著完成了 {日期} 中斷的這份匯出；上面的數字包括那次已經存下的」（三種語言）。`takeout-continue.spec`（restart 專案）在匯入存下第一個 chunk 後真的殺掉 app，重開再匯入：「25,000 筆新造訪」、「0 筆已在存檔裡」、那一行、只有一批且 25,000 筆可見。順帶修了 E2E 用的 dev IPC bridge：它只有一條執行緒，命令直接在上面跑，匯入跑完前其他請求與事件串流都在等（測試看不到匯入中的批次與進度）；現在每個命令跟桌面 app 一樣放到 blocking pool 跑（`dev_ipc_bridge/router.rs`）。重開後的頁要 reload，否則還是被殺掉那個 app 的畫面（`support/app.ts` 註明）；`wipe.spec` 把這份匯出的 25,000 筆算進要刪的造訪。
+    - [x] 4. 文檔、CHANGELOG。（`features/archive.md`、`ipc-performance.md` §12；gate 78。）重新匯入已在存檔裡的紀錄會把來源證據再寫一份（每次執行一個 source batch；讀的人按造訪合併，不會算兩次），接著做的匯入也一樣，另列 BACKLOG `WORK-EVIDENCE-REIMPORT`。
 
 - [ ] **WORK-HOME-ALERTS-FOLLOWUPS** — Home 警告列的兩個小缺口（2026-10-11 從 BACKLOG 搬上；2026-10-10 收工審查時找到）
   - 讀先：`docs/features/archive.md`（Home 的警告）、`docs/design/screens-and-nav.md`（Home）、`docs/design/ux-principles.md`、`src/features/home/alerts.ts`、`vault-core` 的排程器狀態（`overdue_issue`）。
@@ -212,6 +212,15 @@
     - [ ] 1. 鑰匙圈不能用時，「只有你知道密碼」那列換成走得通的動作或說法（三種語言）。
     - [ ] 2. 「自動備份已經停了」從喚醒時間起算，或在剛醒來時不報；寫下會怎麼錯再改，必要時在桌面上看一次。
     - [ ] 3. E2E（`home-alerts.spec`）、文檔、CHANGELOG。
+
+- [ ] **WORK-IMPORT-CANCEL** — 匯入中停不下來（2026-10-11 加入；side agent 讀碼時發現，已在程式碼確認）
+  - 讀先：`docs/features/archive.md`（匯入、中斷的匯入接著做）、`takeout/import_flow.rs`、`takeout/browser_history.rs`、`src-tauri/src/worker_bridge/import.rs`、匯出的取消（`vault_core::cancel_export`，同一種登記方式）、`src/features/backup/import-card.tsx`、`browser-import-card.tsx`。
+  - 現象：從介面開始的 Takeout 與瀏覽器檔案匯入走 `import_takeout_with_progress`，帶的是沒有人按得到的 `CancelToken::new()`；匯入中的卡片只有進度，「取消」只在預覽時有。要停只能關掉 app。14.4M 的一次性匯入約 1.7 小時。`WORK-TAKEOUT-RESUME` 讓停下的匯入能接著做，但停下本身還做不到。
+  - 步驟：
+    - [ ] 1. 寫下會怎麼錯（停在一個 chunk 中間、停的同時剛好做完、停下後再匯入同一份接著做、瀏覽器檔案匯入、停下時別的寫入在排隊、停下後 app 關掉），再做後端：每個匯入有 id，取消命令照匯出的登記方式；停下後批次是 interrupted、已寫入的保留。
+    - [ ] 2. 匯入卡匯入中有「停止」（三種語言）；停下後寫已存下幾筆、同一份再匯入會接著做。
+    - [ ] 3. E2E：開始一個匯入、停止、再匯入同一份接著做完。
+    - [ ] 4. 文檔、CHANGELOG。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 
