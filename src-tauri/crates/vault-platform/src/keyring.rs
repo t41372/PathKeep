@@ -130,12 +130,14 @@ pub fn keyring_status() -> KeyringStatusReport {
 /// Reports whether a usable keyring backend exists and whether a database key is stored.
 pub fn keyring_status() -> KeyringStatusReport {
     if let Some(path) = test_keyring_dir() {
-        let stored_secret = test_keyring_path(&path, KEYRING_DATABASE_USER).exists();
+        let available = test_keyring_available(&path).is_ok();
+        let stored_secret = available && test_keyring_path(&path, KEYRING_DATABASE_USER).exists();
         return KeyringStatusReport {
-            available: true,
+            available,
             backend: "File-backed test keyring".to_string(),
             stored_secret,
-            message: None,
+            message: (!available)
+                .then(|| "A native keyring backend is not available on this machine.".to_string()),
         };
     }
 
@@ -312,7 +314,17 @@ fn test_keyring_path(root: &Path, user: &str) -> PathBuf {
     root.join(format!("{}-{user}.secret", keyring_service()))
 }
 
+/// Fails as the native store does where there is none, once a test made it unavailable
+/// (`TEST_KEYRING_UNAVAILABLE_FILE`).
+fn test_keyring_available(root: &Path) -> Result<()> {
+    if root.join(crate::test_support::TEST_KEYRING_UNAVAILABLE_FILE).exists() {
+        anyhow::bail!("A native keyring backend is not available on this machine.");
+    }
+    Ok(())
+}
+
 fn test_keyring_get(root: &Path, user: &str) -> Result<Option<String>> {
+    test_keyring_available(root)?;
     #[cfg(debug_assertions)]
     crate::test_support::record_keyring_secret_read(root);
     let path = test_keyring_path(root, user);
@@ -324,6 +336,7 @@ fn test_keyring_get(root: &Path, user: &str) -> Result<Option<String>> {
 }
 
 fn test_keyring_set(root: &Path, user: &str, value: &str) -> Result<()> {
+    test_keyring_available(root)?;
     fs::create_dir_all(root).with_context(|| format!("creating {}", root.display()))?;
     let path = test_keyring_path(root, user);
     fs::write(&path, value).with_context(|| format!("writing {}", path.display()))?;
@@ -331,6 +344,7 @@ fn test_keyring_set(root: &Path, user: &str, value: &str) -> Result<()> {
 }
 
 fn test_keyring_clear(root: &Path, user: &str) -> Result<()> {
+    test_keyring_available(root)?;
     let path = test_keyring_path(root, user);
     if path.exists() {
         fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;

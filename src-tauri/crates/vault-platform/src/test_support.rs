@@ -22,6 +22,9 @@ pub const TEST_WINDOWS_USER_ID_ENV: &str = "PATHKEEP_PLATFORM_TEST_WINDOWS_USER_
 pub const TEST_LAUNCH_AGENTS_DIR_ENV: &str = "PATHKEEP_PLATFORM_TEST_LAUNCH_AGENTS_DIR";
 /// Env var override for stubbed launchctl success/failure in tests.
 pub const TEST_LAUNCHCTL_SUCCESS_ENV: &str = "PATHKEEP_PLATFORM_TEST_LAUNCHCTL_SUCCESS";
+/// A file of this name in the test keyring's directory makes the keyring unavailable, as on a
+/// Linux without a secret service: nothing is read or saved, and its status says so.
+pub const TEST_KEYRING_UNAVAILABLE_FILE: &str = "unavailable";
 
 const LEGACY_TEST_KEYRING_DIR_ENV: &str = "CHB_TEST_KEYRING_DIR";
 const LEGACY_TEST_LAUNCH_AGENTS_DIR_ENV: &str = "CHB_TEST_LAUNCH_AGENTS_DIR";

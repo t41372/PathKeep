@@ -10,13 +10,16 @@
  *   run succeeds, the alert is gone.
  * - Taking the password out of the keychain in Settings → Security shows on
  *   Home that only the user has it. "Save it in the keychain" leads back to
- *   Security, and saving it there clears the alert. Taken out again, "I keep
- *   it safe" clears it for good, also after a reload.
+ *   Security, and saving it there clears the alert. On a computer with no
+ *   keychain (the test keyring made unavailable) neither that alert nor the
+ *   one saying the keychain is gone links to Security, where nothing can fix
+ *   it. Taken out again, "I keep it safe" clears it for good, also after a
+ *   reload.
  *
  * Leaves the password in the keychain: the restart project reopens the
  * archive from it.
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { fixture } from './support/fixture'
@@ -61,6 +64,13 @@ function recordScheduledRun(
       runId: null,
     }),
   )
+}
+
+/** The test keyring answers as a keychain that isn't there, or is again. */
+function keychainAvailable(available: boolean) {
+  const marker = path.join(fixture().dirs.keyring, 'unavailable')
+  if (available) rmSync(marker, { force: true })
+  else writeFileSync(marker, '')
 }
 
 async function keychainSwitch(page: Page) {
@@ -114,6 +124,19 @@ test('Home shows what needs fixing and where, and nothing once it is fixed', asy
   await expect(alerts(page)).toHaveCount(0)
 
   try {
+    // The keychain the password is kept in goes away (as on a Linux without
+    // a secret service). Nothing in PathKeep brings it back, so no link.
+    keychainAvailable(false)
+    await openHome(page)
+    const gone = alerts(page).getByRole('listitem').filter({
+      hasText: 'The keychain isn’t available',
+    })
+    await expect(gone).toContainText('asks for it every time it starts')
+    await expect(gone.getByRole('link')).toHaveCount(0)
+    keychainAvailable(true)
+    await openHome(page)
+    await expect(alerts(page)).toHaveCount(0)
+
     // The password leaves the keychain: only the user has it now.
     await takeOutOfKeychain(page)
     await openHome(page)
@@ -127,9 +150,29 @@ test('Home shows what needs fixing and where, and nothing once it is fixed', asy
     await openHome(page)
     await expect(alerts(page)).toHaveCount(0)
 
-    // Out again, and the user says they keep it safe.
+    // Out again, on a computer with no keychain: Security can't save it, so
+    // Home doesn't send the user there.
     await takeOutOfKeychain(page)
+    keychainAvailable(false)
     await openHome(page)
+    const nowhere = alerts(page).getByRole('listitem').filter({
+      hasText: 'Only you have the archive password',
+    })
+    await expect(nowhere).toContainText(
+      'this computer has no keychain to save its password in',
+    )
+    await expect(nowhere.getByRole('link')).toHaveCount(0)
+    await expect(await keychainSwitch(page)).toBeDisabled()
+    await expect(
+      page.getByText('The system keychain is not available on this computer.'),
+    ).toBeVisible()
+    keychainAvailable(true)
+    await openHome(page)
+    await expect(
+      alerts(page).getByRole('link', { name: 'Save it in the keychain' }),
+    ).toBeVisible()
+
+    // The user says they keep it safe.
     await alerts(page)
       .getByRole('listitem')
       .filter({ hasText: 'Only you have the archive password' })
@@ -140,6 +183,7 @@ test('Home shows what needs fixing and where, and nothing once it is fixed', asy
     await expect(alerts(page)).toHaveCount(0)
   } finally {
     // The rest of the suite reopens the archive from the keychain.
+    keychainAvailable(true)
     const toggle = await keychainSwitch(page)
     await expect(toggle).toBeVisible()
     if (!(await toggle.isChecked())) await saveInKeychain(page)

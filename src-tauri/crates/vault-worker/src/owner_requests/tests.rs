@@ -278,7 +278,7 @@ fn due_only_request_waits_for_startup_session_open() {
         .unwrap();
     assert_eq!(deferred["reasonCode"], "write-lock");
     assert_eq!(
-        vault_core::load_schedule_attempt_ledger(&vault_core::project_paths().unwrap(), 1.0)
+        vault_core::load_schedule_attempt_ledger(&vault_core::project_paths().unwrap(), 1.0, None)
             .unwrap()
             .attempts[0]
             .outcome,

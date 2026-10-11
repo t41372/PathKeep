@@ -102,7 +102,9 @@ pub fn schedule_status(
         .map(vault_core::archive_status)
         .transpose()?
         .and_then(|status| status.last_successful_backup_at);
-    let ledger = load_schedule_attempt_ledger(&paths, native_schedule_interval_hours(&config))?;
+    let awake_since = vault_platform::awake_since();
+    let ledger =
+        load_schedule_attempt_ledger(&paths, native_schedule_interval_hours(&config), awake_since)?;
     if status.install_state == "installed" {
         // When it was installed, if the audit trail recorded it.
         let installed_at = status
@@ -115,6 +117,7 @@ pub fn schedule_status(
                 &ledger.attempts,
                 installed_at,
                 native_schedule_interval_hours(&config),
+                awake_since,
                 chrono::Utc::now(),
             )
             .map(schedule_attempt_issue),

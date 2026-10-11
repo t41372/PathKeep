@@ -35,6 +35,8 @@ export const home = defineMessages({
         title: 'Only you have the archive password',
         detail:
           'The archive is encrypted and its password isn’t in the keychain. If the password is lost, nothing can open the archive, PathKeep included.',
+        noKeychain:
+          'The archive is encrypted, and this computer has no keychain to save its password in. If the password is lost, nothing can open the archive, PathKeep included. Keep it in a password manager, or written down somewhere safe.',
         keep: 'Save it in the keychain',
         dismiss: 'I keep it safe',
       },
@@ -135,6 +137,8 @@ export const home = defineMessages({
         title: '存档的密码只有你知道',
         detail:
           '存档已加密，密码不在钥匙串里。密码一旦丢了，谁都打不开存档，PathKeep 也不行。',
+        noKeychain:
+          '存档已加密，这台电脑上也没有能存密码的钥匙串。密码一旦丢了，谁都打不开存档，PathKeep 也不行。请把它存在密码管理器里，或写下来放在安全的地方。',
         keep: '存到钥匙串',
         dismiss: '我有妥善保管',
       },
@@ -234,6 +238,8 @@ export const home = defineMessages({
         title: '存檔的密碼只有你知道',
         detail:
           '存檔已加密，密碼不在鑰匙圈裡。密碼一旦遺失，誰都打不開存檔，PathKeep 也不行。',
+        noKeychain:
+          '存檔已加密，這台電腦上也沒有能存密碼的鑰匙圈。密碼一旦遺失，誰都打不開存檔，PathKeep 也不行。請把它存在密碼管理器裡，或寫下來放在安全的地方。',
         keep: '存到鑰匙圈',
         dismiss: '我有妥善保管',
       },

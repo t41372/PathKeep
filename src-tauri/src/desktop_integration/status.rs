@@ -147,9 +147,11 @@ pub(crate) fn read_backup_status_from_disk(
             _ => readiness = Some(ArchiveReadiness::Unknown),
         }
     }
+    // Only the last success is read here, which no wake time changes.
     if let Ok(ledger) = vault_core::load_schedule_attempt_ledger(
         &paths,
         config.schedule_check_interval_hours as f64,
+        None,
     ) {
         successes.extend(ledger.last_success_at.as_deref().and_then(parse_time));
     }

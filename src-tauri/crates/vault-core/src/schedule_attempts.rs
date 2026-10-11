@@ -39,6 +39,10 @@ const ATTEMPT_FILE_SUFFIX: &str = ".json";
 const LAST_SUCCESS_FILE: &str = "last-success.json";
 const MAX_RETAINED_ATTEMPTS: usize = 64;
 const MIN_STALE_RUNNING_MINUTES: i64 = 15;
+/// How long a scheduler that works may take to start the worker once the computer wakes or
+/// starts: launchd runs a job it missed on waking, Task Scheduler's "start when available" can
+/// take some minutes.
+const CATCH_UP_MINUTES: i64 = 15;
 static ATTEMPT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Read result used by schedule status without making one malformed record hide
@@ -134,9 +138,11 @@ impl ScheduleAttemptRecorder {
 }
 
 /// Loads newest-first bounded attempt evidence and derives execution-health issues.
+/// `awake_since` is when the computer last woke or started (`vault_platform::awake_since`).
 pub fn load_schedule_attempt_ledger(
     paths: &ProjectPaths,
     check_interval_hours: f64,
+    awake_since: Option<DateTime<Utc>>,
 ) -> Result<ScheduleAttemptLedgerSnapshot> {
     let directory = attempt_directory(paths);
     let entries = match fs::read_dir(&directory) {
@@ -200,7 +206,12 @@ pub fn load_schedule_attempt_ledger(
         }
     }
     attempts.sort_by(|left, right| right.started_at.cmp(&left.started_at));
-    materialize_interrupted_attempts(&mut attempts, check_interval_hours, &detected_at);
+    materialize_interrupted_attempts(
+        &mut attempts,
+        check_interval_hours,
+        &detected_at,
+        awake_since,
+    );
 
     derive_health_issues(&attempts, &detected_at, &mut health_issues);
     Ok(ScheduleAttemptLedgerSnapshot { attempts, last_success_at, health_issues })
@@ -245,16 +256,31 @@ fn derive_health_issues(
     }
 }
 
+/// Whether the scheduler has had its chance since the computer last woke or started. Nothing
+/// runs while it sleeps, and on waking the scheduler runs what it missed; until it has had time
+/// to, neither a silence nor a run the sleep paused means something is wrong. An unknown wake
+/// time counts as a chance had, so a schedule that stopped is never hidden for want of one.
+fn caught_up(awake_since: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
+    awake_since
+        .is_none_or(|since| now.signed_duration_since(since) > Duration::minutes(CATCH_UP_MINUTES))
+}
+
 /// The system has stopped starting scheduled backups: no attempt of any outcome for three of
 /// its checks, counted from the newest attempt or from when the schedule was installed,
 /// whichever is later. A "not due yet" run counts, since it shows the scheduler calls; failed
 /// runs have an issue of their own. `attempts` is newest first, as the ledger returns them.
+/// Not reported right after the computer wakes or starts (`awake_since`), before a scheduler
+/// that works has caught up.
 pub fn overdue_issue(
     attempts: &[ScheduledBackupAttempt],
     installed_at: Option<&str>,
     check_interval_hours: f64,
+    awake_since: Option<DateTime<Utc>>,
     now: DateTime<Utc>,
 ) -> Option<ScheduledBackupHealthIssue> {
+    if !caught_up(awake_since, now) {
+        return None;
+    }
     let parse = |timestamp: &str| {
         DateTime::parse_from_rfc3339(timestamp).ok().map(|value| value.with_timezone(&Utc))
     };
@@ -284,10 +310,15 @@ fn materialize_interrupted_attempts(
     attempts: &mut [ScheduledBackupAttempt],
     check_interval_hours: f64,
     detected_at: &str,
+    awake_since: Option<DateTime<Utc>>,
 ) {
     let now = DateTime::parse_from_rfc3339(detected_at)
         .map(|value| value.with_timezone(&Utc))
         .unwrap_or_else(|_| Utc::now());
+    // A run the computer slept through finishes once it wakes.
+    if !caught_up(awake_since, now) {
+        return;
+    }
     let stale_after = stale_after(check_interval_hours);
     for attempt in attempts {
         if attempt.outcome == ScheduledBackupAttemptOutcome::Running
@@ -427,7 +458,7 @@ mod tests {
             )
             .expect("finish success");
 
-        let snapshot = load_schedule_attempt_ledger(&paths, 1.0).expect("load");
+        let snapshot = load_schedule_attempt_ledger(&paths, 1.0, None).expect("load");
         assert_eq!(snapshot.attempts.len(), 2);
         assert_eq!(snapshot.attempts[0].outcome, ScheduledBackupAttemptOutcome::Success);
         assert_eq!(snapshot.attempts[0].run_id, Some(42));
@@ -491,7 +522,7 @@ mod tests {
         )
         .expect("malformed record");
 
-        let snapshot = load_schedule_attempt_ledger(&paths, 1.0).expect("load");
+        let snapshot = load_schedule_attempt_ledger(&paths, 1.0, None).expect("load");
         assert!(snapshot.attempts.len() <= MAX_RETAINED_ATTEMPTS);
         assert!(
             snapshot.health_issues.iter().any(|issue| issue.code == "attempt-ledger-unreadable")
@@ -535,7 +566,7 @@ mod tests {
             run_id: None,
         };
         let mut attempts = vec![running];
-        materialize_interrupted_attempts(&mut attempts, 1.0, detected_at);
+        materialize_interrupted_attempts(&mut attempts, 1.0, detected_at, None);
         assert_eq!(attempts[0].outcome, ScheduledBackupAttemptOutcome::Interrupted);
         assert_eq!(attempts[0].reason_code.as_deref(), Some("interrupted"));
         let mut issues = Vec::new();
@@ -563,9 +594,10 @@ mod tests {
         };
         let skipped = attempt("2026-10-10T09:30:00+00:00", ScheduledBackupAttemptOutcome::Skipped);
         // Hourly checks: two hours and a half of silence is not yet three missed checks.
-        assert!(overdue_issue(std::slice::from_ref(&skipped), None, 1.0, now).is_none());
+        assert!(overdue_issue(std::slice::from_ref(&skipped), None, 1.0, None, now).is_none());
         let silent = attempt("2026-10-10T08:30:00+00:00", ScheduledBackupAttemptOutcome::Skipped);
-        let issue = overdue_issue(std::slice::from_ref(&silent), None, 1.0, now).expect("overdue");
+        let issue =
+            overdue_issue(std::slice::from_ref(&silent), None, 1.0, None, now).expect("overdue");
         assert_eq!(issue.code, "scheduled-backup-overdue");
         assert_eq!(issue.evidence, vec!["2026-10-10T08:30:00+00:00"]);
         // Installed again since: measured from the install.
@@ -574,22 +606,69 @@ mod tests {
                 std::slice::from_ref(&silent),
                 Some("2026-10-10T11:00:00+00:00"),
                 1.0,
+                None,
                 now
             )
             .is_none()
         );
         // Installed, never run, and the system never started it.
-        assert!(overdue_issue(&[], Some("2026-10-10T11:50:00+00:00"), 1.0, now).is_none());
-        assert!(overdue_issue(&[], Some("2026-10-09T12:00:00+00:00"), 1.0, now).is_some());
+        assert!(overdue_issue(&[], Some("2026-10-10T11:50:00+00:00"), 1.0, None, now).is_none());
+        assert!(overdue_issue(&[], Some("2026-10-09T12:00:00+00:00"), 1.0, None, now).is_some());
         // Nothing to measure from, or nothing readable.
-        assert!(overdue_issue(&[], None, 1.0, now).is_none());
+        assert!(overdue_issue(&[], None, 1.0, None, now).is_none());
         let unreadable = attempt("yesterday", ScheduledBackupAttemptOutcome::Skipped);
-        assert!(overdue_issue(&[unreadable], None, 1.0, now).is_none());
+        assert!(overdue_issue(&[unreadable], None, 1.0, None, now).is_none());
         // Daily backups are checked every six hours: eighteen hours of silence.
         let daily = attempt("2026-10-09T19:00:00+00:00", ScheduledBackupAttemptOutcome::Success);
-        assert!(overdue_issue(std::slice::from_ref(&daily), None, 6.0, now).is_none());
+        assert!(overdue_issue(std::slice::from_ref(&daily), None, 6.0, None, now).is_none());
         let daily = attempt("2026-10-09T17:00:00+00:00", ScheduledBackupAttemptOutcome::Success);
-        assert!(overdue_issue(&[daily], None, 6.0, now).is_some());
+        assert!(overdue_issue(&[daily], None, 6.0, None, now).is_some());
+    }
+
+    // Failure modes right after the computer wakes or starts: a night asleep taken for a
+    // scheduler that stopped, before launchd has caught up; a backup the sleep paused taken for
+    // one that was interrupted; a scheduler that really stopped, on a laptop that sleeps often,
+    // not reported until it has been awake for hours; an unknown wake time hiding a stopped
+    // schedule.
+    #[test]
+    fn right_after_waking_the_scheduler_gets_its_chance() {
+        let at =
+            |timestamp: &str| DateTime::parse_from_rfc3339(timestamp).unwrap().with_timezone(&Utc);
+        let attempt = |started_at: &str, outcome| ScheduledBackupAttempt {
+            id: started_at.to_string(),
+            started_at: started_at.to_string(),
+            finished_at: (outcome != ScheduledBackupAttemptOutcome::Running)
+                .then(|| started_at.to_string()),
+            outcome,
+            phase: ScheduledBackupAttemptPhase::Finished,
+            reason_code: None,
+            detail: None,
+            run_id: None,
+        };
+        // Hourly checks; the last one ran at ten in the evening, then the laptop slept.
+        let last = [attempt("2026-10-09T22:00:00+00:00", ScheduledBackupAttemptOutcome::Success)];
+        let woke = Some(at("2026-10-10T08:00:00+00:00"));
+        assert!(overdue_issue(&last, None, 1.0, woke, at("2026-10-10T08:05:00+00:00")).is_none());
+        // Twenty minutes awake and still nothing: stopped, counted from the last run.
+        let issue = overdue_issue(&last, None, 1.0, woke, at("2026-10-10T08:20:00+00:00"))
+            .expect("overdue once it has had its chance");
+        assert_eq!(issue.evidence, vec!["2026-10-09T22:00:00+00:00"]);
+        // Without a wake time, as before.
+        assert!(overdue_issue(&last, None, 1.0, None, at("2026-10-10T08:05:00+00:00")).is_some());
+
+        // A backup running when the laptop went to sleep is still running when it wakes.
+        let paused =
+            || vec![attempt("2026-10-09T23:30:00+00:00", ScheduledBackupAttemptOutcome::Running)];
+        let mut attempts = paused();
+        materialize_interrupted_attempts(&mut attempts, 1.0, "2026-10-10T08:05:00+00:00", woke);
+        assert_eq!(attempts[0].outcome, ScheduledBackupAttemptOutcome::Running);
+        let mut issues = Vec::new();
+        derive_health_issues(&attempts, "2026-10-10T08:05:00+00:00", &mut issues);
+        assert!(issues.is_empty());
+        // One that has not finished once the scheduler has had its chance was interrupted.
+        let mut attempts = paused();
+        materialize_interrupted_attempts(&mut attempts, 1.0, "2026-10-10T08:20:00+00:00", woke);
+        assert_eq!(attempts[0].outcome, ScheduledBackupAttemptOutcome::Interrupted);
     }
 
     #[test]
@@ -609,7 +688,8 @@ mod tests {
         let last_success = directory.join(LAST_SUCCESS_FILE);
 
         fs::write(&last_success, b"{not-json").expect("malformed last success");
-        let malformed = load_schedule_attempt_ledger(&paths, 1.0).expect("load malformed marker");
+        let malformed =
+            load_schedule_attempt_ledger(&paths, 1.0, None).expect("load malformed marker");
         assert!(malformed.last_success_at.is_none());
         assert!(
             malformed.health_issues.iter().any(|issue| issue.code == "attempt-ledger-unreadable")
@@ -617,7 +697,8 @@ mod tests {
 
         fs::remove_file(&last_success).expect("remove malformed marker");
         fs::create_dir(&last_success).expect("replace marker with unreadable directory");
-        let unreadable = load_schedule_attempt_ledger(&paths, 1.0).expect("load unreadable marker");
+        let unreadable =
+            load_schedule_attempt_ledger(&paths, 1.0, None).expect("load unreadable marker");
         assert!(unreadable.last_success_at.is_none());
         assert!(
             unreadable.health_issues.iter().any(|issue| issue.code == "attempt-ledger-unreadable")
@@ -657,14 +738,14 @@ mod tests {
         let root = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(root.path());
         assert!(
-            load_schedule_attempt_ledger(&paths, f64::NAN)
+            load_schedule_attempt_ledger(&paths, f64::NAN, None)
                 .expect("missing ledger")
                 .attempts
                 .is_empty()
         );
         fs::create_dir_all(&paths.schedule_dir).expect("schedule dir");
         fs::write(paths.schedule_dir.join("attempts"), b"not-a-directory").expect("block dir");
-        let error = load_schedule_attempt_ledger(&paths, 1.0).expect_err("invalid ledger");
+        let error = load_schedule_attempt_ledger(&paths, 1.0, None).expect_err("invalid ledger");
         assert!(error.to_string().contains("reading schedule attempt ledger"));
     }
 }
