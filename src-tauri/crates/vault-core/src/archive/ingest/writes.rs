@@ -87,7 +87,37 @@ pub(crate) fn upsert_source_profile(
     )
 }
 
-/// Upserts one canonical URL row and returns its stable archive id.
+/// The page of `url`, added when no profile has seen it yet. Looked up first: most URLs of a
+/// large import or backup already have their page, and an upsert would rewrite its row to read
+/// the id.
+fn page_for(archive: &Session<'_>, url: &str) -> Result<i64> {
+    if let Some(page) =
+        archive.query("SELECT id FROM pages WHERE url=?1", [url], |r| Ok(r.get::<i64>(0)?))?.pop()
+    {
+        return Ok(page);
+    }
+    Ok(archive
+        .insert(
+            "INSERT INTO pages(url,registrable_domain,canonical_url) VALUES(?1,?2,?3)",
+            params![url, registrable_domain_for_url(url), crate::pages::canonical_key(url)],
+        )?
+        .expect("a plain INSERT adds its row"))
+}
+
+/// A profile's stored observation of one URL: what an upsert compares against.
+struct StoredUrl {
+    id: i64,
+    page: i64,
+    last_visit_ms: Option<i64>,
+    visit_count: i64,
+    typed_count: i64,
+}
+
+/// Upserts one canonical URL row and returns its stable archive id, its page and the page it
+/// had before (`None` for a new row). A newer observation replaces the row's URL, title and last
+/// visit; an older one only raises its counts, and writes nothing when they are not higher. Plain
+/// statements rather than `INSERT … ON CONFLICT … RETURNING`, which Turso answers through a
+/// temporary file per row (`Session::insert`).
 pub(super) fn upsert_url(
     archive: &Session<'_>,
     run_id: i64,
@@ -95,93 +125,81 @@ pub(super) fn upsert_url(
     url: &ParsedUrl,
     payload_hash: &str,
 ) -> Result<(i64, i64, Option<i64>)> {
-    let recorded_at = now_rfc3339();
-    let previous=archive.query("SELECT page_id,last_visit_ms FROM urls WHERE source_profile_id=?1 AND source_url_id=?2",
-        params![source_profile_id,url.source_url_id],|r|Ok((r.get::<i64>(0)?,r.get::<Option<i64>>(1)?)))?.pop();
-    // An older observation keeps the current URL. Do not allocate an unreferenced page.
-    let page_id = match previous {
-        Some((page, last)) if last.is_none_or(|last| url.last_visit_ms <= last) => page,
-        _ => archive.query_one(
-            "INSERT INTO pages(url,registrable_domain,canonical_url) VALUES(?1,?2,?3)
-             ON CONFLICT(url) DO UPDATE SET url=excluded.url RETURNING id",
-            params![
-                url.url.clone(),
-                registrable_domain_for_url(&url.url),
-                crate::pages::canonical_key(&url.url)
-            ],
-            |r| Ok(r.get::<i64>(0)?),
-        )?,
+    let stored = archive
+        .query(
+            "SELECT id,page_id,last_visit_ms,visit_count,typed_count FROM urls
+             WHERE source_profile_id=?1 AND source_url_id=?2",
+            params![source_profile_id, url.source_url_id],
+            |r| {
+                Ok(StoredUrl {
+                    id: r.get(0)?,
+                    page: r.get(1)?,
+                    last_visit_ms: r.get(2)?,
+                    visit_count: r.get(3)?,
+                    typed_count: r.get(4)?,
+                })
+            },
+        )?
+        .pop();
+    let Some(stored) = stored else {
+        let page = page_for(archive, &url.url)?;
+        let id = archive
+            .insert(
+                "INSERT INTO urls (url, title, visit_count, typed_count, first_visit_ms,
+                   first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id,
+                   created_by_run_id, source_url_id, hidden, payload_hash, recorded_at, page_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    url.url.clone(),
+                    url.title.clone(),
+                    url.visit_count,
+                    url.typed_count,
+                    url.last_visit_ms,
+                    url.last_visit_iso.clone(),
+                    source_profile_id,
+                    run_id,
+                    url.source_url_id,
+                    url.hidden as i64,
+                    payload_hash,
+                    now_rfc3339(),
+                    page,
+                ],
+            )?
+            .expect("a plain INSERT adds its row");
+        return Ok((id, page, None));
     };
-    archive.query_one(
-        "INSERT INTO urls (
-           url,
-           title,
-           visit_count,
-           typed_count,
-           first_visit_ms,
-           first_visit_iso,
-           last_visit_ms,
-           last_visit_iso,
-           source_profile_id,
-           created_by_run_id,
-           source_url_id,
-           hidden,
-           payload_hash,
-           recorded_at,
-           page_id
-         )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-         ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
-           url = CASE
-             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.url
-             ELSE urls.url
-           END,
-           title = CASE
-             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.title
-             ELSE urls.title
-           END,
-           visit_count = MAX(urls.visit_count, excluded.visit_count),
-           typed_count = MAX(urls.typed_count, excluded.typed_count),
-           hidden = CASE
-             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.hidden
-             ELSE urls.hidden
-           END,
-           payload_hash = CASE
-             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.payload_hash
-             ELSE urls.payload_hash
-           END,
-           recorded_at = CASE
-             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.recorded_at
-             ELSE urls.recorded_at
-           END,
-           last_visit_ms = CASE
-             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_ms
-             ELSE urls.last_visit_ms
-           END,
-           last_visit_iso = CASE
-             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_iso
-             ELSE urls.last_visit_iso
-           END,
-           page_id = CASE WHEN excluded.last_visit_ms > urls.last_visit_ms
-             THEN excluded.page_id ELSE urls.page_id END
-         RETURNING id,page_id",
-        params![
-            url.url.clone(),
-            url.title.clone(),
-            url.visit_count,
-            url.typed_count,
-            url.last_visit_ms,
-            url.last_visit_iso.clone(),
-            source_profile_id,
-            run_id,
-            url.source_url_id,
-            url.hidden as i64,
-            payload_hash,
-            recorded_at,
-            page_id,
-        ],
-        |row| Ok((row.get(0)?, row.get(1)?, previous.map(|(page, _)| page))),
-    )
+    if stored.last_visit_ms.is_some_and(|last| url.last_visit_ms > last) {
+        let page = page_for(archive, &url.url)?;
+        archive.execute(
+            "UPDATE urls SET url=?2, title=?3, visit_count=MAX(visit_count,?4),
+               typed_count=MAX(typed_count,?5), hidden=?6, payload_hash=?7, recorded_at=?8,
+               last_visit_ms=?9, last_visit_iso=?10, page_id=?11
+             WHERE id=?1",
+            params![
+                stored.id,
+                url.url.clone(),
+                url.title.clone(),
+                url.visit_count,
+                url.typed_count,
+                url.hidden as i64,
+                payload_hash,
+                now_rfc3339(),
+                url.last_visit_ms,
+                url.last_visit_iso.clone(),
+                page,
+            ],
+        )?;
+        return Ok((stored.id, page, Some(stored.page)));
+    }
+    // An older observation keeps the current URL and page.
+    if url.visit_count > stored.visit_count || url.typed_count > stored.typed_count {
+        archive.execute(
+            "UPDATE urls SET visit_count=MAX(visit_count,?2), typed_count=MAX(typed_count,?3)
+             WHERE id=?1",
+            params![stored.id, url.visit_count, url.typed_count],
+        )?;
+    }
+    Ok((stored.id, stored.page, Some(stored.page)))
 }
 
 /// A new visit that another source's copy already stands in for: it is written hidden behind
@@ -266,7 +284,7 @@ fn write_visit(
     hidden: HiddenBehind,
 ) -> Result<Option<i64>> {
     let hidden_at = hidden.map(|_| now_rfc3339());
-    let ids = archive.query(
+    archive.insert(
         "INSERT OR IGNORE INTO visits (
                url_id,
                source_visit_id,
@@ -290,8 +308,7 @@ fn write_visit(
                reverted_by_run_id
              )
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                     ?18, ?19, CASE WHEN ?18 IS NULL THEN NULL ELSE ?8 END)
-             RETURNING id",
+                     ?18, ?19, CASE WHEN ?18 IS NULL THEN NULL ELSE ?8 END)",
         params![
             url_id,
             visit.source_visit_id.to_string(),
@@ -313,9 +330,7 @@ fn write_visit(
             hidden,
             hidden_at,
         ],
-        |row| Ok(row.get::<i64>(0)?),
-    )?;
-    Ok(ids.into_iter().next())
+    )
 }
 
 /// Inserts one canonical download row when it is new for the source profile.

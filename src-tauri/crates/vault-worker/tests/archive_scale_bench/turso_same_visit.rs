@@ -12,11 +12,18 @@
 //!
 //! The third minus the first is what looking up costs an import that overlaps the browser.
 //! The second is cheaper than either: a hidden copy adds no totals or search documents.
+//! `PATHKEEP_BENCH_SAME_VISIT_ONLY=no-overlap` runs the first alone, for timing the import's
+//! writes (`WORK-IMPORT-BULK-WRITES`).
 
 use super::turso_reads::{directory_bytes, open, seed};
 use std::{path::Path, time::Instant};
 use vault_core::{TakeoutRequest, Vault};
 use vault_store::Db;
+
+/// Only the import that looks nothing up: what the write path itself costs.
+fn writes_only() -> bool {
+    std::env::var("PATHKEEP_BENCH_SAME_VISIT_ONLY").as_deref() == Ok("no-overlap")
+}
 
 fn records() -> i64 {
     std::env::var("PATHKEEP_BENCH_SAME_VISITS")
@@ -80,6 +87,10 @@ fn takeout_import_links_the_same_visits_at_scale() {
     // A year after the browser's last visit: no source has visits then.
     write_takeout(&vault, apart.path(), count, 366 * 86_400_000);
     import(&vault, apart.path(), "no overlap (no lookups)");
+    if writes_only() {
+        finish(vault, root);
+        return;
+    }
     let copies = tempfile::tempdir().unwrap();
     write_takeout(&vault, copies.path(), count, 0);
     import(&vault, copies.path(), "copies of the browser's visits");
@@ -87,6 +98,10 @@ fn takeout_import_links_the_same_visits_at_scale() {
     let later = tempfile::tempdir().unwrap();
     write_takeout(&vault, later.path(), count, 5_000);
     import(&vault, later.path(), "5 s after the browser's visits (looked up, not found)");
+    finish(vault, root);
+}
+
+fn finish(vault: Vault, root: tempfile::TempDir) {
     vault.store().close().unwrap();
     drop(vault);
     println!("BENCH database_bytes={}", directory_bytes(root.path()));

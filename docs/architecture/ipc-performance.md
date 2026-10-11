@@ -374,6 +374,48 @@ Measured with the last 3.6M visits of the same benchmark (`PATHKEEP_BENCH_FIRST_
 
 The "before" columns are the EPYC run above, so the gains are if anything understated. 30 days is back to where it was without searches. What a year still costs grows with the rows in it: common paths 1.1 s (it was 0.9 s before searches), What you search for and the hardest topics about 0.5 s, the stable sources and frequent searches about 0.2 s, and the first interrupted-habits read in a process 0.84 s; STATUS item 14. The export between reads with searches: 534 ms before, 4.9 s just after, 532 ms again; 5.3 GB in 509 s.
 
+### 12. A large import wrote each chunk twice, and opened a temporary file per row
+
+A Takeout import writes in chunks of 10,000 records. Each chunk was two archive transactions: its URLs, then its visits (`archive/ingest/consumer.rs`). Each rebuilt the search document of every page it touched, so a page's document was written twice per chunk and queued for the index twice. The first rebuild had an empty title, because a URL's title only counts once it has a visible visit. Each visit looked up the URL row its chunk had just written. A URL whose page already existed rewrote the page row to read its id (`ON CONFLICT(url) DO UPDATE SET url=excluded.url RETURNING id`).
+
+Sampling the archive writer (`scripts/profile-native.py`) found the larger cost. Every `INSERT … RETURNING` makes Turso buffer the returned rows in an ephemeral table, and with `temp_store=FILE` each ephemeral table is a new temporary directory and an encrypted temporary file (`op_open_ephemeral`; `vault_crypto::temp_io`). The URL upsert and the visit insert both returned their ids, so every record created two temporary files.
+
+Fix:
+
+- **One transaction per chunk.** A transaction holds at most one batch of each kind: a Takeout chunk's URLs and visits, then each page's document rebuilt once, after all of it is written, with one outbox entry. This is the write model `turso-migration-design.md` §5 already describes.
+- **Ids are passed along.** The chunk's URL ids go to its visits, which no longer look them up.
+- **Pages are looked up first.** A page is read before it is inserted.
+- **Plain statements instead of `RETURNING`.** Inserts read the new row's id from `Session::insert` (the connection's last rowid). The URL upsert is a plain `INSERT` for a new row, an `UPDATE` by id for a newer observation, and nothing at all when an older observation would not raise the counts.
+
+`archive_scale_bench::turso_same_visit` with `PATHKEEP_BENCH_SAME_VISIT_ONLY=no-overlap`, Modal (release, encrypted), 14.4M visits of one browser, 1,000,000 Takeout records that overlap no source. Old and new ran at the same time on separate sandboxes:
+
+| Write path                | 1M records  | Per record | 14.4M records |
+| ------------------------- | ----------- | ---------- | ------------- |
+| Before                    | 948 / 933 s | 0.94 ms    | about 3.7 h   |
+| One transaction per chunk | 699 s       | 0.70 ms    | about 2.8 h   |
+| …and no `RETURNING`       | 432 s       | 0.43 ms    | about 1.7 h   |
+
+Sampled at 200,000 records, the writer was busy in every sample before and after. Before: URL upsert 32%, visit insert 20%, commit 16%, search documents 19%. With one transaction per chunk: URL upsert 27%, visit insert 26%, commit 16%, search documents 17%; `op_open_ephemeral` alone was a fifth of both inserts. The sampled share understated it: removing it saved 38% of the time. After both, the 200,000 records took 72 s under the sampler (127 s before the second change, 192 s before the first); commit is a fifth of the writer's samples, and nearly all the rest is the engine executing the inserts, mostly index B-tree inserts.
+
+A user's own write during an import (a star, a note) waits for the transaction in progress. A chunk's one transaction now takes about 4.3 s, where each of the two took about 4.7 s, so that wait is no longer than it was.
+
+`archive::ingest::import_equivalence` pins the result. It runs a 21,000-record export with Chrome history and My Activity (three chunks) over a browser backup, and prints per-table digests of the archive. The digests were identical before and after each change, as were an interrupted import run again and an undo followed by a restore.
+
+Not done:
+
+- **Rebuilding search documents once at the end.** During a long import its pages would not be searchable, which search must never allow.
+- **Dropping secondary indexes during a large import.** History, search and Insights need them while the app is in use, and rebuilding them over 14.4M visits is itself a long job.
+
+Not tried, since the target was met:
+
+- **Multi-row `INSERT`s.** Without `RETURNING`, a multi-row insert cannot tell which of its rows were new.
+
+Left as it is:
+
+- **The checkpoint after each batch.** It did not appear in the samples: Turso checkpoints large commits itself.
+
+What remains is the engine's own work per row: the B-tree inserts of `urls` (5 indexes) and `visits` (11, two of them keyed by hashes, so random), and the commit that writes the pages they touched.
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |

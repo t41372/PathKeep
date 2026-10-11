@@ -43,6 +43,15 @@
 
 > 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全流程跑完，confirmed findings 已全部修復並各自過獨立 review（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`、報告 `docs/review/2026-06-14/`）。剩下的是 verifier 標為 non-blocking 的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / trade-off 的 findings 不重開。
 
+- [ ] **WORK-EPHEMERAL-TEMP-FILES** — 每個用到暫存表的查詢都新開一個加密暫存檔（2026-10-10，`WORK-IMPORT-BULK-WRITES` 取樣時找到）
+  - 現象：Turso 0.8.1 的 `OpenEphemeral` 每次執行都 `TempFile::with_temp_store`：建一個暫存目錄、開一個檔（我們的 `vault_crypto::temp_io` 加密、取亂數）、寫第一頁（`vdbe/execute.rs` op_open_ephemeral）。我們設 `temp_store=FILE`（大的排序不放記憶體）。用到暫存表的有 `RETURNING`、物化的 `IN (SELECT …)`、`UNION` 等；排序與 hash join 只在溢出時才開檔，不受影響。匯入每筆造訪與網址原本各一次（`INSERT … RETURNING`），拿掉後 14.4M 上 100 萬筆從 699 s 變 432 s。
+  - 還有的：洞察的讀取多半寫 `generation IN (SELECT … FROM intelligence_generations)`，若被物化，每個查詢開一次檔；Insights 追加的 `path_flows_rows` upsert 每條路線 `RETURNING`（每次追加約 4,800 條）；復原匯入每個網址 `UPDATE … RETURNING`。macOS 上建檔比 Linux 慢，也是 SSD 的寫入。
+  - 方向：先用查詢計畫找出每個熱路徑的 `OpenEphemeral`，量 macOS 上每次的成本；能改寫的改寫（`Session::insert` 取代 `RETURNING`，子查詢改成先讀出值再帶參數），改不了的再看暫存表能不能放記憶體而排序仍溢出到檔案。
+
+- [ ] **WORK-TAKEOUT-RESUME** — 中斷的 Takeout 匯入從頭再讀（2026-10-10，`WORK-IMPORT-BULK-WRITES` 盤點時找到）
+  - 現象：Takeout 匯入每個檔案都從 `Watermark::default()` 開始（`takeout/payload_import.rs`），存下的 `profile_watermarks` 從不讀回；中斷後再匯入是新的一批、從第一筆重新解析，已寫入的前段靠 `INSERT OR IGNORE` 擋掉重複，但每筆仍付網址 upsert 與搜尋文件的成本。14.4M 的匯入在後段中斷，重來幾乎等於整個重跑。
+  - 方向：每個檔案記下已提交到第幾筆（跟批次同一個交易），重新匯入同一份檔案時從那裡接著讀；匯入卡說明是接著上次的。先寫下會怎麼錯（檔案換了、同名不同內容、兩種格式交錯）再做。
+
 - [ ] **WORK-INSIGHTS-REOPENED-KPI** — 「重新打開的頁面」KPI 數的不是範圍內打開的頁（2026-10-10 E2E 截圖看到）
   - 現象：沒有任何造訪的一天（day 頁 2026-09-29，頁面瀏覽 0），KPI「重新打開的頁面」寫 58；同一頁的「回來再看的頁面」卡說這天沒有。
   - 原因：`count_refind_pages_in_range` 數的是 `refind_pages_rows` 裡第一次與最後一次造訪的區間跟範圍重疊的頁，不管範圍內有沒有打開過。

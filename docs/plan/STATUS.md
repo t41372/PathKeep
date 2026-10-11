@@ -152,16 +152,16 @@
   - [x] 2. E2E：fixture 裡兩個 `*.github.io` 網站在 Top sites 與網站頁各算一個；`insights.spec` 的 `site()` 改用同樣的清單。2026-10-10 已寫、待 gate：fixture 加一個固定的 `mio-rs.github.io`（不動亂數產生的造訪）；`insights-drill.spec` 驗兩個 github.io 網站的頁面各只算自己的造訪與頁數；三個 spec 的 `site()` 改用 `support/public-suffix.ts`，讀同一份清單。
   - [x] 3. 舊的整站星號跟著切開（用戶 2026-10-10 決定：星到它原本涵蓋的每個網站）。舊版存成 `github.io` 的整站星號，照新切法不再對到任何頁面。重切之後（`archive_meta` 另記一個版本，舊格式轉換完第一次開也會做），把它換成它底下每個造訪過的網站的星號，沿用原本的時間與設定檔；使用者已經星過的網站保留自己的；它自己的網站還有頁面就留著（`amazonaws.com` 與 `bucket.s3.amazonaws.com`）；底下什麼都沒有的不動。不放在轉換裡做：轉換會用舊檔驗證 `star` 表，中斷後續跑時會對不上。`sites_tests.rs` 驗這幾種與重跑不變（gate 60）。
 
-- [ ] **WORK-IMPORT-BULK-WRITES** — 大的一次性匯入（2026-10-10 從 BACKLOG 搬上；原從 `WORK-TAKEOUT-FLOW-2026-10` 6 拆出）
+- [x] **WORK-IMPORT-BULK-WRITES** — 大的一次性匯入（2026-10-10 從 BACKLOG 搬上；原從 `WORK-TAKEOUT-FLOW-2026-10` 6 拆出）
   - 讀先：`docs/architecture/store-schema.md`、`data-model.md`、`same-visit-across-sources.md`、`turso-migration-design.md`、`ipc-performance.md`；bench `vault-worker/tests/archive_scale_bench/turso_same_visit.rs`，取樣 `scripts/profile-native.py`。
   - 現況：14.4M 的 archive 上匯入每筆約 1 ms（100 萬筆 990–1,048 s），1440 萬筆要約 4 小時。取樣（`scripts/profile-native.py`）：archive 的寫入執行緒 92% 忙；網址 upsert 21%（含 `INSERT … RETURNING` 讀完一列再 reset 的收尾）、寫造訪 15%、按頁更新搜尋文件 11%、commit / WAL / checkpoint 約 20%，其餘是引擎每列的工作。
   - 方向（每一項先在同一個 bench 上量）：多列一次 `INSERT`、少用 `RETURNING`（先查再寫）；整個匯入結束才按頁重算一次搜尋文件，而不是每批；大匯入時先不維護次要索引、寫完再建。
   - 目標：1440 萬筆的一次性匯入在目標機上明顯少於現在的 4 小時，記憶體與 UI 照舊。
   - 步驟：
-    - [ ] 1. 每個方向先在同一個 bench（14.4M 上匯入 100 萬筆，Modal）上單獨量，留下有用的；記進 `ipc-performance.md`。
-    - [ ] 2. 匯入的結果跟現在逐列寫的一樣：同一份輸入在兩種寫法下 archive 的造訪、網址、搜尋文件與同一次造訪的連結相同（先寫下會怎麼錯，再寫測試）；中斷後續跑、復原照舊。
-    - [ ] 3. E2E：`takeout-import.spec` 照舊全過；大匯入的進度與取消照舊。
-    - [ ] 4. 文檔（`store-schema.md` 若改了索引的建法）、CHANGELOG。
+    - [x] 1. 每個方向先在同一個 bench（14.4M 上匯入 100 萬筆，Modal）上單獨量，留下有用的；記進 `ipc-performance.md`。2026-10-10（`ipc-performance.md` §12，舊版與新版同時跑在兩個 sandbox）：舊版 948 / 933 s；一個 chunk 一個交易（網址與造訪同一交易、每頁的搜尋文件寫一次、網址 id 直接交給造訪、頁面先查再寫）699 s；再把每筆的 `INSERT … RETURNING` 換成一般語句 432 s——取樣發現 Turso 為了 `RETURNING` 每次開一個暫存表，`temp_store=FILE` 下就是每筆兩個新的加密暫存檔（`Session::insert` 讀連線的 last rowid）。14.4M 的一次性匯入約 3.7 → 1.7 小時。不做的，理由也寫在 §12：整個匯入完才重建搜尋文件（匯入中的頁面找不到，違反搜尋必須全域）；大匯入時拿掉次要索引（app 匯入中照常要用，14.4M 重建索引本身就很久）；多列 `INSERT`（沒有 `RETURNING` 就分不出哪幾列是新的，目標已達）；每批之後的 checkpoint 在取樣裡看不到，不動。同樣的暫存檔問題在別處（洞察讀取的 `IN (SELECT …)`、洞察追加、復原）另列 BACKLOG `WORK-EPHEMERAL-TEMP-FILES`；Takeout 中斷後從頭再讀另列 `WORK-TAKEOUT-RESUME`。
+    - [x] 2. 匯入的結果跟現在逐列寫的一樣：同一份輸入在兩種寫法下 archive 的造訪、網址、搜尋文件與同一次造訪的連結相同（先寫下會怎麼錯，再寫測試）；中斷後續跑、復原照舊。2026-10-10：`archive::ingest::import_equivalence` 先寫下會怎麼錯、在舊程式上通過，再改：21,000 筆 Chrome 歷史加「我的活動」（三個 chunk）疊在瀏覽器備份上，網址跨 chunk、改寫的標題、同一微秒、兩種副本；檢查中斷後重跑、復原再恢復都跟一次跑完一樣，並印出每張表的 digest。舊程式與每一步改動後的 digest 完全相同。`Session::insert` 在 vault-store `statements.rs` 驗被忽略的插入不回報上一列的 id。
+    - [x] 3. E2E：`takeout-import.spec` 照舊全過；大匯入的進度與取消照舊。（gate 66：`bun run check` 全過，E2E 69 條；取消與已提交的進度在 `turso_write_path.rs` 的 `cancelled_import_keeps_batch_identity_and_committed_progress`。）
+    - [x] 4. 文檔（`store-schema.md` 若改了索引的建法）、CHANGELOG。索引沒改；`ipc-performance.md` §12，寫入模型回到 `turso-migration-design.md` §5 本來寫的「每批一個交易」。
 
 - [ ] **WORK-TEST-LINK-MEMORY** — `cargo test --workspace --all-targets` 連結時記憶體逼近 32 GB（2026-10-10 從 BACKLOG 搬上）
   - 讀先：`docs/plan/program/quality-matrix.md`、`.modal-offload.toml`、`.github/workflows/ci.yml`、`src-tauri/Cargo.toml` 的 profile。
