@@ -18,6 +18,10 @@ const env = { ...process.env }
 delete env.NO_COLOR
 delete env.FORCE_COLOR
 
+// The specs count days in UTC: the app and the browser run there on every
+// computer, whatever zone it is in (`quality-matrix.md`).
+env.TZ = 'UTC'
+
 const child = spawn(process.execPath, [playwrightCliPath, 'test', ...args], {
   stdio: 'inherit',
   env,

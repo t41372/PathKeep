@@ -446,10 +446,17 @@ fn history_keyword_query_supports_google_like_local_operators() {
     assert_eq!(exact_phrase.total, 1);
     assert_eq!(exact_phrase.items[0].title.as_deref(), Some("Release notes"));
 
+    // `after:` and `before:` name days on the computer's calendar, as History does: the day the
+    // release notes were read on here.
+    let day = chrono::DateTime::from_timestamp_millis(4_000)
+        .unwrap()
+        .with_timezone(&chrono::Local)
+        .format("%Y-%m-%d")
+        .to_string();
     let intersected_date_filters = list_history(
         &archive.vault,
         HistoryQuery {
-            q: Some("site:github.com after:1970-01-01 before:1970-01-01".to_string()),
+            q: Some(format!("site:github.com after:{day} before:{day}")),
             start_time_ms: Some(3_500),
             end_time_ms: Some(4_500),
             ..HistoryQuery::default()

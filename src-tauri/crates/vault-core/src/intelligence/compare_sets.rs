@@ -295,7 +295,9 @@ mod tests {
         let vault = Vault::open_temp().unwrap();
         vault
             .write(Db::Intelligence, vault_store::Priority::Batch, |s| {
-                s.execute("INSERT INTO intelligence_generations(profile_id,navigation,aggregates) VALUES('p',1,1)", ())?;
+                // Built in UTC, as a build records its zone: the visits are minutes into 1970-01-01
+                // there, and ranges are read in the zone the data was built in.
+                s.execute("INSERT INTO intelligence_generations(profile_id,navigation,aggregates,time_zone) VALUES('p',1,1,'UTC')", ())?;
                 for (trail, query, landing) in [
                     ("t1", "a7c vs x-t5", "https://shop-a.example/a7c"),
                     ("t2", "lens hood", "https://shop-a.example/hood"),
