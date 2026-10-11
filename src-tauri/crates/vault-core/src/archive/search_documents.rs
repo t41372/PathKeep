@@ -7,6 +7,7 @@
 
 use super::search_lexical::{analyze_document, append_enrichment};
 use crate::utils::{now_rfc3339, url_domain};
+use std::collections::{BTreeMap, BTreeSet};
 use vault_store::{Result, Session, params};
 
 #[cfg(test)]
@@ -25,22 +26,29 @@ pub(crate) fn text_changed(s: &Session<'_>, page_id: i64) -> Result<()> {
     enqueue(s, page_id)
 }
 
-/// Counts only newly inserted visits, so a frequently visited page stays linear
-/// over the complete import rather than recounting its growing prefix each batch.
-pub(crate) fn visits_added(
+/// What one ingest transaction wrote, brought into the documents once it is all written: the
+/// text of each page in `text` or `added`, and for `added` (page → new visible visits of
+/// `profile`, and the newest) the membership counts. Each page is rebuilt and queued once, however
+/// many of its URLs and visits the transaction held. Counting only the new visits keeps a
+/// frequently visited page linear over a whole import instead of recounting its growing prefix.
+pub(crate) fn pages_written(
     s: &Session<'_>,
-    page_id: i64,
     profile: i64,
-    count: i64,
-    newest: i64,
+    text: &BTreeSet<i64>,
+    added: &BTreeMap<i64, (i64, i64)>,
 ) -> Result<()> {
-    refresh_text(s, page_id)?;
-    s.execute("INSERT INTO search_document_profiles(page_id,source_profile_id,visible_visit_count,newest_visit_ms)
-        VALUES(?1,?2,?3,?4) ON CONFLICT(page_id,source_profile_id) DO UPDATE SET
-        visible_visit_count=search_document_profiles.visible_visit_count+excluded.visible_visit_count,
-        newest_visit_ms=MAX(search_document_profiles.newest_visit_ms,excluded.newest_visit_ms)",params![page_id,profile,count,newest])?;
-    update_newest(s, page_id)?;
-    enqueue(s, page_id)
+    for &page_id in text.union(&added.keys().copied().collect()) {
+        refresh_text(s, page_id)?;
+        if let Some((count, newest)) = added.get(&page_id) {
+            s.execute("INSERT INTO search_document_profiles(page_id,source_profile_id,visible_visit_count,newest_visit_ms)
+                VALUES(?1,?2,?3,?4) ON CONFLICT(page_id,source_profile_id) DO UPDATE SET
+                visible_visit_count=search_document_profiles.visible_visit_count+excluded.visible_visit_count,
+                newest_visit_ms=MAX(search_document_profiles.newest_visit_ms,excluded.newest_visit_ms)",params![page_id,profile,count,newest])?;
+            update_newest(s, page_id)?;
+        }
+        enqueue(s, page_id)?;
+    }
+    Ok(())
 }
 
 // The recency index satisfies the ORDER BY but scans every URL for one page.

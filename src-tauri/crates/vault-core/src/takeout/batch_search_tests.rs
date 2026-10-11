@@ -355,7 +355,7 @@ fn reverting_one_profile_preserves_a_shared_pages_other_profile() {
             s.execute("INSERT INTO visits(url_id,source_profile_id,visit_time_ms,visit_time_iso,created_by_run_id) VALUES(900,900,2000000000000,'2033',0)", ())?;
             for field in ["sourceProfiles","urls","visits"] { crate::archive::totals::add(s, field, 1)?; }
             let page = s.query_one("SELECT page_id FROM urls WHERE id=900", (), |r| Ok(r.get::<i64>(0)?))?;
-            crate::archive::search_documents::visits_added(s, page, 900, 1, 2000000000000)?;
+            crate::archive::search_documents::pages_written(s, 900, &Default::default(), &[(page, (1, 2000000000000))].into())?;
             s.execute("DELETE FROM search_outbox", ())?;
             Ok(())
         }).unwrap();

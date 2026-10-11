@@ -231,6 +231,8 @@ mod dedup_scenarios_chromium_sidecars;
 mod dedup_scenarios_edge_cases;
 #[cfg(test)]
 mod dedup_scenarios_takeout;
+#[cfg(test)]
+mod import_equivalence;
 
 #[cfg(test)]
 mod rowid_resume_tests;

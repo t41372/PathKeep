@@ -150,6 +150,15 @@ impl<'a> Session<'a> {
         })
     }
 
+    /// Inserts one row and returns its rowid, or `None` when the statement inserted nothing
+    /// (`INSERT OR IGNORE` over an existing key). Per-row writers use this rather than
+    /// `RETURNING`: Turso buffers `RETURNING` rows in an ephemeral table on every execution, and
+    /// with `temp_store=FILE` each one is a new temporary file.
+    pub fn insert(&self, sql: &str, params: impl turso::IntoParams) -> Result<Option<i64>> {
+        let changed = self.execute(sql, params)?;
+        Ok((changed > 0).then(|| self.conn.last_insert_rowid()))
+    }
+
     /// Applies one statement to each row of a caller-bounded page. The statement is
     /// compiled once, through this connection's cache, and counts once per row.
     pub fn execute_rows(&self, sql: &str, rows: Vec<Vec<turso::Value>>) -> Result<u64> {

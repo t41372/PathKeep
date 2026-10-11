@@ -21,7 +21,7 @@ use browser_history_parser::{
     HistoryBatchConsumer, ParsedDownload, ParsedFavicon, ParsedSearchTerm, ParsedUrl, ParsedVisit,
     SourceEvidenceChunk,
 };
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use vault_store::{CancelToken, Db, Priority, Session, params};
 
 pub(crate) const BATCH_ROWS: usize = 10_000;
@@ -101,7 +101,27 @@ enum Batch {
     Favicons(Vec<(ParsedFavicon, String)>),
 }
 
-/// The producer retains one bounded batch and waits for each committed reply.
+impl Batch {
+    fn kind(&self) -> std::mem::Discriminant<Self> {
+        std::mem::discriminant(self)
+    }
+}
+
+/// What the batches of one transaction changed, kept until they are all written.
+#[derive(Default)]
+struct Written {
+    /// URL rows of this transaction by their source id: its visits find them without a lookup.
+    urls: HashMap<i64, (i64, i64)>,
+    /// Pages whose text may have changed.
+    text: BTreeSet<i64>,
+    /// Pages whose visible visits must be counted again: a URL moved, or a copy was replaced.
+    moved: BTreeSet<i64>,
+    /// Pages with new visible visits of this profile: how many, and the newest.
+    added: BTreeMap<i64, (i64, i64)>,
+}
+
+/// The producer retains at most one bounded batch of each kind, writes them in one transaction
+/// and waits for its committed reply.
 pub(crate) struct ArchiveChunkConsumer<'a> {
     vault: &'a Vault,
     context: WriteContext,
@@ -161,9 +181,11 @@ impl<'a> ArchiveChunkConsumer<'a> {
 
     fn push(&mut self, batch: Batch) -> Result<()> {
         self.cancel.check()?;
-        // Takeout emits URLs, visits, then their evidence; browser parsers emit
-        // one canonical batch followed by evidence. Neither retains a whole file.
-        if self.pending.len() == 2 {
+        // Takeout emits a chunk's URLs, its visits, then their evidence: one transaction, so a
+        // page's document is rebuilt once with all of them. Browser parsers emit bounded batches
+        // of one kind after another. Neither retains a whole file, and no transaction holds two
+        // batches of a kind.
+        if self.pending.iter().any(|pending| pending.kind() == batch.kind()) {
             self.flush()?;
         }
         self.pending.push(batch);
@@ -171,16 +193,21 @@ impl<'a> ArchiveChunkConsumer<'a> {
     }
 
     fn flush(&mut self) -> Result<()> {
-        for batch in std::mem::take(&mut self.pending) {
+        let batches = std::mem::take(&mut self.pending);
+        if !batches.is_empty() {
             self.cancel.check()?;
             let context = self.context.clone();
             let mut progress = self.progress.clone();
             let mut watermark = self.watermark.clone();
             watermark.last_source_batch_id = Some(self.evidence.batch_id());
-            let report_visits = matches!(batch, Batch::Visits(_));
+            let report_visits = batches.iter().any(|batch| matches!(batch, Batch::Visits(_)));
             let (next, cursor) = self.vault.write(Db::Archive, Priority::Batch, move |s| {
                 let before = progress.clone();
-                apply_batch(s, &context, batch, &mut progress, &mut watermark)?;
+                let mut written = Written::default();
+                for batch in batches {
+                    apply_batch(s, &context, batch, &mut progress, &mut watermark, &mut written)?;
+                }
+                write_documents(s, &context, &written)?;
                 crate::archive::totals::add_batch(s,context.source_profile_id,progress.new_urls-before.new_urls,progress.new_visits-before.new_visits,progress.new_downloads-before.new_downloads)?;
                 if context.tracks_watermark() {
                     save_watermark(s, &context.profile_id, &watermark)?;
@@ -320,10 +347,8 @@ fn apply_batch(
     batch: Batch,
     p: &mut ArchiveStreamProgress,
     w: &mut Watermark,
+    written: &mut Written,
 ) -> Result<()> {
-    let mut pages = BTreeSet::new();
-    let mut moved_pages = BTreeSet::new();
-    let mut added = std::collections::BTreeMap::<i64, (i64, i64)>::new();
     match batch {
         Batch::Urls(rows) => {
             for (mut url, hash) in rows {
@@ -331,14 +356,15 @@ fn apply_batch(
                     url.visit_count = url.visit_count.max(1);
                     url.typed_count = url.typed_count.max(0);
                 }
-                let (_, page, previous_page) =
+                let (id, page, previous_page) =
                     upsert_url(s, c.run_id, c.source_profile_id, &url, &hash)?;
-                pages.insert(page);
+                written.urls.insert(url.source_url_id, (id, page));
+                written.text.insert(page);
                 if let Some(old_page) = previous_page
                     && old_page != page
                 {
-                    moved_pages.insert(old_page);
-                    moved_pages.insert(page);
+                    written.moved.insert(old_page);
+                    written.moved.insert(page);
                 }
                 p.new_urls += usize::from(previous_page.is_none());
                 p.url_count += 1;
@@ -366,7 +392,11 @@ fn apply_batch(
                 if p.last_visit_iso.as_ref().is_none_or(|v| v < &visit.visit_time_iso) {
                     p.last_visit_iso = Some(visit.visit_time_iso.clone());
                 }
-                let Some((id, page)) = resolve_url(s, c.source_profile_id, visit.source_url_id)?
+                let known = written.urls.get(&visit.source_url_id).copied();
+                let Some((id, page)) = known.map_or_else(
+                    || resolve_url(s, c.source_profile_id, visit.source_url_id),
+                    |url| Ok(Some(url)),
+                )?
                 else {
                     p.skipped_visits += 1;
                     continue;
@@ -408,11 +438,12 @@ fn apply_batch(
                         crate::archive::totals::add_visits(s, replaced.profile, -1)?;
                         p.replaced_profiles.insert(replaced.profile);
                         // Recounted below, with this visit in and the replaced copy out.
-                        moved_pages.insert(replaced.page);
+                        written.moved.insert(replaced.page);
                     }
                     p.new_visits += 1;
                     track_url_visit_bounds(&mut bounds, id, &visit);
-                    added
+                    written
+                        .added
                         .entry(page)
                         .and_modify(|(count, newest)| {
                             *count += 1;
@@ -450,7 +481,7 @@ fn apply_batch(
                         &row,
                     )? as usize;
                     p.search_term_count += 1;
-                    pages.insert(page);
+                    written.text.insert(page);
                 }
             }
         }
@@ -464,24 +495,23 @@ fn apply_batch(
         }
     }
     w.updated_at = now_rfc3339();
-    for page in &moved_pages {
-        crate::archive::search_documents::refresh(s, *page)?;
+    Ok(())
+}
+
+/// Brings each page the transaction touched into its search document once, after every batch
+/// of it is written: a page's text then sees its new visible visits, and the index gets it once.
+fn write_documents(s: &Session<'_>, c: &WriteContext, written: &Written) -> Result<()> {
+    for &page in &written.moved {
+        crate::archive::search_documents::refresh(s, page)?;
     }
-    for page in pages {
-        if !moved_pages.contains(&page) {
-            crate::archive::search_documents::text_changed(s, page)?;
-        }
-    }
-    for (page, (count, newest)) in added.into_iter().filter(|(page, _)| !moved_pages.contains(page))
-    {
-        crate::archive::search_documents::visits_added(
-            s,
-            page,
-            c.source_profile_id,
-            count,
-            newest,
-        )?;
-    }
+    let text = written.text.difference(&written.moved).copied().collect();
+    let added = written
+        .added
+        .iter()
+        .filter(|(page, _)| !written.moved.contains(page))
+        .map(|(page, counts)| (*page, *counts))
+        .collect();
+    crate::archive::search_documents::pages_written(s, c.source_profile_id, &text, &added)?;
     Ok(())
 }
 
@@ -501,16 +531,18 @@ fn resolve_url(
 mod statement_benchmark {
     //! Responsibilities: bound SQL work for production-sized URL and visit batches.
     //! Not responsible for: capacity claims or browser parsing throughput.
-    //! Failure modes: per-page work grows with archive size, duplicate document refreshes.
+    //! Failure modes: per-page work grows with archive size, a page's document is rebuilt once
+    //! per batch instead of once per transaction, a visit looks up the URL its transaction just
+    //! wrote, an existing page is rewritten to read its id.
     //! Counts include archive facts, projections, watermark, progress and totals;
     //! Store transaction control and the separately committed evidence are excluded.
     use super::*;
-    // URL: read prior identity + upsert page + upsert observation (3),
-    // read page/title/terms/annotations + write document (5), outbox (1).
-    const URL_ROW_BUDGET: usize = 3 + 5 + 1;
-    // Visit: resolve URL + insert + update bounds (3), document text (5),
-    // profile membership + newest time + outbox (3).
-    const VISIT_ROW_BUDGET: usize = 3 + 5 + 3;
+    // One record of a Takeout chunk: its URL and its visit in one transaction.
+    // URL: read prior identity + find page + add page + upsert observation (4).
+    // Visit: insert + update bounds (2).
+    // Document, once: read page/title/terms/annotations + write (5), profile membership + newest
+    // time (2), outbox (1).
+    const RECORD_BUDGET: usize = 4 + 2 + 5 + 2 + 1;
     // Watermark (1), run progress read/write (2), three cached totals (3), the sources a visit
     // batch may share visits with (1, and one more per other source; `archive::same_visit`).
     const BATCH_BUDGET: usize = 1 + 2 + 3 + 1;
@@ -520,7 +552,7 @@ mod statement_benchmark {
     }
     #[test]
     #[ignore = "scaled measurement; the same budgets run in the normal test suite"]
-    fn statements_per_ten_thousand_url_batch() {
+    fn statements_per_ten_thousand_record_chunk() {
         measure(10_000);
     }
     fn measure(size: i64) {
@@ -536,7 +568,7 @@ mod statement_benchmark {
                     browser_family: "chromium".into(),
                     import: None,
                 };
-                let rows = (1..=size)
+                let urls = (1..=size)
                     .map(|id| {
                         (
                             ParsedUrl {
@@ -554,30 +586,6 @@ mod statement_benchmark {
                         )
                     })
                     .collect();
-                let before = s.statement_count();
-                let mut progress = ArchiveStreamProgress::default();
-                let mut watermark = Watermark::default();
-                apply_batch(s, &context, Batch::Urls(rows), &mut progress, &mut watermark)?;
-                save_watermark(s, &context.profile_id, &watermark)?;
-                crate::archive::write_runs::record_progress(
-                    s,
-                    context.run_id,
-                    &[
-                        ("processedRecords", 0),
-                        ("newVisits", 0),
-                        ("newUrls", progress.new_urls),
-                        ("newDownloads", 0),
-                        ("skippedRecords", 0),
-                    ],
-                )?;
-                crate::archive::totals::add_batch(
-                    s,
-                    context.source_profile_id,
-                    progress.new_urls,
-                    0,
-                    0,
-                )?;
-                let url_count = s.statement_count() - before;
                 let visits = (1..=size)
                     .map(|id| {
                         (
@@ -601,31 +609,33 @@ mod statement_benchmark {
                     })
                     .collect();
                 let before = s.statement_count();
-                apply_batch(s, &context, Batch::Visits(visits), &mut progress, &mut watermark)?;
+                let mut progress = ArchiveStreamProgress::default();
+                let mut watermark = Watermark::default();
+                let mut written = Written::default();
+                for batch in [Batch::Urls(urls), Batch::Visits(visits)] {
+                    apply_batch(s, &context, batch, &mut progress, &mut watermark, &mut written)?;
+                }
+                write_documents(s, &context, &written)?;
                 save_watermark(s, &context.profile_id, &watermark)?;
                 crate::archive::write_runs::record_progress(
                     s,
                     context.run_id,
-                    &[("newVisits", progress.new_visits)],
+                    &[("newVisits", progress.new_visits), ("newUrls", progress.new_urls)],
                 )?;
                 crate::archive::totals::add_batch(
                     s,
                     context.source_profile_id,
-                    0,
+                    progress.new_urls,
                     progress.new_visits,
                     0,
                 )?;
-                Ok((url_count, s.statement_count() - before))
+                Ok(s.statement_count() - before)
             })
             .unwrap();
-        eprintln!("{size} URLs: {} statements; {size} visits: {} statements", count.0, count.1);
+        eprintln!("{size} URLs and their visits in one transaction: {count} statements");
         assert!(
-            count.0 <= size as usize * URL_ROW_BUDGET + BATCH_BUDGET,
-            "URL batch must refresh each document only once: {count:?}"
-        );
-        assert!(
-            count.1 <= size as usize * VISIT_ROW_BUDGET + BATCH_BUDGET,
-            "visit batch statement bound exceeded: {count:?}"
+            count <= size as usize * RECORD_BUDGET + BATCH_BUDGET,
+            "a chunk's statements grew past its budget: {count}"
         );
     }
 }
