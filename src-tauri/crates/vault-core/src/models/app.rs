@@ -268,7 +268,8 @@ impl Default for AppConfig {
             initialized: false,
             archive_mode: ArchiveMode::Plaintext,
             preferred_language: LanguagePreference::System,
-            due_after_hours: 72.0,
+            // Hourly, as onboarding offers it (`docs/design/backup-interval-tradeoff.md`).
+            due_after_hours: 1.0,
             schedule_check_interval_hours: 6,
             checkpoint_days: 90,
             capture_favicons: true,

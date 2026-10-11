@@ -29,7 +29,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 以下要求沒有被改掉，只是新介面還沒做到；要補還是要改需求，需要用戶決定：
 
 - §1 Onboarding 沒有「離開設定」：archive 建立前沒有主畫面可去，關掉 app 下次回到 onboarding（瀏覽器選擇已存）。
-- §2 排程：自訂間隔的單位是分鐘 / 小時 / 天，範圍 1 分鐘到 30 天（後端 `preview_schedule` 也只接受這個範圍）；需求寫的「最短 1 分鐘、沒有上限」改成上限 30 天，要放寬需要用戶決定。
+- §2 排程：自訂間隔的單位是分鐘 / 小時 / 天，範圍 1 分鐘到 30 天（後端 `preview_schedule` 也只接受這個範圍）；上限 30 天是用戶 2026-10-10 決定保留的（[backup-interval-tradeoff.md](../design/backup-interval-tradeoff.md)）。
 - §3 匯入後的 Jobs / sidebar 進度與「第二個寫入任務連到現有任務」：沒有 Jobs 頁；手動備份由 `BackupRunnerProvider` 保證同時只有一個。
 - §4 匯出：只有整個歷史一個檔，沒有 profile / 時間 / domain / query 篩選。
 - §5 rekey 後的 review：Backup → 最近執行的 sheet 摘要頁標出安全副本並可開啟 / 複製；Settings → Security 不顯示最近一次 rekey 的時間、run id 與安全副本路徑（鎖定時也要保留）。
@@ -127,8 +127,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 - Native scheduler 直接執行隨 app bundle 發佈的 `pathkeep-worker` sidecar，避免 GUI lifecycle / Dock activation，並讓 native host 取得真正的 worker exit code。Durable attempt outcome 仍是產品內健康狀態的 source of truth；任何 launcher / host 的 `0` 都不能單獨充當 backup success。
 - Settings、Onboarding 與 Schedule 都必須把 browser discovery 的 permission / discovery failure 視為 blocked 或 degraded state；不得把它渲染成空白 profile 清單。Full Disk Access case 必須說明影響、提供直達 System Settings、重新偵測，以及任何 launcher failure 的可見 diagnostic。
 - Reinstall / update schedule 是以**執行當下**的 current build + current config 重新產生 plan 的 reconciliation，不得重播 route cache 的舊 plan。若無法卸載仍 loaded 的既有 LaunchAgent，apply 必須失敗並回傳 `launchctl` evidence，不得宣稱已修復。
-- **預設備份間隔為每 12 小時**。用戶可以在設定中自定義整數分鐘間隔；`6h / 12h / 24h / 72h` 只是快捷預設，不是上限或唯一選項，最短為 1 分鐘。
-  - 2026-10 的介面跟這條不同，待用戶決定照哪個：Backup 的快捷是每小時 / 每 6 小時 / 每天 / 自訂 / 關；onboarding 預先選好每小時；新安裝的 config 預設 72 小時，onboarding 選「手動」時留著它。
+- **預設每小時備份**（onboarding 預先選好，新安裝的 config 也是）。快捷是每小時 / 每 6 小時 / 每天；自訂以分鐘、小時或天輸入整數，1 分鐘到 30 天。（2026-10-10 用戶決定照 v0.4，取代原本的「預設 12 小時、6 / 12 / 24 / 72 小時快捷、沒有上限」，見 [backup-interval-tradeoff.md](../design/backup-interval-tradeoff.md)。）
 - 「沒有一直開機也能補跑」：開機/登入後，如果距離上次備份已超時，自動補跑。
 - 排程的設定走 Preview/Manual/Execute 流程：
   - 用戶能看到將要安裝的 plist / XML / service 文件的內容。

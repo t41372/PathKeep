@@ -41,7 +41,7 @@ export const backup = defineMessages({
         },
         error: {
           title: 'PathKeep could not scan for browsers',
-          body: 'Try scanning again. If it keeps failing, the logs in Settings → General say why.',
+          body: 'Try scanning again. If it keeps failing, the logs in Settings → About say why.',
         },
       },
     },
@@ -218,7 +218,7 @@ export const backup = defineMessages({
         },
         error: {
           title: 'PathKeep 无法扫描浏览器',
-          body: '请再扫描一次。如果一直失败，可以在“设置 → 通用”里打开日志查看原因。',
+          body: '请再扫描一次。如果一直失败，可以在“设置 → 关于”里打开日志查看原因。',
         },
       },
     },
@@ -391,7 +391,7 @@ export const backup = defineMessages({
         },
         error: {
           title: 'PathKeep 無法掃描瀏覽器',
-          body: '請再掃描一次。如果一直失敗，可以在「設定 → 一般」開啟記錄檔查看原因。',
+          body: '請再掃描一次。如果一直失敗，可以在「設定 → 關於」開啟記錄檔查看原因。',
         },
       },
     },
