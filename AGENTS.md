@@ -27,7 +27,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 **構建可重現**：不依賴開發機全局 Homebrew / apt / winget。Native 依賴首選 Rust crate vendored/bundled（如 `rusqlite` 的 `bundled-sqlcipher-vendored-openssl`），次選 vcpkg manifest mode（`vcpkg.json`），都不行寫 ADR。帶 C/C++ 後端的 Rust crate 是標準做法，不需要額外審批。
 
-**重活在 Modal 上跑**：編譯、clippy、測試、E2E、benchmark 一律用 modal-offload skill 在 Modal Sandbox 上跑（`~/.agents/skills/modal-offload/offload run -- '<命令>'`，環境定義在 `.modal-offload.toml`，對齊 `ci.yml`），不在本機跑，以免磨損 SSD、塞爆硬碟。本機只做編輯、閱讀、git、少量檔案的格式化，以及只能在 macOS 上跑的測試（原生 `owner_process`、Keychain、launchd）；Modal 全綠不代表這些也過。長 benchmark 加 `--timeout-min`；收工前跑 `offload ps`，確認沒有遺留的 Sandbox。
+**重活在本機跑，但磁碟很緊**：2026-10-11 起不再用 Modal（它超過用戶設的 spend limit 照樣扣款）。編譯、clippy、測試、E2E、benchmark 都在本機跑。開跑前看剩餘空間，build 產物保持精簡；一個 block 做完就清掉可重建的產物（`cargo clean`、舊的 E2E 報告）。絕不刪用戶自己的東西來騰空間，要騰先問。
 
 **供應鏈信任**：新依賴需用戶授權，除非 GitHub stars > 6k、維護者高信譽、或由知名組織維護。不滿足門檻先寫風險評估等批准。
 
@@ -95,8 +95,6 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 ## 命令速查
 
 ```sh
-~/.agents/skills/modal-offload/offload run -- 'bun run check'   # 在 Modal 上跑任何重活（見上文）
-~/.agents/skills/modal-offload/offload ps                       # 列出還在跑的 Sandbox
 bun run check                             # 權威 per-commit gate
 bun run check:base                        # 快速 triage（無 build / E2E）
 bun run check:slow                        # supply-chain audit + platform tests
