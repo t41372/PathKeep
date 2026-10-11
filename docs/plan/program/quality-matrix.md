@@ -29,6 +29,7 @@
 E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的：
 
 - `playwright.config.ts` 透過 `scripts/pathkeep-dev-desktop-bridge.mjs` 啟動帶 `devtools-bridge` feature 的 debug Rust 後端與 Vite 前端，Playwright 驅動真正的畫面。
+- 網路：E2E 後端擋掉自己發起的抓取（`PATHKEEP_TEST_BLOCK_NETWORK`），只有連結預覽可以連到 spec 自己在 `https://127.0.0.1` 開的網站（`PATHKEEP_TEST_PREVIEW_SERVER_CA`，憑證在 `tests/e2e/support/tls/`）；使用者設定的 AI 服務（spec 自己開的假服務）照常連。兩個開關都只在 debug 建置有效。
 - 測資是臨時目錄裡的合成瀏覽器 profile（兩個 Chrome、一個 Firefox，真實 SQLite，seed 固定，`scripts/fixtures/synthetic-browsers.mjs`），archive、keyring、project root 都在該目錄內；cargo target 放在 `var/playwright/desktop-bridge/cargo-target` 以便重用編譯快取。
 - 預期數字一律由測資算出（`tests/e2e/support/fixture.ts`），不在 spec 裡手寫。
 - spec 依序跑在同一個 archive 上：`first-run` → `read` → `change` → `wipe`（見 config 的 `projects`）。

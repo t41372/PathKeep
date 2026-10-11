@@ -186,6 +186,8 @@ E2E（`tests/e2e/history-tools.spec.ts`）量測預覽框在讀取中與最終�
 `fetch_status` 相符，並在傳輸層把一頁的回應換成一張 PNG，確認圖片畫出且回報 `mark_og_images_shown`；
 後端回傳 data URL 的路徑由 `load_og_images_collapses_duplicate_urls_via_tempdir_archive` 測試。
 
+真正的下載由 `tests/e2e/link-preview.spec.ts` 驗：測試在 127.0.0.1 開一個 HTTPS 網站（`support/preview-server.ts`，憑證由 `support/tls/ca.pem` 簽），把造訪寫進 Chrome 的歷史再備份；打開詳情時下載 og:image、畫出、之後不再向網站要；圖片網址轉址到 169.254.169.254 時在轉址那一步停下，詳情說拿不到預覽。E2E 的後端整個擋掉網路（`PATHKEEP_TEST_BLOCK_NETWORK`），只有 `PATHKEEP_TEST_PREVIEW_SERVER_CA` 指定憑證時，連結預覽可以連 `https://127.0.0.1`、並信任那張憑證；兩個開關都只在 debug 建置有效（`vault_core::test_support`），其他位址與其他種類的抓取照擋。
+
 ## 5. 與其他系統的互動
 
 - **Backup / restore**：og:image 快取是 derived（從第三方網路狀態重生），**不進入

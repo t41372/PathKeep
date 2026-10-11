@@ -125,12 +125,18 @@ fn fetch_client_builder() -> reqwest::blocking::ClientBuilder {
     insert_static_header(&mut headers, "sec-ch-ua", SEC_CH_UA);
     insert_static_header(&mut headers, "sec-ch-ua-mobile", SEC_CH_UA_MOBILE);
     insert_static_header(&mut headers, "sec-ch-ua-platform", SEC_CH_UA_PLATFORM);
-    Client::builder()
+    let builder = Client::builder()
         .default_headers(headers)
         // We enforce https on the page URL ourselves so http:// → parse_error.
         .https_only(false)
         .timeout(Duration::from_secs(15))
-        .connect_timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(10));
+    match crate::test_support::preview_test_server_ca()
+        .and_then(|pem| reqwest::Certificate::from_pem(&pem).ok())
+    {
+        Some(test_ca) => builder.add_root_certificate(test_ca),
+        None => builder,
+    }
 }
 
 /// Builds the reqwest client used by the fetch pipeline. Exposed so the
@@ -139,7 +145,15 @@ fn fetch_client_builder() -> reqwest::blocking::ClientBuilder {
 /// the first URL (`net_guard::url_target_is_blocked`): a public page that
 /// redirects to a private address must not make PathKeep fetch it.
 pub fn build_fetch_client() -> Result<Client> {
-    build_guarded_fetch_client(super::net_guard::url_target_is_blocked)
+    build_guarded_fetch_client(preview_target_is_blocked)
+}
+
+/// The address check a link preview applies to its page, every redirect hop and the image:
+/// `net_guard::url_target_is_blocked`, except for an end-to-end test's own server
+/// (`test_support::is_preview_test_server`, debug builds only).
+fn preview_target_is_blocked(url: &str) -> bool {
+    super::net_guard::url_target_is_blocked(url)
+        && !crate::test_support::is_preview_test_server(url)
 }
 
 /// Builds a fetch client that applies `hop_is_blocked` to every redirect hop before following it,
@@ -147,9 +161,10 @@ pub fn build_fetch_client() -> Result<Client> {
 /// redirect itself instead of fetching the private host. www → apex, http → https and share links
 /// to canonical pages take 3–5 hops, so the budget is 8, as Chrome's.
 ///
-/// Production passes `net_guard::url_target_is_blocked` (both fetchers do). A test whose mock server
-/// listens on loopback passes its own check, which is the one seam: the check itself is not compiled
-/// differently in tests.
+/// Production passes `net_guard::url_target_is_blocked` through `preview_target_is_blocked` (both
+/// fetchers do), which differs only for an end-to-end test's server in a debug build. A unit test
+/// whose mock server listens on loopback passes its own check, which is the one seam: the check
+/// itself is not compiled differently in tests.
 pub fn build_guarded_fetch_client(hop_is_blocked: fn(&str) -> bool) -> Result<Client> {
     fetch_client_builder()
         .redirect(reqwest::redirect::Policy::custom(move |attempt| {
@@ -310,7 +325,9 @@ pub fn ok_outcome_for_test(
 /// One pass through the fetch pipeline.
 pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
     // Check before the SSRF guard, which may resolve the page host through DNS.
-    if crate::test_support::network_is_blocked() {
+    if crate::test_support::network_is_blocked()
+        && !crate::test_support::is_preview_test_server(page_url)
+    {
         return blocked_outcome(page_url);
     }
     if !page_url.starts_with("https://") {
@@ -343,7 +360,7 @@ pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
     // SSRF guard: refuse to fetch a page whose host is (or resolves to) a
     // non-public address. The page URL comes from imported history, so a single
     // visited page must never be able to make PathKeep probe the local network.
-    if super::net_guard::url_target_is_blocked(page_url) {
+    if preview_target_is_blocked(page_url) {
         return blocked_outcome(page_url);
     }
     fetch_og_image_for_pipeline(client, page_url, true, None, true)
@@ -397,7 +414,9 @@ fn fetch_og_image_for_pipeline(
     guard_image_hosts: bool,
 ) -> FetchedOgImage {
     // Also covers the HTTP test seams and the synthesized image/API branches.
-    if crate::test_support::network_is_blocked() {
+    if crate::test_support::network_is_blocked()
+        && !crate::test_support::is_preview_test_server(page_url)
+    {
         return blocked_outcome(page_url);
     }
     let mut outcome = FetchedOgImage {
@@ -505,7 +524,7 @@ fn finish_image_fetch(
     // SSRF guard: the og:image URL is scraped from attacker-controlled page
     // HTML (or a per-host synth template), so before issuing the sub-resource
     // GET, refuse any URL whose host is (or resolves to) a non-public address.
-    if guard_hosts && super::net_guard::url_target_is_blocked(&og_image_url) {
+    if guard_hosts && preview_target_is_blocked(&og_image_url) {
         outcome.fetch_status = fetch_status::BLOCKED;
         return outcome;
     }

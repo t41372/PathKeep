@@ -1,6 +1,7 @@
 //! Shared debug overrides for deterministic backend tests and demos.
 //!
-//! Responsibilities: prevent autonomous backend fetches in isolated debug runs.
+//! Responsibilities: prevent autonomous backend fetches in isolated debug runs, and let link
+//! previews reach an end-to-end test's own HTTPS server.
 //! Not responsible for: user-requested AI provider calls or production network policy.
 
 // Failure modes to test before adding the switch:
@@ -31,6 +32,31 @@ pub fn export_row_delay() -> Option<std::time::Duration> {
         let micros = std::env::var("PATHKEEP_TEST_EXPORT_ROW_DELAY_US").ok()?.parse().ok()?;
         (micros > 0).then(|| std::time::Duration::from_micros(micros))
     })
+}
+
+// Failure modes of the preview test server switch (`PATHKEEP_TEST_PREVIEW_SERVER_CA`):
+// (a) a release build honors it;
+// (b) a link preview reaches anything but `https://127.0.0.1` through it: a redirect to another
+//     private address stays refused, and so does every other kind of fetch;
+// (c) the certificate is trusted, or loopback let through, without the variable.
+
+/// The certificate authority (PEM) of the local HTTPS server an end-to-end test serves pages and
+/// og:images from, named by `PATHKEEP_TEST_PREVIEW_SERVER_CA`, so link previews can be fetched for
+/// real in a test. Debug builds only, like `network_is_blocked`.
+pub fn preview_test_server_ca() -> Option<Vec<u8>> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    std::fs::read(std::env::var_os("PATHKEEP_TEST_PREVIEW_SERVER_CA")?).ok()
+}
+
+/// Whether `url` is on that test server (`https://127.0.0.1`), which link previews may fetch
+/// although the network is blocked and the address is private. Debug builds only.
+pub fn is_preview_test_server(url: &str) -> bool {
+    cfg!(debug_assertions)
+        && std::env::var_os("PATHKEEP_TEST_PREVIEW_SERVER_CA").is_some()
+        && reqwest::Url::parse(url)
+            .is_ok_and(|url| url.scheme() == "https" && url.host_str() == Some("127.0.0.1"))
 }
 
 #[cfg(test)]
