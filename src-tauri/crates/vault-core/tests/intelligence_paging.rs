@@ -62,7 +62,7 @@ fn refind_pages_reach_tied_results_and_choose_the_best_profile() {
             for (profile,generation) in [("a",1_i64),("b",2)] {
                 s.execute("INSERT INTO intelligence_generations(profile_id,aggregates) VALUES(?1,?2)",params![profile,generation])?;
                 for id in 0..113_i64 {
-                    s.execute("INSERT INTO refind_pages_rows(generation,profile_id,canonical_url,url,title,registrable_domain,cross_day_count,trail_count,search_arrival_count,typed_revisit_count,refind_score,evidence_json,first_seen_ms,last_seen_ms,computed_at) VALUES(?1,?2,?3,?3,'Page','example.com',3,2,2,2,?4,'{}',1767268800000,1767268800000,'')",params![generation,profile,format!("https://example.com/{id}"),(id%3) as f64+generation as f64])?;
+                    s.execute("INSERT INTO refind_pages_rows(generation,profile_id,canonical_url,url,title,registrable_domain,cross_day_count,trail_count,search_arrival_count,typed_revisit_count,refind_score,evidence_json,first_seen_ms,last_seen_ms,computed_at,page_key) VALUES(?1,?2,?3,?3,'Page','example.com',3,2,2,2,?4,'{}',1767268800000,1767268800000,'',0)",params![generation,profile,format!("https://example.com/{id}"),(id%3) as f64+generation as f64])?;
                 }
             }
             Ok(())
@@ -548,7 +548,7 @@ fn refind_detail_reaches_all_visits_days_and_related_trails() {
         }).unwrap();
         vault.store().write(Db::Intelligence,Priority::Batch,|s| {
             s.execute("INSERT INTO intelligence_generations(profile_id) VALUES('profile')",())?;
-            s.execute("INSERT INTO refind_pages_rows(profile_id,canonical_url,url,title,registrable_domain,cross_day_count,trail_count,search_arrival_count,typed_revisit_count,refind_score,evidence_json,first_seen_ms,last_seen_ms,computed_at) VALUES('profile','https://example.com/','https://example.com/','Page','example.com',113,113,113,0,50,'{\"visitIds\":[1],\"totalVisitCount\":113}',1767268800000,1777032000000,'')",())?;
+            s.execute("INSERT INTO refind_pages_rows(profile_id,canonical_url,url,title,registrable_domain,cross_day_count,trail_count,search_arrival_count,typed_revisit_count,refind_score,evidence_json,first_seen_ms,last_seen_ms,computed_at,page_key) VALUES('profile','https://example.com/','https://example.com/','Page','example.com',113,113,113,0,50,'{\"visitIds\":[1],\"totalVisitCount\":113}',1767268800000,1777032000000,'',0)",())?;
             for id in 1..=113_i64 {
                 let trail=format!("trail:{id}");let time=1767268800000+id*86400000;
                 s.execute("INSERT INTO visit_derived_facts_rows(visit_id,profile_id,canonical_url,registrable_domain,computed_at) VALUES(?1,'profile','https://example.com/','example.com','')",[id])?;

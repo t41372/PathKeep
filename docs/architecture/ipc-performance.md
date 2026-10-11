@@ -416,6 +416,26 @@ Left as it is:
 
 What remains is the engine's own work per row: the B-tree inserts of `urls` (5 indexes) and `visits` (11, two of them keyed by hashes, so random), and the commit that writes the pages they touched.
 
+### 13. "Pages reopened" counted pages that were not opened in the range
+
+The KPI counted every refind page whose first and last visit spanned the range (`refind_pages_rows`, by `last_seen_ms`), opened in the range or not: a day with no visits said 58. It now counts the refind pages opened on a day of the range, the pages the day page lists (`deterministic-intelligence.md` §5.7).
+
+Which days a page was opened on was worked out by the build and then thrown away. A table with one row per page and day was tried first. At 14.4M visits in the `habits` shape, the digest took 3.3 s for a custom year and 10.8 s for all time. Nearly every visit there is its own page-day, so a year is about 3M rows to read, twice (the range and the one before it). That design was dropped. The table now kept is inverted: one row per profile and day, holding that day's pages as a blob of sorted 64-bit keys (`refind_day_pages_rows`, `intelligence::refind_days`). A range reads one row per day and unions the keys.
+
+`turso_intelligence::encrypted_intelligence_at_scale`, Modal, 14.4M visits; old and new in the `cycle` shape ran at the same time:
+
+| 14.4M visits                          | old (`cycle`) | new (`cycle`) | one row per page-day (`habits`) | new (`habits`) |
+| ------------------------------------- | ------------- | ------------- | ------------------------------- | -------------- |
+| full build                            | 5,612 s       | 5,704 s       | 3,788 s                         | 2,662 s        |
+| append of 10,000 visits               | 182 s         | 182 s         |                                 |                |
+| digest, 30 days                       | 162 ms        | 43 ms         | 223 ms                          | 24 ms          |
+| digest, a custom year                 | 1,107 ms      | 418 ms        | 3,320 ms                        | 141 ms         |
+| first batch, a custom year            | 34.0 s        | 32.5 s        | 5.6 s                           | 2.0 s          |
+| digest, all time (read directly)      | 77.2 s        | 76.0 s        | 10.8 s                          | 3.0 s          |
+| first batch, all time (from snapshot) | 88 ms         | 86 ms         | 14 ms                           | 12 ms          |
+
+The new count is faster than the span it replaced, because it reads a row per day instead of a row per refind page. The all-time digest read directly is dominated by reading every site-day row (§11); Insights opens all time from its snapshot. The full build collects day → keys in memory until the refind stage ends (8 bytes per page and day); peak memory did not change measurably in the build (478 MB against 476 MB in the `cycle` shape). The append's peak was 708 MB against 606 MB; it adds one new day of about 10,000 keys, which does not account for the difference, so it is noted as measured.
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |

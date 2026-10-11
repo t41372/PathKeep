@@ -162,8 +162,12 @@ pub(super) fn add_to_refind_page(
     mut addition: RefindAddition,
 ) -> RefindPageRecord {
     let last_day = zone.date_key(stored.last_seen_ms);
-    let cross_day_count = stored.cross_day_count
-        + addition.days.iter().filter(|day| **day != last_day).count() as i64;
+    // Every new visit is later than every stored one, so only the stored last day can repeat.
+    let new_days = std::mem::take(&mut addition.days)
+        .into_iter()
+        .filter(|day| *day != last_day)
+        .collect::<Vec<_>>();
+    let cross_day_count = stored.cross_day_count + new_days.len() as i64;
     let trail_count = stored.trail_count + addition.new_trails;
     let search_arrival_count = stored.search_arrival_count + addition.search_arrivals;
     let typed_revisit_count = stored.typed_revisit_count + addition.typed_revisits;
@@ -200,6 +204,7 @@ pub(super) fn add_to_refind_page(
         search_arrival_count,
         typed_revisit_count,
         last_seen_ms,
+        days: new_days,
         ..stored
     }
 }
@@ -312,6 +317,7 @@ pub(super) fn build_refind_pages(visits: &[VisitRecord]) -> Vec<RefindPageRecord
                     .map(|visit| visit.visit_time_ms)
                     .max()
                     .unwrap_or(first.visit_time_ms),
+                days: sorted(distinct_days),
             })
         })
         .collect()
@@ -487,9 +493,16 @@ fn finish_refind_pages(
                 evidence_json,
                 first_seen_ms: entry.first_seen_ms,
                 last_seen_ms: entry.last_seen_ms,
+                days: sorted(entry.distinct_days),
             })
         })
         .collect()
+}
+
+fn sorted(days: HashSet<String>) -> Vec<String> {
+    let mut days = days.into_iter().collect::<Vec<_>>();
+    days.sort_unstable();
+    days
 }
 
 #[cfg(test)]

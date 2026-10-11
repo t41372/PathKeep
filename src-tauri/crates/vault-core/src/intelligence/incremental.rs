@@ -71,7 +71,9 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
         // takes a search like any of its wordings, not only its first.
         // v10: a query family is compared by its first search again, and a rewording in the trail
         // of the search before it joins that search's family (v9 chained through wordings).
-        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v10".to_string()),
+        // v11: each day keeps the refind pages opened on it (`refind_day_pages_rows`), which
+        // "Pages reopened" counts.
+        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v11".to_string()),
         RebuildMode::FullRebuild => Ok("full-rebuild-v2".to_string()),
     }
 }
@@ -370,7 +372,7 @@ mod tests {
                     assert_eq!(
                         stage_version(connection, RebuildMode::StructuralRebuild)
                             .expect("structural version"),
-                        "structural-rebuild-v10"
+                        "structural-rebuild-v11"
                     );
                     assert_eq!(
                         stage_version(connection, RebuildMode::FullRebuild).expect("full version"),

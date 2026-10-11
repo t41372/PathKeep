@@ -2796,3 +2796,9 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - Dev and test builds keep line tables instead of full debug info (`src-tauri/Cargo.toml`). Backtraces and hung-test thread dumps still name each file and line; a debugger no longer sees local variables.
   - Relinking every test binary after a workspace change: 76 s, a 20.6 GiB peak and a 68 GB `target/debug` with full debug info; 22 s, 13.7 GiB and 29 GB with line tables (Modal, 8 cores). Split debug info was as fast, but Windows MSVC does not support it unpacked.
   - The full `bun run check` passed in 32 GiB, recompiling everything after the profile change, with a peak of 13.1 GiB. Before, it twice ran out of memory at 32 GiB and needed 48.
+
+- [x] `WORK-INSIGHTS-REOPENED-KPI` — "Pages reopened" counts the pages reopened in the range (2026-10-11).
+  - Before, it counted every refind page whose first and last visit spanned the range, opened in it or not: a day with no visits said 58. Now it counts the refind pages opened on a day of the range, the same pages the day page's "Pages you came back to" lists, once across browsers.
+  - The days each page was opened on, which the build used to work out and discard, are kept as one row per profile and day of sorted page keys (`refind_day_pages_rows`). The KPI and the day card both read it; a range reads one row per day.
+  - A row per page and day was tried first and dropped: at 14.4M visits in the `habits` shape a custom year's first batch went from 1.74 s to 5.6 s. With the day rows it is 2.0 s, and in the `cycle` shape the digest for a year went from 1.1 s to 0.4 s; builds and appends take as long as before (`ipc-performance.md` §13).
+  - Tests: the failure modes in `intelligence/tests/reopened_pages.rs`, append == full build for the new table, and `insights-drill.spec` (a day's KPI equals its card, a day with no visits is 0).

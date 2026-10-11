@@ -177,6 +177,7 @@ mod tests {
             evidence_json: "[1,2]".to_string(),
             first_seen_ms: 1,
             last_seen_ms: 2,
+            days: vec!["1970-01-01".to_string()],
         }];
         let reopened = vec![ReopenedInvestigationRecord {
             investigation_id: "reopened-1".to_string(),

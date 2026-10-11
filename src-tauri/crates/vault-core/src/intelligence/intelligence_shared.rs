@@ -236,26 +236,16 @@ pub(super) fn previous_date_range(range: &DateRange) -> Result<DateRange> {
     })
 }
 
-/// Counts refind pages that overlap the supplied local date range without
-/// materializing page payloads.
+/// "Pages reopened": the refind pages opened on a day of the range, the same pages the day page
+/// lists, counted once across browsers when no profile is chosen (`refind_days`). A page's
+/// first-to-last span overlapping the range is not enough: a day with no visits showed every
+/// long-lived page.
 pub(super) fn count_refind_pages_in_range(
     connection: &Session<'_>,
     range: &DateRange,
     profile_id: Option<&str>,
 ) -> Result<i64> {
-    let (start_ms, end_ms) = date_range_bounds(connection, range)?;
-    connection
-        .query_one(
-            "SELECT COUNT(*)
-             FROM refind_pages_rows r INDEXED BY idx_refind_pages_range
-             WHERE r.last_seen_ms >= ?2
-               AND r.generation IN (SELECT aggregates FROM intelligence_generations)
-               AND (?1 IS NULL OR r.profile_id = ?1)
-               AND r.first_seen_ms < ?3",
-            params![profile_id, start_ms, end_ms],
-            |row| Ok(row.get(0)?),
-        )
-        .map_err(Into::into)
+    super::refind_days::count(connection, range, profile_id)
 }
 
 /// Builds the canonical KPI delta object shared by summary surfaces and

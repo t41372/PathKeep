@@ -126,7 +126,12 @@ where
     if state.refind_done {
         return Ok(());
     }
-    let mut cursor = state.refind_after.clone().map(|key| (key, i64::MAX));
+    if state.refind_after.is_some() {
+        restart(vault, state)?;
+    }
+    // The pages opened on each day, written once every page is seen (`refind_days`).
+    let mut days = std::collections::BTreeMap::<String, Vec<i64>>::new();
+    let mut cursor = None::<(String, i64)>;
     let mut current = None::<String>;
     let mut first = None::<(i64, i64)>;
     let mut accumulator = StructuralAggregateAccumulator::new(state.zone());
@@ -152,6 +157,7 @@ where
                 first = None;
                 completed_groups += 1;
                 if completed_groups >= 512 {
+                    fold(&mut days, &batch);
                     persist(vault, state, &mut batch, completed_key.take())?;
                     completed_groups = 0;
                 }
@@ -173,11 +179,58 @@ where
         batch.extend(accumulator.finish());
         completed_key = current;
     }
+    fold(&mut days, &batch);
     persist(vault, state, &mut batch, completed_key)?;
+    let days = days.into_iter().collect::<Vec<_>>();
+    for chunk in days.chunks(256) {
+        let chunk = chunk.iter().cloned().collect();
+        let (generation, profile) = (state.aggregate_generation, state.profile_id.clone());
+        let created = vault.write(Db::Intelligence, Priority::Batch, move |s| {
+            super::refind_days::add(s, generation, &profile, chunk)
+        })?;
+        *state.counts.entry("refind_day_pages".into()).or_default() += created;
+    }
     state.refind_done = true;
     let saved = state.clone();
     vault.write(Db::Intelligence, Priority::Batch, move |s| build_state::save(s, &saved))
 }
+fn fold(days: &mut std::collections::BTreeMap<String, Vec<i64>>, pages: &[RefindPageRecord]) {
+    for (day, keys) in super::refind_days::by_day(pages) {
+        days.entry(day).or_default().extend(keys);
+    }
+}
+
+/// Starts an interrupted stage over: the days of the pages it wrote were kept in memory, so its
+/// rows are removed (they are in a generation nothing reads yet) and the pages read again.
+fn restart(vault: &Vault, state: &mut BuildState) -> Result<()> {
+    let (generation, profile) = (state.aggregate_generation, state.profile_id.clone());
+    let removed = vault.write(Db::Intelligence, Priority::Batch, move |s| {
+        let mut removed = Vec::new();
+        for (table, sql) in [
+            ("refind_pages", "DELETE FROM refind_pages_rows WHERE generation=?1 AND profile_id=?2"),
+            (
+                "reopened_investigations",
+                "DELETE FROM reopened_investigations_rows
+                 WHERE generation=?1 AND profile_id=?2 AND anchor_type='reference_page'",
+            ),
+            (
+                "refind_day_pages",
+                "DELETE FROM refind_day_pages_rows WHERE generation=?1 AND profile_id=?2",
+            ),
+        ] {
+            removed.push((table, s.execute(sql, params![generation, profile.as_str()])?));
+        }
+        Ok(removed)
+    })?;
+    for (table, count) in removed {
+        let entry = state.counts.entry(table.into()).or_default();
+        *entry = entry.saturating_sub(count as usize);
+    }
+    state.refind_after = None;
+    let saved = state.clone();
+    vault.write(Db::Intelligence, Priority::Batch, move |s| build_state::save(s, &saved))
+}
+
 fn persist(
     vault: &Vault,
     state: &mut BuildState,

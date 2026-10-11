@@ -4,7 +4,8 @@
 //! - Build one archive in four steps (a full build, then three appended backups) and another
 //!   with the same visits in one full build, and compare every aggregate table row for row.
 //! - Cross the append boundaries where an aggregate keeps state: a session and a search trail
-//!   that continue into the next backup, a page reopened on later days, a site visited on days
+//!   that continue into the next backup, a page reopened on later days (and the days it was
+//!   opened on, which "Pages reopened" counts), a site visited on days
 //!   on both sides, a search that joins a family started earlier, a rewording that continues in
 //!   the next backup the trail its search began (it joins that search's family), paths through
 //!   the same sites.
@@ -29,6 +30,7 @@ const AGGREGATE_TABLES: &[&str] = &[
     "query_families",
     "query_family_queries",
     "refind_pages",
+    "refind_day_pages",
     "reopened_investigations",
     "path_flows",
     "compare_sets",

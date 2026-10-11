@@ -172,16 +172,16 @@
     - [x] 2. 照量到的改；`bun run check` 回到 32 GB 跑得完，`.modal-offload.toml` 與 CI 對齊。`src-tauri/Cargo.toml` 的 `[profile.dev] debug = "line-tables-only"`（測試沿用 dev）；`.modal-offload.toml` 本來就是 32 GiB，CI 不另設。gate 67 在 32 GiB（沒有 `--memory-gib 48`）全過，改了 profile、全部重新編譯的最壞情形下整個 gate 峰值 13.1 GiB。
     - [x] 3. 文檔（`quality-matrix.md` 若 gate 的環境要求變了）、CHANGELOG。gate 的環境沒變（`quality-matrix.md` 本來就沒寫記憶體），理由與數字寫在 `Cargo.toml` 的註解。
 
-- [ ] **WORK-INSIGHTS-REOPENED-KPI** — 「重新打開的頁面」KPI 數的不是範圍內打開的頁（2026-10-11 從 BACKLOG 搬上；2026-10-10 E2E 截圖看到）
+- [x] **WORK-INSIGHTS-REOPENED-KPI** — 「重新打開的頁面」KPI 數的不是範圍內打開的頁（2026-10-11 從 BACKLOG 搬上；2026-10-10 E2E 截圖看到）
   - 讀先：`docs/features/intelligence.md`（KPI 列）、`docs/features/deterministic-intelligence.md`（refind 的定義）、`docs/design/screens-and-nav.md` §Insights、`docs/architecture/ipc-performance.md` §11、`docs/architecture/insights-time-zone.md`。
   - 現象：沒有任何造訪的一天（day 頁 2026-09-29，頁面瀏覽 0），KPI「重新打開的頁面」寫 58；同一頁的「回來再看的頁面」卡說這天沒有。
   - 原因：`count_refind_pages_in_range` 數的是 `refind_pages_rows` 裡第一次與最後一次造訪的區間跟範圍重疊的頁，不管範圍內有沒有打開過。
   - 要改成範圍內打開過、而且是「不只一天打開」的頁（跟 day 頁的卡同一個定義），並在 14.4M 上量一年與全部時間的代價（可能要按日存好）。
   - 步驟：
-    - [ ] 1. 寫下定義與會怎麼錯（範圍內沒打開過的頁、只在範圍內打開一天的頁、跨範圍邊界的頁、各設定檔與「所有瀏覽器」、時區的日子），再改 KPI 列與 day 頁的數。
-    - [ ] 2. 在 14.4M 上量一年、全部時間與自訂範圍的代價；預設範圍走快照，要的話按日存好。
-    - [ ] 3. E2E：照 fixture 手數範圍內「不只一天打開」的頁，對 KPI 列與 day 頁（含沒有造訪的那天是 0）。
-    - [ ] 4. 文檔、CHANGELOG。
+    - [x] 1. 寫下定義與會怎麼錯（範圍內沒打開過的頁、只在範圍內打開一天的頁、跨範圍邊界的頁、各設定檔與「所有瀏覽器」、時區的日子），再改 KPI 列與 day 頁的數。2026-10-11：定義跟 day 頁「回來再看的頁面」同一批——範圍內某一天被打開過的 refind page（不只一天、不只一條 trail 或不只一次直接輸入打開的頁；只寫「不只一天」會比卡片窄，兩者對不上），所有瀏覽器時同一頁算一次。建置本來就算出每頁的日子來數 `cross_day_count`、算完就丟；現在存下來，KPI 與 day 頁的卡都從它讀，同一個定義（存法見步驟 2）。`structural-rebuild-v11` 讓既有的洞察重建。`intelligence/tests/reopened_pages.rs` 驗沒有造訪的一天在某頁的區間內是 0、只靠直接輸入算的頁算、只開一次的不算、KPI 等於卡片列的；`append_aggregates.rs` 把新表納入「追加等於完整建置」。
+    - [x] 2. 在 14.4M 上量一年、全部時間與自訂範圍的代價；預設範圍走快照，要的話按日存好。2026-10-11（`ipc-performance.md` §13）：先做的一頁一天一列，`habits` 形狀上 digest 一年 3.3 s、全部時間 10.8 s，自訂一年第一批 1.74 → 5.6 s，超過目標，改掉：一個設定檔一天一列（`refind_day_pages_rows`，當天的頁是排序過的 64 位元 key），範圍讀的是天數。新舊在 `cycle` 形狀同時跑：digest 一年 1,107 → 418 ms、30 天 162 → 43 ms，自訂一年第一批 34.0 → 32.5 s，完整建置 5,612 → 5,704 s，追加 1 萬筆 182 → 182 s；`habits`：自訂一年第一批 2.0 s、digest 141 ms。
+    - [x] 3. E2E：照 fixture 手數範圍內「不只一天打開」的頁，對 KPI 列與 day 頁（含沒有造訪的那天是 0）。fixture 的造訪不帶直接輸入與 trail 的完整資訊，手數會變成照抄規則；改驗 day 頁的 KPI 等於卡片列的（卡片只列前五）、fixture 裡沒有造訪的一天是 0（`insights-drill.spec`）。
+    - [x] 4. 文檔、CHANGELOG。（`deterministic-intelligence.md` §5.7、`screens-and-nav.md`、`data-model.md`、`store-schema.md`、`ipc-performance.md` §13；gate 69。）
 
 - [ ] **WORK-EPHEMERAL-TEMP-FILES** — 每個用到暫存表的查詢都新開一個加密暫存檔（2026-10-11 從 BACKLOG 搬上；`WORK-IMPORT-BULK-WRITES` 取樣時找到）
   - 讀先：`docs/architecture/ipc-performance.md` §11–12、`docs/architecture/research/2026-10-turso-archive-reads.md`、`docs/architecture/turso-migration-design.md`、`vault-store` 的 `query_plans.rs`、Turso 0.8.1 `vdbe/execute.rs` 的 `op_open_ephemeral`。
