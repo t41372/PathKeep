@@ -325,6 +325,8 @@ fn stored_refind_row(
                     evidence_json: r.get(8)?,
                     first_seen_ms: r.get(9)?,
                     last_seen_ms: r.get(10)?,
+                    // Its days are stored already; an append adds only new ones.
+                    days: Vec::new(),
                 })
             },
         )
@@ -670,6 +672,9 @@ fn write(s: &Session<'_>, state: &mut BuildState, changes: Changes) -> Result<()
     count("refind_pages", pages.len(), 0);
     count("reopened_investigations", reopened_pages.len(), 0);
     build_rows::persist_aggregates(s, generation, &pages, &reopened_pages, &[], &at)?;
+    // Each record holds the days its new visits add (`RefindPageRecord::days`).
+    let days = super::refind_days::by_day(&pages);
+    count("refind_day_pages", super::refind_days::add(s, generation, &profile, days)?, 0);
 
     for flow in &changes.paths {
         // The flow's count after the write is its gain alone when the row is new; a stored row

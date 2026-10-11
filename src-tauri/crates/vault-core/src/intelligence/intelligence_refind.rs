@@ -172,34 +172,37 @@ pub(super) fn get_refind_pages_with_connection(
 
 /// Re-found pages opened in `range` (one day, for the day page), highest score first, one row
 /// per page with its best profile. `get_refind_pages` takes every re-found page whose first and
-/// last visit span the range, opened in it or not; this one starts from the visits in the range.
+/// last visit span the range, opened in it or not; this one starts from the days each was opened
+/// on (`refind_days`), as the "Pages reopened" count does.
 pub(super) fn get_opened_refind_pages_with_connection(
     connection: &Session<'_>,
     range: &crate::models::DateRange,
     profile_id: Option<&str>,
     limit: usize,
 ) -> Result<crate::models::IntelligencePage<RefindPage>> {
-    let (start_ms, end_ms) = super::date_range_bounds(connection, range)?;
-    let rows = connection.query(
-        "WITH opened AS (
-           SELECT DISTINCT f.profile_id, f.canonical_url
-           FROM archive.visits v INDEXED BY idx_visits_visible_time_id
-           CROSS JOIN visit_derived_facts_rows f INDEXED BY idx_vdf_visit_generation
-             ON f.visit_id = v.id AND f.generation IN (SELECT facts FROM intelligence_generations)
-           WHERE v.reverted_at IS NULL AND v.visit_time_ms >= ?2 AND v.visit_time_ms < ?3
-             AND (?1 IS NULL OR f.profile_id = ?1)
-         )
-         SELECT p.profile_id,p.canonical_url,p.url,p.title,p.registrable_domain,p.cross_day_count,
-                p.trail_count,p.search_arrival_count,p.typed_revisit_count,p.refind_score,
-                p.first_seen_ms,p.last_seen_ms,1
-         FROM opened o
-         CROSS JOIN refind_pages_rows p INDEXED BY idx_refind_pages_canonical
-           ON p.canonical_url = o.canonical_url AND p.profile_id = o.profile_id
-          AND p.generation IN (SELECT aggregates FROM intelligence_generations)
-         ORDER BY p.refind_score DESC, p.last_seen_ms DESC, p.canonical_url, p.profile_id",
-        params![profile_id, start_ms, end_ms],
-        refind_page_from_row,
-    )?;
+    // The pages opened on the range's days (`refind_days`), the ones "Pages reopened" counts.
+    let opened = super::refind_days::opened(connection, range, profile_id)?;
+    let mut rows = Vec::with_capacity(opened.len());
+    for (profile, key) in opened {
+        rows.extend(connection.query(
+            "SELECT p.profile_id,p.canonical_url,p.url,p.title,p.registrable_domain,p.cross_day_count,
+                    p.trail_count,p.search_arrival_count,p.typed_revisit_count,p.refind_score,
+                    p.first_seen_ms,p.last_seen_ms,1
+             FROM intelligence_generations g
+             CROSS JOIN refind_pages_rows p INDEXED BY idx_refind_pages_key
+               ON p.page_key=?2 AND p.generation=g.aggregates AND p.profile_id=g.profile_id
+             WHERE g.profile_id=?1",
+            params![profile.as_str(), key],
+            refind_page_from_row,
+        )?);
+    }
+    rows.sort_by(|a, b| {
+        b.refind_score
+            .total_cmp(&a.refind_score)
+            .then_with(|| b.last_seen_at.cmp(&a.last_seen_at))
+            .then_with(|| a.canonical_url.cmp(&b.canonical_url))
+            .then_with(|| a.profile_id.cmp(&b.profile_id))
+    });
     let mut items: Vec<RefindPage> = Vec::new();
     for page in rows {
         match items.iter_mut().find(|kept| kept.canonical_url == page.canonical_url) {

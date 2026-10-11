@@ -27,6 +27,7 @@ mod fixtures;
 mod frequent_searches;
 mod new_sites;
 mod reclassify;
+mod reopened_pages;
 mod rhythm;
 mod schema_overview;
 mod search_families;

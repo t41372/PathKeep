@@ -5,7 +5,9 @@
  * Proves:
  * - Home's year heatmap opens the day view; for a fixture day its visit
  *   count, top site and searches equal a count of the fixture for that
- *   local day, and a day before the fixture began says it has no visits.
+ *   local day, its "Pages reopened" counts the pages its card lists, and a
+ *   day before the fixture began says it has no visits. A day inside the
+ *   fixture with no visits reopened no pages.
  *   The day's top site leads to History filtered to that site and day.
  * - Insights' Top sites row opens the site view, whose 30-day visit total,
  *   days visited and most visited page equal the fixture's.
@@ -142,6 +144,33 @@ test('a day from the Home heatmap matches the fixture, then opens History', asyn
     0,
   )
 
+  // A day inside the fixture with no visits: nothing was reopened on it,
+  // though pages opened before and after it span it (it once said 58).
+  const visited = new Set(
+    archivedVisits().map((visit) => localDateKey(visit.at)),
+  )
+  const latest = Math.max(...archivedVisits().map((visit) => visit.at))
+  const quiet = new Date(latest)
+  quiet.setHours(0, 0, 0, 0)
+  while (visited.has(localDateKey(quiet.getTime()))) {
+    quiet.setDate(quiet.getDate() - 1)
+  }
+  await page.goto(`/#/insights/day/${localDateKey(quiet.getTime())}`)
+  await drillIn(
+    page,
+    quiet.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    }),
+  )
+  await expectCount(
+    testInfo,
+    `pages reopened on ${localDateKey(quiet.getTime())}, a day without visits`,
+    await kpi(page, 'Pages reopened'),
+    0,
+  )
+
   await page.goto('/#/')
   await page.locator(`[data-cell="${day}"]`).click()
   await expect(page).toHaveURL(new RegExp(`#/insights/day/${day}$`))
@@ -201,6 +230,13 @@ test('a day from the Home heatmap matches the fixture, then opens History', asyn
     const title = (await row.innerText()).split('\n')[0].trim()
     expect(titles.has(title), `${title} was opened on ${day}`).toBe(true)
   }
+  // The KPI counts the same pages; the card shows the first five.
+  await expectCount(
+    testInfo,
+    `pages reopened on ${day}, as the card lists them`,
+    Math.min(await kpi(page, 'Pages reopened'), 5),
+    await reopened.count(),
+  )
 
   // The top site leads to History, filtered to that site on that day.
   await firstSite.getByRole('link').click()

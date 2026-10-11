@@ -271,6 +271,7 @@ fn structural_aggregate_builders_cover_reopened_investigations() {
             evidence_json: "{}".to_string(),
             first_seen_ms: 1711929600000,
             last_seen_ms: 1712102400000,
+            days: Vec::new(),
         },
         RefindPageRecord {
             profile_id: "chrome:Default".to_string(),
@@ -286,6 +287,7 @@ fn structural_aggregate_builders_cover_reopened_investigations() {
             evidence_json: "{}".to_string(),
             first_seen_ms: 1711929600000,
             last_seen_ms: 1711929600000,
+            days: Vec::new(),
         },
     ];
 

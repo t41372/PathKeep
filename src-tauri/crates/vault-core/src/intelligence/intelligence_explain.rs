@@ -668,8 +668,8 @@ INSERT INTO visit_assignments(visit_id,profile_id,session_id,trail_id) VALUES (1
                   ('p1','2020-01-22','docs.com','reference',1,0,0,1,0),
                   ('p1','2020-01-29','docs.com','reference',1,0,0,1,0);
 
-                INSERT INTO refind_pages_rows(profile_id,canonical_url,url,title,registrable_domain,cross_day_count,trail_count,search_arrival_count,typed_revisit_count,refind_score,evidence_json,first_seen_ms,last_seen_ms,computed_at)
-                VALUES('p1','https://docs.com/a','https://docs.com/a','Docs','docs.com',2,2,1,0,1,'{\"visitIds\":[2,3,\"skip\"]}',1000,4000,'');
+                INSERT INTO refind_pages_rows(profile_id,canonical_url,url,title,registrable_domain,cross_day_count,trail_count,search_arrival_count,typed_revisit_count,refind_score,evidence_json,first_seen_ms,last_seen_ms,computed_at,page_key)
+                VALUES('p1','https://docs.com/a','https://docs.com/a','Docs','docs.com',2,2,1,0,1,'{\"visitIds\":[2,3,\"skip\"]}',1000,4000,'',0);
 
                 INSERT INTO reopened_investigations_rows
                   (investigation_id, profile_id, anchor_type, anchor_id, anchor_label,

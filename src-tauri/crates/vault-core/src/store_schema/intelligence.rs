@@ -179,7 +179,18 @@ const STATEMENTS: &[&str] = &[
   first_seen_ms INTEGER NOT NULL,
   last_seen_ms INTEGER NOT NULL,
   computed_at TEXT NOT NULL,
+  page_key INTEGER NOT NULL,
   PRIMARY KEY(generation, profile_id, canonical_url)
+)",
+    // The refind pages opened on each local day (Insights' zone), as a blob of their sorted
+    // `page_key`s: what counts the pages reopened in a range, which the span in
+    // `refind_pages_rows` cannot (`intelligence::refind_days`).
+    r"CREATE TABLE refind_day_pages_rows (
+  generation INTEGER NOT NULL,
+  profile_id TEXT NOT NULL,
+  date_key TEXT NOT NULL,
+  page_keys BLOB NOT NULL,
+  PRIMARY KEY(generation, profile_id, date_key)
 )",
     r"CREATE TABLE reopened_investigations_rows (
   generation INTEGER NOT NULL DEFAULT 0,
@@ -499,6 +510,7 @@ const STATEMENTS: &[&str] = &[
     // One site's days (the site page's arrivals and onward sites).
     "CREATE INDEX idx_site_flows_site ON site_flows_rows(registrable_domain,date_key,generation,profile_id)",
     "CREATE INDEX idx_refind_pages_range ON refind_pages_rows(last_seen_ms,generation,profile_id,first_seen_ms)",
+    "CREATE INDEX idx_refind_pages_key ON refind_pages_rows(page_key,generation,profile_id)",
     "CREATE INDEX idx_search_events_profile_query ON search_events_rows(profile_id,normalized_query, generation)",
     // One engine's keyword searches in a range (what was searched on a site, the site page).
     "CREATE INDEX idx_search_events_engine_time ON search_events_rows(query_kind,search_engine,visit_time_ms,generation)",

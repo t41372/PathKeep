@@ -286,8 +286,8 @@ pub(super) fn persist_aggregates(
 ) -> Result<()> {
     let mut insert_refind_pages=s.prepare("INSERT OR REPLACE INTO refind_pages_rows
  (generation,profile_id, canonical_url, url, title, registrable_domain, cross_day_count, trail_count, search_arrival_count,
-              typed_revisit_count, refind_score, evidence_json, first_seen_ms, last_seen_ms, computed_at)
- VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)")?;
+              typed_revisit_count, refind_score, evidence_json, first_seen_ms, last_seen_ms, computed_at, page_key)
+ VALUES (?1,?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)")?;
     let mut insert_reopened_investigations=s.prepare("INSERT OR REPLACE INTO reopened_investigations_rows
  (generation,investigation_id, profile_id, anchor_type, anchor_id, anchor_label, occurrence_count, distinct_days,
               first_seen_ms, last_seen_ms, evidence_json, computed_at)
@@ -317,6 +317,7 @@ pub(super) fn persist_aggregates(
             page.first_seen_ms,
             page.last_seen_ms,
             computed_at,
+            super::refind_days::page_key(&page.canonical_url),
         ])?;
     }
     for record in reopened {

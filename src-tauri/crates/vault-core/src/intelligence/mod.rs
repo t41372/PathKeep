@@ -51,6 +51,7 @@ mod paging;
 mod path_flows;
 mod phase_four;
 mod phase_three;
+mod refind_days;
 mod refind_evidence;
 mod search_queries;
 mod session_details;
@@ -310,6 +311,11 @@ struct RefindPageRecord {
     evidence_json: String,
     first_seen_ms: i64,
     last_seen_ms: i64,
+    /// Local days (the build's zone) this record adds the page to in `refind_day_pages_rows`, the
+    /// days it was opened on: all of them when the record is built from all its visits, only the
+    /// new ones when an append adds visits to a stored row.
+    #[serde(default)]
+    days: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
