@@ -30,6 +30,7 @@ pub fn get_activity_mix(
         vault,
         "activity-mix",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_activity_mix(vault, request),
         |data| data.categories.is_empty(),
     )
@@ -52,6 +53,7 @@ pub fn get_digest_summary(
         vault,
         "digest-summary",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_digest_summary(vault, request),
         digest_summary_is_empty,
     )
@@ -66,6 +68,7 @@ pub fn get_stable_sources(
         vault,
         "stable-sources",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_stable_sources(vault, request),
         |data| data.is_empty(),
     )
@@ -80,6 +83,7 @@ pub fn get_search_effectiveness(
         vault,
         "search-effectiveness",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_search_effectiveness(vault, request),
         search_effectiveness_is_empty,
     )
@@ -94,6 +98,7 @@ pub fn get_friction_signals(
         vault,
         "friction-signals",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_friction_signals(vault, request),
         |data| data.is_empty(),
     )
@@ -108,6 +113,7 @@ pub fn get_reopened_investigations(
         vault,
         "reopened-investigations",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_reopened_investigations(vault, request),
         |data| data.is_empty(),
     )
@@ -122,6 +128,7 @@ pub fn get_domain_deep_dive(
         vault,
         "domain-deep-dive",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_domain_deep_dive(vault, request),
         domain_deep_dive_is_empty,
     )
@@ -141,6 +148,7 @@ pub fn get_day_insights(
                 end: request.date.clone(),
             },
         },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_day_insights(vault, request),
         |data| {
             data.digest_summary.total_visits.value == 0
@@ -164,6 +172,7 @@ pub fn get_browsing_rhythm(
         vault,
         "browsing-rhythm",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_browsing_rhythm(vault, request),
         |data| data.cells.is_empty(),
     )
@@ -178,6 +187,7 @@ pub fn get_discovery_trend(
         vault,
         "discovery-trend",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_discovery_trend(vault, request),
         |data| data.points.is_empty(),
     )
@@ -194,6 +204,7 @@ pub fn get_on_this_day(
         CoreIntelligenceSectionWindow::CalendarDayHistory {
             reference_date: vault_core::insights_today(vault)?,
         },
+        profile_id,
         |vault| intelligence::get_on_this_day(vault, profile_id),
         |data| data.is_empty(),
     )
@@ -258,6 +269,7 @@ pub fn get_breadth_index(
         vault,
         "breadth-index",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_breadth_index(vault, request),
         |_| false,
     )
@@ -272,6 +284,7 @@ pub fn get_habit_patterns(
         vault,
         "habits",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_habit_patterns(vault, request),
         |data| data.is_empty(),
     )
@@ -285,9 +298,9 @@ pub fn get_interrupted_habits(
     with_core_intelligence_section(
         vault,
         "habits",
-        CoreIntelligenceSectionWindow::DateRange {
-            date_range: vault_core::DateRange { start: "".to_string(), end: "".to_string() },
-        },
+        // Interrupted habits are read over everything the archive holds.
+        CoreIntelligenceSectionWindow::AllTime,
+        request.profile_id.as_deref(),
         |vault| intelligence::get_interrupted_habits(vault, request),
         |data| data.is_empty(),
     )
@@ -302,6 +315,7 @@ pub fn get_path_flows(
         vault,
         "path-flows",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_path_flows(vault, request),
         |data| data.is_empty(),
     )
@@ -316,6 +330,7 @@ pub fn get_observed_interactions(
         vault,
         "observed-interactions",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_observed_interactions(vault, request),
         |data| data.is_empty(),
     )
@@ -330,6 +345,7 @@ pub fn get_compare_sets(
         vault,
         "compare-sets",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_compare_sets(vault, request),
         |data| data.items.is_empty(),
     )
@@ -344,6 +360,7 @@ pub fn get_compare_set_detail(
         vault,
         "compare-set-detail",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_compare_set_detail(vault, request),
         compare_set_detail_is_empty,
     )
@@ -380,6 +397,7 @@ pub fn get_multi_browser_diff(
         vault,
         "multi-browser-diff",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
         |vault| intelligence::get_multi_browser_diff(vault, request),
         |data| data.profiles.is_empty() && data.category_distributions.is_empty(),
     )

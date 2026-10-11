@@ -111,7 +111,26 @@ export interface CoreIntelligenceSectionMeta {
   /** The reason as a code the interface translates; the English `stateReason` is for logs. */
   stateReasonCode?: string | null
   notes: string[]
+  /**
+   * How much of the archive the card was computed from, in the unit it
+   * counts, for the scope it was read for. Absent for sections that show
+   * their own counts.
+   */
+  evidence?: { count: number; unit: EvidenceUnit } | null
+  /** Needs what only Chromium browsers record; Safari and Takeout visits leave it empty. */
+  chromiumOnly?: boolean
 }
+
+/** What a card counts as its evidence; mirrors `vault_core::SectionEvidenceUnit`. */
+export type EvidenceUnit =
+  | 'visits'
+  | 'siteVisits'
+  | 'pageVisits'
+  | 'searches'
+  | 'searchTrails'
+  | 'landedSearches'
+  | 'days'
+  | 'sessions'
 
 /** Generic transport envelope for `/intelligence` section payloads. */
 export interface CoreIntelligenceSectionResult<T> {

@@ -5,6 +5,7 @@ import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { recordRenderError } from '@/lib/runtime-diagnostics'
+import { CardTitle } from './card-title'
 import { dragRegion } from './drag-region'
 import { TitleBarStrip } from './title-bar'
 
@@ -76,7 +77,7 @@ export function SectionCard({
   children: ReactNode
   className?: string
 }) {
-  return (
+  const card = (
     <section
       className={cn(
         'flex min-w-0 flex-col gap-3.5 rounded-xl border bg-card p-5 shadow-card',
@@ -96,6 +97,11 @@ export function SectionCard({
       )}
       <CardBoundary>{children}</CardBoundary>
     </section>
+  )
+  return (
+    <CardTitle.Provider value={typeof title === 'string' ? title : null}>
+      {card}
+    </CardTitle.Provider>
   )
 }
 

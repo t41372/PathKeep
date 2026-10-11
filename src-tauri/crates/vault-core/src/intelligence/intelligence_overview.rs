@@ -34,6 +34,7 @@ use super::{
         get_search_engine_ranking_with_connection, get_top_search_concepts_with_connection,
     },
     intelligence_search_queries::get_query_families_with_connection,
+    intelligence_summary::fill_sections_evidence,
     phase_four, phase_three,
     site_days::SiteDayCache,
 };
@@ -73,7 +74,7 @@ pub fn get_intelligence_primary_overview(
         let cache = &cache;
 
         let runtime = load_intelligence_runtime_from_connection(connection, paths, config)?;
-        if snapshot_key(connection, request)?.is_some() {
+        let payload = if snapshot_key(connection, request)?.is_some() {
             // All time and the recent ranges are the scopes the page opens on, so serve a kept
             // snapshot whenever the archive fingerprint is stable and only recompute when the
             // data actually changed.
@@ -87,25 +88,54 @@ pub fn get_intelligence_primary_overview(
             if is_all_time_range(&request.date_range) {
                 refresh_for_today(connection, &runtime, request, &mut payload)?;
             }
-            for meta in [
-                &mut payload.digest_summary.meta,
-                &mut payload.on_this_day.meta,
-                &mut payload.top_sites.meta,
-                &mut payload.refind_pages.meta,
-                &mut payload.search_engine_ranking.meta,
-                &mut payload.top_search_concepts.meta,
-                &mut payload.query_families.meta,
-                &mut payload.activity_mix.meta,
-                &mut payload.discovery_trend_day.meta,
-                &mut payload.habit_patterns.meta,
-                &mut payload.interrupted_habits.meta,
-            ] {
+            for meta in primary_metas(&mut payload) {
                 refresh_module_meta(meta, &runtime)?;
             }
-            return Ok(payload);
-        }
-        build_intelligence_primary_overview_with_connection(connection, cache, &runtime, request)
+            payload
+        } else {
+            build_intelligence_primary_overview_with_connection(
+                connection, cache, &runtime, request,
+            )?
+        };
+        Ok(payload)
     })
+}
+
+/// Every section of the first batch: what is redone on each read, and what gets its evidence.
+fn primary_metas(
+    payload: &mut CoreIntelligencePrimaryOverview,
+) -> [&mut crate::models::CoreIntelligenceSectionMeta; 11] {
+    [
+        &mut payload.digest_summary.meta,
+        &mut payload.on_this_day.meta,
+        &mut payload.top_sites.meta,
+        &mut payload.refind_pages.meta,
+        &mut payload.search_engine_ranking.meta,
+        &mut payload.top_search_concepts.meta,
+        &mut payload.query_families.meta,
+        &mut payload.activity_mix.meta,
+        &mut payload.discovery_trend_day.meta,
+        &mut payload.habit_patterns.meta,
+        &mut payload.interrupted_habits.meta,
+    ]
+}
+
+/// Every section of the second batch.
+fn secondary_metas(
+    payload: &mut CoreIntelligenceSecondaryOverview,
+) -> [&mut crate::models::CoreIntelligenceSectionMeta; 10] {
+    [
+        &mut payload.stable_sources.meta,
+        &mut payload.search_effectiveness.meta,
+        &mut payload.friction_signals.meta,
+        &mut payload.reopened_investigations.meta,
+        &mut payload.discovery_trend_week.meta,
+        &mut payload.breadth_index.meta,
+        &mut payload.path_flows.meta,
+        &mut payload.compare_sets.meta,
+        &mut payload.multi_browser_diff.meta,
+        &mut payload.observed_interactions.meta,
+    ]
 }
 
 fn build_intelligence_primary_overview_with_connection(
@@ -267,7 +297,7 @@ fn build_intelligence_primary_overview_with_connection(
     )?;
     timings.push(timing);
 
-    Ok(CoreIntelligencePrimaryOverview {
+    let mut payload = CoreIntelligencePrimaryOverview {
         digest_summary,
         on_this_day,
         top_sites,
@@ -280,8 +310,18 @@ fn build_intelligence_primary_overview_with_connection(
         habit_patterns,
         interrupted_habits,
         timings,
-        total_duration_ms: overview_started_at.elapsed().as_millis() as u64,
-    })
+        total_duration_ms: 0,
+    };
+    // Counted here rather than on each read, so a kept snapshot carries the counts and an all-time
+    // open never walks the whole archive for them; the site counts reuse the read just made.
+    fill_sections_evidence(
+        connection,
+        cache,
+        &mut primary_metas(&mut payload),
+        request.profile_id.as_deref(),
+    )?;
+    payload.total_duration_ms = overview_started_at.elapsed().as_millis() as u64;
+    Ok(payload)
 }
 
 /// Loads the deferred `/intelligence` payload that can arrive after the first
@@ -308,7 +348,7 @@ pub fn get_intelligence_secondary_overview(
         let cache = &cache;
 
         let runtime = load_intelligence_runtime_from_connection(connection, paths, config)?;
-        if snapshot_key(connection, request)?.is_some() {
+        let payload = if snapshot_key(connection, request)?.is_some() {
             let mut payload: CoreIntelligenceSecondaryOverview =
                 resolve_overview_snapshot(connection, OverviewBand::Secondary, request, || {
                     build_intelligence_secondary_overview_with_connection(
@@ -316,18 +356,7 @@ pub fn get_intelligence_secondary_overview(
                     )
                 })?;
             // The snapshot outlives the day it was built on; report this request's dates.
-            for meta in [
-                &mut payload.stable_sources.meta,
-                &mut payload.search_effectiveness.meta,
-                &mut payload.friction_signals.meta,
-                &mut payload.reopened_investigations.meta,
-                &mut payload.discovery_trend_week.meta,
-                &mut payload.breadth_index.meta,
-                &mut payload.path_flows.meta,
-                &mut payload.compare_sets.meta,
-                &mut payload.multi_browser_diff.meta,
-                &mut payload.observed_interactions.meta,
-            ] {
+            for meta in secondary_metas(&mut payload) {
                 if let CoreIntelligenceSectionWindow::DateRange { date_range } = &mut meta.window {
                     *date_range = request.date_range.clone();
                 }
@@ -340,11 +369,13 @@ pub fn get_intelligence_secondary_overview(
                 observed.items.is_empty() && observed.next_cursor.is_none(),
                 &runtime.modules,
             )?;
-            return Ok(payload);
-        }
-        build_intelligence_secondary_overview_with_connection(
-            connection, cache, &observed, &runtime, request,
-        )
+            payload
+        } else {
+            build_intelligence_secondary_overview_with_connection(
+                connection, cache, &observed, &runtime, request,
+            )?
+        };
+        Ok(payload)
     })
 }
 
@@ -488,7 +519,7 @@ fn build_intelligence_secondary_overview_with_connection(
     )?;
     timings.push(timing);
 
-    Ok(CoreIntelligenceSecondaryOverview {
+    let mut payload = CoreIntelligenceSecondaryOverview {
         stable_sources,
         search_effectiveness,
         friction_signals,
@@ -500,8 +531,17 @@ fn build_intelligence_secondary_overview_with_connection(
         multi_browser_diff,
         observed_interactions,
         timings,
-        total_duration_ms: overview_started_at.elapsed().as_millis() as u64,
-    })
+        total_duration_ms: 0,
+    };
+    // As in the first batch: counted with the build, kept with the snapshot.
+    fill_sections_evidence(
+        connection,
+        cache,
+        &mut secondary_metas(&mut payload),
+        request.profile_id.as_deref(),
+    )?;
+    payload.total_duration_ms = overview_started_at.elapsed().as_millis() as u64;
+    Ok(payload)
 }
 
 fn refresh_module_meta(
@@ -509,12 +549,15 @@ fn refresh_module_meta(
     runtime: &IntelligenceRuntimeSnapshot,
 ) -> Result<()> {
     if !meta.module_ids.is_empty() {
+        // The counts belong to the snapshot's data, which has not changed.
+        let evidence = meta.evidence.take();
         *meta = build_core_intelligence_section_meta_with_modules(
             &meta.section_id,
             meta.window.clone(),
             false,
             &runtime.modules,
         )?;
+        meta.evidence = evidence;
     }
     Ok(())
 }
