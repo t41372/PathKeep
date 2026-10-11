@@ -133,22 +133,23 @@ pub(super) struct ContinuedBatch {
     pub(super) same_visit_items: usize,
 }
 
-/// The batch a new import of `source` writes into: the latest interrupted import of the same
-/// kind and path, carried on so that one import stays one batch (to undo together), or a new one.
-/// An import that finished, or was undone, is never reopened: a run of the same file then adds a
-/// new batch, whose records the earlier one already holds count as duplicates.
+/// The batch a new import of `source` writes into: the latest import of the same kind and path
+/// that broke off or that the user stopped, carried on so that one import stays one batch (to
+/// undo together), or a new one. An import that finished, or was undone, is never reopened: a run
+/// of the same file then adds a new batch, whose records the earlier one already holds count as
+/// duplicates.
 pub(super) fn continue_or_create_import_batch(
     archive: &Session<'_>,
     source: ImportBatchSource<'_>,
 ) -> Result<(i64, Option<ContinuedBatch>)> {
-    let interrupted = archive.query(
+    let unfinished = archive.query(
         "SELECT id, created_at, summary_json FROM import_batches
-         WHERE source_kind=?1 AND source_path=?2 AND status='interrupted'
+         WHERE source_kind=?1 AND source_path=?2 AND status IN ('interrupted','stopped')
          ORDER BY id DESC LIMIT 1",
         params![source.source_kind, source.source_path],
         |r| Ok((r.get::<i64>(0)?, r.get::<String>(1)?, r.get::<String>(2)?)),
     )?;
-    let Some((id, created_at, summary)) = interrupted.into_iter().next() else {
+    let Some((id, created_at, summary)) = unfinished.into_iter().next() else {
         return Ok((create_import_batch_for_source(archive, source)?, None));
     };
     let mut summary: serde_json::Value = serde_json::from_str(&summary)?;
@@ -168,7 +169,10 @@ pub(super) fn continue_or_create_import_batch(
     Ok((id, Some(ContinuedBatch { created_at, imported_items, same_visit_items })))
 }
 
-/// What an import the user stopped reports: the counts its batch holds, which every committed
+/// Ends an import the user stopped, after its run marked it interrupted (`ImportRun`): the batch
+/// is `stopped`, a normal end with what it saved, not an import that broke off and waits to be
+/// finished (those are listed first, `batch_review`). A Takeout export imported again still
+/// carries on in it. Returns what it reports: the counts its batch holds, which every committed
 /// batch of records has added to (`consumer::flush`), since a stop in the middle of a file
 /// leaves the run's own tallies short. `continued_from` is set when it carried on an earlier
 /// run, whose counts the batch includes.
@@ -178,6 +182,14 @@ pub(super) fn stopped_inspection(
     source_path: &str,
     continued_from: Option<String>,
 ) -> Result<TakeoutInspection> {
+    vault.write(Db::Archive, Priority::Batch, move |s| {
+        s.execute(
+            "UPDATE import_batches SET status='stopped',previous_status='stopped'
+             WHERE id=?1 AND status='interrupted'",
+            [batch_id],
+        )?;
+        Ok(())
+    })?;
     let (detail, same_visit_items) = vault.read(Db::Archive, move |s| {
         let detail = load_import_batch_detail(s, batch_id)?;
         let summary =

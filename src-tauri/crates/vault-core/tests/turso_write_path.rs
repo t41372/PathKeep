@@ -147,7 +147,7 @@ fn cancelled_import_keeps_batch_identity_and_committed_progress() {
         let batches = vault_core::load_import_batches(&vault, None, 16).unwrap().items;
         assert_eq!(batches.len(), 1);
         assert_eq!(stopped.import_batch.as_ref().map(|batch| batch.id), Some(batches[0].id));
-        assert_eq!(batches[0].status, "interrupted");
+        assert_eq!(batches[0].status, "stopped", "stopped by the user, not broken off");
         assert_eq!(batches[0].visible_items, 10_000);
         assert_eq!(batches[0].imported_items, 10_000);
         vault_core::revert_import_batch(&vault, batches[0].id).unwrap();
@@ -157,7 +157,7 @@ fn cancelled_import_keeps_batch_identity_and_committed_progress() {
         );
         let restored = vault_core::restore_import_batch(&vault, batches[0].id).unwrap();
         assert_eq!(
-            restored.batch.status, "interrupted",
+            restored.batch.status, "stopped",
             "restoring a cancelled import must preserve its partial state"
         );
         assert_eq!(
@@ -286,7 +286,7 @@ fn a_stopped_browser_file_import_keeps_what_it_saved() {
     assert!(stopped.stopped);
     assert!(stopped.note_details.is_empty(), "nothing failed to read");
     let batch = vault_core::load_import_batches(&vault, None, 16).unwrap().items.remove(0);
-    assert_eq!(batch.status, "interrupted");
+    assert_eq!(batch.status, "stopped");
     assert_eq!(stopped.imported_items, batch.visible_items);
     assert!((10_000..20_003).contains(&stopped.imported_items), "{}", stopped.imported_items);
 

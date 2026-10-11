@@ -4,10 +4,11 @@
  * Proves: a Takeout import keeps running, with its progress and its Stop,
  * when the user leaves Backup and comes back. Stop ends it after the part it
  * is writing: the card says how many visits it saved, which is what its
- * batch holds, and the batch is interrupted. Importing the same export again
- * carries on in that batch and ends with every visit. A browser's history
- * file stops the same way; imported again it is a new import, where what was
- * saved counts as already in the archive.
+ * batch holds, and the batch is stopped (not listed first, as an import the
+ * app broke off is). Importing the same export again carries on in that
+ * batch and ends with every visit. A browser's history file stops the same
+ * way; imported again it is a new import, where what was saved counts as
+ * already in the archive.
  */
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
@@ -94,7 +95,7 @@ test('a Takeout import stops from its card and carries on when imported again', 
 
   const saved = await stop(takeout)
   const [batch] = await batchesOf(folder)
-  expect(batch).toMatchObject({ status: 'interrupted', visibleItems: saved })
+  expect(batch).toMatchObject({ status: 'stopped', visibleItems: saved })
   expect(saved).toBeLessThan(total)
   await expect(
     takeout.getByText(
@@ -149,7 +150,7 @@ test('a browser history file stops from its card, and imported again adds the re
 
   const saved = await stop(browser)
   const [batch] = await batchesOf(file)
-  expect(batch).toMatchObject({ status: 'interrupted', visibleItems: saved })
+  expect(batch).toMatchObject({ status: 'stopped', visibleItems: saved })
   expect(saved).toBeLessThan(visits.length)
   await expect(
     browser.getByText(
@@ -170,12 +171,13 @@ test('a browser history file stops from its card, and imported again adds the re
   await expect(
     browser.getByText(`${count(saved)} visits were already in your archive.`),
   ).toBeVisible()
-  // Interrupted imports are listed first.
+  // A stopped import is not one waiting to be finished: it is not listed
+  // first, as one the app broke off is.
   const batches = await batchesOf(file)
   expect(
     batches.map(({ status, visibleItems }) => ({ status, visibleItems })),
   ).toEqual([
-    { status: 'interrupted', visibleItems: saved },
     { status: 'imported', visibleItems: rest },
+    { status: 'stopped', visibleItems: saved },
   ])
 })
