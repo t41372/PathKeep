@@ -223,7 +223,7 @@ function SiteTrendCard({ domain, scope }: { domain: string; scope: Scope }) {
   )
   const openDay = (state: MouseHandlerDataParam) => {
     if (length === 'day' && typeof state.activeLabel === 'string') {
-      void navigate(dayPath(state.activeLabel))
+      void navigate(dayPath(state.activeLabel, scope))
     }
   }
 

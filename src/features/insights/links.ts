@@ -16,8 +16,12 @@ function withScope(path: string, scope?: Scope, extra?: URLSearchParams) {
 
 export const insightsPath = (scope?: Scope) => withScope('/insights', scope)
 
-/** A local calendar day, `YYYY-MM-DD`. */
-export const dayPath = (date: string) => `/insights/day/${date}`
+/**
+ * A local calendar day, `YYYY-MM-DD`. The day covers every profile; `scope`
+ * is only where "← Insights" goes back to.
+ */
+export const dayPath = (date: string, scope?: Scope) =>
+  withScope(`/insights/day/${date}`, scope)
 
 export const sitePath = (domain: string, scope?: Scope) =>
   withScope(`/insights/site/${encodeURIComponent(domain)}`, scope)

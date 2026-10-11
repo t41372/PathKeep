@@ -39,11 +39,17 @@ import {
   useDaySessions,
   useSessionDetail,
 } from './drill-queries'
-import { historyPath, insightsPath, pagePath, searchPath } from './links'
+import {
+  dayPath,
+  historyPath,
+  insightsPath,
+  pagePath,
+  searchPath,
+} from './links'
 import { formatDuration, rowLink } from './display'
 import { ComparedPagesCard } from './compare-card'
 import { MixList } from './mix-card'
-import type { Scope } from './range'
+import { useScope, type Scope } from './range'
 import { ShareBar } from './share-bar'
 import { useInsightsFormat, useInsightsZone } from './zone'
 import {
@@ -68,6 +74,8 @@ export default function DayPage() {
   const { t } = useI18n()
   const format = useInsightsFormat()
   const { date = '' } = useParams()
+  // The range and profile the day was opened from, for the way back.
+  const [returnTo] = useScope()
   const day = isDateKey(date)
   const today = todayIn(useInsightsZone().shown)
   const valid = day && date <= today
@@ -75,7 +83,7 @@ export default function DayPage() {
   return (
     <PageScroll wide>
       <DrillHeader
-        back={insightsPath()}
+        back={insightsPath(returnTo)}
         eyebrow={t('insights.day.eyebrow')}
         title={
           day
@@ -93,7 +101,7 @@ export default function DayPage() {
               <div className="flex items-center gap-1">
                 <Button variant="outline" size="icon-sm" asChild>
                   <Link
-                    to={`/insights/day/${addDays(date, -1)}`}
+                    to={dayPath(addDays(date, -1), returnTo)}
                     aria-label={t('insights.day.previous')}
                   >
                     <ChevronLeft />
@@ -107,7 +115,7 @@ export default function DayPage() {
                   asChild={date < today}
                 >
                   {date < today ? (
-                    <Link to={`/insights/day/${addDays(date, 1)}`}>
+                    <Link to={dayPath(addDays(date, 1), returnTo)}>
                       <ChevronRight />
                     </Link>
                   ) : (
