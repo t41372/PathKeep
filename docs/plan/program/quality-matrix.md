@@ -24,6 +24,8 @@
 
 `bun run check:base` 是不含 build 與 E2E 的快速 triage（`check:js` + `check:rust`），不能代替 `check`。
 
+時區（2026-10-11）：gate 在每台電腦上都一樣，不看電腦在哪個時區。Rust 測試固定在 `Pacific/Kiritimati`（UTC+14、沒有夏令時間）跑：日界跟 UTC 差最多，假設電腦在 UTC 的測試會在這裡露出來；E2E 的 app 與瀏覽器固定在 UTC（`scripts/run-playwright.mjs`），spec 照 UTC 數日子。測試要嘛釘住自己用的時區（例如設 `insights_time_zone`），要嘛照電腦時區算期望值，不能假設電腦在哪裡。之前 CI 與 Modal 都剛好是 UTC，有 4 個測試在別的時區會錯（`WORK-TESTS-ANY-TIME-ZONE`）。
+
 ## E2E
 
 E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的：
@@ -32,7 +34,7 @@ E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的�
 - 網路：E2E 後端擋掉自己發起的抓取（`PATHKEEP_TEST_BLOCK_NETWORK`），只有連結預覽可以連到 spec 自己在 `https://127.0.0.1` 開的網站（`PATHKEEP_TEST_PREVIEW_SERVER_CA`，憑證在 `tests/e2e/support/tls/`）；使用者設定的 AI 服務（spec 自己開的假服務）照常連。兩個開關都只在 debug 建置有效。
 - 測資是臨時目錄裡的合成瀏覽器 profile（兩個 Chrome、一個 Firefox，真實 SQLite，seed 固定，`scripts/fixtures/synthetic-browsers.mjs`），archive、keyring、project root 都在該目錄內；cargo target 放在 `var/playwright/desktop-bridge/cargo-target` 以便重用編譯快取。
 - 預期數字一律由測資算出（`tests/e2e/support/fixture.ts`），不在 spec 裡手寫。
-- spec 依序跑在同一個 archive 上：`first-run` → `read` → `change` → `wipe`（見 config 的 `projects`）。
+- spec 依序跑在同一個 archive 上：`first-run` → `read` → `zone` → `change` → `restart` → `stop` → `move` → `wipe` → `upgrade`（見 config 的 `projects`；同一個 project 照檔名順序跑）。
 - 不替後端寫假實作。需要 seam 的地方只 seam 在最外層 transport，真正的 compute、decode、I/O 留在被測的 build 裡。
 - 新功能至少一條從真實入口出發的 medium-to-hard 場景：使用者做 X，觀察到 Y；要有「負 → 正」斷言（改動前找不到，改動後找得到）。
 

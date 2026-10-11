@@ -88,7 +88,10 @@ fn seeded_context() -> AgentToolContext {
 
 /// A context with two visits on different days, for the date-filter tests.
 fn dated_context() -> AgentToolContext {
-    let context = empty_context();
+    // As in the app: the tools show times, and read `startDate`/`endDate`, on the computer's
+    // calendar (`visit_on_date` puts the visit at noon there).
+    let mut context = empty_context();
+    context.time_zone = crate::utils::computer_time_zone();
     seed_visits(
         &context.vault,
         vec![
@@ -320,8 +323,8 @@ fn real_js_calls_query_history_and_returns_distilled_json_with_citations() {
 fn query_history_rows_carry_local_time_fields() {
     // Defect A (code_mode path) — every sandbox row carries `visitedAtLocal` (LOCAL HH:MM) and
     // `localDate` (LOCAL YYYY-MM-DD) so a script grouping by day never does epoch/timezone math against
-    // the sandbox's 0 clock. The test context pins UTC, and `seed_visit_on_date` puts the visit at
-    // MIDDAY on 2026-06-19, so the local date is that day and the local time is 12:00.
+    // the sandbox's 0 clock. `dated_context` uses the computer's zone, and `visit_on_date` puts the
+    // visit at MIDDAY on 2026-06-19 there, so the local date is that day and the local time is 12:00.
     let context = dated_context();
     let source = r#"
         const r = query_history({ query: "", startDate: "2026-06-19", endDate: "2026-06-19" });

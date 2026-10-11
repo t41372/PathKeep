@@ -351,9 +351,11 @@ fn scoped_rebuild_uses_batches_and_progress_callbacks() {
 fn explain_entity_and_provider_snapshots_build_from_core_intelligence_tables() {
     let root = tempfile::tempdir().expect("tempdir");
     let _paths = project_paths_with_root(root.path());
+    // The fixture's days are written in UTC; Insights read them in their own zone.
     let config = AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
+        insights_time_zone: Some("UTC".into()),
         ..AppConfig::default()
     };
     let vault = crate::Vault::open_temp().unwrap().with_config(config.clone());
@@ -442,10 +444,15 @@ fn explain_entity_and_provider_snapshots_build_from_core_intelligence_tables() {
             )
             .expect("compare set trail member");
     }
-    let today = chrono::Local::now();
-    let anniversary = chrono::Local
-        .with_ymd_and_hms(today.year() - 1, today.month(), today.day(), 12, 0, 0)
-        .single()
+    // Today in the Insights zone (UTC here), on the latest earlier year that has its date:
+    // 29 February looks back to the last leap year.
+    let today = chrono::Utc::now();
+    let anniversary = (1..=8)
+        .find_map(|back| {
+            chrono::Utc
+                .with_ymd_and_hms(today.year() - back, today.month(), today.day(), 12, 0, 0)
+                .single()
+        })
         .expect("anniversary timestamp");
     let anniversary_ms = anniversary.timestamp_millis();
     let date_key = anniversary.format("%Y-%m-%d").to_string();
