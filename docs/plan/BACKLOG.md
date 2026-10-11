@@ -43,14 +43,14 @@
 
 > 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全流程跑完，confirmed findings 已全部修復並各自過獨立 review（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`、報告 `docs/review/2026-06-14/`）。剩下的是 verifier 標為 non-blocking 的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / trade-off 的 findings 不重開。
 
-- [ ] **WORK-IMPORT-BULK-WRITES** — 大的一次性匯入（2026-10-10，從 `WORK-TAKEOUT-FLOW-2026-10` 6 拆出）
-  - 現況：14.4M 的 archive 上匯入每筆約 1 ms（100 萬筆 990–1,048 s），1440 萬筆要約 4 小時。取樣（`scripts/profile-native.py`）：archive 的寫入執行緒 92% 忙；網址 upsert 21%（含 `INSERT … RETURNING` 讀完一列再 reset 的收尾）、寫造訪 15%、按頁更新搜尋文件 11%、commit / WAL / checkpoint 約 20%，其餘是引擎每列的工作。
-  - 方向（每一項先在同一個 bench 上量）：多列一次 `INSERT`、少用 `RETURNING`（先查再寫）；整個匯入結束才按頁重算一次搜尋文件，而不是每批；大匯入時先不維護次要索引、寫完再建。
-  - 目標：1440 萬筆的一次性匯入在目標機上明顯少於現在的 4 小時，記憶體與 UI 照舊。
+- [ ] **WORK-INSIGHTS-REOPENED-KPI** — 「重新打開的頁面」KPI 數的不是範圍內打開的頁（2026-10-10 E2E 截圖看到）
+  - 現象：沒有任何造訪的一天（day 頁 2026-09-29，頁面瀏覽 0），KPI「重新打開的頁面」寫 58；同一頁的「回來再看的頁面」卡說這天沒有。
+  - 原因：`count_refind_pages_in_range` 數的是 `refind_pages_rows` 裡第一次與最後一次造訪的區間跟範圍重疊的頁，不管範圍內有沒有打開過。
+  - 要改成範圍內打開過、而且是「不只一天打開」的頁（跟 day 頁的卡同一個定義），並在 14.4M 上量一年與全部時間的代價（可能要按日存好）。
 
-- [ ] **WORK-TEST-LINK-MEMORY** — `cargo test --workspace --all-targets` 連結時記憶體逼近 32 GB（2026-10-10）
-  - 現象：Modal 上 8 核 32 GB 的 gate 兩次在連結測試執行檔時被 OOM 殺掉（rust-lld 每個 4–5 GB、幾個同時連），改用 48 GB 才跑完。同樣的指令在 CI 或開發機上也可能撞到。
-  - 方向（要量了再定）：測試建置的 debug info 降到 `line-tables-only`（backtrace 仍有行號）、或限制同時連結的數量；比較兩者對建置時間、記憶體峰值與除錯的影響。
+- [ ] **WORK-HOME-ALERTS-FOLLOWUPS** — Home 警告列的兩個小缺口（2026-10-10 收工審查時找到）
+  - 鑰匙圈整個不能用（例如沒有 secret service 的 Linux）又沒存密碼時，「只有你知道密碼」那列的「存到鑰匙圈」連到 Security，那裡的開關是停用的，走不通；「我有妥善保管」仍可用。要換成說得通的動作或文字。
+  - 「自動備份已經停了」從最新一次嘗試起算三次檢查。筆電整晚睡著時，醒來到 launchd 補跑之前的幾十秒內打開 Home 會看到它；要在桌面上看一次，必要時從喚醒時間起算。
 
 - [ ] **WORK-SITE-CATEGORY-REVIEW** — 讓用戶看見並改網站分類（2026-10-08 從 `WORK-INSIGHTS-RESTORE-2026-10` 拆出）
   - 讀先：`docs/features/deterministic-intelligence.md` §5.2、§6.3；`vault-core/src/intelligence/site_dictionary/overrides.rs`；`docs/design/screens-and-nav.md` §Insights。

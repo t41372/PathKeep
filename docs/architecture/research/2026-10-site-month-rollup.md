@@ -1,7 +1,8 @@
 # Custom Insights ranges on a dense archive: add a site-month rollup or not
 
-Status: for the user to decide. This is step ⑤ (d) of `WORK-INSIGHTS-RESTORE-2026-10`. Nothing
-here is built.
+Status: decided 2026-10-10. The user chose A: no site-month rollup. This was step ⑤ (d) of
+`WORK-INSIGHTS-RESTORE-2026-10`. For custom ranges the target no longer covers the `cycle` shape;
+if a real archive ever shows a custom year's first batch over 3.3 s, B is the fix.
 
 ## Where it stands
 

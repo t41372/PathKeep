@@ -23,7 +23,12 @@ import {
   type Page,
   type TestInfo,
 } from '@playwright/test'
-import { archivedVisits, expectCount, parseCount } from './support/fixture'
+import {
+  archivedVisits,
+  backend,
+  expectCount,
+  parseCount,
+} from './support/fixture'
 
 const REBUILD_TIMEOUT = 120_000
 const TAIPEI = 'Asia/Taipei'
@@ -47,12 +52,14 @@ function visitsOn(day: string, zone: string) {
 
 /**
  * A recent day whose visits differ most between Taipei's day and UTC's, so
- * the count shows which zone Insights used.
+ * the count shows which zone Insights used. It has visits in Taipei, so the
+ * day shows times to read the zone from.
  */
 function telltaleDay() {
   let best = { day: '', difference: -1 }
   for (let back = 3; back <= 12; back += 1) {
     const day = dayIn(Date.now() - back * 86_400_000, TAIPEI)
+    if (visitsOn(day, TAIPEI) === 0) continue
     const difference = Math.abs(visitsOn(day, TAIPEI) - visitsOn(day, 'UTC'))
     if (difference > best.difference) best = { day, difference }
   }
@@ -79,13 +86,32 @@ async function chooseZone(page: Page, search: string, place: RegExp) {
 
 /**
  * Settings shows the chosen zone at once, and says Insights are being built
- * again in it until they are.
+ * again in it until they are. The notice can still be on its way when the
+ * page is read, so the end of the rebuild is taken from the backend: every
+ * profile's Insights are in `zone`.
  */
-async function waitForRebuild(page: Page, place: string) {
+async function waitForRebuild(page: Page, place: string, zone: string) {
   await page.goto('/#/settings/general')
   await expect(
     page.getByRole('combobox', { name: 'Insights time zone' }),
   ).toContainText(place)
+  await expect
+    .poll(
+      async () => {
+        const state = await backend<{
+          shown: string
+          next: string
+          rebuildingFrom: string | null
+        }>('get_insights_time_zone')
+        return (
+          state.shown === zone &&
+          state.next === zone &&
+          state.rebuildingFrom === null
+        )
+      },
+      { timeout: REBUILD_TIMEOUT },
+    )
+    .toBe(true)
   await expect(page.getByText(/^Building Insights again in/)).toBeHidden({
     timeout: REBUILD_TIMEOUT,
   })
@@ -115,7 +141,7 @@ test('Insights keep their own time zone until the user switches', async ({
   await expect(
     page.getByText(/^Building Insights again in .*GMT\+8/),
   ).toBeVisible()
-  await waitForRebuild(page, 'Taipei')
+  await waitForRebuild(page, 'Taipei', TAIPEI)
   await expectCount(
     testInfo,
     `visits on ${day} in Taipei`,
@@ -157,7 +183,7 @@ test('Insights keep their own time zone until the user switches', async ({
     )
     await berlin.page.getByRole('button', { name: /^Use / }).click()
     await expect(notice(berlin.page)).toHaveCount(0)
-    await waitForRebuild(berlin.page, 'Berlin')
+    await waitForRebuild(berlin.page, 'Berlin', BERLIN)
     await expectCount(
       testInfo,
       `visits on ${day} in Berlin`,
@@ -171,7 +197,7 @@ test('Insights keep their own time zone until the user switches', async ({
 
   // Back to UTC for the specs after this one.
   await chooseZone(page, 'UTC', /^UTC/)
-  await waitForRebuild(page, 'UTC')
+  await waitForRebuild(page, 'UTC', 'UTC')
   await expectCount(
     testInfo,
     `visits on ${day} in UTC`,
