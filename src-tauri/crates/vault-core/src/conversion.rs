@@ -71,6 +71,67 @@ pub fn project_pages(vault: &Vault, after: i64, limit: i64) -> anyhow::Result<Op
     })?)
 }
 
+/// Gives each source-evidence row of an old-format archive its `content_key` and drops the copies
+/// the old format stored once per import of the same records, keeping the first
+/// (`archive::source_evidence::FAMILIES`). A row without a key is one this has not reached yet, and
+/// each page commits on its own, so a conversion stopped partway carries on where it was. Run
+/// after the evidence tables are copied and verified: it changes what they hold.
+pub fn dedupe_source_evidence(
+    vault: &Vault,
+    cancel: &vault_store::CancelToken,
+) -> anyhow::Result<()> {
+    use crate::archive::source_evidence::{FAMILIES, content_key};
+    for family in &FAMILIES {
+        loop {
+            cancel.check()?;
+            let reached = vault.store().write(Db::SourceEvidence, Priority::Batch, |s| {
+                let rows = s.query(
+                    &format!(
+                        "SELECT id, source_profile_id, {} FROM {} WHERE content_key IS NULL
+                         ORDER BY id LIMIT 2000",
+                        family.content.join(","),
+                        family.table
+                    ),
+                    (),
+                    |r| {
+                        let values = (0..family.content.len())
+                            .map(|index| r.get_value(index + 2))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        Ok((r.get::<i64>(0)?, r.get::<i64>(1)?, values))
+                    },
+                )?;
+                for (id, profile, values) in &rows {
+                    let key = content_key(family.table, *profile, values);
+                    let held = s.query_one(
+                        &format!(
+                            "SELECT EXISTS(SELECT 1 FROM {} WHERE content_key=?1)",
+                            family.table
+                        ),
+                        vault_store::params![key.clone()],
+                        |r| Ok(r.get::<i64>(0)? != 0),
+                    )?;
+                    if held {
+                        s.execute(
+                            &format!("DELETE FROM {} WHERE id=?1", family.table),
+                            vault_store::params![*id],
+                        )?;
+                    } else {
+                        s.execute(
+                            &format!("UPDATE {} SET content_key=?2 WHERE id=?1", family.table),
+                            vault_store::params![*id, key],
+                        )?;
+                    }
+                }
+                Ok(rows.len())
+            })?;
+            if reached == 0 {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Converted facts supply the same cached totals that normal batches maintain.
 /// Links the same visit recorded by two sources (`archive::same_visit`) in an archive written
 /// before linking existed: each Takeout source's counted visits, best source first, are hidden

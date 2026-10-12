@@ -389,6 +389,9 @@ fn load_observed_interaction_visits(
         })?)
 }
 
+/// A visit's engagement and how its page ended. A value read again later is a row of its own when
+/// it changed (Chrome writes a visit's duration when its tab closes), so rows are read in the order
+/// they were written and the newest one wins.
 fn load_engagement_evidence(
     source_evidence: &Session<'_>,
     visits: &[ObservedVisit],
@@ -407,7 +410,8 @@ fn load_engagement_evidence(
                 "WITH requested(source_visit_id) AS (VALUES {placeholders})
                  SELECT e.source_profile_id,e.source_visit_id,e.metric_key,e.metric_value_int,e.metric_value_real
                  FROM requested CROSS JOIN visit_engagement_evidence e INDEXED BY idx_visit_engagement_profile_visit
-                 ON e.source_profile_id=?1 AND e.source_visit_id=requested.source_visit_id"
+                 ON e.source_profile_id=?1 AND e.source_visit_id=requested.source_visit_id
+                 ORDER BY e.id"
             );
             let mut bindings = Vec::<SqlValue>::with_capacity(chunk.len() + 1);
             bindings.push(SqlValue::from(source_profile_id));
@@ -499,7 +503,8 @@ fn load_context_evidence(
                  SELECT e.source_profile_id,e.source_visit_id,e.context_key,e.value_json
                  FROM requested CROSS JOIN visit_context_evidence e INDEXED BY idx_visit_context_profile_visit
                  ON e.source_profile_id=?1 AND e.source_visit_id=requested.source_visit_id
-                 WHERE e.context_key IN ('context.load_successful','context.page_end_reason')"
+                 WHERE e.context_key IN ('context.load_successful','context.page_end_reason')
+                 ORDER BY e.id"
             );
             let mut bindings = Vec::<SqlValue>::with_capacity(chunk.len() + 1);
             bindings.push(SqlValue::from(source_profile_id));
@@ -544,6 +549,49 @@ mod tests {
     use std::collections::HashMap;
 
     use vault_store::params_owned as params;
+
+    /// A visit's duration read again after its tab closed is a second row; the page shows the
+    /// newer one.
+    #[test]
+    fn a_visits_newest_engagement_and_end_are_read() {
+        use crate::archive::source_evidence::{EvidenceWriter, SourceEvidencePayload};
+        use browser_history_parser::{ContextEvidence, EngagementEvidence};
+        let vault = crate::Vault::open_temp_with_key(None).unwrap();
+        let payload = |duration: i64, end: &str| {
+            let mut payload = SourceEvidencePayload::default();
+            payload.typed_evidence.engagement.push(EngagementEvidence {
+                source_visit_id: 41,
+                metric_key: "engagement.visit_duration_ms".into(),
+                metric_value_int: Some(duration),
+                metric_value_real: None,
+                source_field: "visits.visit_duration".into(),
+            });
+            payload.typed_evidence.context.push(ContextEvidence {
+                source_visit_id: Some(41),
+                source_url_id: None,
+                context_key: "context.page_end_reason".into(),
+                value_json: serde_json::json!(end).to_string(),
+                source_field: "context_annotations.page_end_reason".into(),
+            });
+            payload
+        };
+        let mut writer = EvidenceWriter::new(&vault, 1, 3);
+        writer.push(payload(1_000, "navigated")).unwrap();
+        writer.push(payload(90_000, "tab-closed")).unwrap();
+        let visit = ObservedVisit {
+            visit_id: 1,
+            source_profile_id: 3,
+            source_visit_id: "41".into(),
+            url: "https://example.com/".into(),
+            title: None,
+            browser_family: "chromium".into(),
+        };
+        let evidence =
+            vault.read(Db::SourceEvidence, move |s| load_engagement_evidence(s, &[visit])).unwrap();
+        let read = &evidence[&(3, "41".to_string())];
+        assert_eq!(read.foreground_duration_ms, Some(90_000));
+        assert_eq!(read.page_end_reason.as_deref(), Some("tab-closed"));
+    }
 
     fn visit_days(days: impl IntoIterator<Item = NaiveDate>) -> VisitDays {
         let mut visited = VisitDays::default();

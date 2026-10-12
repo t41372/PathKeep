@@ -276,6 +276,12 @@ fn import_browser_history_safari_import_batch_is_reversible_and_deduplicated() {
     assert_eq!(first.duplicate_items, 0);
     assert_eq!(first.recognized_files[0].kind, "safari-history-db");
     assert_eq!(first.preview_entries.len(), 2);
+    let evidence_rows = |table: &str| -> i64 {
+        Probe::for_db(&vault, Db::SourceEvidence)
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), (), |row| Ok(row.get(0)?))
+            .expect("evidence count")
+    };
+    let native_after_first = evidence_rows("native_entities");
 
     let second = import_browser_history(&vault, &request).expect("re-import safari");
     assert_eq!(second.imported_items, 0);
@@ -291,15 +297,10 @@ fn import_browser_history_safari_import_batch_is_reversible_and_deduplicated() {
         .expect("load safari profile");
     assert_eq!(profile_family, "safari");
 
-    let source_evidence = Probe::for_db(&vault, Db::SourceEvidence);
-    let navigation_rows: i64 = source_evidence
-        .query_row("SELECT COUNT(*) FROM visit_navigation_evidence", (), |row| Ok(row.get(0)?))
-        .expect("navigation evidence count");
-    let native_rows: i64 = source_evidence
-        .query_row("SELECT COUNT(*) FROM native_entities", (), |row| Ok(row.get(0)?))
-        .expect("native evidence count");
-    assert_eq!(navigation_rows, 4);
-    assert!(native_rows >= 4);
+    // The file read again adds no evidence: the archive holds what it says.
+    assert_eq!(evidence_rows("visit_navigation_evidence"), 2);
+    assert!(native_after_first >= 2);
+    assert_eq!(evidence_rows("native_entities"), native_after_first);
 
     let reverted = revert_import_batch(&vault, batch.id).expect("revert batch");
     assert_eq!(reverted.batch.status, "reverted");
@@ -746,6 +747,88 @@ fn failed_browser_import_retains_recognized_files_and_failure_notes() {
             detail.notes.iter().any(|note| note.contains(&error.to_string())),
             "{:?}: {error:#}",
             detail.notes
+        );
+    }
+}
+
+/// Measures what importing the same Chrome History again writes to source evidence
+/// (`WORK-EVIDENCE-REIMPORT`). `PATHKEEP_REIMPORT_BENCH_VISITS` visits (default 200,000) over a
+/// tenth as many URLs, each with a duration and most with the visit that led there, so every
+/// family of evidence is written. Run with
+/// `cargo test -p vault-core --lib reimport_evidence_bench -- --ignored --nocapture`.
+#[test]
+#[ignore = "measurement"]
+fn reimport_evidence_bench() {
+    use browser_history_fixtures::chromium::{
+        ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow,
+    };
+    let visits: i64 = std::env::var("PATHKEEP_REIMPORT_BENCH_VISITS")
+        .map(|value| value.parse().unwrap())
+        .unwrap_or(200_000);
+    let urls = (visits / 10).max(1);
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("History");
+    let start = 1_700_000_000_000;
+    let mut fixture = ChromiumHistoryFixture::new();
+    for id in 1..=urls {
+        fixture = fixture.add_url(ChromiumUrlRow {
+            id,
+            url: format!("https://site{}.example/page/{id}", id % 2_000),
+            title: Some(format!("Page {id}")),
+            visit_count: 10,
+            typed_count: 0,
+            last_visit_unix_ms: start + visits * 1_000,
+            hidden: false,
+        });
+    }
+    for id in 1..=visits {
+        fixture = fixture.add_visit(ChromiumVisitRow {
+            id,
+            url_id: 1 + id % urls,
+            visit_time_unix_ms: start + id * 1_000,
+            from_visit: (id % 3 != 0).then_some(id - 1),
+            transition: Some(805_306_368),
+            visit_duration_micros: Some(1_000 * (id % 600)),
+            is_known_to_sync: false,
+            visited_link_id: None,
+            external_referrer_url: None,
+            app_id: None,
+        });
+    }
+    fixture.write(&source).unwrap();
+
+    let vault = crate::Vault::open_temp().unwrap();
+    let request = browser_history_request(&source, false, "chromium", "chrome:bench");
+    let evidence_rows = || -> i64 {
+        let probe = Probe::for_db(&vault, Db::SourceEvidence);
+        crate::archive::source_evidence::FAMILIES
+            .iter()
+            .map(|family| {
+                probe
+                    .query_row(&format!("SELECT COUNT(*) FROM {}", family.table), (), |r| {
+                        Ok(r.get::<i64>(0)?)
+                    })
+                    .unwrap()
+            })
+            .sum()
+    };
+    let evidence_bytes = || -> u64 {
+        let archive = vault.paths().source_evidence_database_path.parent().unwrap().to_owned();
+        std::fs::read_dir(archive)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("source-evidence"))
+            .map(|entry| entry.metadata().unwrap().len())
+            .sum()
+    };
+    for round in ["first import", "same file again"] {
+        let started = std::time::Instant::now();
+        import_browser_history(&vault, &request).unwrap();
+        println!(
+            "{round}: {:.1} s, {} evidence rows, {:.1} MB of source evidence",
+            started.elapsed().as_secs_f64(),
+            evidence_rows(),
+            evidence_bytes() as f64 / 1e6
         );
     }
 }

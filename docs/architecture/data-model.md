@@ -544,6 +544,7 @@ recovery, cancellation and exact command/channel shapes.
 - `native_entities` 用來保存非 visit 粒度、尚未 promotion、或 browser-family-specific 的來源資料，例如 Firefox `moz_inputhistory` / metadata、Chromium clusters / annotations / task graph、Safari tombstones / tags、Takeout Session / tab navigation。
 - 大型 import 的 source-native evidence 必須是 parser batch → bounded spool builder 的流式 contract；parser 可為 read-only `parse_history` API 保留完整 report，但 execute/import path 不得把全量 `TypedEvidenceBatch` / `native_entities` 常駐到 `StreamedHistory`。
 - extractor 遇到新欄位時，預設應保留到 typed/native evidence；只有明確證明低價值且能從 retained raw artifact 無損重建的資料，才可不進 source-evidence archive。
+- 證據一份內容只存一行：每張證據表有 `content_key`（來源設定檔 + 說明這行是什麼的欄位，不含 batch、寫入時間，原生實體也不含記錄從哪個路徑讀到的 metadata）的唯一索引，再讀到存檔已有的證據（同一份檔案再匯入、接著做的匯入、備份重掃改過的網址）不再寫；值變了（例如 Chrome 在分頁關掉時才寫的停留時間）是新的一行，讀的地方取最新寫入的（2026-10-12 `WORK-EVIDENCE-REIMPORT`；之前每次讀到都再寫一份，重新匯入讓證據加倍）。
 - source-evidence 讀路徑預設是 cold path：rebuild、explainability、debug attach、field promotion / re-extract 可以讀；Explorer / Dashboard / default shell query path 不得直接退化成掃 native payload。
 
 ### Enrichment / insight derived-state boundary

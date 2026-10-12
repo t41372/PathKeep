@@ -1,10 +1,13 @@
 //! Responsibilities: define cold browser-native evidence and batch provenance.
 //! Not responsible for: canonical visits, parsing, or cross-database integrity.
-//! Failure modes: lost optional payload fields or batch lookup indexes; evidence
-//! cannot round-trip or is tied by an invalid FK to a different database.
+//! Failure modes: lost optional payload fields; the same evidence stored again by every
+//! import that reads it; evidence cannot round-trip or is tied by an invalid FK to a
+//! different database.
 //! Tests: catalog_and_crud (every table and column, plaintext and encrypted).
-//! Drops: none. Archive profile/run IDs remain logical cross-database references;
-//! existing evidence tables deliberately have no SQL foreign keys.
+//! Drops: the per-batch evidence indexes, which no query read; `content_key` replaces them.
+//! `content_key` is NULL only between an old-format archive's copy and its de-duplication
+//! (`conversion::dedupe_source_evidence`). Archive profile/run IDs remain logical
+//! cross-database references; existing evidence tables deliberately have no SQL foreign keys.
 
 use vault_store::Migration;
 
@@ -45,7 +48,8 @@ const STATEMENTS: &[&str] = &[
   evidence_value TEXT NOT NULL,
   normalized_value TEXT,
   source_field TEXT NOT NULL,
-  recorded_at TEXT NOT NULL
+  recorded_at TEXT NOT NULL,
+  content_key BLOB
 )",
     r"CREATE TABLE visit_navigation_evidence (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,7 +61,8 @@ const STATEMENTS: &[&str] = &[
   target_url TEXT,
   transition INTEGER,
   source_field TEXT NOT NULL,
-  recorded_at TEXT NOT NULL
+  recorded_at TEXT NOT NULL,
+  content_key BLOB
 )",
     r"CREATE TABLE visit_engagement_evidence (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,7 +73,8 @@ const STATEMENTS: &[&str] = &[
   metric_value_int INTEGER,
   metric_value_real REAL,
   source_field TEXT NOT NULL,
-  recorded_at TEXT NOT NULL
+  recorded_at TEXT NOT NULL,
+  content_key BLOB
 )",
     r"CREATE TABLE visit_context_evidence (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,7 +85,8 @@ const STATEMENTS: &[&str] = &[
   context_key TEXT NOT NULL,
   value_json TEXT NOT NULL,
   source_field TEXT NOT NULL,
-  recorded_at TEXT NOT NULL
+  recorded_at TEXT NOT NULL,
+  content_key BLOB
 )",
     r"CREATE TABLE native_entities (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,15 +97,18 @@ const STATEMENTS: &[&str] = &[
   parent_native_primary_key TEXT,
   payload_json TEXT NOT NULL,
   metadata_json TEXT NOT NULL,
-  recorded_at TEXT NOT NULL
+  recorded_at TEXT NOT NULL,
+  content_key BLOB
 )",
     "CREATE INDEX idx_source_batches_profile_created ON source_batches(source_profile_id, created_at DESC)",
     "CREATE INDEX idx_source_batches_run ON source_batches(run_id)",
-    "CREATE INDEX idx_visit_search_evidence_batch ON visit_search_evidence(source_batch_id, source_profile_id)",
-    "CREATE INDEX idx_visit_navigation_evidence_batch ON visit_navigation_evidence(source_batch_id, source_profile_id)",
     "CREATE INDEX idx_visit_engagement_profile_visit ON visit_engagement_evidence(source_profile_id,source_visit_id)",
     "CREATE INDEX idx_visit_context_profile_visit ON visit_context_evidence(source_profile_id,source_visit_id)",
-    "CREATE INDEX idx_visit_engagement_evidence_batch ON visit_engagement_evidence(source_batch_id, source_profile_id)",
-    "CREATE INDEX idx_visit_context_evidence_batch ON visit_context_evidence(source_batch_id, source_profile_id)",
-    "CREATE INDEX idx_native_entities_batch_kind ON native_entities(source_batch_id, entity_kind)",
+    // One row per content: an import that reads records the archive already has adds nothing
+    // (`archive::source_evidence::FAMILIES`).
+    "CREATE UNIQUE INDEX idx_visit_search_evidence_content ON visit_search_evidence(content_key)",
+    "CREATE UNIQUE INDEX idx_visit_navigation_evidence_content ON visit_navigation_evidence(content_key)",
+    "CREATE UNIQUE INDEX idx_visit_engagement_evidence_content ON visit_engagement_evidence(content_key)",
+    "CREATE UNIQUE INDEX idx_visit_context_evidence_content ON visit_context_evidence(content_key)",
+    "CREATE UNIQUE INDEX idx_native_entities_content ON native_entities(content_key)",
 ];

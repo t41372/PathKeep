@@ -2848,3 +2848,10 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - Changing one site re-sorts only that site's pages. Each build records the overrides it was built with, and the next one walks just the sites whose kind changed, so the cost follows the site's visits and days, not the archive. A change made while a build runs no longer restarts it from scratch: the build carries on and takes in the change before it ends.
   - The catch-up build when the app opens no longer forces a full rebuild; the build decides what it needs.
   - Not measured on the 14.4M bench: its archive (about 40 GB) does not fit on this Mac. The user asked to finish the blocks first and run the real measurements together (`WORK-SCALE-BENCH-RERUN`).
+
+- [x] `WORK-EVIDENCE-REIMPORT` — Records read again add no source evidence (2026-10-12).
+  - Each evidence table keys a row by its source profile and content, with a unique index; the writer skips evidence the archive already holds. A file imported again, an import carried on, or a URL a backup scans again adds nothing; a value that changed (a visit's duration, written when its tab closed) is a row of its own.
+  - Before, every import that read records wrote their evidence again: importing a 200,000-visit Chrome History a second time added 620,000 rows and doubled the evidence file to 347 MB. Now it adds none, and takes 49 s instead of 71 s (debug build, `ipc-performance.md` §15). The first import costs the same: the per-batch indexes nothing read are gone.
+  - Readers of a visit's engagement take the newest value on purpose (`ORDER BY id`); they did before only because the index they were made to use happened to list rows in that order.
+  - An old-format archive keeps one row per evidence when it is converted, keyed as the writer keys them. A conversion stopped after that carries on without checking the shrunken tables against the old file.
+  - The 14.4M timings are left to `WORK-SCALE-BENCH-RERUN`.
