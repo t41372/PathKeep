@@ -244,6 +244,24 @@
     - [x] 3. E2E：改一個未分類 fixture 網站的分類，重建後卡上該類的占比照手算增加。`site-category.spec`（change 專案）：從「未分類」列打開清單找到瀏覽最多、全部未分類的 fixture 網站，到它的頁選「新聞」，等後端的類別數變好：新聞＝那個網站的造訪數（照 fixture 手算），未分類少同樣多，卡上「新聞」的占比照算，清單裡不再有它；選回「PathKeep 清單」後各類數字跟原本一樣。手算的網站類別抽到 `support/site-kinds.ts`，`insights.spec` 共用。第二個測試：`ycombinator.com` 頁列出「1 個部分另外分類」（`news.ycombinator.com`、論壇），選「新聞」後等後端說洞察照新設定建好，各類的數字都不變（fixture 在這個網站的造訪都在 Hacker News）；沒人改過、頁面由路徑規則分類的網站不寫「正在更新洞察…」。
     - [x] 4. 文檔、CHANGELOG。`deterministic-intelligence.md` §5.2、§6.3、`screens-and-nav.md`（site、哪類網站）、`store-schema.md`（建置記下 override、只走改了的網站、已發布的類別）、`desktop-command-surface.md`（兩個命令）。
 
+- [x] **WORK-EVIDENCE-REIMPORT** — 重新匯入已在存檔裡的紀錄，把它們的來源證據再寫一份（2026-10-11 `WORK-TAKEOUT-RESUME` 收工時找到；2026-10-12 從 BACKLOG 搬上）
+  - 讀先：`docs/architecture/data-model.md`（source evidence）、`archive/source_evidence.rs`、`archive/ingest/consumer.rs`、`intelligence/phase_three.rs`（讀證據的地方）。
+  - 現象：證據列（`visit_search_evidence`、`visit_navigation_evidence`、`visit_engagement_evidence`、`visit_context_evidence`、`native_entities`）掛在每次執行的 source batch 下，沒有內容鍵。同一份檔案再匯入一次（包括接著做中斷的匯入）時，已在存檔裡的造訪的證據再寫一份。讀的地方按造訪合併，數字不會錯，但佔空間、拖慢匯入。
+  - 方向：先在 14.4M 上量重新匯入多寫了多少列、多少空間與時間；再決定重複造訪的證據怎麼處理（同一來源的不再寫，另一個來源帶來的新欄位照寫），先寫下會怎麼錯。
+  - 2026-10-12 讀代碼時另外找到：讀的地方（`phase_three::load_engagement_evidence`、`load_context_evidence`）同一次造訪同一個 key 有多行時，靠強制的 `(profile, visit)` 索引照 rowid 排，最新寫的碰巧贏；沒有寫明，換個查詢計畫就可能拿到舊值（造訪的停留時間在兩次備份之間會變，Chrome 在分頁關掉時才寫）。
+  - 14.4M 的絕對數字留給 `WORK-SCALE-BENCH-RERUN`（用戶 2026-10-11：先做完任務再一起量；雲端 session 只能寫約 40 GB，放不下）。多寫的列數與重複的造訪數成正比，在小存檔上量出比例。
+  - 步驟：
+    - [x] 1. 寫下會怎麼錯：同一份檔案再匯入（含接著做中斷的匯入、備份重掃改過的網址）把相同證據再寫一份；值變了的證據（停留時間、網址的造訪次數）被當成重複丟掉；讀的地方拿到舊值；兩個來源設定檔的相同內容被當成同一份；舊格式存檔轉換後仍有重複、轉換中斷後重跑出錯或刪錯；唯一索引讓匯入在 14.4M 上變慢或存檔變大。再做：每張證據表一個內容鍵（來源設定檔 + 內容欄位，不含 batch 與寫入時間）的唯一索引，相同內容不再寫；讀的地方同一 key 取最新寫入的；沒人讀的 batch 索引換掉；轉換舊存檔時去重一次（可續做）。做法：`archive::source_evidence::FAMILIES` 定義每張表的內容欄位（原生實體不含 metadata：同一份 Takeout 從別的資料夾讀是同一份證據）；寫入 `ON CONFLICT(content_key) DO NOTHING`，`coverage_stats_json` 多記 `evidenceRowsWritten`；讀的地方 `ORDER BY e.id`；轉換在證據表複製並驗證後跑 `conversion::dedupe_source_evidence`，狀態記下已驗證，續做時不再拿縮小的表去對舊檔。
+    - [x] 2. 測試：同一份瀏覽器檔案匯入兩次與接著做中斷的匯入，證據列數不變；停留時間變了的造訪再匯入，讀到新值；轉換有重複證據的舊存檔，重複的去掉、轉換可中斷後續做。`source_evidence_tests`（再讀到不寫、值變了與另一個設定檔各是一行、換路徑的原生實體是同一份、舊格式去重後鍵與寫入端一致且可重跑）、`phase_three` 讀最新值、Safari 再匯入（原本把證據翻倍寫成預期）、轉換在去重後被停再續做（拿掉修正時以 `conversion-digest-mismatch` 失敗）。沒加 E2E：畫面上沒有它的行為，量得到的只有檔案大小與時間，見步驟 3。
+    - [x] 3. 在小存檔上量：重新匯入前後的證據列數、檔案大小與匯入時間，改前改後各一次。`reimport_evidence_bench`（20 萬筆造訪、debug build）：改前再匯入多寫 62 萬列、173.6 → 347.4 MB、71 s；改後 0 列、大小不變、49 s；第一次匯入不變（`ipc-performance.md` §15）。14.4M 的時間仍歸 `WORK-SCALE-BENCH-RERUN`。
+    - [x] 4. 文檔（`data-model.md`、`store-schema.md`）、CHANGELOG。
+
+- [ ] **WORK-REKEY-STALL** — 改密碼偶爾超過一分鐘才回來（2026-10-11 本機 gate 84 看到一次）
+  - 讀先：`vault-worker/src/app.rs`（`rekey_archive_database`）、`vault-core/src/maintenance/mod.rs`（`rewrap_password`：`ArchiveOpGate`、`ENVELOPE_ACCESS`）、`src-tauri/src/dev_ipc_bridge/router.rs`。
+  - 現象：`security.spec`「changing the archive password needs the current one」等「Password changed.」60 秒沒等到；trace 裡 `rekey_archive` 沒有回應，同時 `app_snapshot`、`get_maintenance_progress` 照常幾毫秒回來。幾分鐘後取樣，app 裡已經沒有卡在改密碼的執行緒（最後做完了）；重跑 gate 85 這個測試 8.7 s 過了。改密碼本身是三次 Argon2（各約 0.36 s）加寫一個檔，正常約 1 秒。
+  - 為什麼要查：dev IPC bridge 從 `WORK-TAKEOUT-RESUME` 起跟桌面 app 一樣讓命令同時跑，之前一次只跑一個，可能把這類互相等的情形藏起來了；桌面 app 本來就是同時跑。
+  - 方向：在改密碼卡住時取樣（E2E 失敗時自動對 app 跑 `sample`），找出它在等什麼，再修；寫下會怎麼錯（改密碼時有備份、匯入、洞察重算或另一個維護在跑）。
+
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 
 > `WORK-V03-PAPER-REDESIGN-A`（Paper 風格前端重建）被本次 redesign 取代，不再繼續。

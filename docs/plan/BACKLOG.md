@@ -46,19 +46,8 @@
 - [ ] **WORK-SCALE-BENCH-RERUN** — 補量 14.4M：改回本機跑之後沒量的數字（2026-10-11；用戶指示「先把所有任務做完，再處理這個真實測速」）
   - 讀先：`docs/architecture/ipc-performance.md`、`vault-worker/tests/archive_scale_bench/`（`turso_intelligence.rs`、`turso_reads.rs`）。
   - 前提：14.4M 的測試存檔最多約 40 GB，Modal 已停用，在這台 Mac 上跑。2026-10-11 用戶騰出空間後剩約 77 GB，放得下（另留 5 GB 安全線）；開跑前再看一次，量完刪掉測試存檔。
-  - 待量：改一個網站的類別到洞察照新類別建好要多久（`WORK-SITE-CATEGORY-REVIEW`：只重分那個網站的頁，成本照那個網站的網址數與日子數，沒在 14.4M 上量過）；`WORK-EVIDENCE-REIMPORT` 要的重新匯入多寫了多少證據列。之後的 block 沒量到的 14.4M 數字也記在這裡。
+  - 待量：改一個網站的類別到洞察照新類別建好要多久（`WORK-SITE-CATEGORY-REVIEW`：只重分那個網站的頁，成本照那個網站的網址數與日子數，沒在 14.4M 上量過）；`WORK-EVIDENCE-REIMPORT` 的重新匯入在 14.4M 上多花多少時間（2026-10-12 已改成不再寫重複的證據，20 萬筆的量測見 `ipc-performance.md` §15：第一次匯入的時間不變、再匯入 0 列；14.4M 上要量第一次匯入的唯一索引與再匯入的耗時）。之後的 block 沒量到的 14.4M 數字也記在這裡。
   - 做法：照 `ipc-performance.md` 各節的量法在 14.4M 上跑，結果寫回各節與原 block 的 CHANGELOG 附註。
-
-- [ ] **WORK-EVIDENCE-REIMPORT** — 重新匯入已在存檔裡的紀錄，把它們的來源證據再寫一份（2026-10-11 `WORK-TAKEOUT-RESUME` 收工時找到）
-  - 讀先：`docs/architecture/data-model.md`（source evidence）、`archive/source_evidence.rs`、`archive/ingest/consumer.rs`、`intelligence/phase_three.rs`（讀證據的地方）。
-  - 現象：證據列（`visit_search_evidence`、`visit_navigation_evidence`、`visit_engagement_evidence`、`visit_context_evidence`、`native_entities`）掛在每次執行的 source batch 下，沒有內容鍵。同一份檔案再匯入一次（包括接著做中斷的匯入）時，已在存檔裡的造訪的證據再寫一份。讀的地方按造訪合併，數字不會錯，但佔空間、拖慢匯入。
-  - 方向：先在 14.4M 上量重新匯入多寫了多少列、多少空間與時間；再決定重複造訪的證據怎麼處理（同一來源的不再寫，另一個來源帶來的新欄位照寫），先寫下會怎麼錯。
-
-- [ ] **WORK-REKEY-STALL** — 改密碼偶爾超過一分鐘才回來（2026-10-11 本機 gate 84 看到一次）
-  - 讀先：`vault-worker/src/app.rs`（`rekey_archive_database`）、`vault-core/src/maintenance/mod.rs`（`rewrap_password`：`ArchiveOpGate`、`ENVELOPE_ACCESS`）、`src-tauri/src/dev_ipc_bridge/router.rs`。
-  - 現象：`security.spec`「changing the archive password needs the current one」等「Password changed.」60 秒沒等到；trace 裡 `rekey_archive` 沒有回應，同時 `app_snapshot`、`get_maintenance_progress` 照常幾毫秒回來。幾分鐘後取樣，app 裡已經沒有卡在改密碼的執行緒（最後做完了）；重跑 gate 85 這個測試 8.7 s 過了。改密碼本身是三次 Argon2（各約 0.36 s）加寫一個檔，正常約 1 秒。
-  - 為什麼要查：dev IPC bridge 從 `WORK-TAKEOUT-RESUME` 起跟桌面 app 一樣讓命令同時跑，之前一次只跑一個，可能把這類互相等的情形藏起來了；桌面 app 本來就是同時跑。
-  - 方向：在改密碼卡住時取樣（E2E 失敗時自動對 app 跑 `sample`），找出它在等什麼，再修；寫下會怎麼錯（改密碼時有備份、匯入、洞察重算或另一個維護在跑）。
 
 - [ ] **WORK-RUN-LIFECYCLE-GUARDS** — P1 follow-up from 2026-07-23 silent-failure audit
   - 讀先：`docs/architecture/decisions/003-run-model.md`；`docs/plan/program/quality-matrix.md`；`archive/maintenance.rs` retention/snapshot restore；Takeout / Browser Direct import run creation/finalization；Audit read models。

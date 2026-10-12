@@ -288,30 +288,32 @@ invented between independently rebuilt intelligence tables.
 - No declared primary key; ordinary rowid preserves repeated observations.
 - No secondary indexes.
 
+Each evidence table below has a `content_key`: its source profile and the columns that say what the row is (`archive::source_evidence::FAMILIES`), hashed to 16 bytes. The batch, the time it was written and a native entity's metadata (where it was read) are not part of it. The writer skips a row whose key is already there (`ON CONFLICT(content_key) DO NOTHING`), so a file imported again, an import carried on, or a URL a backup scans again adds no rows; a value that changed, such as a visit's duration Chrome writes when the tab closes, is a row of its own, and readers take the newest (`ORDER BY id`). The key is NULL only between copying an old-format archive and de-duplicating it (`conversion::dedupe_source_evidence`). Nothing reads evidence by batch, so the tables have no batch index.
+
 **`visit_search_evidence`** — Browser-native search evidence and normalized values. Writer: `archive/source_evidence`.
 
 - Primary key: `id`.
-- Index `idx_visit_search_evidence_batch`: `visit_search_evidence(source_batch_id, source_profile_id)`.
+- Unique index `idx_visit_search_evidence_content`: `visit_search_evidence(content_key)`.
 
 **`visit_navigation_evidence`** — Browser-native navigation edges and referrers. Writer: `archive/source_evidence`.
 
 - Primary key: `id`.
-- Index `idx_visit_navigation_evidence_batch`: `visit_navigation_evidence(source_batch_id, source_profile_id)`.
+- Unique index `idx_visit_navigation_evidence_content`: `visit_navigation_evidence(content_key)`.
 
 **`visit_engagement_evidence`** — Browser-native integer/real engagement metrics. Writer: `archive/source_evidence`.
 
 - Primary key: `id`.
-- Index `idx_visit_engagement_evidence_batch`: `visit_engagement_evidence(source_batch_id, source_profile_id)`.
+- Unique index `idx_visit_engagement_evidence_content`: `visit_engagement_evidence(content_key)`.
 
 **`visit_context_evidence`** — Browser-native visit or URL context JSON. Writer: `archive/source_evidence`.
 
 - Primary key: `id`.
-- Index `idx_visit_context_evidence_batch`: `visit_context_evidence(source_batch_id, source_profile_id)`.
+- Unique index `idx_visit_context_evidence_content`: `visit_context_evidence(content_key)`.
 
 **`native_entities`** — Non-visit native entities with payload, metadata and parent identity. Writer: `archive/source_evidence`.
 
 - Primary key: `id`.
-- Index `idx_native_entities_batch_kind`: `native_entities(source_batch_id, entity_kind)`.
+- Unique index `idx_native_entities_content`: `native_entities(content_key)`.
 
 ### Intelligence — `derived/intelligence.db`
 

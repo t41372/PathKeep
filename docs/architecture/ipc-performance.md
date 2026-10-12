@@ -459,6 +459,21 @@ The loops that ran one per row are rewritten without `RETURNING`. Undo and resto
 
 The reads are left as they are. Most Insights reads filter `generation IN (SELECT … FROM intelligence_generations)`, in 52 places and 16 views. That is 44 files, about 7 ms on macOS, each time a range is read live, and 3 when Insights opens on all time. Rewriting every read to bind its generations would not repay the change.
 
+### 15. Importing the same records again wrote their evidence again
+
+Source evidence (`archive/source-evidence.db`) had no key of its own: each row hung off the batch of the run that wrote it. An import that read records the archive already held (the same file imported again, an import carried on after a stop, a URL a backup scans again because its counts changed) wrote their evidence again. Readers merged by visit, so no number was wrong, but every re-import of a file grew the evidence by as much as the first import had written.
+
+Fix: each evidence table has a `content_key` (source profile and the row's content, hashed) with a unique index, and the writer skips what is already there (`store-schema.md` §Source Evidence). The per-batch indexes, which nothing read, are gone, so the unique index does not add an index per table.
+
+`takeout::tests::browser_history::reimport_evidence_bench` (debug build, this cloud machine, 2026-10-12): a Chrome History of 200,000 visits over 20,000 URLs, imported twice. "Before" ran the same code with every row given a key of its own, which writes every row as the old code did.
+
+|              | First import                  | Same file again               |
+| ------------ | ----------------------------- | ----------------------------- |
+| Before       | 620,000 rows, 173.6 MB, 216 s | +620,000 rows, 347.4 MB, 71 s |
+| Content keys | 620,000 rows, 173.6 MB, 223 s | +0 rows, 173.6 MB, 49 s       |
+
+About 3.1 evidence rows per visit, so at 14.4M visits a re-import wrote about 45M rows and some 12 GB again. The first import costs the same within noise: the unique index replaces the batch index. Not measured on the 14.4M bench (`WORK-SCALE-BENCH-RERUN`).
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |

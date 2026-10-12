@@ -3,7 +3,8 @@
 //! Failure modes: old percent-escape keys detach favorites/notes; resume duplicates
 //! rows; digest mismatch is published; old files are removed; search omits converted pages;
 //! a file still keyed with an earlier password fails the whole conversion, or is skipped
-//! without the assessment saying so.
+//! without the assessment saying so; the evidence each import stored again survives, or a
+//! conversion resumed after de-duplicating it checks the shrunken tables against the old file.
 use vault_convert_sqlcipher::{assess, convert};
 use vault_core::{AppConfig, ArchiveMode, project_paths_with_root};
 use vault_store::{CancelToken, Db};
@@ -375,4 +376,50 @@ fn a_file_keyed_with_an_earlier_password_is_named_left_in_place_and_skipped() {
         })
         .unwrap();
     assert_eq!(chats, 1);
+}
+
+/// The old format stored a visit's evidence again for every import that read it. The conversion
+/// keeps one row per evidence, and a value that changed (the visit's duration, read after its tab
+/// closed) as a row of its own. Stopped after that, it carries on without checking the evidence
+/// tables against the old file again.
+#[test]
+fn evidence_stored_again_by_each_import_is_kept_once_also_after_a_stop() {
+    let (_dir, paths, config) = fixture();
+    let evidence = vault_convert_sqlcipher::test_support::open_source_evidence(
+        &paths,
+        &config,
+        Some("old password"),
+    );
+    for (batch, duration) in [(1, 4_000), (1, 4_000), (1, 4_000), (1, 9_000)] {
+        evidence
+            .execute(
+                "INSERT INTO visit_engagement_evidence(source_batch_id,source_profile_id,source_visit_id,metric_key,metric_value_int,source_field,recorded_at)
+                 VALUES(?1,1,'7','engagement.total_foreground_duration_ms',?2,'visits.total_foreground_duration','saved')",
+                [batch, duration],
+            )
+            .unwrap();
+    }
+    drop(evidence);
+    let cancel = CancelToken::new();
+    let stop = cancel.clone();
+    let first = convert(&paths, &config, Some("old password"), cancel, move |p| {
+        if p.phase == "projecting" {
+            stop.cancel();
+        }
+    });
+    assert!(first.is_err(), "stopped after the evidence was de-duplicated");
+    let resumed =
+        convert(&paths, &config, Some("old password"), CancelToken::new(), |_| {}).unwrap();
+    let durations = resumed
+        .vault
+        .store()
+        .read(Db::SourceEvidence, |s| {
+            s.query(
+                "SELECT metric_value_int, content_key IS NOT NULL FROM visit_engagement_evidence ORDER BY id",
+                (),
+                |r| Ok((r.get::<i64>(0)?, r.get::<bool>(1)?)),
+            )
+        })
+        .unwrap();
+    assert_eq!(durations, vec![(4_000, true), (9_000, true)]);
 }

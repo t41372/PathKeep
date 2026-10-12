@@ -1,7 +1,8 @@
 //! Responsibilities: preserve parser provenance and typed/native evidence in bounded writes.
 //! Not responsible for: canonical visits, index consumption or file staging.
 //! Failure modes: optional fields disappear, evidence is lost before a cursor
-//! commits, large evidence exceeds the batch bound, keys are ignored.
+//! commits, large evidence exceeds the batch bound, keys are ignored, evidence the
+//! archive already holds is written again or a changed value is taken for a copy.
 //! Tests: source_evidence_tests and ingest::core_tests.
 use crate::utils::now_rfc3339;
 use anyhow::Result;
@@ -9,7 +10,8 @@ use browser_history_parser::{
     CapabilitySnapshot, NativeEntity, SchemaObservation, TypedEvidenceBatch,
 };
 use serde::{Deserialize, Serialize};
-use vault_store::{Db, Priority, Session, params};
+use sha2::{Digest, Sha256};
+use vault_store::{Db, Priority, Session, Value, params};
 #[derive(Debug, Clone)]
 pub(crate) struct SourceBatchInput {
     pub source_profile_id: i64,
@@ -82,7 +84,160 @@ pub(crate) fn record_schema_observation(
     Ok(())
 }
 
-/// Persists typed evidence and native entities for one already-committed source batch.
+/// One evidence table and the columns that say what a row is. Two rows of the same source profile
+/// with the same values in these are the same evidence read again (a file imported twice, an
+/// import carried on, a URL a backup scans again); the batch and the time it was written are not
+/// part of it. A value that changed (a visit's duration, written when its tab closed) is new
+/// evidence and gets a row of its own.
+pub struct EvidenceFamily {
+    pub table: &'static str,
+    pub content: &'static [&'static str],
+}
+
+/// Every evidence table, for the writer below and for de-duplicating an old-format archive
+/// (`conversion::dedupe_source_evidence`), which must key rows the same way.
+pub const FAMILIES: [EvidenceFamily; 5] = [
+    EvidenceFamily {
+        table: "visit_search_evidence",
+        content: &[
+            "source_visit_id",
+            "source_url_id",
+            "evidence_key",
+            "evidence_value",
+            "normalized_value",
+            "source_field",
+        ],
+    },
+    EvidenceFamily {
+        table: "visit_navigation_evidence",
+        content: &[
+            "source_visit_id",
+            "edge_kind",
+            "target_visit_id",
+            "target_url",
+            "transition",
+            "source_field",
+        ],
+    },
+    EvidenceFamily {
+        table: "visit_engagement_evidence",
+        content: &[
+            "source_visit_id",
+            "metric_key",
+            "metric_value_int",
+            "metric_value_real",
+            "source_field",
+        ],
+    },
+    EvidenceFamily {
+        table: "visit_context_evidence",
+        content: &["source_visit_id", "source_url_id", "context_key", "value_json", "source_field"],
+    },
+    // The metadata says where a record was read (a Takeout file's path), not what it holds: the
+    // same export read from another folder is the same evidence, and keeps its first metadata.
+    EvidenceFamily {
+        table: "native_entities",
+        content: &[
+            "entity_kind",
+            "native_primary_key",
+            "parent_native_primary_key",
+            "payload_json",
+        ],
+    },
+];
+
+const SEARCH: usize = 0;
+const NAVIGATION: usize = 1;
+const ENGAGEMENT: usize = 2;
+const CONTEXT: usize = 3;
+const NATIVE: usize = 4;
+
+/// The `content_key` of a row: its family, source profile and content values, hashed. The values
+/// are those stored, so a key computed from a row read back matches the writer's.
+pub fn content_key(table: &str, source_profile_id: i64, content: &[Value]) -> Vec<u8> {
+    let mut hash = Sha256::new();
+    hash.update(table.as_bytes());
+    hash.update([0]);
+    hash.update(source_profile_id.to_le_bytes());
+    for value in content {
+        match value {
+            Value::Null => hash.update([0]),
+            Value::Integer(value) => {
+                hash.update([1]);
+                hash.update(value.to_le_bytes());
+            }
+            Value::Real(value) => {
+                hash.update([2]);
+                hash.update(value.to_bits().to_le_bytes());
+            }
+            Value::Text(value) => {
+                hash.update([3]);
+                hash.update((value.len() as u64).to_le_bytes());
+                hash.update(value.as_bytes());
+            }
+            Value::Blob(value) => {
+                hash.update([4]);
+                hash.update((value.len() as u64).to_le_bytes());
+                hash.update(value);
+            }
+        }
+    }
+    // 128 bits: no two of the archive's evidence rows collide by chance.
+    hash.finalize()[..16].to_vec()
+}
+
+fn text(value: impl ToString) -> Value {
+    Value::Text(value.to_string())
+}
+
+fn optional<T>(value: Option<T>, into: impl FnOnce(T) -> Value) -> Value {
+    value.map_or(Value::Null, into)
+}
+
+/// Writes one family's rows, skipping the evidence a row already holds. `rows` are each row's
+/// content values and then its other columns (`extra`), in order. Returns the rows written.
+fn insert_family(
+    transaction: &Session<'_>,
+    family: &EvidenceFamily,
+    source_batch_id: i64,
+    source_profile_id: i64,
+    recorded_at: &str,
+    extra: &[&str],
+    rows: Vec<Vec<Value>>,
+) -> Result<u64> {
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let columns = ["source_batch_id", "source_profile_id"]
+        .iter()
+        .chain(family.content)
+        .chain(extra)
+        .chain(&["recorded_at", "content_key"])
+        .copied()
+        .collect::<Vec<_>>();
+    let sql = format!(
+        "INSERT INTO {}({}) VALUES ({}) ON CONFLICT(content_key) DO NOTHING",
+        family.table,
+        columns.join(","),
+        (1..=columns.len()).map(|n| format!("?{n}")).collect::<Vec<_>>().join(","),
+    );
+    let rows = rows
+        .into_iter()
+        .map(|values| {
+            let key = content_key(family.table, source_profile_id, &values[..family.content.len()]);
+            let mut row = vec![Value::Integer(source_batch_id), Value::Integer(source_profile_id)];
+            row.extend(values);
+            row.push(text(recorded_at));
+            row.push(Value::Blob(key));
+            row
+        })
+        .collect();
+    Ok(transaction.execute_rows(&sql, rows)?)
+}
+
+/// Persists typed evidence and native entities for one already-committed source batch, each piece
+/// once: what the archive already holds for the profile is not written again. Returns the rows
+/// written.
 ///
 /// The caller is responsible for writing the surrounding `source_batches` row
 /// and schema observations first. This helper intentionally ignores canonical
@@ -92,106 +247,108 @@ pub(crate) fn persist_source_evidence(
     source_batch_id: i64,
     source_profile_id: i64,
     payload: &SourceEvidencePayload,
-) -> Result<()> {
+) -> Result<u64> {
     let recorded_at = now_rfc3339();
-    for evidence in &payload.typed_evidence.search {
-        transaction.execute(
-            "INSERT INTO visit_search_evidence (
-               source_batch_id, source_profile_id, source_visit_id, source_url_id,
-               evidence_key, evidence_value, normalized_value, source_field, recorded_at
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                source_batch_id,
-                source_profile_id,
-                evidence.source_visit_id.map(|value| value.to_string()),
-                evidence.source_url_id.map(|value| value.to_string()),
-                evidence.evidence_key.clone(),
-                evidence.evidence_value.clone(),
-                evidence.normalized_value.clone(),
-                evidence.source_field.clone(),
-                recorded_at.clone(),
-            ],
-        )?;
-    }
-    for evidence in &payload.typed_evidence.navigation {
-        transaction.execute(
-            "INSERT INTO visit_navigation_evidence (
-               source_batch_id, source_profile_id, source_visit_id, edge_kind, target_visit_id,
-               target_url, transition, source_field, recorded_at
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                source_batch_id,
-                source_profile_id,
-                evidence.source_visit_id.to_string(),
-                evidence.edge_kind.clone(),
-                evidence.target_visit_id.map(|value| value.to_string()),
-                evidence.target_url.clone(),
-                evidence.transition,
-                evidence.source_field.clone(),
-                recorded_at.clone(),
-            ],
-        )?;
-    }
-    for evidence in &payload.typed_evidence.engagement {
-        transaction.execute(
-            "INSERT INTO visit_engagement_evidence (
-               source_batch_id, source_profile_id, source_visit_id, metric_key,
-               metric_value_int, metric_value_real, source_field, recorded_at
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                source_batch_id,
-                source_profile_id,
-                evidence.source_visit_id.to_string(),
-                evidence.metric_key.clone(),
-                evidence.metric_value_int,
-                evidence.metric_value_real,
-                evidence.source_field.clone(),
-                recorded_at.clone(),
-            ],
-        )?;
-    }
-    for evidence in &payload.typed_evidence.context {
-        transaction.execute(
-            "INSERT INTO visit_context_evidence (
-               source_batch_id, source_profile_id, source_visit_id, source_url_id,
-               context_key, value_json, source_field, recorded_at
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                source_batch_id,
-                source_profile_id,
-                evidence.source_visit_id.map(|value| value.to_string()),
-                evidence.source_url_id.map(|value| value.to_string()),
-                evidence.context_key.clone(),
-                evidence.value_json.clone(),
-                evidence.source_field.clone(),
-                recorded_at.clone(),
-            ],
-        )?;
-    }
-    for entity in &payload.native_entities {
-        transaction.execute(
-            "INSERT INTO native_entities (
-               source_batch_id, source_profile_id, entity_kind, native_primary_key,
-               parent_native_primary_key, payload_json, metadata_json, recorded_at
-             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                source_batch_id,
-                source_profile_id,
-                entity.entity_kind.clone(),
-                entity.native_primary_key.clone(),
-                entity.parent_native_primary_key.clone(),
-                entity.payload_json.clone(),
-                serde_json::to_string(&entity.metadata)?,
-                recorded_at.clone(),
-            ],
-        )?;
-    }
-    Ok(())
+    let evidence = &payload.typed_evidence;
+    let write = |family: usize, extra: &[&str], rows: Vec<Vec<Value>>| {
+        insert_family(
+            transaction,
+            &FAMILIES[family],
+            source_batch_id,
+            source_profile_id,
+            &recorded_at,
+            extra,
+            rows,
+        )
+    };
+    let mut written = write(
+        SEARCH,
+        &[],
+        evidence
+            .search
+            .iter()
+            .map(|e| {
+                vec![
+                    optional(e.source_visit_id, text),
+                    optional(e.source_url_id, text),
+                    text(&e.evidence_key),
+                    text(&e.evidence_value),
+                    optional(e.normalized_value.as_ref(), text),
+                    text(&e.source_field),
+                ]
+            })
+            .collect(),
+    )?;
+    written += write(
+        NAVIGATION,
+        &[],
+        evidence
+            .navigation
+            .iter()
+            .map(|e| {
+                vec![
+                    text(e.source_visit_id),
+                    text(&e.edge_kind),
+                    optional(e.target_visit_id, text),
+                    optional(e.target_url.as_ref(), text),
+                    optional(e.transition, Value::Integer),
+                    text(&e.source_field),
+                ]
+            })
+            .collect(),
+    )?;
+    written += write(
+        ENGAGEMENT,
+        &[],
+        evidence
+            .engagement
+            .iter()
+            .map(|e| {
+                vec![
+                    text(e.source_visit_id),
+                    text(&e.metric_key),
+                    optional(e.metric_value_int, Value::Integer),
+                    optional(e.metric_value_real, Value::Real),
+                    text(&e.source_field),
+                ]
+            })
+            .collect(),
+    )?;
+    written += write(
+        CONTEXT,
+        &[],
+        evidence
+            .context
+            .iter()
+            .map(|e| {
+                vec![
+                    optional(e.source_visit_id, text),
+                    optional(e.source_url_id, text),
+                    text(&e.context_key),
+                    text(&e.value_json),
+                    text(&e.source_field),
+                ]
+            })
+            .collect(),
+    )?;
+    written += write(
+        NATIVE,
+        &["metadata_json"],
+        payload
+            .native_entities
+            .iter()
+            .map(|entity| {
+                Ok(vec![
+                    text(&entity.entity_kind),
+                    text(&entity.native_primary_key),
+                    optional(entity.parent_native_primary_key.as_ref(), text),
+                    text(&entity.payload_json),
+                    text(serde_json::to_string(&entity.metadata)?),
+                ])
+            })
+            .collect::<Result<_>>()?,
+    )?;
+    Ok(written)
 }
 
 #[cfg(test)]
@@ -247,11 +404,12 @@ impl<'a> EvidenceWriter<'a> {
         }
         Ok(())
     }
-    fn write(&self, payload: SourceEvidencePayload) -> Result<()> {
+    fn write(&mut self, payload: SourceEvidencePayload) -> Result<()> {
         let (batch, profile) = (self.batch_id, self.profile_id);
-        self.vault.write(Db::SourceEvidence, Priority::Batch, move |s| {
+        self.counts.written += self.vault.write(Db::SourceEvidence, Priority::Batch, move |s| {
             persist_source_evidence(s, batch, profile, &payload)
-        })
+        })?;
+        Ok(())
     }
 }
 
@@ -263,6 +421,8 @@ pub(crate) struct EvidenceCounts {
     pub engagement: usize,
     pub context: usize,
     pub native: usize,
+    /// Rows written: the rows above less the evidence the archive already held.
+    pub written: u64,
 }
 impl EvidenceCounts {
     fn add(&mut self, payload: &SourceEvidencePayload) {
@@ -280,6 +440,6 @@ impl EvidenceCounts {
         terms: usize,
     ) -> String {
         serde_json::json!({"urls":urls,"visits":visits,"downloads":downloads,"searchTerms":terms,
-            "searchEvidence":self.search,"navigationEvidence":self.navigation,"engagementEvidence":self.engagement,"contextEvidence":self.context,"nativeEntities":self.native}).to_string()
+            "searchEvidence":self.search,"navigationEvidence":self.navigation,"engagementEvidence":self.engagement,"contextEvidence":self.context,"nativeEntities":self.native,"evidenceRowsWritten":self.written}).to_string()
     }
 }

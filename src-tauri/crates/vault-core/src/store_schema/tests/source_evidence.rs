@@ -23,13 +23,13 @@ pub(super) const TABLES: &[&str] = &[
 pub(super) const INDEXES: &[&str] = &[
     "idx_visit_context_profile_visit",
     "idx_visit_engagement_profile_visit",
-    "idx_native_entities_batch_kind",
     "idx_source_batches_profile_created",
     "idx_source_batches_run",
-    "idx_visit_context_evidence_batch",
-    "idx_visit_engagement_evidence_batch",
-    "idx_visit_navigation_evidence_batch",
-    "idx_visit_search_evidence_batch",
+    "idx_native_entities_content",
+    "idx_visit_context_evidence_content",
+    "idx_visit_engagement_evidence_content",
+    "idx_visit_navigation_evidence_content",
+    "idx_visit_search_evidence_content",
 ];
 pub(super) const ROWS: &[Fixture] = &[
     Fixture {
@@ -46,32 +46,32 @@ pub(super) const ROWS: &[Fixture] = &[
     },
     Fixture {
         table: "visit_search_evidence",
-        columns: "id, source_batch_id, source_profile_id, source_visit_id, source_url_id, evidence_key, evidence_value, normalized_value, source_field, recorded_at",
-        values: "1, 1, 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample'",
+        columns: "id, source_batch_id, source_profile_id, source_visit_id, source_url_id, evidence_key, evidence_value, normalized_value, source_field, recorded_at, content_key",
+        values: "1, 1, 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', X'0102'",
         updated: "source_batch_id = 2",
     },
     Fixture {
         table: "visit_navigation_evidence",
-        columns: "id, source_batch_id, source_profile_id, source_visit_id, edge_kind, target_visit_id, target_url, transition, source_field, recorded_at",
-        values: "1, 1, 1, 'sample', 'sample', 'sample', 'sample', 1, 'sample', 'sample'",
+        columns: "id, source_batch_id, source_profile_id, source_visit_id, edge_kind, target_visit_id, target_url, transition, source_field, recorded_at, content_key",
+        values: "1, 1, 1, 'sample', 'sample', 'sample', 'sample', 1, 'sample', 'sample', X'0102'",
         updated: "source_batch_id = 2",
     },
     Fixture {
         table: "visit_engagement_evidence",
-        columns: "id, source_batch_id, source_profile_id, source_visit_id, metric_key, metric_value_int, metric_value_real, source_field, recorded_at",
-        values: "1, 1, 1, 'sample', 'sample', 1, 1.5, 'sample', 'sample'",
+        columns: "id, source_batch_id, source_profile_id, source_visit_id, metric_key, metric_value_int, metric_value_real, source_field, recorded_at, content_key",
+        values: "1, 1, 1, 'sample', 'sample', 1, 1.5, 'sample', 'sample', X'0102'",
         updated: "source_batch_id = 2",
     },
     Fixture {
         table: "visit_context_evidence",
-        columns: "id, source_batch_id, source_profile_id, source_visit_id, source_url_id, context_key, value_json, source_field, recorded_at",
-        values: "1, 1, 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample'",
+        columns: "id, source_batch_id, source_profile_id, source_visit_id, source_url_id, context_key, value_json, source_field, recorded_at, content_key",
+        values: "1, 1, 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', X'0102'",
         updated: "source_batch_id = 2",
     },
     Fixture {
         table: "native_entities",
-        columns: "id, source_batch_id, source_profile_id, entity_kind, native_primary_key, parent_native_primary_key, payload_json, metadata_json, recorded_at",
-        values: "1, 1, 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample'",
+        columns: "id, source_batch_id, source_profile_id, entity_kind, native_primary_key, parent_native_primary_key, payload_json, metadata_json, recorded_at, content_key",
+        values: "1, 1, 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', X'0102'",
         updated: "source_batch_id = 2",
     },
 ];

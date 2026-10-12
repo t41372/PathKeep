@@ -92,6 +92,10 @@ struct State {
     cursors: BTreeMap<String, i64>,
     processed: BTreeMap<String, u64>,
     projected: i64,
+    /// The source-evidence copy was verified and de-duplication began: its tables no longer hold
+    /// what the old file does, so a resumed conversion does not verify them again.
+    #[serde(default)]
+    evidence_verified: bool,
 }
 fn stage_root(paths: &ProjectPaths) -> PathBuf {
     paths.staging_dir.join("sqlcipher-conversion")
@@ -163,6 +167,7 @@ pub fn convert_owned(
         Err(error) => return Err(error.into()),
     };
     let mut left_behind = Vec::new();
+    let mut evidence_copied = false;
     for (db, path) in source::files(paths) {
         if !path.is_file() {
             continue;
@@ -236,6 +241,12 @@ pub fn convert_owned(
             }
         }
         transfer::sequences(&vault, db, &source, &sequence_tables)?;
+        if db == vault_store::Db::SourceEvidence {
+            evidence_copied = true;
+            if state.evidence_verified {
+                continue;
+            }
+        }
         for table in &tables {
             cancel.check()?;
             let fields = transfer::fields(&vault, db, &source, table)?;
@@ -259,6 +270,12 @@ pub fn convert_owned(
                 total,
             });
         }
+    }
+    if evidence_copied {
+        // The old format stored the same evidence again for every import that read it.
+        state.evidence_verified = true;
+        save_state(&stage, &state)?;
+        vault_core::conversion::dedupe_source_evidence(&vault, &cancel)?;
     }
     if left_behind.contains(&vault_store::Db::SourceEvidence) {
         // The watermarks name the newest evidence batch of each profile; those batches
