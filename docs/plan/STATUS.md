@@ -266,6 +266,12 @@
     - [ ] 2. 重現並找出在等什麼。2026-10-12 雲端（Linux、4 核）把 change 專案連跑 6 次，改密碼都在幾秒內完成，沒重現。讀代碼：dev bridge 每個命令在 tokio 的 blocking 池上（上限 512，不會排隊）；`rewrap_password` 等的兩把鎖，`ArchiveOpGate` 只有使用者自己按的維護（還原、清空、保留、快照、遷移、轉換）會拿，`ENVELOPE_ACCESS` 只有開存檔時拿；`security.spec` 那段都沒在跑。還沒排除的：Mac 上 gate 同時編譯時的記憶體壓力（三次 256 MiB 的 Argon2 被換頁）。下次 gate 再出現，`thread-stacks/` 會留下改密碼當下在做什麼。
     - [ ] 3. 修、寫下會怎麼錯（改密碼時有備份、匯入、洞察重算或另一個維護在跑），文檔、CHANGELOG。
 
+- [ ] **WORK-RUN-LIFECYCLE-GUARDS** — P1 follow-up from 2026-07-23 silent-failure audit（2026-10-12 從 BACKLOG 搬上）
+  - 讀先：`docs/architecture/decisions/003-run-model.md`；`docs/plan/program/quality-matrix.md`；`archive/maintenance.rs` retention/snapshot restore；Takeout / Browser Direct import run creation/finalization；Audit read models。
+  - 目標：建立 reusable run-attempt finalizer/guard，讓 canonical run row 一旦建立，任何 transaction 前置、commit 後 follow-up、manifest/stats/batch finalization 錯誤都留下 terminal、帶原始錯誤與 partial-commit phase 的結果，不再永久 `running`。
+  - 已確認範圍：retention prune；checkpoint snapshot restore；Takeout import；Browser Direct import；backup commit 後 manifest/search-projection/finalize tails。另修 Audit「Last 30 days」實際只取 12 筆、paper chain 再截 6 筆的 truth mismatch，以及 native worker stdout/stderr bounded rotation。
+  - 契約：每條舊碼 failure window 都先有 failing regression；若資料 transaction 已 commit，狀態必須誠實區分 committed-with-followup-failure，不得假裝完全失敗或成功；finalizer 自身錯誤不得覆蓋原始錯誤。
+
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 
 > `WORK-V03-PAPER-REDESIGN-A`（Paper 風格前端重建）被本次 redesign 取代，不再繼續。
