@@ -66,9 +66,44 @@ pub(super) fn get_top_sites_with_connection(
 /// One page of `request`'s order: visits that were not searches (a search result page is a
 /// search, see Frequent searches), the days they fell on, or visits per such day; ties go to
 /// the other measure, then the site's name.
+/// The sites whose visits in the range went to `category` (`unknown`: sites on no list), most
+/// visits first: a row of the "What kind of sites" card opened up, so the sites no list knows can
+/// be found and given a category on their site page.
+pub fn get_sites_in_category(
+    vault: &crate::Vault,
+    request: &crate::models::SitesInCategoryRequest,
+) -> Result<crate::models::IntelligencePage<TopSite>> {
+    let cache = vault.site_days().clone();
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let profiles: Vec<String> = request.profile_id.iter().cloned().collect();
+        let days = cache.get(connection, &SiteDayScope::new(&request.date_range, profiles))?;
+        let ranking = TopSitesRequest {
+            cursor: request.cursor.clone(),
+            date_range: request.date_range.clone(),
+            profile_id: request.profile_id.clone(),
+            profile_ids: Vec::new(),
+            sort_by: None,
+            limit: request.limit,
+        };
+        rank_top_sites_where(&days, &ranking, |site| {
+            site.category.as_deref() == Some(request.category.as_str())
+        })
+    })
+}
+
 pub(super) fn rank_top_sites(
     days: &SiteDays,
     request: &TopSitesRequest,
+) -> Result<crate::models::IntelligencePage<TopSite>> {
+    rank_top_sites_where(days, request, |_| true)
+}
+
+/// `rank_top_sites` over the sites `keep` keeps.
+fn rank_top_sites_where(
+    days: &SiteDays,
+    request: &TopSitesRequest,
+    keep: impl Fn(&SiteDay) -> bool,
 ) -> Result<crate::models::IntelligencePage<TopSite>> {
     let limit = request.limit.unwrap_or(20).clamp(1, 1000) as usize;
     let cursor = super::paging::cursor::<(f64, f64, String)>(request.cursor.as_deref())?;
@@ -85,7 +120,7 @@ pub(super) fn rank_top_sites(
     let mut ranked = days
         .sites
         .iter()
-        .filter(|site| site.page_days > 0)
+        .filter(|site| site.page_days > 0 && keep(site))
         .map(|site| (key(site), site))
         .filter(|((first, second), site)| {
             cursor.as_ref().is_none_or(|(after_first, after_second, after_site)| {

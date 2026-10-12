@@ -143,7 +143,7 @@ export const insights = defineMessages({
     mix: {
       title: 'Kinds of sites',
       explain:
-        "Each visit counts toward the kind of site it went to. Kinds come from PathKeep's built-in lists of well-known sites in several regions; sites on no list are not classified. Visits to search engines count as Search.",
+        "Each visit counts toward the kind of site it went to. Kinds come from PathKeep's built-in lists of well-known sites in several regions, or from the kind you choose on a site's page; sites on no list are not classified. Visits to search engines count as Search.",
       compared:
         'The small numbers are the change in share, in percentage points, from the previous {days} days.',
       points: '{value} pts',
@@ -163,6 +163,17 @@ export const insights = defineMessages({
         video: 'Video',
         work: 'Work tools',
         unknown: 'Not classified',
+      },
+      unclassified: {
+        open: 'Show the sites that are not classified',
+        title: 'Sites not on any list',
+        description:
+          "The sites PathKeep's lists don't know, most visited first. Open one to choose what kind of site it is.",
+        empty: 'Every site in this range is on a list.',
+        failed: "These sites couldn't be loaded.",
+        more: 'Show more',
+        visits_one: '{shown} visit',
+        visits_other: '{shown} visits',
       },
     },
     engines: {
@@ -334,6 +345,16 @@ export const insights = defineMessages({
       noCompared: 'No search this day had you comparing pages.',
     },
     site: {
+      category: {
+        label: 'Kind of site',
+        lists: "PathKeep's list: {category}",
+        updating: 'Updating Insights…',
+        failed: "The kind of site wasn't changed",
+        parts_one: '{count} part sorted on its own',
+        parts_other: '{count} parts sorted on their own',
+        partsExplain:
+          "PathKeep's lists sort these parts of {site} on their own, so the kind you choose for the site leaves them as they are.",
+      },
       arrivals: 'How you got here',
       arrivalsHint: 'Each visit that came from somewhere other than this site',
       arrivalsExplain:
@@ -572,7 +593,7 @@ export const insights = defineMessages({
     mix: {
       title: '哪类网站',
       explain:
-        '每次浏览算进它去的那类网站。类别来自 PathKeep 内置的各地常见网站清单；不在清单上的网站算“未分类”。去搜索引擎的浏览算“搜索”。',
+        '每次浏览算进它去的那类网站。类别来自 PathKeep 内置的各地常见网站清单，或你在网站页上选的类别；不在清单上的网站算“未分类”。去搜索引擎的浏览算“搜索”。',
       compared: '小字是和前 {days} 天相比，占比变化了几个百分点。',
       points: '{value} 个百分点',
       categories: {
@@ -591,6 +612,17 @@ export const insights = defineMessages({
         video: '视频',
         work: '工作工具',
         unknown: '未分类',
+      },
+      unclassified: {
+        open: '显示未分类的网站',
+        title: '不在清单上的网站',
+        description:
+          'PathKeep 清单上没有的网站，浏览最多的在前。打开一个就能选它是哪类网站。',
+        empty: '这段时间的网站都在清单上。',
+        failed: '没能读出这些网站。',
+        more: '显示更多',
+        visits_one: '{shown} 次浏览',
+        visits_other: '{shown} 次浏览',
       },
     },
     engines: {
@@ -759,6 +791,16 @@ export const insights = defineMessages({
       noCompared: '这一天的搜索里没有来回比较页面。',
     },
     site: {
+      category: {
+        label: '网站类别',
+        lists: 'PathKeep 清单：{category}',
+        updating: '正在更新洞察…',
+        failed: '没能改变网站类别',
+        parts_one: '{count} 个部分另外分类',
+        parts_other: '{count} 个部分另外分类',
+        partsExplain:
+          'PathKeep 清单把 {site} 的这些部分另外分类，你为这个网站选的类别不会改到它们。',
+      },
       arrivals: '怎么来到这里',
       arrivalsHint: '从这个网站以外来的每一次浏览',
       arrivalsExplain:
@@ -996,7 +1038,7 @@ export const insights = defineMessages({
     mix: {
       title: '哪類網站',
       explain:
-        '每次瀏覽算進它去的那類網站。類別來自 PathKeep 內建的各地常見網站清單；不在清單上的網站算「未分類」。去搜尋引擎的瀏覽算「搜尋」。',
+        '每次瀏覽算進它去的那類網站。類別來自 PathKeep 內建的各地常見網站清單，或你在網站頁上選的類別；不在清單上的網站算「未分類」。去搜尋引擎的瀏覽算「搜尋」。',
       compared: '小字是和前 {days} 天相比，占比變化了幾個百分點。',
       points: '{value} 個百分點',
       categories: {
@@ -1015,6 +1057,17 @@ export const insights = defineMessages({
         video: '影片',
         work: '工作工具',
         unknown: '未分類',
+      },
+      unclassified: {
+        open: '顯示未分類的網站',
+        title: '不在清單上的網站',
+        description:
+          'PathKeep 清單上沒有的網站，瀏覽最多的在前。打開一個就能選它是哪類網站。',
+        empty: '這段時間的網站都在清單上。',
+        failed: '沒能讀出這些網站。',
+        more: '顯示更多',
+        visits_one: '{shown} 次瀏覽',
+        visits_other: '{shown} 次瀏覽',
       },
     },
     engines: {
@@ -1183,6 +1236,16 @@ export const insights = defineMessages({
       noCompared: '這一天的搜尋裡沒有來回比較頁面。',
     },
     site: {
+      category: {
+        label: '網站類別',
+        lists: 'PathKeep 清單：{category}',
+        updating: '正在更新洞察…',
+        failed: '沒能改變網站類別',
+        parts_one: '{count} 個部分另外分類',
+        parts_other: '{count} 個部分另外分類',
+        partsExplain:
+          'PathKeep 清單把 {site} 的這些部分另外分類，你替這個網站選的類別不會改到它們。',
+      },
       arrivals: '怎麼來到這裡',
       arrivalsHint: '從這個網站以外來的每一次瀏覽',
       arrivalsExplain:

@@ -194,6 +194,19 @@ pub struct GranularityDateRangeRequest {
     pub granularity: String,
 }
 
+/// The sites put in one category in a range (`get_sites_in_category`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SitesInCategoryRequest {
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+    /// A site category key, as `ActivityMix` names them; `unknown` for sites on no list.
+    pub category: String,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    pub limit: Option<u32>,
+}
+
 /// Request shape for optional category filters on rhythm/activity queries.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

@@ -36,7 +36,7 @@ use crate::models::{
     CategoryFilteredDateRangeRequest, DiscoveryTrend, DiscoveryTrendPoint, DomainDeepDive,
     DomainDeepDiveRequest, DomainPageStat, DomainSearchStat, DomainTrend, DomainTrendPoint,
     DomainTrendRequest, OnThisDayEntry, RhythmHeatmap, RhythmHeatmapCell, SiteArrivals,
-    SiteFlowStat,
+    SiteFlowStat, SitePart,
 };
 use anyhow::Result;
 use chrono::{Datelike, Timelike};
@@ -139,6 +139,21 @@ pub fn get_domain_deep_dive(
         let (arrivals, referrers, search_sites, onward) =
             site_flows(connection, domain, &request.date_range, profile_id)?;
         let site_searches = site_searches(connection, domain, start_ms, end_ms, profile_id)?;
+        let user_category = super::site_dictionary::site_category(connection, domain)?;
+        let list_category = super::site_dictionary::classify_visit(
+            &format!("https://{domain}/"),
+            None,
+            None,
+            false,
+            None,
+            None,
+            &[],
+            &[],
+        )
+        .domain_category;
+        let listed_parts = listed_parts(connection, domain)?;
+        let category_pending =
+            super::build_pipeline::site_category_pending(connection, domain, profile_id)?;
 
         Ok(DomainDeepDive {
             registrable_domain: domain.to_string(),
@@ -156,8 +171,36 @@ pub fn get_domain_deep_dive(
             search_sites,
             onward,
             site_searches,
+            user_category,
+            list_category,
+            listed_parts,
+            category_pending,
         })
     })
+}
+
+/// The parts of `site` PathKeep's lists sort on their own that the archive has pages on: one
+/// seek of the URL index per part the lists name (about twenty for `google.com`), never a walk
+/// of the site's pages.
+fn listed_parts(connection: &Session<'_>, site: &str) -> Result<Vec<SitePart>> {
+    let mut parts = Vec::new();
+    for (host, category) in crate::visit_taxonomy::listed_parts(site) {
+        let mut visited = false;
+        for scheme in ["https", "http"] {
+            // The URLs that begin `scheme://host/`: `/` sorts just below `0`.
+            visited = visited
+                || connection.query_one(
+                    "SELECT EXISTS(SELECT 1 FROM archive.urls INDEXED BY idx_urls_url
+                     WHERE url >= ?1 AND url < ?2)",
+                    params![format!("{scheme}://{host}/"), format!("{scheme}://{host}0")],
+                    |r| Ok(r.get::<i64>(0)? != 0),
+                )?;
+        }
+        if visited {
+            parts.push(SitePart { host: host.to_owned(), category: category.as_str().to_owned() });
+        }
+    }
+    Ok(parts)
 }
 
 /// Searches shown per site.

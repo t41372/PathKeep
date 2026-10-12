@@ -102,6 +102,22 @@ export const insightsClient = {
     section<Page<TopSite>>('get_top_sites', {
       request: { ...scope, sortBy, limit, cursor },
     }),
+  /** The sites whose visits went to one category, most visits first. */
+  sitesInCategory: (
+    category: string,
+    scope: Scope,
+    limit = 20,
+    cursor: string | null = null,
+  ) =>
+    section<Page<TopSite>>('get_sites_in_category', {
+      request: { ...scope, category, limit, cursor },
+    }),
+  /**
+   * Gives a whole site a category (`null`: back to PathKeep's lists) and
+   * starts building Insights again.
+   */
+  setSiteCategory: (site: string, category: string | null) =>
+    call<unknown>('set_site_category', { site, category }),
   rhythm: (scope: Scope) =>
     section<RhythmHeatmap>('get_browsing_rhythm', { request: scope }),
   searchConcepts: (scope: Scope, limit = 12, cursor: string | null = null) =>

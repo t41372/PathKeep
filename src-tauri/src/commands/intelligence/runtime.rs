@@ -67,6 +67,22 @@ pub(crate) async fn queue_core_intelligence_rebuild(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Sets a site's category from its Insights page (`category: null`: back to PathKeep's lists) and
+/// starts building Insights again, off the UI thread.
+pub(crate) async fn set_site_category(
+    site: String,
+    category: Option<String>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::CoreIntelligenceQueueReport, CommandError> {
+    let key_state = state.inner().clone();
+    run_blocking_command("set_site_category", move || {
+        worker_bridge::set_site_category_impl(&site, category.as_deref(), &key_state)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Lists search-engine rules after applying archive-specific customizations, off the UI thread.
 pub(crate) async fn list_search_engine_rules(
     state: State<'_, SessionState>,

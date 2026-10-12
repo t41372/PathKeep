@@ -59,6 +59,16 @@ pub(crate) fn run_core_intelligence_now_impl(
 #[cfg_attr(test, allow(dead_code))]
 #[cfg_attr(not(test), allow(dead_code))]
 /// Queues one Core Intelligence rebuild so heavy work can stay in the background.
+/// Sets a site's category from its Insights page, or with `None` gives it back to the lists, and
+/// starts building Insights again.
+pub(crate) fn set_site_category_impl(
+    site: &str,
+    category: Option<&str>,
+    state: &crate::session::SessionState,
+) -> Result<vault_core::CoreIntelligenceQueueReport, CommandError> {
+    worker_result(vault_worker::set_site_category(&state.vault()?, site, category))
+}
+
 pub(crate) fn queue_core_intelligence_rebuild_impl(
     request: CoreIntelligenceRebuildRequest,
     state: &crate::session::SessionState,

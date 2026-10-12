@@ -173,6 +173,7 @@ export default defineConfig({
         'ask.spec.ts',
         'lock.spec.ts',
         'security.spec.ts',
+        'site-category.spec.ts',
       ],
       'zone',
     ),

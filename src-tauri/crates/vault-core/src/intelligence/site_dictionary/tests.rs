@@ -378,8 +378,8 @@ fn persisted_overrides_parse_all_taxonomy_keys_and_target_kinds() {
                         override_rule.taxonomy_override.as_ref().expect("taxonomy override");
                     assert_eq!(taxonomy.target, expected_target);
                     assert_eq!(taxonomy.domain_category, expected_domain);
-                    assert_eq!(taxonomy.page_category, expected_page);
-                    assert_eq!(taxonomy.interaction_kind, expected_interaction);
+                    assert_eq!(taxonomy.page_category, Some(expected_page));
+                    assert_eq!(taxonomy.interaction_kind, Some(expected_interaction));
                 }
                 Ok(())
             })
@@ -387,14 +387,17 @@ fn persisted_overrides_parse_all_taxonomy_keys_and_target_kinds() {
     }
 }
 
+/// A row needs a site category, and every key it sets must be one PathKeep knows; the page kind
+/// and interaction may be left to the rules (a site category set on the site page).
 #[test]
-fn persisted_overrides_ignore_partial_or_invalid_taxonomy_rows() {
+fn persisted_overrides_need_a_site_category_and_known_keys() {
     for key in [None, Some([71; 32])] {
         let vault = Vault::open_temp_with_key(key).unwrap();
         vault
             .write(Db::Intelligence, Priority::Interactive, |connection| {
                 for (target, domain_category, page_category, interaction_kind) in [
-                    ("partial.example", Some("work"), None, Some("manage")),
+                    ("site-only.example", Some("work"), None, None),
+                    ("no-site.example", None, Some("home"), Some("manage")),
                     ("bad-domain.example", Some("bad-domain"), Some("home"), Some("manage")),
                     ("bad-page.example", Some("work"), Some("bad-page"), Some("manage")),
                     (
@@ -422,10 +425,20 @@ fn persisted_overrides_ignore_partial_or_invalid_taxonomy_rows() {
                 }
 
                 let overrides = load_site_dictionary_overrides(connection).expect("load overrides");
-                assert_eq!(overrides.len(), 4);
-                assert!(
-                    overrides.iter().all(|override_rule| override_rule.taxonomy_override.is_none())
-                );
+                assert_eq!(overrides.len(), 5);
+                for override_rule in &overrides {
+                    let taxonomy = override_rule.taxonomy_override.as_ref();
+                    if override_rule.target_value == "site-only.example" {
+                        let taxonomy = taxonomy.expect("a site category alone is enough");
+                        assert_eq!(taxonomy.domain_category, DomainCategory::Work);
+                        assert_eq!(
+                            (taxonomy.page_category, taxonomy.interaction_kind),
+                            (None, None)
+                        );
+                    } else {
+                        assert!(taxonomy.is_none(), "{}", override_rule.target_value);
+                    }
+                }
                 Ok(())
             })
             .unwrap();

@@ -672,6 +672,14 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 &state.session
             )?)
         }
+        "set_site_category" => {
+            let payload = parse_payload::<SiteCategoryPayload>(payload)?;
+            json_value!(worker_bridge::set_site_category_impl(
+                &payload.site,
+                payload.category.as_deref(),
+                &state.session
+            )?)
+        }
         "queue_core_intelligence_rebuild" => {
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;
             json_value!(worker_bridge::queue_core_intelligence_rebuild_impl(
@@ -761,6 +769,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 payload.request,
                 &state.session
             )?)
+        }
+        "get_sites_in_category" => {
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::SitesInCategoryRequest>>(payload)?;
+            json_value!(worker_bridge::get_sites_in_category_impl(payload.request, &state.session)?)
         }
         "get_top_sites" => {
             let payload = parse_payload::<WrappedRequest<TopSitesRequest>>(payload)?;

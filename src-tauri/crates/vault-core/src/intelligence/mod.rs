@@ -112,8 +112,23 @@ pub use self::intelligence_rebuild::{
     run_core_intelligence_with_progress,
 };
 pub use self::intelligence_refind::{
-    explain_refind, get_refind_page_detail, get_refind_pages, get_top_sites,
+    explain_refind, get_refind_page_detail, get_refind_pages, get_sites_in_category, get_top_sites,
 };
+
+/// Sets the category of a whole site from its Insights page, or with `None` gives it back to the
+/// rules. Insights follow once they are built again: the next build sorts only that site's pages
+/// (`build_reclassify`). A category PathKeep does not know is refused.
+pub fn set_site_category(
+    vault: &crate::Vault,
+    site: &str,
+    category: Option<&str>,
+) -> anyhow::Result<()> {
+    let (site, category) = (site.trim().to_lowercase(), category.map(str::to_owned));
+    anyhow::ensure!(!site.is_empty(), "invalid-site: empty");
+    vault.write(vault_store::Db::Intelligence, vault_store::Priority::Interactive, move |s| {
+        site_dictionary::set_site_category(s, &site, category.as_deref())
+    })
+}
 pub use self::intelligence_schema::{
     clear_derived_intelligence_state, intelligence_status, max_intelligence_schema_version,
     preview_derived_intelligence_clear,

@@ -283,14 +283,17 @@ pub enum TaxonomyOverrideTarget {
     UrlPrefix,
 }
 
-/// User-provided taxonomy override used ahead of built-in rules.
+/// User-provided taxonomy override used ahead of built-in rules. With a page kind and an
+/// interaction it decides the whole classification; with only a site category it is like an exact
+/// rule: the site category is the user's, the page kind and interaction stay the rules' (a
+/// GitHub issue is still an issue on a site the user calls work).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaxonomyOverride {
     pub target: TaxonomyOverrideTarget,
     pub value: String,
     pub domain_category: DomainCategory,
-    pub page_category: PageCategory,
-    pub interaction_kind: InteractionKind,
+    pub page_category: Option<PageCategory>,
+    pub interaction_kind: Option<InteractionKind>,
     pub note: Option<String>,
 }
 

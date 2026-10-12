@@ -70,26 +70,81 @@ pub(crate) fn built_with_other_rules(
     Ok(false)
 }
 
+/// The profiles of `sources` whose last build sorted visits with other categories than the
+/// user's now: a category changed while it ran.
+pub(super) fn built_with_older_categories(
+    vault: &Vault,
+    sources: &[Source],
+) -> Result<Vec<Source>> {
+    let sources = sources.to_vec();
+    vault.read(Db::Intelligence, move |s| {
+        let now = super::incremental::category_version(s)?;
+        let mut older = Vec::new();
+        for source in sources {
+            if build_state::load(s, &source.profile_id)?
+                .is_some_and(|state| state.category_version != now)
+            {
+                older.push(source);
+            }
+        }
+        Ok(older)
+    })
+}
+
+/// Insights shown for `profile` (without one, for every profile) were built with another
+/// category for `site` than the one the user has set now: the change is still being built.
+pub(super) fn site_category_pending(
+    s: &Session<'_>,
+    site: &str,
+    profile: Option<&str>,
+) -> Result<bool> {
+    let key = format!("exact-domain:{site}");
+    let now = super::incremental::category_overrides(s)?.remove(&key);
+    let profiles = match profile {
+        Some(profile) => vec![profile.to_owned()],
+        None => s.query("SELECT profile_id FROM intelligence_generations", (), |r| {
+            Ok(r.get::<String>(0)?)
+        })?,
+    };
+    for profile in profiles {
+        if let Some(state) = build_state::load(s, &profile)?
+            && state.published_categories.as_ref().and_then(|shown| shown.get(&key)) != now.as_ref()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// The rule packs' part of a `category_version`, without the user's categories.
+fn taxonomy_part(category_version: &str) -> &str {
+    category_version.split_once(":categories:").map_or(category_version, |(taxonomy, _)| taxonomy)
+}
+
 pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Result<BuildState> {
     let profile = source.profile_id.clone();
     let config = vault.config().clone();
-    let (previous, rule_version, category_version, zone) =
+    let (previous, rule_version, category_version, category_overrides, zone) =
         vault.read(Db::Intelligence, move |s| {
             let zone = super::InsightsZone::for_build(s, &config)?;
             Ok((
                 build_state::load(s, &profile)?,
                 rule_version(s, zone)?,
                 super::incremental::category_version(s)?,
+                super::incremental::category_overrides(s)?,
                 zone,
             ))
         })?;
     let pending = previous.as_ref().is_some_and(|old| {
         !(old.facts_done && old.daily_done && old.navigation_done && old.aggregates_done)
     });
+    // A build the app stopped in the middle of goes on, also when only categories changed since:
+    // it keeps the categories it began with, and the build after it sorts the changed sites again
+    // (`run_core_intelligence` runs it at once). Starting over would build the archive anew for
+    // one site the user moved.
     if let Some(old) = previous.as_ref()
         && pending
         && old.rule_version == rule_version
-        && old.category_version == category_version
         && old.source == source.watermark
         && old.archive_revision == source.revision
     {
@@ -185,6 +240,12 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
     let reclassify = match previous.as_ref() {
         Some(old) if !full && categories_changed => Some(super::build_reclassify::Reclassify {
             up_to_visit_id: old.source.max_visit_id,
+            // Only the sites whose categories the user changed, when that is all that changed:
+            // the rule packs are the same, and the last build recorded what it had.
+            sites: (taxonomy_part(&old.category_version) == taxonomy_part(&category_version))
+                .then_some(old.category_overrides.as_ref())
+                .flatten()
+                .and_then(|before| super::incremental::changed_sites(before, &category_overrides)),
             ..Default::default()
         }),
         _ => None,
@@ -228,6 +289,8 @@ pub(super) fn prepare(vault: &Vault, source: &Source, force_full: bool) -> Resul
             counts: if full { BTreeMap::new() } else { old.unwrap().counts.clone() },
             append,
             category_version,
+            category_overrides: Some(category_overrides),
+            published_categories: old.and_then(|s| s.published_categories.clone()),
             reclassify,
             zone: zone.name().to_owned(),
         };
@@ -351,7 +414,10 @@ pub(super) fn checkpoint(vault: &Vault, state: &BuildState, stage: RebuildMode) 
     })
 }
 
-pub(super) fn publish(vault: &Vault, state: &BuildState, groups: &[&str]) -> Result<()> {
+pub(super) fn publish(vault: &Vault, state: &mut BuildState, groups: &[&str]) -> Result<()> {
+    if groups.contains(&"aggregates") {
+        state.published_categories = state.category_overrides.clone();
+    }
     let state = state.clone();
     let groups = groups.iter().map(|g| g.to_string()).collect::<Vec<_>>();
     vault.write(Db::Intelligence, Priority::Batch, move |s| {

@@ -190,6 +190,18 @@ pub(crate) fn get_top_sites_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads the sites put in one category in a range.
+pub(crate) fn get_sites_in_category_impl(
+    request: vault_core::SitesInCategoryRequest,
+    state: &crate::session::SessionState,
+) -> Result<
+    vault_core::CoreIntelligenceSectionResult<vault_core::IntelligencePage<vault_core::TopSite>>,
+    CommandError,
+> {
+    worker_result(vault_worker::get_sites_in_category(&state.vault()?, &request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Loads a domain trend series for route and card drilldowns.
 pub(crate) fn get_domain_trend_impl(
     request: DomainTrendRequest,

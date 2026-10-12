@@ -4,8 +4,10 @@
  * (`visit_taxonomy` in vault-core); a range with a previous period of the same
  * length also shows how each share moved, in percentage points. Visits to
  * sites on no list are shown last as not classified, so the shares add up to
- * every visit in the scope.
+ * every visit in the scope; that row opens those sites, to give them a kind on
+ * their pages (`unclassified-sites.tsx`).
  */
+import { useState } from 'react'
 import { SectionCard } from '@/components/app/section-card'
 import { cn } from '@/lib/cn'
 import type { ActivityMix } from '@/lib/core-intelligence/types'
@@ -15,11 +17,13 @@ import { ShareBar } from './share-bar'
 import { ListSkeleton, QueryBody, ScrollList, SectionStatus } from './parts'
 import { useActivityMix } from './queries'
 import { scopeDays, type Scope } from './range'
+import { UnclassifiedSites } from './unclassified-sites'
 import { useInsightsFormat } from './zone'
 
 export function ActivityMixCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
   const mix = useActivityMix(scope)
+  const [unclassified, setUnclassified] = useState(false)
   // All time has no previous period to compare with.
   const days = scopeDays(scope)
   const explain = days
@@ -37,8 +41,19 @@ export function ActivityMixCard({ scope }: { scope: Scope }) {
         isEmpty={(result) => result.data.categories.length === 0}
         empty={t('insights.topSites.empty')}
       >
-        {(result) => <MixList mix={result.data} compared={days !== null} />}
+        {(result) => (
+          <MixList
+            mix={result.data}
+            compared={days !== null}
+            onUnclassified={() => setUnclassified(true)}
+          />
+        )}
       </QueryBody>
+      <UnclassifiedSites
+        scope={scope}
+        open={unclassified}
+        onOpenChange={setUnclassified}
+      />
     </SectionCard>
   )
 }
@@ -46,13 +61,16 @@ export function ActivityMixCard({ scope }: { scope: Scope }) {
 /**
  * Each kind of site with its share of the visits, not classified last; with
  * `compared`, how each share moved from the previous period of the same length.
+ * With `onUnclassified`, the not classified row opens the sites it holds.
  */
 export function MixList({
   mix,
   compared,
+  onUnclassified,
 }: {
   mix: ActivityMix
   compared: boolean
+  onUnclassified?: () => void
 }) {
   const { t } = useI18n()
   const format = useInsightsFormat()
@@ -81,14 +99,27 @@ export function MixList({
               key={entry.domainCategory}
               className="relative flex h-8 items-center gap-2.5 px-2 text-[13px]"
             >
-              <span
-                className={cn(
-                  'flex-1 truncate',
-                  unclassified ? 'text-muted-foreground' : 'font-medium',
-                )}
-              >
-                {t(`insights.mix.categories.${category(entry.domainCategory)}`)}
-              </span>
+              {unclassified && onUnclassified ? (
+                <button
+                  type="button"
+                  onClick={onUnclassified}
+                  aria-label={t('insights.mix.unclassified.open')}
+                  className="flex-1 truncate text-left text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+                >
+                  {t('insights.mix.categories.unknown')}
+                </button>
+              ) : (
+                <span
+                  className={cn(
+                    'flex-1 truncate',
+                    unclassified ? 'text-muted-foreground' : 'font-medium',
+                  )}
+                >
+                  {t(
+                    `insights.mix.categories.${category(entry.domainCategory)}`,
+                  )}
+                </span>
+              )}
               {points !== 0 && (
                 <span className="font-mono text-[11px] text-muted-foreground">
                   {t('insights.mix.points', {

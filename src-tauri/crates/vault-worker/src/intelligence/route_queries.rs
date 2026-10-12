@@ -229,6 +229,21 @@ pub fn get_top_sites(
     )
 }
 
+/// Loads the sites put in one category in a range, section-wrapped like top sites.
+pub fn get_sites_in_category(
+    vault: &vault_core::Vault,
+    request: &vault_core::SitesInCategoryRequest,
+) -> Result<CoreIntelligenceSectionResult<vault_core::IntelligencePage<TopSite>>> {
+    with_core_intelligence_section(
+        vault,
+        "sites-in-category",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_sites_in_category(vault, request),
+        |data| data.is_empty(),
+    )
+}
+
 /// Loads the day-bucket trend for one registrable domain.
 pub fn get_domain_trend(
     vault: &vault_core::Vault,
