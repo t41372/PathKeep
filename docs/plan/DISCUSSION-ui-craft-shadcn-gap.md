@@ -31,7 +31,7 @@
 - **`src/lib/cn.ts`** 就是 shadcn 標配的 `cn` helper。
 - docs 也白紙黑字:`STATUS.md:288`「Foundation shipped:Tailwind v4 + shadcn primitives + cn helper」;design handoff `README.md:39`「Tailwind v4 + shadcn primitives」。
 
-> 註:`HANDOFF-2026-05-19` 裡那串 badge/input/select/sheet/tooltip… 是「未 committed 的 stale prettier reformat,stash and forget」,**不是實際在用的**。實際 committed 的就是上面 4 個。
+> 註:工作區裡曾出現過一串 badge/input/select/sheet/tooltip… 檔案,那是沒 commit 的舊 prettier 重排,**不是實際在用的**。實際 committed 的就是上面 4 個。
 
 **所以「有沒有用 shadcn」的答案是:骨架有,肉沒長上去。**
 

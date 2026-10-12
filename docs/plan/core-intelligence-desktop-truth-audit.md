@@ -8,7 +8,7 @@
 
 ## Why This File Exists
 
-`core-intelligence-progress.md` and `core-intelligence-handoff.md` correctly describe the **source-level** state: the original deterministic Core Intelligence P1-P4 scope is implemented, and only alternate external hosts remain deferred.
+`core-intelligence-progress.md` correctly describes the **source-level** state: the original deterministic Core Intelligence P1-P4 scope is implemented, and only alternate external hosts remain deferred.
 
 This file answers a different question:
 

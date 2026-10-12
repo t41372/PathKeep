@@ -26,7 +26,7 @@
 >
 > **2026-04-15 closeout note**：`WORK-QC-T` 已完成。deterministic product contract 已從 legacy Insights snapshot hard-cut 到 Core Intelligence baseline；`core-intelligence-ultimate-design.md` 現在是 accepted source of truth，`/intelligence` 與新的 Tauri/worker query surface 取代舊 `run_insights_now` / `load_insights` / `explain_insight` 主路徑。
 >
-> **2026-04-17 continuation note**：Core Intelligence 的實際完成度已經超過最初的 P1/P2 口頭分工；若要讓 fresh agent 續接 frontend/backend 工作，請先讀 [core-intelligence-progress.md](core-intelligence-progress.md) 與 [core-intelligence-handoff.md](core-intelligence-handoff.md)，不要只靠 pre-reset `m5-deterministic-intelligence/` 文檔猜目前狀態。
+> **2026-04-17 continuation note**：Core Intelligence 的實際完成度已經超過最初的 P1/P2 口頭分工；若要讓 fresh agent 續接 frontend/backend 工作，請先讀 [core-intelligence-progress.md](core-intelligence-progress.md)，不要只靠 pre-reset `m5-deterministic-intelligence/` 文檔猜目前狀態。
 >
 > **2026-04-18 closeout note**：`WORK-CI-C` 已完成。repo 現在只接受 registry-backed Core Intelligence module ids、canonical table names、runtime reports 與 benchmark evidence；`artifacts/benchmarks/2026-04-18-intelligence-long-horizon-signoff/` 已補齊 current-host `14.4M / 60y` full replay 與 expired-lease recovery artifact。current-host signoff 就是目前 stop point；若未來還想補第二台主機 benchmark parity，必須重新立項，而不是預設待辦。
 >
@@ -130,7 +130,6 @@
 | 現行 quality gate、blocking path、deep checks     | [program/quality-matrix.md](program/quality-matrix.md)                                         |
 | 某份需求/設計文檔應該對應哪份實作計劃             | [program/traceability-map.md](program/traceability-map.md)                                     |
 | Core Intelligence hard-reset 的真實進度與剩餘工作 | [core-intelligence-progress.md](core-intelligence-progress.md)                                 |
-| Core Intelligence frontend/backend 續作 handoff   | [core-intelligence-handoff.md](core-intelligence-handoff.md)                                   |
 | M0 重構基礎                                       | [m0-foundation/README.md](m0-foundation/README.md)                                             |
 | M1 Solid Archive                                  | [m1-solid-archive/README.md](m1-solid-archive/README.md)                                       |
 | M2 Recall & Trust                                 | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                                 |

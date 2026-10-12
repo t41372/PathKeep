@@ -959,12 +959,7 @@ AI 審查常見的五種誤報模式（你必須主動檢測）：
 
 ### 產出物管理
 
-所有階段的報告保存到 `docs/review/` 目錄下：
-
-- `docs/review/{date}/phase-1/` — 審查子代理報告
-- `docs/review/{date}/phase-2/` — 分診結果
-- `docs/review/{date}/phase-3/` — 驗證子代理報告
-- `docs/review/{date}/phase-4/` — 最終報告
+各階段的報告是審查期間的工作檔，放在 repo 外的暫存目錄（例如 `/tmp/pathkeep-review/{date}/phase-1` 到 `phase-4`），不 commit。審查結束時，確認的問題寫成 `BACKLOG.md` 的 block，每項附足夠動手的細節（檔案、現象、修法），不指向報告；修掉的寫進 `CHANGELOG.md`。
 
 ### 觸發時機
 

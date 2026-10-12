@@ -41,7 +41,7 @@
 > 2026-05-25 import test harness planning note：使用者反映實際導入瀏覽記錄時觀察到疑似 duplication，並要求專門的 ingest robustness 測試基礎建設。經 ingest 代碼 audit（見 `docs/plan/program/import-dedup-audit.md`）確認：跨瀏覽器「視覺重複」是 per-source-profile 設計契約（不是 bug；2026-10-09 起 Takeout 與其他來源的同一次造訪改為只算一次，見 `docs/architecture/same-visit-across-sources.md`，兩個瀏覽器之間照舊），但發現 6 個真實 bug：B1 URL upsert 倒退、B2 Firefox/Safari long-tail revisit 漏抓、B3 Takeout source_visit_id 綁路徑、B4 Takeout × local Chrome 必然雙倍、B5 takeout `stable_key_i64` 規模化碰撞、B6 Takeout 時間單位歧義。新增 `WORK-IMPORT-TEST-HARNESS-A` 作為**第一個 unblocked block**，內含 scaffold + Priority 1 scenario library；後續的 cross-source view-layer aggregation、bug fixes 都會依託這個 harness 寫 failing test。完整 scenario library 與驗收條件見 `docs/plan/program/import-test-harness-spec.md`。
 > 2026-05-27 parser mutation hardening note：行為安全網補測把 `src-tauri/crates/browser-history-parser/src/chromium/mod.rs` 推到 1544 行。這次只補測試、不新增業務邏輯；但該檔已超過 1400 行硬限制，後續不得再往此檔新增 parser 業務邏輯，需用 dedicated 維護窗口做 owner split 審查。
 
-> 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全面審查完成，確認的問題已全部修復（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`、報告 `docs/review/2026-06-14/`）。剩下的是非阻塞的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / 列為 trade-off 的項目不重開。
+> 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全面審查完成，確認的問題已全部修復（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`）。剩下的是非阻塞的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / 列為 trade-off 的項目不重開。
 
 - [ ] **WORK-SCALE-BENCH-RERUN** — 補量 14.4M：改回本機跑之後沒量的數字（2026-10-11；用戶指示「先把所有任務做完，再處理這個真實測速」）
   - 讀先：`docs/architecture/ipc-performance.md`、`vault-worker/tests/archive_scale_bench/`（`turso_intelligence.rs`、`turso_reads.rs`）。
@@ -60,7 +60,7 @@
   - **`formatDuration` 三個實現**:`src/lib/format.ts:94`(硬編碼英文,**死代碼**,唯一 importer 是 `App.helpers.test.tsx`)、`src/components/explorer-paper/paper-day-insights-helpers.ts:352`(Intl unit-style,**唯一正確**)、`src/pages/intelligence/sections/shared.ts:31`(硬編碼英文 + 把毫秒暴露給用戶)。zh 用戶在 Explorer 看「45 分鐘」、在 Intelligence 看「45.0m」,而 `paper-session-gap.tsx:11-12` 與 `observed-interactions-section.tsx:18` 兩處檔頭**各自聲稱**自己保證了一致性。修法:以 Intl 版為基準提升到 `lib/format.ts`,兩處改用它,修掉兩段假註釋。
   - **死碼刪除**:AI integration preview 整條路已驗證是死的(`settings/index.tsx:80`、`integrations/index.tsx:64`、`maintenance/index.tsx:71` 三處全 `enableAiIntegrationPreview: false`;`ai-providers-section.tsx:104-105` 只在 props 介面宣告從未 destructure)。連帶 `helpers.ts:401-542` 的 **45 句英文影子翻譯表**(其中多處並列同一語義的新舊兩版 —— 漂移已發生過的物證)。直接刪,不要 code 化。
   - **重複工具函數**:`isoDateOnly` ×2 逐字相同(heatmap / dashboard,且 explorer 跨模塊 import dashboard 的私有 helper)、`formatLocalDateKey` ×2 逐字相同且在**同一模塊家族內**(`core-intelligence/routes.ts` 與 `core-intelligence/api/shared.ts`);`src/lib/format.ts:153-156` 把三語 fallback 文案硬編碼在 catalog 之外。
-  - **其他**:`worker_bridge/intelligence.rs:3` 與 `dev_ipc_bridge/dispatch.rs:842` 兩個 TODO 引用已於 2026-04-23 完成的 M13;`applyDateShortcut` / `activeDateShortcut` / `clearDateRange` / `buildRecentSearchLabel` 從 `useExplorerUrlState` 導出但無消費者(需 UI 決策);Settings 尚未修的 P1/P2 見 2026-07-27 審查報告(滑桿每格寫一次 config 無 debounce、危險操作缺確認、retention 預設勾選 snapshots、搜尋規則存檔靜默觸發全量重建、遷移排除說明硬編碼英文、匯入 bundle 後不刷新不提示重啟、AI API key 存/清失敗無回饋)。
+  - **其他**:`worker_bridge/intelligence.rs:3` 與 `dev_ipc_bridge/dispatch.rs:842` 兩個 TODO 引用已於 2026-04-23 完成的 M13;`applyDateShortcut` / `activeDateShortcut` / `clearDateRange` / `buildRecentSearchLabel` 從 `useExplorerUrlState` 導出但無消費者(需 UI 決策);Settings 尚未修的 P1/P2(滑桿每格寫一次 config 無 debounce、危險操作缺確認、retention 預設勾選 snapshots、搜尋規則存檔靜默觸發全量重建、遷移排除說明硬編碼英文、匯入 bundle 後不刷新不提示重啟、AI API key 存/清失敗無回饋)。
 
 - [ ] **WORK-REVIEW-FOLLOWUPS-COPY-CHANNELS** — 2026-07-26 coherence sweep 的殘餘 prose 面收口
   - 讀先：`docs/architecture/desktop-command-surface.md` 2026-07-26 stable-code copy channels 條目；CHANGELOG `WORK-REVIEW-2026-07-26-COHERENCE-SWEEP`。
@@ -72,10 +72,7 @@
   - 驗收：上述 owners 無非測試用途的裸 `running` leak；Audit copy/query一致且大列表 bounded/virtualized；worker logs有上限；`bun run check` 綠。
 
 - [ ] **WORK-REVIEW-0614-FOLLOWUPS-A** — 2026-06-14 review non-blocking follow-ups
-  - 讀先：
-    `docs/review/2026-06-14/phase-4/final-report.md`
-    `docs/review/2026-06-14/phase-3/all-verdicts.json`
-    `docs/plan/program/import-dedup-audit.md`
+  - 讀先：`docs/plan/program/import-dedup-audit.md`
   - 目標：清掉 2026-06-14 審查修復後剩下的非阻塞尾巴項目。皆非阻塞、非回歸。
   - 範圍（逐項可獨立做）：
     - **per-URL visit summary 後端讀取**（detail panel first/last visit 誠實化的完整版）：新增 backend command 回傳單一 URL 的 first/last visit、visit_count、typed_count，串到 detail panel，恢復 recall.md 規格的 first/last/sparkline/title-versions。目前 detail panel 只誠實顯示單次 visit。
@@ -625,7 +622,6 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     `TESTING.md`
     `.github/workflows/mutation.yml`
     `package.json`
-    `docs/plan/qa-gate-handoff-2026-04-27.md`
   - 目標：在 `WORK-QA-GATE-A` 已恢復 per-commit `bun run check` 後，單獨重啟 full frontend Stryker 與 whole-workspace Rust cargo-mutants，補足 surviving mutants 或寫下 narrow equivalent / inapplicable evidence。
   - 契約：不得把 full mutation 重新塞回每次 commit 的 `bun run check`，除非先有新的成本 benchmark 與使用者明確確認；不得用 broad excludes 偽裝通過；每個 survivor 都要落到補測、產品碼修正、或窄範圍註解/排除。
   - 已知起點（2026-04-27）：`bun run mutation:js:full --dryRunOnly` 約 2m20s，full JS Stryker 21769 mutants，按 44m/32% 實測估算約 2-3 小時；`cargo mutants --manifest-path src-tauri/Cargo.toml --workspace --list --json` 顯示 5869 Rust candidates，且 current copy-sandbox baseline 會因 repo-root Safari reference fixture path 缺失失敗。
@@ -690,7 +686,7 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     `src-tauri/crates/vault-worker/src/intelligence/ai_queue.rs`（`load_ai_queue` / `run_ai_queue_jobs` / `cancel_ai_job` / `replay_ai_job` / `build_ai_index_now` / `estimate_reembed_now`）
     `src-tauri/crates/vault-worker/src/intelligence/runtime.rs`（`load_intelligence_runtime_snapshot` / `retry_intelligence_job_now` / `cancel_intelligence_job_now`）
   - 目標（先設計，再實作）：
-    - **Observability**：build 進行中要有即時、誠實的進度——目前階段（embedding / indexing / rollup…）、已處理 / 總數、吞吐（items/s）、估計剩餘時間、佇列深度（queued / running / failed），以及每個 job 的最後錯誤訊息。狀態要區分 idle / queued / running / paused / done / failed / stale，never 謊稱「已建好」當它還在排隊。資料來自既有 `load_ai_queue` + `load_intelligence_runtime_snapshot`；若粒度不足，補 per-job 進度回報（目前是 global-queue，見 `docs/review/2026-06-22-ai-redesign/final-report.md` 的延後項）。
+    - **Observability**：build 進行中要有即時、誠實的進度——目前階段（embedding / indexing / rollup…）、已處理 / 總數、吞吐（items/s）、估計剩餘時間、佇列深度（queued / running / failed），以及每個 job 的最後錯誤訊息。狀態要區分 idle / queued / running / paused / done / failed / stale，never 謊稱「已建好」當它還在排隊。資料來自既有 `load_ai_queue` + `load_intelligence_runtime_snapshot`；若粒度不足，補 per-job 進度回報（目前只有整個佇列的進度）。
     - **Controllability**：pause / resume / cancel 正在跑的 build；重試失敗的 job（`replay_ai_job`）；選擇 rebuild 範圍（incremental vs full vs clear-only，沿用 `buildAiIndex({fullRebuild, clearOnly, scope})`）。
     - **介面設計**：決定觀測面放哪——延伸 index-health box、強化 GPU section 的進度卡、或開一個專屬「索引狀態 / 構建」面板（傾向後者，因為這是長時間、可觀測、可控制的後台工作）。要有 skeleton / 漸進式載入、~100ms 內視覺回饋、動畫順、60fps；輪詢或事件流不得阻塞主線程。
   - 契約：i18n×3（en / zh-CN / zh-TW，含所有狀態 / 錯誤 / 空態 / aria-label）；AI/embedding 為**可選**，無 provider 時整個面安靜地不出現、不 nag；build 是顯式 action（按鈕），觀測是唯讀即時態，遵守 settings 全 auto-save 規則；100% JS/Rust coverage + lethal tests；前端流暢度硬指標；誠實態（queued≠built）。

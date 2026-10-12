@@ -24,9 +24,8 @@
 
 1. [`../features/core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md)
 2. 這份文件
-3. [`core-intelligence-handoff.md`](core-intelligence-handoff.md)
-4. [`../features/intelligence-current-state.md`](../features/intelligence-current-state.md)
-5. [`../design/screens-and-nav.md`](../design/screens-and-nav.md)
+3. [`../features/intelligence-current-state.md`](../features/intelligence-current-state.md)
+4. [`../design/screens-and-nav.md`](../design/screens-and-nav.md)
 
 ### 繼續後端時再讀
 
@@ -181,8 +180,7 @@
   - `BACKLOG.md`
   - `README.md`
   - `program/traceability-map.md`
-  - `core-intelligence-handoff.md`
-- 後續只要 frontend/backend 的完成度再變動，必須先更新這份文件和 handoff，再更新 code-closeout 敘事；不要讓 planning truth 再次落後於實作。
+- 後續只要 frontend/backend 的完成度再變動，必須先更新這份文件，再更新 code-closeout 敘事；不要讓 planning truth 再次落後於實作。
 
 ---
 
@@ -194,7 +192,6 @@
 
 1. [`../features/core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md)
 2. 這份文件
-3. [`core-intelligence-handoff.md`](core-intelligence-handoff.md)
 
 然後直接從這兩條 residual work 挑第一個還值得做的 backend follow-up：
 
@@ -209,8 +206,7 @@
 
 1. [`../features/core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md)
 2. 這份文件
-3. [`core-intelligence-handoff.md`](core-intelligence-handoff.md)
-4. [`../design/screens-and-nav.md`](../design/screens-and-nav.md)
+3. [`../design/screens-and-nav.md`](../design/screens-and-nav.md)
 
 然後優先做：
 

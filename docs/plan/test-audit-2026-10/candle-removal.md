@@ -270,7 +270,6 @@ Historical or accepted plan docs. Add a dated note; do **not** rewrite (AGENTS.m
 Append-only or point-in-time (leave alone):
 
 - `docs/plan/CHANGELOG.md:2297, 2330-2335, 2376, 2484, 2491, 2586`.
-- `docs/review/2026-06-22-ai-redesign/final-report.md:214`.
 - `docs/plan/test-audit-2026-10/vault-core-ai.md:53, 222-231, 262-267, 873-906` and
   `vault-core-intelligence.md:286, 770-777`.
 - `docs/plan/test-audit-2026-10/README.md:84` lists the candle tier as "a user decision first". Mark it
