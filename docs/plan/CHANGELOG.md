@@ -2855,3 +2855,8 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   - Readers of a visit's engagement take the newest value on purpose (`ORDER BY id`); they did before only because the index they were made to use happened to list rows in that order.
   - An old-format archive keeps one row per evidence when it is converted, keyed as the writer keys them. A conversion stopped after that carries on without checking the shrunken tables against the old file.
   - The 14.4M timings are left to `WORK-SCALE-BENCH-RERUN`.
+
+- [x] `WORK-REKEY-STALL` step 1 — A failed E2E test leaves what every thread of the app was doing (2026-10-12).
+  - `artifacts/e2e/thread-stacks/` holds the stacks of the app and its worker taken as a test fails or times out (`gdb` on Linux, `sample` on macOS). A command that hangs while others answer shows what it waits on. The password change that took over a minute once did not happen again in 6 runs here; the block waits for it with this in place.
+- [x] Follow-up found by the gate — On Insights, choosing a range and then a profile right after it kept the profile and lost the range (2026-10-12).
+  - React Router hands `setSearchParams(previous => …)` the parameters of the last render, and renders a navigation as a transition, so a second change handled before the first was drawn wrote onto the old URL. `useSearchParamsUpdate` builds each change on the URL as it is now; Insights' scope and History's filters use it. Seen as `insights.spec` failing 2 runs in 6 on this machine. `02b8a43` had blamed a scroll after a popover closed; that wait is gone.

@@ -9,6 +9,7 @@ folder is committed.
 | `report/`       | HTML report. Each test attaches the numbers it checked, as `{ expected, actual }`.                 |
 | `results.json`  | Machine-readable results for every test.                                                           |
 | `test-results/` | Traces, screenshots and (on failure) videos for each test.                                         |
+| `thread-stacks/` | When a test fails: every thread of the app and its worker, taken as the test ended (`gdb`, or `sample` on macOS). A step that hung shows what it waited on. |
 
 Open the report and its traces with:
 

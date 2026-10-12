@@ -46,6 +46,7 @@ E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的�
 - `report/index.html`：HTML report，每個檢查都附上比對的 `{ expected, actual }`
 - `results.json`：每個 test 的結果
 - `test-results/`：trace、screenshot、失敗時的 video
+- `thread-stacks/`：測試失敗或逾時的當下，app 與 worker 每條執行緒的堆疊（Linux `gdb`、macOS `sample`；Windows 沒有）。一個命令卡住、別的命令照常回應時，從這裡看它在等什麼
 
 `scripts/run-playwright.mjs` 結束時會印出這個路徑。該資料夾不進 git（見 `artifacts/e2e/README.md`）；CI 以 `if: always()` 上傳成 `e2e-artifacts`。重現同一條 run：`PATHKEEP_E2E_NOW=<fixture.json 的 now> bun run test:e2e`。
 

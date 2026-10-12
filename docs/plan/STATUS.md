@@ -256,11 +256,15 @@
     - [x] 3. 在小存檔上量：重新匯入前後的證據列數、檔案大小與匯入時間，改前改後各一次。`reimport_evidence_bench`（20 萬筆造訪、debug build）：改前再匯入多寫 62 萬列、173.6 → 347.4 MB、71 s；改後 0 列、大小不變、49 s；第一次匯入不變（`ipc-performance.md` §15）。14.4M 的時間仍歸 `WORK-SCALE-BENCH-RERUN`。
     - [x] 4. 文檔（`data-model.md`、`store-schema.md`）、CHANGELOG。
 
-- [ ] **WORK-REKEY-STALL** — 改密碼偶爾超過一分鐘才回來（2026-10-11 本機 gate 84 看到一次）
+- [!] **WORK-REKEY-STALL** — 改密碼偶爾超過一分鐘才回來（2026-10-11 本機 gate 84 看到一次；2026-10-12 等重現：取樣已接上，雲端 6 次沒重現）
   - 讀先：`vault-worker/src/app.rs`（`rekey_archive_database`）、`vault-core/src/maintenance/mod.rs`（`rewrap_password`：`ArchiveOpGate`、`ENVELOPE_ACCESS`）、`src-tauri/src/dev_ipc_bridge/router.rs`。
   - 現象：`security.spec`「changing the archive password needs the current one」等「Password changed.」60 秒沒等到；trace 裡 `rekey_archive` 沒有回應，同時 `app_snapshot`、`get_maintenance_progress` 照常幾毫秒回來。幾分鐘後取樣，app 裡已經沒有卡在改密碼的執行緒（最後做完了）；重跑 gate 85 這個測試 8.7 s 過了。改密碼本身是三次 Argon2（各約 0.36 s）加寫一個檔，正常約 1 秒。
   - 為什麼要查：dev IPC bridge 從 `WORK-TAKEOUT-RESUME` 起跟桌面 app 一樣讓命令同時跑，之前一次只跑一個，可能把這類互相等的情形藏起來了；桌面 app 本來就是同時跑。
   - 方向：在改密碼卡住時取樣（E2E 失敗時自動對 app 跑 `sample`），找出它在等什麼，再修；寫下會怎麼錯（改密碼時有備份、匯入、洞察重算或另一個維護在跑）。
+  - 步驟：
+    - [x] 1. E2E 失敗時自動取樣：`tests/e2e/support/thread-stacks-reporter.ts`，測試失敗或逾時的當下對 app 與 worker 的每條執行緒取堆疊（Linux `gdb`、macOS `sample`），存到 `artifacts/e2e/thread-stacks/`（2026-10-12；用一次逾時的 first-run 驗過，44 條執行緒、有函式名）。
+    - [ ] 2. 重現並找出在等什麼。2026-10-12 雲端（Linux、4 核）把 change 專案連跑 6 次，改密碼都在幾秒內完成，沒重現。讀代碼：dev bridge 每個命令在 tokio 的 blocking 池上（上限 512，不會排隊）；`rewrap_password` 等的兩把鎖，`ArchiveOpGate` 只有使用者自己按的維護（還原、清空、保留、快照、遷移、轉換）會拿，`ENVELOPE_ACCESS` 只有開存檔時拿；`security.spec` 那段都沒在跑。還沒排除的：Mac 上 gate 同時編譯時的記憶體壓力（三次 256 MiB 的 Argon2 被換頁）。下次 gate 再出現，`thread-stacks/` 會留下改密碼當下在做什麼。
+    - [ ] 3. 修、寫下會怎麼錯（改密碼時有備份、匯入、洞察重算或另一個維護在跑），文檔、CHANGELOG。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 
