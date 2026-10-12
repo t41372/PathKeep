@@ -115,6 +115,7 @@ export default defineConfig({
     process.env.CI ? ['github'] : ['list'],
     ['html', { open: 'never', outputFolder: `${artifactsDir}/report` }],
     ['json', { outputFile: `${artifactsDir}/results.json` }],
+    ['./tests/e2e/support/thread-stacks-reporter.ts'],
   ],
   use: {
     baseURL: bridge.devServerUrl,
